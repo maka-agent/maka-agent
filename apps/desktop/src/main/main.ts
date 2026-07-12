@@ -160,6 +160,7 @@ import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
   buildLlmHistorySummarizer,
+  cleanupLegacyHistoryCompactArtifacts,
   loadHistoryCompactBlocksFromArtifacts,
 } from '@maka/runtime';
 import {
@@ -886,6 +887,13 @@ const runtime = new SessionManager({
     (await artifactStore.list(sessionId)).filter((artifact) =>
       artifact.turnId === turnId && artifact.status !== 'deleted'
     ),
+  cleanupHistoryCompactArtifacts: async (input) => {
+    await cleanupLegacyHistoryCompactArtifacts({
+      ...input,
+      artifactStore,
+      onDiagnostic: (diagnostic) => console.warn('[history-compact-cleanup]', diagnostic),
+    });
+  },
   newId: randomUUID,
   now: Date.now,
 });

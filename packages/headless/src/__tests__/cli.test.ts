@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, test } from 'node:test';
+import { mapLegacyMakaHeadlessArgs } from '../cli.js';
 import { readResults } from '../results.js';
 
 const cliPath = fileURLToPath(new URL('../cli.js', import.meta.url));
@@ -27,6 +29,25 @@ function runCli(
 }
 
 describe('maka-headless CLI', () => {
+  test('builds an executable legacy bin target', async () => {
+    await access(cliPath, constants.X_OK);
+  });
+
+  test('maps every legacy command family into the unified eval tree', () => {
+    assert.deepEqual(mapLegacyMakaHeadlessArgs(['eval', 'spec.json']), ['run', 'spec.json']);
+    assert.deepEqual(mapLegacyMakaHeadlessArgs(['compare', 'results.jsonl']), ['compare', 'results.jsonl']);
+    assert.deepEqual(mapLegacyMakaHeadlessArgs(['task', 'inspect', 'run-1']), ['task-run', 'inspect', 'run-1']);
+    assert.deepEqual(mapLegacyMakaHeadlessArgs(['harbor', 'run']), ['harbor', 'run']);
+    assert.deepEqual(mapLegacyMakaHeadlessArgs(['ahe', 'export']), ['ahe', 'export']);
+    assert.equal(mapLegacyMakaHeadlessArgs(['unknown']), null);
+  });
+
+  test('prints a deprecation warning from the legacy executable', async () => {
+    const result = await runCli([]);
+    assert.equal(result.code, 0);
+    assert.match(result.stderr, /maka-headless is deprecated/);
+  });
+
   test('eval executes a fake spec end-to-end and writes results + table', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-headless-cli-'));
     try {

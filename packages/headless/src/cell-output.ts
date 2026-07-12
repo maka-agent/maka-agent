@@ -165,7 +165,7 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
   const runtimeEventsPath = requireString(value.runtimeEventsPath, 'runtimeEventsPath');
   const promptHash = 'promptHash' in value ? requireOptionalString(value.promptHash, 'promptHash') : undefined;
   const executionIdentity = 'executionIdentity' in value
-    ? validateExecutionIdentity(value.executionIdentity)
+    ? validateHarborCellExecutionIdentity(value.executionIdentity)
     : undefined;
   const tokenSummary = validateTokenSummary(value.tokenSummary);
   const contextBudgetPolicy = 'contextBudgetPolicy' in value
@@ -208,7 +208,7 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
   return output;
 }
 
-function validateExecutionIdentity(value: unknown): HarborCellExecutionIdentity {
+export function validateHarborCellExecutionIdentity(value: unknown): HarborCellExecutionIdentity {
   if (!isRecord(value)) throw new Error('executionIdentity must be a JSON object');
   return {
     llmConnectionSlug: requireString(value.llmConnectionSlug, 'executionIdentity.llmConnectionSlug'),

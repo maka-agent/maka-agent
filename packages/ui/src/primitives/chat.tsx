@@ -253,107 +253,6 @@ export function Marker({
 }
 
 /**
- * Tool live-output stream shell (issue #332, PR3).
- *
- * Retires the bespoke `.maka-tool-output-stream-*` shell CSS (the panel,
- * header, diagnostic flags, scrolling body, and chunk/tag spans in
- * `styles/tool-stream.css`), moving each onto this Tailwind substrate. Every
- * value is a LITERAL arbitrary utility that compiles 1:1 to the declaration it
- * replaces, so the cva source string IS the computed-style proof (the cascade
- * contract asserts the exact strings).
- *
- * The single consumer (`ToolOutputStream`) keeps its semantic tags
- * (`<header>` / `<pre>` / `<span>`) and applies these by `className` rather than
- * through a wrapper component — there is one call site, the tags differ, and the
- * literalize vehicle (this table) is what the test net asserts. `streamVariants`
- * is kept OFF the package barrel for the same reason as `markerVariants`: the
- * only consumer imports it by relative path, so the part set stays an internal,
- * freely-removable styling detail.
- *
- * The live pulse dot is NOT a part here — it moves onto the governed
- * `LiveIndicator` primitive below (animation can't be a leaf-literal, so it gets
- * a primitive + a single canonical keyframe instead of a per-feature one).
- */
-const streamVariants = cva("", {
-  variants: {
-    part: {
-      // `.maka-tool-output-stream` (+ the `[data-live="true"]` accent border /
-      // inset ring while the tool is running). The call site keeps passing
-      // `data-live`, which the literalized `data-[live=true]:` utilities read.
-      container:
-        "flex flex-col gap-1.5 my-1.5 mx-0 overflow-hidden rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--background)]"
-        + " data-[live=true]:border-[oklch(from_var(--status-running)_l_c_h_/_0.40)] data-[live=true]:[box-shadow:inset_0_0_0_1px_oklch(from_var(--status-running)_l_c_h_/_0.06)]",
-      // `.maka-tool-output-stream-header`
-      header:
-        "flex items-center justify-between gap-3 px-2.5 py-1.5 border-b border-[var(--border)] bg-[var(--foreground-3)] text-xs uppercase tracking-[0.06em] text-[color:var(--muted-foreground)]",
-      // `.maka-tool-output-stream-label`
-      label: "inline-flex items-center gap-1.5",
-      // Diagnostic flags replace transport chunk counts. A stream's internal
-      // delivery granularity is not user progress; only stderr, redaction, and
-      // truncation facts belong in this header.
-      flags: "inline-flex items-center gap-2.5",
-      flag:
-        "whitespace-nowrap"
-        + " data-[stream=stderr]:text-[color:var(--destructive-text)]"
-        + " data-[redacted=true]:text-[color:var(--warning-text,var(--info-text))]"
-        + " data-[truncated=true]:rounded-[var(--radius-control)] data-[truncated=true]:border data-[truncated=true]:border-[oklch(from_var(--warning)_l_c_h_/_0.30)] data-[truncated=true]:bg-[oklch(from_var(--warning)_l_c_h_/_0.06)] data-[truncated=true]:px-1 data-[truncated=true]:text-[color:var(--warning-text,var(--info-text))] data-[truncated=true]:cursor-help",
-      // `.maka-tool-output-stream-body` — the scrolling mono output `<pre>`.
-      // `word-break:break-word` stays an arbitrary literal (Tailwind's
-      // `break-words` is `overflow-wrap`, a different property).
-      body:
-        "m-0 max-h-55 overflow-y-auto whitespace-pre-wrap [word-break:break-word] px-2.5 py-2 [font-family:var(--font-mono)] [font-variant-ligatures:none] text-xs leading-normal bg-[var(--background)] text-[color:var(--foreground-secondary)] [scroll-behavior:auto]",
-      // `.maka-tool-output-stream-chunk` (`display:contents`; recolors stderr,
-      // dims redacted). The call site keeps `data-stream` / `data-redacted`.
-      chunk:
-        "contents data-[stream=stderr]:text-[color:var(--destructive-text)] data-[redacted=true]:opacity-[0.65]",
-      // `.maka-tool-output-stream-redacted-tag` — the inline `[已脱敏]` tag.
-      "redacted-tag":
-        "inline ml-0.5 rounded-[var(--radius-control)] px-1 tracking-[0.04em] text-xs text-[color:var(--warning-text,var(--info-text))] bg-[oklch(from_var(--warning,var(--info))_l_c_h_/_0.10)]",
-    },
-  },
-});
-
-export { streamVariants };
-
-/**
- * `LiveIndicator` — the pulsing "live" dot (issue #332, PR3).
- *
- * The governed home for the chat live-output dot, replacing the bespoke
- * `.maka-tool-output-stream-dot` + its per-feature `@keyframes`. The breath
- * itself is the one declaration that can't be a leaf-literal (a `@keyframes` is
- * a named global rule, not an element property, and `getComputedStyle` reads a
- * phase-dependent value — so it escapes the computed-style proof). It is pinned
- * instead by the canonical `@keyframes maka-pulse` in `maka-tokens.css` (the
- * shared motion home) plus the literal values here, verified by a keyframe
- * contract + before/after screenshots rather than the diff harness.
- *
- * It is kept INTERNAL (off the package barrel, applied by relative import like
- * `streamVariants`): the tool stream is its only consumer today. The duplicate
- * reasoning / composer / onboarding live dots can adopt it in a follow-up motion
- * pass — retiring their own `*-pulse` keyframes onto `maka-pulse` — and that is
- * when it would be promoted to a public export, not speculatively before a second
- * consumer exists. Reduced-motion suppression rides on the `motion-reduce:`
- * utilities (real-OS `prefers-reduced-motion: reduce`), mirroring the retired
- * dot's `@media` rule; the visual-smoke fixture freeze is handled by `base.css`.
- */
-export function LiveIndicator({
-  className,
-  ...props
-}: React.ComponentPropsWithoutRef<"span">): React.ReactElement {
-  return (
-    <span
-      aria-hidden="true"
-      {...props}
-      data-slot="live-indicator"
-      className={cn(
-        "inline-block w-[6px] h-[6px] rounded-[50%] bg-[var(--status-running)] [animation:maka-pulse_1.4s_ease-in-out_infinite] motion-reduce:[animation:none] motion-reduce:opacity-[0.8]",
-        className,
-      )}
-    />
-  );
-}
-
-/**
  * `TextShimmer` — a running "sweep of light" across short label text
  * (streaming UI rework). Used for the "深度思考" disclosure title while
  * reasoning streams and for a working trow's active-tool summary.
@@ -364,13 +263,13 @@ export function LiveIndicator({
  * (`background-clip: text` + transparent fill) so a light band travels across
  * the letters. The band motion is the one declaration that can't be a leaf
  * literal — it rides the governed `@keyframes maka-text-shimmer` in
- * maka-tokens.css (like `LiveIndicator`'s `maka-pulse`) plus the literal
+ * maka-tokens.css plus the literal
  * utilities here.
  *
  * `active={false}` (or reduced-motion) renders just the base text — callers
  * pass `active` false for settled/snap states so the sweep never runs in a
  * deterministic capture. Kept INTERNAL (off the package barrel, imported by
- * relative path) like `LiveIndicator` — its only consumers live in `@maka/ui`.
+ * relative path) — its only consumers live in `@maka/ui`.
  *
  * `delayed` (#646 run→done seam) holds the sweep at its resting frame for
  * `--duration-emphasized` (~200ms) before it starts — a purely CSS de-flicker so
@@ -432,7 +331,7 @@ export function TextShimmer({
  * Every value is a LITERAL arbitrary utility that compiles 1:1 to the
  * declaration it replaces, so the cva source string IS the computed-style proof
  * (the cascade contract asserts the exact strings, no browser needed). Literals
- * over the semantic scale for the same reason as `markerVariants` / `streamVariants`:
+ * over the semantic scale for the same reason as `markerVariants`:
  * the retired CSS hardcoded these pixels, so the literal is the faithful,
  * self-evidently-equal translation and is immune to later scale/token re-tuning
  * (the visual refresh, not this governance pass, owns adopting the scale).
@@ -442,7 +341,7 @@ export function TextShimmer({
  * pinned by the PR3b cascade contract (source strings + keyframe frames) rather
  * than the diff harness:
  *   1. the running status dot's `[animation:maka-tool-pulse …]` breath (the
- *      shorthand rides in the `dot` part here like `LiveIndicator`; only the
+ *      shorthand rides in the `dot` part here; only the
  *      `@keyframes maka-tool-pulse` stays in CSS — a keyframe is a global rule,
  *      not an element property, and `getComputedStyle` reads a phase-dependent
  *      value). The running dot's box-shadow RING is a leaf rest-state literal, so
@@ -450,13 +349,12 @@ export function TextShimmer({
  *   2. the native `<summary>` marker reset (`::-webkit-details-marker` /
  *      `::marker`) — pseudo-elements with no leaf-utility form. Kept as residue.
  * (The reduced-motion / visual-smoke suppression both ride GLOBAL `*` rules in
- * maka-tokens.css / base.css, so — unlike `LiveIndicator`, a reusable primitive
- * that carries its own `motion-reduce:` guards — the dot and card need no
- * per-element motion utilities; the same global rules cover them as before.)
+ * maka-tokens.css / base.css, so the dot and card need no per-element motion
+ * utilities; the same global rules cover them as before.)
  *
  * The single consumer (`ToolActivity`) renders a Base UI Collapsible and applies
  * these by `className`. `toolVariants` is kept OFF the package barrel for the
- * same reason as `markerVariants` / `streamVariants`: the only consumer imports
+ * same reason as `markerVariants`: the only consumer imports
  * it by relative path, so the part set stays an internal, freely-removable
  * styling detail.
  *
@@ -551,7 +449,7 @@ export { toolVariants };
  * to keep those shells pixel-identical; the PR4 cascade contract pins the absence
  * of the retired selectors + the escape literals). Literals over the semantic
  * scale for the same reason as
- * `markerVariants` / `streamVariants` / `toolVariants`: the retired CSS hardcoded
+ * `markerVariants` / `toolVariants`: the retired CSS hardcoded
  * these pixels, so the literal is the faithful, self-evidently-equal translation
  * and is immune to later scale/token re-tuning (the visual refresh, not this
  * governance pass, owns adopting the scale).

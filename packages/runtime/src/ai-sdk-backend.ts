@@ -65,6 +65,7 @@ import type {
 import type { AgentSpec } from '@maka/core/runtime-inputs';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
+import type { ToolPermissionRule } from '@maka/core/permission';
 import type {
   LlmCallRecord,
   PricingConfig,
@@ -443,6 +444,8 @@ export interface AiSdkBackendInput {
   streamIdleTimeoutMs?: number;
   /** Timeout for a renderer/user permission decision. Default 300s. */
   permissionTimeoutMs?: number;
+  /** Invocation-local allow/deny rules evaluated before the session mode. */
+  permissionRules?: readonly ToolPermissionRule[];
   /** Optional system prompt (skills + workspace AGENTS.md merged upstream). */
   systemPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
   /** Optional provider-visible current-turn tail kept out of the durable system prefix. */
@@ -595,6 +598,7 @@ export class AiSdkBackend implements AgentBackend {
       getPermissionPauseTarget: () => this.currentWatchdog,
       getCurrentRunId: () => this.currentRunId ?? undefined,
       getCurrentStepId: () => this.currentStepMessageId ?? undefined,
+      permissionRules: input.permissionRules,
       spawnChildAgent: input.spawnChildAgent,
       listChildAgents: input.listChildAgents,
       readChildAgentOutput: input.readChildAgentOutput,

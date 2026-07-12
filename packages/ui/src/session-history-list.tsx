@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
+import { memo, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import type { SessionSummary } from '@maka/core';
 import { formatCompactTimestamp } from '@maka/core';
 import {
@@ -12,6 +12,7 @@ import {
   Hourglass,
   Loader2,
   MessageSquare,
+  MoreHorizontal,
   Pencil,
   Pin,
   PinOff,
@@ -20,36 +21,8 @@ import {
 } from './icons.js';
 import { EmptyState } from './empty-state.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
-import { Button as UiButton, cn } from './ui.js';
-import { cva } from 'class-variance-authority';
-
-const rowActionVariants = cva(
-  [
-    'grid h-7 w-7 place-items-center rounded-sm border-0 bg-transparent',
-    'text-[var(--foreground-secondary)]',
-    'transition-[background-color,color,box-shadow] duration-[var(--duration-quick)] ease-[var(--ease-out-strong)]',
-    'hover:bg-foreground/5 hover:text-foreground',
-    'focus-visible:outline-none focus-visible:bg-foreground/5 focus-visible:text-foreground focus-visible:ring-[3px] focus-visible:ring-accent/14',
-    'disabled:cursor-default disabled:bg-transparent disabled:text-[var(--muted-foreground)] disabled:shadow-none',
-    'disabled:hover:bg-transparent disabled:hover:text-[var(--muted-foreground)]',
-    'data-[active=true]:text-accent',
-    'data-[pending=true]:cursor-progress data-[pending=true]:bg-foreground/5 data-[pending=true]:text-foreground data-[pending=true]:opacity-78',
-  ],
-  {
-    variants: {
-      tone: {
-        default: '',
-        danger: [
-          'hover:bg-destructive/10 hover:text-destructive-text',
-          'focus-visible:bg-destructive/10 focus-visible:text-destructive-text focus-visible:ring-destructive/18',
-        ],
-      },
-    },
-    defaultVariants: {
-      tone: 'default',
-    },
-  },
-);
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';
+import { Button as UiButton } from './ui.js';
 
 type SessionRowActionId = 'flag' | 'archive' | 'rename' | 'delete';
 type SessionHistoryGroupVariant = 'status' | 'project';
@@ -549,6 +522,7 @@ const SessionRow = memo(function SessionRow(props: {
   const { session, active, streaming, stale, actions, onSelect } = props;
   const [editing, setEditing] = useState(false);
   const [actionsVisible, setActionsVisible] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<SessionRowActionId | null>(null);
   const rowMountedRef = useRef(true);
   const pendingActionRef = useRef<SessionRowActionId | null>(null);
@@ -560,7 +534,7 @@ const SessionRow = memo(function SessionRow(props: {
   // would silently commit the user's typed value despite the cancel.
   const escapeCancelledRef = useRef(false);
   const actionBusy = pendingAction !== null;
-  const actionTabIndex = actionsVisible ? 0 : -1;
+  const actionTriggerVisible = actionsVisible || menuOpen;
 
   useEffect(() => {
     rowMountedRef.current = true;
@@ -580,12 +554,7 @@ const SessionRow = memo(function SessionRow(props: {
     input.select();
   }, [editing]);
 
-  const stopPropagation = (event: MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-  };
-
-  function startRename(event: MouseEvent<HTMLButtonElement>) {
-    stopPropagation(event);
+  function startRename() {
     if (!actions || pendingActionRef.current) return;
     setEditing(true);
   }
@@ -614,8 +583,7 @@ const SessionRow = memo(function SessionRow(props: {
     runRowAction('rename', () => actions.onRename(session.id, trimmed));
   }
 
-  function handleDelete(event: MouseEvent<HTMLButtonElement>) {
-    stopPropagation(event);
+  function handleDelete() {
     if (!actions) return;
     // Delegation: the App-level handler owns the confirmation flow via the
     // toast system (PR24), so SessionRow stays presentation-only.
@@ -632,6 +600,7 @@ const SessionRow = memo(function SessionRow(props: {
       className="maka-list-row"
       data-active={active}
       data-editing={editing}
+      data-menu-open={menuOpen ? 'true' : undefined}
       data-streaming={streaming ? 'true' : undefined}
       data-stale={stale ? 'true' : undefined}
       onMouseEnter={() => setActionsVisible(true)}
@@ -779,97 +748,55 @@ const SessionRow = memo(function SessionRow(props: {
         </UiButton>
       )}
       {actions && !editing && (
-        <div
-          className="maka-list-row-actions"
-          aria-label="对话操作"
-          aria-hidden={actionsVisible ? undefined : 'true'}
-          data-visible={actionsVisible ? 'true' : undefined}
-        >
-          {/* PR-SESSION-ROW-ACTIONS-PRIMITIVE-0 (round 8/30):
-              four hover-revealed action buttons routed through
-              UiButton variant="quiet" size="icon-sm". Custom
-              `.maka-list-row-action` still owns the overlay
-              positioning + reveal animation; primitive carries
-              the disabled, focus-visible, and `:active` contract.
-              The danger variant only adds a destructive color
-              tint via class override, not a different primitive
-              variant — keeps the overlay shape uniform. */}
-          <UiButton
-            type="button"
-            variant="quiet"
-            size="nav"
-            className={cn('maka-list-row-action', rowActionVariants())}
-            tabIndex={actionTabIndex}
-            onClick={(event) => {
-              stopPropagation(event);
-              runRowAction('flag', () => actions.onToggleFlag(session.id, !session.isFlagged));
-            }}
-            aria-label={session.isFlagged ? '取消置顶对话' : '置顶对话'}
-            aria-busy={pendingAction === 'flag' ? 'true' : undefined}
-            data-active={session.isFlagged}
-            data-pending={pendingAction === 'flag' ? 'true' : undefined}
+        <Menu open={menuOpen} onOpenChange={setMenuOpen}>
+          <MenuTrigger
+            aria-label="对话操作"
+            aria-hidden={actionTriggerVisible ? undefined : 'true'}
+            className="maka-list-row-menu-trigger"
+            data-visible={actionTriggerVisible ? 'true' : undefined}
             disabled={actionBusy}
-            title={session.isFlagged ? '取消置顶对话' : '置顶对话'}
+            tabIndex={actionTriggerVisible ? 0 : -1}
           >
-            {session.isFlagged
-              ? <PinOff size={14} aria-hidden="true" />
-              : <Pin size={14} aria-hidden="true" />}
-          </UiButton>
-          <UiButton
-            type="button"
-            variant="quiet"
-            size="nav"
-            className={cn('maka-list-row-action', rowActionVariants())}
-            tabIndex={actionTabIndex}
-            onClick={startRename}
-            aria-label="重命名对话"
-            aria-busy={pendingAction === 'rename' ? 'true' : undefined}
-            data-pending={pendingAction === 'rename' ? 'true' : undefined}
-            disabled={actionBusy}
-            title="重命名（双击行名也可）"
-          >
-            <Pencil size={14} aria-hidden="true" />
-          </UiButton>
-          <UiButton
-            type="button"
-            variant="quiet"
-            size="nav"
-            className={cn('maka-list-row-action', rowActionVariants())}
-            tabIndex={actionTabIndex}
-            onClick={(event) => {
-              stopPropagation(event);
-              runRowAction('archive', () => (
+            <MoreHorizontal size={16} aria-hidden="true" />
+          </MenuTrigger>
+          <MenuPopup align="end" side="bottom">
+            <MenuItem
+              disabled={actionBusy}
+              onClick={() => runRowAction('flag', () => actions.onToggleFlag(session.id, !session.isFlagged))}
+            >
+              {session.isFlagged
+                ? <PinOff size={16} aria-hidden="true" />
+                : <Pin size={16} aria-hidden="true" />}
+              {session.isFlagged ? '取消置顶' : '置顶'}
+            </MenuItem>
+            <MenuItem disabled={actionBusy} onClick={startRename}>
+              <Pencil size={16} aria-hidden="true" />
+              重命名
+            </MenuItem>
+            <MenuItem
+              disabled={actionBusy}
+              onClick={() => runRowAction('archive', () => (
                 session.isArchived
                   ? actions.onUnarchive(session.id)
                   : actions.onArchive(session.id)
-              ));
-            }}
-            aria-label={session.isArchived ? '取消归档对话' : '归档对话'}
-            aria-busy={pendingAction === 'archive' ? 'true' : undefined}
-            data-pending={pendingAction === 'archive' ? 'true' : undefined}
-            disabled={actionBusy}
-            title={session.isArchived ? '取消归档' : '归档'}
-          >
-            {session.isArchived
-              ? <ArchiveRestore size={14} aria-hidden="true" />
-              : <Archive size={14} aria-hidden="true" />}
-          </UiButton>
-          <UiButton
-            type="button"
-            variant="quiet"
-            size="nav"
-            className={cn('maka-list-row-action', rowActionVariants({ tone: 'danger' }))}
-            tabIndex={actionTabIndex}
-            onClick={handleDelete}
-            aria-label="删除对话"
-            aria-busy={pendingAction === 'delete' ? 'true' : undefined}
-            data-pending={pendingAction === 'delete' ? 'true' : undefined}
-            disabled={actionBusy}
-            title="删除"
-          >
-            <Trash2 size={14} aria-hidden="true" />
-          </UiButton>
-        </div>
+              ))}
+            >
+              {session.isArchived
+                ? <ArchiveRestore size={16} aria-hidden="true" />
+                : <Archive size={16} aria-hidden="true" />}
+              {session.isArchived ? '取消归档' : '归档'}
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem
+              variant="destructive"
+              disabled={actionBusy}
+              onClick={handleDelete}
+            >
+              <Trash2 size={16} aria-hidden="true" />
+              删除
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
       )}
     </div>
   );

@@ -135,9 +135,9 @@ export function createAppShellVisualSmokeActions(options: {
     // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
     // kenji `b3d156e9`): when the fixture sets `focusActiveRow`,
     // focus the active row's button after the next paint so the
-    // row's `:focus-within` triggers and the `.maka-list-row-actions`
-    // overlay becomes visible. The auto-capture then shows the
-    // actions cluster against the slim row, proving the time meta
+    // row's `:focus-within` triggers and the `.maka-list-row-menu-trigger`
+    // becomes visible. The auto-capture then shows the overflow
+    // trigger against the slim row, proving the time meta
     // + unread dot are hidden underneath (no overlap with the
     // action icons — the bug WAWQAQ flagged). Two RAFs let React
     // commit the active selection before we query the DOM.
@@ -172,7 +172,7 @@ export function createAppShellVisualSmokeActions(options: {
             // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 exception (WAWQAQ
             // msg `5dd1c348`): when the fixture asks for a focused
             // active row (e.g. the `sidebar-row-actions-visible`
-            // scenario, which proves the action overlay doesn't
+            // scenario, which proves the overflow action doesn't
             // overlap the time meta), the blur step would defeat the
             // whole point of the capture. Skip the blur in that
             // narrow case; other captures still get a clean (focusless)

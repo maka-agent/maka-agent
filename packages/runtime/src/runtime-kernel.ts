@@ -1,4 +1,4 @@
-import type { AgentRunStore, RuntimeEventStore } from '@maka/core';
+import type { AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import type { CompleteEvent, SessionEvent, TokenUsageEvent } from '@maka/core/events';
 import type {
   SessionBlockedReason,
@@ -58,6 +58,13 @@ export interface RuntimeKernelDeps {
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   repairRunRuntimeLedger?: (sessionId: string, runId: string) => Promise<boolean>;
   shellRuns?: ShellRunProcessManager;
+  cleanupHistoryCompactArtifacts?: (input: HistoryCompactCleanupRequest) => Promise<void>;
+}
+
+export interface HistoryCompactCleanupRequest {
+  sessionId: string;
+  checkpoint: HistoryCompactCheckpoint;
+  runtimeEvents: readonly RuntimeEvent[];
 }
 
 interface ActiveSession extends AgentRunActiveSession {
@@ -74,6 +81,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   private readonly historyCompactCheckpoints = new Map<string, HistoryCompactCheckpoint | undefined>();
   private readonly historyCompactCheckpointLoads = new Map<string, Promise<HistoryCompactCheckpoint | undefined>>();
   private readonly historyCompactCheckpointWrites = new Map<string, Promise<void>>();
+  private readonly historyCompactCleanupWrites = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: RuntimeKernelDeps) {
     if (deps.runStore && !deps.runtimeEventStore) {
@@ -459,6 +467,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     let guardedLoad: Promise<HistoryCompactCheckpoint | undefined>;
     guardedLoad = loadLatestHistoryCompactCheckpointFromRunLedger(this.deps.runStore, sessionId)
       .then((checkpoint) => {
+        if (checkpoint) this.scheduleHistoryCompactCleanup(sessionId, checkpoint);
         if (
           this.historyCompactCheckpointLoads.get(sessionId) === guardedLoad
           && !this.historyCompactCheckpoints.has(sessionId)
@@ -495,6 +504,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         }
         await run.recordHistoryCompactCheckpoint(checkpoint);
         this.historyCompactCheckpoints.set(sessionId, checkpoint);
+        this.scheduleHistoryCompactCleanup(sessionId, checkpoint);
       })
       .finally(() => {
         if (this.historyCompactCheckpointWrites.get(sessionId) === tracked) {
@@ -503,6 +513,43 @@ export class RuntimeKernel implements RuntimeKernelLike {
       });
     this.historyCompactCheckpointWrites.set(sessionId, tracked);
     return tracked;
+  }
+
+  private scheduleHistoryCompactCleanup(
+    sessionId: string,
+    checkpoint: HistoryCompactCheckpoint,
+  ): void {
+    if (
+      !this.deps.cleanupHistoryCompactArtifacts
+      || !this.deps.runStore
+      || !this.deps.runtimeEventStore
+    ) return;
+    const previous = this.historyCompactCleanupWrites.get(sessionId) ?? Promise.resolve();
+    let tracked: Promise<void>;
+    tracked = previous
+      .catch(() => {})
+      .then(async () => {
+        const runs = (await this.deps.runStore!.listSessionRuns(sessionId))
+          .filter((run) => !run.parentRunId);
+        const runtimeEvents: RuntimeEvent[] = [];
+        for (const run of runs) {
+          runtimeEvents.push(...await this.deps.runtimeEventStore!.readRuntimeEvents(sessionId, run.runId));
+        }
+        await this.deps.cleanupHistoryCompactArtifacts!({
+          sessionId,
+          checkpoint,
+          runtimeEvents,
+        });
+      })
+      .catch(() => {
+        // Legacy cleanup is reclaim-only. Runtime replay must remain available on failure.
+      })
+      .finally(() => {
+        if (this.historyCompactCleanupWrites.get(sessionId) === tracked) {
+          this.historyCompactCleanupWrites.delete(sessionId);
+        }
+      });
+    this.historyCompactCleanupWrites.set(sessionId, tracked);
   }
 
   private async ensureActive(

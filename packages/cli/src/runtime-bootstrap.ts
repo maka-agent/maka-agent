@@ -13,8 +13,10 @@ import {
   buildAutomationTool,
   buildBuiltinTools,
   buildDefaultContextBudgetPolicy,
+  buildSkillAgentTool,
   buildGoalTools,
   buildLlmHistorySummarizer,
+  cleanupLegacyHistoryCompactArtifacts,
   buildProviderOptions,
   buildSubscriptionModelFetch,
   evaluateAutomationCanFire,
@@ -22,6 +24,9 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   type AutomationDefinition,
   type GoalContinuationDeps,
+  type HostCapabilities,
+  type MakaTool,
+  type InvocationResult,
   type ShellRunUpdate,
 } from '@maka/runtime';
 import { selectComputerUseBackend } from '@maka/computer-use';
@@ -37,6 +42,7 @@ import {
   createShellRunStore,
 } from '@maka/storage';
 import type { ToolResultContent } from '@maka/core/events';
+import type { ToolPermissionRule } from '@maka/core/permission';
 import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
 import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
 import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
@@ -48,7 +54,8 @@ export interface MakaCliRuntimeContext {
   target: ReadySessionTarget;
   /** Selectable models across every ready connection, for the `/model` picker. */
   modelChoices: ModelChoice[];
-  tools: ReturnType<typeof buildBuiltinTools>;
+  /** Tools passed to the backend (builtins + automation + goals + Skill). */
+  tools: MakaTool[];
   automationManager: AutomationManager;
   automationScheduler: AutomationScheduler;
   subscribeShellRunUpdates(listener: (update: ShellRunUpdate) => void): () => void;
@@ -64,7 +71,13 @@ export interface MakaCliRuntimeContext {
 export interface CreateMakaCliRuntimeContextInput {
   workspaceRoot: string;
   cwd: string;
+  requestedConnectionSlug?: string;
   requestedModel?: string;
+  maxSteps?: number;
+  permissionRules?: readonly ToolPermissionRule[];
+  /** Canonical cwd used for one resumed session without rewriting its stored header. */
+  sessionCwdOverride?: { sessionId: string; cwd: string };
+  runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   /**
    * Optional cron executor. When provided, the Automation tool advertises the
    * cron kind and cron fires spawn a fresh session + run via this callback
@@ -95,11 +108,14 @@ export async function createMakaCliRuntimeContext(
   const connectionStore = createConnectionStore(input.workspaceRoot);
   const credentialStore = createFileCredentialStore(input.workspaceRoot);
   const settingsStore = createSettingsStore(input.workspaceRoot);
-  const target = await resolveDefaultSessionTarget({
+  const targetInput = {
     connectionStore,
     credentialStore,
     requestedModel: input.requestedModel,
-  });
+  };
+  const target = input.requestedConnectionSlug
+    ? await resolveSessionTargetForSlug(input.requestedConnectionSlug, targetInput)
+    : await resolveDefaultSessionTarget(targetInput);
   const modelChoices = await listReadyModelChoices({ connectionStore, credentialStore });
   const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
@@ -171,7 +187,15 @@ export async function createMakaCliRuntimeContext(
     goalManager,
     getTokenCount: (sessionId) => goalTokenCache.get(sessionId) ?? 0,
   });
-  const allTools = [...tools, automationTool, ...goalTools];
+  // CLI host capability surface for the skill-compatibility gate: the tool
+  // names registered on this host. The CLI has no Office tools, so bundled
+  // Office skills (requiredTools includes OfficeDocument/OfficeDocumentEdit)
+  // are hard-hidden here without seeding them — desktop owns Office seeding.
+  const host: HostCapabilities = {
+    toolNames: new Set([...tools, automationTool, ...goalTools].map((tool) => tool.name)),
+  };
+  const skillTool = buildSkillAgentTool(input.workspaceRoot, host);
+  const allTools = [...tools, automationTool, ...goalTools, skillTool];
 
   // Headless computer-use. The shared @maka/computer-use backend runs without an
   // overlay (the visual agent-cursor is Electron-only), so the CLI can drive the
@@ -192,13 +216,16 @@ export async function createMakaCliRuntimeContext(
   }
 
   backends.register('ai-sdk', async (ctx) => {
+    const header = input.sessionCwdOverride?.sessionId === ctx.sessionId
+      ? { ...ctx.header, cwd: input.sessionCwdOverride.cwd }
+      : ctx.header;
     // Resolve the session's own connection — not the global default — so a
     // /model switch that rebinds the session to another provider actually runs
     // on that provider (the desktop app resolves the backend the same way).
-    const ready = await resolveSessionTargetForSlug(ctx.header.llmConnectionSlug, {
+    const ready = await resolveSessionTargetForSlug(header.llmConnectionSlug, {
       connectionStore,
       credentialStore,
-      requestedModel: ctx.header.model,
+      requestedModel: header.model,
     });
     const modelFetch = buildSubscriptionModelFetch({
       connection: ready.connection,
@@ -214,7 +241,7 @@ export async function createMakaCliRuntimeContext(
     });
     return new AiSdkBackend({
       sessionId: ctx.sessionId,
-      header: { ...ctx.header, model: ready.model },
+      header: { ...header, model: ready.model },
       appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
       connection: ready.connection,
       apiKey: ready.apiKey,
@@ -222,7 +249,7 @@ export async function createMakaCliRuntimeContext(
       permissionEngine,
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools: allTools,
-      providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
+      providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
       contextBudget: buildCliContextBudgetPolicy(ready.connection, ready.model),
       loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
       loadHistoryCompactCheckpoint: ctx.loadHistoryCompactCheckpoint,
@@ -241,12 +268,14 @@ export async function createMakaCliRuntimeContext(
       recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
       systemPrompt: async ({ cwd }) => {
         const settings = await settingsStore.get();
-        return buildCliSystemPrompt({ settings, cwd });
+        return buildCliSystemPrompt({ settings, cwd, workspaceRoot: input.workspaceRoot, host });
       },
       turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
       shellRunContextSummary: ctx.shellRunContextSummary,
       newId: randomUUID,
       now: Date.now,
+      ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
+      ...(input.permissionRules !== undefined ? { permissionRules: input.permissionRules } : {}),
     });
   });
 
@@ -256,6 +285,14 @@ export async function createMakaCliRuntimeContext(
     runtimeEventStore,
     shellRuns,
     backends,
+    runtimeInvocationObserver: input.runtimeInvocationObserver,
+    cleanupHistoryCompactArtifacts: async (cleanupInput) => {
+      await cleanupLegacyHistoryCompactArtifacts({
+        ...cleanupInput,
+        artifactStore,
+        onDiagnostic: (diagnostic) => console.warn('[history-compact-cleanup]', diagnostic),
+      });
+    },
     newId: randomUUID,
     now: Date.now,
   });
@@ -411,7 +448,7 @@ export async function createMakaCliRuntimeContext(
     runtime,
     target,
     modelChoices,
-    tools,
+    tools: allTools,
     automationManager,
     automationScheduler,
     subscribeShellRunUpdates: (listener) => {

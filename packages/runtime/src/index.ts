@@ -334,6 +334,12 @@ export type {
   HistoryCompactArtifactStore,
   PersistHistoryCompactBlocksDeps,
 } from './history-compact-artifacts.js';
+export { cleanupLegacyHistoryCompactArtifacts } from './history-compact-cleanup.js';
+export type {
+  HistoryCompactCleanupDiagnostic,
+  HistoryCompactCleanupResult,
+  HistoryCompactCleanupSkip,
+} from './history-compact-cleanup.js';
 export { buildLlmHistorySummarizer } from './history-compact-summarizer.js';
 export type {
   BuildLlmHistorySummarizerOptions,
@@ -717,3 +723,35 @@ export {
 export type { GoalToolsDeps } from './goal-tools.js';
 export { handleGoalContinuation } from './goal-continuation.js';
 export type { GoalContinuationDeps, GoalContinuationOutcome } from './goal-continuation.js';
+
+export {
+  MAX_SKILLS_IN_PROMPT,
+  MAX_SKILL_BODY_CHARS,
+  MAX_SKILL_TOOL_BODY_CHARS,
+  MAX_SKILLS_PROMPT_CHARS,
+  scanWorkspaceSkills,
+  buildSkillsPromptFragment,
+  loadSkillInstructions,
+  buildSkillAgentTool,
+  gateSkillsByHostCapabilities,
+  parseSkillFrontMatter,
+  readSkillRuntimeState,
+  writeSkillRuntimeState,
+  readContainedRegularFile,
+  readContainedRegularTextFile,
+  writeContainedRegularTextFile,
+  isContainedPath,
+  isSafeSkillId,
+  isRecord,
+} from './skills.js';
+export type {
+  SkillRuntimeStatus,
+  RuntimeSkillDefinition,
+  ScannedSkill,
+  HostCapabilities,
+  SkillHostCompatibility,
+  GatedSkill,
+  LoadedSkillInstructions,
+  LoadSkillInstructionsResult,
+  SkillRuntimeStateReadResult,
+} from './skills.js';

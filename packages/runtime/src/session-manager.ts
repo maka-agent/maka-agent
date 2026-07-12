@@ -76,6 +76,7 @@ import type {
   InvocationSource,
 } from './invocation-context.js';
 import { RuntimeKernel, type RuntimeKernelLike } from './runtime-kernel.js';
+import type { HistoryCompactCleanupRequest } from './runtime-kernel.js';
 import {
   buildStatusPatch,
   buildTurnStateMessage,
@@ -251,6 +252,7 @@ export interface SessionManagerDeps {
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   runtimeKernel?: RuntimeKernelLike;
   shellRuns?: ShellRunProcessManager;
+  cleanupHistoryCompactArtifacts?: (input: HistoryCompactCleanupRequest) => Promise<void>;
 }
 
 export class SessionManager {

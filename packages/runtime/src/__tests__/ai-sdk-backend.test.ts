@@ -5229,6 +5229,62 @@ describe('AiSdkBackend tool permission category hints', () => {
     assert.equal(JSON.stringify(telemetry).includes('correct-horse-battery-staple'), false);
   });
 
+  test('an invocation deny rule blocks a permission-free tool and emits an auditable denial', async () => {
+    const messages: unknown[] = [];
+    const events: SessionEvent[] = [];
+    let implCalled = false;
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header('bypass'),
+      appendMessage: async (message) => { messages.push(message); },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'claude-sonnet-4-5-20250929',
+      permissionEngine: new PermissionEngine({ newId: idGenerator(), now: () => 1 }),
+      permissionRules: [{ effect: 'deny', kind: 'category', category: 'read' }],
+      modelFactory: () => ({}),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    const tool: MakaTool = {
+      name: 'Read',
+      description: 'read file',
+      parameters: {},
+      permissionRequired: false,
+      impl: async () => {
+        implCalled = true;
+        return { kind: 'text', text: 'should not run' };
+      },
+    };
+    const execute = (backend as unknown as {
+      wrapToolExecute(
+        tool: MakaTool,
+        turnId: string,
+        queue: { push(event: SessionEvent): void },
+      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
+    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+
+    await execute(
+      { path: 'notes.md' },
+      { toolCallId: 'tool-1', abortSignal: new AbortController().signal },
+    );
+
+    assert.equal(implCalled, false);
+    assert.deepEqual(messages.map((message) => (message as { type?: string }).type), [
+      'tool_call',
+      'permission_decision',
+      'tool_result',
+    ]);
+    assert.deepEqual(events.map((event) => event.type), [
+      'tool_start',
+      'permission_decision_ack',
+      'tool_result',
+    ]);
+    const decision = events.find((event) => event.type === 'permission_decision_ack');
+    assert.equal(decision?.decision, 'deny');
+  });
+
   test('permission prompt timeout expires one request, resumes watchdog, and writes an error result', async () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];

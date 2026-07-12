@@ -31,8 +31,9 @@ export interface HistoryCompactArtifactStore {
     now?: number;
   }): Promise<ArtifactRecord>;
   delete(artifactId: string): Promise<void>;
+  purge(artifactIds: readonly string[]): Promise<void>;
   list(sessionId: string, options?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]>;
-  readText(artifactId: string, options?: { maxBytes?: number }): Promise<{ ok: true; text: string } | { ok: false; reason: string }>;
+  readText(artifactId: string, options?: { maxBytes?: number; includeDeleted?: boolean }): Promise<{ ok: true; text: string } | { ok: false; reason: string }>;
 }
 
 export interface PersistHistoryCompactBlocksDeps {

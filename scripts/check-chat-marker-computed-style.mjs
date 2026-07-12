@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Zero-visual proof for the chat `Marker` migration (#332 / PR2 #337) and the
- * tool live-output stream shell migration (#332 / PR3). Feed it a PRE-PR2
- * renderer CSS bundle as `main.css` — both the bespoke `.maka-turn-*` (marker)
- * and `.maka-tool-output-stream-*` (stream) families predate PR2, so a single
- * pre-PR2 baseline greens every row. The `LiveIndicator` pulse DOT is the one
- * element NOT diffed (animated → `getComputedStyle` is phase-dependent); it is
- * pinned by the cascade contract's `@keyframes maka-pulse` frames instead.
+ * Zero-visual proof for the chat `Marker` migration (#332 / PR2 #337). Feed it
+ * a PRE-PR2 renderer CSS bundle as `main.css` — the bespoke `.maka-turn-*`
+ * (marker) chrome predates PR2, so a pre-PR2 baseline supplies the retired
+ * chrome on the `main` side of the marker rows. (The PR3 tool live-output
+ * stream shell this harness was originally built to prove has since been
+ * retired; the quiet tool-output panel pinned on both sides with the same
+ * production classes is a layout-invariant check, not a stream migration pair.)
  *
  * #332 requires the governance pass to be "locked by computed-style /
  * cascade contract tests + before/after screenshots". The cascade
@@ -29,9 +29,9 @@
  * `footer-rest` must read `border-radius: 8px`, not the UA `0px`).
  *
  * What this renders + diffs `main` vs head: the resting box / typography /
- * color / transition style of all 9 marker families and the PR3 stream shell
- * (panel / header / flags + their data-variant pills / body / chunk, resting AND
- * with `data-live="true"` for the accent border + inset ring), plus the footer
+ * color / transition style of all 9 marker families and the quiet tool-output
+ * panel (panel / command / body — same production classes on both sides, a
+ * layout invariant rather than a retired stream migration pair), plus the footer
  * action across resting / pending / copy-pending / copied / failed —
  * including `main`'s old pending `secondary` variant vs the new always-
  * `quiet` shell, which proves that variant switch was visually inert (the

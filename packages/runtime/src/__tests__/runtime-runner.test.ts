@@ -210,6 +210,7 @@ describe('RuntimeRunner', () => {
     const result = await runner.run(makeRequest({ text: 'ping' }));
 
     expect(result.status).toBe('completed');
+    expect(result.finalOutput).toBe('hello');
     expect(result.events).toHaveLength(3);
 
     const userEvent = result.events[0]!;
@@ -237,6 +238,38 @@ describe('RuntimeRunner', () => {
     expect(result.events).toHaveLength(2);
     expect(result.events[0]!.author).toBe('user');
     expect(result.events[1]!.author).toBe('agent');
+  });
+
+  test('uses the last non-partial non-empty model text as finalOutput', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [
+      flowTextEvent(ctx, 'first answer'),
+      { ...flowTextEvent(ctx, 'streaming draft'), partial: true },
+      flowTextEvent(ctx, '   '),
+      flowTextEvent(ctx, 'final answer'),
+      flowTerminalEvent(ctx, 'completed'),
+    ]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('completed');
+    expect(result.finalOutput).toBe('final answer');
+  });
+
+  test('completed terminal without non-empty model text fails as missing_final_output', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [
+      flowTextEvent(ctx, '   '),
+      flowTerminalEvent(ctx, 'completed'),
+    ]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.finalOutput).toBeUndefined();
+    expect(result.failure?.class).toBe('missing_final_output');
   });
 
   test('caller-provided invocationId and runId are used across result, user event, and flow', async () => {
@@ -573,6 +606,7 @@ describe('RuntimeRunner', () => {
     const flow: RunnableAgentFlow = {
       async *run(ctx, input) {
         seenInput = input;
+        yield flowTextEvent(ctx, 'done');
         yield flowTerminalEvent(ctx, 'completed');
       },
     };

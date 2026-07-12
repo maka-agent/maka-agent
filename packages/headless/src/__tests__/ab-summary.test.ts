@@ -72,8 +72,8 @@ describe('summarizeAbComparison', () => {
       budgetMs: 600_000,
     });
 
-    assert.equal(result.decision, 'invalid');
-    assert.equal(result.reason, 'asymmetric_budget_exhaustion');
+    assert.equal(result.decision, 'diagnostic');
+    assert.equal(result.reason, 'single_rep_diagnostic_only');
     assert.equal(result.candidate.passRate, 0);
     assert.equal(result.candidate.budgetExhausted, 1);
     assert.equal(result.candidate.infraFailed, 0);
@@ -82,7 +82,7 @@ describe('summarizeAbComparison', () => {
     assert.equal(result.taskLevel.losses, 1);
   });
 
-  test('does not count an unverified budget exhaustion as valid A/B coverage', () => {
+  test('does not count an unattested budget exhaustion as valid A/B coverage', () => {
     const unverifiedTimeout = {
       ...budgetExhausted('long-task'),
       eligible: false,
@@ -99,11 +99,41 @@ describe('summarizeAbComparison', () => {
       budgetMs: 600_000,
     });
 
-    assert.equal(result.baseline.budgetExhausted, 1);
+    assert.equal(result.baseline.budgetExhausted, 0);
+    assert.equal(result.baseline.plumbingFailed, 1);
     assert.equal(result.baseline.valid, 0);
     assert.equal(result.baseline.coverageRate, 0);
     assert.equal(result.candidate.valid, 0);
     assert.equal(result.candidate.coverageRate, 0);
+    assert.equal(result.pairedAttempts.observedPairs, 0);
+    assert.deepEqual(result.pairedAttempts.missingPairIds, ['long-task#r0']);
+    assert.equal(result.decision, 'invalid');
+    assert.equal(result.reason, 'plumbing_failure_observed');
+  });
+
+  test('classifies a timeout with rate-limit evidence as an invalid infra outcome', () => {
+    const providerTimeout = {
+      ...budgetExhausted('task-a'),
+      eligible: false,
+      evidenceErrorClass: 'rate_limit' as const,
+      evidenceError: 'provider rate limited the request',
+    };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: ['task-a'],
+      baselineRuns: [[providerTimeout]],
+      candidateRuns: [[completed('task-a', true)]],
+    });
+
+    assert.equal(result.baseline.infraFailed, 1);
+    assert.equal(result.baseline.plumbingFailed, 0);
+    assert.equal(result.baseline.budgetExhausted, 0);
+    assert.deepEqual(result.pairedAttempts.infraOrPlumbingDiscordantPairIds, ['task-a#r0']);
+    assert.equal(result.decision, 'invalid');
+    assert.equal(result.reason, 'infra_failure_observed');
   });
 
   test('does not count ineligible completed attempts as valid A/B coverage', () => {
@@ -124,6 +154,37 @@ describe('summarizeAbComparison', () => {
     assert.equal(result.candidate.valid, 0);
     assert.equal(result.candidate.coverageRate, 0);
     assert.equal(result.pairedAttempts.observedPairs, 0);
+  });
+
+  test('counts an agent step-cap failure as a failed A/B outcome', () => {
+    const stepCapFailure = {
+      ...completed('task-a', false),
+      status: 'failed' as const,
+      scored: false,
+      eligible: true,
+      errorClass: 'tool_step_cap_reached',
+    };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'maka-baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: ['task-a'],
+      baselineRuns: [[stepCapFailure]],
+      candidateRuns: [[stepCapFailure]],
+      budgetMs: 600_000,
+    });
+
+    assert.equal(result.baseline.valid, 1);
+    assert.equal(result.baseline.passRate, 0);
+    assert.equal(result.baseline.completed, 0);
+    assert.equal(result.baseline.budgetExhausted, 1);
+    assert.equal(result.candidate.valid, 1);
+    assert.equal(result.candidate.passRate, 0);
+    assert.equal(result.taskLevel.tasks[0]?.baseline.completed, 0);
+    assert.equal(result.taskLevel.tasks[0]?.baseline.budgetExhausted, 1);
+    assert.equal(result.pairedAttempts.observedPairs, 1);
+    assert.equal(result.pairedAttempts.ties, 1);
   });
 
   test('summarizes context budget activation in the A/B report', () => {
@@ -320,6 +381,32 @@ describe('summarizeAbComparison', () => {
       ]],
     });
 
+  });
+
+  test('classifies step-cap consistently inside the active-prune subset', () => {
+    const stepCapFailure = {
+      ...completed('t1', false),
+      status: 'failed' as const,
+      scored: false,
+      eligible: true,
+      errorClass: 'tool_step_cap_reached',
+    };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: ['t1'],
+      baselineRuns: [[stepCapFailure]],
+      candidateRuns: [[{
+        ...stepCapFailure,
+        contextBudgetSummary: contextBudgetSummary({ activePrunedToolResults: 1 }),
+      }]],
+    });
+
+    assert.equal(result.candidate.activePruneSubset?.completed, 0);
+    assert.equal(result.candidate.activePruneSubset?.budgetExhausted, 1);
+    assert.equal(result.candidate.activePruneSubset?.meanDurationMs, null);
   });
 
   test('summarizes A/B token cost usage for prune benefit review', () => {
@@ -781,8 +868,8 @@ describe('summarizeAbComparison', () => {
     assert.equal(result.candidate.passed, 1);
     assert.equal(result.pairedAttempts.wins, 1);
     assert.deepEqual(result.pairedAttempts.budgetDiscordantPairIds, ['t1#r0']);
-    assert.equal(result.decision, 'invalid');
-    assert.equal(result.reason, 'asymmetric_budget_exhaustion');
+    assert.equal(result.decision, 'diagnostic');
+    assert.equal(result.reason, 'single_rep_diagnostic_only');
   });
 
   test('counts baseline pass and candidate timeout as an effective B loss', () => {
@@ -800,11 +887,35 @@ describe('summarizeAbComparison', () => {
     assert.equal(result.candidate.budgetExhausted, 1);
     assert.equal(result.pairedAttempts.losses, 1);
     assert.deepEqual(result.pairedAttempts.budgetDiscordantPairIds, ['t1#r0']);
-    assert.equal(result.decision, 'invalid');
-    assert.equal(result.reason, 'asymmetric_budget_exhaustion');
+    assert.equal(result.decision, 'diagnostic');
+    assert.equal(result.reason, 'single_rep_diagnostic_only');
   });
 
-  test('reports budget-discordant refs and invalidates a powered non-inferiority decision', () => {
+  test('reports an asymmetric step-cap failure as budget discordance', () => {
+    const stepCapFailure = {
+      ...completed('t1', false),
+      status: 'failed' as const,
+      scored: false,
+      eligible: true,
+      errorClass: 'tool_step_cap_reached',
+    };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: ['t1'],
+      baselineRuns: [[stepCapFailure]],
+      candidateRuns: [[completed('t1', true)]],
+    });
+
+    assert.equal(result.pairedAttempts.wins, 1);
+    assert.deepEqual(result.pairedAttempts.budgetDiscordantPairIds, ['t1#r0']);
+    assert.equal(result.decision, 'diagnostic');
+    assert.equal(result.reason, 'single_rep_diagnostic_only');
+  });
+
+  test('reports budget-discordant refs without invalidating the comparison', () => {
     const taskIds = Array.from({ length: 100 }, (_, index) => `t${index}`);
     const result = summarizeAbComparison({
       runId: 'ab-run',
@@ -818,8 +929,8 @@ describe('summarizeAbComparison', () => {
 
     assert.deepEqual(result.pairedAttempts.budgetDiscordantPairIds, ['t0#r0']);
     assert.equal(result.investigationRefs.budgetDiscordantPairs[0]?.pairId, 't0#r0');
-    assert.equal(result.decision, 'invalid');
-    assert.equal(result.reason, 'asymmetric_budget_exhaustion');
+    assert.equal(result.decision, 'diagnostic');
+    assert.equal(result.reason, 'single_rep_diagnostic_only');
   });
 });
 

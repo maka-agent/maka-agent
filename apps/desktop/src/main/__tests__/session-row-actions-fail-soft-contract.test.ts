@@ -73,7 +73,7 @@ describe('session row actions fail soft', () => {
     );
   });
 
-  it('renders visible busy state while a sidebar row action is pending', async () => {
+  it('keeps sidebar menu actions single-flight while a row action is pending', async () => {
     const ui = await readRenderedSessionHistorySource();
 
     assert.match(ui, /type SessionRowActionId = 'flag' \| 'archive' \| 'rename' \| 'delete';/);
@@ -96,16 +96,12 @@ describe('session row actions fail soft', () => {
       /pendingActionRef\.current = null;[\s\S]*if \(rowMountedRef\.current\) setPendingAction\(null\);/,
       'SessionRow action cleanup must not write pending state after the row unmounts',
     );
-    assert.match(ui, /disabled=\{actionBusy\}/);
-    assert.match(ui, /aria-busy=\{pendingAction === 'flag' \? 'true' : undefined\}/);
-    assert.match(ui, /data-pending=\{pendingAction === 'archive' \? 'true' : undefined\}/);
-    assert.match(ui, /aria-busy=\{pendingAction === 'delete' \? 'true' : undefined\}/);
-    const rowActionVariantCalls = [...ui.matchAll(/cn\('maka-list-row-action', rowActionVariants/g)];
-    assert.equal(rowActionVariantCalls.length, 4, 'all 4 row action buttons (flag, rename, archive, delete) must call rowActionVariants');
     assert.match(
       ui,
-      /data-\[pending=true\]:cursor-progress data-\[pending=true\]:bg-foreground\/5 data-\[pending=true\]:text-foreground data-\[pending=true\]:opacity-78/,
-      'rowActionVariants cva must carry a visible pending state (cursor + bg + opacity)',
+      /<MenuTrigger[\s\S]*?disabled=\{actionBusy\}[\s\S]*?<MenuPopup[\s\S]*?<MenuItem[\s\S]*?disabled=\{actionBusy\}/,
+      'the overflow trigger and its menu actions must be disabled while the row owns an action',
     );
+    assert.doesNotMatch(ui, /aria-busy=\{pendingAction ===/);
+    assert.doesNotMatch(ui, /data-pending=\{pendingAction ===/);
   });
 });
