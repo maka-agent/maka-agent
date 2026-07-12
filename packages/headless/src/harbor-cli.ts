@@ -117,7 +117,7 @@ async function harborRunCommand(args: string[]): Promise<number> {
     if (options.mode === 'cell') return await runHarborCellMode(options);
     return await runHarborTaskRunMode(options);
   } catch (error) {
-    console.error(`maka-headless harbor run: ${(error as Error).message}`);
+    console.error(`maka eval harbor run: ${(error as Error).message}`);
     return 1;
   }
 }
@@ -680,7 +680,7 @@ function printHarborUsage(): void {
 
 function harborRunUsage(): string {
   return [
-    'usage: maka-headless harbor run --instruction <text>|--instruction-file <path> --isolation harbor-local|harbor-http [options]',
+    'usage: maka eval harbor run --instruction <text>|--instruction-file <path> --isolation harbor-local|harbor-http [options]',
     '       real backends fail closed without explicit isolation; harbor-http requires MAKA_HARBOR_TOOL_EXECUTOR_URL and MAKA_HARBOR_TOOL_EXECUTOR_TOKEN',
   ].join('\n');
 }

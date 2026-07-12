@@ -134,7 +134,7 @@ The current boundary matters: individual source-file contents are not hashed int
 The current CLI exposes a read-only boundary:
 
 ```sh
-maka-headless ahe export <taskRunId...> \
+maka eval ahe export <taskRunId...> \
   --store <out>/runs \
   --repo <maka-repo-root> \
   --out <evidence-dir> \

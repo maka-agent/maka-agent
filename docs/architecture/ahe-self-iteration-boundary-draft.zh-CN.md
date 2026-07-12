@@ -134,7 +134,7 @@ Target Snapshot
 当前 CLI 提供只读边界：
 
 ```sh
-maka-headless ahe export <taskRunId...> \
+maka eval ahe export <taskRunId...> \
   --store <out>/runs \
   --repo <maka-repo-root> \
   --out <evidence-dir> \

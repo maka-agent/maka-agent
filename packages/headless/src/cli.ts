@@ -214,8 +214,8 @@ async function taskExportCommand(args: string[]): Promise<number> {
 async function aheCommand(args: string[]): Promise<number> {
   const [subcommand, ...rest] = args;
   if (subcommand === 'export') return aheExportCommand(rest);
-  console.error('maka-headless ahe commands:\n');
-  console.error('  ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]');
+  console.error('maka eval ahe commands:\n');
+  console.error('  maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]');
   return 1;
 }
 
@@ -224,11 +224,11 @@ async function aheExportCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['store', 'repo', 'out', 'run-id', 'source-label', 'harbor-trial-dir'], ['include-events']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]`);
+    console.error(`${(error as Error).message}\nusage: maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]`);
     return 1;
   }
   if (parsed.positional.length === 0 || !parsed.flags.store || !parsed.flags.repo || !parsed.flags.out) {
-    console.error('usage: maka-headless ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]');
+    console.error('usage: maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]');
     return 1;
   }
   try {
@@ -257,7 +257,7 @@ async function aheExportCommand(args: string[]): Promise<number> {
     console.log(`traceIndex: ${result.files.traceIndexJson}`);
     return 0;
   } catch (error) {
-    console.error(`maka-headless ahe export: ${(error as Error).message}`);
+    console.error(`maka eval ahe export: ${(error as Error).message}`);
     return 1;
   }
 }
