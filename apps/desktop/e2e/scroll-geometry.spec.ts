@@ -22,6 +22,11 @@ const probeScroller = `(() => {
     scrollHeight: scroller.scrollHeight,
     clientHeight: scroller.clientHeight,
     distanceFromBottom: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+    // The warm-up forces inline content-visibility per chunk and clears it on
+    // release; any remaining forced turn means the walk is still in flight.
+    // Guards against a stalled compositor freezing MID-WALK geometry into a
+    // false "settled" (frozen reads are equal reads).
+    warming: Boolean(document.querySelector('.maka-turn[style*="content-visibility"]')),
   };
 })()`;
 
@@ -35,8 +40,13 @@ const WARMED_HEIGHT_FLOOR = 24 * 800;
 async function settleGeometry(page: import('@playwright/test').Page, options: { pinned: boolean }): Promise<void> {
   let previousHeight = -1;
   await expect.poll(async () => {
-    const current = await page.evaluate(probeScroller) as { scrollHeight: number; distanceFromBottom: number };
-    const settled = current.scrollHeight > WARMED_HEIGHT_FLOOR
+    const current = await page.evaluate(probeScroller) as {
+      scrollHeight: number;
+      distanceFromBottom: number;
+      warming: boolean;
+    };
+    const settled = !current.warming
+      && current.scrollHeight > WARMED_HEIGHT_FLOOR
       && current.scrollHeight === previousHeight
       && (!options.pinned || current.distanceFromBottom === 0);
     previousHeight = current.scrollHeight;
