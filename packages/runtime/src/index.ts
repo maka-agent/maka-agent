@@ -89,6 +89,15 @@ export type {
   OpenAIComputerAction,
   OpenAIComputerActionConversion,
 } from './openai-computer-actions.js';
+export { bindCuaAction, CuaFrameState } from './cua-frame-state.js';
+export type {
+  CuaActionClaimResult,
+  CuaActionConfirmationResult,
+  CuaActionRejectionReason,
+  CuaBoundAction,
+  CuaFrameIdentity,
+  CuaFrameIdFactory,
+} from './cua-frame-state.js';
 export {
   createOpenAIComputerContinuationRequest,
   createOpenAIComputerInitialRequest,
