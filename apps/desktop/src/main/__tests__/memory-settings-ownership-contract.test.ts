@@ -20,6 +20,11 @@ describe('Memory Settings ownership', () => {
     assert.doesNotMatch(instructionOwner, /window\.maka\.memory/);
     assert.match(documentOwner, /runMemoryWriteAction\('restore'/);
     assert.match(instructionOwner, /runWriteAction\(`instruction:\$\{file\}:create`/);
+    assert.match(
+      instructionOwner,
+      /const refreshed = await reload\(\);[\s\S]*if \(!refreshed \|\| !isActionCurrent\(\)\) return;[\s\S]*toast\.success\('已创建项目指令'/,
+      'a failed post-create refresh must not claim success or open a file that the visible state still reports missing',
+    );
   });
 
   it('keeps filtering and prompt-preview derivation pure', async () => {

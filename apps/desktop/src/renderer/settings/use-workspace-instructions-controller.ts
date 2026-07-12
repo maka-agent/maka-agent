@@ -37,12 +37,15 @@ export function useWorkspaceInstructionsController(props: WorkspaceInstructionsC
     return mountedRef.current && lifecycleRef.current === lifecycle;
   }
 
-  async function reload(lifecycle = lifecycleRef.current): Promise<void> {
+  async function reload(lifecycle = lifecycleRef.current): Promise<boolean> {
     try {
       const next = await window.maka.workspaceInstructions.getState();
-      if (isCurrent(lifecycle)) setState(next);
+      if (!isCurrent(lifecycle)) return false;
+      setState(next);
+      return true;
     } catch (error) {
       if (isCurrent(lifecycle)) toast.error('载入项目指令失败', settingsActionErrorMessage(error));
+      return false;
     } finally {
       if (isCurrent(lifecycle)) setLoading(false);
     }
@@ -115,8 +118,8 @@ export function useWorkspaceInstructionsController(props: WorkspaceInstructionsC
           toast.error('创建项目指令失败', result.message);
           return;
         }
-        await reload();
-        if (!isActionCurrent()) return;
+        const refreshed = await reload();
+        if (!refreshed || !isActionCurrent()) return;
         toast.success('已创建项目指令', file);
         await openFile(file);
       } catch (error) {

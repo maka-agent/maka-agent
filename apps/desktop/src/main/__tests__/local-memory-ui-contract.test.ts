@@ -349,7 +349,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(resetBlock, /await runMemoryWriteAction\('reset', async \(isCurrent\) => \{[\s\S]*const next = await window\.maka\.memory\.reset\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*setState\(next\);/);
     assert.match(restoreLatestBlock, /await runMemoryWriteAction\('restore', async \(isCurrent\) => \{[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*const result = await window\.maka\.memory\.restoreLatestBackup\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*setState\(result\.state\);/);
     assert.match(restoreCandidateBlock, /await runMemoryWriteAction\('restore', async \(isCurrent\) => \{[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*const result = await window\.maka\.memory\.restoreBackup\(backup\.kind\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*setState\(result\.state\);/);
-    assert.match(createInstructionBlock, /await runWriteAction\(`instruction:\$\{file\}:create`, async \(isActionCurrent\) => \{[\s\S]*const result = await window\.maka\.workspaceInstructions\.createFile\(file\);[\s\S]*if \(!isActionCurrent\(\)\) return;[\s\S]*await reload\(\);/);
+    assert.match(createInstructionBlock, /await runWriteAction\(`instruction:\$\{file\}:create`, async \(isActionCurrent\) => \{[\s\S]*const result = await window\.maka\.workspaceInstructions\.createFile\(file\);[\s\S]*if \(!isActionCurrent\(\)\) return;[\s\S]*const refreshed = await reload\(\);/);
     assert.match(updateStatusBlock, /await runMemoryWriteAction\('entry-status', async \(isCurrent\) => \{[\s\S]*const next = await window\.maka\.memory\.save\(result\.draft\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*setState\(next\);/);
     assert.match(
       actionBlock,
