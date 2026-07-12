@@ -357,14 +357,43 @@ export function ChatView(props: {
   // Without this, scrolling up through never-rendered history keeps inflating
   // the document and the top recedes ("endless scroll"). Keyed on hasTurns so
   // the walk starts when history arrives, without re-walking per message.
+  // Gated so sizes are remembered from the FINAL layout, not a transient one
+  // (a stale remembered size gets re-corrected on every viewport arrival —
+  // exactly the drift this walk exists to remove):
+  // - document.fonts.ready: fallback glyph metrics shift prose heights;
+  // - no `.maka-markdown-pending` left in the tree: until the lazy
+  //   markdown-body chunk commits, every bubble is the plain-text Suspense
+  //   fallback (~7.5px taller per turn). Awaiting the import is NOT enough —
+  //   the Suspense retry is a low-priority render that can commit after an
+  //   idle callback — so the DOM is the authority, polled with a bounded
+  //   timeout that degrades to warming anyway (e.g. chunk load failure).
   const hasTurns = turns.length > 0;
   useEffect(() => {
     if (!hasTurns) return;
     const root = scrollRef.current;
     if (!root) return;
-    return createTurnSizeWarmup({
-      turns: () => root.querySelectorAll<HTMLElement>('.maka-turn'),
-    });
+    let disposed = false;
+    let cancelWarmup: (() => void) | undefined;
+    let pollTimer: number | undefined;
+    let attempts = 0;
+    const warmOnceSettled = () => {
+      if (disposed) return;
+      if (root.querySelector('.maka-markdown-pending') && attempts++ < 50) {
+        pollTimer = window.setTimeout(warmOnceSettled, 100);
+        return;
+      }
+      cancelWarmup = createTurnSizeWarmup({
+        turns: () => root.querySelectorAll<HTMLElement>('.maka-turn'),
+      });
+    };
+    const fontsReady: Promise<unknown> =
+      typeof document !== 'undefined' && document.fonts ? document.fonts.ready : Promise.resolve();
+    void fontsReady.then(warmOnceSettled);
+    return () => {
+      disposed = true;
+      window.clearTimeout(pollTimer);
+      cancelWarmup?.();
+    };
   }, [props.activeSession?.id, hasTurns]);
 
   useEffect(() => {

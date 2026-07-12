@@ -6,7 +6,7 @@ function fakeTurn(overrides: { live?: boolean; connected?: boolean } = {}) {
   return {
     isConnected: overrides.connected ?? true,
     hasAttribute: (name: string) => name === 'data-live-streaming' && (overrides.live ?? false),
-    style: { contentVisibility: '' },
+    style: { contentVisibility: '', contain: '' },
   };
 }
 
@@ -35,8 +35,9 @@ function fakeScheduler() {
   };
 }
 
-function forced(turns: Array<{ style: { contentVisibility: string } }>): number[] {
-  return turns.flatMap((turn, index) => turn.style.contentVisibility === 'visible' ? [index] : []);
+function forced(turns: Array<{ style: { contentVisibility: string; contain: string } }>): number[] {
+  return turns.flatMap((turn, index) =>
+    turn.style.contentVisibility === 'visible' && turn.style.contain === 'layout style paint' ? [index] : []);
 }
 
 describe('createTurnSizeWarmup', () => {
@@ -54,6 +55,9 @@ describe('createTurnSizeWarmup', () => {
     assert.deepEqual(forced(turns), [3, 4]);
     flushFrame();
     assert.deepEqual(forced(turns), []);
+    // Release must fully restore the stylesheet state — both properties.
+    assert.equal(turns[3].style.contentVisibility, '');
+    assert.equal(turns[3].style.contain, '');
 
     flushIdle();
     assert.deepEqual(forced(turns), [1, 2]);

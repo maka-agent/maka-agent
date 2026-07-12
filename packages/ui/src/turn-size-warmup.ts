@@ -17,7 +17,7 @@
 export interface WarmupTurnElement {
   readonly isConnected: boolean;
   hasAttribute(qualifiedName: string): boolean;
-  readonly style: { contentVisibility: string };
+  readonly style: { contentVisibility: string; contain: string };
 }
 
 export interface WarmupScheduler {
@@ -63,7 +63,10 @@ export function createTurnSizeWarmup(options: {
   let cancelScheduled: (() => void) | undefined;
 
   const release = (): void => {
-    for (const turn of forcedChunk) turn.style.contentVisibility = '';
+    for (const turn of forcedChunk) {
+      turn.style.contentVisibility = '';
+      turn.style.contain = '';
+    }
     forcedChunk = [];
   };
 
@@ -74,7 +77,16 @@ export function createTurnSizeWarmup(options: {
     }
     if (chunk.length === 0) return;
     forcedChunk = chunk;
-    for (const turn of forcedChunk) turn.style.contentVisibility = 'visible';
+    for (const turn of forcedChunk) {
+      turn.style.contentVisibility = 'visible';
+      // `content-visibility: auto` keeps layout/style/paint containment even
+      // while an element is on screen; a bare `visible` drops it, and the
+      // containment difference shifts layout by a few pixels per turn. The
+      // remembered size must be measured under the SAME containment the turn
+      // will have when it later scrolls into view, or every arrival corrects
+      // the height and the scrollbar drifts.
+      turn.style.contain = 'layout style paint';
+    }
     // Hold the forced styles across one full rendering opportunity: the first
     // frame callback fires before the layout that renders the chunk (and
     // records its remembered sizes), so release on the following frame.
