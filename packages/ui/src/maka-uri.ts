@@ -43,7 +43,7 @@
  * `components.tsx`; this module is pure.
  */
 
-import type { SettingsSection } from '@maka/core';
+import { SETTINGS_SECTIONS, type SettingsSection } from '@maka/core';
 
 /**
  * Reference allowlist of section ids the URI router accepts. Mirrors
@@ -54,23 +54,7 @@ import type { SettingsSection } from '@maka/core';
  * union is a TS-only construct; instead we keep the list right next
  * to the import so the divergence is visible.
  */
-const ALLOWED_SETTINGS_SECTIONS = new Set<SettingsSection>([
-  'general',
-  'appearance',
-  'memory',
-  'daily-review',
-  'models',
-  'usage',
-  'voice',
-  'open-gateway',
-  'bot-chat',
-  'search',
-  'data',
-  'account',
-  'permissions',
-  'health',
-  'about',
-]);
+const ALLOWED_SETTINGS_SECTIONS = new Set<SettingsSection>(SETTINGS_SECTIONS);
 
 /**
  * Hard caps applied to incoming hrefs. The renderer never invokes

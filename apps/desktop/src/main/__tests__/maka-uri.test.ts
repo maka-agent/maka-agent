@@ -22,6 +22,7 @@
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
+import { SETTINGS_SECTIONS } from '@maka/core';
 import {
   isMakaUri,
   isMakaUriCandidate,
@@ -69,26 +70,7 @@ describe('parseMakaUri — scheme gate', () => {
 
 describe('parseMakaUri — settings', () => {
   it('accepts every known SettingsSection', () => {
-    // The full SettingsSection enum, locked here so a section
-    // removal in core trips this test.
-    const sections = [
-      'general',
-      'appearance',
-      'memory',
-      'daily-review',
-      'models',
-      'usage',
-      'voice',
-      'open-gateway',
-      'bot-chat',
-      'search',
-      'data',
-      'account',
-      'permissions',
-      'health',
-      'about',
-    ];
-    for (const s of sections) {
+    for (const s of SETTINGS_SECTIONS) {
       const dest = parseMakaUri(`maka://settings/${s}`);
       assert.deepEqual(dest, { kind: 'settings', section: s }, `section=${s}`);
     }

@@ -38,22 +38,25 @@ import { PERMISSION_MODES } from './permission.js';
  *
  * See docs/archive/reference-settings.md §7 for historical provenance.
  */
-export type SettingsSection =
-  | 'general'
-  | 'appearance'
-  | 'memory'
-  | 'daily-review'
-  | 'models'
-  | 'usage'
-  | 'voice'
-  | 'open-gateway'
-  | 'bot-chat'
-  | 'search'
-  | 'data'
-  | 'account'
-  | 'permissions'
-  | 'health'
-  | 'about';
+export const SETTINGS_SECTIONS = [
+  'general',
+  'appearance',
+  'memory',
+  'daily-review',
+  'models',
+  'usage',
+  'voice',
+  'open-gateway',
+  'bot-chat',
+  'search',
+  'data',
+  'account',
+  'permissions',
+  'health',
+  'about',
+] as const;
+
+export type SettingsSection = typeof SETTINGS_SECTIONS[number];
 
 export type ProxyProtocol = 'http' | 'https' | 'socks5';
 
