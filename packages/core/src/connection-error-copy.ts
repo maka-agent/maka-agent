@@ -51,8 +51,10 @@ const KNOWN_CHAT_CONFIGURATION_REASONS: ReadonlySet<string> = new Set(CHAT_CONFI
  * unrecognized reason) returns the generic fallback; every known reason has its
  * own line, guaranteed present by the `Record` type above.
  */
-export function describeChatConfigurationReason(reason: ChatConfigurationReason | undefined): string {
-  return reason === undefined ? GENERIC_FIX_COPY : REASON_FIX_COPY[reason];
+export function describeChatConfigurationReason(reason: string | undefined): string {
+  return reason !== undefined && KNOWN_CHAT_CONFIGURATION_REASONS.has(reason)
+    ? REASON_FIX_COPY[reason as ChatConfigurationReason]
+    : GENERIC_FIX_COPY;
 }
 
 // `\bNO_REAL_CONNECTION\b` pins the whole code: the trailing boundary stops it

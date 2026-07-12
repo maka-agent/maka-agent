@@ -1,4 +1,4 @@
-import type { ChatConfigurationReason, SessionEvent } from '@maka/core';
+import type { SessionEvent } from '@maka/core';
 import {
   describeChatConfigurationReason,
   generalizedErrorMessageChinese,
@@ -27,7 +27,7 @@ export function noRealConnectionReasonFromEvent(event: Extract<SessionEvent, { t
 }
 
 export function noRealConnectionSetupDescription(reason: string | undefined): string {
-  return describeChatConfigurationReason(reason as ChatConfigurationReason | undefined);
+  return describeChatConfigurationReason(reason);
 }
 
 export function sessionEventErrorMessage(event: Extract<SessionEvent, { type: 'error' }>): string {
