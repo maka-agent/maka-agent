@@ -16,6 +16,10 @@ test('dropping a file onto the composer delivers it to the backend on send', asy
   // Drop a file onto the main composer
   const composer = page.locator('.maka-composer');
   await expect(composer).toBeVisible();
+  // The response text can render before the turn's terminal event clears the
+  // streaming gate. Wait for the composer's real attachment-ready contract so
+  // the global navigation guard does not correctly reject an early drop.
+  await expect(composer).toHaveAttribute('data-maka-file-drop-target', 'true');
   const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
   await dataTransfer.evaluate((dt: DataTransfer) => {
     dt.items.add(new File(['hello attachment content'], 'note.txt', { type: 'text/plain' }));
