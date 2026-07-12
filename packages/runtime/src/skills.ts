@@ -60,6 +60,13 @@ export interface RuntimeSkillDefinition {
 export interface ScannedSkill extends RuntimeSkillDefinition {
   content: string;
   contentSha256: string;
+  /**
+   * The containment root this skill was discovered under (e.g. workspace root,
+   * home dir). Used to compute `relativePath` in `loadSkillInstructions` so
+   * legacy callers see `skills/<id>/SKILL.md` while multi-path callers see
+   * the actual subpath.
+   */
+  discoveryRoot: string;
 }
 
 /**
@@ -111,7 +118,7 @@ export type SkillRuntimeStateReadResult =
  * (lower index = higher precedence) and provides a `stateRoot` for
  * reading/writing `skills-state.json`.
  */
-export type SkillSource = string | { dirs: string[]; stateRoot: string };
+export type SkillSource = string | { dirs: string[]; stateRoot: string; entries?: SkillDiscoveryEntry[] };
 
 /**
  * Standard skill discovery paths per the Agent Skills spec
@@ -148,6 +155,12 @@ function normalizeSkillSource(source: SkillSource): { entries: SkillDiscoveryEnt
   if (typeof source === 'string') {
     return { entries: [{ dir: join(source, 'skills'), containmentRoot: source }], stateRoot: source };
   }
+  if (source.entries && source.entries.length > 0) {
+    return { entries: source.entries, stateRoot: source.stateRoot };
+  }
+  // Fallback for manually constructed { dirs, stateRoot } objects without
+  // entries: use each dir as its own containment root. This is the least
+  // permissive option that still works.
   return { entries: source.dirs.map((dir) => ({ dir, containmentRoot: dir })), stateRoot: source.stateRoot };
 }
 
@@ -171,13 +184,13 @@ export const MAX_SKILLS_PROMPT_CHARS = 18000;
 export async function scanSkills(source: SkillSource): Promise<ScannedSkill[]> {
   const { entries, stateRoot } = normalizeSkillSource(source);
   const runtimeState = await readSkillRuntimeState(stateRoot);
-  const seen = new Set<string>();
+  const seen = new Set<string>();  // lowercased ids
   const out: ScannedSkill[] = [];
   for (const { dir, containmentRoot } of entries) {
     const found = await scanSkillDir(dir, containmentRoot, runtimeState);
     for (const skill of found) {
-      if (seen.has(skill.id)) continue;
-      seen.add(skill.id);
+      if (seen.has(skill.id.toLowerCase())) continue;
+      seen.add(skill.id.toLowerCase());
       out.push(skill);
     }
   }
@@ -245,6 +258,7 @@ async function scanSkillDir(dir: string, containmentRoot: string, runtimeState: 
         requiredCapabilities,
         content: stripFrontMatter(text).trim(),
         contentSha256: `sha256:${sha256Buffer(bytes)}`,
+        discoveryRoot: containmentRoot,
         enabled: runtimeStatus === 'enabled',
         runtimeStatus,
       });
@@ -252,6 +266,7 @@ async function scanSkillDir(dir: string, containmentRoot: string, runtimeState: 
       // Skip directories without a readable SKILL.md.
     }
   }
+  out.sort((a, b) => a.name.localeCompare(b.name));
   return out;
 }
 
@@ -371,7 +386,7 @@ export async function loadSkillInstructions(source: SkillSource, name: string, h
         name: skill.name,
         description: skill.description,
         declaredTools: skill.declaredTools,
-        relativePath: join(skill.path, 'SKILL.md'),
+        relativePath: relative(skill.discoveryRoot, skill.path) + '/SKILL.md',
         instructions,
         truncated: Array.from(cleaned || '(empty)').length > MAX_SKILL_TOOL_BODY_CHARS,
       },

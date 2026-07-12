@@ -429,8 +429,8 @@ Legacy v2 body.`);
 
   it('gateSkillsByHostCapabilities hard-hides skills whose required tools are missing and only hints at missing declared tools', () => {
     const skills: ScannedSkill[] = [
-      { id: 'office', name: 'Office', description: '', path: '/p', declaredTools: ['Read', 'OfficeDocument'], requiredTools: ['OfficeDocument'], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:x' },
-      { id: 'plain', name: 'Plain', description: '', path: '/p', declaredTools: ['Bash'], requiredTools: [], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:y' },
+      { id: 'office', name: 'Office', description: '', path: '/p', declaredTools: ['Read', 'OfficeDocument'], requiredTools: ['OfficeDocument'], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:x', discoveryRoot: '/p' },
+      { id: 'plain', name: 'Plain', description: '', path: '/p', declaredTools: ['Bash'], requiredTools: [], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:y', discoveryRoot: '/p' },
     ];
     const host: HostCapabilities = { toolNames: new Set(['Read']) };
     const gated = gateSkillsByHostCapabilities(skills, host);
@@ -446,7 +446,7 @@ Legacy v2 body.`);
 
   it('gateSkillsByHostCapabilities hides skills whose required capabilities are missing', () => {
     const skills: ScannedSkill[] = [
-      { id: 'cap', name: 'Cap', description: '', path: '/p', declaredTools: [], requiredTools: [], requiredCapabilities: ['office'], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:z' },
+      { id: 'cap', name: 'Cap', description: '', path: '/p', declaredTools: [], requiredTools: [], requiredCapabilities: ['office'], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:z', discoveryRoot: '/p' },
     ];
     const noCap = gateSkillsByHostCapabilities(skills, { toolNames: new Set(), capabilities: new Set() });
     assert.equal(noCap[0].eligible, false);
