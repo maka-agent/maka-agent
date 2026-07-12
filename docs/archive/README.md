@@ -9,7 +9,7 @@ Files here are retained for historical context. They are not current contracts, 
 - `ui-quality-plan-2026-05.md` — a time-sensitive rollout and coverage snapshot.
 - `design-refinement-roadmap-2026-07.md` — completed design decisions and an obsolete documentation backlog.
 
-The current frontend authorities are `docs/frontend-css-governance.md`, the local frontend READMEs, source, and contract tests. A future `DESIGN.md` should follow the official Google Stitch format rather than reviving the old document shape.
+The root `DESIGN.md` owns shared product design intent. `docs/frontend-css-governance.md`, local frontend READMEs, source, and contract tests own implementation rules and executable behavior.
 
 ## Audits
 
