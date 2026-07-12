@@ -45,6 +45,14 @@ function windowBody(spec) {
         <h1>Occlusion guard</h1>
         <p>This separate owned window intentionally covers the target control.</p>
         <button id="occluderSurface">Do not click through</button>`;
+    case 'sentinel':
+      return `
+        <h1>Concurrent user activity sentinel</h1>
+        <p>This fixture is read-only while focus and cursor channels are monitored.</p>`;
+    case 'provider-matrix':
+      return `
+        <h1>Provider matrix aggregation</h1>
+        <p>No UI actions are permitted during report aggregation.</p>`;
     default:
       throw new Error(`unsupported fixture kind "${spec.kind}"`);
   }
@@ -59,7 +67,11 @@ function windowScript(spec) {
         ? `{ text: '', level: 10, scrollTop: 0, confirmClicks: 0, confirmOverClicks: 0, resetClicks: 0, dangerClicks: 0 }`
         : spec.kind === 'click-target'
           ? '{ clicks: 0, overClicks: 0 }'
-          : '{ interactions: 0 }';
+          : spec.kind === 'sentinel'
+            ? '{ agentViolations: 0 }'
+            : spec.kind === 'provider-matrix'
+              ? '{ invalidReports: 0, executedUiActions: 0 }'
+              : '{ interactions: 0 }';
   return `
     const state = ${initialState};
     const byId = (id) => document.getElementById(id);

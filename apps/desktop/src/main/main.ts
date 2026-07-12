@@ -225,6 +225,10 @@ const isOpenAIComputerUseRealE2e =
   hasIsolatedTestProfile &&
   process.env.MAKA_CU_OPENAI_REAL_E2E === '1';
 const isIsolatedTest = isE2e || isComputerUseRealE2e || isOpenAIComputerUseRealE2e;
+let layeredComputerUseScenario:
+  import('../../../../scripts/cu-e2e-scenarios.mjs').CuE2eScenario
+  | undefined;
+const openAIComputerPlansBySession = new Map<string, unknown[]>();
 
 // E2E isolation: redirect userData BEFORE the single-instance lock so the
 // lock judges the throwaway dir, not the real user data — otherwise a
@@ -902,6 +906,7 @@ backends.register('ai-sdk', async (ctx) => {
   if (isOpenAIComputerUseRealE2e && connection.providerType === 'openai') {
     const computerTool = computerUseTools[0];
     if (!computerTool) throw new Error('OpenAI Computer Use E2E requires a computer backend');
+    const actionCounts = new Map<string, number>();
     return new OpenAIComputerBackend({
       sessionId: ctx.sessionId,
       header: { ...ctx.header, model },
@@ -915,6 +920,20 @@ backends.register('ai-sdk', async (ctx) => {
       appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
       permissionEngine,
       maxTurns: 16,
+      observeTurn: (observation) => {
+        const plans = openAIComputerPlansBySession.get(ctx.sessionId) ?? [];
+        plans.push(observation);
+        openAIComputerPlansBySession.set(ctx.sessionId, plans);
+      },
+      allowAction: (action) => {
+        const scenario = layeredComputerUseScenario;
+        if (!scenario) return true;
+        if (!scenario.allowedActions.includes(action.type)) return false;
+        const count = (actionCounts.get(action.type) ?? 0) + 1;
+        actionCounts.set(action.type, count);
+        const maximum = scenario.maxActionCounts?.[action.type];
+        return maximum === undefined || count <= maximum;
+      },
       recordToolInvocation: (event) =>
         recordToolInvocation({ repo: telemetryRepo }, event),
     });
@@ -2271,9 +2290,43 @@ app.whenReady().then(async () => {
 });
 
 let computerUseRealE2eFixture: BrowserWindow | undefined;
+let layeredComputerUseFixture: {
+  readAllStates(): Promise<Record<string, unknown>>;
+  evaluate(state: Record<string, unknown>): { pass: boolean; expected: unknown[]; forbidden: unknown[] };
+  destroy(): void;
+} | undefined;
 
 async function maybeCreateComputerUseRealE2eFixture(): Promise<void> {
   if (!isComputerUseRealE2e && !isOpenAIComputerUseRealE2e) return;
+  const scenarioId = process.env.MAKA_CU_E2E_SCENARIO;
+  if (scenarioId && scenarioId !== 'l1-single-click') {
+    const [
+      { evaluateCuE2eScenarioState, getCuE2eScenario },
+      { createCuE2eFixture },
+    ] = await Promise.all([
+      import('../../../../scripts/cu-e2e-scenarios.mjs'),
+      import('../../../../scripts/cu-e2e-fixture.mjs'),
+    ]);
+    const scenario = getCuE2eScenario(scenarioId);
+    layeredComputerUseScenario = scenario;
+    if (!scenario.realRunEnabled) {
+      throw new Error(
+        `CUA E2E scenario ${scenarioId} requires execution capabilities: `
+        + scenario.requiresExecutionCapabilities.join(', '),
+      );
+    }
+    const fixture = await createCuE2eFixture({
+      BrowserWindow,
+      screen,
+      scenario,
+    });
+    layeredComputerUseFixture = {
+      ...fixture,
+      evaluate: (state) => evaluateCuE2eScenarioState(scenario, state),
+    };
+    console.log(`[cu-real-e2e] layered scenario=${scenarioId}`);
+    return;
+  }
   const display = screen.getPrimaryDisplay();
   const width = Math.min(720, Math.max(560, display.workArea.width - 80));
   const height = Math.min(520, Math.max(420, display.workArea.height - 80));
@@ -2420,7 +2473,15 @@ async function maybeRunComputerUseE2e(): Promise<void> {
           console.log(`${tag} turn ${e.type}`);
         }
       }
-      if (computerUseRealE2eFixture && !computerUseRealE2eFixture.isDestroyed()) {
+      if (layeredComputerUseFixture) {
+        const state = await layeredComputerUseFixture.readAllStates();
+        fixtureState = state;
+        console.log(`${tag} fixture_state ${JSON.stringify(state)}`);
+        const evaluation = layeredComputerUseFixture.evaluate(state);
+        if (!evaluation.pass) {
+          throw new Error(`layered CUA scenario failed: ${JSON.stringify(evaluation)}`);
+        }
+      } else if (computerUseRealE2eFixture && !computerUseRealE2eFixture.isDestroyed()) {
         const state = await computerUseRealE2eFixture.webContents.executeJavaScript(
           'globalThis.__makaRealCuState?.() ?? null',
           true,
@@ -2447,12 +2508,14 @@ async function maybeRunComputerUseE2e(): Promise<void> {
         }
       }
       const metricReport = {
+        scenarioId: process.env.MAKA_CU_E2E_SCENARIO ?? 'l1-single-click',
         connectionSlug: connection.slug,
         providerType: connection.providerType,
         model,
         turnLatencyMs: Date.now() - turnStartedAt,
         actions: metrics,
         fixtureState,
+        modelPlans: openAIComputerPlansBySession.get(session.id) ?? [],
       };
       console.log(`${tag} metrics ${JSON.stringify(metricReport)}`);
       const reportPath = process.env.MAKA_CU_REAL_E2E_REPORT;
@@ -2461,6 +2524,7 @@ async function maybeRunComputerUseE2e(): Promise<void> {
       }
       computerUseOverlay.clearForSession(session.id);
       computerUse.backend?.clearSession?.(session.id);
+      openAIComputerPlansBySession.delete(session.id);
       const toolsStr = [...toolCounts.entries()].map(([n, c]) => `${n}×${c}`).join(', ') || 'none';
       summary.push(`${i + 1}. computer×${cuActions} | all: ${toolsStr}`);
     } catch (error) {
@@ -2556,6 +2620,7 @@ async function runBeforeQuitCleanup(): Promise<void> {
   // agent-cursor overlay window (both synchronous, main-process-owned).
   computerUse.backend?.dispose?.();
   computerUseOverlay.destroyAll();
+  layeredComputerUseFixture?.destroy();
   const results = await Promise.allSettled([
     botRegistry.stopAll(),
     openGateway.stop(),

@@ -68,6 +68,7 @@ async function run() {
       MAKA_CU_E2E_MODE: 'bypass',
       MAKA_CU_E2E_CDP_PORT: String(cdpPort),
       MAKA_CU_REAL_E2E_REPORT: reportPath,
+      MAKA_CU_E2E_SCENARIO: process.env.MAKA_CU_E2E_SCENARIO ?? 'l1-single-click',
     },
     stdio: 'inherit',
   });

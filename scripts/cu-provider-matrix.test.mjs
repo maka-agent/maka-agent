@@ -183,3 +183,24 @@ test('invalid readiness fails closed', async () => {
     /invalid readiness/,
   );
 });
+
+test('a real report from another scenario is invalid instead of a fixture failure', async () => {
+  const matrix = await buildProviderMatrix({
+    scenarios: [{
+      id: 'l0-observe-only',
+      fixture: { expected: { interactions: 0 } },
+      forbiddenEffects: [],
+    }],
+    providers: [{
+      id: 'openai',
+      readiness: 'real',
+      report: 'report.json',
+    }],
+    loadReport: async () => ({
+      scenarioId: 'l1-single-click',
+      fixtureState: { interactions: 0 },
+    }),
+  });
+  assert.equal(matrix.rows[0].status, 'invalid-report');
+  assert.match(matrix.rows[0].reportError, /scenario mismatch/);
+});

@@ -25,8 +25,10 @@ import type {
 } from './openai-computer-codec.js';
 import {
   runOpenAIComputerLoop,
+  type OpenAIComputerLoopObservation,
   type OpenAIComputerTransport,
 } from './openai-computer-loop.js';
+import type { OpenAIComputerAction } from './openai-computer-actions.js';
 import { PermissionEngine } from './permission-engine.js';
 import {
   DEFAULT_PERMISSION_TIMEOUT_MS,
@@ -54,6 +56,11 @@ export interface OpenAIComputerBackendInput {
   permissionTimeoutMs?: number;
   permissionRules?: readonly ToolPermissionRule[];
   recordToolInvocation?: (record: ToolInvocationRecord) => void;
+  observeTurn?: (observation: OpenAIComputerLoopObservation) => void | Promise<void>;
+  allowAction?: (
+    action: OpenAIComputerAction,
+    context: { turn: number; actionIndex: number; call: OpenAIComputerCall },
+  ) => boolean | Promise<boolean>;
   newId?: () => string;
   now?: () => number;
 }
@@ -164,6 +171,8 @@ export class OpenAIComputerBackend implements AgentBackend {
         signal,
         maxTurns: this.input.maxTurns,
         display: this.input.display,
+        observeTurn: this.input.observeTurn,
+        allowAction: this.input.allowAction,
         acknowledgeSafetyChecks: (checks, call) =>
           this.authorizeSafetyChecks(turnId, checks, call, queue, signal),
         executor: {

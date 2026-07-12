@@ -15,9 +15,18 @@ test('scenario library validates and covers every layer', () => {
   assert.equal(validateCuE2eScenarioLibrary(), CU_E2E_SCENARIOS);
   assert.deepEqual(
     [...new Set(CU_E2E_SCENARIOS.map((scenario) => scenario.level))].sort(),
-    ['L0', 'L1', 'L2', 'L3'],
+    ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'],
   );
   assert.equal(new Set(CU_E2E_SCENARIOS.map((scenario) => scenario.id)).size, CU_E2E_SCENARIOS.length);
+});
+
+test('L4 and L5 use dedicated non-mutating runners', () => {
+  const l4 = getCuE2eScenario('l4-user-concurrency');
+  const l5 = getCuE2eScenario('l5-provider-matrix');
+  assert.equal(l4.runner, 'safety-sentinel');
+  assert.equal(l5.runner, 'provider-matrix');
+  assert.deepEqual(l4.allowedActions, ['screenshot', 'wait']);
+  assert.deepEqual(l5.allowedActions, ['screenshot']);
 });
 
 test('every scenario carries prompt, fixture, expected state, forbidden effects, and bounded actions', () => {
@@ -29,6 +38,8 @@ test('every scenario carries prompt, fixture, expected state, forbidden effects,
     assert.ok(scenario.forbiddenEffects.length > 0, scenario.id);
     assert.ok(scenario.allowedActions.includes('screenshot'), scenario.id);
     assert.ok(scenario.allowedActions.every((action) => knownActions.has(action)), scenario.id);
+    assert.equal(typeof scenario.realRunEnabled, 'boolean', scenario.id);
+    assert.ok(Array.isArray(scenario.requiresExecutionCapabilities), scenario.id);
   }
 });
 
@@ -43,6 +54,8 @@ test('layer action budgets increase deliberately', () => {
 
   const occlusion = getCuE2eScenario('l3-occlusion');
   assert.ok(!occlusion.allowedActions.includes('left_click'));
+  assert.equal(occlusion.realRunEnabled, true);
+  assert.equal(getCuE2eScenario('l3-two-window').realRunEnabled, false);
 });
 
 test('L3 isolates two-window, stale, and occlusion hazards', () => {

@@ -284,6 +284,12 @@ export async function buildProviderMatrix({
       if (readiness === 'real' && reportPath) {
         try {
           report = await loadReport(reportPath);
+          if (report.scenarioId !== scenario.id) {
+            reportError =
+              `scenario mismatch: report=${JSON.stringify(report.scenarioId)} `
+              + `expected=${JSON.stringify(scenario.id)}`;
+            report = null;
+          }
         } catch (error) {
           if (error?.code !== 'ENOENT') reportError = error instanceof Error ? error.message : String(error);
         }
