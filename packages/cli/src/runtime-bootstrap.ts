@@ -9,7 +9,7 @@ import {
   ShellRunProcessManager,
   buildPermissionAwareBuiltinTools,
   createDefaultSandboxManager,
-  createPermissionAwareSandboxContext,
+  createSessionSandboxContextProvider,
   buildDefaultContextBudgetPolicy,
   buildLlmHistorySummarizer,
   buildManualCompactLookupPolicy,
@@ -81,27 +81,11 @@ export async function createMakaCliRuntimeContext(
     store: shellRunStore,
     newId: randomUUID,
     now: Date.now,
-    getSandboxContext: async (shellInput) => {
-      try {
-        const header = await store.readHeader(shellInput.sessionId);
-        const cwd = await normalizedExistingPath(header.cwd);
-        return {
-          ok: true,
-          context: createPermissionAwareSandboxContext({
-            mode: header.permissionMode,
-            cwd,
-            workspaceRoots: [cwd],
-            sandboxManager,
-          }).context,
-        };
-      } catch (error) {
-        return {
-          ok: false,
-          reason: 'context_resolution_failed',
-          message: error instanceof Error ? error.message : String(error),
-        };
-      }
-    },
+    getSandboxContext: createSessionSandboxContextProvider({
+      readHeader: (sessionId) => store.readHeader(sessionId),
+      canonicalizeCwd: normalizedExistingPath,
+      sandboxManager,
+    }),
   });
   const initialCwd = await normalizedExistingPath(input.cwd);
   const tools = buildPermissionAwareBuiltinTools({

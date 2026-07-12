@@ -4,6 +4,7 @@ export {
   createPermissionAwareSandboxContext,
   deriveFilesystemWorkerProfile,
 } from './permission-aware-context.js';
+export { createSessionSandboxContextProvider } from './session-context-provider.js';
 export {
   sandboxErrorMetadata,
   serializeSandboxError,
@@ -14,6 +15,10 @@ export type {
   PermissionAwareSandboxContext,
   PermissionAwareSandboxContextAssembly,
 } from './permission-aware-context.js';
+export type {
+  CreateSessionSandboxContextProviderInput,
+  SandboxSessionHeader,
+} from './session-context-provider.js';
 export type {
   SandboxErrorDomain,
   SandboxErrorMetadata,

@@ -214,6 +214,7 @@ export {
   buildSeatbeltPolicy,
   createDefaultSandboxManager,
   createPermissionAwareSandboxContext,
+  createSessionSandboxContextProvider,
   deriveFilesystemWorkerProfile,
   createSeatbeltExecArgs,
   escapeSeatbeltRegex,
@@ -224,6 +225,10 @@ export type {
   BuildSeatbeltPolicyInput,
   BuildSeatbeltPolicyResult,
   CreateSeatbeltExecArgsInput,
+} from './sandbox/index.js';
+export type {
+  CreateSessionSandboxContextProviderInput,
+  SandboxSessionHeader,
 } from './sandbox/index.js';
 export type {
   SandboxBackend,
