@@ -3,6 +3,7 @@ import {
   openAIComputerActionSchema,
   type OpenAIComputerAction,
 } from './openai-computer-actions.js';
+import { OPENAI_COMPUTER_INSTRUCTIONS } from './openai-computer-policy.js';
 
 export type OpenAIComputerDialect = 'ga' | 'preview';
 
@@ -47,6 +48,7 @@ export type OpenAIComputerInputItem = {
 
 export interface OpenAIComputerRequest {
   model: string;
+  instructions: string;
   tools: Array<Record<string, unknown>>;
   input: string | OpenAIComputerInputItem[];
   previous_response_id?: string;
@@ -154,6 +156,7 @@ export function createOpenAIComputerInitialRequest(input: {
   if (input.dialect === 'ga') {
     return {
       model: input.model,
+      instructions: OPENAI_COMPUTER_INSTRUCTIONS,
       tools: [{ type: 'computer' }],
       input: input.prompt,
       parallel_tool_calls: false,
@@ -164,6 +167,7 @@ export function createOpenAIComputerInitialRequest(input: {
   }
   return {
     model: input.model,
+    instructions: OPENAI_COMPUTER_INSTRUCTIONS,
     tools: [{
       type: 'computer_use_preview',
       display_width: input.display.widthPx,

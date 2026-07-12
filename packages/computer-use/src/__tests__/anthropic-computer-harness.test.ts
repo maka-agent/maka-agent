@@ -47,3 +47,41 @@ test('Anthropic screenshots are sent in the exact declared model frame', () => {
     heightPx: 868,
   });
 });
+
+test('Anthropic actions keep the transform of the frame shown to the model', () => {
+  let display = { widthPx: 1920, heightPx: 1200 };
+  const harness = createAnthropicComputerHarness({
+    resolveCaptureDisplay: () => display,
+    resizeFrame: (screenshot, target) => ({ ...screenshot, ...target }),
+  });
+  harness.prepareScreenshot({
+    base64: 'AA==',
+    mimeType: 'image/png',
+    widthPx: 1920,
+    heightPx: 1200,
+  });
+  display = { widthPx: 2560, heightPx: 1600 };
+
+  assert.deepEqual(harness.toSourceAction({
+    type: 'left_click',
+    coordinate: { x: 916, y: 492 },
+  }), {
+    type: 'left_click',
+    coordinate: { x: 1266, y: 680 },
+  });
+});
+
+test('Anthropic rejects coordinates outside the declared model frame', () => {
+  const harness = createAnthropicComputerHarness({
+    resolveCaptureDisplay: () => ({ widthPx: 1920, heightPx: 1200 }),
+    resizeFrame: (screenshot) => screenshot,
+  });
+  assert.throws(() => harness.toSourceAction({
+    type: 'left_click',
+    coordinate: { x: 1389, y: 100 },
+  }), /invalid_coordinate/);
+  assert.throws(() => harness.toSourceAction({
+    type: 'left_click',
+    coordinate: { x: -1, y: 100 },
+  }), /invalid_coordinate/);
+});

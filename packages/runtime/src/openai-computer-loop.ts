@@ -56,6 +56,25 @@ function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw new Error('openai_computer_loop_aborted');
 }
 
+function snapshotComputerCall(call: OpenAIComputerCall): OpenAIComputerCall {
+  const actions = call.actions.map((action) => {
+    const clone = structuredClone(action);
+    if ('keys' in clone && Array.isArray(clone.keys)) Object.freeze(clone.keys);
+    if (clone.type === 'drag') {
+      for (const point of clone.path) Object.freeze(point);
+      Object.freeze(clone.path);
+    }
+    return Object.freeze(clone);
+  });
+  const pendingSafetyChecks = call.pendingSafetyChecks.map((check) =>
+    Object.freeze({ ...check }));
+  return Object.freeze({
+    ...call,
+    actions: Object.freeze(actions),
+    pendingSafetyChecks: Object.freeze(pendingSafetyChecks),
+  }) as OpenAIComputerCall;
+}
+
 export async function runOpenAIComputerLoop(input: {
   dialect: OpenAIComputerDialect;
   model: string;
@@ -109,7 +128,7 @@ export async function runOpenAIComputerLoop(input: {
       throw new Error(`unsupported_openai_computer_parallel_calls: received ${response.calls.length}`);
     }
 
-    const call = response.calls[0];
+    const call = snapshotComputerCall(response.calls[0]);
     await input.observeTurn?.({
       turn: turns,
       responseId: response.id,

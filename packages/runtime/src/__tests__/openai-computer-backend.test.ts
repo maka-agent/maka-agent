@@ -5,6 +5,7 @@ import type {
   SessionEvent,
   SessionHeader,
   StoredMessage,
+  ToolPermissionRule,
 } from '@maka/core';
 
 import { OpenAIComputerBackend } from '../openai-computer-backend.js';
@@ -138,6 +139,32 @@ describe('OpenAIComputerBackend', () => {
     }]);
   });
 
+  test('provider safety approval does not bypass a local computer-use deny rule', async () => {
+    const harness = createHarness({
+      permissionMode: 'bypass',
+      permissionRules: [{
+        effect: 'deny',
+        kind: 'category',
+        category: 'computer_use',
+      }],
+      responses: [
+        computerResponse(
+          [{ type: 'click', button: 'left', x: 20, y: 40 }],
+          [{ id: 'safe-1', code: 'confirm', message: 'Confirm click' }],
+        ),
+      ],
+    });
+
+    const events = await collect(harness.backend.send(sendInput()));
+
+    assert.deepEqual(events.map((event) => event.type), [
+      'permission_decision_ack',
+      'error',
+      'complete',
+    ]);
+    assert.equal(harness.actions.length, 0);
+  });
+
   test('emits tool failure before terminal backend error', async () => {
     const harness = createHarness({
       permissionMode: 'bypass',
@@ -188,6 +215,7 @@ describe('OpenAIComputerBackend', () => {
 
 function createHarness(input: {
   permissionMode: SessionHeader['permissionMode'];
+  permissionRules?: readonly ToolPermissionRule[];
   responses: unknown[];
   impl?: MakaTool['impl'];
 }) {
@@ -261,6 +289,7 @@ function createHarness(input: {
     computerTool,
     appendMessage: async (message) => { messages.push(message); },
     permissionEngine,
+    permissionRules: input.permissionRules,
     newId,
     now: () => ++now,
     recordToolInvocation: (record) => { telemetry.push(record); },

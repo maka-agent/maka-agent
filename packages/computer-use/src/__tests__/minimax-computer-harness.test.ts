@@ -28,10 +28,14 @@ test('MiniMax model coordinates map back through the explicit source/model trans
     x: 960,
     y: 600,
   });
-  assert.deepEqual(minimaxModelPointToSource({ x: 1280, y: 800 }, transform), {
+  assert.deepEqual(minimaxModelPointToSource({ x: 1279, y: 799 }, transform), {
     x: 1919,
     y: 1199,
   });
+  assert.throws(
+    () => minimaxModelPointToSource({ x: 1280, y: 800 }, transform),
+    /invalid_coordinate/,
+  );
 });
 
 test('MiniMax maps click, drag, and zoom coordinates back to the capture frame', () => {
@@ -99,4 +103,27 @@ test('MiniMax leaves cropped zoom frames outside the desktop transform untouched
     heightPx: 400,
   };
   assert.equal(harness.prepareScreenshot(crop), crop);
+});
+
+test('MiniMax actions use the transform captured with the latest screenshot', () => {
+  let display = { widthPx: 1920, heightPx: 1200 };
+  const harness = createMiniMaxComputerHarness({
+    resolveCaptureDisplay: () => display,
+    resizeFrame: (screenshot, target) => ({ ...screenshot, ...target }),
+  });
+  harness.prepareScreenshot({
+    base64: 'AA==',
+    mimeType: 'image/png',
+    widthPx: 1920,
+    heightPx: 1200,
+  });
+  display = { widthPx: 2560, heightPx: 1600 };
+
+  assert.deepEqual(harness.toSourceAction({
+    type: 'left_click',
+    coordinate: { x: 640, y: 400 },
+  }), {
+    type: 'left_click',
+    coordinate: { x: 960, y: 600 },
+  });
 });

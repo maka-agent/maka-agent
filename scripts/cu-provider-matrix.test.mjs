@@ -50,11 +50,17 @@ test('normalizeReport unifies real-model and direct-provider report fields', () 
 test('buildProviderMatrix covers Claude, OpenAI, Kimi, and MiniMax readiness', async () => {
   const reports = new Map([
     ['/reports/claude-click.json', {
+      scenarioId: 'click',
+      evidenceClass: 'real-runtime',
+      policyMode: 'enforced',
       actions: [{ modelLatencyMs: 100, toolLatencyMs: 25, displayLagMs: 5 }],
       fixtureState: { blue: 1, red: 0 },
       forbiddenEffects: [],
     }],
     ['/reports/openai-click.json', {
+      scenarioId: 'click',
+      evidenceClass: 'real-runtime',
+      policyMode: 'enforced',
       actions: [{ durationMs: 30 }, { durationMs: 50 }],
       actionCount: 2,
       retries: 0,
@@ -115,10 +121,10 @@ test('buildProviderMatrix covers Claude, OpenAI, Kimi, and MiniMax readiness', a
   assert.equal(matrix.rows[3].status, 'unsupported');
 
   const markdown = renderMarkdown(matrix);
-  assert.match(markdown, /Claude \| Owned fixture click \| real \| pass/);
-  assert.match(markdown, /OpenAI \| Owned fixture click \| real \| fail/);
-  assert.match(markdown, /Kimi \| Owned fixture click \| contract \| contract-only/);
-  assert.match(markdown, /MiniMax \| Owned fixture click \| unsupported \| unsupported/);
+  assert.match(markdown, /Claude \| Owned fixture click \| real \| real-runtime \| enforced \| pass/);
+  assert.match(markdown, /OpenAI \| Owned fixture click \| real \| real-runtime \| enforced \| fail/);
+  assert.match(markdown, /Kimi \| Owned fixture click \| contract \| - \| - \| contract-only/);
+  assert.match(markdown, /MiniMax \| Owned fixture click \| unsupported \| - \| - \| unsupported/);
 });
 
 test('CLI writes JSON and Markdown without executing provider command templates', async () => {
@@ -151,6 +157,9 @@ test('CLI writes JSON and Markdown without executing provider command templates'
       ],
     })),
     writeFile(reportPath, JSON.stringify({
+      scenarioId: 'click',
+      evidenceClass: 'real-runtime',
+      policyMode: 'enforced',
       actions: [{ modelLatencyMs: 50, toolLatencyMs: 10, displayLagMs: 2 }],
       fixtureState: { blue: 1, red: 0 },
       forbiddenEffects: [],
@@ -198,9 +207,39 @@ test('a real report from another scenario is invalid instead of a fixture failur
     }],
     loadReport: async () => ({
       scenarioId: 'l1-single-click',
+      evidenceClass: 'real-runtime',
+      policyMode: 'enforced',
       fixtureState: { interactions: 0 },
     }),
   });
   assert.equal(matrix.rows[0].status, 'invalid-report');
   assert.match(matrix.rows[0].reportError, /scenario mismatch/);
+});
+
+test('a hermetic or unlabeled report cannot satisfy real-provider readiness', async () => {
+  for (const evidenceClass of [undefined, 'hermetic-protocol']) {
+    const matrix = await buildProviderMatrix({
+      scenarios: [{ id: 'click' }],
+      providers: [{ id: 'openai', readiness: 'real', report: 'report.json' }],
+      loadReport: async () => ({
+        scenarioId: 'click',
+        evidenceClass,
+      }),
+    });
+    assert.equal(matrix.rows[0].status, 'invalid-report');
+    assert.match(matrix.rows[0].reportError, /real-runtime/);
+  }
+});
+
+test('a bypassed real run is labeled instead of reported as an unqualified pass', async () => {
+  const matrix = await buildProviderMatrix({
+    scenarios: [{ id: 'click' }],
+    providers: [{ id: 'openai', readiness: 'real', report: 'report.json' }],
+    loadReport: async () => ({
+      scenarioId: 'click',
+      evidenceClass: 'real-runtime',
+      policyMode: 'bypassed',
+    }),
+  });
+  assert.equal(matrix.rows[0].status, 'pass-policy-bypassed');
 });

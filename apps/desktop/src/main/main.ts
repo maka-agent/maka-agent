@@ -230,6 +230,25 @@ let layeredComputerUseScenario:
   | undefined;
 const openAIComputerPlansBySession = new Map<string, unknown[]>();
 
+function sanitizeOpenAIComputerPlans(
+  plans: readonly unknown[],
+): Array<{ turn?: number; actionTypes: string[] }> {
+  return plans.map((plan) => {
+    const record = plan && typeof plan === 'object'
+      ? plan as { turn?: unknown; actions?: unknown }
+      : {};
+    return {
+      ...(Number.isFinite(record.turn) ? { turn: record.turn as number } : {}),
+      actionTypes: Array.isArray(record.actions)
+        ? record.actions.map((action) =>
+            action && typeof action === 'object' && typeof (action as { type?: unknown }).type === 'string'
+              ? (action as { type: string }).type
+              : 'unknown')
+        : [],
+    };
+  });
+}
+
 // E2E isolation: redirect userData BEFORE the single-instance lock so the
 // lock judges the throwaway dir, not the real user data — otherwise a
 // developer with Maka open makes the E2E process exit as a "second instance".
@@ -897,43 +916,61 @@ function modelSupportsVision(connection: LlmConnection, model: string): boolean 
   return resolveModelVisionSupport(connection.providerType, connection.models, model);
 }
 
+function openAIComputerDialectForConnection(
+  connection: LlmConnection,
+): 'ga' | 'preview' | undefined {
+  const dialect = connection.extras?.computerUseDialect;
+  if (connection.providerType !== 'openai') return undefined;
+  if (dialect === 'openai-ga') return 'ga';
+  if (dialect === 'openai-preview') return 'preview';
+  return undefined;
+}
+
 backends.register('ai-sdk', async (ctx) => {
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
   const providerComputerTools = computerUseToolsForConnection(connection);
-  if (isOpenAIComputerUseRealE2e && connection.providerType === 'openai') {
+  const openAIComputerDialect = openAIComputerDialectForConnection(connection);
+  if (openAIComputerDialect) {
     const computerTool = computerUseTools[0];
-    if (!computerTool) throw new Error('OpenAI Computer Use E2E requires a computer backend');
+    if (!computerTool) throw new Error('OpenAI Computer Use requires a computer backend');
     const actionCounts = new Map<string, number>();
     return new OpenAIComputerBackend({
       sessionId: ctx.sessionId,
       header: { ...ctx.header, model },
       connection,
       modelId: model,
-      dialect: 'ga',
+      dialect: openAIComputerDialect,
       transport: createOpenAIResponsesTransport({
         baseUrl: connection.baseUrl ?? 'http://127.0.0.1:8538/v1',
+        ...(apiKey ? { apiKey } : {}),
       }),
-      computerTool: openAIRealE2eComputerTool(computerTool),
+      computerTool: isOpenAIComputerUseRealE2e
+        ? openAIRealE2eComputerTool(computerTool)
+        : computerTool,
       appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
       permissionEngine,
-      maxTurns: 16,
-      observeTurn: (observation) => {
-        const plans = openAIComputerPlansBySession.get(ctx.sessionId) ?? [];
-        plans.push(observation);
-        openAIComputerPlansBySession.set(ctx.sessionId, plans);
-      },
-      allowAction: (action) => {
-        const scenario = layeredComputerUseScenario;
-        if (!scenario) return true;
-        if (!scenario.allowedActions.includes(action.type)) return false;
-        const count = (actionCounts.get(action.type) ?? 0) + 1;
-        actionCounts.set(action.type, count);
-        const maximum = scenario.maxActionCounts?.[action.type];
-        return maximum === undefined || count <= maximum;
-      },
+      ...(isOpenAIComputerUseRealE2e
+        ? {
+            maxTurns: 16,
+            observeTurn: (observation) => {
+              const plans = openAIComputerPlansBySession.get(ctx.sessionId) ?? [];
+              plans.push(observation);
+              openAIComputerPlansBySession.set(ctx.sessionId, plans);
+            },
+            allowAction: (action) => {
+              const scenario = layeredComputerUseScenario;
+              if (!scenario) return true;
+              if (!scenario.allowedActions.includes(action.type)) return false;
+              const count = (actionCounts.get(action.type) ?? 0) + 1;
+              actionCounts.set(action.type, count);
+              const maximum = scenario.maxActionCounts?.[action.type];
+              return maximum === undefined || count <= maximum;
+            },
+          }
+        : {}),
       recordToolInvocation: (event) =>
         recordToolInvocation({ repo: telemetryRepo }, event),
     });
@@ -2421,7 +2458,7 @@ async function maybeRunComputerUseE2e(): Promise<void> {
       });
       emitSessionsChanged('created', session.id);
       console.log(`${tag} session=${session.id} mode=${mode} model=${model}`);
-      console.log(`${tag} prompt: ${prompt}`);
+      console.log(`${tag} prompt_chars=${[...prompt].length}`);
       const turnId = randomUUID();
       const turnStartedAt = Date.now();
       let previousToolResultAt = turnStartedAt;
@@ -2468,7 +2505,7 @@ async function maybeRunComputerUseE2e(): Promise<void> {
               metric.displayLagMs = computerUseDisplayLagByAction.get(e.toolUseId);
             }
           }
-          console.log(`${tag} tool_result ${JSON.stringify(e.content ?? '').slice(0, 240)}`);
+          console.log(`${tag} tool_result tool=${e.toolName ?? 'unknown'}`);
         } else if (e.type === 'complete' || e.type === 'error' || e.type === 'abort') {
           console.log(`${tag} turn ${e.type}`);
         }
@@ -2508,6 +2545,9 @@ async function maybeRunComputerUseE2e(): Promise<void> {
         }
       }
       const metricReport = {
+        schemaVersion: 1,
+        evidenceClass: 'real-runtime',
+        policyMode: process.env.MAKA_CU_E2E_MODE === 'bypass' ? 'bypassed' : 'enforced',
         scenarioId: process.env.MAKA_CU_E2E_SCENARIO ?? 'l1-single-click',
         connectionSlug: connection.slug,
         providerType: connection.providerType,
@@ -2515,12 +2555,15 @@ async function maybeRunComputerUseE2e(): Promise<void> {
         turnLatencyMs: Date.now() - turnStartedAt,
         actions: metrics,
         fixtureState,
-        modelPlans: openAIComputerPlansBySession.get(session.id) ?? [],
+        modelPlans: sanitizeOpenAIComputerPlans(openAIComputerPlansBySession.get(session.id) ?? []),
       };
       console.log(`${tag} metrics ${JSON.stringify(metricReport)}`);
       const reportPath = process.env.MAKA_CU_REAL_E2E_REPORT;
       if ((isComputerUseRealE2e || isOpenAIComputerUseRealE2e) && reportPath) {
-        await writeFile(reportPath, `${JSON.stringify(metricReport, null, 2)}\n`, 'utf8');
+        await writeFile(reportPath, `${JSON.stringify(metricReport, null, 2)}\n`, {
+          encoding: 'utf8',
+          mode: 0o600,
+        });
       }
       computerUseOverlay.clearForSession(session.id);
       computerUse.backend?.clearSession?.(session.id);

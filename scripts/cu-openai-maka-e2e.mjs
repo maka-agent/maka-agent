@@ -38,6 +38,7 @@ await connections.create({
   providerType: 'openai',
   baseUrl: process.env.MAKA_CU_OPENAI_BASE_URL ?? 'http://127.0.0.1:8538/v1',
   defaultModel: process.env.MAKA_CU_OPENAI_MODEL ?? 'gpt-5.4',
+  extras: { computerUseDialect: 'openai-ga' },
 });
 await credentials.setSecret('openai-azure-bridge', 'api_key', 'local-bridge');
 await connections.setDefault('openai-azure-bridge');

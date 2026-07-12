@@ -10,6 +10,7 @@ import type { OpenAIComputerRequest } from '../openai-computer-codec.js';
 const servers: Array<{ close(): Promise<void> }> = [];
 const request = (over: Partial<OpenAIComputerRequest> = {}): OpenAIComputerRequest => ({
   model: 'gpt-test',
+  instructions: 'test policy',
   tools: [{ type: 'computer' }],
   input: 'hello',
   parallel_tool_calls: false,
@@ -135,6 +136,19 @@ describe('OpenAIResponsesTransport', () => {
       assert.equal(error.name, 'AbortError');
       return true;
     });
+  });
+
+  test('rejects an oversized success response before parsing or logging it', async () => {
+    const server = await startServer((_request, response) => {
+      response.setHeader('content-length', String(17 * 1024 * 1024));
+      response.end('{}');
+    });
+    const transport = new OpenAIResponsesTransport({ baseUrl: server.url });
+
+    await assert.rejects(
+      () => transport.create(request(), new AbortController().signal),
+      { message: 'openai_responses_body_too_large' },
+    );
   });
 });
 

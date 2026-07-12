@@ -293,6 +293,7 @@ const beginCaptureByAction = new Map();
 const completeCaptureByAction = new Map();
 const report = {
   version: 2,
+  evidenceClass: 'real-runtime',
   runId: process.env.MAKA_CU_E2E_RUN_ID || `cu-e2e-${Date.now()}`,
   startedAt: new Date().toISOString(),
   cdpPort: Number(process.env.MAKA_CU_E2E_CDP_PORT || 0),

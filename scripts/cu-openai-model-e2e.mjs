@@ -2,6 +2,7 @@ import { app, BrowserWindow, nativeImage, screen } from 'electron';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sanitizeCuDirectReport } from './cu-report-sanitize.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..');
@@ -222,6 +223,10 @@ async function run() {
   });
   const state = await fixture.webContents.executeJavaScript('globalThis.__makaState()', true);
   const report = {
+    schemaVersion: 1,
+    evidenceClass: 'real-runtime',
+    policyMode: 'bypassed',
+    scenarioId: process.env.MAKA_CU_E2E_SCENARIO ?? 'l1-single-click',
     model,
     baseUrl,
     cdpPort,
@@ -236,8 +241,12 @@ async function run() {
       heightPx: Math.round(display.bounds.height * display.scaleFactor),
     },
   };
+  const sanitizedReport = sanitizeCuDirectReport(report);
   await mkdir(dirname(reportPath), { recursive: true });
-  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  await writeFile(reportPath, `${JSON.stringify(sanitizedReport, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
   console.log(`[cu-openai-e2e] ${JSON.stringify({
     model,
     totalLatencyMs: report.totalLatencyMs,

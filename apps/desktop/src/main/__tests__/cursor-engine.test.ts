@@ -12,7 +12,7 @@ const finite = (v: number): boolean => Number.isFinite(v);
 const REST_HEADING = Math.PI / 4;
 const ARROW_TIP_LENGTH = 14;
 
-test('Dubins path: exact endpoints, finite length, C0 continuity', () => {
+test('Dubins path primitive remains finite for legacy callers', () => {
   const path = planPath(0, 0, 0, 400, 200, Math.PI / 4, Math.PI / 4, 80);
   assert.ok(finite(path.length) && path.length > 0, `length ${path.length}`);
   const s0 = path.sample(0);
@@ -29,6 +29,13 @@ test('Dubins path: exact endpoints, finite length, C0 continuity', () => {
     prev = cur;
   }
   assert.ok(maxStep < (path.length / N) * 3, `continuity: max step ${maxStep}`);
+});
+
+test('direct planner is the shortest path and ends exactly at the target', () => {
+  const path = planDirectPath(12, 34, 112, 84, REST_HEADING);
+  assert.ok(Math.abs(path.length - Math.hypot(100, 50)) < 0.001);
+  const end = path.sample(path.length);
+  assert.ok(Math.hypot(end.x - 112, end.y - 84) < 0.001);
 });
 
 test('speed profile peaks at 1.0 at u=0.5 (smootherstep)', () => {
@@ -157,7 +164,7 @@ test('cursor bloom is centered on the arrow hotspot', () => {
   assert.deepEqual(gradients[0]?.slice(0, 5), [320, 240, 0, 320, 240]);
 });
 
-test('path planner bounds detours for short moves', () => {
+test('direct path planner never detours for short moves', () => {
   const cases = [
     [100, 100, 120, 120],
     [100, 100, 150, 100],
@@ -165,17 +172,10 @@ test('path planner bounds detours for short moves', () => {
   ] as const;
   for (const [x0, y0, x1, y1] of cases) {
     const direct = Math.hypot(x1 - x0, y1 - y0);
-    const path = planPath(
-      x0,
-      y0,
-      0,
-      x1,
-      y1,
-      REST_HEADING + Math.PI,
-      REST_HEADING,
-      Math.max(8, direct / 2.5),
-    );
-    assert.ok(path.length <= Math.max(direct * 1.45, direct + 36) + 0.01);
+    const path = planDirectPath(x0, y0, x1, y1, REST_HEADING);
+    assert.ok(Math.abs(path.length - direct) < 0.001);
+    const end = path.sample(path.length);
+    assert.ok(Math.hypot(end.x - x1, end.y - y1) < 0.001);
   }
 });
 

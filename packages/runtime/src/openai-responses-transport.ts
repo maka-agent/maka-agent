@@ -3,6 +3,7 @@ import type { OpenAIComputerRequest } from './openai-computer-codec.js';
 import type { OpenAIComputerTransport } from './openai-computer-loop.js';
 
 const ERROR_DETAIL_MAX_CHARS = 1_000;
+const RESPONSE_BODY_MAX_BYTES = 16 * 1024 * 1024;
 
 export interface OpenAIResponsesTransportOptions {
   baseUrl: string;
@@ -44,7 +45,7 @@ export class OpenAIResponsesTransport implements OpenAIComputerTransport {
       body: JSON.stringify(request),
       signal,
     });
-    const body = await response.text();
+    const body = await readBoundedResponseText(response, RESPONSE_BODY_MAX_BYTES);
 
     if (!response.ok) {
       const detail = safeErrorDetail(body, this.#secrets);
@@ -61,6 +62,38 @@ export class OpenAIResponsesTransport implements OpenAIComputerTransport {
       throw new Error('openai_responses_malformed_json');
     }
   }
+}
+
+async function readBoundedResponseText(response: Response, maxBytes: number): Promise<string> {
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new Error('openai_responses_body_too_large');
+  }
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel();
+        throw new Error('openai_responses_body_too_large');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const body = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(body);
 }
 
 export function createOpenAIResponsesTransport(

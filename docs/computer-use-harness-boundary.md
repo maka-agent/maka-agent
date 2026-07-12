@@ -4,6 +4,11 @@
 
 Provider model loops and host execution are separate contracts.
 
+Provider-native Computer Use selection is explicit. An OpenAI connection must
+declare `extras.computerUseDialect` as `openai-ga` or `openai-preview`; Maka
+does not infer support from a model-name regex or from generic vision/function
+calling capability.
+
 Provider harnesses own:
 
 - provider wire protocol and continuation state;
@@ -11,6 +16,7 @@ Provider harnesses own:
 - model action parsing, action budgets, and retries;
 - safety-check routing into Maka permission events;
 - model, tool, and display latency reporting.
+- evidence labeling and redaction for provider reports.
 
 The host execution layer owns:
 
@@ -38,6 +44,30 @@ The bundled Codex Computer Use runtime confirms this split:
 
 Maka should adopt these execution invariants without copying Codex's proprietary
 transport or replacing Maka's stronger `path / effect / verified` evidence.
+
+## Evidence Contract
+
+Computer Use results must state what they prove:
+
+- `real-runtime`: a real provider model and production Maka runtime ran against
+  a controlled fixture with fresh post-action verification;
+- `hermetic-protocol`: fake transports or sockets proved framing, parsing,
+  ordering, policy, and fail-closed behavior without touching real apps;
+- `static-contract`: source, schema, or binary inspection proved that a contract
+  exists, but did not execute it.
+
+Only `real-runtime` reports may satisfy a provider matrix cell marked `real`.
+Reports must not persist prompts, credentials, screenshot bytes, AX text, or raw
+provider responses. Mock and static evidence remain useful, but never inherit an
+unqualified "works" result.
+
+## Model Content Boundary
+
+Screenshot pixels, AX text, window titles, page content, and application messages
+are untrusted model inputs. Provider harnesses must keep system and user intent
+outside that content channel, reject unsupported action semantics, freeze action
+parameters before asynchronous policy work, and re-observe after unexpected
+navigation or state changes.
 
 ## PR Boundary
 

@@ -49,9 +49,22 @@ export function minimaxModelPointToSource(
   transform: MiniMaxComputerFrameTransform,
 ): { x: number; y: number } {
   const { source, model } = transform;
+  if (
+    !Number.isInteger(point.x)
+    || !Number.isInteger(point.y)
+    || point.x < 0
+    || point.y < 0
+    || point.x >= model.widthPx
+    || point.y >= model.heightPx
+  ) {
+    throw new Error(
+      `invalid_coordinate: MiniMax model point (${point.x},${point.y}) is outside `
+      + `${model.widthPx}x${model.heightPx}`,
+    );
+  }
   return {
-    x: Math.max(0, Math.min(Math.round(point.x * source.widthPx / model.widthPx), source.widthPx - 1)),
-    y: Math.max(0, Math.min(Math.round(point.y * source.heightPx / model.heightPx), source.heightPx - 1)),
+    x: Math.min(Math.round(point.x * source.widthPx / model.widthPx), source.widthPx - 1),
+    y: Math.min(Math.round(point.y * source.heightPx / model.heightPx), source.heightPx - 1),
   };
 }
 
@@ -99,11 +112,16 @@ export function createMiniMaxComputerHarness(
 ): CuFrameAdapter {
   const resolveTransform = () =>
     minimaxComputerFrameTransform(options.resolveCaptureDisplay());
+  let currentTransform: MiniMaxComputerFrameTransform | undefined;
+  const declareTransform = () => {
+    currentTransform = resolveTransform();
+    return currentTransform;
+  };
 
   return {
-    resolveModelDisplay: () => resolveTransform().model,
+    resolveModelDisplay: () => declareTransform().model,
     toSourceAction(action) {
-      return toSourceAction(action, resolveTransform());
+      return toSourceAction(action, currentTransform ?? declareTransform());
     },
     prepareScreenshot(screenshot) {
       const transform = resolveTransform();
@@ -113,6 +131,7 @@ export function createMiniMaxComputerHarness(
       ) {
         return screenshot;
       }
+      currentTransform = transform;
       if (
         screenshot.widthPx === transform.model.widthPx
         && screenshot.heightPx === transform.model.heightPx

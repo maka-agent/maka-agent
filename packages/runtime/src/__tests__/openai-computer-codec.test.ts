@@ -5,6 +5,7 @@ import {
   createOpenAIComputerInitialRequest,
   decodeOpenAIComputerResponse,
 } from '../openai-computer-codec.js';
+import { OPENAI_COMPUTER_INSTRUCTIONS } from '../openai-computer-policy.js';
 
 const common = {
   type: 'computer_call',
@@ -77,6 +78,7 @@ describe('OpenAI computer codec', () => {
       prompt: 'go',
     }), {
       model: 'gpt',
+      instructions: OPENAI_COMPUTER_INSTRUCTIONS,
       tools: [{ type: 'computer' }],
       input: 'go',
       parallel_tool_calls: false,
@@ -88,6 +90,7 @@ describe('OpenAI computer codec', () => {
       display: { widthPx: 1024, heightPx: 768, environment: 'browser' },
     }), {
       model: 'computer-use-preview',
+      instructions: OPENAI_COMPUTER_INSTRUCTIONS,
       tools: [{
         type: 'computer_use_preview',
         display_width: 1024,

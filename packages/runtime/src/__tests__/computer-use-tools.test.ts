@@ -4,6 +4,7 @@ import type { CuAction } from '@maka/core';
 import {
   adaptToCuAction,
   buildComputerUseTools,
+  snapshotComputerParams,
   type CuDispatchBackend,
   type CuRunContext,
   type CuRunResult,
@@ -88,6 +89,43 @@ describe('adaptToCuAction — flat Anthropic grammar → discriminated CuAction'
   test('type without text throws', () => {
     assert.throws(() => adaptToCuAction({ action: 'type' } as never), /requires text/);
   });
+
+  test('provider function schema rejects unrelated fields and invalid coordinates', () => {
+    const [tool] = buildComputerUseTools({ backend: fakeBackend() });
+    const schema = tool.parameters as {
+      safeParse(value: unknown): { success: boolean };
+    };
+    assert.equal(schema.safeParse({ action: 'screenshot', coordinate: [1, 2] }).success, false);
+    assert.equal(schema.safeParse({ action: 'left_click', coordinate: [-1, 2] }).success, false);
+    assert.equal(schema.safeParse({ action: 'left_click', coordinate: [1.5, 2] }).success, false);
+    assert.equal(schema.safeParse({ action: 'left_click', coordinate: [1, 2] }).success, true);
+  });
+});
+
+test('computer params are copied and frozen before asynchronous policy checks', () => {
+  const coordinate = [10, 20] as [number, number];
+  const input = { action: 'left_click', coordinate } as never;
+  const snapshot = snapshotComputerParams(input);
+  coordinate[0] = 999;
+  (input as { action: string }).action = 'right_click';
+
+  assert.deepEqual(snapshot, { action: 'left_click', coordinate: [10, 20] });
+  assert.equal(Object.isFrozen(snapshot), true);
+  assert.equal(Object.isFrozen(snapshot.coordinate), true);
+});
+
+test('computer params reject accessors before policy or execution', () => {
+  const input = {};
+  Object.defineProperty(input, 'action', {
+    enumerable: true,
+    get() {
+      throw new Error('getter must not run');
+    },
+  });
+  assert.throws(
+    () => snapshotComputerParams(input as never),
+    /must be a plain data property/,
+  );
 });
 
 describe('buildComputerUseTools — the `computer` MakaTool', () => {

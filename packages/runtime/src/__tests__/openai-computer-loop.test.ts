@@ -272,4 +272,49 @@ describe('runOpenAIComputerLoop', () => {
       { turn: 2, actions: ['screenshot'] },
     ]);
   });
+
+  test('observer and policy hooks cannot mutate the action plan before execution', async () => {
+    const executed: unknown[] = [];
+    const responses = [
+      {
+        id: 'resp_1',
+        status: 'completed',
+        error: null,
+        output: [call({ actions: [{ type: 'click', button: 'left', x: 10, y: 20 }] })],
+      },
+      { id: 'resp_2', status: 'completed', error: null, output: [] },
+    ];
+    const result = await runOpenAIComputerLoop({
+      dialect: 'ga',
+      model: 'gpt',
+      prompt: 'go',
+      transport: { async create() { return responses.shift(); } },
+      executor: {
+        async execute(action) {
+          executed.push(action);
+        },
+      },
+      screenshot: {
+        async capture() {
+          return { base64: 'AA==', mimeType: 'image/png' };
+        },
+      },
+      observeTurn: (observation) => {
+        assert.throws(() => {
+          (observation.actions[0] as { x: number }).x = 999;
+        }, TypeError);
+      },
+      allowAction: (action) => {
+        assert.throws(() => {
+          (action as { y: number }).y = 999;
+        }, TypeError);
+        return true;
+      },
+    });
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(executed, [{
+      type: 'left_click',
+      coordinate: { x: 10, y: 20 },
+    }]);
+  });
 });

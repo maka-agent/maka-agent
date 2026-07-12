@@ -3,6 +3,11 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const READINESS = new Set(['real', 'contract', 'unsupported']);
+const EVIDENCE_CLASSES = new Set([
+  'real-runtime',
+  'hermetic-protocol',
+  'static-contract',
+]);
 
 function optionValue(argv, names) {
   for (const name of names) {
@@ -202,6 +207,10 @@ export function normalizeReport(report, scenario) {
     ? actionDisplayValues
     : [report.displayLagMs, report.displayLag];
   return {
+    evidenceClass: EVIDENCE_CLASSES.has(report.evidenceClass) ? report.evidenceClass : null,
+    policyMode: report.policyMode === 'enforced' || report.policyMode === 'bypassed'
+      ? report.policyMode
+      : null,
     modelLatency: summarizeLatency(modelValues),
     toolLatency: summarizeLatency(toolValues),
     displayLag: summarizeLatency(displayValues),
@@ -218,6 +227,7 @@ function rowStatus(readiness, report, metrics) {
   if (!report) return 'missing-report';
   if (metrics.fixture.status === 'fail' || metrics.forbiddenEffects.status === 'fail') return 'fail';
   if (metrics.fixture.status === 'unknown') return 'inconclusive';
+  if (report.policyMode === 'bypassed') return 'pass-policy-bypassed';
   return 'pass';
 }
 
@@ -289,12 +299,19 @@ export async function buildProviderMatrix({
               `scenario mismatch: report=${JSON.stringify(report.scenarioId)} `
               + `expected=${JSON.stringify(scenario.id)}`;
             report = null;
+          } else if (report.evidenceClass !== 'real-runtime') {
+            reportError =
+              `real provider reports require evidenceClass="real-runtime"; received `
+              + `${JSON.stringify(report.evidenceClass)}`;
+            report = null;
           }
         } catch (error) {
           if (error?.code !== 'ENOENT') reportError = error instanceof Error ? error.message : String(error);
         }
       }
       const metrics = report ? normalizeReport(report, scenario) : {
+        evidenceClass: null,
+        policyMode: null,
         modelLatency: null,
         toolLatency: null,
         displayLag: null,
@@ -362,14 +379,16 @@ export function renderMarkdown(matrix) {
     '',
     `Providers: ${matrix.summary.providers} | Scenarios: ${matrix.summary.scenarios} | Cells: ${matrix.summary.cells}`,
     '',
-    '| Provider | Scenario | Readiness | Status | Model p50/p95/avg | Tool p50/p95/avg | Display p50/p95/avg | Actions | Retries | Fixture | Forbidden effects |',
-    '| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |',
+    '| Provider | Scenario | Readiness | Evidence | Policy | Status | Model p50/p95/avg | Tool p50/p95/avg | Display p50/p95/avg | Actions | Retries | Fixture | Forbidden effects |',
+    '| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |',
   ];
   for (const row of matrix.rows) {
     lines.push([
       row.provider,
       row.scenario,
       row.readiness,
+      row.evidenceClass,
+      row.policyMode,
       row.status,
       latencyCell(row.modelLatency),
       latencyCell(row.toolLatency),

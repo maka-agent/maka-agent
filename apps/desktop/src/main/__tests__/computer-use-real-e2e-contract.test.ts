@@ -20,7 +20,9 @@ test('real computer-use E2E owns a screenshot-visible fixture and verifies its e
   assert.match(source, /maybeCreateComputerUseRealE2eFixture/);
   assert.match(source, /Increment blue/);
   assert.match(source, /Do not click red/);
-  assert.match(source, /state\?\.blue !== 1 \|\| state\?\.red !== 0/);
+  assert.match(source, /const expectedBlue = Number\(process\.env\.MAKA_CU_E2E_EXPECT_BLUE \?\? 1\)/);
+  assert.match(source, /state\?\.blue !== expectedBlue \|\| state\?\.red !== expectedRed/);
+  assert.match(source, /layeredComputerUseFixture\.evaluate\(state\)/);
 });
 
 test('real computer-use E2E exposes only load_tools and computer to the model', () => {
@@ -39,8 +41,16 @@ test('real model launcher enables loopback CDP for exact Electron page targeting
   assert.match(launcher, /--remote-debugging-port=\$\{cdpPort\}/);
   assert.match(launcher, /MAKA_CU_E2E_CDP_PORT: String\(cdpPort\)/);
   assert.match(launcher, /MAKA_CU_REAL_E2E_REPORT: reportPath/);
+  assert.match(source, /evidenceClass: 'real-runtime'/);
 });
 
 test('providers without a completed native harness do not receive generic desktop computer tools', () => {
   assert.match(source, /case 'moonshot':[\s\S]*case 'openai':[\s\S]*case 'codex-subscription':[\s\S]*case 'google':[\s\S]*return \[\]/);
+});
+
+test('OpenAI native computer use is selected by explicit connection capability, not model-name guessing', () => {
+  assert.match(source, /connection\.extras\?\.computerUseDialect/);
+  assert.match(source, /dialect === 'openai-ga'/);
+  assert.match(source, /if \(openAIComputerDialect\)/);
+  assert.doesNotMatch(source, /model\.startsWith\(['"]gpt-/);
 });

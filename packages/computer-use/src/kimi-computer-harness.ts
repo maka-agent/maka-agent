@@ -32,21 +32,42 @@ function mapPoint(
   source: { widthPx: number; heightPx: number },
   model: { widthPx: number; heightPx: number },
 ): { x: number; y: number } {
+  if (
+    !Number.isInteger(point.x)
+    || !Number.isInteger(point.y)
+    || point.x < 0
+    || point.y < 0
+    || point.x >= model.widthPx
+    || point.y >= model.heightPx
+  ) {
+    throw new Error(
+      `invalid_coordinate: Kimi model point (${point.x},${point.y}) is outside `
+      + `${model.widthPx}x${model.heightPx}`,
+    );
+  }
   return {
-    x: Math.max(0, Math.min(Math.round(point.x * source.widthPx / model.widthPx), source.widthPx - 1)),
-    y: Math.max(0, Math.min(Math.round(point.y * source.heightPx / model.heightPx), source.heightPx - 1)),
+    x: Math.min(Math.round(point.x * source.widthPx / model.widthPx), source.widthPx - 1),
+    y: Math.min(Math.round(point.y * source.heightPx / model.heightPx), source.heightPx - 1),
   };
 }
 
 export function createKimiComputerHarness(options: KimiComputerHarnessOptions): CuFrameAdapter {
-  const frames = () => {
+  let currentTransform: {
+    source: { widthPx: number; heightPx: number };
+    model: { widthPx: number; heightPx: number };
+  } | undefined;
+  const resolveTransform = () => {
     const source = options.resolveCaptureDisplay();
     return { source, model: kimiComputerImageSize(source.widthPx, source.heightPx) };
   };
+  const declareTransform = () => {
+    currentTransform = resolveTransform();
+    return currentTransform;
+  };
   return {
-    resolveModelDisplay: () => frames().model,
+    resolveModelDisplay: () => declareTransform().model,
     toSourceAction(action) {
-      const { source, model } = frames();
+      const { source, model } = currentTransform ?? declareTransform();
       switch (action.type) {
         case 'mouse_move':
         case 'left_click':
@@ -74,8 +95,10 @@ export function createKimiComputerHarness(options: KimiComputerHarnessOptions): 
       }
     },
     prepareScreenshot(screenshot) {
-      const { source, model } = frames();
+      const transform = resolveTransform();
+      const { source, model } = transform;
       if (screenshot.widthPx !== source.widthPx || screenshot.heightPx !== source.heightPx) return screenshot;
+      currentTransform = transform;
       return source.widthPx === model.widthPx && source.heightPx === model.heightPx
         ? screenshot
         : options.resizeFrame(screenshot, model);

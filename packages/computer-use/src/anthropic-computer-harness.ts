@@ -53,23 +53,44 @@ function scalePoint(
   source: { widthPx: number; heightPx: number },
   model: { widthPx: number; heightPx: number },
 ): { x: number; y: number } {
+  if (
+    !Number.isInteger(point.x)
+    || !Number.isInteger(point.y)
+    || point.x < 0
+    || point.y < 0
+    || point.x >= model.widthPx
+    || point.y >= model.heightPx
+  ) {
+    throw new Error(
+      `invalid_coordinate: Anthropic model point (${point.x},${point.y}) is outside `
+      + `${model.widthPx}x${model.heightPx}`,
+    );
+  }
   return {
-    x: Math.max(0, Math.min(Math.round(point.x * source.widthPx / model.widthPx), source.widthPx - 1)),
-    y: Math.max(0, Math.min(Math.round(point.y * source.heightPx / model.heightPx), source.heightPx - 1)),
+    x: Math.min(Math.round(point.x * source.widthPx / model.widthPx), source.widthPx - 1),
+    y: Math.min(Math.round(point.y * source.heightPx / model.heightPx), source.heightPx - 1),
   };
 }
 
 export function createAnthropicComputerHarness(
   options: AnthropicComputerHarnessOptions,
 ): CuFrameAdapter {
-  const displays = () => {
+  let currentTransform: {
+    source: { widthPx: number; heightPx: number };
+    model: { widthPx: number; heightPx: number };
+  } | undefined;
+  const resolveTransform = () => {
     const source = options.resolveCaptureDisplay();
     return { source, model: anthropicComputerImageSize(source.widthPx, source.heightPx) };
   };
+  const declareTransform = () => {
+    currentTransform = resolveTransform();
+    return currentTransform;
+  };
   return {
-    resolveModelDisplay: () => displays().model,
+    resolveModelDisplay: () => declareTransform().model,
     toSourceAction(action) {
-      const { source, model } = displays();
+      const { source, model } = currentTransform ?? declareTransform();
       switch (action.type) {
         case 'mouse_move':
         case 'left_click':
@@ -100,11 +121,13 @@ export function createAnthropicComputerHarness(
       }
     },
     prepareScreenshot(screenshot) {
-      const { source, model } = displays();
+      const transform = resolveTransform();
+      const { source, model } = transform;
       if (screenshot.widthPx !== source.widthPx || screenshot.heightPx !== source.heightPx) {
         // Zoom results are cropped detail frames, not the full display contract.
         return screenshot;
       }
+      currentTransform = transform;
       return options.resizeFrame(screenshot, model);
     },
   };

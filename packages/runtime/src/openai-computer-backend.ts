@@ -16,7 +16,6 @@ import type {
 import type { CuAction } from '@maka/core';
 
 import { AsyncEventQueue } from './async-queue.js';
-import { convertOpenAIComputerAction } from './openai-computer-actions.js';
 import type {
   OpenAIComputerCall,
   OpenAIComputerDialect,
@@ -78,7 +77,6 @@ export class OpenAIComputerBackend implements AgentBackend {
   private pumpDone: Promise<void> | null = null;
   private stopped = false;
   private disposed = false;
-  private safetyAuthorizedActions = 0;
   private captureAuthorized = false;
   private telemetryRecorded = new Set<string>();
 
@@ -120,7 +118,6 @@ export class OpenAIComputerBackend implements AgentBackend {
     this.currentRunId = input.runId ?? null;
     this.abortController = abortController;
     this.stopped = false;
-    this.safetyAuthorizedActions = 0;
     this.captureAuthorized = false;
     this.telemetryRecorded.clear();
     this.input.permissionEngine.beginTurn(turnId);
@@ -242,9 +239,7 @@ export class OpenAIComputerBackend implements AgentBackend {
     queue: AsyncEventQueue<SessionEvent>,
     signal: AbortSignal,
   ): Promise<OpenAIComputerScreenshot | void> {
-    const safetyAuthorized = this.safetyAuthorizedActions > 0;
-    if (safetyAuthorized) this.safetyAuthorizedActions -= 1;
-    const tool = this.toolForExecution(safetyAuthorized);
+    const tool = this.toolForExecution(false);
     const args = computerToolArgs(action);
     const toolCallId = this.newId();
     const startedAt = this.now();
@@ -374,7 +369,6 @@ export class OpenAIComputerBackend implements AgentBackend {
       return false;
     }
     if (verdict.kind === 'allow') {
-      this.safetyAuthorizedActions = countConvertedActions(call);
       return true;
     }
 
@@ -410,7 +404,6 @@ export class OpenAIComputerBackend implements AgentBackend {
         : {}),
     });
     if (response.decision !== 'allow') return false;
-    this.safetyAuthorizedActions = countConvertedActions(call);
     return true;
   }
 
@@ -466,19 +459,11 @@ export class OpenAIComputerBackend implements AgentBackend {
     this.currentTurnId = null;
     this.currentRunId = null;
     this.abortController = null;
-    this.safetyAuthorizedActions = 0;
     this.captureAuthorized = false;
     this.telemetryRecorded.clear();
     this.toolRuntime.resetTurnState();
     this.stopped = false;
   }
-}
-
-function countConvertedActions(call: OpenAIComputerCall): number {
-  return call.actions.reduce((count, action) => {
-    const conversion = convertOpenAIComputerAction(action);
-    return conversion.ok ? count + conversion.actions.length : count;
-  }, 0);
 }
 
 function computerToolArgs(action: CuAction): Record<string, unknown> {
