@@ -44,6 +44,28 @@ describe('icon system contract (single chrome size token)', () => {
     assert.match(navRow, /grid-template-columns:\s*var\(--icon-size\)/, 'nav-row glyph column tracks the token');
   });
 
+  it('keeps every .maka-nav-icon selector free of px sizes and color (PR-ICON-CHROME-CONSISTENCY)', async () => {
+    const styles = await readRendererContractCss();
+    // The gear once carried a qualified 18px + currentColor override
+    // (`.maka-sidebar-settings-button .maka-nav-icon`), and the base rule
+    // carried `color: var(--muted-foreground)` — unlayered CSS that
+    // silently beat the tone/active color utilities in
+    // session-sidebar-nav.tsx. Geometry belongs to the token; color
+    // belongs to the component variants via inheritance.
+    const rules = [...styles.matchAll(/(?:^|\n)([^{}\n]*\.maka-nav-icon[^{}\n]*)\{([^}]*)\}/g)];
+    assert.ok(rules.length > 0, 'the .maka-nav-icon base rule must exist');
+    for (const [, selector, body] of rules) {
+      assert.ok(
+        !/(?<!-)\b(width|height)\s*:\s*\d/.test(body),
+        `\`${selector.trim()}\` must not hardcode px sizes — route through --icon-size`,
+      );
+      assert.ok(
+        !/(?<!-)\bcolor\s*:/.test(body),
+        `\`${selector.trim()}\` must not declare color — glyphs inherit the row text color`,
+      );
+    }
+  });
+
   it('routes the shared button icon through the same token', async () => {
     const ui = await readFile(join(repoRoot, 'packages', 'ui', 'src', 'ui.tsx'), 'utf8');
     assert.match(

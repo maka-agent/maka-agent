@@ -266,6 +266,7 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
 
 - **chrome 是唯一被 token 化的档。** nav 图标（`.maka-nav-icon`）和 `packages/ui/src/ui.tsx` 的 `buttonVariants`（`[&_svg]:size-[var(--icon-size,1rem)]`）都消费 `--icon-size`，所以两者不会再各走各的（历史缺陷：nav 18px 而按钮 1rem）。改这一个 token 同时移动两者。
 - **密集 / hero 是 call-site 刻意值，不收敛。** 它们是有意的视觉层级，不是漂移；不要用全局 `svg.lucide { width }` 之类的规则一锅端，那会把 11–14px 的小图标静默放大、把 hero 压小。
+- **chrome 图标统一 80% ink（`--foreground-secondary`），颜色由组件 variants 声明，不写在 unlayered CSS 里。** 按钮内图标继承按钮文字色即可；nav 行因 darwin glass 把行文字提到 100%（`theme-glass.css` 的 `html[data-os="darwin"] .maka-nav-row`），图标由 `navRowVariants` 的 `[&_.maka-nav-icon]` utility 钉在 80%，active 行提亮到 100%。不要在 unlayered CSS（如 `.maka-nav-icon`）里写 `color`——它会静默压过 `@layer utilities` 里的全部状态意图（历史缺陷：nav 图标被钉在 `--muted-foreground`（50% ink），active/tone 提亮失效，且与 titlebar 图标的 80% ink 不一致）。
 - `packages/ui/src/primitives/*` 是另一套组件库，有自己的响应式图标尺寸（`size-4.5`/`size-4`），不归本节管。
 
 ---

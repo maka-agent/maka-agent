@@ -8,6 +8,10 @@ const navRowVariants = cva(
   [
     'min-h-[var(--h-control-lg)] gap-2 rounded-sm border-0 bg-transparent px-1.5 py-0.5',
     'text-left text-sm font-medium text-[var(--foreground-secondary)]',
+    // Glyphs pin to the 80%-ink chrome tone (same as titlebar icon actions)
+    // instead of inheriting: the darwin glass override forces row TEXT to
+    // full foreground, and icons must not follow it.
+    '[&_.maka-nav-icon]:text-[var(--foreground-secondary)]',
     'transition-[background-color,color] duration-[var(--duration-base)] ease-[var(--ease-out-strong)]',
     'hover:bg-[var(--state-hover-bg)] hover:text-foreground',
     'data-[active=true]:bg-[var(--state-selected-bg)] data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-none',
@@ -21,7 +25,7 @@ const navRowVariants = cva(
     variants: {
       tone: {
         default: '',
-        newTask: 'text-foreground [&_.maka-nav-icon]:text-[var(--foreground-secondary)]',
+        newTask: 'text-foreground',
       },
     },
     defaultVariants: {
@@ -33,7 +37,7 @@ const navRowVariants = cva(
 type ModuleNavId = 'daily-review' | 'skills' | 'automations';
 
 const settingsButtonClass =
-  'w-full min-w-0 gap-2 rounded-sm border-0 bg-transparent px-2 py-1.5 ' +
+  'w-full min-w-0 gap-2 rounded-sm border-0 bg-transparent px-1.5 py-1.5 ' +
   'text-left text-sm font-medium text-[var(--foreground-secondary)] ' +
   'transition-[background-color,color] duration-[var(--duration-base)] ease-[var(--ease-out-strong)] ' +
   'hover:bg-[var(--state-hover-bg)] hover:text-foreground';
