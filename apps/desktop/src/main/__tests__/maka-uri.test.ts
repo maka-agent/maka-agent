@@ -71,8 +71,6 @@ describe('parseMakaUri — settings', () => {
   it('accepts every known SettingsSection', () => {
     // The full SettingsSection enum, locked here so a section
     // removal in core trips this test.
-    // PR-SETTINGS-IA-CONSOLIDATE-0 + PR-SETTINGS-REVIEW-0: 13 sections
-    // total. memory and daily-review split back apart.
     const sections = [
       'general',
       'appearance',

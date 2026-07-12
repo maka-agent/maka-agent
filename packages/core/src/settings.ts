@@ -36,7 +36,7 @@ import { PERMISSION_MODES } from './permission.js';
  *   - `daily-review` is its own section again
  *   - `memory` is its own section again
  *
- * 14 visible sections. See docs/archive/reference-settings.md §7 for historical provenance.
+ * See docs/archive/reference-settings.md §7 for historical provenance.
  */
 export type SettingsSection =
   | 'general'
