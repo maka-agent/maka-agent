@@ -157,6 +157,7 @@ SessionManager
 
 更多细节见：
 
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md)：后端架构总览、六章专题索引和按问题阅读路径。
 - `docs/runtime-kernel.md`
 - `docs/runtime-v2-architecture-evolution.md`
 - `docs/runtime-v2-implementation-notes.md`

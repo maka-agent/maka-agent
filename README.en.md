@@ -199,6 +199,8 @@ Key principles:
 
 See also:
 
+- [`ARCHITECTURE.en.md`](./ARCHITECTURE.en.md): backend architecture overview,
+  six-chapter index, and problem-oriented reading paths.
 - `docs/runtime-kernel.md`
 - `docs/runtime-v2-architecture-evolution.md`
 - `docs/runtime-v2-implementation-notes.md`
