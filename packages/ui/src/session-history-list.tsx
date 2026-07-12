@@ -787,7 +787,6 @@ const SessionRow = memo(function SessionRow(props: {
             </MenuItem>
             <MenuSeparator />
             <MenuItem
-              className="text-destructive-text"
               variant="destructive"
               disabled={actionBusy}
               onClick={handleDelete}

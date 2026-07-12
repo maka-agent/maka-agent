@@ -66,4 +66,17 @@ describe('menu highlight recipe contract (#546 menu-hover governance)', () => {
       'MenuItem recipe must pin data-highlighted:bg-[var(--state-selected-bg)] to match palette/search list-highlight.',
     );
   });
+
+  it('uses the readable destructive text token for destructive menu items', async () => {
+    const src = await readMenuSource();
+
+    assert.ok(
+      src.includes('data-[variant=destructive]:text-destructive-text'),
+      'destructive menu items sit on a neutral popup and must use --destructive-text',
+    );
+    assert.ok(
+      !src.includes('data-[variant=destructive]:text-destructive-foreground'),
+      '--destructive-foreground is reserved for text placed on a solid destructive background',
+    );
+  });
 });
