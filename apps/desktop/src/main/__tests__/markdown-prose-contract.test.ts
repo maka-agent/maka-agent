@@ -471,7 +471,7 @@ describe('MARKDOWN-PROSE-RENDER-OWNER-0 contract (#739)', () => {
   // drop it and let Streamdown's utilities back in (which would re-break the
   // heading ladder and table fit the moment Tailwind generates those classes
   // from elsewhere in the codebase).
-  const BARE_OVERRIDDEN = ['h1', 'h2', 'h3', 'h4', 'ul', 'li', 'thead', 'tbody', 'tr', 'th', 'td'] as const;
+  const BARE_OVERRIDDEN = ['h1', 'h2', 'h3', 'h4', 'blockquote', 'ul', 'li', 'thead', 'tbody', 'tr', 'th', 'td'] as const;
   const NOT_OVERRIDDEN = ['p', 'ol', 'section', 'h5', 'h6'] as const;
 
   it('markdown-body overrides heading + table-structure elements with bareElement so prose.css reaches the DOM', async () => {

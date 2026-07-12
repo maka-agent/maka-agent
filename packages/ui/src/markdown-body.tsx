@@ -153,6 +153,7 @@ export function MarkdownBody(props: { text: string; streaming?: boolean }) {
         h2: bareElement('h2'),
         h3: bareElement('h3'),
         h4: bareElement('h4'),
+        blockquote: bareElement('blockquote'),
         ul: bareElement('ul'),
         li: bareElement('li'),
         thead: bareElement('thead'),
