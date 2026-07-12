@@ -10,17 +10,33 @@ export interface PinnedBottomObserver {
 
 export type PinnedBottomObserverFactory = (callback: () => void) => PinnedBottomObserver;
 
+export interface PinnedBottomSizeObserver {
+  observe(element: Element): void;
+  disconnect(): void;
+}
+
+export type PinnedBottomSizeObserverFactory = (callback: () => void) => PinnedBottomSizeObserver;
+
 /**
  * Follows the scroll content's actual commit clock. Streaming text is revealed
  * by requestAnimationFrame after raw deltas arrive, while OverlayScrollbars
  * keeps the outer content box viewport-sized; observing raw state or that fixed
  * box cannot keep a pinned viewport aligned with each visible growth step.
+ *
+ * Two channels feed the follower:
+ * - a MutationObserver on the content subtree — streaming text and appended
+ *   turns commit as DOM mutations;
+ * - a ResizeObserver on the content's element children — render-skipped turns
+ *   (`content-visibility: auto`) inflate from their 250px placeholder to
+ *   their real height with NO mutation and no scroll event, which otherwise
+ *   strands a pinned viewport mid-document after a long session mounts.
  */
 export function createPinnedBottomFollower(options: {
   viewport: PinnedBottomViewport;
   content: Element;
   isPinned: () => boolean;
   createObserver?: PinnedBottomObserverFactory;
+  createSizeObserver?: PinnedBottomSizeObserverFactory;
 }): () => void {
   const follow = (): void => {
     if (options.isPinned()) options.viewport.scrollTop = options.viewport.scrollHeight;
@@ -30,7 +46,28 @@ export function createPinnedBottomFollower(options: {
       ? (callback: () => void) => new MutationObserver(callback)
       : undefined);
   if (!createObserver) return () => {};
-  const observer = createObserver(follow);
+  const createSizeObserver = options.createSizeObserver
+    ?? (typeof ResizeObserver === 'function'
+      ? (callback: () => void) => new ResizeObserver(callback)
+      : undefined);
+  const sizeObserver = createSizeObserver?.(follow);
+  const sizeObserved = new WeakSet<Element>();
+  const observeNewChildren = (): void => {
+    if (!sizeObserver) return;
+    for (const child of options.content.children) {
+      if (sizeObserved.has(child)) continue;
+      sizeObserved.add(child);
+      sizeObserver.observe(child);
+    }
+  };
+  observeNewChildren();
+  const observer = createObserver(() => {
+    follow();
+    observeNewChildren();
+  });
   observer.observe(options.content, { childList: true, subtree: true, characterData: true });
-  return () => observer.disconnect();
+  return () => {
+    observer.disconnect();
+    sizeObserver?.disconnect();
+  };
 }
