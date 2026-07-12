@@ -36,13 +36,14 @@ async function seedE2eConnection(userDataDir: string): Promise<void> {
  * CoreFoundation / X11 / sandbox session) that an allow-list would silently
  * drop and break the launch.
  */
-function buildE2eEnv(userDataDir: string): NodeJS.ProcessEnv {
+function buildE2eEnv(userDataDir: string, visualSmokeScenario?: string): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
     if (
       key === 'VITE_DEV_SERVER_URL' ||
       key === 'MAKA_E2E' ||
       key === 'MAKA_E2E_USER_DATA_DIR' ||
+      key === 'MAKA_VISUAL_SMOKE_FIXTURE' ||
       /_API_KEY$/.test(key) ||
       /_API_TOKEN$/.test(key) ||
       /_API_SECRET$/.test(key)
@@ -52,6 +53,7 @@ function buildE2eEnv(userDataDir: string): NodeJS.ProcessEnv {
   }
   env.MAKA_E2E = '1';
   env.MAKA_E2E_USER_DATA_DIR = userDataDir;
+  if (visualSmokeScenario) env.MAKA_VISUAL_SMOKE_FIXTURE = visualSmokeScenario;
   return env;
 }
 
@@ -64,13 +66,17 @@ function buildE2eEnv(userDataDir: string): NodeJS.ProcessEnv {
  */
 async function launchE2eApp(
   userDataDir: string,
-  { seed, readinessSelector }: { seed: boolean; readinessSelector: string },
+  { seed, readinessSelector, visualSmokeScenario }: {
+    seed: boolean;
+    readinessSelector: string;
+    visualSmokeScenario?: string;
+  },
 ): Promise<{ app: ElectronApplication; page: Page }> {
   if (seed) await seedE2eConnection(userDataDir);
   const app = await electron.launch({
     args: ['.'],
     cwd: DESKTOP_ROOT,
-    env: buildE2eEnv(userDataDir),
+    env: buildE2eEnv(userDataDir, visualSmokeScenario),
   });
   const page = await app.firstWindow();
   // Centralize the cold-start wait so test bodies are flake-free under retries:0.
@@ -86,13 +92,17 @@ async function launchE2eApp(
  * Electron and a leaked `maka-e2e-*` directory.
  */
 async function withE2eWindow(
-  { seed, readinessSelector }: { seed: boolean; readinessSelector: string },
+  { seed, readinessSelector, visualSmokeScenario }: {
+    seed: boolean;
+    readinessSelector: string;
+    visualSmokeScenario?: string;
+  },
   use: (page: Page) => Promise<void>,
 ): Promise<void> {
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'maka-e2e-'));
   let app: ElectronApplication | undefined;
   try {
-    const launched = await launchE2eApp(userDataDir, { seed, readinessSelector });
+    const launched = await launchE2eApp(userDataDir, { seed, readinessSelector, visualSmokeScenario });
     app = launched.app;
     await use(launched.page);
   } finally {
@@ -101,7 +111,7 @@ async function withE2eWindow(
   }
 }
 
-export const test = base.extend<{ window: Page; emptyWindow: Page }>({
+export const test = base.extend<{ window: Page; emptyWindow: Page; longTranscriptWindow: Page }>({
   // Seeded: a pre-staged connection clears onboarding so the composer is ready.
   // Used by chat / session / settings / attachment specs.
   window: async ({}, use) => {
@@ -111,6 +121,18 @@ export const test = base.extend<{ window: Page; emptyWindow: Page }>({
   // Used by first-run only.
   emptyWindow: async ({}, use) => {
     await withE2eWindow({ seed: false, readinessSelector: '#root' }, use);
+  },
+  // Long transcript: boots the visual-smoke `long-transcript` fixture, which
+  // seeds a 24-turn (~1300px each) session and opens it as the active
+  // session. Fixture mode seeds its own connections, so no connection is
+  // pre-staged here. Readiness = turns on screen: the session is open and
+  // above-viewport turns sit at their content-visibility placeholder size.
+  // Used by the scroll-geometry spec.
+  longTranscriptWindow: async ({}, use) => {
+    await withE2eWindow(
+      { seed: false, readinessSelector: '.maka-turn', visualSmokeScenario: 'long-transcript' },
+      use,
+    );
   },
 });
 

@@ -113,7 +113,13 @@ export type VisualSmokeScenario =
   // becomes visible (via `:focus-within`). Verifies that the
   // time meta + unread dot do NOT leak through the action icons
   // — the bug WAWQAQ flagged.
-  | 'sidebar-row-actions-visible';
+  | 'sidebar-row-actions-visible'
+  // Scroll-geometry contract: a 24-turn session whose turns are each ~1300px
+  // tall, opened as the active session on boot. Off-screen turns mount as
+  // 250px content-visibility placeholders, so this seed exercises the
+  // warm-up + pinned-bottom geometry invariants (E2E scroll-geometry spec)
+  // and gives screenshots a long-transcript surface.
+  | 'long-transcript';
 
 export interface VisualSmokeLiveTool {
   toolUseId: string;

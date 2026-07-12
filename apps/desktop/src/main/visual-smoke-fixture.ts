@@ -117,6 +117,10 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // Captures the overflow-trigger state so reviewers can verify
   // the time meta + unread dot are hidden underneath (no overlap).
   'sidebar-row-actions-visible',
+  // Scroll-geometry contract seed: 24 tall turns opened as the active
+  // session on boot, so off-screen turns mount as content-visibility
+  // placeholders (see e2e/scroll-geometry.spec.ts).
+  'long-transcript',
 ]);
 
 // Fixed clock for screenshot fixtures. All seeded timestamps and
@@ -474,6 +478,11 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
         sidebarCollapsed: false,
         focusActiveRow: true,
       };
+    case 'long-transcript':
+      // Scroll-geometry contract: boot straight into the 24-turn session so
+      // above-viewport turns mount render-skipped (never rendered), the
+      // exact state the warm-up + pinned-bottom invariants protect.
+      return { ...state, activeSessionId: LONG_TRANSCRIPT_SESSION_ID };
     case 'all':
       return {
         ...state,
@@ -526,6 +535,12 @@ export async function seedVisualSmokeFixture(input: {
     for (const seed of workstationStatusSessions(now)) {
       await writeSession(input.workspaceRoot, seed.header, seed.messages);
     }
+  }
+  // Scroll-geometry contract (e2e/scroll-geometry.spec.ts): a session tall
+  // enough that most turns mount as render-skipped content-visibility
+  // placeholders — the state the warm-up and pinned-bottom invariants cover.
+  if (input.fixture.scenario === 'long-transcript') {
+    await writeSession(input.workspaceRoot, longTranscriptSession(now), longTranscriptMessages(now));
   }
   // PR109f (g): all three turn-control-* scenarios share the same
   // on-disk seed; only the active session selection differs. Seeding
@@ -663,6 +678,7 @@ const TURN_CONTROL_SCENARIOS = new Set<VisualSmokeScenario>([
 ]);
 
 const TURN_SESSION_ID = 'visual-smoke-turn';
+const LONG_TRANSCRIPT_SESSION_ID = 'visual-smoke-long-transcript';
 const PROCESSING_SESSION_ID = 'visual-smoke-processing';
 const STREAMING_SESSION_ID = 'visual-smoke-streaming';
 // PR-STREAM-TURN-CENTER: realistic multi-block markdown (heading + paragraph +
@@ -1016,6 +1032,51 @@ function turnSession(now: number): SessionHeader {
     now,
     lastMessageAt: now - 9 * 60_000,
   });
+}
+
+function longTranscriptSession(now: number): SessionHeader {
+  return header({
+    id: LONG_TRANSCRIPT_SESSION_ID,
+    name: '超长会话滚动几何',
+    connection: 'zai-live',
+    model: 'glm-5.1',
+    now,
+    lastMessageAt: now - 5 * 60_000,
+  });
+}
+
+/**
+ * 24 turns, each ~1300px tall once rendered, so the transcript is ~25x the
+ * 250px contain-intrinsic-size placeholder per turn and dozens of viewports
+ * tall overall. Plain text on purpose: the contract under test is scroll
+ * geometry, not markdown rendering.
+ */
+function longTranscriptMessages(now: number): StoredMessage[] {
+  const filler = Array.from(
+    { length: 60 },
+    (_, line) => `第 ${line + 1} 行 — 用于撑高单个 turn 的占位正文内容。`,
+  ).join('  \n');
+  const messages: StoredMessage[] = [];
+  const base = now - 60 * 60_000;
+  for (let turn = 0; turn < 24; turn++) {
+    const turnId = `long-transcript-turn-${turn}`;
+    messages.push({
+      type: 'user',
+      id: `long-transcript-user-${turn}`,
+      turnId,
+      ts: base + turn * 60_000,
+      text: `长会话问题 ${turn + 1}`,
+    });
+    messages.push({
+      type: 'assistant',
+      id: `long-transcript-assistant-${turn}`,
+      turnId,
+      ts: base + turn * 60_000 + 30_000,
+      text: `长会话回答 ${turn + 1}\n\n${filler}`,
+      modelId: 'glm-5.1',
+    });
+  }
+  return messages;
 }
 
 function turnMessages(now: number): StoredMessage[] {
