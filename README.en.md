@@ -2,76 +2,152 @@
 
 # Maka
 
-Maka is a local-first desktop AI workspace. It brings model connections,
-sessions, tool permissions, file I/O, terminal execution, search, bot entry
-points, and run recovery into one Electron app, with the goal of letting users
-run an observable, controllable, recoverable agent on their own computer.
+[![CI](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml)
 
-This repository is under active development. The README currently serves two
-audiences:
+**A local-first Agent workspace built for real work.**
 
-- First-time Maka users: understand why AI setup comes first, where data lives,
-  and which capabilities are already available.
-- Engineers continuing Maka development: get the app running quickly, verify
-  changes, and find the key packages and design docs.
+Maka does more than answer questions. With controlled permissions, it can inspect projects, execute tools, produce artifacts, and preserve model messages, tool calls, and durable-task progress as recoverable execution facts. The same Runtime is available through the desktop app, terminal TUI, non-interactive CLI, and Headless runner.
 
-## What You Will See
+![Maka desktop artifact workflow](./apps/desktop/tests/screenshots-baseline/artifact-pane/dark-1280-motion.png)
 
-When you enter Maka for the first time, if there is no usable model connection,
-the first screen guides you through AI setup instead of showing an empty chat
-box that cannot send. The recommended path is:
+> [!IMPORTANT]
+> Maka is under active development and currently targets users running from source or contributing to the project. Data formats, CLI commands, and experimental capabilities may still change.
 
-1. Open `Settings -> Models`.
-2. Choose a real model provider and enter an API key or complete login for a
-   supported account flow.
-3. Test the connection and select a default model.
-4. Return to the home screen and start your first conversation from the quick
-   input.
+## Why Maka
 
-Currently supported model connection types include:
+- **Local-first instead of hosted-first**: sessions, settings, and run records stay on your machine by default. You choose the model connection: cloud API, local model, or compatible gateway.
+- **Log is the Runtime**: model messages, Tool Calls, Tool Results, and termination facts enter Runtime Event Log. Sessions, UI, model context, and recovery are projections over that log.
+- **Context is not history**: Tool Result pruning and LLM Compaction change what the next inference sees without treating recorded evidence as disposable context.
+- **A task may outlive a Turn**: Headless uses TaskRun, Task Event Log, budgets, and continuation to advance interruptible and inspectable durable work.
+- **Feedback is not fact authority**: Self-check may produce evidence and one bounded repair opportunity, but “I checked it” does not become a system fact.
 
-- Global APIs: Anthropic, OpenAI, Google Gemini.
-- China APIs: DeepSeek, Moonshot, Z.AI Coding Plan, Kimi Coding Plan.
-- Local models: Ollama.
-- Custom gateways: OpenAI-compatible endpoints.
-- Account subscription entries: Claude Subscription, Codex Subscription,
-  Gemini CLI, and others are shown separately according to their experimental
-  or available status. Entries that are not wired into the send path are not
-  presented as usable.
+Read [Maka Backend Architecture](./ARCHITECTURE.en.md) for the complete design.
 
-## Current Capabilities
+## Surfaces
 
-Maka is not just a chat demo. It already includes these core surfaces:
+| Entry point | Best for | Current capability |
+|---|---|---|
+| **Desktop** | Daily interaction, file and Artifact workflows, model and permission setup | Electron + React with streaming sessions, tool timelines, branching, search, and recovery |
+| **TUI / CLI** | Using Maka in the current project directory or running one non-interactive Turn | `maka`, `maka run`; shares workspace and model connections with Desktop |
+| **Headless** | Durable tasks, recoverable TaskRuns, experiments, and evaluation | `maka eval` / `maka-headless` with task logs, export, resume, and comparison |
 
-- **Desktop sessions**: create, switch, archive, search, rename, stop, retry,
-  regenerate, and branch from a turn.
-- **Model runtime**: a provider runtime based on the Vercel AI SDK, supporting
-  streaming model output, tool calls, usage accounting, error classification,
-  and startup recovery.
-- **Local tools**: `Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep`. File writes
-  and command execution go through the permission policy.
-- **First-run guidance**: different states for "finish setup / choose default
-  connection / choose default model / start chatting" based on the real
-  connection state.
-- **Settings center**: models, accounts, usage stats, daily review, local
-  memory, voice models, open gateway, bot conversations, web search, network
-  proxy, permissions and capabilities, health, data, and about.
-- **Local memory**: `MEMORY.md` management, manual add, archive/restore, and
-  an agent read toggle.
-- **Web search**: Tavily credential setup, connection testing, and agent tool
-  boundaries.
-- **Bot entry points**: configuration, testing, and run-status framework for
-  Telegram, Feishu, WeCom, WeChat iLink, Discord, DingTalk, and QQ.
-- **Open gateway**: local HTTP/SSE APIs, protected by tokens, for external
-  access to session state, events, capabilities, and health summaries.
-- **Office document workflow**: enabled after local `officecli` detection for
-  read, validation, and per-action authorized edits.
-- **Runtime kernel**: `AgentRun` ledger, `RuntimeEvent` read model,
-  `ToolRuntime`, `ModelAdapter`, `RunTrace`, and recovery logic.
+## Current capabilities
 
-## Local Storage And Privacy Boundary
+### Agent Runtime
 
-By default, Maka stores workspace data under Electron `userData`:
+- Multiple model connections, streaming output, thinking, usage accounting, and provider-error normalization;
+- Local tools including `Read`, `Write`, `Edit`, `Bash`, `Glob`, and `Grep`;
+- Tool schema validation, dynamic availability, permission policy, watchdogs, abort, and error classification;
+- Runtime Event Log, AgentRun ledger, startup recovery, Turn Evidence, active Tool Result pruning, and history compaction.
+
+### Desktop workspace
+
+- Create, archive, search, rename, retry, regenerate, and branch sessions from a Turn;
+- Artifact lists and previews, workspace instructions, model settings, and permission settings;
+- Local memory, web search, an open HTTP/SSE gateway, bot entry points, and Office workflows;
+- Integrations are configured independently, and not every experimental entry is available by default.
+
+### Durable tasks and evolution
+
+- Append-only Task Event Log and TaskRun projection;
+- Budgets, permission pauses, continuation, result export, and failed-task retry;
+- Plan-first, source-guarded, and attempt-bounded Heavy-task Self-check;
+- AHE target protocol and evidence export; complete automatic self-iteration remains an external or experimental workflow.
+
+## Quick start
+
+### Requirements
+
+- Node.js 22 (the current CI baseline);
+- npm (the lockfile and scripts use npm; the current `packageManager` is npm 11);
+- Git;
+- `ripgrep`, used by Runtime's `Grep` tool.
+
+### Start Desktop
+
+```sh
+git clone https://github.com/Maka-Agent/maka-agent.git
+cd maka-agent
+npm ci
+npm run dev
+```
+
+`npm run dev` starts the Desktop development environment with HMR. To build every workspace before starting Electron, use:
+
+```sh
+npm run dev:full
+```
+
+If dependencies were installed with `ELECTRON_SKIP_BINARY_DOWNLOAD=1`, install the Electron platform binary before starting:
+
+```sh
+node node_modules/electron/install.js
+```
+
+### First run
+
+Maka does not bundle a shared model account. On first launch:
+
+1. Open `Settings → Models`;
+2. Add an API, local-model, or supported account connection;
+3. Test it and choose a default model;
+4. Return to the workspace and start a task.
+
+The app distinguishes configured, send-ready, and experimental connection states. An account flow that is not wired into Runtime is not presented as a usable model.
+
+## Terminal entry points
+
+Build the workspaces first:
+
+```sh
+npm run build
+```
+
+Then start the TUI or run one Turn:
+
+```sh
+npm --workspace maka-agent exec -- maka
+npm --workspace maka-agent exec -- maka run "Summarize this repository and identify its most important risk"
+npm --workspace maka-agent exec -- maka --help
+```
+
+The CLI reads the same model connections and workspace configuration written by Desktop. See [`packages/headless/README.md`](./packages/headless/README.md) for Headless commands and its trust posture.
+
+## Architecture
+
+The backend spine is:
+
+```text
+Desktop / TUI / Headless
+          ↓
+SessionManager → AgentRun → Model + Tool Runtime
+          ↓
+Runtime Event Log → Context / Session / UI projections
+          ↓
+Task Event Log → TaskRun → Self-check / AHE evidence
+```
+
+Start with [ARCHITECTURE.en.md](./ARCHITECTURE.en.md). It provides the system map, code boundaries, problem-oriented reading paths, and six bilingual deep dives.
+
+## Repository layout
+
+```text
+apps/desktop/       Electron main / preload / React renderer
+
+packages/core/      Pure contracts for Sessions, Events, Permissions, and Connections
+packages/storage/   File-backed stores and run ledgers
+packages/runtime/   AgentRun, model adapters, tools, context, and recovery
+packages/headless/  TaskRun, Autonomous Loop, Self-check, eval, and AHE
+packages/cli/       TUI and non-interactive CLI
+packages/ui/        Shared conversation, Markdown, Artifact, and UI primitives
+
+docs/               Architecture, product, security, privacy, and test contracts
+scripts/            Build hygiene, visual checks, smoke tests, and release helpers
+```
+
+## Local data and security boundary
+
+Maka stores workspace data under Electron `userData` by default:
 
 ```text
 <Electron userData>/workspaces/default/
@@ -81,178 +157,52 @@ By default, Maka stores workspace data under Electron `userData`:
   sessions/
 ```
 
-Important boundaries:
+Current boundaries that matter:
 
-- Provider connection metadata and session JSONL stay in the local filesystem.
-- Runtime credentials such as provider API keys, bot tokens, proxy passwords,
-  gateway tokens, and Tavily keys are written to local `credentials.json`. The
-  current format is file-first plaintext JSON behind the OS account boundary,
-  with POSIX directory mode `0700` and file mode `0600` enforced.
-- Subscription OAuth tokens for Claude, Codex, Cursor, Antigravity, and similar
-  account services use their own Electron `safeStorage` token stores. Those
-  stores fail closed when `safeStorage` is unavailable.
-- The renderer does not receive plaintext secrets. Settings surfaces only show
-  masked status and test results.
-- File I/O, shell access, and dangerous operations go through the permission
-  engine.
-- Incognito/privacy context, memory, voice, and workspace instructions are
-  constrained by their own contract docs.
+- Sessions and connection metadata live in the local filesystem;
+- Runtime credentials such as API keys, bot tokens, and proxy passwords currently live in local plaintext `credentials.json`, behind the OS account boundary, with POSIX directory mode `0700` and file mode `0600` enforced;
+- Supported subscription OAuth tokens use Electron `safeStorage` and fail closed when it is unavailable;
+- Renderer does not receive plaintext credentials. File writes, Shell, and dangerous tool calls pass through the permission engine;
+- Headless real-model evaluation fails closed by default and requires an explicit external isolation boundary.
 
-## Quick Start
+Read [SECURITY.md](./SECURITY.md) for security reporting and policy. Detailed privacy and threat-model documents live under `docs/`.
 
-The repository uses npm workspaces. Although `pnpm-workspace.yaml` exists, the
-current scripts and lockfile are based on npm.
+## Development and verification
 
-```sh
-npm install
-npm run dev
-```
-
-`npm run dev` first builds all workspaces, then starts the Electron desktop
-app.
-
-If you set `ELECTRON_SKIP_BINARY_DOWNLOAD=1` while installing dependencies,
-install the Electron platform binary before starting:
-
-```sh
-node node_modules/electron/install.js
-```
-
-Common development commands:
+Common repository-level commands:
 
 ```sh
 npm run build
 npm run typecheck
-npm --workspace @maka/desktop run test
-npm --workspace @maka/runtime run test
-npm --workspace @maka/core run test
+npm test
+npm run check:release
 ```
 
-Desktop visual and real-window verification:
+Run one workspace in isolation:
 
 ```sh
+npm --workspace @maka/runtime test
+npm --workspace @maka/headless test
+npm --workspace @maka/desktop test
+```
+
+Desktop real-window and visual verification:
+
+```sh
+npm --workspace @maka/desktop run e2e
 npm --workspace @maka/desktop run screenshots
 npm --workspace @maka/desktop run screenshots:diff:stable
 npm --workspace @maka/desktop run smoke:real-window
 ```
 
-Basic checks before release:
+Before submitting code, run typecheck, build, and focused tests proportionate to the change, followed by `git diff --check`.
 
-```sh
-npm run check:release
-```
+## Documentation
 
-## Optional Environment Variables
-
-These variables only affect local development or specific capabilities:
-
-| Variable | Purpose |
-| --- | --- |
-| `ANTHROPIC_API_KEY` | Bootstrap an Anthropic connection on first launch. |
-| `OPENAI_API_KEY` | Bootstrap an OpenAI connection on first launch. |
-| `TAVILY_API_KEY` / `MAKA_TAVILY_API_KEY` | Sources for Tavily web search credentials. |
-| `MAKA_RIVE_BIN` / `RIVE_BIN` | Specify the `rive` CLI used by the Rive workflow. |
-| `MAKA_VISUAL_SMOKE_FIXTURE` | Enable deterministic visual fixtures, only for dev/test builds. |
-
-## Project Structure
-
-```text
-apps/desktop/
-  src/main/        Electron main process, IPC, settings, OAuth, bot, gateway
-  src/preload/     window.maka preload bridge
-  src/renderer/    React desktop UI and Settings surfaces
-
-packages/core/     Pure contracts: sessions, events, settings, permissions, model connections
-packages/storage/  File-backed session, settings, connection, run-ledger stores
-packages/runtime/  SessionManager, AgentRun, AI SDK runtime, tools, bots, telemetry
-packages/ui/       Shared rendering components, markdown, artifacts, redaction helpers
-
-docs/              Product, runtime, design-system, privacy and test-plan contracts
-scripts/           Build hygiene, screenshot, smoke and release helpers
-```
-
-## Runtime Architecture
-
-The runtime has already been broken down from a single large flow into clearer
-kernel boundaries:
-
-```text
-SessionManager
-  -> AgentRun
-      -> AiSdkBackend
-          -> ModelAdapter
-          -> ToolRuntime
-      -> RunTrace
-      -> AgentRunStore
-```
-
-Key principles:
-
-- `SessionManager` remains the public runtime API exposed to the desktop app,
-  bots, and gateway.
-- `AgentRun` owns the durable facts for a single turn and startup recovery.
-- `ToolRuntime` owns tool input validation, permissions, watchdogs, abort,
-  telemetry, artifact candidates, and error classification.
-- `ModelAdapter` isolates provider stream, error, and usage normalization.
-- `RunTrace` is best-effort and must not block user conversations if trace
-  writes fail.
-
-See also:
-
-- [`ARCHITECTURE.en.md`](./ARCHITECTURE.en.md): backend architecture overview,
-  six-chapter index, and problem-oriented reading paths.
-- `docs/runtime-kernel.md`
-- `docs/runtime-v2-architecture-evolution.md`
-- `docs/runtime-v2-implementation-notes.md`
-
-## UI And Product Quality Contracts
-
-Maka's UI is not assembled casually. It already has dedicated design-system and
-test-plan contracts:
-
-- `docs/design-system.md`: color, density, states, motion, Settings IA, copy,
-  and accessibility contracts.
-- `docs/ui-quality-plan.md`: real-window checks, visual screenshots,
-  interaction states, and regression verification strategy.
-- `docs/full-product-test-plan.md`: the full QA path from first run, settings,
-  sessions, tools, search, bots, and gateway to failure paths.
-
-When changing UI, do not stop at TypeScript checks. At minimum, add:
-
-1. A node:test contract for the affected surface.
-2. Passing `check-console` / `check-a11y`.
-3. A visual fixture or real-window smoke test when needed.
-
-## Checks Before Contributing
-
-For ordinary code changes, at minimum run:
-
-```sh
-npm run typecheck --workspaces --if-present
-npm run build
-git diff --check
-```
-
-For desktop renderer, Settings, or IPC changes, also run a focused suite such
-as:
-
-```sh
-npm --workspace @maka/desktop run test -- settings-form-a11y-contract visible-copy-hygiene-contract
-```
-
-For runtime or storage changes, also run the corresponding workspace tests:
-
-```sh
-npm --workspace @maka/runtime run test
-npm --workspace @maka/storage run test
-```
-
-## Related Documents
-
-- `CHANGELOG.md`: summary of unreleased changes.
-- `SECURITY.md`: security boundary and reporting process.
-- `docs/workspace-privacy-context.md`: workspace privacy context.
-- `docs/search-service-threat-model.md`: search service threat model.
-- `docs/memory-threat-model.md`: local memory threat model.
-- `docs/voice-threat-model.md`: voice capability boundary.
-- `docs/maka-capability-audit-v1.md`: capability maturity audit and follow-up roadmap.
+- [Backend architecture](./ARCHITECTURE.en.md)
+- [Headless usage and isolation](./packages/headless/README.md)
+- [Design system](./docs/design-system.md)
+- [Full product test plan](./docs/full-product-test-plan.md)
+- [Workspace privacy context](./docs/workspace-privacy-context.md)
+- [Capability maturity audit](./docs/maka-capability-audit-v1.md)
+- [Security policy](./SECURITY.md)
