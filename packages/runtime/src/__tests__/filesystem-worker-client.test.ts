@@ -23,6 +23,7 @@ import {
 import type { PermissionAwareSandboxContext } from '../sandbox/permission-aware-context.js';
 import { createPermissionAwareSandboxContext } from '../sandbox/permission-aware-context.js';
 import { createDefaultSandboxManager } from '../sandbox/default-sandbox-manager.js';
+import { probeActiveSandboxCapabilities } from '../sandbox/active-capabilities.js';
 import type { SandboxTransformRequest, SandboxTransformResult } from '../sandbox/types.js';
 import { buildPermissionAwareBuiltinTools } from '../workspace-executor-factory.js';
 
@@ -128,6 +129,42 @@ describe('FilesystemWorkerClient', () => {
     await assert.rejects(
       transformFailure.execute({ context, operation: { kind: 'read', path: 'file.txt' } }),
       matchesClientError('transform', 'backend_not_available'),
+    );
+    assert.equal(processCalls, 0);
+  });
+
+  test('revalidates launch after an available snapshot and never falls back to the host', async () => {
+    let launchCalls = 0;
+    let processCalls = 0;
+    const getLaunchSpec = async () => {
+      launchCalls += 1;
+      return launchCalls === 1
+        ? { ok: true as const, spec: launchSpec() }
+        : {
+            ok: false as const,
+            reason: 'worker_bundle_unavailable' as const,
+            message: 'worker removed after snapshot',
+          };
+    };
+    const context = sandboxContext();
+    const capabilities = await probeActiveSandboxCapabilities({
+      context,
+      getFilesystemWorkerLaunchSpec: getLaunchSpec,
+      isExecutable: async () => true,
+    });
+    assert.equal(capabilities.filesystem.status, 'not_required');
+
+    const client = new FilesystemWorkerClient({
+      getLaunchSpec,
+      newId: () => 'request-1',
+      runProcess: async () => {
+        processCalls += 1;
+        return processResult('');
+      },
+    });
+    await assert.rejects(
+      client.execute({ context, operation: { kind: 'read', path: 'file.txt' } }),
+      matchesClientError('launch', 'worker_bundle_unavailable'),
     );
     assert.equal(processCalls, 0);
   });

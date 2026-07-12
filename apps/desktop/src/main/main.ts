@@ -75,6 +75,7 @@ import {
   createDefaultSandboxManager,
   createSessionSandboxContextProvider,
   createPermissionAwareChildToolFactory,
+  probeActiveSandboxCapabilities,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
   buildSubagentToolGroup,
@@ -407,14 +408,15 @@ const openGateway = new OpenGatewayService({
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
 const sandboxManager = createDefaultSandboxManager();
+const filesystemWorkerLaunchSpecProvider = createFilesystemWorkerLaunchSpecProvider({
+  runtime: 'electron',
+  executable: process.execPath,
+  resourceLocation: app.isPackaged
+    ? { kind: 'desktop-packaged', resourcesPath: process.resourcesPath }
+    : { kind: 'desktop-development' },
+});
 const filesystemWorkerClient = new FilesystemWorkerClient({
-  getLaunchSpec: createFilesystemWorkerLaunchSpecProvider({
-    runtime: 'electron',
-    executable: process.execPath,
-    resourceLocation: app.isPackaged
-      ? { kind: 'desktop-packaged', resourcesPath: process.resourcesPath }
-      : { kind: 'desktop-development' },
-  }),
+  getLaunchSpec: filesystemWorkerLaunchSpecProvider,
 });
 const shellRuns = new ShellRunProcessManager({
   store: shellRunStore,
@@ -475,7 +477,10 @@ const sharedRuntimeTools: MakaTool[] = [
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
 ];
-async function buildSessionBuiltinTools(header: SessionHeader): Promise<MakaTool[]> {
+async function buildSessionToolAssembly(
+  header: SessionHeader,
+  toolsOverride?: readonly MakaTool[],
+) {
   const cwd = await normalizedExistingPath(header.cwd);
   const permissionAware = buildPermissionAwareBuiltinTools({
     mode: header.permissionMode,
@@ -485,10 +490,16 @@ async function buildSessionBuiltinTools(header: SessionHeader): Promise<MakaTool
     filesystemWorkerClient,
     shellRuns,
   });
-  return [
-    ...permissionAware.tools,
-    ...sharedRuntimeTools,
-  ];
+  const sandboxCapabilities = await probeActiveSandboxCapabilities({
+    context: permissionAware.sandboxContext,
+    getFilesystemWorkerLaunchSpec: filesystemWorkerLaunchSpecProvider,
+  });
+  return {
+    tools: toolsOverride
+      ? [...toolsOverride]
+      : [...permissionAware.tools, ...sharedRuntimeTools],
+    sandboxCapabilities,
+  };
 }
 const buildDesktopChildTools = createPermissionAwareChildToolFactory({
   canonicalizeCwd: normalizedExistingPath,
@@ -673,6 +684,7 @@ backends.register('ai-sdk', async (ctx) => {
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
+  const sessionToolAssembly = await buildSessionToolAssembly(ctx.header, ctx.tools);
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -683,7 +695,8 @@ backends.register('ai-sdk', async (ctx) => {
     modelId: model,
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
-    tools: [...(ctx.tools ?? await buildSessionBuiltinTools(ctx.header))],
+    tools: sessionToolAssembly.tools,
+    sandboxCapabilities: sessionToolAssembly.sandboxCapabilities,
     toolAvailability,
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),

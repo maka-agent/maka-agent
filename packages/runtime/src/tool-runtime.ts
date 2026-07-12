@@ -12,7 +12,11 @@ import type {
 } from '@maka/core/session';
 import type { PermissionDecision } from '@maka/core/backend-types';
 import type { AgentSpec } from '@maka/core/runtime-inputs';
-import type { ToolCategory, ToolExecutionFacts } from '@maka/core/permission';
+import type {
+  ToolCategory,
+  ToolExecutionFacts,
+  ToolSandboxRequirement,
+} from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
@@ -28,6 +32,10 @@ import { createToolOutputDeltaEmitter } from './tool-output-delta.js';
 import { truncateToolOutput } from './tool-output.js';
 import { stableHash } from './request-shape.js';
 import type { RunTraceLike } from './run-trace.js';
+import {
+  sandboxContextForTool,
+  type ActiveSandboxCapabilities,
+} from './sandbox/active-capabilities.js';
 
 export interface MakaTool<P = any, R = unknown> {
   /** Canonical (Claude-SDK-style) name. Pi adapter translates to canonical. */
@@ -47,6 +55,8 @@ export interface MakaTool<P = any, R = unknown> {
   categoryHint?: ToolCategory;
   /** Optional trusted facts about the executor that runs this tool. */
   executionFacts?: ToolExecutionFacts;
+  /** Static sandbox capability required before this tool may execute. */
+  sandboxRequirement?: ToolSandboxRequirement;
   /** Real tool implementation. Called only after permission allows. */
   impl: (args: P, ctx: MakaToolContext) => Promise<R> | R;
 }
@@ -124,6 +134,8 @@ export interface ToolRuntimeInput {
   permissionTimeoutMs?: number;
   recordToolInvocation?: ToolTelemetryRecorder;
   recordToolArtifacts?: ToolArtifactRecorder;
+  /** Session-scoped policy snapshot; execution paths still revalidate at launch. */
+  sandboxCapabilities?: ActiveSandboxCapabilities;
 }
 
 export class ToolRuntime {
@@ -313,7 +325,8 @@ export class ToolRuntime {
       return this.errorReturn(reason);
     }
 
-    if (tool.permissionRequired !== false) {
+    const sandbox = sandboxContextForTool(tool.sandboxRequirement, this.input.sandboxCapabilities);
+    if (tool.permissionRequired !== false || sandbox.requirement !== 'none') {
       const verdict = this.input.permissionEngine.evaluate({
         sessionId: this.input.sessionId,
         turnId,
@@ -322,6 +335,7 @@ export class ToolRuntime {
         args,
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
+        sandbox,
         mode: this.input.header.permissionMode,
       });
 

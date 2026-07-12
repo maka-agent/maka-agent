@@ -6,6 +6,11 @@ export {
 } from './permission-aware-context.js';
 export { createSessionSandboxContextProvider } from './session-context-provider.js';
 export {
+  createExternalSandboxCapabilities,
+  probeActiveSandboxCapabilities,
+  sandboxContextForTool,
+} from './active-capabilities.js';
+export {
   sandboxErrorMetadata,
   serializeSandboxError,
 } from './errors.js';
@@ -19,6 +24,12 @@ export type {
   CreateSessionSandboxContextProviderInput,
   SandboxSessionHeader,
 } from './session-context-provider.js';
+export type {
+  ActiveSandboxCapabilities,
+  ActiveSandboxCapability,
+  ProbeActiveSandboxCapabilitiesInput,
+  SandboxCapabilityUnavailableReason,
+} from './active-capabilities.js';
 export type {
   SandboxErrorDomain,
   SandboxErrorMetadata,

@@ -3,6 +3,7 @@ import type { CompiledPermissionProfile } from '@maka/core/permission-profile-co
 import { buildBuiltinTools, type BuildBuiltinToolsOptions } from './builtin-tools.js';
 import type { SandboxPathContext, SandboxPlatform, SandboxablePreference } from './sandbox/index.js';
 import { createPermissionAwareSandboxContext } from './sandbox/permission-aware-context.js';
+import type { PermissionAwareSandboxContext } from './sandbox/permission-aware-context.js';
 import { FilesystemWorkerClient } from './filesystem-worker/client.js';
 import {
   ProfileEnforcedFileOperations,
@@ -37,6 +38,7 @@ export interface PermissionAwareWorkspaceExecutorAssembly {
   fileOperations: WorkspaceFileOperations;
   compiledProfile: CompiledPermissionProfile;
   sandboxManager: WorkspaceCommandSandboxManager;
+  sandboxContext: PermissionAwareSandboxContext;
 }
 
 export interface BuildPermissionAwareBuiltinToolsInput
@@ -100,6 +102,7 @@ export function createPermissionAwareWorkspaceExecutor(
     fileOperations,
     compiledProfile,
     sandboxManager,
+    sandboxContext: context,
   };
 }
 

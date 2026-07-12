@@ -5,6 +5,7 @@ import type { SessionEvent } from '@maka/core/events';
 import type { SessionHeader } from '@maka/core/session';
 import type { StoredMessage } from '@maka/core/session';
 import type { ToolExecutionFacts } from '@maka/core/permission';
+import type { ActiveSandboxCapabilities } from '../sandbox/active-capabilities.js';
 
 import {
   ToolRuntime,
@@ -49,7 +50,7 @@ interface Harness {
   evaluateInputs: EvaluateInput[];
 }
 
-function makeHarness(): Harness {
+function makeHarness(sandboxCapabilities?: ActiveSandboxCapabilities): Harness {
   const appended: StoredMessage[] = [];
   const pushed: SessionEvent[] = [];
   const evaluateCalls: string[] = [];
@@ -73,6 +74,7 @@ function makeHarness(): Harness {
     newId: () => `id-${++n}`,
     now: () => 1,
     getPermissionPauseTarget: () => null,
+    ...(sandboxCapabilities ? { sandboxCapabilities } : {}),
   });
   return { runtime, appended, pushed, evaluateCalls, evaluateInputs };
 }
@@ -92,6 +94,31 @@ function run(h: Harness, t: MakaTool) {
 }
 
 describe('tool-availability execute-boundary guard', () => {
+  test('file tools that skip approval still fail closed when filesystem sandbox is unavailable', async () => {
+    const h = makeHarness({
+      command: { status: 'available', sandboxType: 'macos-seatbelt' },
+      filesystem: {
+        status: 'unavailable',
+        sandboxType: 'none',
+        reason: 'filesystem_worker_unavailable',
+        message: 'worker bundle missing',
+      },
+      platform: 'darwin',
+      profileName: 'workspace-write',
+    });
+    const implCalls: string[] = [];
+    const read = tool('Read', implCalls);
+    read.permissionRequired = false;
+    read.sandboxRequirement = 'filesystem';
+
+    const result = await run(h, read);
+
+    assert.deepEqual(implCalls, []);
+    assert.deepEqual(h.evaluateCalls, ['Read']);
+    assert.ok('error' in (result as object));
+    assert.ok(!h.pushed.some((event) => event.type === 'permission_request'));
+  });
+
   test('passes tool execution facts into permission evaluation', async () => {
     const h = makeHarness();
     const implCalls: string[] = [];

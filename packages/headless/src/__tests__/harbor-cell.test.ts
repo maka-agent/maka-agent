@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { BackendKind, SessionEvent, SessionHeader } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
+import type { PermissionProfileExternal } from '@maka/core/permission-profile';
 import {
   BackendRegistry,
   PermissionEngine,
@@ -43,6 +44,14 @@ const config: Config = {
   model: 'fake-model',
   systemPrompt: 'You are a benchmark cell agent.',
 };
+
+function externalTestPermissionProfile(): PermissionProfileExternal {
+  return {
+    type: 'external',
+    name: 'external',
+    network: { kind: 'enabled' },
+  };
+}
 
 function registerTestPiAgentBackend(
   registry: BackendRegistry,
@@ -931,6 +940,7 @@ describe('runHarborCell', () => {
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
+        permissionProfile: externalTestPermissionProfile(),
       });
 
       const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
@@ -988,6 +998,7 @@ describe('runHarborCell', () => {
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
+        permissionProfile: externalTestPermissionProfile(),
       });
       const offBackend = await offRegistry.build('ai-sdk', backendContext(workspaceDir));
       const offInput = (offBackend as unknown as {
@@ -1018,6 +1029,7 @@ describe('runHarborCell', () => {
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
+        permissionProfile: externalTestPermissionProfile(),
       });
       const todoBackend = await todoRegistry.build('ai-sdk', backendContext(workspaceDir));
       const todoInput = (todoBackend as unknown as {
@@ -1076,6 +1088,7 @@ describe('runHarborCell', () => {
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
+        permissionProfile: externalTestPermissionProfile(),
       });
 
       const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
@@ -1112,6 +1125,7 @@ describe('runHarborCell', () => {
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
+        permissionProfile: externalTestPermissionProfile(),
       });
 
       const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
@@ -1168,6 +1182,7 @@ describe('runHarborCell', () => {
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
+        permissionProfile: externalTestPermissionProfile(),
       });
 
       const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
@@ -1259,6 +1274,7 @@ describe('runHarborCell', () => {
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
+        permissionProfile: externalTestPermissionProfile(),
       });
 
       const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
@@ -1405,6 +1421,7 @@ describe('runHarborCell', () => {
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
+        permissionProfile: externalTestPermissionProfile(),
       });
 
       const backend = await registry.build('ai-sdk', backendContext(workspaceDir));

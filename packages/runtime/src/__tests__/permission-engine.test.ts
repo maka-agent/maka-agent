@@ -111,6 +111,49 @@ describe('PermissionEngine.evaluate — allow path', () => {
 });
 
 describe('PermissionEngine.evaluate — block path', () => {
+  test('blocks unavailable command capability before execute-mode shell policy can allow', () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const r = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Bash',
+      args: { command: 'npm test' },
+      mode: 'execute',
+      sandbox: {
+        requirement: 'command',
+        status: 'unavailable',
+        unavailableReason: 'sandbox-exec missing',
+      },
+    });
+
+    expect(r.kind).toBe('block');
+    if (r.kind === 'block') expect(r.reason).toContain('sandbox-exec missing');
+  });
+
+  test('blocks unavailable filesystem capability instead of prompting for ask-mode Write', () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const r = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Write',
+      args: { path: 'notes.txt' },
+      mode: 'ask',
+      sandbox: {
+        requirement: 'filesystem',
+        status: 'unavailable',
+        unavailableReason: 'worker bundle missing',
+      },
+    });
+
+    expect(r.kind).toBe('block');
+    if (r.kind === 'block') expect(r.reason).toContain('worker bundle missing');
+    expect(engine.pendingCount('t1')).toBe(0);
+  });
+
   test('block in explore mode', () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');

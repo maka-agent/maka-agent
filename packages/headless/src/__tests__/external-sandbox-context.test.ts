@@ -28,6 +28,7 @@ describe('external headless sandbox context', () => {
     for (const name of ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep']) {
       const tool = tools.find((candidate) => candidate.name === name);
       assert.deepEqual(tool?.executionFacts, EXTERNAL_HEADLESS_EXECUTION_FACTS);
+      assert.equal(tool?.sandboxRequirement, 'external');
     }
   });
 });

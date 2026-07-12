@@ -25,6 +25,14 @@ import type { SandboxTransformRequest, SandboxTransformResult } from '../sandbox
 import { computeEditedSource } from '../edit-replace.js';
 
 describe('builtin tool executor facts', () => {
+  test('declares command and filesystem sandbox requirements', () => {
+    const tools = buildBuiltinTools({ executor: fakeExecutor({}) });
+    expect(tools.find((tool) => tool.name === 'Bash')?.sandboxRequirement).toBe('command');
+    for (const name of ['Read', 'Write', 'Edit', 'Glob', 'Grep']) {
+      expect(tools.find((tool) => tool.name === name)?.sandboxRequirement).toBe('filesystem');
+    }
+  });
+
   test('attaches executor facts to every built-in tool', () => {
     const facts: WorkspaceExecutorFacts = {
       isolation: 'worktree',

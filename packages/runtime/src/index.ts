@@ -213,18 +213,25 @@ export {
   SandboxManager,
   buildSeatbeltPolicy,
   createDefaultSandboxManager,
+  createExternalSandboxCapabilities,
   createPermissionAwareSandboxContext,
   createSessionSandboxContextProvider,
   deriveFilesystemWorkerProfile,
+  probeActiveSandboxCapabilities,
+  sandboxContextForTool,
   createSeatbeltExecArgs,
   escapeSeatbeltRegex,
   sandboxErrorMetadata,
   serializeSandboxError,
 } from './sandbox/index.js';
 export type {
+  ActiveSandboxCapabilities,
+  ActiveSandboxCapability,
   BuildSeatbeltPolicyInput,
   BuildSeatbeltPolicyResult,
   CreateSeatbeltExecArgsInput,
+  ProbeActiveSandboxCapabilitiesInput,
+  SandboxCapabilityUnavailableReason,
 } from './sandbox/index.js';
 export type {
   CreateSessionSandboxContextProviderInput,

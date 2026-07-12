@@ -20,6 +20,7 @@ import {
   PiAgentBackend,
   SessionManager,
   buildProviderOptions,
+  createExternalSandboxCapabilities,
   getAIModel,
   getBuiltinPricing,
   runShellWithBoundedTail,
@@ -640,9 +641,10 @@ export function buildAiSdkCellBackendRegistration(input: {
     ? createInMemoryTaskLedgerExperimentStore({ now: input.now, newId: input.newId })
     : undefined;
   return (registry, context) => {
-    if (!context.toolExecutor) {
-      throw new Error('Harbor ai-sdk backend requires an isolated tool executor');
+    if (!context.toolExecutor || context.permissionProfile?.type !== 'external') {
+      throw new Error('Harbor ai-sdk backend requires an explicit external sandbox profile and isolated tool executor');
     }
+    const externalProfile = context.permissionProfile;
     registry.register('ai-sdk', (ctx) =>
       new AiSdkBackend({
         sessionId: ctx.sessionId,
@@ -661,6 +663,7 @@ export function buildAiSdkCellBackendRegistration(input: {
             ? { taskLedgerExperiment: { store: taskLedgerExperimentStore } }
             : {}),
         }),
+        sandboxCapabilities: createExternalSandboxCapabilities(externalProfile.name ?? 'external'),
         toolAvailability: buildIsolatedHeadlessToolAvailability(),
         providerOptions: buildProviderOptions(connection, input.model, ctx.header.thinkingLevel),
         systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),

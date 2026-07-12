@@ -85,6 +85,7 @@ import {
   type MakaTool,
   type MakaToolContext,
 } from './tool-runtime.js';
+import type { ActiveSandboxCapabilities } from './sandbox/active-capabilities.js';
 import {
   ModelAdapter,
   normalizeAiSdkUsage,
@@ -406,6 +407,8 @@ export interface AiSdkBackendInput {
   /** Canonical-named tools available this session. Backend wraps each with
    *  permission gating before passing to ai-sdk. */
   tools: MakaTool[];
+  /** Session-scoped sandbox capability snapshot used by the permission gate. */
+  sandboxCapabilities?: ActiveSandboxCapabilities;
   /**
    * Optional unified tool-availability config (issue #37). With `economy: true`,
    * only core + ungrouped tools are advertised each turn; each group's tools are
@@ -576,6 +579,7 @@ export class AiSdkBackend implements AgentBackend {
       permissionTimeoutMs: input.permissionTimeoutMs,
       recordToolInvocation: input.recordToolInvocation,
       recordToolArtifacts: input.recordToolArtifacts,
+      sandboxCapabilities: input.sandboxCapabilities,
     });
   }
 
@@ -2712,5 +2716,4 @@ function mergeCountsInto(target: Record<string, number>, source: Record<string, 
     target[key] = (target[key] ?? 0) + value;
   }
 }
-
 

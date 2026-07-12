@@ -69,6 +69,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions): MakaTool[]
         limit: z.number().int().positive().optional(),
       }),
       permissionRequired: false,
+      sandboxRequirement: 'filesystem',
       executionFacts: fileExecutionFacts,
       impl: async ({ path, offset, limit }, { cwd, sessionId }) => {
         if (path.startsWith('maka://runtime/')) {
@@ -89,6 +90,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions): MakaTool[]
       description: 'Write content to a file (creates or overwrites). Subject to permission policy.',
       parameters: z.object({ path: z.string(), content: z.string() }),
       permissionRequired: true,
+      sandboxRequirement: 'filesystem',
       executionFacts: fileExecutionFacts,
       impl: async ({ path, content }, { cwd }) => {
         const { key } = await fileOperations.writeLockKey({ cwd, path });
@@ -111,6 +113,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions): MakaTool[]
         new_string: z.string(),
       }),
       permissionRequired: true,
+      sandboxRequirement: 'filesystem',
       executionFacts: fileExecutionFacts,
       impl: async ({ path, old_string, new_string }, { cwd }) => {
         const { key } = await fileOperations.writeLockKey({ cwd, path });
@@ -133,6 +136,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions): MakaTool[]
         cwd: z.string().optional(),
       }),
       permissionRequired: false,
+      sandboxRequirement: 'filesystem',
       executionFacts: fileExecutionFacts,
       impl: async ({ pattern, cwd: relCwd }, { cwd }) => {
         assertRelativeGlobPattern(pattern);
@@ -153,6 +157,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions): MakaTool[]
         glob: z.string().optional(),
       }),
       permissionRequired: false,
+      sandboxRequirement: 'filesystem',
       executionFacts: fileExecutionFacts,
       impl: async ({ pattern, path, glob }, { cwd, abortSignal }) => {
         // Self-bound: ripgrep finishes in well under a second normally, but a
@@ -183,6 +188,7 @@ function buildExecutorBashTool(executor: WorkspaceBashExecutor): MakaTool {
       timeout_ms: z.number().int().positive().max(600_000).optional(),
     }),
     permissionRequired: true,
+    sandboxRequirement: 'command',
     executionFacts: executor.facts,
     impl: async ({ command, timeout_ms }, { cwd, abortSignal, emitOutput }) => {
       const timeout = timeout_ms ?? 120_000;

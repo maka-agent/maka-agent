@@ -45,7 +45,7 @@ export function buildIsolatedHeadlessTools(
   executor: IsolatedToolExecutor,
   options: BuildIsolatedHeadlessToolsOptions = {},
 ): MakaTool[] {
-  const tools = [
+  const tools: MakaTool[] = [
     buildIsolatedBashTool(executor, options),
     buildIsolatedReadTool(executor, options),
     buildIsolatedWriteTool(executor, options),
@@ -55,6 +55,11 @@ export function buildIsolatedHeadlessTools(
     buildSubagentSpawnTool(),
     ...buildSubagentProjectionTools(),
   ];
+  for (const tool of tools) {
+    if (EXTERNAL_SANDBOX_TOOL_NAMES.has(tool.name)) {
+      tool.sandboxRequirement = 'external';
+    }
+  }
   if (options.heavyTaskProgress) {
     tools.push(...buildHeavyTaskProgressTools(options.heavyTaskProgress));
   }
@@ -66,6 +71,8 @@ export function buildIsolatedHeadlessTools(
   }
   return tools;
 }
+
+const EXTERNAL_SANDBOX_TOOL_NAMES = new Set(['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep']);
 
 export function buildIsolatedHeadlessToolAvailability(): ToolAvailabilityConfig {
   return {

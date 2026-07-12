@@ -27,6 +27,7 @@ import {
   type PermissionMode,
   type PermissionRequest,
   type PermissionResponse,
+  type PreToolUseSandboxContext,
   type PreToolUseResult,
   type ToolCategory,
   type ToolExecutionFacts,
@@ -85,6 +86,8 @@ export interface EvaluateInput {
   hint?: string;
   /** Optional trusted facts about the executor that would run this tool. */
   executionFacts?: ToolExecutionFacts;
+  /** Active runtime capability for this tool's declared sandbox requirement. */
+  sandbox?: PreToolUseSandboxContext;
 }
 
 // ============================================================================
@@ -135,6 +138,7 @@ export class PermissionEngine {
       args: input.args,
       ...(input.categoryHint !== undefined ? { categoryHint: input.categoryHint } : {}),
       ...(input.executionFacts !== undefined ? { executionFacts: input.executionFacts } : {}),
+      ...(input.sandbox !== undefined ? { sandbox: input.sandbox } : {}),
       mode: input.mode,
       turnRemembered: state.remembered,
     });

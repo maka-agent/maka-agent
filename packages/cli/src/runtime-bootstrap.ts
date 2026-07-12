@@ -10,6 +10,7 @@ import {
   buildPermissionAwareBuiltinTools,
   createDefaultSandboxManager,
   createSessionSandboxContextProvider,
+  probeActiveSandboxCapabilities,
   buildDefaultContextBudgetPolicy,
   buildLlmHistorySummarizer,
   buildManualCompactLookupPolicy,
@@ -81,11 +82,12 @@ export async function createMakaCliRuntimeContext(
   const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
   const sandboxManager = createDefaultSandboxManager();
+  const filesystemWorkerLaunchSpecProvider = createFilesystemWorkerLaunchSpecProvider({
+    runtime: 'node',
+    resourceLocation: { kind: 'runtime' },
+  });
   const filesystemWorkerClient = new FilesystemWorkerClient({
-    getLaunchSpec: createFilesystemWorkerLaunchSpecProvider({
-      runtime: 'node',
-      resourceLocation: { kind: 'runtime' },
-    }),
+    getLaunchSpec: filesystemWorkerLaunchSpecProvider,
   });
   const shellRuns = new ShellRunProcessManager({
     store: shellRunStore,
@@ -126,14 +128,18 @@ export async function createMakaCliRuntimeContext(
       } : {}),
     });
     const cwd = await normalizedExistingPath(ctx.header.cwd);
-    const sessionTools = buildPermissionAwareBuiltinTools({
+    const sessionToolAssembly = buildPermissionAwareBuiltinTools({
       mode: ctx.header.permissionMode,
       cwd,
       workspaceRoots: [cwd],
       sandboxManager,
       filesystemWorkerClient,
       shellRuns,
-    }).tools;
+    });
+    const sandboxCapabilities = await probeActiveSandboxCapabilities({
+      context: sessionToolAssembly.sandboxContext,
+      getFilesystemWorkerLaunchSpec: filesystemWorkerLaunchSpecProvider,
+    });
     return new AiSdkBackend({
       sessionId: ctx.sessionId,
       header: { ...ctx.header, model: ready.model },
@@ -143,7 +149,8 @@ export async function createMakaCliRuntimeContext(
       modelId: ready.model,
       permissionEngine,
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
-      tools: sessionTools,
+      tools: sessionToolAssembly.tools,
+      sandboxCapabilities,
       providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
       contextBudget: buildManualCompactLookupPolicy(
         buildDefaultContextBudgetPolicy(ready.connection, { name: 'cli-default-history-budget' }),

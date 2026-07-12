@@ -63,6 +63,7 @@ export function buildForegroundBashTool(options: BuildForegroundBashToolOptions)
       timeout_ms: z.number().int().positive().max(maxTimeoutMs).optional(),
     }),
     permissionRequired: true,
+    sandboxRequirement: 'command',
     ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
     impl: async ({ command, timeout_ms }, ctx) => {
       const timeoutMs = timeout_ms ?? options.defaultTimeoutMs?.(command);
@@ -109,6 +110,7 @@ export function buildBackgroundBashTool(
       yield_time_ms: z.number().int().positive().optional(),
     }),
     permissionRequired: true,
+    sandboxRequirement: 'command',
     ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
     impl: async ({ command, timeout_ms, yield_time_ms }, ctx) => shellRuns.runBash({
       sessionId: ctx.sessionId,
@@ -133,6 +135,7 @@ export function buildStopBackgroundTaskTool(shellRuns: ShellRunToolController): 
       ref: z.string().describe('The runtime background task ref, for example maka://runtime/background-tasks/<id>'),
     }),
     permissionRequired: false,
+    sandboxRequirement: 'none',
     impl: ({ ref }, ctx) => shellRuns.stopResource(ctx.sessionId, ref),
   };
 }
