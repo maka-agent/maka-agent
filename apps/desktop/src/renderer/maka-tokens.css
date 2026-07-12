@@ -919,6 +919,7 @@
   --color-info: var(--info);
   --color-success: var(--success);
   --color-destructive: var(--destructive);
+  --color-destructive-text: var(--destructive-text);
 
   --color-foreground-2:  var(--foreground-2);
   --color-foreground-3:  var(--foreground-3);

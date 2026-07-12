@@ -23,9 +23,11 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { compile } from 'tailwindcss';
 import { REPO_ROOT } from './css-test-helpers.js';
 
 const MENU_PRIMITIVE = join(REPO_ROOT, 'packages', 'ui', 'src', 'primitives', 'menu.tsx');
+const MAKA_TOKENS = join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'maka-tokens.css');
 
 async function readMenuSource(): Promise<string> {
   return readFile(MENU_PRIMITIVE, 'utf8');
@@ -77,6 +79,17 @@ describe('menu highlight recipe contract (#546 menu-hover governance)', () => {
     assert.ok(
       !src.includes('data-[variant=destructive]:text-destructive-foreground'),
       '--destructive-foreground is reserved for text placed on a solid destructive background',
+    );
+  });
+
+  it('generates the destructive menu text utility from the canonical token bridge', async () => {
+    const tokens = await readFile(MAKA_TOKENS, 'utf8');
+    const compiler = await compile(`${tokens}\n@tailwind utilities;`);
+    const css = compiler.build(['data-[variant=destructive]:text-destructive-text']);
+
+    assert.match(
+      css,
+      /\.data-\\\[variant\\=destructive\\\]\\:text-destructive-text\s*\{[\s\S]*?color:\s*var\(--destructive-text\);/,
     );
   });
 });
