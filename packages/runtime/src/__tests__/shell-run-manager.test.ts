@@ -141,8 +141,34 @@ describe('ShellRunProcessManager', () => {
     await sleep(20);
 
     assert.equal(initial.kind, 'shell_run');
+    assert.equal(initial.status, 'completed');
+    assert.equal(initial.stdout, 'done');
+    assert.equal(initial.exitCode, 0);
     assert.equal(updates.at(-1)?.result.status, 'completed');
     assert.equal(updates.at(-1)?.result.stdout, 'done');
+  });
+
+  test('background commands honor an explicit timeout', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const manager = createManager(new MemoryShellRunStore());
+
+    const initial = await manager.runBackgroundBash(shellInput({ cwd, command: 'sleep 5', timeoutMs: 50 }));
+    await sleep(100);
+
+    assert.ok(initial.ref);
+    assert.equal((await manager.readResource('session-1', initial.ref)).status, 'timed_out');
+    assert.equal(manager.liveCount(), 0);
+  });
+
+  test('background commands reject timeouts above twenty-four hours', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const manager = createManager(new MemoryShellRunStore());
+
+    await assert.rejects(
+      manager.runBackgroundBash(shellInput({ cwd, command: 'true', timeoutMs: 86_400_001 })),
+      /Background Bash timeout/,
+    );
+    assert.equal(manager.liveCount(), 0);
   });
 
   test('publishes the terminal state when a background ShellRun settles without a resource read', async () => {

@@ -130,6 +130,9 @@ export class ShellRunProcessManager {
     const live = await this.start(input, timeoutMs, false);
     await this.flushLive(live);
     const record = await this.input.store.readShellRun(input.sessionId, live.shellRunId);
+    if (isTerminalShellRunStatus(record.status)) {
+      return shellRunContent(await this.markObserved(record));
+    }
     return shellRunRefContent(record);
   }
 
