@@ -178,3 +178,31 @@ export function planPath(x0: number, y0: number, th0: number, x1: number, y1: nu
     x0, y0, th0, r, seg1: 0, seg2: 0, seg3: 0, types: ['S', 'S', 'S'], x1, y1, th1,
   });
 }
+
+/** Direct visual cursor motion with no arc detour or in-flight rotation. */
+export function planDirectPath(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  endVisualHeading: number,
+): PlannedPath {
+  const d = Math.max(Math.hypot(x1 - x0, y1 - y0), 1);
+  const heading = Math.atan2(y1 - y0, x1 - x0);
+  return new PlannedPath({
+    length: d,
+    endVisualHeading,
+    kind: 'straight',
+    x0,
+    y0,
+    th0: heading,
+    r: 1,
+    seg1: 0,
+    seg2: 0,
+    seg3: 0,
+    types: ['S', 'S', 'S'],
+    x1,
+    y1,
+    th1: heading,
+  });
+}

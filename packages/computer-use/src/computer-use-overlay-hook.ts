@@ -17,6 +17,7 @@ export interface CursorMoveInput {
   screenY: number;
   kind: CursorActionKind;
   pressed?: boolean;
+  instant?: boolean;
 }
 
 export interface CursorCompleteInput extends CursorMoveInput {
@@ -43,8 +44,28 @@ export interface OverlayScreenLike {
   getPrimaryDisplay(): DisplayLike;
 }
 
-/** Actions that carry a screen coordinate the cursor should move to. */
-function coordinateOf(action: CuAction): CuPoint | undefined {
+/** Coordinate where the backend starts a pointer action. */
+function beginCoordinateOf(action: CuAction): CuPoint | undefined {
+  switch (action.type) {
+    case 'left_click_drag':
+      return action.startCoordinate;
+    case 'mouse_move':
+    case 'left_click':
+    case 'right_click':
+    case 'middle_click':
+    case 'double_click':
+    case 'triple_click':
+    case 'left_mouse_down':
+    case 'left_mouse_up':
+    case 'scroll':
+      return action.coordinate;
+    default:
+      return undefined; // type/key/hold_key/wait/screenshot/cursor_position/zoom
+  }
+}
+
+/** Coordinate where the backend finishes a pointer action. */
+function endCoordinateOf(action: CuAction): CuPoint | undefined {
   switch (action.type) {
     case 'mouse_move':
     case 'left_click':
@@ -58,7 +79,7 @@ function coordinateOf(action: CuAction): CuPoint | undefined {
     case 'left_click_drag':
       return action.coordinate;
     default:
-      return undefined; // type/key/hold_key/wait/screenshot/cursor_position/zoom
+      return undefined;
   }
 }
 
@@ -97,7 +118,7 @@ export function createComputerUseOverlayHook(controller: OverlayCursorSink, scre
   const debug = Boolean(process.env.MAKA_CU_E2E_PROMPT);
   return {
     onActionBegin(action, ctx) {
-      const pt = coordinateOf(action);
+      const pt = beginCoordinateOf(action);
       if (!pt) {
         // Non-coordinate action (type/key/screenshot/wait): keep the cursor
         // present at its last spot, don't move it.
@@ -116,12 +137,14 @@ export function createComputerUseOverlayHook(controller: OverlayCursorSink, scre
         screenX: screenPt.x,
         screenY: screenPt.y,
         kind: kindOf(action),
+        instant: action.type !== 'mouse_move',
       });
     },
     onActionEnd(action, result, ctx) {
-      const pt = coordinateOf(action);
+      const pt = endCoordinateOf(action);
       if (!pt || !result || action.type === 'mouse_move') return;
-      const screenPt = declaredPxToScreenPoint(pt, screen.getPrimaryDisplay());
+      const screenPt = result.resolvedScreenPoint
+        ?? declaredPxToScreenPoint(pt, screen.getPrimaryDisplay());
       const kind = kindOf(action);
       controller.complete({
         actionId: ctx.toolCallId,

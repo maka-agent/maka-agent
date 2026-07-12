@@ -140,6 +140,7 @@ import {
   ToolAvailabilityRuntime,
   type ToolAvailabilityConfig,
 } from './tool-availability.js';
+import { compileProviderTool } from './provider-native-tools.js';
 import {
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
   applyRuntimeEventContextBudget,
@@ -887,12 +888,11 @@ export class AiSdkBackend implements AgentBackend {
 
     const aiSdkTools: Record<string, unknown> = {};
     for (const t of providerTools) {
-      aiSdkTools[t.name] = {
-        description: t.description,
-        inputSchema: t.parameters,
+      aiSdkTools[t.name] = compileProviderTool({
+        connection: this.input.connection,
+        tool: t,
         execute: this.wrapToolExecute(t, turnId, queue),
-        ...(t.toModelOutput ? { toModelOutput: t.toModelOutput } : {}),
-      };
+      });
     }
 
     // --- Build messages from RuntimeEvent history and its compatibility projection. ---

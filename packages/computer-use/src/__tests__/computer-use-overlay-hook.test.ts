@@ -7,7 +7,16 @@ import assert from 'node:assert/strict';
 import type { CuAction } from '@maka/core';
 import { createComputerUseOverlayHook, declaredPxToScreenPoint, type OverlayScreenLike } from '../computer-use-overlay-hook.js';
 
-type MoveArgs = { actionId: string; sessionId: string; screenX: number; screenY: number; kind: string; pressed?: boolean; pulse?: boolean };
+type MoveArgs = {
+  actionId: string;
+  sessionId: string;
+  screenX: number;
+  screenY: number;
+  kind: string;
+  pressed?: boolean;
+  pulse?: boolean;
+  instant?: boolean;
+};
 
 function fakeController() {
   const moves: MoveArgs[] = [];
@@ -36,13 +45,20 @@ test('declaredPxToScreenPoint: 1× identity; 2× halves; offsets by display orig
   assert.deepEqual(declaredPxToScreenPoint({ x: 100, y: 100 }, { bounds: { x: 1440, y: 0, width: 1, height: 1 }, scaleFactor: 2 }), { x: 1490, y: 50 });
 });
 
-test('click action → controller.move with transformed coords + kind:click', () => {
+test('click action snaps to transformed coords without pre-dispatch glide', () => {
   const { controller, moves } = fakeController();
   const hook = createComputerUseOverlayHook(controller as never, screenAt(2));
   const action: CuAction = { type: 'left_click', coordinate: { x: 400, y: 300 } };
   hook.onActionBegin(action, { sessionId: 's1', toolCallId: 't1' });
   assert.equal(moves.length, 1);
-  assert.deepEqual(moves[0], { actionId: 't1', sessionId: 's1', screenX: 200, screenY: 150, kind: 'click' });
+  assert.deepEqual(moves[0], {
+    actionId: 't1',
+    sessionId: 's1',
+    screenX: 200,
+    screenY: 150,
+    kind: 'click',
+    instant: true,
+  });
 });
 
 test('backend completion reconciles the exact coordinate after begin', () => {
@@ -53,16 +69,21 @@ test('backend completion reconciles the exact coordinate after begin', () => {
 
   hook.onActionBegin(action, ctx);
   assert.equal(completions.length, 0);
-  hook.onActionEnd?.(action, {
-    outcome: { ok: true, tier: 'semantic-background', verified: true },
-  }, ctx);
+  hook.onActionEnd?.(
+    action,
+    {
+      outcome: { ok: true, tier: 'semantic-background', verified: true },
+      resolvedScreenPoint: { x: 201, y: 151 },
+    },
+    ctx,
+  );
 
   assert.equal(moves.length, 1);
   assert.deepEqual(completions[0], {
     actionId: 't1',
     sessionId: 's1',
-    screenX: 200,
-    screenY: 150,
+    screenX: 201,
+    screenY: 151,
     kind: 'click',
     pulse: true,
   });
@@ -87,6 +108,8 @@ test('scroll → kind:scroll, drag → kind:drag, mouse_move → kind:move', () 
   hook.onActionBegin({ type: 'mouse_move', coordinate: { x: 50, y: 60 } } as CuAction, { sessionId: 's', toolCallId: 'c' });
   assert.deepEqual(moves.map((m) => m.kind), ['scroll', 'drag', 'move']);
   assert.deepEqual([moves[0].screenX, moves[0].screenY], [10, 20]);
+  assert.deepEqual([moves[1].screenX, moves[1].screenY], [1, 1], 'drag begins at start_coordinate');
+  assert.deepEqual(moves.map((m) => m.instant), [true, true, false]);
 });
 
 test('non-coordinate actions keep the cursor present (ensure) but do not move it', () => {

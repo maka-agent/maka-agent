@@ -16,6 +16,7 @@ class FakeCursorOverlayWindow {
   calls: Call[] = [];
   sent: Array<{ channel: string; payload: unknown }> = [];
   private readyCb: (() => void) | null = null;
+  private nextFrameCb: (() => void) | null = null;
   destroyed = false;
   constructor(public options: Record<string, unknown>) {}
   private rec(m: string, ...args: unknown[]): void { this.calls.push({ m, args }); }
@@ -28,7 +29,13 @@ class FakeCursorOverlayWindow {
   destroy(): void { this.destroyed = true; this.rec('destroy'); }
   send(channel: string, payload: unknown): void { this.sent.push({ channel, payload }); }
   onReady(cb: () => void): void { this.readyCb = cb; }
+  onNextFrame(cb: () => void): void { this.nextFrameCb = cb; }
   fireReady(): void { this.readyCb?.(); }
+  fireNextFrame(): void {
+    const cb = this.nextFrameCb;
+    this.nextFrameCb = null;
+    cb?.();
+  }
 }
 
 const BOUNDS = { x: 100, y: 50, width: 1440, height: 900 };
@@ -134,6 +141,50 @@ test('complete() sends exact backend coordinate only for the live action', () =>
     kind: 'click',
     pulse: true,
   });
+});
+
+test('complete() measures display lag from the next compositor frame', () => {
+  const displayed: Array<{ actionId: string; completedAt: number; displayedAt: number }> = [];
+  const created: FakeCursorOverlayWindow[] = [];
+  const controller = createCursorOverlayController({
+    createOverlayWindow: (options) => {
+      const w = new FakeCursorOverlayWindow(options as Record<string, unknown>);
+      created.push(w);
+      return w as never;
+    },
+    resolveOverlayBounds: () => BOUNDS,
+    preloadPath: '/fake/preload.cjs',
+    htmlPath: '/fake/overlay.html',
+    onDisplayFrame: (event) => displayed.push(event),
+  });
+  controller.move({ actionId: 'a1', sessionId: 's', screenX: 500, screenY: 450, kind: 'click' });
+  const w = created[0];
+  w.fireReady();
+
+  controller.complete({
+    actionId: 'stale',
+    sessionId: 's',
+    screenX: 500,
+    screenY: 450,
+    kind: 'click',
+    pulse: true,
+  });
+  w.fireNextFrame();
+  assert.equal(displayed.length, 0, 'stale completion does not subscribe');
+
+  controller.complete({
+    actionId: 'a1',
+    sessionId: 's',
+    screenX: 500,
+    screenY: 450,
+    kind: 'click',
+    pulse: true,
+  });
+  assert.equal(displayed.length, 0, 'display is not claimed before a frame');
+  w.fireNextFrame();
+  assert.equal(displayed.length, 1);
+  assert.equal(displayed[0].actionId, 'a1');
+  assert.ok(displayed[0].displayedAt >= displayed[0].completedAt);
 });
 
 test('teardown: clearForSession / abort / destroyAll destroy synchronously; supersede on session change', () => {

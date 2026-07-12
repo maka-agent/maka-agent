@@ -59,6 +59,7 @@ async function createFixtureWindow(label, slug, bounds, reveal = true) {
     },
   });
   fixture.setMenuBarVisibility(false);
+  fixture.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   const html = `<!doctype html>
 <html>
   <head>
@@ -288,6 +289,8 @@ const fixtureWindows = new Set();
 const results = [];
 const overlayMoves = [];
 const overlayCapturePromises = [];
+const beginCaptureByAction = new Map();
+const completeCaptureByAction = new Map();
 const report = {
   version: 2,
   runId: process.env.MAKA_CU_E2E_RUN_ID || `cu-e2e-${Date.now()}`,
@@ -302,10 +305,10 @@ const report = {
   fatal: null,
 };
 
-function captureOverlayCompletion(input, completedAt) {
-  if (process.env.MAKA_CU_E2E_CAPTURE_OVERLAY !== '1') return;
+function captureOverlayPhase(input, phase, eventAt, delayMs) {
+  if (process.env.MAKA_CU_E2E_CAPTURE_OVERLAY !== '1') return undefined;
   const capture = (async () => {
-    await sleep(50);
+    await sleep(delayMs);
     const captureDir = join(
       here,
       '..',
@@ -315,7 +318,7 @@ function captureOverlayCompletion(input, completedAt) {
       report.runId.replace(/[^A-Za-z0-9._-]/g, '_'),
     );
     await mkdir(captureDir, { recursive: true });
-    const path = join(captureDir, `${input.actionId}.png`);
+    const path = join(captureDir, `${input.actionId}-${phase}.png`);
     await new Promise((resolve, reject) => {
       execFile('/usr/sbin/screencapture', ['-x', path], (error) => {
         if (error) reject(error);
@@ -325,13 +328,15 @@ function captureOverlayCompletion(input, completedAt) {
     report.overlayCaptures ??= [];
     report.overlayCaptures.push({
       actionId: input.actionId,
+      phase,
       target: { x: input.screenX, y: input.screenY },
-      completedAt,
+      eventAt,
       capturedAt: Date.now(),
       path,
     });
   })();
   overlayCapturePromises.push(capture);
+  return capture;
 }
 
 function check(name, pass, detail = '') {
@@ -534,14 +539,21 @@ async function run() {
       overlay.ensure(sessionId);
     },
     move(input) {
-      overlayMoves.push({ phase: 'begin', ...input, ts: Date.now() });
+      const eventAt = Date.now();
+      overlayMoves.push({ phase: 'begin', ...input, ts: eventAt });
       overlay.move(input);
+      const beginCapture = captureOverlayPhase(input, 'begin', eventAt, 20);
+      if (beginCapture) beginCaptureByAction.set(input.actionId, beginCapture);
+      if (input.kind === 'move') {
+        captureOverlayPhase(input, 'move-mid', eventAt, 140);
+      }
     },
     complete(input) {
       const completedAt = Date.now();
       overlayMoves.push({ phase: 'complete', ...input, ts: completedAt });
       overlay.complete(input);
-      captureOverlayCompletion(input, completedAt);
+      const completeCapture = captureOverlayPhase(input, 'complete', completedAt, 50);
+      if (completeCapture) completeCaptureByAction.set(input.actionId, completeCapture);
     },
   };
   const hook = createComputerUseOverlayHook(sink, screen);
@@ -549,6 +561,11 @@ async function run() {
   const observedBackend = {
     preflight: (actionSignal) => backend.preflight(actionSignal),
     run: async (action, actionSignal, context) => {
+      const beginCapture = beginCaptureByAction.get(context.toolCallId);
+      if (beginCapture) {
+        await beginCapture;
+        beginCaptureByAction.delete(context.toolCallId);
+      }
       const result = await backend.run(action, actionSignal, context);
       observedResults.set(context.toolCallId, result);
       return result;
@@ -624,6 +641,7 @@ async function run() {
           startedAt,
           durationMs: Date.now() - startedAt,
           outcome: result.outcome,
+          resolvedScreenPoint: result.resolvedScreenPoint,
           screenshot: result.screenshot
             ? {
                 mimeType: result.screenshot.mimeType,
@@ -636,6 +654,11 @@ async function run() {
         return result;
       }
       const toolResult = await computerTool.impl(modelArgs(action), context);
+      const completeCapture = completeCaptureByAction.get(context.toolCallId);
+      if (completeCapture) {
+        await completeCapture;
+        completeCaptureByAction.delete(context.toolCallId);
+      }
       const result = observedResults.get(context.toolCallId);
       observedResults.delete(context.toolCallId);
       if (!result) throw new Error(`computer tool produced no observed backend result for ${context.toolCallId}`);
@@ -650,6 +673,7 @@ async function run() {
         startedAt,
         durationMs: Date.now() - startedAt,
         outcome: result.outcome,
+        resolvedScreenPoint: result.resolvedScreenPoint,
         modelText: toolResult?.text,
         screenshot: result.screenshot
           ? {
@@ -872,6 +896,7 @@ async function run() {
     secondWindow.setBounds(secondStageBounds);
     secondWindow.showInactive();
     secondWindow.moveAbove(firstWindow.getMediaSourceId());
+    secondWindow.moveTop();
     await sleep(250, signal);
     if (splitAxis === 'horizontal') {
       const currentPoint = await readFixtureScreenPoint(secondWindow, '#target');
@@ -882,6 +907,7 @@ async function run() {
         false,
       );
       secondWindow.moveAbove(firstWindow.getMediaSourceId());
+      secondWindow.moveTop();
       await sleep(150, signal);
     }
   });
@@ -1057,6 +1083,13 @@ async function run() {
       Math.hypot(latestOverlayMove.screenX - expected.x, latestOverlayMove.screenY - expected.y) < 1.5,
       `actual=(${latestOverlayMove.screenX},${latestOverlayMove.screenY}) expected=(${expected.x},${expected.y})`,
     );
+    const finalCapture = captureOverlayPhase(
+      latestOverlayMove,
+      'move-final',
+      Date.now(),
+      0,
+    );
+    if (finalCapture) await finalCapture;
   }
   safetyMonitor.assertStable('overlay movement');
 

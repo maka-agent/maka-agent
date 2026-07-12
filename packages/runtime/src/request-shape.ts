@@ -248,6 +248,15 @@ function toolShapeForDiagnostics(tool: MakaTool): unknown {
     name: tool.name,
     description: tool.description,
     inputSchema: schemaShapeForHash(tool.parameters),
+    ...(tool.providerBinding
+      ? {
+          providerBinding: {
+            kind: tool.providerBinding.kind,
+            environment: tool.providerBinding.environment,
+            display: tool.providerBinding.resolveDisplay(),
+          },
+        }
+      : {}),
   };
 }
 

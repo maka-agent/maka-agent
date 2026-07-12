@@ -43,6 +43,8 @@ export interface CursorOverlayWindowLike {
   send(channel: string, payload: unknown): void;
   /** Fire cb once the page has loaded (webContents 'did-finish-load'). */
   onReady(cb: () => void): void;
+  /** Observe the next compositor frame without a renderer-to-main bridge. */
+  onNextFrame?(cb: () => void): void;
 }
 
 export interface CreateCursorOverlayControllerDeps {
@@ -52,6 +54,7 @@ export interface CreateCursorOverlayControllerDeps {
   preloadPath?: string;
   /** Absolute path to the built overlay html (dist/overlay/cursor-overlay.html). */
   htmlPath?: string;
+  onDisplayFrame?: (input: { actionId: string; completedAt: number; displayedAt: number }) => void;
 }
 
 export interface CursorOverlayController {
@@ -194,6 +197,7 @@ export function createCursorOverlayController(
       y: input.screenY - bounds.y,
       kind: input.kind,
       pressed: input.pressed === true,
+      ...(input.instant === true ? { instant: true } : {}),
     });
   }
 
@@ -201,6 +205,14 @@ export function createCursorOverlayController(
     if (typeof input.sessionId !== 'string' || input.sessionId.length === 0) return;
     if (!Number.isFinite(input.screenX) || !Number.isFinite(input.screenY)) return;
     if (input.sessionId !== sessionId || input.actionId !== actionId) return;
+    const completedAt = Date.now();
+    win?.onNextFrame?.(() => {
+      deps.onDisplayFrame?.({
+        actionId: input.actionId,
+        completedAt,
+        displayedAt: Date.now(),
+      });
+    });
     push('overlay:complete', {
       actionId: input.actionId,
       x: input.screenX - bounds.x,
@@ -246,6 +258,12 @@ function defaultCreateOverlayWindow(options: BrowserWindowConstructorOptions): C
     destroy: () => bw.destroy(),
     send: (channel, payload) => { if (!bw.isDestroyed()) bw.webContents.send(channel, payload); },
     onReady: (cb) => bw.webContents.once('did-finish-load', cb),
+    onNextFrame: (cb) => {
+      bw.webContents.beginFrameSubscription(false, () => {
+        bw.webContents.endFrameSubscription();
+        cb();
+      });
+    },
   };
 }
 

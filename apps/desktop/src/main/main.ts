@@ -1,4 +1,4 @@
-import { app, ipcMain, nativeImage, safeStorage, screen, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, safeStorage, screen, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -168,7 +168,13 @@ import {
   persistSynthesisCacheBlocksToArtifacts,
 } from './synthesis-cache-artifacts.js';
 import { buildBrowserTools } from './browser/browser-tools.js';
-import { selectComputerUseBackend, createComputerUseOverlayHook } from '@maka/computer-use';
+import {
+  createAnthropicComputerHarness,
+  createComputerUseOverlayHook,
+  createKimiComputerHarness,
+  createMiniMaxComputerHarness,
+  selectComputerUseBackend,
+} from '@maka/computer-use';
 import { createCursorOverlayController } from './computer-use/cursor-overlay-window.js';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
@@ -201,22 +207,25 @@ import { registerUsageIpc } from './usage-ipc-main.js';
 import { registerWebSearchIpc } from './web-search-ipc-main.js';
 import { registerNotificationsIpc } from './notifications-ipc-main.js';
 
-// E2E switches must never fire in a packaged build, and must never run against
-// the real user data: a stray MAKA_E2E on a build/dev machine would otherwise
-// swap in the fake backend or hide the window. app.isPackaged is true for
-// asar-packaged builds; MAKA_E2E_USER_DATA_DIR must also be set, so the fake
-// backend can't write test sessions into a real profile if someone sets only
-// MAKA_E2E.
-const isE2e =
+// Test switches must never fire in a packaged build or against real user data.
+// `MAKA_E2E` selects the deterministic FakeBackend suite. `MAKA_CU_REAL_E2E`
+// keeps the production ai-sdk/provider path and only supplies an isolated
+// profile + owned fixture windows for live model-in-loop verification.
+const hasIsolatedTestProfile =
   !app.isPackaged &&
-  process.env.MAKA_E2E === '1' &&
   !!process.env.MAKA_E2E_USER_DATA_DIR;
+const isE2e = hasIsolatedTestProfile && process.env.MAKA_E2E === '1';
+const isComputerUseRealE2e =
+  hasIsolatedTestProfile &&
+  process.env.MAKA_CU_REAL_E2E === '1';
+const isIsolatedTest = isE2e || isComputerUseRealE2e;
 
 // E2E isolation: redirect userData BEFORE the single-instance lock so the
 // lock judges the throwaway dir, not the real user data — otherwise a
 // developer with Maka open makes the E2E process exit as a "second instance".
-// Gated by isE2e (not just the dir env) so a packaged build ignores it.
-if (isE2e && process.env.MAKA_E2E_USER_DATA_DIR) {
+// Gated by an explicit test mode (not just the dir env) so normal dev/package
+// launches ignore it.
+if (isIsolatedTest && process.env.MAKA_E2E_USER_DATA_DIR) {
   app.setPath('userData', process.env.MAKA_E2E_USER_DATA_DIR);
 }
 
@@ -468,9 +477,9 @@ const systemPromptService = createSystemPromptMainService({
   goalManager: goalWiring.manager,
 });
 // Window is created hidden for E2E and visual-smoke runs so it never steals
-// focus. Derived from the same isE2e gate as userData/fake-backend so the
-// hidden-window switch stays in lockstep with the rest of the E2E isolation.
-const startHidden = Boolean(visualSmokeFixture) || isE2e;
+// focus. Both deterministic and real-model E2E own their visible fixture
+// windows, while Maka's regular application window remains hidden.
+const startHidden = Boolean(visualSmokeFixture) || isIsolatedTest;
 const mainWindowController = createMainWindowController({
   workspaceRoot,
   visualSmokeFixture,
@@ -540,7 +549,12 @@ const browserTools: MakaTool[] = buildBrowserTools();
 // The overlay controller draws the Maka-owned agent cursor over the real screen;
 // the hook feeds it each action's coordinate (S15 transform in MAIN). Torn down
 // per-session on turn-end (streamEvents) and unconditionally at before-quit.
-const computerUseOverlay = createCursorOverlayController();
+const computerUseDisplayLagByAction = new Map<string, number>();
+const computerUseOverlay = createCursorOverlayController({
+  onDisplayFrame: ({ actionId, completedAt, displayedAt }) => {
+    computerUseDisplayLagByAction.set(actionId, Math.max(0, displayedAt - completedAt));
+  },
+});
 const computerUse = selectComputerUseBackend({
   overlay: createComputerUseOverlayHook(computerUseOverlay, screen),
   // Compress large frames to JPEG at NATIVE resolution (coordinates unchanged) so a
@@ -556,6 +570,65 @@ const computerUse = selectComputerUseBackend({
   },
 });
 const computerUseTools = computerUse.tools;
+function resolveComputerUseCaptureDisplay(): { widthPx: number; heightPx: number } {
+  const display = screen.getPrimaryDisplay();
+  return {
+    widthPx: Math.round(display.bounds.width * display.scaleFactor),
+    heightPx: Math.round(display.bounds.height * display.scaleFactor),
+  };
+}
+
+function resizeComputerUseFrame(
+  screenshot: { base64: string; mimeType: 'image/png' | 'image/jpeg'; widthPx: number; heightPx: number },
+  target: { widthPx: number; heightPx: number },
+): typeof screenshot {
+  const image = nativeImage.createFromBuffer(Buffer.from(screenshot.base64, 'base64'));
+  if (image.isEmpty()) throw new Error('capture_failed: screenshot could not be decoded');
+  const resized = image.resize({
+    width: target.widthPx,
+    height: target.heightPx,
+    quality: 'best',
+  });
+  return {
+    base64: resized.toJPEG(82).toString('base64'),
+    mimeType: 'image/jpeg',
+    widthPx: target.widthPx,
+    heightPx: target.heightPx,
+  };
+}
+
+const anthropicComputerHarness = createAnthropicComputerHarness({
+  resolveCaptureDisplay: resolveComputerUseCaptureDisplay,
+  resizeFrame: resizeComputerUseFrame,
+});
+const kimiComputerHarness = createKimiComputerHarness({
+  resolveCaptureDisplay: resolveComputerUseCaptureDisplay,
+  resizeFrame: resizeComputerUseFrame,
+});
+const minimaxComputerHarness = createMiniMaxComputerHarness({
+  resolveCaptureDisplay: resolveComputerUseCaptureDisplay,
+  resizeFrame: resizeComputerUseFrame,
+});
+function computerUseToolsForConnection(connection: LlmConnection): MakaTool[] {
+  switch (connection.providerType) {
+    case 'anthropic':
+    case 'claude-subscription':
+      return computerUse.createTools(anthropicComputerHarness);
+    case 'kimi-coding-plan':
+      return computerUse.createTools(kimiComputerHarness);
+    case 'MiniMax':
+    case 'MiniMax-cn':
+      return computerUse.createTools(minimaxComputerHarness);
+    case 'moonshot':
+    case 'openai':
+    case 'codex-subscription':
+    case 'google':
+    case 'gemini-cli':
+      return [];
+    default:
+      return computerUseTools;
+  }
+}
 console.log(`[cu-startup] backend=${computerUse.backendId} tools=${computerUseTools.length}`);
 const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
 const deferredTools: MakaTool[] = [...riveTools, ...officeTools, ...browserTools, ...computerUseTools, ...agentTools];
@@ -776,6 +849,23 @@ backends.register('ai-sdk', async (ctx) => {
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
+  const providerComputerTools = computerUseToolsForConnection(connection);
+  const runtimeTools = isComputerUseRealE2e
+    ? providerComputerTools
+    : [...(ctx.tools ?? builtinTools)].flatMap((tool) =>
+        tool.name === 'computer' ? providerComputerTools : [tool]
+      );
+  const runtimeToolAvailability: ToolAvailabilityConfig = isComputerUseRealE2e
+    ? {
+        economy: true,
+        groups: [{
+          id: 'computer_use',
+          label: 'Computer',
+          description: 'Control the owned real-model fixture through the host computer tool.',
+          toolNames: providerComputerTools.map((tool) => tool.name),
+        }],
+      }
+    : toolAvailability;
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -786,8 +876,8 @@ backends.register('ai-sdk', async (ctx) => {
     modelId: model,
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
-    tools: [...(ctx.tools ?? builtinTools)],
-    toolAvailability,
+    tools: runtimeTools,
+    toolAvailability: runtimeToolAvailability,
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
     readChildAgentOutput: (input) => runtime.readChildAgentOutput(ctx.sessionId, input),
@@ -2074,7 +2164,7 @@ app.whenReady().then(async () => {
   // builds get the icon via .app bundle Info.plist; this covers the
   // dev path.
   if (process.platform === 'darwin' && app.dock) {
-    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || isE2e) {
+    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || isIsolatedTest) {
       // PR-VISUAL-SMOKE-HEADLESS: hide the dock icon so the spawned
       // Electron runs as an accessory app — no dock bounce, and it
       // never becomes frontmost / steals focus from the developer's
@@ -2107,8 +2197,76 @@ app.whenReady().then(async () => {
   // Keep the process alive until background work settles so schedulers
   // / bridges aren't torn down mid-start by a fast window-all-closed.
   await backgroundStartup;
+  await maybeCreateComputerUseRealE2eFixture();
   await maybeRunComputerUseE2e();
 });
+
+let computerUseRealE2eFixture: BrowserWindow | undefined;
+
+async function maybeCreateComputerUseRealE2eFixture(): Promise<void> {
+  if (!isComputerUseRealE2e) return;
+  const display = screen.getPrimaryDisplay();
+  const width = Math.min(720, Math.max(560, display.workArea.width - 80));
+  const height = Math.min(520, Math.max(420, display.workArea.height - 80));
+  const fixture = new BrowserWindow({
+    x: display.workArea.x + Math.max(20, display.workArea.width - width - 40),
+    y: display.workArea.y + Math.max(20, display.workArea.height - height - 40),
+    width,
+    height,
+    show: false,
+    focusable: true,
+    backgroundColor: '#f6f7f9',
+    title: 'Maka Real Model Computer Use Fixture',
+    webPreferences: {
+      backgroundThrottling: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  fixture.setMenuBarVisibility(false);
+  await fixture.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Maka Real Model Computer Use Fixture</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; background: #f6f7f9; }
+      body { box-sizing: border-box; padding: 28px; font: 16px/1.4 -apple-system, sans-serif; color: #172033; }
+      main { display: grid; grid-template-rows: auto auto auto 1fr; gap: 22px; height: 100%; }
+      h1 { margin: 0; font-size: 24px; }
+      .row { display: flex; align-items: center; gap: 18px; }
+      button { width: 180px; height: 56px; border: 2px solid #315ee7; background: #fff; font: 600 17px -apple-system, sans-serif; }
+      #secondary { border-color: #c54343; }
+      output { min-width: 90px; font: 700 24px ui-monospace, monospace; }
+      textarea { width: 100%; height: 100px; box-sizing: border-box; padding: 14px; font: 16px ui-monospace, monospace; }
+      #status { padding: 18px; border: 1px solid #9aa5b4; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Real model computer-use target</h1>
+      <div class="row">
+        <button id="primary">Increment blue</button>
+        <button id="secondary">Do not click red</button>
+        <output id="count">0</output>
+      </div>
+      <textarea id="note" aria-label="verification note" placeholder="Leave empty unless the task asks for text"></textarea>
+      <div id="status">Expected final state: blue count = 1, red count = 0.</div>
+    </main>
+    <script>
+      const state = { blue: 0, red: 0 };
+      primary.addEventListener('click', () => { state.blue += 1; count.value = String(state.blue); });
+      secondary.addEventListener('click', () => { state.red += 1; });
+      globalThis.__makaRealCuState = () => ({ ...state, note: note.value });
+    </script>
+  </body>
+</html>`)}`);
+  fixture.showInactive();
+  fixture.moveTop();
+  computerUseRealE2eFixture = fixture;
+  console.log(`[cu-real-e2e] fixture pid=${process.pid} bounds=${JSON.stringify(fixture.getContentBounds())}`);
+}
 
 /**
  * DEV-ONLY end-to-end harness for the computer-use agent cursor. When
@@ -2143,24 +2301,86 @@ async function maybeRunComputerUseE2e(): Promise<void> {
       console.log(`${tag} session=${session.id} mode=${mode} model=${model}`);
       console.log(`${tag} prompt: ${prompt}`);
       const turnId = randomUUID();
+      const turnStartedAt = Date.now();
+      let previousToolResultAt = turnStartedAt;
       const iterator = runtime.sendMessage(session.id, { turnId, text: prompt });
       const toolCounts = new Map<string, number>();
+      const metrics: Array<Record<string, unknown>> = [];
+      const toolStarts = new Map<string, { at: number; name: string }>();
+      let fixtureState: unknown;
       let cuActions = 0;
       for await (const event of iterator) {
         safeSendToRenderer(`sessions:event:${session.id}`, event);
-        const e = event as { type?: string; requestId?: string; name?: string; toolName?: string; args?: unknown; content?: unknown };
+        const e = event as {
+          type?: string;
+          requestId?: string;
+          name?: string;
+          toolName?: string;
+          toolUseId?: string;
+          args?: unknown;
+          content?: unknown;
+          durationMs?: number;
+        };
         if (e.type === 'permission_request' && e.requestId) {
           await runtime.respondToPermission(session.id, { requestId: e.requestId, decision: 'allow', rememberForTurn: true });
         } else if (e.type === 'tool_start') {
+          const now = Date.now();
           const name = String(e.name ?? e.toolName ?? '?');
           toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
           if (name === 'computer') cuActions++;
+          if (e.toolUseId) toolStarts.set(e.toolUseId, { at: now, name });
+          metrics.push({
+            toolUseId: e.toolUseId,
+            toolName: name,
+            modelLatencyMs: Math.max(0, now - previousToolResultAt),
+          });
           console.log(`${tag} tool_start ${name} ${JSON.stringify(e.args ?? {}).slice(0, 160)}`);
         } else if (e.type === 'tool_result') {
+          const now = Date.now();
+          previousToolResultAt = now;
+          const start = e.toolUseId ? toolStarts.get(e.toolUseId) : undefined;
+          const metric = [...metrics].reverse().find((item) => item.toolUseId === e.toolUseId);
+          if (metric) {
+            metric.toolLatencyMs = e.durationMs ?? (start ? Math.max(0, now - start.at) : undefined);
+            if (e.toolUseId && computerUseDisplayLagByAction.has(e.toolUseId)) {
+              metric.displayLagMs = computerUseDisplayLagByAction.get(e.toolUseId);
+            }
+          }
           console.log(`${tag} tool_result ${JSON.stringify(e.content ?? '').slice(0, 240)}`);
         } else if (e.type === 'complete' || e.type === 'error' || e.type === 'abort') {
           console.log(`${tag} turn ${e.type}`);
         }
+      }
+      if (computerUseRealE2eFixture && !computerUseRealE2eFixture.isDestroyed()) {
+        const state = await computerUseRealE2eFixture.webContents.executeJavaScript(
+          'globalThis.__makaRealCuState?.() ?? null',
+          true,
+        );
+        fixtureState = state;
+        console.log(`${tag} fixture_state ${JSON.stringify(state)}`);
+        if (isComputerUseRealE2e && (state?.blue !== 1 || state?.red !== 0)) {
+          throw new Error(`real model fixture verification failed: ${JSON.stringify(state)}`);
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      for (const metric of metrics) {
+        const toolUseId = typeof metric.toolUseId === 'string' ? metric.toolUseId : undefined;
+        if (toolUseId && computerUseDisplayLagByAction.has(toolUseId)) {
+          metric.displayLagMs = computerUseDisplayLagByAction.get(toolUseId);
+        }
+      }
+      const metricReport = {
+        connectionSlug: connection.slug,
+        providerType: connection.providerType,
+        model,
+        turnLatencyMs: Date.now() - turnStartedAt,
+        actions: metrics,
+        fixtureState,
+      };
+      console.log(`${tag} metrics ${JSON.stringify(metricReport)}`);
+      const reportPath = process.env.MAKA_CU_REAL_E2E_REPORT;
+      if (isComputerUseRealE2e && reportPath) {
+        await writeFile(reportPath, `${JSON.stringify(metricReport, null, 2)}\n`, 'utf8');
       }
       computerUseOverlay.clearForSession(session.id);
       computerUse.backend?.clearSession?.(session.id);
@@ -2171,9 +2391,14 @@ async function maybeRunComputerUseE2e(): Promise<void> {
       summary.push(`${i + 1}. FAILED: ${(error as Error).message}`);
     }
   }
+  const failed = summary.some((line) => line.includes('FAILED:'));
   console.log('[cu-e2e] ===== SUITE SUMMARY =====');
   for (const line of summary) console.log(`[cu-e2e] ${line}`);
   console.log('[cu-e2e] done');
+  if (isComputerUseRealE2e) {
+    if (failed) process.exitCode = 1;
+    app.quit();
+  }
 }
 
 /**

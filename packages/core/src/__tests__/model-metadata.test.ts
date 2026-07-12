@@ -13,6 +13,7 @@ describe('model-metadata vision capability', () => {
     assert.equal(lookupModelMetadata('zai-coding-plan', 'glm-5v-turbo').capabilities?.vision, true);
     assert.equal(lookupModelMetadata('MiniMax', 'MiniMax-M3').capabilities?.vision, true);
     assert.equal(lookupModelMetadata('MiniMax-cn', 'MiniMax-M3').capabilities?.vision, true);
+    assert.equal(lookupModelMetadata('moonshot', 'kimi-k2.7-code').capabilities?.vision, true);
   });
 
   it('reports vision false for text-only models', () => {

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { CursorEngine } from '../../renderer/computer-use-overlay/engine/cursor-engine.js';
-import { planPath } from '../../renderer/computer-use-overlay/engine/dubins.js';
+import { planDirectPath, planPath } from '../../renderer/computer-use-overlay/engine/dubins.js';
 import { paletteForInstance, defaultPalette, gradientAt } from '../../renderer/computer-use-overlay/engine/palette.js';
 
 const finite = (v: number): boolean => Number.isFinite(v);
@@ -37,7 +37,7 @@ test('speed profile peaks at 1.0 at u=0.5 (smootherstep)', () => {
   assert.ok(Math.abs(profile - 1.0) < 1e-9, `profile ${profile}`);
 });
 
-test('engine glides + spring-settles onto target+offset, no NaN', () => {
+test('engine glides directly onto target+offset, no NaN', () => {
   const e = new CursorEngine();
   e.setSession('conv-test');
   const tx = 500, ty = 300;
@@ -54,6 +54,19 @@ test('engine glides + spring-settles onto target+offset, no NaN', () => {
   assert.ok(!e.isMoving(), `settled (frames ${frames})`);
   assert.ok(Math.hypot(e.pos[0] - offX, e.pos[1] - offY) < 1.0, 'final pos ≈ target+offset');
   assert.ok(frames > 20 && frames < 60 * 6, `glide duration sane (${(frames / 60).toFixed(2)}s)`);
+});
+
+test('direct cursor path has no lateral detour or in-flight rotation', () => {
+  const path = planDirectPath(100, 100, 700, 250, REST_HEADING);
+  const expectedHeading = Math.atan2(150, 600);
+  for (let index = 0; index <= 100; index++) {
+    const point = path.sample((path.length * index) / 100);
+    const progress = index / 100;
+    const expectedX = 100 + 600 * progress;
+    const expectedY = 100 + 150 * progress;
+    assert.ok(Math.hypot(point.x - expectedX, point.y - expectedY) < 0.01);
+    assert.ok(Math.abs(point.heading - expectedHeading) < 0.01);
+  }
 });
 
 test('first move glides IN from off-screen (not a pop) and converges to target', () => {
@@ -114,6 +127,34 @@ test('completion snaps the arrow tip to the executed coordinate and cancels glid
   const tipY = e.pos[1] - Math.sin(REST_HEADING) * ARROW_TIP_LENGTH;
   assert.ok(Math.hypot(tipX - 320, tipY - 240) < 0.01);
   assert.ok(e.isMoving(), 'pulse remains active after glide is cancelled');
+});
+
+test('cursor bloom is centered on the arrow hotspot', () => {
+  const e = new CursorEngine();
+  e.completeAt(320, 240);
+  const gradients: number[][] = [];
+  const gradient = { addColorStop() {} };
+  const ctx = {
+    createRadialGradient: (...args: number[]) => {
+      gradients.push(args);
+      return gradient;
+    },
+    createLinearGradient: () => gradient,
+    beginPath() {},
+    arc() {},
+    fill() {},
+    stroke() {},
+    moveTo() {},
+    lineTo() {},
+    closePath() {},
+    set fillStyle(_value: unknown) {},
+    set strokeStyle(_value: unknown) {},
+    set lineWidth(_value: number) {},
+    set lineJoin(_value: CanvasLineJoin) {},
+  } as unknown as CanvasRenderingContext2D;
+
+  e.paint(ctx, 0, 0);
+  assert.deepEqual(gradients[0]?.slice(0, 5), [320, 240, 0, 320, 240]);
 });
 
 test('path planner bounds detours for short moves', () => {

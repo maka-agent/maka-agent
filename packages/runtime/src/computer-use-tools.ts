@@ -29,9 +29,17 @@ export interface CuScreenshot {
 
 export interface CuRunResult {
   outcome: ComputerUseActionOutcome;
+  /** Final logical screen point resolved by the backend for pointer actions. */
+  resolvedScreenPoint?: CuPoint;
   /** Present for `screenshot`, and (by convention) after a mutating action so
    *  the model can SEE the result — the authoritative verification (S17). */
   screenshot?: CuScreenshot;
+}
+
+export interface CuFrameAdapter {
+  resolveModelDisplay(): { widthPx: number; heightPx: number };
+  toSourceAction(action: CuAction): CuAction;
+  prepareScreenshot(screenshot: CuScreenshot): CuScreenshot;
 }
 
 export interface CuRunContext {
@@ -173,7 +181,13 @@ function summarize(action: CuAction, result: CuRunResult): string {
   const verified = outcome.verified === undefined ? 'n/a' : String(outcome.verified);
   const shot = result.screenshot ? `; screenshot ${result.screenshot.widthPx}x${result.screenshot.heightPx}` : '';
   return `computer.${action.type} ok via ${outcome.tier} (verified=${verified})${evidence}${shot}`
-    + (outcome.verified === false ? ' — dispatch could not be confirmed; re-screenshot to verify' : '');
+    + (
+      outcome.verified === false
+        ? ' — dispatch could not be confirmed; re-screenshot before retrying'
+        : outcome.verified === true && outcome.evidence?.effect === 'confirmed'
+          ? ' — effect confirmed; do not repeat this action'
+          : ''
+    );
 }
 
 /**
@@ -188,7 +202,11 @@ interface ComputerToolResult {
   screenshot?: { base64: string; mimeType: string };
 }
 
-export function buildComputerUseTools(deps: { backend: CuDispatchBackend; overlay?: CuOverlayHook }): MakaTool[] {
+export function buildComputerUseTools(deps: {
+  backend: CuDispatchBackend;
+  overlay?: CuOverlayHook;
+  frameAdapter?: CuFrameAdapter;
+}): MakaTool[] {
   let invocationQueue = Promise.resolve();
 
   async function withInvocationQueue<T>(
@@ -224,6 +242,15 @@ export function buildComputerUseTools(deps: { backend: CuDispatchBackend; overla
       + 'Never used for web pages inside Maka (use the browser tools for those).',
     parameters: computerParams,
     categoryHint: COMPUTER_USE_CATEGORY as MakaTool['categoryHint'],
+    ...(deps.frameAdapter
+      ? {
+          providerBinding: {
+            kind: 'computer' as const,
+            environment: 'desktop' as const,
+            resolveDisplay: deps.frameAdapter.resolveModelDisplay,
+          },
+        }
+      : {}),
     impl: async (args, {
       abortSignal,
       sessionId,
@@ -237,7 +264,8 @@ export function buildComputerUseTools(deps: { backend: CuDispatchBackend; overla
         if (!tcc.accessibility) {
           return { text: 'computer failed: permission_missing — Accessibility not granted (System Settings → Privacy & Security → Accessibility)' };
         }
-        const action = adaptToCuAction(args);
+        const modelAction = adaptToCuAction(args);
+        const action = deps.frameAdapter?.toSourceAction(modelAction) ?? modelAction;
         // A capture-bearing action additionally needs Screen Recording (S12).
         const capturing = action.type === 'screenshot' || action.type === 'zoom';
         if (capturing && !tcc.screenRecording) {
@@ -252,12 +280,26 @@ export function buildComputerUseTools(deps: { backend: CuDispatchBackend; overla
         let result: CuRunResult | undefined;
         try {
           result = await deps.backend.run(action, abortSignal, runCtx);
+          if (result.screenshot && deps.frameAdapter) {
+            try {
+              result = {
+                ...result,
+                screenshot: deps.frameAdapter.prepareScreenshot(result.screenshot),
+              };
+            } catch (error) {
+              return {
+                text: `computer.${modelAction.type} failed: capture_failed; ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              };
+            }
+          }
           // Carry the screenshot base64 on the raw result (which becomes the ai-sdk
           // tool `output`) so `toModelOutput` below can hand the vision model an image
           // block. Kept OFF `text`: coerceResultContent projects this object to a
           // text-only session-log entry (no `kind` ⇒ only `text` survives), so the
           // bounded frame never bloats history.
-          const text = summarize(action, result);
+          const text = summarize(modelAction, result);
           return result.screenshot
             ? { text, screenshot: { base64: result.screenshot.base64, mimeType: result.screenshot.mimeType } }
             : { text };

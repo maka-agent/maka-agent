@@ -517,6 +517,7 @@ describe('cua-driver backend', () => {
       { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
       new AbortController().signal,
     );
+    assert.deepEqual(res.resolvedScreenPoint, { x: 300, y: 200 });
 
     assert.equal(res.outcome.ok, true);
     if (res.outcome.ok) {
@@ -694,6 +695,7 @@ describe('cua-driver backend', () => {
       { type: 'left_click_drag', startCoordinate: { x: 600, y: 400 }, coordinate: { x: 800, y: 600 } } as CuAction,
       sig,
     );
+    assert.deepEqual(res.resolvedScreenPoint, { x: 400, y: 300 });
     assert.equal(res.outcome.ok, true, 'same-window drag succeeds');
     const drag = toolCall(await readRecords(logPath), 'drag');
     assert.ok(drag, 'drag sent to cua-driver');
@@ -1122,6 +1124,7 @@ describe('cua-driver backend', () => {
       verified: true,
       evidence: { path: 'cdp', effect: 'confirmed' },
     });
+    assert.deepEqual(result.resolvedScreenPoint, { x: 300, y: 200 });
     const records = await readRecords(click.logPath);
     const pageCall = toolCall(records, 'page');
     assert.deepEqual(pageCall, {

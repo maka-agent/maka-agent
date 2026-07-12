@@ -43,6 +43,14 @@ export { cuaDriverBinaryPath, resolveCuaDriverBinaryPath } from './cua-driver-pa
 
 export { createComputerUseOverlayHook, declaredPxToScreenPoint } from './computer-use-overlay-hook.js';
 export {
+  anthropicComputerImageSize,
+  createAnthropicComputerHarness,
+} from './anthropic-computer-harness.js';
+export {
+  createKimiComputerHarness,
+  kimiComputerImageSize,
+} from './kimi-computer-harness.js';
+export {
   createMiniMaxComputerHarness,
   minimaxComputerFrameTransform,
   minimaxModelPointToSource,

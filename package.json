@@ -21,6 +21,7 @@
     "test:scripts": "node --test scripts/run-headless-tests.test.mjs scripts/cu-e2e-contract.test.mjs",
     "e2e:computer-use": "npm --workspace @maka/core run build && npm --workspace @maka/runtime run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/desktop run build:main && npm --workspace @maka/desktop run build:overlay && node scripts/cu-e2e-launcher.mjs",
     "e2e:computer-use:repeat": "node scripts/cu-e2e-repeat.mjs --runs 10",
+    "e2e:computer-use:model": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/ui run build && npm --workspace @maka/desktop run build:main && npm --workspace @maka/desktop run build:preload && npm --workspace @maka/desktop run build:overlay && npm --workspace @maka/desktop run build:renderer && node scripts/cu-real-model-e2e.mjs",
     "dev": "npm --workspace @maka/desktop run dev:hmr --",
     "dev:full": "npm run build && npm --workspace @maka/desktop run start",
     "build": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/headless run build && npm --workspace maka-agent run build && npm --workspace @maka/ui run build && npm --workspace @maka/desktop run build",

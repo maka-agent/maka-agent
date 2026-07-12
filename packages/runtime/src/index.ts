@@ -79,6 +79,8 @@ export type {
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
 export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
+export type { CuFrameAdapter } from './computer-use-tools.js';
+export { compileProviderTool } from './provider-native-tools.js';
 export {
   convertOpenAIComputerAction,
   openAIComputerActionSchema,

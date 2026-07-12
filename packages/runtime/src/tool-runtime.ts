@@ -62,6 +62,16 @@ export interface MakaTool<P = any, R = unknown> {
   activityKind?: ToolActivityKind;
   /** Optional trusted category override for custom tools. */
   categoryHint?: ToolCategory;
+  /**
+   * Optional provider-native wire binding. The shared Maka executor remains
+   * authoritative; a provider compiler may only change how the tool is
+   * declared on the model API.
+   */
+  providerBinding?: {
+    kind: 'computer';
+    environment: 'desktop';
+    resolveDisplay: () => { widthPx: number; heightPx: number };
+  };
   /** Optional trusted facts about the executor that runs this tool. */
   executionFacts?: ToolExecutionFacts;
   /** Real tool implementation. Called only after permission allows. */

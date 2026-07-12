@@ -102,6 +102,13 @@ const MINIMAX_MODELS_DEV_METADATA: Record<string, ModelMetadata> = {
   'MiniMax-M3': { displayName: 'MiniMax-M3', lifecycle: 'active', docsUrl: 'https://platform.minimax.io/docs/guides/text-generation', contextWindow: 1_000_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
 };
 
+const MOONSHOT_MODELS_DEV_METADATA: Record<string, ModelMetadata> = {
+  'kimi-k2.7-code': { displayName: 'Kimi K2.7 Code', lifecycle: 'active', docsUrl: 'https://platform.kimi.com/docs/guide/kimi-k2-7-code-quickstart', capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
+  'kimi-k2.7-code-highspeed': { displayName: 'Kimi K2.7 Code Highspeed', lifecycle: 'active', docsUrl: 'https://platform.kimi.com/docs/guide/kimi-k2-7-code-quickstart', capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
+  'kimi-k2.6': { displayName: 'Kimi K2.6', lifecycle: 'active', docsUrl: 'https://platform.kimi.com/docs', capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
+  'kimi-k2.5': { displayName: 'Kimi K2.5', lifecycle: 'active', docsUrl: 'https://platform.kimi.com/docs', capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
+};
+
 // Provider/access-path-specific static facts. Keep limits unset unless the
 // source is authoritative for that provider path; request routing keeps raw ids.
 const MODELS_DEV_METADATA: Partial<Record<ProviderType, Record<string, ModelMetadata>>> = {
@@ -127,6 +134,7 @@ const MODELS_DEV_METADATA: Partial<Record<ProviderType, Record<string, ModelMeta
   },
   MiniMax: MINIMAX_MODELS_DEV_METADATA,
   'MiniMax-cn': MINIMAX_MODELS_DEV_METADATA,
+  moonshot: MOONSHOT_MODELS_DEV_METADATA,
 };
 
 function displayMetadataOnly(source: Record<string, ModelMetadata>): Record<string, ModelMetadata> {
@@ -158,6 +166,7 @@ const CURATED_CATALOG_FALLBACK_MODELS: Partial<Record<ProviderType, readonly str
   google: ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
   'gemini-cli': ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
   'zai-coding-plan': ['glm-5.2', 'glm-5.1', 'glm-5-turbo', 'glm-4.7', 'glm-4.5-air'],
+  moonshot: ['kimi-k2.7-code-highspeed', 'kimi-k2.7-code', 'kimi-k2.6', 'kimi-k2.5'],
   MiniMax: ['MiniMax-M3'],
   'MiniMax-cn': ['MiniMax-M3'],
 };

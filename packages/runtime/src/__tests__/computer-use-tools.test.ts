@@ -98,6 +98,57 @@ describe('buildComputerUseTools — the `computer` MakaTool', () => {
     assert.ok(tool.parameters, 'carries a zod parameter schema');
   });
 
+  test('declares the host display contract for provider-native compilation', () => {
+    const [tool] = buildComputerUseTools({
+      backend: fakeBackend(),
+      frameAdapter: {
+        resolveModelDisplay: () => ({ widthPx: 1920, heightPx: 1200 }),
+        toSourceAction: (action) => action,
+        prepareScreenshot: (screenshot) => screenshot,
+      },
+    });
+    assert.equal(tool.providerBinding?.kind, 'computer');
+    assert.equal(tool.providerBinding?.environment, 'desktop');
+    assert.deepEqual(tool.providerBinding?.resolveDisplay(), {
+      widthPx: 1920,
+      heightPx: 1200,
+    });
+  });
+
+  test('fails closed when the captured frame disagrees with the declared display', async () => {
+    const backend = fakeBackend({
+      result: {
+        outcome: { ok: true, tier: 'coordinate-background' },
+        screenshot: {
+          base64: 'AA==',
+          mimeType: 'image/png',
+          widthPx: 1280,
+          heightPx: 800,
+        },
+      },
+    });
+    const [tool] = buildComputerUseTools({
+      backend,
+      frameAdapter: {
+        resolveModelDisplay: () => ({ widthPx: 1920, heightPx: 1200 }),
+        toSourceAction: (action) => action,
+        prepareScreenshot: (screenshot) => {
+          if (screenshot.widthPx !== 1920 || screenshot.heightPx !== 1200) {
+            throw new Error(
+              `declared display 1920x1200 does not match captured frame `
+              + `${screenshot.widthPx}x${screenshot.heightPx}`,
+            );
+          }
+          return screenshot;
+        },
+      },
+    });
+    const result = await tool.impl({ action: 'screenshot' } as never, ctx()) as { text: string };
+    assert.match(result.text, /declared display 1920x1200/);
+    assert.match(result.text, /captured frame 1280x800/);
+    assert.equal('screenshot' in result, false);
+  });
+
   test('S12: re-checks TCC and fails closed when Accessibility is not granted', async () => {
     const r = await callComputer(fakeBackend({ accessibility: false }), { action: 'left_click', coordinate: [1, 1] });
     assert.match(r.text, /permission_missing/);
@@ -229,6 +280,22 @@ describe('buildComputerUseTools — the `computer` MakaTool', () => {
     const r = await callComputer(backend, { action: 'left_click', coordinate: [1, 1] });
     assert.match(r.text, /verified=false/);
     assert.match(r.text, /re-screenshot/);
+  });
+
+  test('a confirmed effect tells the model not to repeat the action', async () => {
+    const r = await callComputer(fakeBackend({
+      result: {
+        outcome: {
+          ok: true,
+          tier: 'semantic-background',
+          verified: true,
+          evidence: { path: 'cdp', effect: 'confirmed' },
+        },
+      },
+    }), { action: 'left_click', coordinate: [5, 6] });
+    assert.match(r.text, /effect confirmed/);
+    assert.match(r.text, /do not repeat/);
+    assert.doesNotMatch(r.text, /re-screenshot/);
   });
 
   test('surfaces controlled dispatch evidence without escalation reason or AX text', async () => {

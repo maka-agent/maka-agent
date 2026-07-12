@@ -5,7 +5,13 @@
 // persists), so a resting cursor costs no CPU.
 import { CursorEngine } from '../renderer/computer-use-overlay/engine/cursor-engine.js';
 
-interface MovePayload { x: number; y: number; kind?: 'move' | 'click' | 'drag' | 'scroll'; pressed?: boolean }
+interface MovePayload {
+  x: number;
+  y: number;
+  kind?: 'move' | 'click' | 'drag' | 'scroll';
+  pressed?: boolean;
+  instant?: boolean;
+}
 interface CompletePayload { actionId?: string; x: number; y: number; kind?: 'move' | 'click' | 'drag' | 'scroll'; pulse?: boolean }
 interface ResetPayload { sessionColorId?: string }
 declare global {
@@ -63,7 +69,8 @@ window.cursorOverlay?.onReset((p) => {
   kick();
 });
 window.cursorOverlay?.onMove((p) => {
-  engine.moveTo(p.x, p.y);
+  if (p.instant === true) engine.completeAt(p.x, p.y);
+  else engine.moveTo(p.x, p.y);
   engine.pressed = p.pressed === true;
   kick();
 });

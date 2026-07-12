@@ -8,7 +8,12 @@
 // There is ONE backend: cua-driver (Tier-2 coordinate-background, trycua/cua-driver
 // MIT). The runtime's `computer` tool owns the OS-independent Path 18 duties (S12 TCC
 // re-check, S17 typed errors, S18 abort); the backend only marshals dispatch.
-import { buildComputerUseTools, type CuDispatchBackend, type CuOverlayHook } from '@maka/runtime';
+import {
+  buildComputerUseTools,
+  type CuDispatchBackend,
+  type CuFrameAdapter,
+  type CuOverlayHook,
+} from '@maka/runtime';
 import { createCuaDriverBackend } from './cua-driver-backend.js';
 import { resolveCuaDriverBinaryPath } from './cua-driver-path.js';
 
@@ -25,11 +30,17 @@ export interface SelectedComputerUseBackend {
   backend?: DisposableBackend;
   /** The `computer` tool(s) — empty when unavailable (fail closed). */
   tools: ReturnType<typeof buildComputerUseTools>;
+  createTools: (frameAdapter?: CuFrameAdapter) => ReturnType<typeof buildComputerUseTools>;
   /** Which backend was chosen, or 'none' when unavailable. */
   backendId: CuBackendId | 'none';
 }
 
-const NONE: SelectedComputerUseBackend = { backend: undefined, tools: [], backendId: 'none' };
+const NONE: SelectedComputerUseBackend = {
+  backend: undefined,
+  tools: [],
+  createTools: () => [],
+  backendId: 'none',
+};
 
 /** The host app bundle id, for cua-driver's TCC responsibility-chain inherit. */
 function resolveHostBundleId(explicit?: string): string {
@@ -60,7 +71,17 @@ export function selectComputerUseBackend(deps?: {
       hostBundleId: resolveHostBundleId(deps?.hostBundleId),
       ...(deps?.compressFrame ? { compressFrame: deps.compressFrame } : {}),
     });
-    return { backend, tools: buildComputerUseTools({ backend, overlay }), backendId: 'cua-driver' };
+    const createTools = (frameAdapter?: CuFrameAdapter) => buildComputerUseTools({
+      backend,
+      overlay,
+      ...(frameAdapter ? { frameAdapter } : {}),
+    });
+    return {
+      backend,
+      tools: createTools(),
+      createTools,
+      backendId: 'cua-driver',
+    };
   } catch (err) {
     // Fail closed → feature unavailable, never crash startup. Log so a genuine
     // construction bug (broken import, throwing resolver) is distinguishable
