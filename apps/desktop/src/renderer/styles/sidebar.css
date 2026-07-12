@@ -343,10 +343,10 @@
 
 .maka-list-row-menu-trigger {
   position: absolute;
-  top: var(--space-0-5);
+  top: 0;
   right: var(--space-1);
-  width: var(--h-control-sm);
-  height: var(--h-control-sm);
+  width: var(--h-control-lg);
+  height: var(--h-control-lg);
   display: grid;
   place-items: center;
   padding: 0;
