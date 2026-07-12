@@ -4,13 +4,13 @@ This document names the trust boundaries Maka treats as load-bearing,
 the in-process safety nets it ships but does NOT treat as boundaries,
 and how to report a vulnerability.
 
-It is modeled after [external-reference's SECURITY.md][external reference-sec] and
+It is modeled after [hermes-agent's SECURITY.md][hermes-agent-sec] and
 shares the same honesty principle: the only enforcement boundary
 against an adversarial LLM is the operating system. Anything the
 agent process screens internally is a heuristic operating on an
 attacker-influenced string.
 
-[external reference-sec]: https://github.com/NousResearch/external-reference/blob/main/SECURITY.md
+[hermes-agent-sec]: https://github.com/NousResearch/hermes-agent/security
 
 ## 1. Reporting a vulnerability
 

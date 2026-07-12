@@ -490,7 +490,7 @@ export type {
 } from './bots/index.js';
 
 // ───────────────────────────────────────────────────────────────────────────
-// Runtime v2 seam (Phase 1–4 increments).
+// Runtime event and recovery public seam.
 //
 // Subpath imports (e.g. `@maka/runtime/runtime-runner`) remain canonical;
 // the barrel re-exports below are for convenience. `InvocationContext` is the

@@ -23,7 +23,7 @@ This page is the authority map for Maka documentation. Code and contract tests r
 
 ### Runtime and Headless
 
-- [Durable task lifecycle](./durable-task-lifecycle.md)
+- [Session task ledger lifecycle](./session-task-ledger-lifecycle.md)
 - [AHE target protocol](./ahe-target-protocol.md)
 - [AHE evidence export](./ahe-evidence-export.md)
 - [Skill catalog policy](./skill-catalog-policy.md)

@@ -125,8 +125,7 @@ export function MarkdownBody(props: { text: string; streaming?: boolean }) {
           </code>
         ),
         // Wrap block code with a language pill header + copy affordance.
-        // The pill is from an external design reference (40-markdown-deep §7a) — surfaces the
-        // detected language so users can verify hljs got it right.
+        // Surface the detected language so users can verify highlighting.
         pre: ({ children, ...rest }) => <CodeBlock {...rest}>{children}</CodeBlock>,
         // #618 item 5: the horizontal scroller for over-wide tables lives on
         // a wrapper div. Scrolling on the table itself requires

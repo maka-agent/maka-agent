@@ -1,8 +1,9 @@
-# Durable Task Lifecycle
+# Session Task Ledger Lifecycle
 
-This document is the durable task lifecycle contract and implementation summary
-for #559. It hardens the existing session task ledger; it does not introduce a
-second task system.
+This document defines the lifecycle and persistence contract for the task ledger
+attached to an interactive session. It is distinct from the Headless `TaskRun`
+record: the ledger tracks model-visible work items inside a session, while a
+`TaskRun` records a complete benchmark or automation execution.
 
 ## Scope
 
