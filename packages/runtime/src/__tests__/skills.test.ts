@@ -5,7 +5,9 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  MAX_SKILLS_PROMPT_TOKENS,
   MAX_SKILLS_PROMPT_CHARS,
+  MIN_SKILLS_PROMPT_TOKENS,
   MAX_SKILL_TOOL_BODY_CHARS,
   buildSkillAgentTool,
   buildSkillsPromptFragment,
@@ -13,6 +15,7 @@ import {
   loadSkillInstructions,
   parseSkillFrontMatter,
   readSkillRuntimeState,
+  resolveSkillsPromptCharBudget,
   resolveSkillDiscoveryPaths,
   scanSkills,
   scanWorkspaceSkills,
@@ -23,6 +26,13 @@ import {
 import type { MakaToolContext } from '../tool-runtime.js';
 
 describe('runtime skills', () => {
+  it('scales the prompt catalog budget from model context with bounded fallback', () => {
+    assert.equal(resolveSkillsPromptCharBudget(), MAX_SKILLS_PROMPT_CHARS);
+    assert.equal(resolveSkillsPromptCharBudget({ contextWindow: Number.NaN }), MAX_SKILLS_PROMPT_CHARS);
+    assert.equal(resolveSkillsPromptCharBudget({ contextWindow: 128_000 }), MIN_SKILLS_PROMPT_TOKENS * 4);
+    assert.equal(resolveSkillsPromptCharBudget({ contextWindow: 300_000 }), 6_000 * 4);
+    assert.equal(resolveSkillsPromptCharBudget({ contextWindow: 1_000_000 }), MAX_SKILLS_PROMPT_TOKENS * 4);
+  });
   it('scanWorkspaceSkills lists SKILL.md metadata with declared tools as declaration only', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const body = `---
@@ -606,10 +616,11 @@ Body.`, 'utf8');
         const id = `big-${String(index).padStart(2, '0')}`;
         await writeSkill(workspaceRoot, id, `---\nname: Big ${index}\ndescription: ${longDescription}\n---\n# Big ${index}`);
       }
-      const prompt = await buildSkillsPromptFragment(workspaceRoot);
+      const prompt = await buildSkillsPromptFragment(workspaceRoot, undefined, { contextWindow: 128_000 });
       assert.ok(prompt);
+      const promptCharBudget = resolveSkillsPromptCharBudget({ contextWindow: 128_000 });
       assert.ok(
-        prompt.length <= MAX_SKILLS_PROMPT_CHARS + 512,
+        prompt.length <= promptCharBudget + 512,
         'prompt should stay close to the character budget',
       );
       assert.match(prompt, /omitted from this prompt due to the prompt budget/);

@@ -23,6 +23,7 @@ import {
   getAIModel,
   loadHistoryCompactBlocksFromArtifacts,
   resolveSkillDiscoveryPaths,
+  resolveSelectedModelContextWindow,
   type AutomationDefinition,
   type GoalContinuationDeps,
   type HostCapabilities,
@@ -251,7 +252,13 @@ export async function createMakaCliRuntimeContext(
       recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
       systemPrompt: async ({ cwd }) => {
         const settings = await settingsStore.get();
-        return buildCliSystemPrompt({ settings, cwd, workspaceRoot: input.workspaceRoot, host });
+        return buildCliSystemPrompt({
+          settings,
+          cwd,
+          workspaceRoot: input.workspaceRoot,
+          host,
+          modelContextWindow: resolveSelectedModelContextWindow(ready.connection, ready.model),
+        });
       },
       turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
       shellRunContextSummary: ctx.shellRunContextSummary,

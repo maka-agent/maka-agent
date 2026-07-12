@@ -310,7 +310,7 @@ export type {
   CompactionSourceKind,
   CompactionStage,
 } from './compaction-boundary.js';
-export { buildDefaultContextBudgetPolicy, buildManualCompactLookupPolicy } from './context-budget-policy.js';
+export { buildDefaultContextBudgetPolicy, buildManualCompactLookupPolicy, resolveSelectedModelContextWindow } from './context-budget-policy.js';
 export type {
   BuildDefaultContextBudgetPolicyOptions,
   BuildManualCompactLookupPolicyOptions,
@@ -717,6 +717,10 @@ export {
   MAX_SKILL_BODY_CHARS,
   MAX_SKILL_TOOL_BODY_CHARS,
   MAX_SKILLS_PROMPT_CHARS,
+  MIN_SKILLS_PROMPT_TOKENS,
+  MAX_SKILLS_PROMPT_TOKENS,
+  SKILLS_PROMPT_CONTEXT_RATIO,
+  resolveSkillsPromptCharBudget,
   scanWorkspaceSkills,
   scanSkills,
   resolveSkillDiscoveryPaths,
@@ -739,6 +743,7 @@ export type {
   RuntimeSkillDefinition,
   ScannedSkill,
   HostCapabilities,
+  SkillCatalogBudgetOptions,
   SkillHostCompatibility,
   GatedSkill,
   LoadedSkillInstructions,

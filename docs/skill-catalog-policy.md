@@ -14,16 +14,19 @@ The catalog is selected deterministically in this order:
 3. When the host supplies capabilities, exclude skills whose explicit
    `required-tools` or `required-capabilities` are unavailable. `allowed-tools`
    remains informational and never grants permission.
-4. Add catalog entries in the resulting order until the fixed
-   `MAX_SKILLS_PROMPT_CHARS = 18000` character budget is reached.
+4. Add catalog entries in the resulting order until the selected model's
+   catalog budget is reached. The budget is 2% of its context window, clamped
+   to 4,000–8,000 estimated tokens and converted at four characters per token.
+   If the context window is unavailable, use the backward-compatible
+   `MAX_SKILLS_PROMPT_CHARS = 18000` character budget.
 
-The budget is deliberately fixed and does not scale with a model's context
-window. This keeps catalog behavior stable across providers and model changes;
-changing it requires an explicit policy update rather than silently changing
-which skills a model sees.
+The lower bound keeps useful catalogs available on small-context models. The
+upper bound prevents large-context models from turning the catalog into an
+unbounded always-on cost. Because changing models can change the selected
+catalog, the model context window is an explicit prompt input rather than an
+implicit provider lookup inside the skill scanner.
 
 When the budget omits entries, the prompt lists their ids. Omission affects only
 catalog advertisement: an enabled, host-compatible omitted skill remains
 loadable by id or name through the `Skill` tool. Skill instructions are subject
 to their separate lazy-load body limit.
-

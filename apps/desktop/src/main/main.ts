@@ -174,7 +174,7 @@ import { createDailyReviewMainService } from './daily-review-main.js';
 import { createPlanReminderMainService } from './plan-reminders-main.js';
 import { createBotIncomingMainService } from './bot-incoming-main.js';
 import { createSubscriptionModelFetch } from './subscription-model-fetch.js';
-import { buildDefaultContextBudgetPolicy } from '@maka/runtime';
+import { buildDefaultContextBudgetPolicy, resolveSelectedModelContextWindow } from '@maka/runtime';
 import { createSystemPromptMainService } from './system-prompt-main.js';
 import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
 import { createMainAutomationWiring, evaluateAutomationCanFire } from './automation-wiring.js';
@@ -770,6 +770,7 @@ backends.register('ai-sdk', async (ctx) => {
     systemPrompt: ({ cwd }) => systemPromptService.buildBackendSystemPrompt(ctx.header, cwd, {
       memoryFragment: memoryPromptSnapshot,
       childInstruction: ctx.systemPrompt,
+      skillBudget: { contextWindow: resolveSelectedModelContextWindow(connection, model) },
     }),
     turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
     shellRunContextSummary: ctx.shellRunContextSummary,

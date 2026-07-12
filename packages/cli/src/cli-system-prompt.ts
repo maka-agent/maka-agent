@@ -46,6 +46,8 @@ export interface BuildCliSystemPromptInput {
    * available (e.g. bundled Office skills without the Office tools) are hidden.
    */
   host?: HostCapabilities;
+  /** Selected model context window used to bound the always-on skill catalog. */
+  modelContextWindow?: number;
   /**
    * Home directory for user-level skill discovery (`~/.maka/skills/`,
    * `~/.agents/skills/`). Defaults to `os.homedir()`. Tests pass a temp dir
@@ -58,7 +60,7 @@ export async function buildCliSystemPrompt(input: BuildCliSystemPromptInput): Pr
   const personalization = buildPersonalizationPromptFragment(input.settings.personalization);
   // personalization -> skills -> workspaceInstructions, matching the desktop app.
   const skillSource = resolveSkillDiscoveryPaths(input.cwd, input.workspaceRoot, input.homeDir);
-  const skills = await buildSkillsPromptFragment(skillSource, input.host);
+  const skills = await buildSkillsPromptFragment(skillSource, input.host, { contextWindow: input.modelContextWindow });
   const workspaceInstructions = input.settings.workspaceInstructions.enabled
     ? await buildWorkspaceInstructionsPromptFragment(input.cwd)
     : undefined;
