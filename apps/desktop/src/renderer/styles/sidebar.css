@@ -102,9 +102,10 @@
   align-items: center;
 }
 
-/* Color intentionally not declared: glyphs inherit the row's text color,
-   so state tints (hover/active/tone) stay in the component variants —
-   an unlayered color here would silently beat those utilities. */
+/* Color intentionally not declared: nav glyphs are tinted by the
+   navRowVariants utilities (80%-ink base, foreground when active) and the
+   settings gear inherits its button's text color — an unlayered color
+   here would silently beat those utilities. */
 .maka-nav-icon {
   width: var(--icon-size);
   height: var(--icon-size);
