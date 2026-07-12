@@ -3659,6 +3659,32 @@ describe('SessionManager permission mode updates', () => {
     expect(run?.failureClass).toBe('runtime_error');
   });
 
+  test('marks an explicit step limit incomplete without blocking the session', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'complete', stopReason: 'step_limit' },
+    ]));
+    const manager = new SessionManager({
+      store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(10_000),
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    expect((await store.readHeader(session.id)).status).toBe('active');
+    const [turn] = await store.listTurns(session.id);
+    expect(turn?.status).toBe('failed');
+    expect(turn?.errorClass).toBe('step_limit');
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(run?.status).toBe('failed');
+    expect(run?.failureClass).toBe('step_limit');
+    const terminal = (await runStore.readRuntimeEvents(session.id, run!.runId)).find((event) => event.actions?.endInvocation);
+    expect(terminal?.status).toBe('failed');
+    expect(terminal?.actions?.stateDelta).toMatchObject({ stopReason: 'step_limit', failureClass: 'step_limit' });
+  });
+
   test('does not let a late complete event overwrite a prior turn error', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();

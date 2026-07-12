@@ -56,13 +56,15 @@ export type CompleteStopReason = CompleteEvent['stopReason'];
  * `end_turn` / `max_tokens` / `*_handoff` all represent the streaming phase
  * ending normally (control may be handed off, but the run is not a failure),
  * so they map to `completed`. `user_stop` maps to `aborted`; `error` to
- * `failed`. Phase 5+ may introduce a richer `waiting`/`handoff` status.
+ * `failed`. An explicit `step_limit` is also failed because the requested work
+ * may be incomplete. Phase 5+ may introduce a richer `waiting`/`handoff` status.
  */
 export function mapCompleteStopReason(reason: CompleteStopReason): RuntimeEventStatus {
   switch (reason) {
     case 'user_stop':
       return 'aborted';
     case 'error':
+    case 'step_limit':
       return 'failed';
     case 'end_turn':
     case 'max_tokens':
@@ -395,7 +397,9 @@ function completeRuntimeEvent(
     ? 'failed'
     : mapCompleteStopReason(stopReason);
   const stateDelta: Record<string, unknown> = { stopReason };
-  if (status === 'failed') stateDelta.failureClass = memory.failureClass ?? 'runtime_error';
+  if (status === 'failed') {
+    stateDelta.failureClass = memory.failureClass ?? (stopReason === 'step_limit' ? 'step_limit' : 'runtime_error');
+  }
   if (status === 'aborted') stateDelta.abortSource = stopReason;
   return {
     ...base,

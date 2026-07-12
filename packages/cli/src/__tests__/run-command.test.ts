@@ -146,6 +146,14 @@ describe('maka run process contract', () => {
     assert.match(missing.stderr, /no final output/);
   });
 
+  test('returns exit 1 without successful output when the explicit step limit is reached', async () => {
+    const result = await runFixture(['hello'], { scenario: 'step-limit', input: '' });
+
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /tool-step limit reached/);
+  });
+
   test('denies an unresolved permission prompt and exits 1', async () => {
     const result = await runFixture(['hello'], { scenario: 'permission', input: '' });
     assert.equal(result.code, 1);

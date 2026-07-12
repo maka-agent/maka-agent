@@ -417,10 +417,10 @@ export class AgentRun {
       this.finalStatus = this.stopped
         ? { status: 'aborted' }
         : (transition ?? { status: 'active' });
-      // A complete(error) without a preceding error event leaves failureClass
-      // unset — record it now so finalize does not fall back to 'unknown'.
+      // A terminal complete event can carry a failure without a preceding
+      // error event. Record it now so finalize preserves the precise class.
       if (turnStatus?.status === 'failed' && turnStatus.errorClass && !this.failureClass && !this.stopped) {
-        this.markRunFailed(turnStatus.errorClass, 'turn ended with stopReason=error', ev.ts);
+        this.markRunFailed(turnStatus.errorClass, `turn ended with stopReason=${ev.type === 'complete' ? ev.stopReason : 'unknown'}`, ev.ts);
       }
     }
     if (transition && !this.stopped) {
@@ -843,7 +843,7 @@ export class AgentRun {
     finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined,
   ): AgentRunHeader['status'] {
     if (this.stopped || finalStatus?.status === 'aborted') return 'cancelled';
-    if (finalStatus?.status === 'blocked') return 'failed';
+    if (this.failureClass || finalStatus?.status === 'blocked') return 'failed';
     if (finalStatus?.status === 'waiting_for_user') return 'waiting_permission';
     return 'completed';
   }
@@ -1041,6 +1041,7 @@ function turnStatusFromEvent(event: SessionEvent): { status: TurnRecord['status'
     case 'complete':
       if (event.stopReason === 'user_stop') return { status: 'aborted' };
       if (event.stopReason === 'error') return { status: 'failed', errorClass: 'runtime_error' };
+      if (event.stopReason === 'step_limit') return { status: 'failed', errorClass: 'step_limit' };
       if (event.stopReason === 'permission_handoff') return { status: 'running' };
       return { status: 'completed' };
     default:

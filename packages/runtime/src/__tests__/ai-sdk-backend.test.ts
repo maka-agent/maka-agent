@@ -3549,6 +3549,80 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(loop.callCount(), 3);
   });
 
+  test('finalizes an explicit step limit without tools even after earlier assistant text', async () => {
+    const appended: StoredMessage[] = [];
+    const llmRecords: LlmCallRecord[] = [];
+    let streamCalls = 0;
+    const model = new MockLanguageModelV3({
+      doGenerate: {
+        content: [{ type: 'text', text: 'Completed the edits; verification is still pending. Send continue to resume.' }],
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: {
+          inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 4, text: 4, reasoning: 0 },
+        },
+        warnings: [],
+      },
+      doStream: async () => {
+        streamCalls += 1;
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              { type: 'text-start', id: `text-${streamCalls}` },
+              { type: 'text-delta', id: `text-${streamCalls}`, delta: 'Still working.' },
+              { type: 'text-end', id: `text-${streamCalls}` },
+              {
+                type: 'tool-call',
+                toolCallId: `tool-${streamCalls}`,
+                toolName: 'Read',
+                input: JSON.stringify({ path: `notes-${streamCalls}.md` }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+              },
+            ],
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => { appended.push(message); },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      maxSteps: 2,
+      recordLlmCall: (record) => { llmRecords.push(record); },
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'finish the task', context: [] })) {
+      events.push(event);
+    }
+
+    assert.equal(streamCalls, 2);
+    assert.equal(model.doGenerateCalls.length, 1);
+    assert.equal(model.doGenerateCalls[0]?.tools, undefined);
+    assert.equal(llmRecords.filter((record) => record.callKind === 'step_limit_finalization').length, 1);
+    assert.equal(
+      appended.filter((message): message is AssistantMessage => message.type === 'assistant').at(-1)?.text,
+      'Completed the edits; verification is still pending. Send continue to resume.',
+    );
+    assert.equal(events.at(-1)?.type, 'complete');
+    assert.equal((events.at(-1) as Extract<SessionEvent, { type: 'complete' }>).stopReason as string, 'step_limit');
+  });
+
   test('records aggregate totalUsage across AI SDK tool-loop steps', async () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];

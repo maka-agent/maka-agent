@@ -447,6 +447,7 @@ export interface CompleteEvent extends BaseEvent {
     | 'error'
     | 'plan_handoff'
     | 'permission_handoff'
+    | 'step_limit'
     | 'max_tokens';
 }
 

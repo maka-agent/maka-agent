@@ -605,6 +605,7 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
     assert.equal(mapCompleteStopReason('permission_handoff'), 'completed');
     assert.equal(mapCompleteStopReason('user_stop'), 'aborted');
     assert.equal(mapCompleteStopReason('error'), 'failed');
+    assert.equal(mapCompleteStopReason('step_limit'), 'failed');
   });
 
   test('tool_output_delta and tool_progress map to partial tool-role heartbeats', () => {

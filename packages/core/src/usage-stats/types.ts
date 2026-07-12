@@ -54,7 +54,7 @@ export interface UsageBucket {
 export interface UsageLogRow {
   id: string;
   ts: number;
-  callKind?: 'main' | 'semantic_compact';
+  callKind?: 'main' | 'semantic_compact' | 'step_limit_finalization';
   callId?: string;
   connectionSlug?: string;
   providerId: string;
@@ -99,7 +99,7 @@ export interface LlmCallRecord {
    * Distinguishes the main agent stream from auxiliary model calls such as
    * semantic compaction. Omitted means the historical main stream call.
    */
-  callKind?: 'main' | 'semantic_compact';
+  callKind?: 'main' | 'semantic_compact' | 'step_limit_finalization';
   /** Stable id for auxiliary calls so multiple records in one turn do not collide. */
   callId?: string;
   connectionSlug?: string;

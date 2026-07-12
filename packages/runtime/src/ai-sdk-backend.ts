@@ -100,6 +100,7 @@ import {
   type PrepareStepLike,
   type PrepareStepResultLike,
   type RepairableAiSdkToolCall,
+  type StreamTextResult,
 } from './model-adapter.js';
 import {
   rewriteActiveToolResultsInMessages,
@@ -756,7 +757,6 @@ export class AiSdkBackend implements AgentBackend {
     let stepSignature: string | undefined;
     // Whether any step flushed non-empty text this turn — drives the step-cap
     // grace notice below (a turn whose every step was tool-only gets the notice).
-    let turnHadAnyText = false;
     const startedAt = this.now();
 
     // Flush the current step's AssistantMessage (text + thinking) and the paired
@@ -808,7 +808,6 @@ export class AiSdkBackend implements AgentBackend {
         messageId: stepId,
         text: stepText,
       } satisfies TextCompleteEvent);
-      if (stepText.length > 0) turnHadAnyText = true;
       stepText = '';
       stepThinking = '';
       stepSignature = undefined;
@@ -1122,33 +1121,16 @@ export class AiSdkBackend implements AgentBackend {
           publishTurnDiagnostics(computeTurnDiagnostics(finalActiveTools));
         }
 
-        // PR-AGENT-ITERATION-GRACE-0 (external bot research #A1): with an
-        // explicit maxSteps, `finishReason === 'tool-calls'` means we tripped
-        // `stopWhen: stepCountIs(maxSteps)` mid-loop — the model wanted to keep
-        // calling tools but we capped it.
-        // The user previously saw no closing assistant text in that
-        // path; just the last tool result. Inject a deterministic
-        // "step cap reached" notice so the UI has SOMETHING and the
-        // user can choose to send "继续" for a fresh turn.
+        // With an explicit maxSteps, `finishReason === 'tool-calls'` means the
+        // model wanted another tool step but the configured budget stopped it.
         const finishReasonForGrace = await result.finishReason.catch(() => 'stop');
+        const stepLimit = this.maxSteps;
+        const stepLimitReached = stepLimit !== undefined && finishReasonForGrace === 'tool-calls';
         rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReasonForGrace);
-        if (
-          this.maxSteps !== undefined
-          && finishReasonForGrace === 'tool-calls'
-          && runtimeSteps < this.maxSteps
-        ) {
-          runtimeSteps = this.maxSteps;
+        if (stepLimitReached && runtimeSteps < stepLimit) {
+          runtimeSteps = stepLimit;
         }
-        // Step-cap grace notice: when the loop tripped `stepCountIs(maxSteps)`
-        // mid-tool-loop and no step ever produced closing text, append a final
-        // assistant message (its own step id) so the UI has a closing line and
-        // the user can send "继续" for a fresh turn.
-        if (
-          !this.aborted
-          && this.maxSteps !== undefined
-          && !turnHadAnyText
-          && finishReasonForGrace === 'tool-calls'
-        ) {
+        if (!this.aborted && stepLimitReached) {
           // Always a fresh id. When the stream closed without a trailing
           // finish-step, `currentStepMessageId` is already taken: the catch-all
           // flush just used it for a thinking-only last step's AssistantMessage
@@ -1156,9 +1138,14 @@ export class AiSdkBackend implements AgentBackend {
           // tool_starts carry it as stepId (replay would adopt the grace text
           // as that step's closer). A rotated-but-unused id is discardable.
           const graceId = this.newId();
-          const graceText =
-            `⚠️ 已达到本轮 ${this.maxSteps} 步工具调用上限。\n\n`
-            + '上一步工具调用已落盘；如果还需要继续，请发一条新消息让对话进入下一回合（可以直接输入「继续」）。';
+          const graceText = await this.generateStepLimitFinalization({
+            result,
+            model,
+            messages,
+            maxSteps: stepLimit,
+            turnId,
+            abortSignal: this.abortController!.signal,
+          });
           await this.input.appendMessage({
             type: 'assistant',
             id: graceId,
@@ -1175,7 +1162,6 @@ export class AiSdkBackend implements AgentBackend {
             messageId: graceId,
             text: graceText,
           } satisfies TextCompleteEvent);
-          turnHadAnyText = true;
         }
 
         // Final usage event. AI SDK `usage` is the last step only; `totalUsage`
@@ -1289,7 +1275,9 @@ export class AiSdkBackend implements AgentBackend {
         }
 
         const finishReason = await result.finishReason.catch(() => 'stop');
-        const stopReason = this.mapFinishReason(finishReason);
+        const stopReason = this.maxSteps !== undefined && finishReason === 'tool-calls'
+          ? 'step_limit'
+          : this.mapFinishReason(finishReason);
         trace.modelStreamCompleted(stopReason);
         queue.push({
           type: 'complete',
@@ -1439,6 +1427,59 @@ export class AiSdkBackend implements AgentBackend {
     queue: AsyncEventQueue<SessionEvent>,
   ): Promise<void> {
     return this.toolRuntime.writeSyntheticToolResult(toolUseId, turnId, text, queue);
+  }
+
+  private async generateStepLimitFinalization(input: {
+    result: StreamTextResult;
+    model: unknown;
+    messages: ModelMessage[];
+    maxSteps: number;
+    turnId: string;
+    abortSignal: AbortSignal;
+  }): Promise<string> {
+    const fallback =
+      `⚠️ 已达到本轮 ${input.maxSteps} 步工具调用上限。\n\n`
+      + '上一步工具调用已落盘；任务可能尚未完成。如需继续，可以直接输入「继续」。';
+    const startedAt = this.now();
+    const callId = `step_limit_finalization_${input.turnId}_${startedAt}`;
+    try {
+      const response = await input.result.response;
+      const generated = await this.modelAdapter.generateTextWithoutTools({
+        model: input.model,
+        system:
+          'The explicit tool-step limit ended this Maka agent turn before it could continue. '
+          + 'Tools are unavailable. Give the user a concise final update in their language: '
+          + 'what was completed, what remains unfinished or unverified, and that they can send "continue" to resume. '
+          + 'Do not claim the task is complete unless the conversation proves it.',
+        messages: [...input.messages, ...(response?.messages ?? [])],
+        maxOutputTokens: 1_024,
+        abortSignal: input.abortSignal,
+      });
+      this.recordAuxiliaryModelCall({
+        callKind: 'step_limit_finalization',
+        callId,
+        turnId: input.turnId,
+        modelId: this.input.modelId,
+        startedAt,
+        latencyMs: Math.max(0, this.now() - startedAt),
+        usage: generated.usage,
+        finishReason: generated.finishReason,
+        status: 'success',
+      });
+      return generated.text.trim() || fallback;
+    } catch (error) {
+      this.recordAuxiliaryModelCall({
+        callKind: 'step_limit_finalization',
+        callId,
+        turnId: input.turnId,
+        modelId: this.input.modelId,
+        startedAt,
+        latencyMs: Math.max(0, this.now() - startedAt),
+        status: input.abortSignal.aborted ? 'aborted' : 'error',
+        errorClass: this.modelAdapter.classifyError(error),
+      });
+      return fallback;
+    }
   }
 
   /** Map ai-sdk finishReason → our CompleteEvent.stopReason. */
@@ -1878,7 +1919,8 @@ export class AiSdkBackend implements AgentBackend {
               maxOutputTokens: request.maxOutputTokens,
               abortSignal: request.abortSignal,
             });
-            this.recordSemanticCompactSummaryCall({
+            this.recordAuxiliaryModelCall({
+              callKind: 'semantic_compact',
               callId,
               turnId,
               modelId: summarizerModelId,
@@ -1890,7 +1932,8 @@ export class AiSdkBackend implements AgentBackend {
             });
             return result;
           } catch (error) {
-            this.recordSemanticCompactSummaryCall({
+            this.recordAuxiliaryModelCall({
+              callKind: 'semantic_compact',
               callId,
               turnId,
               modelId: summarizerModelId,
@@ -1967,7 +2010,8 @@ export class AiSdkBackend implements AgentBackend {
     };
   }
 
-  private recordSemanticCompactSummaryCall(input: {
+  private recordAuxiliaryModelCall(input: {
+    callKind: Exclude<NonNullable<LlmCallRecord['callKind']>, 'main'>;
     callId: string;
     turnId: string;
     modelId: string;
@@ -1982,7 +2026,7 @@ export class AiSdkBackend implements AgentBackend {
     this.input.recordLlmCall?.({
       sessionId: this.sessionId,
       turnId: input.turnId,
-      callKind: 'semantic_compact',
+      callKind: input.callKind,
       callId: input.callId,
       connectionSlug: this.input.connection.slug,
       providerId: this.input.connection.providerType,
