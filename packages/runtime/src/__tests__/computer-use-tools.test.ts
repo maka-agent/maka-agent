@@ -127,50 +127,6 @@ describe('buildComputerUseTools — the `computer` MakaTool', () => {
     });
   });
 
-  test('does not wait for overlay animation and completes it only after backend result', async () => {
-    const events: string[] = [];
-    let finishBackend!: () => void;
-    const backendDone = new Promise<void>((resolve) => {
-      finishBackend = resolve;
-    });
-    const backend: CuDispatchBackend = {
-      async preflight() {
-        return { accessibility: true, screenRecording: true };
-      },
-      async run() {
-        events.push('backend:start');
-        await backendDone;
-        events.push('backend:end');
-        return { outcome: { ok: true, tier: 'semantic-background', verified: true } };
-      },
-    };
-    const overlay = {
-      onActionBegin() {
-        events.push('overlay:begin');
-      },
-      onActionEnd() {
-        events.push('overlay:complete');
-      },
-    };
-    const [tool] = buildComputerUseTools({ backend, overlay });
-    const pending = tool.impl(
-      { action: 'left_click', coordinate: [5, 6] } as never,
-      ctx(),
-    );
-    await Promise.resolve();
-    await Promise.resolve();
-    assert.deepEqual(events, ['overlay:begin', 'backend:start']);
-
-    finishBackend();
-    await pending;
-    assert.deepEqual(events, [
-      'overlay:begin',
-      'backend:start',
-      'backend:end',
-      'overlay:complete',
-    ]);
-  });
-
   test('serializes preflight and dispatch in tool-call arrival order', async () => {
     const events: string[] = [];
     let releaseFirstPreflight!: () => void;

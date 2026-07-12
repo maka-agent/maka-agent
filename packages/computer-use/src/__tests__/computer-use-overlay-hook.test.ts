@@ -7,23 +7,21 @@ import assert from 'node:assert/strict';
 import type { CuAction } from '@maka/core';
 import { createComputerUseOverlayHook, declaredPxToScreenPoint, type OverlayScreenLike } from '../computer-use-overlay-hook.js';
 
-type MoveArgs = { actionId: string; sessionId: string; screenX: number; screenY: number; kind: string; pressed?: boolean; pulse?: boolean };
+type MoveArgs = { actionId: string; sessionId: string; screenX: number; screenY: number; kind: string; pressed?: boolean };
 
 function fakeController() {
   const moves: MoveArgs[] = [];
-  const completions: MoveArgs[] = [];
   const ensured: string[] = [];
   const controller = {
     ensure: (id: string) => { ensured.push(id); },
     move: (m: MoveArgs) => { moves.push(m); },
-    complete: (m: MoveArgs) => { completions.push(m); },
     clearForSession: () => {},
     abort: () => {},
     destroyAll: () => {},
     isActive: () => false,
     getSessionId: () => null,
   };
-  return { controller, moves, completions, ensured };
+  return { controller, moves, ensured };
 }
 
 const screenAt = (scaleFactor: number, origin = { x: 0, y: 0 }): OverlayScreenLike => ({
@@ -43,40 +41,6 @@ test('click action → controller.move with transformed coords + kind:click', ()
   hook.onActionBegin(action, { sessionId: 's1', toolCallId: 't1' });
   assert.equal(moves.length, 1);
   assert.deepEqual(moves[0], { actionId: 't1', sessionId: 's1', screenX: 200, screenY: 150, kind: 'click' });
-});
-
-test('backend completion reconciles the exact coordinate after begin', () => {
-  const { controller, moves, completions } = fakeController();
-  const hook = createComputerUseOverlayHook(controller as never, screenAt(2));
-  const action: CuAction = { type: 'left_click', coordinate: { x: 400, y: 300 } };
-  const ctx = { sessionId: 's1', toolCallId: 't1' };
-
-  hook.onActionBegin(action, ctx);
-  assert.equal(completions.length, 0);
-  hook.onActionEnd?.(action, {
-    outcome: { ok: true, tier: 'semantic-background', verified: true },
-  }, ctx);
-
-  assert.equal(moves.length, 1);
-  assert.deepEqual(completions[0], {
-    actionId: 't1',
-    sessionId: 's1',
-    screenX: 200,
-    screenY: 150,
-    kind: 'click',
-    pulse: true,
-  });
-});
-
-test('failed action completion reconciles without a success pulse', () => {
-  const { controller, completions } = fakeController();
-  const hook = createComputerUseOverlayHook(controller as never, screenAt(1));
-  const action: CuAction = { type: 'left_click', coordinate: { x: 40, y: 30 } };
-  hook.onActionBegin(action, { sessionId: 's', toolCallId: 'failed' });
-  hook.onActionEnd?.(action, {
-    outcome: { ok: false, error: 'capture_failed', message: 'no effect' },
-  }, { sessionId: 's', toolCallId: 'failed' });
-  assert.equal(completions[0]?.pulse, false);
 });
 
 test('scroll → kind:scroll, drag → kind:drag, mouse_move → kind:move', () => {

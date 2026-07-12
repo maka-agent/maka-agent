@@ -7,9 +7,6 @@ contextBridge.exposeInMainWorld('cursorOverlay', {
   onMove: (cb: (p: unknown) => void): void => {
     ipcRenderer.on('overlay:move', (_e, payload) => cb(payload));
   },
-  onComplete: (cb: (p: unknown) => void): void => {
-    ipcRenderer.on('overlay:complete', (_e, payload) => cb(payload));
-  },
   onReset: (cb: (p: unknown) => void): void => {
     ipcRenderer.on('overlay:reset', (_e, payload) => cb(payload));
   },

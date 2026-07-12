@@ -12,7 +12,6 @@
 //
 // Requires Accessibility + Screen Recording for Electron.
 import { app, BrowserWindow, nativeImage, screen } from 'electron';
-import { execFile } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -287,7 +286,6 @@ let safetyMonitor;
 const fixtureWindows = new Set();
 const results = [];
 const overlayMoves = [];
-const overlayCapturePromises = [];
 const report = {
   version: 2,
   runId: process.env.MAKA_CU_E2E_RUN_ID || `cu-e2e-${Date.now()}`,
@@ -301,38 +299,6 @@ const report = {
   summary: null,
   fatal: null,
 };
-
-function captureOverlayCompletion(input, completedAt) {
-  if (process.env.MAKA_CU_E2E_CAPTURE_OVERLAY !== '1') return;
-  const capture = (async () => {
-    await sleep(50);
-    const captureDir = join(
-      here,
-      '..',
-      '.agents-workspace-data',
-      'cu-e2e',
-      'captures',
-      report.runId.replace(/[^A-Za-z0-9._-]/g, '_'),
-    );
-    await mkdir(captureDir, { recursive: true });
-    const path = join(captureDir, `${input.actionId}.png`);
-    await new Promise((resolve, reject) => {
-      execFile('/usr/sbin/screencapture', ['-x', path], (error) => {
-        if (error) reject(error);
-        else resolve();
-      });
-    });
-    report.overlayCaptures ??= [];
-    report.overlayCaptures.push({
-      actionId: input.actionId,
-      target: { x: input.screenX, y: input.screenY },
-      completedAt,
-      capturedAt: Date.now(),
-      path,
-    });
-  })();
-  overlayCapturePromises.push(capture);
-}
 
 function check(name, pass, detail = '') {
   results.push({ name, pass, detail });
@@ -534,14 +500,8 @@ async function run() {
       overlay.ensure(sessionId);
     },
     move(input) {
-      overlayMoves.push({ phase: 'begin', ...input, ts: Date.now() });
+      overlayMoves.push({ ...input, ts: Date.now() });
       overlay.move(input);
-    },
-    complete(input) {
-      const completedAt = Date.now();
-      overlayMoves.push({ phase: 'complete', ...input, ts: completedAt });
-      overlay.complete(input);
-      captureOverlayCompletion(input, completedAt);
     },
   };
   const hook = createComputerUseOverlayHook(sink, screen);
@@ -1093,7 +1053,6 @@ async function run() {
     freshBackend?.dispose();
     backend?.dispose();
     overlay?.destroyAll();
-    await Promise.allSettled(overlayCapturePromises);
     const failed = results.filter((result) => !result.pass);
     report.summary = {
       passed: results.length - failed.length,

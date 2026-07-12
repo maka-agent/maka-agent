@@ -44,7 +44,6 @@ export { cuaDriverBinaryPath, resolveCuaDriverBinaryPath } from './cua-driver-pa
 export { createComputerUseOverlayHook, declaredPxToScreenPoint } from './computer-use-overlay-hook.js';
 export type {
   CursorActionKind,
-  CursorCompleteInput,
   CursorMoveInput,
   OverlayCursorSink,
   OverlayScreenLike,

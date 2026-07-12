@@ -6,13 +6,11 @@
 import { CursorEngine } from '../renderer/computer-use-overlay/engine/cursor-engine.js';
 
 interface MovePayload { x: number; y: number; kind?: 'move' | 'click' | 'drag' | 'scroll'; pressed?: boolean }
-interface CompletePayload { actionId?: string; x: number; y: number; kind?: 'move' | 'click' | 'drag' | 'scroll'; pulse?: boolean }
 interface ResetPayload { sessionColorId?: string }
 declare global {
   interface Window {
     cursorOverlay?: {
       onMove(cb: (p: MovePayload) => void): void;
-      onComplete(cb: (p: CompletePayload) => void): void;
       onReset(cb: (p: ResetPayload) => void): void;
     };
   }
@@ -63,11 +61,8 @@ window.cursorOverlay?.onReset((p) => {
   kick();
 });
 window.cursorOverlay?.onMove((p) => {
-  engine.moveTo(p.x, p.y);
+  const isClick = p.kind === 'click' || p.kind === 'drag';
+  engine.moveTo(p.x, p.y, undefined, isClick); // glide there; pulse on arrival for clicks
   engine.pressed = p.pressed === true;
-  kick();
-});
-window.cursorOverlay?.onComplete((p) => {
-  engine.completeAt(p.x, p.y, p.pulse === true);
   kick();
 });

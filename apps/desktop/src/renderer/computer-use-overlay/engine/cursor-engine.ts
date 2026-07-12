@@ -100,24 +100,6 @@ export class CursorEngine {
     this.clickOnArrive = clickOnArrive;
   }
 
-  /** Snap the arrow tip to the coordinate where backend execution completed. */
-  completeAt(x: number, y: number, pulse = false, endHeading: number = REST_HEADING): void {
-    this.pos = [
-      x + Math.cos(endHeading) * ARROW_TIP_LENGTH,
-      y + Math.sin(endHeading) * ARROW_TIP_LENGTH,
-    ];
-    this.heading = endHeading;
-    this.path = null;
-    this.dist = 0;
-    this.spring = null;
-    this.springTgt = null;
-    this.clickOnArrive = false;
-    this.pressed = false;
-    this.clickT = null;
-    this.clickPoint = null;
-    if (pulse) this.triggerClick(x, y);
-  }
-
   /** Fire the expanding click-pulse ring (and optionally hold pressed). */
   triggerClick(x?: number, y?: number): void {
     if (typeof x === 'number' && typeof y === 'number' && this.pos[0] < -50) {
