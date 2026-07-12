@@ -7,6 +7,7 @@ import {
   type ShellOutput,
   type ToolResultContent,
 } from '@maka/core';
+import { AlertCircle, Ban, Check, Clock, Loader2, Plug } from '../icons.js';
 import { previewVariants } from '../primitives/chat.js';
 import { redactSecrets } from '../redact.js';
 import { cn } from '../ui.js';
@@ -272,19 +273,29 @@ function TerminalPreview(props: {
   );
 }
 
-/**
- * Background shell-run result (desktop Bash after handoff). Keep cmd, status,
- * ref, and any captured streams — never collapse to `[shell_run]`.
- */
+/** Background Bash after handoff: a live terminal surface for PTY, the existing
+ * command/status/ref preview for pipes. Never collapse either to `[shell_run]`. */
 function ShellRunPreview(props: {
   result: Extract<ToolResultContent, { kind: 'shell_run' }>;
 }) {
   const { result } = props;
   const safeCmd = redactSecrets(result.cmd);
-  const safeRef = redactSecrets(result.ref);
   const output = isShellOutput(result.output) ? result.output : undefined;
-  const statusLabel = shellRunStatusLabel(result.status);
   const attention = result.status === 'failed' || result.status === 'orphaned' || (result.exitCode !== undefined && result.exitCode !== 0);
+
+  if (result.mode === 'pty') {
+    return (
+      <PtyShellSurface
+        result={result}
+        output={output?.mode === 'pty' ? output : undefined}
+        safeCmd={safeCmd}
+        attention={attention}
+      />
+    );
+  }
+  const safeRef = redactSecrets(result.ref);
+  const statusLabel = shellRunStatusLabel(result.status);
+  const pipeOutput = output?.mode === 'pipes' ? output : undefined;
 
   return (
     <div
@@ -305,20 +316,88 @@ function ShellRunPreview(props: {
           {redactSecrets(result.failureMessage)}
         </p>
       )}
-      {output ? (
+      {pipeOutput ? (
         <ShellOutputBody
-          output={output}
+          output={pipeOutput}
           failed={result.status === 'failed' || result.status === 'orphaned'}
         />
       ) : (
-        <p className={TOOL_OUTPUT_NOTE_CLASS}>
-          {result.mode === 'pty' && (result.status === 'failed' || result.status === 'orphaned')
-            ? '（无可用终端画面）'
-            : '（尚无输出）'}
-        </p>
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>（尚无输出）</p>
       )}
     </div>
   );
+}
+
+function PtyShellSurface(props: {
+  result: Extract<ToolResultContent, { kind: 'shell_run' }>;
+  output?: Extract<ShellOutput, { mode: 'pty' }>;
+  safeCmd: string;
+  attention: boolean;
+}) {
+  const { result, output } = props;
+  return (
+    <div
+      data-slot="tool-output"
+      data-kind="pty-shell"
+      className={cn(
+        TOOL_OUTPUT_PANEL_CLASS,
+        'gap-0 overflow-hidden p-0',
+        props.attention && 'border-[oklch(from_var(--destructive)_l_c_h_/_0.28)]',
+      )}
+    >
+      <header className="flex min-w-0 items-center px-3 pt-2.5 pb-1">
+        <span className="text-[length:var(--font-size-base)] font-medium text-[color:var(--foreground-secondary)]">
+          Shell
+        </span>
+      </header>
+      <div className="grid min-w-0 gap-2 px-3 py-1.5">
+        {props.safeCmd.length > 0 && (
+          <code className={TOOL_OUTPUT_COMMAND_CLASS}>$ {props.safeCmd}</code>
+        )}
+        {output ? (
+          <ShellOutputBody
+            output={output}
+            failed={result.status === 'failed' || result.status === 'orphaned'}
+          />
+        ) : (
+          <p className={TOOL_OUTPUT_NOTE_CLASS}>
+            {result.status === 'failed' || result.status === 'orphaned'
+              ? '（无可用终端画面）'
+              : '（尚无输出）'}
+          </p>
+        )}
+        {result.failureMessage && (
+          <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
+            {redactSecrets(result.failureMessage)}
+          </p>
+        )}
+      </div>
+      <footer className="flex min-h-8 items-center justify-end gap-1.5 px-3 pt-1 pb-2.5 text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">
+        <ShellRunStatus status={result.status} exitCode={result.exitCode} />
+      </footer>
+    </div>
+  );
+}
+
+function ShellRunStatus(props: {
+  status: Extract<ToolResultContent, { kind: 'shell_run' }>['status'];
+  exitCode?: number;
+}) {
+  const suffix = props.exitCode !== undefined && props.exitCode !== 0 ? ` · 退出码 ${props.exitCode}` : '';
+  switch (props.status) {
+    case 'running':
+      return <><Loader2 size={15} aria-hidden="true" className="animate-spin" />运行中</>;
+    case 'completed':
+      return <><Check size={15} aria-hidden="true" />成功</>;
+    case 'failed':
+      return <><AlertCircle size={15} aria-hidden="true" />失败{suffix}</>;
+    case 'timed_out':
+      return <><Clock size={15} aria-hidden="true" />已超时{suffix}</>;
+    case 'cancelled':
+      return <><Ban size={15} aria-hidden="true" />已取消{suffix}</>;
+    case 'orphaned':
+      return <><Plug size={15} aria-hidden="true" />已断开</>;
+  }
 }
 
 function ShellOutputBody(props: { output: ShellOutput; failed: boolean }) {

@@ -509,6 +509,11 @@ describe('tool activity presentation', () => {
 
     assert.equal((markup.match(/data-stream="pty"/g) ?? []).length, 1);
     assert.equal((markup.match(/data-slot="tool-output"/g) ?? []).length, 1);
+    assert.match(markup, /data-kind="pty-shell"/);
+    assert.match(markup, />Shell</);
+    assert.match(markup, /\$ interactive/);
+    assert.match(markup, />运行中</);
+    assert.doesNotMatch(markup, /80×24/);
     assert.match(markup, /scroll-1/);
     assert.match(markup, /scroll-250/);
     assert.match(markup, /screen-24/);
