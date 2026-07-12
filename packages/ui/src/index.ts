@@ -5,6 +5,7 @@ export * from './chat-model-helpers.js';
 export * from './clipboard-feedback.js';
 export * from './components.js';
 export type { SessionHistoryStatusGroup } from './session-history-list.js';
+export * from './session-status-presentation.js';
 export * from './composer-helpers.js';
 export * from './chat-input-behavior.js';
 export * from './input-history.js';

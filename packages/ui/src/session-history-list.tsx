@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
-import type { SessionSummary } from '@maka/core';
+import type { SessionStatus, SessionSummary } from '@maka/core';
 import { formatCompactTimestamp } from '@maka/core';
 import {
   Archive,
@@ -23,6 +23,7 @@ import { EmptyState } from './empty-state.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';
 import { Button as UiButton } from './ui.js';
+import { presentSessionStatus } from './session-status-presentation.js';
 
 type SessionRowActionId = 'flag' | 'archive' | 'rename' | 'delete';
 type SessionHistoryGroupVariant = 'status' | 'project';
@@ -454,10 +455,6 @@ const SIDEBAR_UNREAD_SUPPRESSED_STATUSES = new Set<string>([
   'blocked',
 ]);
 
-// Keep these maps in sync with `apps/desktop/src/renderer/session-status-presentation.ts`.
-// The presentation helper is the authoritative source; we duplicate the
-// minimum subset here to keep @maka/ui independent of the renderer
-// workspace.
 const STATUS_ICON_BY_STATUS = {
   running: Loader2,
   waiting_for_user: Hourglass,
@@ -468,15 +465,9 @@ const STATUS_ICON_BY_STATUS = {
   aborted: Ban,
 } as const;
 
-const STATUS_LABEL_BY_STATUS = {
-  running: '进行中',
-  waiting_for_user: '等你确认',
-  blocked: '已阻塞',
-  review: '待审核',
-  done: '已完成',
-  archived: '已归档',
-  aborted: '已中止',
-} as const;
+const STATUS_LABEL_BY_STATUS = Object.fromEntries(
+  Object.keys(STATUS_ICON_BY_STATUS).map((status) => [status, presentSessionStatus(status as SessionStatus).label]),
+) as Record<keyof typeof STATUS_ICON_BY_STATUS, string>;
 
 // `blocked` was 'destructive' (red), which read as a hard error in the
 // chat header even when the session was just waiting on permission or a

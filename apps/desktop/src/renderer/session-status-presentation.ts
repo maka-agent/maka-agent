@@ -22,6 +22,13 @@
  */
 
 import type { SessionBlockedReason, SessionStatus, SessionSummary } from '@maka/core';
+import {
+  presentSessionStatus,
+  type SessionStatusPresentation,
+  type SessionStatusTone,
+} from '@maka/ui';
+export { presentSessionStatus } from '@maka/ui';
+export type { SessionStatusPresentation, SessionStatusTone } from '@maka/ui';
 
 /**
  * Session-level "blocked" is only worth interrupting the user when
@@ -64,47 +71,6 @@ export function normalizeSessionSummaryForDisplay(session: SessionSummary): Sess
  * dormant buckets. Tones map to semantic color tokens in CSS
  * (`[data-status-tone="..."]`).
  */
-export type SessionStatusTone = 'accent' | 'warning' | 'destructive' | 'info' | 'success' | 'muted' | 'neutral';
-
-export interface SessionStatusPresentation {
-  /** User-visible Chinese label for this status. */
-  label: string;
-  /** Color tone driving the badge / icon. */
-  tone: SessionStatusTone;
-  /**
-   * Whether the lifecycle state can transition further by user
-   * interaction in the chat (vs being terminal-for-this-session).
-   * UI uses this to decide whether to dim the chat composer.
-   */
-  interactive: boolean;
-}
-
-const STATUS_PRESENTATION: Record<SessionStatus, SessionStatusPresentation> = {
-  active: { label: '可继续', tone: 'neutral', interactive: true },
-  running: { label: '进行中', tone: 'accent', interactive: true },
-  waiting_for_user: { label: '等你确认', tone: 'warning', interactive: true },
-  // `blocked` was destructive (red) but most blocked states are
-  // recoverable (permission_required, auth retry, missing connection
-  // selection) — the chat header pill ended up sitting beside monochrome
-  // quiet-icon utility buttons, where the bright red read as a hard
-  // error in a row that did not deserve one. 'warning' (warm yellow)
-  // honestly conveys "you need to do something" without screaming
-  // failure. Real hard failures surface through ChatHeaderAlertBadge,
-  // which still uses destructive.
-  blocked: { label: '需要处理', tone: 'warning', interactive: true },
-  review: { label: '待审核', tone: 'info', interactive: true },
-  done: { label: '已完成', tone: 'success', interactive: true },
-  archived: { label: '已归档', tone: 'muted', interactive: false },
-  // @kenji review on PR109b: aborted is dormant history but the UI
-  // must NOT silently treat it as active. Renders a muted "已中止"
-  // badge so the user can see what they cancelled later.
-  aborted: { label: '已中止', tone: 'muted', interactive: false },
-};
-
-export function presentSessionStatus(status: SessionStatus): SessionStatusPresentation {
-  return STATUS_PRESENTATION[status];
-}
-
 /**
  * Generalized phrasing for a blocked session. Surfaces a user-readable
  * cause without exposing the underlying enum identifier (per @kenji
