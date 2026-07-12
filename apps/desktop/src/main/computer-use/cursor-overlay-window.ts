@@ -28,7 +28,7 @@ const requireElectron = createRequire(import.meta.url);
 // same hook against a headless sink. This controller is the Electron implementation
 // of that sink (it also satisfies OverlayCursorSink structurally via ensure/move).
 export type { CursorActionKind, CursorMoveInput } from '@maka/computer-use';
-import type { CursorMoveInput } from '@maka/computer-use';
+import type { CursorCompleteInput, CursorMoveInput } from '@maka/computer-use';
 
 /** Minimal window surface the controller drives (fake-able in node --test). */
 export interface CursorOverlayWindowLike {
@@ -59,6 +59,8 @@ export interface CursorOverlayController {
   ensure(sessionId: string): void;
   /** Move the cursor to a per-action screen coordinate (creates the window if needed). */
   move(input: CursorMoveInput): void;
+  /** Reconcile the display with the coordinate where backend execution completed. */
+  complete(input: CursorCompleteInput): void;
   /** Per-session teardown (the clearComputerUseOverlay(sessionId) bag). */
   clearForSession(sessionId: string): void;
   /** User abort (Esc) — tears down when actionId matches the live overlay. */
@@ -195,6 +197,19 @@ export function createCursorOverlayController(
     });
   }
 
+  function complete(input: CursorCompleteInput): void {
+    if (typeof input.sessionId !== 'string' || input.sessionId.length === 0) return;
+    if (!Number.isFinite(input.screenX) || !Number.isFinite(input.screenY)) return;
+    if (input.sessionId !== sessionId || input.actionId !== actionId) return;
+    push('overlay:complete', {
+      actionId: input.actionId,
+      x: input.screenX - bounds.x,
+      y: input.screenY - bounds.y,
+      kind: input.kind,
+      pulse: input.pulse,
+    });
+  }
+
   function clearForSession(id: string): void {
     if (typeof id !== 'string' || id.length === 0) return;
     if (id !== sessionId) return;
@@ -209,6 +224,7 @@ export function createCursorOverlayController(
   return {
     ensure,
     move,
+    complete,
     clearForSession,
     abort,
     destroyAll: teardown,

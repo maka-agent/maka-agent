@@ -102,6 +102,40 @@ test('persistence: move() does NOT recreate the window; sends window-local coord
   assert.deepEqual(movesAfter[3].payload, { x: 100, y: 100, kind: 'move', pressed: false });
 });
 
+test('complete() sends exact backend coordinate only for the live action', () => {
+  const { controller, created } = harness();
+  controller.move({ actionId: 'a1', sessionId: 's', screenX: 500, screenY: 450, kind: 'click' });
+  const w = created[0];
+  w.fireReady();
+
+  controller.complete({
+    actionId: 'stale',
+    sessionId: 's',
+    screenX: 500,
+    screenY: 450,
+    kind: 'click',
+    pulse: true,
+  });
+  assert.equal(w.sent.filter((message) => message.channel === 'overlay:complete').length, 0);
+
+  controller.complete({
+    actionId: 'a1',
+    sessionId: 's',
+    screenX: 500,
+    screenY: 450,
+    kind: 'click',
+    pulse: true,
+  });
+  const completed = w.sent.filter((message) => message.channel === 'overlay:complete');
+  assert.deepEqual(completed[0]?.payload, {
+    actionId: 'a1',
+    x: 400,
+    y: 400,
+    kind: 'click',
+    pulse: true,
+  });
+});
+
 test('teardown: clearForSession / abort / destroyAll destroy synchronously; supersede on session change', () => {
   const { controller, created } = harness();
   controller.move({ actionId: 'a0', sessionId: 's1', screenX: 300, screenY: 250, kind: 'move' });

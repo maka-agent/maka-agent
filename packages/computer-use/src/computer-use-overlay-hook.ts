@@ -19,6 +19,10 @@ export interface CursorMoveInput {
   pressed?: boolean;
 }
 
+export interface CursorCompleteInput extends CursorMoveInput {
+  pulse: boolean;
+}
+
 /**
  * The minimal surface the hook drives — the visual side of computer-use. The
  * desktop's Electron overlay controller implements this (BrowserWindow); a
@@ -28,6 +32,7 @@ export interface CursorMoveInput {
 export interface OverlayCursorSink {
   ensure(sessionId: string): void;
   move(input: CursorMoveInput): void;
+  complete(input: CursorCompleteInput): void;
 }
 
 interface DisplayLike {
@@ -111,6 +116,20 @@ export function createComputerUseOverlayHook(controller: OverlayCursorSink, scre
         screenX: screenPt.x,
         screenY: screenPt.y,
         kind: kindOf(action),
+      });
+    },
+    onActionEnd(action, result, ctx) {
+      const pt = coordinateOf(action);
+      if (!pt || !result || action.type === 'mouse_move') return;
+      const screenPt = declaredPxToScreenPoint(pt, screen.getPrimaryDisplay());
+      const kind = kindOf(action);
+      controller.complete({
+        actionId: ctx.toolCallId,
+        sessionId: ctx.sessionId,
+        screenX: screenPt.x,
+        screenY: screenPt.y,
+        kind,
+        pulse: result.outcome.ok && (kind === 'click' || kind === 'drag'),
       });
     },
   };

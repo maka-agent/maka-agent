@@ -68,7 +68,7 @@ export interface CuOverlayHookContext {
  */
 export interface CuOverlayHook {
   onActionBegin(action: CuAction, ctx: CuOverlayHookContext): void;
-  onActionEnd?(ctx: CuOverlayHookContext): void;
+  onActionEnd?(action: CuAction, result: CuRunResult | undefined, ctx: CuOverlayHookContext): void;
 }
 
 const coordinate = z.tuple([z.number(), z.number()]);
@@ -249,8 +249,9 @@ export function buildComputerUseTools(deps: { backend: CuDispatchBackend; overla
         const overlayCtx = { sessionId, toolCallId };
         const runCtx: CuRunContext = { sessionId, turnId, toolCallId };
         try { deps.overlay?.onActionBegin(action, overlayCtx); } catch { /* overlay is best-effort */ }
+        let result: CuRunResult | undefined;
         try {
-          const result = await deps.backend.run(action, abortSignal, runCtx);
+          result = await deps.backend.run(action, abortSignal, runCtx);
           // Carry the screenshot base64 on the raw result (which becomes the ai-sdk
           // tool `output`) so `toModelOutput` below can hand the vision model an image
           // block. Kept OFF `text`: coerceResultContent projects this object to a
@@ -261,7 +262,7 @@ export function buildComputerUseTools(deps: { backend: CuDispatchBackend; overla
             ? { text, screenshot: { base64: result.screenshot.base64, mimeType: result.screenshot.mimeType } }
             : { text };
         } finally {
-          try { deps.overlay?.onActionEnd?.(overlayCtx); } catch { /* best-effort */ }
+          try { deps.overlay?.onActionEnd?.(action, result, overlayCtx); } catch { /* best-effort */ }
         }
       });
     },

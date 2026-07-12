@@ -103,6 +103,41 @@ test('click pulse is centered on the action coordinate, not the arrow body', () 
   );
 });
 
+test('completion snaps the arrow tip to the executed coordinate and cancels glide', () => {
+  const e = new CursorEngine();
+  e.pos = [100, 100];
+  e.moveTo(500, 300);
+  e.tick(1 / 60);
+  e.completeAt(320, 240, true);
+
+  const tipX = e.pos[0] - Math.cos(REST_HEADING) * ARROW_TIP_LENGTH;
+  const tipY = e.pos[1] - Math.sin(REST_HEADING) * ARROW_TIP_LENGTH;
+  assert.ok(Math.hypot(tipX - 320, tipY - 240) < 0.01);
+  assert.ok(e.isMoving(), 'pulse remains active after glide is cancelled');
+});
+
+test('path planner bounds detours for short moves', () => {
+  const cases = [
+    [100, 100, 120, 120],
+    [100, 100, 150, 100],
+    [100, 100, 180, 130],
+  ] as const;
+  for (const [x0, y0, x1, y1] of cases) {
+    const direct = Math.hypot(x1 - x0, y1 - y0);
+    const path = planPath(
+      x0,
+      y0,
+      0,
+      x1,
+      y1,
+      REST_HEADING + Math.PI,
+      REST_HEADING,
+      Math.max(8, direct / 2.5),
+    );
+    assert.ok(path.length <= Math.max(direct * 1.45, direct + 36) + 0.01);
+  }
+});
+
 test('click pulse clears over ~0.25s', () => {
   const e = new CursorEngine();
   e.setSession('x');
