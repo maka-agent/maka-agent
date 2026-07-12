@@ -9,11 +9,8 @@
  * failure and recovers its reason, tolerating both the bare CLI form and the
  * `NO_REAL_CONNECTION:<reason>: <message>` form that IPC wrapping produces.
  *
- * The desktop renderer (`apps/desktop/src/renderer/model-connection-errors.ts`)
- * still carries its own copy of these strings and its own parser, so this is the
- * canonical home for the CLI path only; delegating the desktop copy+parser here
- * (and converting its source-snapshot boundary test to a behavior test) is a
- * tracked follow-up in the PR description. Until then the desktop copy can drift.
+ * This module is the canonical parser and copy table for both CLI and desktop;
+ * surfaces adapt their local event shape here instead of duplicating the rules.
  */
 
 import type { ChatConfigurationReason } from './connection-readiness.js';
