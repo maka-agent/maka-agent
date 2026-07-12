@@ -12,16 +12,18 @@ import { resolveMakaWorkspaceRoot } from './workspace-root.js';
 import { runMakaPiTui } from './pi-tui-runner.js';
 
 export type MakaCliCommand =
-  | { kind: 'run' }
+  | { kind: 'tui' }
+  | { kind: 'eval'; args: string[] }
   | { kind: 'help'; text: string }
   | { kind: 'version'; text: string }
   | { kind: 'error'; message: string; exitCode: number };
 
 export function parseMakaCliArgs(argv: string[], version: string): MakaCliCommand {
-  if (argv.length === 0) return { kind: 'run' };
+  if (argv.length === 0) return { kind: 'tui' };
   const [first] = argv;
   if (first === '--help' || first === '-h') return { kind: 'help', text: helpText() };
   if (first === '--version' || first === '-v') return { kind: 'version', text: version };
+  if (first === 'eval') return { kind: 'eval', args: argv.slice(1) };
   return {
     kind: 'error',
     message: `Unexpected argument: ${first ?? ''}`,
@@ -70,6 +72,7 @@ function helpText(): string {
     'Commands:',
     '  maka              Start the TUI',
     '  maka-agent        Start the TUI',
+    '  maka eval ...     Run evaluation and autonomous task commands',
     '',
     'Options:',
     '  -h, --help        Show help',
@@ -81,6 +84,10 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
   const version = await readPackageVersion();
   const command = parseMakaCliArgs(argv, version);
   switch (command.kind) {
+    case 'eval': {
+      const { runMakaEvalCli } = await import('@maka/headless/eval-router');
+      return runMakaEvalCli(command.args);
+    }
     case 'help':
       process.stdout.write(`${command.text}\n`);
       return 0;
@@ -90,7 +97,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
     case 'error':
       process.stderr.write(`${command.message}\n\n${helpText()}\n`);
       return command.exitCode;
-    case 'run': {
+    case 'tui': {
       const workspaceRoot = resolveMakaWorkspaceRoot();
       let context;
       try {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -14,10 +14,33 @@ import {
 } from '../cli.js';
 
 const execFileAsync = promisify(execFile);
+const cliPath = new URL('../cli.js', import.meta.url).pathname;
+const legacyCliPath = new URL('../../../headless/dist/cli.js', import.meta.url).pathname;
+
+function runCliProcess(
+  entrypoint: string,
+  args: string[],
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [entrypoint, ...args]);
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
+    child.on('close', (code) => resolve({ code, stdout, stderr }));
+  });
+}
 
 describe('Maka CLI args', () => {
   test('runs the TUI for a bare command', () => {
-    assert.deepEqual(parseMakaCliArgs([], '0.1.0'), { kind: 'run' });
+    assert.deepEqual(parseMakaCliArgs([], '0.1.0'), { kind: 'tui' });
+  });
+
+  test('routes eval subcommands without changing their arguments', () => {
+    assert.deepEqual(parseMakaCliArgs(['eval', 'task-run', 'inspect', 'run-1'], '0.1.0'), {
+      kind: 'eval',
+      args: ['task-run', 'inspect', 'run-1'],
+    });
   });
 
   test('prints help', () => {
@@ -35,7 +58,7 @@ describe('Maka CLI args', () => {
     });
   });
 
-  test('rejects positional arguments in the first release', () => {
+  test('rejects unknown positional arguments', () => {
     assert.deepEqual(parseMakaCliArgs(['headless'], '0.1.0'), {
       kind: 'error',
       message: 'Unexpected argument: headless',
@@ -101,18 +124,64 @@ describe('Maka CLI args', () => {
 
   test('prints version from the executable entrypoint', async () => {
     const { stdout } = await execFileAsync(process.execPath, [
-      new URL('../cli.js', import.meta.url).pathname,
+      cliPath,
       '--version',
     ]);
 
     assert.equal(stdout.trim(), '0.1.0');
   });
 
+  test('runs a fake evaluation through the unified executable', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-unified-eval-'));
+    try {
+      await mkdir(join(dir, 'fixture'), { recursive: true });
+      await writeFile(join(dir, 'fixture', 'marker.txt'), 'ok', 'utf8');
+      const specPath = join(dir, 'spec.json');
+      const outDir = join(dir, 'out');
+      await writeFile(specPath, JSON.stringify({
+        configs: [{ id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }],
+        tasks: [{
+          id: 't-pass',
+          instruction: 'go',
+          workspaceDir: 'fixture',
+          verification: { command: 'test -f marker.txt', protectedPaths: [] },
+        }],
+      }), 'utf8');
+
+      const result = await runCliProcess(cliPath, ['eval', 'run', specPath, '--out', outDir]);
+
+      assert.equal(result.code, 0, result.stderr);
+      assert.doesNotMatch(result.stderr, /deprecated/);
+      assert.match(result.stdout, /t-pass/);
+      assert.match(await readFile(join(outDir, 'comparison.md'), 'utf8'), /t-pass/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps all five legacy command families on the unified router exit contract', async () => {
+    const pairs = [
+      { unified: ['eval', 'run'], legacy: ['eval'] },
+      { unified: ['eval', 'compare'], legacy: ['compare'] },
+      { unified: ['eval', 'task-run'], legacy: ['task'] },
+      { unified: ['eval', 'harbor'], legacy: ['harbor'] },
+      { unified: ['eval', 'ahe'], legacy: ['ahe'] },
+    ];
+    for (const pair of pairs) {
+      const unified = await runCliProcess(cliPath, pair.unified);
+      const legacy = await runCliProcess(legacyCliPath, pair.legacy);
+      assert.equal(legacy.code, unified.code, pair.unified.join(' '));
+      assert.equal(legacy.stdout, unified.stdout, pair.unified.join(' '));
+      assert.match(legacy.stderr, /maka-headless is deprecated/);
+      assert.doesNotMatch(unified.stderr, /maka-headless is deprecated/);
+    }
+  });
+
   test('runs when launched through a bin symlink', async () => {
     const tempDir = await mkdtemp(join(tmpdir(), 'maka-cli-bin-'));
     try {
       const linkPath = join(tempDir, 'maka');
-      await symlink(new URL('../cli.js', import.meta.url).pathname, linkPath);
+      await symlink(cliPath, linkPath);
       const { stdout } = await execFileAsync(linkPath, ['--version']);
 
       assert.equal(stdout.trim(), '0.1.0');

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { runAutonomousTask } from './autonomous-agent-loop.js';
 import { harborCommand } from './harbor-cli.js';
@@ -471,13 +473,22 @@ function parseArgs(args: string[], knownFlags: string[], boolFlags: string[] = [
   return { positional, flags, bools };
 }
 
-function printUsage(): void {
+function printLegacyUsage(): void {
   console.error('maka-headless — headless agent runner\n');
   console.error('  maka-headless eval <spec.json> [--out <dir>]   run configs × tasks, write results + table');
   console.error('  maka-headless compare <results.jsonl>          print the comparison table');
   console.error('  maka-headless task <command> ...               run, inspect, resume, retry, export task runs');
   console.error('  maka-headless ahe <command> ...                export AHE target snapshots and evidence');
   console.error('  maka-headless harbor <command> ...             run Harbor real-backend task/cell flows');
+}
+
+function printUnifiedUsage(): void {
+  console.error('maka eval — evaluation and autonomous task commands\n');
+  console.error('  maka eval run <spec.json> [--out <dir>]        run configs × tasks, write results + table');
+  console.error('  maka eval compare <results.jsonl>               print the comparison table');
+  console.error('  maka eval task-run <command> ...                run, inspect, resume, retry, export task runs');
+  console.error('  maka eval ahe <command> ...                     export AHE target snapshots and evidence');
+  console.error('  maka eval harbor <command> ...                  run Harbor real-backend task/cell flows');
 }
 
 function printTaskUsage(): void {
@@ -489,15 +500,38 @@ function printTaskUsage(): void {
   console.error('  task export <taskRunId> --store <out>/runs --out <dir> [--include-events]');
 }
 
-async function main(argv: string[]): Promise<number> {
+/** Canonical router shared by `maka eval` and the legacy compatibility bin. */
+export async function runMakaEvalCli(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
-  if (cmd === 'eval') return evalCommand(rest);
+  if (cmd === 'run') return evalCommand(rest);
   if (cmd === 'compare') return compareCommand(rest);
-  if (cmd === 'task') return taskCommand(rest);
+  if (cmd === 'task-run') return taskCommand(rest);
   if (cmd === 'ahe') return aheCommand(rest);
   if (cmd === 'harbor') return harborCommand(rest);
-  printUsage();
+  printUnifiedUsage();
   return cmd ? 1 : 0;
+}
+
+/** Translate the five supported legacy command families into the canonical tree. */
+export function mapLegacyMakaHeadlessArgs(argv: string[]): string[] | null {
+  const [cmd, ...rest] = argv;
+  if (cmd === undefined) return [];
+  if (cmd === 'eval') return ['run', ...rest];
+  if (cmd === 'compare') return ['compare', ...rest];
+  if (cmd === 'task') return ['task-run', ...rest];
+  if (cmd === 'ahe') return ['ahe', ...rest];
+  if (cmd === 'harbor') return ['harbor', ...rest];
+  return null;
+}
+
+async function runLegacyMakaHeadlessCli(argv: string[]): Promise<number> {
+  console.error('warning: maka-headless is deprecated; use `maka eval` instead');
+  const mapped = mapLegacyMakaHeadlessArgs(argv);
+  if (mapped === null || mapped.length === 0) {
+    printLegacyUsage();
+    return mapped === null ? 1 : 0;
+  }
+  return runMakaEvalCli(mapped);
 }
 
 async function loadSpec(specPath: string): Promise<ExperimentSpec> {
@@ -583,11 +617,22 @@ function printInspect(value: Record<string, unknown>): void {
   }
 }
 
-main(process.argv.slice(2))
-  .then((code) => {
-    process.exitCode = code;
-  })
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  });
+if (isMainModule()) {
+  runLegacyMakaHeadlessCli(process.argv.slice(2))
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+}
+
+function isMainModule(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
