@@ -101,6 +101,11 @@ export type {
   OpenAIComputerScreenshotProvider,
   OpenAIComputerTransport,
 } from './openai-computer-loop.js';
+export {
+  OpenAIResponsesTransport,
+  createOpenAIResponsesTransport,
+} from './openai-responses-transport.js';
+export type { OpenAIResponsesTransportOptions } from './openai-responses-transport.js';
 export type {
   ComputerUseToolSet,
   CuAppSummary,
