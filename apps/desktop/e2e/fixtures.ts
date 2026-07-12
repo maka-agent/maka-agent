@@ -43,6 +43,7 @@ function buildE2eEnv(userDataDir: string, visualSmokeScenario?: string): NodeJS.
       key === 'VITE_DEV_SERVER_URL' ||
       key === 'MAKA_E2E' ||
       key === 'MAKA_E2E_USER_DATA_DIR' ||
+      key === 'MAKA_E2E_SHOW_WINDOW' ||
       key === 'MAKA_VISUAL_SMOKE_FIXTURE' ||
       /_API_KEY$/.test(key) ||
       /_API_TOKEN$/.test(key) ||
@@ -54,6 +55,12 @@ function buildE2eEnv(userDataDir: string, visualSmokeScenario?: string): NodeJS.
   env.MAKA_E2E = '1';
   env.MAKA_E2E_USER_DATA_DIR = userDataDir;
   if (visualSmokeScenario) env.MAKA_VISUAL_SMOKE_FIXTURE = visualSmokeScenario;
+  // E2E windows launch hidden so local runs never steal the developer's
+  // focus. On CI there is no desktop to protect, and a hidden window's
+  // compositor is throttled to ~1fps on Linux — content-visibility turns
+  // never inflate and frame-paced protocols crawl (measured: 38 frames in
+  // 31s in the scroll-geometry climb). Under xvfb, show the window.
+  if (process.env.CI) env.MAKA_E2E_SHOW_WINDOW = '1';
   return env;
 }
 

@@ -469,7 +469,13 @@ const systemPromptService = createSystemPromptMainService({
 // Window is created hidden for E2E and visual-smoke runs so it never steals
 // focus. Derived from the same isE2e gate as userData/fake-backend so the
 // hidden-window switch stays in lockstep with the rest of the E2E isolation.
-const startHidden = Boolean(visualSmokeFixture) || isE2e;
+// MAKA_E2E_SHOW_WINDOW opts back into a visible window where there is no
+// focus to steal (CI under xvfb): hidden windows only get ~1fps compositor
+// BeginFrames on Linux, which stalls content-visibility inflation and any
+// frame-paced E2E protocol (measured in the scroll-geometry climb: 38 frames
+// over 31s). The E2E harness sets it, not the workflow — see fixtures.ts.
+const startHidden = (Boolean(visualSmokeFixture) || isE2e)
+  && process.env.MAKA_E2E_SHOW_WINDOW !== '1';
 const mainWindowController = createMainWindowController({
   workspaceRoot,
   visualSmokeFixture,
