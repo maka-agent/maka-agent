@@ -50,12 +50,12 @@ async function evalCommand(args: string[]): Promise<number> {
   try {
     ({ positional, flags } = parseArgs(args, ['out']));
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless eval <spec.json> [--out <dir>]`);
+    console.error(`${(error as Error).message}\nusage: maka eval run <spec.json> [--out <dir>]`);
     return 1;
   }
   const specPath = positional[0];
   if (!specPath) {
-    console.error('usage: maka-headless eval <spec.json> [--out <dir>]');
+    console.error('usage: maka eval run <spec.json> [--out <dir>]');
     return 1;
   }
 
@@ -67,7 +67,7 @@ async function evalCommand(args: string[]): Promise<number> {
     spec = JSON.parse(await readFile(specPath, 'utf8')) as ExperimentSpec;
     validateEvalSpec(spec);
   } catch (error) {
-    console.error(`maka-headless: ${(error as Error).message}`);
+    console.error(`maka eval run: ${(error as Error).message}`);
     return 1;
   }
 
@@ -107,7 +107,7 @@ async function evalCommand(args: string[]): Promise<number> {
 async function compareCommand(args: string[]): Promise<number> {
   const path = args[0];
   if (!path) {
-    console.error('usage: maka-headless compare <results.jsonl>');
+    console.error('usage: maka eval compare <results.jsonl>');
     return 1;
   }
   process.stdout.write(toComparisonTable(await readResults(path)));
