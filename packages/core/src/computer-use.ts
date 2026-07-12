@@ -28,6 +28,15 @@ export const COMPUTER_USE_ERROR_CODES = [
   'unsupported_action',
   'aborted',
   'timeout',
+  'no_active_frame',
+  'stale_frame',
+  'stale_epoch',
+  'target_missing',
+  'target_changed',
+  'target_occluded',
+  'page_target_changed',
+  'duplicate_action',
+  'user_intervened',
 ] as const;
 export type ComputerUseErrorCode = typeof COMPUTER_USE_ERROR_CODES[number];
 

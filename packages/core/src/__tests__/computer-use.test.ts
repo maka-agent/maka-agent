@@ -20,7 +20,7 @@ import {
 } from '../computer-use.js';
 
 describe('Computer Use core types (PR-CORE-CU-0)', () => {
-  test('S17 closed error enum is exactly the 8 gated codes', () => {
+  test('S17 closed error enum includes frame/window binding failures', () => {
     // Adding/removing a code here is a deliberate contract change and must be
     // mirrored in smoke.md Path 18 S17. Lock it.
     expect([...COMPUTER_USE_ERROR_CODES]).toEqual([
@@ -32,6 +32,15 @@ describe('Computer Use core types (PR-CORE-CU-0)', () => {
       'unsupported_action',
       'aborted',
       'timeout',
+      'no_active_frame',
+      'stale_frame',
+      'stale_epoch',
+      'target_missing',
+      'target_changed',
+      'target_occluded',
+      'page_target_changed',
+      'duplicate_action',
+      'user_intervened',
     ]);
   });
 

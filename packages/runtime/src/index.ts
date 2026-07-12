@@ -89,14 +89,27 @@ export type {
   OpenAIComputerAction,
   OpenAIComputerActionConversion,
 } from './openai-computer-actions.js';
-export { bindCuaAction, CuaFrameState } from './cua-frame-state.js';
+export {
+  bindCuaAction,
+  bindCuaActionToObservation,
+  bindCuaSemanticActionToObservation,
+  fingerprintCuaAction,
+  fingerprintCuaSemanticAction,
+  CuaFrameState,
+} from './cua-frame-state.js';
 export type {
   CuaActionClaimResult,
   CuaActionConfirmationResult,
   CuaActionRejectionReason,
   CuaBoundAction,
+  CuaDisplaySnapshot,
   CuaFrameIdentity,
   CuaFrameIdFactory,
+  CuaObservation as CuaFrameObservation,
+  CuaObservationSnapshot,
+  CuaPageIdentity,
+  CuaRect,
+  CuaWindowIdentity,
 } from './cua-frame-state.js';
 export {
   createOpenAIComputerContinuationRequest,
@@ -128,6 +141,7 @@ export {
 export type { OpenAIResponsesTransportOptions } from './openai-responses-transport.js';
 export type {
   CuAppSummary,
+  ComputerUseToolSet,
   CuDispatchBackend,
   CuObservation,
   CuObservedElement,

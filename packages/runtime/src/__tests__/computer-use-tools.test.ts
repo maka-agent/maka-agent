@@ -6,6 +6,7 @@ import {
   buildComputerUseTools,
   snapshotComputerParams,
   type CuDispatchBackend,
+  type CuObservation,
   type CuRunContext,
   type CuRunResult,
 } from '../computer-use-tools.js';
@@ -53,6 +54,28 @@ function fakeBackend(over: Partial<{
 async function callComputer(backend: CuDispatchBackend, args: Record<string, unknown>, signal?: AbortSignal) {
   const [tool] = buildComputerUseTools({ backend });
   return (await tool.impl(args as never, ctx(signal))) as { kind: string; text: string };
+}
+
+function observation(over: Partial<CuObservation> = {}): CuObservation {
+  return {
+    observationId: 'backend-obs-1',
+    appId: 'Fixture',
+    pid: 42,
+    windowId: 7,
+    elements: [{
+      elementId: '5',
+      role: 'AXButton',
+      label: 'Continue',
+      identity: { token: 'button-token', role: 'AXButton', label: 'Continue' },
+    }],
+    screenshot: {
+      base64: 'AA==',
+      mimeType: 'image/png',
+      widthPx: 100,
+      heightPx: 80,
+    },
+    ...over,
+  };
 }
 
 describe('adaptToCuAction — flat Anthropic grammar → discriminated CuAction', () => {
@@ -210,8 +233,11 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       app: 'Fixture',
       window_id: 7,
     } as never, ctx()) as { text: string; screenshot?: unknown };
-    assert.deepEqual(JSON.parse(observation.text), {
-      observation_id: 'obs-1',
+    assert.deepEqual({
+      ...JSON.parse(observation.text),
+      observation_id: '<runtime-generated>',
+    }, {
+      observation_id: '<runtime-generated>',
       app: 'Fixture',
       pid: 42,
       window_id: 7,
@@ -219,6 +245,225 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       elements: [{ element_id: '5', role: 'AXButton', label: 'Continue' }],
     });
     assert.ok(observation.screenshot);
+  });
+
+  test('semantic action uses the runtime observation id, forwards identity hints, and returns fresh state', async () => {
+    const seen: Array<{ action: unknown; context: CuRunContext }> = [];
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+    };
+    backend.observeApp = async () => observation();
+    backend.runSemantic = async (action, _signal, context) => {
+      seen.push({ action, context });
+      return {
+        outcome: { ok: true, tier: 'ax', verified: true },
+        observation: observation({
+          observationId: 'backend-obs-2',
+          elements: [{ elementId: '8', role: 'AXStaticText', label: 'Done' }],
+        }),
+      };
+    };
+    const [tool] = buildComputerUseTools({ backend });
+    const observed = await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx()) as {
+      text: string;
+    };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    const result = await tool.impl({
+      action: 'click_element',
+      observation_id: observationId,
+      element_id: '5',
+    } as never, ctx()) as { text: string };
+
+    assert.equal((seen[0]?.action as { observationId: string }).observationId, 'backend-obs-1');
+    assert.deepEqual((seen[0]?.action as { elementIdentity?: unknown }).elementIdentity, {
+      token: 'button-token',
+      role: 'AXButton',
+      label: 'Continue',
+    });
+    assert.equal(seen[0]?.context.boundAction?.target?.windowId, 7);
+    assert.match(result.text, /Fresh observation/);
+    assert.doesNotMatch(result.text, new RegExp(observationId));
+  });
+
+  test('coordinate action is bound to a window-local screenshot and consumes the observation', async () => {
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      captureObservation: NonNullable<CuDispatchBackend['captureObservation']>;
+      lastContext?: CuRunContext;
+    };
+    backend.observeApp = async () => observation();
+    backend.captureObservation = async () => observation({
+      observationId: 'backend-obs-2',
+    });
+    const [tool] = buildComputerUseTools({ backend });
+    const observed = await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx()) as {
+      text: string;
+    };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    const result = await tool.impl({
+      action: 'left_click',
+      observation_id: observationId,
+      coordinate: [25, 30],
+    } as never, ctx()) as { text: string };
+
+    assert.equal(backend.lastContext?.boundAction?.coordinateSpace, 'window-screenshot-local');
+    assert.deepEqual(backend.lastContext?.boundAction?.windowCoordinate, { x: 25, y: 30 });
+    assert.match(result.text, /Fresh observation/);
+
+    const replay = await tool.impl({
+      action: 'left_click',
+      observation_id: observationId,
+      coordinate: [25, 30],
+    } as never, ctx()) as { text: string };
+    assert.match(replay.text, /duplicate_action|stale_frame/);
+  });
+
+  test('successful bound action fails closed without a fresh full observation', async () => {
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+    };
+    backend.observeApp = async () => observation();
+    const [tool] = buildComputerUseTools({ backend });
+    const observed = await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx()) as {
+      text: string;
+    };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    const result = await tool.impl({
+      action: 'left_click',
+      observation_id: observationId,
+      coordinate: [25, 30],
+    } as never, ctx()) as { text: string };
+
+    assert.match(result.text, /capture_failed/);
+  });
+
+  test('zoom consumes the source observation and cannot reuse crop coordinates as the old frame', async () => {
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+    };
+    backend.observeApp = async () => observation();
+    const [tool] = buildComputerUseTools({ backend });
+    const observed = await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx()) as {
+      text: string;
+    };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    const zoom = await tool.impl({
+      action: 'zoom',
+      observation_id: observationId,
+      region: [0, 0, 50, 40],
+    } as never, ctx()) as { text: string };
+    assert.match(zoom.text, /capture_failed/);
+
+    const click = await tool.impl({
+      action: 'left_click',
+      observation_id: observationId,
+      coordinate: [10, 10],
+    } as never, ctx()) as { text: string };
+    assert.match(click.text, /stale_frame|no_active_frame/);
+  });
+
+  test('runtime does not infer user intervention from observation content changes', async () => {
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+    };
+    backend.observeApp = async () => observation({ contentFingerprint: 'tree-a' });
+    backend.runSemantic = async () => ({
+      outcome: { ok: true, tier: 'ax', verified: false },
+      observation: observation({
+        observationId: 'backend-obs-2',
+        contentFingerprint: 'tree-completely-different',
+      }),
+    });
+    const [tool] = buildComputerUseTools({ backend });
+    const observed = await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx()) as {
+      text: string;
+    };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    const result = await tool.impl({
+      action: 'click_element',
+      observation_id: observationId,
+      element_id: '5',
+    } as never, ctx()) as { text: string };
+
+    assert.doesNotMatch(result.text, /user_intervened/);
+    assert.match(result.text, /verified=false/);
+  });
+
+  test('press_key binds the observation window without requiring an element id', async () => {
+    const seen: Array<{ action: unknown; context: CuRunContext }> = [];
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+    };
+    backend.observeApp = async () => observation();
+    backend.runSemantic = async (action, _signal, context) => {
+      seen.push({ action, context });
+      return {
+        outcome: { ok: true, tier: 'ax', verified: true },
+        observation: observation({ observationId: 'backend-obs-2' }),
+      };
+    };
+    const [tool] = buildComputerUseTools({ backend });
+    const observed = await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx()) as {
+      text: string;
+    };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    const result = await tool.impl({
+      action: 'press_key',
+      observation_id: observationId,
+      text: 'ENTER',
+    } as never, ctx()) as { text: string };
+
+    assert.deepEqual(seen[0]?.action, {
+      type: 'press_key',
+      observationId: 'backend-obs-1',
+      key: 'ENTER',
+    });
+    assert.equal(seen[0]?.context.boundAction?.elementId, undefined);
+    assert.equal(seen[0]?.context.boundAction?.target?.windowId, 7);
+    assert.match(result.text, /Fresh observation/);
+  });
+
+  test('select_text forwards the identity hint for unique semantic refetch', async () => {
+    const seen: unknown[] = [];
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+    };
+    backend.observeApp = async () => observation();
+    backend.runSemantic = async (action) => {
+      seen.push(action);
+      return {
+        outcome: { ok: true, tier: 'ax', verified: true },
+        observation: observation({ observationId: 'backend-obs-2' }),
+      };
+    };
+    const [tool] = buildComputerUseTools({ backend });
+    const observed = await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx()) as {
+      text: string;
+    };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    await tool.impl({
+      action: 'select_text',
+      observation_id: observationId,
+      element_id: '5',
+      text: 'hello',
+    } as never, ctx());
+
+    assert.deepEqual((seen[0] as { elementIdentity?: unknown }).elementIdentity, {
+      token: 'button-token',
+      role: 'AXButton',
+      label: 'Continue',
+    });
   });
 
   test('fails closed when the captured frame disagrees with the declared display', async () => {
@@ -256,7 +501,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
   });
 
   test('S12: re-checks TCC and fails closed when Accessibility is not granted', async () => {
-    const r = await callComputer(fakeBackend({ accessibility: false }), { action: 'left_click', coordinate: [1, 1] });
+    const r = await callComputer(fakeBackend({ accessibility: false }), { action: 'wait' });
     assert.match(r.text, /permission_missing/);
     assert.match(r.text, /Accessibility/);
   });
@@ -269,14 +514,14 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
 
   test('dispatches the adapted action to the backend and summarizes success + tier', async () => {
     const backend = fakeBackend();
-    const r = await callComputer(backend, { action: 'left_click', coordinate: [5, 6], text: 'ctrl' });
-    assert.deepEqual(backend.last, { type: 'left_click', coordinate: { x: 5, y: 6 }, text: 'ctrl' });
-    assert.match(r.text, /computer\.left_click ok via ax/);
+    const r = await callComputer(backend, { action: 'wait', duration: 0.01 });
+    assert.deepEqual(backend.last, { type: 'wait', durationMs: 10 });
+    assert.match(r.text, /computer\.wait ok via ax/);
   });
 
   test('passes the full runtime context to the dispatch backend', async () => {
     const backend = fakeBackend();
-    await callComputer(backend, { action: 'left_click', coordinate: [5, 6] });
+    await callComputer(backend, { action: 'wait' });
     assert.deepEqual(backend.lastContext, {
       sessionId: 's1',
       turnId: 't1',
@@ -307,12 +552,12 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     };
     const [tool] = buildComputerUseTools({ backend });
     const first = tool.impl(
-      { action: 'left_click', coordinate: [5, 6] } as never,
-      { ...ctx(), toolCallId: 'call-click' },
+      { action: 'wait' } as never,
+      { ...ctx(), toolCallId: 'call-wait-1' },
     );
     const second = tool.impl(
-      { action: 'type', text: 'after-click' } as never,
-      { ...ctx(), toolCallId: 'call-type' },
+      { action: 'wait' } as never,
+      { ...ctx(), toolCallId: 'call-wait-2' },
     );
     await Promise.resolve();
     await Promise.resolve();
@@ -323,23 +568,23 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.deepEqual(events, [
       'preflight:1:start',
       'preflight:1:end',
-      'run:left_click',
+      'run:wait',
       'preflight:2:start',
       'preflight:2:end',
-      'run:type',
+      'run:wait',
     ]);
   });
 
   test('S17: surfaces the typed backend failure code without leaking raw driver text', async () => {
     const backend = fakeBackend({ result: { outcome: { ok: false, error: 'capture_failed', message: 'AXPress err -25202', completedSubSteps: 0 } } });
-    const r = await callComputer(backend, { action: 'left_click', coordinate: [1, 1] });
+    const r = await callComputer(backend, { action: 'wait' });
     assert.match(r.text, /failed: capture_failed/);
     assert.doesNotMatch(r.text, /AXPress err -25202/);
   });
 
   test('an unverified dispatch tells the model to re-screenshot (no silent success)', async () => {
     const backend = fakeBackend({ result: { outcome: { ok: true, tier: 'ax', verified: false } } });
-    const r = await callComputer(backend, { action: 'left_click', coordinate: [1, 1] });
+    const r = await callComputer(backend, { action: 'wait' });
     assert.match(r.text, /verified=false/);
     assert.match(r.text, /re-screenshot/);
   });
@@ -354,7 +599,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
           evidence: { path: 'cdp', effect: 'confirmed' },
         },
       },
-    }), { action: 'left_click', coordinate: [5, 6] });
+    }), { action: 'wait' });
     assert.match(r.text, /effect confirmed/);
     assert.match(r.text, /do not repeat/);
     assert.doesNotMatch(r.text, /re-screenshot/);
@@ -378,7 +623,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
         },
       },
     });
-    const r = await callComputer(backend, { action: 'left_click', coordinate: [1, 1] });
+    const r = await callComputer(backend, { action: 'wait' });
     assert.match(r.text, /path=cgevent/);
     assert.match(r.text, /effect=unverifiable/);
     assert.match(r.text, /escalation=foreground\(disallowed\)/);
