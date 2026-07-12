@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "maka.memory_benchmark.run_manifest.v1",
+  "runId": "golden-memory-run",
+  "subject": {
+    "commit": "d1bd67d90b877ad9ad0835d79b9ac2948add9fd8",
+    "dirty": false
+  },
+  "environment": {
+    "gatewayId": "fake-local",
+    "provider": "fake",
+    "modelId": "fake-memory-model",
+    "reasoningEffort": "default"
+  },
+  "strategy": {
+    "id": "current_maka",
+    "configHash": "sha256:e352a13150d5b51f9b941b69a462f5d694bb151c1701cacbf8c0b8c16ce399d4"
+  },
+  "dataset": {
+    "id": "golden-memory-dataset-v1",
+    "hash": "sha256:4877cee2e29e424bf0f6225c2f0802b4fc27c23d06fad8722b6c186e8c24235e",
+    "taskIds": [
+      "task-pass",
+      "task-fail"
+    ]
+  },
+  "repetitions": 1,
+  "artifactPaths": {
+    "attemptsJsonl": "attempts.jsonl",
+    "tokenCsv": "tokens.csv",
+    "verifierDirectory": "verifiers",
+    "transcriptDirectory": "transcripts"
+  },
+  "redactionPolicyVersion": "maka.memory-benchmark.redaction.v1",
+  "fingerprint": "sha256:b18df7e66ace8491d4bed4e2b01bbb926a43967a6ca330902a3626d14aacceb0"
+}

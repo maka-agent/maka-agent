@@ -4,6 +4,34 @@
 // package-local entrypoints, not the root API. Minimal usage is
 // `runExperiment(config, task, { storageRoot })`.
 export { runPromptOptimizationRun } from './prompt-optimization-run.js';
+export {
+  MEMORY_BENCHMARK_MANIFEST_SCHEMA_VERSION,
+  MEMORY_BENCHMARK_FORMAT_V1,
+  appendMemoryBenchmarkAttempt,
+  buildMemoryBenchmarkAttemptId,
+  buildMemoryBenchmarkManifest,
+  ensureMemoryBenchmarkManifest,
+  hashMemoryBenchmarkArtifact,
+  importHarborMemoryBenchmarkAttempt,
+  parseMemoryBenchmarkManifest,
+  planMemoryBenchmarkResume,
+  readMemoryBenchmarkAttempts,
+  recomputeMemoryBenchmarkScore,
+  redactMemoryBenchmarkArtifact,
+  writeRedactedMemoryBenchmarkJson,
+  writeRedactedMemoryBenchmarkText,
+} from './memory-benchmark-manifest.js';
+export type {
+  MemoryBenchmarkAttemptArtifact,
+  ImportHarborMemoryBenchmarkAttemptInput,
+  MemoryBenchmarkManifest,
+  MemoryBenchmarkManifestInput,
+  MemoryBenchmarkPlannedAttempt,
+  MemoryBenchmarkReasoningEffort,
+  MemoryBenchmarkResumePlan,
+  MemoryBenchmarkScore,
+  MemoryBenchmarkWriteOptions,
+} from './memory-benchmark-manifest.js';
 export type {
   PromptOptimizationRunInput,
   PromptOptimizationRunResult,
