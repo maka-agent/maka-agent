@@ -107,8 +107,9 @@ export type SkillRuntimeStateReadResult =
 /**
  * Skill source accepted by the multi-path scanning functions. A bare string is
  * a workspace root scanned at `{root}/skills/` (backward-compatible with
- * desktop). An explicit object lists skill directories in precedence order and
- * provides a `stateRoot` for reading/writing `skills-state.json`.
+ * desktop). An explicit object lists skill directories in precedence order
+ * (lower index = higher precedence) and provides a `stateRoot` for
+ * reading/writing `skills-state.json`.
  */
 export type SkillSource = string | { dirs: string[]; stateRoot: string };
 
@@ -122,24 +123,32 @@ export type SkillSource = string | { dirs: string[]; stateRoot: string };
  *
  * `{workspaceRoot}/skills/` is included for backward compatibility with
  * existing desktop-installed skills.
+ *
+ * Returns containment roots so `scanSkillDir` can reject ancestor-level
+ * symlink escapes (e.g. `repo/.agents -> /outside`).
  */
-export function resolveSkillDiscoveryPaths(cwd: string, workspaceRoot: string, homeDir?: string): { dirs: string[]; stateRoot: string } {
-  const home = homeDir ?? homedir();
-  const dirs = [
-    join(cwd, '.maka', 'skills'),
-    join(cwd, '.agents', 'skills'),
-    join(workspaceRoot, 'skills'),
-    join(home, '.maka', 'skills'),
-    join(home, '.agents', 'skills'),
-  ];
-  return { dirs, stateRoot: workspaceRoot };
+export interface SkillDiscoveryEntry {
+  dir: string;
+  containmentRoot: string;
 }
 
-function normalizeSkillSource(source: SkillSource): { dirs: string[]; stateRoot: string } {
+export function resolveSkillDiscoveryPaths(cwd: string, workspaceRoot: string, homeDir?: string): { entries: SkillDiscoveryEntry[]; dirs: string[]; stateRoot: string } {
+  const home = homeDir ?? homedir();
+  const entries: SkillDiscoveryEntry[] = [
+    { dir: join(cwd, '.maka', 'skills'), containmentRoot: cwd },
+    { dir: join(cwd, '.agents', 'skills'), containmentRoot: cwd },
+    { dir: join(workspaceRoot, 'skills'), containmentRoot: workspaceRoot },
+    { dir: join(home, '.maka', 'skills'), containmentRoot: home },
+    { dir: join(home, '.agents', 'skills'), containmentRoot: home },
+  ];
+  return { entries, dirs: entries.map((e) => e.dir), stateRoot: workspaceRoot };
+}
+
+function normalizeSkillSource(source: SkillSource): { entries: SkillDiscoveryEntry[]; stateRoot: string } {
   if (typeof source === 'string') {
-    return { dirs: [join(source, 'skills')], stateRoot: source };
+    return { entries: [{ dir: join(source, 'skills'), containmentRoot: source }], stateRoot: source };
   }
-  return source;
+  return { entries: source.dirs.map((dir) => ({ dir, containmentRoot: dir })), stateRoot: source.stateRoot };
 }
 
 // ── Limits ───────────────────────────────────────────────────────────────
@@ -154,22 +163,24 @@ export const MAX_SKILLS_PROMPT_CHARS = 18000;
 /**
  * Scan multiple skill directories and dedupe by `id` (first-found wins).
  * `source` can be a workspace root string (scans `{root}/skills/`) or an
- * explicit `{ dirs, stateRoot }` for multi-path discovery.
+ * explicit `{ dirs, stateRoot }` for multi-path discovery. Directories
+ * earlier in the list have higher precedence; ties within the same directory
+ * break alphabetically. Dedup and truncation preserve this order so
+ * project-level skills are never crowded out by user-level ones.
  */
 export async function scanSkills(source: SkillSource): Promise<ScannedSkill[]> {
-  const { dirs, stateRoot } = normalizeSkillSource(source);
+  const { entries, stateRoot } = normalizeSkillSource(source);
   const runtimeState = await readSkillRuntimeState(stateRoot);
   const seen = new Set<string>();
   const out: ScannedSkill[] = [];
-  for (const dir of dirs) {
-    const found = await scanSkillDir(dir, runtimeState);
+  for (const { dir, containmentRoot } of entries) {
+    const found = await scanSkillDir(dir, containmentRoot, runtimeState);
     for (const skill of found) {
       if (seen.has(skill.id)) continue;
       seen.add(skill.id);
       out.push(skill);
     }
   }
-  out.sort((a, b) => a.name.localeCompare(b.name));
   return out;
 }
 
@@ -190,12 +201,21 @@ export async function scanWorkspaceSkills(root: string): Promise<ScannedSkill[]>
  * Scan a single skill directory. Each immediate subdirectory containing a
  * `SKILL.md` is parsed. Per-skill errors are swallowed so one malformed
  * folder can't blank the listing.
+ *
+ * The directory itself must be a real directory (not a symlink) and its
+ * realpath must be contained within the realpath of its parent directory.
+ * This prevents ancestor-level symlinks (e.g. `repo/.agents -> /outside`)
+ * from escaping the expected boundary.
  */
-async function scanSkillDir(dir: string, runtimeState: SkillRuntimeStateReadResult): Promise<ScannedSkill[]> {
+async function scanSkillDir(dir: string, containmentRoot: string, runtimeState: SkillRuntimeStateReadResult): Promise<ScannedSkill[]> {
   let entries: import('node:fs').Dirent[];
   try {
     const dirStat = await lstat(dir);
     if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) return [];
+    // Verify the resolved directory has not escaped its containment root via
+    // an ancestor symlink (e.g. `repo/.agents -> /outside`).
+    const [rootReal, dirReal] = await Promise.all([realpath(containmentRoot), realpath(dir)]);
+    if (!isContainedPath(rootReal, dirReal)) return [];
     entries = await readdir(dir, { withFileTypes: true });
   } catch {
     return [];
@@ -336,10 +356,11 @@ export async function loadSkillInstructions(source: SkillSource, name: string, h
   }
 
   const normalized = raw.toLowerCase();
-  const skill = eligibleSkills.find((candidate) =>
-    candidate.id.toLowerCase() === normalized ||
-    candidate.name.toLowerCase() === normalized,
-  );
+  // Match by exact id first, then by name, so a user-level skill whose
+  // frontmatter name collides with a project-level skill id does not
+  // shadow the higher-precedence id match.
+  const skill = eligibleSkills.find((candidate) => candidate.id.toLowerCase() === normalized)
+    ?? eligibleSkills.find((candidate) => candidate.name.toLowerCase() === normalized);
   if (skill) {
     const cleaned = cleanPromptText(skill.content).trim();
     const instructions = truncateCodepoints(cleaned || '(empty)', MAX_SKILL_TOOL_BODY_CHARS);
@@ -350,7 +371,7 @@ export async function loadSkillInstructions(source: SkillSource, name: string, h
         name: skill.name,
         description: skill.description,
         declaredTools: skill.declaredTools,
-        relativePath: `skills/${skill.id}/SKILL.md`,
+        relativePath: join(skill.path, 'SKILL.md'),
         instructions,
         truncated: Array.from(cleaned || '(empty)').length > MAX_SKILL_TOOL_BODY_CHARS,
       },

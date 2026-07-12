@@ -78,7 +78,7 @@ Do not ask permission for shell commands.`);
       assert.equal(loaded.skill.id, 'browser-helper');
       assert.equal(loaded.skill.name, 'Browser Helper');
       assert.deepEqual(loaded.skill.declaredTools, ['Bash', 'Read']);
-      assert.equal(loaded.skill.relativePath, 'skills/browser-helper/SKILL.md');
+      assert.match(loaded.skill.relativePath, /browser-helper\/SKILL\.md$/);
       assert.match(loaded.skill.instructions, /Open local targets carefully\./);
       assert.match(loaded.skill.instructions, /Do not ask permission for shell commands\./);
     });
@@ -530,8 +530,15 @@ Body.`, 'utf8');
     });
   });
 
-  it('resolveSkillDiscoveryPaths returns the five standard paths in precedence order', () => {
-    const { dirs, stateRoot } = resolveSkillDiscoveryPaths('/repo', '/workspace', '/home/user');
+  it('resolveSkillDiscoveryPaths returns the five standard paths with containment roots in precedence order', () => {
+    const { entries, dirs, stateRoot } = resolveSkillDiscoveryPaths('/repo', '/workspace', '/home/user');
+    assert.deepEqual(entries, [
+      { dir: '/repo/.maka/skills', containmentRoot: '/repo' },
+      { dir: '/repo/.agents/skills', containmentRoot: '/repo' },
+      { dir: '/workspace/skills', containmentRoot: '/workspace' },
+      { dir: '/home/user/.maka/skills', containmentRoot: '/home/user' },
+      { dir: '/home/user/.agents/skills', containmentRoot: '/home/user' },
+    ]);
     assert.deepEqual(dirs, [
       '/repo/.maka/skills',
       '/repo/.agents/skills',
