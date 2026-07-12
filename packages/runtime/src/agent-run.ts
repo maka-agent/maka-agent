@@ -126,6 +126,7 @@ export class AgentRun {
   private terminalRuntimeEventRecorded = false;
   private terminalRuntimeEventForRunCommit: RuntimeEvent | undefined;
   private terminalRunHeaderCommitted = false;
+  private terminalDecision: 'open' | 'event' | 'stop' = 'open';
 
   constructor(private readonly input: AgentRunInput) {
     if (input.runStore && !input.runtimeEventStore) {
@@ -145,9 +146,12 @@ export class AgentRun {
     };
   }
 
-  stop(source: StopSessionInput['source'] | undefined): void {
+  stop(source: StopSessionInput['source'] | undefined): boolean {
+    if (this.terminalDecision !== 'open') return false;
+    this.terminalDecision = 'stop';
     this.stopped = true;
     this.abortSource = normalizeStopSessionSource(source);
+    return true;
   }
 
   isStopped(): boolean {
@@ -467,9 +471,9 @@ export class AgentRun {
   ): Promise<void> {
     if (events.length === 0) return;
     for (const event of events) {
-      const eventForStore = this.runtimeEventForStore(event);
-      const terminal = isTerminalRuntimeEvent(eventForStore);
+      const terminal = isTerminalRuntimeEvent(event);
       if (terminal && this.terminalRuntimeEventRecorded) continue;
+      const eventForStore = this.runtimeEventForStore(event);
       if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable) {
         if (terminal && options.requireTerminalWrite) {
           throw new Error('terminal RuntimeEvent store is unavailable');
@@ -487,7 +491,9 @@ export class AgentRun {
   }
 
   private runtimeEventForStore(event: RuntimeEvent): RuntimeEvent {
-    if (!this.stopped || !isTerminalRuntimeEvent(event)) return event;
+    if (!isTerminalRuntimeEvent(event)) return event;
+    if (this.terminalDecision === 'open') this.terminalDecision = 'event';
+    if (this.terminalDecision !== 'stop') return event;
     const { content: _content, ...rest } = event;
     void _content;
     return {

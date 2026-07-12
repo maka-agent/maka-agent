@@ -105,6 +105,46 @@ describe('SessionManager terminal ledger invariants', () => {
     expect(terminalEvents[0]?.actions?.stateDelta?.abortSource).toBe('renderer.stop_button');
   });
 
+  test('terminal acceptance wins over a later stop during terminal persistence', async () => {
+    const terminalAppendStarted = deferred<void>();
+    const releaseTerminalAppend = deferred<void>();
+    const store = new TinySessionStore();
+    const runStore = new TinyAgentRunStore({
+      beforeTerminalRuntimeEventAppend: async () => {
+        terminalAppendStarted.resolve();
+        await releaseTerminalAppend.promise;
+      },
+    });
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ScriptBackend(ctx, [
+      { type: 'complete', stopReason: 'step_limit' },
+    ]));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(21_000),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    const sendPromise = drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    await terminalAppendStarted.promise;
+    await manager.stopSession(session.id, { source: 'stop_button' });
+    releaseTerminalAppend.resolve();
+    await sendPromise;
+
+    expect((await store.readHeader(session.id)).status).toBe('active');
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(run?.status).toBe('failed');
+    expect(run?.failureClass).toBe('tool_step_cap_reached');
+    const terminalEvents = (await runStore.readRuntimeEvents(session.id, run!.runId)).filter(isTerminalRuntimeEvent);
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.status).toBe('failed');
+  });
+
   test('terminal run commits reject mismatched terminal RuntimeEvent statuses', async () => {
     const runStore = new TinyAgentRunStore();
     const run = makeRunHeader({ status: 'running' });
@@ -1237,7 +1277,10 @@ class TinyAgentRunStore implements AgentRunStore, RuntimeEventStore {
   private events = new Map<string, AgentRunEvent[]>();
   private runtimeEvents = new Map<string, RuntimeEvent[]>();
 
-  constructor(private readonly options: { failTerminalRuntimeEventAppends?: boolean } = {}) {}
+  constructor(private readonly options: {
+    failTerminalRuntimeEventAppends?: boolean;
+    beforeTerminalRuntimeEventAppend?: () => Promise<void>;
+  } = {}) {}
 
   async createRun(header: AgentRunHeader): Promise<AgentRunHeader> {
     this.headers.set(key(header.sessionId, header.runId), clone(header));
@@ -1277,6 +1320,7 @@ class TinyAgentRunStore implements AgentRunStore, RuntimeEventStore {
     if (this.options.failTerminalRuntimeEventAppends && isTerminalRuntimeEvent(event)) {
       throw new Error('terminal runtime event append failed');
     }
+    if (isTerminalRuntimeEvent(event)) await this.options.beforeTerminalRuntimeEventAppend?.();
     const eventKey = key(sessionId, runId);
     this.runtimeEvents.set(eventKey, [...(this.runtimeEvents.get(eventKey) ?? []), clone(event)]);
   }

@@ -392,12 +392,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
     if (activeSessions.length === 0) return;
     const abortSource = normalizeStopSessionSource(input.source);
     const activeRuns = activeSessions.flatMap((active) => [...active.activeRuns.values()]);
-    for (const run of activeRuns) {
-      run.stop(input.source);
-    }
+    const stoppedRuns = activeRuns.filter((run) => run.stop(input.source));
+    if (stoppedRuns.length === 0) return;
     await Promise.all(activeSessions.map((active) => active.backend.stop('user_stop')));
     await this.updateStatus(sessionId, 'aborted');
-    for (const run of activeRuns.filter((activeRun) => !activeRun.lineage.parentRunId)) {
+    for (const run of stoppedRuns.filter((activeRun) => !activeRun.lineage.parentRunId)) {
       await this.appendTurnState(
         sessionId,
         run.turnId,
