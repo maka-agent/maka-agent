@@ -29,6 +29,7 @@ import {
   harborCellMaxStepsFromEnv,
   createHarborCellLocalToolExecutor,
   HARBOR_CELL_CONTEXT_ENV_KEYS,
+  HARBOR_CELL_EXECUTION_IDENTITY_FILENAME,
   HARBOR_CELL_OUTPUT_FILENAME,
   HARBOR_CELL_RUNTIME_EVENTS_FILENAME,
   resolveHarborCellAiSdkEnv,
@@ -776,11 +777,13 @@ describe('runHarborCell', () => {
   test('env entrypoint maps provider/model env for the real backend path', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const seenContexts: HeadlessBackendContext[] = [];
+      const seenHeaders: SessionHeader[] = [];
       const registerAiSdkBackend = (registry: BackendRegistry, context: HeadlessBackendContext): void => {
         seenContexts.push(context);
-        registry.register('ai-sdk', (ctx) =>
-          new CellReportingBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }, 'ai-sdk'),
-        );
+        registry.register('ai-sdk', (ctx) => {
+          seenHeaders.push(ctx.header);
+          return new CellReportingBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }, 'ai-sdk');
+        });
       };
 
       const result = await runHarborCellFromEnv({
@@ -790,6 +793,8 @@ describe('runHarborCell', () => {
         MAKA_OUTPUT_DIR: outputDir,
         MAKA_STORAGE_ROOT: storageRoot,
         MAKA_SYSTEM_PROMPT: 'Use the benchmark prompt.',
+        MAKA_THINKING_LEVEL: 'high',
+        MAKA_THINKING_LEVEL_MODE: 'probe',
       }, {
         registerBackends: registerAiSdkBackend,
       });
@@ -799,11 +804,48 @@ describe('runHarborCell', () => {
       assert.equal(seenContexts[0].config.backend, 'ai-sdk');
       assert.equal(seenContexts[0].config.llmConnectionSlug, 'openai');
       assert.equal(seenContexts[0].config.model, 'gpt-4o-mini');
+      assert.equal(seenContexts[0].config.thinkingLevel, 'high');
+      assert.equal(seenContexts[0].config.thinkingLevelMode, 'probe');
       assert.equal(seenContexts[0].config.systemPrompt, 'Use the benchmark prompt.');
+      assert.equal(seenHeaders[0]?.thinkingLevel, 'high');
+      const executionIdentity = JSON.parse(
+        await readFile(join(outputDir, HARBOR_CELL_EXECUTION_IDENTITY_FILENAME), 'utf8'),
+      ) as { thinkingLevel?: string; thinkingLevelMode?: string };
+      assert.equal(executionIdentity.thinkingLevel, 'high');
+      assert.equal(executionIdentity.thinkingLevelMode, 'probe');
       assert.equal(seenContexts[0].realBackendIsolation?.kind, 'external');
       assert.equal(seenContexts[0].realBackendIsolation?.label, 'Harbor task container');
       assert.equal(typeof seenContexts[0].realBackendIsolation?.toolExecutor?.exec, 'function');
       assert.equal(typeof seenContexts[0].toolExecutor?.exec, 'function');
+    });
+  });
+
+  test('env entrypoint rejects an unknown thinking level before backend execution', async () => {
+    await assert.rejects(
+      runHarborCellFromEnv({
+        MAKA_BACKEND: 'fake',
+        MAKA_INSTRUCTION: 'must not run',
+        MAKA_THINKING_LEVEL: 'turbo',
+      }),
+      /MAKA_THINKING_LEVEL must be/,
+    );
+  });
+
+  test('env entrypoint preserves an explicit default thinking level in execution identity', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      await runHarborCellFromEnv({
+        MAKA_BACKEND: 'fake',
+        MAKA_MODEL: 'fake-model',
+        MAKA_INSTRUCTION: 'run the default baseline',
+        MAKA_WORKDIR: workspaceDir,
+        MAKA_OUTPUT_DIR: outputDir,
+        MAKA_STORAGE_ROOT: storageRoot,
+        MAKA_THINKING_LEVEL: 'default',
+      });
+      const identity = JSON.parse(
+        await readFile(join(outputDir, HARBOR_CELL_EXECUTION_IDENTITY_FILENAME), 'utf8'),
+      ) as { thinkingLevel?: string };
+      assert.equal(identity.thinkingLevel, 'default');
     });
   });
 
@@ -910,7 +952,9 @@ describe('runHarborCell', () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const previousEnv = { ...process.env };
       const seenPrompts: string[] = [];
+      const seenContexts: HeadlessBackendContext[] = [];
       const registerCapturingBackend = (registry: BackendRegistry, context: HeadlessBackendContext): void => {
+        seenContexts.push(context);
         seenPrompts.push(context.config.systemPrompt ?? '');
         registry.register('ai-sdk', (ctx) =>
           new CellReportingBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
@@ -928,6 +972,8 @@ describe('runHarborCell', () => {
         process.env.MAKA_STORAGE_ROOT = storageRoot;
         process.env.MAKA_SYSTEM_PROMPT = 'Use the host prompt.';
         process.env.MAKA_ECONOMY_TASK_MODE = 'true';
+        process.env.MAKA_THINKING_LEVEL = 'high';
+        process.env.MAKA_THINKING_LEVEL_MODE = 'probe';
         await main({ registerBackends: registerCapturingBackend });
       } finally {
         process.env = previousEnv;
@@ -935,6 +981,13 @@ describe('runHarborCell', () => {
 
       assert.match(seenPrompts[0] ?? '', /Use the host prompt/);
       assert.match(seenPrompts[0] ?? '', /Economy-task benchmark policy/);
+      assert.equal(seenContexts[0]?.config.thinkingLevel, 'high');
+      assert.equal(seenContexts[0]?.config.thinkingLevelMode, 'probe');
+      const identity = JSON.parse(
+        await readFile(join(outputDir, HARBOR_CELL_EXECUTION_IDENTITY_FILENAME), 'utf8'),
+      ) as { thinkingLevel?: string; thinkingLevelMode?: string };
+      assert.equal(identity.thinkingLevel, 'high');
+      assert.equal(identity.thinkingLevelMode, 'probe');
     });
   });
 
@@ -1012,6 +1065,47 @@ describe('runHarborCell', () => {
       assert.equal(backendInput.tools.find((tool) => tool.name === 'Bash')?.permissionRequired, false);
       assert.equal(backendInput.tools.find((tool) => tool.name === 'Write')?.permissionRequired, false);
       assert.match(backendInput.systemPrompt ?? '', /Prefer Read, Glob, and Grep/);
+    });
+  });
+
+  test('Harbor sends uncatalogued custom-gateway reasoning only in explicit probe mode', async () => {
+    await withDirs(async ({ workspaceDir }) => {
+      const buildInput = async (thinkingLevelMode: Config['thinkingLevelMode']) => {
+        const registry = new BackendRegistry();
+        const toolExecutor = fakeToolExecutor();
+        const register = buildAiSdkCellBackendRegistration({
+          provider: 'openai-compatible',
+          model: 'reasoning-model',
+          env: {
+            OPENAI_API_KEY: 'test-key',
+            MAKA_BASE_URL: 'https://gateway.example/v1',
+            MAKA_LLM_CONNECTION_SLUG: 'custom-gateway',
+          },
+          now: () => 123,
+          newId: () => 'id',
+        });
+        await register(registry, {
+          config: {
+            id: 'custom-gateway-calibration',
+            backend: 'ai-sdk',
+            llmConnectionSlug: 'custom-gateway',
+            model: 'reasoning-model',
+            thinkingLevel: 'high',
+            ...(thinkingLevelMode ? { thinkingLevelMode } : {}),
+          },
+          task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+          workspaceDir,
+          realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+          toolExecutor,
+        });
+        const context = backendContext(workspaceDir);
+        context.header.thinkingLevel = 'high';
+        const backend = await registry.build('ai-sdk', context);
+        return (backend as unknown as { input: { providerOptions: Record<string, unknown> } }).input.providerOptions;
+      };
+
+      assert.deepEqual(await buildInput('catalog'), {});
+      assert.deepEqual(await buildInput('probe'), { 'custom-gateway': { reasoningEffort: 'high' } });
     });
   });
 

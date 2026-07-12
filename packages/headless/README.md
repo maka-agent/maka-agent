@@ -98,6 +98,13 @@ await runExperiment(config, task, {
 A spec is `configs × tasks`. Task `workspaceDir` paths resolve relative to the
 spec file, so a spec travels with its fixtures.
 
+`Config.thinkingLevel` is optional and uses the same provider mapping as the
+desktop runtime. `thinkingLevelMode: "probe"` is an explicit benchmark opt-in
+for uncatalogued custom models. Custom gateways continue to use an existing
+`openai-compatible` connection; no benchmark-specific provider adapter is
+required. Harbor callers use `MAKA_THINKING_LEVEL` and, for uncatalogued
+capability probes, `MAKA_THINKING_LEVEL_MODE=probe`.
+
 ```jsonc
 {
   "configs": [
@@ -116,6 +123,20 @@ spec file, so a spec travels with its fixtures.
   ]
 }
 ```
+
+## Model calibration
+
+Model execution and discovery stay owned by `@maka/runtime`:
+`fetchProviderModels`, `getAIModel`, `buildProviderOptions`, `AiSdkBackend`, and
+`ModelAdapter`. Headless only defines the provider-neutral 5/5/5/3/2 result
+contract and Main/Curator qualification thresholds. Callers run the cases
+through the normal isolated runtime, then pass normalized evidence to
+`qualifyModelCalibrationResults` and `buildModelCalibrationDecision`.
+
+In explicit `probe` mode, a reasoning level for an `openai-compatible`
+connection is sent under that connection's AI SDK namespace. Normal runtime
+calls still require catalog support. This enables custom-gateway capability
+probing without weakening the desktop model picker's conservative behavior.
 
 ## Grading
 

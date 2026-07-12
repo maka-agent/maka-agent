@@ -130,10 +130,18 @@ export function buildProviderOptions(
   connection: LlmConnection,
   modelId: string,
   thinkingLevel?: ThinkingLevel,
+  options: { allowUncataloguedThinkingLevel?: boolean } = {},
 ): Record<string, unknown> {
   const thinkingOptions = thinkingOptionsForModel(connection.providerType, modelId);
   const variants = thinkingVariantsForModel(connection.providerType, modelId);
-  const level = thinkingLevel && variants.includes(thinkingLevel) ? thinkingLevel : undefined;
+  // Custom OpenAI-compatible connections cannot have reliable catalog metadata.
+  // Their UI remains conservative, but an explicit programmatic/headless level
+  // is a deliberate capability probe and must reach the configured gateway.
+  const level = thinkingLevel
+    && (variants.includes(thinkingLevel)
+      || (connection.providerType === 'openai-compatible' && options.allowUncataloguedThinkingLevel === true))
+    ? thinkingLevel
+    : undefined;
   switch (connection.providerType) {
     // Anthropic-protocol: effort enum models send `effort`; toggle/budget
     // models send `thinking.disabled` for off. No budget-token mapping — the
@@ -189,6 +197,10 @@ export function buildProviderOptions(
     case 'zai-coding-plan':
       return level && level !== 'off'
         ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level } }
+        : {};
+    case 'openai-compatible':
+      return level && level !== 'off'
+        ? { [connection.slug]: { reasoningEffort: level } }
         : {};
     default:
       return {};

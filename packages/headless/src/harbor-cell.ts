@@ -12,7 +12,7 @@ import type {
   ProviderType,
   RuntimeEvent,
 } from '@maka/core';
-import { PROVIDER_DEFAULTS } from '@maka/core';
+import { PROVIDER_DEFAULTS, isThinkingLevel } from '@maka/core';
 import {
   AiSdkBackend,
   BackendRegistry,
@@ -303,6 +303,8 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   const executionIdentity = {
     llmConnectionSlug: config.llmConnectionSlug,
     model: config.model,
+    ...(config.thinkingLevel !== undefined ? { thinkingLevel: config.thinkingLevel } : {}),
+    ...(config.thinkingLevelMode !== undefined ? { thinkingLevelMode: config.thinkingLevelMode } : {}),
     systemPromptHash: hashHarborSystemPrompt(config.systemPrompt ?? ''),
     pricingProfile: input.pricingProfile ?? 'unconfigured',
   };
@@ -332,6 +334,9 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     backend: input.config.backend,
     llmConnectionSlug: config.llmConnectionSlug,
     model: config.model,
+    ...(config.thinkingLevel !== undefined && config.thinkingLevel !== 'default'
+      ? { thinkingLevel: config.thinkingLevel }
+      : {}),
     permissionMode: 'execute',
     name: `harbor-cell:${input.config.id}`,
   });
@@ -416,11 +421,15 @@ export async function runHarborCellFromEnv(
   const economyTaskMode = economyTaskModeFromEnv(resolvedEnv.MAKA_ECONOMY_TASK_MODE);
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(resolvedEnv);
   const maxSteps = harborCellMaxStepsFromEnv(resolvedEnv);
+  const thinkingLevel = harborCellThinkingLevelFromEnv(resolvedEnv.MAKA_THINKING_LEVEL);
+  const thinkingLevelMode = harborCellThinkingLevelModeFromEnv(resolvedEnv.MAKA_THINKING_LEVEL_MODE);
   const baseConfig = {
     id: resolvedEnv.MAKA_CONFIG_ID ?? 'harbor-cell',
     backend,
     ...(resolvedEnv.MAKA_SYSTEM_PROMPT !== undefined ? { systemPrompt: resolvedEnv.MAKA_SYSTEM_PROMPT } : {}),
     ...(economyTaskMode !== undefined ? { economyTaskMode } : {}),
+    ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+    ...(thinkingLevelMode !== undefined ? { thinkingLevelMode } : {}),
   };
   let config: Config;
   let registerBackends = options.registerBackends;
@@ -676,7 +685,12 @@ export function buildAiSdkCellBackendRegistration(input: {
             : {}),
         }),
         toolAvailability: buildIsolatedHeadlessToolAvailability(),
-        providerOptions: buildProviderOptions(connection, input.model, ctx.header.thinkingLevel),
+        providerOptions: buildProviderOptions(
+          connection,
+          input.model,
+          ctx.header.thinkingLevel,
+          { allowUncataloguedThinkingLevel: context.config.thinkingLevelMode === 'probe' },
+        ),
         systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),
         ...(taskLedgerExperimentStore && taskLedgerExperimentPolicy
           ? {
@@ -1305,6 +1319,23 @@ function positiveIntEnv(raw: string | undefined, name: string): number | undefin
   if (value === undefined || value === '') return undefined;
   if (!/^[1-9]\d*$/.test(value)) throw new Error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
   return Number(value);
+}
+
+export function harborCellThinkingLevelFromEnv(raw: string | undefined): Config['thinkingLevel'] {
+  const value = raw?.trim();
+  if (value === undefined || value === '') return undefined;
+  if (value === 'default') return 'default';
+  if (!isThinkingLevel(value)) {
+    throw new Error(`MAKA_THINKING_LEVEL must be default, off, minimal, low, medium, high, xhigh, or max, got ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
+export function harborCellThinkingLevelModeFromEnv(raw: string | undefined): Config['thinkingLevelMode'] {
+  const value = raw?.trim();
+  if (value === undefined || value === '') return undefined;
+  if (value === 'catalog' || value === 'probe') return value;
+  throw new Error(`MAKA_THINKING_LEVEL_MODE must be catalog or probe, got ${JSON.stringify(raw)}`);
 }
 
 function firstContextNonNegativeIntEnv(

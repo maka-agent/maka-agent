@@ -36,6 +36,23 @@ export type {
   PromptOptimizationRunInput,
   PromptOptimizationRunResult,
 } from './prompt-optimization-run.js';
+export {
+  MODEL_CALIBRATION_CASE_COUNTS,
+  MODEL_CALIBRATION_SCHEMA_VERSION,
+  buildModelCalibrationDecision,
+  buildModelCalibrationEnvironment,
+  qualifyModelCalibrationResults,
+} from './model-calibration.js';
+export type {
+  ModelCalibrationCaseKind,
+  ModelCalibrationCaseResult,
+  ModelCalibrationConfigReport,
+  ModelCalibrationDecision,
+  ModelCalibrationEnvironment,
+  ModelCalibrationQualification,
+  ModelCalibrationRoleQualification,
+  ModelCalibrationTokenUsage,
+} from './model-calibration.js';
 export type {
   BenchmarkAdapter,
   BenchmarkAdapterRegistry,

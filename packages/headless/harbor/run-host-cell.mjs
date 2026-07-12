@@ -9,6 +9,8 @@ import {
   buildHarborCellContinuationPolicy,
   buildHarborCellTaskLedgerExperimentPolicy,
   harborCellMaxStepsFromEnv,
+  harborCellThinkingLevelFromEnv,
+  harborCellThinkingLevelModeFromEnv,
   normalizeHarborCellContextEnv,
   runHarborCell,
 } from '#harbor-cell';
@@ -37,6 +39,8 @@ export async function main(options = {}) {
   const economyTaskMode = economyTaskModeFromEnv(env.MAKA_ECONOMY_TASK_MODE);
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(env);
   const maxSteps = harborCellMaxStepsFromEnv(env);
+  const thinkingLevel = harborCellThinkingLevelFromEnv(env.MAKA_THINKING_LEVEL);
+  const thinkingLevelMode = harborCellThinkingLevelModeFromEnv(env.MAKA_THINKING_LEVEL_MODE);
   const now = Date.now;
   const newId = randomId;
 
@@ -48,6 +52,8 @@ export async function main(options = {}) {
       model,
       ...(env.MAKA_SYSTEM_PROMPT !== undefined ? { systemPrompt: env.MAKA_SYSTEM_PROMPT } : {}),
       ...(economyTaskMode !== undefined ? { economyTaskMode } : {}),
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+      ...(thinkingLevelMode !== undefined ? { thinkingLevelMode } : {}),
     },
     instruction: await instructionFromEnv(env),
     cwd: env.MAKA_WORKDIR || process.cwd(),
