@@ -22,11 +22,21 @@ describe('local MEMORY.md Settings UI contract', () => {
     const entryLists = [...page.matchAll(/<MemoryEntryList[\s\S]*?\/>/g)].map((match) => match[0]);
     assert.equal(entryLists.length, 2, 'active and archived entry lists must both be wired');
     for (const list of entryLists) {
+      assert.match(list, /filtered=\{normalizedMemoryEntryQuery\.length > 0\}/);
+      assert.match(list, /draftDirty=\{memoryDraftDirty\}/);
+      assert.match(list, /busy=\{memoryControlsDisabled \|\| effective\.status === 'incognito_blocked' \|\| !effective\.enabled\}/);
       assert.match(list, /pendingCopyIds=\{pendingMemoryActions\}/);
       assert.match(list, /onCopyReference=\{copyMemoryEntryReference\}/);
       assert.match(list, /onFocusDraft=\{focusMemoryEntryInDraft\}/);
       assert.match(list, /onStatusChange=\{updateMemoryEntryStatus\}/);
     }
+    const [activeList, archivedList] = entryLists;
+    assert.match(activeList, /title="生效记忆"/);
+    assert.match(activeList, /entries=\{filteredActiveEntries\}/);
+    assert.doesNotMatch(activeList, /\n\s+archived(?:\s|\n)/);
+    assert.match(archivedList, /title="已归档记忆"/);
+    assert.match(archivedList, /entries=\{filteredArchivedEntries\}/);
+    assert.match(archivedList, /\n\s+archived(?:\s|\n)/);
   });
 
   it('renders active and archived memory entries as separate visible groups', async () => {
