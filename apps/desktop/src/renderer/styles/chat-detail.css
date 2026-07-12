@@ -647,8 +647,9 @@
    so it already occupies the explicit `auto` row; ArtifactPane as the third
    child uses an implicit `auto` row (grid-auto-rows defaults to auto), so no
    extra explicit row is needed. With both auxiliary panels open on a very
-   short window the chat column can collapse; the user recovers by collapsing
-   ArtifactPane or closing the browser (tracked in the PR notes). */
+   short window the chat row can collapse (two 220px minima); a shared-height
+   policy is tracked in #824, and recovery may require closing the browser
+   and/or collapsing ArtifactPane. */
 @media (max-width: 990px) {
   .maka-detail-with-artifacts {
     display: grid;
