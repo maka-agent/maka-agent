@@ -396,7 +396,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
       showInvocation
       || !!resultHeadline
       || showLiveStream
-      || showResult
+      || (showResult && !errored)
       || (!!item.args && !permissionDenied && !invocationLine && !showResult && !showLiveStream)
     );
 
@@ -737,8 +737,17 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
  * <button>); secret redaction + size caps stay enforced upstream (redactSecrets,
  * the banner's 240px truncation, and the result preview's own caps).
  */
-function ToolErrorDetails({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+export function ToolErrorDetails({ children, open: openProp, onOpenChange }: {
+  children: ReactNode;
+  /** Controlled open state. When omitted the disclosure manages its own state
+   *  (collapsed by default). Passed by tests to render the expanded state in
+   *  static markup; production callers leave it uncontrolled. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="mt-1">
       <CollapsibleTrigger className="flex items-center gap-1 self-start rounded-[var(--radius-control)] text-[length:var(--font-size-ui)] text-[color:var(--muted-foreground)] outline-none transition-colors hover:text-[color:var(--foreground-secondary)] focus-visible:shadow-[0_0_0_var(--focus-ring-width)_oklch(from_var(--focus-ring)_l_c_h_/_0.14)]">
