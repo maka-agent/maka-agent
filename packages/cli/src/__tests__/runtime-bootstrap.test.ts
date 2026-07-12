@@ -4,7 +4,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import { createConnectionStore, createFileCredentialStore, createShellRunStore } from '@maka/storage';
+import {
+  createConnectionStore,
+  createFileCredentialStore,
+  createSessionStore,
+  createShellRunStore,
+} from '@maka/storage';
 import { BackendRegistry, type AiSdkBackendInput, type SessionStore, type ShellRunUpdate } from '@maka/runtime';
 import {
   createMakaCliRuntimeContext,
@@ -102,6 +107,49 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(backendInput.permissionRules, permissionRules);
         assert.equal(runtimeDeps.runtimeInvocationObserver, observer);
         assert.deepEqual(observed, []);
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
+  test('uses a canonical cwd for one resumed backend without rewriting its stored header', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local',
+        providerType: 'ollama',
+        defaultModel: 'model-1',
+      });
+      const sessionStore = createSessionStore(workspaceRoot);
+      const stored = await sessionStore.create({
+        cwd: '/stored-link',
+        backend: 'ai-sdk',
+        llmConnectionSlug: 'local',
+        model: 'model-1',
+        permissionMode: 'explore',
+      });
+      const context = await createMakaCliRuntimeContext({
+        workspaceRoot,
+        cwd: '/canonical-repo',
+        requestedConnectionSlug: 'local',
+        requestedModel: 'model-1',
+        sessionCwdOverride: { sessionId: stored.id, cwd: '/canonical-repo' },
+      });
+      try {
+        const runtimeDeps = (context.runtime as unknown as RuntimeWithPrivateDeps).deps;
+        const header = await runtimeDeps.store.readHeader(stored.id);
+        const backend = await runtimeDeps.backends.build('ai-sdk', {
+          sessionId: stored.id,
+          workspaceRoot,
+          header,
+          store: runtimeDeps.store,
+        });
+        const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
+
+        assert.equal(backendInput.header.cwd, '/canonical-repo');
+        assert.equal((await sessionStore.readHeader(stored.id)).cwd, '/stored-link');
       } finally {
         await context.close();
       }
