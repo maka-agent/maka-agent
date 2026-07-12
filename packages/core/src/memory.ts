@@ -29,8 +29,8 @@
  * fixup (@kenji msg `f5daa4d4`). Literal control bytes in source make git
  * treat the .ts file as binary and break diff / merge gate source grep.
  *
- * @see docs/memory-threat-model.md for the full 9-gate threat model and
- *      external negative-reference list (sleep cycle / auto-extract /
+ * @see docs/archive/memory-threat-model-pr-memory-1.md for the historical
+ *      9-gate rationale and external negative-reference list (sleep cycle / auto-extract /
  *      automatic LLM-mediated forget / activity-derived memory /
  *      unauthenticated local route / cloud embedding fallback / Soul tree).
  */

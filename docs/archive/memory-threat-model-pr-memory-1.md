@@ -1,5 +1,7 @@
 # Memory Subsystem Threat Model
 
+> Archived on 2026-07-13. This document records the contract-only PR-MEMORY-1 boundary, not the current product implementation. Source and focused tests own the active contract.
+
 PR-MEMORY-1 is a **contract-only** package. It MUST NOT add IPC handlers, storage repositories, embedding providers, Recall tool runtime, renderer UI, or settings flags. Implementation packets (PR-MEMORY-2+) sit downstream of this contract — none may bypass `validateMemoryWriteRequest`.
 
 Anchors:

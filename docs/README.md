@@ -37,9 +37,6 @@ This page is the authority map for Maka documentation. Code and contract tests r
 ### Security and privacy
 
 - [Workspace privacy context](./workspace-privacy-context.md)
-- [Memory threat model](./memory-threat-model.md)
-- [Search service threat model](./search-service-threat-model.md)
-- [Voice threat model](./voice-threat-model.md)
 - [Sandbox direction and implementation status](./sandbox/agent-runtime-codex-sandbox-todo.md)
 - [Sandbox design background](./sandbox/agent-runtime-codex-sandbox-alignment.md)
 

@@ -1,5 +1,7 @@
 # Voice Threat Model
 
+> Archived on 2026-07-13. This document records the docs/core-only PR-VOICE-0 boundary, not the current voice product implementation. Source and focused tests own the active contract.
+
 This document is the PR-VOICE-0 contract boundary. It is intentionally docs/core-only: no microphone capture, no STT/TTS provider call, no IPC, no preload, no renderer, no storage, and no bot/platform voice send.
 
 ## Contract Goals

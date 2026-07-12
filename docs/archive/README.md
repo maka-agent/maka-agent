@@ -15,6 +15,12 @@ The root `DESIGN.md` owns shared product design intent. `docs/frontend-css-gover
 
 - `maka-capability-audit-v1-2026-05.md` — a point-in-time capability and release-gate audit whose frontend authority references are no longer current.
 
+## Security contract snapshots
+
+- `memory-threat-model-pr-memory-1.md` — the contract-only PR-MEMORY-1 boundary, superseded as a description of the current product.
+- `search-service-threat-model-pr-search-0.md` — the PR-SEARCH-0/1.5 boundary, superseded as a description of current search.
+- `voice-threat-model-pr-voice-0.md` — the docs/core-only PR-VOICE-0 boundary, superseded as a description of current voice.
+
 ## Implementation plans
 
 The dated runtime and sandbox files are completed execution plans. Each file records the pull request that landed its implementation.

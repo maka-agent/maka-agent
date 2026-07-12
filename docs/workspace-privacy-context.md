@@ -6,7 +6,7 @@ Anchors:
 
 - `notes/pr-search-1-report.md` G3 (incognito gate, deferred to PR-SEARCH-2.5).
 - `MemoryWriteRequestContext.incognitoActive` (PR-MEMORY-1 forward-looking field).
-- `docs/voice-threat-model.md` (PR-VOICE-0; incognito refusal documented but not yet wired to a shared type).
+- `docs/archive/voice-threat-model-pr-voice-0.md` (historical PR-VOICE-0 rationale for incognito refusal).
 
 Thread anchors: xuan msg `0f1a3a2b` (lane assignment + scope), `ece30c92` (review pre-conditions).
 
