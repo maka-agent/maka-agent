@@ -590,9 +590,12 @@
 .maka-list-row-status-icon svg {
   /* #743: restore <Icon size={12}> — buttonVariants' [&_svg]:size-[var(--icon-size,1rem)]
      would force 16px (chrome tier, a cascade leak from borrowing UiButton), so
-     scope a local 12px dense-meta override. The 14px wrapper centers it. */
-  width: var(--space-3);
-  height: var(--space-3);
+     scope a local 12px dense-meta override. Per docs/design-system.md §1.9 only
+     the chrome tier is tokenized; dense-meta stays call-site 12–14px and is NOT
+     bound to a spacing token, so this stays a bare 12px (a spacing-scale change
+     cannot drift the icon size). The 14px wrapper centers it. */
+  width: 12px;
+  height: 12px;
 }
 .maka-list-row-status-icon[data-tone="accent"] {
   color: var(--nav-active);
