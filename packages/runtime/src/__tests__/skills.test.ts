@@ -582,6 +582,48 @@ Body.`, 'utf8');
       requiredCapabilities: [],
     });
   });
+
+  it('buildSkillsPromptFragment does not impose an arbitrary count limit', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      for (let index = 1; index <= 15; index += 1) {
+        const id = `small-${String(index).padStart(2, '0')}`;
+        await writeSkill(workspaceRoot, id, `---\nname: Small ${index}\ndescription: Short.\n---\n# Small ${index}`);
+      }
+      const prompt = await buildSkillsPromptFragment(workspaceRoot);
+      assert.ok(prompt);
+      for (let index = 1; index <= 15; index += 1) {
+        const id = `small-${String(index).padStart(2, '0')}`;
+        assert.match(prompt, new RegExp(`id="${id}"`));
+      }
+      assert.doesNotMatch(prompt, /omitted from this prompt/);
+    });
+  });
+
+  it('buildSkillsPromptFragment truncates by char budget and lists omitted skills', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const longDescription = 'x'.repeat(1200);
+      for (let index = 1; index <= 20; index += 1) {
+        const id = `big-${String(index).padStart(2, '0')}`;
+        await writeSkill(workspaceRoot, id, `---\nname: Big ${index}\ndescription: ${longDescription}\n---\n# Big ${index}`);
+      }
+      const prompt = await buildSkillsPromptFragment(workspaceRoot);
+      assert.ok(prompt);
+      assert.ok(
+        prompt.length <= MAX_SKILLS_PROMPT_CHARS + 512,
+        'prompt should stay close to the character budget',
+      );
+      assert.match(prompt, /omitted from this prompt due to the prompt budget/);
+
+      const omittedMatch = prompt.match(/prompt budget: ([^.]+)\./);
+      assert.ok(omittedMatch);
+      const omittedIds = omittedMatch![1].split(', ').map((id) => id.trim());
+      assert.ok(omittedIds.length > 0);
+      for (const id of omittedIds) {
+        const loaded = await loadSkillInstructions(workspaceRoot, id);
+        assert.equal(loaded.ok, true, `omitted skill ${id} should still be loadable via the Skill tool`);
+      }
+    });
+  });
 });
 
 async function withWorkspace(fn: (workspaceRoot: string) => Promise<void>): Promise<void> {
