@@ -3233,6 +3233,43 @@ describe('SessionManager permission mode updates', () => {
     while (!(await child.next()).done) {}
   });
 
+  test('stopSession retries only unfinished projections', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const sendGate = makeGate();
+    let backend: CountingStopBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new CountingStopBackend(ctx, sendGate);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_849),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    const turn = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })[Symbol.asyncIterator]();
+    await turn.next();
+    store.failNextAppendMessage = (message) => message.type === 'system_note' && message.kind === 'abort';
+
+    await expectRejects(manager.stopSession(session.id, { source: 'stop_button' }), /append message failed/);
+    await manager.stopSession(session.id, { source: 'stop_button' });
+
+    expect(backend?.stopCalls).toBe(1);
+    const messages = await store.readMessages(session.id);
+    expect(messages.filter((message) =>
+      message.type === 'turn_state' && message.turnId === 'turn-1' && message.status === 'aborted'
+    )).toHaveLength(1);
+    expect(messages.filter((message) => message.type === 'system_note' && message.kind === 'abort')).toHaveLength(1);
+    sendGate.release();
+    while (!(await turn.next()).done) {}
+  });
+
   test('spawnChildAgent fails closed instead of running a degraded catalog agent', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -6406,6 +6443,7 @@ class MemorySessionStore implements SessionStore {
   readonly failListTurnsFor = new Set<string>();
   readonly failUpdateHeaderFor = new Set<string>();
   readonly interleaveBeforeMarkSessionReadWriteFor = new Map<string, () => Promise<void> | void>();
+  failNextAppendMessage: ((message: StoredMessage) => boolean) | undefined;
   disposeCount = 0;
 
   async create(input: CreateSessionInput): Promise<SessionHeader> {
@@ -6470,6 +6508,10 @@ class MemorySessionStore implements SessionStore {
   }
 
   async appendMessages(sessionId: string, messages: StoredMessage[]): Promise<void> {
+    if (this.failNextAppendMessage && messages.some(this.failNextAppendMessage)) {
+      this.failNextAppendMessage = undefined;
+      throw new Error('append message failed');
+    }
     this.messages.set(sessionId, [...(this.messages.get(sessionId) ?? []), ...messages]);
   }
 

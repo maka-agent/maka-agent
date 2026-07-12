@@ -83,6 +83,11 @@ interface StopTarget {
 
 interface StopOperation {
   abortSource: string | undefined;
+  ts: number;
+  statusProjected: boolean;
+  turnProjections: Map<AgentRun, { id: string; projected: boolean }>;
+  abortNoteId: string;
+  abortNoteProjected: boolean;
   targets: Map<ActiveSession, StopTarget>;
 }
 
@@ -416,6 +421,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
     if (!operation) {
       operation = {
         abortSource: normalizeStopSessionSource(input.source),
+        ts: this.deps.now(),
+        statusProjected: false,
+        turnProjections: new Map(),
+        abortNoteId: this.deps.newId(),
+        abortNoteProjected: false,
         targets: new Map(),
       };
     }
@@ -426,7 +436,12 @@ export class RuntimeKernel implements RuntimeKernelLike {
       });
       if (stoppedRuns.length === 0) continue;
       const target = operation.targets.get(active) ?? { active, runs: new Set(), delivered: false };
-      for (const run of stoppedRuns) target.runs.add(run);
+      for (const run of stoppedRuns) {
+        target.runs.add(run);
+        if (!run.lineage.parentRunId && !operation.turnProjections.has(run)) {
+          operation.turnProjections.set(run, { id: this.deps.newId(), projected: false });
+        }
+      }
       operation.targets.set(active, target);
     }
     if (operation.targets.size === 0) return;
@@ -442,23 +457,31 @@ export class RuntimeKernel implements RuntimeKernelLike {
     if (stopError !== undefined) throw stopError;
 
     const stoppedRuns = [...new Set([...operation.targets.values()].flatMap((target) => [...target.runs]))];
-    await this.updateStatus(sessionId, 'aborted');
-    for (const run of stoppedRuns.filter((activeRun) => !activeRun.lineage.parentRunId)) {
+    if (!operation.statusProjected) {
+      await this.updateStatus(sessionId, 'aborted', undefined, operation.ts);
+      operation.statusProjected = true;
+    }
+    for (const [run, projection] of operation.turnProjections) {
+      if (projection.projected) continue;
       await this.appendTurnState(
         sessionId,
         run.turnId,
         'aborted',
         run.lineage,
-        { ts: this.deps.now(), abortSource: operation.abortSource },
-      ).catch(() => {});
+        { id: projection.id, ts: operation.ts, abortSource: operation.abortSource },
+      );
+      projection.projected = true;
     }
-    await this.deps.store.appendMessage(sessionId, {
-      type: 'system_note',
-      id: this.deps.newId(),
-      ts: this.deps.now(),
-      kind: 'abort',
-      ...(operation.abortSource ? { data: { source: operation.abortSource } } : {}),
-    } satisfies SystemNoteMessage);
+    if (!operation.abortNoteProjected) {
+      await this.deps.store.appendMessage(sessionId, {
+        type: 'system_note',
+        id: operation.abortNoteId,
+        ts: operation.ts,
+        kind: 'abort',
+        ...(operation.abortSource ? { data: { source: operation.abortSource } } : {}),
+      } satisfies SystemNoteMessage);
+      operation.abortNoteProjected = true;
+    }
     for (const run of stoppedRuns) run.completeStop();
     this.stopOperations.delete(sessionId);
   }
@@ -763,11 +786,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
     turnId: string,
     status: TurnRecord['status'],
     lineage: AgentRunLineage = {},
-    options: { ts?: number; errorClass?: string; abortSource?: string } = {},
+    options: { id?: string; ts?: number; errorClass?: string; abortSource?: string } = {},
   ): Promise<void> {
     const ts = options.ts ?? this.deps.now();
     await this.deps.store.appendMessage(sessionId, buildTurnStateMessage({
-      id: this.deps.newId(),
+      id: options.id ?? this.deps.newId(),
       turnId,
       ts,
       status,
