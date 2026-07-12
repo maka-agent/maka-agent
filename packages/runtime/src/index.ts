@@ -714,3 +714,31 @@ export {
 export type { GoalToolsDeps } from './goal-tools.js';
 export { handleGoalContinuation } from './goal-continuation.js';
 export type { GoalContinuationDeps, GoalContinuationOutcome } from './goal-continuation.js';
+
+export {
+  MAX_SKILLS_IN_PROMPT,
+  MAX_SKILL_BODY_CHARS,
+  MAX_SKILL_TOOL_BODY_CHARS,
+  MAX_SKILLS_PROMPT_CHARS,
+  scanWorkspaceSkills,
+  buildSkillsPromptFragment,
+  loadSkillInstructions,
+  buildSkillAgentTool,
+  parseSkillFrontMatter,
+  readSkillRuntimeState,
+  writeSkillRuntimeState,
+  readContainedRegularFile,
+  readContainedRegularTextFile,
+  writeContainedRegularTextFile,
+  isContainedPath,
+  isSafeSkillId,
+  isRecord,
+} from './skills.js';
+export type {
+  SkillRuntimeStatus,
+  RuntimeSkillDefinition,
+  ScannedSkill,
+  LoadedSkillInstructions,
+  LoadSkillInstructionsResult,
+  SkillRuntimeStateReadResult,
+} from './skills.js';
