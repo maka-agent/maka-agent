@@ -13,6 +13,8 @@ import {
   loadSkillInstructions,
   parseSkillFrontMatter,
   readSkillRuntimeState,
+  resolveSkillDiscoveryPaths,
+  scanSkills,
   scanWorkspaceSkills,
   writeSkillRuntimeState,
   type HostCapabilities,
@@ -76,7 +78,7 @@ Do not ask permission for shell commands.`);
       assert.equal(loaded.skill.id, 'browser-helper');
       assert.equal(loaded.skill.name, 'Browser Helper');
       assert.deepEqual(loaded.skill.declaredTools, ['Bash', 'Read']);
-      assert.equal(loaded.skill.relativePath, 'skills/browser-helper/SKILL.md');
+      assert.match(loaded.skill.relativePath, /browser-helper\/SKILL\.md$/);
       assert.match(loaded.skill.instructions, /Open local targets carefully\./);
       assert.match(loaded.skill.instructions, /Do not ask permission for shell commands\./);
     });
@@ -427,8 +429,8 @@ Legacy v2 body.`);
 
   it('gateSkillsByHostCapabilities hard-hides skills whose required tools are missing and only hints at missing declared tools', () => {
     const skills: ScannedSkill[] = [
-      { id: 'office', name: 'Office', description: '', path: '/p', declaredTools: ['Read', 'OfficeDocument'], requiredTools: ['OfficeDocument'], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:x' },
-      { id: 'plain', name: 'Plain', description: '', path: '/p', declaredTools: ['Bash'], requiredTools: [], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:y' },
+      { id: 'office', name: 'Office', description: '', path: '/p', declaredTools: ['Read', 'OfficeDocument'], requiredTools: ['OfficeDocument'], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:x', discoveryRoot: '/p' },
+      { id: 'plain', name: 'Plain', description: '', path: '/p', declaredTools: ['Bash'], requiredTools: [], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:y', discoveryRoot: '/p' },
     ];
     const host: HostCapabilities = { toolNames: new Set(['Read']) };
     const gated = gateSkillsByHostCapabilities(skills, host);
@@ -444,7 +446,7 @@ Legacy v2 body.`);
 
   it('gateSkillsByHostCapabilities hides skills whose required capabilities are missing', () => {
     const skills: ScannedSkill[] = [
-      { id: 'cap', name: 'Cap', description: '', path: '/p', declaredTools: [], requiredTools: [], requiredCapabilities: ['office'], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:z' },
+      { id: 'cap', name: 'Cap', description: '', path: '/p', declaredTools: [], requiredTools: [], requiredCapabilities: ['office'], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:z', discoveryRoot: '/p' },
     ];
     const noCap = gateSkillsByHostCapabilities(skills, { toolNames: new Set(), capabilities: new Set() });
     assert.equal(noCap[0].eligible, false);
@@ -480,6 +482,71 @@ Route through Office tools.`);
       assert.deepEqual(await scanWorkspaceSkills(workspaceRoot), []);
       assert.equal(await buildSkillsPromptFragment(workspaceRoot), undefined);
     });
+  });
+
+  it('scanSkills discovers skills from multiple directories and dedupes by id (first-found wins)', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const projectRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-skills-proj-'));
+      try {
+        // Write a skill in the project .agents/skills path
+        await mkdir(join(projectRoot, '.agents', 'skills', 'shared'), { recursive: true });
+        await writeFile(join(projectRoot, '.agents', 'skills', 'shared', 'SKILL.md'), `---
+name: Shared
+description: Project copy.
+---
+# Shared
+Project body.`, 'utf8');
+
+        // Write the same id in the workspace skills path
+        await writeSkill(workspaceRoot, 'shared', `---
+name: Shared
+description: Workspace copy.
+---
+# Shared
+Workspace body.`);
+
+        // Write a unique skill in project .agents/skills
+        await mkdir(join(projectRoot, '.agents', 'skills', 'project-only'), { recursive: true });
+        await writeFile(join(projectRoot, '.agents', 'skills', 'project-only', 'SKILL.md'), `---
+name: Project Only
+description: Only in project.
+---
+# Project Only
+Body.`, 'utf8');
+
+        const source = { dirs: [join(projectRoot, '.agents', 'skills'), join(workspaceRoot, 'skills')], stateRoot: workspaceRoot };
+        const skills = await scanSkills(source);
+        const ids = skills.map((s) => s.id);
+        assert.ok(ids.includes('shared'));
+        assert.ok(ids.includes('project-only'));
+        // Only one 'shared' despite two dirs
+        assert.equal(ids.filter((id) => id === 'shared').length, 1);
+        // First-found (project) wins
+        const shared = skills.find((s) => s.id === 'shared')!;
+        assert.equal(shared.description, 'Project copy.');
+      } finally {
+        await rm(projectRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('resolveSkillDiscoveryPaths returns the five standard paths with containment roots in precedence order', () => {
+    const { entries, dirs, stateRoot } = resolveSkillDiscoveryPaths('/repo', '/workspace', '/home/user');
+    assert.deepEqual(entries, [
+      { dir: '/repo/.maka/skills', containmentRoot: '/repo' },
+      { dir: '/repo/.agents/skills', containmentRoot: '/repo' },
+      { dir: '/workspace/skills', containmentRoot: '/workspace' },
+      { dir: '/home/user/.maka/skills', containmentRoot: '/home/user' },
+      { dir: '/home/user/.agents/skills', containmentRoot: '/home/user' },
+    ]);
+    assert.deepEqual(dirs, [
+      '/repo/.maka/skills',
+      '/repo/.agents/skills',
+      '/workspace/skills',
+      '/home/user/.maka/skills',
+      '/home/user/.agents/skills',
+    ]);
+    assert.equal(stateRoot, '/workspace');
   });
 
   it('parseSkillFrontMatter parses inline and list-style allowed-tools', () => {

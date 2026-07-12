@@ -5,9 +5,11 @@ import {
   buildSkillsPromptFragment,
   buildWorkspaceInstructionsPromptFragment,
   resolveProjectGitInfo,
+  resolveSkillDiscoveryPaths,
   type AutomationManager,
   type GoalManager,
   type HostCapabilities,
+  type SkillSource,
 } from '@maka/runtime';
 
 /**
@@ -44,12 +46,19 @@ export interface BuildCliSystemPromptInput {
    * available (e.g. bundled Office skills without the Office tools) are hidden.
    */
   host?: HostCapabilities;
+  /**
+   * Home directory for user-level skill discovery (`~/.maka/skills/`,
+   * `~/.agents/skills/`). Defaults to `os.homedir()`. Tests pass a temp dir
+   * to avoid picking up real installed skills.
+   */
+  homeDir?: string;
 }
 
 export async function buildCliSystemPrompt(input: BuildCliSystemPromptInput): Promise<string | undefined> {
   const personalization = buildPersonalizationPromptFragment(input.settings.personalization);
   // personalization -> skills -> workspaceInstructions, matching the desktop app.
-  const skills = await buildSkillsPromptFragment(input.workspaceRoot, input.host);
+  const skillSource = resolveSkillDiscoveryPaths(input.cwd, input.workspaceRoot, input.homeDir);
+  const skills = await buildSkillsPromptFragment(skillSource, input.host);
   const workspaceInstructions = input.settings.workspaceInstructions.enabled
     ? await buildWorkspaceInstructionsPromptFragment(input.cwd)
     : undefined;

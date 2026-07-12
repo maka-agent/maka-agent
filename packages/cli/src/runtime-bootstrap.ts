@@ -22,6 +22,7 @@ import {
   evaluateAutomationCanFire,
   getAIModel,
   loadHistoryCompactBlocksFromArtifacts,
+  resolveSkillDiscoveryPaths,
   type AutomationDefinition,
   type GoalContinuationDeps,
   type HostCapabilities,
@@ -194,7 +195,8 @@ export async function createMakaCliRuntimeContext(
   const host: HostCapabilities = {
     toolNames: new Set([...tools, automationTool, ...goalTools].map((tool) => tool.name)),
   };
-  const skillTool = buildSkillAgentTool(input.workspaceRoot, host);
+  const skillSource = resolveSkillDiscoveryPaths(input.cwd, input.workspaceRoot);
+  const skillTool = buildSkillAgentTool(skillSource, host);
   const allTools = [...tools, automationTool, ...goalTools, skillTool];
 
   // Headless computer-use. The shared @maka/computer-use backend runs without an
