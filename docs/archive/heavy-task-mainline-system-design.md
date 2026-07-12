@@ -14,6 +14,8 @@ derived_from:
   - "Terminal-Bench trace behavior reader"
 ---
 
+> Archived on 2026-07-13. This is a PR, trace, and rollout chronicle, not current policy authority. Backend architecture chapters 4–5 and `packages/headless/src/heavy-task-*.ts` own current mechanisms.
+
 # Maka heavy-task / Terminal-Bench 主线 System Design v1
 
 这份文档不是教学手册的压缩版，而是从教学手册反推出来的一版系统设计文档。

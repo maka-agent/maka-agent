@@ -38,6 +38,19 @@ describe('AHE target protocol', () => {
     assert.equal(result.ok, true);
   });
 
+  it('lets the heavy-task component patch its policy owner', () => {
+    const result = validateMakaAheChangeManifest({
+      ...VALID_MAKA_AHE_CHANGE_MANIFEST,
+      changedComponents: ['maka-heavy-task-policy'],
+      patch: {
+        applyMode: 'staged_patch',
+        changedFiles: ['packages/headless/src/heavy-task-policy.ts'],
+      },
+    });
+
+    assert.equal(result.ok, true);
+  });
+
   it('rejects manifests that target unknown components or omit falsifiable evidence', () => {
     const result = validateMakaAheChangeManifest(INVALID_MAKA_AHE_CHANGE_MANIFEST);
 

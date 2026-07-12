@@ -44,7 +44,6 @@ This page is the authority map for Maka documentation. Code and contract tests r
 These documents include target-state design or work that is not fully implemented. Check the linked source and current GitHub issues before treating a proposal as shipped behavior.
 
 - [DeepSeek Reasonix cost runtime design](./deepseek-reasonix-cost-runtime-design.md)
-- [Heavy-task mainline system design](./heavy-task-mainline-system-design.md)
 
 ## Historical material
 
