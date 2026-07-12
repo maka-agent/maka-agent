@@ -339,6 +339,50 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.match(replay.text, /duplicate_action|stale_frame/);
   });
 
+  test('frame adapters bind source coordinates against the original capture dimensions', async () => {
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      captureObservation: NonNullable<CuDispatchBackend['captureObservation']>;
+      lastContext?: CuRunContext;
+    };
+    backend.observeApp = async () => observation({
+      sourceBoundsPx: { x: 0, y: 0, width: 200, height: 200 },
+      screenshot: { base64: 'AA==', mimeType: 'image/png', widthPx: 200, heightPx: 200 },
+    });
+    backend.captureObservation = async () => observation({
+      observationId: 'backend-obs-2',
+      sourceBoundsPx: { x: 0, y: 0, width: 200, height: 200 },
+      screenshot: { base64: 'AA==', mimeType: 'image/png', widthPx: 200, heightPx: 200 },
+    });
+    const [tool] = buildComputerUseTools({
+      backend,
+      frameAdapter: {
+        resolveModelDisplay: () => ({ widthPx: 100, heightPx: 100 }),
+        toSourceAction: (action) => action.type === 'left_click'
+          ? { ...action, coordinate: { x: action.coordinate.x * 2, y: action.coordinate.y * 2 } }
+          : action,
+        prepareScreenshot: (screenshot) => ({
+          ...screenshot,
+          widthPx: 100,
+          heightPx: 100,
+        }),
+      },
+    });
+    const observed = await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx()) as {
+      text: string;
+    };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    const result = await tool.impl({
+      action: 'left_click',
+      observation_id: observationId,
+      coordinate: [75, 75],
+    } as never, ctx()) as { text: string };
+
+    assert.match(result.text, /Fresh observation/);
+    assert.deepEqual(backend.lastContext?.boundAction?.sourceCoordinate, { x: 150, y: 150 });
+  });
+
   test('successful bound action fails closed without a fresh full observation', async () => {
     const backend = fakeBackend() as CuDispatchBackend & {
       observeApp: NonNullable<CuDispatchBackend['observeApp']>;
