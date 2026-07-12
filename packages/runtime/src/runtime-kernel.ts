@@ -393,7 +393,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
     const abortSource = normalizeStopSessionSource(input.source);
     const stoppedSessions = activeSessions.map((active) => ({
       active,
-      stoppedRuns: [...active.activeRuns.values()].filter((run) => run.stop(input.source)),
+      stoppedRuns: [...active.activeRuns.values()].filter((run) => {
+        run.stop(input.source);
+        return run.hasPendingStop();
+      }),
     })).filter(({ stoppedRuns }) => stoppedRuns.length > 0);
     const stoppedRuns = stoppedSessions.flatMap(({ stoppedRuns: runs }) => runs);
     if (stoppedRuns.length === 0) return;
@@ -415,6 +418,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       kind: 'abort',
       ...(abortSource ? { data: { source: abortSource } } : {}),
     } satisfies SystemNoteMessage);
+    for (const run of stoppedRuns) run.completeStop();
   }
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {

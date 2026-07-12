@@ -3098,6 +3098,47 @@ describe('SessionManager permission mode updates', () => {
     expect((await store.readHeader(session.id)).permissionMode).toBe('execute');
   });
 
+  test('stopSession retries a pending stop after the backend rejects', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const childGate = makeGate();
+    let childBackend: RetryStopBackend | undefined;
+    backends.register('fake', (ctx) => {
+      if (ctx.header.permissionMode !== 'explore') return new TestBackend(ctx);
+      childBackend = new RetryStopBackend(ctx, childGate);
+      return childBackend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(6_846),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    await drain(manager.sendMessage(session.id, { turnId: 'parent-turn', text: 'parent context' }));
+    const [parentRun] = await runStore.listSessionRuns(session.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+    const child = manager.startChildTurn(session.id, {
+      turnId: 'child-turn',
+      parentRunId: parentRun.runId,
+      spec: { id: LOCAL_READ_AGENT_ID, name: 'Researcher', systemPrompt: 'read only' },
+      prompt: 'inspect slowly',
+    })[Symbol.asyncIterator]();
+    await child.next();
+
+    await expectRejects(manager.stopSession(session.id, { source: 'stop_button' }), /first stop failed/);
+    await manager.stopSession(session.id, { source: 'stop_button' });
+    expect(childBackend?.stopCalls).toBe(2);
+    while (!(await child.next()).done) {}
+    const childRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'child-turn');
+    expect(childRun?.status).toBe('cancelled');
+  });
+
   test('spawnChildAgent fails closed instead of running a degraded catalog agent', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -5377,6 +5418,18 @@ class TestBackend implements AgentBackend {
     if (this.ctx.store instanceof MemorySessionStore) {
       this.ctx.store.disposeCount += 1;
     }
+  }
+}
+
+class RetryStopBackend extends TestBackend {
+  constructor(ctx: BackendFactoryContext, private readonly stopGate: Gate) {
+    super(ctx, stopGate);
+  }
+
+  override async stop(): Promise<void> {
+    this.stopCalls += 1;
+    if (this.stopCalls === 1) throw new Error('first stop failed');
+    this.stopGate.release();
   }
 }
 
