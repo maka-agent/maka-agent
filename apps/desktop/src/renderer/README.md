@@ -44,7 +44,7 @@ Acknowledged transitional states — not TODOs; track work in issues/PRs.
 
 ## Contracts & guardrails
 
-- Product design intent: `docs/DESIGN.md`.
+- Product design intent: `DESIGN.md`.
 - CSS cascade / layer / `!important` / dead-CSS / token rules: `docs/frontend-css-governance.md`. The dead-CSS check runs from the repo root via `check:release` (`scripts/check-dead-css.mjs --check`); its baseline is `scripts/check-dead-css-baseline.json`.
 - Component state, ARIA, token, and copy behavior is owned by source and focused contract tests.
 - Where prose disagrees with the code or contract tests, the code and tests are the source of truth. Key guardrail tests live in `apps/desktop/src/main/__tests__/` (style-layer-cascade, important-audit, typography / spacing / radius / state-token / foreground-tier governance). Build/test entry points are the npm scripts in the root `package.json` (see the top-level `README.md`).

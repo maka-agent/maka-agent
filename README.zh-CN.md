@@ -201,4 +201,5 @@ npm --workspace @maka/desktop run smoke:real-window
 
 - [文档索引与权威来源说明](./docs/README.md)
 - [后端架构总览](./ARCHITECTURE.zh-CN.md)
+- [产品设计](./DESIGN.md)
 - [安全政策](./SECURITY.md)

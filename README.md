@@ -201,4 +201,5 @@ Before submitting code, run typecheck, build, and focused tests proportionate to
 
 - [Documentation index and authority map](./docs/README.md)
 - [Backend architecture](./ARCHITECTURE.md)
+- [Product design](./DESIGN.md)
 - [Security policy](./SECURITY.md)

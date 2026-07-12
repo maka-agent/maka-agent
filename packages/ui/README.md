@@ -46,7 +46,7 @@ Acknowledged transitional states — not TODOs; track actual work in issues/PRs.
 
 ## Contracts & guardrails
 
-Product design intent lives in `docs/DESIGN.md`.
+Product design intent lives in `DESIGN.md`.
 
 Component behavior, ARIA, keyboard, tone, and token contracts are enforced by source and the focused contract tests (`*-converge-contract.test.ts`, `state-token-governance-*`, and related suites). `docs/frontend-css-governance.md` owns the remaining cross-cutting CSS rules.
 
