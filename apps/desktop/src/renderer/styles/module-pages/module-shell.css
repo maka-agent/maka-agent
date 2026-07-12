@@ -34,9 +34,8 @@
   border-bottom: 0;
 }
 
-/* Module page titles use reference layout's --text-3xl display scale (30px) —
-   atlas §2 + §9. Negative letter-spacing gives the heading the cinematic
-   weight reference layout uses for page-level headings. */
+/* Module page titles use the display scale. Negative letter-spacing keeps
+   page-level headings compact at that size. */
 .maka-module-main-header h2 {
   margin: 0;
   color: var(--foreground);

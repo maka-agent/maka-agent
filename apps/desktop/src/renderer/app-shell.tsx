@@ -304,7 +304,7 @@ export function AppShell({
       }),
     [sessions, connections],
   );
-  // PR109b: status-grouped sidebar (design-system §9.8). The `chats`
+  // Status-grouped sidebar. The `chats`
   // filter shows sessions grouped by SessionStatus (Pinned →
   // Running → Waiting → Blocked → Active → Review → Done → Archived);
   // `aborted` is dropped. Pinned (flagged) sessions float to the top

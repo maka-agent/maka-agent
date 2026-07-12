@@ -29,7 +29,7 @@ import {
 import { useChatScroll } from './use-chat-scroll.js';
 
 /**
- * Lifecycle status badge in the chat header (PR109b §9.8). Visual
+ * Lifecycle status badge in the chat header. Visual
  * tone matches the SessionStatusIcon mapping so the sidebar row icon
  * and the header badge read as the same status.
  */
@@ -157,8 +157,8 @@ export function ChatView(props: {
   messageLoadRetryPending?: boolean;
   onRetryMessages?(): void;
   /**
-   * Lifecycle status badge for the active session (PR109b, design-system
-   * §9.8). Separate from `connectionAlert` because the alert is an
+   * Lifecycle status badge for the active session. Separate from
+   * `connectionAlert` because the alert is an
    * ephemeral fault signal while status is the session's settled
    * lifecycle position. Hidden for `active` (default) to reduce noise.
    */

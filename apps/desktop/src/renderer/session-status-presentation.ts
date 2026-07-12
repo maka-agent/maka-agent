@@ -1,6 +1,6 @@
 /**
  * Pure presentation helpers for SessionStatus + SessionBlockedReason
- * (PR109b, design-system §9.8).
+ * used by the sidebar and chat header.
  *
  * Separated from the React component layer so the copy + tone mapping
  * can be unit-tested without a DOM, mirroring `chat-header-alert.ts`
@@ -61,7 +61,7 @@ export function normalizeSessionSummaryForDisplay(session: SessionSummary): Sess
  * Status tone vocabulary — extends the chat-header-alert tone set
  * (`info | warning | destructive`) with `accent` for active in-flight
  * work, `success` for completed work, and `muted` for terminal /
- * dormant buckets. Tones map to design-system color tokens in CSS
+ * dormant buckets. Tones map to semantic color tokens in CSS
  * (`[data-status-tone="..."]`).
  */
 export type SessionStatusTone = 'accent' | 'warning' | 'destructive' | 'info' | 'success' | 'muted' | 'neutral';
@@ -141,8 +141,7 @@ export function sessionStatusAriaLabel(status: SessionStatus, blockedReason?: Se
 
 /**
  * Generalized Chinese phrasing for a failed turn's `errorClass`
- * (PR109e-d, design-system §9.9). Mirrors `describeBlockedReason()`
- * pattern from PR109b — UI must never display the raw enum identifier.
+ * Mirrors `describeBlockedReason()`; UI must never display the raw enum identifier.
  *
  * Recognized classes are written by the runtime via `classifyError()`,
  * `classifyHttpStatus()`, and `event.reason` / `event.code`. The set is

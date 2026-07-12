@@ -392,7 +392,7 @@ function ProjectSessionGroup(props: {
 
 /**
  * Small inline icon next to the session name representing its
- * lifecycle status (PR109b, design-system §9.8). Hidden for `active`
+ * lifecycle status. Hidden for `active`
  * since that's the default and would add visual noise to most rows.
  *
  * `aborted` is rendered as muted history: not an error, not active,
