@@ -55,7 +55,7 @@ export function useAppShellHostEffects(options: {
   setLiveBrowserSessionIds: (sessionIds: string[]) => void;
 }) {
   // Tag the document with the host OS so glass-material CSS rules
-  // (sidebar vibrancy passthrough — see docs/archive/reference-atlas.md §1 + §12.1)
+  // (sidebar vibrancy passthrough)
   // can light up only on macOS, where `BrowserWindow({ vibrancy: 'sidebar' })`
   // paints the native blur material behind the renderer. Other platforms
   // keep their opaque chrome since vibrancy is a no-op there.

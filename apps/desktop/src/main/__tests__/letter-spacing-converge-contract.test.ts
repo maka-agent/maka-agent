@@ -16,9 +16,9 @@
  * 3. Tailwind `--tracking-*` aliases in `styles.css` `@theme inline` map to
  *    `var(--tracking-*)` so TSX `tracking-*` utilities stay single-sourced.
  *
- * No --tracking-tight: maka is a CJK-first app and roadmap §1.6 bans
+ * No --tracking-tight: Maka is a CJK-first app and avoids
  * tightening CJK letter-spacing, so all negative values snap to normal (0).
- * ALL-CAPS short labels use wider/widest (roadmap §4.1 +5-12% tracking).
+ * ALL-CAPS short labels use wider/widest (+5–10% tracking).
  */
 
 import { strict as assert } from 'node:assert';

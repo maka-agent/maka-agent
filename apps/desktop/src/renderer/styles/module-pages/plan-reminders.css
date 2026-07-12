@@ -16,7 +16,7 @@
    定时任务 page (header → banner → tabs → grid sit straight on the white card).
    Removed the inner border/radius/shadow/1080-center so there's no card-in-card,
    and opened up the padding so the page breathes like the reference. */
-/* Phase 2 — atlas-driven rewrite (docs/archive/reference-atlas.md §10). Plan/Reminder
+/* Plan/Reminder
    page card uses the universal recipe: 1px hairline border + 6px radius +
    single 4% lift + 1px inner top highlight. Tight 4-6px internal gaps
    (`--card-gap`) replace the old 14-18px loose stacking. */

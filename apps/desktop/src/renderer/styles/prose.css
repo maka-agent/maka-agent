@@ -76,8 +76,8 @@
    PR-MESSAGE-BODY-READING-RHYTHM-0 polish that survives: `text-wrap: pretty`
    on body paragraphs (reduces orphans/widows, falls back to normal) and
    `tabular-nums` on inline <code> so digit columns in technical replies
-   align. Heading tracking stays var(--tracking-normal) — CJK-first, roadmap
-   §1.6 bans tightening CJK. */
+   align. Heading tracking stays var(--tracking-normal) because Maka is
+   CJK-first and does not tighten CJK. */
 /* The base rule is self-contained (#618 item 2): a bare .maka-prose consumer
    must not depend on the assistant bubble shell — or on whatever chrome
    surrounds it — for line-height (the WCAG 1.4.12 floor — --leading-normal =

@@ -198,7 +198,7 @@
   gap: 0;
 }
 
-/* Sidebar group separator — atlas §14.6 + Phase 4A. Each group beyond
+/* Sidebar group separator. Each group beyond
    the first is preceded by a 1px hairline divider that reads as a
    "data section break" rather than a card-like edge. */
 .maka-list-group + .maka-list-group {

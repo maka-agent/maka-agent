@@ -10,11 +10,11 @@
      - All other colors are derived: alpha overlays (foreground/N) or solid mixes (foreground-N).
      - Borders / dividers / hovers / muted text never use a "gray" — they're foreground at low alpha.
 
-   Why this looks "premium":
-     - Sharp 0px radius corners + 1px subtle border rings (--shadow-minimal-flat).
+   Visual foundation:
+     - Small tokenized radii + subtle border rings (--shadow-minimal-flat).
      - Multi-layer soft shadows with very low opacity (0.06) instead of one heavy shadow.
      - System UI fonts with optical antialiasing.
-      - 15px base font, 4px spacing unit → dense but readable.
+     - 13px base font, 4px spacing unit → dense but readable.
 ============================================================================ */
 
 /* =============================================================================
@@ -153,7 +153,7 @@
   --foreground-5:  color-mix(in oklch, var(--foreground) 5%,  var(--background));
   --foreground-8:  color-mix(in oklch, var(--foreground) 8%,  var(--background));
   --foreground-10: color-mix(in oklch, var(--foreground) 10%, var(--background));
-   /* P-TEXT (roadmap §1.6): the -20/-30 text tiers were orphans (8 call
+   /* The retired -20/-30 text tiers were orphans (8 call
       sites total) sitting between the surface washes (2..10) and the
       real text ladder. Text uses moved to -40 (also a contrast fix:
       30% ink fails 4.5:1); decorative uses inlined their color-mix.
@@ -219,7 +219,7 @@
   /* === shadow recipes ===
      Always include the 1px border ring as the FIRST inset-like layer.
      Subsequent layers are very low-opacity blurs that stack into a soft glow. */
-  /* P-SHADOW (archived design-refinement-roadmap-2026-07 §1.2): blur layers were
+  /* Blur layers were
      pure-black rgba — on a light warm-gray shell a pure black shadow
      reads as a dirty smudge (taste-skill ban). Every layer now derives
      from the warm foreground so shadow, border ring, and ink share one
@@ -340,10 +340,10 @@
   /* === letter-spacing ===
      PR-TRACKING-CONVERGE-0 (issue #520 PR1):
      four-tier scale aligned to a Tailwind tracking-scale subset. No
-     --tracking-tight: maka is a CJK-first app and roadmap §1.6 bans
+     --tracking-tight: Maka is a CJK-first app, so avoid
      tightening CJK letter-spacing, so all negative values snap to
-     normal (0). ALL-CAPS short labels use wider/widest (roadmap §4.1
-     +5-12% tracking). 1px absolute → widest (0.1em ≈ 1.3px @ 13px). */
+     normal (0). ALL-CAPS short labels use wider/widest (+5–10%
+     tracking). 1px absolute → widest (0.1em ≈ 1.3px @ 13px). */
   --tracking-normal: 0;
   --tracking-wide: 0.025em;
   --tracking-wider: 0.05em;
@@ -356,7 +356,7 @@
   --font-serif: Georgia, "Times New Roman", Times, serif;
 
   /* === layout ===
-     P-RADIUS concentric nesting (#520 PR4 item 12, roadmap §1.3):
+     Concentric nesting:
      when a rounded surface sits inside another rounded surface with padding
      between them, the inner radius = outer radius − padding so the two
      curves share a center and read as one machined shell. Two forms:
@@ -481,12 +481,8 @@
    --lift-hover: -1px;         /* hover 上浮 (snap -0.5/-1) */
 
    /* === page-card recipe ===
-      Single source of truth for the lifted "page card" chrome used by every
-      top-level module page (Skills, Plan/Reminder, future Settings). Atlas
-      §4: the reference layout's signature recipe is `1px tertiary border +
-      6px radius + 0 1px 2px @ 4% lift` — every workbench-card, aux-panel,
-      and agents-chat-panel uses these three values. See
-      docs/archive/reference-atlas.md §9 for the historical per-surface gap analysis. */
+     Single source of truth for lifted page-card chrome: a subtle border,
+     compact radius, and low-opacity lift shared by top-level module pages. */
   --card-border-color: oklch(from var(--foreground) l c h / 0.08);
   --card-bg: var(--background);
   --card-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.04);
@@ -618,7 +614,7 @@
   --shadow-blur-opacity:   0.12;
   --opacity-overlay: 0.06;
 
-  /* P-SHADOW dark collapse (roadmap D2): blur shadows are nearly
+  /* Dark-mode shadow collapse: blur shadows are nearly
      invisible on a dark shell but still cost compositing and, worse,
      the foreground-derived layers turn WHITE-ish in dark mode and read
      as a glow. Elevation in dark mode is carried by border rings
@@ -1524,7 +1520,7 @@
 }
 
 /* =============================================================================
-   Icon stroke governance (decision D5, roadmap §4.1): call sites had
+   Icon stroke governance: call sites had
    accumulated EIGHT different strokeWidth values (1.5 → 2) across 143
    usages, plus the lucide default of 2 wherever unspecified — the
    classic "can't say why it looks unpolished" tell. One CSS rule beats

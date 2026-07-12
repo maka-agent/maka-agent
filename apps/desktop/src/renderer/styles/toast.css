@@ -80,7 +80,7 @@
   animation: maka-toast-enter var(--duration-large) var(--ease-out-strong);
 }
 
-/* Exit = enter x 75% (roadmap §4.1), ease-in per the enter-out/exit-in
+/* Exit = enter x 75%, ease-in per the enter-out/exit-in
    rule — the toast shrinks away instead of vanishing mid-glance. */
 @keyframes maka-toast-exit {
   0%   { opacity: 1; transform: translateY(0) scale(1); }

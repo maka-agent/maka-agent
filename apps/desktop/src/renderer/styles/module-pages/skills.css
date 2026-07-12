@@ -41,7 +41,7 @@
   gap: var(--space-1);
 }
 
-/* Phase 2 — atlas-driven rewrite (docs/archive/reference-atlas.md §10). Skills page
+/* Skills page
    card mirrors the Plan shell: 1px hairline border + 6px radius + 4% lift +
    1px inner top highlight, with tight 4-6px internal gaps. */
 .maka-skill-library {

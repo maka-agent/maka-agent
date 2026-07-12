@@ -1,5 +1,5 @@
 /* =============================================================================
-   Glass material on macOS — atlas §1 + §12.1 documents the upstream reference
+   Glass material on macOS. The reference
    layout's `light-glass` / `dark-glass` themes that paint the sidebar against
    native vibrancy material. We do the same:
    - Main process sets BrowserWindow({ vibrancy: 'sidebar' }) on darwin.
@@ -157,7 +157,7 @@ html[data-os="darwin"] .maka-session-panel-footer {
      what produced the three-color-band bug fixed alongside this. */
 
 /* =============================================================================
-     Phase 3 quick-wins — atlas §13.7 + §14.6
+     Compact glass details
      Pure CSS, no JSX surgery, all gated on theme/attribute selectors.
   ============================================================================= */
 
@@ -182,7 +182,7 @@ html[data-os="darwin"] .maka-session-panel-footer {
 
 /* PR-FE-BUG-HUNT-8 (kenji aesthetic-audit reminder 9, finding #3):
    `[data-gradual-blur-layer]` block removed. Originally ported from
-   atlas §15.2 as a generic linear-gradient mask + `backdrop-filter:
+   a generic linear-gradient mask + `backdrop-filter:
    blur(6px)` overlay + raw `z-index: 5` that any element could opt
    into via the data attribute. Kenji called it out as an escape
    hatch — future surfaces could re-introduce blur and a non-token
