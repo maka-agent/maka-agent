@@ -1,7 +1,5 @@
 /**
  * Inputs to runtime APIs (create session, send message, list/filter).
- *
- * Source: V0.1_TECH_SPEC.md §13
  */
 
 import type { AttachmentRef } from './events.js';

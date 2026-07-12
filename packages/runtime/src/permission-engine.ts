@@ -8,8 +8,6 @@
  *   keyed by requestId)
  * - response routing back to the awaiting adapter
  *
- * Source: V0.1_TECH_SPEC.md §6.1, §6.2
- *
  * Adapter contract (see AiSdkBackend tool execute wrapper):
  *
  *   const decision = await engine.evaluate({ sessionId, turnId, toolUseId, toolName, args, mode });

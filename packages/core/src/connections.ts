@@ -5,8 +5,6 @@
  * connection-test results have no `turnId` and are not tied to a session.
  * They travel on the desktop bridge's `connections.*` channel, separate
  * from `sessions.*`.
- *
- * Source: V0.1_TECH_SPEC.md §4.4
  */
 
 import type { LlmConnection } from './llm-connections.js';

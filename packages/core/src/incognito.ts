@@ -103,8 +103,7 @@ export function isWorkspacePrivacyContext(value: unknown): value is WorkspacePri
  * as untrusted; main / session / workspace owner is the only valid
  * write authority for the actual workspace state.
  *
- * @see docs/workspace-privacy-context.md "Consumer obligations" for
- *      the per-lane gate examples.
+ * @see docs/workspace-privacy-context.md "Consumer rule"
  */
 export function validateWorkspacePrivacyContext(input: unknown): WorkspacePrivacyContextResult {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {

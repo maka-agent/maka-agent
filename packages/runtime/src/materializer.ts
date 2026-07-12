@@ -3,8 +3,6 @@
  * shape the UI renders. Lives in `runtime` (not `storage`) because correlation
  * is a semantic operation, not a disk concern.
  *
- * Source of truth: V0.1_TECH_SPEC.md §5.2 orphan policy + §7 view models.
- *
  * Runtime/UI materializer for rebuilding chat and tool activity state from
  * append-only stored messages.
  */
@@ -66,8 +64,8 @@ export interface SessionViewModel {
  * Convert StoredMessage[] (raw JSONL) into a ChatItem[] for rendering.
  *
  * Orphan ToolCallMessage (no matching ToolResultMessage by toolUseId) is
- * rendered as ToolActivityItem.status === 'interrupted' (V0.1_TECH_SPEC §5.2,
- * §7). Storage layer never synthesizes a fake ToolResultMessage — that's our
+ * rendered as ToolActivityItem.status === 'interrupted'. Storage never
+ * synthesizes a fake ToolResultMessage — that's our
  * job here.
  */
 export function materializeSession(messages: readonly StoredMessage[]): SessionViewModel {

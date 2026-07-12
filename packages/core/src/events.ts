@@ -4,8 +4,6 @@
  * Runtime backends normalize their provider-native streams to
  * this `SessionEvent` union. The UI never imports SDK types directly.
  *
- * Source: V0.1_TECH_SPEC.md §4.1
- *
  * Connection-setup events live in ./connections.ts (separate channel).
  */
 

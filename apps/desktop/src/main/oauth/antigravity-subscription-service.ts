@@ -2,12 +2,9 @@
  * Google Antigravity (Gemini) subscription OAuth service —
  * preview-only placeholder.
  *
- * PR-MODEL-OAUTH-ALL-0. Structurally mirrors the Claude / Codex
- * services (loopback PKCE on port 51121, Google OAuth endpoints,
- * safeStorage-encrypted persistence), but the upstream
- * `antigravity-auth` plugin's source is not available — we only
- * have the spec at `docs/30-plugins.md §11.1` describing the
- * loopback port and the Google OAuth endpoints.
+ * Structurally mirrors the Claude / Codex services (loopback PKCE,
+ * Google OAuth endpoints, safeStorage-encrypted persistence). The
+ * preview remains fail-closed because no Google client id is bundled.
  *
  * Status: 'preview'. The card is visible in Settings → 模型, but
  * any attempt to `getAuthorizationUrl()` returns a clear

@@ -2,8 +2,6 @@
  * Permission system: PermissionMode + ToolCategory + Mode × Category policy
  * matrix + pure `preToolUse()` evaluator. Runtime owns requestId generation.
  *
- * Source: V0.1_TECH_SPEC.md §4.3 (Draft 3)
- *
  * Purity rule: `preToolUse()` is deterministic given its input — no UUIDs,
  * no clock reads, no I/O. PermissionEngine in runtime wraps it and supplies
  * requestId at the call site.

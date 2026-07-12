@@ -1,10 +1,9 @@
 /**
  * Static-analysis + unit tests for the Antigravity (Google /
- * Gemini) subscription OAuth service (PR-MODEL-OAUTH-ALL-0).
+ * Gemini) subscription OAuth service.
  *
- * Antigravity has no working upstream plugin source available —
- * only the docs/30-plugins.md §11.1 spec. We pin:
- *   - the loopback port (51121, matches the spec)
+ * We pin:
+ *   - the loopback port (51121)
  *   - the `STATUS = 'preview'` marker
  *   - the fail-closed envelope when GOOGLE_CLIENT_ID is empty
  *     (the entire point of this preview service is that real
@@ -49,13 +48,13 @@ const HELPERS_SOURCE = resolve(
   'antigravity-subscription-helpers.ts',
 );
 
-describe('Antigravity subscription preview config (docs/30-plugins.md §11.1)', () => {
+describe('Antigravity subscription preview config', () => {
   it('pins STATUS = preview and exports it for the contract scan', () => {
     assert.equal(STATUS, 'preview');
     assert.equal(ANTIGRAVITY_OAUTH_CONFIG.status, 'preview');
   });
 
-  it('uses port 51121 for the loopback callback (matches the spec)', () => {
+  it('uses port 51121 for the loopback callback', () => {
     assert.equal(ANTIGRAVITY_OAUTH_CONFIG.callbackPort, 51121);
     assert.equal(
       ANTIGRAVITY_OAUTH_CONFIG.redirectUri,
