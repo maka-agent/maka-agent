@@ -69,7 +69,6 @@ import {
   AiSdkBackend,
   BackendRegistry,
   FakeBackend,
-  OpenAIComputerBackend,
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
@@ -87,7 +86,6 @@ import {
   testBotChannel as testRuntimeBotChannel,
   setActiveProxy,
   ShellRunProcessManager,
-  createOpenAIResponsesTransport,
 } from '@maka/runtime';
 import type {
   BotIncomingMessage,
@@ -171,10 +169,7 @@ import {
 } from './synthesis-cache-artifacts.js';
 import { buildBrowserTools } from './browser/browser-tools.js';
 import {
-  createAnthropicComputerHarness,
   createComputerUseOverlayHook,
-  createKimiComputerHarness,
-  createMiniMaxComputerHarness,
   selectComputerUseBackend,
 } from '@maka/computer-use';
 import { createCursorOverlayController } from './computer-use/cursor-overlay-window.js';
@@ -228,26 +223,6 @@ const isIsolatedTest = isE2e || isComputerUseRealE2e || isOpenAIComputerUseRealE
 let layeredComputerUseScenario:
   import('../../../../scripts/cu-e2e-scenarios.mjs').CuE2eScenario
   | undefined;
-const openAIComputerPlansBySession = new Map<string, unknown[]>();
-
-function sanitizeOpenAIComputerPlans(
-  plans: readonly unknown[],
-): Array<{ turn?: number; actionTypes: string[] }> {
-  return plans.map((plan) => {
-    const record = plan && typeof plan === 'object'
-      ? plan as { turn?: unknown; actions?: unknown }
-      : {};
-    return {
-      ...(Number.isFinite(record.turn) ? { turn: record.turn as number } : {}),
-      actionTypes: Array.isArray(record.actions)
-        ? record.actions.map((action) =>
-            action && typeof action === 'object' && typeof (action as { type?: unknown }).type === 'string'
-              ? (action as { type: string }).type
-              : 'unknown')
-        : [],
-    };
-  });
-}
 
 // E2E isolation: redirect userData BEFORE the single-instance lock so the
 // lock judges the throwaway dir, not the real user data — otherwise a
@@ -607,60 +582,26 @@ function resolveComputerUseCaptureDisplay(): { widthPx: number; heightPx: number
   };
 }
 
-function resizeComputerUseFrame(
-  screenshot: { base64: string; mimeType: 'image/png' | 'image/jpeg'; widthPx: number; heightPx: number },
-  target: { widthPx: number; heightPx: number },
-): typeof screenshot {
-  const image = nativeImage.createFromBuffer(Buffer.from(screenshot.base64, 'base64'));
-  if (image.isEmpty()) throw new Error('capture_failed: screenshot could not be decoded');
-  const resized = image.resize({
-    width: target.widthPx,
-    height: target.heightPx,
-    quality: 'best',
-  });
-  return {
-    base64: resized.toJPEG(82).toString('base64'),
-    mimeType: 'image/jpeg',
-    widthPx: target.widthPx,
-    heightPx: target.heightPx,
-  };
+const makaComputerHarness = {
+  resolveModelDisplay: resolveComputerUseCaptureDisplay,
+  toSourceAction: (action: import('@maka/core').CuAction) => action,
+  prepareScreenshot: (
+    screenshot: {
+      base64: string;
+      mimeType: 'image/png' | 'image/jpeg';
+      widthPx: number;
+      heightPx: number;
+    },
+  ) => screenshot,
+};
+const makaComputerTools = computerUse.createTools(makaComputerHarness);
+function computerUseToolsForConnection(_connection: LlmConnection): MakaTool[] {
+  return makaComputerTools;
 }
 
-const anthropicComputerHarness = createAnthropicComputerHarness({
-  resolveCaptureDisplay: resolveComputerUseCaptureDisplay,
-  resizeFrame: resizeComputerUseFrame,
-});
-const kimiComputerHarness = createKimiComputerHarness({
-  resolveCaptureDisplay: resolveComputerUseCaptureDisplay,
-  resizeFrame: resizeComputerUseFrame,
-});
-const minimaxComputerHarness = createMiniMaxComputerHarness({
-  resolveCaptureDisplay: resolveComputerUseCaptureDisplay,
-  resizeFrame: resizeComputerUseFrame,
-});
-function computerUseToolsForConnection(connection: LlmConnection): MakaTool[] {
-  switch (connection.providerType) {
-    case 'anthropic':
-    case 'claude-subscription':
-      return computerUse.createTools(anthropicComputerHarness);
-    case 'kimi-coding-plan':
-      return computerUse.createTools(kimiComputerHarness);
-    case 'MiniMax':
-    case 'MiniMax-cn':
-      return computerUse.createTools(minimaxComputerHarness);
-    case 'moonshot':
-    case 'openai':
-    case 'codex-subscription':
-    case 'google':
-    case 'gemini-cli':
-      return [];
-    default:
-      return computerUseTools;
-  }
-}
-
-function openAIRealE2eComputerTool(tool: MakaTool): MakaTool {
+function realE2eMakaComputerTool(tool: MakaTool): MakaTool {
   if (!isOpenAIComputerUseRealE2e) return tool;
+  const actionCounts = new Map<string, number>();
   const inspectWindowAt = (
     computerUse.backend as typeof computerUse.backend & {
       inspectWindowAt?: (
@@ -678,6 +619,23 @@ function openAIRealE2eComputerTool(tool: MakaTool): MakaTool {
         start_coordinate?: [number, number];
         region?: [number, number, number, number];
       };
+      const actionName = typeof action.action === 'string' ? action.action : 'unknown';
+      const scenario = layeredComputerUseScenario;
+      if (scenario) {
+        if (!scenario.allowedActions.includes(actionName)) {
+          return {
+            text: `maka_computer.${actionName} failed: unsupported_action_policy`,
+          };
+        }
+        const count = (actionCounts.get(actionName) ?? 0) + 1;
+        actionCounts.set(actionName, count);
+        const maximum = scenario.maxActionCounts?.[actionName];
+        if (maximum !== undefined && count > maximum) {
+          return {
+            text: `maka_computer.${actionName} failed: action_budget_exceeded`,
+          };
+        }
+      }
       const points: Array<[number, number]> = [];
       if (action.coordinate) points.push(action.coordinate);
       if (action.start_coordinate) points.push(action.start_coordinate);
@@ -692,7 +650,7 @@ function openAIRealE2eComputerTool(tool: MakaTool): MakaTool {
         if (!isOwnedComputerUseFixtureTarget(target, process.pid)) {
           return {
             text:
-              `computer.${action.action ?? 'action'} failed: unsupported_action; `
+              `maka_computer.${action.action ?? 'action'} failed: unsupported_action; `
               + `target_occluded at (${x},${y})`,
           };
         }
@@ -916,69 +874,21 @@ function modelSupportsVision(connection: LlmConnection, model: string): boolean 
   return resolveModelVisionSupport(connection.providerType, connection.models, model);
 }
 
-function openAIComputerDialectForConnection(
-  connection: LlmConnection,
-): 'ga' | 'preview' | undefined {
-  const dialect = connection.extras?.computerUseDialect;
-  if (connection.providerType !== 'openai') return undefined;
-  if (dialect === 'openai-ga') return 'ga';
-  if (dialect === 'openai-preview') return 'preview';
-  return undefined;
-}
-
 backends.register('ai-sdk', async (ctx) => {
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
   const providerComputerTools = computerUseToolsForConnection(connection);
-  const openAIComputerDialect = openAIComputerDialectForConnection(connection);
-  if (openAIComputerDialect) {
-    const computerTool = computerUseTools[0];
-    if (!computerTool) throw new Error('OpenAI Computer Use requires a computer backend');
-    const actionCounts = new Map<string, number>();
-    return new OpenAIComputerBackend({
-      sessionId: ctx.sessionId,
-      header: { ...ctx.header, model },
-      connection,
-      modelId: model,
-      dialect: openAIComputerDialect,
-      transport: createOpenAIResponsesTransport({
-        baseUrl: connection.baseUrl ?? 'http://127.0.0.1:8538/v1',
-        ...(apiKey ? { apiKey } : {}),
-      }),
-      computerTool: isOpenAIComputerUseRealE2e
-        ? openAIRealE2eComputerTool(computerTool)
-        : computerTool,
-      appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
-      permissionEngine,
-      ...(isOpenAIComputerUseRealE2e
-        ? {
-            maxTurns: 16,
-            observeTurn: (observation) => {
-              const plans = openAIComputerPlansBySession.get(ctx.sessionId) ?? [];
-              plans.push(observation);
-              openAIComputerPlansBySession.set(ctx.sessionId, plans);
-            },
-            allowAction: (action) => {
-              const scenario = layeredComputerUseScenario;
-              if (!scenario) return true;
-              if (!scenario.allowedActions.includes(action.type)) return false;
-              const count = (actionCounts.get(action.type) ?? 0) + 1;
-              actionCounts.set(action.type, count);
-              const maximum = scenario.maxActionCounts?.[action.type];
-              return maximum === undefined || count <= maximum;
-            },
-          }
-        : {}),
-      recordToolInvocation: (event) =>
-        recordToolInvocation({ repo: telemetryRepo }, event),
-    });
-  }
+  const guardedComputerTools = isOpenAIComputerUseRealE2e
+    ? providerComputerTools.map(realE2eMakaComputerTool)
+    : providerComputerTools;
   const runtimeTools = isComputerUseRealE2e
-    ? providerComputerTools
+    ? guardedComputerTools
     : [...(ctx.tools ?? builtinTools)].flatMap((tool) =>
-        tool.name === 'computer' ? providerComputerTools : [tool]
+        tool.name === 'computer' || tool.name === 'maka_computer'
+          ? guardedComputerTools
+          : [tool]
       );
   const runtimeToolAvailability: ToolAvailabilityConfig = isComputerUseRealE2e
     ? {
@@ -2468,6 +2378,7 @@ async function maybeRunComputerUseE2e(): Promise<void> {
       const toolStarts = new Map<string, { at: number; name: string }>();
       let fixtureState: unknown;
       let cuActions = 0;
+      let terminalFailure: string | undefined;
       for await (const event of iterator) {
         safeSendToRenderer(`sessions:event:${session.id}`, event);
         const e = event as {
@@ -2479,6 +2390,8 @@ async function maybeRunComputerUseE2e(): Promise<void> {
           args?: unknown;
           content?: unknown;
           durationMs?: number;
+          message?: string;
+          reason?: string;
         };
         if (e.type === 'permission_request' && e.requestId) {
           await runtime.respondToPermission(session.id, { requestId: e.requestId, decision: 'allow', rememberForTurn: true });
@@ -2486,7 +2399,7 @@ async function maybeRunComputerUseE2e(): Promise<void> {
           const now = Date.now();
           const name = String(e.name ?? e.toolName ?? '?');
           toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
-          if (name === 'computer') cuActions++;
+          if (name === 'maka_computer') cuActions++;
           if (e.toolUseId) toolStarts.set(e.toolUseId, { at: now, name });
           metrics.push({
             toolUseId: e.toolUseId,
@@ -2508,8 +2421,12 @@ async function maybeRunComputerUseE2e(): Promise<void> {
           console.log(`${tag} tool_result tool=${e.toolName ?? 'unknown'}`);
         } else if (e.type === 'complete' || e.type === 'error' || e.type === 'abort') {
           console.log(`${tag} turn ${e.type}`);
+          if (e.type === 'error' || e.type === 'abort') {
+            terminalFailure = e.message ?? e.reason ?? e.type;
+          }
         }
       }
+      if (terminalFailure) throw new Error(`model turn failed: ${terminalFailure}`);
       if (layeredComputerUseFixture) {
         const state = await layeredComputerUseFixture.readAllStates();
         fixtureState = state;
@@ -2555,7 +2472,7 @@ async function maybeRunComputerUseE2e(): Promise<void> {
         turnLatencyMs: Date.now() - turnStartedAt,
         actions: metrics,
         fixtureState,
-        modelPlans: sanitizeOpenAIComputerPlans(openAIComputerPlansBySession.get(session.id) ?? []),
+        modelPlans: [],
       };
       console.log(`${tag} metrics ${JSON.stringify(metricReport)}`);
       const reportPath = process.env.MAKA_CU_REAL_E2E_REPORT;
@@ -2567,9 +2484,8 @@ async function maybeRunComputerUseE2e(): Promise<void> {
       }
       computerUseOverlay.clearForSession(session.id);
       computerUse.backend?.clearSession?.(session.id);
-      openAIComputerPlansBySession.delete(session.id);
       const toolsStr = [...toolCounts.entries()].map(([n, c]) => `${n}×${c}`).join(', ') || 'none';
-      summary.push(`${i + 1}. computer×${cuActions} | all: ${toolsStr}`);
+      summary.push(`${i + 1}. maka_computer×${cuActions} | all: ${toolsStr}`);
     } catch (error) {
       console.error(`${tag} FAILED:`, error);
       summary.push(`${i + 1}. FAILED: ${(error as Error).message}`);

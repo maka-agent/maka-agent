@@ -70,6 +70,7 @@ export interface MakaTool<P = any, R = unknown> {
   providerBinding?: {
     kind: 'computer';
     environment: 'desktop';
+    wireMode?: 'function' | 'provider-native';
     resolveDisplay: () => { widthPx: number; heightPx: number };
   };
   /** Optional trusted facts about the executor that runs this tool. */

@@ -31,6 +31,9 @@ export interface CuaSnapshotElement {
   element_index?: unknown;
   element_token?: unknown;
   role?: unknown;
+  label?: unknown;
+  title?: unknown;
+  description?: unknown;
   value?: unknown;
   depth?: unknown;
   frame?: unknown;
@@ -130,10 +133,11 @@ export function windowPointFromSnapshot(input: {
   };
 }
 
-function normalizedElement(element: CuaSnapshotElement): {
+export function normalizeCuaSnapshotElement(element: CuaSnapshotElement): {
   element_index: number;
   element_token?: string;
   role: string;
+  label?: string;
   value?: string;
   depth: number;
   frame: { x: number; y: number; w: number; h: number };
@@ -151,6 +155,13 @@ function normalizedElement(element: CuaSnapshotElement): {
     element_index: element.element_index,
     ...(typeof element.element_token === 'string' ? { element_token: element.element_token } : {}),
     role: typeof element.role === 'string' ? element.role : '',
+    ...(typeof element.label === 'string'
+      ? { label: element.label }
+      : typeof element.title === 'string'
+        ? { label: element.title }
+        : typeof element.description === 'string'
+          ? { label: element.description }
+          : {}),
     ...(typeof element.value === 'string' ? { value: element.value } : {}),
     depth: typeof element.depth === 'number' ? element.depth : 0,
     frame: { x: frame.x, y: frame.y, w: frame.w, h: frame.h },
@@ -160,10 +171,10 @@ function normalizedElement(element: CuaSnapshotElement): {
 function elementsContaining(
   elements: readonly CuaSnapshotElement[],
   point: CuPoint,
-): Array<NonNullable<ReturnType<typeof normalizedElement>>> {
+): Array<NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>> {
   return elements
     .flatMap((element) => {
-      const normalized = normalizedElement(element);
+      const normalized = normalizeCuaSnapshotElement(element);
       if (!normalized) return [];
       const { frame } = normalized;
       const inside = point.x >= frame.x
@@ -181,7 +192,7 @@ function elementsContaining(
 export function elementAtScreenPoint(
   elements: readonly CuaSnapshotElement[],
   point: CuPoint,
-): ReturnType<typeof normalizedElement> {
+): ReturnType<typeof normalizeCuaSnapshotElement> {
   return elementsContaining(elements, point).find((element) => CLICKABLE_ROLES.has(element.role));
 }
 
@@ -208,6 +219,6 @@ const EDITABLE_ROLES = new Set([
 export function editableElementAtScreenPoint(
   elements: readonly CuaSnapshotElement[],
   point: CuPoint,
-): ReturnType<typeof normalizedElement> {
+): ReturnType<typeof normalizeCuaSnapshotElement> {
   return elementsContaining(elements, point).find((element) => EDITABLE_ROLES.has(element.role));
 }

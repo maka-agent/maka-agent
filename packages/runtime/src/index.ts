@@ -127,10 +127,14 @@ export {
 } from './openai-responses-transport.js';
 export type { OpenAIResponsesTransportOptions } from './openai-responses-transport.js';
 export type {
+  CuAppSummary,
   CuDispatchBackend,
+  CuObservation,
+  CuObservedElement,
   CuScreenshot,
   CuRunContext,
   CuRunResult,
+  CuSemanticAction,
   CuOverlayHook,
   CuOverlayHookContext,
 } from './computer-use-tools.js';

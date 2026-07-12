@@ -4,10 +4,42 @@
 
 Provider model loops and host execution are separate contracts.
 
-Provider-native Computer Use selection is explicit. An OpenAI connection must
-declare `extras.computerUseDialect` as `openai-ga` or `openai-preview`; Maka
-does not infer support from a model-name regex or from generic vision/function
-calling capability.
+The default model-facing surface is the provider-neutral `maka_computer`
+function tool. Claude, GPT, Kimi, and MiniMax receive the same schema through
+their normal function-calling transport. Provider-native Computer Use tools are
+compatibility implementations, not the desktop mainline.
+
+## Maka Sky Contract
+
+The first shared surface follows the observed Sky lifecycle:
+
+```text
+list_apps
+  -> observe(app, window_id, include_screenshot)
+  -> click_element / set_value
+  -> settle in the host executor
+  -> fresh observation
+```
+
+An element action must reference the `observation_id` and `element_id` returned
+by `observe`. Observation identities are session/turn scoped and one-shot:
+replay, cross-turn use, or an unknown element fails closed.
+
+Coordinate actions remain temporarily available for compatibility, but the
+semantic path is preferred. The backend PR strengthens observation identity
+with persistent Window/frame binding; the provider-neutral tool schema remains
+unchanged when that lands.
+
+The production Sky behavior fixtures establish two important rules:
+
+- an AX diff reports accessibility/focus changes, not arbitrary application
+  business-state effects, so it is not the sole success oracle;
+- every normal step starts from a fresh full observation, performs one action,
+  settles, and obtains fresh state before continuing.
+
+User intervention, stale elements, ambiguous apps, blocked URLs, and screen
+locking therefore move the harness into a re-observe or terminal state rather
+than permitting a best-effort action.
 
 Provider harnesses own:
 

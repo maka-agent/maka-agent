@@ -29,7 +29,15 @@ import {
   type CuAction,
   exceedsComputerUseFrameCap,
 } from '@maka/core';
-import type { CuDispatchBackend, CuRunContext, CuRunResult, CuScreenshot } from '@maka/runtime';
+import type {
+  CuAppSummary,
+  CuDispatchBackend,
+  CuObservation,
+  CuRunContext,
+  CuRunResult,
+  CuScreenshot,
+  CuSemanticAction,
+} from '@maka/runtime';
 import { normalizeCuaDriverOutcome } from './cua-driver-result.js';
 import {
   CUA_INSPECT_PREPARED_ELEMENT_SCRIPT,
@@ -45,10 +53,12 @@ import {
 import {
   editableElementAtScreenPoint,
   elementAtScreenPoint,
+  normalizeCuaSnapshotElement,
   resolveWindowAtDeclaredPoint,
   windowPointFromSnapshot,
   type CuaResolvedWindow,
   type CuaSnapshotElement,
+  type CuaWindowRecord,
 } from './cua-driver-snapshot.js';
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -468,6 +478,13 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   }
   const targetsBySession = new Map<string, { turnId: string; target: KeyboardTarget }>();
   const sessionGenerations = new Map<string, number>();
+  interface StoredObservation {
+    context: Pick<CuRunContext, 'sessionId' | 'turnId'>;
+    appId: string;
+    window: CuaResolvedWindow;
+    elements: Map<string, NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>>;
+  }
+  const observations = new Map<string, StoredObservation>();
   let operationQueue = Promise.resolve();
   let disposed = false;
 
@@ -577,6 +594,164 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       screenshotWidthPx: Number(structured.screenshot_width),
       screenshotHeightPx: Number(structured.screenshot_height),
       windowPoint,
+    };
+  }
+
+  async function listWindowRecords(signal: AbortSignal): Promise<CuaWindowRecord[]> {
+    const result = await actionClient.callTool('list_windows', {}, signal);
+    return (result?.structuredContent?.windows ?? []) as CuaWindowRecord[];
+  }
+
+  function appIdForWindow(window: CuaWindowRecord): string | undefined {
+    return typeof window.app_name === 'string' && window.app_name.trim()
+      ? window.app_name.trim()
+      : typeof window.pid === 'number'
+        ? `pid:${window.pid}`
+        : undefined;
+  }
+
+  function resolveObservedWindow(
+    windows: readonly CuaWindowRecord[],
+    app: string | undefined,
+    windowId?: number,
+  ): CuaResolvedWindow {
+    const eligible = windows.flatMap((window) => {
+      if (
+        window.layer !== 0
+        || window.is_on_screen === false
+        || typeof window.pid !== 'number'
+        || typeof window.window_id !== 'number'
+        || !window.bounds
+        || typeof window.bounds !== 'object'
+      ) return [];
+      const bounds = window.bounds as Record<string, unknown>;
+      if (
+        typeof bounds.x !== 'number'
+        || typeof bounds.y !== 'number'
+        || typeof bounds.width !== 'number'
+        || typeof bounds.height !== 'number'
+        || bounds.width <= 0
+        || bounds.height <= 0
+      ) return [];
+      const appId = appIdForWindow(window);
+      const title = typeof window.title === 'string' ? window.title : undefined;
+      if (
+        windowId !== undefined
+        && window.window_id !== windowId
+      ) return [];
+      if (
+        app
+        && app !== appId
+        && app !== `pid:${window.pid}`
+        && app !== title
+      ) return [];
+      return [{
+        pid: window.pid,
+        windowId: window.window_id,
+        ...(appId ? { appName: appId } : {}),
+        ...(title ? { title } : {}),
+        bounds: {
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+        },
+        screenPoint: {
+          x: bounds.x + bounds.width / 2,
+          y: bounds.y + bounds.height / 2,
+        },
+        zIndex: Number(window.z_index) || 0,
+      }];
+    }).sort((a, b) => b.zIndex - a.zIndex);
+    if (eligible.length === 0) throw new Error(`invalidApp: no visible window matched ${app ?? windowId ?? 'the current desktop'}`);
+    if (windowId === undefined && app && eligible.length > 1) {
+      throw new Error(`ambiguousApp: ${app} matched ${eligible.length} visible windows`);
+    }
+    const winner = eligible[0]!;
+    return {
+      pid: winner.pid,
+      windowId: winner.windowId,
+      ...(winner.appName ? { appName: winner.appName } : {}),
+      ...(winner.title ? { title: winner.title } : {}),
+      bounds: winner.bounds,
+      screenPoint: winner.screenPoint,
+    };
+  }
+
+  async function observeWindow(
+    input: { app?: string; windowId?: number; includeScreenshot: boolean },
+    signal: AbortSignal,
+    context: CuRunContext,
+  ): Promise<CuObservation> {
+    const window = resolveObservedWindow(
+      await listWindowRecords(signal),
+      input.app,
+      input.windowId,
+    );
+    return observeResolvedWindow(window, input.includeScreenshot, signal, context);
+  }
+
+  async function observeResolvedWindow(
+    window: CuaResolvedWindow,
+    includeScreenshot: boolean,
+    signal: AbortSignal,
+    context: CuRunContext,
+  ): Promise<CuObservation> {
+    const state = await actionClient.callTool('get_window_state', {
+      pid: window.pid,
+      window_id: window.windowId,
+      include_screenshot: includeScreenshot,
+      max_elements: 500,
+      max_depth: 25,
+    }, signal);
+    const outcome = normalizeCuaDriverOutcome(state);
+    if (!outcome.ok) throw new Error(outcome.message);
+    const structured = state?.structuredContent ?? {};
+    const elements = new Map<string, NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>>();
+    for (const candidate of (structured.elements ?? []) as CuaSnapshotElement[]) {
+      const element = normalizeCuaSnapshotElement(candidate);
+      if (!element) continue;
+      const elementId = String(element.element_index);
+      elements.set(elementId, element);
+    }
+    const observationId = randomUUID();
+    const appId = window.appName ?? `pid:${window.pid}`;
+    observations.set(observationId, {
+      context: { sessionId: context.sessionId, turnId: context.turnId },
+      appId,
+      window,
+      elements,
+    });
+    const image = includeScreenshot
+      ? state?.content?.find((content) => content.type === 'image' && typeof content.data === 'string')
+      : undefined;
+    const screenshot = image?.data
+      ? {
+          base64: image.data,
+          mimeType: image.mimeType === 'image/png' ? 'image/png' as const : 'image/jpeg' as const,
+          widthPx: Number(structured.screenshot_width) || 0,
+          heightPx: Number(structured.screenshot_height) || 0,
+        }
+      : undefined;
+    return {
+      observationId,
+      appId,
+      pid: window.pid,
+      windowId: window.windowId,
+      ...(window.title ? { windowTitle: window.title } : {}),
+      elements: [...elements].map(([elementId, element]) => ({
+        elementId,
+        role: element.role,
+        ...(element.label ? { label: element.label } : {}),
+        ...(element.value !== undefined ? { value: element.value } : {}),
+        frame: {
+          x: element.frame.x,
+          y: element.frame.y,
+          width: element.frame.w,
+          height: element.frame.h,
+        },
+      })),
+      ...(screenshot ? { screenshot } : {}),
     };
   }
 
@@ -887,6 +1062,92 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   }
 
   return {
+    async listApps(signal) {
+      return withOperationQueue(signal, async (): Promise<CuAppSummary[]> => {
+        const windows = await listWindowRecords(signal);
+        const apps = new Map<string, CuAppSummary>();
+        for (const window of windows) {
+          if (
+            window.layer !== 0
+            || window.is_on_screen === false
+            || typeof window.pid !== 'number'
+            || typeof window.window_id !== 'number'
+          ) continue;
+          const appId = appIdForWindow(window) ?? `pid:${window.pid}`;
+          const current = apps.get(appId);
+          if (current) {
+            current.windowCount += 1;
+            current.windows?.push({
+              windowId: window.window_id,
+              ...(typeof window.title === 'string' ? { title: window.title } : {}),
+            });
+          }
+          else apps.set(appId, {
+            appId,
+            pid: window.pid,
+            ...(typeof window.app_name === 'string' ? { name: window.app_name } : {}),
+            windowCount: 1,
+            windows: [{
+              windowId: window.window_id,
+              ...(typeof window.title === 'string' ? { title: window.title } : {}),
+            }],
+          });
+        }
+        return [...apps.values()];
+      });
+    },
+
+    async observeApp(input, signal, context) {
+      return withOperationQueue(signal, () => observeWindow(input, signal, context));
+    },
+
+    async runSemantic(action: CuSemanticAction, signal, context) {
+      return withOperationQueue(signal, async () => {
+        const observation = observations.get(action.observationId);
+        observations.delete(action.observationId);
+        if (!observation) {
+          return { outcome: { ok: false, error: 'unsupported_action', message: 'stale_frame: observation is missing or already consumed' } };
+        }
+        if (
+          observation.context.sessionId !== context.sessionId
+          || observation.context.turnId !== context.turnId
+        ) {
+          return { outcome: { ok: false, error: 'unsupported_action', message: 'stale_frame: observation belongs to another session or turn' } };
+        }
+        const element = observation.elements.get(action.elementId);
+        if (!element) {
+          return { outcome: { ok: false, error: 'unsupported_action', message: 'stale_element: element is not part of the observation' } };
+        }
+        const args = {
+          pid: observation.window.pid,
+          window_id: observation.window.windowId,
+          element_index: element.element_index,
+          ...(element.element_token ? { element_token: element.element_token } : {}),
+        };
+        const result = action.type === 'click_element'
+          ? await actionClient.callTool('click', args, signal)
+          : action.type === 'set_value'
+            ? await actionClient.callTool('set_value', { ...args, value: action.value }, signal)
+            : undefined;
+        if (!result) {
+          return { outcome: { ok: false, error: 'unsupported_action', message: `semantic action '${action.type}' is not supported by cua-driver` } };
+        }
+        const outcome = normalizeCuaDriverOutcome(result);
+        if (!outcome.ok) return { outcome };
+        const fresh = await observeResolvedWindow(
+          observation.window,
+          true,
+          signal,
+          context,
+        );
+        return {
+          outcome,
+          observation: fresh,
+          ...(fresh.screenshot ? { screenshot: fresh.screenshot } : {}),
+        };
+      });
+    },
+
     async inspectWindowAt(point, signal) {
       return withOperationQueue(
         signal,
@@ -1411,6 +1672,9 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
 
     clearSession(sessionId) {
       targetsBySession.delete(sessionId);
+      for (const [id, observation] of observations) {
+        if (observation.context.sessionId === sessionId) observations.delete(id);
+      }
       sessionGenerations.set(sessionId, (sessionGenerations.get(sessionId) ?? 0) + 1);
     },
 
@@ -1418,6 +1682,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       if (disposed) return;
       disposed = true;
       targetsBySession.clear();
+      observations.clear();
       sessionGenerations.clear();
       actionClient.dispose();
       captureClient.dispose();

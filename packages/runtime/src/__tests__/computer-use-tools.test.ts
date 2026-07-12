@@ -95,10 +95,19 @@ describe('adaptToCuAction — flat Anthropic grammar → discriminated CuAction'
     const schema = tool.parameters as {
       safeParse(value: unknown): { success: boolean };
     };
-    assert.equal(schema.safeParse({ action: 'screenshot', coordinate: [1, 2] }).success, false);
+    assert.equal(schema.safeParse({ action: 'screenshot', coordinate: [1, 2] }).success, true);
     assert.equal(schema.safeParse({ action: 'left_click', coordinate: [-1, 2] }).success, false);
     assert.equal(schema.safeParse({ action: 'left_click', coordinate: [1.5, 2] }).success, false);
     assert.equal(schema.safeParse({ action: 'left_click', coordinate: [1, 2] }).success, true);
+  });
+
+  test('runtime strict parsing rejects fields that are irrelevant to the selected action', async () => {
+    const [tool] = buildComputerUseTools({ backend: fakeBackend() });
+    await assert.rejects(
+      () => Promise.resolve(
+        tool.impl({ action: 'screenshot', coordinate: [1, 2] } as never, ctx()),
+      ),
+    );
   });
 });
 
@@ -128,10 +137,10 @@ test('computer params reject accessors before policy or execution', () => {
   );
 });
 
-describe('buildComputerUseTools — the `computer` MakaTool', () => {
-  test('is named "computer" (the name Anthropic\'s model emits) in the computer_use category', () => {
+describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
+  test('uses the Maka-owned function name in the computer_use category', () => {
     const [tool] = buildComputerUseTools({ backend: fakeBackend() });
-    assert.equal(tool.name, 'computer');
+    assert.equal(tool.name, 'maka_computer');
     assert.equal(tool.categoryHint, 'computer_use');
     assert.ok(tool.parameters, 'carries a zod parameter schema');
   });
@@ -147,10 +156,69 @@ describe('buildComputerUseTools — the `computer` MakaTool', () => {
     });
     assert.equal(tool.providerBinding?.kind, 'computer');
     assert.equal(tool.providerBinding?.environment, 'desktop');
+    assert.equal(tool.providerBinding?.wireMode, 'function');
     assert.deepEqual(tool.providerBinding?.resolveDisplay(), {
       widthPx: 1920,
       heightPx: 1200,
     });
+  });
+
+  test('list_apps and observe expose one provider-neutral Sky-like surface', async () => {
+    const backend = fakeBackend() as CuDispatchBackend & {
+      listApps: NonNullable<CuDispatchBackend['listApps']>;
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+    };
+    backend.listApps = async () => [{
+      appId: 'Fixture',
+      pid: 42,
+      name: 'Fixture',
+      windowCount: 1,
+      windows: [{ windowId: 7, title: 'Fixture Window' }],
+    }];
+    backend.observeApp = async () => ({
+      observationId: 'obs-1',
+      appId: 'Fixture',
+      pid: 42,
+      windowId: 7,
+      windowTitle: 'Fixture Window',
+      elements: [{
+        elementId: '5',
+        role: 'AXButton',
+        label: 'Continue',
+      }],
+      screenshot: {
+        base64: 'AA==',
+        mimeType: 'image/png',
+        widthPx: 100,
+        heightPx: 80,
+      },
+    });
+    const [tool] = buildComputerUseTools({ backend });
+
+    const apps = await tool.impl({ action: 'list_apps' } as never, ctx()) as { text: string };
+    assert.deepEqual(JSON.parse(apps.text), {
+      apps: [{
+        app_id: 'Fixture',
+        pid: 42,
+        name: 'Fixture',
+        window_count: 1,
+        windows: [{ window_id: 7, title: 'Fixture Window' }],
+      }],
+    });
+    const observation = await tool.impl({
+      action: 'observe',
+      app: 'Fixture',
+      window_id: 7,
+    } as never, ctx()) as { text: string; screenshot?: unknown };
+    assert.deepEqual(JSON.parse(observation.text), {
+      observation_id: 'obs-1',
+      app: 'Fixture',
+      pid: 42,
+      window_id: 7,
+      window_title: 'Fixture Window',
+      elements: [{ element_id: '5', role: 'AXButton', label: 'Continue' }],
+    });
+    assert.ok(observation.screenshot);
   });
 
   test('fails closed when the captured frame disagrees with the declared display', async () => {

@@ -172,7 +172,7 @@ function handle(msg) {
         // and the eligibility filter (93 is layer!=0, 94 is off-screen → both excluded
         // despite the highest z / covering the point).
         reply(id, { content: [], structuredContent: { windows: [
-          { window_id: 77, pid: 4242, layer: 0, is_on_screen: true, z_index: 5, bounds: { x: 100, y: 100, width: 600, height: 400 } },
+          { window_id: 77, pid: 4242, app_name: 'Fixture', title: 'Fixture Window', layer: 0, is_on_screen: true, z_index: 5, bounds: { x: 100, y: 100, width: 600, height: 400 } },
           { window_id: 88, pid: 4242, layer: 0, is_on_screen: true, z_index: 3, bounds: { x: 100, y: 600, width: 300, height: 300 } },
           { window_id: 91, pid: 5001, layer: 0, is_on_screen: true, z_index: 2, bounds: { x: 900, y: 100, width: 400, height: 300 } },
           { window_id: 92, pid: 5002, layer: 0, is_on_screen: true, z_index: 9, bounds: { x: 950, y: 150, width: 300, height: 200 } },
@@ -351,6 +351,9 @@ function makeBackend(opts: {
   });
   const backend: TestBackend = {
     preflight: (signal) => rawBackend.preflight(signal),
+    listApps: (signal) => rawBackend.listApps!(signal),
+    observeApp: (input, signal, context) => rawBackend.observeApp!(input, signal, context),
+    runSemantic: (action, signal, context) => rawBackend.runSemantic!(action, signal, context),
     inspectWindowAt: (point, signal) => rawBackend.inspectWindowAt(point, signal),
     run: (action, signal, context = DEFAULT_RUN_CONTEXT) => rawBackend.run(action, signal, context),
     clearSession: (sessionId) => rawBackend.clearSession(sessionId),
@@ -466,6 +469,105 @@ describe('cua-driver backend', () => {
     assert.equal(res.screenshot!.heightPx, 900);
     assert.ok(res.screenshot!.base64.length > 0);
     assert.ok(Buffer.from(res.screenshot!.base64, 'base64').byteLength > 0);
+  });
+
+  it('lists apps and observes a unique app window with indexed AX elements', async () => {
+    const { backend } = makeBackend({ axRole: 'AXButton' });
+    const signal = new AbortController().signal;
+    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'observe' };
+
+    const apps = await backend.listApps?.(signal);
+    assert.deepEqual(apps?.find((app) => app.appId === 'Fixture'), {
+      appId: 'Fixture',
+      pid: 4242,
+      name: 'Fixture',
+      windowCount: 1,
+      windows: [{ windowId: 77, title: 'Fixture Window' }],
+    });
+    const observation = await backend.observeApp?.({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, signal, context);
+
+    assert.ok(observation?.observationId);
+    assert.equal(observation?.appId, 'Fixture');
+    assert.equal(observation?.windowId, 77);
+    assert.deepEqual(observation?.elements, [{
+      elementId: '7',
+      role: 'AXButton',
+      value: '',
+      frame: { x: 250, y: 150, width: 200, height: 120 },
+    }]);
+    assert.equal(observation?.screenshot?.mimeType, 'image/png');
+  });
+
+  it('executes an observed element once and returns a fresh observation', async () => {
+    const { backend, logPath } = makeBackend({ axRole: 'AXButton' });
+    const signal = new AbortController().signal;
+    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
+    const observation = await backend.observeApp?.({
+      app: 'Fixture Window',
+      includeScreenshot: false,
+    }, signal, context);
+    assert.ok(observation);
+
+    const result = await backend.runSemantic?.({
+      type: 'click_element',
+      observationId: observation!.observationId,
+      elementId: '7',
+    }, signal, context);
+    assert.equal(result?.outcome.ok, true);
+    assert.ok(result?.observation?.observationId);
+    assert.notEqual(result?.observation?.observationId, observation!.observationId);
+    assert.equal(result?.observation?.windowId, 77);
+
+    const click = toolCall(await readRecords(logPath), 'click');
+    assert.equal(click?.pid, 4242);
+    assert.equal(click?.window_id, 77);
+    assert.equal(click?.element_index, 7);
+    assert.equal(click?.element_token, 'snapshot:7');
+
+    const replay = await backend.runSemantic?.({
+      type: 'click_element',
+      observationId: observation!.observationId,
+      elementId: '7',
+    }, signal, context);
+    assert.equal(replay?.outcome.ok, false);
+    assert.match(replay?.outcome.ok === false ? replay.outcome.message : '', /stale_frame/);
+  });
+
+  it('window_id disambiguates multiple visible windows from the same app', async () => {
+    const { backend } = makeBackend({ axRole: 'AXButton' });
+    const observation = await backend.observeApp?.({
+      app: 'pid:4242',
+      windowId: 88,
+      includeScreenshot: false,
+    }, new AbortController().signal, {
+      sessionId: 's1',
+      turnId: 't1',
+      toolCallId: 'observe-window',
+    });
+    assert.equal(observation?.windowId, 88);
+  });
+
+  it('rejects observations from another turn before dispatch', async () => {
+    const { backend, logPath } = makeBackend({ axRole: 'AXButton' });
+    const signal = new AbortController().signal;
+    const observation = await backend.observeApp?.({
+      app: 'Fixture Window',
+      includeScreenshot: false,
+    }, signal, { sessionId: 's1', turnId: 't1', toolCallId: 'observe' });
+    assert.ok(observation);
+
+    const result = await backend.runSemantic?.({
+      type: 'set_value',
+      observationId: observation!.observationId,
+      elementId: '7',
+      value: 'hello',
+    }, signal, { sessionId: 's1', turnId: 't2', toolCallId: 'act' });
+    assert.equal(result?.outcome.ok, false);
+    assert.match(result?.outcome.ok === false ? result.outcome.message : '', /another session or turn/);
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 0);
   });
 
   it('large frame → compressFrame applied (JPEG); small frame → untouched (PNG)', async () => {

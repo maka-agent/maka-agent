@@ -25,8 +25,8 @@ test('real computer-use E2E owns a screenshot-visible fixture and verifies its e
   assert.match(source, /layeredComputerUseFixture\.evaluate\(state\)/);
 });
 
-test('real computer-use E2E exposes only load_tools and computer to the model', () => {
-  assert.match(source, /const runtimeTools = isComputerUseRealE2e\s*\?\s*providerComputerTools/);
+test('real computer-use E2E exposes only load_tools and maka_computer to the model', () => {
+  assert.match(source, /const runtimeTools = isComputerUseRealE2e\s*\?\s*guardedComputerTools/);
   assert.match(source, /const runtimeToolAvailability:[\s\S]*isComputerUseRealE2e[\s\S]*id: 'computer_use'/);
   assert.match(source, /tools: runtimeTools/);
   assert.match(source, /toolAvailability: runtimeToolAvailability/);
@@ -44,13 +44,11 @@ test('real model launcher enables loopback CDP for exact Electron page targeting
   assert.match(source, /evidenceClass: 'real-runtime'/);
 });
 
-test('providers without a completed native harness do not receive generic desktop computer tools', () => {
-  assert.match(source, /case 'moonshot':[\s\S]*case 'openai':[\s\S]*case 'codex-subscription':[\s\S]*case 'google':[\s\S]*return \[\]/);
-});
-
-test('OpenAI native computer use is selected by explicit connection capability, not model-name guessing', () => {
-  assert.match(source, /connection\.extras\?\.computerUseDialect/);
-  assert.match(source, /dialect === 'openai-ga'/);
-  assert.match(source, /if \(openAIComputerDialect\)/);
-  assert.doesNotMatch(source, /model\.startsWith\(['"]gpt-/);
+test('all providers share the Maka Computer function harness', () => {
+  assert.match(source, /const makaComputerTools = computerUse\.createTools\(makaComputerHarness\)/);
+  assert.match(source, /function computerUseToolsForConnection\(_connection: LlmConnection\): MakaTool\[\] \{\s*return makaComputerTools/);
+  assert.doesNotMatch(source, /new OpenAIComputerBackend/);
+  assert.doesNotMatch(source, /createAnthropicComputerHarness/);
+  assert.doesNotMatch(source, /createKimiComputerHarness/);
+  assert.doesNotMatch(source, /createMiniMaxComputerHarness/);
 });

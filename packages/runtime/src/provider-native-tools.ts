@@ -41,6 +41,16 @@ export function compileProviderTool(input: CompileProviderToolInput): Record<str
     throw new Error(`invalid computer display contract: ${display.widthPx}x${display.heightPx}`);
   }
 
+  if (binding.wireMode === 'function') {
+    return {
+      ...fallback,
+      description:
+        `${tool.description} The current screenshot and every coordinate use exactly `
+        + `${display.widthPx}x${display.heightPx} pixels with origin (0,0) at the screenshot top-left. `
+        + 'Do not rescale coordinates from a rendered preview.',
+    };
+  }
+
   switch (connection.providerType) {
     case 'anthropic':
     case 'claude-subscription': {

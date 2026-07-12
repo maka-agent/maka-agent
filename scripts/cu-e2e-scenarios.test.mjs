@@ -25,8 +25,8 @@ test('L4 and L5 use dedicated non-mutating runners', () => {
   const l5 = getCuE2eScenario('l5-provider-matrix');
   assert.equal(l4.runner, 'safety-sentinel');
   assert.equal(l5.runner, 'provider-matrix');
-  assert.deepEqual(l4.allowedActions, ['screenshot', 'wait']);
-  assert.deepEqual(l5.allowedActions, ['screenshot']);
+  assert.deepEqual(l4.allowedActions, ['observe', 'screenshot', 'wait']);
+  assert.deepEqual(l5.allowedActions, ['observe']);
 });
 
 test('every scenario carries prompt, fixture, expected state, forbidden effects, and bounded actions', () => {
@@ -36,7 +36,10 @@ test('every scenario carries prompt, fixture, expected state, forbidden effects,
     assert.ok(scenario.fixtureSetup.windows.length > 0, scenario.id);
     assert.ok(scenario.expectedState.length > 0, scenario.id);
     assert.ok(scenario.forbiddenEffects.length > 0, scenario.id);
-    assert.ok(scenario.allowedActions.includes('screenshot'), scenario.id);
+    assert.ok(
+      scenario.allowedActions.includes('screenshot') || scenario.allowedActions.includes('observe'),
+      scenario.id,
+    );
     assert.ok(scenario.allowedActions.every((action) => knownActions.has(action)), scenario.id);
     assert.equal(typeof scenario.realRunEnabled, 'boolean', scenario.id);
     assert.ok(Array.isArray(scenario.requiresExecutionCapabilities), scenario.id);
@@ -44,8 +47,9 @@ test('every scenario carries prompt, fixture, expected state, forbidden effects,
 });
 
 test('layer action budgets increase deliberately', () => {
-  assert.deepEqual(getCuE2eScenario('l0-observe-only').allowedActions, ['screenshot', 'wait']);
+  assert.deepEqual(getCuE2eScenario('l0-observe-only').allowedActions, ['list_apps', 'observe', 'wait']);
   assert.ok(getCuE2eScenario('l1-single-click').allowedActions.includes('left_click'));
+  assert.ok(getCuE2eScenario('l1-single-click').allowedActions.includes('click_element'));
 
   const multi = getCuE2eScenario('l2-multi-control');
   assert.ok(multi.allowedActions.includes('scroll'));

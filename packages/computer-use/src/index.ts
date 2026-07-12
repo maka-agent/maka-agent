@@ -29,6 +29,7 @@ export {
 export {
   editableElementAtScreenPoint,
   elementAtScreenPoint,
+  normalizeCuaSnapshotElement,
   resolveWindowAtDeclaredPoint,
   windowPointFromSnapshot,
 } from './cua-driver-snapshot.js';
