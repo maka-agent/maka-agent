@@ -626,7 +626,7 @@ export const Composer = forwardRef<
                   void props.onPermissionModeChange?.(mode);
                 }}
                 align="start"
-                disabled={props.permissionModePending === true || Boolean(props.permissionModeDisabledReason)}
+                disabled={props.disabled || props.permissionModePending === true || Boolean(props.permissionModeDisabledReason)}
                 disabledReason={props.permissionModeDisabledReason}
               />
             ) : null}
