@@ -721,6 +721,8 @@ export {
   MAX_SKILL_TOOL_BODY_CHARS,
   MAX_SKILLS_PROMPT_CHARS,
   scanWorkspaceSkills,
+  scanSkills,
+  resolveSkillDiscoveryPaths,
   buildSkillsPromptFragment,
   loadSkillInstructions,
   buildSkillAgentTool,
@@ -745,4 +747,5 @@ export type {
   LoadedSkillInstructions,
   LoadSkillInstructionsResult,
   SkillRuntimeStateReadResult,
+  SkillSource,
 } from './skills.js';

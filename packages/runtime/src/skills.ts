@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { homedir } from 'node:os';
 import { lstat, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative } from 'node:path';
 import { z } from 'zod';
@@ -103,6 +104,44 @@ export type SkillRuntimeStateReadResult =
   | { ok: true; states: Map<string, boolean> }
   | { ok: false; reason: 'blocked_path' | 'read_failed' | 'invalid_json' };
 
+/**
+ * Skill source accepted by the multi-path scanning functions. A bare string is
+ * a workspace root scanned at `{root}/skills/` (backward-compatible with
+ * desktop). An explicit object lists skill directories in precedence order and
+ * provides a `stateRoot` for reading/writing `skills-state.json`.
+ */
+export type SkillSource = string | { dirs: string[]; stateRoot: string };
+
+/**
+ * Standard skill discovery paths per the Agent Skills spec
+ * (https://agentskills.io/client-implementation/adding-skills-support).
+ *
+ * Ordered by precedence: project-level paths win over user-level, and
+ * client-specific paths win over cross-client paths at the same scope.
+ * Collision resolution: first-found wins within the dedup pass.
+ *
+ * `{workspaceRoot}/skills/` is included for backward compatibility with
+ * existing desktop-installed skills.
+ */
+export function resolveSkillDiscoveryPaths(cwd: string, workspaceRoot: string, homeDir?: string): { dirs: string[]; stateRoot: string } {
+  const home = homeDir ?? homedir();
+  const dirs = [
+    join(cwd, '.maka', 'skills'),
+    join(cwd, '.agents', 'skills'),
+    join(workspaceRoot, 'skills'),
+    join(home, '.maka', 'skills'),
+    join(home, '.agents', 'skills'),
+  ];
+  return { dirs, stateRoot: workspaceRoot };
+}
+
+function normalizeSkillSource(source: SkillSource): { dirs: string[]; stateRoot: string } {
+  if (typeof source === 'string') {
+    return { dirs: [join(source, 'skills')], stateRoot: source };
+  }
+  return source;
+}
+
 // ── Limits ───────────────────────────────────────────────────────────────
 
 export const MAX_SKILLS_IN_PROMPT = 12;
@@ -113,20 +152,50 @@ export const MAX_SKILLS_PROMPT_CHARS = 18000;
 // ── Public API ────────────────────────────────────────────────────────────
 
 /**
+ * Scan multiple skill directories and dedupe by `id` (first-found wins).
+ * `source` can be a workspace root string (scans `{root}/skills/`) or an
+ * explicit `{ dirs, stateRoot }` for multi-path discovery.
+ */
+export async function scanSkills(source: SkillSource): Promise<ScannedSkill[]> {
+  const { dirs, stateRoot } = normalizeSkillSource(source);
+  const runtimeState = await readSkillRuntimeState(stateRoot);
+  const seen = new Set<string>();
+  const out: ScannedSkill[] = [];
+  for (const dir of dirs) {
+    const found = await scanSkillDir(dir, runtimeState);
+    for (const skill of found) {
+      if (seen.has(skill.id)) continue;
+      seen.add(skill.id);
+      out.push(skill);
+    }
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+/**
  * Scan `{workspaceRoot}/skills/` for directories that contain a SKILL.md.
  * Parse the YAML front matter for `name`, `description`, and `allowed-tools`,
  * and read per-workspace enablement state. Errors per skill fall through
  * silently so one malformed folder can't blank the listing.
+ *
+ * This is the original single-root entry point; desktop governance uses it.
+ * New call sites should prefer {@link scanSkills} with a multi-path source.
  */
 export async function scanWorkspaceSkills(root: string): Promise<ScannedSkill[]> {
-  const dir = join(root, 'skills');
+  return scanSkills(root);
+}
+
+/**
+ * Scan a single skill directory. Each immediate subdirectory containing a
+ * `SKILL.md` is parsed. Per-skill errors are swallowed so one malformed
+ * folder can't blank the listing.
+ */
+async function scanSkillDir(dir: string, runtimeState: SkillRuntimeStateReadResult): Promise<ScannedSkill[]> {
   let entries: import('node:fs').Dirent[];
-  const runtimeState = await readSkillRuntimeState(root);
   try {
-    const [rootReal, dirStat] = await Promise.all([realpath(root), lstat(dir)]);
+    const dirStat = await lstat(dir);
     if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) return [];
-    const dirReal = await realpath(dir);
-    if (!isContainedPath(rootReal, dirReal)) return [];
     entries = await readdir(dir, { withFileTypes: true });
   } catch {
     return [];
@@ -163,7 +232,6 @@ export async function scanWorkspaceSkills(root: string): Promise<ScannedSkill[]>
       // Skip directories without a readable SKILL.md.
     }
   }
-  out.sort((a, b) => a.name.localeCompare(b.name));
   return out;
 }
 
@@ -204,8 +272,8 @@ export function gateSkillsByHostCapabilities(skills: ScannedSkill[], host: HostC
   });
 }
 
-export async function buildSkillsPromptFragment(root: string, host?: HostCapabilities): Promise<string | undefined> {
-  let skills = (await scanWorkspaceSkills(root)).filter((skill) => skill.enabled);
+export async function buildSkillsPromptFragment(source: SkillSource, host?: HostCapabilities): Promise<string | undefined> {
+  let skills = (await scanSkills(source)).filter((skill) => skill.enabled);
   // Gate before MAX_SKILLS_IN_PROMPT truncation so a host lacking a required
   // tool never advertises the skill. `host === undefined` keeps the legacy
   // no-gating behavior (desktop call sites stay unchanged).
@@ -247,9 +315,9 @@ export async function buildSkillsPromptFragment(root: string, host?: HostCapabil
   return parts.join('\n');
 }
 
-export async function loadSkillInstructions(root: string, name: string, host?: HostCapabilities): Promise<LoadSkillInstructionsResult> {
+export async function loadSkillInstructions(source: SkillSource, name: string, host?: HostCapabilities): Promise<LoadSkillInstructionsResult> {
   const raw = typeof name === 'string' ? name.trim() : '';
-  const skills = await scanWorkspaceSkills(root);
+  const skills = await scanSkills(source);
   const enabledSkills = skills.filter((skill) => skill.enabled);
   // Gate eligible skills before exposing them as available or loading them.
   // `host === undefined` keeps the legacy no-gating behavior (desktop call
@@ -305,7 +373,7 @@ export async function loadSkillInstructions(root: string, name: string, host?: H
   return { ok: false, reason: 'not_found', availableSkills };
 }
 
-export function buildSkillAgentTool(root: string, host?: HostCapabilities): MakaTool<{ name: string }, LoadSkillInstructionsResult> {
+export function buildSkillAgentTool(source: SkillSource, host?: HostCapabilities): MakaTool<{ name: string }, LoadSkillInstructionsResult> {
   return {
     name: 'Skill',
     description:
@@ -315,7 +383,7 @@ export function buildSkillAgentTool(root: string, host?: HostCapabilities): Maka
     }),
     permissionRequired: false,
     displayName: 'Skill',
-    impl: async ({ name }) => loadSkillInstructions(root, name, host),
+    impl: async ({ name }) => loadSkillInstructions(source, name, host),
   };
 }
 

@@ -13,6 +13,8 @@ import {
   loadSkillInstructions,
   parseSkillFrontMatter,
   readSkillRuntimeState,
+  resolveSkillDiscoveryPaths,
+  scanSkills,
   scanWorkspaceSkills,
   writeSkillRuntimeState,
   type HostCapabilities,
@@ -480,6 +482,64 @@ Route through Office tools.`);
       assert.deepEqual(await scanWorkspaceSkills(workspaceRoot), []);
       assert.equal(await buildSkillsPromptFragment(workspaceRoot), undefined);
     });
+  });
+
+  it('scanSkills discovers skills from multiple directories and dedupes by id (first-found wins)', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const projectRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-skills-proj-'));
+      try {
+        // Write a skill in the project .agents/skills path
+        await mkdir(join(projectRoot, '.agents', 'skills', 'shared'), { recursive: true });
+        await writeFile(join(projectRoot, '.agents', 'skills', 'shared', 'SKILL.md'), `---
+name: Shared
+description: Project copy.
+---
+# Shared
+Project body.`, 'utf8');
+
+        // Write the same id in the workspace skills path
+        await writeSkill(workspaceRoot, 'shared', `---
+name: Shared
+description: Workspace copy.
+---
+# Shared
+Workspace body.`);
+
+        // Write a unique skill in project .agents/skills
+        await mkdir(join(projectRoot, '.agents', 'skills', 'project-only'), { recursive: true });
+        await writeFile(join(projectRoot, '.agents', 'skills', 'project-only', 'SKILL.md'), `---
+name: Project Only
+description: Only in project.
+---
+# Project Only
+Body.`, 'utf8');
+
+        const source = { dirs: [join(projectRoot, '.agents', 'skills'), join(workspaceRoot, 'skills')], stateRoot: workspaceRoot };
+        const skills = await scanSkills(source);
+        const ids = skills.map((s) => s.id);
+        assert.ok(ids.includes('shared'));
+        assert.ok(ids.includes('project-only'));
+        // Only one 'shared' despite two dirs
+        assert.equal(ids.filter((id) => id === 'shared').length, 1);
+        // First-found (project) wins
+        const shared = skills.find((s) => s.id === 'shared')!;
+        assert.equal(shared.description, 'Project copy.');
+      } finally {
+        await rm(projectRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('resolveSkillDiscoveryPaths returns the five standard paths in precedence order', () => {
+    const { dirs, stateRoot } = resolveSkillDiscoveryPaths('/repo', '/workspace', '/home/user');
+    assert.deepEqual(dirs, [
+      '/repo/.maka/skills',
+      '/repo/.agents/skills',
+      '/workspace/skills',
+      '/home/user/.maka/skills',
+      '/home/user/.agents/skills',
+    ]);
+    assert.equal(stateRoot, '/workspace');
   });
 
   it('parseSkillFrontMatter parses inline and list-style allowed-tools', () => {
