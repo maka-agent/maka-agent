@@ -542,7 +542,7 @@ export class AiSdkBackend implements AgentBackend {
   private readonly input: AiSdkBackendInput;
   private readonly newId: () => string;
   private readonly now: () => number;
-  private readonly maxSteps: number;
+  private readonly maxSteps: number | undefined;
   private readonly toolRuntime: ToolRuntime;
   private readonly modelAdapter: ModelAdapter;
   private readonly toolAvailabilityRuntime: ToolAvailabilityRuntime;
@@ -570,7 +570,7 @@ export class AiSdkBackend implements AgentBackend {
     this.sessionId = input.sessionId;
     this.newId = input.newId ?? (() => crypto.randomUUID());
     this.now = input.now ?? (() => Date.now());
-    this.maxSteps = input.maxSteps ?? 50;
+    this.maxSteps = input.maxSteps;
     this.toolAvailabilityRuntime = new ToolAvailabilityRuntime(
       input.tools,
       input.toolAvailability,
@@ -1132,7 +1132,11 @@ export class AiSdkBackend implements AgentBackend {
         // user can choose to send "继续" for a fresh turn.
         const finishReasonForGrace = await result.finishReason.catch(() => 'stop');
         rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReasonForGrace);
-        if (finishReasonForGrace === 'tool-calls' && runtimeSteps < this.maxSteps) {
+        if (
+          this.maxSteps !== undefined
+          && finishReasonForGrace === 'tool-calls'
+          && runtimeSteps < this.maxSteps
+        ) {
           runtimeSteps = this.maxSteps;
         }
         // Step-cap grace notice: when the loop tripped `stepCountIs(maxSteps)`
@@ -1141,6 +1145,7 @@ export class AiSdkBackend implements AgentBackend {
         // the user can send "继续" for a fresh turn.
         if (
           !this.aborted
+          && this.maxSteps !== undefined
           && !turnHadAnyText
           && finishReasonForGrace === 'tool-calls'
         ) {
