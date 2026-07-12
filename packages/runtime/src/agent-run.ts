@@ -29,6 +29,7 @@ import {
   normalizeStopSessionSource,
 } from './session-projection-helpers.js';
 import {
+  buildSyntheticTerminalRuntimeEvent,
   commitOrCreateTerminalRunFact,
   effectiveRunHeaderFromTerminalFact,
 } from './terminal-run-commit.js';
@@ -123,10 +124,13 @@ export class AgentRun {
   private finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined;
   private turnFailed = false;
   private finalized = false;
-  private terminalRuntimeEventRecorded = false;
-  private terminalRuntimeEventForRunCommit: RuntimeEvent | undefined;
   private terminalRunHeaderCommitted = false;
-  private terminalDecision: 'open' | 'event' | 'stop' = 'open';
+  private terminalClaim: {
+    owner: 'event' | 'stop';
+    event?: RuntimeEvent;
+    write?: Promise<void>;
+    persisted?: boolean;
+  } | undefined;
 
   constructor(private readonly input: AgentRunInput) {
     if (input.runStore && !input.runtimeEventStore) {
@@ -147,8 +151,8 @@ export class AgentRun {
   }
 
   stop(source: StopSessionInput['source'] | undefined): boolean {
-    if (this.terminalDecision !== 'open') return false;
-    this.terminalDecision = 'stop';
+    if (this.terminalClaim) return false;
+    this.terminalClaim = { owner: 'stop' };
     this.stopped = true;
     this.abortSource = normalizeStopSessionSource(source);
     return true;
@@ -472,28 +476,36 @@ export class AgentRun {
     if (events.length === 0) return;
     for (const event of events) {
       const terminal = isTerminalRuntimeEvent(event);
-      if (terminal && this.terminalRuntimeEventRecorded) continue;
-      const eventForStore = this.runtimeEventForStore(event);
+      const eventForStore = terminal ? this.reserveTerminalEvent(event) : event;
+      if (!eventForStore) continue;
       if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable) {
         if (terminal && options.requireTerminalWrite) {
           throw new Error('terminal RuntimeEvent store is unavailable');
         }
         continue;
       }
-      await this.enqueueRuntimeEventStore('append runtime event', async () => {
+      const write = this.enqueueRuntimeEventStore('append runtime event', async () => {
         await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, eventForStore);
       }, { rethrow: terminal || options.requireTerminalWrite });
+      if (terminal && this.terminalClaim) this.terminalClaim.write = write;
+      await write;
       if (terminal) {
-        this.terminalRuntimeEventRecorded = true;
-        this.terminalRuntimeEventForRunCommit = eventForStore;
+        if (this.terminalClaim) this.terminalClaim.persisted = true;
       }
     }
   }
 
-  private runtimeEventForStore(event: RuntimeEvent): RuntimeEvent {
-    if (!isTerminalRuntimeEvent(event)) return event;
-    if (this.terminalDecision === 'open') this.terminalDecision = 'event';
-    if (this.terminalDecision !== 'stop') return event;
+  private reserveTerminalEvent(event: RuntimeEvent): RuntimeEvent | undefined {
+    if (this.terminalClaim?.event) return undefined;
+    this.terminalClaim ??= { owner: 'event' };
+    const eventForStore = this.terminalClaim.owner === 'stop'
+      ? this.abortedRuntimeEvent(event)
+      : event;
+    this.terminalClaim.event = eventForStore;
+    return eventForStore;
+  }
+
+  private abortedRuntimeEvent(event: RuntimeEvent): RuntimeEvent {
     const { content: _content, ...rest } = event;
     void _content;
     return {
@@ -866,7 +878,26 @@ export class AgentRun {
     const fallbackFailureClass = 'missing_terminal_event';
     const fallbackFailureMessage = this.failureMessage ?? 'run finalized without a terminal RuntimeEvent';
     try {
-      const result = await commitOrCreateTerminalRunFact({
+      let createdTerminalEvent = false;
+      if (!this.terminalClaim?.event) {
+        createdTerminalEvent = true;
+        const claimedStatus = this.terminalClaim?.owner === 'stop' ? 'cancelled' : fallbackStatus;
+        const syntheticEvent = buildSyntheticTerminalRuntimeEvent({
+          id: this.input.newId(),
+          invocationId: this.runId,
+          run: { sessionId: this.sessionId, runId: this.runId, turnId: this.turnId },
+          status: claimedStatus,
+          ts,
+          ...(claimedStatus === 'failed' ? { failureClass: fallbackFailureClass, message: fallbackFailureMessage } : {}),
+          ...(claimedStatus === 'cancelled' ? { abortSource: this.abortSource ?? 'user_stop' } : {}),
+        });
+        this.reserveTerminalEvent(syntheticEvent);
+      }
+      const terminalClaim = this.terminalClaim;
+      const terminalEvent = terminalClaim?.event;
+      if (!terminalEvent) throw new Error('terminal RuntimeEvent claim is missing');
+      await terminalClaim.write;
+      const commit = commitOrCreateTerminalRunFact({
         runStore,
         runtimeEventStore,
         newId: this.input.newId,
@@ -874,12 +905,8 @@ export class AgentRun {
         runId: this.runId,
         turnId: this.turnId,
         ts,
-        ...(this.terminalRuntimeEventForRunCommit
-          ? {
-              terminalEvent: this.terminalRuntimeEventForRunCommit,
-              terminalEventAlreadyPersisted: true,
-            }
-          : {}),
+        terminalEvent,
+        terminalEventAlreadyPersisted: terminalClaim.persisted === true,
         ...(this.failureClass ?? finalStatus?.blockedReason
           ? { failureClass: this.failureClass ?? finalStatus?.blockedReason }
           : {}),
@@ -892,12 +919,13 @@ export class AgentRun {
         ...(fallbackStatus === 'failed' ? { fallbackFailureClass, fallbackFailureMessage } : {}),
         allowHeaderCommitFailure: true,
       });
-      if (result.createdTerminalEvent && result.status === 'failed') {
+      if (!terminalClaim.write) terminalClaim.write = commit.then(() => undefined);
+      const result = await commit;
+      if (createdTerminalEvent && result.status === 'failed') {
         this.failureClass = result.failureClass ?? fallbackFailureClass;
         this.failureMessage = fallbackFailureMessage;
       }
-      this.terminalRuntimeEventRecorded = true;
-      this.terminalRuntimeEventForRunCommit = result.terminalEvent;
+      terminalClaim.persisted = true;
       this.terminalRunHeaderCommitted = result.headerCommitted;
       if (result.headerCommitError !== undefined) {
         await this.enqueueTraceWriteFailure(result.headerCommitError, 'commit terminal run header');

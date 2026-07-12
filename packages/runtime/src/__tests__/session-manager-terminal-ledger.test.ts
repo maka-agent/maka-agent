@@ -145,6 +145,99 @@ describe('SessionManager terminal ledger invariants', () => {
     expect(terminalEvents[0]?.status).toBe('failed');
   });
 
+  test('concurrent terminal writes reserve exactly one terminal fact', async () => {
+    const terminalAppendStarted = deferred<void>();
+    const releaseTerminalAppend = deferred<void>();
+    const store = new TinySessionStore();
+    const runStore = new TinyAgentRunStore({
+      beforeTerminalRuntimeEventAppend: async () => {
+        terminalAppendStarted.resolve();
+        await releaseTerminalAppend.promise;
+      },
+    });
+    const session = await store.create(makeInput());
+    const run = new AgentRun({
+      sessionId: session.id,
+      header: session,
+      userInput: { turnId: 'turn-1', text: 'hello' },
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      newId: nextId(),
+      now: nextNow(22_000),
+      hooks: inertAgentRunHooks(store),
+    });
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+    }));
+    const first = run.recordRuntimeEvents([runtimeEvent({
+      id: 'terminal-one',
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+      status: 'completed',
+      actions: { endInvocation: true },
+    })]);
+    await terminalAppendStarted.promise;
+    const second = run.recordRuntimeEvents([runtimeEvent({
+      id: 'terminal-two',
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+      status: 'failed',
+      actions: { endInvocation: true },
+    })]);
+    releaseTerminalAppend.resolve();
+    await Promise.all([first, second]);
+
+    const terminals = (await runStore.readRuntimeEvents(session.id, run.runId)).filter(isTerminalRuntimeEvent);
+    expect(terminals.map((event) => event.id)).toEqual(['terminal-one']);
+  });
+
+  test('synthetic finalization claims its terminal outcome before persistence', async () => {
+    const terminalAppendStarted = deferred<void>();
+    const releaseTerminalAppend = deferred<void>();
+    const store = new TinySessionStore();
+    const runStore = new TinyAgentRunStore({
+      beforeTerminalRuntimeEventAppend: async () => {
+        terminalAppendStarted.resolve();
+        await releaseTerminalAppend.promise;
+      },
+    });
+    const session = await store.create(makeInput());
+    const run = new AgentRun({
+      sessionId: session.id,
+      header: session,
+      userInput: { turnId: 'turn-1', text: 'hello' },
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      newId: nextId(),
+      now: nextNow(23_000),
+      hooks: inertAgentRunHooks(store),
+    });
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+    }));
+
+    const finalization = run.finalize();
+    await terminalAppendStarted.promise;
+    expect(run.stop('stop_button')).toBe(false);
+    releaseTerminalAppend.resolve();
+    await finalization;
+
+    const header = await runStore.readRun(session.id, run.runId);
+    expect(header.status).toBe('failed');
+    expect(header.failureClass).toBe('missing_terminal_event');
+    const terminals = (await runStore.readRuntimeEvents(session.id, run.runId)).filter(isTerminalRuntimeEvent);
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]?.status).toBe('failed');
+  });
+
   test('terminal run commits reject mismatched terminal RuntimeEvent statuses', async () => {
     const runStore = new TinyAgentRunStore();
     const run = makeRunHeader({ status: 'running' });
@@ -1399,6 +1492,19 @@ function nextId(): () => string {
 function nextNow(start: number): () => number {
   let ts = start;
   return () => ++ts;
+}
+
+function inertAgentRunHooks(store: TinySessionStore) {
+  return {
+    ensureActive: async () => {
+      throw new Error('ensureActive should not be called');
+    },
+    registerRun: () => {},
+    unregisterRun: () => {},
+    updateHeader: (sessionId: string, patch: Partial<SessionHeader>) => store.updateHeader(sessionId, patch),
+    updateStatus: async () => {},
+    appendTurnState: async () => {},
+  };
 }
 
 async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
