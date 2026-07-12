@@ -773,7 +773,7 @@ export function AppShell({
   // already fetches the session list + connections internally, so separate
   // `sessions:list` / `connections:list` / `getDefault` IPCs are redundant.
   // This lets the UI show the sidebar + model picker immediately on first load.
-  const seededRef = useRef(false);
+  const seededRefreshGenerationRef = useRef(-1);
   // useLayoutEffect, NOT useEffect: the snapshot render flips
   // `isOnboardingLoading` off while `sessions` is still []. A passive
   // effect seeds sessions AFTER the browser paints that frame, so users
@@ -783,30 +783,31 @@ export function AppShell({
   useLayoutEffect(() => {
     // Snapshot IPC failed — the seed path will never run, so fall back
     // to the classic boot pull or the sidebar stays empty forever.
-    if (onboarding.error && !onboarding.snapshot && !seededRef.current) {
-      seededRef.current = true;
+    if (onboarding.error && !onboarding.snapshot && seededRefreshGenerationRef.current < 0) {
+      seededRefreshGenerationRef.current = Number.POSITIVE_INFINITY;
       void bootstrapSessions();
       void refreshConnections();
       return;
     }
     const snapshot = onboarding.snapshot;
-    if (!snapshot || seededRef.current) return;
-    seededRef.current = true;
+    if (
+      !snapshot ||
+      onboarding.refreshGeneration > 1 ||
+      seededRefreshGenerationRef.current === onboarding.refreshGeneration
+    ) return;
+    seededRefreshGenerationRef.current = onboarding.refreshGeneration;
     // Seed sessions. Display normalization MUST run here too — this is
     // a third renderer state entry alongside commitSessions /
     // upsertSessionSummary (#452): without it, legacy blocked/unknown
     // sessions flash an 已阻塞 group on first paint until the first
     // refreshSessions() overwrites the seed.
-    if (snapshot.sessions.length > 0) {
-      const next = seedSessions(snapshot.sessions);
-      if (!activeIdRef.current && next[0]?.lastMessageAt) setActiveId(next[0].id);
-    }
+    const next = seedSessions(snapshot.sessions);
+    if (activeIdRef.current && !next.some((session) => session.id === activeIdRef.current)) setActiveId(undefined);
+    if (!activeIdRef.current && next[0]?.lastMessageAt) setActiveId(next[0].id);
     // Seed connections — avoids separate connections:list + getDefault IPCs
-    if (snapshot.connections.length > 0) {
-      setConnections(snapshot.connections);
-      setDefaultConnection(snapshot.defaultSlug);
-    }
-  }, [onboarding.snapshot, onboarding.error]);
+    setConnections(snapshot.connections);
+    setDefaultConnection(snapshot.defaultSlug);
+  }, [onboarding.snapshot, onboarding.refreshGeneration, onboarding.error]);
   // PR110c (@kenji review): suppress hero AND the fallback EmptyChatHero
   // while the initial snapshot is in flight. Otherwise sessions.length===0
   // + snapshot===null flashes the prompt-suggestion EmptyChatHero before

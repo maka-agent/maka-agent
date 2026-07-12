@@ -425,6 +425,40 @@ describe('permission response IPC boundary', () => {
     );
   });
 
+  it('reconciles the first mounted onboarding pull after the pre-mount snapshot seed', async () => {
+    const renderer = await readRendererShellSource('app-shell.tsx');
+    const onboardingSnapshotHook = await readFile(
+      fileURLToPath(new URL('../../../src/renderer/use-onboarding-snapshot.ts', import.meta.url)),
+      'utf8',
+    );
+
+    assert.match(
+      onboardingSnapshotHook,
+      /refreshGeneration:\s*number/,
+      'the snapshot owner must identify successful mounted pulls separately from the pre-mount seed',
+    );
+    assert.match(
+      renderer,
+      /onboarding\.refreshGeneration\s*>\s*1/,
+      'AppShell must reconcile the pre-mount snapshot and first mounted pull, then leave later refreshes to existing owners',
+    );
+    assert.doesNotMatch(
+      renderer,
+      /const seededRef = useRef\(false\)/,
+      'a one-shot seed drops a newer snapshot returned by the first mounted pull',
+    );
+    assert.match(
+      renderer,
+      /const next = seedSessions\(snapshot\.sessions\)/,
+      'the mounted pull must replace the session owner even when the latest list is empty',
+    );
+    assert.match(
+      renderer,
+      /setConnections\(snapshot\.connections\)/,
+      'the mounted pull must replace the connection owner even when the latest list is empty',
+    );
+  });
+
   it('keeps normal Composer first-send visible in the newly created session', async () => {
     const renderer = await readRendererShellSources([
       'app-shell-chat-actions.ts',

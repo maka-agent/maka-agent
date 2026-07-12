@@ -27,6 +27,8 @@ import type { OnboardingSnapshot } from '../global';
  */
 export interface UseOnboardingSnapshotResult {
   snapshot: OnboardingSnapshot | null;
+  /** Number of successful mounted pulls; the pre-mount snapshot is generation 0. */
+  refreshGeneration: number;
   error: string | null;
   refresh: () => void;
   /** Sessions from the snapshot — populated on first load, before the separate sessions:list IPC. */
@@ -62,7 +64,10 @@ export function useOnboardingSnapshotImpl(
   deps: UseOnboardingSnapshotDeps,
   initialSnapshot: OnboardingSnapshot | null = null,
 ): UseOnboardingSnapshotResult {
-  const [snapshot, setSnapshot] = useState<OnboardingSnapshot | null>(initialSnapshot);
+  const [snapshotState, setSnapshotState] = useState(() => ({
+    snapshot: initialSnapshot,
+    refreshGeneration: 0,
+  }));
   const [error, setError] = useState<string | null>(null);
   const sessionsRef = useRef<SessionSummary[] | null>(initialSnapshot?.sessions ?? null);
   const connectionsRef = useRef<LlmConnection[] | null>(initialSnapshot?.connections ?? null);
@@ -72,7 +77,10 @@ export function useOnboardingSnapshotImpl(
   if (pollerRef.current === null) {
     pollerRef.current = createOnboardingSnapshotPoller(deps, {
       onSnapshot: (next) => {
-        setSnapshot(next);
+        setSnapshotState((current) => ({
+          snapshot: next,
+          refreshGeneration: current.refreshGeneration + 1,
+        }));
         setError(null);
         if (next.sessions) sessionsRef.current = next.sessions;
         if (next.connections) connectionsRef.current = next.connections;
@@ -105,7 +113,15 @@ export function useOnboardingSnapshotImpl(
   const getConnections = useCallback((): LlmConnection[] | null => connectionsRef.current, []);
   const getDefaultSlug = useCallback((): string | null => defaultSlugRef.current, []);
 
-  return { snapshot, error, refresh, getSessions, getConnections, getDefaultSlug };
+  return {
+    snapshot: snapshotState.snapshot,
+    refreshGeneration: snapshotState.refreshGeneration,
+    error,
+    refresh,
+    getSessions,
+    getConnections,
+    getDefaultSlug,
+  };
 }
 
 /**
