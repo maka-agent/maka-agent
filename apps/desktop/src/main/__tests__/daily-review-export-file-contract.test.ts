@@ -15,7 +15,7 @@ describe('Daily Review export-to-file contract (PR-DAILY-REVIEW-EXPORT-FILE-0)',
     const palette = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette.tsx'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
     const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/daily-review-panel.tsx'), 'utf8');
-    const chatView = await readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-view.tsx'), 'utf8');
+    const modulePages = await readFile(resolve(REPO_ROOT, 'packages/ui/src/module-pages.tsx'), 'utf8');
     const sessionListPanel = await readFile(resolve(REPO_ROOT, 'packages/ui/src/session-list-panel.tsx'), 'utf8');
     const css = await readRendererContractCss();
 
@@ -46,7 +46,7 @@ describe('Daily Review export-to-file contract (PR-DAILY-REVIEW-EXPORT-FILE-0)',
     // The main Daily Review panel exposes save next to copy, so export
     // is not hidden behind command palette muscle memory.
     assert.doesNotMatch(sessionListPanel, /onSaveDailyReviewMarkdown\?\(input:\s*DailyReviewMarkdownActionInput\)/);
-    assert.match(chatView, /onSaveMarkdown=\{props\.onSaveDailyReviewMarkdown\}/);
+    assert.match(modulePages, /onSaveMarkdown\?: \(input: DailyReviewMarkdownActionInput\)/);
     assert.match(ui, /maka-daily-review-save[\s\S]*保存/);
     assert.match(css, /\.maka-daily-review-actions/);
   });

@@ -16,13 +16,16 @@ import { generalizedErrorMessageChinese, hasSettledInitialOnboarding, thinkingVa
 import {
   type ChatHeaderAlert,
   type ChatModelChoice,
+  AutomationsPage,
   ChatView,
   Composer,
+  DailyReviewPage,
   type ComposerHandle,
   type MakaUriDest,
   MakaUriContext,
   type NavSelection,
   SessionListPanel,
+  SkillsPage,
   type ManagedSkillSourceEntry,
   type SessionViewMode,
   type SkillEntry,
@@ -1548,6 +1551,45 @@ export function AppShell({
           <MakaUriContext.Provider value={dispatchMakaUri}>
           <div className="maka-detail-with-artifacts">
             <div className="mainColumn" data-home-surface={homeSurfaceActive ? 'true' : undefined}>
+              {navSelection.section === 'skills' ? (
+                <SkillsPage
+                  skills={skills}
+                  planReminders={planReminders}
+                  onRefreshSkills={() => refreshSkills()}
+                  onRefreshManagedSkillSources={() => refreshManagedSkillSources()}
+                  onCreateSkillTemplate={() => createSkillTemplate()}
+                  onOpenSkill={(skillId) => openSkill(skillId)}
+                  onUseSkill={useSkillInChat}
+                  onOpenSkillsFolder={() => openSkillsFolder()}
+                  managedSkillSources={managedSkillSources}
+                  onImportManagedSkillSource={() => importManagedSkillSource()}
+                  onInstallManagedSkill={(sourceId) => installManagedSkill(sourceId)}
+                  onPreviewManagedSkillUpdate={(skillId) => previewManagedSkillUpdate(skillId)}
+                  onUpdateManagedSkill={(skillId, options) => updateManagedSkill(skillId, options)}
+                  onSetSkillEnabled={(skillId, enabled) => setSkillEnabled(skillId, enabled)}
+                />
+              ) : navSelection.section === 'automations' ? (
+                <AutomationsPage
+                  skills={skills}
+                  reminders={planReminders}
+                  onRefresh={() => refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive })}
+                  onCreate={(input) => createPlanReminder(input)}
+                  onUpdate={(id, patch) => updatePlanReminder(id, patch)}
+                  onToggle={(id, enabled) => togglePlanReminder(id, enabled)}
+                  onTriggerNow={(id) => triggerPlanReminderNow(id)}
+                  onSnooze={(id) => snoozePlanReminder(id)}
+                  onClearRunHistory={(id) => clearPlanReminderRunHistory(id)}
+                  onDelete={(id) => deletePlanReminder(id)}
+                />
+              ) : navSelection.section === 'daily-review' ? (
+                <DailyReviewPage
+                  bridge={dailyReviewBridge}
+                  onSelectSession={openSessionInChat}
+                  onCopyMarkdown={(input) => copyDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
+                  onAppendMarkdown={appendDailyReviewMarkdown}
+                  onSaveMarkdown={(input) => saveDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
+                />
+              ) : (
               <ChatView
                 messages={messages}
                 liveTurn={activeLiveTurn}
@@ -1566,7 +1608,6 @@ export function AppShell({
                 userLabel={userLabel}
                 memoryActive={memoryActive}
                 onOpenMemorySettings={() => openSettingsSection('memory')}
-                mode={navSelection.section}
                 connectionAlert={chatConnectionAlert}
                 eventStreamAlert={chatEventStreamAlert}
                 goalIndicator={activeGoal ? {
@@ -1586,33 +1627,6 @@ export function AppShell({
                 turnFailedRecoveryLabels={turnFailedRecoveryLabels}
                 turnLineageBadgesByTurn={turnLineageBadgesByTurn}
                 onLineageBadgeClick={handleLineageBadgeClick}
-                skills={skills}
-                managedSkillSources={managedSkillSources}
-                onRefreshSkills={() => refreshSkills()}
-                onRefreshManagedSkillSources={() => refreshManagedSkillSources()}
-                onCreateSkillTemplate={() => createSkillTemplate()}
-                onOpenSkill={(skillId) => openSkill(skillId)}
-                onUseSkill={useSkillInChat}
-                onOpenSkillsFolder={() => openSkillsFolder()}
-                onImportManagedSkillSource={() => importManagedSkillSource()}
-                onInstallManagedSkill={(sourceId) => installManagedSkill(sourceId)}
-                onPreviewManagedSkillUpdate={(skillId) => previewManagedSkillUpdate(skillId)}
-                onUpdateManagedSkill={(skillId, options) => updateManagedSkill(skillId, options)}
-                onSetSkillEnabled={(skillId, enabled) => setSkillEnabled(skillId, enabled)}
-                planReminders={planReminders}
-                onRefreshPlanReminders={() => refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive })}
-                onCreatePlanReminder={(input) => createPlanReminder(input)}
-                onUpdatePlanReminder={(id, patch) => updatePlanReminder(id, patch)}
-                onTogglePlanReminder={(id, enabled) => togglePlanReminder(id, enabled)}
-                onTriggerPlanReminderNow={(id) => triggerPlanReminderNow(id)}
-                onSnoozePlanReminder={(id) => snoozePlanReminder(id)}
-                onClearPlanReminderRunHistory={(id) => clearPlanReminderRunHistory(id)}
-                onDeletePlanReminder={(id) => deletePlanReminder(id)}
-                dailyReviewBridge={dailyReviewBridge}
-                onSelectSession={openSessionInChat}
-                onCopyDailyReviewMarkdown={(input) => copyDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
-                onAppendDailyReviewMarkdown={appendDailyReviewMarkdown}
-                onSaveDailyReviewMarkdown={(input) => saveDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
                 scrollTargetTurn={
                   activeId && searchScrollTarget?.sessionId === activeId
                     ? { turnId: searchScrollTarget.turnId, nonce: searchScrollTarget.nonce }
@@ -1669,6 +1683,7 @@ export function AppShell({
                 onNew={createSession}
                 onPromptSuggestion={(prompt) => composerRef.current?.appendText(prompt)}
               />
+              )}
               <Composer
                 ref={composerRef}
                 hidden={navSelection.section !== 'sessions' || onboardingComposerHidden}

@@ -125,7 +125,6 @@ describe('attachment frontend contract', () => {
     const markup = renderToStaticMarkup(createElement(ChatView, {
       messages,
       activeSession,
-      mode: 'sessions',
       onNew: () => {},
     } satisfies Parameters<typeof ChatView>[0]));
 

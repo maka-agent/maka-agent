@@ -1,4 +1,4 @@
-import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertOctagon,
   AlertTriangle,
@@ -6,7 +6,6 @@ import {
   Ban,
   BookOpen,
   Brain,
-  CalendarDays,
   Check,
   ChevronRight,
   Copy,
@@ -29,8 +28,8 @@ import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { DialogContent, DialogRoot } from './ui.js';
 import { PromptAnchorRail } from './prompt-anchor-rail.js';
-import type { AttachmentRef, PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
-import { deriveCapabilityAuditReport, isDeepResearchSession } from '@maka/core';
+import type { AttachmentRef, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
+import { isDeepResearchSession } from '@maka/core';
 import { materializeChat, materializeTurns, overlayLiveTurn, type TurnTimelineItem, type TurnViewModel } from './materialize.js';
 import type { LiveTurnProjection } from './live-turn-projection.js';
 import { Button as UiButton } from './ui.js';
@@ -39,43 +38,7 @@ import { Alert, AlertDescription } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Bubble, Marker, markerVariants, Message, TextShimmer } from './primitives/chat.js';
 import { Tooltip, TooltipTrigger, TooltipContent } from './primitives/tooltip.js';
-import type { NavSelection } from './nav-selection.js';
 import { EmptyState } from './empty-state.js';
-import type {
-  DailyReviewBridge,
-  DailyReviewMarkdownActionInput,
-  ManagedSkillSourceEntry,
-  ManagedSkillUpdatePreview,
-  PlanReminderDraftInput,
-  PlanReminderUpdatePatch,
-  SkillEntry,
-} from './module-panel-types.js';
-// The Skills / Automations / Daily-Review surfaces are whole nav sections of
-// their own — they only render when `mode` flips to `skills` / `automations` /
-// `daily-review`, never on the default chat first paint. Loading them lazily
-// keeps their code (incl. the base-ui Select primitive they pull in) out of
-// the initial chunk so the chat shell mounts faster.
-const SkillsModuleMain = lazy(() => import('./skills-panel.js').then((m) => ({ default: m.SkillsModuleMain })));
-const DailyReviewPanel = lazy(() => import('./daily-review-panel.js').then((m) => ({ default: m.DailyReviewPanel })));
-const PlanReminderPanel = lazy(() => import('./plan-reminder-panel.js').then((m) => ({ default: m.PlanReminderPanel })));
-
-function ModulePageFallback(props: { label: string; message: string }) {
-  return (
-    <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label={props.label}>
-      <div className="maka-lazy-fallback" data-surface="module" role="status" aria-busy="true">
-        {props.message}
-      </div>
-    </main>
-  );
-}
-
-function ModulePanelFallback(props: { message: string }) {
-  return (
-    <div className="maka-lazy-fallback" data-surface="module" role="status" aria-busy="true">
-      {props.message}
-    </div>
-  );
-}
 import { ToolTrow } from './tool-activity.js';
 
 /**
@@ -172,7 +135,6 @@ export function ChatView(props: {
   memoryActive?: boolean;
   /** Click target for the memory pill — usually opens Settings · 记忆. */
   onOpenMemorySettings?(): void;
-  mode: NavSelection['section'];
   /**
    * When the user has no real LLM connection configured, the empty state
    * defers to this slot. App renders `<OnboardingHero>` here; if undefined,
@@ -240,34 +202,6 @@ export function ChatView(props: {
   turnFailedRecoveryLabels?: Record<string, string>;
   turnLineageBadgesByTurn?: Record<string, TurnLineageBadge[]>;
   onLineageBadgeClick?: (targetTurnId: string) => void;
-  skills?: SkillEntry[];
-  onRefreshSkills?(): void | Promise<void>;
-  onCreateSkillTemplate?(): void | Promise<void>;
-  onOpenSkill?(skillId: string): void | Promise<void>;
-  /** 使用 button: seed the composer with a skill invocation (R5 follow-up). */
-  onUseSkill?(skillId: string, skillName: string): void;
-  onOpenSkillsFolder?(): void | Promise<void>;
-  managedSkillSources?: ManagedSkillSourceEntry[];
-  onRefreshManagedSkillSources?(): void | Promise<void>;
-  onImportManagedSkillSource?(): void | Promise<void>;
-  onInstallManagedSkill?(sourceId: string): void | Promise<void>;
-  onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
-  onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
-  onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
-  planReminders?: PlanReminder[];
-  onRefreshPlanReminders?: () => void | Promise<void>;
-  onCreatePlanReminder?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
-  onUpdatePlanReminder?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
-  onTogglePlanReminder?: (id: string, enabled: boolean) => void | Promise<void>;
-  onTriggerPlanReminderNow?: (id: string) => void | Promise<void>;
-  onSnoozePlanReminder?: (id: string) => void | Promise<void>;
-  onClearPlanReminderRunHistory?: (id: string) => void | Promise<void>;
-  onDeletePlanReminder?: (id: string) => void | Promise<void>;
-  dailyReviewBridge?: DailyReviewBridge;
-  onCopyDailyReviewMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
-  onAppendDailyReviewMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
-  onSaveDailyReviewMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
-  onSelectSession?: (sessionId: string) => void;
   /**
    * Search-result navigation target. The desktop shell owns session
    * switching and hands the matched turn id here after selection; the
@@ -388,13 +322,6 @@ export function ChatView(props: {
     (targetTurnId: string) => onLineageBadgeClickRef.current?.(targetTurnId),
     [],
   );
-  const capabilityAuditReport = useMemo(
-    () => deriveCapabilityAuditReport({
-      skills: props.skills ?? [],
-      planReminders: props.planReminders ?? [],
-    }),
-    [props.skills, props.planReminders],
-  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const pinnedToBottomRef = useRef(true);
@@ -422,7 +349,7 @@ export function ChatView(props: {
       content,
       isPinned: () => pinnedToBottomRef.current,
     });
-  }, [props.activeSession?.id, props.mode]);
+  }, [props.activeSession?.id]);
 
   useEffect(() => {
     const target = props.scrollTargetTurn;
@@ -467,84 +394,6 @@ export function ChatView(props: {
     el.scrollTo({ top: el.scrollHeight, behavior: props.scrollBehavior ?? 'smooth' });
     pinnedToBottomRef.current = true;
     setPinnedToBottom(true);
-  }
-
-  if (props.mode === 'skills') {
-    return (
-      <Suspense fallback={<ModulePageFallback label="技能" message="正在加载技能…" />}>
-        <SkillsModuleMain
-          skills={props.skills}
-          auditReport={capabilityAuditReport}
-          onRefreshSkills={props.onRefreshSkills}
-          onCreateSkillTemplate={props.onCreateSkillTemplate}
-          onOpenSkill={props.onOpenSkill}
-          onUseSkill={props.onUseSkill}
-          onOpenSkillsFolder={props.onOpenSkillsFolder}
-          managedSkillSources={props.managedSkillSources}
-          onRefreshManagedSkillSources={props.onRefreshManagedSkillSources}
-          onImportManagedSkillSource={props.onImportManagedSkillSource}
-          onInstallManagedSkill={props.onInstallManagedSkill}
-          onPreviewManagedSkillUpdate={props.onPreviewManagedSkillUpdate}
-          onUpdateManagedSkill={props.onUpdateManagedSkill}
-          onSetSkillEnabled={props.onSetSkillEnabled}
-        />
-      </Suspense>
-    );
-  }
-
-  if (props.mode === 'automations') {
-    return (
-      <Suspense fallback={<ModulePageFallback label="定时任务" message="正在加载定时任务…" />}>
-        <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="定时任务">
-          <PlanReminderPanel
-            reminders={props.planReminders ?? []}
-            auditReport={capabilityAuditReport}
-            onRefresh={props.onRefreshPlanReminders}
-            onCreate={props.onCreatePlanReminder}
-            onUpdate={props.onUpdatePlanReminder}
-            onToggle={props.onTogglePlanReminder}
-            onTriggerNow={props.onTriggerPlanReminderNow}
-            onSnooze={props.onSnoozePlanReminder}
-            onClearRunHistory={props.onClearPlanReminderRunHistory}
-            onDelete={props.onDeletePlanReminder}
-          />
-        </main>
-      </Suspense>
-    );
-  }
-
-  if (props.mode === 'daily-review') {
-    return (
-      <main
-        className="maka-main detailPane maka-module-main agents-chat-panel"
-        data-module="daily-review"
-        aria-label="每日回顾"
-      >
-        <header className="maka-module-main-header">
-          <div>
-            <h2>每日回顾</h2>
-            <p>自动汇总本机对话，生成摘要、遗漏提醒与深度分析；可在设置中开启定时执行。</p>
-          </div>
-        </header>
-        {props.dailyReviewBridge ? (
-          <Suspense fallback={<ModulePanelFallback message="正在加载每日回顾…" />}>
-            <DailyReviewPanel
-              bridge={props.dailyReviewBridge}
-              onSelectSession={props.onSelectSession}
-              onCopyMarkdown={props.onCopyDailyReviewMarkdown}
-              onAppendMarkdown={props.onAppendDailyReviewMarkdown}
-              onSaveMarkdown={props.onSaveDailyReviewMarkdown}
-            />
-          </Suspense>
-        ) : (
-          <EmptyState
-            Icon={CalendarDays}
-            title="等待连接每日回顾数据"
-            body="桌面端数据桥当前未连接。"
-          />
-        )}
-      </main>
-    );
   }
 
   if (!props.activeSession) {
