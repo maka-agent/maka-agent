@@ -8,7 +8,7 @@ import {
 } from '../notifications-policy.js';
 
 describe('shouldRaiseRunNotification gate', () => {
-  const base = { enabled: true, supported: true, windowFocused: false, incognito: false };
+  const base = { enabled: true, supported: true, windowFocused: false, incognito: false, e2e: false };
 
   it('raises a notification only when enabled, supported, unfocused, and not incognito', () => {
     assert.equal(shouldRaiseRunNotification(base), true);
@@ -28,6 +28,10 @@ describe('shouldRaiseRunNotification gate', () => {
 
   it('suppresses in incognito mode (no session name/preview outside the app)', () => {
     assert.equal(shouldRaiseRunNotification({ ...base, incognito: true }), false);
+  });
+
+  it('suppresses native notifications during E2E runs', () => {
+    assert.equal(shouldRaiseRunNotification({ ...base, e2e: true }), false);
   });
 });
 
