@@ -516,14 +516,16 @@ export function buildComputerUseTools(deps: {
   }
 
   function toObservationSnapshot(observation: CuObservation): CuaObservationSnapshot {
-    const width = observation.screenshot?.widthPx;
-    const height = observation.screenshot?.heightPx;
+    const screenshotWidth = observation.screenshot?.widthPx;
+    const screenshotHeight = observation.screenshot?.heightPx;
     const sourceBoundsPx = observation.sourceBoundsPx
       ?? (
-        width !== undefined && height !== undefined
-          ? { x: 0, y: 0, width, height }
+        screenshotWidth !== undefined && screenshotHeight !== undefined
+          ? { x: 0, y: 0, width: screenshotWidth, height: screenshotHeight }
           : undefined
       );
+    const width = sourceBoundsPx?.width ?? screenshotWidth;
+    const height = sourceBoundsPx?.height ?? screenshotHeight;
     const target: CuaWindowIdentity = {
       pid: observation.pid,
       windowId: observation.windowId,
