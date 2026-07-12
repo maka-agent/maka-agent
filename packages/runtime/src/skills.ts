@@ -167,11 +167,32 @@ export async function scanWorkspaceSkills(root: string): Promise<ScannedSkill[]>
   return out;
 }
 
+/**
+ * Bundled Office skills' required tools, used as a fallback when a legacy
+ * install predates the `required-tools` front matter (the v3 template from
+ * ticket 2). Without this, a host that runs before the desktop migrates the
+ * v2 install to v3 would see Office skills with empty `requiredTools` and fail
+ * to hide them, advertising skills whose tools the host cannot call. This is
+ * product metadata for maka-bundled skill ids, not desktop governance.
+ */
+const BUNDLED_OFFICE_REQUIRED_TOOLS_BY_ID: ReadonlyMap<string, readonly string[]> = new Map([
+  ['officecli-docx', ['OfficeDocument', 'OfficeDocumentEdit']],
+  ['officecli-xlsx', ['OfficeDocument', 'OfficeDocumentEdit']],
+  ['officecli-pptx', ['OfficeDocument', 'OfficeDocumentEdit']],
+]);
+
+function effectiveRequiredTools(skill: RuntimeSkillDefinition): readonly string[] {
+  return skill.requiredTools.length > 0
+    ? skill.requiredTools
+    : (BUNDLED_OFFICE_REQUIRED_TOOLS_BY_ID.get(skill.id) ?? []);
+}
+
 export function gateSkillsByHostCapabilities(skills: ScannedSkill[], host: HostCapabilities): GatedSkill[] {
   const caps = host.capabilities ?? new Set<string>();
   return skills.map((skill) => {
     const missingDeclaredTools = skill.declaredTools.filter((tool) => !host.toolNames.has(tool));
-    const requiredToolsMissing = skill.requiredTools.some((tool) => !host.toolNames.has(tool));
+    const requiredTools = effectiveRequiredTools(skill);
+    const requiredToolsMissing = requiredTools.some((tool) => !host.toolNames.has(tool));
     const requiredCapabilitiesMissing = skill.requiredCapabilities.some((cap) => !caps.has(cap));
     const eligible = !requiredToolsMissing && !requiredCapabilitiesMissing;
     const hiddenReason: SkillHostCompatibility['hiddenReason'] = requiredToolsMissing

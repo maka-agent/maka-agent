@@ -398,6 +398,33 @@ Plain work.`);
     });
   });
 
+  it('gate hard-hides legacy v2 Office skills (no required-tools front matter) on a host without Office tools', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      // v2 OfficeCLI template: allowed-tools includes OfficeDocument, but no required-tools.
+      await writeSkill(workspaceRoot, 'officecli-docx', `---
+name: OfficeCLI DOCX
+description: Legacy v2 Office skill without required-tools.
+allowed-tools:
+  - OfficeDocument
+  - OfficeDocumentEdit
+  - Read
+---
+# OfficeCLI DOCX
+Legacy v2 body.`);
+      const host: HostCapabilities = { toolNames: new Set(['Read', 'Bash']) };
+
+      // Prompt hard-hides the legacy Office skill (fallback requiredTools for bundled officecli-*).
+      const prompt = await buildSkillsPromptFragment(workspaceRoot, host);
+      assert.ok(!prompt || !prompt.includes('id="officecli-docx"'));
+
+      // Loader rejects it as host_incompatible.
+      const loaded = await loadSkillInstructions(workspaceRoot, 'officecli-docx', host);
+      assert.equal(loaded.ok, false);
+      if (loaded.ok) return;
+      assert.equal(loaded.reason, 'host_incompatible');
+    });
+  });
+
   it('gateSkillsByHostCapabilities hard-hides skills whose required tools are missing and only hints at missing declared tools', () => {
     const skills: ScannedSkill[] = [
       { id: 'office', name: 'Office', description: '', path: '/p', declaredTools: ['Read', 'OfficeDocument'], requiredTools: ['OfficeDocument'], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:x' },
