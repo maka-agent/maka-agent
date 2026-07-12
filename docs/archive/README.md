@@ -35,6 +35,8 @@ The dated runtime and sandbox files are completed execution plans. Each file rec
 
 `heavy-task-mainline-system-design.md` preserves the original PR, trace, and rollout chronicle. Backend architecture chapters 4–5 and the headless source own current heavy-task mechanisms.
 
+`deepseek-reasonix-cost-runtime-design.md` preserves the original implementation slices and open decisions. Backend architecture chapters and runtime source own current request-shape, replay, compaction, and cost mechanisms.
+
 `runtime-kernel.md`, `runtime-v2-architecture-evolution.md`, and `runtime-mainline-teaching-manual.md` preserve the extraction rationale and overlapping teaching narrative that led to the current runtime. Current authority starts at `ARCHITECTURE.md`.
 
 `runtime-v2-implementation-notes.md` records the initial Phase 1–4 runtime skeleton and is superseded by the backend architecture chapters and current source.

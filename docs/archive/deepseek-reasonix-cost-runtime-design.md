@@ -10,6 +10,8 @@ derived_from:
   - "Maka DeepSeek-Reasonix 成本运行线初学者教纲 v3"
 ---
 
+> Archived on 2026-07-13. This is an implementation-slice and open-question chronicle, not current runtime authority. Current cost, request-shape, replay, and compaction mechanisms live in the backend architecture chapters and source.
+
 # Maka DeepSeek-Reasonix 成本运行线 System Design v2
 
 这份文档不是教学手册的压缩版，而是从两份教学材料反推出来的一版系统设计文档。

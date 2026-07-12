@@ -39,17 +39,12 @@ This page is the authority map for Maka documentation. Code and contract tests r
 - [Workspace privacy context](./workspace-privacy-context.md)
 - [Runtime sandbox boundary](../packages/runtime/src/sandbox/README.md)
 
-## Active proposals and design material
-
-These documents include target-state design or work that is not fully implemented. Check the linked source and current GitHub issues before treating a proposal as shipped behavior.
-
-- [DeepSeek Reasonix cost runtime design](./deepseek-reasonix-cost-runtime-design.md)
-
 ## Historical material
 
 - [Runtime kernel extraction](./archive/runtime-kernel.md)
 - [Runtime v2 architecture evolution](./archive/runtime-v2-architecture-evolution.md)
 - [Runtime v2 implementation notes](./archive/runtime-v2-implementation-notes.md)
+- [DeepSeek Reasonix cost runtime design](./archive/deepseek-reasonix-cost-runtime-design.md)
 - [Documentation archive](./archive/README.md)
 
 ## Maintenance
