@@ -525,7 +525,10 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  min-height: var(--h-control-sm);
+  /* #743: content min-height, not a control height — use the spacing ruler
+     (var(--space-6) = 24px), not --h-control-sm (which control-height-converge-
+     contract reserves for interactive controls). */
+  min-height: var(--space-6);
 }
 
 /* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-preview` is no longer
@@ -580,12 +583,12 @@
   justify-content: center;
   flex-shrink: 0;
   margin-right: var(--space-1);
-  /* #743: 14px is a documented dense exception — --icon-size is 16px
-     (chrome glyphs on nav/button icons), and 16px here would degrade the
-     session row's density. Pinned by sidebar-indicator-size-contract so a
-     new bare 14px elsewhere in the indicator path needs its own exception. */
-  width: 14px;
-  height: 14px;
+  /* #743: the SVG size is owned by buttonVariants ([&_svg]:size-[var(--icon-size,1rem)]
+     on the row's UiButton), so the icon converges to var(--icon-size) (16px) like
+     every other in-button glyph. The 14px wrapper here never clipped the SVG
+     (CSS size beats the <Icon size=12> presentation attribute), so it was a
+     misleading literal — removed. No width/height on this wrapper; the SVG
+     carries the size. */
   color: var(--foreground-secondary);
 }
 .maka-list-row-status-icon[data-tone="accent"] {
