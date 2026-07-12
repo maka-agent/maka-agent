@@ -1,13 +1,15 @@
 /**
  * PR-SIDEBAR-INDICATOR-SIZE-CONVERGE-0 (issue #743, follow-up to #738):
- * session-row indicator sizes converge onto tokens. After the codex review
- * the status-icon 14px wrapper was removed (it never clipped the SVG —
- * buttonVariants owns the in-button glyph size via var(--icon-size), so the
- * icon converges to 16px like every other in-button glyph), and the contract
- * now scans ALL .maka-list-row-* selectors for bare-px width/height/min-height
- * so a new off-ruler indicator cannot sneak back. .maka-list-row-text uses
- * var(--space-6) (content spacing), not --h-control-sm (reserved for controls
- * by control-height-converge-contract).
+ * session-row indicator sizes converge onto tokens. After the fresh-eye
+ * codex review the status icon keeps its dense-meta 12px (per
+ * docs/design-system.md §1.9 — dense-meta icons are call-site 12–14px, NOT
+ * --icon-size 16px) via a local SVG override, instead of the earlier "converge
+ * to 16px" which violated the design contract and silently grew the icon
+ * 14→16px. The contract pins each indicator's width/height exactly-once per
+ * property (a height-only override is caught, not just a width block) and
+ * drops the over-broad `.maka-list-row-*` prefix scanner (it governed
+ * non-indicators like -main/-text/-menu-trigger and false-positived on
+ * `calc(…)`).
  */
 
 import { strict as assert } from 'node:assert';
@@ -22,15 +24,15 @@ function styleRules(css: string): Array<[string, string]> {
   });
 }
 
-/** Extract a declared property value from a selector block's body. Matches
- *  at start-of-block or after a `;` or newline so single- and multi-line
- *  declarations both work. Whitespace is collapsed. */
 function decl(body: string, prop: string): string | undefined {
   const re = new RegExp(`(?:^|[\\n;])\\s*${prop}\\s*:\\s*([^;}]*)`, 'i');
   const m = body.match(re);
   return m ? m[1].trim().replace(/\s+/g, ' ') : undefined;
 }
 
+/** All rest-state blocks whose subject is exactly `subjectSelector` (no state
+ *  pseudo, no attribute, no @media prelude). Returns ALL matches so a later
+ *  same-selector override (the cascade winner) is caught, not just the first. */
 function restBlocks(css: string, subjectSelector: string): string[] {
   const escaped = subjectSelector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(`^${escaped}\\s*$`);
@@ -43,75 +45,57 @@ function restBlocks(css: string, subjectSelector: string): string[] {
   return blocks;
 }
 
-const NEUTRAL_SIZE = /^(?:0(?:px|%)?|100%|auto|inherit|initial|unset|revert|none)$/;
-
-/** Bare-px width/height/min-height on any .maka-list-row-* selector — the
- *  indicator path must use tokens (var(...)) or neutral literals. A new
- *  off-ruler indicator anywhere in .maka-list-row-* is flagged here, not
- *  just the four originally-listed selectors. */
-function barePxSizeOffenders(css: string): string[] {
-  const offenders: string[] = [];
-  for (const [prelude, body] of styleRules(css)) {
-    if (!prelude.includes('.maka-list-row-')) continue;
-    for (const prop of ['width', 'height', 'min-height']) {
-      const v = decl(body, prop);
-      if (v === undefined) continue;
-      if (/^var\(/.test(v) || NEUTRAL_SIZE.test(v)) continue;
-      offenders.push(`${prelude.replace(/\s+/g, ' ')} ${prop}: ${v}`);
-    }
-  }
-  return offenders;
-}
-
-/** Among the rest blocks for a selector, the ones that actually set `prop`
- *  (e.g. the @media animation-only block for streaming-dot sets no width, so
- *  it is excluded — only the geometry block counts). */
+/** Rest blocks that actually set `prop` — e.g. the @media animation-only block
+ *  for streaming-dot sets no width, so it is excluded. Counting these lets a
+ *  height-only override (a second block setting just height) be caught. */
 function restBlocksSetting(css: string, subjectSelector: string, prop: string): string[] {
   return restBlocks(css, subjectSelector).filter((b) => decl(b, prop) !== undefined);
 }
 
+/** Assert `prop` is set in exactly one rest block of `selector`, with `expected`
+ *  value. Catches both first-match and height-only-override false-greens. */
+function assertExactlyOnce(css: string, selector: string, prop: string, expected: string, label: string): void {
+  const blocks = restBlocksSetting(css, selector, prop);
+  assert.equal(blocks.length, 1, `${label}: ${prop} must be set in exactly one rest block (a later same-selector override would win the cascade); got ${blocks.length}`);
+  assert.equal(decl(blocks[0]!, prop), expected, `${label}: ${prop} must be ${expected}`);
+}
+
 describe('PR-SIDEBAR-INDICATOR-SIZE-CONVERGE-0 contract (issue #743)', () => {
-  it('.maka-list-row-streaming-dot uses var(--space-2) for width/height', async () => {
+  it('.maka-list-row-streaming-dot width and height are each var(--space-2), set exactly once', async () => {
     const css = stripCssComments(await readAllRendererCss());
-    const w = restBlocksSetting(css, '.maka-list-row-streaming-dot', 'width');
-    assert.equal(w.length, 1, '.maka-list-row-streaming-dot width must be set in exactly one rest block (the @media animation block sets none)');
-    assert.equal(decl(w[0]!, 'width'), 'var(--space-2)');
-    assert.equal(decl(w[0]!, 'height'), 'var(--space-2)');
+    assertExactlyOnce(css, '.maka-list-row-streaming-dot', 'width', 'var(--space-2)', 'streaming-dot');
+    assertExactlyOnce(css, '.maka-list-row-streaming-dot', 'height', 'var(--space-2)', 'streaming-dot');
   });
 
-  it('.maka-list-row-unread uses var(--space-2) for width/height', async () => {
+  it('.maka-list-row-unread width and height are each var(--space-2), set exactly once', async () => {
     const css = stripCssComments(await readAllRendererCss());
-    const w = restBlocksSetting(css, '.maka-list-row-unread', 'width');
-    assert.equal(w.length, 1, '.maka-list-row-unread width must be set in exactly one rest block');
-    assert.equal(decl(w[0]!, 'width'), 'var(--space-2)');
-    assert.equal(decl(w[0]!, 'height'), 'var(--space-2)');
+    assertExactlyOnce(css, '.maka-list-row-unread', 'width', 'var(--space-2)', 'unread');
+    assertExactlyOnce(css, '.maka-list-row-unread', 'height', 'var(--space-2)', 'unread');
   });
 
-  it('.maka-list-row-text min-height uses var(--space-6) (content spacing, not a control token)', async () => {
+  it('.maka-list-row-text min-height is var(--space-6) (content spacing, not a control token)', async () => {
     const css = stripCssComments(await readAllRendererCss());
-    const m = restBlocksSetting(css, '.maka-list-row-text', 'min-height');
-    assert.equal(m.length, 1, '.maka-list-row-text min-height must be set in exactly one rest block');
-    assert.equal(decl(m[0]!, 'min-height'), 'var(--space-6)');
+    assertExactlyOnce(css, '.maka-list-row-text', 'min-height', 'var(--space-6)', 'list-row-text');
   });
 
-  it('.maka-list-row-status-icon declares no width/height (the SVG size is owned by buttonVariants)', async () => {
+  it('.maka-list-row-status-icon wrapper declares no width/height; the SVG is var(--space-3) (12px dense meta)', async () => {
     const css = stripCssComments(await readAllRendererCss());
-    const blocks = restBlocks(css, '.maka-list-row-status-icon');
-    for (const b of blocks) {
-      assert.equal(decl(b, 'width'), undefined, 'no .maka-list-row-status-icon rest block may set width (buttonVariants sizes the SVG via var(--icon-size))');
-      assert.equal(decl(b, 'height'), undefined, 'no .maka-list-row-status-icon rest block may set height');
+    // wrapper: no width/height (the SVG owns the footprint)
+    const wrapper = restBlocks(css, '.maka-list-row-status-icon');
+    for (const b of wrapper) {
+      assert.equal(decl(b, 'width'), undefined, 'status-icon wrapper must not set width');
+      assert.equal(decl(b, 'height'), undefined, 'status-icon wrapper must not set height');
     }
+    // svg: 12px dense-meta override (var(--space-3)), not --icon-size 16px
+    assertExactlyOnce(css, '.maka-list-row-status-icon svg', 'width', 'var(--space-3)', 'status-icon svg');
+    assertExactlyOnce(css, '.maka-list-row-status-icon svg', 'height', 'var(--space-3)', 'status-icon svg');
   });
 
-  it('no bare-px width/height/min-height remains on any .maka-list-row-* selector', async () => {
-    const css = stripCssComments(await readAllRendererCss());
-    const offenders = barePxSizeOffenders(css);
-    assert.deepEqual(offenders, [], `Offenders:\n  ${offenders.join('\n  ')}`);
-  });
-
-  it('barePxSizeOffenders flags a new off-ruler indicator (negative case)', () => {
-    const fakeCss = '.maka-list-row-other-indicator { width: 14px; height: 14px; }';
-    const offenders = barePxSizeOffenders(fakeCss);
-    assert.equal(offenders.length, 2, 'a new bare-px .maka-list-row-* indicator must be flagged, not just the four originally-listed selectors');
+  it('assertExactlyOnce flags a height-only same-selector override (negative case)', () => {
+    const fakeCss =
+      '.maka-list-row-unread { width: var(--space-2); height: var(--space-2); }\n' +
+      '.maka-list-row-unread { height: var(--space-3); }';
+    const blocks = restBlocksSetting(fakeCss, '.maka-list-row-unread', 'height');
+    assert.equal(blocks.length, 2, 'a height-only override must be caught (two height blocks), not silently pass via first-match');
   });
 });
