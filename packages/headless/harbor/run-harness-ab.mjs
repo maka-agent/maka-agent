@@ -101,6 +101,7 @@ async function main() {
           externalSystemPrompt: 'empty',
           reasoningEffort: REASONING_EFFORT,
           continuation: false,
+          attemptPolicy: 'single',
         },
       },
       {
@@ -112,6 +113,7 @@ async function main() {
           variant: REASONING_EFFORT,
           pure: true,
           permissions: 'auto',
+          attemptPolicy: 'single',
         },
       },
     ],

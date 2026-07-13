@@ -82,6 +82,39 @@ describe('runHarnessAbComparison', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test('treats infrastructure failure as the single terminal harness attempt', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-single-attempt-'));
+    try {
+      const promptPath = join(dir, 'empty-system-prompt.txt');
+      await writeFile(promptPath, '', 'utf8');
+      let failingAttempts = 0;
+      const calls: string[] = [];
+      const failingArm = harnessArm('maka', calls);
+      failingArm.harborRunner = async () => {
+        failingAttempts += 1;
+        throw new Error('container failed after launch');
+      };
+      const input = {
+        runId: 'glm-harness-ab',
+        runRoot: dir,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        systemPromptPath: promptPath,
+        resumeFingerprint: 'sha256:manifest',
+        evaluationTasks: [{ id: 'a', path: '/tasks/a' }],
+        arms: [failingArm, harnessArm('opencode', calls)] as const,
+      };
+
+      const first = await runHarnessAbComparison(input);
+      assert.equal(failingAttempts, 1);
+      assert.equal(first.baseline.infraFailed, 1);
+
+      await runHarnessAbComparison(input);
+      assert.equal(failingAttempts, 1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 function harnessArm(id: 'maka' | 'opencode', calls: string[], beforeRun?: () => Promise<void>) {

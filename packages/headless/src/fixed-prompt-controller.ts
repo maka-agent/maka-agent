@@ -304,6 +304,7 @@ export interface RunFixedPromptControllerInput {
   maxInfraFailureRate?: number;
   costCeilingUsd?: number;
   maxConcurrency?: number;
+  infraFailurePolicy?: 'retry-once' | 'terminal';
   resumeFingerprint?: string;
   requireExecutionIdentity?: boolean;
   expectedPricingProfile?: string;
@@ -341,7 +342,14 @@ export async function runFixedPromptController(
   const expectedPromptHash = hashSystemPrompt(systemPrompt);
   const config = { ...input.config, systemPrompt };
   const events = await readFixedPromptWal(input.resultsJsonlPath);
-  const completed = terminalTaskEvents(events, input.runId, input.roundId, expectedPromptHash, input.resumeFingerprint);
+  const completed = terminalTaskEvents(
+    events,
+    input.runId,
+    input.roundId,
+    expectedPromptHash,
+    input.resumeFingerprint,
+    input.infraFailurePolicy === 'terminal',
+  );
   const stopEvidence = roundTaskEvents(events, input.runId, input.roundId, expectedPromptHash, input.resumeFingerprint);
   let stopReason = controllerStopReason({
     events: [...stopEvidence.values()],
@@ -546,6 +554,17 @@ async function runTaskAndBuildEvent(input: {
         expectedConfig: input.config,
         requireExecutionIdentity: input.requireExecutionIdentity,
         expectedPricingProfile: input.expectedPricingProfile,
+        resumeFingerprint: input.resumeFingerprint,
+        id: input.id,
+        ts: input.ts,
+      });
+    }
+    if (input.input.infraFailurePolicy === 'terminal') {
+      return taskInfraFailedEvent({
+        error,
+        taskId: input.task.id,
+        runId: input.input.runId,
+        roundId: input.input.roundId,
         resumeFingerprint: input.resumeFingerprint,
         id: input.id,
         ts: input.ts,
@@ -1024,6 +1043,7 @@ function terminalTaskEvents(
   roundId: string,
   expectedPromptHash: string,
   resumeFingerprint: string | undefined,
+  includeInfraFailure: boolean,
 ): Map<string, FixedPromptTaskWalEvent> {
   const byTask = new Map<string, FixedPromptTaskWalEvent>();
   for (const event of events) {
@@ -1034,6 +1054,7 @@ function terminalTaskEvents(
       event.type === 'task_completed'
       || event.type === 'task_budget_exhausted'
       || event.type === 'task_plumbing_failed'
+      || (includeInfraFailure && event.type === 'task_infra_failed')
     ) {
       byTask.set(event.taskId, event);
     }
