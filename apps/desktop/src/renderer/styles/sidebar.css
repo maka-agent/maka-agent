@@ -332,6 +332,7 @@
   align-items: center;
   gap: var(--space-1-5);
   border: 0;
+  border-radius: var(--radius-control);
   background: transparent;
   color: inherit;
   padding: var(--space-0-5) var(--space-2) var(--space-0-5) var(--space-2-5);

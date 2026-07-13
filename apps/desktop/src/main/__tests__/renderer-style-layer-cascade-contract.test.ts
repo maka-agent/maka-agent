@@ -77,6 +77,15 @@ describe('renderer style layer cascade contract', () => {
     );
   });
 
+  it('keeps the composite session target on the same control radius as its row action', async () => {
+    const styles = await readAllRendererCss();
+    assert.match(
+      styles,
+      /\.maka-list-row-main\s*\{[^}]*border-radius:\s*var\(--radius-control\);[^}]*\}/,
+      'the semantic session target must own the same governed radius as .maka-list-row-menu-trigger',
+    );
+  });
+
   it('keeps .settingsHealthRefresh out of any @layer so it can override secondary Button utilities', async () => {
     const styles = await readAllRendererCss();
     const layers = enclosingLayerCount(styles, '.settingsHealthRefresh {');
