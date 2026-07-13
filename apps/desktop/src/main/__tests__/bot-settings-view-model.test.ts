@@ -68,6 +68,42 @@ describe('Bot Settings view model', () => {
 
     assert.equal(result.liveOperational, false);
     assert.equal(result.needsAttention, true);
-    assert.equal(result.currentError, '轮询失败');
+    assert.match(result.currentError ?? '', /轮询超时/);
+  });
+
+  it('uses the live degraded reason when no persisted error exists', () => {
+    const channel = createDefaultSettings().botChat.channels.wechat;
+    channel.enabled = true;
+    channel.readiness = 'operational';
+    const status: BotStatus = {
+      platform: 'wechat',
+      running: true,
+      readiness: 'degraded',
+      reason: 'polling-timeout',
+      connection: 'polling',
+    };
+
+    const result = deriveBotChannelViewState({ channel, status });
+
+    assert.match(result.currentError ?? '', /轮询超时/);
+    assert.equal(result.needsAttention, true);
+  });
+
+  it('lets a newer live degraded reason supersede a persisted error', () => {
+    const channel = createDefaultSettings().botChat.channels.telegram;
+    channel.enabled = true;
+    channel.readiness = 'degraded';
+    channel.lastError = '请求过多，已被平台节流';
+    const status: BotStatus = {
+      platform: 'telegram',
+      running: true,
+      readiness: 'degraded',
+      reason: 'send-failed',
+      connection: 'polling',
+    };
+
+    const result = deriveBotChannelViewState({ channel, status });
+
+    assert.match(result.currentError ?? '', /发送失败/);
   });
 });

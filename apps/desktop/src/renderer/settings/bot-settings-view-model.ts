@@ -1,4 +1,4 @@
-import type { BotChannelSettings, BotReadinessState } from '@maka/core';
+import { humanizeBotStatusReason, type BotChannelSettings, type BotReadinessState } from '@maka/core';
 import type { BotStatus } from '@maka/runtime';
 
 export function deriveBotChannelViewState(input: {
@@ -22,7 +22,10 @@ export function deriveBotChannelViewState(input: {
     || isConfiguredReadiness(channel.readiness)
     || isConfiguredReadiness(readiness);
   const liveOperational = status?.running === true && readiness === 'operational';
-  const currentError = liveOperational ? undefined : channel.lastError;
+  const liveError = readiness === 'degraded'
+    ? humanizeBotStatusReason(status?.reason)
+    : undefined;
+  const currentError = liveOperational ? undefined : liveError ?? channel.lastError;
   const needsAttention = configured && (
     readiness === 'degraded'
     || Boolean(currentError)
