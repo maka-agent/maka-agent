@@ -40,6 +40,9 @@ class MakaOpenCodeAgent(OpenCode):
                 raise NonZeroAgentExitCodeError(
                     "OpenCode emitted error event(s): " + "; ".join(messages[:3])
                 )
+        except Exception as error:
+            self._failure_class = self._classify_failure(error)
+            raise
         finally:
             self._finished_at_ms = int(time.time() * 1000)
 
@@ -72,6 +75,21 @@ class MakaOpenCodeAgent(OpenCode):
             "opencode_reported_cost_usd": reported_cost,
             "opencode_pricing_source": pricing_source or "missing_pricing",
         }
+
+    @staticmethod
+    def _classify_failure(error: Exception) -> str:
+        text = str(error).lower()
+        if any(marker in text for marker in ("401", "403", "unauthorized", "authentication", "invalid api key")):
+            return "auth"
+        if any(marker in text for marker in ("429", "rate limit", "too many requests")):
+            return "rate_limit"
+        if any(marker in text for marker in ("billing", "insufficient credit", "quota exceeded")):
+            return "provider_billing"
+        if any(marker in text for marker in ("connection", "network", "dns", "socket")):
+            return "network"
+        if any(marker in text for marker in ("500", "502", "503", "504", "unavailable")):
+            return "provider_unavailable"
+        return "infra_failed"
 
     async def _run_with_stop_sentinel(
         self,
@@ -268,7 +286,8 @@ class MakaOpenCodeAgent(OpenCode):
         )
         output = {
             "schemaVersion": 1,
-            "status": "completed",
+            "status": "failed" if hasattr(self, "_failure_class") else "completed",
+            **({"errorClass": self._failure_class} if hasattr(self, "_failure_class") else {}),
             "runtimeEventsPath": "/logs/agent/runtime-events.jsonl",
             "promptHash": prompt_hash,
             "executionIdentity": execution_identity,
