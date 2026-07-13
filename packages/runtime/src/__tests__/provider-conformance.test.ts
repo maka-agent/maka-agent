@@ -206,7 +206,12 @@ describe('models.dev provider conformance', () => {
     const server = await startJsonServer(async (request, response) => {
       assert.equal(request.headers.authorization, 'Bearer nvidia-test-key');
       if (request.method === 'GET' && request.url === '/v1/models') {
-        respondJson(response, 200, { data: [{ id: modelId, object: 'model', owned_by: 'nvidia' }] });
+        respondJson(response, 200, {
+          data: [
+            { id: modelId, object: 'model', owned_by: 'nvidia' },
+            { id: 'nvidia/nv-embed-v1', object: 'model', owned_by: 'nvidia' },
+          ],
+        });
         return;
       }
       assert.equal(request.method, 'POST');

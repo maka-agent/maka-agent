@@ -71,7 +71,8 @@ async function fetchProviderModelsStrict(
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json() as { data?: RawProviderModel[] };
-      return (data.data ?? []).map(toModelInfo).filter((model): model is ModelInfo => model !== null);
+      const models = (data.data ?? []).map(toModelInfo).filter((model): model is ModelInfo => model !== null);
+      return filterDiscoveredModels(models, discovery.filter, definition.fallbackModels);
     }
     case 'openai': {
       const r = await proxiedFetch(modelListUrl(baseUrl, discovery.query), {
@@ -83,10 +84,11 @@ async function fetchProviderModelsStrict(
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json() as { data?: RawProviderModel[] } | RawProviderModel[];
-      const models = discovery.responseShape === 'array-or-data'
+      const rawModels = discovery.responseShape === 'array-or-data'
         ? (Array.isArray(data) ? data : data.data ?? [])
         : (Array.isArray(data) ? [] : data.data ?? []);
-      return models.map(toModelInfo).filter((model): model is ModelInfo => model !== null);
+      const models = rawModels.map(toModelInfo).filter((model): model is ModelInfo => model !== null);
+      return filterDiscoveredModels(models, discovery.filter, definition.fallbackModels);
     }
     case 'google': {
       const r = await proxiedFetch(
@@ -101,6 +103,16 @@ async function fetchProviderModelsStrict(
       });
     }
   }
+}
+
+function filterDiscoveredModels(
+  models: ModelInfo[],
+  filter: 'fallback-models' | undefined,
+  fallbackModels: readonly string[],
+): ModelInfo[] {
+  if (filter !== 'fallback-models') return models;
+  const supported = new Set(fallbackModels);
+  return models.filter((model) => supported.has(model.id));
 }
 
 function modelListUrl(baseUrl: string, query: Readonly<Record<string, string>> | undefined): string {

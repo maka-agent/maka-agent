@@ -28,6 +28,7 @@ export type ProviderModelDiscovery =
       auth?: 'claude-subscription';
       query?: Readonly<Record<string, string>>;
       responseShape?: 'array-or-data';
+      filter?: 'fallback-models';
     }
   | {
       kind: 'fireworks';
@@ -446,7 +447,7 @@ const providerRegistry = {
     status: 'ready',
     protocol: 'openai',
     runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
-    modelDiscovery: { kind: 'protocol' },
+    modelDiscovery: { kind: 'protocol', filter: 'fallback-models' },
     category: 'overseas',
     catalogGroup: 'api',
     catalogBadge: 'API',
