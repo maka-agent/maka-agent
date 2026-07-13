@@ -42,8 +42,25 @@ describe('permission prompt response guard', () => {
       /\}\s*finally\s*\{[\s\S]*if \(activePermissionRequestIdRef\.current === requestId\) \{[\s\S]*responsePendingRef\.current = false;[\s\S]*if \(permissionMountedRef\.current\) setResponsePending\(false\);[\s\S]*\}/,
       'only the request that owns the pending response may clear the pending lock',
     );
-    assert.match(prompt, /disabled=\{responsePending\}[\s\S]*onClick=\{\(\) => submit\('deny'\)\}/);
-    assert.match(prompt, /disabled=\{responsePending\}[\s\S]*onClick=\{\(\) => submit\('allow'\)\}/);
+    assert.match(prompt, /disabled=\{decisionsDisabled\}[\s\S]*onClick=\{\(\) => submit\('deny'\)\}/);
+    assert.match(prompt, /disabled=\{decisionsDisabled\}[\s\S]*onClick=\{\(\) => submit\('allow'\)\}/);
     assert.match(prompt, /responsePending \? '正在提交…'/);
+  });
+
+  it('locks permission decisions after Stop without removing Stop as a cancellation escape hatch', async () => {
+    const source = await readFile(join(process.cwd(), '../../packages/ui/src/permission-dialog.tsx'), 'utf8');
+    const prompt = source.match(/export function PermissionPrompt[\s\S]*?function renderPermissionSummary/)?.[0] ?? '';
+
+    assert.match(prompt, /const decisionsDisabled = props\.stopPending \|\| responsePending;/);
+    assert.equal(
+      prompt.match(/disabled=\{decisionsDisabled\}/g)?.length,
+      3,
+      'Stop pending and response pending must lock remember, allow, and deny',
+    );
+    assert.match(
+      prompt,
+      /disabled=\{props\.stopPending\}[\s\S]*?props\.stopPending \? '停止中…' : '停止'/,
+      'Stop remains independently available while a decision IPC is pending so the user can still interrupt the turn',
+    );
   });
 });

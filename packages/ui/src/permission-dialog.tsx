@@ -107,6 +107,7 @@ export function PermissionPrompt(props: {
     : undefined);
   const health = derivePermissionRequestHealth({ requestedAt: props.request.ts, now });
   const waitLabel = formatPermissionRequestWait(health.ageMs);
+  const decisionsDisabled = props.stopPending || responsePending;
 
   return (
     <section
@@ -150,7 +151,7 @@ export function PermissionPrompt(props: {
               <label className="permissionRemember">
                 <Checkbox
                   checked={rememberForTurn}
-                  disabled={responsePending}
+                  disabled={decisionsDisabled}
                   onCheckedChange={(checked) => setRememberForTurn(checked === true)}
                 />
                 本轮记住
@@ -171,7 +172,7 @@ export function PermissionPrompt(props: {
                 variant="ghost"
                 size="md"
                 type="button"
-                disabled={responsePending}
+                disabled={decisionsDisabled}
                 onClick={() => submit('deny')}
               >
                 拒绝操作
@@ -180,7 +181,7 @@ export function PermissionPrompt(props: {
                 variant={isDestructive ? 'destructive' : 'default'}
                 size="md"
                 type="button"
-                disabled={responsePending}
+                disabled={decisionsDisabled}
                 onClick={() => submit('allow')}
               >
                 {responsePending ? '正在提交…' : '允许操作'}
