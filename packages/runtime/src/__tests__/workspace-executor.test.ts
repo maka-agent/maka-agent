@@ -172,7 +172,7 @@ describe('LocalWorkspaceExecutor file operations', () => {
 });
 
 describe('SandboxedCommandWorkspaceExecutor exec', () => {
-  test('transforms /bin/sh -lc command and executes the final sandbox argv', async () => {
+  test('transforms /bin/sh -c command and executes the final sandbox argv', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-sandboxed-command-'));
     const transformCalls: SandboxTransformRequest[] = [];
     const runCalls: Array<{ argv: readonly string[]; options: unknown }> = [];
@@ -232,7 +232,7 @@ describe('SandboxedCommandWorkspaceExecutor exec', () => {
 
     expect(transformCalls).toHaveLength(1);
     expect(transformCalls[0]?.command.program).toBe('/bin/sh');
-    expect(transformCalls[0]?.command.args).toEqual(['-lc', 'echo "$PHASE6"']);
+    expect(transformCalls[0]?.command.args).toEqual(['-c', 'echo "$PHASE6"']);
     expect(transformCalls[0]?.command.cwd).toBe(cwd);
     expect(transformCalls[0]?.command.env).toEqual({ PHASE6: 'ok' });
     expect(transformCalls[0]?.command.pathContext).toMatchObject({
@@ -249,7 +249,7 @@ describe('SandboxedCommandWorkspaceExecutor exec', () => {
       'policy',
       '--',
       '/bin/sh',
-      '-lc',
+      '-c',
       'echo "$PHASE6"',
     ]);
     expect(runCalls[0]?.options).toMatchObject({

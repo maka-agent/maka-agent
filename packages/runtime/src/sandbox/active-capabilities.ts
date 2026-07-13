@@ -113,7 +113,7 @@ async function probeCommandCapability(
     transformed = context.sandboxManager.transform({
       command: {
         program: '/bin/sh',
-        args: ['-lc', 'true'],
+        args: ['-c', 'true'],
         cwd: context.cwd,
         env: {},
         profile: context.profile,

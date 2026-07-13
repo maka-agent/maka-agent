@@ -27,6 +27,31 @@ function context(): PermissionAwareSandboxContext {
 }
 
 describe('probeActiveSandboxCapabilities', () => {
+  test('probes the command sandbox without starting a login shell', async () => {
+    const base = context();
+    let shellArgs: readonly string[] | undefined;
+    const capabilities = await probeActiveSandboxCapabilities({
+      context: {
+        ...base,
+        sandboxManager: {
+          transform: (request) => {
+            shellArgs = request.command.args;
+            return base.sandboxManager.transform(request);
+          },
+        },
+      },
+      getFilesystemWorkerLaunchSpec: async () => ({
+        ok: false,
+        reason: 'worker_bundle_unavailable',
+        message: 'worker bundle missing',
+      }),
+      isExecutable: async () => true,
+    });
+
+    assert.equal(capabilities.command.status, 'available');
+    assert.deepEqual(shellArgs, ['-c', 'true']);
+  });
+
   test('reports command available independently from an unavailable filesystem worker', async () => {
     const capabilities = await probeActiveSandboxCapabilities({
       context: context(),

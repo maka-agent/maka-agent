@@ -505,7 +505,7 @@ export class SandboxedCommandWorkspaceExecutor implements WorkspaceExecutor {
     const transform = context.sandboxManager.transform({
       command: {
         program: '/bin/sh',
-        args: ['-lc', input.command],
+        args: ['-c', input.command],
         cwd: input.cwd,
         ...(input.env ? { env: input.env } : {}),
         profile: context.profile,

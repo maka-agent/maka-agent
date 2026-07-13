@@ -59,7 +59,7 @@ describe('ShellRunProcessManager', () => {
     }));
 
     assert.equal(result.kind, 'terminal');
-    assert.deepEqual(calls, [{ program: '/bin/sh', args: ['-lc', 'printf "ok"'], cwd }]);
+    assert.deepEqual(calls, [{ program: '/bin/sh', args: ['-c', 'printf "ok"'], cwd }]);
     assert.equal((await store.readShellRun('session-1', 'shell-run-1')).cwd, cwd);
   });
 

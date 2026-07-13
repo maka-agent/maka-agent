@@ -67,7 +67,7 @@ describe('createPermissionAwareWorkspaceExecutor', () => {
       '/usr/bin/sandbox-exec',
       '--',
       '/bin/sh',
-      '-lc',
+      '-c',
       'echo ok',
     ]);
   });
@@ -130,7 +130,7 @@ describe('createPermissionAwareWorkspaceExecutor', () => {
     expect(compiledProfile.profileName).toBe('danger-full-access');
     expect(await readFile(join(cwd, '.git', 'config'), 'utf8')).toBe('allowed');
     expect(result.exitCode).toBe(0);
-    expect(runner.calls[0]?.argv).toEqual(['/bin/sh', '-lc', 'echo unsafe']);
+    expect(runner.calls[0]?.argv).toEqual(['/bin/sh', '-c', 'echo unsafe']);
   });
 });
 
@@ -214,7 +214,7 @@ describe('buildPermissionAwareBuiltinTools', () => {
       '/usr/bin/sandbox-exec',
       '--',
       '/bin/sh',
-      '-lc',
+      '-c',
       'echo ok',
     ]);
     expect(await readFile(join(cwd, 'notes.txt'), 'utf8')).toBe('ok');

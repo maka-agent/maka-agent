@@ -388,7 +388,7 @@ export class ShellRunProcessManager {
     const transformed = context.sandboxManager.transform({
       command: {
         program: '/bin/sh',
-        args: ['-lc', input.command],
+        args: ['-c', input.command],
         cwd: context.cwd,
         profile: context.profile,
         pathContext: context.pathContext,
