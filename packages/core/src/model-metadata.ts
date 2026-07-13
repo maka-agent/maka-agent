@@ -124,6 +124,11 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
       lifecycle: 'active',
       docsUrl: 'https://www.volcengine.com/docs/82379',
       capabilities: { reasoning: true, functionCalling: true },
+      thinkingOptions: {
+        efforts: ['minimal', 'low', 'medium', 'high'],
+        toggle: true,
+        offBehavior: 'volcengine-thinking-disabled',
+      },
     },
   },
   deepseek: {

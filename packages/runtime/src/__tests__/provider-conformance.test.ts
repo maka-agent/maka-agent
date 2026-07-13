@@ -5,7 +5,7 @@ import type { LlmConnection } from '@maka/core';
 import { generateText, stepCountIs, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
-import { getAIModel } from '../model-factory.js';
+import { buildProviderOptions, getAIModel } from '../model-factory.js';
 
 const servers: Array<{ close(): Promise<void> }> = [];
 
@@ -1297,6 +1297,7 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'ark-test-key', modelId: models[0]!.id }),
       prompt: 'Call echo with hello.',
+      providerOptions: buildProviderOptions(connection, modelId),
       stopWhen: stepCountIs(2),
       tools: {
         echo: tool({
@@ -1308,6 +1309,7 @@ describe('models.dev provider conformance', () => {
     });
 
     assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies[0]?.thinking, { type: 'enabled' });
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(

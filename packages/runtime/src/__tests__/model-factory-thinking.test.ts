@@ -71,6 +71,20 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-chat', 'high'), {});
   });
 
+  test('Volcengine Ark sends its official thinking object and optional reasoning effort', () => {
+    const modelId = 'doubao-seed-2-0-pro-260215';
+    assert.deepEqual([...thinkingVariantsForModel('volcengine-ark', modelId)], ['off', 'minimal', 'low', 'medium', 'high']);
+    assert.deepEqual(buildProviderOptions(conn('volcengine-ark'), modelId), {
+      'volcengine-ark': { thinking: { type: 'enabled' } },
+    });
+    assert.deepEqual(buildProviderOptions(conn('volcengine-ark'), modelId, 'high'), {
+      'volcengine-ark': { thinking: { type: 'enabled' }, reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('volcengine-ark'), modelId, 'off'), {
+      'volcengine-ark': { thinking: { type: 'disabled' } },
+    });
+  });
+
   test('a level the model does not support is dropped (defensive)', () => {
     assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: {} });
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'max'), { anthropic: {} });
@@ -115,6 +129,7 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
     { providerType: 'google', model: 'gemini-3.5-flash' },
     { providerType: 'deepseek', model: 'deepseek-v4-flash' },
     { providerType: 'zai-coding-plan', model: 'glm-5.2', slug: 'zai-coding-plan' },
+    { providerType: 'volcengine-ark', model: 'doubao-seed-2-0-pro-260215' },
   ];
   for (const { providerType, model, slug } of cases) {
     test(`every effort level for ${providerType}/${model} maps to a non-empty fragment`, () => {

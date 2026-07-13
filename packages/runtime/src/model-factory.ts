@@ -2,7 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { LanguageModelV3 } from '@ai-sdk/provider';
+import type { LanguageModelV3, SharedV3ProviderOptions } from '@ai-sdk/provider';
 import { PROVIDER_DEFAULTS, effectiveBaseUrl, type LlmConnection, type ProviderType } from '@maka/core/llm-connections';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { thinkingOptionsForModel, thinkingVariantsForModel } from '@maka/core/model-thinking';
@@ -85,7 +85,7 @@ export function buildProviderOptions(
   connection: LlmConnection,
   modelId: string,
   thinkingLevel?: ThinkingLevel,
-): Record<string, unknown> {
+): SharedV3ProviderOptions {
   const thinkingOptions = thinkingOptionsForModel(connection.providerType, modelId);
   const variants = thinkingVariantsForModel(connection.providerType, modelId);
   const level = thinkingLevel && variants.includes(thinkingLevel) ? thinkingLevel : undefined;
@@ -117,6 +117,13 @@ export function buildProviderOptions(
       };
     case 'openai':
       return { openai: level ? { reasoningEffort: level === 'off' ? 'none' : level } : {} };
+    case 'volcengine-ark':
+      return {
+        [openaiCompatibleNamespace(connection.providerType)]: {
+          thinking: { type: level === 'off' ? 'disabled' : 'enabled' },
+          ...(level && level !== 'off' ? { reasoningEffort: level } : {}),
+        },
+      };
     case 'google':
       return {
         google: {
