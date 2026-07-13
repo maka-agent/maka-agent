@@ -34,6 +34,7 @@ import {
   type ToolPermissionRule,
 } from '@maka/core/permission';
 import type { PermissionDecisionAckEvent, PermissionRequestEvent } from '@maka/core/events';
+import { TurnScopedAwaitRegistry } from './turn-scoped-await-registry.js';
 
 // ============================================================================
 // Per-turn state
@@ -43,18 +44,13 @@ interface TurnState {
   turnId: string;
   /** Tool-intent scopes granted with `rememberForTurn: true` in this turn. */
   remembered: Set<string>;
-  /** Outstanding parked permission requests, keyed by requestId. */
-  parked: Map<string, ParkedRequest>;
 }
 
-interface ParkedRequest {
-  requestId: string;
+interface ParkedPermission {
   toolUseId: string;
   category: ToolCategory;
   scopeKey: string;
   rememberForTurnAllowed: boolean;
-  resolve(response: PermissionResponse): void;
-  reject(err: Error): void;
 }
 
 // ============================================================================
@@ -117,25 +113,26 @@ export interface PermissionEngineDeps {
 
 export class PermissionEngine {
   private readonly turns = new Map<string, TurnState>();
+  private readonly parked = new TurnScopedAwaitRegistry<PermissionResponse, ParkedPermission>();
 
   constructor(private readonly deps: PermissionEngineDeps) {}
 
   /** Begin tracking a new turn. Idempotent. */
   beginTurn(turnId: string): void {
     if (!this.turns.has(turnId)) {
-      this.turns.set(turnId, { turnId, remembered: new Set(), parked: new Map() });
+      this.turns.set(turnId, { turnId, remembered: new Set() });
     }
+    this.parked.beginTurn(turnId);
   }
 
   /** End tracking, rejecting any still-parked requests as user_stop. */
   endTurn(turnId: string, reason: 'completed' | 'aborted' = 'completed'): void {
     const state = this.turns.get(turnId);
     if (!state) return;
-    for (const parked of state.parked.values()) {
-      parked.reject(
-        new Error(`Turn ${turnId} ${reason} before permission request ${parked.requestId} was answered`),
-      );
-    }
+    this.parked.endTurn(
+      turnId,
+      (requestId) => new Error(`Turn ${turnId} ${reason} before permission request ${requestId} was answered`),
+    );
     this.turns.delete(turnId);
   }
 
@@ -227,21 +224,11 @@ export class PermissionEngine {
       ...(input.hint !== undefined ? { hint: input.hint } : {}),
     };
 
-    let resolveFn: (r: PermissionResponse) => void = () => {};
-    let rejectFn: (e: Error) => void = () => {};
-    const parked = new Promise<PermissionResponse>((res, rej) => {
-      resolveFn = res;
-      rejectFn = rej;
-    });
-
-    state.parked.set(requestId, {
-      requestId,
+    const parked = this.parked.park(input.turnId, requestId, {
       toolUseId: input.toolUseId,
       category: pre.category,
       scopeKey: pre.scopeKey,
       rememberForTurnAllowed: pre.partialRequest.rememberForTurnAllowed !== false,
-      resolve: resolveFn,
-      reject: rejectFn,
     });
 
     return { kind: 'prompt', category: pre.category, event, parked };
@@ -269,10 +256,8 @@ export class PermissionEngine {
     }
     const state = this.turns.get(turnId);
     if (!state) return null;
-    const parked = state.parked.get(response.requestId);
+    const parked = this.parked.entries(turnId).find(([requestId]) => requestId === response.requestId)?.[1];
     if (!parked) return null;
-
-    state.parked.delete(response.requestId);
 
     if (
       response.decision === 'allow'
@@ -285,16 +270,17 @@ export class PermissionEngine {
       // browser_* batch) must not each re-prompt. Resolve them now — each
       // tool's own coroutine then emits its own permission_decision_ack, so the
       // UI queue drains without a second click. The current request was already
-      // deleted above, so the snapshot never re-resolves it.
-      for (const [otherId, other] of [...state.parked]) {
-        if (other.scopeKey === parked.scopeKey) {
-          state.parked.delete(otherId);
-          other.resolve({ requestId: otherId, decision: 'allow', rememberForTurn: true });
+      // selected explicitly, so the snapshot must not auto-resolve it.
+      for (const [otherId, other] of this.parked.entries(turnId)) {
+        if (otherId !== response.requestId && other.scopeKey === parked.scopeKey) {
+          this.parked.resolve(turnId, otherId, { requestId: otherId, decision: 'allow', rememberForTurn: true });
         }
       }
     }
 
-    parked.resolve(
+    this.parked.resolve(
+      turnId,
+      response.requestId,
       parked.rememberForTurnAllowed
         ? response
         : { ...response, rememberForTurn: false },
@@ -308,26 +294,23 @@ export class PermissionEngine {
    * resolve a tool call that has already failed closed.
    */
   expireRequest(turnId: string, requestId: string, reason: string): { category: ToolCategory; toolUseId: string } | null {
-    const state = this.turns.get(turnId);
-    if (!state) return null;
-    const parked = state.parked.get(requestId);
+    const parked = this.parked.reject(turnId, requestId, new Error(reason));
     if (!parked) return null;
-    state.parked.delete(requestId);
-    parked.reject(new Error(reason));
     return { category: parked.category, toolUseId: parked.toolUseId };
   }
 
   /** Test/debug accessor. */
   pendingCount(turnId: string): number {
-    return this.turns.get(turnId)?.parked.size ?? 0;
+    return this.parked.pendingCount(turnId);
   }
 
   private requireTurn(turnId: string): TurnState {
     let state = this.turns.get(turnId);
     if (!state) {
       // Auto-begin: callers may forget. This is a soft guarantee.
-      state = { turnId, remembered: new Set(), parked: new Map() };
+      state = { turnId, remembered: new Set() };
       this.turns.set(turnId, state);
+      this.parked.beginTurn(turnId);
     }
     return state;
   }
