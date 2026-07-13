@@ -42,6 +42,7 @@ export function createComputerUseHost(input: {
     base64: string,
     mimeType: string,
   ) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
+  physicalInputRecentlyActive?: () => boolean | Promise<boolean>;
 }): ComputerUseHostState {
   const manifestPath = input.manifestPath ?? (input.isPackaged
     ? join(input.resourcesPath, 'bundled-tools.json')
@@ -95,6 +96,9 @@ export function createComputerUseHost(input: {
         ...(expectedServerVersion ? { expectedServerVersion } : {}),
         ...(expectedProtocolVersion ? { expectedProtocolVersion } : {}),
         ...(input.compressFrame ? { compressFrame: input.compressFrame } : {}),
+        ...(input.physicalInputRecentlyActive
+          ? { physicalInputRecentlyActive: input.physicalInputRecentlyActive }
+          : {}),
       }),
       binaryPath,
       expectedBinarySha256,

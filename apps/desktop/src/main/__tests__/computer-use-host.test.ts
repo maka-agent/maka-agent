@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -129,5 +129,14 @@ describe('Computer Use host health', () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it('accepts a host-owned physical-input guard', async () => {
+    const source = await readFile(
+      new URL('../../../src/main/computer-use-host.ts', import.meta.url),
+      'utf8',
+    );
+    assert.match(source, /physicalInputRecentlyActive/);
+    assert.match(source, /selectComputerUseBackend/);
   });
 });

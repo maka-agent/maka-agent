@@ -46,4 +46,13 @@ describe('Desktop Computer Use production wiring', () => {
     assert.match(main, /computerUse\.backend\?\.serviceState/);
     assert.match(main, /computerUseServiceHealth/);
   });
+
+  it('wires a conservative physical-input quiet window', async () => {
+    const main = await readFile(
+      resolve(ROOT, 'apps/desktop/src/main/main.ts'),
+      'utf8',
+    );
+    assert.match(main, /powerMonitor\.getSystemIdleTime\(\) < 1/);
+    assert.match(main, /physicalInputRecentlyActive/);
+  });
 });
