@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { readRendererShellSource } from './renderer-shell-source-helpers.js';
+import { readRendererShellSource, readRendererShellSources } from './renderer-shell-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -79,13 +79,15 @@ describe('session open routing contract', () => {
   });
 
   it('new-chat navigation does not wipe other sessions live renderer state', async () => {
-    const main = await readRendererShellSource('app-shell.tsx');
-    const createSession = main.match(/async function createSession\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
+    const source = await readRendererShellSources(['app-shell.tsx', 'use-app-shell-session-workspace.ts']);
+    const createSession = source.match(/async function createSession\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
+    const startNewSession = source.match(/function startNewSession\(\): void \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
-    assert.match(createSession, /setActiveId\(undefined\);/);
+    assert.match(createSession, /startNewSession\(\);/);
+    assert.match(startNewSession, /setActiveId\(undefined\);/);
     assert.match(createSession, /setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);/);
     assert.match(createSession, /setSearchScrollTarget\(null\);/);
-    assert.match(createSession, /setMessages\(\[\]\);/);
+    assert.match(startNewSession, /setMessages\(\[\]\);/);
     assert.doesNotMatch(
       createSession,
       /setStreamingBySession\(\{\}\)|setLiveToolsBySession\(\{\}\)|setPermissionBySession\(\{\}\)/,

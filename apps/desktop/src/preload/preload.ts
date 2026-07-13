@@ -70,7 +70,7 @@ import type {
 } from '@maka/core/usage-stats/types';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
 import type { GoalState } from '@maka/runtime';
-import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
+import type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
 import type { ConfigCategory } from '@maka/storage';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
@@ -929,6 +929,17 @@ contextBridge.exposeInMainWorld('maka', {
   skills: {
     list(): Promise<SkillEntry[]> {
       return ipcRenderer.invoke('skills:list');
+    },
+    catalog: {
+      list(): Promise<BundledSkillCatalogEntry[]> {
+        return ipcRenderer.invoke('skills:catalog:list');
+      },
+      install(id: string): Promise<
+        | { ok: true; skill: SkillEntry }
+        | { ok: false; reason: 'not_found' | 'already_exists' | 'blocked_path' | 'write_failed' }
+      > {
+        return ipcRenderer.invoke('skills:catalog:install', id);
+      },
     },
     sources: {
       list(): Promise<ManagedSkillSourceEntry[]> {

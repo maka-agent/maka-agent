@@ -1,5 +1,5 @@
 /**
- * Right-side ArtifactPane for the chat shell (design-system §9.1.3).
+ * Right-side ArtifactPane for the chat shell.
  *
  * Responsibilities — and the five review gates that drive them:
  *
@@ -16,8 +16,8 @@
  *     `ArtifactReadFailureReason`s have explicit Chinese copy.
  *
  *  4. **Smoke fixture compatibility**: the pane mounts when `sessionId` is
- *     defined AND at least one live artifact exists — per §9.1.3 default
- *     hidden. The `MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane` scenario seeds
+ *     defined AND at least one live artifact exists. The
+ *     `MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane` scenario seeds
  *     3 artifacts, so the pane is visible during the smoke.
  *
  *  5. **Copy/export policy**: only the text-based kinds (`file`, `diff`,
@@ -149,7 +149,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   useEffect(() => {
     void refresh();
     if (!sessionId) return;
-    // §9.1.2 subscribeChanges: keep the list in sync without polling. The
+    // Keep the list in sync without polling. The
     // backend emits `{ reason: 'created' | 'deleted' | 'purged' }` on the
     // `artifacts:changed` channel; we just re-list since the list is bounded
     // (one session's worth) and the metadata is already in memory on main.
@@ -194,7 +194,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   const hasLiveArtifact = activeRecords.some((record) => record.status !== 'deleted');
   const artifactActionBusy = pendingArtifactAction !== null;
 
-  // §9.1.3: "默认隐藏；当 session 内至少 1 个 live artifact 时显示". Returning
+  // Default hidden until the session has a live artifact. Returning
   // `null` keeps the chat surface flush with the right window edge until
   // the runtime actually produces an artifact. A current-session list error is
   // also visible; otherwise "list failed" is indistinguishable from "no files".
@@ -357,7 +357,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
         break;
       case 'activate':
         setSelectedId(action.targetId);
-        // §9.1.3 Enter on selected row → focus preview surface so the
+        // Enter on selected row → focus preview surface so the
         // screen reader announces the artifact contents.
         requestAnimationFrame(() => previewRef.current?.focus());
         break;

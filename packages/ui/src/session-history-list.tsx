@@ -23,6 +23,7 @@ import { EmptyState } from './empty-state.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';
 import { Button as UiButton } from './ui.js';
+import { describeBlockedReason, presentSessionStatus } from './session-status-presentation.js';
 
 type SessionRowActionId = 'flag' | 'archive' | 'rename' | 'delete';
 type SessionHistoryGroupVariant = 'status' | 'project';
@@ -392,7 +393,7 @@ function ProjectSessionGroup(props: {
 
 /**
  * Small inline icon next to the session name representing its
- * lifecycle status (PR109b, design-system §9.8). Hidden for `active`
+ * lifecycle status. Hidden for `active`
  * since that's the default and would add visual noise to most rows.
  *
  * `aborted` is rendered as muted history: not an error, not active,
@@ -411,15 +412,13 @@ function SessionStatusIcon(props: { session: SessionSummary }) {
   if (status === 'active') return null;
   const Icon = STATUS_ICON_BY_STATUS[status as keyof typeof STATUS_ICON_BY_STATUS];
   if (!Icon) return null;
-  const label = STATUS_LABEL_BY_STATUS[status as keyof typeof STATUS_LABEL_BY_STATUS];
-  const tone = STATUS_TONE_BY_STATUS[status as keyof typeof STATUS_TONE_BY_STATUS];
+  const { label, tone } = presentSessionStatus(status);
   // `blocked` may attach a reason; we surface the generalized text in
   // the tooltip without exposing the raw enum identifier (per @kenji
-  // i18n contract). The reason mapping lives in the renderer side; this
-  // file knows only the status itself, so the tooltip is just the
-  // status label.
+  // i18n contract). The shared presentation module owns the mapping so
+  // sidebar and renderer surfaces cannot drift.
   const blockedDetail = status === 'blocked' && session.blockedReason
-    ? BLOCKED_REASON_TOOLTIP[session.blockedReason as keyof typeof BLOCKED_REASON_TOOLTIP] ?? null
+    ? describeBlockedReason(session.blockedReason)
     : null;
   const title = blockedDetail ? `${label} · ${blockedDetail}` : label;
   return (
@@ -454,10 +453,6 @@ const SIDEBAR_UNREAD_SUPPRESSED_STATUSES = new Set<string>([
   'blocked',
 ]);
 
-// Keep these maps in sync with `apps/desktop/src/renderer/session-status-presentation.ts`.
-// The presentation helper is the authoritative source; we duplicate the
-// minimum subset here to keep @maka/ui independent of the renderer
-// workspace.
 const STATUS_ICON_BY_STATUS = {
   running: Loader2,
   waiting_for_user: Hourglass,
@@ -466,43 +461,6 @@ const STATUS_ICON_BY_STATUS = {
   done: CircleCheckBig,
   archived: Archive,
   aborted: Ban,
-} as const;
-
-const STATUS_LABEL_BY_STATUS = {
-  running: '进行中',
-  waiting_for_user: '等你确认',
-  blocked: '已阻塞',
-  review: '待审核',
-  done: '已完成',
-  archived: '已归档',
-  aborted: '已中止',
-} as const;
-
-// `blocked` was 'destructive' (red), which read as a hard error in the
-// chat header even when the session was just waiting on permission or a
-// connection retry. The chat top-right cluster sits visually alongside
-// monochrome quiet-icon buttons, so the bright red pill clashed. Most
-// blocked sessions are recoverable (permission_required, auth retry,
-// missing connection), so 'warning' (warm yellow) is the honest tone —
-// "you need to do something" rather than "this failed". The destructive
-// red is reserved for hard failures (e.g. permanent connection / auth
-// rejection), which surface through ChatHeaderAlertBadge instead.
-const STATUS_TONE_BY_STATUS = {
-  running: 'accent',
-  waiting_for_user: 'warning',
-  blocked: 'warning',
-  review: 'info',
-  done: 'success',
-  archived: 'muted',
-  aborted: 'muted',
-} as const;
-
-const BLOCKED_REASON_TOOLTIP = {
-  NO_REAL_CONNECTION: '等待配置可用模型连接',
-  auth: '需要重新登录',
-  permission_required: '等待权限确认',
-  tool_failed: '工具调用失败',
-  unknown: '运行中断，可重试',
 } as const;
 
 const SessionRow = memo(function SessionRow(props: {

@@ -7,12 +7,11 @@ import type {
   PlanReminder,
   SessionSummary,
   SettingsSection,
-  StoredMessage,
   ThemePalette,
   ThemePreference,
   ThinkingLevel,
 } from '@maka/core';
-import { generalizedErrorMessageChinese, hasSettledInitialOnboarding, thinkingVariantsForModel, attachmentKindFromMimeType, guessMimeFromName } from '@maka/core';
+import { generalizedErrorMessageChinese, hasSettledInitialOnboarding, thinkingVariantsForModel } from '@maka/core';
 import {
   type ChatHeaderAlert,
   type ChatModelChoice,
@@ -25,6 +24,7 @@ import {
   MakaUriContext,
   type NavSelection,
   SessionListPanel,
+  type BundledSkillCatalogEntry,
   SkillsPage,
   type ManagedSkillSourceEntry,
   type SessionViewMode,
@@ -61,7 +61,6 @@ import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveProjectGroups } from './session-project-grouping';
 import { deriveSessionStatusGroups } from './session-status-grouping';
 import {
-  normalizeSessionSummaryForDisplay,
   presentSessionStatus,
   sessionStatusAriaLabel,
 } from './session-status-presentation';
@@ -74,7 +73,6 @@ import { hasInFlightToolActivity } from './session-event-health';
 import { MODEL_CONTINUING_DELAY_MS, MODEL_PROCESSING_DELAY_MS, deriveModelWait } from './model-wait-state';
 import { useDelayedFlag } from './use-delayed-flag';
 import { safeLocalStorageSet } from './browser-storage';
-import { applyLocalSessionRead, applySessionReadOverrides, createSessionListRefresher, type SessionListRefresher, type SessionReadBoundaries } from './session-read-state';
 import { filterSessions, readNavSelection } from './nav-selection';
 import {
   readSessionListCollapsed,
@@ -97,8 +95,7 @@ import { createAppShellProjectActions, type RendererAppInfo } from './app-shell-
 import { createAppShellSkillActions } from './app-shell-skill-actions';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
 import { createAppShellVisualSmokeActions } from './app-shell-visual-smoke';
-import { createAppShellChatActions, type PendingAttachment } from './app-shell-chat-actions';
-import { appendPending, clearPending, removePending, selectPending, type PendingByKey } from './app-shell-pending-attachments';
+import { createAppShellChatActions } from './app-shell-chat-actions';
 import { createAppShellTurnActions } from './app-shell-turn-actions';
 import { createAppShellLayoutActions } from './app-shell-layout-actions';
 import { createAppShellQuickChatActions } from './app-shell-quick-chat-actions';
@@ -106,18 +103,19 @@ import { createAppShellDailyReviewActions } from './app-shell-daily-review-actio
 import { createAppShellSessionRowActions } from './app-shell-session-row-actions';
 import { createAppShellSessionSettingsActions } from './app-shell-session-settings-actions';
 import { createAppShellStopAction } from './app-shell-stop-action';
-import { useAppShellSessionUiState } from './app-shell-session-ui-state';
 import {
   useActiveSessionEvents,
   useAppShellBootstrapSubscriptions,
   useAppShellHostEffects,
   useAppShellPersistenceEffects,
-  useAppShellRefSync,
+  useAppShellNavRefSync,
   useSessionEventHealthPolling,
   useShellRunUpdates,
   useSettledSessionTransientReconcile,
 } from './app-shell-effects';
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
+import { useAppShellComposerAttachments } from './use-app-shell-composer-attachments';
+import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
 
 function connectionsEqual(a: LlmConnection[], b: LlmConnection[]): boolean {
   if (a.length !== b.length) return false;
@@ -131,28 +129,6 @@ type ComposerImportOwner = {
   sessionId: string | undefined;
   navSection: NavSelection['section'];
 };
-
-function approvalToPending(file: { approvalId: string; name: string; mimeType?: string; size: number }): PendingAttachment {
-  const mimeType = file.mimeType ?? guessMimeFromName(file.name);
-  return {
-    displayName: file.name,
-    mimeType,
-    kind: attachmentKindFromMimeType(mimeType, file.name),
-    size: file.size,
-    source: { type: 'approval', approvalId: file.approvalId, name: file.name },
-  };
-}
-
-function fileToPending(file: File): PendingAttachment {
-  const mimeType = file.type || undefined;
-  return {
-    displayName: file.name,
-    mimeType,
-    kind: attachmentKindFromMimeType(mimeType ?? '', file.name),
-    size: file.size,
-    source: { type: 'file', file },
-  };
-}
 
 /**
  * Grace period before the committed-history fallback force-settles a draining
@@ -170,43 +146,28 @@ export function AppShell({
   initialOnboardingSnapshot?: OnboardingSnapshot | null;
 } = {}) {
   const toastApi = useToast();
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const sessionsRef = useRef<SessionSummary[]>([]);
-  const sessionReadBoundariesRef = useRef<SessionReadBoundaries>({});
-  const sessionListRefresherRef = useRef<SessionListRefresher | null>(null);
-  if (!sessionListRefresherRef.current) {
-    sessionListRefresherRef.current = createSessionListRefresher({
-      listSessions: () => window.maka.sessions.list(),
-      readBoundaries: () => sessionReadBoundariesRef.current,
-      currentSessions: () => sessionsRef.current,
-      commitSessions: (next) => {
-        // Display normalization at the state boundary: non-actionable
-        // blocked (missing terminal bookkeeping) reads as an ordinary
-        // resumable session everywhere in the renderer.
-        const displayNext = next.map(normalizeSessionSummaryForDisplay);
-        sessionsRef.current = displayNext;
-        setSessions(displayNext);
-      },
-      onError: (error) => {
-        toastApi.error('刷新会话列表失败', generalizedErrorMessageChinese(error, '刷新会话列表失败，请稍后重试。'));
-      },
-    });
-  }
-  const [activeId, setActiveIdState] = useState<string | undefined>();
-  const [pendingByKey, setPendingByKey] = useState<PendingByKey<PendingAttachment>>({});
-  const attachmentDraftKey = activeId ?? 'new-session';
-  const pendingAttachments = selectPending(pendingByKey, attachmentDraftKey);
-  // P3: session ids with a live embedded-browser view. The right-side
-  // BrowserPanel mounts only for these, so ordinary chats reserve no space.
-  const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
-  const [navSelection, setNavSelection] = useState<NavSelection>(() => readNavSelection());
-  const navSelectionRef = useRef<NavSelection>(navSelection);
-  const [messages, setMessages] = useState<StoredMessage[]>([]);
-  const [messageLoadPending, setMessageLoadPending] = useState(false);
-  const messageRetryPendingRef = useRef<Set<string>>(new Set());
-  const stopPendingRef = useRef<Set<string>>(new Set());
   const {
-    state: sessionUiState,
+    sessions,
+    sessionsRef,
+    setSessions,
+    refreshSessions,
+    seedSessions,
+    upsertSessionSummary,
+    markSessionRunningOptimistic,
+    markSessionReadLocally,
+    activeId,
+    activeIdRef,
+    bootstrapSelectionLease,
+    setActiveId,
+    startNewSession,
+    clearOwnedSessionState,
+    messages,
+    setMessages,
+    messageLoadPending,
+    setMessageLoadPending,
+    messageRetryPendingRef,
+    stopPendingRef,
+    sessionUiState,
     liveTurnBySessionRef,
     sessionEventHealthBySessionRef,
     setMessageLoadErrorBySession,
@@ -218,9 +179,21 @@ export function AppShell({
     setSessionEventHealthBySession,
     setPendingPermissionModeBySession,
     setPendingSessionModelBySession,
-    clearSessionUiState,
     clearTurnTransientState,
-  } = useAppShellSessionUiState();
+  } = useAppShellSessionWorkspace(toastApi);
+  const attachmentDraftKey = activeId ?? 'new-session';
+  const {
+    pendingAttachments,
+    pickAttachments,
+    attachFilePaths,
+    removeAttachment,
+    clearSubmittedAttachments,
+  } = useAppShellComposerAttachments({ draftKey: attachmentDraftKey, toastApi });
+  // P3: session ids with a live embedded-browser view. The right-side
+  // BrowserPanel mounts only for these, so ordinary chats reserve no space.
+  const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
+  const [navSelection, setNavSelection] = useState<NavSelection>(() => readNavSelection());
+  const navSelectionRef = useRef<NavSelection>(navSelection);
   const {
     messageLoadErrorBySession,
     messageRetryPendingBySession,
@@ -255,6 +228,7 @@ export function AppShell({
   const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatDefaultPermissionMode>('ask');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [managedSkillSources, setManagedSkillSources] = useState<ManagedSkillSourceEntry[]>([]);
+  const [bundledSkillCatalog, setBundledSkillCatalog] = useState<BundledSkillCatalogEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
   // Persisted composer defaults seed the empty-state model, project path, and
   // recent workspace history so the home view is populated before the async
@@ -299,7 +273,6 @@ export function AppShell({
     });
   }
   const composerRef = useRef<ComposerHandle>(null);
-  const activeIdRef = useRef<string | undefined>(undefined);
   const rendererMountedRef = useRef(true);
   const projectPickerPendingRef = useRef(false);
   const projectPickerRequestRef = useRef(0);
@@ -339,7 +312,7 @@ export function AppShell({
       }),
     [sessions, connections],
   );
-  // PR109b: status-grouped sidebar (design-system §9.8). The `chats`
+  // Status-grouped sidebar. The `chats`
   // filter shows sessions grouped by SessionStatus (Pinned →
   // Running → Waiting → Blocked → Active → Review → Done → Archived);
   // `aborted` is dropped. Pinned (flagged) sessions float to the top
@@ -578,12 +551,10 @@ export function AppShell({
   }
 
   function clearSessionRendererState(sessionId: string): void {
-    messageRetryPendingRef.current.delete(sessionId);
-    stopPendingRef.current.delete(sessionId);
+    clearOwnedSessionState(sessionId);
     clearPendingTurnActionsForSession(sessionId);
     pendingPermissionModeChangesRef.current.delete(sessionId);
     pendingSessionModelChangesRef.current.delete(sessionId);
-    clearSessionUiState(sessionId);
   }
 
   const sessionRowActionHandlers = createAppShellSessionRowActions({
@@ -810,7 +781,9 @@ export function AppShell({
   // already fetches the session list + connections internally, so separate
   // `sessions:list` / `connections:list` / `getDefault` IPCs are redundant.
   // This lets the UI show the sidebar + model picker immediately on first load.
-  const seededRef = useRef(false);
+  const initialSnapshotSeededRef = useRef(false);
+  const mountedSnapshotSeededRef = useRef(false);
+  const bootstrapFallbackStartedRef = useRef(false);
   // useLayoutEffect, NOT useEffect: the snapshot render flips
   // `isOnboardingLoading` off while `sessions` is still []. A passive
   // effect seeds sessions AFTER the browser paints that frame, so users
@@ -820,33 +793,44 @@ export function AppShell({
   useLayoutEffect(() => {
     // Snapshot IPC failed — the seed path will never run, so fall back
     // to the classic boot pull or the sidebar stays empty forever.
-    if (onboarding.error && !onboarding.snapshot && !seededRef.current) {
-      seededRef.current = true;
+    if (
+      onboarding.error &&
+      !initialOnboardingSnapshot &&
+      !onboarding.firstMountedSnapshot &&
+      !bootstrapFallbackStartedRef.current
+    ) {
+      bootstrapFallbackStartedRef.current = true;
       void bootstrapSessions();
       void refreshConnections();
       return;
     }
-    const snapshot = onboarding.snapshot;
-    if (!snapshot || seededRef.current) return;
-    seededRef.current = true;
+    let snapshot: OnboardingSnapshot | null = null;
+    let releaseSelectionLease = false;
+    if (!initialSnapshotSeededRef.current && initialOnboardingSnapshot) {
+      initialSnapshotSeededRef.current = true;
+      snapshot = initialOnboardingSnapshot;
+    } else if (
+      !bootstrapFallbackStartedRef.current &&
+      !mountedSnapshotSeededRef.current &&
+      onboarding.firstMountedSnapshot
+    ) {
+      mountedSnapshotSeededRef.current = true;
+      snapshot = onboarding.firstMountedSnapshot;
+      releaseSelectionLease = true;
+    }
+    if (!snapshot) return;
     // Seed sessions. Display normalization MUST run here too — this is
     // a third renderer state entry alongside commitSessions /
     // upsertSessionSummary (#452): without it, legacy blocked/unknown
     // sessions flash an 已阻塞 group on first paint until the first
     // refreshSessions() overwrites the seed.
-    if (snapshot.sessions.length > 0) {
-      const next = applySessionReadOverrides(snapshot.sessions, sessionReadBoundariesRef.current)
-        .map(normalizeSessionSummaryForDisplay);
-      sessionsRef.current = next;
-      setSessions(next);
-      if (!activeIdRef.current && next[0]?.lastMessageAt) setActiveId(next[0].id);
-    }
+    const next = seedSessions(snapshot.sessions);
+    bootstrapSelectionLease.reconcile(next);
     // Seed connections — avoids separate connections:list + getDefault IPCs
-    if (snapshot.connections.length > 0) {
-      setConnections(snapshot.connections);
-      setDefaultConnection(snapshot.defaultSlug);
-    }
-  }, [onboarding.snapshot, onboarding.error]);
+    setConnections(snapshot.connections);
+    setDefaultConnection(snapshot.defaultSlug);
+    if (releaseSelectionLease) bootstrapSelectionLease.release();
+  }, [initialOnboardingSnapshot, onboarding.firstMountedSnapshot, onboarding.error]);
   // PR110c (@kenji review): suppress hero AND the fallback EmptyChatHero
   // while the initial snapshot is in flight. Otherwise sessions.length===0
   // + snapshot===null flashes the prompt-suggestion EmptyChatHero before
@@ -862,19 +846,6 @@ export function AppShell({
     sessionListWidth,
     setSessionListWidth,
   });
-
-  function setActiveId(next: string | undefined): void {
-    // Clear here, not in the read effect: a layout-effect clear would wipe an
-    // optimistic first message before the first paint.
-    if (!next) {
-      setMessageLoadPending(false);
-    } else if (next !== activeIdRef.current) {
-      setMessages([]);
-      setMessageLoadPending(true);
-    }
-    activeIdRef.current = next;
-    setActiveIdState(next);
-  }
 
   function isAutomationsSurfaceActive(): boolean {
     return navSelectionRef.current.section === 'automations';
@@ -929,9 +900,11 @@ export function AppShell({
   const {
     refreshSkills,
     refreshManagedSkillSources,
+    refreshBundledSkillCatalog,
     createSkillTemplate,
     importManagedSkillSource,
     installManagedSkill,
+    installBundledSkill,
     previewManagedSkillUpdate,
     updateManagedSkill,
     setSkillEnabled,
@@ -940,6 +913,7 @@ export function AppShell({
     isSkillsSurfaceActive,
     setSkills,
     setManagedSkillSources,
+    setBundledSkillCatalog,
     toastApi,
   });
 
@@ -998,25 +972,6 @@ export function AppShell({
     upsertSessionSummary,
   });
 
-  async function pickAttachments(): Promise<void> {
-    try {
-      const result = await window.maka.attachments.pickFiles();
-      if (!result.ok) return;
-      setPendingByKey((map) => appendPending(map, attachmentDraftKey, result.files.map(approvalToPending)));
-    } catch (error) {
-      toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
-    }
-  }
-
-  async function attachFilePaths(files: File[]): Promise<void> {
-    if (files.length === 0) return;
-    setPendingByKey((map) => appendPending(map, attachmentDraftKey, files.map(fileToPending)));
-  }
-
-  function removeAttachment(index: number): void {
-    setPendingByKey((map) => removePending(map, attachmentDraftKey, index));
-  }
-
   async function sendWithAttachments(text: string): Promise<boolean | void> {
     if (text.trim() === '/compact') {
       if (activeId) await window.maka.sessions.compact(activeId);
@@ -1024,7 +979,7 @@ export function AppShell({
     }
     const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
     const ok = await send(text, pending);
-    if (ok !== false) setPendingByKey((map) => clearPending(map, attachmentDraftKey));
+    if (ok !== false && pending) clearSubmittedAttachments(pending);
     return ok;
   }
 
@@ -1088,13 +1043,9 @@ export function AppShell({
 
   const hasModalOpen = Boolean(activePermission) || helpOpen || paletteOpen || searchModalOpen;
 
-  useAppShellRefSync({
-    activeId,
-    activeIdRef,
+  useAppShellNavRefSync({
     navSelection,
     navSelectionRef,
-    sessions,
-    sessionsRef,
   });
   useAppShellHostEffects({
     activeId,
@@ -1124,6 +1075,7 @@ export function AppShell({
     refreshShellSettings,
     refreshSkills,
     refreshManagedSkillSources,
+    refreshBundledSkillCatalog,
     refreshSessions,
     rendererMountedRef,
     setActiveId,
@@ -1194,10 +1146,6 @@ export function AppShell({
       && activeIdRef.current === owner.sessionId;
   }
 
-  async function refreshSessions(): Promise<SessionSummary[]> {
-    return sessionListRefresherRef.current!.refresh();
-  }
-
   async function refreshShellSettings() {
     try {
       const next = await window.maka.settings.get();
@@ -1222,72 +1170,10 @@ export function AppShell({
     }
   }
 
-  function upsertSessionSummary(session: SessionSummary): void {
-    setSessions((current) => {
-      const next = [
-        normalizeSessionSummaryForDisplay(session),
-        ...current.filter((entry) => entry.id !== session.id),
-      ];
-      sessionsRef.current = next;
-      return next;
-    });
-  }
-
-  // #646: on send() we KNOW locally that a turn is starting, but the session's
-  // persisted status only flips to 'running' after an IPC round-trip
-  // (runtime → subscribeChanges). The head "正在处理…" indicator is gated on
-  // `status === 'running'` (that gate self-heals a backgrounded session whose
-  // terminal event was missed), so without a local nudge the first-token wait
-  // races — and usually loses — against the lagging status. Set it optimistically
-  // so the gate opens synchronously; subscribeChanges reconciles the real value.
-  //
-  // Returns a restore callback (or undefined when nothing was nudged). If send()
-  // fails before the turn reaches the runtime, no subscribeChanges event will
-  // arrive to reconcile the optimistic value, so the caller must revert it — but
-  // only while it is STILL the optimistic 'running' (a real status that landed
-  // meanwhile wins). Prevents a failed send from leaving a phantom running dot
-  // that also blocks the permission-mode toggle until the next unrelated refresh.
-  function markSessionRunningOptimistic(sessionId: string): (() => void) | undefined {
-    const prior = sessionsRef.current.find((entry) => entry.id === sessionId);
-    if (!prior || prior.status === 'running') return undefined;
-    const priorStatus = prior.status;
-    setSessions((current) => {
-      let changed = false;
-      const next = current.map((entry) => {
-        if (entry.id !== sessionId || entry.status === 'running') return entry;
-        changed = true;
-        return { ...entry, status: 'running' as const };
-      });
-      if (!changed) return current;
-      sessionsRef.current = next;
-      return next;
-    });
-    return () => {
-      setSessions((current) => {
-        let changed = false;
-        const next = current.map((entry) => {
-          if (entry.id !== sessionId || entry.status !== 'running') return entry;
-          changed = true;
-          return { ...entry, status: priorStatus };
-        });
-        if (!changed) return current;
-        sessionsRef.current = next;
-        return next;
-      });
-    };
-  }
-
-  function markSessionReadLocally(sessionId: string, readMessages: readonly StoredMessage[]): void {
-    setSessions((current) => {
-      const next = applyLocalSessionRead(sessionReadBoundariesRef.current, current, sessionId, readMessages);
-      sessionsRef.current = next;
-      return next;
-    });
-  }
-
   async function bootstrapSessions() {
     const next = await refreshSessions();
-    if (!activeIdRef.current && next[0] && next[0].lastMessageAt) setActiveId(next[0].id);
+    bootstrapSelectionLease.reconcile(next);
+    bootstrapSelectionLease.release();
   }
 
   async function refreshConnections() {
@@ -1304,11 +1190,9 @@ export function AppShell({
   }
 
   async function createSession() {
-    setActiveId(undefined);
+    startNewSession();
     setNavSelection({ section: 'sessions', filter: 'chats' });
     setSearchScrollTarget(null);
-    setMessageLoadPending(false);
-    setMessages([]);
     // New-task affordances reset to the empty-state composer; move focus
     // there so the user can start typing immediately.
     window.requestAnimationFrame(() => composerRef.current?.focus());
@@ -1362,7 +1246,7 @@ export function AppShell({
    * No other cases exist today by design — the parser only emits
    * these two discriminants. If a new variant is added in `MakaUriDest`,
    * TypeScript's exhaustiveness check below trips and a new branch
-   * must be wired here (and in smoke.md Path 17).
+   * must be wired here with corresponding fixture and journey coverage.
    */
   function dispatchMakaUri(dest: MakaUriDest) {
     switch (dest.kind) {
@@ -1573,6 +1457,9 @@ export function AppShell({
                   managedSkillSources={managedSkillSources}
                   onImportManagedSkillSource={() => importManagedSkillSource()}
                   onInstallManagedSkill={(sourceId) => installManagedSkill(sourceId)}
+                  bundledSkillCatalog={bundledSkillCatalog}
+                  onRefreshBundledSkillCatalog={() => refreshBundledSkillCatalog()}
+                  onInstallBundledSkill={(id) => installBundledSkill(id)}
                   onPreviewManagedSkillUpdate={(skillId) => previewManagedSkillUpdate(skillId)}
                   onUpdateManagedSkill={(skillId, options) => updateManagedSkill(skillId, options)}
                   onSetSkillEnabled={(skillId, enabled) => setSkillEnabled(skillId, enabled)}

@@ -97,6 +97,14 @@ function mixOklchToSrgb(c1: [number, number, number], c2: [number, number, numbe
 }
 
 describe('issue #406 design-system governance contract', () => {
+  it('keeps featured skill banners neutral instead of using blue as decorative texture', async () => {
+    const source = stripCssComments(await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/module-pages/skills.css'), 'utf8'));
+    const block = source.match(/\.maka-skill-featured-banner\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+    assert.ok(block, 'featured skill banner rule must exist');
+    assert.doesNotMatch(block, /gradient\(/, 'featured banner must not use decorative gradients');
+    assert.doesNotMatch(block, /background[^;]*--brand-deep/s, 'blue may not become the banner background fill');
+  });
+
   it('does not ship decorative enter/exit motion by default', async () => {
     const rendererCss = stripCssComments(await readAllRendererCss());
     const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
@@ -205,7 +213,7 @@ describe('issue #406 design-system governance contract', () => {
     assert.doesNotMatch(styles, /--color-primary:\s*var\(--accent\);/);
     assert.doesNotMatch(styles, /--color-primary:\s*var\(--foreground\);/);
     for (const token of emphasisTokens) {
-      assert.match(tokens, new RegExp(`--color-${token}:\\s*var\\(--${token}\\);`));
+      assert.match(styles, new RegExp(`--color-${token}:\\s*var\\(--${token}\\);`));
     }
 
     const ui = await readUiSource();
@@ -221,13 +229,6 @@ describe('issue #406 design-system governance contract', () => {
     assert.doesNotMatch(tabs, /bg-control data-\[orientation=horizontal\]:h-0\.5/);
     assert.doesNotMatch(tabs, /bg-primary data-\[orientation=horizontal\]:h-0\.5/);
 
-    const docs = await readFile(resolve(REPO_ROOT, 'docs/design-system.md'), 'utf8');
-    // Direction A: pale-blue CTA chip + deep-blue text (8.64:1) and control
-    // L0.65 for WCAG 1.4.11 non-text 3:1 (3.09:1) replace the old
-    // "don't flip to --foreground / 2.46:1" rationale.
-    assert.match(docs, /8\.64:1/);
-    assert.match(docs, /3\.09:1/);
-    assert.match(docs, /WCAG 1\.4\.11/);
   });
 
   it('permission-mode chip text is readable across all tones (>=4.5:1)', async () => {

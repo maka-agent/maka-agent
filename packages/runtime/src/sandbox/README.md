@@ -1,0 +1,55 @@
+# Runtime sandbox boundary
+
+This directory owns platform sandbox selection and command transformation. It translates an active `PermissionProfile` into an execution request; it does not decide whether an operation is approved and does not execute the request itself.
+
+Code and focused tests are the final authority. Remaining enforcement work is tracked in [issue #843](https://github.com/maka-agent/maka-agent/issues/843), not in this document.
+
+## Ownership
+
+`@maka/core` owns the platform-neutral permission language:
+
+- `permission-profile.ts` defines managed, disabled, and external profiles; file-system entries; network policy; standard profiles; and pure path matchers.
+- `permission-profile-compiler.ts` maps the product `PermissionMode` to an active profile while keeping approval policy separate.
+
+`@maka/runtime` owns platform transformation:
+
+- `types.ts` defines sandbox selection, command, path-context, execution-request, and typed failure contracts.
+- `sandbox-manager.ts` decides whether a profile requires a sandbox, selects a platform backend, and delegates transformation.
+- `macos-seatbelt.ts` builds the Seatbelt policy and wraps inner argv with `/usr/bin/sandbox-exec`.
+- `default-sandbox-manager.ts` registers the supported default backends.
+- `index.ts` is the public subpath surface; the runtime package barrel re-exports the supported API.
+
+## Current behavior
+
+- Restricted managed profiles require a platform sandbox under the default `auto` preference.
+- Unrestricted, disabled, and external profiles do not add a Maka-managed local sandbox.
+- `require` forces platform sandbox selection; `forbid` selects host execution and is an internal orchestration input, not proof of approval.
+- macOS selects the Seatbelt backend and fails closed when the backend is unavailable.
+- Linux selection is explicit but currently returns `backend_not_implemented`.
+- Other platforms return `unsupported_platform` when a sandbox is required.
+- A backend that receives an invalid or unsupported profile returns a typed failure; it does not silently downgrade to host execution.
+
+## Boundaries
+
+- `PermissionEngine` owns allow, prompt, and block decisions. Sandbox selection does not grant approval.
+- Callers own canonical cwd and path-context construction. Platform backends must not guess workspace roots.
+- `SandboxManager` transforms commands but does not spawn processes, retry without a sandbox, emit UI, or own telemetry.
+- The macOS backend owns SBPL generation, root parameterization, protected-metadata deny-write rules, and network policy translation.
+- `PermissionProfile.External` means file-system isolation is supplied by the environment; Maka does not stack a local platform sandbox in the current implementation.
+
+## Non-goals
+
+- Worktree or workspace-copy sandboxing
+- Diff/write-back or apply-patch UI
+- Automatic unsandboxed retry
+- Managed network proxy or domain allowlists
+- Windows sandbox support
+- A second permission language, shell runner, or file-policy system
+
+## Verification
+
+- Core profile factories, compiler, and matchers: `packages/core/src/__tests__/permission-profile*.test.ts`
+- Selection and transformation: `packages/runtime/src/__tests__/sandbox-manager.test.ts`
+- macOS policy and wrapper: `packages/runtime/src/__tests__/macos-seatbelt.test.ts`
+- macOS platform behavior: `packages/runtime/src/__tests__/macos-seatbelt-smoke.test.ts`
+- Public exports and default registration: `sandbox-export.test.ts` and `default-sandbox-manager.test.ts`

@@ -23,7 +23,7 @@ export function chipStatusText(connection: LlmConnection): string {
       // PR-UI-AUDIT-1 (@kenji msg 7a16aa0b): `verified` is a
       // credential-validation result only; it does NOT prove
       // agent send / stream / interrupt paths are operational
-      // (provider-auth contract Path 17 S11 D1 lock). Older copy
+      // (provider-auth contract). Older copy
       // "已验证可用" conflated validation with operational
       // readiness, fixed to credential-only language. Matches
       // the doc warning at SettingsModal `验证通过 ≠ 运行可用`.

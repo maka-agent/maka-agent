@@ -34,13 +34,13 @@
   width: auto;
   min-height: var(--h-control-lg);
   margin: var(--space-2) var(--space-2-5);
-  /* P-RADIUS concentric formula (roadmap §1.3): inner radius = outer
+  /* Concentric radius formula: inner radius = outer
      radius − inset. Modal shell is 12px with an 8px inset, so the
      input's 6px control radius read "too round" against the shell
      corners. 12 − 8 = 4px. */
   border-radius: calc(var(--radius-modal)-8px);
   border-color: var(--border);
-  /* P-INSET (roadmap §1.1): the input sits ON the elevated palette
+  /* The input sits on the elevated palette
      surface, so it steps DOWN one level (slightly darker = "type into
      here"), not up. foreground-derived so dark mode adapts. */
   background: oklch(from var(--foreground) l c h / 0.03);

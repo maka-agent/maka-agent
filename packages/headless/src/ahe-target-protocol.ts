@@ -225,9 +225,11 @@ export const MAKA_AHE_CURRENT_COMPONENTS: readonly MakaAheTargetComponent[] = [
     description: 'Policy text and benchmark wrapper expectations for long-running and evidence-heavy tasks.',
     editable: true,
     sourceRefs: [
-      { path: 'docs/heavy-task-mainline-system-design.md' },
-      { path: 'packages/headless/README.md' },
-      { path: 'terminal-bench-smoke/README-terminal-bench-sample.md' },
+      { path: 'packages/headless/src/heavy-task-policy.ts' },
+      { path: 'packages/headless/src/heavy-task-progress.ts' },
+      { path: 'packages/headless/src/heavy-task-self-check.ts' },
+      { path: 'packages/headless/src/heavy-task-finalization.ts' },
+      { path: 'packages/headless/src/tools.ts' },
     ],
   },
   {

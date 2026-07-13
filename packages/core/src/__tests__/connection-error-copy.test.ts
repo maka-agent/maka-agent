@@ -32,6 +32,13 @@ describe('describeChatConfigurationReason', () => {
     const copy = describeChatConfigurationReason(undefined);
     assert.match(copy, /设置 · 模型/);
   });
+
+  it('falls back to generic copy for an unknown runtime reason', () => {
+    assert.equal(
+      describeChatConfigurationReason('future_reason'),
+      describeChatConfigurationReason(undefined),
+    );
+  });
 });
 
 describe('parseNoRealConnectionError', () => {

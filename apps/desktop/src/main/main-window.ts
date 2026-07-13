@@ -232,10 +232,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // `paintWhenInitiallyHidden` defaults to true and the app must never take
       // foreground while the developer keeps working in another app.
       show: false,
-      // Glass material — reference-atlas §1 + §12.1 documents the upstream
-      // reference layout's `light-glass` / `dark-glass` themes that paint
-      // the sidebar against native macOS vibrancy material. Enabling
-      // `vibrancy: 'sidebar'` here lets the CSS-side sidebar render
+      // Native sidebar vibrancy lets the CSS-side sidebar render
       // transparent and inherit the system's blurred window material
       // (Big Sur+). Renderer CSS gates the transparency on
       // `[data-vibrancy="active"]` so non-macOS builds (where vibrancy is

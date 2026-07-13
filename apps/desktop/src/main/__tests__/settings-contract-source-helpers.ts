@@ -19,6 +19,8 @@ const sourcePaths = [
   'web-search-settings-page.tsx',
   'memory-settings-page.tsx',
   'use-memory-settings-controller.ts',
+  'use-workspace-instructions-controller.ts',
+  'memory-settings-view-model.ts',
   'memory-settings-sections.tsx',
   'memory-entry-list.tsx',
   'memory-settings-labels.ts',

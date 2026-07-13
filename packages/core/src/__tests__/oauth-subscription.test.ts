@@ -2,7 +2,7 @@
  * Tests for the OAuth subscription core helpers (PR-OAUTH-SUBSCRIPTION-0).
  *
  * Anchor: `packages/core/src/oauth-subscription.ts`.
- * Gate doc: `notes/pr-oauth-subscription-0-gate.md`.
+ * Historical gate: `docs/archive/pr-oauth-subscription-0-gate.md`.
  *
  * These tests are pure (no DOM, no fetch, no fs) so they live in
  * @maka/core's test suite.

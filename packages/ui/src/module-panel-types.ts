@@ -98,6 +98,21 @@ export interface ManagedSkillSourceEntry {
   sourceType: 'local';
 }
 
+/**
+ * One entry in the built-in (内置) skill catalog shipped with the app. Mirrors
+ * listBundledSkillCatalog in apps/desktop's skills module. `installed` reflects
+ * whether the current workspace already has skills/<id>; nothing here is
+ * auto-installed — the 内置 tab offers a per-entry install action.
+ */
+export interface BundledSkillCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  category: ManagedSkillCategory;
+  declaredTools: string[];
+  installed: boolean;
+}
+
 export type PlanReminderDraftInput = {
   title: string;
   note?: string;

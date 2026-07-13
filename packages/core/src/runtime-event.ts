@@ -8,7 +8,7 @@
  * projections that should be written from -- or explicitly linked to -- these
  * events.
  *
- * Source: docs/runtime-v2-architecture-evolution.md §Canonical RuntimeEvent
+ * Architecture: docs/architecture/runtime-core-architecture-draft.en.md
  *
  * Phase 1 scope: types + small pure helpers only. No storage, runner,
  * projection, or ledger logic lives here. Those arrive in later nodes.

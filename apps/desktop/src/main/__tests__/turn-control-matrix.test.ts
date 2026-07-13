@@ -1,10 +1,8 @@
 /**
- * Path 15 acceptance matrix (PR109f g).
- *
- * Locks the 6 observable signals @kenji called out for the
+ * Locks the observable signals for the
  * turn-control-history fixture, at the helper layer (no DOM /
- * Electron). Smoke Path 15 manually verifies the same matrix against
- * the rendered screenshot; this test exists so a regression in the
+ * Electron). The deterministic fixture verifies the same matrix against
+ * rendered screenshots; this test exists so a regression in the
  * helpers gets caught before screenshot CI runs.
  *
  *  S1 Failed banner copy comes from `describeTurnErrorClass` — Chinese
@@ -78,7 +76,7 @@ const RAW_ENUM_ERROR_CLASSES = [
   'permission_required',
 ] as const;
 
-describe('turn-control-history Path 15 matrix', () => {
+describe('turn-control-history matrix', () => {
   describe('S1 failed banner copy', () => {
     it('every fixture errorClass maps to a Chinese label', () => {
       for (const cls of FIXTURE_ERROR_CLASSES) {
@@ -104,8 +102,8 @@ describe('turn-control-history Path 15 matrix', () => {
 
     // The inline "(已中断)" marker for an aborted turn (not session)
     // is rendered directly in components.tsx; we don't unit-test the
-    // copy here to avoid duplicating the JSX literal. The presence of
-    // the marker is verified manually in smoke.md Path 15.
+    // copy here to avoid duplicating the JSX literal. Visual placement
+    // is covered by the deterministic screenshot fixture.
   });
 
   describe('S6 no raw enum leaks (regression-proof)', () => {

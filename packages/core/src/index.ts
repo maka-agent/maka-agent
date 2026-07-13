@@ -503,7 +503,7 @@ export {
   pkceCodeChallenge,
 } from './oauth-subscription.js';
 
-// incognito.ts (PR-INCOGNITO-0) — cross-lane privacy contract; no IPC/storage/UI.
+// incognito.ts — cross-cutting workspace privacy contract.
 export type {
   WorkspacePrivacyContext,
   WorkspacePrivacyContextInvalidReason,
@@ -893,6 +893,7 @@ export {
   CHAT_DEFAULT_PERMISSION_MODES,
   DEFAULT_PROXY_BYPASS_DOMAINS,
   MAX_ALLOWED_USER_IDS,
+  SETTINGS_SECTIONS,
   THEME_PALETTES,
   createDefaultBotChannel,
   createDefaultSettings,

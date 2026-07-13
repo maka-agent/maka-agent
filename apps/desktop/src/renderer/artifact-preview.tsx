@@ -1,6 +1,6 @@
 /**
- * Per-kind preview switcher for the ArtifactPane (design-system §9.1.4 +
- * §9.1.5 + §9.1.6). Routes by `record.kind` and renders:
+ * Per-kind preview switcher for the ArtifactPane. Routes by `record.kind`
+ * and renders:
  *
  *   - `file`  → plain text via `readText`, monospace `<pre>`
  *   - `diff`  → unified diff via `readText`, line-tagged for add/del/hunk
@@ -17,7 +17,7 @@
  *               fallback `<p>` instructing the user to open in Finder when
  *               the embed plugin is unavailable.
  *
- * Failure modes (§9.1.6) come back as a small `FailureCard` so the user
+ * Failure modes come back as a small `FailureCard` so the user
  * always sees a Chinese-language explanation of *why* the preview is empty
  * instead of a blank surface:
  *
@@ -108,7 +108,7 @@ function HtmlPreview(props: { record: ArtifactRecord }) {
   if (result.state === 'loading') return <PreviewLoading label="加载 HTML 预览…" />;
   if (!result.value.ok) return <TextFailureCard record={props.record} reason={result.value.reason} />;
   const srcdoc = result.value.text;
-  // §9.1.5 #4: external links inside the sandboxed iframe (no
+  // External links inside the sandboxed iframe (no
   // `allow-popups`) silently fail. We surface the count up-front so the user
   // isn't surprised when clicks do nothing. Regex deliberately permissive —
   // counts `<a … href=` regardless of whitespace / attribute order.

@@ -1022,7 +1022,7 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
-  describe('turn-control-history seed (PR109f g, smoke Path 15)', () => {
+  describe('turn-control-history seed', () => {
     it('seeds primary + visible-parent branch + orphan branch sharing one on-disk state', async () => {
       const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-turn-control-'));
       try {
@@ -1132,7 +1132,7 @@ describe('visual smoke fixture mode', () => {
       // Locks the @kenji review note: the three scenarios are a single
       // state family that only differs in active-session selection. A
       // future change that diverges their on-disk seed must update
-      // both this gate and the documentation in smoke.md Path 15.
+      // this gate and the corresponding screenshot scenario.
       const expected = new Set([
         'visual-smoke-turn-control-primary',
         'visual-smoke-turn-control-branch-visible',

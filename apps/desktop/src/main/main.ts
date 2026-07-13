@@ -133,7 +133,6 @@ import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { botTestErrorMessage, buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 import {
   buildSkillAgentTool,
-  ensureBundledOfficeSkills,
 } from './skills.js';
 import {
   createWorkspaceInstructionFile,
@@ -1162,7 +1161,6 @@ function registerIpc(): void {
     artifactStore,
     mainWindowController,
     sendToRenderer: safeSendToRenderer,
-    bundledSkillsReady: bundledSkillsReady.promise,
   });
   ipcMain.handle('visualSmoke:getState', () => getVisualSmokeState(visualSmokeFixture));
   /**
@@ -1522,7 +1520,7 @@ function registerIpc(): void {
   // PR110b: Onboarding snapshot + milestone IPCs. Renderer polls via
   // these on app load and whenever `sessions:changed` /
   // `connections:changed` / settings change events fire. No push from
-  // main; see smoke.md Path 16.
+  // main.
   ipcMain.handle('onboarding:getSnapshot', async () => onboardingService.getSnapshot());
   ipcMain.handle('onboarding:setMilestone', async (_event, id: unknown, status: unknown) => {
     // Service throws INVALID_MILESTONE_ID / INVALID_MILESTONE_STATUS
@@ -1982,17 +1980,6 @@ function normalizeSessionModelSelection(input: unknown): { llmConnectionSlug: st
   return { llmConnectionSlug, model };
 }
 
-/**
- * Deferred handle for the bundled-Office-skills copy that now runs in
- * background startup (#456): skills:list awaits it so an early Skills
- * page open cannot see a half-bundled workspace.
- */
-const bundledSkillsReady: { promise: Promise<void>; resolve: () => void } = (() => {
-  let resolve!: () => void;
-  const promise = new Promise<void>((r) => { resolve = r; });
-  return { promise, resolve };
-})();
-
 async function recoverInterruptedSessionsOnStartup(): Promise<void> {
   try {
     await runtime.recoverInterruptedSessions();
@@ -2113,13 +2100,6 @@ async function runBackgroundStartup(): Promise<void> {
   setActiveProxy(toContractNetworkSettings(settings.network).proxy);
   await telemetryRepo.load();
   lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
-  try {
-    await ensureBundledOfficeSkills(workspaceRoot);
-  } catch (error) {
-    console.error('[skills] ensureBundledOfficeSkills failed:', error);
-  } finally {
-    bundledSkillsReady.resolve();
-  }
   await recoverInterruptedSessionsOnStartup();
   await botRegistry.applySettings(settings.botChat);
   await openGateway.sync(settings.openGateway);

@@ -41,25 +41,13 @@ type ToastApi = {
   }): void;
 };
 
-export function useAppShellRefSync(options: {
-  activeId: string | undefined;
-  activeIdRef: RefBox<string | undefined>;
+export function useAppShellNavRefSync(options: {
   navSelection: NavSelection;
   navSelectionRef: RefBox<NavSelection>;
-  sessions: SessionSummary[];
-  sessionsRef: RefBox<SessionSummary[]>;
 }) {
-  useEffect(() => {
-    options.activeIdRef.current = options.activeId;
-  }, [options.activeId]);
-
   useEffect(() => {
     options.navSelectionRef.current = options.navSelection;
   }, [options.navSelection]);
-
-  useEffect(() => {
-    options.sessionsRef.current = options.sessions;
-  }, [options.sessions]);
 }
 
 export function useAppShellHostEffects(options: {
@@ -68,7 +56,7 @@ export function useAppShellHostEffects(options: {
   setLiveBrowserSessionIds: (sessionIds: string[]) => void;
 }) {
   // Tag the document with the host OS so glass-material CSS rules
-  // (sidebar vibrancy passthrough — see notes/reference-atlas.md §1 + §12.1)
+  // (sidebar vibrancy passthrough)
   // can light up only on macOS, where `BrowserWindow({ vibrancy: 'sidebar' })`
   // paints the native blur material behind the renderer. Other platforms
   // keep their opaque chrome since vibrancy is a no-op there.
@@ -179,6 +167,7 @@ export function useAppShellBootstrapSubscriptions(options: {
   refreshShellSettings: () => Promise<void>;
   refreshSkills: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshManagedSkillSources: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
+  refreshBundledSkillCatalog: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshSessions: () => Promise<SessionSummary[]>;
   rendererMountedRef: RefBox<boolean>;
   setActiveId: (sessionId: string | undefined) => void;
@@ -192,6 +181,7 @@ export function useAppShellBootstrapSubscriptions(options: {
     void options.refreshMemoryActive('载入本地记忆状态失败');
     void options.refreshSkills();
     void options.refreshManagedSkillSources();
+    void options.refreshBundledSkillCatalog();
     void options.refreshPlanReminders();
     void options.applyVisualSmokeFixture();
   });

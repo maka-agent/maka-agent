@@ -28,6 +28,8 @@ const sourcePaths = [
   'app-shell-session-events.ts',
   'app-shell-session-row-actions.ts',
   'app-shell-session-settings-actions.ts',
+  'use-app-shell-session-list.ts',
+  'use-app-shell-session-workspace.ts',
   'app-shell-visual-smoke.ts',
   'cached-theme-bootstrap.ts',
   'chat-model-selection.ts',

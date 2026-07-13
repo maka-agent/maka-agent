@@ -59,10 +59,12 @@ Use repository conventions first. When no convention exists, recommend metadata 
 
 ```yaml
 doc_id: architecture.example
+title: "Reader-oriented title"
 language: zh-CN
 source_language: zh-CN
-counterpart: ../en/architecture/example.md
-status: current
+counterpart: ./example.en.md
+implementation_status: current
+document_status: draft
 translation_status: synced
 last_verified: YYYY-MM-DD
 owners:

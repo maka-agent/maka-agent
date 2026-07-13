@@ -1,16 +1,8 @@
 /**
- * @maka/runtime — barrel export.
+ * @maka/runtime public exports.
  *
- * Surface in V0.1 (Sprint 0):
- *  - SessionManager    — top-level Runtime entry point (createSession, sendMessage, ...)
- *  - BackendRegistry   — factory dispatch by BackendKind
- *  - PermissionEngine  — wraps core's pure preToolUse() with state + parking
- *  - AiSdkBackend      — AgentBackend over Vercel AI SDK providers
- *  - Materializer      — JSONL → ChatItem[] for UI render
- *  - AsyncEventQueue   — internal helper, also useful for FakeBackend
- *
- * Not yet implemented:
- *  - FakeBackend       — text-only stub for UI development
+ * Keep supported cross-package integration on this barrel. See the
+ * package README and root ARCHITECTURE.md for responsibility boundaries.
  */
 
 export { SessionManager, BackendRegistry, headerToSummary, changesBackendConfig } from './session-manager.js';
@@ -510,7 +502,7 @@ export type {
 } from './bots/index.js';
 
 // ───────────────────────────────────────────────────────────────────────────
-// Runtime v2 seam (Phase 1–4 increments).
+// Runtime event and recovery public seam.
 //
 // Subpath imports (e.g. `@maka/runtime/runtime-runner`) remain canonical;
 // the barrel re-exports below are for convenience. `InvocationContext` is the

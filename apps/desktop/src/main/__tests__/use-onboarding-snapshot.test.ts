@@ -15,7 +15,9 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { OnboardingState } from '@maka/core';
 import {
+  advanceOnboardingSnapshotState,
   createOnboardingSnapshotPoller,
+  createOnboardingSnapshotState,
   isSetupRequired,
 } from '../../renderer/use-onboarding-snapshot.js';
 import type { OnboardingSnapshot } from '../../global.js';
@@ -206,6 +208,20 @@ describe('createOnboardingSnapshotPoller', () => {
     poller.activate();
     await poller.pull();
     assert.deepEqual(events, [{ type: 'snap', payload: READY_SNAPSHOT }]);
+  });
+});
+
+describe('onboarding mounted snapshot handoff', () => {
+  it('latches B when B and a later C are reduced before React commits', () => {
+    const snapshotA = READY_SNAPSHOT;
+    const snapshotB = { ...READY_SNAPSHOT, defaultSlug: 'b' };
+    const snapshotC = { ...READY_SNAPSHOT, defaultSlug: 'c' };
+
+    const afterB = advanceOnboardingSnapshotState(createOnboardingSnapshotState(snapshotA), snapshotB);
+    const afterC = advanceOnboardingSnapshotState(afterB, snapshotC);
+
+    assert.equal(afterC.snapshot, snapshotC);
+    assert.equal(afterC.firstMountedSnapshot, snapshotB);
   });
 });
 

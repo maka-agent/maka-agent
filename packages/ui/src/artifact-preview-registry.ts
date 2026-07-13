@@ -37,7 +37,7 @@
  *   2. Add MIME / ext allowlist entries.
  *   3. Add the renderer component + IPC plumbing.
  *   4. Add reason enum variants if new failure modes appear.
- *   5. Lock new smoke.md gates.
+ *   5. Add deterministic fixture and journey coverage.
  */
 
 import type { ArtifactBinaryReadResult, ArtifactKind } from '@maka/core';

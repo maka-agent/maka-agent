@@ -4,6 +4,7 @@ import { deriveCapabilityAuditReport } from '@maka/core';
 import { CalendarDays } from './icons.js';
 import { EmptyState } from './empty-state.js';
 import type {
+  BundledSkillCatalogEntry,
   DailyReviewBridge,
   DailyReviewMarkdownActionInput,
   ManagedSkillSourceEntry,
@@ -47,6 +48,9 @@ export function SkillsPage(props: {
   onRefreshManagedSkillSources?(): void | Promise<void>;
   onImportManagedSkillSource?(): void | Promise<void>;
   onInstallManagedSkill?(sourceId: string): void | Promise<void>;
+  bundledSkillCatalog?: BundledSkillCatalogEntry[];
+  onRefreshBundledSkillCatalog?(): void | Promise<void>;
+  onInstallBundledSkill?(id: string): void | Promise<void>;
   onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
   onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
   onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;

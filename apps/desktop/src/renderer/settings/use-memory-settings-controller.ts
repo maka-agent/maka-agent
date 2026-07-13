@@ -1,48 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AppSettings, LocalMemoryState, UpdateAppSettingsResult } from '@maka/core';
+import type { AppSettings, LocalMemoryState } from '@maka/core';
 import {
-  LOCAL_MEMORY_PROMPT_MAX_CHARS,
   appendManualLocalMemoryEntryDraft,
-  buildLocalMemoryPromptBody,
   findLocalMemoryEntryDraftRange,
-  parseLocalMemoryMarkdown,
   setLocalMemoryEntryStatusDraft,
 } from '@maka/core';
-import { redactSecrets, useToast } from '@maka/ui';
+import { useToast } from '@maka/ui';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import {
-  filterLocalMemoryEntries,
   formatLocalMemorySaveSummary,
   localMemoryBackupKindLabel,
   localMemoryBackupSummary,
-  localMemoryPromptPreviewBlockedReason,
   memoryEntryStatusLabel,
   memoryOriginLabel,
 } from './memory-settings-labels';
+import { deriveMemorySettingsViewModel } from './memory-settings-view-model';
 
-export interface MemorySettingsControllerProps {
+export interface MemoryDocumentControllerProps {
   settings: AppSettings;
-  onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
   onReloadSettings(): Promise<void>;
 }
 
-export function useMemorySettingsController(props: MemorySettingsControllerProps) {
+/** Owns the MEMORY.md document lifecycle; workspace instructions have a separate authority. */
+export function useMemoryDocumentController(props: MemoryDocumentControllerProps) {
   type MemoryWriteAction =
     | 'reload'
     | 'enable'
     | 'agent-read'
-    | 'workspace-instructions'
     | 'save'
     | 'reset'
     | 'restore'
-    | 'entry-status'
-    | 'instruction-create';
+    | 'entry-status';
 
   const [state, setState] = useState<LocalMemoryState | null>(null);
-  const [workspaceInstructionState, setWorkspaceInstructionState] = useState<Awaited<
-    ReturnType<typeof window.maka.workspaceInstructions.getState>
-  > | null>(null);
   const [draft, setDraft] = useState('');
   const [newMemoryTitle, setNewMemoryTitle] = useState('');
   const [newMemoryTags, setNewMemoryTags] = useState('');
@@ -130,13 +121,9 @@ export function useMemorySettingsController(props: MemorySettingsControllerProps
     const lifecycle = memoryPageLifecycleRef.current;
     const ticket = ++memoryReloadTicketRef.current;
     try {
-      const [next, instructions] = await Promise.all([
-        window.maka.memory.getState(),
-        window.maka.workspaceInstructions.getState(),
-      ]);
+      const next = await window.maka.memory.getState();
       if (!isMemoryPageCurrent(lifecycle) || ticket !== memoryReloadTicketRef.current) return false;
       setState(next);
-      setWorkspaceInstructionState(instructions);
       setDraft(next.content);
       setLastSaveSummary(null);
       return true;
@@ -188,17 +175,6 @@ export function useMemorySettingsController(props: MemorySettingsControllerProps
       });
     } catch (error) {
       toast.error('更新模型读取权限失败', settingsActionErrorMessage(error));
-    }
-  }
-
-  async function setWorkspaceInstructionsEnabled(enabled: boolean) {
-    try {
-      await runMemoryWriteAction('workspace-instructions', async () => {
-        await props.onUpdate({ workspaceInstructions: { enabled } });
-        await props.onReloadSettings();
-      });
-    } catch (error) {
-      toast.error('更新项目指令开关失败', settingsActionErrorMessage(error));
     }
   }
 
@@ -362,42 +338,6 @@ export function useMemorySettingsController(props: MemorySettingsControllerProps
     });
   }
 
-  async function openWorkspaceInstructionFile(file: string) {
-    await runMemoryAction(`instruction:${file}:open`, async (isCurrent) => {
-      try {
-        const result = await window.maka.workspaceInstructions.openFile(file);
-        if (!isCurrent()) return;
-        if (!result.ok) {
-          toast.error('打开项目指令失败', result.message);
-        }
-      } catch (error) {
-        if (isCurrent()) toast.error('打开项目指令失败', settingsActionErrorMessage(error));
-      }
-    });
-  }
-
-  async function createWorkspaceInstructionFile(file: string) {
-    await runMemoryAction(`instruction:${file}:create`, async (isActionCurrent) => {
-      try {
-        await runMemoryWriteAction('instruction-create', async (isCurrent) => {
-          const result = await window.maka.workspaceInstructions.createFile(file);
-          if (!isCurrent()) return;
-          if (!result.ok) {
-            toast.error('创建项目指令失败', result.message);
-            return;
-          }
-          const instructions = await window.maka.workspaceInstructions.getState();
-          if (!isCurrent()) return;
-          setWorkspaceInstructionState(instructions);
-          toast.success('已创建项目指令', file);
-          await openWorkspaceInstructionFile(file);
-        });
-      } catch (error) {
-        if (isActionCurrent()) toast.error('创建项目指令失败', settingsActionErrorMessage(error));
-      }
-    });
-  }
-
   async function copyPath() {
     await runMemoryAction('memory:path:copy', async (isCurrent) => {
       if (!state?.path) return;
@@ -540,46 +480,30 @@ export function useMemorySettingsController(props: MemorySettingsControllerProps
     }
   }
 
-  const effective = state ?? {
-    path: '',
-    enabled: props.settings.localMemory.enabled,
-    agentReadEnabled: props.settings.localMemory.agentReadEnabled,
-    status: 'disabled',
-    content: '',
-    entryCount: 0,
-    activeEntryCount: 0,
-    archivedEntryCount: 0,
-    entries: [],
-    activeEntries: [],
-    archivedEntries: [],
-  } satisfies LocalMemoryState;
-  const memoryDraftDirty = draft !== effective.content;
-  const draftMemoryEntries = useMemo(() => parseLocalMemoryMarkdown(draft), [draft]);
-  const visibleMemoryEntries = memoryDraftDirty ? draftMemoryEntries : effective;
-  const memoryEntryPreviewBlockedReason =
-    memoryDraftDirty && draftMemoryEntries.safeMode
-      ? '草稿过大，条目预览已暂停；保存前请先删减 MEMORY.md 内容。'
-      : '';
-  const normalizedMemoryEntryQuery = memoryEntryQuery.trim();
-  const filteredActiveEntries = useMemo(
-    () => filterLocalMemoryEntries(visibleMemoryEntries.activeEntries, normalizedMemoryEntryQuery),
-    [visibleMemoryEntries.activeEntries, normalizedMemoryEntryQuery],
+  const viewModel = useMemo(
+    () => deriveMemorySettingsViewModel({
+      state,
+      localMemorySettings: props.settings.localMemory,
+      draft,
+      query: memoryEntryQuery,
+    }),
+    [state, props.settings, draft, memoryEntryQuery],
   );
-  const filteredArchivedEntries = useMemo(
-    () => filterLocalMemoryEntries(visibleMemoryEntries.archivedEntries, normalizedMemoryEntryQuery),
-    [visibleMemoryEntries.archivedEntries, normalizedMemoryEntryQuery],
-  );
-  const filteredEntryCount = filteredActiveEntries.length + filteredArchivedEntries.length;
-  const localMemoryPromptPreview = useMemo(() => buildLocalMemoryPromptBody(draft) ?? '', [draft]);
-  const promptPreviewBlockedReason = localMemoryPromptPreviewBlockedReason(effective);
-  const promptPreviewWillInject = localMemoryPromptPreview.length > 0 && !promptPreviewBlockedReason;
-  const localMemoryPromptPreviewTruncated = localMemoryPromptPreview.includes('[本地记忆已按长度截断]');
-  const localMemoryPromptPreviewBudgetLabel = localMemoryPromptPreview
-    ? localMemoryPromptPreviewTruncated
-      ? `预览已按 ${LOCAL_MEMORY_PROMPT_MAX_CHARS.toLocaleString('zh-CN')} 字符上限截断`
-      : `预览 ${localMemoryPromptPreview.length.toLocaleString('zh-CN')} / ${LOCAL_MEMORY_PROMPT_MAX_CHARS.toLocaleString('zh-CN')} 字符`
-    : `prompt 上限 ${LOCAL_MEMORY_PROMPT_MAX_CHARS.toLocaleString('zh-CN')} 字符`;
-  const memoryDraftHasSensitiveFields = useMemo(() => redactSecrets(draft) !== draft, [draft]);
+  const {
+    effective,
+    memoryDraftDirty,
+    visibleMemoryEntries,
+    memoryEntryPreviewBlockedReason,
+    normalizedMemoryEntryQuery,
+    filteredActiveEntries,
+    filteredArchivedEntries,
+    filteredEntryCount,
+    localMemoryPromptPreview,
+    promptPreviewBlockedReason,
+    promptPreviewWillInject,
+    localMemoryPromptPreviewBudgetLabel,
+    memoryDraftHasSensitiveFields,
+  } = viewModel;
   const memoryControlsDisabled = loadingMemory || busy;
   const isMemoryActionPending = (key: string) => pendingMemoryActions.has(key);
 
@@ -596,7 +520,6 @@ export function useMemorySettingsController(props: MemorySettingsControllerProps
   }
 
   return {
-    workspaceInstructionState,
     draft,
     setDraft,
     newMemoryTitle,
@@ -614,7 +537,6 @@ export function useMemorySettingsController(props: MemorySettingsControllerProps
     reloadDraftFromDisk,
     setEnabled,
     setAgentReadEnabled,
-    setWorkspaceInstructionsEnabled,
     save,
     reset,
     restoreLatestBackup,
@@ -623,8 +545,6 @@ export function useMemorySettingsController(props: MemorySettingsControllerProps
     openLatestBackup,
     openBackupCandidate,
     openFolder,
-    openWorkspaceInstructionFile,
-    createWorkspaceInstructionFile,
     copyPath,
     copyBackupReference,
     copyLatestBackupReference,
@@ -650,4 +570,3 @@ export function useMemorySettingsController(props: MemorySettingsControllerProps
     copyLocalMemoryPromptPreview,
   };
 }
-

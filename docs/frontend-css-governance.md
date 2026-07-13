@@ -11,7 +11,8 @@
   - `@source`
   - `@theme`
   - 顶层入口编排语句
-- 真实的 selector 规则块必须放在 `apps/desktop/src/renderer/styles/**/*.css`。
+- 新增的 per-surface selector 规则块必须放在 `apps/desktop/src/renderer/styles/**/*.css`。
+- `maka-tokens.css` 尾部的历史 recipe 和 `reference-shell.css` 是待收敛的 transitional exceptions；不要继续向这两个例外增加 surface 规则。
 
 ## 2. Layer 规则
 

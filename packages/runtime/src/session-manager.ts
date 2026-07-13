@@ -6,12 +6,8 @@
  *   AgentBackend (AiSdkBackend etc) — SDK adapter
  *   PermissionEngine                  — policy + parking
  *
- * Source: V0.1_TECH_SPEC.md §6.1, §9 (Phase 1 vertical path)
- *
- * NOTE: Imports `SessionStore` from `@maka/storage`. Storage
- * package authored in parallel; the interface is committed per
- * thread message (appendMessage / appendMessages return Promise<void>,
- * updateHeader returns updated SessionHeader, same-session writes serialized).
+ * `SessionStore` comes from `@maka/storage`; its public interface owns
+ * persistence and same-session serialization semantics.
  */
 
 import type {

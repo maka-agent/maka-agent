@@ -30,7 +30,7 @@ import { strict as assert } from 'node:assert';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './css-test-helpers.js';
+import { REPO_ROOT, STYLES_FILE, TOKENS_FILE, readAllRendererCss, stripCssComments } from './css-test-helpers.js';
 
 // --- banned foreground numbers ----------------------------------------------
 
@@ -421,16 +421,16 @@ describe('PR-FOREGROUND-TIER-CONVERGE-0 contract', () => {
   });
 
   it('@theme inline exports the semantic aliases', async () => {
-    const tokens = await readFile(TOKENS_FILE, 'utf8');
-    assert.match(tokens, /--color-foreground-secondary:\s*var\(--foreground-secondary\)/, '@theme must export --color-foreground-secondary');
-    assert.match(tokens, /--color-muted-foreground:\s*var\(--muted-foreground\)/, '@theme must export --color-muted-foreground');
+    const styles = await readFile(STYLES_FILE, 'utf8');
+    assert.match(styles, /--color-foreground-secondary:\s*var\(--foreground-secondary\)/, '@theme must export --color-foreground-secondary');
+    assert.match(styles, /--color-muted-foreground:\s*var\(--muted-foreground\)/, '@theme must export --color-muted-foreground');
   });
 
   it('@theme inline does not export raw text stops --foreground-40..95', async () => {
-    const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
+    const styles = stripCssComments(await readFile(STYLES_FILE, 'utf8'));
     for (const num of BANNED_TEXT_NUMS) {
       const re = new RegExp(`--color-foreground-${num}\\s*:`);
-      assert.doesNotMatch(tokens, re, `@theme must not export --color-foreground-${num}`);
+      assert.doesNotMatch(styles, re, `@theme must not export --color-foreground-${num}`);
     }
   });
 });
@@ -631,10 +631,10 @@ describe('foreground-tier negative cases', () => {
 
   // P2: @theme 90/95 export banned
   it('@theme must not export --color-foreground-90/95', async () => {
-    const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
+    const styles = stripCssComments(await readFile(STYLES_FILE, 'utf8'));
     for (const num of ['90', '95']) {
       const re = new RegExp(`--color-foreground-${num}\\s*:`);
-      assert.doesNotMatch(tokens, re, `@theme must not export --color-foreground-${num}`);
+      assert.doesNotMatch(styles, re, `@theme must not export --color-foreground-${num}`);
     }
   });
 

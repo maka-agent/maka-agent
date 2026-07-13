@@ -24,7 +24,7 @@ describe('composer send guard', () => {
     const toolbar = source.match(/<div className="maka-composer-toolbar[\s\S]*?<\/div>\n        <\/div>/)?.[0] ?? '';
 
     assert.match(sendCurrent, /sendPendingRef\.current/, 'composer must use a ref guard for same-tick duplicate submits');
-    assert.match(sendCurrent, /if \(props\.disabled \|\| sendPendingRef\.current \|\| pendingImportActionRef\.current\) return;/);
+    assert.match(sendCurrent, /if \(props\.disabled \|\| sendPendingRef\.current \|\| importActionOwnerRef\.current\?\.pending\) return;/);
     assert.match(sendCurrent, /sendPendingRef\.current = true;[\s\S]*setSendPending\(true\);/);
     assert.match(sendCurrent, /finally \{[\s\S]*sendPendingRef\.current = false;[\s\S]*if \(composerMountedRef\.current\) setSendPending\(false\);[\s\S]*\}/);
     assert.match(toolbar, /sendPending \? \(\s*copy\.sending\s*\)/, 'toolbar must surface the transient sending state');
@@ -58,7 +58,7 @@ describe('composer send guard', () => {
     assert.match(composerBlock, /const composerMountedRef = useRef\(true\)/);
     assert.match(
       composerBlock,
-      /useEffect\(\(\) => \{\s*composerMountedRef\.current = true;[\s\S]*?return \(\) => \{\s*composerMountedRef\.current = false;\s*sendPendingRef\.current = false;\s*pendingImportActionRef\.current = null;\s*\};\s*\}, \[\]\)/,
+      /useEffect\(\(\) => \{\s*composerMountedRef\.current = true;[\s\S]*?return \(\) => \{\s*composerMountedRef\.current = false;\s*sendPendingRef\.current = false;\s*importActionOwnerRef\.current\?\.reset\(\);\s*\};\s*\}, \[\]\)/,
       'Composer must release send/import pending owners when it unmounts or StrictMode replays cleanup',
     );
     assert.match(

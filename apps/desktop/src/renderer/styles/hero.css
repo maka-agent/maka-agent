@@ -104,7 +104,7 @@
 .maka-hero h1 {
     margin: 0;
     max-width: 34ch;
-    /* Phase 4A hero typography — atlas §15 deep RE notes reference uses
+    /* Hero typography uses
        `.welcome-title` with `Instrument Sans` variable font at wght:500
        for hero. Maka uses Geist Variable; the heading is pulled to 32px
        with semibold weight + tight leading (PR-FONT-WEIGHT-CONVERGE-0 /

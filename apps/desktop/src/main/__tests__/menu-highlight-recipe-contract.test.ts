@@ -27,7 +27,7 @@ import { compile } from 'tailwindcss';
 import { REPO_ROOT } from './css-test-helpers.js';
 
 const MENU_PRIMITIVE = join(REPO_ROOT, 'packages', 'ui', 'src', 'primitives', 'menu.tsx');
-const MAKA_TOKENS = join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'maka-tokens.css');
+const STYLES_ENTRY = join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
 
 async function readMenuSource(): Promise<string> {
   return readFile(MENU_PRIMITIVE, 'utf8');
@@ -83,8 +83,10 @@ describe('menu highlight recipe contract (#546 menu-hover governance)', () => {
   });
 
   it('generates the destructive menu text utility from the canonical token bridge', async () => {
-    const tokens = await readFile(MAKA_TOKENS, 'utf8');
-    const compiler = await compile(`${tokens}\n@tailwind utilities;`);
+    const styles = await readFile(STYLES_ENTRY, 'utf8');
+    const theme = styles.match(/@theme inline \{[\s\S]*?\n\}/)?.[0] ?? '';
+    assert.ok(theme, 'styles.css must expose the canonical Tailwind theme bridge');
+    const compiler = await compile(`${theme}\n@tailwind utilities;`);
     const css = compiler.build(['data-[variant=destructive]:text-destructive-text']);
 
     assert.match(

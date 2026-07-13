@@ -133,8 +133,8 @@ describe('deriveConnectionUiStatus', () => {
   });
 });
 
-describe('presentConnectionUiStatus copy gates (PR-UI-AUDIT-1, @kenji msg 7a16aa0b)', () => {
-  // Locks the provider-auth contract invariant (Path 17 S11 D1):
+describe('presentConnectionUiStatus copy gates', () => {
+  // Locks the provider-auth contract invariant:
   // `verified` is a credential-validation result only. The label
   // and detail MUST NOT conflate validation with operational
   // readiness ("可用" / "运行可用" / "ready" / etc.).

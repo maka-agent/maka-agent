@@ -27,6 +27,8 @@ import type { OnboardingSnapshot } from '../global';
  */
 export interface UseOnboardingSnapshotResult {
   snapshot: OnboardingSnapshot | null;
+  /** First successful mounted pull, latched until AppShell consumes the bootstrap handoff. */
+  firstMountedSnapshot: OnboardingSnapshot | null;
   error: string | null;
   refresh: () => void;
   /** Sessions from the snapshot — populated on first load, before the separate sessions:list IPC. */
@@ -48,6 +50,25 @@ export interface UseOnboardingSnapshotDeps {
   subscribeInvalidations: (onInvalidate: () => void) => () => void;
 }
 
+export interface OnboardingSnapshotState {
+  snapshot: OnboardingSnapshot | null;
+  firstMountedSnapshot: OnboardingSnapshot | null;
+}
+
+export function createOnboardingSnapshotState(initialSnapshot: OnboardingSnapshot | null): OnboardingSnapshotState {
+  return { snapshot: initialSnapshot, firstMountedSnapshot: null };
+}
+
+export function advanceOnboardingSnapshotState(
+  current: OnboardingSnapshotState,
+  next: OnboardingSnapshot,
+): OnboardingSnapshotState {
+  return {
+    snapshot: next,
+    firstMountedSnapshot: current.firstMountedSnapshot ?? next,
+  };
+}
+
 /**
  * Pure-deps form. Renderer code uses `useOnboardingSnapshot()` (no
  * args); tests pass injected `deps` to drive the hook with fakes
@@ -62,7 +83,7 @@ export function useOnboardingSnapshotImpl(
   deps: UseOnboardingSnapshotDeps,
   initialSnapshot: OnboardingSnapshot | null = null,
 ): UseOnboardingSnapshotResult {
-  const [snapshot, setSnapshot] = useState<OnboardingSnapshot | null>(initialSnapshot);
+  const [snapshotState, setSnapshotState] = useState(() => createOnboardingSnapshotState(initialSnapshot));
   const [error, setError] = useState<string | null>(null);
   const sessionsRef = useRef<SessionSummary[] | null>(initialSnapshot?.sessions ?? null);
   const connectionsRef = useRef<LlmConnection[] | null>(initialSnapshot?.connections ?? null);
@@ -72,7 +93,7 @@ export function useOnboardingSnapshotImpl(
   if (pollerRef.current === null) {
     pollerRef.current = createOnboardingSnapshotPoller(deps, {
       onSnapshot: (next) => {
-        setSnapshot(next);
+        setSnapshotState((current) => advanceOnboardingSnapshotState(current, next));
         setError(null);
         if (next.sessions) sessionsRef.current = next.sessions;
         if (next.connections) connectionsRef.current = next.connections;
@@ -105,7 +126,15 @@ export function useOnboardingSnapshotImpl(
   const getConnections = useCallback((): LlmConnection[] | null => connectionsRef.current, []);
   const getDefaultSlug = useCallback((): string | null => defaultSlugRef.current, []);
 
-  return { snapshot, error, refresh, getSessions, getConnections, getDefaultSlug };
+  return {
+    snapshot: snapshotState.snapshot,
+    firstMountedSnapshot: snapshotState.firstMountedSnapshot,
+    error,
+    refresh,
+    getSessions,
+    getConnections,
+    getDefaultSlug,
+  };
 }
 
 /**

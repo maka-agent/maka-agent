@@ -1,8 +1,6 @@
 /**
  * AgentBackend contract types.
  *
- * Source: V0.1_TECH_SPEC.md §13 + §6.1
- *
  * The `AgentBackend` port interface and the request/response shapes that
  * cross the runtime boundary live here in @maka/core so that every backend
  * implementation (AiSdkBackend / PiAgentBackend / FakeBackend) and their

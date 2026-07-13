@@ -1,12 +1,12 @@
-[ENGLISH](./ARCHITECTURE.en.md)
+[中文](./ARCHITECTURE.zh-CN.md)
 
 # Maka Backend Architecture
 
-> 这是 Maka Agent 后端架构的总入口。它不重复每篇专题文章，而是先给出系统主线，再帮助读者按问题快速找到对应章节。当前系列聚焦 Runtime、工具与上下文、Headless 长程任务、Self-check 和 AHE 自迭代边界。
+> This is the entry point for Maka Agent backend architecture. It does not repeat each deep-dive article. It establishes the system spine and helps readers reach the right chapter by engineering question. The current series covers Runtime, tools and context, durable Headless tasks, Self-check, and the AHE self-iteration boundary.
 
-## 一句话架构
+## Architecture in one sentence
 
-Maka 是一个 **log-first、projection-driven** 的 Agent Runtime：运行事实进入 append-only log；Session、模型上下文、TaskRun、Self-check 和演化证据都是这些事实面向不同消费者的投影。
+Maka is a **log-first, projection-driven** Agent Runtime. Execution facts enter append-only logs; Session state, model context, TaskRun, Self-check, and evolution evidence are projections of those facts for different consumers.
 
 ```mermaid
 flowchart LR
@@ -27,89 +27,89 @@ flowchart LR
     E --> A["External Evolution Loop"]
 ```
 
-从左向右读：入口把用户意图交给 Runtime；模型和工具执行产生事实；同一组事实随后被投影成模型上下文、交互界面、长程任务状态和演化证据。图中省略了 provider、具体存储实现和 UI 组件，只保留本系列文档共同解释的后端主线。
+Read left to right. Entry points hand user intent to Runtime; model and tool execution produce facts; those facts are projected into model context, interactive views, durable task state, and evolution evidence. Providers, concrete storage implementations, and UI components are omitted so the diagram can preserve the backend spine shared by this series.
 
-## 三层心智模型
+## A three-layer mental model
 
-### 1. 运行事实层
+### 1. Execution facts
 
-一次 Agent Run 产生模型消息、Tool Call、Tool Result、权限和终止事实。Runtime Event Log 是这些交互语义的 canonical source。上下文裁剪与 Compaction 可以改变模型下一次看到什么，但不能反向改写已经发生的事实。
+An Agent Run produces model messages, Tool Calls, Tool Results, permission decisions, and termination facts. Runtime Event Log is the canonical source for those interaction semantics. Context pruning and Compaction may change what the model sees next, but cannot rewrite facts that already occurred.
 
-对应章节：第一章、第二章、第三章。
+Relevant chapters: 1, 2, and 3.
 
-### 2. 长程任务层
+### 2. Durable tasks
 
-当任务长于一次 Turn 或一个进程时，Headless 通过独立的 Task identity、Task Event Log 和 TaskRun projection 保存跨 Attempt 的进度。Self-check 在这个任务循环内提供一次受限反馈，但不拥有最终事实 authority。
+When a task outlives one Turn or process, Headless uses an independent task identity, Task Event Log, and TaskRun projection to preserve progress across Attempts. Self-check provides bounded feedback inside that task loop but does not own final fact authority.
 
-对应章节：第四章、第五章。
+Relevant chapters: 4 and 5.
 
-### 3. 演化层
+### 3. Evolution
 
-AHE 把多次 TaskRun 的结果和 trace 组织成带 target identity 的演化证据。它位于交互 Runtime 外部，通过受限 change surface、可证伪 manifest、candidate evaluation 和 rollback lineage 推进系统改进。
+AHE organizes outcomes and traces from multiple TaskRuns into evolution evidence bound to target identity. It remains outside the interactive Runtime and advances system changes through a constrained change surface, falsifiable manifests, candidate evaluation, and rollback lineage.
 
-对应章节：第六章。
+Relevant chapter: 6.
 
-## 六章索引
+## Six-chapter index
 
-| 章节 | 核心问题 | 实现状态 | 阅读 |
+| Chapter | Core question | Implementation status | Read |
 |---|---|---|---|
-| 1. Log Is the Runtime | Maka 如何保存并回放一次 Agent Run 的状态空间？ | Current | [中文](./docs/architecture/runtime-core-architecture-draft.zh-CN.md) · [English](./docs/architecture/runtime-core-architecture-draft.en.md) |
-| 2. Evidence Before Compression | 巨大的 Tool Result 如何留下 Turn 级证据，又不拖垮当前上下文？ | Current + Target | [中文](./docs/architecture/turn-evidence-tools-active-prune-draft.zh-CN.md) · [English](./docs/architecture/turn-evidence-tools-active-prune-draft.en.md) |
-| 3. Compaction Is a Projection | LLM 如何忘记旧上下文，同时不丢失历史事实？ | Current | [中文](./docs/architecture/llm-compaction-events-log-projection-draft.zh-CN.md) · [English](./docs/architecture/llm-compaction-events-log-projection-draft.en.md) |
-| 4. The Durable Task Loop | 一个任务长于 Turn、Run 和进程时，Maka 如何持续推进？ | Current + Target | [中文](./docs/architecture/durable-task-loop-headless-draft.zh-CN.md) · [English](./docs/architecture/durable-task-loop-headless-draft.en.md) |
-| 5. Self-Check Is Not Self-Trust | Agent 如何检查和修复自己的工作，而不把自述变成 authority？ | Current + Target | [中文](./docs/architecture/self-check-bounded-feedback-loop-draft.zh-CN.md) · [English](./docs/architecture/self-check-bounded-feedback-loop-draft.en.md) |
-| 6. Self-Iteration Happens Outside the Runtime | Maka 如何把运行经验变成可证伪、可回滚的系统改进？ | Current + Target | [中文](./docs/architecture/ahe-self-iteration-boundary-draft.zh-CN.md) · [English](./docs/architecture/ahe-self-iteration-boundary-draft.en.md) |
+| 1. Log Is the Runtime | How does Maka preserve and replay the state space of an Agent Run? | Current | [English](./docs/architecture/runtime-core-architecture-draft.en.md) · [中文](./docs/architecture/runtime-core-architecture-draft.zh-CN.md) |
+| 2. Evidence Before Compression | How can a large Tool Result leave Turn-level evidence without exhausting active context? | Current + Target | [English](./docs/architecture/turn-evidence-tools-active-prune-draft.en.md) · [中文](./docs/architecture/turn-evidence-tools-active-prune-draft.zh-CN.md) |
+| 3. Compaction Is a Projection | How can the LLM forget old context without losing historical facts? | Current | [English](./docs/architecture/llm-compaction-events-log-projection-draft.en.md) · [中文](./docs/architecture/llm-compaction-events-log-projection-draft.zh-CN.md) |
+| 4. The Durable Task Loop | How does Maka continue a task that outlives a Turn, Run, or process? | Current + Target | [English](./docs/architecture/durable-task-loop-headless-draft.en.md) · [中文](./docs/architecture/durable-task-loop-headless-draft.zh-CN.md) |
+| 5. Self-Check Is Not Self-Trust | How can an Agent inspect and repair its work without turning self-report into authority? | Current + Target | [English](./docs/architecture/self-check-bounded-feedback-loop-draft.en.md) · [中文](./docs/architecture/self-check-bounded-feedback-loop-draft.zh-CN.md) |
+| 6. Self-Iteration Happens Outside the Runtime | How does Maka turn run experience into falsifiable and reversible system improvement? | Current + Target | [English](./docs/architecture/ahe-self-iteration-boundary-draft.en.md) · [中文](./docs/architecture/ahe-self-iteration-boundary-draft.zh-CN.md) |
 
-这里的 **Current + Target** 表示文章同时记录已验证实现与明确标注的目标方向，不表示 Target 部分已经落地。每篇文章 front matter 中的 `implementation_status` 和 `last_verified` 是更细的状态来源。
+**Current + Target** means the article covers verified implementation and visibly labeled target direction. It does not mean Target sections are implemented. The `implementation_status` and `last_verified` fields in each article's front matter are the more precise status source.
 
-## 按问题选择阅读路径
+## Choose a reading path by problem
 
-### 第一次进入 Runtime
+### Entering Runtime for the first time
 
-按 `1 → 2 → 3` 阅读。你会先理解事实日志，再理解工具证据和上下文投影。
+Read `1 → 2 → 3`. Start with the fact log, then move to tool evidence and context projections.
 
-### 修改 Tool、Context 或 Compaction
+### Changing Tools, Context, or Compaction
 
-先读 `1` 建立 canonical fact 边界，再读 `2 → 3`。如果改动会影响长程任务的证据消费，再补 `4`。
+Read `1` for the canonical-fact boundary, then `2 → 3`. Add `4` if the change affects evidence consumed by durable tasks.
 
-### 修改 Headless 或任务恢复
+### Changing Headless or task recovery
 
-按 `1 → 4 → 5` 阅读。第四章解释 durability，第三章可以补充上下文恢复，第二章可以补充 Tool Result 的证据边界。
+Read `1 → 4 → 5`. Chapter 3 adds context recovery, while Chapter 2 adds the Tool Result evidence boundary.
 
-### 修改 Self-check 或完成条件
+### Changing Self-check or completion conditions
 
-按 `4 → 5` 阅读，再回看 `2` 中“证据不能被上下文裁剪删除”的原则。
+Read `4 → 5`, then revisit Chapter 2's rule that context pruning must not delete evidence.
 
-### 修改 AHE 或自迭代流程
+### Changing AHE or self-iteration
 
-按 `1 → 4 → 5 → 6` 阅读。第六章依赖前面建立的 Event Log、TaskRun projection 和 authority 边界。
+Read `1 → 4 → 5 → 6`. Chapter 6 depends on the Event Log, TaskRun projection, and authority boundaries established earlier.
 
-## 代码边界
+## Code boundaries
 
-| 区域 | 主要职责 |
+| Area | Primary responsibility |
 |---|---|
-| `packages/core` | Session、Runtime Event、AgentRun、permission 等纯 contract |
-| `packages/storage` | Session、settings、run ledger 等 file-backed store |
-| `packages/runtime` | SessionManager、AgentRun、模型适配、工具执行、上下文与恢复 |
-| `packages/headless` | TaskRun、Autonomous Loop、Self-check、结果导出与 AHE protocol |
-| `apps/desktop/src/main` | Electron main-process composition、IPC 与产品入口适配 |
+| `packages/core` | Pure contracts for Session, Runtime Event, AgentRun, and permission |
+| `packages/storage` | File-backed stores for sessions, settings, and run ledgers |
+| `packages/runtime` | SessionManager, AgentRun, model adapters, tool execution, context, and recovery |
+| `packages/headless` | TaskRun, Autonomous Loop, Self-check, result export, and AHE protocol |
+| `apps/desktop/src/main` | Electron main-process composition, IPC, and product-entry adapters |
 
-专题文章中的“代码地图”是定位实现的首选入口。更早的设计和演进材料仍保留在：
+The “code map” in each deep-dive article is the preferred implementation entry point. Earlier design and evolution material remains available in:
 
-- [`docs/runtime-kernel.md`](./docs/runtime-kernel.md)
-- [`docs/runtime-v2-architecture-evolution.md`](./docs/runtime-v2-architecture-evolution.md)
-- [`docs/runtime-v2-implementation-notes.md`](./docs/runtime-v2-implementation-notes.md)
+- [`docs/archive/runtime-kernel.md`](./docs/archive/runtime-kernel.md)
+- [`docs/archive/runtime-v2-architecture-evolution.md`](./docs/archive/runtime-v2-architecture-evolution.md)
+- [`docs/archive/runtime-v2-implementation-notes.md`](./docs/archive/runtime-v2-implementation-notes.md)
 
-这些文档提供历史设计背景和实现笔记；本页索引的六章是当前后端机制的叙事入口。
+Those documents provide historical design context and implementation notes. The six chapters indexed here are the narrative entry point for current backend mechanisms.
 
-## 文档目录约定
+## Documentation layout
 
-`docs/architecture/` 当前保持扁平结构：一项机制对应一个稳定 slug，并分别提供 `.zh-CN.md` 与 `.en.md`。在专题数量仍可快速浏览时，不增加 `chapters/` 层级，避免链接和 counterpart 路径无谓变深。
+`docs/architecture/` currently remains flat. One mechanism owns one stable slug with separate `.zh-CN.md` and `.en.md` counterparts. While the collection is still easy to scan, avoiding another `chapters/` level keeps links and counterpart paths shallow.
 
-维护规则：
+Maintenance rules:
 
-- 新专题必须有稳定 `doc_id`、实现状态、验证日期和 owner；
-- 中英文 counterpart 必须保持 scope、Current/Target 边界、图表和限制一致；
-- 本页只保存一句话问题和入口，机制细节留在专题文章中；
-- 新增、重命名或发布专题时，同时更新中英文总索引；
-- 文件名中的 `-draft` 与 front matter 的 `document_status` 一致；正式发布时应在同一次变更中移除该后缀并修正所有索引链接。
+- Every new deep dive needs a stable `doc_id`, implementation status, verification date, and owner;
+- Chinese and English counterparts must preserve scope, Current/Target boundaries, diagrams, and limitations;
+- This index stores one-sentence questions and links; mechanism details remain in the deep dives;
+- Adding, renaming, or publishing an article requires updating both architecture indexes;
+- The `-draft` filename suffix must agree with front matter `document_status`; publication should remove the suffix and update all index links in the same change.

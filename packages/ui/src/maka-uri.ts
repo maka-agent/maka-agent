@@ -43,34 +43,13 @@
  * `components.tsx`; this module is pure.
  */
 
-import type { SettingsSection } from '@maka/core';
+import { SETTINGS_SECTIONS, type SettingsSection } from '@maka/core';
 
 /**
- * Reference allowlist of section ids the URI router accepts. Mirrors
- * the `SettingsSection` union exactly. If `@maka/core` adds a new
- * section, TypeScript's exhaustiveness on the assignment below would
- * surface (the discriminated assertion at module load time would
- * tell us we're behind). We don't auto-derive at runtime because the
- * union is a TS-only construct; instead we keep the list right next
- * to the import so the divergence is visible.
+ * Runtime allowlist derived from Core's canonical section tuple. Adding or
+ * removing a section updates both the type and parser from the same value.
  */
-const ALLOWED_SETTINGS_SECTIONS = new Set<SettingsSection>([
-  'general',
-  'appearance',
-  'memory',
-  'daily-review',
-  'models',
-  'usage',
-  'voice',
-  'open-gateway',
-  'bot-chat',
-  'search',
-  'data',
-  'account',
-  'permissions',
-  'health',
-  'about',
-]);
+const ALLOWED_SETTINGS_SECTIONS = new Set<SettingsSection>(SETTINGS_SECTIONS);
 
 /**
  * Hard caps applied to incoming hrefs. The renderer never invokes
@@ -115,8 +94,7 @@ export type MakaUriDest =
  *     `COMPOSE_TEXT_MAX_LENGTH` decoded characters.
  *
  * The parser is intentionally narrow. Adding a destination is a code
- * change here AND in the renderer dispatcher AND in the test fixtures
- * AND in smoke.md Path 17 — by design.
+ * change here, in the renderer dispatcher, and in the test fixtures.
  */
 export function parseMakaUri(href: string): MakaUriDest | null {
   if (typeof href !== 'string') return null;

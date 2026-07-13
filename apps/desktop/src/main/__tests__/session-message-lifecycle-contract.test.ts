@@ -20,6 +20,7 @@ describe('active session message lifecycle contract', () => {
       'app-shell-chat-actions.ts',
       'app-shell.tsx',
       'app-shell-copy.ts',
+      'use-app-shell-session-workspace.ts',
     ]);
     const ui = await readFile(join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx'), 'utf8');
     const activeSessionEffect = src.match(/useLayoutEffect\(\(\) => \{\s*if \(!activeId\) return;[\s\S]*?readMessages\(activeId\)[\s\S]*?\}, \[activeId\]\);/)?.[0] ?? '';
@@ -107,9 +108,12 @@ describe('active session message lifecycle contract', () => {
       /catch \(error\) \{[\s\S]*setMessages\(\[\]\)/,
       'background message refresh failures must preserve the visible conversation instead of blanking the chat',
     );
+    assert.match(src, /const sessionUi = useAppShellSessionUiState\(\)/);
+    assert.match(src, /const messageRetryPendingRef = useRef<Set<string>>\(new Set\(\)\)/);
+    assert.match(src, /setMessageRetryPendingBySession: sessionUi\.setMessageRetryPendingBySession/);
     assert.match(
       src,
-      /const messageRetryPendingRef = useRef<Set<string>>\(new Set\(\)\);[\s\S]*const \{[\s\S]*setMessageRetryPendingBySession,[\s\S]*\} = useAppShellSessionUiState\(\);[\s\S]*const \{[\s\S]*messageRetryPendingBySession,[\s\S]*\} = sessionUiState;/,
+      /const \{[\s\S]*messageRetryPendingBySession,[\s\S]*\} = sessionUiState;/,
       'desktop shell must keep the ref-backed duplicate guard while exposing per-session retry pending state from the shell UI reducer',
     );
     assert.match(

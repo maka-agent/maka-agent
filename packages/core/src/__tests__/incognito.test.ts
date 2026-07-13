@@ -1,5 +1,5 @@
 /**
- * Tests for `@maka/core/incognito` — the PR-INCOGNITO-0 cross-lane contract.
+ * Tests for the `@maka/core/incognito` cross-cutting contract.
  *
  * Pins:
  *   - Default factory always returns `incognitoActive: false`.
@@ -8,8 +8,8 @@
  *   - Extra fields are stripped from the canonical return.
  *   - Type guard distinguishes valid vs invalid shapes.
  *
- * Authority rules from `0f1a3a2b` + `ece30c92` are documented in
- * `docs/workspace-privacy-context.md` and enforced by consumers at
+ * Authority rules are documented in `docs/workspace-privacy-context.md`
+ * and enforced by consumers at
  * their respective IPC boundaries — this contract layer only validates
  * shape, not source authority.
  */
@@ -210,14 +210,8 @@ describe('closed reason enum', () => {
 });
 
 describe('cross-lane consumption documentation', () => {
-  // PR-INCOGNITO-0 contract leaves consumer wiring as documentation
-  // (per xuan `0f1a3a2b` scope: contract-only, no runtime enforcement
-  // in this packet). These tests pin the documented obligations so a
-  // future implementation packet cannot quietly skip a consumer.
-  //
-  // Each consumer lane (SEARCH-2.5, MEMORY read gate, VOICE-1)
-  // will wire up the actual enforcement; this contract just locks the
-  // type they all consume.
+  // Consumer behavior is tested at each enforcement boundary. These
+  // tests lock only the shared shape.
   it('shape contains exactly one field (extending is a contract change)', () => {
     const ctx = defaultWorkspacePrivacyContext();
     assert.deepEqual(Object.keys(ctx).sort(), ['incognitoActive']);

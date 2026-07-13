@@ -1,6 +1,6 @@
 /**
  * Pure presentation helpers for SessionStatus + SessionBlockedReason
- * (PR109b, design-system §9.8).
+ * used by the sidebar and chat header.
  *
  * Separated from the React component layer so the copy + tone mapping
  * can be unit-tested without a DOM, mirroring `chat-header-alert.ts`
@@ -22,6 +22,15 @@
  */
 
 import type { SessionBlockedReason, SessionStatus, SessionSummary } from '@maka/core';
+import {
+  describeBlockedReason,
+  presentSessionStatus,
+  type SessionStatusPresentation,
+  type SessionStatusTone,
+} from '@maka/ui';
+export { presentSessionStatus } from '@maka/ui';
+export { describeBlockedReason } from '@maka/ui';
+export type { SessionStatusPresentation, SessionStatusTone } from '@maka/ui';
 
 /**
  * Session-level "blocked" is only worth interrupting the user when
@@ -61,50 +70,9 @@ export function normalizeSessionSummaryForDisplay(session: SessionSummary): Sess
  * Status tone vocabulary — extends the chat-header-alert tone set
  * (`info | warning | destructive`) with `accent` for active in-flight
  * work, `success` for completed work, and `muted` for terminal /
- * dormant buckets. Tones map to design-system color tokens in CSS
+ * dormant buckets. Tones map to semantic color tokens in CSS
  * (`[data-status-tone="..."]`).
  */
-export type SessionStatusTone = 'accent' | 'warning' | 'destructive' | 'info' | 'success' | 'muted' | 'neutral';
-
-export interface SessionStatusPresentation {
-  /** User-visible Chinese label for this status. */
-  label: string;
-  /** Color tone driving the badge / icon. */
-  tone: SessionStatusTone;
-  /**
-   * Whether the lifecycle state can transition further by user
-   * interaction in the chat (vs being terminal-for-this-session).
-   * UI uses this to decide whether to dim the chat composer.
-   */
-  interactive: boolean;
-}
-
-const STATUS_PRESENTATION: Record<SessionStatus, SessionStatusPresentation> = {
-  active: { label: '可继续', tone: 'neutral', interactive: true },
-  running: { label: '进行中', tone: 'accent', interactive: true },
-  waiting_for_user: { label: '等你确认', tone: 'warning', interactive: true },
-  // `blocked` was destructive (red) but most blocked states are
-  // recoverable (permission_required, auth retry, missing connection
-  // selection) — the chat header pill ended up sitting beside monochrome
-  // quiet-icon utility buttons, where the bright red read as a hard
-  // error in a row that did not deserve one. 'warning' (warm yellow)
-  // honestly conveys "you need to do something" without screaming
-  // failure. Real hard failures surface through ChatHeaderAlertBadge,
-  // which still uses destructive.
-  blocked: { label: '需要处理', tone: 'warning', interactive: true },
-  review: { label: '待审核', tone: 'info', interactive: true },
-  done: { label: '已完成', tone: 'success', interactive: true },
-  archived: { label: '已归档', tone: 'muted', interactive: false },
-  // @kenji review on PR109b: aborted is dormant history but the UI
-  // must NOT silently treat it as active. Renders a muted "已中止"
-  // badge so the user can see what they cancelled later.
-  aborted: { label: '已中止', tone: 'muted', interactive: false },
-};
-
-export function presentSessionStatus(status: SessionStatus): SessionStatusPresentation {
-  return STATUS_PRESENTATION[status];
-}
-
 /**
  * Generalized phrasing for a blocked session. Surfaces a user-readable
  * cause without exposing the underlying enum identifier (per @kenji
@@ -113,19 +81,6 @@ export function presentSessionStatus(status: SessionStatus): SessionStatusPresen
  * Returned text is suitable for `aria-label`, `title`, and inline
  * tooltip slots — short phrase, sentence-cased Chinese, no period.
  */
-const BLOCKED_REASON_LABEL: Record<SessionBlockedReason, string> = {
-  NO_REAL_CONNECTION: '等待配置可用模型连接',
-  auth: '需要重新登录',
-  permission_required: '等待权限确认',
-  tool_failed: '工具调用失败',
-  unknown: '运行中断，可重试',
-};
-
-export function describeBlockedReason(reason: SessionBlockedReason | undefined): string {
-  if (!reason) return BLOCKED_REASON_LABEL.unknown;
-  return BLOCKED_REASON_LABEL[reason] ?? BLOCKED_REASON_LABEL.unknown;
-}
-
 /**
  * Compose a single-line aria-label / tooltip for a blocked session,
  * combining the status label and the cause. Example:
@@ -141,8 +96,7 @@ export function sessionStatusAriaLabel(status: SessionStatus, blockedReason?: Se
 
 /**
  * Generalized Chinese phrasing for a failed turn's `errorClass`
- * (PR109e-d, design-system §9.9). Mirrors `describeBlockedReason()`
- * pattern from PR109b — UI must never display the raw enum identifier.
+ * Mirrors `describeBlockedReason()`; UI must never display the raw enum identifier.
  *
  * Recognized classes are written by the runtime via `classifyError()`,
  * `classifyHttpStatus()`, and `event.reason` / `event.code`. The set is

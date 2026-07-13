@@ -1,32 +1,11 @@
 /**
- * PR-WEB-SEARCH-TAVILY-0 — pure contract for the explicit user-triggered
- * web search lane. Adopts the "single provider per query, no silent
- * fallback" stance from external research but starts strictly with Tavily.
+ * Pure WebSearch contracts shared by the explicit UI query and agent-tool
+ * paths. One configured provider handles a query; failures are returned as
+ * closed reasons rather than silently rotating providers.
  *
- * borrow
- * - Reference query / result shape (title / url / snippet) from external
- *   `docs/search-engines.md`. We don't reuse the upstream provider-rotation
- *   logic — that's the whole "silent fallback" failure mode we're avoiding.
- *
- * diverge
- * - No auto-rotation across providers. Renderer pinns a provider;
- *   main process honors it; failure surfaces a closed error reason.
- * - No agent tool call. This lane is *only* for user-triggered queries
- *   from a UI button. Tool-runner integration is a separate future PR
- *   with its own permission gate.
- * - Results do not flow through markdown / HTML rendering. The
- *   renderer shows plain text snippet + clickable URL.
- *
- * risk
- * - Outbound HTTPS to api.tavily.com once enabled. Renderer never
- *   sees the API key — it's stored masked in settings and replayed
- *   from the main process. See `MASKED_TOKEN_SENTINEL`.
- * - Incognito surfaces (PR-INCOGNITO-0) fail closed before any
- *   network call.
- *
- * gate
- * - Pure unit tests cover query normalization, masking, error
- *   discriminants. The main-process fetch is exercised separately.
+ * Main owns credentials, provider calls, and the incognito gate. Renderer
+ * results contain normalized title, URL, and snippet fields and never expose
+ * cleartext credentials or raw provider errors.
  */
 
 /** Closed enum of providers V0.1 will accept. */

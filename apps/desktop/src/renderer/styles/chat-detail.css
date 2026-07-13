@@ -2,7 +2,7 @@
    session-branch banner. Relocated from settings/models.css (was misplaced in the
    model-catalog file) — issue #546 PR1, zero visual change. */
 /* ──────────────────────────────────────────────────────────────────────── */
-/* §9.1 ArtifactPane — right-side preview for assistant-produced files.     */
+/* ArtifactPane — right-side preview for assistant-produced files.          */
 /* Sits inside the existing detail panel; flex-row keeps the chat column    */
 /* flush with the composer while the pane occupies a fixed right strip.    */
 /* Returns null when no live artifacts → the row collapses gracefully.     */

@@ -87,5 +87,6 @@ is the feedback AHE should use for the next iteration:
 - `infra_or_excluded` and `selfCheckOnlyTaskIds` are accounting buckets, not
   official success.
 
-The protocol is deliberately file-first. A later CLI can generate, validate,
-and import these files, but this PR only establishes the stable target contract.
+The protocol is deliberately file-first. `maka eval ahe export` generates
+and validates the source-backed export boundary. Import and candidate-evaluation
+CLI workflows remain outside this contract.

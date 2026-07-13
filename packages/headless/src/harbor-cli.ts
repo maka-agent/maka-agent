@@ -117,7 +117,7 @@ async function harborRunCommand(args: string[]): Promise<number> {
     if (options.mode === 'cell') return await runHarborCellMode(options);
     return await runHarborTaskRunMode(options);
   } catch (error) {
-    console.error(`maka-headless harbor run: ${(error as Error).message}`);
+    console.error(`maka eval harbor run: ${(error as Error).message}`);
     return 1;
   }
 }
@@ -382,12 +382,12 @@ function buildConfig(input: {
       backend: 'fake',
       llmConnectionSlug: input.env.MAKA_LLM_CONNECTION_SLUG ?? 'fake',
       model: input.env.MAKA_MODEL ?? input.env.HARBOR_MODEL ?? 'fake',
-      ...(input.heavyTask ? { heavyTaskMode: { enabled: true, reason: 'maka-headless harbor run --heavy-task' } } : {}),
-      ...(input.economyTask ? { economyTaskMode: { enabled: true, reason: 'maka-headless harbor run --economy-task' } } : {}),
+      ...(input.heavyTask ? { heavyTaskMode: { enabled: true, reason: 'maka eval harbor run --heavy-task' } } : {}),
+      ...(input.economyTask ? { economyTaskMode: { enabled: true, reason: 'maka eval harbor run --economy-task' } } : {}),
     };
   }
   if (input.backend !== 'ai-sdk') {
-    throw new Error(`maka-headless harbor run task-run currently supports backend fake or ai-sdk, got ${input.backend}`);
+    throw new Error(`maka eval harbor run task-run currently supports backend fake or ai-sdk, got ${input.backend}`);
   }
   const modelSpec = parseModelSpec(
     input.env.MAKA_MODEL ?? input.env.HARBOR_MODEL ?? 'deepseek/deepseek-v4-flash',
@@ -399,8 +399,8 @@ function buildConfig(input: {
     llmConnectionSlug: input.env.MAKA_LLM_CONNECTION_SLUG ?? modelSpec.provider,
     model: modelSpec.model,
     ...(input.env.MAKA_SYSTEM_PROMPT !== undefined ? { systemPrompt: input.env.MAKA_SYSTEM_PROMPT } : {}),
-    ...(input.heavyTask ? { heavyTaskMode: { enabled: true, reason: 'maka-headless harbor run --heavy-task' } } : {}),
-    ...(input.economyTask ? { economyTaskMode: { enabled: true, reason: 'maka-headless harbor run --economy-task' } } : {}),
+    ...(input.heavyTask ? { heavyTaskMode: { enabled: true, reason: 'maka eval harbor run --heavy-task' } } : {}),
+    ...(input.economyTask ? { economyTaskMode: { enabled: true, reason: 'maka eval harbor run --economy-task' } } : {}),
   };
 }
 
@@ -451,7 +451,7 @@ function buildIsolation(
 
 function preflightIsolation(backend: BackendKind, isolation: HarborIsolationMode | undefined, env: RunHarborCellEnv): void {
   if (backendNeedsIsolation(backend) && (!isolation || isolation === 'none')) {
-    throw new Error(`backend "${backend}" requires --isolation harbor-local|harbor-http for maka-headless harbor run`);
+    throw new Error(`backend "${backend}" requires --isolation harbor-local|harbor-http for maka eval harbor run`);
   }
   if (isolation === 'harbor-http') {
     if (!env.MAKA_HARBOR_TOOL_EXECUTOR_URL) throw new Error('MAKA_HARBOR_TOOL_EXECUTOR_URL is required for --isolation harbor-http');
@@ -674,13 +674,13 @@ function truthyEnv(raw: string | undefined): boolean {
 }
 
 function printHarborUsage(): void {
-  console.error('maka-headless harbor commands:\n');
+  console.error('maka eval harbor commands:\n');
   console.error(harborRunUsage());
 }
 
 function harborRunUsage(): string {
   return [
-    'usage: maka-headless harbor run --instruction <text>|--instruction-file <path> --isolation harbor-local|harbor-http [options]',
+    'usage: maka eval harbor run --instruction <text>|--instruction-file <path> --isolation harbor-local|harbor-http [options]',
     '       real backends fail closed without explicit isolation; harbor-http requires MAKA_HARBOR_TOOL_EXECUTOR_URL and MAKA_HARBOR_TOOL_EXECUTOR_TOKEN',
   ].join('\n');
 }

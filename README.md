@@ -21,7 +21,7 @@ Maka does more than answer questions. With controlled permissions, it can inspec
 - **A task may outlive a Turn**: Headless uses TaskRun, Task Event Log, budgets, and continuation to advance interruptible and inspectable durable work.
 - **Feedback is not fact authority**: Self-check may produce evidence and one bounded repair opportunity, but “I checked it” does not become a system fact.
 
-Read [Maka Backend Architecture](./ARCHITECTURE.en.md) for the complete design.
+Read [Maka Backend Architecture](./ARCHITECTURE.md) for the complete design.
 
 ## Surfaces
 
@@ -29,7 +29,7 @@ Read [Maka Backend Architecture](./ARCHITECTURE.en.md) for the complete design.
 |---|---|---|
 | **Desktop** | Daily interaction, file and Artifact workflows, model and permission setup | Electron + React with streaming sessions, tool timelines, branching, search, and recovery |
 | **TUI / CLI** | Using Maka in the current project directory or running one non-interactive Turn | `maka`, `maka run`; shares workspace and model connections with Desktop |
-| **Headless** | Durable tasks, recoverable TaskRuns, experiments, and evaluation | `maka eval` / `maka-headless` with task logs, export, resume, and comparison |
+| **Headless** | Durable tasks, recoverable TaskRuns, experiments, and evaluation | `maka eval` with task logs, export, resume, and comparison |
 
 ## Current capabilities
 
@@ -127,7 +127,7 @@ Runtime Event Log → Context / Session / UI projections
 Task Event Log → TaskRun → Self-check / AHE evidence
 ```
 
-Start with [ARCHITECTURE.en.md](./ARCHITECTURE.en.md). It provides the system map, code boundaries, problem-oriented reading paths, and six bilingual deep dives.
+Start with [ARCHITECTURE.md](./ARCHITECTURE.md). It provides the system map, code boundaries, problem-oriented reading paths, and six bilingual deep dives.
 
 ## Repository layout
 
@@ -161,11 +161,11 @@ Current boundaries that matter:
 
 - Sessions and connection metadata live in the local filesystem;
 - Runtime credentials such as API keys, bot tokens, and proxy passwords currently live in local plaintext `credentials.json`, behind the OS account boundary, with POSIX directory mode `0700` and file mode `0600` enforced;
-- Supported subscription OAuth tokens use Electron `safeStorage` and fail closed when it is unavailable;
+- Claude and Codex keep an Electron `safeStorage` desktop copy and also export a best-effort plaintext `oauth_token` copy to `credentials.json` for the pure-Node runtime; Cursor and Antigravity remain non-operational preview integrations;
 - Renderer does not receive plaintext credentials. File writes, Shell, and dangerous tool calls pass through the permission engine;
 - Headless real-model evaluation fails closed by default and requires an explicit external isolation boundary.
 
-Read [SECURITY.md](./SECURITY.md) for security reporting and policy. Detailed privacy and threat-model documents live under `docs/`.
+Read [SECURITY.md](./SECURITY.md) for security reporting and policy, and [docs/README.md](./docs/README.md) for current privacy and sandbox contracts.
 
 ## Development and verification
 
@@ -199,10 +199,7 @@ Before submitting code, run typecheck, build, and focused tests proportionate to
 
 ## Documentation
 
-- [Backend architecture](./ARCHITECTURE.en.md)
-- [Headless usage and isolation](./packages/headless/README.md)
-- [Design system](./docs/design-system.md)
-- [Full product test plan](./docs/full-product-test-plan.md)
-- [Workspace privacy context](./docs/workspace-privacy-context.md)
-- [Capability maturity audit](./docs/maka-capability-audit-v1.md)
+- [Documentation index and authority map](./docs/README.md)
+- [Backend architecture](./ARCHITECTURE.md)
+- [Product design](./DESIGN.md)
 - [Security policy](./SECURITY.md)

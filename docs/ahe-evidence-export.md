@@ -10,12 +10,13 @@ runtime.
 After a headless task run has been recorded in a task-run store:
 
 ```sh
-maka-headless ahe export <taskRunId...> \
+maka eval ahe export <taskRunId...> \
   --store <out>/runs \
   --repo <maka-repo-root> \
   --out <evidence-dir> \
   [--run-id <id>] \
   [--source-label <label>] \
+  [--harbor-trial-dir <dir>] \
   [--include-events]
 ```
 
@@ -28,6 +29,8 @@ requested `TaskRunProjection` rows from the existing store, and writes:
 - `trace-index.json`: `MakaAheTraceIndex` pointing at per-run trace exports.
 - `traces/<taskRunId>/`: ordinary Maka task-run exports, including
   `task-run.json`, `result.json`, `result.md`, and optional `events.jsonl`.
+
+`--harbor-trial-dir` imports the official verifier/scorer result for the selected run and currently accepts exactly one `taskRunId`. Without the flag, a single-run export also detects the standard Harbor trial layout relative to the task-run store. Otherwise the export preserves local checks as non-authoritative evidence.
 
 ## Authority Rules
 

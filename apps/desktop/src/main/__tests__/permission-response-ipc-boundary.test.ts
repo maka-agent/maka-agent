@@ -147,6 +147,7 @@ describe('permission response IPC boundary', () => {
       'app-shell.tsx',
       'app-shell-stop-action.ts',
       'app-shell-chat-actions.ts',
+      'use-app-shell-session-workspace.ts',
     ]);
     // Match `async function stop()` body up to its closing brace.
     const stop = renderer.match(/async function stop\(\)\s*\{[\s\S]*?\n  \}/);
@@ -310,6 +311,8 @@ describe('permission response IPC boundary', () => {
       'app-shell-quick-chat-actions.ts',
       'app-shell.tsx',
       'app-shell-effects.ts',
+      'use-app-shell-session-list.ts',
+      'use-app-shell-session-workspace.ts',
     ]);
     const setActiveId = renderer.match(/function setActiveId\(next: string \| undefined\): void \{[\s\S]*?\n  \}/);
     const refreshSessions = renderer.match(/async function refreshSessions\(\)(?:: Promise<SessionSummary\[]>)? \{[\s\S]*?\n  \}/);
@@ -342,8 +345,8 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       bootstrapSessions[0],
-      /if \(!activeIdRef\.current && next\[0\] && next\[0\]\.lastMessageAt\) setActiveId\(next\[0\]\.id\)/,
-      'only bootstrapSessions() may auto-select the first existing chat on app startup',
+      /bootstrapSelectionLease\.reconcile\(next\);[\s\S]*bootstrapSelectionLease\.release\(\)/,
+      'the fallback bootstrap must share and then release the session owner\'s selection lease',
     );
     assert.match(
       renderer,
@@ -422,6 +425,40 @@ describe('permission response IPC boundary', () => {
     );
   });
 
+  it('reconciles the first mounted onboarding pull after the pre-mount snapshot seed', async () => {
+    const renderer = await readRendererShellSource('app-shell.tsx');
+    const onboardingSnapshotHook = await readFile(
+      fileURLToPath(new URL('../../../src/renderer/use-onboarding-snapshot.ts', import.meta.url)),
+      'utf8',
+    );
+
+    assert.match(
+      onboardingSnapshotHook,
+      /firstMountedSnapshot:\s*OnboardingSnapshot \| null/,
+      'the snapshot owner must latch the first successful mounted pull separately from the pre-mount seed',
+    );
+    assert.match(
+      renderer,
+      /snapshot = onboarding\.firstMountedSnapshot/,
+      'AppShell must consume the latched mounted snapshot instead of inferring it from a cumulative generation',
+    );
+    assert.doesNotMatch(
+      renderer,
+      /const seededRef = useRef\(false\)/,
+      'a one-shot seed drops a newer snapshot returned by the first mounted pull',
+    );
+    assert.match(
+      renderer,
+      /const next = seedSessions\(snapshot\.sessions\)/,
+      'the mounted pull must replace the session owner even when the latest list is empty',
+    );
+    assert.match(
+      renderer,
+      /setConnections\(snapshot\.connections\)/,
+      'the mounted pull must replace the connection owner even when the latest list is empty',
+    );
+  });
+
   it('keeps normal Composer first-send visible in the newly created session', async () => {
     const renderer = await readRendererShellSources([
       'app-shell-chat-actions.ts',
@@ -491,8 +528,8 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       renderer,
-      /function noRealConnectionSetupDescription\(reason: string \| undefined\): string \{[\s\S]*case 'missing_default_connection':[\s\S]*等待配置默认模型[\s\S]*case 'missing_api_key':[\s\S]*当前模型连接还没有可用凭据[\s\S]*case 'fake_backend':[\s\S]*当前会话来自旧的本地模拟连接/,
-      'model-setup send failures should use reason-driven Chinese copy instead of backend exception text',
+      /function noRealConnectionSetupDescription\(reason: string \| undefined\): string \{[\s\S]*return describeChatConfigurationReason/,
+      'model-setup send failures should use the shared reason-driven copy instead of backend exception text',
     );
     const modelSetupToast = renderer.match(/function showModelSetupToast\(description: string, reason\?: string\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     assert.match(

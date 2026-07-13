@@ -1,8 +1,8 @@
 # @maka/headless
 
 The single headless entry point for driving a Maka agent without a UI. Its
-first mode is **eval**: run a **Config × Task** grid, capture each trajectory,
-score it with the task's own command, and compare. RFC: [#31](https://github.com/jackwener/maka-agent/issues/31).
+evaluation mode can run a **Config × Task** grid, capture each trajectory,
+score it with the task's own command, and compare.
 
 ```
 Config × Task  →  throwaway workspace  →  headless agent run  →  trajectory
@@ -13,19 +13,21 @@ Config × Task  →  throwaway workspace  →  headless agent run  →  trajecto
 ## CLI
 
 ```sh
-maka-headless eval <spec.json> [--out <dir>]   # run the grid → results.jsonl + comparison.md
-maka-headless compare <results.jsonl>          # print the comparison table
-maka-headless task run <spec.json> --task <id> --config <id> [--out <dir>]
-maka-headless task inspect <taskRunId> --store <out>/runs [--json]
-maka-headless task export <taskRunId> --store <out>/runs --out <dir> [--include-events]
-maka-headless task resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]
-maka-headless task retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir>
+maka eval run <spec.json> [--out <dir>]
+maka eval compare <results.jsonl>
+maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>]
+maka eval task-run inspect <taskRunId> --store <out>/runs [--json]
+maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]
+maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]
+maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir>
+maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo> --out <dir>
+maka eval harbor run --instruction <text> --workdir <dir> --out <dir> --isolation harbor-local
 ```
 
 Try it with the bundled fake-backend demo (no API key needed):
 
 ```sh
-maka-headless eval examples/demo.spec.json --out /tmp/maka-headless-demo
+maka eval run examples/demo.spec.json --out /tmp/maka-headless-demo
 ```
 
 ## Trust posture
@@ -152,7 +154,7 @@ Docker, Harbor, or `tb` binary; because it is still a local command verifier,
 programmatically through `benchmarkAdapters` and an explicit external isolation
 record.
 
-`task run` writes append-only task-run JSONL under `<out>/runs/task-runs/`,
+`maka eval task-run run` writes append-only task-run JSONL under `<out>/runs/task-runs/`,
 updates compatibility `results.jsonl`, and writes a canonical export under
 `<out>/exports/<taskRunId>/`. Exports are projection-based: they include
 trajectory/runtime refs, submitted snapshot metadata, verifier output, score,
@@ -161,14 +163,12 @@ embed environment variables, credentials, or hidden harness configuration.
 
 ## Exit code
 
-`maka-headless eval` exits non-zero on an **infrastructure** failure (invalid
+`maka eval run` exits non-zero on an **infrastructure** failure (invalid
 spec, refused backend, a run that crashed before producing a result). A run
 that completed and merely **failed its verification** is valid benchmark data
 and exits 0.
 
-## Scope
+## Legacy compatibility
 
-MVP. Deliberately later, as pure additions: first-class Docker/Harbor backend
-registrars, parallel matrix execution, LLM/rule evaluators (today: exit-code of
-a command), SWE-bench pack ingestion, and a richer report than the markdown
-grid. Promote the contracts into `@maka/core` once a second consumer exists.
+`maka-headless` remains a deprecated compatibility binary and prints a warning;
+new documentation and automation must use `maka eval`.

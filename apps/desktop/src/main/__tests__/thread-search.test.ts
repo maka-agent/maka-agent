@@ -1,7 +1,7 @@
 /**
  * Tests for `runThreadSearch` — the PR-SEARCH-2 pure helper.
  *
- * Locks the gate catalog from `notes/pr-search-1-report.md`:
+ * Locks the thread-search gate catalog:
  *   G1: snippet redaction (every snippet runs through redactSecrets).
  *   G2: backend='fake' sessions excluded.
  *   G3: incognito — cross-lane deferred, no test here.

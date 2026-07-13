@@ -2,7 +2,7 @@
  * Model history projection — build the model-visible message history from a
  * RuntimeEvent stream.
  *
- * Source: docs/runtime-v2-architecture-evolution.md §Model history
+ * Architecture: docs/architecture/llm-compaction-events-log-projection-draft.en.md
  *
  * Phase 1 scope: pure, synchronous projection. Replaces the ad-hoc
  * StoredMessage filtering in AiSdkBackend.materializePriorMessages with an
