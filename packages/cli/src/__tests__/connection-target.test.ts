@@ -478,6 +478,29 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'moonshotai/Kimi-K2.6');
   });
 
+  test('resolves a Vercel Gateway connection without rewriting its creator/model id', async () => {
+    const connection = makeConnection({
+      slug: 'vercel',
+      name: 'Vercel AI Gateway',
+      providerType: 'vercel',
+      defaultModel: 'xai/grok-4.3',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'vercel',
+        get: async (slug) => slug === 'vercel' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'vercel-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'vercel');
+    assert.equal(target.apiKey, 'vercel-test-key');
+    assert.equal(target.model, 'xai/grok-4.3');
+  });
+
   test('uses the default ready connection and requested model', async () => {
     const connection = makeConnection({
       slug: 'local',

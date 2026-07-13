@@ -307,6 +307,32 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
+  test('routes Vercel Gateway key files and base URLs through the host-side cell', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      let harborEnv: Record<string, string> | undefined;
+      const captured: { config?: Record<string, unknown> } = {};
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'vercel/xai/grok-4.3',
+        provider: 'vercel',
+        apiKeyFile: keyFile,
+        agentEnv: { AI_GATEWAY_BASE_URL: 'https://ai-gateway.vercel.sh/v1' },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'AI_GATEWAY_API_KEY');
+      assert.equal(harborEnv?.MAKA_HOST_BASE_URL, 'https://ai-gateway.vercel.sh/v1');
+      const agent = (captured.config?.agents as Array<{ env: Record<string, string> }>)[0]!;
+      assert.equal(agent.env.AI_GATEWAY_BASE_URL, undefined);
+    });
+  });
+
   for (const model of [
     'hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M',
     'qwen3.5:cloud',

@@ -49,6 +49,31 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the Vercel Gateway identity and exact creator/model ids', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const model = 'xai/grok-4.3';
+      const created = await store.create({
+        slug: 'vercel',
+        name: 'Vercel AI Gateway',
+        providerType: 'vercel',
+        defaultModel: model,
+      });
+
+      await store.update(created.slug, {
+        models: [{ id: model }],
+        modelSource: 'fetched',
+        modelsFetchedAt: 1_800_000_000_000,
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string; models: Array<{ id: string }> }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'vercel');
+      assert.equal(persisted.connections[0]?.defaultModel, model);
+      assert.deepEqual(persisted.connections[0]?.models, [{ id: model }]);
+    });
+  });
+
   test('persists the Ollama provider and exact cloud alias in discovery and selection state', async () => {
     await withConnectionStore(async (store, dir) => {
       const localModelId = 'qwen3.5';

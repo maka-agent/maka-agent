@@ -2250,6 +2250,32 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves Vercel Gateway only from its official env and preserves the creator/model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'vercel',
+      model: 'xai/grok-4.3',
+      env: {
+        AI_GATEWAY_API_KEY: 'vercel-key',
+        AI_GATEWAY_BASE_URL: 'https://ai-gateway.vercel.sh/v1',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'vercel-key');
+    assert.equal(resolved.connection.providerType, 'vercel');
+    assert.equal(resolved.connection.defaultModel, 'xai/grok-4.3');
+    assert.equal(resolved.connection.baseUrl, 'https://ai-gateway.vercel.sh/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'vercel',
+      model: 'xai/grok-4.3',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves xAI only from xAI credential env without rewriting the model id', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'xai',

@@ -150,3 +150,11 @@ test('LocalAI exposes only its optional provider-scoped key and base URL env', (
     baseUrls: ['LOCALAI_BASE_URL'],
   });
 });
+
+test('Vercel Gateway uses its official AI Gateway credential namespace', () => {
+  assert.deepEqual(providerCredentialEnv('vercel'), {
+    apiKeys: ['AI_GATEWAY_API_KEY'],
+    apiKeyFile: 'AI_GATEWAY_API_KEY_FILE',
+    baseUrls: ['AI_GATEWAY_BASE_URL'],
+  });
+});

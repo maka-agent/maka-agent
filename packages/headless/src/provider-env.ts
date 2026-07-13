@@ -18,6 +18,7 @@ const PROVIDER_CREDENTIAL_ENV = {
   MiniMax: env('MINIMAX', ['MINIMAX_BASE_URL']),
   'MiniMax-cn': env('MINIMAX', ['MINIMAX_BASE_URL']),
   siliconflow: env('SILICONFLOW', ['SILICONFLOW_BASE_URL']),
+  vercel: env('AI_GATEWAY', ['AI_GATEWAY_BASE_URL']),
   xai: env('XAI', ['XAI_BASE_URL']),
   cerebras: env('CEREBRAS', ['CEREBRAS_BASE_URL']),
   mistral: env('MISTRAL', ['MISTRAL_BASE_URL']),
