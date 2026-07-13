@@ -20,6 +20,7 @@ import fireworksMarkUrl from '../assets/provider-brands/fireworks.svg';
 import hunyuanBrandMark from '../assets/provider-brands/hunyuan.svg';
 import tencentCloudBrandMark from '../assets/provider-brands/tencentcloud.svg';
 import lmStudioBrandMark from '../assets/provider-brands/lmstudio.svg';
+import localAiBrandMark from '../assets/provider-brands/localai.svg';
 import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg';
 import mistralBrandMark from '../assets/provider-brands/mistral.svg';
 import togetherBrandMark from '../assets/provider-brands/together.svg';
@@ -60,6 +61,13 @@ function XAI(): ReactElement {
 // Git commit: e4302041fbb3039608d25f9f618bd462783b875e
 // Source path: packages/static-svg/icons/lmstudio.svg
 // Upstream SHA-256: 4a575e8382b52ce742ac5d21d361a7d2a08cea7c12390ee1bbb755ef7d3cc25b
+
+// LocalAI mark vendored byte-for-byte from the official LocalAI repository:
+// - repository: https://github.com/mudler/LocalAI
+// - commit: b10e330590766ea621c0b03401e77a0589558e76
+// - path: docs/assets/images/logos/logo.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 1349c022f30a58836e9b09591031f25bf4ff6bb8627bb50691a46a1c8a512c39
 
 // Mistral mark vendored byte-for-byte from Lobe Icons:
 // - repository: https://github.com/lobehub/lobe-icons
@@ -278,6 +286,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <Ollama />;
     case 'lm-studio':
       return <ProviderAssetMask src={lmStudioBrandMark} />;
+    case 'localai':
+      return <ProviderAssetMask src={localAiBrandMark} />;
     case 'mistral':
       return <ProviderAssetMask src={mistralBrandMark} />;
     case 'tencent-tokenhub':

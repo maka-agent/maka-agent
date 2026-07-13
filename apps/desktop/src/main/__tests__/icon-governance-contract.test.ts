@@ -54,6 +54,10 @@ const LM_STUDIO_BRAND_ASSET_FILE = resolve(
   REPO_ROOT,
   'apps/desktop/src/renderer/assets/provider-brands/lmstudio.svg',
 );
+const LOCALAI_BRAND_ASSET_FILE = resolve(
+  REPO_ROOT,
+  'apps/desktop/src/renderer/assets/provider-brands/localai.svg',
+);
 
 // Fixed brand assets, not generic UI icons — their vendored SVGs keep
 // their own stroke weight and are exempt from the call-site stroke sweep.
@@ -538,5 +542,25 @@ describe('icon + typography governance contract', () => {
     assert.match(componentSrc, /import lmStudioBrandMark from '\.\.\/assets\/provider-brands\/lmstudio\.svg';/);
     assert.match(componentSrc, /function ProviderAssetMask\([\s\S]*className="providerAssetMask"[\s\S]*WebkitMaskImage: mask/);
     assert.match(componentSrc, /case 'lm-studio':\s*return <ProviderAssetMask src=\{lmStudioBrandMark\} \/>/);
+  });
+
+  it('vendors and renders the byte-exact official LocalAI SVG', async () => {
+    const [componentSrc, asset, notices] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(LOCALAI_BRAND_ASSET_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      '1349c022f30a58836e9b09591031f25bf4ff6bb8627bb50691a46a1c8a512c39',
+      'LocalAI SVG must remain byte-identical to the official LocalAI repository',
+    );
+    assert.match(componentSrc, /import localAiBrandMark from '\.\.\/assets\/provider-brands\/localai\.svg';/);
+    assert.match(componentSrc, /case 'localai':\s*return <ProviderAssetMask src=\{localAiBrandMark\} \/>/);
+    assert.match(
+      notices,
+      /## LocalAI[\s\S]*mudler\/LocalAI[\s\S]*MIT[\s\S]*b10e330590766ea621c0b03401e77a0589558e76[\s\S]*docs\/assets\/images\/logos\/logo\.svg[\s\S]*1349c022f30a58836e9b09591031f25bf4ff6bb8627bb50691a46a1c8a512c39/,
+    );
   });
 });
