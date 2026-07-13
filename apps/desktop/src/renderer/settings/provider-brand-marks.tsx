@@ -17,6 +17,7 @@ import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
 import cerebrasMarkUrl from '../assets/provider-brands/cerebras.svg';
 import cohereBrandMark from '../assets/provider-brands/cohere.svg';
+import cloudflareMarkUrl from '../assets/provider-brands/cloudflare.svg';
 import deepinfraBrandMark from '../assets/provider-brands/deepinfra.svg';
 import fireworksMarkUrl from '../assets/provider-brands/fireworks.svg';
 import hunyuanBrandMark from '../assets/provider-brands/hunyuan.svg';
@@ -57,6 +58,14 @@ function XAI(): ReactElement {
 // - path: packages/static-svg/icons/deepinfra.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: 2a20be86e90b3c2085d5b3213f52c75e4f0041b239d6140475f5809863d45392
+
+// Cloudflare mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/cloudflare.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 78f8973dad59f8af7c4042ef6be451d809a4e14bdb2151a75a76b4e0811fd22f
 
 // Fireworks mark vendored byte-for-byte from Lobe Icons:
 // - repository: https://github.com/lobehub/lobe-icons
@@ -286,6 +295,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <ProviderAssetMask src={togetherBrandMark} />;
     case 'deepinfra':
       return <ProviderAssetMask src={deepinfraBrandMark} />;
+    case 'cloudflare-workers-ai':
+      return <ProviderAssetMask src={cloudflareMarkUrl} />;
     case 'fireworks-ai':
       return <ProviderAssetMask src={fireworksMarkUrl} />;
     case 'siliconflow':

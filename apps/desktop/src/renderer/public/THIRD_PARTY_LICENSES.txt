@@ -25,6 +25,10 @@ This file records notices for third-party source assets vendored into the Maka d
     - Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`
     - Upstream path: `packages/static-svg/icons/vercel.svg`
     - SHA-256: `4874d52d8b2ce7c309cbd10c424fee123b2c9483e76d76ad0dca41794483eb24`
+  - `apps/desktop/src/renderer/assets/provider-brands/cloudflare.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/cloudflare.svg`
+    - SHA-256: `78f8973dad59f8af7c4042ef6be451d809a4e14bdb2151a75a76b4e0811fd22f`
   - `apps/desktop/src/renderer/settings/provider-brand-marks.tsx` `Ollama` path
     - Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`
     - Upstream path: `packages/static-svg/icons/ollama.svg`
