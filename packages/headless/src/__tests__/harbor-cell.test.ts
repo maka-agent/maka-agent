@@ -2203,6 +2203,29 @@ setTimeout(() => {
     );
   });
 
+  test('resolves LocalAI with an exact alias and an optional provider-scoped key', () => {
+    const model = 'localai/Qwen3-8B-Instruct-GGUF:Q4_K_M';
+    const noAuth = resolveHarborCellAiSdkEnv({
+      provider: 'localai',
+      model,
+      env: {},
+      ts: 123,
+    });
+    assert.equal(noAuth.apiKey, '');
+    assert.equal(noAuth.connection.providerType, 'localai');
+    assert.equal(noAuth.connection.baseUrl, 'http://localhost:8080/v1');
+    assert.equal(noAuth.connection.defaultModel, model);
+
+    const keyed = resolveHarborCellAiSdkEnv({
+      provider: 'localai',
+      model,
+      env: { LOCALAI_API_KEY: 'localai-user-key' },
+      ts: 123,
+    });
+    assert.equal(keyed.apiKey, 'localai-user-key');
+    assert.equal(keyed.connection.defaultModel, model);
+  });
+
   test('resolves SiliconFlow only from SiliconFlow credential env', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'siliconflow',

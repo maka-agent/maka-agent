@@ -118,3 +118,11 @@ test('Volcengine Ark direct API uses its official credential namespace', () => {
     baseUrls: ['ARK_BASE_URL'],
   });
 });
+
+test('LocalAI exposes only its optional provider-scoped key and base URL env', () => {
+  assert.deepEqual(providerCredentialEnv('localai'), {
+    apiKeys: ['LOCALAI_API_KEY'],
+    apiKeyFile: 'LOCALAI_API_KEY_FILE',
+    baseUrls: ['LOCALAI_BASE_URL'],
+  });
+});

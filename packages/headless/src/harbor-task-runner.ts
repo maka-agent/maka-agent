@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { writeFile } from 'node:fs/promises';
 import { basename, delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
-import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core';
+import { PROVIDER_DEFAULTS, providerAuthRequiresSecret, type ProviderType } from '@maka/core/llm-connections';
 import {
   validateHarborCellExecutionIdentity,
   validateHarborCellOutput,
@@ -155,7 +155,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
     };
     assertNoProviderSecretsInAgentEnv(runnerOptions.agentEnv);
     const hasHostProviderRuntime = runnerOptions.apiKeyFile !== undefined
-      || (runnerOptions.agent !== 'opencode' && providerAuthKind(runnerOptions.provider) === 'none');
+      || (runnerOptions.agent !== 'opencode' && !providerRequiresSecret(runnerOptions.provider));
     const configPath = join(jobsDir, 'job-config.json');
     const { agentEnv: _attemptAgentEnv, ...inputWithoutAttemptEnv } = input;
     const config = buildHarborJobConfig(inputWithoutAttemptEnv, {
@@ -462,8 +462,7 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
   close?: () => Promise<void>;
 } | null> {
   const provider = options.provider ?? 'deepseek';
-  const authKind = providerAuthKind(provider);
-  if (!options.apiKeyFile && authKind !== 'none') return null;
+  if (!options.apiKeyFile && providerRequiresSecret(provider)) return null;
   const providerEnv = providerCredentialEnv(provider);
   const [primaryBaseUrl, ...fallbackBaseUrls] = providerEnv?.baseUrls ?? [];
   const baseUrl = (primaryBaseUrl ? options.agentEnv?.[primaryBaseUrl] : undefined)
@@ -493,7 +492,7 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
       MAKA_HOST_REPO_ROOT: options.makaRepoPath,
       ...(options.apiKeyFile ? { MAKA_HOST_API_KEY_FILE: options.apiKeyFile } : {}),
       ...(apiKeyEnvName ? { MAKA_HOST_API_KEY_ENV_NAME: apiKeyEnvName } : {}),
-      ...(authKind === 'none' ? { MAKA_HOST_NO_AUTH: 'true' } : {}),
+      ...(!options.apiKeyFile ? { MAKA_HOST_NO_AUTH: 'true' } : {}),
       ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
     },
   };
@@ -529,11 +528,11 @@ function normalizeRawKeyEnvName(name: string): string {
   return name.endsWith('_FILE') ? name.slice(0, -'_FILE'.length) : name;
 }
 
-function providerAuthKind(provider: string | undefined) {
+function providerRequiresSecret(provider: string | undefined): boolean {
   const providerType = (provider ?? 'deepseek') as ProviderType;
   const definition = PROVIDER_DEFAULTS[providerType];
   if (!definition) throw new Error(`unsupported MAKA_PROVIDER: ${provider ?? ''}`);
-  return definition.authKind;
+  return providerAuthRequiresSecret(providerType);
 }
 
 async function findTrialDir(jobDir: string, taskName: string): Promise<string> {

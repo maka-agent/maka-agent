@@ -3,7 +3,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { PROVIDER_DEFAULTS } from '@maka/core';
+import { providerAuthRequiresSecret, providerAuthSupportsApiKey } from '@maka/core/llm-connections';
 import {
   buildAiSdkCellBackendRegistration,
   buildHarborCellContextBudgetPolicySnapshot,
@@ -99,7 +99,8 @@ export async function backendEnv(env, provider) {
   const result = {
     MAKA_LLM_CONNECTION_SLUG: env.MAKA_LLM_CONNECTION_SLUG || provider,
   };
-  if (PROVIDER_DEFAULTS[provider].authKind !== 'none') {
+  const hasHostApiKey = Boolean(env.MAKA_HOST_API_KEY || env.MAKA_HOST_API_KEY_FILE);
+  if (providerAuthRequiresSecret(provider) || (providerAuthSupportsApiKey(provider) && hasHostApiKey)) {
     const keyEnvName = env.MAKA_HOST_API_KEY_ENV_NAME || providerApiKeyEnvName(provider);
     result[keyEnvName] = await hostApiKey(env);
   }

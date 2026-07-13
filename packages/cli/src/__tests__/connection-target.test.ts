@@ -217,6 +217,35 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF');
   });
 
+  test('resolves LocalAI without requiring its optional credential or rewriting the exact alias', async () => {
+    const model = 'localai/Qwen3-8B-Instruct-GGUF:Q4_K_M';
+    const connection = makeConnection({
+      slug: 'localai',
+      name: 'LocalAI',
+      providerType: 'localai',
+      defaultModel: model,
+    });
+    const credentialReads: string[] = [];
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'localai',
+        get: async (slug) => slug === 'localai' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => {
+          credentialReads.push(kind);
+          return null;
+        },
+      },
+    });
+
+    assert.deepEqual(credentialReads, ['api_key']);
+    assert.equal(target.connection.providerType, 'localai');
+    assert.equal(target.apiKey, '');
+    assert.equal(target.model, model);
+  });
+
   test('resolves Cerebras credentials without rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'cerebras',
