@@ -25,40 +25,37 @@ test('process restart E2E owns the real fixture lifecycle', () => {
   assert.match(launcher, /restart-request-\$\{round\}\.json/);
   assert.match(launcher, /restart-complete-\$\{round\}\.json/);
   assert.match(launcher, /SOAK_ROUNDS = 5/);
-  assert.match(launcher, /cu-physical-input-probe/);
   assert.match(launcher, /--deny-frontmost-bundle/);
   assert.match(launcher, /--concurrent-user',[\s\S]*'0'/);
   assert.match(launcher, /for \(let round = 1; round <= SOAK_ROUNDS; round \+= 1\)/);
   assert.match(launcher, /caffeinate', \['-dimsu'\]/);
 });
 
-test('old observation is rejected and fresh-process actions succeed or fail occluded', () => {
+test('old observation is rejected and fresh-process AX actions succeed or fail occluded', () => {
   assert.match(harness, /old-observation-after-restart/);
   assert.match(harness, /oldRunResult\?\.error !== 'target_missing'/);
+  assert.match(harness, /phase: 'runSemanticResult'/);
   assert.match(harness, /staleAttempt\.modelText/);
-  assert.match(harness, /newState\.coordinate\.clickCount !== 0/);
-  assert.match(harness, /fresh-process-coordinate-click/);
+  assert.match(harness, /newState\.controls\.setValue !== ''/);
+  assert.match(harness, /fresh-process-set-value/);
+  assert.match(harness, /Fresh observation:/);
+  assert.match(harness, /freshField\?\.value === freshValue/);
   assert.match(harness, /observeUntilElement/);
   assert.match(harness, /invalidApp: no visible window matched/);
-  assert.match(harness, /CUA Lab Coordinate Target/);
+  assert.match(harness, /CUA Lab Set Value Field/);
   assert.match(harness, /candidateCount/);
   assert.match(harness, /freshSucceeded/);
   assert.match(harness, /freshOccluded/);
-  assert.match(harness, /freshUserIntervened/);
   assert.match(harness, /fail_closed_occluded/);
-  assert.match(harness, /fail_closed_user_intervened/);
-  assert.match(harness, /background_dispatch_succeeded/);
+  assert.match(harness, /ax_set_value_succeeded/);
   assert.match(harness, /currentPID === newPID/);
   assert.match(harness, /currentWebContentPID === newWebContentPID/);
   assert.match(harness, /for \(let round = 1; round <= soakRounds; round \+= 1\)/);
   assert.match(harness, /seenHostPIDs/);
   assert.match(harness, /seenWebContentPIDs/);
   assert.match(harness, /serviceState/);
-  assert.match(harness, /physicalInputRecentlyActive/);
-  assert.match(harness, /ageSeconds < 1/);
-  assert.match(harness, /pulsePhysicalInput/);
-  assert.match(harness, /physical-input pulse did not fence dispatch/);
-  assert.match(harness, /did not recover after the physical-input quiet window/);
+  assert.doesNotMatch(harness, /allowCompatibilityInputDispatch/);
+  assert.doesNotMatch(harness, /fresh-process-coordinate-click/);
 });
 
 test('restart reports are private launcher-owned temporary files', () => {

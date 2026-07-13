@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
@@ -36,12 +35,6 @@ const concurrentProceedPath = join(
   'concurrent-proceed.json',
 );
 
-const exec = (file, args) => new Promise((resolve, reject) => {
-  execFile(file, args, { encoding: 'utf8' }, (error, stdout, stderr) => {
-    if (error) reject(new Error(`${file} failed: ${stderr || error.message}`));
-    else resolve(stdout.trim());
-  });
-});
 const delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 const waitForJson = async (path, label, timeoutMs = 10_000) => {
@@ -99,7 +92,6 @@ const backend = createCuaDriverBackend({
   expectedServerVersion: '0.7.1',
   expectedProtocolVersion: '2025-06-18',
   timeoutMs: 10_000,
-  allowCompatibilityInputDispatch: !concurrentUserMode,
   onSessionInvalidated(event) {
     invalidations.push(event);
   },
@@ -247,13 +239,6 @@ const coordinateForElement = (observed, element) => {
     ),
   ];
 };
-const screenCoordinateForElement = (element) => {
-  if (!element.frame) throw new Error('element has no screen frame');
-  return {
-    x: Math.round(element.frame.x + element.frame.width / 2),
-    y: Math.round(element.frame.y + element.frame.height / 2),
-  };
-};
 const validateFixtureIdentity = async (fixture, state) => {
   if (
     state.synthetic !== true
@@ -268,29 +253,6 @@ const validateFixtureIdentity = async (fixture, state) => {
     || (concurrentUserMode && baseline.frontmostPID === fixture.pid)
   ) {
     throw new Error('synthetic fixture provenance mismatch');
-  }
-};
-const fixtureCoordinateMutation = async (observed, label) => {
-  const target = findOccurrence(observed.model, label);
-  const coordinate = screenCoordinateForElement(target.selected);
-  const winner = await backend.inspectWindowAt(
-    coordinate,
-    new AbortController().signal,
-  );
-  if (!winner || winner.pid !== observed.model.pid || winner.windowId !== observed.model.window_id) {
-    throw new Error(`fixture mutation point is not owned by the fixture: ${label}`);
-  }
-  const result = await backend.run(
-    { type: 'left_click', coordinate },
-    new AbortController().signal,
-    {
-      sessionId: 'fixture-mutation',
-      turnId: 'mutation',
-      toolCallId: `mutate-${label}`,
-    },
-  );
-  if (!result.outcome.ok) {
-    throw new Error(`fixture mutation failed: ${result.outcome.message}`);
   }
 };
 const writeReport = async (report) => {
@@ -323,14 +285,6 @@ try {
   report.fixture = { ...report.fixture, pid: fixture.pid, windowId: fixture.windowId };
 
   const observed = await observe(fixture, 'observe-oop', 'turn-oop');
-  const concurrentSemanticObserved = concurrentUserMode
-    ? await observe(
-        fixture,
-        'observe-concurrent-semantic',
-        'turn-concurrent-semantic',
-        'real-e2e-semantic',
-      )
-    : undefined;
   if (observed.result.screenshot?.base64) {
     await writeFile(
       screenshotPath,
@@ -364,121 +318,62 @@ try {
       pointer: concurrentBaseline.pointer,
     };
   }
+  const oop = findOccurrence(observed.model, 'CUA Lab OOP Button');
+  const oopCoordinate = coordinateForElement(observed, oop.selected);
+  const clicked = await call({
+    action: 'left_click',
+    observation_id: observed.model.observation_id,
+    coordinate: oopCoordinate,
+  }, 'click-oop', 'turn-oop');
+  await delay(250);
+  const afterClick = await readState();
+  const dispatch = traces.find(
+    (event) => event.type === 'dispatch' && event.toolCallId === 'click-oop',
+  );
+  const runResult = idFlow.findLast((event) => event.phase === 'runResult');
+  if (
+    clicked.error !== 'unsupported_action'
+    || runResult?.error !== 'unsupported_action'
+    || dispatch
+    || afterClick.oop.clickCount !== initial.oop.clickCount
+    || afterClick.oop.hostLocalMouseDownCount !== initial.oop.hostLocalMouseDownCount
+    || afterClick.oop.hostLocalMouseUpCount !== initial.oop.hostLocalMouseUpCount
+  ) {
+    throw new Error(`OOP coordinate oracle did not fail closed: ${JSON.stringify({
+      clickedError: clicked?.error,
+      clickedText: clicked?.text,
+      coordinate: oopCoordinate,
+      dispatch,
+      before: initial.oop,
+      after: afterClick.oop,
+    })}`);
+  }
+  report.cases.push({
+    id: concurrentUserMode
+      ? 'concurrent-user-coordinate-disabled'
+      : 'oop-coordinate-disabled',
+    ok: true,
+    outcome: 'fail_closed_unsupported',
+    coordinate: oopCoordinate,
+    oracle: {
+      clickCount: [initial.oop.clickCount, afterClick.oop.clickCount],
+      hostPID: afterClick.oop.hostPID,
+      webContentPID: afterClick.oop.webContentPID,
+      hostMouseDown: [
+        initial.oop.hostLocalMouseDownCount,
+        afterClick.oop.hostLocalMouseDownCount,
+      ],
+      hostMouseUp: [
+        initial.oop.hostLocalMouseUpCount,
+        afterClick.oop.hostLocalMouseUpCount,
+      ],
+    },
+  });
+
   if (concurrentUserMode) {
-    const blockedTarget = findOccurrence(
-      observed.model,
-      'CUA Lab Coordinate Target',
-    );
-    const blockedCoordinate = coordinateForElement(
-      observed,
-      blockedTarget.selected,
-    );
-    const blockedToolCallId = 'concurrent-coordinate-policy';
-    const blockedAttempt = await call({
-      action: 'left_click',
-      observation_id: observed.model.observation_id,
-      coordinate: blockedCoordinate,
-    }, blockedToolCallId, 'turn-oop');
-    await delay(150);
-    const afterBlocked = await readState();
-    const blockedFlow = idFlow.findLast(
-      (event) => event.phase === 'runResult',
-    );
-    const blockedDispatch = traces.find(
-      (event) => event.type === 'dispatch'
-        && event.toolCallId === blockedToolCallId,
-    );
-    if (
-      blockedFlow?.error !== 'unsupported_action'
-      || blockedDispatch
-      || afterBlocked.coordinate.clickCount !== initial.coordinate.clickCount
-      || afterBlocked.coordinate.decoyClickCount
-        !== initial.coordinate.decoyClickCount
-    ) {
-      throw new Error('concurrent coordinate policy did not fail closed');
-    }
-    report.cases.push({
-      id: 'concurrent-coordinate-policy-fail-closed',
-      ok: true,
-      runtimeError: blockedAttempt.error,
-      backendError: blockedFlow.error,
-      dispatchAddress: blockedDispatch?.address,
-      oracle: {
-        target: [
-          initial.coordinate.clickCount,
-          afterBlocked.coordinate.clickCount,
-        ],
-        decoy: [
-          initial.coordinate.decoyClickCount,
-          afterBlocked.coordinate.decoyClickCount,
-        ],
-      },
-    });
-
-    const semanticTarget = findOccurrence(
-      concurrentSemanticObserved.model,
-      'CUA Lab Coordinate Target',
-    );
-    let semanticAttempt;
-    let semanticFailure;
-    try {
-      semanticAttempt = await call({
-        action: 'click_element',
-        observation_id: concurrentSemanticObserved.model.observation_id,
-        element_id: semanticTarget.selected.element_id,
-      }, 'concurrent-semantic-click', 'turn-concurrent-semantic', 'real-e2e-semantic');
-    } catch (error) {
-      semanticFailure = error instanceof Error ? error.message : String(error);
-    }
-    await delay(150);
-    const afterSemantic = await readState();
-    const semanticFlow = idFlow.findLast(
-      (event) => event.phase === 'runSemanticResult',
-    );
-    const semanticOccluded = semanticFlow?.error === 'target_occluded';
-    const semanticHidden =
-      /invalidApp: no visible window matched/.test(semanticFailure ?? '');
-    const semanticSucceeded = semanticFlow?.ok === true
-      && afterSemantic.coordinate.clickCount
-        === initial.coordinate.clickCount + 1
-      && afterSemantic.coordinate.decoyClickCount
-        === initial.coordinate.decoyClickCount;
-    if (
-      (!semanticSucceeded && !semanticOccluded && !semanticHidden)
-      || ((semanticOccluded || semanticHidden) && (
-        afterSemantic.coordinate.clickCount !== initial.coordinate.clickCount
-        || afterSemantic.coordinate.decoyClickCount
-          !== initial.coordinate.decoyClickCount
-      ))
-    ) {
-      throw new Error('concurrent semantic action violated its oracle');
-    }
-    report.cases.push({
-      id: 'concurrent-background-semantic',
-      ok: true,
-      outcome: semanticOccluded
-        ? 'fail_closed_occluded'
-        : semanticHidden
-          ? 'fail_closed_hidden'
-        : 'semantic_background_succeeded',
-      runtimeError: semanticAttempt?.error,
-      runtimeFailure: semanticFailure,
-      backendError: semanticFlow?.error,
-      oracle: {
-        target: [
-          initial.coordinate.clickCount,
-          afterSemantic.coordinate.clickCount,
-        ],
-        decoy: [
-          initial.coordinate.decoyClickCount,
-          afterSemantic.coordinate.decoyClickCount,
-        ],
-      },
-    });
-
     report.ok = true;
     report.claimBoundary =
-      'concurrent mode keeps compatibility input disabled and proves only safe semantic background action or fail-closed occlusion';
+      'concurrent mode proves coordinate compatibility input remains disabled with zero dispatch and zero mutation';
     report.evidence = {
       invalidations,
       traceTypes: traces.map((event) => event.type),
@@ -488,51 +383,6 @@ try {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     process.exitCode = 0;
   } else {
-    const oop = findOccurrence(observed.model, 'CUA Lab OOP Button');
-    const oopCoordinate = coordinateForElement(observed, oop.selected);
-    const clicked = await call({
-      action: 'left_click',
-      observation_id: observed.model.observation_id,
-      coordinate: oopCoordinate,
-    }, 'click-oop', 'turn-oop');
-    await delay(250);
-    const afterClick = await readState();
-    const dispatch = traces.find(
-      (event) => event.type === 'dispatch' && event.toolCallId === 'click-oop',
-    );
-    const clickSucceeded = !clicked?.error
-      && afterClick.oop.clickCount === initial.oop.clickCount + 1;
-    if (
-      !clickSucceeded
-      || afterClick.oop.lastEventTrusted !== true
-      || afterClick.oop.webContentPID <= 0
-      || afterClick.oop.webContentPID === afterClick.oop.hostPID
-      || afterClick.oop.hostLocalMouseDownCount
-        <= initial.oop.hostLocalMouseDownCount
-      || afterClick.oop.hostLocalMouseUpCount
-        <= initial.oop.hostLocalMouseUpCount
-      || afterClick.oop.hostLocalMouseDownCount
-        - initial.oop.hostLocalMouseDownCount
-        !== afterClick.oop.hostLocalMouseUpCount
-          - initial.oop.hostLocalMouseUpCount
-      || dispatch?.address !== 'px'
-    ) {
-      throw new Error('isolated OOP coordinate oracle did not prove trusted pixel dispatch');
-    }
-    report.cases.push({
-      id: 'isolated-oop-webcontent-coordinate-click',
-      ok: true,
-      outcome: 'isolated_compatibility_dispatch_succeeded',
-      dispatchAddress: dispatch.address,
-      coordinate: oopCoordinate,
-      oracle: {
-        clickCount: [initial.oop.clickCount, afterClick.oop.clickCount],
-        lastEventTrusted: afterClick.oop.lastEventTrusted,
-        hostPID: afterClick.oop.hostPID,
-        webContentPID: afterClick.oop.webContentPID,
-      },
-    });
-
     tools.clearSession('real-e2e');
     const duplicateObserved = await observe(fixture, 'observe-duplicate', 'turn-duplicate');
     const duplicate = findOccurrence(

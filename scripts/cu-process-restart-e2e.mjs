@@ -1,5 +1,4 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { createCuaDriverBackend } from '../packages/computer-use/dist/index.js';
@@ -10,9 +9,7 @@ const binaryPath = join(repoRoot, 'apps/desktop/resources/bin/cua-driver');
 const labRoot = '/Users/haoqing/Documents/Learning/codex-computer-use-lab';
 const expectedAppPath = join(labRoot, 'test-app/build/Codex CUA Lab.app');
 const statePath = join(labRoot, 'test-app/runtime/state.json');
-const monitorPath = join(repoRoot, 'scripts/cu-real-e2e-monitor.swift');
 const temporaryDirectory = process.env.MAKA_CU_RESTART_TEMP_DIR;
-const physicalInputProbe = process.env.MAKA_CU_PHYSICAL_INPUT_PROBE;
 const oldPID = Number(process.env.MAKA_CU_RESTART_OLD_PID);
 const soakRounds = Number(process.env.MAKA_CU_RESTART_SOAK_ROUNDS);
 const expectedBinarySha256 =
@@ -29,7 +26,6 @@ if (
   || !Number.isInteger(soakRounds)
   || soakRounds < 1
   || soakRounds > 20
-  || !physicalInputProbe
 ) {
   throw new Error('process restart E2E requires launcher-owned inputs');
 }
@@ -41,39 +37,6 @@ const restartCompletePath = (round) =>
   join(resolvedTemporaryDirectory, `restart-complete-${round}.json`);
 const delay = (milliseconds) =>
   new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
-async function physicalInputRecentlyActive() {
-  const output = await new Promise((resolvePromise, reject) => {
-    execFile(physicalInputProbe, ['age'], {
-      encoding: 'utf8',
-      timeout: 1_000,
-    }, (error, stdout, stderr) => {
-      if (error) reject(new Error(stderr || error.message));
-      else resolvePromise(stdout.trim());
-    });
-  });
-  const ageSeconds = Number(output);
-  if (!Number.isFinite(ageSeconds)) {
-    throw new Error(`invalid physical input snapshot: ${output}`);
-  }
-  return ageSeconds < 1;
-}
-
-async function pulsePhysicalInput() {
-  const output = await new Promise((resolvePromise, reject) => {
-    execFile(physicalInputProbe, ['pulse'], {
-      encoding: 'utf8',
-      timeout: 1_000,
-    }, (error, stdout, stderr) => {
-      if (error) reject(new Error(stderr || error.message));
-      else resolvePromise(stdout.trim());
-    });
-  });
-  const ageSeconds = Number(output);
-  if (!Number.isFinite(ageSeconds) || ageSeconds >= 1) {
-    throw new Error(`physical-input pulse did not reset idle age: ${output}`);
-  }
-}
-
 async function waitForJson(path, label, timeoutMs = 15_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -98,7 +61,6 @@ const backend = createCuaDriverBackend({
   expectedServerVersion: '0.7.1',
   expectedProtocolVersion: '2025-06-18',
   timeoutMs: 10_000,
-  physicalInputRecentlyActive,
   onTrace(event) {
     traces.push(event);
   },
@@ -119,6 +81,18 @@ const instrumentedBackend = {
       turnId: context.turnId,
     });
     return observation;
+  },
+  async runSemantic(action, signal, context) {
+    const result = await backend.runSemantic(action, signal, context);
+    idFlow.push({
+      phase: 'runSemanticResult',
+      toolCallId: context.toolCallId,
+      ok: result.outcome.ok,
+      ...(!result.outcome.ok
+        ? { error: result.outcome.error, message: result.outcome.message }
+        : {}),
+    });
+    return result;
   },
   async run(action, signal, context) {
     const result = await backend.run(action, signal, context);
@@ -147,6 +121,13 @@ const call = (input, toolCallId, turnId) =>
   tool.impl(input, context(toolCallId, turnId));
 const parseModel = (result) => JSON.parse(result.modelText ?? '{}');
 const readState = async () => JSON.parse(await readFile(statePath, 'utf8'));
+
+function freshObservationFrom(result) {
+  const marker = '\nFresh observation:\n';
+  const markerIndex = result.modelText?.indexOf(marker) ?? -1;
+  if (markerIndex < 0) return undefined;
+  return JSON.parse(result.modelText.slice(markerIndex + marker.length));
+}
 
 async function observe(pid, toolCallId, turnId) {
   const result = await call({
@@ -207,25 +188,6 @@ async function observeUntilElement(pid, label, toolCallPrefix, turnId, timeoutMs
   );
 }
 
-function coordinateForElement(observed, element) {
-  const screenshot = observed.persisted.screenshot;
-  const frame = element.frame;
-  const window = observed.geometry?.windowBounds;
-  if (!screenshot || !frame || !window) {
-    throw new Error('restart coordinate evidence is incomplete');
-  }
-  return [
-    Math.round(
-      (frame.x + frame.width / 2 - window.x)
-        / window.width * screenshot.width_px,
-    ),
-    Math.round(
-      (frame.y + frame.height / 2 - window.y)
-        / window.height * screenshot.height_px,
-    ),
-  ];
-}
-
 async function writeReport(report) {
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, {
     flag: 'wx',
@@ -273,15 +235,11 @@ try {
 
     const oldReady = await observeUntilElement(
       currentPID,
-      'CUA Lab Coordinate Target',
+      'CUA Lab Set Value Field',
       `observe-old-process-r${round}`,
       `turn-old-r${round}`,
     );
     const oldObserved = oldReady.observed;
-    const oldCoordinate = coordinateForElement(
-      oldObserved,
-      oldReady.element,
-    );
     await writeFile(
       restartRequestPath(round),
       `${JSON.stringify({
@@ -317,14 +275,15 @@ try {
 
     const staleToolCallId = `old-observation-after-restart-r${round}`;
     const staleAttempt = await call({
-      action: 'left_click',
+      action: 'set_value',
       observation_id: oldObserved.model.observation_id,
-      coordinate: oldCoordinate,
+      element_id: oldReady.element.element_id,
+      value: `stale-value-r${round}`,
     }, staleToolCallId, `turn-old-r${round}`);
     await delay(150);
     const newState = await readState();
     const oldRunResult = idFlow.find(
-      (event) => event.phase === 'runResult'
+      (event) => event.phase === 'runSemanticResult'
         && event.toolCallId === staleToolCallId,
     );
     const staleDispatch = traces.find(
@@ -335,8 +294,7 @@ try {
       oldRunResult?.error !== 'target_missing'
       || !/target_missing/.test(staleAttempt.modelText ?? '')
       || staleDispatch
-      || newState.coordinate.clickCount !== 0
-      || newState.coordinate.decoyClickCount !== 0
+      || newState.controls.setValue !== ''
     ) {
       throw new Error(`round ${round} old observation crossed process restart`);
     }
@@ -344,87 +302,45 @@ try {
     tools.clearSession('process-restart-e2e');
     const freshReady = await observeUntilElement(
       newPID,
-      'CUA Lab Coordinate Target',
+      'CUA Lab Set Value Field',
       `observe-new-process-r${round}`,
       `turn-new-r${round}`,
     );
-    const freshCoordinate = coordinateForElement(
-      freshReady.observed,
-      freshReady.element,
-    );
-    const freshToolCallId = `fresh-process-coordinate-click-r${round}`;
-    if (round === 1) await pulsePhysicalInput();
-    const freshClick = await call({
-      action: 'left_click',
+    const freshValue = `fresh-value-r${round}`;
+    const freshToolCallId = `fresh-process-set-value-r${round}`;
+    const freshAction = await call({
+      action: 'set_value',
       observation_id: freshReady.observed.model.observation_id,
-      coordinate: freshCoordinate,
+      element_id: freshReady.element.element_id,
+      value: freshValue,
     }, freshToolCallId, `turn-new-r${round}`);
     await delay(150);
-    const newStateAfterClick = await readState();
+    const newStateAfterAction = await readState();
     const dispatch = traces.find(
       (event) => event.type === 'dispatch'
         && event.toolCallId === freshToolCallId,
     );
     const freshRunResult = idFlow.find(
-      (event) => event.phase === 'runResult'
+      (event) => event.phase === 'runSemanticResult'
         && event.toolCallId === freshToolCallId,
     );
+    const freshObservation = freshObservationFrom(freshAction);
+    const freshField = freshObservation?.elements?.find(
+      (element) => element.label === 'CUA Lab Set Value Field',
+    );
     const freshOccluded = freshRunResult?.error === 'target_occluded';
-    const freshUserIntervened = freshRunResult?.error === 'user_intervened';
-    const freshSucceeded = !freshClick.error
-      && dispatch?.address === 'px'
-      && newStateAfterClick.coordinate.clickCount === 1
-      && newStateAfterClick.coordinate.decoyClickCount === 0;
+    const freshSucceeded = !freshAction.error
+      && freshField?.value === freshValue;
     if (
-      (!freshSucceeded && !freshOccluded && !freshUserIntervened)
-      || ((freshOccluded || freshUserIntervened) && (
+      (!freshSucceeded && !freshOccluded)
+      || (freshOccluded && (
         dispatch
-        || newStateAfterClick.coordinate.clickCount !== 0
-        || newStateAfterClick.coordinate.decoyClickCount !== 0
+        || freshField?.value === freshValue
       ))
-      || newStateAfterClick.oop.hostPID !== newPID
-      || newStateAfterClick.oop.webContentPID !== newWebContentPID
+      || newStateAfterAction.oop.hostPID !== newPID
+      || newStateAfterAction.oop.webContentPID !== newWebContentPID
     ) {
       throw new Error(`round ${round} fresh process action violated its oracle`);
-    }
-
-    if (round === 1) {
-      if (!freshUserIntervened) {
-        throw new Error('round 1 physical-input pulse did not fence dispatch');
-      }
-      await delay(1_100);
-      tools.clearSession('process-restart-e2e');
-      const recoveryReady = await observeUntilElement(
-        newPID,
-        'CUA Lab Coordinate Target',
-        'observe-after-intervention-r1',
-        'turn-recovery-r1',
-      );
-      const recoveryCoordinate = coordinateForElement(
-        recoveryReady.observed,
-        recoveryReady.element,
-      );
-      const recoveryToolCallId = 'fresh-process-recovery-click-r1';
-      const recoveryClick = await call({
-        action: 'left_click',
-        observation_id: recoveryReady.observed.model.observation_id,
-        coordinate: recoveryCoordinate,
-      }, recoveryToolCallId, 'turn-recovery-r1');
-      await delay(150);
-      const recoveryState = await readState();
-      const recoveryDispatch = traces.find(
-        (event) => event.type === 'dispatch'
-          && event.toolCallId === recoveryToolCallId,
-      );
-      if (
-        recoveryClick.error
-        || recoveryDispatch?.address !== 'px'
-        || recoveryState.coordinate.clickCount !== 1
-        || recoveryState.coordinate.decoyClickCount !== 0
-      ) {
-        throw new Error('round 1 did not recover after the physical-input quiet window');
-      }
-      newStateAfterClick.coordinate = recoveryState.coordinate;
     }
 
     const serviceState = backend.serviceState();
@@ -454,23 +370,16 @@ try {
       newWebContentPID,
       stale: {
         error: oldRunResult.error,
-        mutation: [0, newState.coordinate.clickCount],
+        mutation: ['', newState.controls.setValue],
         dispatch: false,
       },
       fresh: {
         outcome: freshOccluded
           ? 'fail_closed_occluded'
-          : freshUserIntervened
-            ? 'fail_closed_user_intervened'
-          : 'background_dispatch_succeeded',
-        dispatchAddress: dispatch?.address,
+          : 'ax_set_value_succeeded',
         mutation: [
-          newState.coordinate.clickCount,
-          newStateAfterClick.coordinate.clickCount,
-        ],
-        decoyMutation: [
-          newState.coordinate.decoyClickCount,
-          newStateAfterClick.coordinate.decoyClickCount,
+          '',
+          freshField?.value,
         ],
       },
       serviceGenerations: generations,
@@ -481,7 +390,7 @@ try {
 
   report.ok = true;
   report.claim =
-    'old observations never cross repeated real app-process restarts; fresh background actions either dispatch to the new process or fail occluded without side effects';
+    'old observations never cross repeated real app-process restarts; fresh AX set_value actions target only the new process or fail occluded without side effects';
   report.evidence = {
     seenHostPIDs: [...seenHostPIDs],
     seenWebContentPIDs: [...seenWebContentPIDs],

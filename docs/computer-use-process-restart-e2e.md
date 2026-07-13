@@ -60,10 +60,9 @@ repeat 5 times with one backend/Runtime instance:
   -> require target_missing, no dispatch, mutation 0 -> 0
   -> clear session
   -> observe new PID/window
-  -> execute fresh coordinate action
-  -> if visible, require px dispatch, target 0 -> 1, decoy 0 -> 0
-  -> if covered by the user's window, require target_occluded and mutation 0 -> 0
-  -> if physical user input is recent, require user_intervened and mutation 0 -> 0
+  -> execute fresh native AX set_value action
+  -> if visible, require exact readback on the new process
+  -> if covered by the user's window, require target_occluded and zero mutation
   -> require cua-driver generations stable and restartAttempts == 0
 ```
 
@@ -77,14 +76,20 @@ the synthetic fixture ever becomes frontmost or the screen locks. Cleanup
 preserves the user's current application; restoration is only an emergency
 path if the fixture itself stole focus.
 
+The fixture is still a real visible AppKit window. Background launch avoids
+explicit activation, but window creation and `orderFrontRegardless` can remain
+noticeable and can perturb WindowServer responsiveness. This is an attended
+release test, not a zero-disturbance background-run proof.
+
 Physical user pointer movement is allowed and reported as observation data.
 When the user's window occludes the target, the stronger non-interference
 proof is that the backend emits no dispatch and both target and decoy mutation
 remain zero.
 
-## Verified Result
+## Historical Pixel Result
 
-The July 14, 2026 five-round no-focus soak proved:
+Before compatibility input was disabled, the July 14, 2026 five-round
+no-focus pixel soak proved:
 
 ```text
 restart rounds:             5
@@ -126,6 +131,37 @@ The test command is:
 ```bash
 npm run e2e:computer-use-process-restart
 ```
+
+## Current AX-Only Result
+
+The replacement soak uses AX `set_value`, not pixel input. The corrected
+five-round run proved:
+
+```text
+restart rounds:             5
+old observation:
+  target_missing:           5/5
+  native dispatch:          0
+
+fresh observation:
+  AX set_value + readback:  5/5
+
+cua-driver service:
+  action generation:        1 throughout
+  capture generation:       0 throughout
+  restartAttempts:          0 throughout
+
+desktop concurrency:
+  fixture became frontmost: never
+  user pointer moved:       217.1 logical points
+  user mouse/keyboard:      reported normal
+```
+
+The first AX-only attempt had already confirmed stale-process rejection and a
+successful fresh AX mutation, but used the wrong external oracle: direct
+AXValue mutation does not invoke the fixture's Cocoa callback that writes
+`state.json`. The final run instead verified the fresh AX observation returned
+by Runtime.
 
 ## Remaining Boundary
 

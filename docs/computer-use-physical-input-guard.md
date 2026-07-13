@@ -80,9 +80,15 @@ Unit and integration coverage proves:
 - the Desktop production source uses the Electron idle-time signal;
 - existing Computer Use behavior remains green.
 
-The real soak harness uses the same policy semantics through a high-resolution
-macOS HID event-age snapshot. It accepts `user_intervened` only with no
-dispatch and zero target/decoy mutation.
+The real restart soak no longer emits compatibility mouse or keyboard events.
+It proves stale-process rejection and fresh-process recovery with native AX
+`set_value` plus exact state readback. Physical-input fencing remains covered
+by unit/integration tests without synthesizing global HID events.
+
+The soak still launches and orders a real visible AppKit fixture window.
+`open -g` avoids explicit activation, but launch can remain noticeable and may
+perturb WindowServer responsiveness. It is not a zero-disturbance
+background-run proof.
 
 ## Remaining Boundary
 
