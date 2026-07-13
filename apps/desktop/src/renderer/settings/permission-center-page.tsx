@@ -18,7 +18,7 @@ import type {
   PermissionSnapshot,
 } from '@maka/core';
 import { OS_PERMISSION_IDS } from '@maka/core';
-import { Button, Badge, EmptyState, RelativeTime, PageHeader, SectionHeader, StatTile, useToast } from '@maka/ui';
+import { Button, Badge, EmptyState, RelativeTime, PageHeader, SectionHeader, StatTile, useMountedRef, useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -109,13 +109,11 @@ export function PermissionCenterPage() {
   const [pendingPermAction, setPendingPermAction] = useState<string | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const toast = useToast();
-  const mountedRef = useRef(true);
+  const mountedRef = useMountedRef();
   const pendingPermActionRef = useRef<string | null>(null);
 
   useEffect(() => {
-    mountedRef.current = true;
     return () => {
-      mountedRef.current = false;
       pendingPermActionRef.current = null;
     };
   }, []);

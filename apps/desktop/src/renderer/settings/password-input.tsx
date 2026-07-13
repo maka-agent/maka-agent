@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, Eye, EyeOff } from '@maka/ui/icons';
-import { Button, Input, useToast } from '@maka/ui';
+import { Button, Input, useMountedRef, useToast } from '@maka/ui';
 
 /**
  * PR-BOT-SETTINGS-PASSWORD-EYE-0 / PR-BOT-SETTINGS-PASSWORD-COPY-0 /
@@ -30,13 +30,11 @@ export function PasswordInput(props: {
   const [justCopied, setJustCopied] = useState(false);
   const [copying, setCopying] = useState(false);
   const copyingRef = useRef(false);
-  const mountedRef = useRef(true);
+  const mountedRef = useMountedRef();
   const copyFeedbackTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    mountedRef.current = true;
     return () => {
-      mountedRef.current = false;
       copyingRef.current = false;
       if (copyFeedbackTimerRef.current !== null) {
         window.clearTimeout(copyFeedbackTimerRef.current);

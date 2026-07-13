@@ -117,7 +117,7 @@ describe('Settings form accessibility labels', () => {
 
     assert.match(settings, /SettingsSelect,/);
     assert.match(settingsSelect, /SelectItem,[\s\S]*SelectPopup,[\s\S]*SelectPortal,[\s\S]*SelectPositioner,[\s\S]*SelectRoot,[\s\S]*SelectTrigger,[\s\S]*SelectValue,/);
-    assert.match(passwordInput, /import \{ Button, Input, useToast \} from '@maka\/ui';/);
+    assert.match(passwordInput, /import \{ Button, Input, useMountedRef, useToast \} from '@maka\/ui';/);
     // ProvidersPanel sources its UI from the shared @maka/ui primitives;
     // tolerant of single- vs multi-line import formatting.
     const providersPanelUiImports = providersPanel.match(/import \{[^}]*\} from '@maka\/ui';/g)?.join('\n') ?? '';
@@ -196,11 +196,11 @@ describe('Settings form accessibility labels', () => {
 
     assert.match(passwordInput, /const toast = useToast\(\)/);
     assert.match(passwordInput, /const copyingRef = useRef\(false\)/);
-    assert.match(passwordInput, /const mountedRef = useRef\(true\)/);
+    assert.match(passwordInput, /const mountedRef = useMountedRef\(\)/);
     assert.match(passwordInput, /const copyFeedbackTimerRef = useRef<number \| null>\(null\)/);
     assert.match(
       passwordInput,
-      /return \(\) => \{[\s\S]*mountedRef\.current = false;[\s\S]*copyingRef\.current = false;[\s\S]*window\.clearTimeout\(copyFeedbackTimerRef\.current\);/,
+      /return \(\) => \{[\s\S]*copyingRef\.current = false;[\s\S]*window\.clearTimeout\(copyFeedbackTimerRef\.current\);/,
       'PasswordInput must clear pending copy-feedback timers and invalidate clipboard state when it unmounts',
     );
     assert.match(

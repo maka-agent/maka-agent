@@ -250,7 +250,7 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.match(permissionPage, /const pendingPermActionRef = useRef<string \| null>\(null\)/);
     assert.match(
       permissionPage,
-      /return \(\) => \{[\s\S]*mountedRef\.current = false;[\s\S]*pendingPermActionRef\.current = null;/,
+      /return \(\) => \{[\s\S]*pendingPermActionRef\.current = null;/,
       'Permission Center must release the pending action owner when Settings closes',
     );
     assert.match(

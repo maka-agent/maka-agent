@@ -37,6 +37,7 @@ import {
   fileTransferContainsFiles,
   focusTextInputAtEnd,
   isChatInputComposing,
+  useMountedRef,
   type ChatInputActionOwner,
   type UiLocale,
 } from '@maka/ui';
@@ -147,13 +148,11 @@ export interface OnboardingHeroProps {
 export function OnboardingHero(props: OnboardingHeroProps) {
   const { state } = props;
   const [refreshConnectionsPending, setRefreshConnectionsPending] = useState(false);
-  const onboardingMountedRef = useRef(true);
+  const onboardingMountedRef = useMountedRef();
   const refreshConnectionsPendingRef = useRef(false);
 
   useEffect(() => {
-    onboardingMountedRef.current = true;
     return () => {
-      onboardingMountedRef.current = false;
       refreshConnectionsPendingRef.current = false;
     };
   }, []);
@@ -812,11 +811,7 @@ function ReadyEmptyHero(props: {
 
 function SkipButton(props: { onSkip: () => Promise<void> | void; label?: string }) {
   const [pending, setPending] = useState(false);
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const mountedRef = useMountedRef();
   const onClick = useCallback(async () => {
     if (pending) return;
     setPending(true);

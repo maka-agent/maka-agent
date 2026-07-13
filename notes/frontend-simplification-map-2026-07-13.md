@@ -56,11 +56,21 @@ dist/**/*.test.js). Real finds verified by hand before acting.
   Gates: desktop 2397/2397, ui 125/125, typecheck 0, check-dead-css clean, knip desktop+ui 0,
   auditor exit 0. CDP light+dark captures (turn-narrative/module-skills/settings-general/first-run)
   before/after — no visual diff.
-- [ ] **D — duplicate helper sweep (measured SMALL — the convergence campaign paid
-  off)** — real dups found: formatBytes ×3 (artifact-preview-registry.ts:317,
-  tool-activity/preview-utils.ts:14, voice formatVoiceBytes) → one shared util;
-  mountedRef boilerplate ×6 → useMountedRef. Domain formatters are all distinct —
-  no action.
+- [x] **D-1 — SHIPPED: shared useMountedRef + last formatBytes fork.** Case-insensitive
+  re-census found the mounted-guard boilerplate at ×38 (not ×6 — the first grep missed
+  `fooMountedRef` casings). Shipped: `useMountedRef` lives in @maka/ui (exported from
+  index) so both workspaces reach it; converted the 6 canonical `mountedRef/
+  onboardingMountedRef` sites (OnboardingHero ×2, password-input, daily-review/
+  general/permission-center settings pages) and re-pinned 5 contracts to the
+  shared-hook form; voice formatVoiceBytes (last formatBytes fork) deleted in favor
+  of the @maka/ui helper. Deliberately NOT converted: use-workspace-instructions-
+  controller (lifecycle-counter variant, not boilerplate) and app-shell.tsx
+  rendererMountedRef (Round B owns that file).
+- [ ] **D-2 — mounted-guard long tail**: ~30 remaining `*MountedRef` sites across
+  renderer settings pages and packages/ui panels (see `grep -ri "mountedref = useRef"`).
+  Mechanical agent sweep: swap to useMountedRef, keep per-site companion-ref cleanup
+  effects, re-pin any contract that quotes the old shape. Watch the useRef(false)
+  variants — verify no pre-effect reads before flipping initial value semantics.
 
 Update checkboxes as rounds ship. Every round: suite + typecheck + dead-css +
 alignment auditor + CDP spot captures, exit-code gated.

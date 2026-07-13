@@ -94,7 +94,7 @@ describe('General settings configurable contract', () => {
     assert.ok(cardBlock.length > 0, 'GeneralDefaultsCard source must be discoverable');
     assert.match(
       cardBlock,
-      /const mountedRef = useRef\(true\);/,
+      /const mountedRef = useMountedRef\(\);/,
       'GeneralDefaultsCard must track page-mounted ownership so a slow IPC write does not call setSaving(false) after Settings closes',
     );
     assert.match(
