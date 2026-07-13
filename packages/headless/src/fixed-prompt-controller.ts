@@ -299,7 +299,7 @@ export interface RunFixedPromptControllerInput {
   config: Config;
   systemPromptPath: string;
   resultsJsonlPath: string;
-  resultsTsvPath: string;
+  resultsTsvPath?: string;
   tasks: readonly FixedPromptTask[];
   maxInfraFailureRate?: number;
   costCeilingUsd?: number;
@@ -323,7 +323,7 @@ export interface FixedPromptControllerResult {
   events: FixedPromptTaskWalEvent[];
   totalTokens: number;
   totalCostUsd: number;
-  resultsTsvPath: string;
+  resultsTsvPath?: string;
   stopReason?: FixedPromptControllerStopReason;
 }
 
@@ -424,14 +424,16 @@ export async function runFixedPromptController(
   const resultEvents = input.tasks
     .map((task) => resultByTask.get(task.id))
     .filter((event): event is FixedPromptTaskWalEvent => event !== undefined);
-  await writeFixedPromptResultsTsv(input.resultsTsvPath, resultEvents);
+  if (input.resultsTsvPath !== undefined) {
+    await writeFixedPromptResultsTsv(input.resultsTsvPath, resultEvents);
+  }
 
   return {
     taskIds: resultEvents.map((event) => event.taskId),
     events: resultEvents,
     totalTokens: sum(resultEvents.map((event) => eventTokenSummary(event)?.total ?? 0)),
     totalCostUsd: sum(resultEvents.map((event) => eventTokenSummary(event)?.costUsd ?? 0)),
-    resultsTsvPath: input.resultsTsvPath,
+    ...(input.resultsTsvPath !== undefined ? { resultsTsvPath: input.resultsTsvPath } : {}),
     ...(stopReason ? { stopReason } : {}),
   };
 }

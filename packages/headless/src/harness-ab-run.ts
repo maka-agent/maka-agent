@@ -64,7 +64,6 @@ async function runHarnessAbComparisonUnlocked(
         config: runtimeArm.config,
         systemPromptPath: input.systemPromptPath,
         resultsJsonlPath: input.resultsJsonlPath,
-        resultsTsvPath: `${input.resultsJsonlPath}.${roundId}.tsv`,
         tasks: [task],
         infraFailurePolicy: 'terminal',
         requireExecutionIdentity: true,

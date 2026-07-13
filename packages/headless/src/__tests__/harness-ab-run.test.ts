@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -42,6 +42,7 @@ describe('runHarnessAbComparison', () => {
         'a:maka', 'a:opencode', 'b:opencode', 'b:maka',
         'c:maka', 'c:opencode',
       ]);
+      assert.deepEqual((await readdir(dir)).filter((name) => name.endsWith('.tsv')), []);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
