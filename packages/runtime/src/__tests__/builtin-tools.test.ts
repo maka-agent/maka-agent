@@ -301,7 +301,7 @@ describe('builtin Bash streaming output', () => {
       'policy',
       '--',
       '/bin/sh',
-      '-lc',
+      '-c',
       'echo visible',
     ]]);
     expect(result).toMatchObject({
