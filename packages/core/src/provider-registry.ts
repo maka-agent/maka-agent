@@ -134,11 +134,16 @@ if (stepfunGlobal.id !== 'stepfun-ai') {
   throw new Error('models.dev StepFun Global provider facts are missing stable id stepfun-ai');
 }
 if (!stepfunGlobal.api) throw new Error('models.dev StepFun Global provider facts are missing api');
-const stepfunGlobalModelIds = toolCallingModelIds(
-  'StepFun Global',
-  GENERATED_MODELS_DEV_METADATA['stepfun-ai'],
-  ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash'],
-);
+const stepfunGlobalModelIds = [
+  'step-3.7-flash',
+  'step-3.5-flash-2603',
+  'step-3.5-flash',
+];
+for (const id of stepfunGlobalModelIds) {
+  if (!GENERATED_MODELS_DEV_METADATA['stepfun-ai'][id]?.capabilities?.functionCalling) {
+    throw new Error(`models.dev StepFun Global snapshot is missing documented tool-capable model ${id}`);
+  }
+}
 
 const together = GENERATED_MODELS_DEV_PROVIDER_FACTS.togetherai;
 if (together.id !== 'togetherai') {

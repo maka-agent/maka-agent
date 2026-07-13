@@ -369,8 +369,6 @@ describe('provider compatibility contract', () => {
       'step-3.7-flash',
       'step-3.5-flash-2603',
       'step-3.5-flash',
-      'step-1-32k',
-      'step-2-16k',
     ]);
   });
 });
