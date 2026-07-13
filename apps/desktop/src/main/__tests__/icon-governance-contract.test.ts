@@ -37,6 +37,7 @@ const MINIMAX_BRAND_ASSET_FILE = resolve(
 const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/xai.svg');
 const CEREBRAS_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cerebras.svg');
 const MISTRAL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/mistral.svg');
+const TOGETHER_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/together.svg');
 const DESKTOP_PACKAGE_FILE = resolve(REPO_ROOT, 'apps/desktop/package.json');
 const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/public/THIRD_PARTY_LICENSES.txt');
 const ONBOARDING_HERO_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/OnboardingHero.tsx');
@@ -203,6 +204,32 @@ describe('icon + typography governance contract', () => {
       providersPanel,
       /kind === 'detail' && selected[\s\S]*<ProviderPageHeader[\s\S]*providerType=\{selected\.providerType\}/,
       'saved connection detail must consume the shared provider logo seam',
+    );
+  });
+
+  it('vendors and routes the byte-exact Lobe Icons Together AI SVG through the shared mask seam', async () => {
+    const [marks, asset, notices] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(TOGETHER_BRAND_MARK_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      'b3ec218e7e0b0432a2ce07f5ec98a1dcd24f808c74d5fee624ab31e4947feef3',
+      'Together AI SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 together.svg',
+    );
+    assert.match(marks, /https:\/\/github\.com\/lobehub\/lobe-icons/);
+    assert.match(marks, /@lobehub\/icons-static-svg@1\.91\.0/);
+    assert.match(marks, /32f4083f7a20b67ecdc7b29c0af031ada5a29c52/);
+    assert.match(marks, /packages\/static-svg\/icons\/together\.svg/);
+    assert.match(marks, /license: MIT/);
+    assert.match(marks, /b3ec218e7e0b0432a2ce07f5ec98a1dcd24f808c74d5fee624ab31e4947feef3/);
+    assert.match(marks, /import togetherBrandMark from '\.\.\/assets\/provider-brands\/together\.svg';/);
+    assert.match(marks, /case 'togetherai':\s*return <ProviderAssetMask src=\{togetherBrandMark\} \/>/);
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/together\.svg[\s\S]*packages\/static-svg\/icons\/together\.svg[\s\S]*b3ec218e7e0b0432a2ce07f5ec98a1dcd24f808c74d5fee624ab31e4947feef3/,
     );
   });
 

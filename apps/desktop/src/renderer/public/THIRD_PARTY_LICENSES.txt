@@ -13,6 +13,10 @@ This file records notices for third-party source assets vendored into the Maka d
     - Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`
     - Upstream path: `packages/static-svg/icons/xai.svg`
     - SHA-256: `89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451`
+  - `apps/desktop/src/renderer/assets/provider-brands/together.svg`
+    - Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`
+    - Upstream path: `packages/static-svg/icons/together.svg`
+    - SHA-256: `b3ec218e7e0b0432a2ce07f5ec98a1dcd24f808c74d5fee624ab31e4947feef3`
   - `apps/desktop/src/renderer/settings/provider-brand-marks.tsx` `Ollama` path
     - Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`
     - Upstream path: `packages/static-svg/icons/ollama.svg`

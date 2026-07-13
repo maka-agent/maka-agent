@@ -92,6 +92,29 @@ test('adds xAI with its exact snapshot model and API-key credential field', asyn
   await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
 });
 
+test('adds Together AI with its exact snapshot model and shared theme-aware brand mask', async ({ window: page }) => {
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
+  await page.getByRole('button', { name: '添加服务商' }).click();
+
+  await page.getByRole('tab', { name: 'API', exact: true }).click();
+  await page.getByPlaceholder('搜索服务商').fill('Together AI');
+  const catalogMark = page.locator('.providerCatalogRow[data-provider="togetherai"] .providerLogo .providerAssetMask');
+  await expect(catalogMark).toBeVisible();
+  expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+  await page.getByRole('button', { name: /添加模型供应商：Together AI/ }).click();
+  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('MiniMaxAI/MiniMax-M3');
+  await page.getByRole('button', { name: '保存供应商' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Together AI', exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="togetherai"] .providerAssetMask');
+  await expect(detailMark).toBeVisible();
+  expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+  await expect(page.getByText('MiniMaxAI/MiniMax-M3', { exact: true }).first()).toBeVisible();
+});
+
 function maskRenderContract(element: Element): { usesAssetMask: boolean; followsForeground: boolean } {
   const style = getComputedStyle(element);
   return {

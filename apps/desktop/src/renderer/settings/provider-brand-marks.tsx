@@ -19,6 +19,7 @@ import cerebrasMarkUrl from '../assets/provider-brands/cerebras.svg';
 import lmStudioBrandMark from '../assets/provider-brands/lmstudio.svg';
 import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg';
 import mistralBrandMark from '../assets/provider-brands/mistral.svg';
+import togetherBrandMark from '../assets/provider-brands/together.svg';
 import xaiMarkUrl from '../assets/provider-brands/xai.svg';
 
 // Real xAI/Grok mark vendored byte-for-byte from Lobe Icons:
@@ -30,6 +31,14 @@ import xaiMarkUrl from '../assets/provider-brands/xai.svg';
 function XAI(): ReactElement {
   return <ProviderAssetMask src={xaiMarkUrl} />;
 }
+
+// Real Together AI mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: 32f4083f7a20b67ecdc7b29c0af031ada5a29c52
+// - path: packages/static-svg/icons/together.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: b3ec218e7e0b0432a2ce07f5ec98a1dcd24f808c74d5fee624ab31e4947feef3
 
 // Vendored from lobehub/lobe-icons (MIT):
 // https://github.com/lobehub/lobe-icons
@@ -190,6 +199,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <ProviderAssetMask src={cerebrasMarkUrl} />;
     case 'xai':
       return <XAI />;
+    case 'togetherai':
+      return <ProviderAssetMask src={togetherBrandMark} />;
     case 'siliconflow':
       return <SiliconCloud />;
     case 'anthropic':
