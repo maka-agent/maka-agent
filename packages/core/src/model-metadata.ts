@@ -125,6 +125,18 @@ const VOLCENGINE_CODING_PLAN_MODEL_METADATA: Record<string, ModelMetadata> = {
 const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMetadata>>> = {
   anthropic: ANTHROPIC_MODEL_OVERRIDES,
   'minimax-coding-plan': GENERATED_MODELS_DEV_METADATA.MiniMax,
+  'stepfun-step-plan': {
+    'step-3.7-flash': GENERATED_MODELS_DEV_METADATA.stepfun['step-3.7-flash']!,
+    'step-3.5-flash-2603': GENERATED_MODELS_DEV_METADATA.stepfun['step-3.5-flash-2603']!,
+    'step-3.5-flash': GENERATED_MODELS_DEV_METADATA.stepfun['step-3.5-flash']!,
+    'step-router-v1': {
+      displayName: 'Step Router V1',
+      lifecycle: 'active',
+      docsUrl: 'https://platform.stepfun.com/docs/zh/step-plan/integrations/reasoning-api',
+      maxOutputTokens: 384_000,
+      capabilities: { vision: false, reasoning: true, functionCalling: true },
+    },
+  },
   'claude-subscription': CLAUDE_SUBSCRIPTION_MODEL_METADATA,
   openai: OPENAI_MODEL_OVERRIDES,
   google: GOOGLE_MODEL_OVERRIDES,

@@ -164,6 +164,17 @@ const stepfunModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA.stepfun,
   ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash'],
 );
+const stepfunStepPlanModelIds = [
+  'step-3.7-flash',
+  'step-3.5-flash-2603',
+  'step-3.5-flash',
+  'step-router-v1',
+] as const;
+for (const id of stepfunStepPlanModelIds.slice(0, 3)) {
+  if (!GENERATED_MODELS_DEV_METADATA.stepfun[id]?.capabilities?.functionCalling) {
+    throw new Error(`models.dev StepFun snapshot is missing documented Step Plan model ${id}`);
+  }
+}
 const stepfunGlobal = GENERATED_MODELS_DEV_PROVIDER_FACTS['stepfun-ai'];
 if (stepfunGlobal.id !== 'stepfun-ai') {
   throw new Error('models.dev StepFun Global provider facts are missing stable id stepfun-ai');
@@ -633,6 +644,25 @@ const providerRegistry = {
     modelsDevId: stepfun.id,
     readyOrder: 22,
     catalogOrder: 22,
+  },
+  'stepfun-step-plan': {
+    label: 'StepFun Step Plan (China)',
+    description: 'StepFun subscription access for interactive coding and agent tools in China.',
+    baseUrl: 'https://api.stepfun.com/step_plan/v1',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [...stepfunStepPlanModelIds],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'domestic',
+    catalogGroup: 'plans',
+    catalogBadge: 'Plan',
+    signupUrl: 'https://platform.stepfun.com/interface-key',
+    modelsDevId: stepfun.id,
+    readyOrder: 28,
+    catalogOrder: 28,
   },
   'stepfun-ai': {
     label: stepfunGlobal.name,

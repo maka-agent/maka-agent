@@ -9,6 +9,36 @@ import { isConnectionReady } from '../connection-readiness.js';
 import type { LlmConnection, ModelInfo, ProviderType } from '../llm-connections.js';
 
 describe('ModelCatalogEntry', () => {
+  it('uses the official StepFun Step Plan snapshot without inventing live model discovery', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'stepfun-step-plan',
+        providerType: 'stepfun-step-plan',
+        defaultModel: 'step-3.7-flash',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), [
+      'step-3.7-flash',
+      'step-3.5-flash-2603',
+      'step-3.5-flash',
+      'step-router-v1',
+    ]);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 256_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.equal(entries[3]?.displayName, 'Step Router V1');
+    assert.deepEqual(entries[3]?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
   it('uses the checked-in StepFun Global snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

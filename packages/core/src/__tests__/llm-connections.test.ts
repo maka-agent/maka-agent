@@ -49,6 +49,7 @@ describe('provider compatibility contract', () => {
       'nvidia',
       'tencent-tokenhub',
       'stepfun',
+      'stepfun-step-plan',
       'stepfun-ai',
       'volcengine-ark',
       'ollama',
@@ -88,6 +89,7 @@ describe('provider compatibility contract', () => {
       'volcengine-ark',
       'volcengine-coding-plan',
       'tencent-token-plan',
+      'stepfun-step-plan',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -118,6 +120,7 @@ describe('provider compatibility contract', () => {
       'volcengine-ark',
       'volcengine-coding-plan',
       'tencent-token-plan',
+      'stepfun-step-plan',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -432,6 +435,29 @@ describe('provider compatibility contract', () => {
       'step-3.5-flash',
       'step-1-32k',
       'step-2-16k',
+    ]);
+  });
+
+  it('owns StepFun Step Plan China behavior under the stable stepfun-step-plan id', () => {
+    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['stepfun-step-plan'];
+
+    assert.ok(plan, 'StepFun Step Plan China must have its own persisted provider id');
+    assert.equal(plan.label, 'StepFun Step Plan (China)');
+    assert.equal(plan.baseUrl, 'https://api.stepfun.com/step_plan/v1');
+    assert.equal(plan.authKind, 'api_key');
+    assert.equal(plan.protocol, 'openai');
+    assert.deepEqual(plan.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(plan.modelDiscovery, { kind: 'fallback' });
+    assert.equal(plan.category, 'domestic');
+    assert.equal(plan.catalogGroup, 'plans');
+    assert.equal(plan.catalogBadge, 'Plan');
+    assert.equal(plan.signupUrl, 'https://platform.stepfun.com/interface-key');
+    assert.equal(plan.modelsDevId, 'stepfun');
+    assert.deepEqual(plan.fallbackModels, [
+      'step-3.7-flash',
+      'step-3.5-flash-2603',
+      'step-3.5-flash',
+      'step-router-v1',
     ]);
   });
 
