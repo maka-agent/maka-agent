@@ -86,7 +86,11 @@ describe('createPermissionAwareChildToolFactory', () => {
     }) as { content: string };
 
     assert.equal(result.content, 'child-read');
-    assert.deepEqual(requests, [{ kind: 'read', cwd: '/workspace/canonical', path: 'file.txt' }]);
+    assert.deepEqual(requests, [{
+      kind: 'read',
+      cwd: '/workspace/canonical',
+      path: '/workspace/canonical/file.txt',
+    }]);
     assert.equal(transforms[0]?.command.profile.name, 'read-only');
     assert.deepEqual(transforms[0]?.command.pathContext.workspaceRoots, ['/workspace/canonical']);
   });

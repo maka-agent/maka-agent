@@ -44,6 +44,6 @@ describe('permission dialog response guard', () => {
     );
     assert.match(dialog, /disabled=\{responsePending\}[\s\S]*onClick=\{\(\) => submit\('deny'\)\}/);
     assert.match(dialog, /disabled=\{responsePending\}[\s\S]*onClick=\{\(\) => submit\('allow'\)\}/);
-    assert.match(dialog, /responsePending \? '正在提交…'/);
+    assert.match(dialog, /responsePending\s*\?\s*'正在提交…'/);
   });
 });

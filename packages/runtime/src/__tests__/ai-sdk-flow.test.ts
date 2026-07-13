@@ -624,6 +624,50 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
     assert.equal(b.role, 'tool');
   });
 
+  test('projects additional permission requests into a path-free durable audit record', () => {
+    const mapped = mapSessionEventToRuntimeEvent(ev({
+      type: 'permission_request',
+      kind: 'additional_permissions',
+      requestId: 'request-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      category: 'file_write',
+      reason: 'additional_permissions',
+      additionalPermissions: {
+        fileSystem: { entries: [{ path: '/outside/private.txt', access: 'write', scope: 'exact' }] },
+      },
+      cwd: '/workspace',
+      justification: 'Write the requested output.',
+      intentHash: `sha256:${'1'.repeat(64)}`,
+      permissionsHash: `sha256:${'2'.repeat(64)}`,
+      risk: { outsideWorkspace: true, protectedMetadata: false, networkEnabled: false },
+      alsoApprovesToolExecution: false,
+      availableDecisions: ['allow_once', 'deny'],
+    }), ctx);
+
+    assert.deepEqual(mapped.actions?.permissionRequest, {
+      kind: 'additional_permissions',
+      requestId: 'request-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      category: 'file_write',
+      reason: 'additional_permissions',
+      permissionsHash: `sha256:${'2'.repeat(64)}`,
+      entryCount: 1,
+      readCount: 0,
+      writeCount: 1,
+      exactCount: 1,
+      subtreeCount: 0,
+      networkEnabled: false,
+      outsideWorkspace: true,
+      protectedMetadata: false,
+      alsoApprovesToolExecution: false,
+    });
+    assert.equal(JSON.stringify(mapped).includes('/outside/private.txt'), false);
+    assert.equal(JSON.stringify(mapped).includes('/workspace'), false);
+    assert.equal(JSON.stringify(mapped).includes('Write the requested output.'), false);
+  });
+
   test('plan_submitted maps to an agent-authored state delta', () => {
     const a = mapSessionEventToRuntimeEvent(
       ev({ type: 'plan_submitted', planId: 'p1', title: 'T', markdownPath: '/p.md' }),

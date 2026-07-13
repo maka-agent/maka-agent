@@ -166,7 +166,28 @@ function normalizeShellRunRecord(value: unknown, sessionId: string, shellRunId: 
     typeof record.stdoutTruncated === 'boolean' &&
     typeof record.stderrTruncated === 'boolean' &&
     optionalStrings.every((item) => item === undefined || typeof item === 'string');
-  if (!valid) {
+  const additional = record.additionalPermissions;
+  const validAdditional = additional === undefined || (
+    typeof additional.permissionsHash === 'string'
+    && /^sha256:[a-f0-9]{64}$/.test(additional.permissionsHash)
+    && Number.isInteger(additional.entryCount)
+    && additional.entryCount >= 0
+    && typeof additional.networkEnabled === 'boolean'
+    && typeof additional.outsideWorkspace === 'boolean'
+    && typeof additional.protectedMetadata === 'boolean'
+  );
+  const sandboxExecution = record.sandboxExecution;
+  const validSandboxExecution = sandboxExecution === undefined || (
+    ['none', 'macos-seatbelt', 'linux'].includes(sandboxExecution.type)
+    && typeof sandboxExecution.enforced === 'boolean'
+    && sandboxExecution.enforced === (sandboxExecution.type !== 'none')
+  );
+  const sandboxEscalation = record.sandboxEscalation;
+  const validSandboxEscalation = sandboxEscalation === undefined || (
+    /^sha256:[a-f0-9]{64}$/.test(sandboxEscalation.commandHash)
+    && sandboxEscalation.unsandboxed === true
+  );
+  if (!valid || !validAdditional || !validSandboxExecution || !validSandboxEscalation) {
     throw new Error(`Invalid ShellRun record for ${shellRunId}: malformed fields`);
   }
   if (!hasValidStateFields(record)) {

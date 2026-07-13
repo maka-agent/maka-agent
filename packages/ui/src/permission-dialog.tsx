@@ -29,6 +29,8 @@ const REASON_PRESETS: Record<ReasonKind, ReasonPreset> = {
   privileged: { label: '特权操作 (sudo / su)', Icon: ShieldAlert, tone: 'destructive' },
   browser: { label: '读取和操作你登录的浏览器会话 · 请确认', Icon: Globe, tone: 'caution' },
   custom: { label: '自定义请求', Icon: HelpCircle, tone: 'info' },
+  additional_permissions: { label: '单次额外权限', Icon: ShieldAlert, tone: 'caution' },
+  sandbox_escalation: { label: '单次在 sandbox 外执行', Icon: AlertOctagon, tone: 'destructive' },
 };
 
 export function PermissionDialog(props: {
@@ -84,7 +86,9 @@ export function PermissionDialog(props: {
       await props.onRespond({
         requestId,
         decision,
-        rememberForTurn: decision === 'allow' ? rememberForTurn : false,
+        ...(props.request.kind === 'additional_permissions' || props.request.kind === 'sandbox_escalation'
+          ? {}
+          : { rememberForTurn: decision === 'allow' ? rememberForTurn : false }),
       });
     } finally {
       if (activePermissionRequestIdRef.current === requestId) {
@@ -133,17 +137,29 @@ export function PermissionDialog(props: {
           <Collapsible className="maka-permission-raw">
             <CollapsibleTrigger>查看完整参数</CollapsibleTrigger>
             <CollapsiblePanel>
-              <pre className="maka-code">{formatRedactedJson(props.request.args)}</pre>
+              <pre className="maka-code">{formatRedactedJson(
+                props.request.kind === 'additional_permissions'
+                  ? props.request.additionalPermissions
+                  : props.request.kind === 'sandbox_escalation'
+                    ? {
+                        command: props.request.command,
+                        cwd: props.request.cwd,
+                        justification: props.request.justification,
+                        trigger: props.request.trigger,
+                        risk: props.request.risk,
+                      }
+                    : props.request.args,
+              )}</pre>
             </CollapsiblePanel>
           </Collapsible>
-          <label className="permissionRemember">
+          {props.request.kind !== 'additional_permissions' && props.request.kind !== 'sandbox_escalation' && <label className="permissionRemember">
             <Checkbox
               checked={rememberForTurn}
               disabled={responsePending}
               onCheckedChange={(checked) => setRememberForTurn(checked === true)}
             />
             本轮对话内记住选择（同类型工具不再询问，关闭/切换对话后失效）
-          </label>
+          </label>}
           {props.request.reason === 'browser' && rememberForTurn && (
             <p className="maka-permission-hint" role="note">
               勾选后，本轮接下来的浏览、读取页面、导航、点击、输入都不再逐次询问。你会全程看到它操作的页面，随时可以停止；本轮结束后授权失效。
@@ -177,7 +193,11 @@ export function PermissionDialog(props: {
             disabled={responsePending}
             onClick={() => submit('allow')}
           >
-            {responsePending ? '正在提交…' : isDestructive ? '我已确认，允许' : '允许'}
+            {responsePending
+              ? '正在提交…'
+              : props.request.kind === 'additional_permissions' || props.request.kind === 'sandbox_escalation'
+                ? '允许这一次'
+                : isDestructive ? '我已确认，允许' : '允许'}
           </UiButton>
         </div>
       </AlertDialogContent>
@@ -218,6 +238,40 @@ function renderBrowserSummary(toolName: string, args: Record<string, unknown>): 
  * recognize the tool — the raw args Collapsible block is always available.
  */
 function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | undefined {
+  if (request.kind === 'additional_permissions') {
+    const entries = request.additionalPermissions?.fileSystem?.entries ?? [];
+    return (
+      <>
+        <p className="maka-permission-line">{request.justification || '当前工具调用需要额外权限。'}</p>
+        {entries.map((entry) => (
+          <p className="maka-permission-path" key={`${entry.access}:${entry.scope}:${entry.path}`}>
+            <code>{redactSecrets(entry.path)}</code>
+            {' · '}{entry.access === 'write' ? '读写' : '只读'}
+            {' · '}{entry.scope === 'exact' ? '仅此路径' : '此目录及子目录'}
+          </p>
+        ))}
+        {request.risk && 'networkEnabled' in request.risk && request.risk.networkEnabled && (
+          <p className="maka-permission-meta">本次命令将允许直接网络访问。</p>
+        )}
+        {request.risk && 'outsideWorkspace' in request.risk && request.risk.outsideWorkspace && (
+          <p className="maka-permission-meta">包含工作区外路径。</p>
+        )}
+        {request.risk && 'protectedMetadata' in request.risk && request.risk.protectedMetadata && (
+          <p className="maka-permission-meta">包含受保护的 Git/Agent 元数据。</p>
+        )}
+      </>
+    );
+  }
+  if (request.kind === 'sandbox_escalation') {
+    return (
+      <>
+        <p className="maka-permission-line">本次命令将脱离 Maka sandbox 执行，并获得主机文件系统和网络权限。</p>
+        <pre className="maka-code maka-permission-command">{redactSecrets(request.command ?? '')}</pre>
+        <p className="maka-permission-path"><code>{redactSecrets(request.cwd ?? '')}</code></p>
+        <p className="maka-permission-line">{request.justification || '当前命令声明必须在 sandbox 外执行。'}</p>
+      </>
+    );
+  }
   const args = (request.args ?? {}) as Record<string, unknown>;
   switch (request.toolName) {
     case 'browser_navigate':

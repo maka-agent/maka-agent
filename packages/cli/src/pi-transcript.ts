@@ -901,7 +901,13 @@ function renderNotice(entry: MakaPiNoticeEntry, width: number): string[] {
 
 function renderPermissionPrompt(request: PermissionRequestEvent, width: number): string[] {
   const lines = [
-    fitLine(`${ansi.yellow('Permission required')} ${ansi.bold(request.toolName)} ${ansi.dim(request.category)}`, width),
+    fitLine(`${ansi.yellow(
+      request.kind === 'additional_permissions'
+        ? 'Additional permission required'
+        : request.kind === 'sandbox_escalation'
+          ? 'Unsandboxed execution required'
+          : 'Permission required',
+    )} ${ansi.bold(request.toolName)} ${ansi.dim(request.category)}`, width),
   ];
   const summary = permissionRequestSummary(request);
   if (summary) lines.push(...renderIndented(summary, width, 2));
@@ -911,6 +917,24 @@ function renderPermissionPrompt(request: PermissionRequestEvent, width: number):
 }
 
 function permissionRequestSummary(request: PermissionRequestEvent): string {
+  if (request.kind === 'additional_permissions') {
+    const lines = (request.additionalPermissions?.fileSystem?.entries ?? []).map((entry) => (
+      `${entry.access} ${entry.scope} ${entry.path}`
+    ));
+    if (request.risk && 'networkEnabled' in request.risk && request.risk.networkEnabled) lines.push('network enabled for this command only');
+    if (request.risk && 'outsideWorkspace' in request.risk && request.risk.outsideWorkspace) lines.push('risk: outside workspace');
+    if (request.risk && 'protectedMetadata' in request.risk && request.risk.protectedMetadata) lines.push('risk: protected metadata');
+    if (request.justification) lines.unshift(request.justification);
+    return limitText(lines.join('\n'), 1200);
+  }
+  if (request.kind === 'sandbox_escalation') {
+    return limitText([
+      request.justification ?? 'The command requested unsandboxed execution.',
+      `$ ${request.command ?? ''}`,
+      `cwd: ${request.cwd ?? ''}`,
+      'risk: unrestricted filesystem and network access for this command',
+    ].join('\n'), 1200);
+  }
   const args = request.args;
   if (request.toolName === 'Bash' && args !== null && typeof args === 'object') {
     const command = (args as { command?: unknown }).command;

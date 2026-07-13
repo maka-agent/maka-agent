@@ -154,8 +154,12 @@ export async function runExperiment(
     // non-interactive policy/tooling.
     for await (const event of manager.sendMessage(session.id, { turnId, text: task.instruction })) {
       if ((event as { type?: string }).type === 'permission_request') {
-        const { requestId } = event as { requestId: string };
-        await manager.respondToPermission(session.id, { requestId, decision: 'deny', rememberForTurn: true });
+        const { requestId, kind } = event as { requestId: string; kind?: string };
+        await manager.respondToPermission(session.id, {
+          requestId,
+          decision: 'deny',
+          ...(kind === 'additional_permissions' ? {} : { rememberForTurn: true }),
+        });
       }
     }
 

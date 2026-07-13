@@ -93,6 +93,7 @@ export function createPermissionAwareWorkspaceExecutor(
     getProfileContext: () => ({
       profile: compiledProfile.profile,
       workspaceRoots,
+      cwd: context.cwd,
       pathContext,
     }),
   });
@@ -116,6 +117,11 @@ export function buildPermissionAwareBuiltinTools(
       ...(input.shellRuns ? { shellRuns: input.shellRuns } : {}),
       commandExecutor: assembly.commandExecutor,
       fileOperations: assembly.fileOperations,
+      additionalPermissionPlanningContext: {
+        profile: assembly.compiledProfile.profile,
+        workspaceRoots: assembly.compiledProfile.workspaceRoots,
+        pathContext: assembly.sandboxContext.pathContext,
+      },
     }),
   };
 }

@@ -230,6 +230,9 @@ export interface PermissionDecisionMessage {
   toolName: string;
   decision: 'allow' | 'deny';
   rememberForTurn?: boolean;
+  reviewer?: import('./permission.js').ApprovalsReviewer;
+  rationale?: string;
+  riskLevel?: import('./permission.js').ApprovalRiskLevel;
   hint?: string;
 }
 

@@ -2,7 +2,12 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { glob as nodeGlob } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import {
+  additionalPermissionAllowsPath,
+  type AdditionalPermissionProfile,
+} from '@maka/core/additional-permissions';
 
+import { hashAdditionalPermissionProfile } from '../additional-permission-hash.js';
 import { computeEditedSource } from '../edit-replace.js';
 import {
   FILESYSTEM_WORKER_PROTOCOL_VERSION,
@@ -42,11 +47,21 @@ export async function executeFilesystemWorkerRequest(
   dependencies: FilesystemWorkerOperationDependencies = {},
 ): Promise<FilesystemWorkerResponse> {
   try {
+    if (
+      request.additionalPermissions
+      && request.permissionsHash !== hashAdditionalPermissionProfile(request.additionalPermissions)
+    ) {
+      throw new FilesystemOperationError('invalid_request', 'Additional permission hash did not match the worker request.');
+    }
     return {
       version: FILESYSTEM_WORKER_PROTOCOL_VERSION,
       requestId: request.requestId,
       ok: true,
-      result: await executeFilesystemOperation(request.operation, dependencies),
+      result: await executeFilesystemOperation(
+        request.operation,
+        dependencies,
+        request.additionalPermissions,
+      ),
     };
   } catch (error) {
     const normalized = normalizeOperationError(error);
@@ -65,10 +80,11 @@ export async function executeFilesystemWorkerRequest(
 export async function executeFilesystemOperation(
   operation: FilesystemWorkerOperation,
   dependencies: FilesystemWorkerOperationDependencies = {},
+  additionalPermissions?: AdditionalPermissionProfile,
 ): Promise<FilesystemWorkerResult> {
   switch (operation.kind) {
     case 'read': {
-      const path = await resolveExistingInsideCwd(operation.cwd, operation.path, 'Read');
+      const path = await resolveExistingAllowed(operation.cwd, operation.path, 'Read', 'read', additionalPermissions);
       const content = await fs.readFile(path, 'utf8');
       if (operation.offset === undefined && operation.limit === undefined) {
         return { kind: 'read', content };
@@ -79,7 +95,7 @@ export async function executeFilesystemOperation(
       return { kind: 'read', content: lines.slice(start, end).join('\n') };
     }
     case 'write': {
-      const path = await resolveWritableInsideCwd(operation.cwd, operation.path, 'Write');
+      const path = await resolveWritableAllowed(operation.cwd, operation.path, 'Write', additionalPermissions);
       await fs.writeFile(path, operation.content, 'utf8');
       return {
         kind: 'write',
@@ -89,7 +105,7 @@ export async function executeFilesystemOperation(
       };
     }
     case 'edit': {
-      const path = await resolveExistingInsideCwd(operation.cwd, operation.path, 'Edit');
+      const path = await resolveExistingAllowed(operation.cwd, operation.path, 'Edit', 'write', additionalPermissions);
       const content = await fs.readFile(path, 'utf8');
       let edited: ReturnType<typeof computeEditedSource>;
       try {
@@ -113,7 +129,7 @@ export async function executeFilesystemOperation(
     }
     case 'glob': {
       assertContainedGlobPattern(operation.pattern);
-      const path = await resolveExistingInsideCwd(operation.cwd, operation.path, 'Glob cwd');
+      const path = await resolveExistingAllowed(operation.cwd, operation.path, 'Glob cwd', 'read', additionalPermissions);
       const files: string[] = [];
       const limit = operation.limit ?? DEFAULT_GLOB_LIMIT;
       for await (const file of nodeGlob(operation.pattern, { cwd: path })) {
@@ -123,7 +139,7 @@ export async function executeFilesystemOperation(
       return { kind: 'glob', files };
     }
     case 'grep': {
-      const path = await resolveExistingInsideCwd(operation.cwd, operation.path, 'Grep');
+      const path = await resolveExistingAllowed(operation.cwd, operation.path, 'Grep', 'read', additionalPermissions);
       const executable = dependencies.grepExecutable;
       if (!executable) {
         throw new FilesystemOperationError('grep_unavailable', 'Grep is unavailable in this runtime.');
@@ -173,24 +189,50 @@ function nodeErrorCode(error: unknown): string | undefined {
   return typeof error.code === 'string' ? error.code : undefined;
 }
 
-async function resolveWritableInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
-  const { root, candidate } = await resolveCandidate(cwd, inputPath, label);
+async function resolveWritableAllowed(
+  cwd: string,
+  inputPath: string,
+  label: string,
+  additionalPermissions: AdditionalPermissionProfile | undefined,
+): Promise<string> {
+  const { root, candidate } = await resolveCandidate(
+    cwd,
+    inputPath,
+    label,
+    'write',
+    additionalPermissions,
+  );
   try {
     const target = await fs.realpath(candidate);
-    assertInside(root, target, label);
+    assertAllowed(root, target, label, 'write', additionalPermissions);
     return target;
   } catch (error) {
     if (nodeErrorCode(error) !== 'ENOENT') throw error;
   }
   const parent = await fs.realpath(dirname(candidate));
-  assertInside(root, parent, label);
+  assertAllowed(root, candidate, label, 'write', additionalPermissions);
+  if (!isInside(root, parent) && !additionalPermissionAllowsPathForParent(additionalPermissions, candidate, parent)) {
+    throw new FilesystemOperationError('path_denied', `${label} parent path was not covered by the approved permission.`);
+  }
   return candidate;
 }
 
-async function resolveExistingInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
-  const { root, candidate } = await resolveCandidate(cwd, inputPath, label);
+async function resolveExistingAllowed(
+  cwd: string,
+  inputPath: string,
+  label: string,
+  access: 'read' | 'write',
+  additionalPermissions: AdditionalPermissionProfile | undefined,
+): Promise<string> {
+  const { root, candidate } = await resolveCandidate(
+    cwd,
+    inputPath,
+    label,
+    access,
+    additionalPermissions,
+  );
   const target = await fs.realpath(candidate);
-  assertInside(root, target, label);
+  assertAllowed(root, target, label, access, additionalPermissions);
   return target;
 }
 
@@ -198,21 +240,50 @@ async function resolveCandidate(
   cwd: string,
   inputPath: string,
   label: string,
+  access: 'read' | 'write',
+  additionalPermissions: AdditionalPermissionProfile | undefined,
 ): Promise<{ root: string; candidate: string }> {
-  if (isAbsolute(inputPath)) {
-    throw new FilesystemOperationError('path_denied', `${label} path must be relative to session cwd.`);
-  }
   const root = await fs.realpath(cwd);
   const candidate = resolve(root, inputPath);
-  assertInside(root, candidate, label);
+  if (
+    !isInside(root, candidate)
+    && !additionalPermissionAllowsPath(additionalPermissions ?? {}, candidate, access)
+  ) {
+    throw new FilesystemOperationError('path_denied', `${label} path was not covered by the active permission profile.`);
+  }
   return { root, candidate };
 }
 
-function assertInside(root: string, target: string, label: string): void {
+function assertAllowed(
+  root: string,
+  target: string,
+  label: string,
+  access: 'read' | 'write',
+  additionalPermissions: AdditionalPermissionProfile | undefined,
+): void {
+  if (isInside(root, target)) return;
+  if (additionalPermissions && additionalPermissionAllowsPath(additionalPermissions, target, access)) return;
+  throw new FilesystemOperationError('path_denied', `${label} path was not covered by the active permission profile.`);
+}
+
+function isInside(root: string, target: string): boolean {
   const rel = relative(root, target);
-  if (rel !== '' && (rel.startsWith('..') || isAbsolute(rel))) {
-    throw new FilesystemOperationError('path_denied', `${label} path must stay inside session cwd.`);
-  }
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+function additionalPermissionAllowsPathForParent(
+  profile: AdditionalPermissionProfile | undefined,
+  target: string,
+  parent: string,
+): boolean {
+  if (!profile) return false;
+  if (!additionalPermissionAllowsPath(profile, target, 'write')) return false;
+  return profile.fileSystem?.entries.some((entry) => (
+    entry.access === 'write'
+    && entry.scope === 'exact'
+    && entry.path === target
+    && dirname(entry.path) === parent
+  )) ?? false;
 }
 
 function assertContainedGlobPattern(pattern: string): void {

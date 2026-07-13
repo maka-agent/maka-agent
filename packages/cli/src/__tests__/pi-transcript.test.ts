@@ -356,6 +356,42 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(visibleLines.some((line) => line.includes('n/Esc deny')));
   });
 
+  test('renders one-call additional permission paths and risk summary', () => {
+    const state = createMakaPiTranscriptState();
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'permission_request',
+      kind: 'additional_permissions',
+      requestId: 'permission-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      category: 'file_write',
+      reason: 'additional_permissions',
+      additionalPermissions: {
+        fileSystem: { entries: [{ path: '/outside/output.txt', access: 'write', scope: 'exact' }] },
+      },
+      cwd: '/repo',
+      justification: 'Write the requested output.',
+      intentHash: `sha256:${'1'.repeat(64)}`,
+      permissionsHash: `sha256:${'2'.repeat(64)}`,
+      risk: { outsideWorkspace: true, protectedMetadata: false, networkEnabled: false },
+      alsoApprovesToolExecution: true,
+      availableDecisions: ['allow_once', 'deny'],
+    }));
+
+    const visibleLines = renderMakaPiTranscript(state, {
+      title: 'Maka',
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+    }, 120).map(stripAnsi);
+
+    assert.ok(visibleLines.some((line) => line.includes('Additional permission required')));
+    assert.ok(visibleLines.some((line) => line.includes('write exact /outside/output.txt')));
+    assert.ok(visibleLines.some((line) => line.includes('risk: outside workspace')));
+  });
+
   test('orders thinking entries by arrival, before text and around tools', () => {
     const state = createMakaPiTranscriptState();
 

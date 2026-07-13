@@ -27,8 +27,8 @@ describe('tool and permission args redaction', () => {
 
     assert.match(toolActivity, /\{formatRedactedJson\(item\.args\)\}/);
     assert.doesNotMatch(toolActivity, /JSON\.stringify\(item\.args/);
-    assert.match(permissionDialog, /\{formatRedactedJson\(props\.request\.args\)\}/);
-    assert.doesNotMatch(permissionDialog, /JSON\.stringify\(props\.request\.args/);
+    assert.match(permissionDialog, /\{formatRedactedJson\([\s\S]*?props\.request\.additionalPermissions[\s\S]*?props\.request\.args,[\s\S]*?\)\}/);
+    assert.doesNotMatch(permissionDialog, /JSON\.stringify\(props\.request\.(?:args|additionalPermissions)/);
   });
 
   it('redacts and caps model-authored tool intents before rendering', async () => {

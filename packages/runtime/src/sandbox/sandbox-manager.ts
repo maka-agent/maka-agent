@@ -1,4 +1,5 @@
 import type { PermissionProfile } from '@maka/core/permission-profile';
+import { applyAdditionalPermissionProfile } from '@maka/core/additional-permissions';
 
 import type {
   SandboxBackend,
@@ -92,8 +93,15 @@ export class SandboxManager {
   }
 
   transform(request: SandboxTransformRequest): SandboxTransformResult {
+    const effectiveProfile = request.additionalPermissions
+      ? applyAdditionalPermissionProfile(request.command.profile, request.additionalPermissions)
+      : request.command.profile;
+    const effectiveRequest: SandboxTransformRequest = {
+      ...request,
+      command: { ...request.command, profile: effectiveProfile },
+    };
     const selected = this.selectInitial({
-      profile: request.command.profile,
+      profile: effectiveProfile,
       preference: request.preference,
       platform: request.platform,
     });
@@ -101,7 +109,7 @@ export class SandboxManager {
     if (!selected.ok) return selected;
 
     if (selected.sandboxType === 'none') {
-      const { command } = request;
+      const { command } = effectiveRequest;
       return {
         ok: true,
         exec: {
@@ -131,7 +139,7 @@ export class SandboxManager {
     }
 
     return backend.transform({
-      ...request,
+      ...effectiveRequest,
       preference: selected.preference,
       platform: selected.platform,
     });

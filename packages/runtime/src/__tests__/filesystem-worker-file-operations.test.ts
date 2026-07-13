@@ -13,7 +13,6 @@ import {
 import { serializeSandboxError } from '../sandbox/errors.js';
 import type { PermissionAwareSandboxContext } from '../sandbox/permission-aware-context.js';
 import {
-  WorkspaceFilePathValidationError,
   WorkspaceProfilePermissionError,
 } from '../workspace-executor.js';
 
@@ -56,7 +55,7 @@ describe('WorkerBackedWorkspaceFileOperations', () => {
     assert.equal(operations.facts.isolation, 'platform_sandbox');
   });
 
-  test('uses canonical context cwd for write locks and blocks traversal', async () => {
+  test('uses canonical context cwd for write lock candidates', async () => {
     const operations = new WorkerBackedWorkspaceFileOperations({
       context: sandboxContext(),
       client: { execute: async () => ({ kind: 'read', content: '' }) },
@@ -65,21 +64,9 @@ describe('WorkerBackedWorkspaceFileOperations', () => {
     assert.deepEqual(await operations.writeLockKey({ cwd: '/ignored', path: 'a/../file.txt' }), {
       key: '/workspace/file.txt',
     });
-    await assert.rejects(
-      operations.writeLockKey({ cwd: '/ignored', path: '../outside.txt' }),
-      (error: unknown) => {
-        assert.ok(error instanceof WorkspaceFilePathValidationError);
-        assert.match(error.message, /must stay inside session cwd/);
-        assert.deepEqual(serializeSandboxError(error), {
-          domain: 'filesystem',
-          stage: 'validation',
-          reason: 'path_denied',
-          recoverable: false,
-          profileName: 'workspace-write',
-        });
-        return true;
-      },
-    );
+    assert.deepEqual(await operations.writeLockKey({ cwd: '/ignored', path: '../outside.txt' }), {
+      key: '/outside.txt',
+    });
   });
 });
 
@@ -104,7 +91,7 @@ describe('ProfileEnforcedFileOperations', () => {
     });
 
     await assert.rejects(
-      operations.write({ cwd: '/ignored', path: 'file.txt', content: 'no' }),
+      operations.write({ cwd: '/workspace', path: 'file.txt', content: 'no' }),
       (error: unknown) => {
         assert.ok(error instanceof WorkspaceProfilePermissionError);
         assert.equal(error.reason, 'write_denied');
@@ -140,13 +127,13 @@ describe('ProfileEnforcedFileOperations', () => {
       }),
     });
 
-    assert.deepEqual(await operations.writeLockKey({ cwd: '/ignored', path: 'file.txt' }), {
+    assert.deepEqual(await operations.writeLockKey({ cwd: '/workspace', path: 'file.txt' }), {
       key: '/workspace/file.txt',
     });
-    await operations.write({ cwd: '/ignored', path: 'file.txt', content: 'ok' });
+    await operations.write({ cwd: '/workspace', path: 'file.txt', content: 'ok' });
     assert.equal(calls.length, 1);
     await assert.rejects(
-      operations.writeLockKey({ cwd: '/ignored', path: '.git/config' }),
+      operations.writeLockKey({ cwd: '/workspace', path: '.git/config' }),
       (error: unknown) => {
         assert.ok(error instanceof WorkspaceProfilePermissionError);
         assert.equal(error.reason, 'write_denied');
@@ -161,10 +148,38 @@ describe('ProfileEnforcedFileOperations', () => {
       },
     );
     await assert.rejects(
-      operations.writeLockKey({ cwd: '/ignored', path: '../outside.txt' }),
-      (error: unknown) => error instanceof WorkspaceFilePathValidationError
-        && error.reason === 'path_denied',
+      operations.writeLockKey({ cwd: '/workspace', path: '../outside.txt' }),
+      (error: unknown) => error instanceof WorkspaceProfilePermissionError
+        && error.reason === 'write_denied',
     );
+    assert.equal(calls.length, 1);
+  });
+
+  test('matches and locks macOS temporary paths by their canonical aliases', async () => {
+    const context = sandboxContext();
+    context.pathContext.slashTmp = '/private/tmp';
+    const calls: FilesystemWorkerExecuteInput[] = [];
+    const operations = new ProfileEnforcedFileOperations({
+      inner: new WorkerBackedWorkspaceFileOperations({
+        context,
+        client: {
+          execute: async (input) => {
+            calls.push(input);
+            return { kind: 'write', ok: true, path: '/private/tmp/file.txt', bytes: 2 };
+          },
+        },
+      }),
+      getProfileContext: () => ({
+        profile: createWorkspaceWritePermissionProfile(),
+        workspaceRoots: ['/workspace'],
+        pathContext: { slashTmp: '/private/tmp' },
+      }),
+    });
+
+    assert.deepEqual(await operations.writeLockKey({ cwd: '/workspace', path: '/tmp/file.txt' }), {
+      key: '/private/tmp/file.txt',
+    });
+    await operations.write({ cwd: '/workspace', path: '/tmp/file.txt', content: 'ok' });
     assert.equal(calls.length, 1);
   });
 });

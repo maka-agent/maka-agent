@@ -16,6 +16,32 @@
 export const PERMISSION_MODES = ['explore', 'ask', 'execute', 'bypass'] as const;
 export type PermissionMode = typeof PERMISSION_MODES[number];
 
+export const APPROVALS_REVIEWERS = ['user', 'auto_review'] as const;
+export type ApprovalsReviewer = typeof APPROVALS_REVIEWERS[number];
+
+export const APPROVAL_RISK_LEVELS = ['low', 'medium', 'high', 'critical'] as const;
+export type ApprovalRiskLevel = typeof APPROVAL_RISK_LEVELS[number];
+
+export interface ActiveApprovalRoutingPolicy {
+  readonly reviewer: ApprovalsReviewer;
+  readonly sandboxEscalationAllowed: boolean;
+}
+
+export function approvalRoutingPolicyForMode(
+  mode: PermissionMode,
+): ActiveApprovalRoutingPolicy | null {
+  switch (mode) {
+    case 'ask':
+      return { reviewer: 'user', sandboxEscalationAllowed: true };
+    case 'execute':
+      return { reviewer: 'auto_review', sandboxEscalationAllowed: true };
+    case 'explore':
+      return { reviewer: 'user', sandboxEscalationAllowed: false };
+    case 'bypass':
+      return null;
+  }
+}
+
 export function isPermissionMode(value: unknown): value is PermissionMode {
   return typeof value === 'string' && (PERMISSION_MODES as readonly string[]).includes(value);
 }
@@ -315,7 +341,7 @@ export interface PreToolUseResult {
   category: ToolCategory;
   scopeKey: string;
   /** Request shape WITHOUT requestId — runtime PermissionEngine fills it. */
-  partialRequest?: Omit<PermissionRequest, 'requestId' | 'toolUseId'>;
+  partialRequest?: Omit<ToolPermissionRequest, 'requestId' | 'toolUseId'>;
   blockReason?: string;
 }
 
@@ -449,7 +475,7 @@ function normalizeForScope(value: unknown, seen: WeakSet<object>): unknown {
   );
 }
 
-function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {
+function categoryToReason(c: ToolCategory): ToolPermissionRequest['reason'] {
   switch (c) {
     case 'shell_unsafe':
       return 'shell_dangerous';
@@ -474,7 +500,9 @@ function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {
 // Request / Response shapes
 // ============================================================================
 
-export interface PermissionRequest {
+export interface ToolPermissionRequest {
+  /** Omitted by legacy persisted events; new runtime events set it explicitly. */
+  kind?: 'tool_permission';
   requestId: string;
   toolUseId: string;
   toolName: string;
@@ -492,8 +520,66 @@ export interface PermissionRequest {
   hint?: string;
 }
 
+export interface AdditionalPermissionRiskSummary {
+  outsideWorkspace: boolean;
+  protectedMetadata: boolean;
+  networkEnabled: boolean;
+}
+
+export interface AdditionalPermissionRequest {
+  kind: 'additional_permissions';
+  requestId: string;
+  toolUseId: string;
+  toolName: string;
+  category: ToolCategory;
+  reason: 'additional_permissions';
+  additionalPermissions: import('./additional-permissions.js').AdditionalPermissionProfile;
+  cwd: string;
+  justification: string;
+  intentHash: string;
+  permissionsHash: string;
+  risk: AdditionalPermissionRiskSummary;
+  alsoApprovesToolExecution: boolean;
+  availableDecisions: readonly ['allow_once', 'deny'];
+  hint?: string;
+}
+
+export interface SandboxEscalationRiskSummary {
+  unsandboxedExecution: true;
+  unrestrictedFileSystem: true;
+  unrestrictedNetwork: true;
+  protectedMetadataExposed: true;
+}
+
+export interface SandboxEscalationRequest {
+  kind: 'sandbox_escalation';
+  requestId: string;
+  toolUseId: string;
+  toolName: 'Bash';
+  category: ToolCategory;
+  reason: 'sandbox_escalation';
+  command: string;
+  cwd: string;
+  justification: string;
+  intentHash: string;
+  commandHash: string;
+  trigger: 'proactive' | 'sandbox_denial';
+  risk: SandboxEscalationRiskSummary;
+  alsoApprovesToolExecution: boolean;
+  availableDecisions: readonly ['allow_once', 'deny'];
+  hint?: string;
+}
+
+export type PermissionRequest =
+  | ToolPermissionRequest
+  | AdditionalPermissionRequest
+  | SandboxEscalationRequest;
+
 export interface PermissionResponse {
   requestId: string;
   decision: 'allow' | 'deny';
   rememberForTurn?: boolean;
+  reviewer?: ApprovalsReviewer;
+  rationale?: string;
+  riskLevel?: ApprovalRiskLevel;
 }

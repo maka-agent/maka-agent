@@ -89,6 +89,34 @@ describe('ShellRunStore', () => {
     });
   });
 
+  it('persists only the safe additional permission summary and rejects malformed summaries', async () => {
+    await withStore(async (store, root) => {
+      const additionalPermissions = {
+        permissionsHash: `sha256:${'a'.repeat(64)}`,
+        entryCount: 1,
+        networkEnabled: false,
+        outsideWorkspace: true,
+        protectedMetadata: false,
+      };
+      await store.createShellRun(record({ shellRunId: 'shell-safe', additionalPermissions }));
+      assert.deepEqual(
+        (await store.readShellRun('session-1', 'shell-safe')).additionalPermissions,
+        additionalPermissions,
+      );
+
+      const badPath = join(root, 'sessions', 'session-1', 'shell-runs', 'shell-bad-grant', 'shell-run.json');
+      await mkdir(join(root, 'sessions', 'session-1', 'shell-runs', 'shell-bad-grant'), { recursive: true });
+      await writeFile(badPath, JSON.stringify(record({
+        shellRunId: 'shell-bad-grant',
+        additionalPermissions: { ...additionalPermissions, permissionsHash: '/outside/secret.txt' },
+      })) + '\n', 'utf8');
+      await assert.rejects(
+        () => store.readShellRun('session-1', 'shell-bad-grant'),
+        /malformed fields/,
+      );
+    });
+  });
+
   it('rejects unsafe session and shell run ids', async () => {
     await withStore(async (store) => {
       await assert.rejects(
@@ -119,6 +147,7 @@ function record(input: {
   status?: ShellRunRecord['status'];
   startedAt?: number;
   updatedAt?: number;
+  additionalPermissions?: ShellRunRecord['additionalPermissions'];
 }): ShellRunRecord {
   return {
     shellRunId: input.shellRunId,
@@ -135,5 +164,6 @@ function record(input: {
     stderrTail: '',
     stdoutTruncated: false,
     stderrTruncated: false,
+    ...(input.additionalPermissions ? { additionalPermissions: input.additionalPermissions } : {}),
   };
 }

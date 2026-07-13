@@ -103,6 +103,12 @@ export const ISOLATED_HEADLESS_TOOL_NAMES = ['Bash', 'Read', 'Write', 'Edit', 'G
  * model-backed backend is allowed.
  */
 export interface IsolatedToolExecutor {
+  /**
+   * Current headless adapters do not accept host-normalized one-call grants.
+   * Future adapters must opt in and define their own remote path normalization
+   * before this can become true.
+   */
+  readonly supportsAdditionalPermissions?: false;
   exec(input: IsolatedCommandInput): Promise<IsolatedCommandResult>;
   /**
    * Optional native file operations for executors that can address their

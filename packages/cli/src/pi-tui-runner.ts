@@ -156,7 +156,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     void input.driver.respondToPermission({
       requestId: request.requestId,
       decision,
-      ...(decision === 'allow' ? { rememberForTurn: true } : {}),
+      ...(decision === 'allow' && request.kind !== 'additional_permissions' && request.kind !== 'sandbox_escalation'
+        ? { rememberForTurn: true }
+        : {}),
     })
       .then(() => {
         permissionInFlight = false;

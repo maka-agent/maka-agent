@@ -41,6 +41,21 @@ export interface ShellRunRecord {
   observedAt?: number;
   orphanedReason?: string;
   pid?: number;
+  additionalPermissions?: {
+    permissionsHash: string;
+    entryCount: number;
+    networkEnabled: boolean;
+    outsideWorkspace: boolean;
+    protectedMetadata: boolean;
+  };
+  sandboxExecution?: {
+    type: 'none' | 'macos-seatbelt' | 'linux';
+    enforced: boolean;
+  };
+  sandboxEscalation?: {
+    commandHash: string;
+    unsandboxed: true;
+  };
 }
 
 export interface ShellRunStore {

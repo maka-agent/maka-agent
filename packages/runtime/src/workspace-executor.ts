@@ -11,6 +11,7 @@ import {
   type PermissionProfile,
   type PermissionProfileMatchContext,
 } from '@maka/core/permission-profile';
+import { applyAdditionalPermissionProfile } from '@maka/core/additional-permissions';
 import {
   runProcessWithBoundedTail,
   runShellWithBoundedTail,
@@ -28,6 +29,8 @@ import type {
 } from './sandbox/index.js';
 import { computeEditedSource, type EditMatchStrategy } from './edit-replace.js';
 import type { SandboxErrorDomain, SandboxErrorStage } from './sandbox/errors.js';
+import type { ToolExecutionPermissionContext } from './additional-permissions.js';
+import { assertSandboxEscalationGrantForExecution } from './sandbox-escalation.js';
 
 const execAsync = promisify(exec);
 
@@ -45,7 +48,11 @@ export const LOCAL_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts = {
   secrets: 'host_env',
 };
 
-export interface WorkspaceExecInput {
+export interface WorkspacePermissionInput {
+  permissionContext?: ToolExecutionPermissionContext;
+}
+
+export interface WorkspaceExecInput extends WorkspacePermissionInput {
   command: string;
   cwd: string;
   timeoutMs: number;
@@ -62,9 +69,11 @@ export interface WorkspaceExecResult {
   stderrTruncated?: boolean;
   timedOut: boolean;
   aborted: boolean;
+  sandboxType?: SandboxType;
+  sandboxed?: boolean;
 }
 
-export interface WorkspaceReadFileInput {
+export interface WorkspaceReadFileInput extends WorkspacePermissionInput {
   cwd: string;
   path: string;
   offset?: number;
@@ -75,7 +84,7 @@ export interface WorkspaceReadFileResult {
   content: string;
 }
 
-export interface WorkspaceWriteFileInput {
+export interface WorkspaceWriteFileInput extends WorkspacePermissionInput {
   cwd: string;
   path: string;
   content: string;
@@ -87,7 +96,7 @@ export interface WorkspaceWriteFileResult {
   bytes: number;
 }
 
-export interface WorkspaceResolvePathInput {
+export interface WorkspaceResolvePathInput extends WorkspacePermissionInput {
   cwd: string;
   path: string;
   label: string;
@@ -97,7 +106,7 @@ export interface WorkspaceResolvePathResult {
   path: string;
 }
 
-export interface WorkspaceWriteLockKeyInput {
+export interface WorkspaceWriteLockKeyInput extends WorkspacePermissionInput {
   cwd: string;
   path: string;
 }
@@ -106,7 +115,7 @@ export interface WorkspaceWriteLockKeyResult {
   key: string;
 }
 
-export interface WorkspaceGlobInput {
+export interface WorkspaceGlobInput extends WorkspacePermissionInput {
   cwd: string;
   pattern: string;
   limit?: number;
@@ -116,7 +125,7 @@ export interface WorkspaceGlobResult {
   files: string[];
 }
 
-export interface WorkspaceGrepInput {
+export interface WorkspaceGrepInput extends WorkspacePermissionInput {
   cwd: string;
   pattern: string;
   path: string;
@@ -137,7 +146,7 @@ export type WorkspaceReadResult = WorkspaceReadFileResult;
 export interface WorkspaceWriteInput extends WorkspaceWriteFileInput {}
 export type WorkspaceWriteResult = WorkspaceWriteFileResult;
 
-export interface WorkspaceEditInput {
+export interface WorkspaceEditInput extends WorkspacePermissionInput {
   cwd: string;
   path: string;
   oldString: string;
@@ -153,7 +162,7 @@ export interface WorkspaceEditResult {
   endLine: number;
 }
 
-export interface WorkspaceGlobOperationInput {
+export interface WorkspaceGlobOperationInput extends WorkspacePermissionInput {
   cwd: string;
   path: string;
   pattern: string;
@@ -310,6 +319,8 @@ export interface SandboxedCommandWorkspaceExecutorOptions {
 export interface WorkspaceProfileEnforcementContext {
   profile: PermissionProfile;
   workspaceRoots: readonly string[];
+  /** Canonical session cwd used to resolve relative tool paths. */
+  cwd?: string;
   pathContext?: Partial<Omit<PermissionProfileMatchContext, 'workspaceRoots'>>;
 }
 
@@ -532,6 +543,22 @@ export class SandboxedCommandWorkspaceExecutor implements WorkspaceExecutor {
       });
     }
 
+    const additionalGrant = input.permissionContext?.additionalGrant;
+    const escalationGrant = input.permissionContext?.sandboxEscalationGrant;
+    if (additionalGrant && escalationGrant) {
+      throw new WorkspaceCommandSandboxError({
+        reason: 'invalid_request',
+        message: 'Additional permissions and unsandboxed execution cannot be combined.',
+      });
+    }
+    if (escalationGrant) {
+      assertSandboxEscalationGrantForExecution({
+        grant: escalationGrant,
+        command: input.command,
+        cwd: input.cwd,
+      });
+    }
+
     const transform = context.sandboxManager.transform({
       command: {
         program: '/bin/sh',
@@ -546,8 +573,13 @@ export class SandboxedCommandWorkspaceExecutor implements WorkspaceExecutor {
           workspaceRoots: context.workspaceRoots,
         },
       },
-      ...(context.preference ? { preference: context.preference } : {}),
+      ...((escalationGrant ? 'forbid' : context.preference)
+        ? { preference: escalationGrant ? 'forbid' as const : context.preference }
+        : {}),
       ...(context.platform ? { platform: context.platform } : {}),
+      ...(additionalGrant
+        ? { additionalPermissions: additionalGrant.profile }
+        : {}),
     });
 
     if (!transform.ok) {
@@ -575,6 +607,8 @@ export class SandboxedCommandWorkspaceExecutor implements WorkspaceExecutor {
       stderrTruncated: result.stderrTruncated,
       timedOut: result.timedOut,
       aborted: result.aborted,
+      sandboxType: transform.exec.sandboxType,
+      sandboxed: transform.exec.sandboxType !== 'none',
     };
   }
 
@@ -643,24 +677,24 @@ export class ProfileEnforcedWorkspaceExecutor implements WorkspaceExecutor {
   }
 
   async readFile(input: WorkspaceReadFileInput): Promise<WorkspaceReadFileResult> {
-    this.assertCanRead(input.path, 'read');
+    this.assertCanRead(input.path, 'read', input.permissionContext);
     return await this.inner.readFile(input);
   }
 
   async writeFile(input: WorkspaceWriteFileInput): Promise<WorkspaceWriteFileResult> {
-    this.assertCanWrite(input.path, 'write');
+    this.assertCanWrite(input.path, 'write', input.permissionContext);
     return await this.inner.writeFile(input);
   }
 
   async resolveExistingPath(input: WorkspaceResolvePathInput): Promise<WorkspaceResolvePathResult> {
     const result = await this.inner.resolveExistingPath(input);
-    this.assertCanRead(result.path, 'read');
+    this.assertCanRead(result.path, 'read', input.permissionContext);
     return result;
   }
 
   async resolveWritablePath(input: WorkspaceResolvePathInput): Promise<WorkspaceResolvePathResult> {
     const result = await this.inner.resolveWritablePath(input);
-    this.assertCanWrite(result.path, 'write');
+    this.assertCanWrite(result.path, 'write', input.permissionContext);
     return result;
   }
 
@@ -669,12 +703,12 @@ export class ProfileEnforcedWorkspaceExecutor implements WorkspaceExecutor {
   }
 
   async globFiles(input: WorkspaceGlobInput): Promise<WorkspaceGlobResult> {
-    this.assertCanRead(input.cwd, 'search');
+    this.assertCanRead(input.cwd, 'search', input.permissionContext);
     return await this.inner.globFiles(input);
   }
 
   async grepFiles(input: WorkspaceGrepInput): Promise<WorkspaceGrepResult> {
-    this.assertCanRead(input.path, 'search');
+    this.assertCanRead(input.path, 'search', input.permissionContext);
     return await this.inner.grepFiles(input);
   }
 
@@ -713,9 +747,10 @@ export class ProfileEnforcedWorkspaceExecutor implements WorkspaceExecutor {
     return await this.grepFiles({ ...input, path: resolved.path });
   }
 
-  private assertCanRead(path: string, operation: 'read' | 'search'): void {
+  private assertCanRead(path: string, operation: 'read' | 'search', permissionContext?: ToolExecutionPermissionContext): void {
     const { profile, matchContext } = this.requireProfileContext(operation, path);
-    if (canReadPath(profile, path, matchContext)) return;
+    const effective = effectiveProfile(profile, permissionContext);
+    if (canReadPath(effective, path, matchContext)) return;
     throw new WorkspaceProfilePermissionError({
       operation,
       path,
@@ -724,9 +759,10 @@ export class ProfileEnforcedWorkspaceExecutor implements WorkspaceExecutor {
     });
   }
 
-  private assertCanWrite(path: string, operation: 'write'): void {
+  private assertCanWrite(path: string, operation: 'write', permissionContext?: ToolExecutionPermissionContext): void {
     const { profile, matchContext } = this.requireProfileContext(operation, path);
-    if (canWritePath(profile, path, matchContext)) return;
+    const effective = effectiveProfile(profile, permissionContext);
+    if (canWritePath(effective, path, matchContext)) return;
     throw new WorkspaceProfilePermissionError({
       operation,
       path,
@@ -802,6 +838,14 @@ function profilePermissionErrorStage(reason: WorkspaceProfilePermissionErrorReas
 
 function profileName(profile: PermissionProfile): string | undefined {
   return profile.name;
+}
+
+function effectiveProfile(
+  profile: PermissionProfile,
+  permissionContext: ToolExecutionPermissionContext | undefined,
+): PermissionProfile {
+  const additional = permissionContext?.additionalGrant?.profile;
+  return additional ? applyAdditionalPermissionProfile(profile, additional) : profile;
 }
 
 function shellEscape(arg: string): string {

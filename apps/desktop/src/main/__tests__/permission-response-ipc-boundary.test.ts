@@ -48,6 +48,12 @@ describe('permission response IPC boundary', () => {
       () => normalizePermissionResponse({ requestId: 'permission-1', decision: 'deny', rememberForTurn: 'yes' }),
       /rememberForTurn/,
     );
+    assert.throws(
+      () => normalizePermissionResponse({
+        requestId: 'permission-1', decision: 'allow', reviewer: 'auto_review', riskLevel: 'low',
+      }),
+      /trusted reviewer metadata/,
+    );
   });
 
   it('routes sessions:respondToPermission through the main-process normalizer', async () => {

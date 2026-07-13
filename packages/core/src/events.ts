@@ -9,7 +9,13 @@
  * Connection-setup events live in ./connections.ts (separate channel).
  */
 
-import type { PermissionMode, PermissionRequest, PermissionResponse, ToolCategory } from './permission.js';
+import type {
+  AdditionalPermissionRequest,
+  PermissionMode,
+  PermissionResponse,
+  ToolCategory,
+  ToolPermissionRequest,
+} from './permission.js';
 import type { ShellRunStatus, ShellRunTerminalStatus } from './shell-run.js';
 import type {
   CacheMissInputSource,
@@ -169,6 +175,11 @@ export type ToolResultContent =
       stderr: string;
       stdoutTruncated: boolean;
       stderrTruncated: boolean;
+      sandboxDenial?: {
+        likely: true;
+        backend?: 'macos-seatbelt' | 'linux';
+        recovery: 'require_escalated';
+      };
     }
   | {
       kind: 'shell_run';
@@ -189,6 +200,11 @@ export type ToolResultContent =
       observedAt?: number;
       orphanedReason?: string;
       cancelled?: boolean;
+      sandboxDenial?: {
+        likely: true;
+        backend?: 'macos-seatbelt' | 'linux';
+        recovery: 'require_escalated';
+      };
     }
   | { kind: 'image'; mimeType: string; ref: StorageRef }
   | { kind: 'summary'; original: string; summarized: string; reason: 'too_large' }
@@ -331,20 +347,24 @@ export type ToolResultContent =
 
 export interface PermissionRequestEvent extends BaseEvent {
   type: 'permission_request';
+  kind?: 'tool_permission' | 'additional_permissions' | 'sandbox_escalation';
   requestId: string;
   toolUseId: string;
   toolName: string;
   category: ToolCategory;
-  reason:
-    | 'shell_dangerous'
-    | 'file_write'
-    | 'fs_destructive'
-    | 'network'
-    | 'git_destructive'
-    | 'privileged'
-    | 'browser'
-    | 'custom';
-  args: unknown;
+  reason: ToolPermissionRequest['reason'] | 'additional_permissions' | 'sandbox_escalation';
+  args?: unknown;
+  command?: string;
+  additionalPermissions?: AdditionalPermissionRequest['additionalPermissions'];
+  cwd?: string;
+  justification?: string;
+  intentHash?: string;
+  permissionsHash?: string;
+  commandHash?: string;
+  trigger?: import('./permission.js').SandboxEscalationRequest['trigger'];
+  risk?: AdditionalPermissionRequest['risk'] | import('./permission.js').SandboxEscalationRequest['risk'];
+  alsoApprovesToolExecution?: boolean;
+  availableDecisions?: AdditionalPermissionRequest['availableDecisions'];
   hint?: string;
 }
 
@@ -359,6 +379,9 @@ export interface PermissionDecisionAckEvent extends BaseEvent {
   toolUseId: string;
   decision: 'allow' | 'deny';
   rememberForTurn?: boolean;
+  reviewer?: import('./permission.js').ApprovalsReviewer;
+  rationale?: string;
+  riskLevel?: import('./permission.js').ApprovalRiskLevel;
 }
 
 export interface PlanSubmittedEvent extends BaseEvent {

@@ -1,4 +1,6 @@
 import { tmpdir as osTmpdir } from 'node:os';
+import { realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 import type { PermissionMode } from '@maka/core/permission';
 import type { PermissionProfile } from '@maka/core/permission-profile';
 import {
@@ -48,8 +50,8 @@ export function createPermissionAwareSandboxContext(
     ...(input.workspaceRoots ? { workspaceRoots: input.workspaceRoots } : {}),
   });
   const pathContext: SandboxPathContext = {
-    tmpdir: osTmpdir(),
-    slashTmp: '/tmp',
+    tmpdir: canonicalExistingPath(osTmpdir()),
+    slashTmp: canonicalExistingPath('/tmp'),
     ...input.pathContext,
     workspaceRoots: compiledProfile.workspaceRoots,
   };
@@ -66,6 +68,30 @@ export function createPermissionAwareSandboxContext(
       pathContext,
     },
   };
+}
+
+function canonicalExistingPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+export function normalizeSandboxMatchPath(
+  path: string,
+  context: Partial<Omit<SandboxPathContext, 'workspaceRoots'>>,
+): string {
+  const slashTmp = replacePathRoot(path, '/tmp', context.slashTmp);
+  return replacePathRoot(slashTmp, osTmpdir(), context.tmpdir);
+}
+
+function replacePathRoot(path: string, alias: string, canonical: string | undefined): string {
+  if (!canonical || alias === canonical) return path;
+  const rel = relative(alias, path);
+  if (rel === '') return canonical;
+  if (rel.startsWith('..') || isAbsolute(rel)) return path;
+  return resolve(canonical, rel);
 }
 
 export type FilesystemWorkerProfileOperation = 'read' | 'search' | 'write' | 'edit';

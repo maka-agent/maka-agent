@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -86,6 +86,56 @@ describe('FilesystemWorkerClient', () => {
     });
 
     assert.equal(transformCalls[0]?.command.profile.name, 'workspace-write');
+  });
+
+  test('canonicalizes an outside path and sends one operation-scoped worker permission', async () => {
+    const calls: FilesystemWorkerProcessRunInput[] = [];
+    const canonicalTmp = await realpath('/tmp');
+    const context = sandboxContext();
+    context.cwd = process.cwd();
+    context.workspaceRoots = [process.cwd()];
+    context.pathContext = {
+      workspaceRoots: [process.cwd()],
+      slashTmp: canonicalTmp,
+    };
+    const client = new FilesystemWorkerClient({
+      getLaunchSpec: async () => ({ ok: true, spec: launchSpec() }),
+      newId: () => 'request-1',
+      runProcess: async (input) => {
+        calls.push(input);
+        const request = JSON.parse(input.stdin) as {
+          requestId: string;
+          operation: { kind: 'write'; path: string };
+        };
+        return processResult(JSON.stringify({
+          version: 1,
+          requestId: request.requestId,
+          ok: true,
+          result: { kind: 'write', ok: true, path: request.operation.path, bytes: 2 },
+        }));
+      },
+    });
+
+    await client.execute({
+      context,
+      operation: { kind: 'write', path: '/tmp/maka-worker-canonical.txt', content: 'ok' },
+    });
+
+    const request = JSON.parse(calls[0]!.stdin) as {
+      operation: { path: string };
+      additionalPermissions: { fileSystem: { entries: Array<{
+        path: string;
+        access: string;
+        scope: string;
+      }> } };
+    };
+    const expected = `${canonicalTmp}/maka-worker-canonical.txt`;
+    assert.equal(request.operation.path, expected);
+    assert.deepEqual(request.additionalPermissions.fileSystem.entries, [{
+      path: expected,
+      access: 'write',
+      scope: 'exact',
+    }]);
   });
 
   test('fails closed before process launch when launch resolution or sandbox transform fails', async () => {
@@ -342,8 +392,12 @@ describe('runFilesystemWorkerProcess', () => {
 
 if (process.platform === 'darwin') {
   describe('macOS sandboxed filesystem worker smoke', () => {
-    test('runs all default file tools and independently denies protected metadata writes', async () => {
+    test('runs all default file tools, accepts canonical tmp, and denies protected metadata writes', async (t) => {
       const cwd = await realpath(await mkdtemp(join(tmpdir(), 'maka-fs-worker-seatbelt-')));
+      const slashTmpRoot = await mkdtemp('/tmp/maka-fs-worker-slash-');
+      t.after(async () => {
+        await rm(slashTmpRoot, { recursive: true, force: true });
+      });
       await mkdir(join(cwd, '.git'));
       await writeFile(join(cwd, '.git', 'config'), 'protected', 'utf8');
       const sandboxManager = createDefaultSandboxManager();
@@ -384,6 +438,9 @@ if (process.platform === 'darwin') {
       };
 
       await fileTool('Write').impl({ path: 'allowed.txt', content: 'before' }, toolContext);
+      const slashTmpFile = join(slashTmpRoot, 'allowed.txt');
+      await fileTool('Write').impl({ path: slashTmpFile, content: 'tmp-ok' }, toolContext);
+      assert.equal(await readFile(slashTmpFile, 'utf8'), 'tmp-ok');
       const read = await fileTool('Read').impl({ path: 'allowed.txt' }, toolContext) as { content: string };
       assert.equal(read.content, 'before');
       await fileTool('Edit').impl({
@@ -401,8 +458,8 @@ if (process.platform === 'darwin') {
           operation: { kind: 'write', path: '.git/config', content: 'denied' },
         }),
         (error: unknown) => error instanceof FilesystemWorkerClientError
-          && error.stage === 'operation'
-          && error.reason === 'filesystem_denied',
+          && error.stage === 'validation'
+          && error.reason === 'path_denied',
       );
       assert.equal(await readFile(join(cwd, '.git', 'config'), 'utf8'), 'protected');
 

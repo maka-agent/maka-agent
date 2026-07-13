@@ -118,6 +118,42 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('allows an additional permission only once without rememberForTurn', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionPromptDriver(true);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'execute',
+      terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('u');
+    terminal.input('n');
+    terminal.input('\r');
+    await waitFor(() => driver.permissionRequests === 1);
+    await delay(20);
+    terminal.input('y');
+    await waitFor(() => driver.permissionResponses.length === 1);
+
+    assert.deepEqual(driver.permissionResponses, [{
+      requestId: 'permission-1',
+      decision: 'allow',
+    }]);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('toggles tool detail globally with Ctrl-O', async () => {
     const terminal = new FakeTerminal();
     const driver = new ToolOutputDriver();
@@ -1538,6 +1574,8 @@ class PermissionPromptDriver implements MakaSessionDriver {
   stopCalls = 0;
   private continueAfterPermission: (() => void) | null = null;
 
+  constructor(private readonly additional = false) {}
+
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
@@ -1546,18 +1584,40 @@ class PermissionPromptDriver implements MakaSessionDriver {
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     this.permissionRequests += 1;
-    yield {
-      type: 'permission_request',
-      id: 'event-permission',
-      turnId: 'turn-1',
-      ts: 1,
-      requestId: 'permission-1',
-      toolUseId: 'tool-1',
-      toolName: 'Bash',
-      category: 'shell_unsafe',
-      reason: 'shell_dangerous',
-      args: { command: 'npm test' },
-    };
+    yield this.additional
+      ? {
+          type: 'permission_request',
+          kind: 'additional_permissions',
+          id: 'event-permission',
+          turnId: 'turn-1',
+          ts: 1,
+          requestId: 'permission-1',
+          toolUseId: 'tool-1',
+          toolName: 'Bash',
+          category: 'shell_unsafe',
+          reason: 'additional_permissions',
+          additionalPermissions: { network: { enabled: true } },
+          cwd: '/repo',
+          justification: 'Access the network once.',
+          intentHash: `sha256:${'1'.repeat(64)}`,
+          permissionsHash: `sha256:${'2'.repeat(64)}`,
+          risk: { outsideWorkspace: false, protectedMetadata: false, networkEnabled: true },
+          alsoApprovesToolExecution: false,
+          availableDecisions: ['allow_once', 'deny'],
+        }
+      : {
+          type: 'permission_request',
+          kind: 'tool_permission',
+          id: 'event-permission',
+          turnId: 'turn-1',
+          ts: 1,
+          requestId: 'permission-1',
+          toolUseId: 'tool-1',
+          toolName: 'Bash',
+          category: 'shell_unsafe',
+          reason: 'shell_dangerous',
+          args: { command: 'npm test' },
+        };
     await new Promise<void>((resolve) => {
       this.continueAfterPermission = resolve;
     });
@@ -1569,7 +1629,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
       requestId: 'permission-1',
       toolUseId: 'tool-1',
       decision: 'allow',
-      rememberForTurn: true,
+      ...(!this.additional ? { rememberForTurn: true } : {}),
     };
     yield {
       type: 'complete',

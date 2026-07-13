@@ -35,6 +35,9 @@ export function normalizePermissionResponse(input: unknown): PermissionResponse 
   if (value.rememberForTurn !== undefined && typeof value.rememberForTurn !== 'boolean') {
     throw new Error('Invalid permission response rememberForTurn');
   }
+  if (value.reviewer !== undefined || value.rationale !== undefined || value.riskLevel !== undefined) {
+    throw new Error('Invalid permission response trusted reviewer metadata');
+  }
   return {
     requestId: value.requestId,
     decision: value.decision,

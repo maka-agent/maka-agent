@@ -15,7 +15,7 @@
  */
 
 import type { AttachmentRef } from './events.js';
-import type { PermissionRequest, PermissionResponse } from './permission.js';
+import type { PermissionResponse, ToolCategory, ToolPermissionRequest } from './permission.js';
 import type {
   CacheMissInputSource,
   ContextBudgetDiagnostic,
@@ -203,6 +203,49 @@ export interface RuntimeEventTokenUsage {
  */
 export type RuntimeEventPermissionDecision = PermissionResponse;
 
+export interface RuntimeEventAdditionalPermissionRequest {
+  kind: 'additional_permissions';
+  requestId: string;
+  toolUseId: string;
+  toolName: string;
+  category: ToolCategory;
+  reason: 'additional_permissions';
+  permissionsHash: string;
+  entryCount: number;
+  readCount: number;
+  writeCount: number;
+  exactCount: number;
+  subtreeCount: number;
+  networkEnabled: boolean;
+  outsideWorkspace: boolean;
+  protectedMetadata: boolean;
+  alsoApprovesToolExecution: boolean;
+  hint?: string;
+}
+
+export interface RuntimeEventSandboxEscalationRequest {
+  kind: 'sandbox_escalation';
+  requestId: string;
+  toolUseId: string;
+  toolName: 'Bash';
+  category: ToolCategory;
+  reason: 'sandbox_escalation';
+  command: string;
+  cwd: string;
+  justification: string;
+  intentHash: string;
+  commandHash: string;
+  trigger: 'proactive' | 'sandbox_denial';
+  risk: import('./permission.js').SandboxEscalationRiskSummary;
+  alsoApprovesToolExecution: boolean;
+  hint?: string;
+}
+
+export type RuntimeEventPermissionRequest =
+  | ToolPermissionRequest
+  | RuntimeEventAdditionalPermissionRequest
+  | RuntimeEventSandboxEscalationRequest;
+
 /**
  * Control and side-effect intent carried alongside content. An event may
  * carry content, actions, both, or (rarely) neither — but a terminal
@@ -214,7 +257,7 @@ export interface RuntimeEventActions {
   /** Artifact key → primitive delta (size/bytes/version counters, etc.). */
   artifactDelta?: Record<string, string | number | boolean>;
   /** A permission prompt raised for a tool call. */
-  permissionRequest?: PermissionRequest;
+  permissionRequest?: RuntimeEventPermissionRequest;
   /** A resolved permission decision (allow/deny) for a prior request. */
   permissionDecision?: RuntimeEventPermissionDecision;
   /** Hand off the invocation to another agent (multi-agent transfer). */

@@ -1,4 +1,5 @@
 import type { PermissionProfile } from '@maka/core/permission-profile';
+import type { AdditionalPermissionProfile } from '@maka/core/additional-permissions';
 
 export type SandboxType = 'none' | 'macos-seatbelt' | 'linux';
 
@@ -68,6 +69,7 @@ export type SandboxSelectionResult =
 
 export interface SandboxTransformRequest {
   command: SandboxCommand;
+  additionalPermissions?: AdditionalPermissionProfile;
   preference?: SandboxablePreference;
   platform?: SandboxPlatform;
 }

@@ -3,6 +3,14 @@ import { redactSecrets } from '@maka/core/redaction';
 import type { ToolResultContent } from '@maka/core/events';
 import type { ToolExecutionFacts } from '@maka/core/permission';
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
+import type {
+  AdditionalPermissionPlanResult,
+  AdditionalPermissionPlannerContext,
+} from './additional-permissions.js';
+import type {
+  SandboxEscalationPlanResult,
+  SandboxEscalationPlannerContext,
+} from './sandbox-escalation.js';
 import { runShellWithBoundedTail, type BoundedShellResult } from './shell-exec.js';
 import { truncateToolOutput } from './tool-output.js';
 import {
@@ -53,6 +61,30 @@ export interface ShellRunToolController {
   stopResource(sessionId: string, ref: string): Promise<ShellRunToolResult>;
 }
 
+const additionalFilesystemEntrySchema = z.object({
+  path: z.string(),
+  access: z.enum(['read', 'write']),
+  scope: z.enum(['exact', 'subtree']),
+}).strict();
+
+export const bashSandboxPermissionsSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('use_default') }).strict(),
+  z.object({
+    mode: z.literal('with_additional_permissions'),
+    file_system: z.object({
+      entries: z.array(additionalFilesystemEntrySchema).max(32),
+    }).strict().optional(),
+    network: z.literal(true).optional(),
+    justification: z.string().min(1).max(500),
+  }).strict(),
+  z.object({
+    mode: z.literal('require_escalated'),
+    justification: z.string().min(1).max(500),
+  }).strict(),
+]);
+
+export type BashSandboxPermissionsDeclaration = z.infer<typeof bashSandboxPermissionsSchema>;
+
 export function buildForegroundBashTool(options: BuildForegroundBashToolOptions): MakaTool {
   const maxTimeoutMs = options.maxTimeoutMs ?? 600_000;
   return {
@@ -98,7 +130,17 @@ export function buildLocalForegroundBashTool(options: { executionFacts?: ToolExe
 
 export function buildBackgroundBashTool(
   shellRuns: ShellRunToolController,
-  options: { executionFacts?: ToolExecutionFacts } = {},
+  options: {
+    executionFacts?: ToolExecutionFacts;
+    planAdditionalPermissions?: (
+      args: { command: string; sandbox_permissions?: BashSandboxPermissionsDeclaration },
+      context: AdditionalPermissionPlannerContext,
+    ) => Promise<AdditionalPermissionPlanResult> | AdditionalPermissionPlanResult;
+    planSandboxEscalation?: (
+      args: { command: string; sandbox_permissions?: BashSandboxPermissionsDeclaration },
+      context: SandboxEscalationPlannerContext,
+    ) => Promise<SandboxEscalationPlanResult> | SandboxEscalationPlanResult;
+  } = {},
 ): MakaTool {
   return {
     name: 'Bash',
@@ -108,10 +150,15 @@ export function buildBackgroundBashTool(
       command: z.string().describe('The shell command to execute'),
       timeout_ms: z.number().int().positive().max(MAX_SHELL_RUN_TIMEOUT_MS).optional(),
       yield_time_ms: z.number().int().positive().optional(),
+      sandbox_permissions: bashSandboxPermissionsSchema
+        .describe('Optional one-call permission request. Prefer with_additional_permissions for minimal filesystem/network access; use require_escalated only when the command cannot run in the sandbox. Approval is routed by the active permission mode.')
+        .optional(),
     }),
     permissionRequired: true,
     sandboxRequirement: 'command',
     ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
+    ...(options.planAdditionalPermissions ? { planAdditionalPermissions: options.planAdditionalPermissions } : {}),
+    ...(options.planSandboxEscalation ? { planSandboxEscalation: options.planSandboxEscalation } : {}),
     impl: async ({ command, timeout_ms, yield_time_ms }, ctx) => shellRuns.runBash({
       sessionId: ctx.sessionId,
       ...(ctx.runId ? { sourceRunId: ctx.runId } : {}),
@@ -122,6 +169,7 @@ export function buildBackgroundBashTool(
       ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),
       abortSignal: ctx.abortSignal,
       emitOutput: ctx.emitOutput,
+      permissionContext: ctx.permissionContext,
     }),
   };
 }

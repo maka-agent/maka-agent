@@ -1,9 +1,26 @@
 import { z } from 'zod';
+import { validateAdditionalPermissionProfile } from '@maka/core/additional-permissions';
 
 export const FILESYSTEM_WORKER_PROTOCOL_VERSION = 1 as const;
 
 const relativePath = z.string().min(1);
 const cwd = z.string().min(1);
+
+const AdditionalPermissionProfileSchema = z.object({
+  fileSystem: z.object({
+    entries: z.array(z.object({
+      path: z.string().min(1).max(4096),
+      access: z.enum(['read', 'write']),
+      scope: z.enum(['exact', 'subtree']),
+    }).strict()).max(32),
+  }).strict().optional(),
+  network: z.object({ enabled: z.literal(true) }).strict().optional(),
+}).strict().superRefine((profile, context) => {
+  const validation = validateAdditionalPermissionProfile(profile);
+  if (!validation.ok) {
+    context.addIssue({ code: 'custom', message: validation.message });
+  }
+});
 
 export const FilesystemWorkerOperationSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -49,7 +66,16 @@ export const FilesystemWorkerRequestSchema = z.object({
   version: z.literal(FILESYSTEM_WORKER_PROTOCOL_VERSION),
   requestId: z.string().min(1).max(256),
   operation: FilesystemWorkerOperationSchema,
-}).strict();
+  additionalPermissions: AdditionalPermissionProfileSchema.optional(),
+  permissionsHash: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional(),
+}).strict().superRefine((request, context) => {
+  if (Boolean(request.additionalPermissions) !== Boolean(request.permissionsHash)) {
+    context.addIssue({
+      code: 'custom',
+      message: 'additionalPermissions and permissionsHash must be provided together.',
+    });
+  }
+});
 
 export const FilesystemWorkerResultSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('read'), content: z.string() }).strict(),

@@ -9,6 +9,7 @@ import {
   ShellRunProcessManager,
   ShellRunSandboxError,
 } from '../shell-run-manager.js';
+import { sandboxEscalationCommandHash } from '../sandbox-escalation.js';
 
 describe('ShellRunProcessManager', () => {
   test('transforms background commands and records the canonical context cwd', async () => {
@@ -61,6 +62,140 @@ describe('ShellRunProcessManager', () => {
     assert.equal(result.kind, 'terminal');
     assert.deepEqual(calls, [{ program: '/bin/sh', args: ['-c', 'printf "ok"'], cwd }]);
     assert.equal((await store.readShellRun('session-1', 'shell-run-1')).cwd, cwd);
+  });
+
+  test('passes one-call permissions to transform and persists only their safe summary', async () => {
+    const store = new MemoryShellRunStore();
+    const cwd = process.cwd();
+    const profile = { network: { enabled: true as const } };
+    let transformedAdditional: unknown;
+    const manager = new ShellRunProcessManager({
+      store,
+      newId: () => 'shell-run-1',
+      now: Date.now,
+      getSandboxContext: async () => ({
+        ok: true,
+        context: {
+          cwd,
+          profile: createDangerFullAccessPermissionProfile(),
+          workspaceRoots: [cwd],
+          sandboxManager: {
+            transform: (request) => {
+              transformedAdditional = request.additionalPermissions;
+              return {
+                ok: true,
+                exec: {
+                  argv: [request.command.program, ...request.command.args],
+                  cwd: request.command.cwd,
+                  env: request.command.env,
+                  sandboxType: 'none',
+                  effectiveProfile: request.command.profile,
+                },
+                sandboxType: 'none',
+                requiresSandbox: false,
+                preference: 'auto',
+              };
+            },
+          },
+          pathContext: { workspaceRoots: [cwd] },
+        },
+      }),
+    });
+    const permissionContext = {
+      additionalGrant: {
+        grantId: 'grant-1',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        toolUseId: 'tool-1',
+        toolName: 'Bash',
+        intentHash: `sha256:${'1'.repeat(64)}`,
+        permissionsHash: `sha256:${'2'.repeat(64)}`,
+        profile,
+        normalizedPaths: [],
+        risk: { outsideWorkspace: false, protectedMetadata: false, networkEnabled: true },
+        issuedAt: 1,
+        expiresAt: 2,
+      },
+    };
+
+    await manager.runBash(shellInput({
+      cwd,
+      command: 'printf "ok"',
+      yieldTimeMs: 30_000,
+      permissionContext,
+    }));
+
+    assert.deepEqual(transformedAdditional, profile);
+    const record = await store.readShellRun('session-1', 'shell-run-1');
+    assert.deepEqual(record.additionalPermissions, {
+      permissionsHash: `sha256:${'2'.repeat(64)}`,
+      entryCount: 0,
+      networkEnabled: true,
+      outsideWorkspace: false,
+      protectedMetadata: false,
+    });
+    assert.equal(JSON.stringify(record).includes('grant-1'), false);
+  });
+
+  test('uses an exact one-shot escalation grant before background spawn', async () => {
+    const store = new MemoryShellRunStore();
+    const cwd = process.cwd();
+    const command = 'printf "ok"';
+    let transformedPreference: unknown;
+    const manager = new ShellRunProcessManager({
+      store,
+      newId: () => 'shell-run-1',
+      now: Date.now,
+      getSandboxContext: async () => ({
+        ok: true,
+        context: {
+          cwd,
+          profile: createDangerFullAccessPermissionProfile(),
+          workspaceRoots: [cwd],
+          sandboxManager: {
+            transform: (request) => {
+              transformedPreference = request.preference;
+              return {
+                ok: true,
+                exec: {
+                  argv: [request.command.program, ...request.command.args],
+                  cwd: request.command.cwd,
+                  sandboxType: 'none',
+                  effectiveProfile: request.command.profile,
+                },
+                sandboxType: 'none',
+                requiresSandbox: false,
+                preference: request.preference ?? 'auto',
+              };
+            },
+          },
+          pathContext: { workspaceRoots: [cwd] },
+        },
+      }),
+    });
+    const commandHash = sandboxEscalationCommandHash(command, cwd);
+    await manager.runBash(shellInput({
+      cwd,
+      command,
+      yieldTimeMs: 30_000,
+      permissionContext: {
+        sandboxEscalationGrant: {
+          grantId: 'grant-1', sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
+          toolName: 'Bash', intentHash: 'intent', commandHash, command, cwd,
+          risk: {
+            unsandboxedExecution: true, unrestrictedFileSystem: true,
+            unrestrictedNetwork: true, protectedMetadataExposed: true,
+          },
+          issuedAt: 1, expiresAt: 2,
+        },
+      },
+    }));
+
+    assert.equal(transformedPreference, 'forbid');
+    const record = await store.readShellRun('session-1', 'shell-run-1');
+    assert.deepEqual(record.sandboxExecution, { type: 'none', enforced: false });
+    assert.deepEqual(record.sandboxEscalation, { commandHash, unsandboxed: true });
+    assert.equal(JSON.stringify(record).includes('grant-1'), false);
   });
 
   test('fails before id allocation, spawn, and durable record when context resolution fails', async () => {
@@ -467,6 +602,7 @@ function shellInput(input: {
   yieldTimeMs?: number;
   abortSignal?: AbortSignal;
   emitOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  permissionContext?: import('../additional-permissions.js').ToolExecutionPermissionContext;
 }) {
   return {
     sessionId: 'session-1',
@@ -476,6 +612,7 @@ function shellInput(input: {
     command: input.command,
     ...(input.yieldTimeMs !== undefined ? { yieldTimeMs: input.yieldTimeMs } : {}),
     ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
+    ...(input.permissionContext !== undefined ? { permissionContext: input.permissionContext } : {}),
     emitOutput: input.emitOutput ?? (() => {}),
   };
 }

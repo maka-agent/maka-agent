@@ -165,7 +165,7 @@ describe('buildPermissionAwareBuiltinTools', () => {
             result: {
               kind: 'write',
               ok: true,
-              path: join(cwd, request.operation.path),
+              path: request.operation.path,
               bytes: Buffer.byteLength(request.operation.content ?? '', 'utf8'),
             },
           }),
@@ -188,7 +188,12 @@ describe('buildPermissionAwareBuiltinTools', () => {
     const write = requireTool(built.tools, 'Write');
     const result = await write.impl({ path: 'notes.txt', content: 'ok' }, toolContext(cwd));
 
-    expect(operations).toEqual([{ kind: 'write', path: 'notes.txt', content: 'ok', cwd }]);
+    expect(operations).toEqual([{
+      kind: 'write',
+      path: join(cwd, 'notes.txt'),
+      content: 'ok',
+      cwd,
+    }]);
     expect(result).toMatchObject({ ok: true, path: join(cwd, 'notes.txt'), bytes: 2 });
     expect(write.executionFacts?.isolation).toBe('platform_sandbox');
   });

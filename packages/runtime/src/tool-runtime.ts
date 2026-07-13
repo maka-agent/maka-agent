@@ -17,6 +17,7 @@ import type {
   ToolExecutionFacts,
   ToolSandboxRequirement,
 } from '@maka/core/permission';
+import { BUILTIN_TOOL_CATEGORY, categorizeBash } from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
@@ -37,6 +38,22 @@ import {
   type ActiveSandboxCapabilities,
 } from './sandbox/active-capabilities.js';
 import { serializeSandboxError } from './sandbox/errors.js';
+import {
+  AdditionalPermissionError,
+  revalidateAdditionalPermissionProposal,
+  type AdditionalPermissionPlanResult,
+  type AdditionalPermissionPlannerContext,
+  type ToolExecutionPermissionContext,
+} from './additional-permissions.js';
+import {
+  ApprovalCoordinator,
+  type AutoApprovalReviewContext,
+} from './approval-reviewer.js';
+import {
+  SandboxEscalationError,
+  type SandboxEscalationPlanResult,
+  type SandboxEscalationPlannerContext,
+} from './sandbox-escalation.js';
 
 export interface MakaTool<P = any, R = unknown> {
   /** Canonical (Claude-SDK-style) name. Pi adapter translates to canonical. */
@@ -58,6 +75,16 @@ export interface MakaTool<P = any, R = unknown> {
   executionFacts?: ToolExecutionFacts;
   /** Static sandbox capability required before this tool may execute. */
   sandboxRequirement?: ToolSandboxRequirement;
+  /** Runtime-owned planner for one-call permission expansion. */
+  planAdditionalPermissions?: (
+    args: P,
+    context: AdditionalPermissionPlannerContext,
+  ) => Promise<AdditionalPermissionPlanResult> | AdditionalPermissionPlanResult;
+  /** Runtime-owned planner for a one-call command sandbox escape. */
+  planSandboxEscalation?: (
+    args: P,
+    context: SandboxEscalationPlannerContext,
+  ) => Promise<SandboxEscalationPlanResult> | SandboxEscalationPlanResult;
   /** Real tool implementation. Called only after permission allows. */
   impl: (args: P, ctx: MakaToolContext) => Promise<R> | R;
 }
@@ -71,6 +98,7 @@ export interface MakaToolContext {
   toolCallId: string;
   abortSignal: AbortSignal;
   emitOutput: (stream: ToolOutputStream, chunk: string) => void;
+  permissionContext?: ToolExecutionPermissionContext;
   spawnChildAgent?: (input: {
     spec: AgentSpec;
     prompt: string;
@@ -137,6 +165,8 @@ export interface ToolRuntimeInput {
   recordToolArtifacts?: ToolArtifactRecorder;
   /** Session-scoped policy snapshot; execution paths still revalidate at launch. */
   sandboxCapabilities?: ActiveSandboxCapabilities;
+  approvalCoordinator?: ApprovalCoordinator;
+  getAutoApprovalReviewContext?: () => Omit<AutoApprovalReviewContext, 'sessionId' | 'turnId' | 'cwd' | 'permissionMode'>;
 }
 
 export class ToolRuntime {
@@ -156,8 +186,14 @@ export class ToolRuntime {
    */
   private lastFailedToolCallSignature: string | undefined;
   private failedToolCallStreak = 0;
+  private readonly recentSandboxDenials = new Set<string>();
+  private readonly autoReviewEscalationAttempts = new Map<string, 'pending' | 'denied'>();
 
-  constructor(private readonly input: ToolRuntimeInput) {}
+  private readonly approvalCoordinator: ApprovalCoordinator;
+
+  constructor(private readonly input: ToolRuntimeInput) {
+    this.approvalCoordinator = input.approvalCoordinator ?? new ApprovalCoordinator({});
+  }
 
   wrapToolExecute(
     tool: MakaTool,
@@ -185,6 +221,8 @@ export class ToolRuntime {
     this.gating = undefined;
     this.lastFailedToolCallSignature = undefined;
     this.failedToolCallStreak = 0;
+    this.recentSandboxDenials.clear();
+    this.autoReviewEscalationAttempts.clear();
   }
 
   /**
@@ -327,7 +365,109 @@ export class ToolRuntime {
     }
 
     const sandbox = sandboxContextForTool(tool.sandboxRequirement, this.input.sandboxCapabilities);
-    if (tool.permissionRequired !== false || sandbox.requirement !== 'none') {
+    let additionalPlan: AdditionalPermissionPlanResult = { kind: 'not_required' };
+    if (tool.planAdditionalPermissions) {
+      try {
+        additionalPlan = await tool.planAdditionalPermissions(args, {
+          sessionId: this.input.sessionId,
+          turnId,
+          toolUseId,
+          toolName: tool.name,
+          category: classifyToolCategory(tool, args),
+          cwd: this.input.header.cwd,
+          mode: this.input.header.permissionMode,
+          args,
+        });
+      } catch (error) {
+        additionalPlan = {
+          kind: 'block',
+          reason: 'invalid_additional_permissions',
+          message: formatSyntheticToolErrorText(error),
+        };
+      }
+      if (additionalPlan.kind === 'block') {
+        trace?.emit('permission', 'additional_permission_failed', 'Additional permission planning failed', {
+          toolUseId,
+          toolName: tool.name,
+          reason: additionalPlan.reason,
+        });
+        await this.writeSyntheticToolResult(toolUseId, turnId, additionalPlan.message, queue);
+        this.recordLoopGateOutcome(callSignature, true);
+        return this.errorReturn(additionalPlan.message);
+      }
+    }
+
+    let escalationPlan: SandboxEscalationPlanResult = { kind: 'not_required' };
+    if (tool.planSandboxEscalation) {
+      try {
+        escalationPlan = await tool.planSandboxEscalation(args, {
+          sessionId: this.input.sessionId,
+          turnId,
+          toolUseId,
+          toolName: tool.name,
+          category: classifyToolCategory(tool, args),
+          cwd: this.input.header.cwd,
+          mode: this.input.header.permissionMode,
+          args,
+          ...(this.recentSandboxDenials.has(sandboxDenialKey(tool.name, this.input.header.cwd, args))
+            ? { recentSandboxDenial: true }
+            : {}),
+        });
+      } catch (error) {
+        escalationPlan = {
+          kind: 'block',
+          reason: 'invalid_sandbox_escalation',
+          message: formatSyntheticToolErrorText(error),
+        };
+      }
+      if (escalationPlan.kind === 'block') {
+        trace?.emit('permission', 'sandbox_escalation_failed', 'Sandbox escalation planning failed', {
+          toolUseId,
+          toolName: tool.name,
+          reason: escalationPlan.reason,
+        });
+        await this.writeSyntheticToolResult(toolUseId, turnId, escalationPlan.message, queue);
+        this.recordLoopGateOutcome(callSignature, true);
+        return this.errorReturn(escalationPlan.message);
+      }
+    }
+
+    if (additionalPlan.kind === 'request' && escalationPlan.kind === 'request') {
+      const reason = 'A tool call cannot request additional permissions and unsandboxed execution together.';
+      await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
+      this.recordLoopGateOutcome(callSignature, true);
+      return this.errorReturn(reason);
+    }
+
+    let autoReviewEscalationKey: string | undefined;
+    if (
+      this.input.header.permissionMode === 'execute'
+      && escalationPlan.kind === 'request'
+    ) {
+      autoReviewEscalationKey = `${turnId}\u0000${escalationPlan.proposal.commandHash}`;
+      const priorAttempt = this.autoReviewEscalationAttempts.get(autoReviewEscalationKey);
+      if (priorAttempt) {
+        const reason = priorAttempt === 'pending'
+          ? '相同的 sandbox 提权请求正在自动审批；为防止重复送审，本轮不会再次执行。'
+          : '相同的 sandbox 提权请求已在当前轮次中被自动审批拒绝；需要用户发送新的消息后才能重新申请。';
+        trace?.emit('permission', 'sandbox_escalation_failed', 'Repeated automatic escalation review blocked', {
+          toolUseId,
+          toolName: tool.name,
+          reason: 'sandbox_escalation_denied',
+        });
+        await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
+        this.recordLoopGateOutcome(callSignature, true);
+        return this.errorReturn(reason);
+      }
+      this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'pending');
+    }
+
+    if (
+      tool.permissionRequired !== false
+      || sandbox.requirement !== 'none'
+      || additionalPlan.kind === 'request'
+      || escalationPlan.kind === 'request'
+    ) {
       const verdict = this.input.permissionEngine.evaluate({
         sessionId: this.input.sessionId,
         turnId,
@@ -338,9 +478,19 @@ export class ToolRuntime {
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         sandbox,
         mode: this.input.header.permissionMode,
+        cwd: this.input.header.cwd,
+        ...(additionalPlan.kind === 'request'
+          ? { additionalPermissionProposal: additionalPlan.proposal }
+          : {}),
+        ...(escalationPlan.kind === 'request'
+          ? { sandboxEscalationProposal: escalationPlan.proposal }
+          : {}),
       });
 
       if (verdict.kind === 'block') {
+        if (autoReviewEscalationKey) {
+          this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'denied');
+        }
         trace?.emit('permission', 'permission_failed', 'Permission blocked tool execution', {
           toolUseId,
           toolName: tool.name,
@@ -359,8 +509,24 @@ export class ToolRuntime {
       }
 
       if (verdict.kind === 'prompt') {
-        queue.push(verdict.event);
-        trace?.emit('permission', 'permission_requested', 'Permission requested', {
+        const reviewContext: AutoApprovalReviewContext = {
+          sessionId: this.input.sessionId,
+          turnId,
+          cwd: this.input.header.cwd,
+          permissionMode: this.input.header.permissionMode,
+          ...this.input.getAutoApprovalReviewContext?.(),
+        };
+        const isAdditional = verdict.event.kind === 'additional_permissions';
+        const isEscalation = verdict.event.kind === 'sandbox_escalation';
+        trace?.emit('permission', 'approval_routed', 'Permission request routed to reviewer', {
+          requestId: verdict.event.requestId,
+          toolUseId,
+          toolName: tool.name,
+          reviewer: this.input.header.permissionMode === 'execute' ? 'auto_review' : 'user',
+        });
+        trace?.emit('permission', isEscalation
+          ? 'sandbox_escalation_requested'
+          : isAdditional ? 'additional_permission_requested' : 'permission_requested', 'Permission requested', {
           requestId: verdict.event.requestId,
           toolUseId,
           toolName: tool.name,
@@ -368,16 +534,51 @@ export class ToolRuntime {
         });
         let response: PermissionDecision;
         try {
-          response = await this.awaitPermissionDecision(verdict, turnId);
+          response = await this.awaitPermissionDecision(
+            verdict,
+            turnId,
+            () => this.approvalCoordinator.resolve({
+              mode: this.input.header.permissionMode,
+              verdict,
+              permissionEngine: this.input.permissionEngine,
+              context: reviewContext,
+              emitUserRequest: (event) => queue.push(event),
+              abortSignal: ctx.abortSignal,
+            }),
+          );
         } catch (err) {
+          if (autoReviewEscalationKey) {
+            this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'denied');
+          }
           const msg = formatSyntheticToolErrorText(err);
           const reason = formatSyntheticToolErrorText(`Permission flow aborted: ${msg}`);
+          const failureReason = err instanceof AdditionalPermissionError
+            ? err.reason
+            : err instanceof SandboxEscalationError
+              ? err.reason
+            : 'permission_flow_failed';
           trace?.emit('permission', 'permission_failed', 'Permission flow failed', {
             requestId: verdict.event.requestId,
             toolUseId,
             toolName: tool.name,
-            reason,
+            reason: failureReason,
           });
+          if (isAdditional) {
+            trace?.emit('permission', 'additional_permission_failed', 'Additional permission flow failed', {
+              requestId: verdict.event.requestId,
+              toolUseId,
+              toolName: tool.name,
+              reason: failureReason,
+            });
+          }
+          if (isEscalation) {
+            trace?.emit('permission', 'sandbox_escalation_failed', 'Sandbox escalation flow failed', {
+              requestId: verdict.event.requestId,
+              toolUseId,
+              toolName: tool.name,
+              reason: failureReason,
+            });
+          }
           await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
           trace?.emit('tool', 'tool_failed', 'Tool execution failed before implementation', {
             toolUseId,
@@ -398,6 +599,9 @@ export class ToolRuntime {
           toolName: tool.name,
           decision: response.decision,
           ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
+          ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
+          ...(response.rationale !== undefined ? { rationale: response.rationale } : {}),
+          ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
         };
         await this.input.appendMessage(decisionMsg);
         queue.push({
@@ -409,6 +613,9 @@ export class ToolRuntime {
           toolUseId,
           decision: response.decision,
           ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
+          ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
+          ...(response.rationale !== undefined ? { rationale: response.rationale } : {}),
+          ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
         });
         trace?.emit('permission', 'permission_decided', 'Permission decision recorded', {
           requestId: response.requestId,
@@ -416,10 +623,32 @@ export class ToolRuntime {
           toolName: tool.name,
           decision: response.decision,
           ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
+          ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
+          ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
         });
 
         if (response.decision === 'deny') {
-          const reason = '用户已拒绝权限请求';
+          if (autoReviewEscalationKey && response.reviewer === 'auto_review') {
+            this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'denied');
+          }
+          const reason = response.reviewer === 'auto_review'
+            ? `自动审批已拒绝权限请求${response.rationale ? `：${response.rationale}` : ''}`
+            : '用户已拒绝权限请求';
+          if (isAdditional) {
+            trace?.emit('permission', 'additional_permission_denied', 'Additional permission denied', {
+              requestId: response.requestId,
+              toolUseId,
+              toolName: tool.name,
+            });
+          }
+          if (isEscalation) {
+            trace?.emit('permission', 'sandbox_escalation_denied', 'Sandbox escalation denied', {
+              requestId: response.requestId,
+              toolUseId,
+              toolName: tool.name,
+              reviewer: response.reviewer ?? 'user',
+            });
+          }
           await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
           trace?.emit('tool', 'tool_failed', 'Tool execution failed before implementation', {
             toolUseId,
@@ -430,13 +659,112 @@ export class ToolRuntime {
           this.recordLoopGateOutcome(callSignature, true);
           return this.errorReturn(reason);
         }
+        if (autoReviewEscalationKey) {
+          this.autoReviewEscalationAttempts.delete(autoReviewEscalationKey);
+        }
+        if (isAdditional) {
+          const additionalPermissions = verdict.event.additionalPermissions;
+          const risk = verdict.event.risk as import('@maka/core/permission').AdditionalPermissionRiskSummary | undefined;
+          trace?.emit('permission', 'additional_permission_granted', 'Additional permission granted', {
+            requestId: response.requestId,
+            toolUseId,
+            toolName: tool.name,
+            permissionsHash: verdict.event.permissionsHash,
+            entryCount: additionalPermissions?.fileSystem?.entries.length ?? 0,
+            networkEnabled: risk?.networkEnabled ?? false,
+            outsideWorkspace: risk?.outsideWorkspace ?? false,
+            protectedMetadata: risk?.protectedMetadata ?? false,
+          });
+        }
+        if (isEscalation) {
+          trace?.emit('permission', 'sandbox_escalation_granted', 'Sandbox escalation granted', {
+            requestId: response.requestId,
+            toolUseId,
+            toolName: tool.name,
+            reviewer: response.reviewer ?? 'user',
+            commandHash: verdict.event.commandHash,
+          });
+        }
       } else {
+        if (autoReviewEscalationKey) {
+          this.autoReviewEscalationAttempts.delete(autoReviewEscalationKey);
+        }
         trace?.emit('permission', 'permission_decided', 'Permission allowed tool execution', {
           toolUseId,
           toolName: tool.name,
           decision: 'allow',
           category: verdict.category,
         });
+      }
+    }
+
+    let permissionContext: ToolExecutionPermissionContext = {};
+    if (additionalPlan.kind === 'request') {
+      try {
+        await revalidateAdditionalPermissionProposal({
+          proposal: additionalPlan.proposal,
+          cwd: this.input.header.cwd,
+        });
+        const additionalGrant = this.input.permissionEngine.consumeAdditionalPermissionGrant({
+          sessionId: this.input.sessionId,
+          turnId,
+          toolUseId,
+          toolName: tool.name,
+          intentHash: additionalPlan.proposal.intentHash,
+        });
+        if (!additionalGrant) throw new Error('Approved additional permission grant was unavailable.');
+        permissionContext = { additionalGrant };
+        trace?.emit('permission', 'additional_permission_applied', 'Additional permission applied', {
+          toolUseId,
+          toolName: tool.name,
+          permissionsHash: additionalGrant.permissionsHash,
+        });
+      } catch (error) {
+        const reason = formatSyntheticToolErrorText(error);
+        trace?.emit('permission', 'additional_permission_failed', 'Additional permission could not be applied', {
+          toolUseId,
+          toolName: tool.name,
+          reason: error instanceof AdditionalPermissionError ? error.reason : 'additional_permission_failed',
+        });
+        await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
+        this.recordLoopGateOutcome(callSignature, true);
+        return this.errorReturn(reason);
+      }
+    }
+    if (escalationPlan.kind === 'request') {
+      try {
+        const sandboxEscalationGrant = this.input.permissionEngine.consumeSandboxEscalationGrant({
+          sessionId: this.input.sessionId,
+          turnId,
+          toolUseId,
+          toolName: tool.name,
+          intentHash: escalationPlan.proposal.intentHash,
+          command: escalationPlan.proposal.command,
+          cwd: this.input.header.cwd,
+        });
+        if (!sandboxEscalationGrant) {
+          throw new SandboxEscalationError({
+            stage: 'consume',
+            reason: 'sandbox_escalation_intent_mismatch',
+            message: 'Approved sandbox escalation grant was unavailable.',
+          });
+        }
+        permissionContext = { ...permissionContext, sandboxEscalationGrant };
+        trace?.emit('permission', 'sandbox_escalation_applied', 'Sandbox escalation applied', {
+          toolUseId,
+          toolName: tool.name,
+          commandHash: sandboxEscalationGrant.commandHash,
+        });
+      } catch (error) {
+        const reason = formatSyntheticToolErrorText(error);
+        trace?.emit('permission', 'sandbox_escalation_failed', 'Sandbox escalation could not be applied', {
+          toolUseId,
+          toolName: tool.name,
+          reason: error instanceof SandboxEscalationError ? error.reason : 'sandbox_escalation_failed',
+        });
+        await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
+        this.recordLoopGateOutcome(callSignature, true);
+        return this.errorReturn(reason);
       }
     }
 
@@ -486,6 +814,7 @@ export class ToolRuntime {
           toolCallId: toolUseId,
           abortSignal: ctx.abortSignal,
           emitOutput: output.emit,
+          permissionContext,
           ...(this.input.listChildAgents ? { listChildAgents: this.input.listChildAgents } : {}),
           ...(this.input.readChildAgentOutput ? { readChildAgentOutput: this.input.readChildAgentOutput } : {}),
           ...(this.buildSpawnChildAgentContext(ctx.abortSignal)),
@@ -571,6 +900,14 @@ export class ToolRuntime {
       const sandboxError = serializeSandboxError(err);
       const terminalFailure = coerceTerminalFailure(tool, this.input.header.cwd, args, err);
       if (terminalFailure) {
+        if (terminalFailure.sandboxDenied) {
+          this.recentSandboxDenials.add(sandboxDenialKey(tool.name, this.input.header.cwd, args));
+          trace?.emit('sandbox', 'sandbox_denial_detected', 'Command likely failed because of sandbox enforcement', {
+            toolUseId,
+            toolName: tool.name,
+            commandHash: sandboxDenialKey(tool.name, this.input.header.cwd, args),
+          });
+        }
         const durationMs = Math.max(0, this.input.now() - startedAt);
         const resultMsg: ToolResultMessage = {
           type: 'tool_result',
@@ -653,22 +990,38 @@ export class ToolRuntime {
   private async awaitPermissionDecision(
     verdict: Extract<ReturnType<PermissionEngine['evaluate']>, { kind: 'prompt' }>,
     turnId: string,
+    resolve: () => Promise<PermissionDecision>,
   ): Promise<PermissionDecision> {
     const timeoutMs = this.input.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS;
     const pauseTarget = this.input.getPermissionPauseTarget();
     pauseTarget?.pause();
     try {
-      if (timeoutMs <= 0) return await verdict.parked;
+      if (timeoutMs <= 0) return await resolve();
+      const resolution = resolve();
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
           const reason = `Permission request ${verdict.event.requestId} timed out after ${timeoutMs}ms`;
           this.input.permissionEngine.expireRequest(turnId, verdict.event.requestId, reason);
-          reject(new Error(reason));
+          reject(verdict.event.kind === 'additional_permissions'
+            ? new AdditionalPermissionError({
+                stage: 'approval',
+                reason: 'additional_permission_timeout',
+                message: reason,
+                recoverable: true,
+              })
+            : verdict.event.kind === 'sandbox_escalation'
+              ? new SandboxEscalationError({
+                  stage: 'approval',
+                  reason: 'sandbox_escalation_timeout',
+                  message: reason,
+                  recoverable: true,
+                })
+            : new Error(reason));
         }, timeoutMs);
       });
       try {
-        return await Promise.race([verdict.parked, timeout]);
+        return await Promise.race([resolution, timeout]);
       } finally {
         if (timer !== undefined) clearTimeout(timer);
       }
@@ -707,6 +1060,19 @@ export class ToolRuntime {
       }) ?? Promise.reject(new Error('spawnChildAgent is unavailable')),
     };
   }
+}
+
+function classifyToolCategory(tool: MakaTool, args: unknown): ToolCategory {
+  let category = tool.categoryHint ?? BUILTIN_TOOL_CATEGORY[tool.name] ?? 'custom_tool';
+  if (category === 'shell_unsafe') {
+    const command = isRecord(args) ? args.command : undefined;
+    if (typeof command === 'string') category = categorizeBash(command);
+  }
+  return category;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -800,7 +1166,11 @@ function coerceTerminalFailure(
   cwd: string,
   args: unknown,
   err: unknown,
-): { content: Extract<ToolResultContent, { kind: 'terminal' }>; message: string } | null {
+): {
+  content: Extract<ToolResultContent, { kind: 'terminal' }>;
+  message: string;
+  sandboxDenied: boolean;
+} | null {
   if (tool.name !== 'Bash' || !err || typeof err !== 'object') return null;
   const error = err as {
     code?: unknown;
@@ -808,6 +1178,9 @@ function coerceTerminalFailure(
     stderr?: unknown;
     stdoutTruncated?: unknown;
     stderrTruncated?: unknown;
+    reason?: unknown;
+    sandboxed?: unknown;
+    sandboxType?: unknown;
   };
   if (typeof error.code !== 'number') return null;
   const command = args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
@@ -815,6 +1188,7 @@ function coerceTerminalFailure(
     : '';
   const stdout = redactSecrets(String(error.stdout ?? ''));
   const stderr = redactSecrets(String(error.stderr ?? ''));
+  const sandboxDenied = error.reason === 'sandbox_denial' && error.sandboxed === true;
   return {
     content: {
       kind: 'terminal',
@@ -826,16 +1200,31 @@ function coerceTerminalFailure(
       stderr,
       stdoutTruncated: error.stdoutTruncated === true,
       stderrTruncated: error.stderrTruncated === true,
+      ...(sandboxDenied ? {
+        sandboxDenial: {
+          likely: true,
+          ...(error.sandboxType === 'macos-seatbelt' || error.sandboxType === 'linux'
+            ? { backend: error.sandboxType }
+            : {}),
+          recovery: 'require_escalated',
+        },
+      } : {}),
     },
     // The in-turn result the model acts on is just this message (the structured
     // content above goes to session history). Without the actual output the
     // model is blind to *why* the command failed, so fold in a bounded tail of
     // stderr/stdout — the tail is where shell errors land.
-    message: buildTerminalFailureMessage(error.code, stdout, stderr),
+    message: buildTerminalFailureMessage(error.code, stdout, stderr, sandboxDenied),
+    sandboxDenied,
   };
 }
 
-function buildTerminalFailureMessage(code: number, stdout: string, stderr: string): string {
+function buildTerminalFailureMessage(
+  code: number,
+  stdout: string,
+  stderr: string,
+  sandboxDenied: boolean,
+): string {
   const parts = [`命令退出码 ${code}`];
   const view = (text: string) =>
     truncateToolOutput(text, { maxLines: 40, maxBytes: 1500, direction: 'tail' }).content.trim();
@@ -843,7 +1232,19 @@ function buildTerminalFailureMessage(code: number, stdout: string, stderr: strin
   if (stderrView) parts.push(`--- stderr ---\n${stderrView}`);
   const stdoutView = view(stdout);
   if (stdoutView) parts.push(`--- stdout ---\n${stdoutView}`);
+  if (sandboxDenied) {
+    parts.push(
+      '该失败很可能来自 Maka sandbox。若完成用户当前请求确实需要在 sandbox 外执行，请使用完全相同的命令重新调用 Bash，并显式传入 sandbox_permissions: { mode: "require_escalated", justification: "具体原因" }。不要静默绕过 sandbox，也不要在更小范围的 additional permissions 足够时请求完全提权。',
+    );
+  }
   return parts.join('\n\n');
+}
+
+function sandboxDenialKey(toolName: string, cwd: string, args: unknown): string {
+  const command = args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
+    ? (args as { command: string }).command
+    : '';
+  return `${toolName}\u0000${cwd}\u0000${command}`;
 }
 
 function deriveToolResultStatus(content: ToolResultContent): ToolInvocationRecord['status'] {

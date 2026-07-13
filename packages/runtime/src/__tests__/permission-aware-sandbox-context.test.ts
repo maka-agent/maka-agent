@@ -1,4 +1,6 @@
 import { describe, test } from 'node:test';
+import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import {
   createDangerFullAccessPermissionProfile,
   createExternalPermissionProfile,
@@ -33,6 +35,16 @@ describe('createPermissionAwareSandboxContext', () => {
     expect(built.context.pathContext.workspaceRoots).toEqual(['/workspace', '/shared']);
     expect(built.context.pathContext.tmpdir).toBe('/private/tmp/runtime');
     expect(built.context.sandboxManager).toBe(manager);
+  });
+
+  test('canonicalizes default temporary roots before profile matching and Seatbelt transform', () => {
+    const built = createPermissionAwareSandboxContext({
+      mode: 'execute',
+      cwd: '/workspace',
+    });
+
+    expect(built.context.pathContext.tmpdir).toBe(realpathSync(tmpdir()));
+    expect(built.context.pathContext.slashTmp).toBe(realpathSync('/tmp'));
   });
 });
 

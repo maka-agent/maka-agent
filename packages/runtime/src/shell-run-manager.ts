@@ -25,6 +25,8 @@ import type {
   SandboxTransformFailureReason,
   SandboxType,
 } from './sandbox/types.js';
+import type { ToolExecutionPermissionContext } from './additional-permissions.js';
+import { assertSandboxEscalationGrantForExecution } from './sandbox-escalation.js';
 
 export const DEFAULT_BASH_YIELD_TIME_MS = 10_000;
 export const DEFAULT_BASH_TIMEOUT_MS = 120_000;
@@ -61,6 +63,7 @@ export interface ShellRunBashInput {
   timeoutMs?: number;
   abortSignal?: AbortSignal;
   emitOutput: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  permissionContext?: ToolExecutionPermissionContext;
 }
 
 export type ShellRunSandboxContextFailureReason =
@@ -86,6 +89,7 @@ export interface ShellRunSpawnRequest {
   argv: readonly string[];
   cwd: string;
   env?: Readonly<Record<string, string | undefined>>;
+  sandboxType?: SandboxType;
 }
 
 export type ShellRunProcessSpawner = (request: ShellRunSpawnRequest) => ShellRunChildProcess;
@@ -353,6 +357,25 @@ export class ShellRunProcessManager {
         stdoutTruncated: false,
         stderrTruncated: false,
         ...(child.pid !== undefined ? { pid: child.pid } : {}),
+        ...(input.permissionContext?.additionalGrant ? {
+          additionalPermissions: {
+            permissionsHash: input.permissionContext.additionalGrant.permissionsHash,
+            entryCount: input.permissionContext.additionalGrant.profile.fileSystem?.entries.length ?? 0,
+            networkEnabled: input.permissionContext.additionalGrant.risk.networkEnabled,
+            outsideWorkspace: input.permissionContext.additionalGrant.risk.outsideWorkspace,
+            protectedMetadata: input.permissionContext.additionalGrant.risk.protectedMetadata,
+          },
+        } : {}),
+        sandboxExecution: {
+          type: launch.sandboxType ?? 'none',
+          enforced: launch.sandboxType !== undefined && launch.sandboxType !== 'none',
+        },
+        ...(input.permissionContext?.sandboxEscalationGrant ? {
+          sandboxEscalation: {
+            commandHash: input.permissionContext.sandboxEscalationGrant.commandHash,
+            unsandboxed: true,
+          },
+        } : {}),
       };
       const createdRecord = await this.input.store.createShellRun(record);
       resolveCreated(createdRecord);
@@ -385,6 +408,23 @@ export class ShellRunProcessManager {
       });
     }
 
+    const additionalGrant = input.permissionContext?.additionalGrant;
+    const escalationGrant = input.permissionContext?.sandboxEscalationGrant;
+    if (additionalGrant && escalationGrant) {
+      throw new ShellRunSandboxError({
+        stage: 'validation',
+        reason: 'invalid_request',
+        message: 'Additional permissions and unsandboxed execution cannot be combined.',
+      });
+    }
+    if (escalationGrant) {
+      assertSandboxEscalationGrantForExecution({
+        grant: escalationGrant,
+        command: input.command,
+        cwd: context.cwd,
+      });
+    }
+
     const transformed = context.sandboxManager.transform({
       command: {
         program: '/bin/sh',
@@ -393,8 +433,13 @@ export class ShellRunProcessManager {
         profile: context.profile,
         pathContext: context.pathContext,
       },
-      ...(context.preference ? { preference: context.preference } : {}),
+      ...((escalationGrant ? 'forbid' : context.preference)
+        ? { preference: escalationGrant ? 'forbid' as const : context.preference }
+        : {}),
       ...(context.platform ? { platform: context.platform } : {}),
+      ...(additionalGrant
+        ? { additionalPermissions: additionalGrant.profile }
+        : {}),
     });
     if (!transformed.ok) {
       throw new ShellRunSandboxError({
@@ -417,6 +462,7 @@ export class ShellRunProcessManager {
       argv: transformed.exec.argv,
       cwd: transformed.exec.cwd,
       ...(transformed.exec.env ? { env: transformed.exec.env } : {}),
+      sandboxType: transformed.exec.sandboxType,
     };
   }
 
@@ -619,6 +665,7 @@ function terminalContent(record: ShellRunRecord): TerminalToolResult {
     stderr: stderr.content,
     stdoutTruncated: record.stdoutTruncated || stdout.truncated,
     stderrTruncated: record.stderrTruncated || stderr.truncated,
+    ...(sandboxDenialForRecord(record) ? { sandboxDenial: sandboxDenialForRecord(record) } : {}),
   };
 }
 
@@ -657,6 +704,7 @@ function shellRunContent(record: ShellRunRecord, cancelled?: boolean): ShellRunT
     ...(record.observedAt !== undefined ? { observedAt: record.observedAt } : {}),
     ...(record.orphanedReason !== undefined ? { orphanedReason: record.orphanedReason } : {}),
     ...(cancelled !== undefined ? { cancelled } : {}),
+    ...(sandboxDenialForRecord(record) ? { sandboxDenial: sandboxDenialForRecord(record) } : {}),
   };
 }
 
@@ -780,8 +828,33 @@ function renderShellRunResource(record: ShellRunRecord): string {
     '',
     `stderr${record.stderrTruncated || stderr.truncated ? ' (truncated)' : ''}:`,
     stderr.content,
+    ...(sandboxDenialForRecord(record)
+      ? [
+          '',
+          'sandboxDenial: likely',
+          'recovery: retry the exact Bash command with sandbox_permissions.mode=require_escalated and a specific justification',
+        ]
+      : []),
   ];
   return lines.filter((line, index) => line.length > 0 || index > 0).join('\n');
+}
+
+function sandboxDenialForRecord(
+  record: ShellRunRecord,
+): { likely: true; backend?: 'macos-seatbelt' | 'linux'; recovery: 'require_escalated' } | undefined {
+  if (
+    record.status !== 'failed'
+    || record.sandboxExecution?.enforced !== true
+    || !/operation not permitted|sandbox-exec|sandbox(?:ed)?[^\n]*den(?:y|ied)/i.test(
+      `${record.stderrTail}\n${record.stdoutTail}`,
+    )
+  ) return undefined;
+  const backend = record.sandboxExecution.type === 'none' ? undefined : record.sandboxExecution.type;
+  return {
+    likely: true,
+    ...(backend ? { backend } : {}),
+    recovery: 'require_escalated',
+  };
 }
 
 function clampInt(value: number, min: number, max: number): number {

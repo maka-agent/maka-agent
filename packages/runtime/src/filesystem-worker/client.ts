@@ -1,6 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import type { PermissionProfile } from '@maka/core/permission-profile';
+import { isAbsolute, relative, resolve } from 'node:path';
+import {
+  canReadPath,
+  canWritePath,
+  type PermissionProfile,
+} from '@maka/core/permission-profile';
+import {
+  applyAdditionalPermissionProfile,
+  type AdditionalPermissionProfile,
+} from '@maka/core/additional-permissions';
 
+import { hashAdditionalPermissionProfile } from '../additional-permission-hash.js';
+import { normalizeAdditionalPermissionPath } from '../additional-permissions.js';
 import type { PermissionAwareSandboxContext } from '../sandbox/permission-aware-context.js';
 import { deriveFilesystemWorkerProfile } from '../sandbox/permission-aware-context.js';
 import type { SandboxErrorDomain, SandboxErrorStage } from '../sandbox/errors.js';
@@ -41,6 +52,8 @@ export interface FilesystemWorkerExecuteInput {
   operation: FilesystemWorkerClientOperation;
   context: PermissionAwareSandboxContext;
   abortSignal?: AbortSignal;
+  additionalPermissions?: AdditionalPermissionProfile;
+  permissionsHash?: string;
 }
 
 export type FilesystemWorkerClientErrorReason =
@@ -106,21 +119,84 @@ export class FilesystemWorkerClient {
       throw new FilesystemWorkerClientError({ stage: 'launch', reason: 'aborted' });
     }
     const requestId = this.newId();
-    const operation = FilesystemWorkerOperationSchema.safeParse({
+    if (
+      Boolean(input.additionalPermissions) !== Boolean(input.permissionsHash)
+      || (input.additionalPermissions
+        && input.permissionsHash !== hashAdditionalPermissionProfile(input.additionalPermissions))
+    ) {
+      throw new FilesystemWorkerClientError({
+        stage: 'validation',
+        reason: 'invalid_request',
+        requestId,
+      });
+    }
+    const parsedOperation = FilesystemWorkerOperationSchema.safeParse({
       ...input.operation,
       cwd: input.context.cwd,
     });
-    if (!operation.success) {
+    if (!parsedOperation.success) {
       throw new FilesystemWorkerClientError({
         stage: 'validation',
         reason: 'invalid_operation',
         requestId,
       });
     }
+    const effectiveProfile = input.additionalPermissions
+      ? applyAdditionalPermissionProfile(input.context.profile, input.additionalPermissions)
+      : input.context.profile;
+    const operationAccess = filesystemOperationAccess(parsedOperation.data.kind);
+    const operationScope = filesystemOperationScope(parsedOperation.data.kind);
+    const lexicalPath = resolve(input.context.cwd, parsedOperation.data.path);
+    let enforcementPath = lexicalPath;
+    if (input.additionalPermissions || !pathWithinRoot(lexicalPath, input.context.cwd)) {
+      try {
+        enforcementPath = (await normalizeAdditionalPermissionPath({
+          path: parsedOperation.data.path,
+          access: operationAccess,
+          scope: operationScope,
+          cwd: input.context.cwd,
+        })).enforcementPath;
+      } catch {
+        throw new FilesystemWorkerClientError({
+          stage: 'validation',
+          reason: 'invalid_operation',
+          profile: effectiveProfile,
+          requestId,
+        });
+      }
+    }
+    const allowed = operationAccess === 'write'
+      ? canWritePath(effectiveProfile, enforcementPath, input.context.pathContext)
+      : canReadPath(effectiveProfile, enforcementPath, input.context.pathContext);
+    if (!allowed) {
+      throw new FilesystemWorkerClientError({
+        stage: 'validation',
+        reason: 'path_denied',
+        profile: effectiveProfile,
+        requestId,
+      });
+    }
+    const operation = FilesystemWorkerOperationSchema.parse({
+      ...parsedOperation.data,
+      path: enforcementPath,
+    });
+    // The worker receives only the canonical path capability needed by this operation.
+    // The original user-approved grant has already been validated and applied above.
+    const workerPermissions: AdditionalPermissionProfile = {
+      fileSystem: {
+        entries: [{
+          path: enforcementPath,
+          access: operationAccess,
+          scope: operationScope,
+        }],
+      },
+    };
     const request = {
       version: FILESYSTEM_WORKER_PROTOCOL_VERSION,
       requestId,
-      operation: operation.data,
+      operation,
+      additionalPermissions: workerPermissions,
+      permissionsHash: hashAdditionalPermissionProfile(workerPermissions),
     } as const;
     const requestJson = JSON.stringify(request);
     if (Buffer.byteLength(requestJson, 'utf8') > FILESYSTEM_WORKER_MAX_REQUEST_BYTES) {
@@ -141,8 +217,8 @@ export class FilesystemWorkerClient {
       });
     }
     const operationProfile = deriveFilesystemWorkerProfile(
-      input.context.profile,
-      profileOperation(operation.data.kind),
+      effectiveProfile,
+      profileOperation(operation.kind),
     );
     const transformed = input.context.sandboxManager.transform({
       command: {
@@ -222,7 +298,7 @@ export class FilesystemWorkerClient {
         requestId,
       });
     }
-    if (response.result.kind !== operation.data.kind) {
+    if (response.result.kind !== operation.kind) {
       throw processFailure('response_kind_mismatch', 'protocol');
     }
     return response.result;
@@ -246,6 +322,19 @@ function profileOperation(kind: FilesystemWorkerOperation['kind']) {
   if (kind === 'read') return 'read' as const;
   if (kind === 'glob' || kind === 'grep') return 'search' as const;
   return kind;
+}
+
+function filesystemOperationAccess(kind: FilesystemWorkerOperation['kind']): 'read' | 'write' {
+  return kind === 'write' || kind === 'edit' ? 'write' : 'read';
+}
+
+function filesystemOperationScope(kind: FilesystemWorkerOperation['kind']): 'exact' | 'subtree' {
+  return kind === 'glob' || kind === 'grep' ? 'subtree' : 'exact';
+}
+
+function pathWithinRoot(path: string, root: string): boolean {
+  const rel = relative(root, path);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
 function isRecoverableOperationError(code: FilesystemWorkerErrorCode): boolean {
