@@ -28,6 +28,7 @@ export interface RunAbComparisonInput {
   evaluationTasks: readonly FixedPromptTask[];
   reps?: number;
   maxConcurrency?: number;
+  armExecution?: 'parallel' | 'sequential';
   observedCostStopUsd?: number;
   roundIdPrefix?: string;
   budgetMs?: number;

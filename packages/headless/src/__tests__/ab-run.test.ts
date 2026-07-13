@@ -61,6 +61,42 @@ describe('runAbComparison', () => {
     ]);
   });
 
+  test('can alternate arms sequentially without overlapping provider calls', async () => {
+    const calls: string[] = [];
+    let active = 0;
+    let maxActive = 0;
+    await runAbComparison({
+      runId: 'ab-run',
+      arms: [
+        { id: 'maka', kind: 'harness', fingerprint: sha256('maka') },
+        { id: 'opencode', kind: 'harness', fingerprint: sha256('opencode') },
+      ],
+      evaluationTasks: [
+        { id: 't1', path: '/tasks/t1' },
+        { id: 't2', path: '/tasks/t2' },
+      ],
+      reps: 1,
+      maxConcurrency: 1,
+      armExecution: 'sequential',
+      runArm: async ({ arm, task }) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        calls.push(`${task.id}:${arm.id}`);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        active -= 1;
+        return completed(task.id, true);
+      },
+    });
+
+    assert.equal(maxActive, 1);
+    assert.deepEqual(calls, [
+      't1:maka',
+      't1:opencode',
+      't2:opencode',
+      't2:maka',
+    ]);
+  });
+
   test('starts both arms for the same task-rep pair before waiting for either arm to finish', async () => {
     const calls: string[] = [];
     const waiters: Array<() => void> = [];
