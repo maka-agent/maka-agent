@@ -135,10 +135,11 @@ export function deriveProviderAuthContract(input: ProviderAuthContractInput): Pr
   }
 
   if (defaults.authKind === 'optional_api_key') {
+    const state = authStateFromSecretAndTest(true, input.lastTestStatus);
     return {
       providerType: input.providerType,
       setupMode: 'api_key',
-      state: 'configured',
+      state,
       validationStatus: input.lastTestStatus ?? (hasSecret ? 'not_run' : 'not_required'),
       requiresSecret: false,
       sendMayUseWithoutSecret: true,
@@ -149,12 +150,7 @@ export function deriveProviderAuthContract(input: ProviderAuthContractInput): Pr
         fetch_models: supportsModelDiscovery ? 'available' : 'hidden',
         revoke_auth: hasSecret ? 'available' : 'hidden',
       },
-      copy: {
-        label: `${defaults.label} 可选模型密钥`,
-        detail: hasSecret
-          ? '已保存可选模型密钥；也可删除密钥连接未启用鉴权的实例。'
-          : '模型密钥可选；未启用鉴权的实例可直接连接。',
-      },
+      copy: copyForOptionalApiKey(defaults.label, state, hasSecret),
     };
   }
 
@@ -280,6 +276,44 @@ function copyForApiKey(label: string, state: ProviderAuthState): ProviderAuthCon
       return {
         label,
         detail: '当前状态不走模型密钥凭据流程。',
+      };
+  }
+}
+
+function copyForOptionalApiKey(
+  label: string,
+  state: ProviderAuthState,
+  hasSecret: boolean,
+): ProviderAuthContract['copy'] {
+  switch (state) {
+    case 'validated':
+      return {
+        label: `${label} 连接验证通过`,
+        detail: '这只代表实例端点和鉴权配置验证通过，不代表消息发送、流式响应或中断恢复已经运行可用。',
+      };
+    case 'needs_reauth':
+      return {
+        label: `${label} 需要重新授权`,
+        detail: '上次连接测试显示鉴权失败；请检查实例鉴权设置或可选模型密钥后重试。',
+      };
+    case 'error':
+      return {
+        label: `${label} 连接测试失败`,
+        detail: '上次测试未通过；详情必须使用概括后的错误信息，不展示服务商原始响应。',
+      };
+    case 'configured':
+      return {
+        label: `${label} 可选模型密钥`,
+        detail: hasSecret
+          ? '已保存可选模型密钥；也可删除密钥连接未启用鉴权的实例。'
+          : '模型密钥可选；未启用鉴权的实例可直接连接。',
+      };
+    case 'not_configured':
+    case 'disabled':
+    case 'preview_only':
+      return {
+        label,
+        detail: '当前状态不走可选模型密钥流程。',
       };
   }
 }
