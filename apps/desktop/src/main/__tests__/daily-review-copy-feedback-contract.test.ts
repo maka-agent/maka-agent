@@ -276,7 +276,7 @@ describe('Daily Review copy feedback contract', () => {
     assert.match(pageBlock, /const runningModeRef = useRef<DailyReviewMode \| null>\(null\)/);
     assert.match(
       pageBlock,
-      /return \(\) => \{\s*mountedRef\.current = false;\s*savingKeyRef\.current = null;\s*runningModeRef\.current = null;\s*\};/,
+      /return \(\) => \{\s*savingKeyRef\.current = null;\s*runningModeRef\.current = null;\s*\};/,
       'Daily Review Settings async owners must be invalidated when Settings closes',
     );
     assert.match(

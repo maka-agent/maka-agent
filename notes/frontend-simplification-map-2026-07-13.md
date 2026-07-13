@@ -63,15 +63,37 @@ dist/**/*.test.js). Real finds verified by hand before acting.
   alert memos) and the JSX return (~340 lines), neither of which the blade definitions
   cover; reaching < 900 would require extracting those + splitting the JSX into
   sub-components (out of scope, separate risk).
-- [ ] **C — CSS strata consolidation** — maka-tokens.css 1509 lines carries historical
-  strata (hue-80 era comments, reference-shell.css + theme-glass.css parallel token
-  systems: --color-bg-* vs --background families). Merge the glass/reference layers'
-  live tokens into maka-tokens, delete dead strata, one token README header.
-- [ ] **D — duplicate helper sweep (measured SMALL — the convergence campaign paid
-  off)** — real dups found: formatBytes ×3 (artifact-preview-registry.ts:317,
-  tool-activity/preview-utils.ts:14, voice formatVoiceBytes) → one shared util;
-  mountedRef boilerplate ×6 → useMountedRef. Domain formatters are all distinct —
-  no action.
+- [x] **C — SHIPPED (refactor/css-token-consolidation): CSS strata consolidation.**
+  Census (machine-generated, var() consumers across all CSS+TSX): reference-shell.css
+  23 defined → 16 dead (removed), 3 live color-aliases moved to maka-tokens
+  (--color-bg-container/--color-border-tertiary/--color-text-quaternary), 4 live
+  layout-locals kept in-file (--agents-layout-bg/--agents-content-area-bg/-gap,
+  --sidebar-width). theme-glass.css 2 token overrides (darwin --color-bg-container light+dark,
+  --color-text-quaternary) relocated to maka-tokens; glass-material + text/label RULES stay.
+  maka-tokens.css: added token-authority README (authoritative --background family vs
+  compatibility --color-* aliases, alias policy) + condensed the superseded hue-80 archaeology
+  (it named deleted tokens). Both themes migrated (light :root + .dark + darwin light/dark).
+  NO computed value changed — pure reorg; the shipped `--color-bg-container: var(--background)`
+  exception kept as-is. maka-tokens internal 0-consumer tokens are all governance-contract
+  scale members (z-index/control-height/spacing/radius/406) — re-pinned, NOT deleted.
+  Gates: desktop 2397/2397, ui 125/125, typecheck 0, check-dead-css clean, knip desktop+ui 0,
+  auditor exit 0. CDP light+dark captures (turn-narrative/module-skills/settings-general/first-run)
+  before/after — no visual diff.
+- [x] **D-1 — SHIPPED: shared useMountedRef + last formatBytes fork.** Case-insensitive
+  re-census found the mounted-guard boilerplate at ×38 (not ×6 — the first grep missed
+  `fooMountedRef` casings). Shipped: `useMountedRef` lives in @maka/ui (exported from
+  index) so both workspaces reach it; converted the 6 canonical `mountedRef/
+  onboardingMountedRef` sites (OnboardingHero ×2, password-input, daily-review/
+  general/permission-center settings pages) and re-pinned 5 contracts to the
+  shared-hook form; voice formatVoiceBytes (last formatBytes fork) deleted in favor
+  of the @maka/ui helper. Deliberately NOT converted: use-workspace-instructions-
+  controller (lifecycle-counter variant, not boilerplate) and app-shell.tsx
+  rendererMountedRef (Round B owns that file).
+- [ ] **D-2 — mounted-guard long tail**: ~30 remaining `*MountedRef` sites across
+  renderer settings pages and packages/ui panels (see `grep -ri "mountedref = useRef"`).
+  Mechanical agent sweep: swap to useMountedRef, keep per-site companion-ref cleanup
+  effects, re-pin any contract that quotes the old shape. Watch the useRef(false)
+  variants — verify no pre-effect reads before flipping initial value semantics.
 
 Update checkboxes as rounds ship. Every round: suite + typecheck + dead-css +
 alignment auditor + CDP spot captures, exit-code gated.

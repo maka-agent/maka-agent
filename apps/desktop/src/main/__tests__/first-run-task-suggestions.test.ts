@@ -130,12 +130,12 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     const setupBlock = hero.match(/interface SetupHeroProps[\s\S]*?function assertNever/)?.[0] ?? '';
 
     assert.match(rootBlock, /const \[refreshConnectionsPending, setRefreshConnectionsPending\] = useState\(false\)/);
-    assert.match(rootBlock, /const onboardingMountedRef = useRef\(true\)/);
+    assert.match(rootBlock, /const onboardingMountedRef = useMountedRef\(\)/);
     assert.match(rootBlock, /const refreshConnectionsPendingRef = useRef\(false\)/);
     assert.match(
       rootBlock,
-      /useEffect\(\(\) => \{[\s\S]*onboardingMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*onboardingMountedRef\.current = false;[\s\S]*refreshConnectionsPendingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
-      'first-run setup refresh must release pending ownership on unmount and restore mounted state during StrictMode replay',
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*refreshConnectionsPendingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
+      'first-run setup refresh must release pending ownership on unmount; the mounted flag is owned by the shared useMountedRef hook',
     );
     assert.match(
       rootBlock,

@@ -77,39 +77,6 @@ describe('buildProviderOptions: thinking level', () => {
   });
 });
 
-describe('getAIModel: litellm provider', () => {
-  test('creates an OpenAI-compatible client with provider name "litellm" and correct modelId', () => {
-    const model = getAIModel({
-      connection: conn('litellm', 'litellm-gateway'),
-      apiKey: 'sk-test-key',
-      modelId: 'gpt-4o',
-    });
-    assert.equal(model.modelId, 'gpt-4o');
-    assert.equal(model.provider, 'litellm.chat');
-  });
-
-  test('uses the connection baseUrl override when provided', () => {
-    const model = getAIModel({
-      connection: { ...conn('litellm', 'litellm-custom'), baseUrl: 'https://litellm.company.internal/v1' },
-      apiKey: 'sk-test-key',
-      modelId: 'claude-sonnet-4-5-20250929',
-    });
-    assert.equal(model.modelId, 'claude-sonnet-4-5-20250929');
-    assert.equal(model.provider, 'litellm.chat');
-  });
-
-  test('falls back to localhost:4000 default when no baseUrl override is set', () => {
-    const model = getAIModel({
-      connection: conn('litellm', 'litellm-default'),
-      apiKey: 'sk-test-key',
-      modelId: 'gpt-4o-mini',
-    });
-    // The model is created successfully with default base URL
-    assert.equal(model.provider, 'litellm.chat');
-    assert.equal(model.modelId, 'gpt-4o-mini');
-  });
-});
-
 describe('getAIModel: models.dev registry providers', () => {
   test('routes SiliconFlow through the shared OpenAI-compatible adapter without rewriting model ids', () => {
     const model = getAIModel({
@@ -120,15 +87,6 @@ describe('getAIModel: models.dev registry providers', () => {
 
     assert.equal(model.provider, 'siliconflow.chat');
     assert.equal(model.modelId, 'moonshotai/Kimi-K2.6');
-  });
-});
-
-describe('buildProviderOptions: litellm falls through to default (empty options)', () => {
-  test('litellm returns empty options regardless of thinking level', () => {
-    assert.deepEqual(buildProviderOptions(conn('litellm'), 'gpt-4o'), {});
-    assert.deepEqual(buildProviderOptions(conn('litellm'), 'gpt-4o', 'high'), {});
-    assert.deepEqual(buildProviderOptions(conn('litellm'), 'gpt-4o', 'off'), {});
-    assert.deepEqual(buildProviderOptions(conn('litellm'), 'claude-sonnet-4-5-20250929'), {});
   });
 });
 

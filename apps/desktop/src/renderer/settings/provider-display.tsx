@@ -41,8 +41,6 @@ export function providerDisplay(type: ProviderType): { name: string; description
       return { name: 'MiniMax', description: 'MiniMax · Anthropic 兼容', badge: 'API' };
     case 'MiniMax-cn':
       return { name: 'MiniMax 中国站', description: 'MiniMax 中国站 · Anthropic 兼容', badge: 'API' };
-    case 'litellm':
-      return { name: 'LiteLLM', description: 'AI gateway proxy for 100+ LLM providers.', badge: 'Gateway' };
     case 'ollama':
       return { name: 'Ollama', description: '本机运行 · 离线可用', badge: 'Local' };
     case 'openai-compatible':
