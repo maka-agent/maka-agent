@@ -34,21 +34,23 @@ async function fetchProviderModelsStrict(
   apiKey: string,
 ): Promise<ModelInfo[]> {
   const baseUrl = effectiveBaseUrl(connection);
-  const auth = PROVIDER_DEFAULTS[connection.providerType].authKind;
-  if (connection.providerType === 'codex-subscription') {
-    return PROVIDER_DEFAULTS['codex-subscription'].fallbackModels.map((id) => ({ id }));
+  const definition = PROVIDER_DEFAULTS[connection.providerType];
+  const discovery = definition.modelDiscovery;
+
+  if (discovery.kind === 'fallback') {
+    return definition.fallbackModels.map((id) => ({ id }));
   }
-  if (connection.providerType === 'ollama') {
+  if (discovery.kind === 'ollama') {
     const r = await proxiedFetch(`${ollamaRoot(baseUrl)}/api/tags`, { timeoutMs: MODEL_FETCH_TIMEOUT_MS });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json() as { models?: Array<{ name?: string }> };
     return (data.models ?? []).flatMap((model) => model.name ? [{ id: model.name }] : []);
   }
 
-  switch (PROVIDER_DEFAULTS[connection.providerType].protocol) {
+  switch (definition.protocol) {
     case 'anthropic': {
       const r = await proxiedFetch(anthropicV1Url(baseUrl, '/models'), {
-        headers: anthropicModelHeaders(connection, apiKey),
+        headers: anthropicModelHeaders(discovery.auth, apiKey),
         timeoutMs: MODEL_FETCH_TIMEOUT_MS,
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -56,10 +58,10 @@ async function fetchProviderModelsStrict(
       return (data.data ?? []).map(toModelInfo).filter((model): model is ModelInfo => model !== null);
     }
     case 'openai': {
-      const r = await proxiedFetch(openAiModelListUrl(connection, baseUrl), {
+      const r = await proxiedFetch(modelListUrl(baseUrl, discovery.query), {
         headers: {
           'content-type': 'application/json',
-          ...(auth === 'none' ? {} : { authorization: `Bearer ${apiKey}` }),
+          ...(definition.authKind === 'none' ? {} : { authorization: `Bearer ${apiKey}` }),
         },
         timeoutMs: MODEL_FETCH_TIMEOUT_MS,
       });
@@ -82,9 +84,10 @@ async function fetchProviderModelsStrict(
   }
 }
 
-function openAiModelListUrl(connection: LlmConnection, baseUrl: string): string {
+function modelListUrl(baseUrl: string, query: Readonly<Record<string, string>> | undefined): string {
   const url = `${stripTrailing(baseUrl)}/models`;
-  return connection.providerType === 'siliconflow' ? `${url}?sub_type=chat` : url;
+  const search = query ? new URLSearchParams(query).toString() : '';
+  return search ? `${url}?${search}` : url;
 }
 
 function toModelInfo(model: RawProviderModel): ModelInfo | null {
@@ -99,8 +102,8 @@ function toModelInfo(model: RawProviderModel): ModelInfo | null {
   };
 }
 
-function anthropicModelHeaders(connection: LlmConnection, apiKey: string): Record<string, string> {
-  if (connection.providerType === 'claude-subscription') {
+function anthropicModelHeaders(auth: 'claude-subscription' | undefined, apiKey: string): Record<string, string> {
+  if (auth === 'claude-subscription') {
     return {
       ...claudeSubscriptionHeaders(),
       Authorization: `Bearer ${apiKey}`,

@@ -6,31 +6,32 @@
  */
 
 import type { BackendKind } from './session.js';
-import { SILICONFLOW_PROVIDER_DEFAULTS } from './provider-registry.js';
+import {
+  CATALOG_PROVIDER_TYPES,
+  PROVIDER_REGISTRY,
+  READY_PROVIDER_TYPES,
+  RECOMMENDED_PROVIDER_TYPES,
+  type ProviderCatalogGroup,
+  type ProviderCategory,
+  type ProviderDefaults,
+  type ProviderRuntimeAdapter,
+  type ProviderType,
+} from './provider-registry.js';
 
 export type { BackendKind } from './session.js';
-
-export type ProviderType =
-  | 'anthropic'
-  | 'kimi-coding-plan'
-  | 'openai'
-  | 'google'
-  | 'deepseek'
-  | 'moonshot'
-  | 'zai-coding-plan'
-  | 'MiniMax'
-  | 'MiniMax-cn'
-  | 'siliconflow'
-  | 'litellm'
-  | 'ollama'
-  | 'openai-compatible'
-  | 'claude-subscription'
-  | 'codex-subscription'
-  | 'gemini-cli';
-
-export type ProviderCategory = 'oauth' | 'domestic' | 'overseas' | 'local' | 'custom';
-export type ProviderCatalogGroup = 'recommended' | 'plans' | 'api' | 'aggregators' | 'local';
-export type ProviderRuntimeAdapter = 'anthropic' | 'openai' | 'openai-compatible' | 'google';
+export {
+  CATALOG_PROVIDER_TYPES,
+  PROVIDER_REGISTRY,
+  READY_PROVIDER_TYPES,
+  RECOMMENDED_PROVIDER_TYPES,
+};
+export type {
+  ProviderCatalogGroup,
+  ProviderCategory,
+  ProviderDefaults,
+  ProviderRuntimeAdapter,
+  ProviderType,
+};
 
 export type ConnectionAuth =
   | { kind: 'api_key'; apiKey: string }
@@ -99,260 +100,11 @@ export interface ConnectionTestResult {
   errorClass?: ConnectionTestErrorClass;
 }
 
-export interface ProviderDefaults {
-  label: string;
-  description: string;
-  baseUrl: string;
-  authKind: ConnectionAuth['kind'];
-  backendKind: BackendKind;
-  fallbackModels: string[];
-  status: 'ready' | 'phase3-experimental';
-  protocol: 'anthropic' | 'openai' | 'google';
-  runtimeAdapter?: ProviderRuntimeAdapter;
-  category: ProviderCategory;
-  catalogGroup?: ProviderCatalogGroup;
-  catalogBadge?: string;
-  signupUrl?: string;
-  modelsDevId?: string;
-}
-
 export const CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS = new Set([
   'gpt-5-codex',
 ]);
 
-export const PROVIDER_DEFAULTS: Record<ProviderType, ProviderDefaults> = {
-  anthropic: {
-    label: 'Anthropic',
-    description: 'Claude API key access for production agents.',
-    baseUrl: 'https://api.anthropic.com',
-    authKind: 'api_key',
-    backendKind: 'ai-sdk',
-    fallbackModels: [
-      'claude-sonnet-4-5-20250929',
-      'claude-opus-4-1-20250805',
-      'claude-haiku-4-5-20251001',
-      'claude-3-5-haiku-20241022',
-    ],
-    status: 'ready',
-    protocol: 'anthropic',
-    category: 'overseas',
-    catalogBadge: 'API',
-    signupUrl: 'https://console.anthropic.com/settings/keys',
-  },
-  'kimi-coding-plan': {
-    label: 'Kimi Coding Plan',
-    description: 'Kimi for Coding over Anthropic-compatible protocol.',
-    baseUrl: 'https://api.kimi.com/coding/v1',
-    authKind: 'api_key',
-    backendKind: 'ai-sdk',
-    fallbackModels: ['kimi-for-coding'],
-    status: 'ready',
-    protocol: 'anthropic',
-    category: 'domestic',
-    catalogBadge: 'Coding',
-    signupUrl: 'https://www.kimi.com/code/console',
-  },
-  openai: {
-    label: 'OpenAI',
-    description: 'GPT API key access, including Responses API models.',
-    baseUrl: 'https://api.openai.com/v1',
-    authKind: 'api_key',
-    backendKind: 'ai-sdk',
-    fallbackModels: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-5'],
-    status: 'ready',
-    protocol: 'openai',
-    category: 'overseas',
-    catalogBadge: 'API',
-    signupUrl: 'https://platform.openai.com/api-keys',
-  },
-  google: {
-    label: 'Google Gemini',
-    description: 'Gemini API key access from Google AI Studio.',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    authKind: 'api_key',
-    backendKind: 'ai-sdk',
-    fallbackModels: ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'],
-    status: 'ready',
-    protocol: 'google',
-    category: 'overseas',
-    catalogBadge: 'API',
-    signupUrl: 'https://aistudio.google.com/app/apikey',
-  },
-  deepseek: {
-    label: 'DeepSeek',
-    description: 'DeepSeek chat and reasoning models.',
-    baseUrl: 'https://api.deepseek.com',
-    authKind: 'api_key',
-    backendKind: 'ai-sdk',
-    fallbackModels: ['deepseek-chat', 'deepseek-reasoner'],
-    status: 'ready',
-    protocol: 'openai',
-    category: 'domestic',
-    catalogBadge: 'API',
-    signupUrl: 'https://platform.deepseek.com/api_keys',
-  },
-  moonshot: {
-    label: 'Moonshot',
-    description: 'Moonshot Kimi API key access.',
-    baseUrl: 'https://api.moonshot.cn/v1',
-    authKind: 'api_key',
-    backendKind: 'ai-sdk',
-    fallbackModels: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
-    status: 'ready',
-    protocol: 'openai',
-    category: 'domestic',
-    catalogBadge: 'API',
-    signupUrl: 'https://platform.kimi.com/console/api-keys',
-  },
-  'zai-coding-plan': {
-    label: 'Z.AI Coding Plan',
-    description: 'GLM coding plan over OpenAI-compatible protocol.',
-    baseUrl: 'https://api.z.ai/api/coding/paas/v4',
-    authKind: 'api_key',
-    backendKind: 'ai-sdk',
-    fallbackModels: ['glm-4.7', 'glm-4.6', 'glm-4.5-air'],
-    status: 'ready',
-    protocol: 'openai',
-    category: 'domestic',
-    catalogBadge: 'Coding',
-    signupUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
-  },
-  MiniMax: {
-    label: 'MiniMax',
-    description: 'MiniMax M-series over Anthropic-compatible protocol.',
-    baseUrl: 'https://api.minimax.io/anthropic/v1',
-    authKind: 'api_key',
-    backendKind: 'ai-sdk',
-    fallbackModels: ['MiniMax-M3'],
-    status: 'ready',
-    protocol: 'anthropic',
-    category: 'overseas',
-    catalogBadge: 'API',
-    signupUrl: 'https://platform.minimax.io/user-center/basic-information/interface-key',
-  },
-  'MiniMax-cn': {
-    label: 'MiniMax 中国站',
-    description: 'MiniMax M-series (China) over Anthropic-compatible protocol.',
-    baseUrl: 'https://api.minimaxi.com/anthropic/v1',
-    authKind: 'api_key',
-    backendKind: 'ai-sdk',
-    fallbackModels: ['MiniMax-M3'],
-    status: 'ready',
-    protocol: 'anthropic',
-    category: 'domestic',
-    catalogBadge: 'API',
-    signupUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
-  },
-  siliconflow: SILICONFLOW_PROVIDER_DEFAULTS,
-  litellm: {
-    label: 'LiteLLM',
-    description: 'AI gateway proxy for 100+ LLM providers.',
-    baseUrl: 'http://localhost:4000/v1',
-    authKind: 'api_key',
-    backendKind: 'ai-sdk',
-    fallbackModels: [],
-    status: 'ready',
-    protocol: 'openai',
-    category: 'custom',
-    catalogBadge: 'Gateway',
-    signupUrl: 'https://docs.litellm.ai/',
-  },
-  ollama: {
-    label: 'Ollama',
-    description: 'Local models from Ollama on localhost.',
-    baseUrl: 'http://localhost:11434/v1',
-    authKind: 'none',
-    backendKind: 'ai-sdk',
-    fallbackModels: ['llama3.2', 'qwen2.5-coder', 'gemma3'],
-    status: 'ready',
-    protocol: 'openai',
-    category: 'local',
-    catalogBadge: 'Local',
-  },
-  'openai-compatible': {
-    label: 'OpenAI-compatible (custom)',
-    description: 'Custom OpenAI-compatible endpoint or gateway.',
-    baseUrl: '',
-    authKind: 'api_key',
-    backendKind: 'ai-sdk',
-    fallbackModels: [],
-    status: 'ready',
-    protocol: 'openai',
-    category: 'custom',
-    catalogBadge: 'Custom',
-  },
-  'claude-subscription': {
-    label: 'Claude Subscription (Pro / Max OAuth)',
-    description: 'Claude app subscription auth path, hidden behind the internal experimental gate.',
-    baseUrl: 'https://api.anthropic.com',
-    authKind: 'oauth_token',
-    backendKind: 'ai-sdk',
-    fallbackModels: [
-      'claude-sonnet-4-5-20250929',
-      'claude-opus-4-1-20250805',
-      'claude-haiku-4-5-20251001',
-    ],
-    status: 'phase3-experimental',
-    protocol: 'anthropic',
-    category: 'oauth',
-    catalogBadge: 'Experimental',
-  },
-  'codex-subscription': {
-    label: 'OpenAI OAuth (ChatGPT / Codex)',
-    description: 'ChatGPT/Codex account OAuth path for OpenAI Responses models.',
-    baseUrl: 'https://chatgpt.com/backend-api/codex',
-    authKind: 'oauth_token',
-    backendKind: 'ai-sdk',
-    fallbackModels: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark'],
-    status: 'phase3-experimental',
-    protocol: 'openai',
-    category: 'oauth',
-    catalogBadge: 'Account',
-  },
-  'gemini-cli': {
-    label: 'Gemini CLI OAuth',
-    description: 'Google account path is tracked separately from ready API-key providers.',
-    baseUrl: '',
-    authKind: 'oauth_token',
-    backendKind: 'ai-sdk',
-    fallbackModels: ['gemini-2.5-pro', 'gemini-2.5-flash'],
-    status: 'phase3-experimental',
-    protocol: 'google',
-    category: 'oauth',
-    catalogBadge: 'Account',
-  },
-};
-
-export const READY_PROVIDER_TYPES: ProviderType[] = [
-  'anthropic',
-  'openai',
-  'google',
-  'deepseek',
-  'moonshot',
-  'zai-coding-plan',
-  'MiniMax',
-  'MiniMax-cn',
-  'siliconflow',
-  'ollama',
-  'kimi-coding-plan',
-  'openai-compatible',
-];
-
-export const CATALOG_PROVIDER_TYPES: ProviderType[] = [
-  'kimi-coding-plan',
-  'deepseek',
-  'moonshot',
-  'zai-coding-plan',
-  'MiniMax',
-  'MiniMax-cn',
-  'siliconflow',
-  'anthropic',
-  'openai',
-  'google',
-  'ollama',
-  'litellm',
-  'openai-compatible',
-];
+export const PROVIDER_DEFAULTS = PROVIDER_REGISTRY;
 
 export function backendKindOf(c: Pick<LlmConnection, 'providerType'>): BackendKind {
   return PROVIDER_DEFAULTS[c.providerType].backendKind;

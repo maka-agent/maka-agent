@@ -18,6 +18,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { resolve } from 'node:path';
+import { CATALOG_PROVIDER_TYPES } from '@maka/core';
 import { readProviderSettingsCombinedSource } from './provider-contract-source-helpers.js';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
@@ -254,17 +255,11 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
   });
 
   it('ProvidersPanel keeps OAuth login out of CATALOG_PROVIDER_TYPES and surfaces it as account connections', async () => {
-    const [src, core] = await Promise.all([
-      readProviderSettingsCombinedSource(),
-      readFile(resolve(REPO_ROOT, 'packages', 'core', 'src', 'llm-connections.ts'), 'utf8'),
-    ]);
-    const catalogMatch = core.match(/export const CATALOG_PROVIDER_TYPES: ProviderType\[] = \[([\s\S]*?)\];/);
-    assert.ok(catalogMatch, 'CATALOG_PROVIDER_TYPES must exist');
-    const catalogBody = catalogMatch[1]!;
+    const src = await readProviderSettingsCombinedSource();
     for (const provider of ['claude-subscription', 'codex-subscription', 'gemini-cli']) {
-      assert.doesNotMatch(
-        catalogBody,
-        new RegExp(`'${provider}'`),
+      assert.equal(
+        CATALOG_PROVIDER_TYPES.includes(provider as (typeof CATALOG_PROVIDER_TYPES)[number]),
+        false,
         `${provider} must stay out of the visible model provider catalog until its send path is actually open`,
       );
     }

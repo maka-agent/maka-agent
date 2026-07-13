@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronRight, Plus, Search } from '@maka/ui/icons';
 import {
   CATALOG_PROVIDER_TYPES,
   PROVIDER_DEFAULTS,
+  RECOMMENDED_PROVIDER_TYPES,
   type LlmConnection,
   type ProviderCatalogGroup,
   type ProviderType,
@@ -46,16 +47,6 @@ const CATALOG_TABS: Array<{ id: CatalogCategory; label: string }> = [
   { id: 'api', label: 'API' },
   { id: 'aggregators', label: '聚合服务' },
   { id: 'local', label: '本地' },
-];
-
-const RECOMMENDED_PROVIDER_TYPES: ProviderType[] = [
-  'siliconflow',
-  'anthropic',
-  'openai',
-  'google',
-  'kimi-coding-plan',
-  'deepseek',
-  'ollama',
 ];
 
 export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
@@ -186,21 +177,12 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   const configuredByType = (type: ProviderType) =>
     connections.filter((connection) => connection.providerType === type).length;
 
-  function providerCatalogGroup(type: ProviderType): Exclude<CatalogCategory, 'recommended'> {
-    const definition = PROVIDER_DEFAULTS[type];
-    if (definition.catalogGroup && definition.catalogGroup !== 'recommended') return definition.catalogGroup;
-    if (definition.category === 'local') return 'local';
-    if (definition.catalogBadge === 'Coding') return 'plans';
-    if (definition.category === 'custom') return 'aggregators';
-    return 'api';
-  }
-
   function providersForCategory(category: CatalogCategory): ProviderType[] {
     const source = category === 'recommended' ? RECOMMENDED_PROVIDER_TYPES : CATALOG_PROVIDER_TYPES;
     const normalizedQuery = catalogQuery.trim().toLocaleLowerCase();
     return source.filter((type) => {
       if (!CATALOG_PROVIDER_TYPES.includes(type)) return false;
-      if (category !== 'recommended' && providerCatalogGroup(type) !== category) return false;
+      if (category !== 'recommended' && PROVIDER_DEFAULTS[type].catalogGroup !== category) return false;
       if (!normalizedQuery) return true;
       const display = providerDisplay(type);
       return [type, display.name, display.description, PROVIDER_DEFAULTS[type].label]
