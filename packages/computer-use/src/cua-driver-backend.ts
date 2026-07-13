@@ -135,6 +135,17 @@ export interface CuaDriverBackendOptions {
     logicalHeight: number;
     signal: AbortSignal;
   }) => Promise<ComputerUseDisplayIdentity[]>;
+  /**
+   * Host-owned physical-input guard. Returning true fences the pending input
+   * before cua-driver receives any mouse or keyboard dispatch.
+   */
+  physicalInputRecentlyActive?: () => boolean | Promise<boolean>;
+  /**
+   * Coordinate mouse/scroll/drag dispatch uses the compatibility CGEvent
+   * backend, which can interfere with physical mouse button state. Keep it
+   * disabled unless a future native executor proves event isolation.
+   */
+  allowCompatibilityInputDispatch?: boolean;
   /** Privacy-safe diagnostic stream: geometry, roles, dispatch path, and outcome only. */
   onTrace?: (event: CuaDriverTraceEvent) => void;
   /** Host lifecycle producer. Payloads contain no screen or application content. */
@@ -294,6 +305,35 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   const observations = new Map<string, StoredObservation>();
   let operationQueue = Promise.resolve();
   let disposed = false;
+
+  async function physicalInputFailure(): Promise<CuRunResult | undefined> {
+    if (!opts.physicalInputRecentlyActive) return undefined;
+    try {
+      if (!await opts.physicalInputRecentlyActive()) return undefined;
+    } catch {
+      // The guard is a safety boundary. If the host cannot establish an idle
+      // window, refuse the dispatch and require a fresh observation.
+    }
+    return {
+      outcome: {
+        ok: false,
+        error: 'user_intervened',
+        message: 'physical user input is active; wait for input to settle and observe again',
+      },
+    };
+  }
+
+  function compatibilityInputBlocked(actionType: string): CuRunResult {
+    return {
+      outcome: {
+        ok: false,
+        error: 'unsupported_action',
+        message:
+          `background '${actionType}' is disabled because the compatibility `
+          + 'event backend can interfere with physical user input',
+      },
+    };
+  }
 
   function contentFingerprint(
     elements: Iterable<NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>>,
@@ -1386,6 +1426,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         evidence: { path: 'ax', effect: 'confirmed' },
       };
     }
+    const intervention = await physicalInputFailure();
+    if (intervention) return intervention.outcome;
     const setResult = await actionClient.callTool(
       'set_value',
       {
@@ -1490,6 +1532,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         evidence: { path: 'cdp', effect: 'confirmed' },
       };
     }
+    const intervention = await physicalInputFailure();
+    if (intervention) return intervention.outcome;
     const result = await actionClient.callTool(
       'page',
       {
@@ -1561,7 +1605,10 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         to: 'pixel',
         reason: 'page_target_unavailable',
       });
-      return { handled: false };
+      return {
+        handled: true,
+        outcome: compatibilityInputBlocked(action.type).outcome,
+      };
     }
     const currentPage = await pageIdentity(window, pageTarget, signal);
     if (boundPage && !samePage(boundPage, currentPage)) {
@@ -1575,6 +1622,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       };
     }
 
+    const intervention = await physicalInputFailure();
+    if (intervention) return { handled: true, outcome: intervention.outcome };
     trace({
       type: 'dispatch',
       toolCallId,
@@ -1749,6 +1798,11 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         );
         if ('outcome' in validated) return validated;
         if (action.type === 'press_key') {
+          if (opts.allowCompatibilityInputDispatch !== true) {
+            return compatibilityInputBlocked(action.type);
+          }
+          const intervention = await physicalInputFailure();
+          if (intervention) return intervention;
           const result = await actionClient.callTool('press_key', {
             pid: validated.pid,
             window_id: validated.windowId,
@@ -1777,6 +1831,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           element_index: refetched.element_index,
           ...(refetched.element_token ? { element_token: refetched.element_token } : {}),
         };
+        const intervention = await physicalInputFailure();
+        if (intervention) return intervention;
         const result = action.type === 'click_element'
           ? await actionClient.callTool('click', args, signal)
           : action.type === 'set_value'
@@ -1884,6 +1940,9 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         case 'middle_click':
         case 'double_click':
         case 'triple_click': {
+          if (opts.allowCompatibilityInputDispatch !== true) {
+            return compatibilityInputBlocked(action.type);
+          }
           // Resolve the window under the point and click via pid+window_id, which
           // forces cua-driver's click_at_xy_with_window_local → CGEventPostToPid /
           // SLEventPostToPid — NO cursor warp (the forbidden pid-less path would
@@ -2015,6 +2074,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             if (action.type === 'middle_click') args.button = 'middle';
             if (action.type === 'triple_click') args.count = 3;
             const toolName = action.type === 'double_click' ? 'double_click' : 'click';
+            const intervention = await physicalInputFailure();
+            if (intervention) return intervention;
             trace({
               type: 'dispatch',
               toolCallId: context.toolCallId,
@@ -2050,6 +2111,9 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           }
         }
         case 'scroll': {
+          if (opts.allowCompatibilityInputDispatch !== true) {
+            return compatibilityInputBlocked(action.type);
+          }
           // Scroll REQUIRES a pid and posts via scroll_wheel_at_xy → post_to_pid
           // (no cursor warp — the warp only exists in the empty-desktop click path).
           // Resolve the window under the point and scroll it window-locally; fail
@@ -2082,6 +2146,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
                 },
               };
             }
+            const intervention = await physicalInputFailure();
+            if (intervention) return intervention;
             const r = await actionClient.callTool(
               'scroll',
               {
@@ -2101,6 +2167,9 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           }
         }
         case 'left_click_drag': {
+          if (opts.allowCompatibilityInputDispatch !== true) {
+            return compatibilityInputBlocked(action.type);
+          }
           // Press-drag-release WITHIN a single window. cua-driver's `drag` sends the
           // whole down→(interpolated moves)→up sequence through the SAME window-local
           // post_mouse_event → SLEventPostToPid/CGEventPostToPid path as click
@@ -2191,6 +2260,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
                 },
               };
             }
+            const intervention = await physicalInputFailure();
+            if (intervention) return intervention;
             const r = await actionClient.callTool(
               'drag',
               {

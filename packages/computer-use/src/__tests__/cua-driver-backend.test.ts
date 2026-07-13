@@ -29,6 +29,7 @@ import type { CuaResolvedPageTextTarget } from '../cua-driver-page-target.js';
 import {
   createCuaDriverBackend,
   type CuaDriverBackendOptions,
+  type CuaDriverTraceEvent,
 } from '../cua-driver-backend.js';
 
 const HOST_BUNDLE_ID = 'com.maka.test';
@@ -447,6 +448,9 @@ function makeBackend(opts: {
   semanticPointerResult?: Record<string, unknown>;
   refetchMode?: 'replacement' | 'missing' | 'ambiguous';
   resolveDisplays?: CuaDriverBackendOptions['resolveDisplays'];
+  physicalInputRecentlyActive?: CuaDriverBackendOptions['physicalInputRecentlyActive'];
+  onTrace?: CuaDriverBackendOptions['onTrace'];
+  allowCompatibilityInputDispatch?: boolean;
   snapshotDelayMs?: number;
   compressFrame?: (b: string, m: string) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
   onSessionInvalidated?: CuaDriverBackendOptions['onSessionInvalidated'];
@@ -487,6 +491,12 @@ function makeBackend(opts: {
     resolveContentFingerprint: opts.resolveContentFingerprint
       ?? (() => 'test-content-fingerprint'),
     ...(opts.resolveDisplays ? { resolveDisplays: opts.resolveDisplays } : {}),
+    ...(opts.physicalInputRecentlyActive
+      ? { physicalInputRecentlyActive: opts.physicalInputRecentlyActive }
+      : {}),
+    ...(opts.onTrace ? { onTrace: opts.onTrace } : {}),
+    allowCompatibilityInputDispatch:
+      opts.allowCompatibilityInputDispatch ?? true,
     ...(opts.onSessionInvalidated
       ? { onSessionInvalidated: opts.onSessionInvalidated }
       : {}),
@@ -685,6 +695,31 @@ describe('cua-driver backend', () => {
     if (replay && !replay.outcome.ok) {
       assert.equal(replay.outcome.error, 'stale_frame');
     }
+  });
+
+  it('refuses semantic input while physical user input is active', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      physicalInputRecentlyActive: () => true,
+    });
+    const signal = new AbortController().signal;
+    const context = {
+      sessionId: 's1',
+      turnId: 't1',
+      toolCallId: 'semantic-guard',
+    };
+    const observation = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: false,
+    }, signal, context);
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: observation.observationId,
+      elementId: '7',
+    }, signal, context);
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'user_intervened');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
   });
 
   it('refetches a unique labeled element when the ephemeral token changes', async () => {
@@ -1259,6 +1294,70 @@ describe('cua-driver backend', () => {
     assert.equal(typeof click!.y, 'number');
   });
 
+  it('refuses coordinate input while physical user input is active', async () => {
+    const traces: CuaDriverTraceEvent[] = [];
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      physicalInputRecentlyActive: () => true,
+      onTrace: (event) => traces.push(event),
+    });
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      new AbortController().signal,
+    );
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'user_intervened');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+    assert.equal(traces.some((event) => event.type === 'dispatch'), false);
+  });
+
+  it('disables compatibility event dispatch by default', async () => {
+    const { backend, logPath } = makeBackend({
+      allowCompatibilityInputDispatch: false,
+    });
+    const signal = new AbortController().signal;
+    for (const action of [
+      { type: 'left_click', coordinate: { x: 600, y: 400 } },
+      {
+        type: 'scroll',
+        coordinate: { x: 600, y: 400 },
+        scrollDirection: 'down',
+        scrollAmount: 3,
+      },
+      {
+        type: 'left_click_drag',
+        startCoordinate: { x: 600, y: 400 },
+        coordinate: { x: 800, y: 600 },
+      },
+    ] as CuAction[]) {
+      const result = await backend.run(action, signal);
+      assert.equal(result.outcome.ok, false);
+      if (!result.outcome.ok) {
+        assert.equal(result.outcome.error, 'unsupported_action');
+      }
+    }
+    const records = await readRecords(logPath);
+    assert.equal(toolCalls(records, 'click').length, 0);
+    assert.equal(toolCalls(records, 'scroll').length, 0);
+    assert.equal(toolCalls(records, 'drag').length, 0);
+  });
+
+  it('fails closed when the physical-input guard cannot be read', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      physicalInputRecentlyActive() {
+        throw new Error('idle signal unavailable');
+      },
+    });
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      new AbortController().signal,
+    );
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'user_intervened');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+  });
+
   it('click uses same-snapshot pixels to focus an editable control', async () => {
     const { backend, logPath } = makeBackend();
     const res = await backend.run(
@@ -1427,6 +1526,31 @@ describe('cua-driver backend', () => {
     assert.equal(drag!.to_y, 400); // 600-200
     assert.equal(drag!.scope, undefined, 'must NOT use scope:desktop (the warping path)');
     assert.equal(drag!.delivery_mode, undefined, 'must NOT force foreground; default Background is no-warp + no z-order disturbance');
+  });
+
+  it('refuses scroll and drag while physical user input is active', async () => {
+    const { backend, logPath } = makeBackend({
+      physicalInputRecentlyActive: () => true,
+    });
+    const signal = new AbortController().signal;
+    const scroll = await backend.run({
+      type: 'scroll',
+      coordinate: { x: 600, y: 400 },
+      scrollDirection: 'down',
+      scrollAmount: 3,
+    } as CuAction, signal);
+    assert.equal(scroll.outcome.ok, false);
+    if (!scroll.outcome.ok) assert.equal(scroll.outcome.error, 'user_intervened');
+    const drag = await backend.run({
+      type: 'left_click_drag',
+      startCoordinate: { x: 600, y: 400 },
+      coordinate: { x: 800, y: 600 },
+    } as CuAction, signal);
+    assert.equal(drag.outcome.ok, false);
+    if (!drag.outcome.ok) assert.equal(drag.outcome.error, 'user_intervened');
+    const records = await readRecords(logPath);
+    assert.equal(toolCalls(records, 'scroll').length, 0);
+    assert.equal(toolCalls(records, 'drag').length, 0);
   });
 
   it('left_click_drag with an endpoint on empty desktop fails closed — never posts a drag', async () => {

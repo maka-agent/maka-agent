@@ -59,6 +59,7 @@ export function selectComputerUseBackend(deps?: {
     base64: string,
     mimeType: string,
   ) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
+  physicalInputRecentlyActive?: () => boolean | Promise<boolean>;
 }): SelectedComputerUseBackend {
   if (process.platform !== 'darwin') return NONE;
   if (!deps?.binaryPath || !deps.expectedBinarySha256) return NONE;
@@ -68,6 +69,9 @@ export function selectComputerUseBackend(deps?: {
       hostBundleId: resolveHostBundleId(deps?.hostBundleId),
       expectedBinarySha256: deps.expectedBinarySha256,
       ...(deps?.compressFrame ? { compressFrame: deps.compressFrame } : {}),
+      ...(deps?.physicalInputRecentlyActive
+        ? { physicalInputRecentlyActive: deps.physicalInputRecentlyActive }
+        : {}),
     });
     return {
       backend,
