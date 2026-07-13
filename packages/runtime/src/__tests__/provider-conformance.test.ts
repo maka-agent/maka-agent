@@ -18,7 +18,7 @@ describe('models.dev provider conformance', () => {
     let requestBody: Record<string, unknown> | undefined;
     const server = await startJsonServer(async (request, response) => {
       assert.equal(request.headers.authorization, 'Bearer sf-test-key');
-      if (request.method === 'GET' && request.url === '/v1/models') {
+      if (request.method === 'GET' && request.url === '/v1/models?sub_type=chat') {
         respondJson(response, 200, { data: [{ id: 'moonshotai/Kimi-K2.6' }] });
         return;
       }

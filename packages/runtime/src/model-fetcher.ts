@@ -56,7 +56,7 @@ async function fetchProviderModelsStrict(
       return (data.data ?? []).map(toModelInfo).filter((model): model is ModelInfo => model !== null);
     }
     case 'openai': {
-      const r = await proxiedFetch(`${stripTrailing(baseUrl)}/models`, {
+      const r = await proxiedFetch(openAiModelListUrl(connection, baseUrl), {
         headers: {
           'content-type': 'application/json',
           ...(auth === 'none' ? {} : { authorization: `Bearer ${apiKey}` }),
@@ -80,6 +80,11 @@ async function fetchProviderModelsStrict(
       });
     }
   }
+}
+
+function openAiModelListUrl(connection: LlmConnection, baseUrl: string): string {
+  const url = `${stripTrailing(baseUrl)}/models`;
+  return connection.providerType === 'siliconflow' ? `${url}?sub_type=chat` : url;
 }
 
 function toModelInfo(model: RawProviderModel): ModelInfo | null {
