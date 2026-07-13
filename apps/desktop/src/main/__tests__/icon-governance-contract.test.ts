@@ -35,7 +35,8 @@ const MINIMAX_BRAND_ASSET_FILE = resolve(
   'apps/desktop/src/renderer/assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg',
 );
 const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/xai.svg');
-const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/resources/THIRD_PARTY_NOTICES.md');
+const DESKTOP_PACKAGE_FILE = resolve(REPO_ROOT, 'apps/desktop/package.json');
+const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/public/THIRD_PARTY_LICENSES.txt');
 
 // Fixed brand assets, not generic UI icons — their vendored SVGs keep
 // their own stroke weight and are exempt from the call-site stroke sweep.
@@ -199,7 +200,10 @@ describe('icon + typography governance contract', () => {
   });
 
   it('ships the Lobe Icons MIT notice beside vendored provider assets', async () => {
-    const notices = await readFile(THIRD_PARTY_NOTICES_FILE, 'utf8');
+    const [desktopPackage, notices] = await Promise.all([
+      readFile(DESKTOP_PACKAGE_FILE, 'utf8'),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
 
     assert.match(notices, /## Lobe Icons/);
     assert.match(notices, /https:\/\/github\.com\/lobehub\/lobe-icons/);
@@ -211,5 +215,10 @@ describe('icon + typography governance contract', () => {
     );
     assert.match(notices, /MIT License[\s\S]*Copyright \(c\) 2023 LobeHub[\s\S]*Permission is hereby granted/);
     assert.match(notices, /THE SOFTWARE IS PROVIDED "AS IS"/);
+    assert.match(
+      desktopPackage,
+      /"build:renderer": "vite build && node \.\.\/\.\.\/scripts\/check-third-party-notices\.mjs"/,
+      'renderer builds must verify that the public notice was copied byte-for-byte into dist-renderer',
+    );
   });
 });

@@ -1,4 +1,5 @@
-# Third-Party Notices
+Third-Party Licenses
+====================
 
 This file records notices for third-party source assets vendored into the Maka desktop application. Each entry identifies the upstream revision and every covered vendored file so the notice remains useful in source and packaged distributions.
 
