@@ -1368,10 +1368,15 @@ export function buildComputerUseTools(deps: {
             if (!presentation.result) return bindingFailure('capture_failed');
             result = presentation.result;
             applyTypedOutcomeState(state, result.outcome);
-            const postDispatchFailure = validateActionLease(state, actionLease);
-            if (postDispatchFailure) {
-              presentation.finish();
-              return postDispatchFailure;
+            if (result.outcome.ok) {
+              const postDispatchFailure = validateActionLease(
+                state,
+                actionLease,
+              );
+              if (postDispatchFailure) {
+                presentation.finish();
+                return postDispatchFailure;
+              }
             }
           } finally {
             consumeFailure = consumeBoundAction(record, binding);
@@ -1481,7 +1486,7 @@ export function buildComputerUseTools(deps: {
             if (presentation.blocked) return presentation.blocked;
             result = presentation.result;
             if (result) applyTypedOutcomeState(state, result.outcome);
-            if (observationLease?.ok) {
+            if (result?.outcome.ok && observationLease?.ok) {
               const validated = state.validateObservationLease(
                 observationLease.lease,
               );
@@ -1490,7 +1495,7 @@ export function buildComputerUseTools(deps: {
                 return sessionFailure(validated.reason);
               }
             }
-            if (actionLease) {
+            if (result?.outcome.ok && actionLease) {
               const leaseFailure = validateActionLease(state, actionLease);
               if (leaseFailure) {
                 presentation.finish();

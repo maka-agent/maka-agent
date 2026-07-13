@@ -1200,6 +1200,67 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     });
   }
 
+  test('generic outcome_unknown remains model-visible while requiring reobserve', async () => {
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+    };
+    backend.observeApp = async () => observation();
+    backend.run = async () => ({
+      outcome: {
+        ok: false,
+        error: 'outcome_unknown',
+        message: 'delivery may have occurred',
+      },
+    });
+    const tools = buildComputerUseTools({ backend });
+    const [tool] = tools;
+    const observed = await tool.impl(
+      { action: 'observe', app: 'Fixture' } as never,
+      ctx(),
+    ) as { text: string };
+
+    const result = await tool.impl({
+      action: 'left_click',
+      observation_id: JSON.parse(observed.text).observation_id,
+      coordinate: [25, 30],
+    } as never, ctx()) as { text: string };
+
+    assert.match(result.text, /outcome_unknown/);
+    assert.doesNotMatch(result.text, /failed: reobserve_required/);
+    assert.equal(tools.sessionEvents.snapshot('s1').status, 'reobserve_required');
+  });
+
+  test('semantic outcome_unknown remains model-visible while requiring reobserve', async () => {
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+    };
+    backend.observeApp = async () => observation();
+    backend.runSemantic = async () => ({
+      outcome: {
+        ok: false,
+        error: 'outcome_unknown',
+        message: 'semantic delivery may have occurred',
+      },
+    });
+    const tools = buildComputerUseTools({ backend });
+    const [tool] = tools;
+    const observed = await tool.impl(
+      { action: 'observe', app: 'Fixture' } as never,
+      ctx(),
+    ) as { text: string };
+
+    const result = await tool.impl({
+      action: 'click_element',
+      observation_id: JSON.parse(observed.text).observation_id,
+      element_id: '5',
+    } as never, ctx()) as { text: string };
+
+    assert.match(result.text, /outcome_unknown/);
+    assert.doesNotMatch(result.text, /failed: reobserve_required/);
+    assert.equal(tools.sessionEvents.snapshot('s1').status, 'reobserve_required');
+  });
+
   test('a queued keyboard mutation cannot silently target a newer frame', async () => {
     let releaseClick!: () => void;
     const clickGate = new Promise<void>((resolve) => {
