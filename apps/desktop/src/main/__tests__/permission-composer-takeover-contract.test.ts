@@ -137,6 +137,9 @@ describe('permission composer takeover', () => {
   it('uses the chat measure, compact composer geometry, and capped detail scrolling', async () => {
     const css = await readFile(join(rendererRoot, 'styles', 'permission-dialog.css'), 'utf8');
     const surface = ruleBody(css, '.maka-permission-prompt-inner');
+    const summarySurface = ruleBody(css, '.maka-permission-summary');
+    const summaryCode = ruleBody(css, '.maka-permission-summary .maka-code');
+    const summaryPath = ruleBody(css, '.maka-permission-summary .maka-permission-path code');
     const detailPanel = ruleBody(css, '.maka-permission-raw [data-slot="collapsible-panel"]');
     const dangerNote = ruleBody(css, '.maka-permission-danger-note');
     const rawCode = ruleBody(css, '.maka-permission-raw .maka-code');
@@ -145,6 +148,20 @@ describe('permission composer takeover', () => {
     assert.match(surface, /border:\s*var\(--border-width-hairline\) solid var\(--border\)/);
     assert.match(surface, /border-radius:\s*var\(--radius-surface\)/);
     assert.match(surface, /display:\s*grid/);
+    assert.match(summarySurface, /min-height:\s*var\(--h-control-lg\)/, 'every compact card needs the same operation-object slot');
+    assert.match(summarySurface, /grid-template-columns:\s*minmax\(0, 1fr\) auto/, 'primary object and compact metadata share one stable row');
+    assert.match(summarySurface, /padding:\s*var\(--space-2\) var\(--space-2-5\)/);
+    assert.match(summarySurface, /border:\s*var\(--border-width-hairline\) solid var\(--border\)/);
+    assert.match(summarySurface, /background:\s*var\(--foreground-2\)/);
+    assert.match(summaryCode, /padding:\s*0/);
+    assert.match(summaryCode, /border:\s*0/);
+    assert.match(summaryCode, /background:\s*transparent/);
+    assert.match(summaryPath, /padding:\s*0/);
+    assert.match(summaryPath, /border:\s*0/);
+    assert.match(summaryPath, /background:\s*transparent/);
+    assert.match(summaryPath, /min-width:\s*0/);
+    assert.match(summaryPath, /text-overflow:\s*ellipsis/);
+    assert.match(ruleBody(css, '.maka-permission-meta'), /white-space:\s*nowrap/);
     assert.match(detailPanel, /max-height:\s*min\(32vh, 220px\)/);
     assert.match(detailPanel, /overflow:\s*auto/);
     assert.match(rawCode, /max-height:\s*none/);
@@ -188,6 +205,8 @@ describe('permission composer takeover', () => {
     assert.doesNotMatch(summary, /即将写入文件/);
     assert.doesNotMatch(summary, /即将编辑 Office 文档/);
     assert.doesNotMatch(summary, /case 'OfficeDocumentEdit':[\s\S]*?操作 <strong>/);
+    assert.match(summary, /case 'WebFetch':[\s\S]*?args\.url[\s\S]*?maka-permission-path/);
+    assert.match(summary, /default:[\s\S]*?request\.toolName[\s\S]*?maka-permission-line/);
     assert.match(details, /case 'OfficeDocumentEdit':[\s\S]*?operation[\s\S]*?target[\s\S]*?propEntries/);
     assert.doesNotMatch(summary, /maka-permission-diff/, 'diffs do not belong in the compact summary');
     assert.match(details, /maka-permission-diff/, 'diffs remain inspectable in expanded details');

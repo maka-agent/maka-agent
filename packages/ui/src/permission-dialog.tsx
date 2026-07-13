@@ -298,8 +298,15 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
       if (!path) return undefined;
       return <p className="maka-permission-path"><code>{redactSecrets(path)}</code></p>;
     }
+    case 'WebFetch': {
+      const url = typeof args.url === 'string' ? args.url : undefined;
+      if (!url) return undefined;
+      return <p className="maka-permission-path"><code>{redactSecrets(url)}</code></p>;
+    }
     default:
-      return undefined;
+      return request.toolName
+        ? <p className="maka-permission-line">{request.toolName}</p>
+        : undefined;
   }
 }
 
