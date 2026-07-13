@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { AgentRunEventPhase } from '@maka/core/agent-run';
 import { generalizedErrorMessage, redactSecrets } from '@maka/core/redaction';
 import type {
   CacheMissInputSource,
@@ -10,7 +11,7 @@ import type {
 } from '@maka/core/usage-stats/types';
 import type { SandboxRunTraceProjection } from './sandbox/diagnostics.js';
 
-export type RunTracePhase = 'turn' | 'sandbox' | 'model' | 'tool' | 'permission' | 'abort' | 'usage';
+export type RunTracePhase = AgentRunEventPhase;
 
 export type RunTraceEventType =
   | 'turn_started'

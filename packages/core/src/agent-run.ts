@@ -71,6 +71,15 @@ export type AgentRunEventType =
   | 'trace_write_failed'
   | 'event_corrupt';
 
+export type AgentRunEventPhase =
+  | 'turn'
+  | 'sandbox'
+  | 'model'
+  | 'tool'
+  | 'permission'
+  | 'abort'
+  | 'usage';
+
 export interface AgentRunEvent {
   type: AgentRunEventType;
   id: string;
@@ -78,6 +87,8 @@ export interface AgentRunEvent {
   sessionId: string;
   turnId: string;
   ts: number;
+  /** Present for events projected from RunTrace; omitted by legacy and run-lifecycle events. */
+  phase?: AgentRunEventPhase;
   message?: string;
   data?: Record<string, unknown>;
 }

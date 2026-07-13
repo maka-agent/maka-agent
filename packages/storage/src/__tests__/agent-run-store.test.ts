@@ -90,6 +90,22 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('round-trips trace phases while accepting legacy events without one', async () => {
+    await withStore(async (store) => {
+      await store.createRun(makeHeader());
+      await store.appendEvent('session-1', 'run-1', makeEvent({
+        id: 'trace-event',
+        type: 'sandbox_context_resolved',
+        phase: 'sandbox',
+      }));
+      await store.appendEvent('session-1', 'run-1', makeEvent({ id: 'legacy-event' }));
+
+      const events = await store.readEvents('session-1', 'run-1');
+      assert.equal(events[0]?.phase, 'sandbox');
+      assert.equal(events[1]?.phase, undefined);
+    });
+  });
+
   it('recovers corrupt event lines without hiding later events', async () => {
     await withStore(async (store, root) => {
       await store.createRun(makeHeader());

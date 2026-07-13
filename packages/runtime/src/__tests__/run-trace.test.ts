@@ -1,8 +1,27 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { projectRunTraceEvent } from '../agent-run.js';
 import { RunTrace, type RunTraceEvent } from '../run-trace.js';
 
 describe('RunTrace error diagnostics', () => {
+  test('preserves phase when projecting a trace event for durable storage', () => {
+    const event: RunTraceEvent = {
+      id: 'trace-1',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      ts: 1,
+      phase: 'sandbox',
+      type: 'sandbox_context_resolved',
+      message: 'Sandbox context resolved',
+      data: { profileName: 'workspace-write' },
+    };
+
+    assert.deepEqual(projectRunTraceEvent(event, 'run-1'), {
+      ...event,
+      runId: 'run-1',
+    });
+  });
+
   test('model stream failures keep generic copy plus redacted raw diagnostics', () => {
     const events: RunTraceEvent[] = [];
     const trace = new RunTrace({

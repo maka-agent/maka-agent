@@ -157,7 +157,7 @@ export class AgentRun {
   recordRunTrace(event: RunTraceEvent): void {
     if (!this.input.runStore || !this.runStoreAvailable) return;
     this.enqueueRunStore('append trace event', async () => {
-      await this.input.runStore?.appendEvent(this.sessionId, this.runId, traceToRunEvent(event, this.runId));
+      await this.input.runStore?.appendEvent(this.sessionId, this.runId, projectRunTraceEvent(event, this.runId));
     });
   }
 
@@ -925,7 +925,7 @@ export class AgentRun {
   }
 }
 
-function traceToRunEvent(event: RunTraceEvent, runId: string): AgentRunEvent {
+export function projectRunTraceEvent(event: RunTraceEvent, runId: string): AgentRunEvent {
   return {
     type: event.type,
     id: event.id,
@@ -933,6 +933,7 @@ function traceToRunEvent(event: RunTraceEvent, runId: string): AgentRunEvent {
     sessionId: event.sessionId,
     turnId: event.turnId,
     ts: event.ts,
+    phase: event.phase,
     message: redactTraceString(event.message),
     data: sanitizeTraceData(event.data),
   };

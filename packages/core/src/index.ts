@@ -121,6 +121,7 @@ export {
 // agent-run.ts
 export type {
   AgentRunEvent,
+  AgentRunEventPhase,
   AgentRunEventType,
   AgentRunHeader,
   AgentRunInputSummary,
