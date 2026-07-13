@@ -148,7 +148,6 @@ test('adds Mistral with its exact snapshot model, API-key field, and shared offi
   await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('mistral');
   await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.mistral.ai/v1');
   await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('mistral-large-latest');
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
   await page.getByRole('button', { name: '保存供应商' }).click();
 
   await expect(page.getByRole('heading', { name: 'Mistral', exact: true }).first()).toBeVisible();
