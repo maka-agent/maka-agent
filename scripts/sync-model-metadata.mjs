@@ -6,6 +6,7 @@ const PROVIDERS = {
   anthropic: 'anthropic',
   cerebras: 'cerebras',
   deepseek: 'deepseek',
+  'fireworks-ai': 'fireworks-ai',
   google: 'google',
   'gemini-cli': 'google',
   MiniMax: 'minimax',

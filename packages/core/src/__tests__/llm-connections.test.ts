@@ -42,6 +42,7 @@ describe('provider compatibility contract', () => {
       'cerebras',
       'mistral',
       'togetherai',
+      'fireworks-ai',
       'ollama',
       'lm-studio',
       'openai-compatible',
@@ -68,6 +69,7 @@ describe('provider compatibility contract', () => {
       'openai-compatible',
       'minimax-coding-plan',
       'togetherai',
+      'fireworks-ai',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -88,6 +90,7 @@ describe('provider compatibility contract', () => {
       'ollama',
       'lm-studio',
       'openai-compatible',
+      'fireworks-ai',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -203,6 +206,50 @@ describe('provider compatibility contract', () => {
     assert.ok(together.fallbackModels.includes('Qwen/Qwen3.5-9B'));
     assert.equal(together.catalogGroup, 'api');
     assert.equal(together.signupUrl, 'https://api.together.ai/settings/projects/~current/api-keys');
+  });
+
+  it('owns the complete Fireworks AI provider contract under the stable fireworks-ai id', () => {
+    assert.deepEqual(PROVIDER_REGISTRY['fireworks-ai'], {
+      label: 'Fireworks AI',
+      description: 'Serverless open models with exact Fireworks model paths.',
+      baseUrl: 'https://api.fireworks.ai/inference/v1/',
+      authKind: 'api_key',
+      backendKind: 'ai-sdk',
+      fallbackModels: [
+        'accounts/fireworks/models/kimi-k2p6',
+        'accounts/fireworks/models/deepseek-v4-flash',
+        'accounts/fireworks/models/deepseek-v4-pro',
+        'accounts/fireworks/models/glm-5p1',
+        'accounts/fireworks/models/glm-5p2',
+        'accounts/fireworks/models/gpt-oss-120b',
+        'accounts/fireworks/models/gpt-oss-20b',
+        'accounts/fireworks/models/kimi-k2p7-code',
+        'accounts/fireworks/models/minimax-m2p7',
+        'accounts/fireworks/models/minimax-m3',
+        'accounts/fireworks/models/qwen3p7-plus',
+        'accounts/fireworks/routers/glm-5p1-fast',
+        'accounts/fireworks/routers/glm-5p2-fast',
+        'accounts/fireworks/routers/kimi-k2p6-fast',
+        'accounts/fireworks/routers/kimi-k2p6-turbo',
+        'accounts/fireworks/routers/kimi-k2p7-code-fast',
+      ],
+      status: 'ready',
+      protocol: 'openai',
+      runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+      modelDiscovery: {
+        kind: 'fireworks',
+        accountsPath: '/v1/accounts',
+        publicAccount: 'accounts/fireworks',
+        query: { filter: 'supports_serverless=true', pageSize: '200' },
+      },
+      category: 'overseas',
+      catalogGroup: 'api',
+      catalogBadge: 'API',
+      signupUrl: 'https://app.fireworks.ai/settings/users/api-keys',
+      modelsDevId: 'fireworks-ai',
+      readyOrder: 19,
+      catalogOrder: 19,
+    });
   });
 });
 

@@ -19,6 +19,18 @@ describe('ProviderAuth contract', () => {
     expect(contract.setupMode).toBe('api_key');
     expect(contract.requiresSecret).toBe(true);
     expect(contract.actionAvailability.test_credentials).toBe('available');
+  });
+
+  test('Fireworks AI uses the shared API-key credential flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'fireworks-ai',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('fireworks-ai');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
     expect(contract.actionAvailability.fetch_models).toBe('available');
   });
 

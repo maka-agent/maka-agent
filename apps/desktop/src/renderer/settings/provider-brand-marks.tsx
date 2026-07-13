@@ -16,6 +16,7 @@
 import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
 import cerebrasMarkUrl from '../assets/provider-brands/cerebras.svg';
+import fireworksMarkUrl from '../assets/provider-brands/fireworks.svg';
 import lmStudioBrandMark from '../assets/provider-brands/lmstudio.svg';
 import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg';
 import mistralBrandMark from '../assets/provider-brands/mistral.svg';
@@ -39,6 +40,14 @@ function XAI(): ReactElement {
 // - path: packages/static-svg/icons/together.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: b3ec218e7e0b0432a2ce07f5ec98a1dcd24f808c74d5fee624ab31e4947feef3
+
+// Fireworks mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/fireworks.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 9991ab2a8331096d3f408e07a5f2e1cb54c369143dd9fc7a97f6458478b33fe3
 
 // Vendored from lobehub/lobe-icons (MIT):
 // https://github.com/lobehub/lobe-icons
@@ -201,6 +210,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <XAI />;
     case 'togetherai':
       return <ProviderAssetMask src={togetherBrandMark} />;
+    case 'fireworks-ai':
+      return <ProviderAssetMask src={fireworksMarkUrl} />;
     case 'siliconflow':
       return <SiliconCloud />;
     case 'anthropic':

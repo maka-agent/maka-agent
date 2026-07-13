@@ -2331,6 +2331,33 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves Fireworks only from Fireworks credential env without rewriting the model path', () => {
+    const model = 'accounts/fireworks/models/kimi-k2p6';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'fireworks-ai',
+      model,
+      env: {
+        FIREWORKS_API_KEY: 'fireworks-key',
+        FIREWORKS_BASE_URL: 'https://api.fireworks.ai/inference/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'fireworks-key');
+    assert.equal(resolved.connection.providerType, 'fireworks-ai');
+    assert.equal(resolved.connection.defaultModel, model);
+    assert.equal(resolved.connection.baseUrl, 'https://api.fireworks.ai/inference/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'fireworks-ai',
+      model,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves ai-sdk api key from a *_API_KEY_FILE without exposing the secret on argv', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-cell-key-'));
     try {

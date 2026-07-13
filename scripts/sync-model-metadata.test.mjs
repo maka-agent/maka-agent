@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'openai', 'siliconflow', 'togetherai', 'xai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'openai', 'siliconflow', 'togetherai', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -178,6 +178,35 @@ test('sync-model-metadata vendors Together AI provider facts and exact model ids
   assert.match(generated, /"togetherai": \{/);
   assert.match(generated, /"togetherai": \{"id":"togetherai","name":"Together AI","doc":"https:\/\/docs\.together\.ai\/docs\/serverless-models"\}/);
   assert.match(generated, /"openai\/gpt-oss-20b": \{"displayName":"GPT OSS 20B"/);
+});
+
+test('sync-model-metadata vendors Fireworks AI provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog['fireworks-ai'] = {
+    ...catalog['fireworks-ai'],
+    name: 'Fireworks AI',
+    api: 'https://api.fireworks.ai/inference/v1/',
+    models: {
+      'accounts/fireworks/models/kimi-k2p6': {
+        id: 'accounts/fireworks/models/kimi-k2p6', name: 'Kimi K2.6', reasoning: true, tool_call: true,
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        limit: { context: 262_000, output: 262_000 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"fireworks-ai": \{/);
+  assert.match(generated, /"fireworks-ai": \{"id":"fireworks-ai","name":"Fireworks AI","api":"https:\/\/api\.fireworks\.ai\/inference\/v1\/"/);
+  assert.match(generated, /"accounts\/fireworks\/models\/kimi-k2p6": \{"displayName":"Kimi K2\.6"/);
 });
 
 test('sync-model-metadata rejects incomplete upstream model data', async () => {

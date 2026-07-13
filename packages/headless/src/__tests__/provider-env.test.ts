@@ -46,3 +46,11 @@ test('Together AI keeps its official provider-scoped credential environment name
     baseUrls: ['TOGETHER_BASE_URL'],
   });
 });
+
+test('Fireworks AI keeps provider-scoped credential environment names', () => {
+  assert.deepEqual(providerCredentialEnv('fireworks-ai'), {
+    apiKeys: ['FIREWORKS_API_KEY'],
+    apiKeyFile: 'FIREWORKS_API_KEY_FILE',
+    baseUrls: ['FIREWORKS_BASE_URL'],
+  });
+});

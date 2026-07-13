@@ -29,6 +29,12 @@ export type ProviderModelDiscovery =
       query?: Readonly<Record<string, string>>;
       responseShape?: 'array-or-data';
     }
+  | {
+      kind: 'fireworks';
+      accountsPath: string;
+      publicAccount: string;
+      query: Readonly<Record<string, string>>;
+    }
   | { kind: 'fallback' }
   | { kind: 'ollama' };
 
@@ -73,6 +79,16 @@ const cerebrasModelIds = toolCallingModelIds('Cerebras', GENERATED_MODELS_DEV_ME
 const mistral = GENERATED_MODELS_DEV_PROVIDER_FACTS.mistral;
 if (mistral.id !== 'mistral') throw new Error('models.dev Mistral provider facts are missing stable id mistral');
 const mistralModelIds = toolCallingModelIds('Mistral', GENERATED_MODELS_DEV_METADATA.mistral, ['mistral-large-latest']);
+const fireworks = GENERATED_MODELS_DEV_PROVIDER_FACTS['fireworks-ai'];
+if (fireworks.id !== 'fireworks-ai') {
+  throw new Error('models.dev Fireworks AI provider facts are missing stable id fireworks-ai');
+}
+if (!fireworks.api) throw new Error('models.dev Fireworks AI provider facts are missing api');
+const fireworksModelIds = toolCallingModelIds(
+  'Fireworks AI',
+  GENERATED_MODELS_DEV_METADATA['fireworks-ai'],
+  ['accounts/fireworks/models/kimi-k2p6'],
+);
 
 const together = GENERATED_MODELS_DEV_PROVIDER_FACTS.togetherai;
 if (together.id !== 'togetherai') {
@@ -390,6 +406,30 @@ const providerRegistry = {
     modelsDevId: together.id,
     readyOrder: 18,
     catalogOrder: 15,
+  },
+  'fireworks-ai': {
+    label: fireworks.name,
+    description: 'Serverless open models with exact Fireworks model paths.',
+    baseUrl: fireworks.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: fireworksModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: {
+      kind: 'fireworks',
+      accountsPath: '/v1/accounts',
+      publicAccount: 'accounts/fireworks',
+      query: { filter: 'supports_serverless=true', pageSize: '200' },
+    },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://app.fireworks.ai/settings/users/api-keys',
+    modelsDevId: fireworks.id,
+    readyOrder: 19,
+    catalogOrder: 19,
   },
   ollama: {
     label: 'Ollama',

@@ -4,6 +4,29 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 import { listReadyModelChoices, resolveDefaultSessionTarget } from '../connection-target.js';
 
 describe('default session target resolver', () => {
+  test('resolves Fireworks credentials without rewriting the exact model path', async () => {
+    const connection = makeConnection({
+      slug: 'fireworks-ai',
+      name: 'Fireworks AI',
+      providerType: 'fireworks-ai',
+      defaultModel: 'accounts/fireworks/models/kimi-k2p6',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'fireworks-ai',
+        get: async (slug) => slug === 'fireworks-ai' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'fireworks-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'fireworks-ai');
+    assert.equal(target.apiKey, 'fireworks-test-key');
+    assert.equal(target.model, 'accounts/fireworks/models/kimi-k2p6');
+  });
+
   test('resolves LM Studio without reading a credential or rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'lm-studio',

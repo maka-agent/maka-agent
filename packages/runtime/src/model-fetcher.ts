@@ -18,6 +18,19 @@ type RawProviderModel = {
   context_length?: number;
 };
 
+type RawFireworksModel = {
+  name?: string;
+  displayName?: string;
+  contextLength?: number;
+  supportsImageInput?: boolean;
+  supportsTools?: boolean;
+};
+
+type FireworksModelDiscovery = Extract<
+  (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]['modelDiscovery'],
+  { kind: 'fireworks' }
+>;
+
 export async function fetchProviderModels(
   connection: LlmConnection,
   apiKey: string,
@@ -45,6 +58,9 @@ async function fetchProviderModelsStrict(
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json() as { models?: Array<{ name?: string }> };
     return (data.models ?? []).flatMap((model) => model.name ? [{ id: model.name }] : []);
+  }
+  if (discovery.kind === 'fireworks') {
+    return fetchFireworksModels(baseUrl, apiKey, discovery);
   }
 
   switch (definition.protocol) {
@@ -91,6 +107,50 @@ function modelListUrl(baseUrl: string, query: Readonly<Record<string, string>> |
   const url = `${stripTrailing(baseUrl)}/models`;
   const search = query ? new URLSearchParams(query).toString() : '';
   return search ? `${url}?${search}` : url;
+}
+
+async function fetchFireworksModels(
+  baseUrl: string,
+  apiKey: string,
+  discovery: FireworksModelDiscovery,
+): Promise<ModelInfo[]> {
+  const root = stripTrailing(baseUrl).replace(/\/inference\/v1$/, '');
+  const headers = {
+    'content-type': 'application/json',
+    authorization: `Bearer ${apiKey}`,
+  };
+  const accountsResponse = await proxiedFetch(
+    `${root}${discovery.accountsPath}?pageSize=200`,
+    { headers, timeoutMs: MODEL_FETCH_TIMEOUT_MS },
+  );
+  if (!accountsResponse.ok) throw new Error(`HTTP ${accountsResponse.status}`);
+  const accountsData = await accountsResponse.json() as { accounts?: Array<{ name?: string }> };
+  const accountNames = [
+    ...(accountsData.accounts ?? []).flatMap((account) => (
+      account.name && /^accounts\/[^/]+$/.test(account.name) ? [account.name] : []
+    )),
+    discovery.publicAccount,
+  ].filter((name, index, names) => names.indexOf(name) === index);
+  const modelLists = await Promise.all(accountNames.map(async (accountName) => {
+    const url = `${root}/v1/${accountName}/models?${new URLSearchParams(discovery.query).toString()}`;
+    const response = await proxiedFetch(url, { headers, timeoutMs: MODEL_FETCH_TIMEOUT_MS });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json() as { models?: RawFireworksModel[] };
+    return data.models ?? [];
+  }));
+
+  return modelLists.flat().flatMap((model) => {
+    if (!model.name) return [];
+    const capabilities: NonNullable<ModelInfo['capabilities']> = {};
+    if (typeof model.supportsImageInput === 'boolean') capabilities.vision = model.supportsImageInput;
+    if (typeof model.supportsTools === 'boolean') capabilities.functionCalling = model.supportsTools;
+    return [{
+      id: model.name,
+      ...(model.displayName ? { displayName: model.displayName } : {}),
+      ...(typeof model.contextLength === 'number' ? { contextWindow: model.contextLength } : {}),
+      ...(Object.keys(capabilities).length ? { capabilities } : {}),
+    }];
+  });
 }
 
 function toModelInfo(model: RawProviderModel): ModelInfo | null {

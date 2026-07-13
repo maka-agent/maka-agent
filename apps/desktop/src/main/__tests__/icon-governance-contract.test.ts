@@ -38,6 +38,10 @@ const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets
 const CEREBRAS_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cerebras.svg');
 const MISTRAL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/mistral.svg');
 const TOGETHER_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/together.svg');
+const FIREWORKS_BRAND_MARK_FILE = resolve(
+  REPO_ROOT,
+  'apps/desktop/src/renderer/assets/provider-brands/fireworks.svg',
+);
 const DESKTOP_PACKAGE_FILE = resolve(REPO_ROOT, 'apps/desktop/package.json');
 const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/public/THIRD_PARTY_LICENSES.txt');
 const ONBOARDING_HERO_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/OnboardingHero.tsx');
@@ -230,6 +234,30 @@ describe('icon + typography governance contract', () => {
     assert.match(
       notices,
       /apps\/desktop\/src\/renderer\/assets\/provider-brands\/together\.svg[\s\S]*packages\/static-svg\/icons\/together\.svg[\s\S]*b3ec218e7e0b0432a2ce07f5ec98a1dcd24f808c74d5fee624ab31e4947feef3/,
+    );
+  });
+
+  it('vendors and routes the byte-exact Fireworks SVG through the shared mask and notice seams', async () => {
+    const [marks, asset, notices] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(FIREWORKS_BRAND_MARK_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      '9991ab2a8331096d3f408e07a5f2e1cb54c369143dd9fc7a97f6458478b33fe3',
+      'Fireworks SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0',
+    );
+    assert.match(
+      marks,
+      /Fireworks mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/fireworks\.svg[\s\S]*license: MIT[\s\S]*SHA-256: 9991ab2a8331096d3f408e07a5f2e1cb54c369143dd9fc7a97f6458478b33fe3/,
+    );
+    assert.match(marks, /import fireworksMarkUrl from '\.\.\/assets\/provider-brands\/fireworks\.svg';/);
+    assert.match(marks, /case 'fireworks-ai':\s*return <ProviderAssetMask src=\{fireworksMarkUrl\} \/>/);
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/fireworks\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/fireworks\.svg[\s\S]*9991ab2a8331096d3f408e07a5f2e1cb54c369143dd9fc7a97f6458478b33fe3/,
     );
   });
 

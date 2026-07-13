@@ -49,6 +49,26 @@ describe('ModelCatalogEntry', () => {
     assert.ok(entries.some((entry) => entry.id === 'Qwen/Qwen3.5-9B'));
   });
 
+  it('uses the checked-in Fireworks snapshot until live discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'fireworks-ai',
+        providerType: 'fireworks-ai',
+        defaultModel: 'accounts/fireworks/models/kimi-k2p6',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'accounts/fireworks/models/kimi-k2p6');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 262_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
   it('uses the checked-in xAI snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

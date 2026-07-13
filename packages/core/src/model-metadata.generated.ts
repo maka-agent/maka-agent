@@ -2,7 +2,7 @@
 // Do not edit by hand; put access-path-specific facts in model-metadata.ts.
 import type { ModelMetadata } from './model-metadata.js';
 
-export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "openai" | "siliconflow" | "togetherai" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
+export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "openai" | "siliconflow" | "togetherai" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
   "anthropic": {
     "claude-fable-5": {"displayName":"Claude Fable 5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-haiku-4-5": {"displayName":"Claude Haiku 4.5 (latest)","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":200000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
@@ -29,6 +29,24 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
     "deepseek-reasoner": {"displayName":"DeepSeek Reasoner","lifecycle":"active","docsUrl":"https://api-docs.deepseek.com/quick_start/pricing","contextWindow":1000000,"maxOutputTokens":384000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
     "deepseek-v4-flash": {"displayName":"DeepSeek V4 Flash","lifecycle":"active","docsUrl":"https://api-docs.deepseek.com/quick_start/pricing","contextWindow":1000000,"maxOutputTokens":384000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
     "deepseek-v4-pro": {"displayName":"DeepSeek V4 Pro","lifecycle":"active","docsUrl":"https://api-docs.deepseek.com/quick_start/pricing","contextWindow":1000000,"maxOutputTokens":384000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+  },
+  "fireworks-ai": {
+    "accounts/fireworks/models/deepseek-v4-flash": {"displayName":"DeepSeek V4 Flash","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":1000000,"maxOutputTokens":384000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/models/deepseek-v4-pro": {"displayName":"DeepSeek V4 Pro","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":1000000,"maxOutputTokens":384000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/models/glm-5p1": {"displayName":"GLM 5.1","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":202800,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/models/glm-5p2": {"displayName":"GLM 5.2","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":1048575,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/models/gpt-oss-120b": {"displayName":"GPT OSS 120B","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":131072,"maxOutputTokens":32768,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/models/gpt-oss-20b": {"displayName":"GPT OSS 20B","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":131072,"maxOutputTokens":32768,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/models/kimi-k2p6": {"displayName":"Kimi K2.6","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":262000,"maxOutputTokens":262000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/models/kimi-k2p7-code": {"displayName":"Kimi K2.7 Code","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":262000,"maxOutputTokens":262000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/models/minimax-m2p7": {"displayName":"MiniMax-M2.7","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":196608,"maxOutputTokens":196608,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/models/minimax-m3": {"displayName":"MiniMax-M3","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":512000,"maxOutputTokens":512000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/models/qwen3p7-plus": {"displayName":"Qwen 3.7 Plus","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":262144,"maxOutputTokens":65536,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/routers/glm-5p1-fast": {"displayName":"GLM 5.1 Fast","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":202800,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/routers/glm-5p2-fast": {"displayName":"GLM 5.2 Fast","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":1048575,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/routers/kimi-k2p6-fast": {"displayName":"Kimi K2.6 Fast","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":262000,"maxOutputTokens":262000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/routers/kimi-k2p6-turbo": {"displayName":"Kimi K2.6 Turbo","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":262000,"maxOutputTokens":262000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "accounts/fireworks/routers/kimi-k2p7-code-fast": {"displayName":"Kimi K2.7 Code Fast","lifecycle":"active","docsUrl":"https://fireworks.ai/docs/","contextWindow":262000,"maxOutputTokens":262000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
   },
   "google": {
     "gemini-2.0-flash": {"displayName":"Gemini 2.0 Flash","lifecycle":"deprecated","docsUrl":"https://ai.google.dev/gemini-api/docs/models","contextWindow":1048576,"maxOutputTokens":8192,"capabilities":{"vision":true,"reasoning":false,"functionCalling":true}},
@@ -305,10 +323,11 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
   },
 };
 
-export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "openai" | "siliconflow" | "togetherai" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
+export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "openai" | "siliconflow" | "togetherai" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
   "anthropic": {"id":"anthropic","name":"Anthropic","doc":"https://docs.anthropic.com/en/docs/about-claude/models"},
   "cerebras": {"id":"cerebras","name":"Cerebras","doc":"https://inference-docs.cerebras.ai/models/overview"},
   "deepseek": {"id":"deepseek","name":"DeepSeek","api":"https://api.deepseek.com","doc":"https://api-docs.deepseek.com/quick_start/pricing"},
+  "fireworks-ai": {"id":"fireworks-ai","name":"Fireworks AI","api":"https://api.fireworks.ai/inference/v1/","doc":"https://fireworks.ai/docs/"},
   "google": {"id":"google","name":"Google","doc":"https://ai.google.dev/gemini-api/docs/models"},
   "gemini-cli": {"id":"google","name":"Google","doc":"https://ai.google.dev/gemini-api/docs/models"},
   "MiniMax": {"id":"minimax","name":"MiniMax (minimax.io)","api":"https://api.minimax.io/anthropic/v1","doc":"https://platform.minimax.io/docs/guides/quickstart"},

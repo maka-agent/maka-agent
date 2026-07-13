@@ -7,6 +7,23 @@ import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { createConnectionStore } from '../connection-store.js';
 
 describe('FileConnectionStore', () => {
+  test('persists the Fireworks provider id and exact model path', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'fireworks-ai',
+        name: 'Fireworks AI',
+        providerType: 'fireworks-ai',
+        defaultModel: 'accounts/fireworks/models/kimi-k2p6',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'fireworks-ai');
+      assert.equal(persisted.connections[0]?.defaultModel, 'accounts/fireworks/models/kimi-k2p6');
+    });
+  });
+
   test('persists the LM Studio provider id and exact local model id', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({
