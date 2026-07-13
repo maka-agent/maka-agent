@@ -243,26 +243,9 @@
 .maka-permission-decision-actions {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(2, minmax(88px, 1fr));
+  grid-template-columns: repeat(3, minmax(88px, 1fr));
   align-items: center;
-  gap: var(--space-1-5);
-}
-
-.maka-permission-decision-actions .maka-button {
-  transition:
-    transform var(--duration-quick) var(--ease-out-strong),
-    background var(--duration-quick) var(--ease-out-strong),
-    border-color var(--duration-quick) var(--ease-out-strong),
-    box-shadow var(--duration-quick) var(--ease-out-strong);
-}
-
-.maka-permission-decision-actions .maka-button:hover {
-  transform: translateY(var(--lift-hover));
-  box-shadow: var(--shadow-minimal);
-}
-
-.maka-permission-decision-actions .maka-button:active {
-  transform: translateY(0);
+  gap: var(--space-1);
 }
 
 @container (max-width: 460px) {
@@ -281,6 +264,6 @@
   }
 
   .maka-permission-decision-actions {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
   }
 }

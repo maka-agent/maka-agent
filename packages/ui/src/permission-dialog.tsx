@@ -144,16 +144,6 @@ export function PermissionPrompt(props: {
           )}
           <footer className="permissionActions">
             <div className="maka-permission-utility-actions">
-              <UiButton
-                className="maka-button"
-                variant="quiet"
-                size="sm"
-                type="button"
-                disabled={props.stopPending}
-                onClick={() => void props.onStop()}
-              >
-                {props.stopPending ? '停止中…' : '停止'}
-              </UiButton>
               {showDisclosure && <CollapsibleTrigger>完整参数</CollapsibleTrigger>}
               <label className="permissionRemember">
                 <Checkbox
@@ -164,14 +154,21 @@ export function PermissionPrompt(props: {
                 本轮记住
               </label>
             </div>
-            <div className="maka-permission-decision-actions">
-              {/* Keep the irreversible action from becoming the brightest
-                  control: Allow uses a danger outline while the safe Deny
-                  action remains equally pressable. */}
+            <div className="maka-permission-decision-actions" role="group" aria-label="权限操作">
+              <UiButton
+                className="maka-button"
+                variant="secondary"
+                size="sm"
+                type="button"
+                disabled={props.stopPending}
+                onClick={() => void props.onStop()}
+              >
+                {props.stopPending ? '停止中…' : '停止'}
+              </UiButton>
               <UiButton
                 ref={denyButtonRef}
                 className="maka-button"
-                variant={isDestructive ? 'secondary' : 'ghost'}
+                variant="secondary"
                 size="sm"
                 type="button"
                 disabled={responsePending}
@@ -180,10 +177,8 @@ export function PermissionPrompt(props: {
                 拒绝操作
               </UiButton>
               <UiButton
-                className={isDestructive
-                  ? 'maka-button border border-[oklch(from_var(--destructive)_l_c_h_/_0.55)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.08)] text-[color:var(--destructive)] hover:bg-[oklch(from_var(--destructive)_l_c_h_/_0.14)] active:bg-[oklch(from_var(--destructive)_l_c_h_/_0.18)]'
-                  : 'maka-button'}
-                variant={isDestructive ? 'outline' : 'default'}
+                className="maka-button"
+                variant={isDestructive ? 'destructive' : 'default'}
                 size="sm"
                 type="button"
                 disabled={responsePending}

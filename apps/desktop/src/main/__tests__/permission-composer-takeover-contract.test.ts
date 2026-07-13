@@ -90,11 +90,13 @@ describe('permission composer takeover', () => {
     assert.match(prompt, /className="maka-permission-context"/);
     assert.match(
       prompt,
-      /<div className="maka-permission-utility-actions">[\s\S]*?props\.onStop[\s\S]*?\{showDisclosure && <CollapsibleTrigger>完整参数<\/CollapsibleTrigger>\}[\s\S]*?<\/div>[\s\S]*?<div className="maka-permission-decision-actions">/,
-      'Stop and disclosure are utilities; allow and deny are the only decision pair',
+      /<div className="maka-permission-utility-actions">[\s\S]*?\{showDisclosure && <CollapsibleTrigger>完整参数<\/CollapsibleTrigger>\}[\s\S]*?permissionRemember[\s\S]*?<\/div>[\s\S]*?<div className="maka-permission-decision-actions" role="group" aria-label="权限操作">[\s\S]*?props\.onStop[\s\S]*?submit\('deny'\)[\s\S]*?submit\('allow'\)/,
+      'all three request actions belong to one adjacent group; disclosure and grant scope remain utilities',
     );
-    assert.match(prompt, /ref=\{denyButtonRef\}[\s\S]*?size="sm"[\s\S]*?submit\('deny'\)/);
-    assert.match(prompt, /variant=\{isDestructive \? 'outline' : 'default'\}[\s\S]*?size="sm"[\s\S]*?submit\('allow'\)/);
+    assert.match(prompt, /variant="secondary"[\s\S]*?props\.onStop/);
+    assert.match(prompt, /ref=\{denyButtonRef\}[\s\S]*?variant="secondary"[\s\S]*?submit\('deny'\)/);
+    assert.match(prompt, /variant=\{isDestructive \? 'destructive' : 'default'\}[\s\S]*?submit\('allow'\)/);
+    assert.doesNotMatch(prompt, /oklch\(from_var\(--destructive\)|hover:bg-/, 'permission actions must use governed Button variants');
   });
 
   it('only offers disclosure for information not already present in the summary', async () => {
@@ -142,14 +144,10 @@ describe('permission composer takeover', () => {
     assert.match(disclosure, /width:\s*auto/, 'the shared full-width trigger must not break the utility row');
     assert.match(ruleBody(css, '.maka-permission-utility-actions'), /flex-wrap:\s*nowrap/);
     assert.match(ruleBody(css, '.permissionRemember'), /font-size:\s*var\(--font-size-ui\)/);
-    const decisionButtons = ruleBody(css, '.maka-permission-decision-actions .maka-button');
-    assert.match(decisionButtons, /transition:[\s\S]*?transform var\(--duration-quick\)/);
-    assert.match(
-      css,
-      /\.maka-permission-decision-actions \.maka-button:hover\s*\{[^}]*transform:\s*translateY\(var\(--lift-hover\)\)[^}]*box-shadow:\s*var\(--shadow-minimal\)/,
-      'decision buttons need a visible tactile hover state',
-    );
-    assert.match(css, /\.maka-permission-decision-actions \.maka-button:active\s*\{[^}]*transform:\s*translateY\(0\)/);
+    const decisionActions = ruleBody(css, '.maka-permission-decision-actions');
+    assert.match(decisionActions, /grid-template-columns:\s*repeat\(3, minmax\(88px, 1fr\)\)/);
+    assert.match(decisionActions, /gap:\s*var\(--space-1\)/);
+    assert.doesNotMatch(css, /\.maka-permission-decision-actions \.maka-button(?::hover|:active)?\s*\{/, 'Button primitive owns interaction states');
     assert.doesNotMatch(css, /\.maka-permission-icon\b/, 'removed title decoration must not leave dead CSS');
     assert.doesNotMatch(css, /\.permissionDialog\b/, 'the old modal geometry must be removed');
   });
