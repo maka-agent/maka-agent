@@ -9,6 +9,19 @@ import {
 import type { LlmConnection } from '../llm-connections.js';
 
 describe('ProviderAuth contract', () => {
+  test('MiniMax Coding Plan uses the shared API-key credential flow under its own provider id', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'minimax-coding-plan',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('minimax-coding-plan');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
   test('model-key providers expose credential actions only after a secret exists', () => {
     const missing = deriveProviderAuthContract({
       providerType: 'openai',

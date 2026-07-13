@@ -29,6 +29,7 @@ describe('provider compatibility contract', () => {
     assert.deepEqual(Object.keys(PROVIDER_DEFAULTS), [
       'anthropic',
       'kimi-coding-plan',
+      'minimax-coding-plan',
       'openai',
       'google',
       'deepseek',
@@ -56,9 +57,11 @@ describe('provider compatibility contract', () => {
       'ollama',
       'kimi-coding-plan',
       'openai-compatible',
+      'minimax-coding-plan',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
+      'minimax-coding-plan',
       'deepseek',
       'moonshot',
       'zai-coding-plan',
@@ -286,6 +289,24 @@ describe('provider URL defaults', () => {
     assert.equal(PROVIDER_DEFAULTS['kimi-coding-plan'].signupUrl, 'https://www.kimi.com/code/console');
     assert.equal(PROVIDER_DEFAULTS.moonshot.baseUrl, 'https://api.moonshot.cn/v1');
     assert.equal(PROVIDER_DEFAULTS.moonshot.signupUrl, 'https://platform.kimi.com/console/api-keys');
+  });
+
+  it('keeps MiniMax Coding Plan separate from MiniMax direct API access', () => {
+    const providers = PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]>>;
+    const plan = providers['minimax-coding-plan'];
+
+    assert.ok(plan, 'MiniMax Coding Plan must have its own persisted provider id');
+    assert.equal(plan.label, 'MiniMax Coding Plan');
+    assert.equal(plan.baseUrl, 'https://api.minimax.io/anthropic');
+    assert.equal(plan.authKind, 'api_key');
+    assert.equal(plan.protocol, 'anthropic');
+    assert.deepEqual(plan.runtimeAdapter, { kind: 'anthropic', auth: 'bearer', normalizeBaseUrl: true });
+    assert.deepEqual(plan.modelDiscovery, { kind: 'protocol', auth: 'bearer' });
+    assert.equal(plan.category, 'overseas');
+    assert.equal(plan.catalogGroup, 'plans');
+    assert.equal(plan.modelsDevId, 'minimax');
+    assert.equal(plan.fallbackModels[0], 'MiniMax-M3');
+    assert.notEqual(plan, providers.MiniMax);
   });
 });
 

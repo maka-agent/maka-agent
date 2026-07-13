@@ -4,6 +4,14 @@ import { lookupModelMetadata, resolveModelVisionSupport } from '../model-metadat
 import { PROVIDER_DEFAULTS, type ModelInfo, type ProviderType } from '../llm-connections.js';
 
 describe('model-metadata vision capability', () => {
+  it('reuses MiniMax snapshot facts for the Coding Plan access path', () => {
+    assert.deepEqual(
+      lookupModelMetadata('minimax-coding-plan', 'MiniMax-M3'),
+      lookupModelMetadata('MiniMax', 'MiniMax-M3'),
+    );
+    assert.equal(lookupModelMetadata('minimax-coding-plan', 'MiniMax-M3').capabilities?.vision, true);
+  });
+
   it('uses synchronized facts while preserving access-path overrides', () => {
     const metadata = lookupModelMetadata('anthropic', 'claude-sonnet-4-5');
     assert.equal(metadata.contextWindow, 200_000);

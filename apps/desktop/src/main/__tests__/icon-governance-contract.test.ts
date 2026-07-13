@@ -129,4 +129,14 @@ describe('icon + typography governance contract', () => {
       'the SiliconFlow provider must resolve to its real brand mark',
     );
   });
+
+  it('routes the MiniMax Coding Plan alias to the MiniMax brand mark', async () => {
+    const src = await readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8');
+
+    assert.match(
+      src,
+      /case 'minimax-coding-plan':\s*case 'MiniMax':\s*case 'MiniMax-cn':\s*return <MiniMaxMark \/>/,
+      'MiniMax Coding Plan must reuse the MiniMax brand mark instead of the generic placeholder',
+    );
+  });
 });

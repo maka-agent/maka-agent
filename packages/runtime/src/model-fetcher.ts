@@ -102,10 +102,16 @@ function toModelInfo(model: RawProviderModel): ModelInfo | null {
   };
 }
 
-function anthropicModelHeaders(auth: 'claude-subscription' | undefined, apiKey: string): Record<string, string> {
+function anthropicModelHeaders(auth: 'bearer' | 'claude-subscription' | undefined, apiKey: string): Record<string, string> {
   if (auth === 'claude-subscription') {
     return {
       ...claudeSubscriptionHeaders(),
+      Authorization: `Bearer ${apiKey}`,
+      'anthropic-version': '2023-06-01',
+    };
+  }
+  if (auth === 'bearer') {
+    return {
       Authorization: `Bearer ${apiKey}`,
       'anthropic-version': '2023-06-01',
     };

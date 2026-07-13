@@ -108,6 +108,7 @@ const SILICONFLOW_MODEL_OVERRIDES: Record<string, ModelMetadata> = Object.fromEn
 // access-path-specific aliases/limits. Standard model facts stay generated.
 const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMetadata>>> = {
   anthropic: ANTHROPIC_MODEL_OVERRIDES,
+  'minimax-coding-plan': GENERATED_MODELS_DEV_METADATA.MiniMax,
   'claude-subscription': CLAUDE_SUBSCRIPTION_MODEL_METADATA,
   openai: OPENAI_MODEL_OVERRIDES,
   google: GOOGLE_MODEL_OVERRIDES,

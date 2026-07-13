@@ -7,6 +7,23 @@ import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { createConnectionStore } from '../connection-store.js';
 
 describe('FileConnectionStore', () => {
+  test('persists the MiniMax Coding Plan provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'minimax-plan',
+        name: 'MiniMax Coding Plan',
+        providerType: 'minimax-coding-plan',
+        defaultModel: 'MiniMax-M2.7-highspeed',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'minimax-coding-plan');
+      assert.equal(persisted.connections[0]?.defaultModel, 'MiniMax-M2.7-highspeed');
+    });
+  });
+
   test('keeps provider create defaults independent from catalog recommendation refreshes', async () => {
     await withConnectionStore(async (store) => {
       const openai = await store.create({

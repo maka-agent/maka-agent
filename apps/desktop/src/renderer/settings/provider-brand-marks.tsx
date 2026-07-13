@@ -168,6 +168,7 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <Moonshot />;
     case 'zai-coding-plan':
       return <ZAI />;
+    case 'minimax-coding-plan':
     case 'MiniMax':
     case 'MiniMax-cn':
       return <MiniMaxMark />;

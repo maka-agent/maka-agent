@@ -23,7 +23,7 @@ export type ProviderRuntimeAdapter =
   | { kind: 'unavailable' };
 
 export type ProviderModelDiscovery =
-  | { kind: 'protocol'; auth?: 'claude-subscription'; query?: Readonly<Record<string, string>> }
+  | { kind: 'protocol'; auth?: 'bearer' | 'claude-subscription'; query?: Readonly<Record<string, string>> }
   | { kind: 'fallback' }
   | { kind: 'ollama' };
 
@@ -51,6 +51,20 @@ export interface ProviderDefaults {
 const siliconflow = GENERATED_MODELS_DEV_PROVIDER_FACTS.siliconflow;
 if (!siliconflow.api) throw new Error('models.dev SiliconFlow provider facts are missing api');
 const SILICONFLOW_RECOMMENDED_MODEL_IDS = ['moonshotai/Kimi-K2.6'];
+const MINIMAX_PLAN_RECOMMENDED_MODEL_IDS = ['MiniMax-M3'];
+
+const minimaxPlanModelEntries = Object.entries(GENERATED_MODELS_DEV_METADATA.MiniMax);
+const minimaxPlanModelsById = new Map(minimaxPlanModelEntries);
+const minimaxPlanModelIds = [
+  ...MINIMAX_PLAN_RECOMMENDED_MODEL_IDS.map((id) => {
+    const model = minimaxPlanModelsById.get(id);
+    if (!model) throw new Error(`models.dev MiniMax snapshot is missing recommended plan model ${id}`);
+    return [id, model] as const;
+  }),
+  ...minimaxPlanModelEntries.filter(([id]) => !MINIMAX_PLAN_RECOMMENDED_MODEL_IDS.includes(id)),
+]
+  .filter(([, model]) => model.capabilities?.functionCalling)
+  .map(([id]) => id);
 
 const siliconflowModelEntries = Object.entries(GENERATED_MODELS_DEV_METADATA.siliconflow);
 const siliconflowModelsById = new Map(siliconflowModelEntries);
@@ -89,7 +103,7 @@ const providerRegistry = {
     catalogBadge: 'API',
     signupUrl: 'https://console.anthropic.com/settings/keys',
     readyOrder: 1,
-    catalogOrder: 8,
+    catalogOrder: 9,
     recommendedOrder: 2,
   },
   'kimi-coding-plan': {
@@ -111,6 +125,25 @@ const providerRegistry = {
     catalogOrder: 1,
     recommendedOrder: 5,
   },
+  'minimax-coding-plan': {
+    label: 'MiniMax Coding Plan',
+    description: 'MiniMax Token Plan over Anthropic-compatible protocol.',
+    baseUrl: 'https://api.minimax.io/anthropic',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: minimaxPlanModelIds,
+    status: 'ready',
+    protocol: 'anthropic',
+    runtimeAdapter: { kind: 'anthropic', auth: 'bearer', normalizeBaseUrl: true },
+    modelDiscovery: { kind: 'protocol', auth: 'bearer' },
+    category: 'overseas',
+    catalogGroup: 'plans',
+    catalogBadge: 'Coding',
+    signupUrl: 'https://platform.minimax.io/subscribe/coding-plan',
+    modelsDevId: GENERATED_MODELS_DEV_PROVIDER_FACTS.MiniMax.id,
+    readyOrder: 13,
+    catalogOrder: 2,
+  },
   openai: {
     label: 'OpenAI',
     description: 'GPT API key access, including Responses API models.',
@@ -127,7 +160,7 @@ const providerRegistry = {
     catalogBadge: 'API',
     signupUrl: 'https://platform.openai.com/api-keys',
     readyOrder: 2,
-    catalogOrder: 9,
+    catalogOrder: 10,
     recommendedOrder: 3,
   },
   google: {
@@ -146,7 +179,7 @@ const providerRegistry = {
     catalogBadge: 'API',
     signupUrl: 'https://aistudio.google.com/app/apikey',
     readyOrder: 3,
-    catalogOrder: 10,
+    catalogOrder: 11,
     recommendedOrder: 4,
   },
   deepseek: {
@@ -165,7 +198,7 @@ const providerRegistry = {
     catalogBadge: 'API',
     signupUrl: 'https://platform.deepseek.com/api_keys',
     readyOrder: 4,
-    catalogOrder: 2,
+    catalogOrder: 3,
     recommendedOrder: 6,
   },
   moonshot: {
@@ -184,7 +217,7 @@ const providerRegistry = {
     catalogBadge: 'API',
     signupUrl: 'https://platform.kimi.com/console/api-keys',
     readyOrder: 5,
-    catalogOrder: 3,
+    catalogOrder: 4,
   },
   'zai-coding-plan': {
     label: 'Z.AI Coding Plan',
@@ -202,7 +235,7 @@ const providerRegistry = {
     catalogBadge: 'Coding',
     signupUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
     readyOrder: 6,
-    catalogOrder: 4,
+    catalogOrder: 5,
   },
   MiniMax: {
     label: 'MiniMax',
@@ -220,7 +253,7 @@ const providerRegistry = {
     catalogBadge: 'API',
     signupUrl: 'https://platform.minimax.io/user-center/basic-information/interface-key',
     readyOrder: 7,
-    catalogOrder: 5,
+    catalogOrder: 6,
   },
   'MiniMax-cn': {
     label: 'MiniMax 中国站',
@@ -238,7 +271,7 @@ const providerRegistry = {
     catalogBadge: 'API',
     signupUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
     readyOrder: 8,
-    catalogOrder: 6,
+    catalogOrder: 7,
   },
   siliconflow: {
     label: siliconflow.name,
@@ -257,7 +290,7 @@ const providerRegistry = {
     signupUrl: siliconflow.doc,
     modelsDevId: siliconflow.id,
     readyOrder: 9,
-    catalogOrder: 7,
+    catalogOrder: 8,
     recommendedOrder: 1,
   },
   ollama: {
@@ -275,7 +308,7 @@ const providerRegistry = {
     catalogGroup: 'local',
     catalogBadge: 'Local',
     readyOrder: 10,
-    catalogOrder: 11,
+    catalogOrder: 12,
     recommendedOrder: 7,
   },
   'openai-compatible': {
@@ -293,7 +326,7 @@ const providerRegistry = {
     catalogGroup: 'aggregators',
     catalogBadge: 'Custom',
     readyOrder: 12,
-    catalogOrder: 13,
+    catalogOrder: 14,
   },
   'claude-subscription': {
     label: 'Claude Subscription (Pro / Max OAuth)',

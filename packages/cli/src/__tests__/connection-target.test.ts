@@ -4,6 +4,29 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 import { listReadyModelChoices, resolveDefaultSessionTarget } from '../connection-target.js';
 
 describe('default session target resolver', () => {
+  test('resolves MiniMax Coding Plan credentials without rewriting the selected model id', async () => {
+    const connection = makeConnection({
+      slug: 'minimax-plan',
+      name: 'MiniMax Coding Plan',
+      providerType: 'minimax-coding-plan',
+      defaultModel: 'MiniMax-M2.7-highspeed',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'minimax-plan',
+        get: async (slug) => slug === 'minimax-plan' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'minimax-plan-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'minimax-coding-plan');
+    assert.equal(target.apiKey, 'minimax-plan-test-key');
+    assert.equal(target.model, 'MiniMax-M2.7-highspeed');
+  });
+
   test('resolves a SiliconFlow registry connection without rewriting its model id', async () => {
     const connection = makeConnection({
       slug: 'siliconflow',
