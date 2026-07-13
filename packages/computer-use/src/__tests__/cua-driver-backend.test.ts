@@ -1407,6 +1407,85 @@ describe('cua-driver backend', () => {
     assert.equal(toolCalls(records, 'drag').length, 0);
   });
 
+  it('keeps Electron semantic click available while compatibility input is disabled', async () => {
+    const traces: CuaDriverTraceEvent[] = [];
+    const { backend, logPath } = makeBackend({
+      allowCompatibilityInputDispatch: false,
+      processKind: 'electron',
+      pageTarget: testPageTarget(),
+      semanticPointerResult: {
+        supported: true,
+        ok: true,
+        kind: 'left_click',
+        editable: true,
+        tagName: 'input',
+        focusChanged: true,
+      },
+      onTrace: (event) => traces.push(event),
+    });
+
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      new AbortController().signal,
+    );
+
+    assert.equal(result.outcome.ok, true);
+    if (result.outcome.ok) assert.equal(result.outcome.tier, 'semantic-background');
+    const records = await readRecords(logPath);
+    assert.equal(businessPageCalls(records).length, 1);
+    assert.equal(toolCalls(records, 'click').length, 0);
+    assert.equal(
+      traces.some((event) =>
+        event.type === 'dispatch'
+        && event.tool === 'page'
+        && event.address === 'semantic'),
+      true,
+    );
+  });
+
+  it('traces native semantic dispatch without exposing element content', async () => {
+    const traces: CuaDriverTraceEvent[] = [];
+    const { backend } = makeBackend({
+      axRole: 'AXTextField',
+      axLabel: 'Private field label',
+      onTrace: (event) => traces.push(event),
+    });
+    const signal = new AbortController().signal;
+    const context = {
+      sessionId: 'trace-session',
+      turnId: 'trace-turn',
+      toolCallId: 'native-set-value',
+    };
+    const observed = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: false,
+    }, signal, context);
+
+    await backend.runSemantic!({
+      type: 'set_value',
+      observationId: observed.observationId,
+      elementId: '7',
+      value: 'private value',
+      elementIdentity: observed.elements[0]!.identity,
+    }, signal, {
+      ...context,
+      boundAction: boundElementAction(observed, '7'),
+    });
+
+    const dispatch = traces.find((event) =>
+      event.type === 'dispatch' && event.toolCallId === 'native-set-value');
+    assert.deepEqual(dispatch, {
+      type: 'dispatch',
+      toolCallId: 'native-set-value',
+      actionType: 'set_value',
+      tool: 'set_value',
+      pid: 4242,
+      windowId: 77,
+      address: 'ax',
+    });
+    assert.doesNotMatch(JSON.stringify(traces), /Private field label|private value/);
+  });
+
   it('fails closed when the physical-input guard cannot be read', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',

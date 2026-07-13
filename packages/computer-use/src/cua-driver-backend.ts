@@ -195,7 +195,7 @@ export type CuaDriverTraceEvent =
   | {
       type: 'dispatch';
       toolCallId?: string;
-      actionType: CuAction['type'];
+      actionType: CuAction['type'] | CuSemanticAction['type'];
       tool: string;
       pid?: number;
       windowId?: number;
@@ -1945,6 +1945,15 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         };
         const intervention = await physicalInputFailure();
         if (intervention) return intervention;
+        trace({
+          type: 'dispatch',
+          toolCallId: context.toolCallId,
+          actionType: action.type,
+          tool: action.type === 'click_element' ? 'click' : 'set_value',
+          pid: validated.pid,
+          windowId: validated.windowId,
+          address: 'ax',
+        });
         const result = action.type === 'click_element'
           ? await actionClient.callTool('click', args, signal)
           : action.type === 'set_value'
@@ -2028,9 +2037,6 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         case 'middle_click':
         case 'double_click':
         case 'triple_click': {
-          if (opts.allowCompatibilityInputDispatch !== true) {
-            return compatibilityInputBlocked(action.type);
-          }
           // Resolve the window under the point and click via pid+window_id, which
           // forces cua-driver's click_at_xy_with_window_local → CGEventPostToPid /
           // SLEventPostToPid — NO cursor warp (the forbidden pid-less path would
@@ -2090,6 +2096,9 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               }
               return { outcome: semantic.outcome, resolvedScreenPoint: win.screenPoint };
             }
+          }
+          if (opts.allowCompatibilityInputDispatch !== true) {
+            return compatibilityInputBlocked(action.type);
           }
           {
             let snapshot: TargetSnapshot;
