@@ -43,3 +43,14 @@ test('Button focus and solid states stay visibly distinct without elevation', ()
   assert.notEqual(primary.match(/hover:[^ ]+/)?.[0], primary.match(/active:[^ ]+/)?.[0]);
   assert.notEqual(destructive.match(/hover:[^ ]+/)?.[0], destructive.match(/active:[^ ]+/)?.[0]);
 });
+
+test('aria-disabled Button variants keep their resting tone during hover and active', () => {
+  const quiet = buttonVariants({ variant: 'quiet' });
+  const primary = buttonVariants({ variant: 'default' });
+
+  assert.match(quiet, /aria-disabled:hover:bg-transparent/);
+  assert.match(quiet, /aria-disabled:active:bg-transparent/);
+  assert.match(quiet, /aria-disabled:hover:text-foreground-secondary/);
+  assert.match(primary, /aria-disabled:hover:bg-primary/);
+  assert.match(primary, /aria-disabled:active:bg-primary/);
+});

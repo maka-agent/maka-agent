@@ -184,7 +184,6 @@ const markerVariants = cva("", {
       // it carries only the button look, never the footer's measure column.
       "footer-action":
         "rounded-[var(--radius-surface)] [border:0] text-[color:var(--muted-foreground)]"
-        + " aria-disabled:opacity-[0.45] aria-disabled:cursor-not-allowed"
         + " data-[pending=true]:opacity-[0.78] data-[pending=true]:cursor-progress"
         // Copy-in-progress sets `aria-disabled` and `data-pending` together.
         // `aria-disabled:opacity-[0.45]` and `data-[pending=true]:opacity-[0.78]`

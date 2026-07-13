@@ -54,7 +54,7 @@ export const buttonVariants = cva(
     'inline-flex shrink-0 items-center justify-center gap-2 rounded-sm',
     'transition-[background,color,border-color,box-shadow,opacity] duration-150 ease-[var(--ease-out-strong)]',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-    'disabled:pointer-events-none disabled:opacity-45',
+    'disabled:pointer-events-none disabled:opacity-45 aria-disabled:cursor-not-allowed aria-disabled:opacity-45',
     '[&_svg]:size-[var(--icon-size,1rem)] [&_svg]:shrink-0',
   ],
   {
@@ -73,6 +73,24 @@ export const buttonVariants = cva(
         'icon-sm': 'h-7 w-7 px-0 text-sm',
       },
     },
+    compoundVariants: [
+      {
+        variant: ['secondary', 'ghost', 'quiet'],
+        class: 'aria-disabled:hover:bg-transparent aria-disabled:active:bg-transparent',
+      },
+      {
+        variant: 'quiet',
+        class: 'aria-disabled:hover:text-foreground-secondary',
+      },
+      {
+        variant: 'default',
+        class: 'aria-disabled:hover:bg-primary aria-disabled:active:bg-primary',
+      },
+      {
+        variant: 'destructive',
+        class: 'aria-disabled:hover:bg-destructive aria-disabled:active:bg-destructive',
+      },
+    ],
     defaultVariants: {
       variant: 'default',
       size: 'md',
