@@ -160,7 +160,7 @@ export const FsDestructive: Story = {
           category: 'fs_destructive',
           reason: 'fs_destructive',
           args: { command: 'git clean -fdx' },
-          hint: '不可恢复：这会删除所有未跟踪的文件和目录。',
+          hint: '将删除所有未跟踪的文件和目录。',
         })}
         onRespond={noop}
       />

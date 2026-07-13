@@ -11,8 +11,8 @@ test('permission request takes over the composer slot without hiding the workspa
   await expect(permissionWindow.locator('.app')).not.toHaveAttribute('inert', '');
 
   await expect(prompt.getByRole('button', { name: '停止' })).toBeVisible();
-  await expect(prompt.getByRole('button', { name: '拒绝' })).toBeFocused();
-  await expect(prompt.getByRole('button', { name: '我已确认，允许' })).toBeVisible();
+  await expect(prompt.getByRole('button', { name: '拒绝操作' })).toBeFocused();
+  await expect(prompt.getByRole('button', { name: '允许操作' })).toBeVisible();
   await expect(prompt.getByText('本轮记住')).toBeVisible();
   await expect(prompt.getByRole('button', { name: /完整参数/ })).toBeVisible();
 

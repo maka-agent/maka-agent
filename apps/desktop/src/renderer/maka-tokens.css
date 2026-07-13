@@ -1339,17 +1339,6 @@
     gap: var(--space-2);
   }
 
-  /* ---- Permission badge tones (for status text + dialog reason) --- */
-
-  .maka-reason-text[data-reason="shell_dangerous"] { color: var(--info-text); }
-  .maka-reason-text[data-reason="file_write"]       { color: var(--info-text); }
-  .maka-reason-text[data-reason="fs_destructive"]   { color: var(--destructive-text); font-weight: var(--font-weight-medium); }
-  .maka-reason-text[data-reason="git_destructive"]  { color: var(--destructive-text); font-weight: var(--font-weight-medium); }
-  .maka-reason-text[data-reason="privileged"]       { color: var(--destructive-text); font-weight: var(--font-weight-medium); }
-  .maka-reason-text[data-reason="network"]          { color: var(--info-text); }
-  .maka-reason-text[data-reason="browser"]          { color: var(--info-text); }
-  .maka-reason-text[data-reason="custom"]           { color: var(--foreground-secondary); }
-
   /* ---- Code blocks (used in args preview inside permission prompt) --- */
 
   .maka-code {

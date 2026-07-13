@@ -2,10 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PermissionRequestEvent, PermissionResponse } from '@maka/core';
 import { derivePermissionRequestHealth, formatPermissionRequestWait, readWriteStdinInputPreview } from '@maka/core';
 import { AlertOctagon, AlertTriangle, FileEdit, GitMerge, Globe, HelpCircle, ShieldAlert, Terminal, Wifi } from './icons.js';
-import { Alert, AlertDescription } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Button as UiButton, Checkbox } from './ui.js';
-import { Badge } from './primitives/badge.js';
 import { redactSecrets } from './redact.js';
 import { formatRedactedJson } from './tool-format.js';
 
@@ -16,20 +14,19 @@ type ReasonKind = PermissionRequestEvent['reason'];
 
 interface ReasonPreset {
   prompt: string;
-  label: string;
   Icon: typeof AlertTriangle;
   tone: 'info' | 'caution' | 'destructive';
 }
 
 const REASON_PRESETS: Record<ReasonKind, ReasonPreset> = {
-  shell_dangerous: { prompt: '允许执行高风险 shell 命令？', label: '请仔细确认命令和目录', Icon: Terminal, tone: 'caution' },
-  file_write: { prompt: '允许写入或创建文件？', label: '文件系统操作', Icon: FileEdit, tone: 'info' },
-  fs_destructive: { prompt: '允许执行不可恢复的文件操作？', label: '不可恢复的文件系统操作', Icon: AlertOctagon, tone: 'destructive' },
-  git_destructive: { prompt: '允许执行不可恢复的 Git 操作？', label: '不可恢复的 Git 操作', Icon: GitMerge, tone: 'destructive' },
-  network: { prompt: '允许发起网络请求？', label: '对外网络请求', Icon: Wifi, tone: 'info' },
-  privileged: { prompt: '允许执行特权操作？', label: 'sudo / su', Icon: ShieldAlert, tone: 'destructive' },
-  browser: { prompt: '允许操作已登录的浏览器？', label: '浏览器会话包含你的登录状态', Icon: Globe, tone: 'caution' },
-  custom: { prompt: '允许执行此操作？', label: '自定义请求', Icon: HelpCircle, tone: 'info' },
+  shell_dangerous: { prompt: '允许执行高风险 shell 命令？', Icon: Terminal, tone: 'caution' },
+  file_write: { prompt: '允许写入或创建文件？', Icon: FileEdit, tone: 'info' },
+  fs_destructive: { prompt: '允许执行不可恢复的文件操作？', Icon: AlertOctagon, tone: 'destructive' },
+  git_destructive: { prompt: '允许执行不可恢复的 Git 操作？', Icon: GitMerge, tone: 'destructive' },
+  network: { prompt: '允许发起网络请求？', Icon: Wifi, tone: 'info' },
+  privileged: { prompt: '允许执行特权操作？', Icon: ShieldAlert, tone: 'destructive' },
+  browser: { prompt: '允许操作已登录的浏览器？', Icon: Globe, tone: 'caution' },
+  custom: { prompt: '允许执行此操作？', Icon: HelpCircle, tone: 'info' },
 };
 
 export function PermissionPrompt(props: {
@@ -104,6 +101,9 @@ export function PermissionPrompt(props: {
   const summary = renderPermissionSummary(props.request);
   const details = renderPermissionDetails(props.request);
   const isDestructive = preset.tone === 'destructive';
+  const context = props.request.hint ?? (isDestructive
+    ? '此操作无法恢复，请确认上面的内容。'
+    : undefined);
   const health = derivePermissionRequestHealth({ requestedAt: props.request.ts, now });
   const waitLabel = formatPermissionRequestWait(health.ageMs);
 
@@ -119,47 +119,22 @@ export function PermissionPrompt(props: {
           <span className="maka-permission-icon" aria-hidden="true">
             <preset.Icon size={20} />
           </span>
-          <div className="maka-permission-heading">
-            <div className="maka-permission-title-row">
-              <h2 className="maka-permission-title" id="permissionTitle">{preset.prompt}</h2>
-              <span className="maka-permission-age" data-status={health.status}>
-                已等待 {waitLabel}
-              </span>
-            </div>
-            <p className="maka-permission-subtitle">
-              <Badge variant={isDestructive ? 'destructive' : 'secondary'} className="maka-permission-tool font-mono">{props.request.toolName}</Badge>
-              <span aria-hidden="true"> · </span>
-              <span className="maka-reason-text" data-reason={props.request.reason}>{preset.label}</span>
-            </p>
+          <div className="maka-permission-title-row">
+            <h2 className="maka-permission-title" id="permissionTitle">{preset.prompt}</h2>
+            <span className="maka-permission-age" data-status={health.status}>
+              已等待 {waitLabel}
+            </span>
           </div>
         </header>
         <div className="maka-permission-body">
           {summary && <div className="maka-permission-summary">{summary}</div>}
-          {props.request.hint && (
-            <div className="maka-permission-hint" role="note">{props.request.hint}</div>
+          {context && (
+            <p className="maka-permission-context" data-tone={preset.tone}>{context}</p>
           )}
           {props.request.reason === 'browser' && rememberForTurn && (
-            <p className="maka-permission-hint" role="note">
+            <p className="maka-permission-context">
               勾选后，本轮接下来的浏览、读取页面、导航、点击、输入都不再逐次询问。你会全程看到它操作的页面，随时可以停止；本轮结束后授权失效。
             </p>
-          )}
-          {isDestructive && (
-            <Alert variant="error" className="maka-permission-danger-note">
-              <AlertDescription>
-                这类操作不可恢复，确认前请再读一遍上面的参数。
-              </AlertDescription>
-            </Alert>
-          )}
-          {health.status !== 'fresh' && (
-            <Alert
-              variant="warning"
-              className="maka-permission-stale-note"
-              data-status={health.status}
-            >
-              <AlertDescription>
-                这个请求已经等待较久。允许前请重新确认工具名和参数；如果上下文已经变了，直接拒绝后重新发送。
-              </AlertDescription>
-            </Alert>
           )}
         </div>
         <Collapsible className="maka-permission-raw">
@@ -168,18 +143,7 @@ export function PermissionPrompt(props: {
             <pre className="maka-code">{formatRedactedJson(props.request.args)}</pre>
           </CollapsiblePanel>
           <footer className="permissionActions">
-            <div className="maka-permission-footer-controls">
-              <label className="permissionRemember">
-                <Checkbox
-                  checked={rememberForTurn}
-                  disabled={responsePending}
-                  onCheckedChange={(checked) => setRememberForTurn(checked === true)}
-                />
-                本轮记住
-              </label>
-              <CollapsibleTrigger>完整参数</CollapsibleTrigger>
-            </div>
-            <div className="maka-permission-action-buttons">
+            <div className="maka-permission-utility-actions">
               <UiButton
                 className="maka-button"
                 variant="quiet"
@@ -190,6 +154,17 @@ export function PermissionPrompt(props: {
               >
                 {props.stopPending ? '停止中…' : '停止'}
               </UiButton>
+              <CollapsibleTrigger>完整参数</CollapsibleTrigger>
+              <label className="permissionRemember">
+                <Checkbox
+                  checked={rememberForTurn}
+                  disabled={responsePending}
+                  onCheckedChange={(checked) => setRememberForTurn(checked === true)}
+                />
+                本轮记住
+              </label>
+            </div>
+            <div className="maka-permission-decision-actions">
               {/* Keep the irreversible action from becoming the brightest
                   control: Allow uses a danger outline while the safe Deny
                   action remains equally pressable. */}
@@ -197,22 +172,24 @@ export function PermissionPrompt(props: {
                 ref={denyButtonRef}
                 className="maka-button"
                 variant={isDestructive ? 'secondary' : 'ghost'}
+                size="sm"
                 type="button"
                 disabled={responsePending}
                 onClick={() => submit('deny')}
               >
-                拒绝
+                拒绝操作
               </UiButton>
               <UiButton
                 className={isDestructive
                   ? 'maka-button border border-[oklch(from_var(--destructive)_l_c_h_/_0.55)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.08)] text-[color:var(--destructive)] hover:bg-[oklch(from_var(--destructive)_l_c_h_/_0.14)] active:bg-[oklch(from_var(--destructive)_l_c_h_/_0.18)]'
                   : 'maka-button'}
                 variant={isDestructive ? 'outline' : 'default'}
+                size="sm"
                 type="button"
                 disabled={responsePending}
                 onClick={() => submit('allow')}
               >
-                {responsePending ? '正在提交…' : isDestructive ? '我已确认，允许' : '允许'}
+                {responsePending ? '正在提交…' : '允许操作'}
               </UiButton>
             </div>
           </footer>

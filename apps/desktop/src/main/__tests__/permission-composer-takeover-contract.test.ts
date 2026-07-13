@@ -68,6 +68,29 @@ describe('permission composer takeover', () => {
     );
   });
 
+  it('presents one decision hierarchy without repeated risk or mixed-size action groups', async () => {
+    const permissionSource = await readFile(
+      join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'permission-dialog.tsx'),
+      'utf8',
+    );
+    const prompt = permissionSource.match(
+      /export function PermissionPrompt[\s\S]*?function renderBrowserSummary/,
+    )?.[0] ?? '';
+
+    assert.doesNotMatch(prompt, /maka-permission-subtitle/, 'the decision title must not repeat tool and reason metadata');
+    assert.doesNotMatch(prompt, /maka-permission-danger-note/, 'destructive consequences must be stated once, not repeated');
+    assert.doesNotMatch(prompt, /maka-permission-stale-note/, 'wait age metadata must not add a second warning block');
+    assert.match(prompt, /const context = props\.request\.hint \?\? \(isDestructive/);
+    assert.match(prompt, /className="maka-permission-context"/);
+    assert.match(
+      prompt,
+      /<div className="maka-permission-utility-actions">[\s\S]*?props\.onStop[\s\S]*?<CollapsibleTrigger>完整参数<\/CollapsibleTrigger>[\s\S]*?<\/div>[\s\S]*?<div className="maka-permission-decision-actions">/,
+      'Stop and disclosure are utilities; allow and deny are the only decision pair',
+    );
+    assert.match(prompt, /ref=\{denyButtonRef\}[\s\S]*?size="sm"[\s\S]*?submit\('deny'\)/);
+    assert.match(prompt, /variant=\{isDestructive \? 'outline' : 'default'\}[\s\S]*?size="sm"[\s\S]*?submit\('allow'\)/);
+  });
+
   it('uses the chat measure, compact composer geometry, and capped detail scrolling', async () => {
     const css = await readFile(join(rendererRoot, 'styles', 'permission-dialog.css'), 'utf8');
     const surface = ruleBody(css, '.maka-permission-prompt-inner');
@@ -83,9 +106,13 @@ describe('permission composer takeover', () => {
     assert.match(detailPanel, /overflow:\s*auto/);
     assert.match(rawCode, /max-height:\s*min\(36vh, 280px\)/);
     assert.match(rawCode, /overflow:\s*auto/);
-    assert.match(dangerNote, /border:\s*0/);
-    assert.match(dangerNote, /background:\s*transparent/);
-    assert.match(dangerNote, /padding:\s*0/);
+    assert.equal(dangerNote, '', 'the repeated destructive warning style must be removed');
+    assert.match(ruleBody(css, '.maka-permission-context'), /font-size:\s*var\(--font-size-ui\)/);
+    const disclosure = ruleBody(css, '.maka-permission-raw [data-slot="collapsible-trigger"]');
+    assert.match(disclosure, /font-size:\s*var\(--font-size-ui\)/);
+    assert.match(disclosure, /width:\s*auto/, 'the shared full-width trigger must not break the utility row');
+    assert.match(ruleBody(css, '.maka-permission-utility-actions'), /flex-wrap:\s*nowrap/);
+    assert.match(ruleBody(css, '.permissionRemember'), /font-size:\s*var\(--font-size-ui\)/);
     assert.doesNotMatch(css, /\.permissionDialog\b/, 'the old modal geometry must be removed');
   });
 
