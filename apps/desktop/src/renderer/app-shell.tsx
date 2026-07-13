@@ -1,8 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type {
   ChatDefaultPermissionMode,
-  ConnectionEvent,
-  LlmConnection,
   PermissionMode,
   PlanReminder,
   SessionSummary,
@@ -113,14 +111,7 @@ import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults'
 import { useKeyedPendingRegistry } from './use-pending-action-registry';
 import { useAppShellComposerAttachments } from './use-app-shell-composer-attachments';
 import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
-
-function connectionsEqual(a: LlmConnection[], b: LlmConnection[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i].slug !== b[i].slug || a[i].updatedAt !== b[i].updatedAt) return false;
-  }
-  return true;
-}
+import { useShellConnections } from './use-shell-connections';
 
 type ComposerImportOwner = {
   sessionId: string | undefined;
@@ -209,8 +200,14 @@ export function AppShell({
   // whenever the Settings modal closes (the user may have toggled
   // the agentReadEnabled switch).
   const [memoryActive, setMemoryActive] = useState(false);
-  const [connections, setConnections] = useState<LlmConnection[]>([]);
-  const [defaultConnection, setDefaultConnection] = useState<string | null>(null);
+  const {
+    connections,
+    defaultConnection,
+    setConnections,
+    setDefaultConnection,
+    refreshConnections,
+    handleConnectionEvent,
+  } = useShellConnections({ toastApi });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsRequestedSection, setSettingsRequestedSection] = useState<SettingsSection | undefined>(undefined);
   const [themePref, setThemePref] = useState<ThemePreference>('auto');
@@ -1133,19 +1130,6 @@ export function AppShell({
     bootstrapSelectionLease.release();
   }
 
-  async function refreshConnections() {
-    try {
-      const [next, nextDefault] = await Promise.all([
-        window.maka.connections.list(),
-        window.maka.connections.getDefault(),
-      ]);
-      setConnections((prev) => connectionsEqual(prev, next) ? prev : next);
-      setDefaultConnection(nextDefault);
-    } catch (error) {
-      toastApi.error('刷新模型连接失败', generalizedErrorMessageChinese(error, '模型连接暂时无法刷新，请稍后重试。'));
-    }
-  }
-
   async function createSession() {
     startNewSession();
     setNavSelection({ section: 'sessions', filter: 'chats' });
@@ -1171,14 +1155,6 @@ export function AppShell({
       setMemoryActive(next.agentReadEnabled && next.status === 'ok' && next.content.trim().length > 0);
     } catch (error) {
       toastApi.error(failureTitle, generalizedErrorMessageChinese(error, '本地记忆状态暂时无法刷新，请稍后重试。'));
-    }
-  }
-
-  function handleConnectionEvent(event: ConnectionEvent) {
-    switch (event.type) {
-      case 'connection_list_changed':
-        void refreshConnections();
-        break;
     }
   }
 

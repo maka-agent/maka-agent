@@ -33,6 +33,7 @@ const sourcePaths = [
   'use-pending-action-registry.ts',
   'use-project-context.ts',
   'use-module-data.ts',
+  'use-shell-connections.ts',
   'app-shell-visual-smoke.ts',
   'cached-theme-bootstrap.ts',
   'chat-model-selection.ts',
