@@ -22,7 +22,13 @@ describe('harness A/B manifest', () => {
     );
     assert.equal(new Set(manifest.evaluationTaskIds).size, 89);
     assert.deepEqual(manifest.metadata, {
-      benchmark: { dataset: 'terminal-bench', version: '2.1', revision: 'tb-revision' },
+      benchmark: {
+        dataset: 'terminal-bench',
+        version: '2.1',
+        revision: 'tb-revision',
+        timeoutPolicy: 'task-native',
+        timeoutMultiplier: 1,
+      },
       metric: 'pass@1',
       order: { algorithm: 'sha256-rank-v1', seed: 'maka-glm-5.2-v1', pilotTaskCount: 40 },
       model: { provider: 'zai-coding-plan', id: 'glm-5.2', reasoningEffort: 'max' },
@@ -65,7 +71,13 @@ describe('harness A/B manifest', () => {
 
 function manifestInput(taskIds: readonly string[]) {
   return {
-    benchmark: { dataset: 'terminal-bench' as const, version: '2.1' as const, revision: 'tb-revision' },
+    benchmark: {
+      dataset: 'terminal-bench' as const,
+      version: '2.1' as const,
+      revision: 'tb-revision',
+      timeoutPolicy: 'task-native' as const,
+      timeoutMultiplier: 1 as const,
+    },
     taskIds,
     orderSeed: 'maka-glm-5.2-v1',
     pilotTaskCount: Math.min(40, taskIds.length),
@@ -82,7 +94,7 @@ function manifestInput(taskIds: readonly string[]) {
       { id: 'maka' as const, version: '98e3846e', config: { continuation: true } },
       { id: 'opencode' as const, version: '1.17.18', config: { variant: 'max' } },
     ] as const,
-    taskBudgetSec: 900,
+    taskBudgetSec: null,
     harborTimeoutMs: 1_200_000,
     subjectFingerprint: 'subject',
     taskSourceFingerprint: 'tasks',

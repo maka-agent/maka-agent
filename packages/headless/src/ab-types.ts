@@ -261,7 +261,7 @@ export interface AbRunManifestInput {
   experimentKind: AbExperimentKind;
   arms: readonly [AbArmSpec, AbArmSpec];
   metadata?: Record<string, unknown>;
-  taskBudgetSec: number;
+  taskBudgetSec: number | null;
   harborTimeoutMs: number;
   subjectFingerprint: string;
   taskSourceFingerprint: string;

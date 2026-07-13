@@ -410,7 +410,9 @@ export function buildHarborJobConfig(
   }
 
   Object.assign(agentEnv, attemptAgentEnv ?? {});
-  const cellTimeoutSec = positiveIntEnv(agentEnv.MAKA_CELL_TIMEOUT_SEC);
+  const cellTimeoutSec = positiveIntEnv(agentEnv.MAKA_CELL_TIMEOUT_SEC)
+    ?? input.task.metadata?.agentTimeoutSec;
+  if (cellTimeoutSec !== undefined) agentEnv.MAKA_CELL_TIMEOUT_SEC = String(cellTimeoutSec);
 
   return {
     job_name: options.jobName,

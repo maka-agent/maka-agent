@@ -645,6 +645,25 @@ describe('buildHarborJobConfig', () => {
     assert.equal(agent.max_timeout_sec, 1800);
   });
 
+  test('uses each Terminal-Bench task native agent timeout when no override is set', () => {
+    const config = buildHarborJobConfig(runInput({
+      task: {
+        id: 'task-1',
+        path: '/tasks/task-1',
+        metadata: { agentTimeoutSec: 1234 },
+      },
+    }), {
+      makaRepoPath: '/repo',
+      jobsDir: '/jobs/x',
+      jobName: 'trial',
+      model: 'zai-coding-plan/glm-5.2',
+      provider: 'zai-coding-plan',
+    });
+    const agent = (config.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>)[0]!;
+    assert.equal(agent.env.MAKA_CELL_TIMEOUT_SEC, '1234');
+    assert.equal(agent.max_timeout_sec, 1234);
+  });
+
   test('merges per-attempt agent env into the Harbor agent config', () => {
     const config = buildHarborJobConfig(runInput({
       agentEnv: {
