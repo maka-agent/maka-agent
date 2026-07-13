@@ -16,6 +16,7 @@
 import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
 import cerebrasMarkUrl from '../assets/provider-brands/cerebras.svg';
+import cohereBrandMark from '../assets/provider-brands/cohere.svg';
 import deepinfraBrandMark from '../assets/provider-brands/deepinfra.svg';
 import fireworksMarkUrl from '../assets/provider-brands/fireworks.svg';
 import hunyuanBrandMark from '../assets/provider-brands/hunyuan.svg';
@@ -85,6 +86,14 @@ function XAI(): ReactElement {
 // - path: packages/static-svg/icons/mistral.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: a06cfa54e7deff7f7544175b006b7f8a03fbc5624c44f7d553a44d07ea96e629
+
+// Cohere mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/cohere.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 72851dd36d6ab017f535202744765eead8f99cfb5ced77e1840bfdb70db7a85c
 
 // Hunyuan mark vendored byte-for-byte from Lobe Icons:
 // - repository: https://github.com/lobehub/lobe-icons
@@ -301,6 +310,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <ProviderAssetMask src={localAiBrandMark} />;
     case 'mistral':
       return <ProviderAssetMask src={mistralBrandMark} />;
+    case 'cohere':
+      return <ProviderAssetMask src={cohereBrandMark} />;
     case 'tencent-tokenhub':
       return <ProviderAssetMask src={hunyuanBrandMark} />;
     case 'tencent-coding-plan':

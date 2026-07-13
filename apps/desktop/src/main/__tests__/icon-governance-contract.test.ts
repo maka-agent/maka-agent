@@ -37,6 +37,7 @@ const MINIMAX_BRAND_ASSET_FILE = resolve(
 const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/xai.svg');
 const CEREBRAS_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cerebras.svg');
 const MISTRAL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/mistral.svg');
+const COHERE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cohere.svg');
 const TOGETHER_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/together.svg');
 const DEEPINFRA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/deepinfra.svg');
 const FIREWORKS_BRAND_MARK_FILE = resolve(
@@ -385,6 +386,31 @@ describe('icon + typography governance contract', () => {
       /Mistral mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*32f4083f7a20b67ecdc7b29c0af031ada5a29c52[\s\S]*packages\/static-svg\/icons\/mistral\.svg[\s\S]*MIT[\s\S]*a06cfa54e7deff7f7544175b006b7f8a03fbc5624c44f7d553a44d07ea96e629/,
     );
     assert.match(componentSrc, /case 'mistral':\s*return <ProviderAssetMask src=\{mistralBrandMark\} \/>/);
+  });
+
+  it('vendors and routes the byte-exact upstream Cohere mark through the shared asset-mask seam', async () => {
+    const [cohereMark, componentSrc, notices] = await Promise.all([
+      readFile(COHERE_BRAND_MARK_FILE),
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(cohereMark).digest('hex'),
+      '72851dd36d6ab017f535202744765eead8f99cfb5ced77e1840bfdb70db7a85c',
+      'the vendored Cohere mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 cohere.svg',
+    );
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/cohere\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cohere\.svg[\s\S]*72851dd36d6ab017f535202744765eead8f99cfb5ced77e1840bfdb70db7a85c/,
+      'Cohere must append provenance to the existing Lobe Icons notice entry',
+    );
+    assert.match(componentSrc, /import cohereBrandMark from '\.\.\/assets\/provider-brands\/cohere\.svg';/);
+    assert.match(
+      componentSrc,
+      /Cohere mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cohere\.svg[\s\S]*MIT[\s\S]*72851dd36d6ab017f535202744765eead8f99cfb5ced77e1840bfdb70db7a85c/,
+    );
+    assert.match(componentSrc, /case 'cohere':\s*return <ProviderAssetMask src=\{cohereBrandMark\} \/>/);
   });
 
   it('vendors the unmodified upstream NVIDIA mark with traceable provenance', async () => {
