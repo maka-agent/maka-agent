@@ -4112,6 +4112,7 @@ describe('AiSdkBackend usage telemetry', () => {
           maxSummaryEstimatedTokens: 1024,
           minSavingsTokens: 1,
           minSavingsRatio: 0,
+          compactCallTokenCostWeight: 0,
         },
       },
       newId: idGenerator(),
@@ -4137,6 +4138,7 @@ describe('AiSdkBackend usage telemetry', () => {
       content: message.content,
     })));
     assert.match(secondPrompt, /maka_semantic_compact_block/);
+    assert.match(secondPrompt, /"hi"/);
     assert.doesNotMatch(secondPrompt, /SEMANTIC_COMPACT_RAW_TOOL_OUTPUT/);
 
     const semanticRecord = llmRecords.find((record) => record.callKind === 'semantic_compact');

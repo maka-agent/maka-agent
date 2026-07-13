@@ -431,16 +431,22 @@ export {
   renderSemanticCompactBlock,
   rewriteSemanticCompactInMessages,
   semanticCompactBlockToModelMessage,
+  validateSemanticCompactBlockForSourceIndex,
+  validateSemanticCompactReplacementShape,
 } from './semantic-compact.js';
 export type {
   SemanticCompactBlock,
   SemanticCompactDecision,
+  SemanticCompactFailure,
+  SemanticCompactFailureReason,
+  SemanticCompactFailureStage,
   SemanticCompactPolicy,
   SemanticCompactRewriteInput,
   SemanticCompactRewriteResult,
   SemanticCompactStateCard,
   SemanticCompactSummarizer,
   SemanticCompactSummaryRequest,
+  SemanticCompactValidationResult,
 } from './semantic-compact.js';
 export { testConnection } from './test-connection.js';
 export { fetchProviderModels } from './model-fetcher.js';
