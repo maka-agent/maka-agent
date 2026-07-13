@@ -47,7 +47,7 @@
         "src/**/*.{ts,tsx}",
         "stories/**/*.{ts,tsx}"
       ],
-      "ignoreDependencies": ["@storybook/react-vite"]
+      "ignoreDependencies": ["@storybook/react-vite", "storybook"]
     }
   }
 }
