@@ -80,6 +80,13 @@ describe('provider compatibility contract', () => {
       'lm-studio',
       'openai-compatible',
     ]);
+
+    for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
+      const orders = Object.values(PROVIDER_REGISTRY)
+        .map((provider) => provider[orderField])
+        .filter((order): order is number => order !== undefined);
+      assert.equal(new Set(orders).size, orders.length, `${orderField} values must be unique`);
+    }
   });
 
   it('derives catalog, recommendation, runtime, and discovery behavior from one registry', () => {
