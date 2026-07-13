@@ -19,7 +19,11 @@ import {
 } from '@maka/runtime';
 import { buildSkillsPromptFragment } from './skills.js';
 import { buildWorkspaceInstructionsPromptFragment } from './workspace-instructions.js';
-import type { LocalMemoryPromptUpdate, LocalMemoryService } from './local-memory-service.js';
+import type {
+  LocalMemoryAgentProjection,
+  LocalMemoryPromptUpdate,
+  LocalMemoryService,
+} from './local-memory-service.js';
 
 interface SystemPromptSettingsStore {
   get(): Promise<AppSettings>;
@@ -28,7 +32,7 @@ interface SystemPromptSettingsStore {
 interface SystemPromptMainDeps {
   settingsStore: SystemPromptSettingsStore;
   workspaceRoot: string;
-  localMemory: Pick<LocalMemoryService, 'captureAgentMemoryContent' | 'readForAgent' | 'consumePendingPromptUpdates'>;
+  localMemory: Pick<LocalMemoryService, 'captureAgentMemoryProjection' | 'readForAgent' | 'consumePendingPromptUpdates'>;
   taskLedger: Pick<TaskLedgerStore, 'list'>;
   goalManager?: Pick<GoalManager, 'get'>;
 }
@@ -41,7 +45,7 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
   async function buildSystemPrompt(
     header: Pick<SessionHeader, 'id' | 'workspaceRoot' | 'labels'>,
     cwd?: string,
-    options?: { memoryContentSnapshot?: string | null; includePersonalization?: boolean; skillBudget?: SkillPromptBudgetContext },
+    options?: { memoryProjection?: LocalMemoryAgentProjection | null; includePersonalization?: boolean; skillBudget?: SkillPromptBudgetContext },
   ): Promise<string | undefined> {
     const settings = await deps.settingsStore.get();
     const includePersonalization = options?.includePersonalization !== false;
@@ -55,9 +59,9 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
     const deepResearch = isDeepResearchSession(header.labels) ? buildDeepResearchSystemPromptFragment() : undefined;
     const botPlatform = botPlatformFromSessionLabels(header.labels);
     const botPlatformHint = botPlatform ? buildBotPlatformPromptFragment(botPlatform) : undefined;
-    const memoryFragment = options && 'memoryContentSnapshot' in options && options.memoryContentSnapshot === null
+    const memoryFragment = options && 'memoryProjection' in options && options.memoryProjection === null
       ? undefined
-      : await buildLocalMemoryPromptFragment(header, options?.memoryContentSnapshot ?? undefined);
+      : await buildLocalMemoryPromptFragment(header, options?.memoryProjection ?? undefined);
     const fragments = [
       personalization.text,
       deepResearch,
@@ -72,12 +76,12 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
   async function buildBackendSystemPrompt(
     header: Pick<SessionHeader, 'id' | 'workspaceRoot' | 'labels'>,
     cwd: string | undefined,
-    options: { memoryContentSnapshot?: string | null; childInstruction?: string | null; skillBudget?: SkillPromptBudgetContext },
+    options: { memoryProjection?: LocalMemoryAgentProjection | null; childInstruction?: string | null; skillBudget?: SkillPromptBudgetContext },
   ): Promise<string | undefined> {
     const childInstruction = options.childInstruction?.trim();
     const base = await buildSystemPrompt(header, cwd, childInstruction
-      ? { memoryContentSnapshot: null, includePersonalization: false, skillBudget: options.skillBudget }
-      : { memoryContentSnapshot: options.memoryContentSnapshot, skillBudget: options.skillBudget });
+      ? { memoryProjection: null, includePersonalization: false, skillBudget: options.skillBudget }
+      : { memoryProjection: options.memoryProjection, skillBudget: options.skillBudget });
     if (!childInstruction) return base;
     return [
       base,
@@ -138,13 +142,13 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
 
   async function buildLocalMemoryPromptFragment(
     header: Pick<SessionHeader, 'id' | 'workspaceRoot'>,
-    contentSnapshot?: string,
+    projection?: LocalMemoryAgentProjection,
   ): Promise<string | undefined> {
     try {
       const read = await deps.localMemory.readForAgent({
         workspaceRoot: header.workspaceRoot,
         sessionId: header.id,
-        contentSnapshot,
+        projection,
       });
       if (read.status !== 'visible') return undefined;
       return [
@@ -211,6 +215,8 @@ function localMemoryPromptUpdateLabel(action: LocalMemoryPromptUpdate['action'])
       return '已写入';
     case 'archived':
       return '已归档';
+    case 'deleted':
+      return '已删除';
     case 'restored':
       return '已恢复';
     case 'saved':

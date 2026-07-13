@@ -581,9 +581,8 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(service, /await this\.backupRestoreUndo\(\)/);
     assert.match(service, /await this\.backup\('restore\.bak'\)/);
     assert.match(service, /realpath\(backupInfo\.path\)/);
-    assert.match(service, /const backupContent = await readFile\(backup\)/);
-    assert.match(service, /await writeFile\(this\.file, backupContent, \{ mode: 0o600 \}\)/);
-    assert.match(service, /await chmod\(this\.file, 0o600\)/);
+    assert.match(service, /const backupContent = await readFile\(backup, 'utf8'\)/);
+    assert.match(service, /await this\.writeMemoryContent\(backupContent\)/);
     assert.match(service, /没有找到上一版 MEMORY\.md 备份/);
     assert.match(main, /ipcMain\.handle\('memory:restoreLatestBackup'/);
     assert.match(preload, /restoreLatestBackup\(\)/);

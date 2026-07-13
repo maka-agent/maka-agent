@@ -625,6 +625,8 @@ export type {
   LocalMemoryLegacyScopePolicy,
   LocalMemoryReadDecision,
   LocalMemoryReadTrace,
+  LocalMemoryDocumentVersionResult,
+  WithLocalMemoryDocumentVersionResult,
   AppendManualLocalMemoryEntryInput,
   AppendManualLocalMemoryEntryResult,
   AppendApprovedLocalMemoryEntryInput,
@@ -637,6 +639,7 @@ export type {
   RejectLocalMemoryProposalResult,
   SetLocalMemoryEntryStatusInput,
   SetLocalMemoryEntryStatusResult,
+  DeleteLocalMemoryEntryResult,
 } from './local-memory.js';
 export {
   LOCAL_MEMORY_MAX_BYTES,
@@ -648,15 +651,18 @@ export {
   buildLocalMemoryPromptBody,
   defaultLocalMemoryMarkdown,
   defaultLocalMemorySettings,
+  deleteLocalMemoryEntryDraft,
   findLocalMemoryEntryDraft,
   findLocalMemoryEntryDraftRange,
   normalizeLocalMemorySettings,
   parseLocalMemoryMarkdown,
+  readLocalMemoryDocumentVersion,
   readLocalMemoryForAgent,
   rejectLocalMemoryProposalDraft,
   setLocalMemoryEntryStatusDraft,
   stableLocalMemoryEntryId,
   stableLocalMemoryProposalId,
+  withLocalMemoryDocumentVersion,
 } from './local-memory.js';
 
 // voice.ts (PR-VOICE-0) — core contract; no IPC/storage/provider/runtime/UI.

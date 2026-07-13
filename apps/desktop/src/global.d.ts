@@ -39,6 +39,7 @@ import type {
   PermissionSnapshot,
   OpenGatewayRuntimeStatus,
   LocalMemoryState,
+  LocalMemoryEntryPreview,
   AuthorizationUrlPayload,
   SubscriptionAccountState,
   SubscriptionActionResult,
@@ -68,6 +69,10 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
+
+type LocalMemoryMutationResult =
+  | { ok: true; state: LocalMemoryState; entry?: LocalMemoryEntryPreview; proposal?: LocalMemoryEntryPreview }
+  | { ok: false; state: LocalMemoryState; reason: string; message: string };
 import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
 import type { ConfigCategory } from '@maka/storage';
 import type {
@@ -246,6 +251,14 @@ declare global {
       };
       memory: {
         getState(): Promise<LocalMemoryState>;
+        listProposals(): Promise<ReadonlyArray<LocalMemoryEntryPreview>>;
+        propose(input: { title: string; content: string; scope?: 'workspace' | 'session' }): Promise<LocalMemoryMutationResult>;
+        remember(input: { title: string; content: string; scope?: 'workspace' | 'session' }): Promise<LocalMemoryMutationResult>;
+        approveProposal(proposalId: string): Promise<LocalMemoryMutationResult>;
+        rejectProposal(proposalId: string): Promise<LocalMemoryMutationResult>;
+        archiveEntry(entryId: string, reason?: string): Promise<LocalMemoryMutationResult>;
+        restoreEntry(entryId: string): Promise<LocalMemoryMutationResult>;
+        deleteEntry(entryId: string): Promise<LocalMemoryMutationResult>;
         save(content: string): Promise<LocalMemoryState>;
         reset(): Promise<LocalMemoryState>;
         restoreLatestBackup(): Promise<{ ok: true; state: LocalMemoryState } | { ok: false; state: LocalMemoryState; message: string }>;

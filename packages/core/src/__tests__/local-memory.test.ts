@@ -8,16 +8,19 @@ import {
   approveLocalMemoryProposalDraft,
   buildLocalMemoryPromptBody,
   defaultLocalMemoryMarkdown,
+  deleteLocalMemoryEntryDraft,
   defaultLocalMemorySettings,
   findLocalMemoryEntryDraft,
   findLocalMemoryEntryDraftRange,
   normalizeLocalMemorySettings,
   parseLocalMemoryMarkdown,
+  readLocalMemoryDocumentVersion,
   readLocalMemoryForAgent,
   rejectLocalMemoryProposalDraft,
   setLocalMemoryEntryStatusDraft,
   stableLocalMemoryEntryId,
   stableLocalMemoryProposalId,
+  withLocalMemoryDocumentVersion,
 } from '../local-memory.js';
 
 describe('local MEMORY.md contract', () => {
@@ -25,6 +28,38 @@ describe('local MEMORY.md contract', () => {
     const settings = defaultLocalMemorySettings();
     assert.equal(settings.enabled, true);
     assert.equal(settings.agentReadEnabled, false);
+  });
+
+  it('reads legacy version zero and writes one canonical durable version marker', () => {
+    const legacy = '# Maka Memory\n\n## Entry\nLegacy content.\n';
+    assert.deepEqual(readLocalMemoryDocumentVersion(legacy), { ok: true, version: 0, legacy: true });
+
+    const versioned = withLocalMemoryDocumentVersion(legacy, 7);
+    assert.equal(versioned.ok, true);
+    if (!versioned.ok) return;
+    assert.equal(readLocalMemoryDocumentVersion(versioned.draft).version, 7);
+    assert.equal((versioned.draft.match(/maka-memory-version:/g) ?? []).length, 1);
+
+    const advanced = withLocalMemoryDocumentVersion(versioned.draft, 8);
+    assert.equal(advanced.ok, true);
+    if (advanced.ok) assert.equal(readLocalMemoryDocumentVersion(advanced.draft).version, 8);
+
+    const literalContent = '## Note\nThe literal text maka-memory-version: is user content.\n';
+    assert.deepEqual(readLocalMemoryDocumentVersion(literalContent), { ok: true, version: 0, legacy: true });
+    const literalVersioned = withLocalMemoryDocumentVersion(literalContent, 1);
+    assert.equal(literalVersioned.ok, true);
+    if (literalVersioned.ok) assert.match(literalVersioned.draft, /literal text maka-memory-version: is user content/);
+  });
+
+  it('fails closed on malformed, duplicate, or unsafe durable version markers', () => {
+    for (const input of [
+      '<!-- maka-memory-version: nope -->\n# Maka Memory\n',
+      '<!-- maka-memory-version: 1 -->\n<!-- maka-memory-version: 2 -->\n# Maka Memory\n',
+      `<!-- maka-memory-version: ${Number.MAX_SAFE_INTEGER + 1} -->\n# Maka Memory\n`,
+    ]) {
+      assert.equal(readLocalMemoryDocumentVersion(input).ok, false);
+    }
+    assert.equal(withLocalMemoryDocumentVersion('# Maka Memory\n', -1).ok, false);
   });
 
   it('normalizes malformed settings fail-closed for agent reads', () => {
@@ -486,6 +521,26 @@ describe('local MEMORY.md contract', () => {
     if (!restored.ok) return;
     assert.equal(parseLocalMemoryMarkdown(restored.draft).activeEntries[0]?.id, 'keep');
     assert.match(buildLocalMemoryPromptBody(restored.draft) ?? '', /Prefer concise answers/);
+  });
+
+  it('deletes one memory entry without disturbing the surrounding document', () => {
+    const input = [
+      '# Maka Memory',
+      '',
+      '## Keep',
+      '<!-- maka-memory: id=keep status=active scope=workspace -->',
+      'keep-content',
+      '',
+      '## Delete',
+      '<!-- maka-memory: id=delete status=active scope=workspace -->',
+      'delete-content',
+    ].join('\n');
+    const deleted = deleteLocalMemoryEntryDraft(input, 'delete');
+    assert.equal(deleted.ok, true);
+    if (!deleted.ok) return;
+    assert.match(deleted.draft, /keep-content/);
+    assert.doesNotMatch(deleted.draft, /delete-content/);
+    assert.equal(deleteLocalMemoryEntryDraft(input, 'missing').ok, false);
   });
 
   it('locates a memory entry draft range by stable or legacy id', () => {

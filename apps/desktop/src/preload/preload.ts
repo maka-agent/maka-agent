@@ -349,6 +349,9 @@ contextBridge.exposeInMainWorld('maka', {
     restoreEntry(entryId: string): Promise<LocalMemoryMutationResult> {
       return ipcRenderer.invoke('memory:restoreEntry', entryId);
     },
+    deleteEntry(entryId: string): Promise<LocalMemoryMutationResult> {
+      return ipcRenderer.invoke('memory:deleteEntry', entryId);
+    },
     save(content: string): Promise<LocalMemoryState> {
       return ipcRenderer.invoke('memory:save', content);
     },

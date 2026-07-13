@@ -165,6 +165,10 @@ export type SetLocalMemoryEntryStatusResult =
   | { readonly ok: true; readonly draft: string }
   | { readonly ok: false; readonly reason: 'invalid_id' | 'not_found' | 'oversize' };
 
+export type DeleteLocalMemoryEntryResult =
+  | { readonly ok: true; readonly draft: string }
+  | { readonly ok: false; readonly reason: 'invalid_id' | 'not_found' | 'oversize' };
+
 export interface LocalMemoryEntryDraftRange {
   readonly start: number;
   readonly end: number;
@@ -183,6 +187,17 @@ export interface LocalMemoryEntryDraft {
 
 export const LOCAL_MEMORY_MAX_BYTES = 128 * 1024;
 export const LOCAL_MEMORY_PROMPT_MAX_CHARS = 12_000;
+
+export interface LocalMemoryDocumentVersionResult {
+  readonly ok: boolean;
+  readonly version: number;
+  readonly legacy: boolean;
+  readonly reason?: 'invalid_version' | 'duplicate_version';
+}
+
+export type WithLocalMemoryDocumentVersionResult =
+  | { readonly ok: true; readonly draft: string; readonly version: number }
+  | { readonly ok: false; readonly reason: 'invalid_version' | 'duplicate_version' };
 
 export type LocalMemoryLegacyScopePolicy = 'workspace_compat' | 'deny';
 export type LocalMemoryReadDecision =
@@ -239,6 +254,46 @@ const SHA256_K = [
   0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
   0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ] as const;
+
+export function readLocalMemoryDocumentVersion(input: string): LocalMemoryDocumentVersionResult {
+  const lines = input.split(/\r?\n/);
+  const markerIndexes = lines.flatMap((line, index) => (
+    /^<!--\s*maka-memory-version:/.test(line.trim()) ? [index] : []
+  ));
+  if (markerIndexes.length === 0) return { ok: true, version: 0, legacy: true };
+  if (markerIndexes.length > 1) {
+    return { ok: false, version: 0, legacy: false, reason: 'duplicate_version' };
+  }
+  const markerIndex = markerIndexes[0] ?? -1;
+  const h1Index = lines.findIndex((line) => /^#\s+/.test(line));
+  if (markerIndex !== (h1Index >= 0 ? h1Index + 1 : 0)) {
+    return { ok: false, version: 0, legacy: false, reason: 'invalid_version' };
+  }
+  const match = /^<!--\s*maka-memory-version:\s*(\d+)\s*-->$/.exec(lines[markerIndex]?.trim() ?? '');
+  if (!match) return { ok: false, version: 0, legacy: false, reason: 'invalid_version' };
+  const version = Number(match[1]);
+  if (!Number.isSafeInteger(version) || version < 0) {
+    return { ok: false, version: 0, legacy: false, reason: 'invalid_version' };
+  }
+  return { ok: true, version, legacy: false };
+}
+
+export function withLocalMemoryDocumentVersion(
+  input: string,
+  version: number,
+): WithLocalMemoryDocumentVersionResult {
+  if (!Number.isSafeInteger(version) || version < 0) return { ok: false, reason: 'invalid_version' };
+  const current = readLocalMemoryDocumentVersion(input);
+  if (!current.ok) return { ok: false, reason: current.reason ?? 'invalid_version' };
+
+  const hadTrailingNewline = input.endsWith('\n');
+  const lines = input.split(/\r?\n/).filter((line) => !/^<!--\s*maka-memory-version:/.test(line.trim()));
+  if (hadTrailingNewline && lines.at(-1) === '') lines.pop();
+  const marker = `<!-- maka-memory-version: ${version} -->`;
+  const h1Index = lines.findIndex((line) => /^#\s+/.test(line));
+  lines.splice(h1Index >= 0 ? h1Index + 1 : 0, 0, marker);
+  return { ok: true, draft: `${lines.join('\n')}${hadTrailingNewline ? '\n' : ''}`, version };
+}
 
 export function defaultLocalMemorySettings(): LocalMemorySettings {
   return { enabled: true, agentReadEnabled: false };
@@ -525,6 +580,21 @@ export function setLocalMemoryEntryStatusDraft(
   }
 
   const draft = lines.join('\n');
+  if (new TextEncoder().encode(draft).byteLength > LOCAL_MEMORY_MAX_BYTES) {
+    return { ok: false, reason: 'oversize' };
+  }
+  return { ok: true, draft };
+}
+
+export function deleteLocalMemoryEntryDraft(
+  currentDraft: string,
+  entryId: string,
+): DeleteLocalMemoryEntryResult {
+  const id = entryId.trim();
+  if (!id) return { ok: false, reason: 'invalid_id' };
+  const section = findLocalMemoryEntryFullSection(currentDraft, id);
+  if (!section) return { ok: false, reason: 'not_found' };
+  const draft = removeLocalMemoryEntrySection(currentDraft, section.range);
   if (new TextEncoder().encode(draft).byteLength > LOCAL_MEMORY_MAX_BYTES) {
     return { ok: false, reason: 'oversize' };
   }

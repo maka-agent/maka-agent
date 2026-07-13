@@ -1,14 +1,17 @@
-import { chmod, copyFile, mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { dirname, join, relative, sep } from 'node:path';
 import {
   appendApprovedLocalMemoryEntryDraft,
   appendLocalMemoryProposalDraft,
   approveLocalMemoryProposalDraft,
   defaultLocalMemoryMarkdown,
+  deleteLocalMemoryEntryDraft,
   findLocalMemoryEntryDraft,
   normalizeMemoryContent,
   normalizeMemoryScope,
   parseLocalMemoryMarkdown,
+  readLocalMemoryDocumentVersion,
   readLocalMemoryForAgent,
   rejectLocalMemoryProposalDraft,
   redactSecrets,
@@ -16,6 +19,7 @@ import {
   stableLocalMemoryEntryId,
   stableLocalMemoryProposalId,
   validateMemoryWriteRequest,
+  withLocalMemoryDocumentVersion,
   type AppSettings,
   type LocalMemoryBackupInfo,
   type LocalMemoryEntryPreview,
@@ -31,6 +35,7 @@ export interface LocalMemoryServiceDeps {
   updateSettings(patch: { localMemory: Partial<AppSettings['localMemory']> }): Promise<AppSettings>;
   getPrivacyContext(): Promise<WorkspacePrivacyContext>;
   now?(): number;
+  beforeVersionedCommit?(): Promise<void>;
 }
 
 export type LocalMemoryMutationResult =
@@ -54,14 +59,27 @@ export interface LocalMemoryRememberInput {
 export interface LocalMemoryAgentReadInput {
   workspaceRoot: string;
   sessionId: string;
+  projection?: LocalMemoryAgentProjection;
   contentSnapshot?: string;
   legacyScopePolicy?: 'workspace_compat' | 'deny';
+}
+
+export interface LocalMemoryAgentProjection {
+  version: number | null;
+  content: string;
+}
+
+interface LocalMemoryTransactionJournal {
+  schemaVersion: 'maka.local_memory.transaction.v1';
+  version: number;
+  targets: Array<'memory' | 'pending'>;
 }
 
 export type LocalMemoryPromptUpdateAction =
   | 'approved'
   | 'remembered'
   | 'archived'
+  | 'deleted'
   | 'restored'
   | 'saved'
   | 'reset'
@@ -78,6 +96,8 @@ export class LocalMemoryService {
   readonly dir: string;
   readonly file: string;
   readonly pendingFile: string;
+  readonly transactionFile: string;
+  readonly lockFile: string;
   private readonly now: () => number;
   private queue: Promise<unknown> = Promise.resolve();
   private pendingPromptUpdates: LocalMemoryPromptUpdate[] = [];
@@ -87,6 +107,8 @@ export class LocalMemoryService {
     this.dir = join(deps.workspaceRoot, 'memory');
     this.file = join(this.dir, 'MEMORY.md');
     this.pendingFile = join(this.dir, 'PENDING.md');
+    this.transactionFile = join(this.dir, '.memory-transaction.json');
+    this.lockFile = join(this.dir, '.memory-write.lock');
     this.now = deps.now ?? Date.now;
   }
 
@@ -133,8 +155,9 @@ export class LocalMemoryService {
         archivedEntries: [],
       };
     }
-    try {
-      await this.ensure();
+    return this.enqueue(async () => {
+      try {
+        await this.prepareVersionedAccess();
       const content = await readFile(this.file, 'utf8');
       const parsed = parseLocalMemoryMarkdown(content);
       const backups = await this.backupInfos();
@@ -173,8 +196,8 @@ export class LocalMemoryService {
         latestBackup: latestBackup ?? undefined,
         backups,
       };
-    } catch (error) {
-      return {
+      } catch (error) {
+        return {
         path: this.file,
         enabled: true,
         agentReadEnabled: settings.localMemory.agentReadEnabled,
@@ -187,13 +210,45 @@ export class LocalMemoryService {
         activeEntries: [],
         archivedEntries: [],
         reason: error instanceof Error ? error.message : 'memory read failed',
-      };
-    }
+        };
+      }
+    });
   }
 
   async captureAgentMemoryContent(): Promise<string | undefined> {
-    const state = await this.getState();
-    return state.status === 'ok' ? state.content : undefined;
+    return (await this.captureAgentMemoryProjection())?.content;
+  }
+
+  async captureAgentMemoryProjection(): Promise<LocalMemoryAgentProjection | undefined> {
+    const [settings, privacy] = await Promise.all([
+      this.deps.getSettings(),
+      this.deps.getPrivacyContext(),
+    ]);
+    if (!settings.localMemory.enabled || !settings.localMemory.agentReadEnabled || privacy.incognitoActive) {
+      return undefined;
+    }
+    try {
+      return await this.enqueue(async () => {
+        const [settingsBeforeRead, privacyBeforeRead] = await Promise.all([
+          this.deps.getSettings(),
+          this.deps.getPrivacyContext(),
+        ]);
+        if (!settingsBeforeRead.localMemory.enabled
+          || !settingsBeforeRead.localMemory.agentReadEnabled
+          || privacyBeforeRead.incognitoActive) return undefined;
+        const projection = await this.readDurableProjection();
+        const [settingsAfterRead, privacyAfterRead] = await Promise.all([
+          this.deps.getSettings(),
+          this.deps.getPrivacyContext(),
+        ]);
+        if (!settingsAfterRead.localMemory.enabled
+          || !settingsAfterRead.localMemory.agentReadEnabled
+          || privacyAfterRead.incognitoActive) return undefined;
+        return projection;
+      });
+    } catch {
+      return undefined;
+    }
   }
 
   async readForAgent(input: LocalMemoryAgentReadInput): Promise<LocalMemoryAgentReadResult> {
@@ -215,18 +270,32 @@ export class LocalMemoryService {
       return this.recordAgentRead(preflight);
     }
 
-    let currentContent = '';
+    let currentProjection: LocalMemoryAgentProjection;
     try {
-      await this.ensure();
-      currentContent = await readFile(this.file, 'utf8');
+      currentProjection = await this.enqueue(() => this.readDurableProjection());
     } catch {
-      currentContent = '';
+      currentProjection = {
+        version: null,
+        content: await this.enqueue(() => this.readCurrentMemoryContent()).catch(() => ''),
+      };
     }
     const [settingsAfter, privacyAfter] = await Promise.all([
       this.deps.getSettings(),
       this.deps.getPrivacyContext(),
     ]);
-    const result = readLocalMemoryForAgent(input.contentSnapshot ?? currentContent, {
+    let effectiveProjection = currentProjection;
+    if (input.projection
+      && input.projection.version !== null
+      && currentProjection.version !== null
+      && input.projection.version > currentProjection.version) {
+      effectiveProjection = input.projection;
+    }
+    const projectionChanged = input.projection !== undefined
+      && (input.projection.version !== effectiveProjection.version || input.projection.content !== effectiveProjection.content);
+    const sourceContent = input.projection
+      ? projectionChanged ? effectiveProjection.content : input.projection.content
+      : input.contentSnapshot ?? currentProjection.content;
+    const result = readLocalMemoryForAgent(sourceContent, {
       workspaceRoot: input.workspaceRoot,
       sourceWorkspaceRoot: this.deps.workspaceRoot,
       sessionId: input.sessionId,
@@ -234,7 +303,15 @@ export class LocalMemoryService {
       agentReadEnabled: settingsAfter.localMemory.agentReadEnabled,
       incognitoActive: privacyAfter.incognitoActive,
       legacyScopePolicy: input.legacyScopePolicy,
-    }, input.contentSnapshot === undefined ? undefined : currentContent);
+    }, sourceContent === effectiveProjection.content ? undefined : effectiveProjection.content);
+    if (input.projection) {
+      if (input.projection.version === null
+        || effectiveProjection.version === null
+        || effectiveProjection.version >= input.projection.version) {
+        input.projection.version = effectiveProjection.version;
+        input.projection.content = effectiveProjection.content;
+      }
+    }
     return this.recordAgentRead(result);
   }
 
@@ -261,12 +338,9 @@ export class LocalMemoryService {
       };
     }
     await this.enqueue(async () => {
-      await this.ensure();
+      await this.prepareVersionedAccess();
       await this.backup('bak');
-      const tmp = `${this.file}.${this.now()}.tmp`;
-      await writeFile(tmp, redactedContent, { mode: 0o600 });
-      await rename(tmp, this.file);
-      await chmod(this.file, 0o600);
+      await this.writeMemoryContent(redactedContent);
     });
     this.recordPromptUpdate('saved');
     return this.getState();
@@ -294,7 +368,7 @@ export class LocalMemoryService {
     const proposalId = stableLocalMemoryProposalId(content.value, now);
     let proposal: LocalMemoryEntryPreview | undefined;
     const result = await this.enqueue(async () => {
-      await this.ensure();
+      await this.prepareVersionedAccess();
       const current = await this.readPendingContent();
       const draft = appendLocalMemoryProposalDraft(current, {
         proposalId,
@@ -333,7 +407,7 @@ export class LocalMemoryService {
 
     const entryId = stableLocalMemoryEntryId(validation.value.content, now);
     const result = await this.enqueue(async () => {
-      await this.ensure();
+      await this.prepareVersionedAccess();
       await this.backup('bak');
       const current = await readFile(this.file, 'utf8');
       const draft = appendApprovedLocalMemoryEntryDraft(current, {
@@ -363,7 +437,7 @@ export class LocalMemoryService {
     const now = this.now();
     let approvedEntry: LocalMemoryEntryPreview | undefined;
     const result = await this.enqueue(async () => {
-      await this.ensure();
+      await this.prepareVersionedAccess();
       const memoryContent = await readFile(this.file, 'utf8');
       const pendingContent = await this.readPendingContent();
       const proposal = findLocalMemoryEntryDraft(pendingContent, proposalId);
@@ -392,8 +466,7 @@ export class LocalMemoryService {
         approvalSurface: 'settings_review_queue',
       });
       if (!approved.ok) return approved;
-      await this.writeMemoryContent(approved.memoryDraft);
-      await this.writePendingContent(approved.pendingDraft);
+      await this.writeMemoryAndPendingContent(approved.memoryDraft, approved.pendingDraft);
       approvedEntry = approved.entry;
       return approved;
     });
@@ -407,7 +480,7 @@ export class LocalMemoryService {
     if (!gate.ok) return gate;
 
     const result = await this.enqueue(async () => {
-      await this.ensure();
+      await this.prepareVersionedAccess();
       const current = await this.readPendingContent();
       const rejected = rejectLocalMemoryProposalDraft(current, { proposalId, rejectedAt: this.now() });
       if (!rejected.ok) return rejected;
@@ -426,15 +499,31 @@ export class LocalMemoryService {
     return this.updateEntryStatus(entryId, 'active');
   }
 
+  async deleteEntry(entryId: string): Promise<LocalMemoryMutationResult> {
+    const gate = await this.requireMutationAllowed();
+    if (!gate.ok) return gate;
+    const result = await this.enqueue(async () => {
+      await this.prepareVersionedAccess();
+      await this.backup('bak');
+      const current = await readFile(this.file, 'utf8');
+      const deleted = deleteLocalMemoryEntryDraft(current, entryId);
+      if (!deleted.ok) return deleted;
+      await this.writeMemoryContent(deleted.draft);
+      return deleted;
+    });
+    if (!result.ok) return this.mutationBlocked(result.reason, localMemoryMutationFailureMessage(result.reason));
+    this.recordPromptUpdate('deleted', undefined, entryId);
+    return { ok: true, state: await this.getState() };
+  }
+
   async reset(): Promise<LocalMemoryState> {
     if ((await this.deps.getPrivacyContext()).incognitoActive) {
       return this.getState();
     }
     await this.enqueue(async () => {
-      await this.ensure();
+      await this.prepareVersionedAccess();
       await this.backup('reset.bak');
-      await writeFile(this.file, defaultLocalMemoryMarkdown(this.now()), { mode: 0o600 });
-      await chmod(this.file, 0o600);
+      await this.writeMemoryContent(defaultLocalMemoryMarkdown(this.now()));
     });
     this.recordPromptUpdate('reset');
     return this.getState();
@@ -471,7 +560,7 @@ export class LocalMemoryService {
     }
     try {
       await this.enqueue(async () => {
-        await this.ensure();
+        await this.prepareVersionedAccess();
         const backupInfo = await selectBackup();
         const [root, backup] = await Promise.all([
           realpath(this.deps.workspaceRoot),
@@ -484,10 +573,9 @@ export class LocalMemoryService {
         if (!backupStat.isFile()) {
           throw new Error('MEMORY.md backup is not a file.');
         }
-        const backupContent = await readFile(backup);
+        const backupContent = await readFile(backup, 'utf8');
         await this.backupRestoreUndo();
-        await writeFile(this.file, backupContent, { mode: 0o600 });
-        await chmod(this.file, 0o600);
+        await this.writeMemoryContent(backupContent);
       });
       this.recordPromptUpdate('backup_restored');
       return { ok: true, state: await this.getState() };
@@ -568,7 +656,7 @@ export class LocalMemoryService {
     if (!gate.ok) return gate;
 
     const result = await this.enqueue(async () => {
-      await this.ensure();
+      await this.prepareVersionedAccess();
       await this.backup('bak');
       const current = await readFile(this.file, 'utf8');
       const updated = setLocalMemoryEntryStatusDraft(current, {
@@ -681,13 +769,9 @@ export class LocalMemoryService {
   }
 
   private async ensure(): Promise<void> {
-    await mkdir(this.dir, { recursive: true, mode: 0o700 });
+    await this.ensureLockDirectory();
     const root = await realpath(this.deps.workspaceRoot);
     const dir = await realpath(this.dir);
-    if (!isInsideOrSamePath(root, dir)) {
-      throw new Error('MEMORY.md directory is outside the workspace.');
-    }
-    await chmod(dir, 0o700);
     try {
       await stat(this.file);
     } catch {
@@ -702,6 +786,21 @@ export class LocalMemoryService {
       throw new Error('MEMORY.md is not a file.');
     }
     await chmod(file, 0o600);
+  }
+
+  private async ensureLockDirectory(): Promise<void> {
+    await mkdir(this.dir, { recursive: true, mode: 0o700 });
+    const root = await realpath(this.deps.workspaceRoot);
+    const dir = await realpath(this.dir);
+    if (!isInsideOrSamePath(root, dir)) {
+      throw new Error('MEMORY.md directory is outside the workspace.');
+    }
+    await chmod(dir, 0o700);
+  }
+
+  private async prepareVersionedAccess(): Promise<void> {
+    await this.ensure();
+    await this.recoverVersionedTransaction();
   }
 
   private async readPendingContent(): Promise<string> {
@@ -723,23 +822,164 @@ export class LocalMemoryService {
   }
 
   private async writePendingContent(content: string): Promise<void> {
-    const redactedContent = redactSecrets(content);
-    const parsed = parseLocalMemoryMarkdown(redactedContent);
-    if (parsed.safeMode) throw new Error(parsed.reason ?? 'pending memory safe mode');
-    const tmp = `${this.pendingFile}.${this.now()}.tmp`;
-    await writeFile(tmp, redactedContent, { mode: 0o600 });
-    await rename(tmp, this.pendingFile);
-    await chmod(this.pendingFile, 0o600);
+    await this.writeVersionedContents([{ path: this.pendingFile, content, kind: 'pending' }]);
   }
 
   private async writeMemoryContent(content: string): Promise<void> {
-    const redactedContent = redactSecrets(content);
-    const parsed = parseLocalMemoryMarkdown(redactedContent);
-    if (parsed.safeMode) throw new Error(parsed.reason ?? 'memory safe mode');
-    const tmp = `${this.file}.${this.now()}.tmp`;
-    await writeFile(tmp, redactedContent, { mode: 0o600 });
-    await rename(tmp, this.file);
-    await chmod(this.file, 0o600);
+    await this.writeVersionedContents([{ path: this.file, content, kind: 'memory' }]);
+  }
+
+  private async writeMemoryAndPendingContent(memoryContent: string, pendingContent: string): Promise<void> {
+    await this.writeVersionedContents([
+      { path: this.file, content: memoryContent, kind: 'memory' },
+      { path: this.pendingFile, content: pendingContent, kind: 'pending' },
+    ]);
+  }
+
+  private async readDurableProjection(): Promise<LocalMemoryAgentProjection> {
+    await this.prepareVersionedAccess();
+    const [content, pendingContent] = await Promise.all([
+      readFile(this.file, 'utf8'),
+      this.readPendingContent(),
+    ]);
+    const memoryVersion = readLocalMemoryDocumentVersion(content);
+    const pendingVersion = readLocalMemoryDocumentVersion(pendingContent);
+    if (!memoryVersion.ok || !pendingVersion.ok) {
+      throw new Error('local memory durable version is invalid');
+    }
+    return {
+      version: Math.max(memoryVersion.version, pendingVersion.version),
+      content,
+    };
+  }
+
+  private async readCurrentMemoryContent(): Promise<string> {
+    await this.ensure();
+    return readFile(this.file, 'utf8');
+  }
+
+  private async writeVersionedContents(
+    writes: ReadonlyArray<{ path: string; content: string; kind: 'memory' | 'pending' }>,
+  ): Promise<void> {
+    const current = await this.readDurableProjection();
+    if (current.version === null) throw new Error('local memory durable version is unavailable');
+    if (current.version >= Number.MAX_SAFE_INTEGER) {
+      throw new Error('local memory durable version is exhausted');
+    }
+    const version = current.version + 1;
+    const prepared = writes.map((write) => {
+      const redactedContent = redactSecrets(write.content);
+      const parsed = parseLocalMemoryMarkdown(redactedContent);
+      if (parsed.safeMode) throw new Error(parsed.reason ?? `${write.kind} memory safe mode`);
+      const versioned = withLocalMemoryDocumentVersion(redactedContent, version);
+      if (!versioned.ok) throw new Error(versioned.reason);
+      return { ...write, draft: versioned.draft, tmp: `${write.path}.transaction.tmp` };
+    });
+    const originals = await Promise.all(prepared.map(async (write) => ({
+      path: write.path,
+      content: await readFile(write.path, 'utf8').catch((error: unknown) => {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return null;
+        throw error;
+      }),
+    })));
+    const committed: number[] = [];
+    try {
+      await Promise.all(prepared.map(async (write) => {
+        await unlink(write.tmp).catch(() => {});
+        await writeFile(write.tmp, write.draft, { mode: 0o600, flag: 'wx' });
+        await chmod(write.tmp, 0o600);
+      }));
+      await this.writeTransactionJournal({
+        schemaVersion: 'maka.local_memory.transaction.v1',
+        version,
+        targets: prepared.map((write) => write.kind),
+      });
+      await this.deps.beforeVersionedCommit?.();
+      for (let index = 0; index < prepared.length; index += 1) {
+        const write = prepared[index];
+        if (!write) continue;
+        await this.assertRegularTransactionFile(write.tmp);
+        await rename(write.tmp, write.path);
+        committed.push(index);
+      }
+      await unlink(this.transactionFile);
+    } catch (error) {
+      for (const index of committed.reverse()) {
+        const original = originals[index];
+        if (!original) continue;
+        if (original.content === null) {
+          await unlink(original.path).catch(() => {});
+          continue;
+        }
+        const rollbackTmp = `${original.path}.${this.now()}.${index}.rollback.tmp`;
+        await unlink(rollbackTmp).catch(() => {});
+        await writeFile(rollbackTmp, original.content, { mode: 0o600, flag: 'wx' });
+        await chmod(rollbackTmp, 0o600);
+        await rename(rollbackTmp, original.path);
+      }
+      await unlink(this.transactionFile).catch(() => {});
+      throw error;
+    } finally {
+      await Promise.all(prepared.map((write) => unlink(write.tmp).catch(() => {})));
+    }
+  }
+
+  private async writeTransactionJournal(journal: LocalMemoryTransactionJournal): Promise<void> {
+    const tmp = `${this.transactionFile}.tmp`;
+    await unlink(tmp).catch(() => {});
+    await writeFile(tmp, `${JSON.stringify(journal)}\n`, { mode: 0o600, flag: 'wx' });
+    await chmod(tmp, 0o600);
+    await rename(tmp, this.transactionFile);
+  }
+
+  private async recoverVersionedTransaction(): Promise<void> {
+    const journalExists = await lstat(this.transactionFile).then(() => true).catch((error: unknown) => {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return false;
+      throw error;
+    });
+    if (!journalExists) return;
+    await this.assertRegularTransactionFile(this.transactionFile);
+    const journalContent = await readFile(this.transactionFile, 'utf8').catch((error: unknown) => {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (journalContent === null) return;
+    const journal = parseLocalMemoryTransactionJournal(journalContent);
+    if (!journal) throw new Error('local memory transaction journal is invalid');
+
+    for (const kind of journal.targets) {
+      const target = kind === 'memory' ? this.file : this.pendingFile;
+      const temp = `${target}.transaction.tmp`;
+      const targetContent = await readFile(target, 'utf8').catch((error: unknown) => {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return '';
+        throw error;
+      });
+      const targetVersion = readLocalMemoryDocumentVersion(targetContent);
+      if (targetVersion.ok && targetVersion.version === journal.version) {
+        await unlink(temp).catch(() => {});
+        continue;
+      }
+      await this.assertRegularTransactionFile(temp);
+      const tempContent = await readFile(temp, 'utf8');
+      const tempVersion = readLocalMemoryDocumentVersion(tempContent);
+      if (!tempVersion.ok || tempVersion.version !== journal.version) {
+        throw new Error('local memory transaction temp version is invalid');
+      }
+      await this.assertRegularTransactionFile(temp);
+      await rename(temp, target);
+    }
+    await unlink(this.transactionFile);
+  }
+
+  private async assertRegularTransactionFile(path: string): Promise<void> {
+    const [root, resolved, fileStat] = await Promise.all([
+      realpath(this.deps.workspaceRoot),
+      realpath(path),
+      lstat(path),
+    ]);
+    if (!isInsideOrSamePath(root, resolved) || fileStat.isSymbolicLink() || !fileStat.isFile()) {
+      throw new Error('local memory transaction file is not a contained regular file');
+    }
   }
 
   private async requireMutationAllowed(): Promise<LocalMemoryMutationBlocked | { ok: true; privacy: WorkspacePrivacyContext }> {
@@ -808,12 +1048,43 @@ export class LocalMemoryService {
   }
 
   private async enqueue<T>(task: () => Promise<T>): Promise<T> {
-    const run = this.queue.catch(() => undefined).then(task);
+    const run = this.queue.catch(() => undefined).then(async () => {
+      await this.ensureLockDirectory();
+      return this.withWorkspaceLock(task);
+    });
     this.queue = run.then(
       () => undefined,
       () => undefined,
     );
     return run;
+  }
+
+  private async withWorkspaceLock<T>(task: () => Promise<T>): Promise<T> {
+    const owner = { pid: process.pid, token: randomUUID(), startedAt: Date.now() };
+    const deadline = Date.now() + 5_000;
+    while (true) {
+      try {
+        await writeFile(this.lockFile, `${JSON.stringify(owner)}\n`, { mode: 0o600, flag: 'wx' });
+        break;
+      } catch (error) {
+        if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST')) throw error;
+        const existing = await readLocalMemoryLockOwner(this.lockFile);
+        if (existing && !isProcessAlive(existing.pid)) {
+          const stale = `${this.lockFile}.stale-${process.pid}-${randomUUID()}`;
+          await rename(this.lockFile, stale).catch(() => null);
+          await unlink(stale).catch(() => {});
+          continue;
+        }
+        if (Date.now() >= deadline) throw new Error('local memory is locked by another process');
+        await delay(10);
+      }
+    }
+    try {
+      return await task();
+    } finally {
+      const current = await readLocalMemoryLockOwner(this.lockFile);
+      if (current?.token === owner.token) await unlink(this.lockFile).catch(() => {});
+    }
   }
 }
 
@@ -821,6 +1092,27 @@ function isInsideOrSamePath(root: string, target: string): boolean {
   if (target === root) return true;
   const rel = relative(root, target);
   return rel !== '' && !rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`) && !rel.startsWith(sep);
+}
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function readLocalMemoryLockOwner(path: string): Promise<{ pid: number; token: string } | null> {
+  try {
+    const value = JSON.parse(await readFile(path, 'utf8')) as { pid?: unknown; token?: unknown };
+    if (!Number.isSafeInteger(value.pid) || Number(value.pid) <= 0 || typeof value.token !== 'string') return null;
+    return { pid: Number(value.pid), token: value.token };
+  } catch {
+    return null;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !(typeof error === 'object' && error !== null && 'code' in error && error.code === 'ESRCH');
+  }
 }
 
 export function localMemoryDirForWorkspace(workspaceRoot: string): string {
@@ -856,4 +1148,25 @@ function localMemoryMutationFailureMessage(reason: string): string {
     default:
       return '记忆写入被拦截。';
   }
+}
+
+function parseLocalMemoryTransactionJournal(input: string): LocalMemoryTransactionJournal | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(input);
+  } catch {
+    return null;
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const record = value as Partial<LocalMemoryTransactionJournal>;
+  if (record.schemaVersion !== 'maka.local_memory.transaction.v1') return null;
+  if (!Number.isSafeInteger(record.version) || (record.version ?? 0) <= 0) return null;
+  if (!Array.isArray(record.targets) || record.targets.length === 0 || record.targets.length > 2) return null;
+  if (!record.targets.every((target) => target === 'memory' || target === 'pending')) return null;
+  if (new Set(record.targets).size !== record.targets.length) return null;
+  return {
+    schemaVersion: record.schemaVersion,
+    version: record.version as number,
+    targets: [...record.targets],
+  };
 }

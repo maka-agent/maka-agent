@@ -4,12 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createDefaultSettings, type LocalMemoryAgentReadResult } from '@maka/core';
+import type { LocalMemoryAgentProjection } from '../local-memory-service.js';
 import { createSystemPromptMainService } from '../system-prompt-main.js';
 
 describe('system prompt memory gates', () => {
   it('passes session/workspace scope with the captured snapshot and rechecks privacy each render', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-system-prompt-memory-'));
-    const reads: Array<{ workspaceRoot: string; sessionId: string; contentSnapshot?: string }> = [];
+    const reads: Array<{ workspaceRoot: string; sessionId: string; projection?: LocalMemoryAgentProjection }> = [];
+    const projection = { version: 1, content: 'captured-at-backend-creation' };
     let readResult: LocalMemoryAgentReadResult = {
       status: 'visible',
       promptBody: 'workspace-visible',
@@ -25,7 +27,7 @@ describe('system prompt memory gates', () => {
       settingsStore: { get: async () => createDefaultSettings() },
       workspaceRoot,
       localMemory: {
-        captureAgentMemoryContent: async () => 'captured-at-backend-creation',
+        captureAgentMemoryProjection: async () => projection,
         readForAgent: async (input) => {
           reads.push(input);
           return readResult;
@@ -37,13 +39,13 @@ describe('system prompt memory gates', () => {
     const header = { id: 'session-a', workspaceRoot, labels: [] };
 
     const visible = await service.buildBackendSystemPrompt(header, workspaceRoot, {
-      memoryContentSnapshot: 'captured-at-backend-creation',
+      memoryProjection: projection,
     });
     assert.match(visible ?? '', /workspace-visible/);
     assert.deepEqual(reads, [{
       workspaceRoot,
       sessionId: 'session-a',
-      contentSnapshot: 'captured-at-backend-creation',
+      projection,
     }]);
 
     readResult = {
@@ -59,13 +61,13 @@ describe('system prompt memory gates', () => {
       },
     };
     const hidden = await service.buildBackendSystemPrompt(header, workspaceRoot, {
-      memoryContentSnapshot: 'captured-at-backend-creation',
+      memoryProjection: projection,
     });
     assert.doesNotMatch(hidden ?? '', /captured-at-backend-creation|workspace-visible|<local-memory>/);
 
     const readCountBeforeChild = reads.length;
     const child = await service.buildBackendSystemPrompt(header, workspaceRoot, {
-      memoryContentSnapshot: 'captured-at-backend-creation',
+      memoryProjection: projection,
       childInstruction: 'Inspect the failing test.',
     });
     assert.equal(reads.length, readCountBeforeChild);

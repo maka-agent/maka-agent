@@ -87,6 +87,17 @@ export function registerMemoryIpc(deps: MemoryIpcDeps): void {
     }
     return localMemory.restoreEntry(entryId);
   });
+  ipcMain.handle('memory:deleteEntry', async (_event, entryId: unknown) => {
+    if (typeof entryId !== 'string') {
+      return {
+        ok: false,
+        state: await localMemory.getState(),
+        reason: 'invalid_input',
+        message: '记忆 ID 无效。',
+      };
+    }
+    return localMemory.deleteEntry(entryId);
+  });
   ipcMain.handle('memory:save', async (_event, content: unknown): Promise<LocalMemoryState> => {
     if (typeof content !== 'string') return localMemory.getState();
     return localMemory.save(content);

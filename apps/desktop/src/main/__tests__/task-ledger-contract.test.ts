@@ -209,7 +209,7 @@ describe('task ledger contract', () => {
 
 function localMemoryStub() {
   return {
-    captureAgentMemoryContent: async () => undefined,
+    captureAgentMemoryProjection: async () => undefined,
     readForAgent: async () => ({
       status: 'empty' as const,
       reason: 'agent_read_disabled' as const,
