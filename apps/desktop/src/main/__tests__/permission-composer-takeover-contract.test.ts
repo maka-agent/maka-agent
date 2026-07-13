@@ -24,7 +24,17 @@ describe('permission composer takeover', () => {
     assert.match(
       composerBlock,
       /hidden=\{[^}]*Boolean\(activePermission\)[^}]*\}/,
-      'Composer must stay mounted and hide itself while permission owns the slot so its draft survives',
+      'AppShell must tell Composer when the permission surface owns its slot',
+    );
+    assert.doesNotMatch(
+      await readFile(join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'composer.tsx'), 'utf8'),
+      /if \(props\.hidden\) return null/,
+      'hiding Composer must not destroy its uncontrolled textarea and draft',
+    );
+    assert.match(
+      await readFile(join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'composer.tsx'), 'utf8'),
+      /<form[\s\S]*?hidden=\{props\.hidden\}/,
+      'Composer must retain its DOM and use the native hidden state during takeover',
     );
     assert.doesNotMatch(
       composerBlock,
