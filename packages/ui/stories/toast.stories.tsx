@@ -31,14 +31,14 @@ export const Interactive: Story = {
         {VARIANTS.map((variant) => (
           <Button
             key={variant}
-            variant="outline"
+            variant="secondary"
             onClick={() => toast.toast({ title: `${variant} 标题`, description: `${variant} 说明文字`, variant })}
           >
             {variant}
           </Button>
         ))}
         <Button
-          variant="outline"
+          variant="secondary"
           onClick={() =>
             toast.toast({
               title: '已删除会话',
@@ -101,7 +101,7 @@ export const ConfirmPlain: Story = {
       <div style={{ display: 'grid', gap: 12, padding: 24, width: 360 }}>
         <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>结果：{result}</span>
         <Button
-          variant="outline"
+          variant="secondary"
           onClick={async () => {
             const ok = await toast.confirm({ title: '保存修改？', confirmLabel: '保存' });
             setResult(ok ? '已确认' : '已取消');

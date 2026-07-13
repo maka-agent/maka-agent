@@ -245,10 +245,8 @@
   text-align: left;
 }
 
-/* Hover / focus-visible / svg sizing are contributed by UiButton
-   (variant="quiet" size="nav"), matching the status-group header — no
-   bespoke :hover/:focus-visible here. Only the folder-glyph tint +
-   flex-shrink guard remain heading-specific. */
+/* The semantic project heading owns its composite row states. Only the
+   folder-glyph tint + flex-shrink guard remain heading-specific here. */
 .maka-list-project-heading svg {
   color: var(--muted-foreground);
   flex: 0 0 auto;

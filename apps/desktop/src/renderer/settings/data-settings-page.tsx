@@ -224,7 +224,7 @@ export function DataSettingsPage() {
         </Button>
         <Button
           type="button"
-          variant="outline"
+          variant="secondary"
           className="border-[oklch(from_var(--destructive)_l_c_h_/_0.45)] text-[color:var(--destructive)] hover:bg-[oklch(from_var(--destructive)_l_c_h_/_0.08)]"
           onClick={() => void clearInputHistory()}
           disabled={dataActionDisabled}

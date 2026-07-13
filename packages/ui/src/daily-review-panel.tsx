@@ -354,7 +354,7 @@ export function DailyReviewPanel(props: {
           </UiButton>
           <UiButton
             type="button"
-            variant="outline"
+            variant="secondary"
             size="sm"
             className="maka-daily-review-quick-run min-w-[6rem]"
             onClick={() => void triggerManualRun('deep')}
@@ -461,7 +461,7 @@ export function DailyReviewPanel(props: {
           {props.onCopyMarkdown && (
               <UiButton
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 className="maka-daily-review-copy min-w-[4rem]"
                 onClick={() => void runDailyReviewAction('copy', async () => {
@@ -479,7 +479,7 @@ export function DailyReviewPanel(props: {
             {props.onAppendMarkdown && (
               <UiButton
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 className="maka-daily-review-append min-w-[5rem]"
                 onClick={() => void runDailyReviewAction('append', async () => {
@@ -497,7 +497,7 @@ export function DailyReviewPanel(props: {
             {props.onSaveMarkdown && (
               <UiButton
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 className="maka-daily-review-save min-w-[4rem]"
                 onClick={() => void runDailyReviewAction('save', async () => {

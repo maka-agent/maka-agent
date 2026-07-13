@@ -168,14 +168,7 @@ const markerVariants = cva("", {
       // `.maka-turn-lineage-badge` (UiButton) — tiny pill, `[data-direction]`
       // recolors it forward (info) / reverse (brand-deep).
       "lineage-badge":
-        // `h-8` + `leading-[12px]` explicit for the same reason as
-        // `footer-action` (UiButton `size="nav"`): preserves the 30px height and
-        // the 4/3 line-height (9px font × 4/3 = 12px) that `size="sm"`'s `h-8` /
-        // `text-xs` used to supply implicitly on `main`, so geometry lives in
-        // the marker shell.
-        "inline-flex items-center h-8 gap-0.5 px-1 py-[1px] rounded-[var(--radius-pill)] [border:0] bg-[oklch(from_var(--foreground)_l_c_h_/_0.05)] text-[color:var(--muted-foreground)] text-xs leading-[12px] [transition:background_150ms_var(--ease-out-strong),color_150ms_var(--ease-out-strong)]"
-        + " hover:bg-[oklch(from_var(--foreground)_l_c_h_/_0.08)] hover:text-[color:var(--foreground)]"
-        + " focus-visible:[outline:2px_solid_var(--focus-ring)] focus-visible:[outline-offset:2px]"
+        "rounded-[var(--radius-pill)] [border:0] bg-[oklch(from_var(--foreground)_l_c_h_/_0.05)] text-[color:var(--muted-foreground)]"
         + " data-[direction=forward]:bg-[oklch(from_var(--info)_l_c_h_/_0.06)] data-[direction=forward]:text-[oklch(from_var(--info-text)_calc(l_-_0.06)_c_h)]"
         + " data-[direction=reverse]:bg-[oklch(from_var(--brand-deep)_l_c_h_/_0.06)] data-[direction=reverse]:text-[oklch(from_var(--brand-deep)_calc(l_-_0.04)_c_h)]",
       // `.maka-turn-footer` (+ measure-column re-anchor) — hidden by default,
@@ -190,21 +183,8 @@ const markerVariants = cva("", {
       // reused by the user-message copy (`MessageCopyButton footerStyle`), so
       // it carries only the button look, never the footer's measure column.
       "footer-action":
-        // `h-8` (→30px) + `leading-[16px]` are explicit because the call sites
-        // pass `UiButton size="nav"` (the bare size whose docstring says the
-        // consumer's className owns height/padding/font). On `main` both came
-        // implicitly from `size="sm"` — its `h-8`, and `text-xs`'s 4/3
-        // line-height ratio over the 12px font (12 × 4/3 = 16px exactly).
-        // Folding them in keeps the exact pixels while the marker shell owns its
-        // geometry (verified equal to `main` by computed style, headless electron).
-        "inline-flex items-center gap-1.5 min-h-[28px] h-8 px-2 py-1 rounded-[var(--radius-surface)] [border:0] bg-transparent text-[color:var(--muted-foreground)] text-xs leading-[16px] [transition:background_120ms_ease,color_120ms_ease,opacity_120ms_ease]"
-        + " [&:hover:not([aria-disabled=true])]:bg-[oklch(from_var(--foreground)_l_c_h_/_0.05)] [&:hover:not([aria-disabled=true])]:text-[color:var(--foreground)]"
-        + " focus-visible:[outline:2px_solid_var(--focus-ring)] focus-visible:[outline-offset:2px]"
+        "rounded-[var(--radius-surface)] [border:0] text-[color:var(--muted-foreground)]"
         + " aria-disabled:opacity-[0.45] aria-disabled:cursor-not-allowed"
-        // footer actions drop the real `disabled` attr so tooltips can show
-        // on disabled actions; neutralize the UiButton `quiet` variant's base
-        // hover/active so an aria-disabled action does not look clickable.
-        + " [&[aria-disabled=true]]:hover:bg-transparent [&[aria-disabled=true]]:hover:text-[color:var(--muted-foreground)] [&[aria-disabled=true]]:active:bg-transparent"
         + " data-[pending=true]:opacity-[0.78] data-[pending=true]:cursor-progress"
         // Copy-in-progress sets `aria-disabled` and `data-pending` together.
         // `aria-disabled:opacity-[0.45]` and `data-[pending=true]:opacity-[0.78]`

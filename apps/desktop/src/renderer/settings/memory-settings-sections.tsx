@@ -24,7 +24,7 @@ export function WorkspaceInstructionsSection(props: {
             {(file.status === 'available' || file.status === 'empty') && (
               <Button
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 className="min-w-[4rem]"
                 aria-label={`打开项目指令文件 ${file.file}`}
@@ -37,7 +37,7 @@ export function WorkspaceInstructionsSection(props: {
             {file.status === 'missing' && (
               <Button
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 className="min-w-[4rem]"
                 aria-label={`创建项目指令文件 ${file.file}`}
@@ -71,7 +71,7 @@ export function MemoryPromptPreviewSection(props: {
           <span>{props.active ? '发送时会注入' : '当前不会注入'}</span>
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
             size="sm"
             className="min-w-[5rem]"
             disabled={!props.preview || props.copyPending}

@@ -30,6 +30,7 @@
  * pane returns `null` when it shouldn't take space.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Button as BaseButton } from '@base-ui/react/button';
 import {
   AlertTriangle,
   ChevronLeft,
@@ -445,15 +446,9 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
           >
             {activeRecords.map((record) => (
               <li key={record.id} className="maka-artifact-list-item">
-                <Button
+                <BaseButton
                   id={`maka-artifact-row-${record.id}`}
                   type="button"
-                  variant="ghost"
-                  // size="nav": className owns layout. The default md size
-                  // pins h-9 on the button, but deleted rows add a badge on
-                  // an implicit second grid row — fixed height + centering
-                  // painted the badge over the icon/name.
-                  size="nav"
                   className="maka-artifact-row"
                   role="option"
                   aria-selected={record.id === selectedId}
@@ -477,7 +472,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   {record.status === 'deleted' && (
                     <Badge variant="destructive" className="maka-artifact-row-badge">已删除</Badge>
                   )}
-                </Button>
+                </BaseButton>
               </li>
             ))}
           </ul>

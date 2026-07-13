@@ -15,6 +15,7 @@ import { Separator as BaseSeparator } from '@base-ui/react/separator';
 import { Check, ChevronDown, X } from './icons.js';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from './utils.js';
+import { inputClasses } from './primitives/input.js';
 
 export { cn } from './utils.js';
 
@@ -48,43 +49,28 @@ export { cn } from './utils.js';
 // this PR actually needs state-based classes; do not pre-design it.
 // ===========================================================================
 
-// PR-UIBUTTON-NAV-SIZE-0 (round 12/30): refactored so each
-// `size` variant owns its h-* / px-* / text-* utilities.
-// Previously these were baked into the base layer, which meant
-// callers couldn't introduce a "let className own layout" size
-// without `!important`. The `nav` size below adds nothing —
-// the consumer's className brings height, padding, font.
 export const buttonVariants = cva(
   [
-    'inline-flex shrink-0 items-center justify-center gap-2 rounded-sm font-medium',
-    'transition-[background,border-color,box-shadow,opacity] duration-150 ease-[var(--ease-out-strong)]',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+    'inline-flex shrink-0 items-center justify-center gap-2 rounded-sm',
+    'transition-[background,color,border-color,box-shadow,opacity] duration-150 ease-[var(--ease-out-strong)]',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
     'disabled:pointer-events-none disabled:opacity-45',
     '[&_svg]:size-[var(--icon-size,1rem)] [&_svg]:shrink-0',
   ],
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 active:bg-primary/90',
-        secondary: 'border border-border bg-secondary text-secondary-foreground hover:bg-muted active:bg-[var(--state-selected-bg)]',
-        ghost: 'bg-transparent text-foreground hover:bg-muted active:bg-[var(--state-selected-bg)]',
-        outline: 'border border-border bg-background text-foreground hover:bg-muted active:bg-[var(--state-selected-bg)]',
-        destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/90',
-        quiet: 'bg-transparent text-foreground-secondary hover:bg-muted hover:text-foreground active:bg-[var(--state-selected-bg)]',
+        default: 'bg-primary text-primary-foreground font-medium hover:bg-[oklch(from_var(--action)_calc(l_-_0.03)_c_h)] active:bg-[oklch(from_var(--action)_calc(l_-_0.06)_c_h)]',
+        secondary: 'border border-border bg-transparent text-foreground font-normal hover:bg-[var(--state-hover-bg)] active:bg-[var(--state-selected-bg)]',
+        ghost: 'bg-transparent text-foreground font-normal hover:bg-[var(--state-hover-bg)] active:bg-[var(--state-selected-bg)]',
+        destructive: 'bg-destructive text-destructive-foreground font-medium hover:bg-[oklch(from_var(--destructive)_calc(l_-_0.04)_c_h)] active:bg-[oklch(from_var(--destructive)_calc(l_-_0.08)_c_h)]',
+        quiet: 'bg-transparent text-foreground-secondary font-normal hover:bg-[var(--state-hover-bg)] hover:text-foreground active:bg-[var(--state-selected-bg)]',
       },
       size: {
-        sm: 'h-8 rounded-sm px-2.5 text-xs',
-        md: 'h-9 px-3 text-sm',
-        lg: 'h-10 rounded-sm px-4 text-sm',
-        icon: 'h-9 w-9 px-0 text-sm',
-        'icon-sm': 'h-8 w-8 px-0 text-sm',
-        // Bare layout variant. Consumer's className must set
-        // height (or min-height), padding, font-size. Used to
-        // route raw `<button>` tags whose bespoke CSS encodes
-        // tight density that fights the standard size variants
-        // (e.g. `.maka-nav-row` is 30px min-height with 3px 6px
-        // padding — `h-9 px-3` would inflate it).
-        nav: '',
+        sm: 'h-7 px-2 text-sm',
+        md: 'h-8 px-3 text-sm',
+        icon: 'h-8 w-8 px-0 text-sm',
+        'icon-sm': 'h-7 w-7 px-0 text-sm',
       },
     },
     defaultVariants: {
@@ -260,7 +246,7 @@ export const SelectTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsW
   return (
     <BaseSelect.Trigger
       ref={ref}
-      className={cn(buttonVariants({ variant: 'outline' }), 'justify-between', className)}
+      className={cn(inputClasses, 'justify-between', className)}
       data-slot="select-trigger"
       {...props}
     >

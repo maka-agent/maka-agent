@@ -84,9 +84,8 @@ html[data-os="darwin"] .maka-session-panel-header,
     color: var(--foreground);
   }
 
-/* Unlayered on purpose: `.maka-nav-row` is a shared `UiButton size="nav"`
-   surface, so this darwin glass override must outrank the primitive's quiet
-   text utilities and the unlayered sidebar default color. */
+/* Unlayered on purpose: `.maka-nav-row` is a semantic navigation control, so
+   this darwin glass override must outrank the unlayered sidebar default color. */
 html[data-os="darwin"] .maka-nav-row {
   color: var(--foreground);
 }

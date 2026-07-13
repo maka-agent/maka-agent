@@ -1,26 +1,27 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Plus, Search, Trash2 } from '@maka/ui/icons';
 import { Button } from '../src/ui.js';
-import { Spinner } from '../src/primitives/spinner.js';
 
 const meta = {
   title: 'Primitives/Button',
-  parameters: {
-    layout: 'centered',
-  },
+  parameters: { layout: 'padded' },
 } satisfies Meta;
 
 export default meta;
-
 type Story = StoryObj<typeof meta>;
 
-const VARIANTS = ['default', 'secondary', 'ghost', 'outline', 'destructive', 'quiet'] as const;
-const SIZES = ['sm', 'md', 'lg', 'icon', 'icon-sm', 'nav'] as const;
+const VARIANTS = ['default', 'secondary', 'ghost', 'quiet', 'destructive'] as const;
+
+const labelStyle: React.CSSProperties = {
+  color: 'var(--foreground-secondary)',
+  fontSize: 11,
+  width: 80,
+};
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ alignItems: 'center', display: 'flex', gap: 12 }}>
-      <span style={{ color: 'var(--muted-foreground)', fontSize: 12, width: 72 }}>{label}</span>
+      <span style={labelStyle}>{label}</span>
       <div style={{ alignItems: 'center', display: 'flex', gap: 8, flexWrap: 'wrap' }}>{children}</div>
     </div>
   );
@@ -28,11 +29,13 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export const VariantMatrix: Story = {
   render: () => (
-    <div style={{ display: 'grid', gap: 12, width: 560 }}>
+    <div style={{ display: 'grid', gap: 16, minWidth: 720 }}>
       {VARIANTS.map((variant) => (
         <Row key={variant} label={variant}>
-          <Button variant={variant}>按钮</Button>
-          <Button variant={variant} disabled>disabled</Button>
+          <Button variant={variant}>新建任务</Button>
+          <Button variant={variant}>Create task</Button>
+          <Button variant={variant}>打开 Workspace</Button>
+          <Button variant={variant} disabled>Disabled</Button>
         </Row>
       ))}
     </div>
@@ -41,65 +44,38 @@ export const VariantMatrix: Story = {
 
 export const SizeMatrix: Story = {
   render: () => (
-    <div style={{ display: 'grid', gap: 12, width: 560 }}>
-      {SIZES.map((size) => (
-        <Row key={size} label={size}>
-          <Button size={size}>Aa</Button>
-        </Row>
-      ))}
+    <div style={{ display: 'grid', gap: 14 }}>
+      <Row label="md · 32px">
+        <Button size="md">中文按钮</Button>
+        <Button size="md">English</Button>
+        <Button size="md"><Plus aria-hidden="true" />新建 Task</Button>
+        <Button size="icon" aria-label="搜索"><Search aria-hidden="true" /></Button>
+      </Row>
+      <Row label="sm · 28px">
+        <Button size="sm" variant="secondary">中文按钮</Button>
+        <Button size="sm" variant="secondary">English</Button>
+        <Button size="sm" variant="secondary"><Plus aria-hidden="true" />新建 Task</Button>
+        <Button size="icon-sm" variant="secondary" aria-label="删除"><Trash2 aria-hidden="true" /></Button>
+      </Row>
     </div>
   ),
 };
 
 export const WithIcon: Story = {
   render: () => (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-      <Button>
-        <Plus aria-hidden="true" />
-        新建
-      </Button>
-      <Button variant="secondary">
-        <Search aria-hidden="true" />
-        搜索
-      </Button>
-      <Button variant="destructive">
-        <Trash2 aria-hidden="true" />
-        删除
-      </Button>
-      <Button variant="outline" size="icon" aria-label="搜索">
-        <Search aria-hidden="true" />
-      </Button>
+    <div style={{ display: 'flex', gap: 8 }}>
+      <Button><Plus aria-hidden="true" />新建</Button>
+      <Button variant="secondary"><Search aria-hidden="true" />Search</Button>
+      <Button variant="destructive"><Trash2 aria-hidden="true" />删除</Button>
     </div>
   ),
 };
 
 export const Loading: Story = {
   render: () => (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-      <Button disabled>
-        <Spinner style={{ height: 14, width: 14 }} />
-        提交中
-      </Button>
-      <Button variant="secondary" disabled>
-        <Spinner style={{ height: 14, width: 14 }} />
-        加载
-      </Button>
-      <Button variant="outline" size="icon-sm" disabled aria-label="加载中">
-        <Spinner style={{ height: 14, width: 14 }} />
-      </Button>
-    </div>
-  ),
-};
-
-export const NavSize: Story = {
-  render: () => (
     <div style={{ display: 'flex', gap: 8 }}>
-      <Button size="nav" className="h-[30px] min-h-[30px] px-1.5 text-xs">
-        nav 行内
-      </Button>
-      <Button size="nav" variant="ghost" className="h-[30px] min-h-[30px] px-1.5 text-xs">
-        ghost nav
-      </Button>
+      <Button disabled>提交中…</Button>
+      <Button variant="secondary" size="sm" disabled>Loading…</Button>
     </div>
   ),
 };

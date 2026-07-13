@@ -310,13 +310,13 @@ function NeedsConnectionHero(props: {
           list header even says 点一个进入设置). One affordance per action —
           the footer keeps only genuinely distinct paths. */}
       <footer className="maka-onboarding-footer">
-        <Button type="button" variant="outline" onClick={props.onBrowseProviders}>
+        <Button type="button" variant="secondary" onClick={props.onBrowseProviders}>
           浏览全部服务商
         </Button>
         {props.onRefreshConnections && (
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
             onClick={props.onRefreshConnections}
             disabled={props.refreshConnectionsPending === true}
             aria-busy={props.refreshConnectionsPending === true ? 'true' : undefined}
@@ -778,7 +778,7 @@ function ReadyEmptyHero(props: {
                 <div key={suggestion.id} className="maka-first-run-task-suggestion-chip">
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     className="maka-first-run-task-suggestion"
                     onClick={() => prefillSuggestion(suggestion.prompt, suggestion.mode)}
@@ -811,7 +811,7 @@ function SkipButton(props: { onSkip: () => Promise<void> | void; label?: string 
   return (
     <Button
       type="button"
-      variant="outline"
+      variant="secondary"
       onClick={onClick}
       disabled={pending}
       aria-busy={pending ? 'true' : undefined}
@@ -880,7 +880,7 @@ function SetupHero(props: SetupHeroProps) {
         {props.secondaryCta && (
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
             onClick={props.secondaryCta.onClick}
             disabled={props.secondaryCta.disabled === true}
             aria-busy={props.secondaryCta.busy === true ? 'true' : undefined}

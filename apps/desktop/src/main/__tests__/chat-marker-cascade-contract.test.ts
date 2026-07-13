@@ -61,7 +61,7 @@ describe('chat Marker shell migration contract (#332 PR2)', () => {
     }
   });
 
-  it('pins the Marker variants to the retired turn-marker pixels/tokens', async () => {
+  it('pins Marker semantics while shared Button owns action geometry and states', async () => {
     const rawSrc = await readFile(
       resolve(REPO_ROOT, 'packages', 'ui', 'src', 'primitives', 'chat.tsx'),
       'utf8',
@@ -91,18 +91,6 @@ describe('chat Marker shell migration contract (#332 PR2)', () => {
       // default and revealed on hover / focus-within of the answer block
       // (`group/answer`), replacing the retired quiet-0.72 + settle fade-in.
       'opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover/answer:opacity-100 focus-within:opacity-100',
-      'min-h-[28px]',
-      // `h-8` (→30px) is folded into the footer-action / lineage-badge shells
-      // now that the call sites use `UiButton size="nav"` (bare); it used to
-      // come implicitly from `size="sm"`.
-      'h-8',
-      '[&:hover:not([aria-disabled=true])]:bg-[oklch(from_var(--foreground)_l_c_h_/_0.05)]',
-      // focus-visible is a non-leaf conflict (the footer action's outline vs
-      // UiButton's box-shadow ring), so the rendered-style script can't force
-      // it reliably; this exact literalization of the retired
-      // `outline: 2px solid var(--focus-ring)` pins it here instead.
-      'focus-visible:[outline:2px_solid_var(--focus-ring)]',
-      'focus-visible:[outline-offset:2px]',
       'data-[pending=true]:opacity-[0.78]',
       // the combined aria-disabled+pending guard: a copy button can be both
       // `aria-disabled` and `data-pending` (transient copy click), and the

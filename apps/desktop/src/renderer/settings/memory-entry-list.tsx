@@ -78,7 +78,7 @@ export function MemoryEntryList(props: {
                     {props.onCopyReference && (
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="secondary"
                         size="sm"
                         className="min-w-[4rem]"
                         disabled={copyPending}
@@ -90,7 +90,7 @@ export function MemoryEntryList(props: {
                     {props.onFocusDraft && (
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="secondary"
                         size="sm"
                         onClick={() => void props.onFocusDraft?.(entry)}
                       >
@@ -100,7 +100,7 @@ export function MemoryEntryList(props: {
                     {props.onStatusChange && (
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="secondary"
                         size="sm"
                         className="min-w-[5rem]"
                         aria-label={statusActionAriaLabel}
@@ -121,4 +121,3 @@ export function MemoryEntryList(props: {
     </section>
   );
 }
-

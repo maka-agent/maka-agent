@@ -157,7 +157,7 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
 
   // `footerStyle` renders this copy as the SAME quiet ghost action the
   // assistant turn footer uses (`markerVariants('footer-action')` on a
-  // UiButton variant="quiet" size="nav" — the bare size, with icon + "复制").
+  // compact quiet UiButton, with icon + "复制").
   // The user-message copy and the assistant copy then read as one button by
   // construction — same primitive, same class, same icon metrics — instead
   // of a look-alike bespoke treatment.
@@ -187,7 +187,7 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
               type="button"
               className={markerVariants({ variant: 'footer-action' })}
               variant="quiet"
-              size="nav"
+              size="sm"
               aria-label={baseLabel}
               aria-busy={copyPending ? 'true' : undefined}
               disabled={copyPending}
@@ -316,7 +316,7 @@ export const TurnView = memo(function TurnView(props: {
               type="button"
               className={markerVariants({ variant: 'lineage-badge' })}
               variant="quiet"
-              size="nav"
+              size="sm"
               data-direction="forward"
               title={badge.tooltip ?? badge.label}
               onClick={() => props.onLineageBadgeClick?.(badge.targetTurnId)}
@@ -419,7 +419,7 @@ export const TurnView = memo(function TurnView(props: {
                   type="button"
                   className={markerVariants({ variant: 'lineage-badge' })}
                   variant="quiet"
-                  size="nav"
+                  size="sm"
                   data-direction="reverse"
                   title={badge.tooltip ?? badge.label}
                   onClick={() => props.onLineageBadgeClick?.(badge.targetTurnId)}
@@ -593,7 +593,7 @@ function TurnFooterActions(props: {
                   type="button"
                   className={markerVariants({ variant: 'footer-action' })}
                   variant="quiet"
-                  size="nav"
+                  size="sm"
                   aria-label={action.label}
                   data-action={action.id}
                   data-pending={isActionPending || undefined}
@@ -966,4 +966,3 @@ function readStreamSnap(): boolean {
   }
   return false;
 }
-

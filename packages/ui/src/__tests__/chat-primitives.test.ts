@@ -47,94 +47,40 @@ test('Marker keeps its own data-slot/data-variant but forwards the styling data-
   assert.equal(props['data-kind'], 'model');
 });
 
-test('markerVariants resolves a leaf shell string the UiButton call sites can apply', () => {
+test('markerVariants leaves shared Button geometry and interaction states to the primitive', () => {
   // The lineage badge + footer action render as UiButton and apply the shell via
   // className, so the cva must return a non-empty literal utility string.
   const footerAction = markerVariants({ variant: 'footer-action' });
-  assert.match(footerAction, /min-h-\[28px\]/);
   assert.match(footerAction, /data-\[copy-feedback=copied\]:text-\[color:var\(--link\)\]/);
-  // PR5 CHAT-MESSAGE-TIME-0: footer-action stays at the caption tier
-  // (text-xs aliases --font-size-caption, 11px), aligned with the inline
-  // message timestamp — both read as quiet meta, one step below the UI tier.
-  assert.match(footerAction, /text-xs/);
+  assert.ok(!/\b(?:h-|min-h-|px-|py-|text-xs|hover:bg-|focus-visible:)/.test(footerAction));
   const lineageBadge = markerVariants({ variant: 'lineage-badge' });
   assert.match(lineageBadge, /rounded-\[var\(--radius-pill\)\]/);
   assert.match(lineageBadge, /data-\[direction=forward\]:/);
+  assert.ok(!/\b(?:h-|min-h-|px-|py-|text-xs|hover:bg-|focus-visible:)/.test(lineageBadge));
 });
 
-// The footer action + lineage badge are the only NON-leaf marker call sites:
-// they render as `UiButton variant="quiet" size="nav"` in EVERY state — the
-// pending footer action no longer switches the Button to `secondary` (the
-// marker shell overrides the variant either way, so the switch was visually
-// inert and is dropped), which means `quiet` is now the only merge path to
-// pin. The real on-element class string is
-// `cn(buttonVariants({ quiet, nav }), markerVariants(...))`.
-// `nav` is the bare size (emits nothing), so the marker shell — including its
-// own `h-8` height — fully owns the geometry; the only conflicts left to drop
-// are `buttonVariants`' BASE/quiet utilities (`gap-2`, `rounded-md`,
-// `text-muted-foreground`), not a `size` token. Unlike the pure-container
-// variants, "source string == computed style" doesn't hold for free here, so
-// this pins the merge resolution deterministically (no browser, no screenshot
-// rasterization noise) — the exact regression risk PR2 introduced for these two.
-test('footer-action merge drops the UiButton base shell so the retired footer pixels win', () => {
+// Footer actions and lineage badges are Button consumers, so the shared
+// compact tier must remain the sole owner of their height, padding, type and
+// interaction states. Marker variants may add only their semantic tone/radius.
+test('footer-action merge keeps the governed compact Button geometry', () => {
   const merged = cn(
-    buttonVariants({ variant: 'quiet', size: 'nav' }),
+    buttonVariants({ variant: 'quiet', size: 'sm' }),
     markerVariants({ variant: 'footer-action' }),
   );
-  // The retired `.maka-turn-footer-action` declarations survive (incl. the now
-  // explicit `h-8` height that `size="sm"` used to supply implicitly). The
-  // spacing-converge pass (#448) moved the shell from bare-px arbitraries
-  // (`gap-[6px]` / `px-[8px]` / `py-[4px]`) onto the 4px-ruler scale
-  // (`gap-1.5` / `px-2` / `py-1` — same computed pixels via --spacing: 4px)…
-  for (const win of [
-    'gap-1.5',
-    'min-h-[28px]',
-    'h-8',
-    'leading-[16px]',
-    'px-2',
-    'py-1',
-    'rounded-[var(--radius-surface)]',
-    'text-[color:var(--muted-foreground)]',
-    'text-xs', // #546 PR0: text-[12px] -> text-xs (typography onto token scale)
-  ]) {
-    assert.ok(merged.includes(win), `footer pixel "${win}" must survive the merge`);
-  }
-  // …and the conflicting `buttonVariants` base/quiet utilities are dropped, so
-  // they can't override the footer shell (rounded-sm radius, gap-2 gap,
-  // muted-foreground color).
-  for (const dropped of ['rounded-sm', 'gap-2', 'text-muted-foreground']) {
-    assert.ok(
-      !merged.split(/\s+/).includes(dropped),
-      `conflicting UiButton utility "${dropped}" must be merged out of the footer action`,
-    );
+  for (const governed of ['h-7', 'px-2', 'text-sm', 'gap-2']) {
+    assert.ok(merged.split(/\s+/).includes(governed), `Button utility "${governed}" must own footer geometry`);
   }
 });
 
-test('lineage-badge merge drops the UiButton base shell so the retired badge pixels win', () => {
+test('lineage-badge merge keeps the governed compact Button geometry', () => {
   const merged = cn(
-    buttonVariants({ variant: 'quiet', size: 'nav' }),
+    buttonVariants({ variant: 'quiet', size: 'sm' }),
     markerVariants({ variant: 'lineage-badge' }),
   );
-  // Spacing-converge (#448): `gap-[3px]` / `px-[5px]` snapped to the 4px
-  // ruler as `gap-0.5` / `px-1`.
-  for (const win of [
-    'h-8',
-    'leading-[12px]',
-    'gap-0.5',
-    'px-1',
-    'py-[1px]',
-    'rounded-[var(--radius-pill)]',
-    'text-[color:var(--muted-foreground)]',
-    'text-xs', // #546 PR0: text-[9px] -> text-xs (typography onto token scale)
-  ]) {
-    assert.ok(merged.includes(win), `lineage pixel "${win}" must survive the merge`);
+  for (const governed of ['h-7', 'px-2', 'text-sm', 'gap-2']) {
+    assert.ok(merged.split(/\s+/).includes(governed), `Button utility "${governed}" must own badge geometry`);
   }
-  for (const dropped of ['rounded-sm', 'gap-2', 'text-muted-foreground']) {
-    assert.ok(
-      !merged.split(/\s+/).includes(dropped),
-      `conflicting UiButton utility "${dropped}" must be merged out of the lineage badge`,
-    );
-  }
+  assert.match(merged, /rounded-\[var\(--radius-pill\)\]/);
 });
 
 // PR3b — the tool-activity card shell. The full per-part shell is proven by the

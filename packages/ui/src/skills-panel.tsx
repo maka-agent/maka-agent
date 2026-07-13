@@ -755,7 +755,7 @@ export function SkillsModuleMain(props: {
           </label>
           <UiButton
             className="maka-button"
-            variant="outline"
+            variant="secondary"
             type="button"
             onClick={() => void runSkillAction('folder', props.onOpenSkillsFolder)}
             disabled={!props.onOpenSkillsFolder || skillActionBusy}
@@ -779,7 +779,7 @@ export function SkillsModuleMain(props: {
           </UiButton>
           <UiButton
             className="maka-button"
-            variant="outline"
+            variant="secondary"
             type="button"
             onClick={() => void runSkillAction('refresh', props.onRefreshSkills)}
             disabled={!props.onRefreshSkills || skillActionBusy}

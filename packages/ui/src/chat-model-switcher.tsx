@@ -301,8 +301,7 @@ export function ModelChipStatic(props: { label: string; onOpenSettings?: () => v
       <UiButton
         type="button"
         variant="quiet"
-        size="nav"
-        className="maka-composer-model-chip maka-composer-model-chip-action"
+        size="sm"
         onClick={props.onOpenSettings}
         aria-label={`配置模型连接，当前 ${props.label}`}
         title="配置模型连接"
