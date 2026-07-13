@@ -1446,6 +1446,42 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     }
   });
 
+  test('clearSession fences failed host-reading results that complete after stop', async () => {
+    for (const action of ['cursor_position', 'wait'] as const) {
+      let release!: () => void;
+      let started!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const entered = new Promise<void>((resolve) => { started = resolve; });
+      const backend = fakeBackend();
+      backend.run = async () => {
+        started();
+        await gate;
+        return {
+          outcome: {
+            ok: false,
+            error: 'service_unavailable',
+            message: 'service failed after stop',
+          },
+        };
+      };
+      const tools = buildComputerUseTools({ backend });
+      const [tool] = tools;
+      const pending = tool.impl(
+        action === 'wait'
+          ? { action, duration: 0.001 } as never
+          : { action } as never,
+        ctx(),
+      );
+      await entered;
+      tools.clearSession('s1');
+      release();
+
+      const result = await pending as { text: string };
+      assert.match(result.text, /user_stopped/, action);
+      assert.doesNotMatch(result.text, /service_unavailable/, action);
+    }
+  });
+
   test('S17: surfaces the typed backend failure code without leaking raw driver text', async () => {
     const backend = fakeBackend({ result: { outcome: { ok: false, error: 'capture_failed', message: 'AXPress err -25202', completedSubSteps: 0 } } });
     const r = await callComputer(backend, { action: 'wait' });

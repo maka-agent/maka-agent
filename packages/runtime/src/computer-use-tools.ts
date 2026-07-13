@@ -1495,7 +1495,7 @@ export function buildComputerUseTools(deps: {
             if (presentation.blocked) return presentation.blocked;
             result = presentation.result;
             if (result) applyTypedOutcomeState(state, result.outcome);
-            if (result?.outcome.ok && observationLease?.ok) {
+            if (observationLease?.ok) {
               const validated = state.validateObservationLease(
                 observationLease.lease,
               );
