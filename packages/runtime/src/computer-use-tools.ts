@@ -505,6 +505,7 @@ interface ComputerToolResult {
   text: string;
   modelText?: string;
   error?: ComputerUseErrorCode;
+  failureClass?: 'ambiguous_target';
   screenshot?: { base64: string; mimeType: string };
 }
 
@@ -1408,6 +1409,10 @@ export function buildComputerUseTools(deps: {
           }
           presentation?.finish(result);
           const text = summarize(summaryAction, result);
+          const failureClass = !result.outcome.ok
+            && /ambiguous/i.test(result.outcome.message)
+            ? 'ambiguous_target' as const
+            : undefined;
           const freshModelState = freshObservation
             ? `\nFresh observation:\n${observationText(freshObservation)}`
             : '';
@@ -1419,15 +1424,19 @@ export function buildComputerUseTools(deps: {
             ? {
                 text: `${text}${freshPersistedState}`,
                 modelText: `${text}${freshModelState}`,
+                ...(!result.outcome.ok ? { error: result.outcome.error } : {}),
+                ...(failureClass ? { failureClass } : {}),
                 screenshot: {
                   base64: screenshot.base64,
                   mimeType: screenshot.mimeType,
                 },
               }
             : {
-                text: `${text}${freshPersistedState}`,
-                modelText: `${text}${freshModelState}`,
-              };
+              text: `${text}${freshPersistedState}`,
+              modelText: `${text}${freshModelState}`,
+              ...(!result.outcome.ok ? { error: result.outcome.error } : {}),
+              ...(failureClass ? { failureClass } : {}),
+            };
         }
         const modelAction = adaptToCuAction(input);
         const action = modelAction;
@@ -1549,14 +1558,25 @@ export function buildComputerUseTools(deps: {
               : '';
           const text = `${summarize(modelAction, result)}${persistedRefresh}`;
           const modelText = `${summarize(modelAction, result)}${modelRefresh}`;
+          const failureClass = !result.outcome.ok
+            && /ambiguous/i.test(result.outcome.message)
+            ? 'ambiguous_target' as const
+            : undefined;
           const screenshot = freshObservation?.screenshot ?? result.screenshot;
           return screenshot
             ? {
                 text,
                 modelText,
+                ...(!result.outcome.ok ? { error: result.outcome.error } : {}),
+                ...(failureClass ? { failureClass } : {}),
                 screenshot: { base64: screenshot.base64, mimeType: screenshot.mimeType },
               }
-            : { text, modelText };
+            : {
+                text,
+                modelText,
+                ...(!result.outcome.ok ? { error: result.outcome.error } : {}),
+                ...(failureClass ? { failureClass } : {}),
+              };
         }
         });
       } finally {
