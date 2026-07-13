@@ -1,7 +1,7 @@
-import { useEffect, useId, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  Bot,
-  type LucideProps,
+  ArrowLeft,
+  ChevronRight,
 } from '@maka/ui/icons';
 import type {
   AppSettings,
@@ -14,11 +14,21 @@ import type {
 import type { BotStatus } from '@maka/runtime';
 import { BOT_PROVIDERS, MAX_ALLOWED_USER_IDS, parseAllowedUserIdsFromText } from '@maka/core/settings';
 import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
   BOT_BRAND,
   BotBrandLogo as BotBrandMark,
   Button,
   Chip,
   Input,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
   RelativeTime,
   SettingsSelect,
   SettingsSwitch as Switch,
@@ -46,7 +56,7 @@ import { BotWeChatFields, WeChatScanLoginModal, WechatQrLoginModal } from './bot
  * fallback contexts.
  *
  * `configDocUrl` is the official developer doc surfaced inline as a
- * "查看配置文档 →" link.
+ * "查看配置文档" link.
  */
 // BOT_BRAND moved to `packages/ui/src/bot-brand.ts` so the Plan Reminder
 // delivery picker can use the same brand metadata as Settings here (@kenji
@@ -94,7 +104,7 @@ const BOT_LABELS: Record<BotProvider, { label: string; help: string; support: 'r
 };
 
 const BOT_READINESS_COPY: Record<BotReadinessState, { label: string; detail: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' }> = {
-  unscaffolded: { label: '未开放', detail: '该平台当前不可作为可用机器人。', tone: 'neutral' },
+  unscaffolded: { label: '未开放', detail: '该平台当前不可作为远程接入渠道。', tone: 'neutral' },
   scaffolded: { label: '待配置', detail: '等待补齐这个平台需要的凭据配置。', tone: 'neutral' },
   configured: { label: '已配置', detail: '已填写配置；等待完成凭据或运行态验证。', tone: 'info' },
   credentials_valid: { label: '凭据有效', detail: '凭据探测通过；这不代表已能收发消息。', tone: 'warning' },
@@ -104,7 +114,7 @@ const BOT_READINESS_COPY: Record<BotReadinessState, { label: string; detail: str
 
 const BOT_PLANNED_COPY = {
   label: '未开放',
-  detail: '该平台当前不会保存为可用机器人或计划提醒投递目标。',
+  detail: '该平台当前不会保存为远程接入渠道或计划提醒投递目标。',
   tone: 'neutral' as const,
 };
 
@@ -117,27 +127,15 @@ function canEnableBotChannel(readiness: BotReadinessState): boolean {
   return readiness === 'credentials_valid' || readiness === 'operational' || readiness === 'degraded';
 }
 
-/**
- * PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): brand monogram badge
- * with a small status dot at bottom-right. Compact in the platform
- * list, larger inside the hero card via `size="large"`.
- */
-function BotBrandLogo(props: {
-  provider: BotProvider;
-  readiness: BotReadinessState;
-  support: 'runtime' | 'credentials' | 'planned';
-  size?: 'compact' | 'large';
-}) {
-  const brand = BOT_BRAND[props.provider];
+/** Shared provider logo, compact in the overview and larger in channel detail. */
+function BotBrandLogo(props: { provider: BotProvider; size?: 'compact' | 'large' }) {
   const isLarge = props.size === 'large';
-  const copy = botReadinessCopyForSupport(props.support, props.readiness);
   return (
     <span
       className="settingsBotLogo"
       data-large={isLarge ? 'true' : undefined}
       data-provider={props.provider}
       aria-hidden="true"
-      style={{ ['--bot-brand-color' as string]: brand.color }}
     >
       {/* PR-BOT-LOGO-NEUTRAL-PLATE-0 (WAWQAQ msg `f3d263b4`
           2026-06-26): real iOS-app-icon style. The brand SVG carries
@@ -154,23 +152,7 @@ function BotBrandLogo(props: {
         height="100%"
         aria-hidden="true"
       />
-      {props.support !== 'planned' && (
-        <span className="settingsBotLogoStatusDot" data-tone={copy.tone} aria-hidden="true" />
-      )}
     </span>
-  );
-}
-
-/**
- * PR-BOT-SETTINGS-UI-0: status pill rendered inline next to the
- * platform name in the hero card. Colored leading dot + label,
- * matching the reference design's "● 已连接 / ● 未连接" affordance.
- */
-function BotStatusPill(props: { tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive'; label: string }) {
-  return (
-    <Chip dot variant={props.tone} className="settingsBotStatusPill" data-tone={props.tone}>
-      {props.label}
-    </Chip>
   );
 }
 
@@ -183,6 +165,7 @@ export function BotChatSettingsPage(props: {
   type BotPendingAction = { provider: BotProvider; action: BotPendingActionName };
 
   const [selected, setSelected] = useState<BotProvider>('telegram');
+  const [detailOpen, setDetailOpen] = useState(false);
   const [pendingBotAction, setPendingBotAction] = useState<BotPendingAction | null>(null);
   const [scanLoginOpen, setScanLoginOpen] = useState(false);
   const [wechatQrOpen, setWechatQrOpen] = useState(false);
@@ -250,7 +233,7 @@ export function BotChatSettingsPage(props: {
       if (!active) return;
       const message = settingsActionErrorMessage(error);
       setStatusLoadError(message);
-      toast.error('载入机器人运行状态失败', message);
+      toast.error('载入远程接入状态失败', message);
     });
     const unsubscribe = window.maka.settings.bots.subscribeStatusChanges((status) => {
       if (!botPageMountedRef.current) return;
@@ -390,7 +373,7 @@ export function BotChatSettingsPage(props: {
       if (!botPageMountedRef.current) return false;
       const message = settingsActionErrorMessage(error);
       setStatusLoadError(message);
-      toast.error('刷新机器人运行状态失败', message);
+      toast.error('刷新远程接入状态失败', message);
       return false;
     }
   }
@@ -402,7 +385,7 @@ export function BotChatSettingsPage(props: {
     try {
       const ok = await toast.confirm({
         title: '断开微信登录？',
-        description: '将清除本机保存的扫码登录凭据，之后需要重新扫码才能继续使用微信机器人。',
+        description: '将清除本机保存的扫码登录凭据，之后需要重新扫码才能继续使用微信渠道。',
         confirmLabel: '断开登录',
         cancelLabel: '取消',
         destructive: true,
@@ -431,9 +414,7 @@ export function BotChatSettingsPage(props: {
   }
 
   const support = BOT_LABELS[selected].support;
-  const readiness = support === 'credentials'
-    ? channel.readiness
-    : selectedStatus?.readiness ?? channel.readiness;
+  const readiness = effectiveBotReadiness(support, channel, selectedStatus);
   const copy = botReadinessCopyForSupport(support, readiness);
   const enableSwitchDisabled = support === 'planned' || (!channel.enabled && !canEnableBotChannel(readiness));
   const enableSwitchHint = support === 'planned'
@@ -443,67 +424,167 @@ export function BotChatSettingsPage(props: {
       : undefined;
   const enableSwitchHintId = `settings-bot-enable-hint-${selected}`;
 
-  return (
-    <div className="settingsBotLayout">
-      <nav className="settingsBotList" aria-label="机器人频道列表">
-        {BOT_PROVIDERS.map((provider) => {
-          const status = statuses?.[provider];
-          const providerSupport = BOT_LABELS[provider].support;
-          const providerChannel = props.settings.botChat.channels[provider];
-          const providerCopy = botReadinessCopyForSupport(
-            providerSupport,
-            providerSupport === 'credentials'
-              ? providerChannel.readiness
-              : status?.readiness ?? providerChannel.readiness,
-          );
-          // PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): the platform
-          // brand logo carries a small bottom-right status badge so the
-          // user can scan the list and see which channels are live.
-          // Badge tone tracks the same readiness tone the row label uses.
-          const providerReadiness = providerSupport === 'credentials'
-            ? providerChannel.readiness
-            : status?.readiness ?? providerChannel.readiness;
-          return (
-            <Button
-              key={provider}
-              type="button"
-              data-active={selected === provider}
-              data-support={providerSupport}
-              aria-current={selected === provider ? 'page' : undefined}
-              disabled={botActionBusy}
-              /* Locked by contract: platform switching is blocked while a
-                 provider-owned action runs. The original gap (UI review
-                 P0) was that all seven rows froze with NO explanation —
-                 the title tells the user why and when it unlocks. */
-              title={botActionBusy ? '当前操作进行中，完成后可切换平台' : undefined}
-              style={{ ['--bot-brand-color' as string]: BOT_BRAND[provider].color }}
-              onClick={() => {
-                setSelected(provider);
-              }}
-            >
-              <BotBrandLogo provider={provider} readiness={providerReadiness} support={providerSupport} />
-              <span>{BOT_LABELS[provider].label}</span>
-              <em data-tone={providerCopy.tone}>{providerCopy.label}</em>
-            </Button>
-          );
-        })}
-      </nav>
+  const overviewChannels = BOT_PROVIDERS.map((provider, index) => {
+    const providerChannel = props.settings.botChat.channels[provider];
+    const providerStatus = statuses?.[provider];
+    const providerSupport = BOT_LABELS[provider].support;
+    const providerReadiness = effectiveBotReadiness(providerSupport, providerChannel, providerStatus);
+    const providerCopy = botReadinessCopyForSupport(providerSupport, providerReadiness);
+    const configured = providerChannel.connected
+      || providerChannel.enabled
+      || providerStatus?.running === true
+      || Boolean(providerStatus?.identity)
+      || providerChannel.readiness === 'configured'
+      || providerChannel.readiness === 'credentials_valid'
+      || providerChannel.readiness === 'operational'
+      || providerChannel.readiness === 'degraded'
+      || providerReadiness === 'configured'
+      || providerReadiness === 'credentials_valid'
+      || providerReadiness === 'operational'
+      || providerReadiness === 'degraded';
+    const needsAttention = configured && (
+      providerReadiness === 'degraded'
+      || Boolean(providerChannel.lastError)
+      || (providerChannel.enabled && providerSupport === 'runtime' && providerStatus?.running === false)
+    );
+    return {
+      provider,
+      index,
+      channel: providerChannel,
+      status: providerStatus,
+      support: providerSupport,
+      readiness: providerReadiness,
+      copy: providerCopy,
+      configured,
+      needsAttention,
+    };
+  });
+  const activeChannels = overviewChannels
+    .filter((entry) => entry.configured)
+    .sort((left, right) => {
+      if (left.needsAttention !== right.needsAttention) return left.needsAttention ? -1 : 1;
+      const activityDelta = (right.status?.lastEventAt ?? 0) - (left.status?.lastEventAt ?? 0);
+      return activityDelta || left.index - right.index;
+    });
+  const availableChannels = overviewChannels.filter((entry) => !entry.configured);
 
+  function openChannel(provider: BotProvider) {
+    setSelected(provider);
+    setDetailOpen(true);
+  }
+
+  if (!detailOpen) {
+    return (
+      <div className="settingsRemoteAccessOverview">
+        {statusLoadError && (
+          <Alert variant="error">
+            <AlertTitle>远程接入状态载入失败</AlertTitle>
+            <AlertDescription>{statusLoadError}</AlertDescription>
+            <AlertAction>
+              <Button type="button" variant="secondary" onClick={() => void refreshBotStatuses()}>
+                重新载入
+              </Button>
+            </AlertAction>
+          </Alert>
+        )}
+
+        <section className="settingsRemoteAccessSection" aria-labelledby="remote-access-active-heading">
+          <div className="settingsRemoteAccessSectionHeader">
+            <h3 id="remote-access-active-heading">正在使用</h3>
+            <span>按需要处理、最近活动排序</span>
+          </div>
+          <div className="settingsRemoteAccessActiveList">
+            {activeChannels.length === 0 ? (
+              <Item className="settingsRemoteAccessEmptyRow" interactive={false}>
+                <ItemContent>
+                  <ItemTitle>还没有正在使用的渠道</ItemTitle>
+                  <ItemDescription>从下方选择一个消息平台开始配置。</ItemDescription>
+                </ItemContent>
+              </Item>
+            ) : activeChannels.map((entry) => (
+              <Item
+                key={entry.provider}
+                className="settingsRemoteAccessChannelRow"
+                data-attention={entry.needsAttention ? 'true' : undefined}
+                render={(
+                  <button
+                    type="button"
+                    disabled={botActionBusy}
+                    aria-label={`管理 ${BOT_LABELS[entry.provider].label}，${entry.copy.label}`}
+                    onClick={() => openChannel(entry.provider)}
+                  />
+                )}
+              >
+                <ItemMedia><BotBrandLogo provider={entry.provider} /></ItemMedia>
+                <ItemContent>
+                  <ItemTitle>
+                    {BOT_LABELS[entry.provider].label}
+                    <Chip dot size="sm" variant={entry.copy.tone}>{entry.copy.label}</Chip>
+                  </ItemTitle>
+                  <ItemDescription>{botOverviewDetail(entry.channel, entry.status, entry.copy.detail)}</ItemDescription>
+                </ItemContent>
+                <ItemActions><ChevronRight size={16} aria-hidden="true" /></ItemActions>
+              </Item>
+            ))}
+          </div>
+        </section>
+
+        <section className="settingsRemoteAccessSection" aria-labelledby="remote-access-available-heading">
+          <div className="settingsRemoteAccessSectionHeader">
+            <h3 id="remote-access-available-heading">接入更多渠道</h3>
+            <span>选择平台开始配置</span>
+          </div>
+          <div className="settingsRemoteAccessCatalog">
+            {availableChannels.map((entry) => (
+              <Item
+                key={entry.provider}
+                className="settingsRemoteAccessCatalogRow"
+                data-support={entry.support}
+                render={(
+                  <button
+                    type="button"
+                    disabled={botActionBusy}
+                    aria-label={`接入 ${BOT_LABELS[entry.provider].label}`}
+                    onClick={() => openChannel(entry.provider)}
+                  />
+                )}
+              >
+                <ItemMedia><BotBrandLogo provider={entry.provider} /></ItemMedia>
+                <ItemContent>
+                  <ItemTitle>{BOT_LABELS[entry.provider].label}</ItemTitle>
+                  <ItemDescription>{BOT_LABELS[entry.provider].help}</ItemDescription>
+                </ItemContent>
+                <ItemActions><ChevronRight size={16} aria-hidden="true" /></ItemActions>
+              </Item>
+            ))}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="settingsRemoteAccessDetail">
+      <Button
+        type="button"
+        variant="quiet"
+        className="settingsRemoteAccessBack"
+        aria-label="返回远程接入"
+        disabled={botActionBusy}
+        onClick={() => setDetailOpen(false)}
+      >
+        <ArrowLeft size={16} aria-hidden="true" />
+        返回远程接入
+      </Button>
       <section className="settingsBotDetail">
-        {/* PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): brand-tinted hero
-            card mirrors the reference design — brand logo + name + status
-            pill + one-line help with inline config doc link, enable toggle
-            at right. The card background uses the brand color at ~6%
-            alpha so the platform identity is visible without overpowering
-            the form below. */}
-        <div className="settingsBotHero" data-provider={selected} data-support={support}>
-          <BotBrandLogo provider={selected} readiness={readiness} support={support} size="large" />
-          <div className="settingsBotHeroBody">
+        <header className="settingsBotDetailHeader" data-support={support}>
+          <BotBrandLogo provider={selected} size="large" />
+          <div className="settingsBotDetailHeaderBody">
             <h3>
               {BOT_LABELS[selected].label}
-              <BotStatusPill tone={copy.tone} label={copy.label} />
+              <Chip dot size="sm" variant={copy.tone}>{copy.label}</Chip>
             </h3>
-            <small>
+            <p>
               {BOT_LABELS[selected].help}
               {BOT_BRAND[selected].configDocUrl && (
                 <>
@@ -514,11 +595,11 @@ export function BotChatSettingsPage(props: {
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    查看配置文档 →
+                    查看配置文档
                   </a>
                 </>
               )}
-            </small>
+            </p>
             {enableSwitchHint && (
               <small id={enableSwitchHintId} className="settingsBotEnableHint">
                 {enableSwitchHint}
@@ -526,12 +607,85 @@ export function BotChatSettingsPage(props: {
             )}
           </div>
           <Switch
-            ariaLabel={`启用${BOT_LABELS[selected].label}机器人`}
+            ariaLabel={`启用${BOT_LABELS[selected].label}渠道`}
             ariaDescribedBy={enableSwitchHint ? enableSwitchHintId : undefined}
             checked={channel.enabled}
             onChange={(enabled) => updateChannel({ enabled })}
             disabled={enableSwitchDisabled || botActionBusy}
           />
+        </header>
+
+        <section className="settingsBotRuntime" aria-labelledby="settings-bot-runtime-heading">
+          <div className="settingsBotRuntimeHeader">
+            <div>
+              <h4 id="settings-bot-runtime-heading">{selectedStatus?.running ? '正在监听新消息' : copy.label}</h4>
+              <p>{selectedStatus?.running ? '连接正常，无需处理。' : copy.detail}</p>
+            </div>
+            <div className="settingsBotActionStack" role="group" aria-label={`${BOT_LABELS[selected].label}渠道操作`}>
+              {selected === 'wechat' ? (
+                <>
+                  <Button type="button" variant="secondary" disabled={botActionBusy} onClick={() => setScanLoginOpen(true)}>
+                    扫码登录
+                  </Button>
+                  {(channel.token || selectedStatus?.identity) && (
+                    <Button type="button" variant="secondary" disabled={botActionBusy} onClick={() => void disconnectWechatLogin()}>
+                      {selectedBotActionPending === 'disconnect' ? '断开中…' : '断开微信登录'}
+                    </Button>
+                  )}
+                  <Button type="button" variant="secondary" disabled={botActionBusy} onClick={() => setWechatQrOpen(true)}>
+                    本机桥接二维码
+                  </Button>
+                  <Button type="button" variant="secondary" disabled={botActionBusy} onClick={testChannel}>
+                    {selectedBotActionPending === 'test' ? '测试中…' : '测试连接'}
+                  </Button>
+                </>
+              ) : support === 'runtime' && !selectedStatus?.running ? (
+                <Button type="button" disabled={botActionBusy} onClick={testAndConnect}>
+                  {selectedBotActionPending === 'connect' ? '连接中…' : '测试并连接'}
+                </Button>
+              ) : (
+                <Button type="button" variant="secondary" disabled={botActionBusy || support === 'planned'} onClick={testChannel}>
+                  {selectedBotActionPending === 'test' ? '测试中…' : support === 'runtime' ? '测试连接' : '测试并连接'}
+                </Button>
+              )}
+              {support === 'runtime' && (selectedStatus?.running || restarting) && selected !== 'wechat' && (
+                <Button type="button" variant="secondary" disabled={botActionBusy} onClick={restartChannel}>
+                  {restarting ? '重启中…' : '重启监听'}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <dl className="settingsBotStatusGrid" aria-label={`${BOT_LABELS[selected].label}运行状态`}>
+            <div><dt>身份</dt><dd>{selectedStatus?.identity?.username ?? selectedStatus?.identity?.displayName ?? '未获取'}</dd></div>
+            <div><dt>通道类型</dt><dd>{botConnectionLabel(selectedStatus?.connection ?? 'none')}</dd></div>
+            <div><dt>最近事件</dt><dd>{selectedStatus?.lastEventAt ? <RelativeTime ts={selectedStatus.lastEventAt} className="settingsBotMetaTime" /> : '暂无'}</dd></div>
+            <div><dt>最近一次测试</dt><dd>{channel.lastTestAt ? <RelativeTime ts={channel.lastTestAt} className="settingsBotMetaTime" /> : '从未测试'}</dd></div>
+          </dl>
+        </section>
+
+        {statusLoadError && (
+          <Alert variant="error">
+            <AlertTitle>运行状态刷新失败</AlertTitle>
+            <AlertDescription>{statusLoadError}</AlertDescription>
+          </Alert>
+        )}
+        {selectedStatus?.reason && channel.enabled && !selectedStatus.running && (
+          <Alert variant="warning">
+            <AlertTitle>{botStatusDetail(selectedStatus)}</AlertTitle>
+            <AlertDescription>{copy.detail}</AlertDescription>
+          </Alert>
+        )}
+        {channel.lastError && support !== 'planned' && (
+          <Alert variant="error">
+            <AlertTitle>上次测试失败</AlertTitle>
+            <AlertDescription>{channel.lastError}</AlertDescription>
+          </Alert>
+        )}
+
+        <div className="settingsBotConfigurationHeader">
+          <h4>连接配置</h4>
+          <span>自动保存</span>
         </div>
 
         {/* PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `2fa6ada6` screenshots):
@@ -654,65 +808,7 @@ export function BotChatSettingsPage(props: {
 
         {support === 'planned' && (
           <div className="settingsNotice" data-tone="passive">
-            这个平台当前只作为平台清单展示，不会进入可用机器人列表，也不会保存为计划提醒投递目标。
-          </div>
-        )}
-
-        <dl className="settingsBotStatusGrid" aria-label={`${BOT_LABELS[selected].label}运行状态`}>
-          <div>
-            <dt>运行状态</dt>
-            <dd>{selectedStatus?.running ? '监听中' : '未监听'}</dd>
-          </div>
-          <div>
-            <dt>通道类型</dt>
-            <dd>{botConnectionLabel(selectedStatus?.connection ?? 'none')}</dd>
-          </div>
-          <div>
-            <dt>身份</dt>
-            <dd>{selectedStatus?.identity?.username ?? selectedStatus?.identity?.displayName ?? '未获取'}</dd>
-          </div>
-          <div>
-            <dt>最近事件</dt>
-            <dd>
-              {selectedStatus?.lastEventAt ? (
-                <RelativeTime
-                  ts={selectedStatus.lastEventAt}
-                  className="settingsBotMetaTime"
-                />
-              ) : (
-                '暂无'
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt>最近一次测试</dt>
-            <dd>
-              {channel.lastTestAt ? (
-                <RelativeTime
-                  ts={channel.lastTestAt}
-                  className="settingsBotMetaTime"
-                />
-              ) : (
-                '从未测试'
-              )}
-            </dd>
-          </div>
-        </dl>
-
-        {statusLoadError && (
-          <div className="settingsBotReason" data-tone="error" role="alert">
-            机器人运行状态刷新失败：{statusLoadError}
-          </div>
-        )}
-        {selectedStatus?.reason && <div className="settingsBotReason">{botStatusDetail(selectedStatus)}</div>}
-
-        {/* PR-BOT-CHAT-POLISH-0: surface the last persisted test error
-            so the user does not have to remember the toast that just
-            faded out. `channel.lastError` is written by the IPC test
-            handler regardless of why the test failed. */}
-        {channel.lastError && support !== 'planned' && (
-          <div className="settingsBotReason" data-tone="error" role="alert">
-            上次测试失败：{channel.lastError}
+            这个平台当前只作为平台清单展示，不会进入可用渠道，也不会保存为计划提醒投递目标。
           </div>
         )}
 
@@ -736,86 +832,6 @@ export function BotChatSettingsPage(props: {
             }}
           />
         )}
-        <div className="settingsBotActionStack" role="group" aria-label={`${BOT_LABELS[selected].label}机器人操作`}>
-          {selected === 'wechat' ? (
-            <>
-              <Button
-               
-                type="button"
-                variant="secondary"
-                disabled={botActionBusy}
-                onClick={() => setScanLoginOpen(true)}
-              >
-                扫码登录
-              </Button>
-              {(channel.token || selectedStatus?.identity) && (
-                <Button
-                 
-                  type="button"
-                  variant="secondary"
-                  disabled={botActionBusy}
-                  onClick={() => void disconnectWechatLogin()}
-                >
-                  {selectedBotActionPending === 'disconnect' ? '断开中…' : '断开微信登录'}
-                </Button>
-              )}
-              <Button
-               
-                type="button"
-                variant="secondary"
-                disabled={botActionBusy}
-                onClick={() => setWechatQrOpen(true)}
-              >
-                本机桥接二维码
-              </Button>
-              <Button
-               
-                type="button"
-                variant="secondary"
-                disabled={botActionBusy}
-                onClick={testChannel}
-              >
-                {selectedBotActionPending === 'test' ? '测试中…' : '测试连接'}
-              </Button>
-            </>
-          ) : support === 'runtime' && !selectedStatus?.running ? (
-            <Button
-              // One primary per view: 测试并连接 is the form's completion
-              // action — the page previously had no primary at all.
-              type="button"
-              disabled={botActionBusy}
-              onClick={testAndConnect}
-            >
-              {selectedBotActionPending === 'connect' ? '连接中…' : '测试并连接'}
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={botActionBusy || support === 'planned'}
-              onClick={testChannel}
-            >
-              {selectedBotActionPending === 'test' ? '测试中…' : support === 'runtime' ? '测试连接' : '测试并连接'}
-            </Button>
-          )}
-          {/* PR-BOT-RESTART-RACE-0: keep the restart button mounted
-              while a restart is in-flight, even if the bridge's
-              running flag transiently flips false during the
-              stop→start cycle inside reconcileOne. Otherwise
-              `disabled={restarting}` does nothing because the whole
-              button unmounts mid-click and the user sees no
-              resolution feedback. */}
-          {support === 'runtime' && (selectedStatus?.running || restarting) && selected !== 'wechat' && (
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={botActionBusy}
-              onClick={restartChannel}
-            >
-              {restarting ? '重启中…' : '重启监听'}
-            </Button>
-          )}
-        </div>
         {wechatQrOpen && (
           <WechatQrLoginModal
             onClose={() => setWechatQrOpen(false)}
@@ -904,6 +920,35 @@ function BotAllowedUserIdsField(props: {
   );
 }
 
+function botOverviewDetail(
+  channel: BotChannelSettings,
+  status: BotStatus | undefined,
+  fallback: string,
+): ReactNode {
+  const identity = status?.identity?.username ?? status?.identity?.displayName;
+  if (status?.running) {
+    return (
+      <>
+        监听中{identity ? ` · ${identity}` : ''}
+        {status.lastEventAt ? <> · <RelativeTime ts={status.lastEventAt} /></> : ''}
+      </>
+    );
+  }
+  if (channel.lastError) return channel.lastError;
+  if (status?.reason) return botStatusDetail(status);
+  return fallback;
+}
+
+function effectiveBotReadiness(
+  support: 'runtime' | 'credentials' | 'planned',
+  channel: BotChannelSettings,
+  status: BotStatus | undefined,
+): BotReadinessState {
+  if (support === 'credentials') return channel.readiness;
+  if (channel.enabled || status?.running) return status?.readiness ?? channel.readiness;
+  return channel.readiness;
+}
+
 function botConnectionLabel(connection: BotStatus['connection']): string {
   switch (connection) {
     case 'polling': return '长轮询';
@@ -920,8 +965,8 @@ function botStatusDetail(status: BotStatus): string {
     case 'missing-feishu-credentials': return '等待填写飞书 App ID 或 App Secret';
     case 'feishu-domain-required': return '飞书凭据有效，等待填写事件订阅域名';
     case 'feishu-events-not-connected': return '飞书凭据有效，等待事件回调接入';
-    case 'scaffold-only': return '该平台当前不可作为可用机器人';
-    case 'unimplemented': return '该平台当前不可作为可用机器人';
+    case 'scaffold-only': return '该平台当前不可作为远程接入渠道';
+    case 'unimplemented': return '该平台当前不可作为远程接入渠道';
     case 'stopped': return '监听已停止';
     // PR-BOT-CHAT-POLISH-0: the previous fallback `status.reason ??
     // '暂无运行细节'` would surface a raw reason code (e.g.

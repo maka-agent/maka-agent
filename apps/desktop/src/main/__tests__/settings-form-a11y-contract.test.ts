@@ -151,9 +151,17 @@ describe('Settings form accessibility labels', () => {
     assert.ok(themeBlockRange.start >= 0 && themeBlockRange.end > themeBlockRange.start, 'ThemeSettingsPage block must exist for the radio-card exception window');
     const settingsExceptTheme =
       settings.slice(0, themeBlockRange.start) + settings.slice(themeBlockRange.end);
+    // Item's Base UI `render` target is the semantic element the primitive
+    // enhances, not a separate hand-rolled control. Keep the same exception
+    // already used for ProvidersPanel below so Settings pages can adopt Item
+    // without layering Button chrome onto full-row navigation targets.
+    const settingsPrimitiveButtons = settingsExceptTheme.replace(
+      /render=\{\s*\(\s*<button[\s\S]*?\/>\s*\)\s*\}/g,
+      'render={<primitiveTarget/>}',
+    );
 
     for (const [path, source] of [
-      ['SettingsModal.tsx (outside ThemeSettingsPage)', settingsExceptTheme],
+      ['SettingsModal.tsx (outside ThemeSettingsPage)', settingsPrimitiveButtons],
       ['password-input.tsx', passwordInput],
     ] as const) {
       assert.doesNotMatch(source, /<input\b/, `${path} must use the shared Input primitive for Settings text fields`);

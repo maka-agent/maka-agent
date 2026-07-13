@@ -103,17 +103,6 @@ describe('renderer style layer cascade contract', () => {
     );
   });
 
-  it('keeps .settingsBotList button out of any @layer so the bot nav can override shared Button utilities', async () => {
-    const styles = await readAllRendererCss();
-    const layers = enclosingLayerCount(styles, '.settingsBotList button {');
-    assert.notEqual(layers, -1, '.settingsBotList button { rule not found in renderer CSS');
-    assert.equal(
-      layers,
-      0,
-      '.settingsBotList button must stay unlayered because the bot nav uses shared Button primitives and overrides their utility layout/background stack.',
-    );
-  });
-
   /**
    * Regression guard for #618 item 1.
    *

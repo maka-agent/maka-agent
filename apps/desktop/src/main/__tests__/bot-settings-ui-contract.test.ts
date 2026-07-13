@@ -14,7 +14,7 @@ async function readRepo(path: string): Promise<string> {
 }
 
 describe('Bot settings UI contract', () => {
-  it('keeps platform rows scannable with brand badges and status dots', async () => {
+  it('presents remote access as an overview of active and available channels', async () => {
     const [settings, botBrand] = await Promise.all([
       readSettingsCombinedSource(),
       readRepo('packages/ui/src/bot-brand.ts'),
@@ -24,34 +24,38 @@ describe('Bot settings UI contract', () => {
     assert.match(settings, /BOT_BRAND/, 'Bot settings must import shared per-platform brand presentation metadata');
     assert.match(settings, /BotBrandLogo as BotBrandMark/, 'Bot settings must render the shared provider-based brand logo component');
     assert.match(settings, /<BotBrandMark[\s\S]*provider=\{props\.provider\}/, 'Bot settings must pass provider directly to the local brand logo renderer');
+    assert.match(settings, /id: 'bot-chat', label: '远程接入'/, 'The product-facing settings label must describe the user goal, not the implementation object');
+    assert.match(settings, /className="settingsRemoteAccessActiveList"/, 'Configured channels must render in a dedicated active list');
+    assert.match(settings, /className="settingsRemoteAccessCatalog"/, 'Unconfigured channels must render in a separate catalog');
+    assert.match(settings, /onClick=\{\(\) => openChannel\(entry\.provider\)\}/, 'Overview rows must open a single-channel detail view');
     assert.match(botBrand, /export const BOT_BRAND:/, 'Shared bot brand metadata must stay exported from @maka/ui');
     for (const provider of ['telegram', 'feishu', 'wecom', 'wechat', 'discord', 'dingtalk', 'qq']) {
       assert.match(botBrand, new RegExp(`${provider}:\\s*\\{[\\s\\S]*?configDocUrl:`), `${provider} needs a visible configuration-document link target`);
-      assert.match(styles, new RegExp(`\\.settingsBotHero\\[data-provider="${provider}"\\]`), `${provider} hero must export a brand color CSS variable`);
     }
     assert.match(settings, /function BotBrandLogo\b/, 'Bot settings must use the shared brand-logo component');
     assert.match(settings, /className="settingsBotLogo"[\s\S]*aria-hidden="true"/, 'Bot brand monograms are decorative and must not be read as part of channel names');
-    assert.match(settings, /className="settingsBotLogoStatusDot"/, 'Platform logo must include the bottom-right status dot');
-    assert.match(settings, /data-active=\{selected === provider\}[\s\S]*aria-current=\{selected === provider \? 'page' : undefined\}/, 'The active bot platform must be exposed to assistive technology');
-    assert.match(styles, /\.settingsBotLogoStatusDot\s*\{[\s\S]*position:\s*absolute/, 'Status dot must be visually attached to the platform logo');
-    assert.match(styles, /\.settingsBotLogoStatusDot\[data-tone="success"\]/, 'Status dot tone mapping must include the connected state');
+    assert.match(styles, /\.settingsRemoteAccessCatalog\s*\{[\s\S]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/, 'Available channels should use the agreed two-column catalog on wide settings views');
+    assert.match(styles, /\.settingsRemoteAccessChannelRow,[\s\S]*box-shadow:\s*none/, 'Channel rows must explicitly neutralize inherited Button shadow');
+    assert.doesNotMatch(settings, /settingsBotLogoStatusDot/, 'Status must be carried by text and Chip rather than a redundant logo dot');
+    assert.doesNotMatch(styles, /\.settingsBotHero\[data-provider=/, 'Provider brand colors must remain in logos instead of tinting product surfaces');
   });
 
-  it('keeps the detail hero as a branded current-state surface with external docs link', async () => {
+  it('puts channel diagnosis before an always-visible configuration form', async () => {
     const settings = await readSettingsCombinedSource();
     const styles = await readRendererContractCss();
 
-    assert.match(settings, /className="settingsBotHero"\s+data-provider=\{selected\}\s+data-support=\{support\}/, 'Selected platform detail must render the brand-aware hero card');
-    assert.match(settings, /<BotStatusPill tone=\{copy\.tone\} label=\{copy\.label\}/, 'Hero title must include an inline current-state pill');
-    assert.match(settings, /className="settingsBotConfigDocLink"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"[\s\S]*查看配置文档 →/, 'Configuration docs link must be visible and external-link safe');
+    const runtimeIndex = settings.indexOf('className="settingsBotRuntime"');
+    const configurationIndex = settings.indexOf('className="settingsBotConfigurationHeader"');
+
+    assert.match(settings, /className="settingsRemoteAccessDetail"/, 'A selected channel must render as a focused detail page');
+    assert.match(settings, /className="settingsBotDetailHeader" data-support=\{support\}/, 'Channel identity and enablement must stay visible above diagnosis');
+    assert.match(settings, /<Chip dot size="sm" variant=\{copy\.tone\}>\{copy\.label\}<\/Chip>/, 'The detail header must expose the current state as a shared dotted Chip');
+    assert.match(settings, /className="settingsBotConfigDocLink"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"[\s\S]*查看配置文档/, 'Configuration docs link must be visible and external-link safe');
     assert.doesNotMatch(settings, /iframe|webview|dangerouslySetInnerHTML/, 'Bot docs must not be embedded into the renderer');
-    assert.match(styles, /\.settingsBotHero\s*\{[\s\S]*background:\s*color-mix/, 'Hero card must use a subtle brand-color tint');
-    // Round 1 convergence (#520 follow-up): the hero current-state pill is now
-    // the Chip primitive with a leading tone dot (was a hand-rolled
-    // .settingsBotStatusPill + .settingsBotStatusPillDot recipe). The dotted
-    // Chip carries the tone via its variant; the bespoke pill CSS is retired.
-    assert.match(settings, /<Chip\s+dot\s+variant=\{props\.tone\}\s+className="settingsBotStatusPill"/, 'Hero current-state pill must render a dotted Chip');
-    assert.doesNotMatch(styles, /\.settingsBotStatusPill\s*\{/, 'Hand-rolled hero pill CSS must be retired (Chip is the tone authority)');
+    assert.ok(runtimeIndex !== -1 && configurationIndex !== -1 && runtimeIndex < configurationIndex, 'Runtime diagnosis must appear before credentials and access fields');
+    assert.doesNotMatch(settings, /Accordion|<details/, 'The core credentials, access, and network form must stay expanded');
+    assert.match(styles, /\.settingsBotRuntime\s*\{[\s\S]*background:\s*var\(--foreground-3\)/, 'Runtime diagnosis should use a neutral product surface');
+    assert.doesNotMatch(styles, /--bot-brand-color|\.settingsBotHero/, 'The detail page must not introduce a provider-tinted hero surface');
   });
 
   it('names the selected platform runtime status grid', async () => {
@@ -79,7 +83,7 @@ describe('Bot settings UI contract', () => {
     const restartProviderBlock = settings.match(/async function restartBotProvider\(provider: BotProvider\)[\s\S]*?\n\s*async function restartChannel/)?.[0] ?? '';
     const restartChannelBlock = settings.match(/async function restartChannel\(\)[\s\S]*?\n\s*async function refreshBotStatuses/)?.[0] ?? '';
     const actionRowBlock = settings.match(/<div className="settingsBotActionStack"[\s\S]*?<\/div>/)?.[0] ?? '';
-    const switchBlock = settings.match(/<Switch\s+ariaLabel=\{`启用\$\{BOT_LABELS\[selected\]\.label\}机器人`\}[\s\S]*?\/>/)?.[0] ?? '';
+    const switchBlock = settings.match(/<Switch\s+ariaLabel=\{`启用\$\{BOT_LABELS\[selected\]\.label\}渠道`\}[\s\S]*?\/>/)?.[0] ?? '';
 
     assert.match(settings, /type BotPendingActionName = 'test' \| 'connect' \| 'restart' \| 'disconnect'/, 'Bot async actions must use a closed pending-action enum');
     assert.match(settings, /const \[pendingBotAction, setPendingBotAction\] = useState<BotPendingAction \| null>\(null\)/, 'Bot async action pending state must be explicit');
@@ -96,7 +100,7 @@ describe('Bot settings UI contract', () => {
     assert.match(styles, /\.settingsBotEnableHint\s*\{[\s\S]*display:\s*block/, 'Enable-lock hint needs a stable visible style');
     assert.match(switchBlock, /ariaDescribedBy=\{enableSwitchHint \? enableSwitchHintId : undefined\}/, 'Disabled enable switch must point assistive tech at the reason');
     assert.match(switchBlock, /disabled=\{enableSwitchDisabled \|\| botActionBusy\}/, 'Bot enable switch must be disabled while an owned bot action is pending');
-    assert.match(settings, /disabled=\{botActionBusy\}[\s\S]*onClick=\{\(\) => \{[\s\S]*setSelected\(provider\)/, 'Platform switching must be disabled while a provider-owned bot action is pending');
+    assert.match(settings, /disabled=\{botActionBusy\}[\s\S]*onClick=\{\(\) => openChannel\(entry\.provider\)\}/, 'Channel navigation must be disabled while a provider-owned bot action is pending');
     assert.match(testChannelBlock, /const provider = selected;[\s\S]*if \(!beginBotAction\(provider, 'test'\)\) return;[\s\S]*testBotChannel\(provider\)/, 'Separate tests must capture the provider and gate duplicate clicks before IPC');
     assert.match(testAndConnectBlock, /const provider = selected;[\s\S]*const providerChannel = props\.settings\.botChat\.channels\[provider\];[\s\S]*const providerSupport = BOT_LABELS\[provider\]\.support;[\s\S]*if \(!beginBotAction\(provider, 'connect'\)\) return;[\s\S]*testBotChannel\(provider\)/, 'Combined action must capture provider/channel/support and gate duplicate clicks before IPC');
     assert.match(testChannelBlock, /catch \(error\) \{[\s\S]*toast\.error\(`\$\{BOT_LABELS\[provider\]\.label\} 测试出错`, settingsActionErrorMessage\(error\)\)/, 'Separate bot credential tests must scrub thrown IPC failures against the captured provider');
@@ -110,7 +114,7 @@ describe('Bot settings UI contract', () => {
     assert.match(actionRowBlock, /support === 'runtime' && !selectedStatus\?\.running/, 'Runtime channels that are not listening must use the combined onboarding path');
     assert.match(
       actionRowBlock,
-      /<div className="settingsBotActionStack" role="group" aria-label=\{`\$\{BOT_LABELS\[selected\]\.label\}机器人操作`\}>/,
+      /<div className="settingsBotActionStack" role="group" aria-label=\{`\$\{BOT_LABELS\[selected\]\.label\}渠道操作`\}>/,
       'Selected bot platform actions must expose a platform-specific accessible group name',
     );
     assert.doesNotMatch(
@@ -234,7 +238,7 @@ describe('Bot settings UI contract', () => {
     );
     assert.match(
       refreshBlock,
-      /catch \(error\) \{[\s\S]*if \(!botPageMountedRef\.current\) return false;[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\('刷新机器人运行状态失败', message\);/,
+      /catch \(error\) \{[\s\S]*if \(!botPageMountedRef\.current\) return false;[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\('刷新远程接入状态失败', message\);/,
       'Bot status refresh errors must not toast after unmount',
     );
     assert.match(

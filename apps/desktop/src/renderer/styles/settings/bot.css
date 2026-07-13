@@ -1,241 +1,227 @@
-.settingsBotList {
+.settingsBotLogo {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.settingsBotLogo svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.settingsBotLogo[data-large="true"] {
+  width: 44px;
+  height: 44px;
+}
+
+.settingsRemoteAccessOverview,
+.settingsRemoteAccessDetail,
+.settingsBotDetail {
   display: grid;
   align-content: start;
-  gap: var(--space-1-5);
-  border-right: var(--border-width-hairline) solid var(--border);
-  padding-right: var(--space-4);
 }
 
-.settingsBotList button {
-  width: 100%;
-  min-height: 44px;
+.settingsRemoteAccessOverview {
+  gap: var(--space-8);
+}
+
+.settingsRemoteAccessSection {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) max-content;
-  align-items: center;
-  column-gap: var(--space-2);
-  border: 0;
-  border-radius: var(--radius-surface);
-  background: transparent;
-  color: var(--foreground-secondary);
-  padding: var(--space-1-5) var(--space-2);
-  text-align: left;
+  gap: var(--space-2-5);
 }
 
-.settingsBotList button > span {
+.settingsRemoteAccessSectionHeader,
+.settingsBotConfigurationHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-inline: var(--space-1);
+}
+
+.settingsRemoteAccessSectionHeader h3,
+.settingsBotConfigurationHeader h4 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
+}
+
+.settingsRemoteAccessSectionHeader span,
+.settingsBotConfigurationHeader span {
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+}
+
+.settingsRemoteAccessActiveList {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.settingsRemoteAccessChannelRow,
+.settingsRemoteAccessCatalogRow,
+.settingsRemoteAccessEmptyRow {
+  min-height: 64px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2-5);
+  box-shadow: none;
+}
+
+.settingsRemoteAccessChannelRow[data-attention="true"] {
+  background: oklch(from var(--warning) l c h / 0.06);
+}
+
+.settingsRemoteAccessChannelRow [data-slot="item-actions"],
+.settingsRemoteAccessCatalogRow [data-slot="item-actions"] {
+  color: var(--muted-foreground);
+}
+
+.settingsRemoteAccessEmptyRow {
+  min-height: 58px;
+  color: var(--foreground-secondary);
+  background: var(--foreground-3);
+}
+
+.settingsRemoteAccessCatalog {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.settingsRemoteAccessCatalogRow {
   min-width: 0;
+}
+
+.settingsRemoteAccessCatalogRow[data-support="planned"] {
+  opacity: var(--opacity-muted);
+}
+
+.settingsRemoteAccessBack {
+  justify-self: start;
+  margin: 0 0 var(--space-4) calc(var(--space-2) * -1);
+}
+
+.settingsBotDetail {
+  gap: var(--space-4);
+}
+
+.settingsBotDetailHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-3);
+  padding: 0 var(--space-1);
+}
+
+.settingsBotDetailHeaderBody {
+  min-width: 0;
+}
+
+.settingsBotDetailHeader h3 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  color: var(--foreground);
+  font-size: var(--font-size-heading);
+}
+
+.settingsBotDetailHeader p {
+  margin: 0;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+
+.settingsBotEnableHint {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--warning-text, var(--foreground-secondary));
+  font-size: var(--font-size-caption);
+}
+
+.settingsBotConfigDocLink {
+  margin-left: var(--space-1-5);
+  color: var(--link);
+  text-decoration: none;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+.settingsBotConfigDocLink:hover {
+  text-decoration: underline;
+}
+
+.settingsBotRuntime {
+  display: grid;
+  gap: var(--space-4);
+  border-radius: var(--radius-surface);
+  background: var(--foreground-3);
+  padding: var(--space-4);
+}
+
+.settingsBotRuntimeHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.settingsBotRuntimeHeader h4 {
+  margin: 0 0 var(--space-1);
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
+}
+
+.settingsBotRuntimeHeader p {
+  margin: 0;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+}
+
+.settingsBotStatusGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+}
+.settingsBotStatusGrid div {
+  min-width: 0;
+}
+.settingsBotStatusGrid dt {
+  margin-bottom: var(--space-1);
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+}
+.settingsBotStatusGrid dd {
+  min-width: 0;
+  margin: 0;
   overflow: hidden;
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.settingsBotList button[data-active="true"] {
-  background: var(--state-selected-bg);
-  color: var(--foreground);
+.settingsBotConfigurationHeader {
+  margin-top: var(--space-2);
 }
 
-.settingsBotList em {
-  font-size: var(--font-size-caption);
-  font-style: normal;
-  color: var(--muted-foreground);
-  white-space: nowrap;
-}
+@media (max-width: 900px) {
+  .settingsRemoteAccessCatalog {
+    grid-template-columns: 1fr;
+  }
 
-.settingsBotList em[data-tone="info"] { color: var(--status-running); }
-.settingsBotList em[data-tone="success"] { color: var(--success-text); }
-.settingsBotList em[data-tone="warning"] { color: var(--info-text); }
-.settingsBotList em[data-tone="destructive"] { color: var(--destructive-text); }
+  .settingsBotRuntimeHeader {
+    flex-direction: column;
+  }
 
-/* PR-PLACEHOLDER-SWEEP-0: planned-only platforms render their tab
-   muted so users don't mistake them for credentialed-and-ready
-   options. Clicking still navigates so the user can read the
-   unavailable-state notice on the detail pane. */
-.settingsBotList button[data-support="planned"] {
-  opacity: var(--opacity-disabled);
+  .settingsBotStatusGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
-.settingsBotList button[data-support="planned"]:hover {
-  opacity: var(--opacity-muted);
-}
-.settingsBotList button[data-support="planned"][data-active="true"] {
-  opacity: 1;
-}
-.settingsBotList button[data-support="planned"] em {
-  border: var(--border-width-hairline) solid var(--foreground-10);
-  border-radius: var(--radius-pill);
-  padding: 0 var(--space-1-5);
-  color: var(--muted-foreground);
-  font-style: normal;
-  letter-spacing: var(--tracking-wider);
-}
-
-/* PR-BOT-LOGO-NEUTRAL-PLATE-0 (WAWQAQ msg `f3d263b4` 2026-06-26):
-   real iOS-app-icon style. The brand SVG itself now carries the
-   brand-color rounded-square tile + white official mark (Telegram blue
-   + white paper plane, WeChat green + white double-bubble, etc.) —
-   see `packages/ui/src/bot-brand-icons.ts`. The CSS plate just
-   reserves the tile slot and lets the SVG fill it edge-to-edge;
-   no neutral wash and no plate border so the brand tile reads as
-   a real app icon. `--bot-brand-color` is still set inline by
-   `BotBrandLogo` for the status-dot tint and Hero brand wash. The
-   glyph fallback (`微` / `企` / `飞` / `钉` / `T` / `D` / `Q`)
-   renders centered in the brand color when an SVG fails to load. */
-.settingsBotLogo {
-    position: relative;
-    width: 28px;
-    height: 28px;
-    display: grid;
-    place-items: center;
-    background: transparent;
-    color: var(--bot-brand-color, var(--bot-brand-default));
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-bold);
-    letter-spacing: var(--tracking-normal);
-    flex-shrink: 0;
-  }
-.settingsBotLogo svg {
-    width: 100%;
-    height: 100%;
-    display: block;
-  }
-.settingsBotLogo[data-large="true"] {
-    width: 44px;
-    height: 44px;
-    font-size: 1.3333em;
-  }
-.settingsBotLogoStatusDot {
-    position: absolute;
-    right: -2px;
-    bottom: -2px;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: color-mix(in oklch, var(--foreground) 30%, var(--background));
-    box-shadow: 0 0 0 2px var(--background);
-  }
-.settingsBotLogo[data-large="true"] .settingsBotLogoStatusDot {
-    width: 11px;
-    height: 11px;
-    right: -3px;
-    bottom: -3px;
-    box-shadow: 0 0 0 2.5px var(--background);
-  }
-.settingsBotLogoStatusDot[data-tone="info"] { background: var(--status-running); }
-.settingsBotLogoStatusDot[data-tone="success"] { background: var(--success); }
-.settingsBotLogoStatusDot[data-tone="warning"] { background: var(--info); }
-.settingsBotLogoStatusDot[data-tone="destructive"] { background: var(--destructive); }
-.settingsBotDetail {
-    display: grid;
-    align-content: start;
-    gap: var(--space-3);
-  }
-/* PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): brand-tinted hero
-     card. Background uses the brand color at ~7% so the platform
-     identity is visible without overpowering the form. Telegram-style
-     light blue, WeChat green, Discord purple, etc. */
-.settingsBotHero {
-    min-height: 76px;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: start;
-    gap: var(--space-3);
-    border-radius: var(--radius-surface);
-    background: color-mix(in srgb, var(--bot-brand-color, var(--bot-brand-default)) 7%, var(--background));
-    border: var(--border-width-hairline) solid color-mix(in srgb, var(--bot-brand-color, var(--bot-brand-default)) 14%, transparent);
-    padding: var(--space-4) var(--space-4);
-  }
-.settingsBotHero[data-support="planned"] {
-    background: var(--foreground-5);
-    border-color: var(--border);
-  }
-/* Re-export the brand color on the hero card so child logo + accents
-     pick up the right CSS var without needing a second prop pass. */
-.settingsBotHero[data-provider="telegram"] { --bot-brand-color: #229ED9; }
-.settingsBotHero[data-provider="feishu"]   { --bot-brand-color: #00C6B7; }
-.settingsBotHero[data-provider="wecom"]    { --bot-brand-color: #0089FF; }
-.settingsBotHero[data-provider="wechat"]   { --bot-brand-color: #07C160; }
-.settingsBotHero[data-provider="discord"]  { --bot-brand-color: #5865F2; }
-.settingsBotHero[data-provider="dingtalk"] { --bot-brand-color: #1372FB; }
-.settingsBotHero[data-provider="qq"]       { --bot-brand-color: #12B7F5; }
-.settingsBotHeroBody {
-    min-width: 0;
-  }
-.settingsBotHero h3 {
-    margin: 0 0 var(--space-1);
-    font-size: 1.0667em;
-    display: flex;
-    align-items: center;
-    gap: var(--space-2-5);
-    flex-wrap: wrap;
-  }
-.settingsBotHero small,
-  .settingsHelpText {
-    color: var(--muted-foreground);
-    font-size: var(--font-size-ui);
-    line-height: var(--leading-normal);
-  }
-.settingsBotEnableHint {
-    display: block;
-    margin-top: var(--space-1);
-    color: var(--warning-text, var(--foreground-secondary));
-  }
-.settingsBotConfigDocLink {
-    color: var(--bot-brand-color, var(--bot-brand-default));
-    text-decoration: none;
-    font-weight: var(--font-weight-medium);
-    white-space: nowrap;
-  }
-.settingsBotConfigDocLink:hover {
-    text-decoration: underline;
-  }
-/* .settingsBotStatusPill is now the Chip primitive with dot (squared status
-   label + leading tone dot). tone→alpha and the 6px currentColor dot come from
-   chip.tsx; the "● 已连接" affordance is preserved by the Chip `dot` prop. */
-.settingsHelpText {
-    margin: 0;
-  }
-.settingsBotStatusGrid {
-    display: grid;
-    /* Detail audit: fixed 4 columns orphaned the 5th status card onto its
-       own row. Auto-fit keeps one balanced row and degrades gracefully. */
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: var(--space-2);
-    margin: 0;
-  }
-.settingsBotStatusGrid div {
-    min-height: 52px;
-    border: var(--border-width-hairline) solid var(--border);
-    border-radius: var(--radius-surface);
-    background: var(--foreground-3);
-    padding: var(--space-2-5) var(--space-3);
-  }
-@media (max-width: 1100px) {
-    .settingsBotStatusGrid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-.settingsBotStatusGrid dt {
-    margin-bottom: var(--space-1);
-    color: var(--muted-foreground);
-    font-size: var(--font-size-caption);
-  }
-.settingsBotStatusGrid dd {
-    margin: 0;
-    color: var(--foreground);
-    font-size: var(--font-size-ui);
-    word-break: break-word;
-  }
-.settingsBotReason {
-    border-left: var(--border-width-thick) solid var(--focus-ring);
-    color: var(--foreground-secondary);
-    font-size: var(--font-size-ui);
-    line-height: var(--leading-normal);
-    padding-left: var(--space-2-5);
-  }
-/* PR-BOT-CHAT-POLISH-0: error tone for persisted lastError so the
-     user can spot a failed test past the toast lifetime. */
-.settingsBotReason[data-tone="error"] {
-    border-left-color: var(--destructive, var(--warning));
-    color: var(--destructive-text, var(--info-text));
-  }
 
 .settingsUsagePage {
   display: grid;

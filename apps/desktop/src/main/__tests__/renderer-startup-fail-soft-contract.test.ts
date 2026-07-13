@@ -93,7 +93,7 @@ describe('renderer startup fail-soft contract', () => {
     assert.match(dataPage, /catch \(error\) \{[\s\S]*toast\.error\(`无法打开\$\{openPathActionLabel\('workspace'\)\}`, settingsActionErrorMessage\(error\)\)/);
     assert.match(
       botPage,
-      /window\.maka\.settings\.bots\.listStatuses\(\)\.then\([\s\S]*?setStatuses\(next\)[\s\S]*?setStatusLoadError\(null\)[\s\S]*?\.catch\(\(error\) => \{[\s\S]*const message = settingsActionErrorMessage\(error\);[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\('载入机器人运行状态失败', message\)/,
+      /window\.maka\.settings\.bots\.listStatuses\(\)\.then\([\s\S]*?setStatuses\(next\)[\s\S]*?setStatusLoadError\(null\)[\s\S]*?\.catch\(\(error\) => \{[\s\S]*const message = settingsActionErrorMessage\(error\);[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\('载入远程接入状态失败', message\)/,
       'bot status probe failures must surface visibly instead of rendering unknown runtime state as stopped',
     );
     assert.doesNotMatch(
@@ -101,10 +101,11 @@ describe('renderer startup fail-soft contract', () => {
       /catch[\s\S]*setStatuses\(null\)/,
       'bot status probe failure must preserve current statuses instead of clearing them',
     );
-    assert.match(botPage, /role="alert"[\s\S]*机器人运行状态刷新失败：\{statusLoadError\}/);
+    assert.match(botPage, /<Alert variant="error">[\s\S]*<AlertTitle>远程接入状态载入失败<\/AlertTitle>[\s\S]*<AlertDescription>\{statusLoadError\}<\/AlertDescription>/);
+    assert.match(botPage, /<Alert variant="error">[\s\S]*<AlertTitle>运行状态刷新失败<\/AlertTitle>[\s\S]*<AlertDescription>\{statusLoadError\}<\/AlertDescription>/);
     assert.match(
       botPage,
-      /async function refreshBotStatuses\(\): Promise<boolean> \{[\s\S]*try \{[\s\S]*window\.maka\.settings\.bots\.listStatuses\(\)[\s\S]*setStatuses\(nextStatuses\)[\s\S]*setStatusLoadError\(null\)[\s\S]*return true;[\s\S]*\} catch \(error\) \{[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\('刷新机器人运行状态失败', message\)[\s\S]*return false;/,
+      /async function refreshBotStatuses\(\): Promise<boolean> \{[\s\S]*try \{[\s\S]*window\.maka\.settings\.bots\.listStatuses\(\)[\s\S]*setStatuses\(nextStatuses\)[\s\S]*setStatusLoadError\(null\)[\s\S]*return true;[\s\S]*\} catch \(error\) \{[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\('刷新远程接入状态失败', message\)[\s\S]*return false;/,
       'manual bot status refresh must catch failures so QR-login callbacks cannot create unhandled rejections',
     );
   });
