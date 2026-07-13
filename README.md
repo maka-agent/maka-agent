@@ -4,11 +4,11 @@
 
 [![CI](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml)
 
+![Maka — Your work. Your agent.](./.github/assets/maka-hero.en.png)
+
 **A local-first Agent workspace built for real work.**
 
 Maka does more than answer questions. With controlled permissions, it can inspect projects, execute tools, produce artifacts, and preserve model messages, tool calls, and durable-task progress as recoverable execution facts. The same Runtime is available through the desktop app, terminal TUI, non-interactive CLI, and Headless runner.
-
-![Maka desktop artifact workflow](./apps/desktop/tests/screenshots-baseline/artifact-pane/dark-1280-motion.png)
 
 > [!IMPORTANT]
 > Maka is under active development and currently targets users running from source or contributing to the project. Data formats, CLI commands, and experimental capabilities may still change.

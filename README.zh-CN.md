@@ -4,11 +4,11 @@
 
 [![CI](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml)
 
+![Maka——你的工作，你的 Agent。](./.github/assets/maka-hero.zh-CN.png)
+
 **一个为真实工作而生的本地优先 Agent 工作台。**
 
 Maka 不只回答问题。它可以在受控权限下阅读项目、执行工具、生成产物，并把模型消息、工具调用和长程任务进度保存为可恢复的运行事实。你可以从桌面应用、终端 TUI、非交互 CLI 或 Headless runner 使用同一套 Runtime。
-
-![Maka desktop artifact workflow](./apps/desktop/tests/screenshots-baseline/artifact-pane/dark-1280-motion.png)
 
 > [!IMPORTANT]
 > Maka 仍在活跃开发中，当前主要面向从源码运行和参与开发的用户。数据格式、CLI 和实验能力仍可能变化。
