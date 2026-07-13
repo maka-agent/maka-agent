@@ -187,8 +187,8 @@ describe('icon + typography governance contract', () => {
     );
     assert.match(
       marks,
-      /Real xAI\/Grok mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*32f4083f7a20b67ecdc7b29c0af031ada5a29c52[\s\S]*packages\/static-svg\/icons\/xai\.svg[\s\S]*license: MIT[\s\S]*function XAI\(\)[\s\S]*<img src=\{xaiMarkUrl\}/,
-      'xAI must render the traceable upstream SVG asset instead of a generic or hand-drawn mark',
+      /Real xAI\/Grok mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*32f4083f7a20b67ecdc7b29c0af031ada5a29c52[\s\S]*packages\/static-svg\/icons\/xai\.svg[\s\S]*license: MIT[\s\S]*function XAI\(\)[\s\S]*url\("\$\{xaiMarkUrl\}"\)[\s\S]*className="xaiProviderMark"[\s\S]*maskImage: mask/,
+      'xAI must render the traceable upstream SVG asset as a currentColor mask instead of a generic or hand-drawn mark',
     );
     assert.match(marks, /case 'xai':\s*return <XAI \/>/, 'the stable xai provider id must resolve to the upstream mark');
     assert.match(catalog, /<ProviderLogo type=\{props\.type\} \/>/, 'catalog cards must consume the shared provider logo seam');

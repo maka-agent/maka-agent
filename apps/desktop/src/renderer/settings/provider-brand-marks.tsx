@@ -25,7 +25,8 @@ import xaiMarkUrl from '../assets/provider-brands/xai.svg';
 // - path: packages/static-svg/icons/xai.svg
 // - license: MIT (repository LICENSE)
 function XAI(): ReactElement {
-  return <img src={xaiMarkUrl} alt="" />;
+  const mask = `url("${xaiMarkUrl}")`;
+  return <span className="xaiProviderMark" style={{ maskImage: mask, WebkitMaskImage: mask }} aria-hidden="true" />;
 }
 
 function Claude(): ReactElement {
