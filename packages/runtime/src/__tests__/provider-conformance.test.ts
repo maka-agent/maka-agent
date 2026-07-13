@@ -1194,11 +1194,14 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.text, 'Echoed hello.');
   });
 
-  test('StepFun China preserves its exact model id through discovery and the documented two-stage tool-call loop', async () => {
+  for (const stepfun of [
+    { label: 'StepFun China', providerType: 'stepfun', apiKey: 'stepfun-test-key' },
+    { label: 'StepFun Global', providerType: 'stepfun-ai', apiKey: 'stepfun-global-test-key' },
+  ] as const) test(`${stepfun.label} preserves its exact model id through discovery and the documented two-stage tool-call loop`, async () => {
     const modelId = 'step-3.7-flash';
     const requestBodies: Array<Record<string, unknown>> = [];
     const server = await startJsonServer(async (request, response) => {
-      assert.equal(request.headers.authorization, 'Bearer stepfun-test-key');
+      assert.equal(request.headers.authorization, `Bearer ${stepfun.apiKey}`);
       if (request.method === 'GET' && request.url === '/v1/models') {
         respondJson(response, 200, { object: 'list', data: [{ id: modelId }] });
         return;
@@ -1247,9 +1250,9 @@ describe('models.dev provider conformance', () => {
       });
     });
     const connection: LlmConnection = {
-      slug: 'stepfun',
-      name: 'StepFun (China)',
-      providerType: 'stepfun',
+      slug: stepfun.providerType,
+      name: stepfun.label,
+      providerType: stepfun.providerType,
       baseUrl: `${server.url}/v1`,
       defaultModel: modelId,
       enabled: true,
@@ -1257,11 +1260,11 @@ describe('models.dev provider conformance', () => {
       updatedAt: 1,
     };
 
-    const models = await fetchProviderModels(connection, 'stepfun-test-key');
+    const models = await fetchProviderModels(connection, stepfun.apiKey);
     assert.deepEqual(models, [{ id: modelId }]);
 
     const result = await generateText({
-      model: getAIModel({ connection, apiKey: 'stepfun-test-key', modelId: models[0]!.id }),
+      model: getAIModel({ connection, apiKey: stepfun.apiKey, modelId: models[0]!.id }),
       prompt: 'Call echo with hello.',
       stopWhen: stepCountIs(2),
       tools: {
