@@ -212,7 +212,12 @@ function handle(msg) {
             : WINDOW_STATE_CALLS === 2 && REFETCH_MODE === 'ambiguous'
               ? [
                   { ...baseElement, element_index: 9, element_token: 'snapshot:9' },
-                  { ...baseElement, element_index: 10, element_token: 'snapshot:10' },
+                  {
+                    ...baseElement,
+                    element_index: 10,
+                    element_token: 'snapshot:10',
+                    frame: { ...snapshotFrame, x: snapshotFrame.x + 40 },
+                  },
                 ]
               : [baseElement];
         setTimeout(() => reply(id, {
@@ -682,7 +687,7 @@ describe('cua-driver backend', () => {
     }
   });
 
-  it('rejects a replacement element when the stable token changes', async () => {
+  it('refetches a unique labeled element when the ephemeral token changes', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
       axLabel: 'Continue',
@@ -701,9 +706,10 @@ describe('cua-driver backend', () => {
       elementIdentity: observation.elements[0]!.identity,
     }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
 
-    assert.equal(result.outcome.ok, false);
-    if (!result.outcome.ok) assert.equal(result.outcome.error, 'stale_frame');
-    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+    assert.equal(result.outcome.ok, true);
+    const click = toolCall(await readRecords(logPath), 'click');
+    assert.equal(click?.element_index, 9);
+    assert.equal(click?.element_token, 'snapshot:9');
   });
 
   it('refetches a tokenless element by one unique role and label match', async () => {

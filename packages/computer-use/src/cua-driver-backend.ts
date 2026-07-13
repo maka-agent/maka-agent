@@ -877,11 +877,30 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   ): boolean {
     if (!identity) return false;
     if (element.role !== identity.role) return false;
-    if (identity.token !== undefined) {
-      return element.element_token === identity.token;
-    }
+    if (
+      identity.token !== undefined
+      && element.element_token === identity.token
+    ) return true;
     const label = identity.label?.trim();
     return !!label && element.label === identity.label;
+  }
+
+  function dedupeSemanticElements(
+    elements: NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>[],
+  ): NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>[] {
+    const seen = new Set<string>();
+    return elements.filter((element) => {
+      const key = JSON.stringify({
+        role: element.role,
+        label: element.label,
+        value: element.value,
+        frame: element.frame,
+        depth: element.depth,
+      });
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 
   async function validateSemanticElementVisibility(
@@ -1264,11 +1283,13 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     }, signal);
     const outcome = normalizeCuaDriverOutcome(state);
     if (!outcome.ok) return { outcome };
-    const fresh = ((state?.structuredContent?.elements ?? []) as CuaSnapshotElement[])
+    const fresh = dedupeSemanticElements(
+      ((state?.structuredContent?.elements ?? []) as CuaSnapshotElement[])
       .flatMap((candidate) => {
         const element = normalizeCuaSnapshotElement(candidate);
         return element ? [element] : [];
-      });
+      }),
+    );
     const original = observation.elements.get(action.elementId);
     const identity = action.elementIdentity ?? (
       original
@@ -1289,12 +1310,6 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         },
       };
     }
-    const sameIndex = fresh.find(
-      (candidate) =>
-        String(candidate.element_index) === action.elementId
-        && elementMatchesIdentity(candidate, identity),
-    );
-    if (sameIndex) return sameIndex;
     const matches = fresh.filter((candidate) => elementMatchesIdentity(candidate, identity));
     if (matches.length === 1) return matches[0]!;
     return {
