@@ -18,6 +18,7 @@ import type { ReactElement } from 'react';
 import cerebrasMarkUrl from '../assets/provider-brands/cerebras.svg';
 import fireworksMarkUrl from '../assets/provider-brands/fireworks.svg';
 import hunyuanBrandMark from '../assets/provider-brands/hunyuan.svg';
+import tencentCloudBrandMark from '../assets/provider-brands/tencentcloud.svg';
 import lmStudioBrandMark from '../assets/provider-brands/lmstudio.svg';
 import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg';
 import mistralBrandMark from '../assets/provider-brands/mistral.svg';
@@ -74,6 +75,14 @@ function XAI(): ReactElement {
 // - path: packages/static-svg/icons/hunyuan.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: 7306a65eb71c4de61e21a637e5c4fef94afde823678e225c46f891cc783f6531
+
+// Tencent Cloud mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/tencentcloud.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 0563b1dbaa01aff4f20352bc9eb49bec17debeb3901a9ee80b044ac4d792c97d
 
 // StepFun mark vendored byte-for-byte from Lobe Icons:
 // - repository: https://github.com/lobehub/lobe-icons
@@ -264,6 +273,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <ProviderAssetMask src={mistralBrandMark} />;
     case 'tencent-tokenhub':
       return <ProviderAssetMask src={hunyuanBrandMark} />;
+    case 'tencent-coding-plan':
+      return <ProviderAssetMask src={tencentCloudBrandMark} />;
     case 'stepfun':
       return <ProviderAssetMask src={stepfunBrandMark} />;
     default:

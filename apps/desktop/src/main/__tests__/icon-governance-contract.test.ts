@@ -44,6 +44,7 @@ const FIREWORKS_BRAND_MARK_FILE = resolve(
 );
 const NVIDIA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/nvidia.svg');
 const TENCENT_HUNYUAN_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/hunyuan.svg');
+const TENCENT_CLOUD_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/tencentcloud.svg');
 const STEPFUN_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/stepfun.svg');
 const DESKTOP_PACKAGE_FILE = resolve(REPO_ROOT, 'apps/desktop/package.json');
 const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/public/THIRD_PARTY_LICENSES.txt');
@@ -427,6 +428,34 @@ describe('icon + typography governance contract', () => {
       /StepFun mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/stepfun\.svg[\s\S]*MIT[\s\S]*f46fbd1eee00a3dc7874395484bcc3e25a803e9eb4b79f07b7eec377a1e2f25c/,
     );
     assert.match(componentSrc, /case 'stepfun':\s*return <ProviderAssetMask src=\{stepfunBrandMark\} \/>/);
+  });
+
+  it('vendors and routes the byte-exact Tencent Cloud mark for Tencent Coding Plan', async () => {
+    const [tencentCloudMark, componentSrc, notices] = await Promise.all([
+      readFile(TENCENT_CLOUD_BRAND_MARK_FILE),
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(tencentCloudMark).digest('hex'),
+      '0563b1dbaa01aff4f20352bc9eb49bec17debeb3901a9ee80b044ac4d792c97d',
+      'the vendored Tencent Cloud mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 tencentcloud.svg',
+    );
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/tencentcloud\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/tencentcloud\.svg[\s\S]*0563b1dbaa01aff4f20352bc9eb49bec17debeb3901a9ee80b044ac4d792c97d/,
+      'Tencent Coding Plan must append byte-exact Tencent Cloud provenance to the existing Lobe Icons notice entry',
+    );
+    assert.match(componentSrc, /import tencentCloudBrandMark from '\.\.\/assets\/provider-brands\/tencentcloud\.svg';/);
+    assert.match(
+      componentSrc,
+      /Tencent Cloud mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/tencentcloud\.svg[\s\S]*MIT[\s\S]*0563b1dbaa01aff4f20352bc9eb49bec17debeb3901a9ee80b044ac4d792c97d/,
+    );
+    assert.match(
+      componentSrc,
+      /case 'tencent-coding-plan':\s*return <ProviderAssetMask src=\{tencentCloudBrandMark\} \/>/,
+    );
   });
 
   it('ships the Lobe Icons MIT notice beside vendored provider assets', async () => {
