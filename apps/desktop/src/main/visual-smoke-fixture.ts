@@ -1344,7 +1344,7 @@ function permissionMessages(now: number): StoredMessage[] {
       id: 'permission-user',
       turnId: 'turn-permission',
       ts: now - 4 * 60_000,
-      text: '模拟一个需要 destructive 权限确认的操作，但不要真的执行。',
+      text: '模拟一个需要不可恢复操作权限确认的场景，但不要真的执行。',
     },
     {
       type: 'tool_call',
@@ -1353,8 +1353,8 @@ function permissionMessages(now: number): StoredMessage[] {
       ts: now - 4 * 60_000 + 1_000,
       toolName: 'Bash',
       displayName: '模拟删除命令',
-      intent: '触发 PermissionDialog destructive UI',
-      args: { cmd: 'rm -rf ./dist', cwd: '/workspace/maka' },
+      intent: '清理构建产物目录',
+      args: { command: 'rm -rf ./dist', cwd: '/workspace/maka' },
     },
   ];
 }
@@ -2416,7 +2416,7 @@ function permissionRequest(now: number): PermissionRequestEvent {
     toolName: 'Bash',
     category: 'fs_destructive',
     reason: 'fs_destructive',
-    args: { cmd: 'rm -rf ./dist', cwd: '/workspace/maka' },
-    hint: '模拟/拦截 permission request：不要实际执行 rm。',
+    args: { command: 'rm -rf ./dist', cwd: '/workspace/maka' },
+    hint: '这会删除构建产物目录；允许前请确认当前工作区。',
   };
 }

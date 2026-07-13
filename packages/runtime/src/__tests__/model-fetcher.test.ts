@@ -11,6 +11,36 @@ after(async () => {
 });
 
 describe('fetchProviderModels', () => {
+  test('LM Studio discovers exact local model ids without authentication', async () => {
+    const server = await startJsonServer((request, response) => {
+      assert.equal(request.method, 'GET');
+      assert.equal(request.url, '/v1/models');
+      assert.equal(request.headers.authorization, undefined);
+      respondJson(response, 200, {
+        data: [
+          { id: 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF' },
+          { id: 'mlx-community/Qwen3-4B-Instruct-4bit' },
+        ],
+      });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'lm-studio',
+      name: 'LM Studio',
+      providerType: 'lm-studio',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: '',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, '');
+
+    assert.deepEqual(models, [
+      { id: 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF' },
+      { id: 'mlx-community/Qwen3-4B-Instruct-4bit' },
+    ]);
+  });
+
   test('Z.ai fetches live /models results, including IDs outside fallback defaults', async () => {
     let observedAuth = '';
     let observedContentType = '';

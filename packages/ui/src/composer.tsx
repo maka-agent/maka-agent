@@ -532,7 +532,6 @@ export const Composer = forwardRef<
     };
   }, [dragActive]);
 
-  if (props.hidden) return null;
   const importActionBusy = pendingImportAction !== null;
   const sendDisabled = props.disabled || sendPending || importActionBusy || !hasDraftText;
   const modelChipLabel = props.modelLabel?.trim() || '选择模型';
@@ -548,6 +547,7 @@ export const Composer = forwardRef<
     <form
       ref={formRef}
       className="maka-composer composer"
+      hidden={props.hidden}
       data-drag-active={dragActive ? 'true' : undefined}
       data-maka-file-drop-target={canAcceptDroppedFiles() ? 'true' : undefined}
       onDragOver={onComposerDragOver}

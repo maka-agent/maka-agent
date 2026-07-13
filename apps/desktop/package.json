@@ -16,7 +16,7 @@
     "clean:main": "node ../../scripts/clean-paths.mjs dist/main tsconfig.main.tsbuildinfo",
     "build:main": "tsc -p tsconfig.main.json",
     "build:preload": "esbuild src/preload/preload.ts --bundle --platform=node --format=cjs --outfile=dist/preload/preload.cjs --external:electron",
-    "build:renderer": "vite build",
+    "build:renderer": "vite build && node ../../scripts/check-third-party-notices.mjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.storybook.json --noEmit",
     "typecheck:stories": "tsc -p tsconfig.storybook.json --noEmit",
     "pretest": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && npm run test:checks",

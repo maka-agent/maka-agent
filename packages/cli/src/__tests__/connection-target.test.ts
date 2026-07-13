@@ -4,6 +4,34 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 import { listReadyModelChoices, resolveDefaultSessionTarget } from '../connection-target.js';
 
 describe('default session target resolver', () => {
+  test('resolves LM Studio without reading a credential or rewriting the selected model id', async () => {
+    const connection = makeConnection({
+      slug: 'lm-studio',
+      name: 'LM Studio',
+      providerType: 'lm-studio',
+      defaultModel: 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF',
+    });
+    let credentialReads = 0;
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'lm-studio',
+        get: async (slug) => slug === 'lm-studio' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async () => {
+          credentialReads += 1;
+          return null;
+        },
+      },
+    });
+
+    assert.equal(credentialReads, 0);
+    assert.equal(target.connection.providerType, 'lm-studio');
+    assert.equal(target.apiKey, '');
+    assert.equal(target.model, 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF');
+  });
+
   test('resolves MiniMax Coding Plan credentials without rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'minimax-plan',
@@ -25,6 +53,29 @@ describe('default session target resolver', () => {
     assert.equal(target.connection.providerType, 'minimax-coding-plan');
     assert.equal(target.apiKey, 'minimax-plan-test-key');
     assert.equal(target.model, 'MiniMax-M2.7-highspeed');
+  });
+
+  test('resolves an xAI API-key connection without rewriting its exact model id', async () => {
+    const connection = makeConnection({
+      slug: 'xai',
+      name: 'xAI',
+      providerType: 'xai',
+      defaultModel: 'grok-4.5',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'xai',
+        get: async (slug) => slug === 'xai' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'xai-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'xai');
+    assert.equal(target.apiKey, 'xai-test-key');
+    assert.equal(target.model, 'grok-4.5');
   });
 
   test('resolves a SiliconFlow registry connection without rewriting its model id', async () => {

@@ -38,7 +38,9 @@ describe('provider compatibility contract', () => {
       'MiniMax',
       'MiniMax-cn',
       'siliconflow',
+      'xai',
       'ollama',
+      'lm-studio',
       'openai-compatible',
       'claude-subscription',
       'codex-subscription',
@@ -54,7 +56,9 @@ describe('provider compatibility contract', () => {
       'MiniMax',
       'MiniMax-cn',
       'siliconflow',
+      'xai',
       'ollama',
+      'lm-studio',
       'kimi-coding-plan',
       'openai-compatible',
       'minimax-coding-plan',
@@ -71,9 +75,18 @@ describe('provider compatibility contract', () => {
       'anthropic',
       'openai',
       'google',
+      'xai',
       'ollama',
+      'lm-studio',
       'openai-compatible',
     ]);
+
+    for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
+      const orders = Object.values(PROVIDER_REGISTRY)
+        .map((provider) => provider[orderField])
+        .filter((order): order is number => order !== undefined);
+      assert.equal(new Set(orders).size, orders.length, `${orderField} values must be unique`);
+    }
   });
 
   it('derives catalog, recommendation, runtime, and discovery behavior from one registry', () => {
@@ -90,11 +103,40 @@ describe('provider compatibility contract', () => {
     assert.equal(PROVIDER_REGISTRY['kimi-coding-plan'].catalogGroup, 'plans');
     assert.equal(PROVIDER_REGISTRY.siliconflow.catalogGroup, 'aggregators');
     assert.equal(PROVIDER_REGISTRY.ollama.catalogGroup, 'local');
+    assert.equal(PROVIDER_REGISTRY['lm-studio'].catalogGroup, 'local');
     assert.equal(PROVIDER_REGISTRY.siliconflow.runtimeAdapter.kind, 'openai-compatible');
     assert.equal(PROVIDER_REGISTRY.siliconflow.modelDiscovery.kind, 'protocol');
     assert.deepEqual(PROVIDER_REGISTRY.siliconflow.modelDiscovery.query, { sub_type: 'chat' });
     assert.equal(PROVIDER_REGISTRY.ollama.modelDiscovery.kind, 'ollama');
     assert.equal(PROVIDER_REGISTRY['codex-subscription'].modelDiscovery.kind, 'fallback');
+  });
+
+  it('owns the complete xAI provider contract under the stable xai id', () => {
+    assert.deepEqual(PROVIDER_REGISTRY.xai, {
+      label: 'xAI',
+      description: 'Grok models for chat, reasoning, vision, and tool use.',
+      baseUrl: 'https://api.x.ai/v1',
+      authKind: 'api_key',
+      backendKind: 'ai-sdk',
+      fallbackModels: [
+        'grok-4.5',
+        'grok-4.20-0309-non-reasoning',
+        'grok-4.20-0309-reasoning',
+        'grok-4.3',
+        'grok-build-0.1',
+      ],
+      status: 'ready',
+      protocol: 'openai',
+      runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+      modelDiscovery: { kind: 'protocol' },
+      category: 'overseas',
+      catalogGroup: 'api',
+      catalogBadge: 'API',
+      signupUrl: 'https://console.x.ai/',
+      modelsDevId: 'xai',
+      readyOrder: 10,
+      catalogOrder: 12,
+    });
   });
 });
 
@@ -264,6 +306,25 @@ describe('validateConnectionBaseUrl (PR-UI-IPC-1, @kenji msg 35260e29)', () => {
 });
 
 describe('provider URL defaults', () => {
+  it('defines LM Studio as an independent no-auth local provider', () => {
+    const providers = PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]>>;
+    const lmStudio = providers['lm-studio'];
+
+    assert.ok(lmStudio, 'LM Studio must have its own persisted provider id');
+    assert.equal(lmStudio.label, 'LM Studio');
+    assert.equal(lmStudio.baseUrl, 'http://localhost:1234/v1');
+    assert.equal(lmStudio.authKind, 'none');
+    assert.equal(lmStudio.protocol, 'openai');
+    assert.deepEqual(lmStudio.runtimeAdapter, {
+      kind: 'openai-compatible',
+      name: 'provider',
+    });
+    assert.deepEqual(lmStudio.modelDiscovery, { kind: 'protocol' });
+    assert.deepEqual(lmStudio.fallbackModels, []);
+    assert.equal(lmStudio.category, 'local');
+    assert.equal(lmStudio.catalogGroup, 'local');
+  });
+
   it('exposes SiliconFlow with models.dev provider facts and exact model ids', () => {
     const siliconflow = (PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]>>).siliconflow;
 

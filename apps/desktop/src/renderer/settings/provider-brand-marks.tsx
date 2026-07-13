@@ -15,7 +15,31 @@
 
 import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
+import lmStudioBrandMark from '../assets/provider-brands/lmstudio.svg';
 import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg';
+import xaiMarkUrl from '../assets/provider-brands/xai.svg';
+
+// Real xAI/Grok mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: 32f4083f7a20b67ecdc7b29c0af031ada5a29c52
+// - path: packages/static-svg/icons/xai.svg
+// - license: MIT (repository LICENSE)
+function XAI(): ReactElement {
+  return <ProviderAssetMask src={xaiMarkUrl} />;
+}
+
+// Vendored from lobehub/lobe-icons (MIT):
+// https://github.com/lobehub/lobe-icons
+// npm package: @lobehub/icons-static-svg@1.91.0
+// Git commit: e4302041fbb3039608d25f9f618bd462783b875e
+// Source path: packages/static-svg/icons/lmstudio.svg
+// Upstream SHA-256: 4a575e8382b52ce742ac5d21d361a7d2a08cea7c12390ee1bbb755ef7d3cc25b
+
+function ProviderAssetMask({ src }: { src: string }): ReactElement {
+  const mask = `url("${src}")`;
+  return <span className="providerAssetMask" style={{ maskImage: mask, WebkitMaskImage: mask }} aria-hidden="true" />;
+}
 
 function Claude(): ReactElement {
   return (
@@ -135,6 +159,9 @@ function GenericProviderMark(): ReactElement {
   );
 }
 
+// Vendored unchanged from @lobehub/icons-static-svg@1.91.0:
+// https://github.com/lobehub/lobe-icons/blob/32f4083f7a20b67ecdc7b29c0af031ada5a29c52/packages/static-svg/icons/ollama.svg
+// Lobe Icons is MIT licensed; this path is consumed verbatim, not redrawn here.
 function Ollama(): ReactElement {
   return (
     <svg viewBox="0 0 24 24" role="img" fill="currentColor" fillRule="evenodd" xmlns="http://www.w3.org/2000/svg">
@@ -149,6 +176,8 @@ function Ollama(): ReactElement {
  */
 export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElement {
   switch (type) {
+    case 'xai':
+      return <XAI />;
     case 'siliconflow':
       return <SiliconCloud />;
     case 'anthropic':
@@ -174,6 +203,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <MiniMaxMark />;
     case 'ollama':
       return <Ollama />;
+    case 'lm-studio':
+      return <ProviderAssetMask src={lmStudioBrandMark} />;
     default:
       return <GenericProviderMark />;
   }

@@ -192,10 +192,10 @@ describe('permission response IPC boundary', () => {
     );
   });
 
-  it('renderer clears permission overlay when a session completes (PR-PERMISSION-UI-CLEANUP-0)', async () => {
+  it('renderer clears the permission prompt when a session completes (PR-PERMISSION-UI-CLEANUP-0)', async () => {
     // Without this, a session that finishes for a reason other than
     // permission_handoff would leave a stranded permission entry in
-    // `permissionBySession[sessionId]`, keeping the overlay visible
+    // `permissionBySession[sessionId]`, keeping the prompt visible
     // and blocking the session UI until the user manually navigates
     // away. Mirrors the existing `abort` cleanup.
     const renderer = await readRendererShellSource('app-shell-session-events.ts');
@@ -211,15 +211,15 @@ describe('permission response IPC boundary', () => {
     );
   });
 
-  it('PermissionDialog submit() awaits onRespond and resets pending in finally (PR-PERMISSION-UI-CLEANUP-0)', async () => {
+  it('PermissionPrompt submit() awaits onRespond and resets pending in finally (PR-PERMISSION-UI-CLEANUP-0)', async () => {
     // Critical interaction with PR-STOP-ERROR-SURFACE-0: the parent
     // respondToPermission now swallows IPC errors via toast. If
     // submit() doesn't reset pending on resolve OR catch, the
-    // dialog buttons lock up forever after a failed IPC.
+    // prompt buttons lock up forever after a failed IPC.
     const componentsPath = fileURLToPath(new URL('../../../../../packages/ui/src/permission-dialog.tsx', import.meta.url));
     const components = await readFile(componentsPath, 'utf8');
     const submit = components.match(/async function submit\(decision:[\s\S]*?\n  \}/);
-    assert.ok(submit, 'PermissionDialog submit() must be async');
+    assert.ok(submit, 'PermissionPrompt submit() must be async');
     assert.match(components, /const permissionMountedRef = useMountedRef\(\);/);
     assert.match(components, /const activePermissionRequestIdRef = useRef\(props\.request\.requestId\);/);
     assert.match(components, /activePermissionRequestIdRef\.current = props\.request\.requestId;/);

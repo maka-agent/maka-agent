@@ -220,13 +220,22 @@
   border-radius: var(--radius-surface); /* 28.1% — matches md ratio */
 }
 
-/* Color marks keep their own fill; monochrome marks declare
-   `fill="currentColor"` and inherit the plate color (= foreground). */
+/* Color marks keep their own fill. Inline monochrome SVGs inherit the plate
+   color; external monochrome assets use a mask because `<img>` documents do
+   not inherit `currentColor`. */
 .providerLogo svg,
-.providerLogo img {
+.providerLogo img,
+.providerLogo .providerAssetMask {
   width: 64%;
   height: 64%;
   display: block;
+}
+
+.providerAssetMask {
+  background: currentColor;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
 }
 
 
