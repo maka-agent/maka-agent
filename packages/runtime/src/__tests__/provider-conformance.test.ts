@@ -18,11 +18,12 @@ describe('models.dev provider conformance', () => {
     const modelId = 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF';
     const requestBodies: Array<Record<string, unknown>> = [];
     const server = await startJsonServer(async (request, response) => {
-    assert.equal(request.headers.authorization, undefined);
-    if (request.method === 'GET' && request.url === '/v1/models') {
-      respondJson(response, 200, { data: [{ id: modelId }] });
-      return;
-    }
+      assert.equal(request.headers.authorization, undefined);
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        respondJson(response, 200, { data: [{ id: modelId }] });
+        return;
+      }
+
       assert.equal(request.method, 'POST');
       assert.equal(request.url, '/v1/chat/completions');
       const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
