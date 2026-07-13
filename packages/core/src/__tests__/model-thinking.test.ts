@@ -58,6 +58,16 @@ describe('deriveThinkingChoices', () => {
 });
 
 describe('thinkingOptionsForModel', () => {
+  test('StepFun Step Plan declares official effort levels per exact model id', () => {
+    assert.deepEqual(thinkingOptionsForModel('stepfun-step-plan', 'step-3.7-flash'), {
+      efforts: ['low', 'medium', 'high'],
+    });
+    assert.deepEqual(thinkingOptionsForModel('stepfun-step-plan', 'step-3.5-flash-2603'), {
+      efforts: ['low', 'high'],
+    });
+    assert.equal(thinkingOptionsForModel('stepfun-step-plan', 'step-router-v1'), undefined);
+  });
+
   test('openai gpt-5.5 exposes none/low/medium/high/xhigh; gpt-5 exposes minimal/low/medium/high', () => {
     assert.deepEqual(thinkingOptionsForModel('openai', 'gpt-5.5'), { efforts: ['none', 'low', 'medium', 'high', 'xhigh'] });
     assert.deepEqual(thinkingOptionsForModel('openai', 'gpt-5'), { efforts: ['minimal', 'low', 'medium', 'high'] });

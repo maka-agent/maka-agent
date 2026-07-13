@@ -71,6 +71,19 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-chat', 'high'), {});
   });
 
+  test('StepFun Step Plan sends only officially supported reasoning effort levels', () => {
+    assert.deepEqual(
+      buildProviderOptions(conn('stepfun-step-plan'), 'step-3.7-flash', 'medium'),
+      { 'stepfun-step-plan': { reasoningEffort: 'medium' } },
+    );
+    assert.deepEqual(
+      buildProviderOptions(conn('stepfun-step-plan'), 'step-3.5-flash-2603', 'high'),
+      { 'stepfun-step-plan': { reasoningEffort: 'high' } },
+    );
+    assert.deepEqual(buildProviderOptions(conn('stepfun-step-plan'), 'step-3.5-flash-2603', 'medium'), {});
+    assert.deepEqual(buildProviderOptions(conn('stepfun-step-plan'), 'step-router-v1', 'high'), {});
+  });
+
   test('Volcengine Ark sends its official thinking object and optional reasoning effort', () => {
     const modelId = 'doubao-seed-2-0-pro-260215';
     assert.deepEqual([...thinkingVariantsForModel('volcengine-ark', modelId)], ['off', 'minimal', 'low', 'medium', 'high']);

@@ -126,8 +126,14 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
   anthropic: ANTHROPIC_MODEL_OVERRIDES,
   'minimax-coding-plan': GENERATED_MODELS_DEV_METADATA.MiniMax,
   'stepfun-step-plan': {
-    'step-3.7-flash': GENERATED_MODELS_DEV_METADATA.stepfun['step-3.7-flash']!,
-    'step-3.5-flash-2603': GENERATED_MODELS_DEV_METADATA.stepfun['step-3.5-flash-2603']!,
+    'step-3.7-flash': {
+      ...GENERATED_MODELS_DEV_METADATA.stepfun['step-3.7-flash']!,
+      thinkingOptions: { efforts: ['low', 'medium', 'high'] },
+    },
+    'step-3.5-flash-2603': {
+      ...GENERATED_MODELS_DEV_METADATA.stepfun['step-3.5-flash-2603']!,
+      thinkingOptions: { efforts: ['low', 'high'] },
+    },
     'step-3.5-flash': GENERATED_MODELS_DEV_METADATA.stepfun['step-3.5-flash']!,
     'step-router-v1': {
       displayName: 'Step Router V1',

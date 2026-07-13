@@ -150,6 +150,7 @@ export function buildProviderOptions(
     case 'moonshot':
     case 'tencent-token-plan':
     case 'zai-coding-plan':
+    case 'stepfun-step-plan':
       return level && level !== 'off'
         ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level } }
         : {};
