@@ -47,6 +47,7 @@ describe('provider compatibility contract', () => {
       'nvidia',
       'tencent-tokenhub',
       'stepfun',
+      'stepfun-ai',
       'ollama',
       'lm-studio',
       'openai-compatible',
@@ -78,6 +79,7 @@ describe('provider compatibility contract', () => {
       'tencent-tokenhub',
       'stepfun',
       'tencent-coding-plan',
+      'stepfun-ai',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -103,6 +105,7 @@ describe('provider compatibility contract', () => {
       'tencent-tokenhub',
       'stepfun',
       'tencent-coding-plan',
+      'stepfun-ai',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -340,6 +343,29 @@ describe('provider compatibility contract', () => {
     assert.equal(stepfun.signupUrl, 'https://platform.stepfun.com/interface-key');
     assert.equal(stepfun.modelsDevId, 'stepfun');
     assert.deepEqual(stepfun.fallbackModels, [
+      'step-3.7-flash',
+      'step-3.5-flash-2603',
+      'step-3.5-flash',
+      'step-1-32k',
+      'step-2-16k',
+    ]);
+  });
+
+  it('owns StepFun Global direct API behavior under the stable stepfun-ai id', () => {
+    const stepfunGlobal = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['stepfun-ai'];
+
+    assert.ok(stepfunGlobal, 'StepFun Global direct API must be available through the shared provider registry');
+    assert.equal(stepfunGlobal.label, 'StepFun (Global)');
+    assert.equal(stepfunGlobal.baseUrl, 'https://api.stepfun.ai/v1');
+    assert.equal(stepfunGlobal.authKind, 'api_key');
+    assert.equal(stepfunGlobal.protocol, 'openai');
+    assert.deepEqual(stepfunGlobal.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(stepfunGlobal.modelDiscovery, { kind: 'protocol' });
+    assert.equal(stepfunGlobal.category, 'overseas');
+    assert.equal(stepfunGlobal.catalogGroup, 'api');
+    assert.equal(stepfunGlobal.signupUrl, 'https://platform.stepfun.ai/interface-key');
+    assert.equal(stepfunGlobal.modelsDevId, 'stepfun-ai');
+    assert.deepEqual(stepfunGlobal.fallbackModels, [
       'step-3.7-flash',
       'step-3.5-flash-2603',
       'step-3.5-flash',

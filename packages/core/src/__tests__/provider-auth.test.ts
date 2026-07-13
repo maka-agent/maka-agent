@@ -22,6 +22,19 @@ describe('ProviderAuth contract', () => {
     expect(contract.actionAvailability.fetch_models).toBe('hidden');
   });
 
+  test('StepFun Global uses an independent API-key credential and model-discovery flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'stepfun-ai',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('stepfun-ai');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
   test('StepFun China uses the shared API-key credential and model-discovery flow', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'stepfun',

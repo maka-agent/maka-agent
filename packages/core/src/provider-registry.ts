@@ -129,6 +129,16 @@ const stepfunModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA.stepfun,
   ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash'],
 );
+const stepfunGlobal = GENERATED_MODELS_DEV_PROVIDER_FACTS['stepfun-ai'];
+if (stepfunGlobal.id !== 'stepfun-ai') {
+  throw new Error('models.dev StepFun Global provider facts are missing stable id stepfun-ai');
+}
+if (!stepfunGlobal.api) throw new Error('models.dev StepFun Global provider facts are missing api');
+const stepfunGlobalModelIds = toolCallingModelIds(
+  'StepFun Global',
+  GENERATED_MODELS_DEV_METADATA['stepfun-ai'],
+  ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash'],
+);
 
 const together = GENERATED_MODELS_DEV_PROVIDER_FACTS.togetherai;
 if (together.id !== 'togetherai') {
@@ -546,6 +556,25 @@ const providerRegistry = {
     modelsDevId: stepfun.id,
     readyOrder: 22,
     catalogOrder: 22,
+  },
+  'stepfun-ai': {
+    label: stepfunGlobal.name,
+    description: 'StepFun Global models for multimodal reasoning and tool-use agents.',
+    baseUrl: stepfunGlobal.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: stepfunGlobalModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://platform.stepfun.ai/interface-key',
+    modelsDevId: stepfunGlobal.id,
+    readyOrder: 24,
+    catalogOrder: 24,
   },
   ollama: {
     label: 'Ollama',
