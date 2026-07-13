@@ -143,9 +143,12 @@ export function buildProviderOptions(
               : {}),
         },
       };
-    // OpenAI-compatible: effort levels pass through as reasoningEffort under
-    // the raw provider namespace. `off` has no ai-sdk openai-compatible wire
-    // (no thinking.disabled field), so it is a no-op override here.
+    // DeepInfra documents `none` as its real off wire. Other compatible
+    // providers below expose only their confirmed non-off effort values.
+    case 'deepinfra':
+      return level
+        ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level === 'off' ? 'none' : level } }
+        : {};
     case 'deepseek':
     case 'moonshot':
     case 'tencent-token-plan':

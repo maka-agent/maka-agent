@@ -720,7 +720,7 @@ const providerRegistry = {
     status: 'ready',
     protocol: 'openai',
     runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
-    modelDiscovery: { kind: 'protocol' },
+    modelDiscovery: { kind: 'protocol', filter: 'fallback-models' },
     category: 'overseas',
     catalogGroup: 'api',
     catalogBadge: 'API',

@@ -781,10 +781,11 @@ describe('models.dev provider conformance', () => {
     };
 
     const models = await fetchProviderModels(connection, 'deepinfra-test-key');
-    assert.deepEqual(models, [{ id: modelId }, { id: 'BAAI/bge-m3' }]);
+    assert.deepEqual(models, [{ id: modelId }]);
 
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'deepinfra-test-key', modelId: models[0]!.id }),
+      providerOptions: buildProviderOptions(connection, modelId, 'high'),
       prompt: 'Call echo with hello.',
       stopWhen: stepCountIs(2),
       tools: {
@@ -798,6 +799,7 @@ describe('models.dev provider conformance', () => {
 
     assert.equal(requestBodies.length, 2);
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(requestBodies.map((body) => body.reasoning_effort), ['high', 'high']);
     assert.deepEqual(
       (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
