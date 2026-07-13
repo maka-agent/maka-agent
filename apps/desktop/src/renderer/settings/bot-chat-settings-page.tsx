@@ -38,6 +38,7 @@ import {
 import { PasswordInput } from './password-input';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { BotWeChatFields, WeChatScanLoginModal, WechatQrLoginModal } from './bot-wechat-login';
+import { deriveBotChannelViewState } from './bot-settings-view-model';
 
 /**
  * Per-platform brand presentation.
@@ -414,7 +415,8 @@ export function BotChatSettingsPage(props: {
   }
 
   const support = BOT_LABELS[selected].support;
-  const readiness = effectiveBotReadiness(support, channel, selectedStatus);
+  const selectedViewState = deriveBotChannelViewState({ channel, status: selectedStatus });
+  const readiness = selectedViewState.readiness;
   const copy = botReadinessCopyForSupport(support, readiness);
   const enableSwitchDisabled = support === 'planned' || (!channel.enabled && !canEnableBotChannel(readiness));
   const enableSwitchHint = support === 'planned'
@@ -428,35 +430,21 @@ export function BotChatSettingsPage(props: {
     const providerChannel = props.settings.botChat.channels[provider];
     const providerStatus = statuses?.[provider];
     const providerSupport = BOT_LABELS[provider].support;
-    const providerReadiness = effectiveBotReadiness(providerSupport, providerChannel, providerStatus);
-    const providerCopy = botReadinessCopyForSupport(providerSupport, providerReadiness);
-    const configured = providerChannel.connected
-      || providerChannel.enabled
-      || providerStatus?.running === true
-      || Boolean(providerStatus?.identity)
-      || providerChannel.readiness === 'configured'
-      || providerChannel.readiness === 'credentials_valid'
-      || providerChannel.readiness === 'operational'
-      || providerChannel.readiness === 'degraded'
-      || providerReadiness === 'configured'
-      || providerReadiness === 'credentials_valid'
-      || providerReadiness === 'operational'
-      || providerReadiness === 'degraded';
-    const needsAttention = configured && (
-      providerReadiness === 'degraded'
-      || Boolean(providerChannel.lastError)
-      || (providerChannel.enabled && providerSupport === 'runtime' && providerStatus?.running === false)
-    );
+    const providerViewState = deriveBotChannelViewState({
+      channel: providerChannel,
+      status: providerStatus,
+    });
+    const providerCopy = botReadinessCopyForSupport(providerSupport, providerViewState.readiness);
     return {
       provider,
       index,
       channel: providerChannel,
       status: providerStatus,
       support: providerSupport,
-      readiness: providerReadiness,
       copy: providerCopy,
-      configured,
-      needsAttention,
+      configured: providerViewState.configured,
+      needsAttention: providerViewState.needsAttention,
+      currentError: providerViewState.currentError,
     };
   });
   const activeChannels = overviewChannels
@@ -521,7 +509,7 @@ export function BotChatSettingsPage(props: {
                     {BOT_LABELS[entry.provider].label}
                     <Chip dot size="sm" variant={entry.copy.tone}>{entry.copy.label}</Chip>
                   </ItemTitle>
-                  <ItemDescription>{botOverviewDetail(entry.channel, entry.status, entry.copy.detail)}</ItemDescription>
+                  <ItemDescription>{botOverviewDetail(entry.status, entry.currentError, entry.copy.detail)}</ItemDescription>
                 </ItemContent>
                 <ItemActions><ChevronRight size={16} aria-hidden="true" /></ItemActions>
               </Item>
@@ -676,10 +664,10 @@ export function BotChatSettingsPage(props: {
             <AlertDescription>{copy.detail}</AlertDescription>
           </Alert>
         )}
-        {channel.lastError && support !== 'planned' && (
+        {selectedViewState.currentError && support !== 'planned' && (
           <Alert variant="error">
             <AlertTitle>上次测试失败</AlertTitle>
-            <AlertDescription>{channel.lastError}</AlertDescription>
+            <AlertDescription>{selectedViewState.currentError}</AlertDescription>
           </Alert>
         )}
 
@@ -921,8 +909,8 @@ function BotAllowedUserIdsField(props: {
 }
 
 function botOverviewDetail(
-  channel: BotChannelSettings,
   status: BotStatus | undefined,
+  currentError: string | undefined,
   fallback: string,
 ): ReactNode {
   const identity = status?.identity?.username ?? status?.identity?.displayName;
@@ -934,19 +922,9 @@ function botOverviewDetail(
       </>
     );
   }
-  if (channel.lastError) return channel.lastError;
+  if (currentError) return currentError;
   if (status?.reason) return botStatusDetail(status);
   return fallback;
-}
-
-function effectiveBotReadiness(
-  support: 'runtime' | 'credentials' | 'planned',
-  channel: BotChannelSettings,
-  status: BotStatus | undefined,
-): BotReadinessState {
-  if (support === 'credentials') return channel.readiness;
-  if (channel.enabled || status?.running) return status?.readiness ?? channel.readiness;
-  return channel.readiness;
 }
 
 function botConnectionLabel(connection: BotStatus['connection']): string {
