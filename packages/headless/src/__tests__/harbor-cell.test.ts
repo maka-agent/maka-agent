@@ -698,7 +698,7 @@ describe('runHarborCell', () => {
         staleToolResultPrune: {
           enabled: true,
           maxResultEstimatedTokens: 256,
-          minRecentTurnsFull: 2,
+          minRecentTurnsFull: 0,
         },
         activeToolResultPrune: {
           enabled: true,
@@ -1408,7 +1408,7 @@ describe('runHarborCell', () => {
         input: ReturnType<typeof buildHarborCellContextBudgetBackendOptions>;
       }).input;
       assert.equal(backendInput.contextBudget?.staleToolResultPrune?.enabled, true);
-      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 2);
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 0);
       assert.equal(backendInput.contextBudget?.archiveRetrieval?.enabled, true);
       assert.equal(backendInput.contextBudget?.archiveRetrieval?.mode, undefined);
       assert.ok(backendInput.archiveToolResult, 'expected archive writer for the placeholder producer');
@@ -1657,21 +1657,18 @@ describe('runHarborCell', () => {
   test('Harbor active tool result prune can be disabled with explicit off', () => {
     const options = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' });
     assert.equal(options.contextBudget?.activeToolResultPrune, undefined);
-    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
+    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 0 });
   });
 
   test('Harbor stale tool result prune is enabled by default without any env', () => {
     const backend = buildHarborCellContextBudgetBackendOptions({});
-    // minRecentTurnsFull is set explicitly so the runtime protection window
-    // matches the policy snapshot and desktop default instead of the runtime's
-    // internal ?? 1 fallback.
-    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
+    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 0 });
 
     const snapshot = buildHarborCellContextBudgetPolicySnapshot({});
     assert.equal(snapshot?.enabled, true);
     assert.equal(snapshot?.staleToolResultPrune?.enabled, true);
     assert.equal(snapshot?.staleToolResultPrune?.maxResultEstimatedTokens, 2048);
-    assert.equal(snapshot?.staleToolResultPrune?.minRecentTurnsFull, 2);
+    assert.equal(snapshot?.staleToolResultPrune?.minRecentTurnsFull, 0);
   });
 
   test('Harbor stale tool result prune can be disabled with explicit off', () => {
@@ -1680,9 +1677,9 @@ describe('runHarborCell', () => {
     assert.deepEqual(options.contextBudget?.activeToolResultPrune, { enabled: true });
   });
 
-  test('Harbor stale tool result prune min recent turns falls back to MAKA_CONTEXT_MIN_RECENT_TURNS', () => {
+  test('Harbor stale tool result prune does not inherit the general recent-turn window', () => {
     const fallback = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_MIN_RECENT_TURNS: '3' });
-    assert.equal(fallback.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 3);
+    assert.equal(fallback.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 0);
 
     const explicit = buildHarborCellContextBudgetBackendOptions({
       MAKA_CONTEXT_MIN_RECENT_TURNS: '3',

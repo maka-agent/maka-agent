@@ -6,6 +6,18 @@ export type HarnessAbArmId = 'maka' | 'opencode';
 
 export const HARNESS_AB_PAIR_CONCURRENCY = 2;
 export const HARNESS_AB_MAX_CONCURRENT_ATTEMPTS = HARNESS_AB_PAIR_CONCURRENCY * 2;
+export const HARNESS_MAKA_CONTEXT_BUDGET = {
+  activeToolResultPrune: {
+    enabled: true,
+    maxCurrentResultEstimatedTokens: 2048,
+    minStepNumber: 1,
+  },
+  staleToolResultPrune: {
+    enabled: true,
+    maxResultEstimatedTokens: 2048,
+    minRecentTurnsFull: 0,
+  },
+} as const;
 
 // Authoritative snapshot: https://github.com/harbor-framework/terminal-bench-2-1
 export const TERMINAL_BENCH_2_1_REVISION = 'd49e28f1e4ddd13d289e85a5f312a66750951932';

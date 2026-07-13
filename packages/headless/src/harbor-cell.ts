@@ -809,9 +809,9 @@ export function buildHarborCellContextBudgetBackendOptions(
     contextBudget.staleToolResultPrune = {
       enabled: true,
       ...(maxResultEstimatedTokens !== undefined ? { maxResultEstimatedTokens } : {}),
-      // Explicit so the runtime protection window matches the policy snapshot
-      // and desktop default (2) instead of the runtime's internal ?? 1 fallback.
-      minRecentTurnsFull: minRecentTurnsFull ?? minRecentTurns ?? 2,
+      // Active prune owns the current turn; stale prune must take over on the
+      // next replay without restoring a full-result protection window.
+      minRecentTurnsFull: minRecentTurnsFull ?? 0,
     };
   }
 

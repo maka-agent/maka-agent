@@ -5,11 +5,27 @@ import {
   assertTerminalBench21TaskTreeFingerprint,
   buildHarnessAbRunManifest,
   deterministicHarnessTaskOrder,
+  HARNESS_MAKA_CONTEXT_BUDGET,
   TERMINAL_BENCH_2_1_TASK_IDS,
   TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT,
 } from '../harness-ab-manifest.js';
 
 describe('harness A/B manifest', () => {
+  test('freezes adjacent active and stale tool-result pruning for Maka', () => {
+    assert.deepEqual(HARNESS_MAKA_CONTEXT_BUDGET, {
+      activeToolResultPrune: {
+        enabled: true,
+        maxCurrentResultEstimatedTokens: 2048,
+        minStepNumber: 1,
+      },
+      staleToolResultPrune: {
+        enabled: true,
+        maxResultEstimatedTokens: 2048,
+        minRecentTurnsFull: 0,
+      },
+    });
+  });
+
   test('freezes one deterministic 30-task prefix inside the full task order', () => {
     const taskIds = Array.from({ length: 89 }, (_, index) => `task-${String(index + 1).padStart(2, '0')}`);
     const input = manifestInput(taskIds);

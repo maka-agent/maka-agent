@@ -15,6 +15,7 @@ import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
   buildHarnessAbRunManifest,
+  HARNESS_MAKA_CONTEXT_BUDGET,
   TERMINAL_BENCH_2_1_REVISION,
   TERMINAL_BENCH_2_1_TASK_IDS,
 } from '#harness-ab-manifest';
@@ -112,6 +113,7 @@ async function main() {
           reasoningEffort: REASONING_EFFORT,
           continuation: false,
           attemptPolicy: 'single',
+          contextBudget: HARNESS_MAKA_CONTEXT_BUDGET,
         },
       },
       {
@@ -172,6 +174,22 @@ async function main() {
     agentEnv: { ZAI_BASE_URL: BASE_URL },
     timeoutMultiplier: 1,
   };
+  const makaContextBudgetEnv = {
+    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
+    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: String(
+      HARNESS_MAKA_CONTEXT_BUDGET.activeToolResultPrune.maxCurrentResultEstimatedTokens,
+    ),
+    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: String(
+      HARNESS_MAKA_CONTEXT_BUDGET.activeToolResultPrune.minStepNumber,
+    ),
+    MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on',
+    MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: String(
+      HARNESS_MAKA_CONTEXT_BUDGET.staleToolResultPrune.maxResultEstimatedTokens,
+    ),
+    MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS_FULL: String(
+      HARNESS_MAKA_CONTEXT_BUDGET.staleToolResultPrune.minRecentTurnsFull,
+    ),
+  };
   const config = (id) => ({
     id: `harness-ab-${id}`,
     backend: 'ai-sdk',
@@ -191,7 +209,11 @@ async function main() {
         id: 'maka',
         config: config('maka'),
         expectedPricingProfile: PRICING.source,
-        harborRunner: createHarborTaskRunner({ ...runnerOptions, agent: 'maka' }),
+        harborRunner: createHarborTaskRunner({
+          ...runnerOptions,
+          agent: 'maka',
+          agentEnv: { ...runnerOptions.agentEnv, ...makaContextBudgetEnv },
+        }),
       },
       {
         id: 'opencode',
