@@ -5,7 +5,11 @@ import type {
   ThinkingDeltaEvent,
   CompleteEvent,
 } from '@maka/core/events';
-import { PROVIDER_DEFAULTS, type LlmConnection } from '@maka/core/llm-connections';
+import {
+  PROVIDER_DEFAULTS,
+  providerAuthRequiresSecret,
+  type LlmConnection,
+} from '@maka/core/llm-connections';
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import type { CacheMissInputSource } from '@maka/core/usage-stats/types';
 import type { ModelMessage } from 'ai';
@@ -133,7 +137,7 @@ export class ModelAdapter {
   }
 
   resolveModel(): unknown {
-    if (PROVIDER_DEFAULTS[this.input.connection.providerType].authKind !== 'none' && !this.input.apiKey) {
+    if (providerAuthRequiresSecret(this.input.connection.providerType) && !this.input.apiKey) {
       throw new Error(`No API key stored for connection "${this.input.connection.slug}"`);
     }
     return this.input.modelFactory({

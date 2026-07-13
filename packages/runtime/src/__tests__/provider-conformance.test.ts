@@ -14,6 +14,99 @@ after(async () => {
 });
 
 describe('models.dev provider conformance', () => {
+  test('LocalAI preserves a configured llama.cpp Qwen3 alias and reasoning through a two-stage tool-call loop', async () => {
+    const modelId = 'localai/Qwen3-8B-Instruct-GGUF:Q4_K_M';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, undefined);
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        respondJson(response, 200, { data: [{ id: modelId }] });
+        return;
+      }
+
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-localai-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'I should call echo and use its result.',
+              tool_calls: [{
+                id: 'call_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+
+      respondJson(response, 200, {
+        id: 'chatcmpl-localai-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echo returned hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 14, completion_tokens: 5, total_tokens: 19 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'localai',
+      name: 'LocalAI',
+      providerType: 'localai',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, '');
+    assert.deepEqual(models, [{ id: modelId }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: '', modelId: models[0]!.id }),
+      prompt: 'Call echo with hello, then report the result.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    const secondMessages = requestBodies[1]?.messages as Array<{
+      role: string;
+      content: unknown;
+      reasoning_content?: string;
+    }>;
+    const assistant = secondMessages.find((message) => message.role === 'assistant');
+    assert.equal(assistant?.reasoning_content, 'I should call echo and use its result.');
+    assert.equal(secondMessages.some((message) => message.role === 'tool'), true);
+    assert.equal(JSON.stringify(secondMessages).includes('hello'), true);
+    assert.equal(result.text, 'Echo returned hello.');
+  });
+
   test('LM Studio preserves an exact model id through discovery and a two-stage tool-call loop', async () => {
     const modelId = 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF';
     const requestBodies: Array<Record<string, unknown>> = [];

@@ -1,6 +1,7 @@
 import {
   PROVIDER_DEFAULTS,
   effectiveBaseUrl,
+  providerAuthSupportsApiKey,
   type LlmConnection,
   type ModelInfo,
 } from '@maka/core/llm-connections';
@@ -78,7 +79,9 @@ async function fetchProviderModelsStrict(
       const r = await proxiedFetch(modelListUrl(baseUrl, discovery.query), {
         headers: {
           'content-type': 'application/json',
-          ...(definition.authKind === 'none' ? {} : { authorization: `Bearer ${apiKey}` }),
+          ...(apiKey && providerAuthSupportsApiKey(connection.providerType)
+            ? { authorization: `Bearer ${apiKey}` }
+            : {}),
         },
         timeoutMs: MODEL_FETCH_TIMEOUT_MS,
       });

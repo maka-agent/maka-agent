@@ -11,6 +11,47 @@ after(async () => {
 });
 
 describe('fetchProviderModels', () => {
+  test('LocalAI discovers exact model aliases without sending empty authorization', async () => {
+    const modelId = 'localai/Qwen3-8B-Instruct-GGUF:Q4_K_M';
+    const server = await startJsonServer((request, response) => {
+      assert.equal(request.method, 'GET');
+      assert.equal(request.url, '/v1/models');
+      assert.equal(request.headers.authorization, undefined);
+      respondJson(response, 200, { data: [{ id: modelId }] });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'localai',
+      name: 'LocalAI',
+      providerType: 'localai',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, '');
+
+    assert.deepEqual(models, [{ id: modelId }]);
+  });
+
+  test('LocalAI sends a user-supplied API key as Bearer during discovery', async () => {
+    const server = await startJsonServer((request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer localai-user-key');
+      respondJson(response, 200, { data: [{ id: 'qwen3-8b' }] });
+    });
+
+    await fetchProviderModels({
+      slug: 'localai-keyed',
+      name: 'LocalAI protected',
+      providerType: 'localai',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: 'qwen3-8b',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'localai-user-key');
+  });
+
   test('LM Studio discovers exact local model ids without authentication', async () => {
     const server = await startJsonServer((request, response) => {
       assert.equal(request.method, 'GET');
