@@ -42,6 +42,8 @@ test('harness A/B CLI dry-run freezes all 89 tasks without reading credentials',
     assert.deepEqual(manifest.pilotTaskIds, manifest.evaluationTaskIds.slice(0, 40));
     assert.equal(manifest.metadata.benchmark.version, '2.1');
     assert.equal(manifest.metadata.benchmark.timeoutPolicy, 'task-native');
+    assert.equal(manifest.metadata.benchmark.outerTimeoutGraceSec, 900);
+    assert.equal(manifest.harborTimeoutMs, null);
     assert.equal(manifest.metadata.model.reasoningEffort, 'max');
     assert.equal(manifest.metadata.metric, 'pass@1');
     assert.equal(manifest.arms[1].metadata.version, '1.17.18');

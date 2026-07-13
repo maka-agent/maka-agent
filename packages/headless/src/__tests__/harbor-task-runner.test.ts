@@ -715,6 +715,30 @@ describe('createHarborTaskRunner timeout', () => {
     });
   });
 
+  test('derives the outer Harbor timeout from task-native agent and verifier limits', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      let seenTimeout: number | undefined;
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'zai-coding-plan/glm-5.2',
+        provider: 'zai-coding-plan',
+        runHarbor: async (request) => {
+          seenTimeout = request.timeoutMs;
+          return fakeRunner({ reward: '1\n' })(request);
+        },
+      });
+      await runner(runInput({
+        task: {
+          id: 'task-1',
+          path: '/tasks/task-1',
+          metadata: { agentTimeoutSec: 7_200, verifierTimeoutSec: 600 },
+        },
+      }));
+      assert.equal(seenTimeout, (7_200 + 600 + 15 * 60) * 1_000);
+    });
+  });
+
   test('puts the adapter dir on PYTHONPATH so harbor can import maka_agent', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       let seenEnv: Record<string, string> | undefined;

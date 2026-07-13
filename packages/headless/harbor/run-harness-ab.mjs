@@ -37,7 +37,7 @@ const PRICING = {
   output: 4.4,
   source: 'z.ai-public-2026-07-13',
 };
-const HARBOR_TIMEOUT_MS = 60 * 60 * 1000;
+const HARBOR_SETUP_TEARDOWN_GRACE_SEC = 15 * 60;
 
 function envPath(name, fallback) {
   const raw = process.env[name] || fallback;
@@ -85,6 +85,7 @@ async function main() {
       revision: taskSourceFingerprint,
       timeoutPolicy: 'task-native',
       timeoutMultiplier: 1,
+      outerTimeoutGraceSec: HARBOR_SETUP_TEARDOWN_GRACE_SEC,
     },
     taskIds: allTasks.map((task) => task.id),
     orderSeed: ORDER_SEED,
@@ -115,7 +116,7 @@ async function main() {
       },
     ],
     taskBudgetSec: null,
-    harborTimeoutMs: HARBOR_TIMEOUT_MS,
+    harborTimeoutMs: null,
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,
@@ -158,7 +159,6 @@ async function main() {
     pricing,
     agentEnv: { ZAI_BASE_URL: BASE_URL },
     timeoutMultiplier: 1,
-    harborTimeoutMs: HARBOR_TIMEOUT_MS,
   };
   const config = (id) => ({
     id: `harness-ab-${id}`,

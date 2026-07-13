@@ -28,6 +28,7 @@ describe('harness A/B manifest', () => {
         revision: 'tb-revision',
         timeoutPolicy: 'task-native',
         timeoutMultiplier: 1,
+        outerTimeoutGraceSec: 900,
       },
       metric: 'pass@1',
       order: { algorithm: 'sha256-rank-v1', seed: 'maka-glm-5.2-v1', pilotTaskCount: 40 },
@@ -41,6 +42,7 @@ describe('harness A/B manifest', () => {
         source: 'z.ai-public-2026-07-13',
       },
     });
+    assert.equal(manifest.harborTimeoutMs, null);
   });
 
   test('changes identity when a frozen harness config changes', () => {
@@ -77,6 +79,7 @@ function manifestInput(taskIds: readonly string[]) {
       revision: 'tb-revision',
       timeoutPolicy: 'task-native' as const,
       timeoutMultiplier: 1 as const,
+      outerTimeoutGraceSec: 900,
     },
     taskIds,
     orderSeed: 'maka-glm-5.2-v1',
@@ -95,7 +98,7 @@ function manifestInput(taskIds: readonly string[]) {
       { id: 'opencode' as const, version: '1.17.18', config: { variant: 'max' } },
     ] as const,
     taskBudgetSec: null,
-    harborTimeoutMs: 1_200_000,
+    harborTimeoutMs: null,
     subjectFingerprint: 'subject',
     taskSourceFingerprint: 'tasks',
     toolchainFingerprint: 'tools',

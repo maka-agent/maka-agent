@@ -17,6 +17,7 @@ export interface HarnessAbRunManifestInput {
     revision: string;
     timeoutPolicy: 'task-native';
     timeoutMultiplier: 1;
+    outerTimeoutGraceSec: number;
   };
   taskIds: readonly string[];
   orderSeed: string;
@@ -36,7 +37,7 @@ export interface HarnessAbRunManifestInput {
   };
   arms: readonly [HarnessAbArmInput, HarnessAbArmInput];
   taskBudgetSec: null;
-  harborTimeoutMs: number;
+  harborTimeoutMs: null;
   subjectFingerprint: string;
   taskSourceFingerprint: string;
   toolchainFingerprint: string;

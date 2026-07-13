@@ -96,6 +96,7 @@ export interface HarborRunRequest {
 }
 
 const DEFAULT_HARBOR_TIMEOUT_MS = 45 * 60_000;
+const HARBOR_SETUP_TEARDOWN_GRACE_MS = 15 * 60_000;
 
 export interface HarborRunResult {
   exitCode: number;
@@ -181,7 +182,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
         jobsDir,
         args,
         cwd: options.makaRepoPath,
-        timeoutMs: options.harborTimeoutMs ?? DEFAULT_HARBOR_TIMEOUT_MS,
+        timeoutMs: resolveHarborTimeoutMs(runnerOptions, input),
         env: { PYTHONPATH: pythonPath, ...(hostProviderEnv ?? {}) },
       });
     } catch (error) {
@@ -248,6 +249,17 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       },
     };
   };
+}
+
+function resolveHarborTimeoutMs(
+  options: HarborTaskRunnerOptions,
+  input: HarborTaskRunInput,
+): number {
+  if (options.harborTimeoutMs !== undefined) return options.harborTimeoutMs;
+  const agentSec = input.task.metadata?.agentTimeoutSec ?? 0;
+  const verifierSec = input.task.metadata?.verifierTimeoutSec ?? 0;
+  const nativePhasesMs = (agentSec + verifierSec) * (options.timeoutMultiplier ?? 1) * 1_000;
+  return Math.max(DEFAULT_HARBOR_TIMEOUT_MS, nativePhasesMs + HARBOR_SETUP_TEARDOWN_GRACE_MS);
 }
 
 async function readOptionalCellOutput(cellOutputPath: string, taskId: string): Promise<HarborCellOutput | null> {

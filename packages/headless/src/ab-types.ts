@@ -262,7 +262,7 @@ export interface AbRunManifestInput {
   arms: readonly [AbArmSpec, AbArmSpec];
   metadata?: Record<string, unknown>;
   taskBudgetSec: number | null;
-  harborTimeoutMs: number;
+  harborTimeoutMs: number | null;
   subjectFingerprint: string;
   taskSourceFingerprint: string;
   toolchainFingerprint: string;
