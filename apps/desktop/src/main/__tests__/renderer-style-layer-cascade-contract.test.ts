@@ -93,7 +93,7 @@ describe('renderer style layer cascade contract', () => {
     assert.match(styles, new RegExp(`${controls}:hover\\s*\\{[^}]*background:\\s*var\\(--state-hover-bg\\);`));
     assert.match(styles, new RegExp(`${controls}:active\\s*\\{[^}]*background:\\s*var\\(--state-selected-bg\\);`));
     assert.match(styles, new RegExp(`${controls}:focus-visible\\s*\\{[^}]*outline:\\s*var\\(--focus-ring-width\\) solid var\\(--focus-ring\\);`));
-    assert.match(styles, new RegExp(`${controls}:disabled\\s*\\{[^}]*opacity:\\s*0\\.45;`));
+    assert.match(styles, new RegExp(`${controls}:disabled\\s*\\{[^}]*opacity:\\s*var\\(--opacity-disabled\\);`));
   });
 
   it('keeps .settingsHealthRefresh out of any @layer so it can override secondary Button utilities', async () => {

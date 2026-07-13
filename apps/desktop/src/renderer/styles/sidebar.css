@@ -662,7 +662,7 @@
 }
 :is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more):disabled {
   cursor: not-allowed;
-  opacity: 0.45;
+  opacity: var(--opacity-disabled);
 }
 :is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more):disabled:hover {
   background: transparent;
