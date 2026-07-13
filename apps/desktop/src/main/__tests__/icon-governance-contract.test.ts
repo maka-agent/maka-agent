@@ -36,6 +36,7 @@ const MINIMAX_BRAND_ASSET_FILE = resolve(
 );
 const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/xai.svg');
 const CEREBRAS_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cerebras.svg');
+const MISTRAL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/mistral.svg');
 const DESKTOP_PACKAGE_FILE = resolve(REPO_ROOT, 'apps/desktop/package.json');
 const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/public/THIRD_PARTY_LICENSES.txt');
 const ONBOARDING_HERO_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/OnboardingHero.tsx');
@@ -268,6 +269,24 @@ describe('icon + typography governance contract', () => {
       'the stable Cerebras provider id must consume the sole shared asset-mask seam',
     );
     assert.doesNotMatch(marks, /ProviderMaskMark|providerMaskMark/);
+  });
+
+  it('vendors the byte-exact upstream Mistral mark and appends its notice inventory', async () => {
+    const [mistralMark, notices] = await Promise.all([
+      readFile(MISTRAL_BRAND_MARK_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(mistralMark).digest('hex'),
+      'a06cfa54e7deff7f7544175b006b7f8a03fbc5624c44f7d553a44d07ea96e629',
+      'the vendored Mistral mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 mistral.svg',
+    );
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/mistral\.svg[\s\S]*packages\/static-svg\/icons\/mistral\.svg[\s\S]*a06cfa54e7deff7f7544175b006b7f8a03fbc5624c44f7d553a44d07ea96e629/,
+      'Mistral must append provenance to the existing Lobe Icons notice entry',
+    );
   });
 
   it('ships the Lobe Icons MIT notice beside vendored provider assets', async () => {
