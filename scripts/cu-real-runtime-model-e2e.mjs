@@ -1,0 +1,203 @@
+import {
+  AiSdkBackend,
+  PermissionEngine,
+  buildComputerUseTools,
+  getAIModel,
+} from '../packages/runtime/dist/index.js';
+import {
+  createSyntheticComputerScenario,
+  canonicalizeSyntheticComputerArgs,
+} from './cu-synthetic-model-scenario.mjs';
+
+const baseUrl = process.env.MAKA_CU_MODEL_BASE_URL ?? 'http://127.0.0.1:8538/v1';
+const modelId = process.env.MAKA_CU_MODEL_ID ?? 'gpt-5.6-sol';
+const scenario = createSyntheticComputerScenario();
+const backend = {
+  async preflight() {
+    return { accessibility: true, screenRecording: true };
+  },
+  async listApps() {
+    const result = scenario.execute({ action: 'list_apps' });
+    return result.apps.map((app) => ({
+      appId: app.app_id,
+      pid: app.pid,
+      name: app.name,
+      windowCount: app.windows.length,
+      windows: app.windows.map((window) => ({
+        windowId: window.window_id,
+        title: window.title,
+      })),
+    }));
+  },
+  async observeApp() {
+    const result = scenario.execute(canonicalizeSyntheticComputerArgs({
+      action: 'observe',
+      app: 'pid:42',
+      window_id: 7,
+    }));
+    return toRuntimeObservation(result);
+  },
+  async runSemantic(action) {
+    if (action.type !== 'set_value') {
+      return {
+        outcome: {
+          ok: false,
+          error: 'unsupported_action',
+          message: `synthetic runtime E2E rejects ${action.type}`,
+        },
+      };
+    }
+    const result = scenario.execute({
+      action: 'set_value',
+      observation_id: 'obs-fixture',
+      element_id: action.elementId,
+      value: action.value,
+    });
+    return {
+      outcome: result.outcome,
+      observation: toRuntimeObservation(result.fresh_observation),
+    };
+  },
+  async captureObservation() {
+    return toRuntimeObservation({
+      observation_id: 'obs-fixture',
+      app: 'pid:42',
+      pid: 42,
+      window_id: 7,
+      elements: [{
+        element_id: 'field-1',
+        role: 'AXTextField',
+        label: 'CUA Lab Set Value Field',
+        value: scenario.state.value,
+      }],
+    });
+  },
+  async run(action) {
+    return {
+      outcome: {
+        ok: false,
+        error: 'unsupported_action',
+        message:
+          `background '${action.type}' is disabled because the compatibility `
+          + 'event backend can interfere with physical user input',
+      },
+    };
+  },
+};
+const [computerTool] = buildComputerUseTools({ backend });
+const messages = [];
+const telemetry = [];
+const connection = {
+  slug: 'azure-bridge',
+  name: 'Azure Bridge',
+  providerType: 'openai',
+  baseUrl,
+  defaultModel: modelId,
+  enabled: true,
+  createdAt: 1,
+  updatedAt: 1,
+};
+let nextId = 0;
+let now = Date.now();
+const runtime = new AiSdkBackend({
+  sessionId: 'real-runtime-model-e2e',
+  header: {
+    id: 'real-runtime-model-e2e',
+    workspaceRoot: process.cwd(),
+    cwd: process.cwd(),
+    createdAt: now,
+    lastUsedAt: now,
+    name: 'Real Runtime Computer Use E2E',
+    isFlagged: false,
+    labels: [],
+    isArchived: false,
+    status: 'active',
+    statusUpdatedAt: now,
+    hasUnread: false,
+    backend: 'ai-sdk',
+    llmConnectionSlug: connection.slug,
+    connectionLocked: true,
+    model: modelId,
+    permissionMode: 'bypass',
+    schemaVersion: 1,
+  },
+  appendMessage: async (message) => { messages.push(message); },
+  connection,
+  apiKey: 'bridge-managed',
+  modelId,
+  permissionEngine: new PermissionEngine({
+    newId: () => `permission-${++nextId}`,
+    now: () => ++now,
+  }),
+  modelFactory: (input) => getAIModel(input),
+  tools: [computerTool],
+  maxSteps: 8,
+  newId: () => `id-${++nextId}`,
+  now: () => ++now,
+  recordToolInvocation: (record) => {
+    telemetry.push({
+      toolName: record.toolName,
+      status: record.status,
+      argsSummary: record.argsSummary,
+    });
+  },
+});
+
+const events = [];
+for await (const event of runtime.send({
+  turnId: 'turn-real-model',
+  text:
+    'Use Maka Computer to set "CUA Lab Set Value Field" in "Codex CUA Lab" '
+    + 'to "model-e2e". Start with list_apps, observe the exact app/window, '
+    + 'use set_value with IDs from the observation, verify the fresh observation, '
+    + 'and then finish.',
+  context: [],
+})) {
+  events.push(event.type);
+}
+
+if (scenario.state.value !== 'model-e2e') {
+  throw new Error(`real Runtime model loop did not mutate the semantic fixture: ${scenario.state.value}`);
+}
+if (events.at(-1) !== 'complete') {
+  throw new Error(`real Runtime model loop did not complete: ${events.at(-1)}`);
+}
+
+process.stdout.write(`${JSON.stringify({
+  ok: true,
+  provider: 'openai-responses-via-azure-bridge',
+  model: modelId,
+  events,
+  calls: scenario.calls,
+  telemetry,
+  persistedTypes: messages.map((message) => message.type),
+  finalValue: scenario.state.value,
+}, null, 2)}\n`);
+
+function toRuntimeObservation(input) {
+  return {
+    observationId: input.observation_id,
+    appId: input.app,
+    pid: input.pid,
+    windowId: input.window_id,
+    windowTitle: 'Codex CUA Lab',
+    contentFingerprint: 'synthetic-runtime-model-e2e',
+    elements: input.elements.map((element) => ({
+      elementId: element.element_id,
+      role: element.role,
+      label: element.label,
+      value: element.value,
+      identity: {
+        role: element.role,
+        label: element.label,
+        value: element.value,
+      },
+    })),
+    screenshot: {
+      base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      mimeType: 'image/png',
+      widthPx: 1,
+      heightPx: 1,
+    },
+  };
+}
