@@ -345,8 +345,8 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       bootstrapSessions[0],
-      /if \(!activeIdRef\.current && next\[0\] && next\[0\]\.lastMessageAt\) setActiveId\(next\[0\]\.id\)/,
-      'only bootstrapSessions() may auto-select the first existing chat on app startup',
+      /bootstrapSelectionLease\.reconcile\(next\);[\s\S]*bootstrapSelectionLease\.release\(\)/,
+      'the fallback bootstrap must share and then release the session owner\'s selection lease',
     );
     assert.match(
       renderer,

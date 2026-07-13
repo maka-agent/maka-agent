@@ -156,6 +156,7 @@ export function AppShell({
     markSessionReadLocally,
     activeId,
     activeIdRef,
+    bootstrapSelectionLease,
     setActiveId,
     startNewSession,
     clearOwnedSessionState,
@@ -802,11 +803,11 @@ export function AppShell({
     // sessions flash an 已阻塞 group on first paint until the first
     // refreshSessions() overwrites the seed.
     const next = seedSessions(snapshot.sessions);
-    if (activeIdRef.current && !next.some((session) => session.id === activeIdRef.current)) setActiveId(undefined);
-    if (!activeIdRef.current && next[0]?.lastMessageAt) setActiveId(next[0].id);
+    bootstrapSelectionLease.reconcile(next);
     // Seed connections — avoids separate connections:list + getDefault IPCs
     setConnections(snapshot.connections);
     setDefaultConnection(snapshot.defaultSlug);
+    if (onboarding.refreshGeneration === 1) bootstrapSelectionLease.release();
   }, [onboarding.snapshot, onboarding.refreshGeneration, onboarding.error]);
   // PR110c (@kenji review): suppress hero AND the fallback EmptyChatHero
   // while the initial snapshot is in flight. Otherwise sessions.length===0
@@ -1148,7 +1149,8 @@ export function AppShell({
 
   async function bootstrapSessions() {
     const next = await refreshSessions();
-    if (!activeIdRef.current && next[0] && next[0].lastMessageAt) setActiveId(next[0].id);
+    bootstrapSelectionLease.reconcile(next);
+    bootstrapSelectionLease.release();
   }
 
   async function refreshConnections() {

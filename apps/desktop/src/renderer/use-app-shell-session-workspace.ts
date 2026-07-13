@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { StoredMessage } from '@maka/core';
 import { useAppShellSessionUiState } from './app-shell-session-ui-state';
 import { useAppShellSessionList } from './use-app-shell-session-list';
+import { createBootstrapSelectionLease } from './bootstrap-selection-lease';
 
 type ToastApi = {
   error(title: string, description?: string): void;
@@ -12,12 +13,15 @@ export function useAppShellSessionWorkspace(toastApi: ToastApi) {
   const sessionUi = useAppShellSessionUiState();
   const [activeId, setActiveIdState] = useState<string | undefined>();
   const activeIdRef = useRef<string | undefined>(undefined);
+  const selectionRevisionRef = useRef(0);
+  const bootstrapSelectionLeaseRef = useRef<ReturnType<typeof createBootstrapSelectionLease> | null>(null);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [messageLoadPending, setMessageLoadPending] = useState(false);
   const messageRetryPendingRef = useRef<Set<string>>(new Set());
   const stopPendingRef = useRef<Set<string>>(new Set());
 
   function setActiveId(next: string | undefined): void {
+    selectionRevisionRef.current += 1;
     // Clear here, not in the read effect: a layout-effect clear would wipe an
     // optimistic first message before the first paint.
     if (!next) {
@@ -28,6 +32,14 @@ export function useAppShellSessionWorkspace(toastApi: ToastApi) {
     }
     activeIdRef.current = next;
     setActiveIdState(next);
+  }
+
+  if (!bootstrapSelectionLeaseRef.current) {
+    bootstrapSelectionLeaseRef.current = createBootstrapSelectionLease({
+      readActiveId: () => activeIdRef.current,
+      readSelectionRevision: () => selectionRevisionRef.current,
+      select: setActiveId,
+    });
   }
 
   function startNewSession(): void {
@@ -45,6 +57,7 @@ export function useAppShellSessionWorkspace(toastApi: ToastApi) {
     ...sessionList,
     activeId,
     activeIdRef,
+    bootstrapSelectionLease: bootstrapSelectionLeaseRef.current,
     setActiveId,
     startNewSession,
     clearOwnedSessionState,
