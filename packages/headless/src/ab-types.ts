@@ -195,6 +195,8 @@ export interface AbAttemptPairSummary {
   pairs: number;
   observedPairs: number;
   evaluatedPairs: number;
+  baselinePassed: number;
+  candidatePassed: number;
   wins: number;
   losses: number;
   ties: number;

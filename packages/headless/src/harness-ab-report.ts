@@ -63,8 +63,16 @@ export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbRep
     effectiveness: {
       metric: 'pass@1',
       pairedEvaluated: summary.pairedAttempts.evaluatedPairs,
-      baseline: armEffectiveness(summary.baselineArmId, summary.baseline),
-      candidate: armEffectiveness(summary.candidateArmId, summary.candidate),
+      baseline: pairedArmEffectiveness(
+        summary.baselineArmId,
+        summary.pairedAttempts.baselinePassed,
+        summary.pairedAttempts.evaluatedPairs,
+      ),
+      candidate: pairedArmEffectiveness(
+        summary.candidateArmId,
+        summary.pairedAttempts.candidatePassed,
+        summary.pairedAttempts.evaluatedPairs,
+      ),
       candidateMinusBaseline: summary.passRateDelta,
       candidateWins: summary.pairedAttempts.wins,
       baselineWins: summary.pairedAttempts.losses,
@@ -136,8 +144,12 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
   ].join('\n');
 }
 
-function armEffectiveness(armId: string, arm: AbArmSummary): HarnessAbArmEffectiveness {
-  return { armId, passed: arm.passed, evaluated: arm.valid, passRate: arm.passRate };
+function pairedArmEffectiveness(
+  armId: string,
+  passed: number,
+  evaluated: number,
+): HarnessAbArmEffectiveness {
+  return { armId, passed, evaluated, passRate: divide(passed, evaluated) };
 }
 
 function armEconomy(armId: string, arm: AbArmSummary): HarnessAbArmEconomy {

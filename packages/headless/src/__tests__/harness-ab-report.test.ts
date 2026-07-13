@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { summarizeAbComparison } from '../ab-summary.js';
+import type { FixedPromptTaskInfraFailedEvent } from '../fixed-prompt-controller.js';
 import {
   buildHarnessAbReport,
   renderHarnessAbReportCsv,
@@ -58,6 +59,34 @@ describe('harness A/B report', () => {
     assert.match(markdown, /API-equivalent cost/);
     assert.match(markdown, /No composite score/);
   });
+
+  test('reports effectiveness only over pairs evaluated by both harnesses', () => {
+    const summary = summarizeAbComparison({
+      runId: 'glm-harness-ab',
+      roundId: 'ab-summary',
+      baselineArmId: 'maka',
+      candidateArmId: 'opencode',
+      evaluationTaskIds: ['a', 'b'],
+      baselineRuns: [[completed('a', true), completed('b', true)]],
+      candidateRuns: [[completed('a', false), providerBilling('b')]],
+    });
+
+    const report = buildHarnessAbReport(summary);
+
+    assert.deepEqual(report.effectiveness.baseline, {
+      armId: 'maka',
+      passed: 1,
+      evaluated: 1,
+      passRate: 1,
+    });
+    assert.deepEqual(report.effectiveness.candidate, {
+      armId: 'opencode',
+      passed: 0,
+      evaluated: 1,
+      passRate: 0,
+    });
+    assert.equal(report.effectiveness.candidateMinusBaseline, -1);
+  });
 });
 
 function usage(
@@ -79,4 +108,22 @@ function usage(
     costUsd,
     durationMs: 100,
   });
+}
+
+function providerBilling(taskId: string): FixedPromptTaskInfraFailedEvent {
+  return {
+    schemaVersion: 1,
+    type: 'task_infra_failed',
+    id: `event-${taskId}`,
+    ts: 0,
+    runId: 'glm-harness-ab',
+    roundId: 'round',
+    taskId,
+    status: 'infra_failed',
+    passed: false,
+    scored: false,
+    eligible: false,
+    errorClass: 'provider_billing',
+    error: 'provider billing failure',
+  };
 }
