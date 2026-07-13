@@ -36,6 +36,7 @@ import {
   sandboxContextForTool,
   type ActiveSandboxCapabilities,
 } from './sandbox/active-capabilities.js';
+import { serializeSandboxError } from './sandbox/errors.js';
 
 export interface MakaTool<P = any, R = unknown> {
   /** Canonical (Claude-SDK-style) name. Pi adapter translates to canonical. */
@@ -567,6 +568,7 @@ export class ToolRuntime {
       }
     } catch (err) {
       output.flush();
+      const sandboxError = serializeSandboxError(err);
       const terminalFailure = coerceTerminalFailure(tool, this.input.header.cwd, args, err);
       if (terminalFailure) {
         const durationMs = Math.max(0, this.input.now() - startedAt);
@@ -612,6 +614,7 @@ export class ToolRuntime {
           durationMs,
           status: 'error',
           errorClass: classifyError(err),
+          ...(sandboxError ? { sandbox: sandboxError } : {}),
         });
         return this.errorReturn(terminalFailure.message);
       }
@@ -638,6 +641,7 @@ export class ToolRuntime {
         durationMs: Math.max(0, this.input.now() - startedAt),
         status: 'error',
         errorClass: classifyError(err),
+        ...(sandboxError ? { sandbox: sandboxError } : {}),
       });
       return this.errorReturn(msg);
     } finally {

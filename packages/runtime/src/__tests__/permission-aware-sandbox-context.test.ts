@@ -86,4 +86,17 @@ describe('sandbox error metadata', () => {
       recoverable: false,
     });
   });
+
+  test('rejects arbitrary strings disguised as sandbox metadata', () => {
+    const error = Object.assign(new Error('failure'), {
+      code: 'SANDBOX_COMMAND_BLOCKED',
+      domain: 'command',
+      stage: 'launch',
+      reason: '/private/path leaked from raw error',
+      backend: 'macos-seatbelt',
+      recoverable: false,
+    });
+
+    expect(serializeSandboxError(error)).toBeUndefined();
+  });
 });

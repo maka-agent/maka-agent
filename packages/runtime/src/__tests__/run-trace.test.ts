@@ -58,4 +58,68 @@ describe('RunTrace error diagnostics', () => {
     assert.equal(data.redactedErrorMessageTruncated, true);
     assert.match(String(data.redactedErrorMessageSha256), /^sha256:[a-f0-9]{64}$/);
   });
+
+  test('records a path-free sandbox context projection', () => {
+    const events: RunTraceEvent[] = [];
+    const trace = new RunTrace({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      connectionSlug: 'conn',
+      providerId: 'openai',
+      modelId: 'model',
+      newId: () => 'trace-1',
+      now: () => 10,
+      record: (event) => events.push(event),
+    });
+
+    trace.sandboxContextResolved({
+      schemaVersion: 1,
+      profile: {
+        name: 'workspace-write',
+        type: 'managed',
+        fileSystem: 'workspace-write',
+        network: 'restricted',
+        protectedMetadata: ['.git'],
+      },
+      capabilities: {
+        command: { status: 'available', backend: 'macos-seatbelt' },
+        filesystem: {
+          status: 'unavailable',
+          backend: 'macos-seatbelt',
+          reason: 'filesystem_worker_unavailable',
+        },
+      },
+    });
+
+    assert.equal(events[0]?.phase, 'sandbox');
+    assert.equal(events[0]?.type, 'sandbox_context_resolved');
+    assert.doesNotMatch(JSON.stringify(events[0]), /cwd|workspaceRoots|\/workspace/);
+  });
+
+  test('recorder failures never escape', async () => {
+    const syncTrace = new RunTrace({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      connectionSlug: 'conn',
+      providerId: 'openai',
+      modelId: 'model',
+      newId: () => 'trace-1',
+      now: () => 10,
+      record: () => { throw new Error('sync trace failure'); },
+    });
+    assert.doesNotThrow(() => syncTrace.turnStarted());
+
+    const asyncTrace = new RunTrace({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      connectionSlug: 'conn',
+      providerId: 'openai',
+      modelId: 'model',
+      newId: () => 'trace-2',
+      now: () => 10,
+      record: async () => { throw new Error('async trace failure'); },
+    });
+    assert.doesNotThrow(() => asyncTrace.turnStarted());
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  });
 });
