@@ -115,6 +115,9 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
   'gemini-cli': GOOGLE_MODEL_OVERRIDES,
   'codex-subscription': OPENAI_OAUTH_MODEL_METADATA,
   siliconflow: SILICONFLOW_MODEL_OVERRIDES,
+  'tencent-coding-plan': {
+    'kimi-k2.5': { capabilities: { vision: false } },
+  },
   deepseek: {
     'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
   },

@@ -30,6 +30,7 @@ describe('provider compatibility contract', () => {
       'anthropic',
       'kimi-coding-plan',
       'minimax-coding-plan',
+      'tencent-coding-plan',
       'openai',
       'google',
       'deepseek',
@@ -76,6 +77,7 @@ describe('provider compatibility contract', () => {
       'nvidia',
       'tencent-tokenhub',
       'stepfun',
+      'tencent-coding-plan',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -100,6 +102,7 @@ describe('provider compatibility contract', () => {
       'nvidia',
       'tencent-tokenhub',
       'stepfun',
+      'tencent-coding-plan',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -297,6 +300,29 @@ describe('provider compatibility contract', () => {
     assert.equal(tencent.signupUrl, 'https://cloud.tencent.com/document/product/1823/130090');
     assert.equal(tencent.modelsDevId, 'tencent-tokenhub');
     assert.deepEqual(tencent.fallbackModels, ['hy3', 'hy3-preview']);
+  });
+
+  it('owns Tencent Coding Plan behavior under its independent persisted id', () => {
+    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['tencent-coding-plan'];
+
+    assert.ok(plan, 'Tencent Coding Plan must be available through the shared provider registry');
+    assert.equal(plan.label, 'Tencent Coding Plan (China)');
+    assert.equal(plan.baseUrl, 'https://api.lkeap.cloud.tencent.com/coding/v3');
+    assert.equal(plan.authKind, 'api_key');
+    assert.equal(plan.protocol, 'openai');
+    assert.deepEqual(plan.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(plan.modelDiscovery, { kind: 'fallback' });
+    assert.equal(plan.category, 'domestic');
+    assert.equal(plan.catalogGroup, 'plans');
+    assert.equal(plan.catalogBadge, 'Coding');
+    assert.equal(plan.signupUrl, 'https://console.cloud.tencent.com/lkeap/coding-plan');
+    assert.equal(plan.modelsDevId, 'tencent-coding-plan');
+    assert.deepEqual(plan.fallbackModels, [
+      'tc-code-latest',
+      'glm-5',
+      'minimax-m2.5',
+      'kimi-k2.5',
+    ]);
   });
 
   it('owns StepFun China direct API behavior under the stable stepfun id', () => {

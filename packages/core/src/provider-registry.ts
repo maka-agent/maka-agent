@@ -105,6 +105,22 @@ const tencentTokenHubModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA['tencent-tokenhub'],
   ['hy3', 'hy3-preview'],
 );
+const tencentCodingPlan = GENERATED_MODELS_DEV_PROVIDER_FACTS['tencent-coding-plan'];
+if (tencentCodingPlan.id !== 'tencent-coding-plan') {
+  throw new Error('models.dev Tencent Coding Plan provider facts are missing stable id tencent-coding-plan');
+}
+if (!tencentCodingPlan.api) throw new Error('models.dev Tencent Coding Plan provider facts are missing api');
+const tencentCodingPlanModelIds = [
+  'tc-code-latest',
+  'glm-5',
+  'minimax-m2.5',
+  'kimi-k2.5',
+] as const;
+for (const id of tencentCodingPlanModelIds) {
+  if (!GENERATED_MODELS_DEV_METADATA['tencent-coding-plan'][id]?.capabilities?.functionCalling) {
+    throw new Error(`models.dev Tencent Coding Plan snapshot is missing tool-capable model ${id}`);
+  }
+}
 const stepfun = GENERATED_MODELS_DEV_PROVIDER_FACTS.stepfun;
 if (stepfun.id !== 'stepfun') throw new Error('models.dev StepFun provider facts are missing stable id stepfun');
 if (!stepfun.api) throw new Error('models.dev StepFun provider facts are missing api');
@@ -205,6 +221,25 @@ const providerRegistry = {
     modelsDevId: GENERATED_MODELS_DEV_PROVIDER_FACTS.MiniMax.id,
     readyOrder: 17,
     catalogOrder: 2,
+  },
+  'tencent-coding-plan': {
+    label: tencentCodingPlan.name,
+    description: 'Tencent Cloud Coding Plan for interactive coding agents.',
+    baseUrl: tencentCodingPlan.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [...tencentCodingPlanModelIds],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'domestic',
+    catalogGroup: 'plans',
+    catalogBadge: 'Coding',
+    signupUrl: 'https://console.cloud.tencent.com/lkeap/coding-plan',
+    modelsDevId: tencentCodingPlan.id,
+    readyOrder: 23,
+    catalogOrder: 23,
   },
   openai: {
     label: 'OpenAI',

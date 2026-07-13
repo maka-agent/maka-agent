@@ -37,6 +37,17 @@ describe('model-metadata vision capability', () => {
     assert.equal(lookupModelMetadata('zai-coding-plan', 'glm-4.7').capabilities?.vision, false);
   });
 
+  it('keeps Tencent Coding Plan text-only even when an upstream model supports vision elsewhere', () => {
+    const capabilities = lookupModelMetadata('tencent-coding-plan', 'kimi-k2.5').capabilities;
+    assert.equal(capabilities?.vision, false);
+    assert.equal(capabilities?.reasoning, true);
+    assert.equal(capabilities?.functionCalling, true);
+    assert.equal(
+      resolveModelVisionSupport('tencent-coding-plan', [{ id: 'kimi-k2.5' }], 'kimi-k2.5'),
+      false,
+    );
+  });
+
   it('keeps complete metadata for every Codex subscription model alias', () => {
     for (const modelId of [...PROVIDER_DEFAULTS['codex-subscription'].fallbackModels, 'gpt-5.5-pro']) {
       const metadata = lookupModelMetadata('codex-subscription', modelId);
