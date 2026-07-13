@@ -24,7 +24,12 @@ describe('session row actions fail soft', () => {
     const main = await readRendererShellCombinedSource();
     const sessionListBlock = main.match(/<SessionListPanel[\s\S]*?\/>/)?.[0] ?? '';
 
-    assert.match(main, /const pendingSessionRowActionsRef = useRef<Set<string>>\(new Set\(\)\);/);
+    assert.match(main, /const sessionRowActionRegistry = useKeyedPendingRegistry\(\);/);
+    assert.match(
+      main,
+      /pendingSessionRowActionsRef: sessionRowActionRegistry\.keysRef/,
+      'the row-action dedup Set the sidebar handlers guard on must be backed by the shared keyed-pending registry',
+    );
     assert.match(main, /const sessionPrefix = `\$\{sessionId\}:`;/);
     assert.match(main, /Array\.from\(pendingSessionRowActionsRef\.current\)\.some\(\(key\) => key\.startsWith\(sessionPrefix\)\)/);
     assert.match(main, /pendingSessionRowActionsRef\.current\.add\(key\);[\s\S]*catch \(error\) \{[\s\S]*toastApi\.error\(errorTitle, generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)\)[\s\S]*finally \{[\s\S]*pendingSessionRowActionsRef\.current\.delete\(key\);/);
@@ -46,9 +51,9 @@ describe('session row actions fail soft', () => {
     assert.match(cleanupBlock, /clearOwnedSessionState\(sessionId\);/);
     assert.match(ownedCleanupBlock, /messageRetryPendingRef\.current\.delete\(sessionId\);/);
     assert.match(ownedCleanupBlock, /stopPendingRef\.current\.delete\(sessionId\);/);
-    assert.match(cleanupBlock, /clearPendingTurnActionsForSession\(sessionId\);/);
-    assert.match(cleanupBlock, /pendingPermissionModeChangesRef\.current\.delete\(sessionId\);/);
-    assert.match(cleanupBlock, /pendingSessionModelChangesRef\.current\.delete\(sessionId\);/);
+    assert.match(cleanupBlock, /turnActionRegistry\.clearForSession\(sessionId\);/);
+    assert.match(cleanupBlock, /permissionModeChangeRegistry\.keysRef\.current\.delete\(sessionId\);/);
+    assert.match(cleanupBlock, /sessionModelChangeRegistry\.keysRef\.current\.delete\(sessionId\);/);
     assert.match(
       ownedCleanupBlock,
       /sessionUi\.clearSessionUiState\(sessionId\);/,

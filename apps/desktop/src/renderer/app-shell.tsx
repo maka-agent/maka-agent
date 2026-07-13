@@ -114,6 +114,7 @@ import {
   useSettledSessionTransientReconcile,
 } from './app-shell-effects';
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
+import { useKeyedPendingRegistry } from './use-pending-action-registry';
 import { useAppShellComposerAttachments } from './use-app-shell-composer-attachments';
 import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
 
@@ -492,36 +493,19 @@ export function AppShell({
   // mask. Per @kenji PR109d review: pending state prevents double-click
   // duplicate sibling turns by disabling the action button between
   // click and `sessions:changed turn-status-change` arriving.
-  const [pendingTurnActions, setPendingTurnActions] = useState<Set<string>>(() => new Set());
-  const pendingTurnActionsRef = useRef<Set<string>>(new Set());
-  const pendingTurnActionTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const pendingSessionRowActionsRef = useRef<Set<string>>(new Set());
-  const pendingPermissionModeChangesRef = useRef<Set<string>>(new Set());
-  const pendingSessionModelChangesRef = useRef<Set<string>>(new Set());
+  // The four de-dup registries (turn-footer actions, session-row actions,
+  // per-session permission-mode / model changes) all share the same keyed-Set
+  // shape; see useKeyedPendingRegistry. Only the turn-footer registry mirrors
+  // into React state (drives the disabled mask) and arms a 5s auto-clear
+  // fallback timer; the other three stay ref-only and clear in their action's
+  // `finally`.
+  const turnActionRegistry = useKeyedPendingRegistry({ trackState: true, autoClearMs: 5000 });
+  const pendingTurnActions = turnActionRegistry.keys;
+  const sessionRowActionRegistry = useKeyedPendingRegistry();
+  const permissionModeChangeRegistry = useKeyedPendingRegistry();
+  const sessionModelChangeRegistry = useKeyedPendingRegistry();
   const pendingKeyOf = (sessionId: string, turnId: string, actionId: TurnFooterActionMeta['id']) =>
     `${sessionId}:${turnId}:${actionId}`;
-  function addPendingTurnAction(key: string): boolean {
-    if (pendingTurnActionsRef.current.has(key)) return false;
-    pendingTurnActionsRef.current.add(key);
-    setPendingTurnActions(new Set(pendingTurnActionsRef.current));
-    const timeoutHandle = setTimeout(() => clearPendingTurnAction(key), 5000);
-    pendingTurnActionTimersRef.current.set(key, timeoutHandle);
-    return true;
-  }
-  function clearPendingTurnAction(key: string): void {
-    if (!pendingTurnActionsRef.current.has(key)) return;
-    pendingTurnActionsRef.current.delete(key);
-    const timeoutHandle = pendingTurnActionTimersRef.current.get(key);
-    if (timeoutHandle) clearTimeout(timeoutHandle);
-    pendingTurnActionTimersRef.current.delete(key);
-    setPendingTurnActions(new Set(pendingTurnActionsRef.current));
-  }
-  function clearPendingTurnActionsForSession(sessionId: string): void {
-    const prefix = `${sessionId}:`;
-    for (const key of Array.from(pendingTurnActionsRef.current)) {
-      if (key.startsWith(prefix)) clearPendingTurnAction(key);
-    }
-  }
   function omitSessionKey<T>(current: Record<string, T>, sessionId: string): Record<string, T> {
     if (!(sessionId in current)) return current;
     const next = { ...current };
@@ -552,15 +536,15 @@ export function AppShell({
 
   function clearSessionRendererState(sessionId: string): void {
     clearOwnedSessionState(sessionId);
-    clearPendingTurnActionsForSession(sessionId);
-    pendingPermissionModeChangesRef.current.delete(sessionId);
-    pendingSessionModelChangesRef.current.delete(sessionId);
+    turnActionRegistry.clearForSession(sessionId);
+    permissionModeChangeRegistry.keysRef.current.delete(sessionId);
+    sessionModelChangeRegistry.keysRef.current.delete(sessionId);
   }
 
   const sessionRowActionHandlers = createAppShellSessionRowActions({
     activeIdRef,
     clearSessionRendererState,
-    pendingSessionRowActionsRef,
+    pendingSessionRowActionsRef: sessionRowActionRegistry.keysRef,
     refreshSessions,
     sessionsRef,
     setActiveId,
@@ -587,8 +571,8 @@ export function AppShell({
   } = createAppShellSessionSettingsActions({
     activeIdRef,
     connections,
-    pendingPermissionModeChangesRef,
-    pendingSessionModelChangesRef,
+    pendingPermissionModeChangesRef: permissionModeChangeRegistry.keysRef,
+    pendingSessionModelChangesRef: sessionModelChangeRegistry.keysRef,
     refreshSessions,
     sessionsRef,
     setDefaultPermissionMode,
@@ -961,8 +945,8 @@ export function AppShell({
 
   const { handleTurnFooterAction } = createAppShellTurnActions({
     activeIdRef,
-    addPendingTurnAction,
-    clearPendingTurnAction,
+    addPendingTurnAction: turnActionRegistry.addKey,
+    clearPendingTurnAction: turnActionRegistry.clearKey,
     openSessionInChat,
     pendingKeyOf,
     refreshMessages,
@@ -1056,15 +1040,15 @@ export function AppShell({
     activeIdRef,
     applyVisualSmokeFixture,
     bootstrapSessions,
-    clearPendingTurnActionsForSession,
+    clearPendingTurnActionsForSession: turnActionRegistry.clearForSession,
     clearSessionRendererState,
     createSession,
     handleConnectionEvent,
     openSettings,
-    pendingPermissionModeChangesRef,
-    pendingSessionModelChangesRef,
-    pendingTurnActionTimersRef,
-    pendingTurnActionsRef,
+    pendingPermissionModeChangesRef: permissionModeChangeRegistry.keysRef,
+    pendingSessionModelChangesRef: sessionModelChangeRegistry.keysRef,
+    pendingTurnActionTimersRef: turnActionRegistry.timersRef,
+    pendingTurnActionsRef: turnActionRegistry.keysRef,
     projectPickerPendingRef,
     projectPickerRequestRef,
     refreshAppInfo,

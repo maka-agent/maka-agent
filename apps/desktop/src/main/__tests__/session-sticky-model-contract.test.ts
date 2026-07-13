@@ -85,7 +85,12 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(preload, /setModel\(sessionId: string, input: \{ llmConnectionSlug: string; model: string \}\): Promise<SessionSummary>/);
     assert.match(globalTypes, /setModel\(sessionId: string, input: \{ llmConnectionSlug: string; model: string \}\): Promise<SessionSummary>/);
     assert.match(renderer, /modelChoices=\{chatModelChoices\}/);
-    assert.match(renderer, /const pendingSessionModelChangesRef = useRef<Set<string>>\(new Set\(\)\);/);
+    assert.match(renderer, /const sessionModelChangeRegistry = useKeyedPendingRegistry\(\);/);
+    assert.match(
+      renderer,
+      /pendingSessionModelChangesRef: sessionModelChangeRegistry\.keysRef/,
+      'the model-change dedup Set the setModel action guards on must be backed by the shared keyed-pending registry',
+    );
     assert.match(renderer, /const sessionUi = useAppShellSessionUiState\(\);[\s\S]*setPendingSessionModelBySession: sessionUi\.setPendingSessionModelBySession/);
     assert.match(renderer, /const \{[\s\S]*pendingSessionModelBySession,[\s\S]*\} = sessionUiState;/);
     assert.match(renderer, /const sessionId = activeIdRef\.current;[\s\S]*pendingSessionModelChangesRef\.current\.has\(sessionId\)[\s\S]*window\.maka\.sessions\.setModel\(sessionId, input\)[\s\S]*finally \{[\s\S]*pendingSessionModelChangesRef\.current\.delete\(sessionId\);/);
