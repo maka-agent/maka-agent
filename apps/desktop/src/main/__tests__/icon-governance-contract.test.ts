@@ -453,7 +453,11 @@ describe('icon + typography governance contract', () => {
       componentSrc,
       /Volcengine mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/volcengine\.svg[\s\S]*MIT[\s\S]*f29d0bdc284b33d8664ef221add7fbf06a5b370ef92767fa33f6020c914d3d33/,
     );
-    assert.match(componentSrc, /case 'volcengine-ark':\s*return <ProviderAssetMask src=\{volcengineBrandMark\} \/>/);
+    assert.match(
+      componentSrc,
+      /case 'volcengine-ark':\s*case 'volcengine-coding-plan':\s*return <ProviderAssetMask src=\{volcengineBrandMark\} \/>/,
+      'direct Ark and Coding Plan must share the single governed Volcengine asset route',
+    );
   });
 
   it('vendors and routes the byte-exact Tencent Cloud mark for Tencent Coding Plan', async () => {
