@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'stepfun-ai', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'xai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'stepfun-ai', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -89,6 +89,36 @@ test('sync-model-metadata vendors xAI provider facts and exact model ids', async
   assert.match(generated, /"xai": \{/);
   assert.match(generated, /"xai": \{"id":"xai","name":"xAI"/);
   assert.match(generated, /"grok-4\.5": \{"displayName":"Grok 4\.5"/);
+});
+
+test('sync-model-metadata vendors the stable Vercel AI Gateway id and exact creator/model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.vercel = {
+    ...catalog.vercel,
+    name: 'Vercel AI Gateway',
+    api: undefined,
+    doc: 'https://vercel.com/docs/ai-gateway',
+    models: {
+      'anthropic/claude-opus-4.8': {
+        id: 'anthropic/claude-opus-4.8', name: 'Claude Opus 4.8', reasoning: true, tool_call: true,
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        limit: { context: 1_000_000, output: 128_000 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"vercel": \{/);
+  assert.match(generated, /"vercel": \{"id":"vercel","name":"Vercel AI Gateway"/);
+  assert.match(generated, /"anthropic\/claude-opus-4\.8": \{"displayName":"Claude Opus 4\.8"/);
 });
 
 test('sync-model-metadata vendors Cerebras provider facts and exact model ids', async () => {

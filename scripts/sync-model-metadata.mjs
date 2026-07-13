@@ -24,6 +24,7 @@ const PROVIDERS = {
   'tencent-coding-plan': 'tencent-coding-plan',
   'tencent-token-plan': 'tencent-token-plan',
   'tencent-tokenhub': 'tencent-tokenhub',
+  vercel: 'vercel',
   xai: 'xai',
   'zai-coding-plan': 'zai-coding-plan',
 };
