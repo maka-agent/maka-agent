@@ -498,6 +498,7 @@ export function BotChatSettingsPage(props: {
                   <button
                     type="button"
                     aria-label={`管理 ${BOT_LABELS[entry.provider].label}，${entry.copy.label}`}
+                    aria-describedby={`settings-remote-access-${entry.provider}-summary`}
                     onClick={() => openChannel(entry.provider)}
                   />
                 )}
@@ -508,7 +509,9 @@ export function BotChatSettingsPage(props: {
                     {BOT_LABELS[entry.provider].label}
                     <Chip dot size="sm" variant={entry.copy.tone}>{entry.copy.label}</Chip>
                   </ItemTitle>
-                  <ItemDescription>{botOverviewDetail(entry.status, entry.currentError, entry.copy.detail, entry.liveOperational)}</ItemDescription>
+                  <ItemDescription id={`settings-remote-access-${entry.provider}-summary`}>
+                    {botOverviewDetail(entry.status, entry.currentError, entry.copy.detail, entry.liveOperational)}
+                  </ItemDescription>
                 </ItemContent>
                 <ItemActions><ChevronRight size={16} aria-hidden="true" /></ItemActions>
               </Item>

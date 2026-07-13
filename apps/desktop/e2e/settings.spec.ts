@@ -90,6 +90,7 @@ test('remote access prioritizes a configured channel that needs attention', asyn
   const activeChannels = page.getByRole('region', { name: '正在使用' }).getByRole('button');
   await expect(activeChannels).toHaveCount(2);
   await expect(activeChannels.nth(0)).toHaveAccessibleName(/管理 Discord/);
+  await expect(activeChannels.nth(0)).toHaveAccessibleDescription(runtimeError);
   await expect(activeChannels.nth(1)).toHaveAccessibleName(/管理 Telegram/);
 
   await activeChannels.nth(0).click();
