@@ -113,14 +113,14 @@ test('adds Tencent Coding Plan with its exact access path and shared Tencent Clo
   await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('tc-code-latest');
   await page.getByRole('button', { name: '保存供应商' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Tencent Coding Plan', exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Tencent Coding Plan (China)', exact: true }).first()).toBeVisible();
   const detailMark = page.locator(
     '.providerSubpageHeader .providerLogo[data-provider="tencent-coding-plan"] .providerAssetMask',
   );
   await expect(detailMark).toBeVisible();
   expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
   await expect(page.getByText('tc-code-latest', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: 'Tencent Coding Plan 模型密钥' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
 });
 
 test('adds xAI with its exact snapshot model and API-key credential field', async ({ window: page }) => {
