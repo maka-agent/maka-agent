@@ -96,6 +96,11 @@ describe('permission composer takeover', () => {
     assert.match(prompt, /variant="ghost"[\s\S]*?props\.onStop/);
     assert.match(prompt, /ref=\{denyButtonRef\}[\s\S]*?variant="ghost"[\s\S]*?submit\('deny'\)/);
     assert.match(prompt, /variant=\{isDestructive \? 'destructive' : 'default'\}[\s\S]*?submit\('allow'\)/);
+    assert.doesNotMatch(
+      prompt,
+      /className="maka-button"/,
+      'shared Button variants must not inherit the retired CSS button shell',
+    );
     assert.equal(
       prompt.match(/size="md"/g)?.length,
       3,

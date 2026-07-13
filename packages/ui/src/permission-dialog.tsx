@@ -156,7 +156,6 @@ export function PermissionPrompt(props: {
             </div>
             <div className="maka-permission-decision-actions" role="group" aria-label="权限操作">
               <UiButton
-                className="maka-button"
                 variant="ghost"
                 size="md"
                 type="button"
@@ -167,7 +166,6 @@ export function PermissionPrompt(props: {
               </UiButton>
               <UiButton
                 ref={denyButtonRef}
-                className="maka-button"
                 variant="ghost"
                 size="md"
                 type="button"
@@ -177,7 +175,6 @@ export function PermissionPrompt(props: {
                 拒绝操作
               </UiButton>
               <UiButton
-                className="maka-button"
                 variant={isDestructive ? 'destructive' : 'default'}
                 size="md"
                 type="button"
