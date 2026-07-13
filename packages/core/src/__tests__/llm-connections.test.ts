@@ -25,7 +25,7 @@ import {
 } from '../llm-connections.js';
 
 describe('provider compatibility contract', () => {
-  it('keeps persisted provider ids and existing provider ordering stable', () => {
+  it('exposes only supported first-class provider ids in stable order', () => {
     assert.deepEqual(Object.keys(PROVIDER_DEFAULTS), [
       'anthropic',
       'kimi-coding-plan',
@@ -37,7 +37,6 @@ describe('provider compatibility contract', () => {
       'MiniMax',
       'MiniMax-cn',
       'siliconflow',
-      'litellm',
       'ollama',
       'openai-compatible',
       'claude-subscription',
@@ -70,7 +69,6 @@ describe('provider compatibility contract', () => {
       'openai',
       'google',
       'ollama',
-      'litellm',
       'openai-compatible',
     ]);
   });
@@ -283,19 +281,6 @@ describe('provider URL defaults', () => {
     assert.equal(PROVIDER_DEFAULTS['codex-subscription'].description, 'ChatGPT/Codex account OAuth path for OpenAI Responses models.');
   });
 
-  it('defines LiteLLM as an OpenAI-protocol custom gateway with localhost default', () => {
-    const litellm = PROVIDER_DEFAULTS['litellm'];
-    assert.equal(litellm.label, 'LiteLLM');
-    assert.equal(litellm.protocol, 'openai');
-    assert.equal(litellm.category, 'custom');
-    assert.equal(litellm.baseUrl, 'http://localhost:4000/v1');
-    assert.equal(litellm.authKind, 'api_key');
-    assert.equal(litellm.backendKind, 'ai-sdk');
-    assert.equal(litellm.status, 'ready');
-    assert.equal(litellm.catalogBadge, 'Gateway');
-    assert.deepEqual(litellm.fallbackModels, []);
-  });
-
   it('keeps Kimi Coding Plan separate from Moonshot API key access', () => {
     assert.equal(PROVIDER_DEFAULTS['kimi-coding-plan'].baseUrl, 'https://api.kimi.com/coding/v1');
     assert.equal(PROVIDER_DEFAULTS['kimi-coding-plan'].signupUrl, 'https://www.kimi.com/code/console');
@@ -345,19 +330,6 @@ describe('persistedBaseUrl', () => {
     assert.equal(persistedBaseUrl('openai', custom), custom);
     assert.equal(persistedBaseUrl('openai', `  ${custom}  `), custom, 'whitespace is trimmed');
     assert.equal(persistedBaseUrl('google', 'https://my-gemini-proxy.example.com/v1beta'), 'https://my-gemini-proxy.example.com/v1beta');
-  });
-
-  it('collapses litellm default localhost URL to undefined (no override to persist)', () => {
-    assert.equal(
-      persistedBaseUrl('litellm', 'http://localhost:4000/v1'),
-      undefined,
-      'litellm default must not be persisted as an override',
-    );
-  });
-
-  it('persists a custom litellm proxy URL as a real override', () => {
-    const custom = 'https://litellm.company.internal/v1';
-    assert.equal(persistedBaseUrl('litellm', custom), custom);
   });
 
   it('persists a custom override for openai-compatible (whose default is the empty string)', () => {

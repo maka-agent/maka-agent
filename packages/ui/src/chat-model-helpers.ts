@@ -53,7 +53,6 @@ const PROVIDER_SHORT_LABEL: Partial<Record<ProviderType, string>> = {
   google: 'Google',
   deepseek: 'DeepSeek',
   moonshot: 'Moonshot',
-  litellm: 'LiteLLM',
   ollama: 'Ollama',
   'kimi-coding-plan': 'Kimi',
   'zai-coding-plan': 'Z.AI',
