@@ -13,6 +13,7 @@ import {
   findLocalMemoryEntryDraftRange,
   normalizeLocalMemorySettings,
   parseLocalMemoryMarkdown,
+  readLocalMemoryForAgent,
   rejectLocalMemoryProposalDraft,
   setLocalMemoryEntryStatusDraft,
   stableLocalMemoryEntryId,
@@ -35,6 +36,145 @@ describe('local MEMORY.md contract', () => {
       enabled: false,
       agentReadEnabled: false,
     });
+  });
+
+  it('enforces workspace, session, status, and legacy scope on model-visible reads', () => {
+    const memory = [
+      '# Maka Memory',
+      '',
+      '## Workspace',
+      '<!-- maka-memory: id=workspace status=active scope=workspace -->',
+      'workspace-visible',
+      '',
+      '## Session A',
+      '<!-- maka-memory: id=session-a status=active scope=session sessionId=session-a -->',
+      'session-a-visible',
+      '',
+      '## Session B',
+      '<!-- maka-memory: id=session-b status=active scope=session sessionId=session-b -->',
+      'session-b-private',
+      '',
+      '## Owner Missing',
+      '<!-- maka-memory: id=session-missing status=active scope=session -->',
+      'owner-missing-private',
+      '',
+      '## Archived',
+      '<!-- maka-memory: id=archived status=archived scope=workspace -->',
+      'archived-private',
+      '',
+      '## Legacy',
+      '<!-- maka-memory: id=legacy status=active -->',
+      'legacy-compatible',
+    ].join('\n');
+    const result = readLocalMemoryForAgent(memory, readContext());
+    assert.equal(result.status, 'visible');
+    if (result.status !== 'visible') return;
+    assert.match(result.promptBody, /workspace-visible/);
+    assert.match(result.promptBody, /session-a-visible/);
+    assert.match(result.promptBody, /legacy-compatible/);
+    assert.doesNotMatch(result.promptBody, /session-b-private|owner-missing-private|archived-private/);
+    assert.deepEqual(result.trace.decisions.map((entry) => entry.decision), [
+      'selected_workspace',
+      'selected_session',
+      'rejected_other_session',
+      'rejected_session_owner_missing',
+      'selected_legacy_workspace_compat',
+    ]);
+    assert.doesNotMatch(
+      JSON.stringify(result.trace),
+      /workspace-visible|session-a-visible|session-b-private|owner-missing-private|archived-private|legacy-compatible/,
+    );
+
+    const strictLegacy = readLocalMemoryForAgent(memory, { ...readContext(), legacyScopePolicy: 'deny' });
+    assert.equal(strictLegacy.trace.decisions.at(-1)?.decision, 'rejected_legacy_scope');
+  });
+
+  it('returns typed empty reads before parsing when memory is disabled, private, or cross-workspace', () => {
+    const cases = [
+      [{ enabled: false }, 'disabled'],
+      [{ agentReadEnabled: false }, 'agent_read_disabled'],
+      [{ incognitoActive: true }, 'incognito_active'],
+      [{ workspaceRoot: '/workspace/b' }, 'workspace_mismatch'],
+    ] as const;
+    for (const [patch, reason] of cases) {
+      const result = readLocalMemoryForAgent('## Secret\nPRIVATE_TEST_SECRET', { ...readContext(), ...patch });
+      assert.equal(result.status, 'empty');
+      if (result.status === 'empty') assert.equal(result.reason, reason);
+      assert.equal(result.trace.totalActiveEntries, 0);
+      assert.doesNotMatch(JSON.stringify(result.trace), /PRIVATE_TEST_SECRET/);
+    }
+  });
+
+  it('uses current metadata as visibility authority without refreshing snapshotted content', () => {
+    const snapshot = [
+      '# Maka Memory',
+      '',
+      '## Kept content',
+      '<!-- maka-memory: id=kept status=active scope=workspace -->',
+      'Original content.',
+      '',
+      '## Archived later',
+      '<!-- maka-memory: id=archived status=active scope=workspace -->',
+      'Must disappear.',
+    ].join('\n');
+    const current = [
+      '# Maka Memory',
+      '',
+      '## Kept content',
+      '<!-- maka-memory: id=kept status=active scope=workspace -->',
+      'Edited after backend creation.',
+      '',
+      '## Archived later',
+      '<!-- maka-memory: id=archived status=archived scope=workspace -->',
+      'Must disappear.',
+    ].join('\n');
+
+    const read = readLocalMemoryForAgent(snapshot, readContext(), current);
+    assert.equal(read.status, 'visible');
+    if (read.status !== 'visible') return;
+    assert.match(read.promptBody, /Original content/);
+    assert.doesNotMatch(read.promptBody, /Edited after backend creation|Must disappear/);
+    assert.ok(read.trace.decisions.some((item) => item.decision === 'rejected_not_current_or_active'));
+  });
+
+  it('fails closed on duplicate ids instead of sharing one authority decision across entries', () => {
+    const duplicateIds = [
+      '# Maka Memory',
+      '',
+      '## Session A',
+      '<!-- maka-memory: id=duplicate status=active scope=session sessionId=session-a -->',
+      'session-a-private',
+      '',
+      '## Session B',
+      '<!-- maka-memory: id=duplicate status=active scope=session sessionId=session-b -->',
+      'session-b-private',
+    ].join('\n');
+
+    for (const sessionId of ['session-a', 'session-b']) {
+      const read = readLocalMemoryForAgent(duplicateIds, { ...readContext(), sessionId });
+      assert.equal(read.status, 'empty');
+      if (read.status === 'empty') assert.equal(read.reason, 'ambiguous_entry_ids');
+      assert.doesNotMatch(JSON.stringify(read.trace), /session-a-private|session-b-private/);
+    }
+  });
+
+  it('uses current scope ownership when a snapshotted entry changes sessions', () => {
+    const snapshot = [
+      '## Private',
+      '<!-- maka-memory: id=private status=active scope=session sessionId=session-a -->',
+      'private-content',
+    ].join('\n');
+    const current = [
+      '## Private',
+      '<!-- maka-memory: id=private status=active scope=session sessionId=session-b -->',
+      'private-content',
+    ].join('\n');
+
+    const sessionA = readLocalMemoryForAgent(snapshot, readContext(), current);
+    const sessionB = readLocalMemoryForAgent(snapshot, { ...readContext(), sessionId: 'session-b' }, current);
+    assert.equal(sessionA.status, 'empty');
+    assert.equal(sessionB.status, 'visible');
+    if (sessionB.status === 'visible') assert.match(sessionB.promptBody, /private-content/);
   });
 
   it('parses heading entries and best-effort metadata comments', () => {
@@ -454,3 +594,14 @@ describe('local MEMORY.md contract', () => {
     assert.equal(parsed.entries[0]?.origin, 'manual');
   });
 });
+
+function readContext() {
+  return {
+    workspaceRoot: '/workspace/a',
+    sourceWorkspaceRoot: '/workspace/a',
+    sessionId: 'session-a',
+    enabled: true,
+    agentReadEnabled: true,
+    incognitoActive: false,
+  } as const;
+}

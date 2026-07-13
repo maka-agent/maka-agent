@@ -25,6 +25,7 @@ export interface LocalMemoryEntryPreview {
   readonly title: string;
   readonly content: string;
   readonly scope?: LocalMemoryScope;
+  readonly sessionId?: string;
   readonly proposalId?: string;
   readonly sourceTurnId?: string;
   readonly createdAt?: number;
@@ -175,12 +176,58 @@ export interface LocalMemoryEntryDraft {
   readonly status: LocalMemoryEntryStatus;
   readonly content: string;
   readonly scope?: LocalMemoryScope;
+  readonly sessionId?: string;
   readonly proposalId?: string;
   readonly sourceTurnId?: string;
 }
 
 export const LOCAL_MEMORY_MAX_BYTES = 128 * 1024;
 export const LOCAL_MEMORY_PROMPT_MAX_CHARS = 12_000;
+
+export type LocalMemoryLegacyScopePolicy = 'workspace_compat' | 'deny';
+export type LocalMemoryReadDecision =
+  | 'selected_workspace'
+  | 'selected_session'
+  | 'selected_legacy_workspace_compat'
+  | 'rejected_other_session'
+  | 'rejected_session_owner_missing'
+  | 'rejected_not_current_or_active'
+  | 'rejected_legacy_scope';
+
+export interface LocalMemoryAgentReadContext {
+  readonly workspaceRoot: string;
+  readonly sourceWorkspaceRoot: string;
+  readonly sessionId: string;
+  readonly enabled: boolean;
+  readonly agentReadEnabled: boolean;
+  readonly incognitoActive: boolean;
+  readonly legacyScopePolicy?: LocalMemoryLegacyScopePolicy;
+}
+
+export interface LocalMemoryReadTrace {
+  readonly schemaVersion: 'maka.local_memory.read_trace.v1';
+  readonly status: 'visible' | 'empty';
+  readonly reason?: LocalMemoryAgentReadEmptyReason;
+  readonly totalActiveEntries: number;
+  readonly selectedEntries: number;
+  readonly decisions: ReadonlyArray<{
+    readonly entryRef: string;
+    readonly decision: LocalMemoryReadDecision;
+  }>;
+}
+
+export type LocalMemoryAgentReadEmptyReason =
+  | 'disabled'
+  | 'agent_read_disabled'
+  | 'incognito_active'
+  | 'workspace_mismatch'
+  | 'safe_mode'
+  | 'ambiguous_entry_ids'
+  | 'no_visible_entries';
+
+export type LocalMemoryAgentReadResult =
+  | { readonly status: 'visible'; readonly promptBody: string; readonly trace: LocalMemoryReadTrace }
+  | { readonly status: 'empty'; readonly reason: LocalMemoryAgentReadEmptyReason; readonly trace: LocalMemoryReadTrace };
 
 const SHA256_K = [
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -228,8 +275,108 @@ export function parseLocalMemoryMarkdown(input: string): LocalMemoryParseResult 
 export function buildLocalMemoryPromptBody(input: string): string | undefined {
   const parsed = parseLocalMemoryMarkdownRaw(input);
   if (parsed.safeMode || parsed.activeEntries.length === 0) return undefined;
+  return renderLocalMemoryPromptEntries(parsed.activeEntries);
+}
 
-  const blocks = parsed.activeEntries.map((entry) => {
+export function readLocalMemoryForAgent(
+  input: string,
+  context: LocalMemoryAgentReadContext,
+  visibilityAuthorityInput?: string,
+): LocalMemoryAgentReadResult {
+  const blocked = localMemoryReadGate(context);
+  if (blocked) return emptyMemoryRead(blocked);
+
+  const parsed = parseLocalMemoryMarkdownRaw(input);
+  if (parsed.safeMode) return emptyMemoryRead('safe_mode');
+  const authorityParsed = visibilityAuthorityInput === undefined
+    ? parsed
+    : parseLocalMemoryMarkdownRaw(visibilityAuthorityInput);
+  if (authorityParsed.safeMode) return emptyMemoryRead('safe_mode');
+  if (hasDuplicateEntryIds(parsed.entries) || hasDuplicateEntryIds(authorityParsed.entries)) {
+    return emptyMemoryRead('ambiguous_entry_ids');
+  }
+  const authorityById = new Map(authorityParsed.entries.map((entry) => [entry.id, entry]));
+  const decisions: LocalMemoryReadTrace['decisions'][number][] = [];
+  const selected: LocalMemoryRawEntry[] = [];
+  const legacyPolicy = context.legacyScopePolicy ?? 'workspace_compat';
+  for (const entry of parsed.activeEntries) {
+    const authorityEntry = authorityById.get(entry.id);
+    let decision: LocalMemoryReadDecision;
+    if (!authorityEntry || authorityEntry.status !== 'active') {
+      decision = 'rejected_not_current_or_active';
+    } else if (authorityEntry.scope === 'workspace') {
+      decision = 'selected_workspace';
+      selected.push(entry);
+    } else if (authorityEntry.scope === 'session' && authorityEntry.sessionId === context.sessionId) {
+      decision = 'selected_session';
+      selected.push(entry);
+    } else if (authorityEntry.scope === 'session' && !authorityEntry.sessionId) {
+      decision = 'rejected_session_owner_missing';
+    } else if (authorityEntry.scope === 'session') {
+      decision = 'rejected_other_session';
+    } else if (legacyPolicy === 'workspace_compat') {
+      decision = 'selected_legacy_workspace_compat';
+      selected.push(entry);
+    } else {
+      decision = 'rejected_legacy_scope';
+    }
+    decisions.push({ entryRef: `sha256:${sha256Hex(entry.id)}`, decision });
+  }
+  const traceBase = {
+    schemaVersion: 'maka.local_memory.read_trace.v1' as const,
+    totalActiveEntries: parsed.activeEntries.length,
+    selectedEntries: selected.length,
+    decisions,
+  };
+  if (selected.length === 0) {
+    return {
+      status: 'empty',
+      reason: 'no_visible_entries',
+      trace: { ...traceBase, status: 'empty', reason: 'no_visible_entries' },
+    };
+  }
+  const promptBody = renderLocalMemoryPromptEntries(selected);
+  if (!promptBody) return emptyMemoryRead('no_visible_entries', traceBase);
+  return { status: 'visible', promptBody, trace: { ...traceBase, status: 'visible' } };
+}
+
+function hasDuplicateEntryIds(entries: readonly LocalMemoryRawEntry[]): boolean {
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    if (ids.has(entry.id)) return true;
+    ids.add(entry.id);
+  }
+  return false;
+}
+
+function localMemoryReadGate(context: LocalMemoryAgentReadContext): LocalMemoryAgentReadEmptyReason | undefined {
+  if (!context.enabled) return 'disabled';
+  if (!context.agentReadEnabled) return 'agent_read_disabled';
+  if (context.incognitoActive) return 'incognito_active';
+  if (context.workspaceRoot !== context.sourceWorkspaceRoot) return 'workspace_mismatch';
+  return undefined;
+}
+
+function emptyMemoryRead(
+  reason: LocalMemoryAgentReadEmptyReason,
+  trace?: Pick<LocalMemoryReadTrace, 'schemaVersion' | 'totalActiveEntries' | 'selectedEntries' | 'decisions'>,
+): LocalMemoryAgentReadResult {
+  return {
+    status: 'empty',
+    reason,
+    trace: {
+      schemaVersion: 'maka.local_memory.read_trace.v1',
+      status: 'empty',
+      reason,
+      totalActiveEntries: trace?.totalActiveEntries ?? 0,
+      selectedEntries: trace?.selectedEntries ?? 0,
+      decisions: trace?.decisions ?? [],
+    },
+  };
+}
+
+function renderLocalMemoryPromptEntries(entries: readonly LocalMemoryRawEntry[]): string | undefined {
+  const blocks = entries.map((entry) => {
     const lines = [`## ${entry.title}`];
     if (entry.tags.length > 0) lines.push(`Tags: ${entry.tags.join(', ')}`);
     lines.push(redactSecrets(entry.promptContent));
@@ -513,6 +660,7 @@ export function findLocalMemoryEntryDraft(input: string, entryId: string): Local
     status: normalizeEntryStatus(section.meta?.status, false),
     content: section.content,
     scope: normalizeScope(section.meta?.scope),
+    ...(section.meta?.sessionId ? { sessionId: section.meta.sessionId } : {}),
     ...(section.meta?.proposalId ? { proposalId: section.meta.proposalId } : {}),
     ...(section.meta?.sourceTurnId ? { sourceTurnId: section.meta.sourceTurnId } : {}),
   };
@@ -540,6 +688,7 @@ function parseLocalMemoryMarkdownRaw(input: string): LocalMemoryRawParseResult {
       const source = normalizeSource(current.meta?.source, origin);
       const status = normalizeEntryStatus(current.meta?.status, false);
       const scope = normalizeScope(current.meta?.scope);
+      const sessionId = current.meta?.sessionId;
       const createdAt = parseFiniteNumber(current.meta?.createdAt);
       const updatedAt = parseFiniteNumber(current.meta?.updatedAt);
       const proposedAt = parseFiniteNumber(current.meta?.proposedAt);
@@ -558,6 +707,7 @@ function parseLocalMemoryMarkdownRaw(input: string): LocalMemoryRawParseResult {
         content: content.slice(0, 500),
         promptContent: content,
         scope,
+        ...(sessionId ? { sessionId } : {}),
         ...(current.meta?.proposalId ? { proposalId: current.meta.proposalId } : {}),
         ...(current.meta?.sourceTurnId ? { sourceTurnId: current.meta.sourceTurnId } : {}),
         ...(Number.isFinite(createdAt) ? { createdAt } : {}),
@@ -741,6 +891,7 @@ function serializeMetaComment(meta: Record<string, string>): string {
     'archivedAt',
     'rejectedAt',
     'scope',
+    'sessionId',
     'approvedBy',
     'approvalSurface',
     'sourceTurnId',
@@ -864,8 +1015,8 @@ function normalizeEntryStatus(input: string | undefined, missingIsPending: boole
   }
 }
 
-function normalizeScope(input: string | undefined): LocalMemoryScope {
-  return input === 'session' ? 'session' : 'workspace';
+function normalizeScope(input: string | undefined): LocalMemoryScope | undefined {
+  return input === 'session' || input === 'workspace' ? input : undefined;
 }
 
 function normalizeApprovalSurface(input: string | undefined): LocalMemoryEntryPreview['approvalSurface'] | undefined {

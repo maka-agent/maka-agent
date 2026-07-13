@@ -9,6 +9,7 @@ import {
   normalizeMemoryContent,
   normalizeMemoryScope,
   parseLocalMemoryMarkdown,
+  readLocalMemoryForAgent,
   rejectLocalMemoryProposalDraft,
   redactSecrets,
   setLocalMemoryEntryStatusDraft,
@@ -18,6 +19,7 @@ import {
   type AppSettings,
   type LocalMemoryBackupInfo,
   type LocalMemoryEntryPreview,
+  type LocalMemoryAgentReadResult,
   type LocalMemoryScope,
   type LocalMemoryState,
 } from '@maka/core';
@@ -49,6 +51,13 @@ export interface LocalMemoryRememberInput {
   scope?: LocalMemoryScope;
 }
 
+export interface LocalMemoryAgentReadInput {
+  workspaceRoot: string;
+  sessionId: string;
+  contentSnapshot?: string;
+  legacyScopePolicy?: 'workspace_compat' | 'deny';
+}
+
 export type LocalMemoryPromptUpdateAction =
   | 'approved'
   | 'remembered'
@@ -72,6 +81,7 @@ export class LocalMemoryService {
   private readonly now: () => number;
   private queue: Promise<unknown> = Promise.resolve();
   private pendingPromptUpdates: LocalMemoryPromptUpdate[] = [];
+  private agentReadTraces: LocalMemoryAgentReadResult['trace'][] = [];
 
   constructor(private readonly deps: LocalMemoryServiceDeps) {
     this.dir = join(deps.workspaceRoot, 'memory');
@@ -84,6 +94,10 @@ export class LocalMemoryService {
     const updates = this.pendingPromptUpdates;
     this.pendingPromptUpdates = [];
     return updates;
+  }
+
+  listAgentReadTraces(): ReadonlyArray<LocalMemoryAgentReadResult['trace']> {
+    return [...this.agentReadTraces];
   }
 
   async getState(): Promise<LocalMemoryState> {
@@ -175,6 +189,53 @@ export class LocalMemoryService {
         reason: error instanceof Error ? error.message : 'memory read failed',
       };
     }
+  }
+
+  async captureAgentMemoryContent(): Promise<string | undefined> {
+    const state = await this.getState();
+    return state.status === 'ok' ? state.content : undefined;
+  }
+
+  async readForAgent(input: LocalMemoryAgentReadInput): Promise<LocalMemoryAgentReadResult> {
+    const [settingsBefore, privacyBefore] = await Promise.all([
+      this.deps.getSettings(),
+      this.deps.getPrivacyContext(),
+    ]);
+    const beforeContext = {
+      workspaceRoot: input.workspaceRoot,
+      sourceWorkspaceRoot: this.deps.workspaceRoot,
+      sessionId: input.sessionId,
+      enabled: settingsBefore.localMemory.enabled,
+      agentReadEnabled: settingsBefore.localMemory.agentReadEnabled,
+      incognitoActive: privacyBefore.incognitoActive,
+      legacyScopePolicy: input.legacyScopePolicy,
+    } as const;
+    const preflight = readLocalMemoryForAgent('', beforeContext);
+    if (preflight.status === 'empty' && preflight.reason !== 'no_visible_entries') {
+      return this.recordAgentRead(preflight);
+    }
+
+    let currentContent = '';
+    try {
+      await this.ensure();
+      currentContent = await readFile(this.file, 'utf8');
+    } catch {
+      currentContent = '';
+    }
+    const [settingsAfter, privacyAfter] = await Promise.all([
+      this.deps.getSettings(),
+      this.deps.getPrivacyContext(),
+    ]);
+    const result = readLocalMemoryForAgent(input.contentSnapshot ?? currentContent, {
+      workspaceRoot: input.workspaceRoot,
+      sourceWorkspaceRoot: this.deps.workspaceRoot,
+      sessionId: input.sessionId,
+      enabled: settingsAfter.localMemory.enabled,
+      agentReadEnabled: settingsAfter.localMemory.agentReadEnabled,
+      incognitoActive: privacyAfter.incognitoActive,
+      legacyScopePolicy: input.legacyScopePolicy,
+    }, input.contentSnapshot === undefined ? undefined : currentContent);
+    return this.recordAgentRead(result);
   }
 
   async save(content: string): Promise<LocalMemoryState> {
@@ -713,6 +774,12 @@ export class LocalMemoryService {
 
   private async mutationBlocked(reason: string, message: string): Promise<LocalMemoryMutationBlocked> {
     return { ok: false, state: await this.getState(), reason, message };
+  }
+
+  private recordAgentRead(result: LocalMemoryAgentReadResult): LocalMemoryAgentReadResult {
+    this.agentReadTraces.push(result.trace);
+    if (this.agentReadTraces.length > 100) this.agentReadTraces.shift();
+    return result;
   }
 
   private async backup(suffix: string): Promise<void> {

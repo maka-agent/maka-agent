@@ -69,10 +69,10 @@ describe('IPC surface contract', () => {
     assert.match(main, /new LocalMemoryService\([\s\S]*getPrivacyContext: getWorkspacePrivacyContext/);
     assert.doesNotMatch(main, /defaultWorkspacePrivacyContext/);
 
-    assert.match(main, /const memoryPromptSnapshot = await systemPromptService\.buildLocalMemoryPromptFragment\(\)/);
-    assert.match(main, /systemPrompt: \(\{ cwd \}\) => systemPromptService\.buildBackendSystemPrompt\(ctx\.header, cwd, \{[\s\S]*childInstruction: ctx\.systemPrompt/);
+    assert.match(main, /const memoryContentSnapshot = await localMemory\.captureAgentMemoryContent\(\)/);
+    assert.match(main, /systemPrompt: \(\{ cwd \}\) => systemPromptService\.buildBackendSystemPrompt\(ctx\.header, cwd, \{[\s\S]*memoryContentSnapshot,[\s\S]*childInstruction: ctx\.systemPrompt/);
     assert.match(combinedMainProcess, /async function buildBackendSystemPrompt/);
-    assert.match(combinedMainProcess, /childInstruction[\s\S]*memoryFragment: null, includePersonalization: false/);
+    assert.match(combinedMainProcess, /childInstruction[\s\S]*memoryContentSnapshot: null, includePersonalization: false/);
     assert.match(combinedMainProcess, /子代理必须继承当前会话的权限、隐私、工作区和技能约束/);
     assert.match(combinedMainProcess, /子代理不会隐式继承父会话的本地记忆或个性化上下文/);
     assert.match(combinedMainProcess, /consumePendingPromptUpdates\(\)/);

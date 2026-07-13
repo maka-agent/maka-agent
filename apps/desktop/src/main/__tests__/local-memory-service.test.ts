@@ -28,6 +28,141 @@ function makeService(now = 1_700_000_000_000) {
 }
 
 describe('LocalMemoryService', () => {
+  it('enforces agent read context before and after backend snapshot creation', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-memory-read-gates-'));
+    let settings = {
+      ...createDefaultSettings(),
+      localMemory: { enabled: true, agentReadEnabled: true },
+    };
+    let incognitoActive = false;
+    const deps = {
+      workspaceRoot,
+      getSettings: async () => settings,
+      updateSettings: async (patch: { localMemory: Partial<AppSettings['localMemory']> }) => {
+        settings = { ...settings, localMemory: { ...settings.localMemory, ...patch.localMemory } };
+        return settings;
+      },
+      getPrivacyContext: async () => ({ incognitoActive }),
+    };
+    const service = new LocalMemoryService(deps);
+    await service.getState();
+    await service.save(agentReadFixture());
+    const snapshot = await service.captureAgentMemoryContent();
+    assert.ok(snapshot);
+
+    const sessionA = await service.readForAgent({ workspaceRoot, sessionId: 'session-a', contentSnapshot: snapshot });
+    assert.equal(sessionA.status, 'visible');
+    if (sessionA.status === 'visible') {
+      assert.match(sessionA.promptBody, /workspace-visible|session-a-visible/);
+      assert.doesNotMatch(sessionA.promptBody, /session-b-private/);
+      assert.doesNotMatch(JSON.stringify(sessionA.trace), /workspace-visible|session-a-visible|session-b-private/);
+    }
+
+    incognitoActive = true;
+    const afterCreation = await service.readForAgent({ workspaceRoot, sessionId: 'session-a', contentSnapshot: snapshot });
+    assert.equal(afterCreation.status, 'empty');
+    if (afterCreation.status === 'empty') assert.equal(afterCreation.reason, 'incognito_active');
+
+    const beforeCreation = await service.captureAgentMemoryContent();
+    assert.equal(beforeCreation, undefined);
+    incognitoActive = false;
+    const restart = new LocalMemoryService(deps);
+    const restartedRead = await restart.readForAgent({ workspaceRoot, sessionId: 'session-b' });
+    assert.equal(restartedRead.status, 'visible');
+    if (restartedRead.status === 'visible') {
+      assert.match(restartedRead.promptBody, /session-b-private/);
+      assert.doesNotMatch(restartedRead.promptBody, /session-a-visible/);
+    }
+
+    const crossWorkspace = await restart.readForAgent({ workspaceRoot: `${workspaceRoot}-other`, sessionId: 'session-b' });
+    assert.equal(crossWorkspace.status, 'empty');
+    if (crossWorkspace.status === 'empty') assert.equal(crossWorkspace.reason, 'workspace_mismatch');
+  });
+
+  it('fails closed when privacy status changes while an agent read is in progress', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-memory-read-race-'));
+    const settings = {
+      ...createDefaultSettings(),
+      localMemory: { enabled: true, agentReadEnabled: true },
+    };
+    let privacyReads = 0;
+    const service = new LocalMemoryService({
+      workspaceRoot,
+      getSettings: async () => settings,
+      updateSettings: async () => settings,
+      getPrivacyContext: async () => ({ incognitoActive: ++privacyReads >= 2 }),
+    });
+    const result = await service.readForAgent({
+      workspaceRoot,
+      sessionId: 'session-a',
+      contentSnapshot: agentReadFixture(),
+    });
+    assert.equal(result.status, 'empty');
+    if (result.status === 'empty') assert.equal(result.reason, 'incognito_active');
+  });
+
+  it('applies current entry status to a backend content snapshot and retains privacy-safe traces', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-memory-status-authority-'));
+    let settings = {
+      ...createDefaultSettings(),
+      localMemory: { enabled: true, agentReadEnabled: true },
+    };
+    const service = new LocalMemoryService({
+      workspaceRoot,
+      getSettings: async () => settings,
+      updateSettings: async (patch: { localMemory: Partial<AppSettings['localMemory']> }) => {
+        settings = { ...settings, localMemory: { ...settings.localMemory, ...patch.localMemory } };
+        return settings;
+      },
+      getPrivacyContext: async () => ({ incognitoActive: false }),
+    });
+    await service.getState();
+    await service.save(agentReadFixture());
+    const snapshot = await service.captureAgentMemoryContent();
+    assert.ok(snapshot);
+
+    await service.archiveEntry('session-a');
+    const read = await service.readForAgent({ workspaceRoot, sessionId: 'session-a', contentSnapshot: snapshot });
+    assert.equal(read.status, 'visible');
+    if (read.status === 'visible') {
+      assert.match(read.promptBody, /workspace-visible/);
+      assert.doesNotMatch(read.promptBody, /session-a-visible/);
+    }
+    const traces = service.listAgentReadTraces();
+    assert.equal(traces.length, 1);
+    assert.ok(traces[0]?.decisions.some((item) => item.decision === 'rejected_not_current_or_active'));
+    assert.doesNotMatch(JSON.stringify(traces), /workspace-visible|session-a-visible|session-b-private/);
+  });
+
+  it('bounds agent read traces to the newest 100 decisions', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-memory-trace-cap-'));
+    let settings = {
+      ...createDefaultSettings(),
+      localMemory: { enabled: false, agentReadEnabled: true },
+    };
+    let incognitoActive = false;
+    const service = new LocalMemoryService({
+      workspaceRoot,
+      getSettings: async () => settings,
+      updateSettings: async (patch: { localMemory: Partial<AppSettings['localMemory']> }) => {
+        settings = { ...settings, localMemory: { ...settings.localMemory, ...patch.localMemory } };
+        return settings;
+      },
+      getPrivacyContext: async () => ({ incognitoActive }),
+    });
+
+    await service.readForAgent({ workspaceRoot, sessionId: 'session-a' });
+    settings = { ...settings, localMemory: { enabled: true, agentReadEnabled: true } };
+    incognitoActive = true;
+    for (let index = 0; index < 100; index += 1) {
+      await service.readForAgent({ workspaceRoot, sessionId: 'session-a' });
+    }
+
+    const traces = service.listAgentReadTraces();
+    assert.equal(traces.length, 100);
+    assert.ok(traces.every((trace) => trace.reason === 'incognito_active'));
+  });
+
   it('creates MEMORY.md with 0700 directory and 0600 file', async () => {
     const { service } = await makeService()();
     const state = await service.getState();
@@ -108,7 +243,7 @@ describe('LocalMemoryService', () => {
   });
 
   it('can restore the reset backup as the latest previous MEMORY.md version', async () => {
-    const { service } = await makeService(1_700_000_000_000)();
+    const { service, workspaceRoot } = await makeService(1_700_000_000_000)();
     await service.save([
       '# Maka Memory',
       '',
@@ -571,3 +706,21 @@ describe('LocalMemoryService', () => {
     assert.match(state.reason ?? '', /outside the workspace/);
   });
 });
+
+function agentReadFixture(): string {
+  return [
+    '# Maka Memory',
+    '',
+    '## Workspace',
+    '<!-- maka-memory: id=workspace status=active scope=workspace -->',
+    'workspace-visible',
+    '',
+    '## Session A',
+    '<!-- maka-memory: id=session-a status=active scope=session sessionId=session-a -->',
+    'session-a-visible',
+    '',
+    '## Session B',
+    '<!-- maka-memory: id=session-b status=active scope=session sessionId=session-b -->',
+    'session-b-private',
+  ].join('\n');
+}
