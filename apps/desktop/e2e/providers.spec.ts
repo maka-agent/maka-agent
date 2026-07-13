@@ -455,6 +455,7 @@ test('adds Hugging Face with its exact routed model, token field, and shared off
   await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
   await page.getByRole('button', { name: '添加服务商' }).click();
 
+  await page.getByRole('tab', { name: '聚合服务', exact: true }).click();
   await page.getByPlaceholder('搜索服务商').fill('Hugging Face');
   const catalogMark = page.locator(
     '.providerCatalogRow[data-provider="huggingface"] .providerLogo .providerAssetMask',
