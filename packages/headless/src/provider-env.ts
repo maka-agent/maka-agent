@@ -1,0 +1,45 @@
+import type { ProviderType } from '@maka/core';
+
+export interface ProviderCredentialEnv {
+  apiKeys: readonly string[];
+  apiKeyFile: string;
+  baseUrls: readonly string[];
+}
+
+const PROVIDER_CREDENTIAL_ENV = {
+  anthropic: env('ANTHROPIC', ['ANTHROPIC_BASE_URL']),
+  'kimi-coding-plan': env('ANTHROPIC'),
+  openai: env('OPENAI', ['OPENAI_BASE_URL']),
+  google: env('GOOGLE', ['GOOGLE_BASE_URL']),
+  deepseek: env('DEEPSEEK', ['DEEPSEEK_BASE_URL', 'OPENAI_BASE_URL'], ['OPENAI_API_KEY']),
+  moonshot: env('MOONSHOT', ['MOONSHOT_BASE_URL'], ['OPENAI_API_KEY']),
+  'zai-coding-plan': env('ZAI', ['ZAI_BASE_URL'], ['ZAI_CODING_CN_API_KEY', 'OPENAI_API_KEY']),
+  MiniMax: env('MINIMAX', ['MINIMAX_BASE_URL']),
+  'MiniMax-cn': env('MINIMAX', ['MINIMAX_BASE_URL']),
+  siliconflow: env('SILICONFLOW', ['SILICONFLOW_BASE_URL']),
+  litellm: env('OPENAI', ['OPENAI_BASE_URL']),
+  'openai-compatible': env('OPENAI', ['OPENAI_BASE_URL']),
+  'claude-subscription': env('ANTHROPIC'),
+} satisfies Partial<Record<ProviderType, ProviderCredentialEnv>>;
+
+export function providerCredentialEnv(provider: string): ProviderCredentialEnv | undefined {
+  return PROVIDER_CREDENTIAL_ENV[provider as keyof typeof PROVIDER_CREDENTIAL_ENV];
+}
+
+export function requireProviderCredentialEnv(provider: string): ProviderCredentialEnv {
+  const definition = providerCredentialEnv(provider);
+  if (!definition) throw new Error(`provider does not support API key files: ${provider}`);
+  return definition;
+}
+
+function env(
+  prefix: string,
+  baseUrls: readonly string[] = [],
+  fallbackApiKeys: readonly string[] = [],
+): ProviderCredentialEnv {
+  return {
+    apiKeys: [`${prefix}_API_KEY`, ...fallbackApiKeys],
+    apiKeyFile: `${prefix}_API_KEY_FILE`,
+    baseUrls,
+  };
+}

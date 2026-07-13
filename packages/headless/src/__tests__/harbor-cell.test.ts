@@ -2131,6 +2131,30 @@ setTimeout(() => {
     assert.equal(deepseek.connection.baseUrl, 'https://fallback.example/v1');
   });
 
+  test('resolves SiliconFlow only from SiliconFlow credential env', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'siliconflow',
+      model: 'moonshotai/Kimi-K2.6',
+      env: {
+        SILICONFLOW_API_KEY: 'siliconflow-key',
+        SILICONFLOW_BASE_URL: 'https://api.siliconflow.cn/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'siliconflow-key');
+    assert.equal(resolved.connection.baseUrl, 'https://api.siliconflow.cn/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'siliconflow',
+      model: 'moonshotai/Kimi-K2.6',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves ai-sdk api key from a *_API_KEY_FILE without exposing the secret on argv', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-cell-key-'));
     try {
