@@ -5,10 +5,15 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureAbRunManifest } from '#ab-manifest';
-import { discoverCachedHarborTasks, resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
+import {
+  discoverCachedHarborTasks,
+  fingerprintFixedPromptTaskTree,
+  resolveFixedPromptRunRoot,
+} from '#fixed-prompt-task-source';
 import { createHarborTaskRunner } from '#harbor-task-runner';
 import {
   assertTerminalBench21TaskSet,
+  assertTerminalBench21TaskTreeFingerprint,
   buildHarnessAbRunManifest,
   TERMINAL_BENCH_2_1_REVISION,
   TERMINAL_BENCH_2_1_TASK_IDS,
@@ -22,7 +27,6 @@ import {
 } from '#harness-ab-report';
 import {
   buildSubjectFingerprint,
-  buildTaskSourceFingerprint,
   buildToolchainFingerprint,
 } from './run-prompt-ab.mjs';
 
@@ -71,12 +75,13 @@ async function main() {
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   const allTasks = await discoverCachedHarborTasks(tasksRoot);
   assertTerminalBench21TaskSet(allTasks.map((task) => task.id));
+  const taskSourceFingerprint = await fingerprintFixedPromptTaskTree(allTasks);
+  assertTerminalBench21TaskTreeFingerprint(taskSourceFingerprint);
 
   const subjectFingerprint = await buildSubjectFingerprint(
     makaRepoPath,
     process.env.MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT,
   );
-  const taskSourceFingerprint = await buildTaskSourceFingerprint(tasksRoot, allTasks);
   const toolchainFingerprint = await buildToolchainFingerprint(
     process.env.MAKA_HARNESS_AB_TOOLCHAIN_FINGERPRINT,
     undefined,

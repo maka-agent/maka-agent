@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -9,7 +9,7 @@ import { TERMINAL_BENCH_2_1_TASK_IDS } from '../harness-ab-manifest.js';
 
 const execFileAsync = promisify(execFile);
 
-test('harness A/B CLI dry-run freezes all 89 tasks without reading credentials', async () => {
+test('harness A/B CLI rejects modified task contents before reading credentials', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-cli-'));
   try {
     const tasksRoot = join(dir, 'tasks');
@@ -20,7 +20,7 @@ test('harness A/B CLI dry-run freezes all 89 tasks without reading credentials',
     }
     const outDir = join(dir, 'out');
     const scriptPath = new URL('../../harbor/run-harness-ab.mjs', import.meta.url);
-    const { stdout } = await execFileAsync(process.execPath, [scriptPath.pathname], {
+    await assert.rejects(execFileAsync(process.execPath, [scriptPath.pathname], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -33,25 +33,7 @@ test('harness A/B CLI dry-run freezes all 89 tasks without reading credentials',
         MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT: `sha256:${'a'.repeat(64)}`,
         MAKA_HARNESS_AB_TOOLCHAIN_FINGERPRINT: `sha256:${'b'.repeat(64)}`,
       },
-    });
-
-    assert.match(stdout, /dry-run: 40\/89 paired Pass@1 cells planned/);
-    const manifest = JSON.parse(await readFile(join(outDir, 'dry-run', 'harness-ab-manifest.json'), 'utf8'));
-    assert.equal(manifest.experimentKind, 'harness');
-    assert.equal(manifest.evaluationTaskIds.length, 89);
-    assert.deepEqual(manifest.pilotTaskIds, manifest.evaluationTaskIds.slice(0, 40));
-    assert.equal(manifest.metadata.benchmark.version, '2.1');
-    assert.equal(manifest.metadata.benchmark.timeoutPolicy, 'task-native');
-    assert.equal(manifest.metadata.benchmark.outerTimeoutGraceSec, 900);
-    assert.equal(manifest.harborTimeoutMs, null);
-    assert.equal(manifest.metadata.model.reasoningEffort, 'max');
-    assert.equal(manifest.metadata.metric, 'pass@1');
-    assert.equal(manifest.arms[1].metadata.version, '1.17.18');
-    assert.equal(manifest.arms[1].metadata.config.pure, true);
-    assert.equal(manifest.arms[1].metadata.config.permissions, 'auto');
-    assert.equal(manifest.arms[0].metadata.config.attemptPolicy, 'single');
-    assert.equal(manifest.arms[1].metadata.config.attemptPolicy, 'single');
-    await assert.rejects(readFile(join(outDir, 'dry-run', 'controller', 'results.jsonl')), /ENOENT/);
+    }), /Terminal-Bench 2\.1 task tree fingerprint mismatch/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

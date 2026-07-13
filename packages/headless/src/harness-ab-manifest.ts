@@ -6,6 +6,7 @@ export type HarnessAbArmId = 'maka' | 'opencode';
 
 // Authoritative snapshot: https://github.com/harbor-framework/terminal-bench-2-1
 export const TERMINAL_BENCH_2_1_REVISION = 'd49e28f1e4ddd13d289e85a5f312a66750951932';
+export const TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT = 'sha256:456826aa4c47ed309716c964c96d2a3acc998764ebc84f3e8449c807d74bd4e7';
 export const TERMINAL_BENCH_2_1_TASK_IDS = [
   'adaptive-rejection-sampler',
   'bn-fit-modify',
@@ -109,6 +110,14 @@ export function assertTerminalBench21TaskSet(taskIds: readonly string[]): void {
   throw new Error(
     `Terminal-Bench 2.1 task set mismatch; expected ${expected.size} unique tasks, found ${actual.size}; missing: ${previewIds(missing)}; unexpected: ${previewIds(unexpected)}`,
   );
+}
+
+export function assertTerminalBench21TaskTreeFingerprint(actual: string): void {
+  if (actual !== TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT) {
+    throw new Error(
+      `Terminal-Bench 2.1 task tree fingerprint mismatch; expected ${TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT}, found ${actual}`,
+    );
+  }
 }
 
 export interface HarnessAbArmInput {

@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
   assertTerminalBench21TaskSet,
+  assertTerminalBench21TaskTreeFingerprint,
   buildHarnessAbRunManifest,
   deterministicHarnessTaskOrder,
   TERMINAL_BENCH_2_1_TASK_IDS,
+  TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT,
 } from '../harness-ab-manifest.js';
 
 describe('harness A/B manifest', () => {
@@ -79,6 +81,14 @@ describe('harness A/B manifest', () => {
         Array.from({ length: 89 }, (_, index) => `task-${String(index + 1).padStart(2, '0')}`),
       ),
       /Terminal-Bench 2\.1 task set mismatch.*missing: adaptive-rejection-sampler.*unexpected: task-01/,
+    );
+  });
+
+  test('rejects task contents outside the frozen official revision', () => {
+    assert.doesNotThrow(() => assertTerminalBench21TaskTreeFingerprint(TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT));
+    assert.throws(
+      () => assertTerminalBench21TaskTreeFingerprint(`sha256:${'0'.repeat(64)}`),
+      /Terminal-Bench 2\.1 task tree fingerprint mismatch/,
     );
   });
 });
