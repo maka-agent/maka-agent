@@ -194,9 +194,10 @@ describe('provider URL defaults', () => {
     assert.equal(siliconflow.baseUrl, 'https://api.siliconflow.com/v1');
     assert.equal(siliconflow.authKind, 'api_key');
     assert.equal(siliconflow.protocol, 'openai');
-    assert.ok(
-      siliconflow.fallbackModels.includes('moonshotai/Kimi-K2.6'),
-      'models.dev model ids must remain exact, including provider namespace and case',
+    assert.equal(
+      siliconflow.fallbackModels[0],
+      'moonshotai/Kimi-K2.6',
+      'the Maka recommendation must use an exact models.dev id, including provider namespace and case',
     );
   });
 

@@ -232,6 +232,7 @@ describe('model catalog picker helpers', () => {
     const { buildCatalogRecommendedDefaultModel } = await importModelCatalogChoices();
 
     assert.equal(buildCatalogRecommendedDefaultModel('deepseek'), 'deepseek-v4-flash');
+    assert.equal(buildCatalogRecommendedDefaultModel('siliconflow'), 'moonshotai/Kimi-K2.6');
     assert.equal(buildCatalogRecommendedDefaultModel('openai-compatible'), '');
   });
 

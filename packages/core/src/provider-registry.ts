@@ -6,8 +6,20 @@ import type { ModelInfo, ProviderDefaults, ProviderType } from './llm-connection
 
 const siliconflow = GENERATED_MODELS_DEV_PROVIDER_FACTS.siliconflow;
 if (!siliconflow.api) throw new Error('models.dev SiliconFlow provider facts are missing api');
+const SILICONFLOW_RECOMMENDED_MODEL_IDS = ['moonshotai/Kimi-K2.6'];
 
-const siliconflowModels: ModelInfo[] = Object.entries(GENERATED_MODELS_DEV_METADATA.siliconflow)
+const siliconflowModelEntries = Object.entries(GENERATED_MODELS_DEV_METADATA.siliconflow);
+const siliconflowModelsById = new Map(siliconflowModelEntries);
+const orderedSiliconflowModels = [
+  ...SILICONFLOW_RECOMMENDED_MODEL_IDS.map((id) => {
+    const model = siliconflowModelsById.get(id);
+    if (!model) throw new Error(`models.dev SiliconFlow snapshot is missing recommended model ${id}`);
+    return [id, model] as const;
+  }),
+  ...siliconflowModelEntries.filter(([id]) => !SILICONFLOW_RECOMMENDED_MODEL_IDS.includes(id)),
+];
+
+const siliconflowModels: ModelInfo[] = orderedSiliconflowModels
   .filter(([, model]) => model.capabilities?.functionCalling)
   .map(([id, model]) => ({
     id,
