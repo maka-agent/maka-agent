@@ -130,6 +130,36 @@ test('adds LM Studio as a no-auth local runtime with the shared official mark', 
   await expect(page.getByLabel(/LM Studio 模型密钥/)).toHaveCount(0);
 });
 
+test('adds Mistral with its exact snapshot model, API-key field, and shared official mark', async ({ window: page }) => {
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
+  await page.getByRole('button', { name: '添加服务商' }).click();
+
+  await page.getByRole('tab', { name: 'API', exact: true }).click();
+  await page.getByPlaceholder('搜索服务商').fill('Mistral');
+  const catalogMark = page.locator(
+    '.providerCatalogRow[data-provider="mistral"] .providerLogo .providerAssetMask',
+  );
+  await expect(catalogMark).toBeVisible();
+  expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+  await page.getByRole('button', { name: /添加模型供应商：Mistral/ }).click();
+
+  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('mistral');
+  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.mistral.ai/v1');
+  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('mistral-large-latest');
+  await page.getByRole('button', { name: '保存供应商' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Mistral', exact: true }).first()).toBeVisible();
+  const detailMark = page.locator(
+    '.providerSubpageHeader .providerLogo[data-provider="mistral"] .providerAssetMask',
+  );
+  await expect(detailMark).toBeVisible();
+  expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+  await expect(page.getByText('mistral-large-latest', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+});
+
 test('restores keyboard focus across provider child pages', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();

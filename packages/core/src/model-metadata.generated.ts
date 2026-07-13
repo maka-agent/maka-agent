@@ -2,7 +2,7 @@
 // Do not edit by hand; put access-path-specific facts in model-metadata.ts.
 import type { ModelMetadata } from './model-metadata.js';
 
-export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "moonshot" | "openai" | "siliconflow" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
+export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "openai" | "siliconflow" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
   "anthropic": {
     "claude-fable-5": {"displayName":"Claude Fable 5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-haiku-4-5": {"displayName":"Claude Haiku 4.5 (latest)","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":200000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
@@ -97,6 +97,38 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
     "MiniMax-M2.7": {"displayName":"MiniMax-M2.7","lifecycle":"active","docsUrl":"https://platform.minimaxi.com/docs/guides/quickstart","contextWindow":204800,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
     "MiniMax-M2.7-highspeed": {"displayName":"MiniMax-M2.7-highspeed","lifecycle":"active","docsUrl":"https://platform.minimaxi.com/docs/guides/quickstart","contextWindow":204800,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
     "MiniMax-M3": {"displayName":"MiniMax-M3","lifecycle":"active","docsUrl":"https://platform.minimaxi.com/docs/guides/quickstart","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+  },
+  "mistral": {
+    "codestral-latest": {"displayName":"Codestral (latest)","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":256000,"maxOutputTokens":4096,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "devstral-2512": {"displayName":"Devstral 2","lifecycle":"deprecated","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":262144,"maxOutputTokens":262144,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "devstral-latest": {"displayName":"Devstral 2","lifecycle":"deprecated","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":262144,"maxOutputTokens":262144,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "devstral-medium-2507": {"displayName":"Devstral Medium","lifecycle":"deprecated","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":128000,"maxOutputTokens":128000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "devstral-medium-latest": {"displayName":"Devstral 2 (latest)","lifecycle":"deprecated","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":262144,"maxOutputTokens":262144,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "devstral-small-2505": {"displayName":"Devstral Small 2505","lifecycle":"deprecated","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":128000,"maxOutputTokens":128000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "devstral-small-2507": {"displayName":"Devstral Small","lifecycle":"deprecated","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":128000,"maxOutputTokens":128000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "labs-devstral-small-2512": {"displayName":"Devstral Small 2","lifecycle":"deprecated","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":256000,"maxOutputTokens":256000,"capabilities":{"vision":true,"reasoning":false,"functionCalling":true}},
+    "magistral-medium-latest": {"displayName":"Magistral Medium (latest)","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":128000,"maxOutputTokens":16384,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "magistral-small": {"displayName":"Magistral Small","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":128000,"maxOutputTokens":128000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "ministral-3b-latest": {"displayName":"Ministral 3B (latest)","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":128000,"maxOutputTokens":128000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "ministral-8b-latest": {"displayName":"Ministral 8B (latest)","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":128000,"maxOutputTokens":128000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "mistral-embed": {"displayName":"Mistral Embed","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":8000,"maxOutputTokens":3072,"capabilities":{"vision":false,"reasoning":false,"functionCalling":false}},
+    "mistral-large-2411": {"displayName":"Mistral Large 2.1","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":131072,"maxOutputTokens":16384,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "mistral-large-2512": {"displayName":"Mistral Large 3","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":262144,"maxOutputTokens":262144,"capabilities":{"vision":true,"reasoning":false,"functionCalling":true}},
+    "mistral-large-latest": {"displayName":"Mistral Large (latest)","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":262144,"maxOutputTokens":262144,"capabilities":{"vision":true,"reasoning":false,"functionCalling":true}},
+    "mistral-medium-2505": {"displayName":"Mistral Medium 3","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":131072,"maxOutputTokens":131072,"capabilities":{"vision":true,"reasoning":false,"functionCalling":true}},
+    "mistral-medium-2508": {"displayName":"Mistral Medium 3.1","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":262144,"maxOutputTokens":262144,"capabilities":{"vision":true,"reasoning":false,"functionCalling":true}},
+    "mistral-medium-2604": {"displayName":"Mistral Medium 3.5","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":262144,"maxOutputTokens":262144,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "mistral-medium-latest": {"displayName":"Mistral Medium (latest)","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":262144,"maxOutputTokens":262144,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "mistral-nemo": {"displayName":"Mistral Nemo","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":128000,"maxOutputTokens":128000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "mistral-small-2506": {"displayName":"Mistral Small 3.2","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":128000,"maxOutputTokens":16384,"capabilities":{"vision":true,"reasoning":false,"functionCalling":true}},
+    "mistral-small-2603": {"displayName":"Mistral Small 4","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":256000,"maxOutputTokens":256000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "mistral-small-latest": {"displayName":"Mistral Small (latest)","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":256000,"maxOutputTokens":256000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "open-mistral-7b": {"displayName":"Mistral 7B","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":8000,"maxOutputTokens":8000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "open-mistral-nemo": {"displayName":"Open Mistral Nemo","lifecycle":"deprecated","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":128000,"maxOutputTokens":128000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "open-mixtral-8x22b": {"displayName":"Mixtral 8x22B","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":64000,"maxOutputTokens":64000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "open-mixtral-8x7b": {"displayName":"Mixtral 8x7B","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":32000,"maxOutputTokens":32000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "pixtral-12b": {"displayName":"Pixtral 12B","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":128000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":false,"functionCalling":true}},
+    "pixtral-large-latest": {"displayName":"Pixtral Large (latest)","lifecycle":"active","docsUrl":"https://docs.mistral.ai/getting-started/models/","contextWindow":128000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":false,"functionCalling":true}},
   },
   "moonshot": {
     "kimi-k2-0711-preview": {"displayName":"Kimi K2 0711","lifecycle":"active","docsUrl":"https://platform.moonshot.cn/docs/api/chat","contextWindow":131072,"maxOutputTokens":16384,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
@@ -239,7 +271,7 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
   },
 };
 
-export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "moonshot" | "openai" | "siliconflow" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
+export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "openai" | "siliconflow" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
   "anthropic": {"id":"anthropic","name":"Anthropic","doc":"https://docs.anthropic.com/en/docs/about-claude/models"},
   "cerebras": {"id":"cerebras","name":"Cerebras","doc":"https://inference-docs.cerebras.ai/models/overview"},
   "deepseek": {"id":"deepseek","name":"DeepSeek","api":"https://api.deepseek.com","doc":"https://api-docs.deepseek.com/quick_start/pricing"},
@@ -247,6 +279,7 @@ export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras
   "gemini-cli": {"id":"google","name":"Google","doc":"https://ai.google.dev/gemini-api/docs/models"},
   "MiniMax": {"id":"minimax","name":"MiniMax (minimax.io)","api":"https://api.minimax.io/anthropic/v1","doc":"https://platform.minimax.io/docs/guides/quickstart"},
   "MiniMax-cn": {"id":"minimax-cn","name":"MiniMax (minimaxi.com)","api":"https://api.minimaxi.com/anthropic/v1","doc":"https://platform.minimaxi.com/docs/guides/quickstart"},
+  "mistral": {"id":"mistral","name":"Mistral","doc":"https://docs.mistral.ai/getting-started/models/"},
   "moonshot": {"id":"moonshotai-cn","name":"Moonshot AI (China)","api":"https://api.moonshot.cn/v1","doc":"https://platform.moonshot.cn/docs/api/chat"},
   "openai": {"id":"openai","name":"OpenAI","doc":"https://platform.openai.com/docs/models"},
   "siliconflow": {"id":"siliconflow","name":"SiliconFlow","api":"https://api.siliconflow.com/v1","doc":"https://cloud.siliconflow.com/models"},

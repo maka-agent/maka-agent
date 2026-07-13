@@ -61,6 +61,23 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the Mistral provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'mistral',
+        name: 'Mistral',
+        providerType: 'mistral',
+        defaultModel: 'mistral-large-2512',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'mistral');
+      assert.equal(persisted.connections[0]?.defaultModel, 'mistral-large-2512');
+    });
+  });
+
   test('keeps provider create defaults independent from catalog recommendation refreshes', async () => {
     await withConnectionStore(async (store) => {
       const openai = await store.create({

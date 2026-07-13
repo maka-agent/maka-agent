@@ -18,6 +18,7 @@ import type { ReactElement } from 'react';
 import cerebrasMarkUrl from '../assets/provider-brands/cerebras.svg';
 import lmStudioBrandMark from '../assets/provider-brands/lmstudio.svg';
 import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg';
+import mistralBrandMark from '../assets/provider-brands/mistral.svg';
 import xaiMarkUrl from '../assets/provider-brands/xai.svg';
 
 // Real xAI/Grok mark vendored byte-for-byte from Lobe Icons:
@@ -36,6 +37,14 @@ function XAI(): ReactElement {
 // Git commit: e4302041fbb3039608d25f9f618bd462783b875e
 // Source path: packages/static-svg/icons/lmstudio.svg
 // Upstream SHA-256: 4a575e8382b52ce742ac5d21d361a7d2a08cea7c12390ee1bbb755ef7d3cc25b
+
+// Mistral mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: 32f4083f7a20b67ecdc7b29c0af031ada5a29c52
+// - path: packages/static-svg/icons/mistral.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: a06cfa54e7deff7f7544175b006b7f8a03fbc5624c44f7d553a44d07ea96e629
 
 function ProviderAssetMask({ src }: { src: string }): ReactElement {
   const mask = `url("${src}")`;
@@ -208,6 +217,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <Ollama />;
     case 'lm-studio':
       return <ProviderAssetMask src={lmStudioBrandMark} />;
+    case 'mistral':
+      return <ProviderAssetMask src={mistralBrandMark} />;
     default:
       return <GenericProviderMark />;
   }

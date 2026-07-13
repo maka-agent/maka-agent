@@ -101,6 +101,29 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'grok-4.5');
   });
 
+  test('resolves a Mistral API-key connection without rewriting its exact model id', async () => {
+    const connection = makeConnection({
+      slug: 'mistral',
+      name: 'Mistral',
+      providerType: 'mistral',
+      defaultModel: 'mistral-small-2603',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'mistral',
+        get: async (slug) => slug === 'mistral' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'mistral-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'mistral');
+    assert.equal(target.apiKey, 'mistral-test-key');
+    assert.equal(target.model, 'mistral-small-2603');
+  });
+
   test('resolves a SiliconFlow registry connection without rewriting its model id', async () => {
     const connection = makeConnection({
       slug: 'siliconflow',

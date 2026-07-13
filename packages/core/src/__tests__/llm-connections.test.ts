@@ -40,6 +40,7 @@ describe('provider compatibility contract', () => {
       'siliconflow',
       'xai',
       'cerebras',
+      'mistral',
       'ollama',
       'lm-studio',
       'openai-compatible',
@@ -59,6 +60,7 @@ describe('provider compatibility contract', () => {
       'siliconflow',
       'xai',
       'cerebras',
+      'mistral',
       'ollama',
       'lm-studio',
       'kimi-coding-plan',
@@ -79,6 +81,7 @@ describe('provider compatibility contract', () => {
       'google',
       'xai',
       'cerebras',
+      'mistral',
       'ollama',
       'lm-studio',
       'openai-compatible',
@@ -162,6 +165,24 @@ describe('provider compatibility contract', () => {
       readyOrder: 11,
       catalogOrder: 13,
     });
+  });
+
+  it('owns Mistral hosted API behavior under the stable mistral id', () => {
+    const mistral = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).mistral;
+
+    assert.ok(mistral, 'Mistral must be available through the shared provider registry');
+    assert.equal(mistral.label, 'Mistral');
+    assert.equal(mistral.baseUrl, 'https://api.mistral.ai/v1');
+    assert.equal(mistral.authKind, 'api_key');
+    assert.equal(mistral.protocol, 'openai');
+    assert.deepEqual(mistral.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(mistral.modelDiscovery, { kind: 'protocol', responseShape: 'array-or-data' });
+    assert.equal(mistral.category, 'overseas');
+    assert.equal(mistral.catalogGroup, 'api');
+    assert.equal(mistral.modelsDevId, 'mistral');
+    assert.equal(mistral.fallbackModels[0], 'mistral-large-latest');
+    assert.ok(mistral.fallbackModels.includes('mistral-small-latest'));
+    assert.ok(!mistral.fallbackModels.includes('mistral-embed'));
   });
 });
 

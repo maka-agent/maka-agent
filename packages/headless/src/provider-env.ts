@@ -20,6 +20,7 @@ const PROVIDER_CREDENTIAL_ENV = {
   siliconflow: env('SILICONFLOW', ['SILICONFLOW_BASE_URL']),
   xai: env('XAI', ['XAI_BASE_URL']),
   cerebras: env('CEREBRAS', ['CEREBRAS_BASE_URL']),
+  mistral: env('MISTRAL', ['MISTRAL_BASE_URL']),
   'openai-compatible': env('OPENAI', ['OPENAI_BASE_URL']),
   'claude-subscription': env('ANTHROPIC'),
 } satisfies Partial<Record<ProviderType, ProviderCredentialEnv>>;
