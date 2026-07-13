@@ -16,6 +16,17 @@
 import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
 import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg';
+import xaiMarkUrl from '../assets/provider-brands/xai.svg';
+
+// Real xAI/Grok mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: 32f4083f7a20b67ecdc7b29c0af031ada5a29c52
+// - path: packages/static-svg/icons/xai.svg
+// - license: MIT (repository LICENSE)
+function XAI(): ReactElement {
+  return <img src={xaiMarkUrl} alt="" />;
+}
 
 function Claude(): ReactElement {
   return (
@@ -149,6 +160,8 @@ function Ollama(): ReactElement {
  */
 export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElement {
   switch (type) {
+    case 'xai':
+      return <XAI />;
     case 'siliconflow':
       return <SiliconCloud />;
     case 'anthropic':

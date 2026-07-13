@@ -28,10 +28,13 @@ const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const ICONS_FILE = resolve(REPO_ROOT, 'packages/ui/src/icons.tsx');
 const SIDEBAR_NAV_FILE = resolve(REPO_ROOT, 'packages/ui/src/session-sidebar-nav.tsx');
 const PROVIDER_BRAND_MARKS_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/provider-brand-marks.tsx');
+const PROVIDER_CATALOG_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/provider-catalog.tsx');
+const PROVIDERS_PANEL_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/ProvidersPanel.tsx');
 const MINIMAX_BRAND_ASSET_FILE = resolve(
   REPO_ROOT,
   'apps/desktop/src/renderer/assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg',
 );
+const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/xai.svg');
 
 // Fixed brand assets, not generic UI icons — their vendored SVGs keep
 // their own stroke weight and are exempt from the call-site stroke sweep.
@@ -164,6 +167,33 @@ describe('icon + typography governance contract', () => {
       componentSrc,
       /function MiniMaxMark\(\): ReactElement \{\s*return <img src=\{minimaxBrandMark\} alt="" \/>;\s*\}/,
       'MiniMax providers must render the vendored official file, never an inline hand-drawn path',
+    );
+  });
+
+  it('uses the unmodified upstream xAI mark across catalog and provider detail surfaces', async () => {
+    const [marks, catalog, providersPanel, xaiMark] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(PROVIDER_CATALOG_FILE, 'utf8'),
+      readFile(PROVIDERS_PANEL_FILE, 'utf8'),
+      readFile(XAI_BRAND_MARK_FILE),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(xaiMark).digest('hex'),
+      '89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451',
+      'the vendored xAI mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 xai.svg',
+    );
+    assert.match(
+      marks,
+      /Real xAI\/Grok mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*32f4083f7a20b67ecdc7b29c0af031ada5a29c52[\s\S]*packages\/static-svg\/icons\/xai\.svg[\s\S]*license: MIT[\s\S]*function XAI\(\)[\s\S]*<img src=\{xaiMarkUrl\}/,
+      'xAI must render the traceable upstream SVG asset instead of a generic or hand-drawn mark',
+    );
+    assert.match(marks, /case 'xai':\s*return <XAI \/>/, 'the stable xai provider id must resolve to the upstream mark');
+    assert.match(catalog, /<ProviderLogo type=\{props\.type\} \/>/, 'catalog cards must consume the shared provider logo seam');
+    assert.match(
+      providersPanel,
+      /kind === 'detail' && selected[\s\S]*<ProviderPageHeader[\s\S]*providerType=\{selected\.providerType\}/,
+      'saved connection detail must consume the shared provider logo seam',
     );
   });
 });

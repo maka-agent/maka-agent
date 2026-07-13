@@ -53,11 +53,17 @@ test('adds xAI with its exact snapshot model and API-key credential field', asyn
 
   await page.getByRole('tab', { name: 'API', exact: true }).click();
   await page.getByPlaceholder('搜索服务商').fill('xAI');
+  await expect(
+    page.locator('.providerCatalogRow[data-provider="xai"] .providerLogo img[src^="data:image/svg+xml"]'),
+  ).toBeVisible();
   await page.getByRole('button', { name: /添加模型供应商：xAI/ }).click();
   await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('grok-4.5');
   await page.getByRole('button', { name: '保存供应商' }).click();
 
   await expect(page.getByRole('heading', { name: 'xAI', exact: true }).first()).toBeVisible();
+  await expect(
+    page.locator('.providerSubpageHeader .providerLogo[data-provider="xai"] img[src^="data:image/svg+xml"]'),
+  ).toBeVisible();
   await expect(page.getByText('grok-4.5', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
 });
