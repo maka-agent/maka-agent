@@ -1987,12 +1987,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             const args: Record<string, unknown> = {
               pid: win.pid,
               window_id: win.windowId,
-              ...(element
-                ? {
-                    element_index: element.element_index,
-                    ...(element.element_token ? { element_token: element.element_token } : {}),
-                  }
-                : { x: snapshot.windowPoint.x, y: snapshot.windowPoint.y }),
+              x: snapshot.windowPoint.x,
+              y: snapshot.windowPoint.y,
             };
             if (action.type === 'right_click') args.button = 'right';
             if (action.type === 'middle_click') args.button = 'middle';
@@ -2005,7 +2001,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               tool: toolName,
               pid: win.pid,
               windowId: win.windowId,
-              address: element ? 'ax' : 'px',
+              address: 'px',
             });
             const r = await actionClient.callTool(toolName, args, signal);
             const outcome = normalizeCuaDriverOutcome(r);

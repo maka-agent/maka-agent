@@ -1043,6 +1043,27 @@ describe('cua-driver backend', () => {
     assert.ok(toolCalls(await readRecords(logPath), 'get_window_state').length > 0);
   });
 
+  it('keeps an explicit coordinate click on the pixel path over an AX element', async () => {
+    const { backend, logPath } = makeBackend({ axRole: 'AXButton' });
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 400, y: 200 } },
+      new AbortController().signal,
+      {
+        ...DEFAULT_RUN_CONTEXT,
+        boundAction: boundCoordinateAction(),
+      },
+    );
+
+    assert.equal(result.outcome.ok, true);
+    const click = toolCall(await readRecords(logPath), 'click');
+    assert.equal(click?.pid, 4242);
+    assert.equal(click?.window_id, 77);
+    assert.equal(typeof click?.x, 'number');
+    assert.equal(typeof click?.y, 'number');
+    assert.equal(click?.element_index, undefined);
+    assert.equal(click?.element_token, undefined);
+  });
+
   it('rejects a bound coordinate occluded by a higher z-order window', async () => {
     const { backend, logPath } = makeBackend();
     const result = await backend.run(
@@ -1179,7 +1200,7 @@ describe('cua-driver backend', () => {
     assert.equal(toolCalls(records, 'click').length, 0);
   });
 
-  it('click prefers a fresh AX element token for an actionable control', async () => {
+  it('coordinate click stays on fresh same-snapshot pixels over an actionable control', async () => {
     const { backend, logPath } = makeBackend({ axRole: 'AXButton' });
     const res = await backend.run(
       { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
@@ -1189,23 +1210,23 @@ describe('cua-driver backend', () => {
 
     assert.equal(res.outcome.ok, true);
     if (res.outcome.ok) {
-      assert.equal(res.outcome.tier, 'ax');
-      assert.equal(res.outcome.verified, true);
+      assert.equal(res.outcome.tier, 'coordinate-background');
+      assert.equal(res.outcome.verified, false);
     }
     const records = await readRecords(logPath);
     const trace = methodTrace(records);
     assert.ok(
       trace.indexOf('tools/call:get_window_state') < trace.indexOf('tools/call:click'),
-      'fresh window snapshot precedes the AX action',
+      'fresh window snapshot precedes the coordinate action',
     );
     const click = toolCall(records, 'click');
     assert.ok(click);
     assert.equal(click!.pid, 4242);
     assert.equal(click!.window_id, 77);
-    assert.equal(click!.element_index, 7);
-    assert.equal(click!.element_token, 'snapshot:7');
-    assert.equal(click!.x, undefined);
-    assert.equal(click!.y, undefined);
+    assert.equal(click!.element_index, undefined);
+    assert.equal(click!.element_token, undefined);
+    assert.equal(typeof click!.x, 'number');
+    assert.equal(typeof click!.y, 'number');
   });
 
   it('click uses same-snapshot pixels to focus an editable control', async () => {
