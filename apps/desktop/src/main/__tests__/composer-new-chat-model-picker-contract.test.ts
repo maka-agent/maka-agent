@@ -90,6 +90,7 @@ describe('home composer new-chat model picker', () => {
     const renderer = await readRendererShellSources([
       'app-shell.tsx',
       'app-shell-chat-actions.ts',
+      'use-shell-chat-model.ts',
     ]);
 
     assert.match(
@@ -123,6 +124,7 @@ describe('home composer new-chat model picker', () => {
     const renderer = await readRendererShellSources([
       'app-shell.tsx',
       'app-shell-chat-actions.ts',
+      'use-shell-chat-model.ts',
     ]);
 
     assert.match(

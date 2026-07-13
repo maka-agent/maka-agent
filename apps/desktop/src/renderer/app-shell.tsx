@@ -7,12 +7,9 @@ import type {
   SettingsSection,
   ThemePalette,
   ThemePreference,
-  ThinkingLevel,
 } from '@maka/core';
-import { generalizedErrorMessageChinese, hasSettledInitialOnboarding, thinkingVariantsForModel } from '@maka/core';
+import { generalizedErrorMessageChinese, hasSettledInitialOnboarding } from '@maka/core';
 import {
-  type ChatHeaderAlert,
-  type ChatModelChoice,
   AutomationsPage,
   ChatView,
   Composer,
@@ -50,7 +47,6 @@ function BrowserPanelFallback() {
     </div>
   );
 }
-import { deriveChatHeaderAlert } from './chat-header-alert';
 import { useSessionGoal } from './use-session-goal';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveProjectGroups } from './session-project-grouping';
@@ -62,7 +58,6 @@ import {
 import { deriveAppShellTurnViewModel } from './app-shell-turn-view-model';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
-import { pickCatalogDefaultChatModel } from './model-catalog-choices';
 import { applyTheme, applyThemePalette, applyUiLocale } from './theme';
 import { hasInFlightToolActivity } from './session-event-health';
 import { MODEL_CONTINUING_DELAY_MS, MODEL_PROCESSING_DELAY_MS, deriveModelWait } from './model-wait-state';
@@ -79,7 +74,6 @@ import {
 import {
   modelSetupToastCopy,
 } from './model-connection-errors';
-import { buildChatModelChoices, chatModelChoiceLabel, normalizeActiveChatModel } from './chat-model-selection';
 import { basenameFromPath } from './app-shell-copy';
 import type { AppShellCommandListOptions } from './app-shell-command-actions';
 import { AppShellTopbarActions, AppShellWorkspaceTopActions } from './app-shell-chrome-actions';
@@ -112,6 +106,7 @@ import { useKeyedPendingRegistry } from './use-pending-action-registry';
 import { useAppShellComposerAttachments } from './use-app-shell-composer-attachments';
 import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
 import { useShellConnections } from './use-shell-connections';
+import { useShellChatModel } from './use-shell-chat-model';
 
 type ComposerImportOwner = {
   sessionId: string | undefined;
@@ -225,9 +220,6 @@ export function AppShell({
   // recent workspace history so the home view is populated before the async
   // `app:info` round-trip completes on mount.
   const persistedComposerDefaults = loadComposerDefaults();
-  const [pendingNewChatModel, setPendingNewChatModel] = useState<{ llmConnectionSlug: string; model: string } | null>(
-    persistedComposerDefaults?.model ?? null,
-  );
   const [helpOpen, closeHelp, openHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
   // Search modal state. Sidebar `搜索` opens the real thread-search
@@ -344,126 +336,40 @@ export function AppShell({
     sessionAwaitingModel && modelWaitKind === 'continuing',
     MODEL_CONTINUING_DELAY_MS,
   );
-  const activeConnection = activeSession
-    ? connections.find((connection) => connection.slug === activeSession.llmConnectionSlug)
-    : undefined;
-  const defaultConnectionEntry = defaultConnection
-    ? connections.find((connection) => connection.slug === defaultConnection)
-    : undefined;
-  const chatModelChoices = useMemo<ChatModelChoice[]>(
-    () => buildChatModelChoices(connections),
-    [connections],
-  );
-  // Home / empty-state composer: which model the next NEW chat starts with.
-  // Null = follow the default connection; a pick overrides it (sticky until
-  // changed) and is forwarded to sessions.create in `send()`. Renderer-only —
-  // it never mutates the persisted Settings · 模型 default.
-  const [pendingNewChatThinkingLevel, setPendingNewChatThinkingLevel] = useState<ThinkingLevel | null>(null);
-  // A pick only stays in effect while it is still an offered choice. If the user
-  // later disables/removes that connection or model, fall back to the default so
-  // the home chip never shows — nor sends — a model that no longer exists.
-  const validPendingNewChatModel =
-    pendingNewChatModel &&
-    chatModelChoices.some(
-      (c) => c.connectionSlug === pendingNewChatModel.llmConnectionSlug && c.model === pendingNewChatModel.model,
-    )
-      ? pendingNewChatModel
-      : null;
-  const catalogDefaultNewChatModel = defaultConnectionEntry
-    ? pickCatalogDefaultChatModel(defaultConnectionEntry)
-    : undefined;
-  const newChatModel = validPendingNewChatModel ?? catalogDefaultNewChatModel;
-  const activeConnectionLabel = activeSession?.backend === 'fake'
-    ? '本地模拟连接'
-    : activeConnection?.name ?? activeSession?.llmConnectionSlug;
-  const activeModel = activeSession?.backend === 'fake'
-    ? undefined
-    : normalizeActiveChatModel(activeSession, activeConnection, chatModelChoices);
-  const activeModelLabel = activeSession?.backend === 'fake'
-    ? undefined
-    : chatModelChoiceLabel(chatModelChoices, activeSession?.llmConnectionSlug, activeModel);
-  const activeThinkingLevels = useMemo(
-    () => (activeConnection && activeModel) ? thinkingVariantsForModel(activeConnection.providerType, activeModel) : [],
-    [activeConnection, activeModel],
-  );
-  // Only surface a stored level when the current model still supports it;
-  // if the model changed (setModel clears it) or the catalog reconfigured so
-  // the level is no longer offered, the chip falls back to 默认 instead of
-  // advertising a level the runtime would silently drop. The runtime's
-  // `buildProviderOptions` is the wire-level guard; this keeps the UI honest.
-  const activeThinkingLevel =
-    activeSession?.thinkingLevel && activeThinkingLevels.includes(activeSession.thinkingLevel)
-      ? activeSession.thinkingLevel
-      : undefined;
-  const newChatThinkingLevels = useMemo(
-    () => {
-      if (!newChatModel) return [];
-      const c = connections.find((entry) => entry.slug === newChatModel.llmConnectionSlug);
-      return c ? thinkingVariantsForModel(c.providerType, newChatModel.model) : [];
-    },
-    [newChatModel, connections],
-  );
-  const newChatThinkingLevel = pendingNewChatThinkingLevel && newChatThinkingLevels.includes(pendingNewChatThinkingLevel)
-    ? pendingNewChatThinkingLevel
-    : undefined;
-  const newChatModelLabel = chatModelChoiceLabel(chatModelChoices, newChatModel?.llmConnectionSlug, newChatModel?.model);
-
   // Surface a credential-lifecycle alert directly in the chat header when
   // the active session's connection is in `needs_reauth` / `error` or has
   // been deleted entirely. We skip the async hasSecret fetch here — the
   // chat header is a hint surface; AccountSettingsPage remains the
-  // authoritative detailed view.
-  // Cheap renderer-side "is the default connection plausibly ready" check —
-  // used to decide whether a stale session can be silent-rebound on send
-  // (xuan's send-path rebind requires a ready default) or whether the user
-  // has to fix Settings first. We can't verify `hasSecret` synchronously
-  // here without an extra IPC round-trip; backend remains authoritative if
-  // the secret is missing — it will surface `missing_api_key` reason at
-  // send time. For banner copy purposes, "default exists + enabled" is
-  // enough.
-  const defaultConnectionReady = useMemo(() => {
-    if (!defaultConnection) return false;
-    const entry = connections.find((connection) => connection.slug === defaultConnection);
-    return entry?.enabled === true;
-  }, [defaultConnection, connections]);
-
-  // Banner derivation is a pure function (see `chat-header-alert.ts`); we
-  // wrap the returned `onClickTarget` here with the Settings-jump action.
-  const chatConnectionAlert = useMemo<ChatHeaderAlert | undefined>(() => {
-    const derived = deriveChatHeaderAlert({
-      backend: activeSession?.backend,
-      hasActiveConnection: Boolean(activeConnection),
-      defaultConnectionReady,
-      lastTestStatus: activeConnection?.lastTestStatus,
-    });
-    if (!derived) return undefined;
-    const target = derived.onClickTarget;
-    return {
-      tone: derived.tone,
-      label: derived.label,
-      ...(derived.tooltip ? { tooltip: derived.tooltip } : {}),
-      onClick: () => openSettingsSection(target),
-    };
-    // openSettingsSection is stable enough for our purposes — main.tsx
-    // doesn't depend on it changing, and including it would force the
-    // effect to re-create on every render due to its function identity.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    activeSession?.id,
-    activeSession?.backend,
-    activeConnection?.slug,
-    activeConnection?.lastTestStatus,
-    defaultConnectionReady,
-  ]);
-
-  const chatEventStreamAlert = useMemo<ChatHeaderAlert | undefined>(() => {
-    if (activeSessionEventHealth?.status !== 'stale') return undefined;
-    return {
-      tone: 'warning',
-      label: '事件流恢复中',
-      tooltip: '当前对话的实时事件需要刷新，Maka 正在从本地会话记录恢复。',
-    };
-  }, [activeSessionEventHealth?.status]);
+  // authoritative detailed view. The model/thinking selection + both
+  // chat-header alerts live in useShellChatModel (pure derivation of the
+  // connection list + active session); openSettingsSection is injected so
+  // the connection alert can wrap the derived click target.
+  const {
+    chatModelChoices,
+    activeConnection,
+    activeConnectionLabel,
+    activeModel,
+    activeModelLabel,
+    activeThinkingLevels,
+    activeThinkingLevel,
+    newChatModel,
+    newChatModelLabel,
+    newChatThinkingLevels,
+    newChatThinkingLevel,
+    validPendingNewChatModel,
+    setPendingNewChatModel,
+    pendingNewChatThinkingLevel,
+    setPendingNewChatThinkingLevel,
+    chatConnectionAlert,
+    chatEventStreamAlert,
+  } = useShellChatModel({
+    connections,
+    defaultConnection,
+    activeSession,
+    activeSessionEventHealth,
+    persistedComposerDefaults,
+    openSettingsSection,
+  });
 
   // PR109d-b: turn footer actions per turn. Derived from the
   // materialized turn list (status + lineage descendants) + pending
