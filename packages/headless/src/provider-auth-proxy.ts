@@ -1,6 +1,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { Socket } from 'node:net';
 
 export interface ProviderAuthProxy {
   baseUrl: string;
@@ -20,8 +21,23 @@ export async function startProviderAuthProxy(input: {
   const providerKey = (await readFile(input.apiKeyFile, 'utf8')).trim();
   if (providerKey.length === 0) throw new Error('provider API key file is empty');
   const token = randomBytes(32).toString('hex');
+  const activeRequests = new Set<AbortController>();
+  const sockets = new Set<Socket>();
   const server = createServer((request, response) => {
-    void forwardProviderRequest({ request, response, upstreamBaseUrl, providerKey, token });
+    const controller = new AbortController();
+    activeRequests.add(controller);
+    void forwardProviderRequest({
+      request,
+      response,
+      upstreamBaseUrl,
+      providerKey,
+      token,
+      signal: controller.signal,
+    }).finally(() => activeRequests.delete(controller));
+  });
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
@@ -39,9 +55,14 @@ export async function startProviderAuthProxy(input: {
   return {
     baseUrl: `http://${advertisedHost}:${address.port}`,
     token,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve());
-    }),
+    close: async () => {
+      const closed = new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
+      for (const controller of activeRequests) controller.abort();
+      for (const socket of sockets) socket.destroy();
+      await closed;
+    },
   };
 }
 
@@ -51,6 +72,7 @@ async function forwardProviderRequest(input: {
   upstreamBaseUrl: URL;
   providerKey: string;
   token: string;
+  signal: AbortSignal;
 }): Promise<void> {
   try {
     if (!authorized(input.request.headers.authorization, input.token)) {
@@ -74,6 +96,7 @@ async function forwardProviderRequest(input: {
     const upstreamResponse = await fetch(upstreamUrl, {
       method: input.request.method,
       headers,
+      signal: input.signal,
       ...(body ? { body: new Uint8Array(body) } : {}),
     });
     const responseHeaders: Record<string, string> = {};
@@ -86,6 +109,7 @@ async function forwardProviderRequest(input: {
     }
     input.response.end();
   } catch {
+    if (input.response.destroyed) return;
     if (!input.response.headersSent) input.response.writeHead(502);
     input.response.end('provider proxy request failed');
   }

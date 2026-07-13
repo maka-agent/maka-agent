@@ -52,3 +52,38 @@ test('provider auth proxy keeps the provider key host-side', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('provider auth proxy aborts an in-flight upstream request on close', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-close-'));
+  let received!: () => void;
+  const requestReceived = new Promise<void>((resolve) => { received = resolve; });
+  const upstream = createServer(() => { received(); });
+  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const address = upstream.address();
+  assert.ok(address && typeof address !== 'string');
+  const keyFile = join(dir, 'provider-key');
+  await writeFile(keyFile, 'provider-secret-key\n', 'utf8');
+  const proxy = await startProviderAuthProxy({
+    upstreamBaseUrl: `http://127.0.0.1:${address.port}/api/v4`,
+    apiKeyFile: keyFile,
+    advertisedHost: '127.0.0.1',
+  });
+  const pending = fetch(`${proxy.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${proxy.token}` },
+    body: '{}',
+  });
+
+  try {
+    await requestReceived;
+    await Promise.race([
+      proxy.close(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('proxy close timed out')), 1_000)),
+    ]);
+    await assert.rejects(pending);
+  } finally {
+    upstream.closeAllConnections();
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    await rm(dir, { recursive: true, force: true });
+  }
+});
