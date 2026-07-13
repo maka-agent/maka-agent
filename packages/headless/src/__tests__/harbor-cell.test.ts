@@ -2253,6 +2253,32 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves Tencent TokenHub only from its direct API credential env', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'tencent-tokenhub',
+      model: 'hy3-preview',
+      env: {
+        TENCENT_TOKENHUB_API_KEY: 'tencent-tokenhub-key',
+        TENCENT_TOKENHUB_BASE_URL: 'https://tokenhub-intl.tencentmaas.com/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'tencent-tokenhub-key');
+    assert.equal(resolved.connection.providerType, 'tencent-tokenhub');
+    assert.equal(resolved.connection.defaultModel, 'hy3-preview');
+    assert.equal(resolved.connection.baseUrl, 'https://tokenhub-intl.tencentmaas.com/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'tencent-tokenhub',
+      model: 'hy3-preview',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves Cerebras only from Cerebras credential env without rewriting the model id', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'cerebras',

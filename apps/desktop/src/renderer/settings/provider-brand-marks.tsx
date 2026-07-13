@@ -17,6 +17,7 @@ import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
 import cerebrasMarkUrl from '../assets/provider-brands/cerebras.svg';
 import fireworksMarkUrl from '../assets/provider-brands/fireworks.svg';
+import hunyuanBrandMark from '../assets/provider-brands/hunyuan.svg';
 import lmStudioBrandMark from '../assets/provider-brands/lmstudio.svg';
 import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg';
 import mistralBrandMark from '../assets/provider-brands/mistral.svg';
@@ -64,6 +65,14 @@ function XAI(): ReactElement {
 // - path: packages/static-svg/icons/mistral.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: a06cfa54e7deff7f7544175b006b7f8a03fbc5624c44f7d553a44d07ea96e629
+
+// Hunyuan mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/hunyuan.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 7306a65eb71c4de61e21a637e5c4fef94afde823678e225c46f891cc783f6531
 
 function ProviderAssetMask({ src }: { src: string }): ReactElement {
   const mask = `url("${src}")`;
@@ -244,6 +253,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <ProviderAssetMask src={lmStudioBrandMark} />;
     case 'mistral':
       return <ProviderAssetMask src={mistralBrandMark} />;
+    case 'tencent-tokenhub':
+      return <ProviderAssetMask src={hunyuanBrandMark} />;
     default:
       return <GenericProviderMark />;
   }

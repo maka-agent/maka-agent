@@ -17,6 +17,7 @@ const PROVIDERS = {
   openai: 'openai',
   siliconflow: 'siliconflow',
   togetherai: 'togetherai',
+  'tencent-tokenhub': 'tencent-tokenhub',
   xai: 'xai',
   'zai-coding-plan': 'zai-coding-plan',
 };

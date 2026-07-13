@@ -43,6 +43,7 @@ const FIREWORKS_BRAND_MARK_FILE = resolve(
   'apps/desktop/src/renderer/assets/provider-brands/fireworks.svg',
 );
 const NVIDIA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/nvidia.svg');
+const TENCENT_HUNYUAN_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/hunyuan.svg');
 const DESKTOP_PACKAGE_FILE = resolve(REPO_ROOT, 'apps/desktop/package.json');
 const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/public/THIRD_PARTY_LICENSES.txt');
 const ONBOARDING_HERO_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/OnboardingHero.tsx');
@@ -375,6 +376,31 @@ describe('icon + typography governance contract', () => {
       'the stable NVIDIA provider id must consume the sole shared asset-mask seam',
     );
     assert.doesNotMatch(marks, /NvidiaMask|nvidiaAssetMask/);
+  });
+
+  it('vendors and routes the byte-exact upstream Hunyuan mark through the shared asset-mask seam', async () => {
+    const [hunyuanMark, componentSrc, notices] = await Promise.all([
+      readFile(TENCENT_HUNYUAN_BRAND_MARK_FILE),
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(hunyuanMark).digest('hex'),
+      '7306a65eb71c4de61e21a637e5c4fef94afde823678e225c46f891cc783f6531',
+      'the vendored Hunyuan mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 hunyuan.svg',
+    );
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/hunyuan\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/hunyuan\.svg[\s\S]*7306a65eb71c4de61e21a637e5c4fef94afde823678e225c46f891cc783f6531/,
+      'Tencent must append byte-exact Hunyuan provenance to the existing Lobe Icons notice entry',
+    );
+    assert.match(componentSrc, /import hunyuanBrandMark from '\.\.\/assets\/provider-brands\/hunyuan\.svg';/);
+    assert.match(
+      componentSrc,
+      /Hunyuan mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/hunyuan\.svg[\s\S]*MIT[\s\S]*7306a65eb71c4de61e21a637e5c4fef94afde823678e225c46f891cc783f6531/,
+    );
+    assert.match(componentSrc, /case 'tencent-tokenhub':\s*return <ProviderAssetMask src=\{hunyuanBrandMark\} \/>/);
   });
 
   it('ships the Lobe Icons MIT notice beside vendored provider assets', async () => {

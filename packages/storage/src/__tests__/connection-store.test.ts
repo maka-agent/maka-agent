@@ -24,6 +24,23 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the Tencent TokenHub provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'tencent-tokenhub',
+        name: 'Tencent TokenHub',
+        providerType: 'tencent-tokenhub',
+        defaultModel: 'hy3-preview',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'tencent-tokenhub');
+      assert.equal(persisted.connections[0]?.defaultModel, 'hy3-preview');
+    });
+  });
+
   test('persists the LM Studio provider id and exact local model id', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

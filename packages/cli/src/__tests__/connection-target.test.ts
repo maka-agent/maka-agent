@@ -27,6 +27,29 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'accounts/fireworks/models/kimi-k2p6');
   });
 
+  test('resolves Tencent TokenHub credentials without rewriting the selected model id', async () => {
+    const connection = makeConnection({
+      slug: 'tencent-tokenhub',
+      name: 'Tencent TokenHub',
+      providerType: 'tencent-tokenhub',
+      defaultModel: 'hy3-preview',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'tencent-tokenhub',
+        get: async (slug) => slug === 'tencent-tokenhub' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'tencent-tokenhub-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'tencent-tokenhub');
+    assert.equal(target.apiKey, 'tencent-tokenhub-test-key');
+    assert.equal(target.model, 'hy3-preview');
+  });
+
   test('resolves LM Studio without reading a credential or rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'lm-studio',

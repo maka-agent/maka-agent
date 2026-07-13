@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'togetherai', 'xai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'tencent-tokenhub', 'togetherai', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -240,6 +240,42 @@ test('sync-model-metadata vendors NVIDIA provider facts and exact model ids', as
   assert.match(generated, /"nvidia": \{/);
   assert.match(generated, /"nvidia": \{"id":"nvidia","name":"Nvidia","api":"https:\/\/integrate\.api\.nvidia\.com\/v1"/);
   assert.match(generated, /"nvidia\/nemotron-3-super-120b-a12b": \{"displayName":"Nemotron 3 Super"/);
+});
+
+test('sync-model-metadata vendors Tencent TokenHub provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog['tencent-tokenhub'] = {
+    ...catalog['tencent-tokenhub'],
+    name: 'Tencent TokenHub',
+    api: 'https://tokenhub.tencentmaas.com/v1',
+    doc: 'https://cloud.tencent.com/document/product/1823/130050',
+    models: {
+      hy3: {
+        id: 'hy3', name: 'Hy3', reasoning: true, tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 256_000, output: 64_000 },
+      },
+      'hy3-preview': {
+        id: 'hy3-preview', name: 'Hy3 preview', reasoning: true, tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 256_000, output: 64_000 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"tencent-tokenhub": \{/);
+  assert.match(generated, /"tencent-tokenhub": \{"id":"tencent-tokenhub","name":"Tencent TokenHub","api":"https:\/\/tokenhub\.tencentmaas\.com\/v1"/);
+  assert.match(generated, /"hy3": \{"displayName":"Hy3"/);
+  assert.match(generated, /"hy3-preview": \{"displayName":"Hy3 preview"/);
 });
 
 test('sync-model-metadata rejects incomplete upstream model data', async () => {

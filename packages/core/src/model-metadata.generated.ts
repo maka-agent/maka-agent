@@ -2,7 +2,7 @@
 // Do not edit by hand; put access-path-specific facts in model-metadata.ts.
 import type { ModelMetadata } from './model-metadata.js';
 
-export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "togetherai" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
+export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "togetherai" | "tencent-tokenhub" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
   "anthropic": {
     "claude-fable-5": {"displayName":"Claude Fable 5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-haiku-4-5": {"displayName":"Claude Haiku 4.5 (latest)","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":200000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
@@ -388,6 +388,10 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
     "zai-org/GLM-5.1": {"displayName":"GLM-5.1","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":202752,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
     "zai-org/GLM-5.2": {"displayName":"GLM-5.2","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":262144,"maxOutputTokens":164000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
   },
+  "tencent-tokenhub": {
+    "hy3": {"displayName":"Hy3","lifecycle":"active","docsUrl":"https://cloud.tencent.com/document/product/1823/130050","contextWindow":256000,"maxOutputTokens":64000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "hy3-preview": {"displayName":"Hy3 preview","lifecycle":"active","docsUrl":"https://cloud.tencent.com/document/product/1823/130050","contextWindow":256000,"maxOutputTokens":64000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+  },
   "xai": {
     "grok-4.20-0309-non-reasoning": {"displayName":"Grok 4.20 (Non-Reasoning)","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":1000000,"maxOutputTokens":30000,"capabilities":{"vision":true,"reasoning":false,"functionCalling":true}},
     "grok-4.20-0309-reasoning": {"displayName":"Grok 4.20 (Reasoning)","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":1000000,"maxOutputTokens":30000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
@@ -409,7 +413,7 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
   },
 };
 
-export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "togetherai" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
+export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "togetherai" | "tencent-tokenhub" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
   "anthropic": {"id":"anthropic","name":"Anthropic","doc":"https://docs.anthropic.com/en/docs/about-claude/models"},
   "cerebras": {"id":"cerebras","name":"Cerebras","doc":"https://inference-docs.cerebras.ai/models/overview"},
   "deepseek": {"id":"deepseek","name":"DeepSeek","api":"https://api.deepseek.com","doc":"https://api-docs.deepseek.com/quick_start/pricing"},
@@ -424,6 +428,7 @@ export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras
   "openai": {"id":"openai","name":"OpenAI","doc":"https://platform.openai.com/docs/models"},
   "siliconflow": {"id":"siliconflow","name":"SiliconFlow","api":"https://api.siliconflow.com/v1","doc":"https://cloud.siliconflow.com/models"},
   "togetherai": {"id":"togetherai","name":"Together AI","doc":"https://docs.together.ai/docs/serverless-models"},
+  "tencent-tokenhub": {"id":"tencent-tokenhub","name":"Tencent TokenHub","api":"https://tokenhub.tencentmaas.com/v1","doc":"https://cloud.tencent.com/document/product/1823/130050"},
   "xai": {"id":"xai","name":"xAI","doc":"https://docs.x.ai/docs/models"},
   "zai-coding-plan": {"id":"zai-coding-plan","name":"Z.AI Coding Plan","api":"https://api.z.ai/api/coding/paas/v4","doc":"https://docs.z.ai/devpack/overview"},
 };

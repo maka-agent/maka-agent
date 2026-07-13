@@ -9,6 +9,26 @@ import { isConnectionReady } from '../connection-readiness.js';
 import type { LlmConnection, ModelInfo, ProviderType } from '../llm-connections.js';
 
 describe('ModelCatalogEntry', () => {
+  it('uses the checked-in Tencent TokenHub snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'tencent-tokenhub',
+        providerType: 'tencent-tokenhub',
+        defaultModel: 'hy3',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), ['hy3', 'hy3-preview']);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 256_000);
+    assert.equal(entries[0]?.maxOutputTokens, 64_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
   it('uses the checked-in Mistral snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

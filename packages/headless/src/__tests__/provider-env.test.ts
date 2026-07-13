@@ -62,3 +62,11 @@ test('NVIDIA credentials stay provider-scoped and support key files', () => {
     baseUrls: ['NVIDIA_BASE_URL'],
   });
 });
+
+test('Tencent TokenHub keeps direct API credentials separate from Tencent plans', () => {
+  assert.deepEqual(providerCredentialEnv('tencent-tokenhub'), {
+    apiKeys: ['TENCENT_TOKENHUB_API_KEY'],
+    apiKeyFile: 'TENCENT_TOKENHUB_API_KEY_FILE',
+    baseUrls: ['TENCENT_TOKENHUB_BASE_URL'],
+  });
+});

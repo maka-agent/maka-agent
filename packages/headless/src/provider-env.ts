@@ -24,6 +24,7 @@ const PROVIDER_CREDENTIAL_ENV = {
   togetherai: env('TOGETHER', ['TOGETHER_BASE_URL']),
   'fireworks-ai': env('FIREWORKS', ['FIREWORKS_BASE_URL']),
   nvidia: env('NVIDIA', ['NVIDIA_BASE_URL']),
+  'tencent-tokenhub': env('TENCENT_TOKENHUB', ['TENCENT_TOKENHUB_BASE_URL']),
   'openai-compatible': env('OPENAI', ['OPENAI_BASE_URL']),
   'claude-subscription': env('ANTHROPIC'),
 } satisfies Partial<Record<ProviderType, ProviderCredentialEnv>>;

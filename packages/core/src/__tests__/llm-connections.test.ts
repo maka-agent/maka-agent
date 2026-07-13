@@ -44,6 +44,7 @@ describe('provider compatibility contract', () => {
       'togetherai',
       'fireworks-ai',
       'nvidia',
+      'tencent-tokenhub',
       'ollama',
       'lm-studio',
       'openai-compatible',
@@ -72,6 +73,7 @@ describe('provider compatibility contract', () => {
       'togetherai',
       'fireworks-ai',
       'nvidia',
+      'tencent-tokenhub',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -94,6 +96,7 @@ describe('provider compatibility contract', () => {
       'openai-compatible',
       'fireworks-ai',
       'nvidia',
+      'tencent-tokenhub',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -274,6 +277,22 @@ describe('provider compatibility contract', () => {
     assert.equal(provider.catalogBadge, 'API');
     assert.equal(provider.signupUrl, 'https://build.nvidia.com/');
     assert.equal(provider.modelsDevId, 'nvidia');
+  });
+
+  it('owns Tencent direct API behavior under the stable tencent-tokenhub id', () => {
+    const tencent = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['tencent-tokenhub'];
+
+    assert.ok(tencent, 'Tencent TokenHub must be available through the shared provider registry');
+    assert.equal(tencent.label, 'Tencent TokenHub');
+    assert.equal(tencent.baseUrl, 'https://tokenhub.tencentmaas.com/v1');
+    assert.equal(tencent.authKind, 'api_key');
+    assert.equal(tencent.protocol, 'openai');
+    assert.deepEqual(tencent.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(tencent.modelDiscovery, { kind: 'protocol' });
+    assert.equal(tencent.category, 'domestic');
+    assert.equal(tencent.catalogGroup, 'api');
+    assert.equal(tencent.modelsDevId, 'tencent-tokenhub');
+    assert.deepEqual(tencent.fallbackModels, ['hy3', 'hy3-preview']);
   });
 });
 

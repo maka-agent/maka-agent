@@ -95,6 +95,16 @@ const fireworksModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA['fireworks-ai'],
   ['accounts/fireworks/models/kimi-k2p6'],
 );
+const tencentTokenHub = GENERATED_MODELS_DEV_PROVIDER_FACTS['tencent-tokenhub'];
+if (tencentTokenHub.id !== 'tencent-tokenhub') {
+  throw new Error('models.dev Tencent TokenHub provider facts are missing stable id tencent-tokenhub');
+}
+if (!tencentTokenHub.api) throw new Error('models.dev Tencent TokenHub provider facts are missing api');
+const tencentTokenHubModelIds = toolCallingModelIds(
+  'Tencent TokenHub',
+  GENERATED_MODELS_DEV_METADATA['tencent-tokenhub'],
+  ['hy3', 'hy3-preview'],
+);
 
 const together = GENERATED_MODELS_DEV_PROVIDER_FACTS.togetherai;
 if (together.id !== 'togetherai') {
@@ -455,6 +465,25 @@ const providerRegistry = {
     modelsDevId: nvidia.id,
     readyOrder: 20,
     catalogOrder: 20,
+  },
+  'tencent-tokenhub': {
+    label: tencentTokenHub.name,
+    description: 'Tencent TokenHub models for reasoning and tool-use agents.',
+    baseUrl: tencentTokenHub.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: tencentTokenHubModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'domestic',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: tencentTokenHub.doc,
+    modelsDevId: tencentTokenHub.id,
+    readyOrder: 21,
+    catalogOrder: 21,
   },
   ollama: {
     label: 'Ollama',
