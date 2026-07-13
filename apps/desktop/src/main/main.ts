@@ -173,6 +173,10 @@ import {
   createComputerUseHost,
 } from './computer-use-host.js';
 import { createCursorOverlayController } from './computer-use/cursor-overlay-window.js';
+import {
+  applyComputerUseRealModelPolicy,
+  parseComputerUseRealModelPolicy,
+} from './computer-use-real-model-policy.js';
 import { createComputerUseOverlayHook } from '@maka/computer-use';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
@@ -211,16 +215,20 @@ import { registerNotificationsIpc } from './notifications-ipc-main.js';
 // asar-packaged builds; MAKA_E2E_USER_DATA_DIR must also be set, so the fake
 // backend can't write test sessions into a real profile if someone sets only
 // MAKA_E2E.
-const isE2e =
+const hasIsolatedE2eProfile =
   !app.isPackaged &&
-  process.env.MAKA_E2E === '1' &&
   !!process.env.MAKA_E2E_USER_DATA_DIR;
+const isE2e = hasIsolatedE2eProfile && process.env.MAKA_E2E === '1';
+const isComputerUseRealModelE2e =
+  hasIsolatedE2eProfile &&
+  process.env.MAKA_CU_REAL_MODEL_E2E === '1';
+const isIsolatedE2e = isE2e || isComputerUseRealModelE2e;
 
 // E2E isolation: redirect userData BEFORE the single-instance lock so the
 // lock judges the throwaway dir, not the real user data — otherwise a
 // developer with Maka open makes the E2E process exit as a "second instance".
 // Gated by isE2e (not just the dir env) so a packaged build ignores it.
-if (isE2e && process.env.MAKA_E2E_USER_DATA_DIR) {
+if (isIsolatedE2e && process.env.MAKA_E2E_USER_DATA_DIR) {
   app.setPath('userData', process.env.MAKA_E2E_USER_DATA_DIR);
 }
 
@@ -479,7 +487,7 @@ const systemPromptService = createSystemPromptMainService({
 // BeginFrames on Linux, which stalls content-visibility inflation and any
 // frame-paced E2E protocol (measured in the scroll-geometry climb: 38 frames
 // over 31s). The E2E harness sets it, not the workflow — see fixtures.ts.
-const startHidden = (Boolean(visualSmokeFixture) || isE2e)
+const startHidden = (Boolean(visualSmokeFixture) || isIsolatedE2e)
   && process.env.MAKA_E2E_SHOW_WINDOW !== '1';
 let onMainWindowClose = (): void => {};
 const mainWindowController = createMainWindowController({
@@ -571,7 +579,14 @@ const computerUseHost = createComputerUseHost({
   overlay: createComputerUseOverlayHook(computerUseOverlay),
 });
 const computerUse = computerUseHost.selected;
-const computerUseTools = computerUse.tools;
+const computerUseTools = applyComputerUseRealModelPolicy(
+  computerUse.tools,
+  isComputerUseRealModelE2e
+    ? parseComputerUseRealModelPolicy(
+        process.env.MAKA_CU_REAL_MODEL_POLICY,
+      )
+    : undefined,
+);
 const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
 const deferredTools: MakaTool[] = [
   ...riveTools,
@@ -795,6 +810,12 @@ backends.register('ai-sdk', async (ctx) => {
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
+  const backendTools = isComputerUseRealModelE2e
+    ? computerUseTools
+    : [...(ctx.tools ?? builtinTools)];
+  const backendToolAvailability = isComputerUseRealModelE2e
+    ? { economy: false, groups: [] }
+    : toolAvailability;
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -805,8 +826,8 @@ backends.register('ai-sdk', async (ctx) => {
     modelId: model,
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
-    tools: [...(ctx.tools ?? builtinTools)],
-    toolAvailability,
+    tools: backendTools,
+    toolAvailability: backendToolAvailability,
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
     readChildAgentOutput: (input) => runtime.readChildAgentOutput(ctx.sessionId, input),
@@ -2080,7 +2101,7 @@ app.whenReady().then(async () => {
   // builds get the icon via .app bundle Info.plist; this covers the
   // dev path.
   if (process.platform === 'darwin' && app.dock) {
-    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || isE2e) {
+    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || isIsolatedE2e) {
       // PR-VISUAL-SMOKE-HEADLESS: hide the dock icon so the spawned
       // Electron runs as an accessory app — no dock bounce, and it
       // never becomes frontmost / steals focus from the developer's

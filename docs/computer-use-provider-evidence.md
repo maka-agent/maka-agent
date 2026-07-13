@@ -43,4 +43,30 @@ A provider launcher must:
 4. emit a sanitized `real-runtime` report;
 5. let the provider matrix validate fixture state and forbidden effects.
 
-The first run should be `l0-observe-only`, followed by one AX semantic mutation.
+## First Real Run
+
+The first qualifying run completed with:
+
+- provider: OpenAI;
+- model: `gpt-5.4`;
+- evidence class: `real-runtime`;
+- tool exposure: direct E2E, with only the production `maka_computer` tool;
+- action: one app-scoped `observe`;
+- tool latency: 1117 ms;
+- total run latency: 7502 ms;
+- terminal status: `complete / end_turn`;
+- fixture oracle: verification code matched and interaction count remained zero.
+
+The direct E2E tool exposure is deliberate. The default deferred `load_tools`
+path remains a separate product contract; the launcher narrows provider
+variables while still exercising the production tool implementation, permission
+engine, Runtime, Desktop host, and cua-driver backend.
+
+During this run, OpenAI Responses tool continuation exposed a product bug:
+server-side storage generated an `item_reference` in the second request without
+a `previous_response_id`, so custom Responses endpoints rejected the tool
+result. OpenAI provider options now use `store:false`, matching the existing
+Codex subscription boundary and keeping function calls/results inline.
+
+The next run should perform one AX semantic mutation after executor hardening is
+merged.

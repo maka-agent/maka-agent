@@ -63,7 +63,7 @@ export const CU_E2E_SCENARIOS = Object.freeze([
     id: 'l0-observe-only',
     level: 'L0',
     prompt:
-      'Inspect the fixture without interacting. Report the visible verification code and the three status labels, then stop.',
+      'Call maka_computer with action "observe", app "Maka CUA L0 Observe Fixture", and include_screenshot true. Do not call list_apps and do not interact with the fixture.',
     fixtureSetup: {
       layout: 'single',
       windows: [
@@ -82,10 +82,10 @@ export const CU_E2E_SCENARIOS = Object.freeze([
     forbiddenEffects: [
       invariant('target', 'interactions', 0, 'observe-only must not mutate the fixture'),
     ],
-    allowedActions: ['list_apps', 'observe', 'wait'],
+    allowedActions: ['observe'],
     minimumActionCounts: { observe: 1 },
-    maxTotalActions: 4,
-    maxActionCounts: { list_apps: 1, observe: 2, wait: 1 },
+    maxTotalActions: 1,
+    maxActionCounts: { observe: 1 },
     contractChecks: [],
     realRunEnabled: true,
     requiresExecutionCapabilities: [],

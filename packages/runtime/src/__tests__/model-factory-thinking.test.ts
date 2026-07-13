@@ -35,10 +35,10 @@ describe('buildProviderOptions: thinking level', () => {
   });
 
   test('openai gpt-5.5 sends reasoningEffort (none for off, max for max); gpt-4o drops level', () => {
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: {} });
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'medium'), { openai: { reasoningEffort: 'medium' } });
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'xhigh'), { openai: { reasoningEffort: 'xhigh' } });
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'off'), { openai: { reasoningEffort: 'none' } });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: { store: false } });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'medium'), { openai: { store: false, reasoningEffort: 'medium' } });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'xhigh'), { openai: { store: false, reasoningEffort: 'xhigh' } });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'off'), { openai: { store: false, reasoningEffort: 'none' } });
   });
 
   test('codex-subscription (gpt-5.5) preserves store:false / textVerbosity and merges reasoningEffort', () => {
@@ -121,7 +121,7 @@ describe('buildProviderOptions: thinking level', () => {
   });
 
   test('a level the model does not support is dropped (defensive)', () => {
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: {} });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: { store: false } });
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'max'), { anthropic: {} });
   });
 });

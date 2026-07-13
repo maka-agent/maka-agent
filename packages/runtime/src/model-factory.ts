@@ -120,7 +120,12 @@ export function buildProviderOptions(
         },
       };
     case 'openai':
-      return { openai: level ? { reasoningEffort: level === 'off' ? 'none' : level } : {} };
+      return {
+        openai: {
+          store: false,
+          ...(level ? { reasoningEffort: level === 'off' ? 'none' : level } : {}),
+        },
+      };
     case 'cohere':
       return {
         cohere: level === 'off' && thinkingOptions?.offBehavior === 'cohere-thinking-disabled'

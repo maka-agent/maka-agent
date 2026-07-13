@@ -32,7 +32,7 @@ test('L4 and L5 use dedicated non-mutating runners', () => {
 test('the first enabled real-model scenario is observe-only', () => {
   const first = CU_E2E_SCENARIOS.find((scenario) => scenario.realRunEnabled);
   assert.equal(first?.id, 'l0-observe-only');
-  assert.deepEqual(first?.allowedActions, ['list_apps', 'observe', 'wait']);
+  assert.deepEqual(first?.allowedActions, ['observe']);
   assert.deepEqual(first?.requiresExecutionCapabilities, []);
 });
 
@@ -60,7 +60,7 @@ test('every scenario carries prompt, fixture, expected state, forbidden effects,
 });
 
 test('layer action budgets increase deliberately', () => {
-  assert.deepEqual(getCuE2eScenario('l0-observe-only').allowedActions, ['list_apps', 'observe', 'wait']);
+  assert.deepEqual(getCuE2eScenario('l0-observe-only').allowedActions, ['observe']);
   assert.ok(getCuE2eScenario('l1-single-click').allowedActions.includes('left_click'));
   assert.ok(getCuE2eScenario('l1-single-click').allowedActions.includes('click_element'));
 
