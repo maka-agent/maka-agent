@@ -16,6 +16,7 @@
 import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
 import cerebrasMarkUrl from '../assets/provider-brands/cerebras.svg';
+import deepinfraBrandMark from '../assets/provider-brands/deepinfra.svg';
 import fireworksMarkUrl from '../assets/provider-brands/fireworks.svg';
 import hunyuanBrandMark from '../assets/provider-brands/hunyuan.svg';
 import tencentCloudBrandMark from '../assets/provider-brands/tencentcloud.svg';
@@ -46,6 +47,14 @@ function XAI(): ReactElement {
 // - path: packages/static-svg/icons/together.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: b3ec218e7e0b0432a2ce07f5ec98a1dcd24f808c74d5fee624ab31e4947feef3
+
+// Real DeepInfra mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/deepinfra.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 2a20be86e90b3c2085d5b3213f52c75e4f0041b239d6140475f5809863d45392
 
 // Fireworks mark vendored byte-for-byte from Lobe Icons:
 // - repository: https://github.com/lobehub/lobe-icons
@@ -257,6 +266,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <XAI />;
     case 'togetherai':
       return <ProviderAssetMask src={togetherBrandMark} />;
+    case 'deepinfra':
+      return <ProviderAssetMask src={deepinfraBrandMark} />;
     case 'fireworks-ai':
       return <ProviderAssetMask src={fireworksMarkUrl} />;
     case 'siliconflow':
