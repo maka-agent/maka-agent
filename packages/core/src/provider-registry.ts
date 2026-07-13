@@ -284,8 +284,8 @@ const providerRegistry = {
     catalogGroup: 'plans',
     catalogBadge: 'Coding',
     signupUrl: 'https://www.volcengine.com/activity/codingplan',
-    readyOrder: 24,
-    catalogOrder: 24,
+    readyOrder: 26,
+    catalogOrder: 26,
   },
   openai: {
     label: 'OpenAI',
