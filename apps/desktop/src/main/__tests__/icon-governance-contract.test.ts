@@ -35,6 +35,7 @@ const MINIMAX_BRAND_ASSET_FILE = resolve(
   'apps/desktop/src/renderer/assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg',
 );
 const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/xai.svg');
+const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/resources/THIRD_PARTY_NOTICES.md');
 
 // Fixed brand assets, not generic UI icons — their vendored SVGs keep
 // their own stroke weight and are exempt from the call-site stroke sweep.
@@ -195,5 +196,20 @@ describe('icon + typography governance contract', () => {
       /kind === 'detail' && selected[\s\S]*<ProviderPageHeader[\s\S]*providerType=\{selected\.providerType\}/,
       'saved connection detail must consume the shared provider logo seam',
     );
+  });
+
+  it('ships the Lobe Icons MIT notice beside vendored provider assets', async () => {
+    const notices = await readFile(THIRD_PARTY_NOTICES_FILE, 'utf8');
+
+    assert.match(notices, /## Lobe Icons/);
+    assert.match(notices, /https:\/\/github\.com\/lobehub\/lobe-icons/);
+    assert.match(notices, /@lobehub\/icons-static-svg` version `1\.91\.0`/);
+    assert.match(notices, /32f4083f7a20b67ecdc7b29c0af031ada5a29c52/);
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/xai\.svg[\s\S]*packages\/static-svg\/icons\/xai\.svg[\s\S]*89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451/,
+    );
+    assert.match(notices, /MIT License[\s\S]*Copyright \(c\) 2023 LobeHub[\s\S]*Permission is hereby granted/);
+    assert.match(notices, /THE SOFTWARE IS PROVIDED "AS IS"/);
   });
 });

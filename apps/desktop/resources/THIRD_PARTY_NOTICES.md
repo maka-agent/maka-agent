@@ -1,0 +1,36 @@
+# Third-Party Notices
+
+This file records notices for third-party source assets vendored into the Maka desktop application. Each entry identifies the upstream revision and every covered vendored file so the notice remains useful in source and packaged distributions.
+
+## Lobe Icons
+
+- Repository: https://github.com/lobehub/lobe-icons
+- Package: `@lobehub/icons-static-svg` version `1.91.0`
+- Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`
+- License: MIT
+- Covered vendored files:
+  - `apps/desktop/src/renderer/assets/provider-brands/xai.svg`
+    - Upstream path: `packages/static-svg/icons/xai.svg`
+    - SHA-256: `89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451`
+
+MIT License
+
+Copyright (c) 2023 LobeHub
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
