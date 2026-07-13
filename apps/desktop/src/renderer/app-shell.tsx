@@ -59,9 +59,6 @@ import { deriveAppShellTurnViewModel } from './app-shell-turn-view-model';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
 import { applyTheme, applyThemePalette, applyUiLocale } from './theme';
-import { hasInFlightToolActivity } from './session-event-health';
-import { MODEL_CONTINUING_DELAY_MS, MODEL_PROCESSING_DELAY_MS, deriveModelWait } from './model-wait-state';
-import { useDelayedFlag } from './use-delayed-flag';
 import { safeLocalStorageSet } from './browser-storage';
 import { filterSessions, readNavSelection } from './nav-selection';
 import {
@@ -107,6 +104,7 @@ import { useAppShellComposerAttachments } from './use-app-shell-composer-attachm
 import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
 import { useShellConnections } from './use-shell-connections';
 import { useShellChatModel } from './use-shell-chat-model';
+import { useShellLiveTurn } from './use-shell-live-turn';
 
 type ComposerImportOwner = {
   sessionId: string | undefined;
@@ -250,26 +248,6 @@ export function AppShell({
   // kill-switch pill (visible indicator + one-click clear).
   const activeGoal = useSessionGoal(activeId);
   const activeLiveTurn = activeId ? liveTurnBySession[activeId] : undefined;
-  const activeShellRunUpdates = useMemo(
-    () => activeId ? Object.values(shellRunUpdatesBySession[activeId] ?? {}) : [],
-    [activeId, shellRunUpdatesBySession],
-  );
-  const activeTextStep = [...(activeLiveTurn?.steps ?? [])].reverse().find((step) => step.text);
-  const activeThinkingStep = [...(activeLiveTurn?.steps ?? [])].reverse().find((step) => step.thinking);
-  const activeStreaming = activeTextStep?.text?.text ?? '';
-  const activeStreamingComplete = activeTextStep?.text?.complete === true;
-  const activeStreamingLive = activeStreaming.length > 0 && !activeStreamingComplete;
-  const activeStreamingMessageId = activeStreamingComplete ? activeTextStep?.stepId : undefined;
-  const activeThinking = activeThinkingStep?.thinking?.text ?? '';
-  // Set of session ids with a live streaming delta — drives the sidebar
-  // pulse indicator. Recomputed on every live projection change; cheap
-  // since the underlying map only has at most a handful of entries.
-  const streamingSessionIds = useMemo(
-    () => new Set(Object.entries(liveTurnBySession).flatMap(([id, projection]) => (
-      projection.steps.some((step) => step.text?.text && !step.text.complete) ? [id] : []
-    ))),
-    [liveTurnBySession],
-  );
   // Set of session ids whose backend / connection is no longer usable —
   // drives the sidebar "已过期" pill (PR108g, paired with the PR108e chat
   // header banner). Derivation is pure (see `stale-sessions.ts`) so the
@@ -294,8 +272,6 @@ export function AppShell({
   );
   const sessionProjectGroups = useMemo(() => deriveProjectGroups(visibleSessions), [visibleSessions]);
   const sessionListGroups = viewMode === 'project' ? sessionProjectGroups : sessionStatusGroups;
-  const liveTools = useMemo(() => activeLiveTurn?.steps.flatMap((step) => step.tools) ?? [], [activeLiveTurn]);
-  const hasInFlightLiveTools = useMemo(() => hasInFlightToolActivity(liveTools), [liveTools]);
   const activeSessionEventHealth = activeId ? sessionEventHealthBySession[activeId] : undefined;
   // PR-DAILY-REVIEW-MVP-0: bridge for the main Daily Review module.
   // Memoized so the panel's `useEffect` cleanup keys
@@ -311,31 +287,32 @@ export function AppShell({
   });
   const activePermission = activePermissionFor(permissionBySession, activeId);
   const activeSession = sessions.find((session) => session.id === activeId);
-  // #646: the two turn-wait cues. `turnPhase` (armed at send, no lag; promoted to
-  // 'streamed' on the first content event) separates the connect-to-first-token
-  // wait from the later step-to-step lulls; the `status === 'running'` gate
-  // self-heals a backgrounded session whose terminal event was missed while
-  // inactive (its arm can't clear without the event). The rising-edge delays
-  // (useDelayedFlag) suppress a flash on fast turns / quick step hops.
-  const activeTurnPhase = activeLiveTurn?.terminal ? undefined : activeLiveTurn?.phase;
-  const turnInFlight = activeTurnPhase !== undefined;
-  const modelWaitKind = deriveModelWait({
-    turnPhase: activeTurnPhase,
-    streamingText: activeStreaming,
-    thinkingText: activeThinking,
-    hasInFlightTools: hasInFlightLiveTools,
+  // Live-turn projection of the active session: streaming/thinking slices, the
+  // sidebar pulse set, the in-flight tool signal, and the #646 turn-wait cues
+  // all live in useShellLiveTurn (pure derivation of the live projection).
+  // `activeLiveTurn` itself stays here — a source-slice contract pins its
+  // declaration to app-shell.tsx — and is passed in.
+  const {
+    activeShellRunUpdates,
+    activeStreaming,
+    activeStreamingComplete,
+    activeStreamingLive,
+    activeStreamingMessageId,
+    activeThinking,
+    streamingSessionIds,
+    liveTools,
+    hasInFlightLiveTools,
+    turnInFlight,
+    sessionAwaitingModel,
+    showProcessingIndicator,
+    showContinuingIndicator,
+  } = useShellLiveTurn({
+    activeId,
+    activeLiveTurn,
+    liveTurnBySession,
+    shellRunUpdatesBySession,
+    activeSession,
   });
-  const sessionAwaitingModel = activeSession?.status === 'running';
-  // The prominent "正在处理…" first-token indicator (turn head only).
-  const showProcessingIndicator = useDelayedFlag(
-    sessionAwaitingModel && modelWaitKind === 'processing',
-    MODEL_PROCESSING_DELAY_MS,
-  );
-  // The calm "继续中…" hint for a mid-turn step-to-step lull (after content).
-  const showContinuingIndicator = useDelayedFlag(
-    sessionAwaitingModel && modelWaitKind === 'continuing',
-    MODEL_CONTINUING_DELAY_MS,
-  );
   // Surface a credential-lifecycle alert directly in the chat header when
   // the active session's connection is in `needs_reauth` / `error` or has
   // been deleted entirely. We skip the async hasSecret fetch here — the
