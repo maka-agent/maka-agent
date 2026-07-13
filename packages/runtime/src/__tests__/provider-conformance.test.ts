@@ -1901,11 +1901,26 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.text, 'Echoed hello.');
   });
 
-  test('StepFun Step Plan China preserves its snapshot model through the documented two-stage tool-call loop', async () => {
+  for (const stepfunPlan of [
+    {
+      label: 'China',
+      providerType: 'stepfun-step-plan',
+      name: 'StepFun Step Plan (China)',
+      apiKey: 'stepfun-step-plan-test-key',
+      models: ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash', 'step-router-v1'],
+    },
+    {
+      label: 'Global',
+      providerType: 'stepfun-ai-step-plan',
+      name: 'StepFun Step Plan (Global)',
+      apiKey: 'stepfun-global-step-plan-test-key',
+      models: ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash'],
+    },
+  ] as const) test(`StepFun Step Plan ${stepfunPlan.label} preserves its snapshot model through the documented two-stage tool-call loop`, async () => {
     const modelId = 'step-3.7-flash';
     const requestBodies: Array<Record<string, unknown>> = [];
     const server = await startJsonServer(async (request, response) => {
-      assert.equal(request.headers.authorization, 'Bearer stepfun-step-plan-test-key');
+      assert.equal(request.headers.authorization, `Bearer ${stepfunPlan.apiKey}`);
       assert.equal(request.method, 'POST');
       assert.equal(request.url, '/step_plan/v1/chat/completions');
       const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
@@ -1949,9 +1964,9 @@ describe('models.dev provider conformance', () => {
       });
     });
     const connection: LlmConnection = {
-      slug: 'stepfun-step-plan',
-      name: 'StepFun Step Plan (China)',
-      providerType: 'stepfun-step-plan',
+      slug: stepfunPlan.providerType,
+      name: stepfunPlan.name,
+      providerType: stepfunPlan.providerType,
       baseUrl: `${server.url}/step_plan/v1`,
       defaultModel: modelId,
       enabled: true,
@@ -1959,16 +1974,11 @@ describe('models.dev provider conformance', () => {
       updatedAt: 1,
     };
 
-    const models = await fetchProviderModels(connection, 'stepfun-step-plan-test-key');
-    assert.deepEqual(models.map((model) => model.id), [
-      'step-3.7-flash',
-      'step-3.5-flash-2603',
-      'step-3.5-flash',
-      'step-router-v1',
-    ]);
+    const models = await fetchProviderModels(connection, stepfunPlan.apiKey);
+    assert.deepEqual(models.map((model) => model.id), [...stepfunPlan.models]);
 
     const result = await generateText({
-      model: getAIModel({ connection, apiKey: 'stepfun-step-plan-test-key', modelId: models[0]!.id }),
+      model: getAIModel({ connection, apiKey: stepfunPlan.apiKey, modelId: models[0]!.id }),
       prompt: 'Call echo with hello.',
       stopWhen: stepCountIs(2),
       tools: {

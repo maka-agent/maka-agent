@@ -143,6 +143,11 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
       capabilities: { vision: false, reasoning: true, functionCalling: true },
     },
   },
+  'stepfun-ai-step-plan': {
+    'step-3.7-flash': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+    'step-3.5-flash-2603': { thinkingOptions: { efforts: ['low', 'high'] } },
+    'step-3.5-flash': { thinkingOptions: { efforts: ['low', 'high'] } },
+  },
   'claude-subscription': CLAUDE_SUBSCRIPTION_MODEL_METADATA,
   openai: OPENAI_MODEL_OVERRIDES,
   google: GOOGLE_MODEL_OVERRIDES,
