@@ -168,6 +168,10 @@ import {
   persistSynthesisCacheBlocksToArtifacts,
 } from './synthesis-cache-artifacts.js';
 import { buildBrowserTools } from './browser/browser-tools.js';
+import {
+  computerUseServiceHealth,
+  createComputerUseHost,
+} from './computer-use-host.js';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
 import { createDailyReviewMainService } from './daily-review-main.js';
@@ -541,14 +545,47 @@ const officeTools: MakaTool[] = [buildOfficeDocumentTool(), buildOfficeDocumentE
 // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
 // outside the app (no host) they report the browser as unavailable.
 const browserTools: MakaTool[] = buildBrowserTools();
+const computerUseHost = createComputerUseHost({
+  isPackaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  compressFrame: (base64) => {
+    try {
+      const image = nativeImage.createFromBuffer(Buffer.from(base64, 'base64'));
+      return image.isEmpty()
+        ? { base64, mimeType: 'image/png' }
+        : {
+            base64: image.toJPEG(82).toString('base64'),
+            mimeType: 'image/jpeg',
+          };
+    } catch {
+      return { base64, mimeType: 'image/png' };
+    }
+  },
+});
+const computerUse = computerUseHost.selected;
+const computerUseTools = computerUse.tools;
 const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
-const deferredTools: MakaTool[] = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
+const deferredTools: MakaTool[] = [
+  ...riveTools,
+  ...officeTools,
+  ...browserTools,
+  ...computerUseTools,
+  ...agentTools,
+];
 const toolAvailability: ToolAvailabilityConfig = {
   economy: economyEnabled,
   groups: [
     { id: 'rive', label: 'Rive', description: 'Durable multi-agent Rive workflows: validate/import/run/status, scheduler, retries.', toolNames: riveTools.map((tool) => tool.name) },
     { id: 'office', label: 'Office', description: 'Read and edit Office documents (Word, Excel, PowerPoint, PDF).', toolNames: officeTools.map((tool) => tool.name) },
     { id: 'browser', label: 'Browser', description: 'Drive the embedded browser: navigate, snapshot, click, type, wait, extract.', toolNames: browserTools.map((tool) => tool.name) },
+    ...(computerUseTools.length > 0
+      ? [{
+          id: 'computer_use',
+          label: 'Computer',
+          description: 'Observe and operate an explicitly approved local application.',
+          toolNames: computerUseTools.map((tool) => tool.name),
+        }]
+      : []),
     buildSubagentToolGroup(),
   ],
 };
@@ -1331,6 +1368,7 @@ function registerIpc(): void {
     });
   });
   ipcMain.handle('sessions:stop', async (_event, sessionId: string, input?: { source?: 'stop_button' }) => {
+    computerUseTools.clearSession(sessionId);
     await runtime.stopSession(sessionId, normalizeStopSessionInput(input));
     emitSessionsChanged('status-change', sessionId);
     emitSessionsChanged('turn-status-change', sessionId);
@@ -1410,6 +1448,7 @@ function registerIpc(): void {
     return session;
   });
   ipcMain.handle('sessions:archive', async (_event, sessionId: string) => {
+    computerUseTools.clearSession(sessionId);
     await runtime.archive(sessionId);
     // An archived conversation is no longer shown: drop its browser connection
     // and view so it does not keep a live Chromium page in the background.
@@ -1485,6 +1524,7 @@ function registerIpc(): void {
     return next;
   });
   ipcMain.handle('sessions:remove', async (_event, sessionId: string) => {
+    computerUseTools.clearSession(sessionId);
     await runtime.remove(sessionId);
     // Drop the conversation's browser connection and destroy its view (no-op
     // if it never opened one). releaseBrowserSession disposes the view via the
@@ -1544,6 +1584,7 @@ function registerIpc(): void {
       permissions,
       botStatuses: botRegistry.allStatuses(),
       officeCliProbe,
+      computerUse: computerUseCapabilityInput(),
       now: permissions.checkedAt,
     });
   });
@@ -1557,6 +1598,7 @@ function registerIpc(): void {
       permissions,
       botStatuses: botRegistry.allStatuses(),
       officeCliProbe,
+      computerUse: computerUseCapabilityInput(),
       now,
     });
     const connections = await connectionStore.list();
@@ -1767,6 +1809,7 @@ async function streamEvents(
       }
       if (isTurnStatusChangingSessionEvent(event)) {
         emitSessionsChanged('turn-status-change', sessionId);
+        computerUseTools.clearSession(sessionId);
       }
     }
     if (!finalAppendBroadcasted) {
@@ -1797,6 +1840,7 @@ async function streamEvents(
     openGateway.publishSessionEvent(sessionId, event);
     emitSessionsChanged('status-change', sessionId);
     emitSessionsChanged('turn-status-change', sessionId);
+    computerUseTools.clearSession(sessionId);
     if (!finalAppendBroadcasted) {
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
@@ -2126,6 +2170,7 @@ async function runBeforeQuitCleanup(): Promise<void> {
   planReminders.stopTimers();
   dailyReview.stopScheduler();
   const results = await Promise.allSettled([
+    Promise.resolve().then(() => computerUse.backend?.dispose?.()),
     botRegistry.stopAll(),
     openGateway.stop(),
     Promise.resolve(mainWindowController.disposeBrowserViews()),
@@ -2134,6 +2179,14 @@ async function runBeforeQuitCleanup(): Promise<void> {
   for (const result of results) {
     if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
   }
+}
+
+function computerUseCapabilityInput() {
+  const serviceState = computerUse.backend?.serviceState?.();
+  return {
+    backendId: computerUse.backendId,
+    health: computerUseServiceHealth(computerUse.backendId, serviceState),
+  };
 }
 
 app.on('activate', focusOrCreateMainWindow);

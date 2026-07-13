@@ -55,6 +55,9 @@ export function selectComputerUseBackend(deps?: {
   binaryPath?: string;
   hostBundleId?: string;
   expectedBinarySha256?: string;
+  expectedServerName?: string;
+  expectedServerVersion?: string;
+  expectedProtocolVersion?: string;
   compressFrame?: (
     base64: string,
     mimeType: string,
@@ -68,6 +71,15 @@ export function selectComputerUseBackend(deps?: {
       binaryPath: deps.binaryPath,
       hostBundleId: resolveHostBundleId(deps?.hostBundleId),
       expectedBinarySha256: deps.expectedBinarySha256,
+      ...(deps.expectedServerName
+        ? { expectedServerName: deps.expectedServerName }
+        : {}),
+      ...(deps.expectedServerVersion
+        ? { expectedServerVersion: deps.expectedServerVersion }
+        : {}),
+      ...(deps.expectedProtocolVersion
+        ? { expectedProtocolVersion: deps.expectedProtocolVersion }
+        : {}),
       ...(deps?.compressFrame ? { compressFrame: deps.compressFrame } : {}),
       ...(deps?.physicalInputRecentlyActive
         ? { physicalInputRecentlyActive: deps.physicalInputRecentlyActive }
