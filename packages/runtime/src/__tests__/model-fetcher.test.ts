@@ -11,6 +11,54 @@ after(async () => {
 });
 
 describe('fetchProviderModels', () => {
+  test('Vercel AI Gateway discovers the complete public language-model list without exposing its inference key', async () => {
+    const modelId = 'anthropic/claude-opus-4.8';
+    const server = await startJsonServer((request, response) => {
+      assert.equal(request.method, 'GET');
+      assert.equal(request.url, '/v1/models');
+      assert.equal(request.headers.authorization, undefined);
+      respondJson(response, 200, {
+        object: 'list',
+        data: [
+          {
+            id: modelId,
+            object: 'model',
+            name: 'Claude Opus 4.8',
+            type: 'language',
+            context_window: 1_000_000,
+            max_tokens: 128_000,
+            tags: ['reasoning', 'tool-use', 'vision'],
+          },
+          {
+            id: 'openai/text-embedding-3-small',
+            object: 'model',
+            name: 'Text Embedding 3 Small',
+            type: 'embedding',
+          },
+        ],
+      });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'vercel',
+      name: 'Vercel AI Gateway',
+      providerType: 'vercel',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'vercel-inference-key');
+
+    assert.deepEqual(models, [{
+      id: modelId,
+      displayName: 'Claude Opus 4.8',
+      contextWindow: 1_000_000,
+      maxOutputTokens: 128_000,
+      capabilities: { vision: true, reasoning: true, functionCalling: true },
+    }]);
+  });
+
   test('LocalAI discovers exact model aliases without sending empty authorization', async () => {
     const modelId = 'localai/Qwen3-8B-Instruct-GGUF:Q4_K_M';
     const server = await startJsonServer((request, response) => {

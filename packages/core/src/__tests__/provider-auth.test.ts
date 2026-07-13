@@ -138,6 +138,25 @@ describe('ProviderAuth contract', () => {
     expect(contract.actionAvailability.fetch_models).toBe('available');
   });
 
+  test('Vercel Gateway requires one stored key and exposes its public model discovery action', () => {
+    const missing = deriveProviderAuthContract({
+      providerType: 'vercel',
+      hasSecret: false,
+    });
+    expect(missing.setupMode).toBe('api_key');
+    expect(missing.requiresSecret).toBe(true);
+    expect(missing.actionAvailability.test_credentials).toBe('hidden');
+    expect(missing.actionAvailability.fetch_models).toBe('hidden');
+
+    const configured = deriveProviderAuthContract({
+      providerType: 'vercel',
+      hasSecret: true,
+    });
+    expect(configured.providerType).toBe('vercel');
+    expect(configured.actionAvailability.test_credentials).toBe('available');
+    expect(configured.actionAvailability.fetch_models).toBe('available');
+  });
+
   test('MiniMax Coding Plan uses the shared API-key credential flow under its own provider id', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'minimax-coding-plan',

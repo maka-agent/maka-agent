@@ -14,9 +14,14 @@ const MODEL_FETCH_TIMEOUT_MS = 10_000;
 
 type RawProviderModel = {
   id?: string;
+  name?: string;
+  type?: string;
+  tags?: string[];
   supports_image_in?: boolean;
   supports_reasoning?: boolean;
   context_length?: number;
+  context_window?: number;
+  max_tokens?: number;
 };
 
 type RawFireworksModel = {
@@ -77,7 +82,10 @@ async function fetchProviderModelsStrict(
   switch (definition.protocol) {
     case 'anthropic': {
       const r = await proxiedFetch(anthropicV1Url(baseUrl, '/models'), {
-        headers: anthropicModelHeaders(discovery.auth, apiKey),
+        headers: anthropicModelHeaders(
+          discovery.auth === 'claude-subscription' ? discovery.auth : undefined,
+          apiKey,
+        ),
         timeoutMs: MODEL_FETCH_TIMEOUT_MS,
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -89,7 +97,7 @@ async function fetchProviderModelsStrict(
       const r = await proxiedFetch(modelListUrl(baseUrl, discovery.path, discovery.query), {
         headers: {
           'content-type': 'application/json',
-          ...(apiKey && providerAuthSupportsApiKey(connection.providerType)
+          ...(discovery.auth !== 'none' && apiKey && providerAuthSupportsApiKey(connection.providerType)
             ? { authorization: `Bearer ${apiKey}` }
             : {}),
         },
@@ -100,7 +108,10 @@ async function fetchProviderModelsStrict(
       const rawModels = discovery.responseShape === 'array-or-data'
         ? (Array.isArray(data) ? data : data.data ?? [])
         : (Array.isArray(data) ? [] : data.data ?? []);
-      const models = rawModels.map(toModelInfo).filter((model): model is ModelInfo => model !== null);
+      const models = rawModels
+        .filter((model) => discovery.filter !== 'language-models' || model.type === 'language')
+        .map(toModelInfo)
+        .filter((model): model is ModelInfo => model !== null);
       return filterDiscoveredModels(models, discovery.filter, definition.fallbackModels);
     }
     case 'google': {
@@ -150,7 +161,7 @@ async function fetchCohereModels(baseUrl: string, apiKey: string): Promise<Model
 
 function filterDiscoveredModels(
   models: ModelInfo[],
-  filter: 'fallback-models' | undefined,
+  filter: 'fallback-models' | 'language-models' | undefined,
   fallbackModels: readonly string[],
 ): ModelInfo[] {
   if (filter !== 'fallback-models') return models;
@@ -237,12 +248,18 @@ async function fetchFireworksModels(
 
 function toModelInfo(model: RawProviderModel): ModelInfo | null {
   if (!model.id) return null;
+  const contextWindow = model.context_length ?? model.context_window;
   const capabilities: NonNullable<ModelInfo['capabilities']> = {};
   if (typeof model.supports_image_in === 'boolean') capabilities.vision = model.supports_image_in;
   if (typeof model.supports_reasoning === 'boolean') capabilities.reasoning = model.supports_reasoning;
+  if (model.tags?.includes('vision')) capabilities.vision = true;
+  if (model.tags?.includes('reasoning')) capabilities.reasoning = true;
+  if (model.tags?.includes('tool-use')) capabilities.functionCalling = true;
   return {
     id: model.id,
-    ...(typeof model.context_length === 'number' ? { contextWindow: model.context_length } : {}),
+    ...(model.name ? { displayName: model.name } : {}),
+    ...(typeof contextWindow === 'number' ? { contextWindow } : {}),
+    ...(typeof model.max_tokens === 'number' ? { maxOutputTokens: model.max_tokens } : {}),
     ...(Object.keys(capabilities).length ? { capabilities } : {}),
   };
 }

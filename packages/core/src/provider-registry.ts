@@ -25,11 +25,11 @@ export type ProviderRuntimeAdapter =
 export type ProviderModelDiscovery =
   | {
       kind: 'protocol';
-      auth?: 'claude-subscription';
+      auth?: 'claude-subscription' | 'none';
       path?: string;
       query?: Readonly<Record<string, string>>;
       responseShape?: 'array-or-data';
-      filter?: 'fallback-models';
+      filter?: 'fallback-models' | 'language-models';
     }
   | {
       kind: 'fireworks';
@@ -215,6 +215,15 @@ const deepinfraModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA.deepinfra,
   ['moonshotai/Kimi-K2.7-Code', 'moonshotai/Kimi-K2.6'],
 );
+const vercel = GENERATED_MODELS_DEV_PROVIDER_FACTS.vercel;
+if (vercel.id !== 'vercel') {
+  throw new Error('models.dev Vercel AI Gateway provider facts are missing stable id vercel');
+}
+const vercelModelIds = toolCallingModelIds(
+  'Vercel AI Gateway',
+  GENERATED_MODELS_DEV_METADATA.vercel,
+  ['anthropic/claude-opus-4.8'],
+).filter((id) => GENERATED_MODELS_DEV_METADATA.vercel[id]?.lifecycle !== 'deprecated');
 
 function toolCallingModelIds(
   providerLabel: string,
@@ -502,6 +511,25 @@ const providerRegistry = {
     readyOrder: 9,
     catalogOrder: 8,
     recommendedOrder: 1,
+  },
+  vercel: {
+    label: vercel.name,
+    description: 'One API key for hosted models with exact creator/model ids.',
+    baseUrl: 'https://ai-gateway.vercel.sh/v1',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: vercelModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol', auth: 'none', filter: 'language-models' },
+    category: 'overseas',
+    catalogGroup: 'aggregators',
+    catalogBadge: 'Gateway',
+    signupUrl: 'https://vercel.com/ai-gateway',
+    modelsDevId: vercel.id,
+    readyOrder: 31,
+    catalogOrder: 31,
   },
   xai: {
     label: xai.name,

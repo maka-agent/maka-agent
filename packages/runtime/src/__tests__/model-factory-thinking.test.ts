@@ -120,6 +120,17 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual(buildProviderOptions(conn('tencent-token-plan'), 'hy3', 'off'), {});
   });
 
+  test('Vercel Gateway sends reasoning effort under its stable namespace and exact model id', () => {
+    assert.deepEqual([...thinkingVariantsForModel('vercel', 'xai/grok-4.3')], ['off', 'low', 'medium', 'high']);
+    assert.deepEqual(buildProviderOptions(conn('vercel'), 'xai/grok-4.3', 'high'), {
+      vercel: { reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('vercel'), 'xai/grok-4.3', 'off'), {
+      vercel: { reasoningEffort: 'none' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('vercel'), 'grok-4.3', 'high'), {});
+  });
+
   test('a level the model does not support is dropped (defensive)', () => {
     assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: { store: false } });
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'max'), { anthropic: {} });
@@ -164,6 +175,7 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
     { providerType: 'google', model: 'gemini-3.5-flash' },
     { providerType: 'deepseek', model: 'deepseek-v4-flash' },
     { providerType: 'deepinfra', model: 'moonshotai/Kimi-K2.7-Code' },
+    { providerType: 'vercel', model: 'xai/grok-4.3' },
     { providerType: 'zai-coding-plan', model: 'glm-5.2', slug: 'zai-coding-plan' },
     { providerType: 'volcengine-ark', model: 'doubao-seed-2-0-pro-260215' },
     { providerType: 'cohere', model: 'command-a-plus-05-2026' },

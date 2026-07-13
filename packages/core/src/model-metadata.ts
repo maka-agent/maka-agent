@@ -153,6 +153,9 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
   'gemini-cli': GOOGLE_MODEL_OVERRIDES,
   'codex-subscription': OPENAI_OAUTH_MODEL_METADATA,
   siliconflow: SILICONFLOW_MODEL_OVERRIDES,
+  vercel: {
+    'xai/grok-4.3': { thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'] } },
+  },
   'tencent-coding-plan': {
     'kimi-k2.5': { capabilities: { vision: false } },
   },

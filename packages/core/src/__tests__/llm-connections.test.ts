@@ -41,6 +41,7 @@ describe('provider compatibility contract', () => {
       'MiniMax',
       'MiniMax-cn',
       'siliconflow',
+      'vercel',
       'xai',
       'cerebras',
       'mistral',
@@ -94,6 +95,7 @@ describe('provider compatibility contract', () => {
       'stepfun-step-plan',
       'deepinfra',
       'cohere',
+      'vercel',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -127,6 +129,7 @@ describe('provider compatibility contract', () => {
       'stepfun-step-plan',
       'deepinfra',
       'cohere',
+      'vercel',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -228,6 +231,27 @@ describe('provider compatibility contract', () => {
       readyOrder: 10,
       catalogOrder: 12,
     });
+  });
+
+  it('owns Vercel AI Gateway under the stable models.dev id with public language-model discovery', () => {
+    const provider = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).vercel;
+
+    assert.ok(provider, 'Vercel AI Gateway must be available through the shared provider registry');
+    assert.equal(provider.label, 'Vercel AI Gateway');
+    assert.equal(provider.baseUrl, 'https://ai-gateway.vercel.sh/v1');
+    assert.equal(provider.authKind, 'api_key');
+    assert.equal(provider.protocol, 'openai');
+    assert.deepEqual(provider.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(provider.modelDiscovery, { kind: 'protocol', auth: 'none', filter: 'language-models' });
+    assert.equal(provider.category, 'overseas');
+    assert.equal(provider.catalogGroup, 'aggregators');
+    assert.equal(provider.catalogBadge, 'Gateway');
+    assert.equal(provider.signupUrl, 'https://vercel.com/ai-gateway');
+    assert.equal(provider.modelsDevId, 'vercel');
+    assert.equal(provider.fallbackModels[0], 'anthropic/claude-opus-4.8');
+    assert.ok(provider.fallbackModels.includes('openai/gpt-5.5'));
+    assert.equal(provider.fallbackModels.includes('anthropic/claude-opus-4.1'), false);
+    assert.equal(provider.fallbackModels.every((id) => id.includes('/')), true);
   });
 
   it('owns the complete Cerebras provider contract under the stable cerebras id', () => {

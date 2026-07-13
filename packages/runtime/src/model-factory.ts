@@ -139,6 +139,10 @@ export function buildProviderOptions(
           ...(level && level !== 'off' ? { reasoningEffort: level } : {}),
         },
       };
+    case 'vercel':
+      return level
+        ? { vercel: { reasoningEffort: level === 'off' ? 'none' : level } }
+        : {};
     case 'google':
       return {
         google: {

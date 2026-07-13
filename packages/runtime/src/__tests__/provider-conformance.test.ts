@@ -14,6 +14,127 @@ after(async () => {
 });
 
 describe('models.dev provider conformance', () => {
+  test('Vercel Gateway preserves its public discovery boundary and exact model id through a reasoning tool loop', async () => {
+    const modelId = 'xai/grok-4.3';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        assert.equal(request.headers.authorization, undefined);
+        respondJson(response, 200, {
+          object: 'list',
+          data: [{
+            id: modelId,
+            name: 'Grok 4.3',
+            type: 'language',
+            tags: ['reasoning', 'tool-use'],
+            context_window: 1_000_000,
+            max_tokens: 1_000_000,
+          }],
+        });
+        return;
+      }
+
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      assert.equal(request.headers.authorization, 'Bearer vercel-test-key');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-vercel-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'I should call echo with the requested text.',
+              tool_calls: [{
+                id: 'call_vercel_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+
+      respondJson(response, 200, {
+        id: 'chatcmpl-vercel-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'vercel',
+      name: 'Vercel AI Gateway',
+      providerType: 'vercel',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'vercel-test-key');
+    assert.deepEqual(models, [{
+      id: modelId,
+      displayName: 'Grok 4.3',
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000_000,
+      capabilities: { reasoning: true, functionCalling: true },
+    }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'vercel-test-key', modelId }),
+      prompt: 'Call echo with hello.',
+      providerOptions: buildProviderOptions(connection, modelId, 'high') as Record<string, Record<string, string>>,
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.equal(requestBodies[0]?.reasoning_effort, 'high');
+    assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      {
+        role: 'assistant',
+        content: null,
+        reasoning_content: 'I should call echo with the requested text.',
+        tool_calls: [{
+          id: 'call_vercel_echo',
+          type: 'function',
+          function: { name: 'echo', arguments: '{"text":"hello"}' },
+        }],
+      },
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_vercel_echo' },
+    );
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
   test('LocalAI preserves a configured llama.cpp Qwen3 alias and reasoning through a two-stage tool-call loop', async () => {
     const modelId = 'localai/Qwen3-8B-Instruct-GGUF:Q4_K_M';
     const requestBodies: Array<Record<string, unknown>> = [];

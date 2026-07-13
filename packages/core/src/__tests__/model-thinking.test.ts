@@ -121,6 +121,11 @@ describe('thinkingOptionsForModel', () => {
     });
   });
 
+  test('Vercel Gateway keeps the exact creator/model id for Grok reasoning controls', () => {
+    assert.deepEqual(thinkingOptionsForModel('vercel', 'xai/grok-4.3'), { efforts: ['none', 'low', 'medium', 'high'] });
+    assert.equal(thinkingOptionsForModel('vercel', 'grok-4.3'), undefined);
+  });
+
   test('claude-subscription inherits anthropic thinking options (displayMetadataOnly preserves them)', () => {
     assert.deepEqual(thinkingOptionsForModel('claude-subscription', 'claude-opus-4-8'), { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] });
     assert.deepEqual(thinkingOptionsForModel('claude-subscription', 'claude-haiku-4-5'), { toggle: true, offBehavior: 'anthropic-thinking-disabled' });
@@ -168,6 +173,11 @@ describe('thinkingVariantsForModel', () => {
   test('Tencent Token Plan HY 3 models expose the documented low/medium/high efforts', () => {
     assert.deepEqual([...thinkingVariantsForModel('tencent-token-plan', 'hy3')], ['low', 'medium', 'high']);
     assert.deepEqual([...thinkingVariantsForModel('tencent-token-plan', 'hy3-preview')], ['low', 'medium', 'high']);
+  });
+
+  test('Vercel Gateway exposes the models.dev Grok reasoning efforts under its exact id', () => {
+    assert.deepEqual([...thinkingVariantsForModel('vercel', 'xai/grok-4.3')], ['off', 'low', 'medium', 'high']);
+    assert.deepEqual([...thinkingVariantsForModel('vercel', 'grok-4.3')], []);
   });
 
   test('zai glm-5.2 high/max; toggle-only GLM models expose none until an off wire is declared', () => {
