@@ -110,6 +110,7 @@ class MakaOpenCodeAgent(OpenCode):
         env = self._provider_env(provider)
         env["ZAI_BASE_URL"] = proxy_url
         env["ZAI_API_KEY"] = proxy_token
+        env["OPENCODE_CONFIG"] = self._opencode_config_path()
         env["OPENCODE_FAKE_VCS"] = "git"
 
         skills_command = self._build_register_skills_command()
@@ -148,6 +149,16 @@ class MakaOpenCodeAgent(OpenCode):
             / "headless"
             / "harbor"
             / "opencode-stop-runner.mjs"
+        )
+
+    def _opencode_config_path(self) -> str:
+        maka_repo = self._get_env("MAKA_REPO_ROOT") or "/opt/maka-agent"
+        return str(
+            Path(maka_repo)
+            / "packages"
+            / "headless"
+            / "harbor"
+            / "opencode-benchmark.json"
         )
 
     def _stop_grace_ms(self) -> int:
