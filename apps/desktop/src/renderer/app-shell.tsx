@@ -18,6 +18,7 @@ import {
   AutomationsPage,
   ChatView,
   Composer,
+  PermissionPrompt,
   DailyReviewPage,
   type ComposerHandle,
   type MakaUriDest,
@@ -1041,7 +1042,7 @@ export function AppShell({
     return () => window.clearTimeout(timer);
   }, [activeId, activeStreamingComplete, activeStreamingMessageId, messages, settleAssistantStreaming]);
 
-  const hasModalOpen = Boolean(activePermission) || helpOpen || paletteOpen || searchModalOpen;
+  const hasModalOpen = helpOpen || paletteOpen || searchModalOpen;
 
   useAppShellNavRefSync({
     navSelection,
@@ -1581,11 +1582,20 @@ export function AppShell({
                 onPromptSuggestion={(prompt) => composerRef.current?.appendText(prompt)}
               />
               )}
+              <div className="maka-composer-interaction-slot">
+                {activePermission && (
+                  <PermissionPrompt
+                    request={activePermission}
+                    onRespond={respondToPermission}
+                    onStop={stop}
+                    stopPending={activeId ? stopPendingBySession[activeId] === true : false}
+                  />
+                )}
+              </div>
               <Composer
                 ref={composerRef}
-                hidden={navSelection.section !== 'sessions' || onboardingComposerHidden}
+                hidden={navSelection.section !== 'sessions' || onboardingComposerHidden || Boolean(activePermission)}
                 draftKey={activeId ?? 'new-session'}
-                disabled={Boolean(activePermission)}
                 // #646: Stop must be available for the WHOLE turn — the moment the
                 // user most wants to interrupt is a long wait with nothing on
                 // screen (first token, or a slow provider's step-to-step lull).
@@ -1694,8 +1704,6 @@ export function AppShell({
         </div>
       </div>
       <AppShellOverlays
-        activePermission={activePermission}
-        respondToPermission={respondToPermission}
         settingsOpen={settingsOpen}
         connections={connections}
         defaultConnection={defaultConnection}

@@ -4,46 +4,50 @@ import { derivePermissionRequestHealth, formatPermissionRequestWait, readWriteSt
 import { AlertOctagon, AlertTriangle, FileEdit, GitMerge, Globe, HelpCircle, ShieldAlert, Terminal, Wifi } from './icons.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
-import { Button as UiButton, Checkbox, AlertDialogContent, AlertDialogRoot } from './ui.js';
+import { Button as UiButton, Checkbox } from './ui.js';
 import { Badge } from './primitives/badge.js';
 import { redactSecrets } from './redact.js';
 import { formatRedactedJson } from './tool-format.js';
 
 // Per-reason presentation hints. Drives icon + headline + risk tone in the
-// dialog so the user can scan the modal in 1-2 seconds before reading the
+// prompt so the user can scan it in 1-2 seconds before reading the
 // args block.
 type ReasonKind = PermissionRequestEvent['reason'];
 
 interface ReasonPreset {
+  prompt: string;
   label: string;
   Icon: typeof AlertTriangle;
   tone: 'info' | 'caution' | 'destructive';
 }
 
 const REASON_PRESETS: Record<ReasonKind, ReasonPreset> = {
-  shell_dangerous: { label: '高风险 shell 命令 · 请仔细确认', Icon: Terminal, tone: 'caution' },
-  file_write: { label: '写入或创建文件', Icon: FileEdit, tone: 'info' },
-  fs_destructive: { label: '不可恢复的文件系统操作', Icon: AlertOctagon, tone: 'destructive' },
-  git_destructive: { label: '不可恢复的 Git 操作', Icon: GitMerge, tone: 'destructive' },
-  network: { label: '对外网络请求', Icon: Wifi, tone: 'info' },
-  privileged: { label: '特权操作 (sudo / su)', Icon: ShieldAlert, tone: 'destructive' },
-  browser: { label: '读取和操作你登录的浏览器会话 · 请确认', Icon: Globe, tone: 'caution' },
-  custom: { label: '自定义请求', Icon: HelpCircle, tone: 'info' },
+  shell_dangerous: { prompt: '允许执行高风险 shell 命令？', label: '请仔细确认命令和目录', Icon: Terminal, tone: 'caution' },
+  file_write: { prompt: '允许写入或创建文件？', label: '文件系统操作', Icon: FileEdit, tone: 'info' },
+  fs_destructive: { prompt: '允许执行不可恢复的文件操作？', label: '不可恢复的文件系统操作', Icon: AlertOctagon, tone: 'destructive' },
+  git_destructive: { prompt: '允许执行不可恢复的 Git 操作？', label: '不可恢复的 Git 操作', Icon: GitMerge, tone: 'destructive' },
+  network: { prompt: '允许发起网络请求？', label: '对外网络请求', Icon: Wifi, tone: 'info' },
+  privileged: { prompt: '允许执行特权操作？', label: 'sudo / su', Icon: ShieldAlert, tone: 'destructive' },
+  browser: { prompt: '允许操作已登录的浏览器？', label: '浏览器会话包含你的登录状态', Icon: Globe, tone: 'caution' },
+  custom: { prompt: '允许执行此操作？', label: '自定义请求', Icon: HelpCircle, tone: 'info' },
 };
 
-export function PermissionDialog(props: {
+export function PermissionPrompt(props: {
   request: PermissionRequestEvent;
-  // Accept Promise-returning impls so the dialog can await the IPC
+  // Accept Promise-returning impls so the prompt can await the IPC
   // and reset its own pending state when it resolves OR rejects.
   // The renderer's `respondToPermission` is async but was typed as
   // void by the legacy signature, which made `submit()` strand
   // `responsePending=true` if the IPC failed silently.
   onRespond(response: PermissionResponse): void | Promise<void>;
+  onStop(): void | Promise<void>;
+  stopPending?: boolean;
 }) {
   const [rememberForTurn, setRememberForTurn] = useState(false);
   const [responsePending, setResponsePending] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const responsePendingRef = useRef(false);
+  const denyButtonRef = useRef<HTMLButtonElement>(null);
   const permissionMountedRef = useRef(true);
   const activePermissionRequestIdRef = useRef(props.request.requestId);
 
@@ -60,6 +64,8 @@ export function PermissionDialog(props: {
     setResponsePending(false);
     responsePendingRef.current = false;
     setNow(Date.now());
+    const focusFrame = window.requestAnimationFrame(() => denyButtonRef.current?.focus());
+    return () => window.cancelAnimationFrame(focusFrame);
   }, [props.request.requestId]);
 
   useEffect(() => {
@@ -96,54 +102,42 @@ export function PermissionDialog(props: {
 
   const preset = REASON_PRESETS[props.request.reason] ?? REASON_PRESETS.custom;
   const summary = renderPermissionSummary(props.request);
+  const details = renderPermissionDetails(props.request);
   const isDestructive = preset.tone === 'destructive';
   const health = derivePermissionRequestHealth({ requestedAt: props.request.ts, now });
   const waitLabel = formatPermissionRequestWait(health.ageMs);
 
   return (
-    <AlertDialogRoot defaultOpen onOpenChange={(open, details) => { if (!open) details.cancel(); }}>
-      <AlertDialogContent
-        className="maka-modal permissionDialog w-[min(92vw,720px)] p-0"
-        aria-labelledby="permissionTitle"
-        data-tone={preset.tone}
-        showClose={false}
-      >
-        <div className="maka-modal-header maka-permission-header">
+    <section
+      role="region"
+      className="maka-permission-prompt composer"
+      aria-labelledby="permissionTitle"
+      data-tone={preset.tone}
+    >
+      <div className="maka-permission-prompt-inner agents-parchment-paper-surface">
+        <header className="maka-permission-header">
           <span className="maka-permission-icon" aria-hidden="true">
             <preset.Icon size={20} />
           </span>
-          <div>
-            <h2 className="maka-modal-title" id="permissionTitle">需要确认权限</h2>
-            <p className="maka-modal-subtitle">
-              <Badge variant={isDestructive ? 'destructive' : 'secondary'} className="maka-permission-tool font-mono">{props.request.toolName}</Badge>
-              <span aria-hidden="true"> · </span>
-              <span className="maka-reason-text" data-reason={props.request.reason}>{preset.label}</span>
-              <span aria-hidden="true"> · </span>
+          <div className="maka-permission-heading">
+            <div className="maka-permission-title-row">
+              <h2 className="maka-permission-title" id="permissionTitle">{preset.prompt}</h2>
               <span className="maka-permission-age" data-status={health.status}>
                 已等待 {waitLabel}
               </span>
+            </div>
+            <p className="maka-permission-subtitle">
+              <Badge variant={isDestructive ? 'destructive' : 'secondary'} className="maka-permission-tool font-mono">{props.request.toolName}</Badge>
+              <span aria-hidden="true"> · </span>
+              <span className="maka-reason-text" data-reason={props.request.reason}>{preset.label}</span>
             </p>
           </div>
-        </div>
-        <div className="maka-modal-body maka-permission-body">
+        </header>
+        <div className="maka-permission-body">
           {summary && <div className="maka-permission-summary">{summary}</div>}
           {props.request.hint && (
             <div className="maka-permission-hint" role="note">{props.request.hint}</div>
           )}
-          <Collapsible className="maka-permission-raw">
-            <CollapsibleTrigger>查看完整参数</CollapsibleTrigger>
-            <CollapsiblePanel>
-              <pre className="maka-code">{formatRedactedJson(props.request.args)}</pre>
-            </CollapsiblePanel>
-          </Collapsible>
-          <label className="permissionRemember">
-            <Checkbox
-              checked={rememberForTurn}
-              disabled={responsePending}
-              onCheckedChange={(checked) => setRememberForTurn(checked === true)}
-            />
-            本轮对话内记住选择（同类型工具不再询问，关闭/切换对话后失效）
-          </label>
           {props.request.reason === 'browser' && rememberForTurn && (
             <p className="maka-permission-hint" role="note">
               勾选后，本轮接下来的浏览、读取页面、导航、点击、输入都不再逐次询问。你会全程看到它操作的页面，随时可以停止；本轮结束后授权失效。
@@ -168,38 +162,63 @@ export function PermissionDialog(props: {
             </Alert>
           )}
         </div>
-        <div className="maka-modal-footer permissionActions">
-          {/* Designer audit P2-16: for destructive requests the confirm used
-              to be the dialog's ONLY solid colored button — muscle memory
-              clicks the brightest control, which is exactly wrong for an
-              irreversible action. Danger side drops to a red OUTLINE (still
-              unmistakably destructive, no longer the visual magnet) and the
-              safe side (拒绝) rises from ghost to secondary so both options
-              read as equally pressable. Non-destructive requests keep the
-              plain primary confirm. */}
-          <UiButton
-            className="maka-button"
-            variant={isDestructive ? 'secondary' : 'ghost'}
-            type="button"
-            disabled={responsePending}
-            onClick={() => submit('deny')}
-          >
-            拒绝
-          </UiButton>
-          <UiButton
-            className={isDestructive
-              ? 'maka-button border border-[oklch(from_var(--destructive)_l_c_h_/_0.55)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.08)] text-[color:var(--destructive)] hover:bg-[oklch(from_var(--destructive)_l_c_h_/_0.14)] active:bg-[oklch(from_var(--destructive)_l_c_h_/_0.18)]'
-              : 'maka-button'}
-            variant={isDestructive ? 'outline' : 'default'}
-            type="button"
-            disabled={responsePending}
-            onClick={() => submit('allow')}
-          >
-            {responsePending ? '正在提交…' : isDestructive ? '我已确认，允许' : '允许'}
-          </UiButton>
-        </div>
-      </AlertDialogContent>
-    </AlertDialogRoot>
+        <Collapsible className="maka-permission-raw">
+          <CollapsiblePanel>
+            {details && <div className="maka-permission-details">{details}</div>}
+            <pre className="maka-code">{formatRedactedJson(props.request.args)}</pre>
+          </CollapsiblePanel>
+          <footer className="permissionActions">
+            <div className="maka-permission-footer-controls">
+              <label className="permissionRemember">
+                <Checkbox
+                  checked={rememberForTurn}
+                  disabled={responsePending}
+                  onCheckedChange={(checked) => setRememberForTurn(checked === true)}
+                />
+                本轮记住
+              </label>
+              <CollapsibleTrigger>完整参数</CollapsibleTrigger>
+            </div>
+            <div className="maka-permission-action-buttons">
+              <UiButton
+                className="maka-button"
+                variant="quiet"
+                size="sm"
+                type="button"
+                disabled={props.stopPending}
+                onClick={() => void props.onStop()}
+              >
+                {props.stopPending ? '停止中…' : '停止'}
+              </UiButton>
+              {/* Keep the irreversible action from becoming the brightest
+                  control: Allow uses a danger outline while the safe Deny
+                  action remains equally pressable. */}
+              <UiButton
+                ref={denyButtonRef}
+                className="maka-button"
+                variant={isDestructive ? 'secondary' : 'ghost'}
+                type="button"
+                disabled={responsePending}
+                onClick={() => submit('deny')}
+              >
+                拒绝
+              </UiButton>
+              <UiButton
+                className={isDestructive
+                  ? 'maka-button border border-[oklch(from_var(--destructive)_l_c_h_/_0.55)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.08)] text-[color:var(--destructive)] hover:bg-[oklch(from_var(--destructive)_l_c_h_/_0.14)] active:bg-[oklch(from_var(--destructive)_l_c_h_/_0.18)]'
+                  : 'maka-button'}
+                variant={isDestructive ? 'outline' : 'default'}
+                type="button"
+                disabled={responsePending}
+                onClick={() => submit('allow')}
+              >
+                {responsePending ? '正在提交…' : isDestructive ? '我已确认，允许' : '允许'}
+              </UiButton>
+            </div>
+          </footer>
+        </Collapsible>
+      </div>
+    </section>
   );
 }
 
@@ -232,7 +251,7 @@ function renderBrowserSummary(toolName: string, args: Record<string, unknown>): 
 
 /**
  * Per-tool human-readable summary of what the request will do, used at the
- * top of the permission dialog body. Falls back to undefined if we can't
+ * top of the permission prompt body. Falls back to undefined if we can't
  * recognize the tool — the raw args Collapsible block is always available.
  */
 function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | undefined {
@@ -248,16 +267,7 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
     case 'Bash': {
       const command = typeof args.command === 'string' ? args.command : undefined;
       if (!command) return undefined;
-      const timeout = typeof args.timeout_ms === 'number' ? args.timeout_ms : undefined;
-      return (
-        <>
-          <p className="maka-permission-line">即将运行 shell 命令：</p>
-          <pre className="maka-code maka-permission-command">{redactSecrets(command)}</pre>
-          {timeout !== undefined && (
-            <p className="maka-permission-meta">超时 <strong>{timeout} ms</strong></p>
-          )}
-        </>
-      );
+      return <pre className="maka-code maka-permission-command">{redactSecrets(command)}</pre>;
     }
     case 'WriteStdin': {
       const input = readWriteStdinInputPreview(args);
@@ -269,17 +279,8 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
       if (!input && (cols === undefined || rows === undefined)) return undefined;
       return (
         <>
-          <p className="maka-permission-line">即将与后台终端交互：</p>
-          {input && (
-            <>
-              <pre className="maka-code maka-permission-preview">
-                {input.text}{input.truncated ? '…' : ''}
-              </pre>
-              {input.truncated && (
-                <p className="maka-permission-meta">完整输入共 <strong>{input.bytes}</strong> 字节</p>
-              )}
-            </>
-          )}
+          <p className="maka-permission-line">即将与后台终端交互</p>
+          {input && <p className="maka-permission-meta">输入 <strong>{input.bytes}</strong> 字节</p>}
           {cols !== undefined && rows !== undefined && (
             <p className="maka-permission-meta">目标尺寸 <strong>{cols}x{rows}</strong></p>
           )}
@@ -292,7 +293,6 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
       if (!path) return undefined;
       const bytes = new TextEncoder().encode(content).length;
       const lines = content.split('\n').length;
-      const preview = permissionTextPreview(content, 600);
       return (
         <>
           <p className="maka-permission-line">即将写入文件：</p>
@@ -300,29 +300,16 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
           <p className="maka-permission-meta">
             <strong>{bytes}</strong> 字节 · <strong>{lines}</strong> 行
           </p>
-          <pre className="maka-code maka-permission-preview">{preview}</pre>
         </>
       );
     }
     case 'Edit': {
       const path = typeof args.path === 'string' ? args.path : undefined;
-      const oldString = typeof args.old_string === 'string' ? args.old_string : '';
-      const newString = typeof args.new_string === 'string' ? args.new_string : '';
       if (!path) return undefined;
       return (
         <>
           <p className="maka-permission-line">即将修改文件：</p>
           <p className="maka-permission-path"><code>{redactSecrets(path)}</code></p>
-          <div className="maka-permission-diff">
-            <div>
-              <span className="maka-permission-diff-tag" data-side="old">删除</span>
-              <pre className="maka-code">{permissionTextPreview(oldString, 400)}</pre>
-            </div>
-            <div>
-              <span className="maka-permission-diff-tag" data-side="new">写入</span>
-              <pre className="maka-code">{permissionTextPreview(newString, 400)}</pre>
-            </div>
-          </div>
         </>
       );
     }
@@ -333,11 +320,6 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
       const target = typeof args.target === 'string' ? args.target : undefined;
       const elementType = typeof args.elementType === 'string' ? args.elementType : undefined;
       const index = typeof args.index === 'number' ? args.index : undefined;
-      const propsArg = args.props && typeof args.props === 'object' && !Array.isArray(args.props)
-        ? args.props as Record<string, unknown>
-        : {};
-      const propEntries = Object.entries(propsArg).slice(0, 6);
-      const hiddenProps = Math.max(0, Object.keys(propsArg).length - propEntries.length);
       return (
         <>
           <p className="maka-permission-line">即将编辑 Office 文档：</p>
@@ -348,13 +330,59 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
             {elementType && <> · 元素 <code>{redactSecrets(elementType)}</code></>}
             {index !== undefined && <> · 位置 <strong>{index}</strong></>}
           </p>
-          {propEntries.length > 0 && (
-            <pre className="maka-code maka-permission-preview">
-              {propEntries.map(([key, value]) => `${redactSecrets(key)}=${permissionValuePreview(value)}`).join('\n')}
-              {hiddenProps > 0 && `\n… 另有 ${hiddenProps} 个属性`}
-            </pre>
-          )}
         </>
+      );
+    }
+    default:
+      return undefined;
+  }
+}
+
+function renderPermissionDetails(request: PermissionRequestEvent): ReactNode | undefined {
+  const args = (request.args ?? {}) as Record<string, unknown>;
+  switch (request.toolName) {
+    case 'WriteStdin': {
+      const input = readWriteStdinInputPreview(args);
+      if (!input) return undefined;
+      return (
+        <pre className="maka-code maka-permission-preview">
+          {input.text}{input.truncated ? '…' : ''}
+        </pre>
+      );
+    }
+    case 'Write': {
+      const content = typeof args.content === 'string' ? args.content : '';
+      if (!content) return undefined;
+      return <pre className="maka-code maka-permission-preview">{permissionTextPreview(content, 600)}</pre>;
+    }
+    case 'Edit': {
+      const oldString = typeof args.old_string === 'string' ? args.old_string : '';
+      const newString = typeof args.new_string === 'string' ? args.new_string : '';
+      return (
+        <div className="maka-permission-diff">
+          <div>
+            <span className="maka-permission-diff-tag" data-side="old">删除</span>
+            <pre className="maka-code">{permissionTextPreview(oldString, 400)}</pre>
+          </div>
+          <div>
+            <span className="maka-permission-diff-tag" data-side="new">写入</span>
+            <pre className="maka-code">{permissionTextPreview(newString, 400)}</pre>
+          </div>
+        </div>
+      );
+    }
+    case 'OfficeDocumentEdit': {
+      const propsArg = args.props && typeof args.props === 'object' && !Array.isArray(args.props)
+        ? args.props as Record<string, unknown>
+        : {};
+      const propEntries = Object.entries(propsArg).slice(0, 6);
+      if (propEntries.length === 0) return undefined;
+      const hiddenProps = Math.max(0, Object.keys(propsArg).length - propEntries.length);
+      return (
+        <pre className="maka-code maka-permission-preview">
+          {propEntries.map(([key, value]) => `${redactSecrets(key)}=${permissionValuePreview(value)}`).join('\n')}
+          {hiddenProps > 0 && `\n… 另有 ${hiddenProps} 个属性`}
+        </pre>
       );
     }
     default:

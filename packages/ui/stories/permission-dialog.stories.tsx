@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { PermissionRequestEvent, ToolCategory } from '@maka/core';
-import { PermissionDialog } from '../src/permission-dialog.js';
+import { PermissionPrompt } from '../src/permission-dialog.js';
 
 const meta = {
-  title: 'Product/Permission Dialog',
+  title: 'Product/Permission Prompt',
   parameters: {
     layout: 'fullscreen',
   },
@@ -12,6 +12,10 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
+
+function PermissionPromptStory(props: Omit<Parameters<typeof PermissionPrompt>[0], 'onStop'>) {
+  return <PermissionPrompt {...props} onStop={() => undefined} />;
+}
 
 const NOW = Date.now();
 
@@ -39,7 +43,7 @@ function makeRequest(input: {
   };
 }
 
-function DialogBackdrop(props: { children: React.ReactNode }) {
+function ComposerSlotBackdrop(props: { children: React.ReactNode }) {
   return (
     <div
       data-maka-visual-smoke="true"
@@ -48,6 +52,9 @@ function DialogBackdrop(props: { children: React.ReactNode }) {
         height: '100%',
         minHeight: 560,
         position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'flex-end',
       }}
     >
       {props.children}
@@ -59,8 +66,8 @@ const noop = () => undefined;
 
 export const ShellDangerous: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-shell',
           toolName: 'Bash',
@@ -71,14 +78,14 @@ export const ShellDangerous: Story = {
         })}
         onRespond={noop}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
 };
 
 export const FileWrite: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-write',
           toolName: 'Write',
@@ -91,14 +98,14 @@ export const FileWrite: Story = {
         })}
         onRespond={noop}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
 };
 
 export const FileEdit: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-edit',
           toolName: 'Edit',
@@ -112,14 +119,41 @@ export const FileEdit: Story = {
         })}
         onRespond={noop}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
+};
+
+export const FileEditExpanded: Story = {
+  render: () => (
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
+        request={makeRequest({
+          requestId: 'req-edit-expanded',
+          toolName: 'Edit',
+          category: 'file_write',
+          reason: 'file_write',
+          args: {
+            path: 'packages/ui/src/composer.tsx',
+            old_string: 'const placeholder = "给 Maka 发消息…";\n'.repeat(18),
+            new_string: 'const placeholder = "描述任务…";\n'.repeat(18),
+          },
+        })}
+        onRespond={noop}
+      />
+    </ComposerSlotBackdrop>
+  ),
+  play: async ({ canvasElement }) => {
+    await wait(0);
+    const disclosure = Array.from(canvasElement.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => (button.textContent ?? '').includes('完整参数'));
+    disclosure?.click();
+  },
 };
 
 export const FsDestructive: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-fs',
           toolName: 'Bash',
@@ -130,14 +164,14 @@ export const FsDestructive: Story = {
         })}
         onRespond={noop}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
 };
 
 export const GitDestructive: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-git',
           toolName: 'Bash',
@@ -147,14 +181,14 @@ export const GitDestructive: Story = {
         })}
         onRespond={noop}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
 };
 
 export const Network: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-net',
           toolName: 'WebFetch',
@@ -164,14 +198,14 @@ export const Network: Story = {
         })}
         onRespond={noop}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
 };
 
 export const Privileged: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-sudo',
           toolName: 'Bash',
@@ -181,14 +215,14 @@ export const Privileged: Story = {
         })}
         onRespond={noop}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
 };
 
 export const Browser: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-browser',
           toolName: 'browser_navigate',
@@ -198,14 +232,14 @@ export const Browser: Story = {
         })}
         onRespond={noop}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
 };
 
 export const OfficeDocumentEdit: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-office',
           toolName: 'OfficeDocumentEdit',
@@ -222,14 +256,14 @@ export const OfficeDocumentEdit: Story = {
         })}
         onRespond={noop}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
 };
 
 export const StaleRequest: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-stale',
           toolName: 'Bash',
@@ -240,14 +274,14 @@ export const StaleRequest: Story = {
         })}
         onRespond={noop}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
 };
 
 export const ExpiredRequest: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-expired',
           toolName: 'Write',
@@ -258,14 +292,14 @@ export const ExpiredRequest: Story = {
         })}
         onRespond={noop}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
 };
 
 export const CustomReason: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-custom',
           toolName: 'MemoryWrite',
@@ -275,7 +309,7 @@ export const CustomReason: Story = {
         })}
         onRespond={noop}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
 };
 
@@ -285,8 +319,8 @@ async function wait(ms: number) {
 
 export const SubmitPending: Story = {
   render: () => (
-    <DialogBackdrop>
-      <PermissionDialog
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-pending',
           toolName: 'Bash',
@@ -296,7 +330,7 @@ export const SubmitPending: Story = {
         })}
         onRespond={() => new Promise<void>(() => undefined)}
       />
-    </DialogBackdrop>
+    </ComposerSlotBackdrop>
   ),
   play: async ({ canvasElement }) => {
     await wait(0);

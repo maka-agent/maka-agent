@@ -1,4 +1,4 @@
-/* Composer — outer container, controls, pickers, tool buttons, send/workspace/branch/streaming. Composer block merged in from tool-output.css (was misplaced there) — issue #546 PR3. Runtime permission dialog moved to permission-dialog.css. */
+/* Composer — outer container, controls, pickers, tool buttons, send/workspace/branch/streaming. Composer block merged in from tool-output.css (was misplaced there) — issue #546 PR3. Runtime permission prompt styles live in permission-dialog.css. */
 .composer {
   flex: 0 0 auto;
   display: flex;
@@ -551,27 +551,3 @@
     opacity: 1;
   }
 }
-.permissionDialog pre {
-  margin: 0;
-  max-height: 300px;
-  overflow: auto;
-}
-
-.permissionDialog h2 {
-  margin: 0;
-}
-
-.permissionDialog p {
-  margin: var(--space-0-5) 0 0;
-}
-
-.permissionRemember {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: var(--space-1);
-  margin-top: var(--space-2-5);
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-ui);
-}
-

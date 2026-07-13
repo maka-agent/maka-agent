@@ -1350,7 +1350,7 @@
   .maka-reason-text[data-reason="browser"]          { color: var(--info-text); }
   .maka-reason-text[data-reason="custom"]           { color: var(--foreground-secondary); }
 
-  /* ---- Code blocks (used in args preview inside permission dialog) --- */
+  /* ---- Code blocks (used in args preview inside permission prompt) --- */
 
   .maka-code {
     font-family: var(--font-mono);

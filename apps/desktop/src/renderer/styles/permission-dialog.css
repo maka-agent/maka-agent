@@ -1,7 +1,26 @@
-/* Runtime permission dialog — dialog shell, per-reason iconography, per-tool summary, diff + raw-json display. Composer permission block merged in from composer.css (was misplaced there); diff/raw from settings/form.css (PR1). — issue #546 PR3. */
-/* PR30 Permission dialog: per-reason iconography + per-tool summary block */
-.permissionDialog {
-  width: min(480px, calc(100vw - 48px));
+/* Turn-scoped permission prompt. It takes over the composer's in-flow slot so
+   the conversation and any live browser remain visible while Maka waits. */
+.maka-composer-interaction-slot {
+  display: contents;
+}
+
+.maka-permission-prompt {
+  width: 100%;
+}
+
+.maka-permission-prompt-inner {
+  width: min(var(--maka-chat-measure), 100%);
+  box-sizing: border-box;
+  display: grid;
+  gap: var(--space-1-5);
+  margin: 0 auto;
+  padding: var(--space-2);
+  overflow: hidden;
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--background);
+  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / var(--composer-ring-alpha, 0.035));
+  container-type: inline-size;
 }
 
 .maka-permission-header {
@@ -9,6 +28,37 @@
   grid-template-columns: 24px minmax(0, 1fr);
   align-items: start;
   gap: var(--space-2);
+}
+
+.maka-permission-heading {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-0-5);
+}
+
+.maka-permission-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.maka-permission-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--foreground);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.maka-permission-subtitle {
+  min-width: 0;
+  margin: 0;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-snug);
 }
 
 .maka-permission-icon {
@@ -21,17 +71,17 @@
   color: var(--info-text);
 }
 
-.permissionDialog[data-tone="caution"] .maka-permission-icon {
-  background: oklch(from var(--info) l c h / 0.14);
-  color: var(--info-text);
+.maka-permission-prompt[data-tone="caution"] .maka-permission-icon {
+  background: oklch(from var(--warning) l c h / 0.12);
+  color: var(--warning-text);
 }
 
-.permissionDialog[data-tone="destructive"] .maka-permission-icon {
+.maka-permission-prompt[data-tone="destructive"] .maka-permission-icon {
   background: oklch(from var(--destructive) l c h / 0.10);
   color: var(--destructive-text);
 }
 
-.permissionDialog[data-tone="destructive"] {
+.maka-permission-prompt[data-tone="destructive"] .maka-permission-prompt-inner {
   border: var(--border-width-hairline) solid oklch(from var(--destructive) l c h / 0.32);
 }
 
@@ -61,7 +111,7 @@
 
 .maka-permission-body {
   display: grid;
-  gap: var(--space-2-5);
+  gap: var(--space-1);
 }
 
 .maka-permission-summary {
@@ -89,11 +139,14 @@
   border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.03);
 }
 
-.maka-permission-command,
+.maka-permission-command {
+  margin: 0;
+  max-height: 64px;
+  overflow: auto;
+}
+
 .maka-permission-preview {
   margin: 0;
-  max-height: 180px;
-  overflow: auto;
 }
 
 .maka-permission-meta {
@@ -111,15 +164,17 @@
   line-height: var(--leading-snug);
 }
 
-/* Single-line emphasis under the "记住本轮" checkbox when the action is
- * destructive. Keeps the dialog body readable but draws an extra beat
- * before the user clicks 我已确认，允许. */
+/* Destructive risk stays visible without becoming a nested alert card. */
 .maka-permission-danger-note {
   margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--destructive);
-  font-size: var(--font-size-ui);
+  font-size: var(--font-size-caption);
   line-height: var(--leading-normal);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
 }
 
 
@@ -173,18 +228,27 @@
 }
 
 .maka-permission-raw {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.maka-permission-raw [data-slot="collapsible-panel"] {
+  max-height: min(60vh, 520px);
+  overflow: auto;
   border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-control);
   background: var(--foreground-2);
 }
 
 .maka-permission-raw [data-slot="collapsible-trigger"] {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-1-5);
-  padding: var(--space-1) var(--space-2-5);
+  min-height: var(--h-control-sm);
+  padding: 0 var(--space-1);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
+  border-radius: var(--radius-control);
 }
 
 /* Rotating disclosure triangle (same recipe as .maka-turn-thinking):
@@ -205,8 +269,9 @@
   transform: rotate(90deg);
 }
 
-.maka-permission-raw [data-slot="collapsible-trigger"][data-panel-open] {
-  border-bottom: var(--border-width-hairline) solid var(--border);
+.maka-permission-raw [data-slot="collapsible-trigger"]:hover {
+  color: var(--foreground);
+  background: var(--state-hover-bg);
 }
 
 .maka-permission-raw .maka-code {
@@ -214,6 +279,63 @@
   border: 0;
   border-radius: 0 0 var(--radius-control) var(--radius-control);
   background: var(--foreground-2);
-  max-height: 180px;
+  max-height: min(36vh, 280px);
   overflow: auto;
+}
+
+.maka-permission-details {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2-5);
+  border-bottom: var(--border-width-hairline) solid var(--border);
+}
+
+.permissionActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-top: var(--space-1-5);
+  border-top: var(--border-width-hairline) solid var(--border);
+}
+
+.maka-permission-footer-controls {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.permissionRemember {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-snug);
+  white-space: nowrap;
+}
+
+.maka-permission-action-buttons {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1-5);
+}
+
+@container (max-width: 460px) {
+  .permissionActions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .maka-permission-action-buttons {
+    width: 100%;
+  }
+
+  .maka-permission-action-buttons > :first-child {
+    margin-right: auto;
+  }
 }

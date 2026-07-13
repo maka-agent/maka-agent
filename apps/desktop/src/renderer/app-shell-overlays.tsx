@@ -1,13 +1,11 @@
 import { lazy, Suspense } from 'react';
 import type {
   LlmConnection,
-  PermissionRequestEvent,
-  PermissionResponse,
   SettingsSection,
   ThemePalette,
   ThemePreference,
 } from '@maka/core';
-import { PermissionDialog, SearchModal } from '@maka/ui';
+import { SearchModal } from '@maka/ui';
 import { KeyboardHelpModal } from './keyboard-help';
 import { CommandPalette } from './command-palette';
 import { buildAppShellCommandList, type AppShellCommandListOptions } from './app-shell-command-actions';
@@ -36,8 +34,6 @@ function SettingsModalFallback() {
 }
 
 export function AppShellOverlays(props: {
-  activePermission: PermissionRequestEvent | undefined;
-  respondToPermission(response: PermissionResponse): void | Promise<void>;
   settingsOpen: boolean;
   connections: LlmConnection[];
   defaultConnection: string | null;
@@ -65,7 +61,6 @@ export function AppShellOverlays(props: {
   commandOptions: AppShellCommandListOptions;
 }) {
   const {
-    activePermission,
     closeHelp,
     closePalette,
     closeSearchModal,
@@ -78,7 +73,6 @@ export function AppShellOverlays(props: {
     paletteOnSelectSession,
     paletteOpen,
     refreshConnections,
-    respondToPermission,
     searchModalDeps,
     searchModalInitialQuery,
     searchModalOnNavigate,
@@ -94,12 +88,6 @@ export function AppShellOverlays(props: {
 
   return (
     <>
-      {activePermission && (
-        <PermissionDialog
-          request={activePermission}
-          onRespond={respondToPermission}
-        />
-      )}
       {settingsOpen && (
         <Suspense fallback={<SettingsModalFallback />}>
           <SettingsModal

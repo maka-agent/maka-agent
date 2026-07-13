@@ -231,7 +231,7 @@ export const DialogContent = createModalContent({
 });
 
 // AlertDialog — the alert variant locks modal + disables pointer dismissal,
-// so confirm/permission dialogs require an explicit decision. Escape is NOT
+// so confirmation dialogs require an explicit decision. Escape is NOT
 // auto-disabled (Base UI alert-dialog still closes on Esc); callers that must
 // not be Esc-dismissed intercept onOpenChange and cancel. PR6 (#520).
 export const AlertDialogContent = createModalContent({

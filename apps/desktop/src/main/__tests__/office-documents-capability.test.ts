@@ -180,7 +180,7 @@ describe('Office document capability contract', () => {
     assert.match(previewSource, /TOOL_OUTPUT_COMMAND_CLASS/, 'officecli args must use the shared command surface');
   });
 
-  it('summarizes Office document edits in the permission dialog before raw args', async () => {
+  it('summarizes Office document edits in the permission prompt before raw args', async () => {
     const components = await readFile(PERMISSION_DIALOG, 'utf8');
     const summaryBlock = components.match(/function renderPermissionSummary[\s\S]*?function permissionValuePreview/)?.[0] ?? '';
 
