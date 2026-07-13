@@ -15,6 +15,7 @@ import {
 } from '#harness-ab-manifest';
 import { runHarnessAbComparison } from '#harness-ab-run';
 import {
+  assertHarnessAbReportCompleted,
   buildHarnessAbReport,
   renderHarnessAbReportCsv,
   renderHarnessAbReportMarkdown,
@@ -202,6 +203,7 @@ async function main() {
   await writeFile(join(runRoot, 'harness-ab-report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   await writeFile(join(runRoot, 'harness-ab-report.csv'), renderHarnessAbReportCsv(report), 'utf8');
   await writeFile(join(runRoot, 'harness-ab-report.md'), renderHarnessAbReportMarkdown(report), 'utf8');
+  assertHarnessAbReportCompleted(report);
   console.log(`completed: ${limit}/${EXPECTED_TASKS} paired Pass@1 cells -> ${runRoot}`);
 }
 

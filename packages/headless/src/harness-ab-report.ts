@@ -23,6 +23,8 @@ export interface HarnessAbArmEconomy {
 export interface HarnessAbReport {
   schemaVersion: 'maka.harness_ab.report.v1';
   runId: string;
+  runStatus: 'completed' | 'stopped';
+  stopReason?: NonNullable<AbComparisonSummary['stopReason']>;
   taskCount: number;
   completeness: {
     baselineObserved: number;
@@ -52,6 +54,8 @@ export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbRep
   return {
     schemaVersion: 'maka.harness_ab.report.v1',
     runId: summary.runId,
+    runStatus: summary.stopReason ? 'stopped' : 'completed',
+    ...(summary.stopReason ? { stopReason: summary.stopReason } : {}),
     taskCount: summary.taskCount,
     completeness: {
       baselineObserved: summary.baseline.observed,
@@ -105,8 +109,8 @@ export function renderHarnessAbReportCsv(report: HarnessAbReport): string {
     ['economy', 'cost_per_pass_usd', baselineEconomy.armId, baselineEconomy.costPerPassUsd, candidateEconomy.armId, candidateEconomy.costPerPassUsd, nullableDelta(candidateEconomy.costPerPassUsd, baselineEconomy.costPerPassUsd)],
   ];
   return [
-    'axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline',
-    ...rows.map((row) => row.map(csvCell).join(',')),
+    'run_status,stop_reason,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline',
+    ...rows.map((row) => [report.runStatus, report.stopReason ?? '', ...row].map(csvCell).join(',')),
   ].join('\n') + '\n';
 }
 
@@ -115,6 +119,8 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
   const { baseline: baselineEconomy, candidate: candidateEconomy } = report.economy;
   return [
     '# Maka vs OpenCode — GLM-5.2 Harness Comparison',
+    '',
+    `Status: ${report.runStatus}${report.stopReason ? ` (${report.stopReason})` : ''}.`,
     '',
     `Run: ${report.runId}; tasks: ${report.taskCount}; paired evaluated: ${report.effectiveness.pairedEvaluated}; excluded: ${report.completeness.excludedPairs}; missing: ${report.completeness.missingPairs}.`,
     '',
@@ -142,6 +148,12 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
     'No composite score: effectiveness and economy are reported as separate axes. Cost is a cache-aware API-equivalent estimate from the frozen public price snapshot, not the fixed-plan bill.',
     '',
   ].join('\n');
+}
+
+export function assertHarnessAbReportCompleted(report: HarnessAbReport): void {
+  if (report.runStatus === 'stopped') {
+    throw new Error(`harness A/B stopped: ${report.stopReason ?? 'unknown_reason'}`);
+  }
 }
 
 function pairedArmEffectiveness(

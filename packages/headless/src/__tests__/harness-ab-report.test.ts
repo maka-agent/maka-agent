@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 import { summarizeAbComparison } from '../ab-summary.js';
 import type { FixedPromptTaskInfraFailedEvent } from '../fixed-prompt-controller.js';
 import {
+  assertHarnessAbReportCompleted,
   buildHarnessAbReport,
   renderHarnessAbReportCsv,
   renderHarnessAbReportMarkdown,
@@ -49,9 +50,9 @@ describe('harness A/B report', () => {
     assert.equal('score' in report, false);
 
     const csv = renderHarnessAbReportCsv(report);
-    assert.match(csv, /^axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline\n/);
-    assert.match(csv, /effectiveness,pass_rate,maka,1,opencode,0.5,-0.5/);
-    assert.match(csv, /economy,total_tokens,maka,240,opencode,360,120/);
+    assert.match(csv, /^run_status,stop_reason,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline\n/);
+    assert.match(csv, /completed,,effectiveness,pass_rate,maka,1,opencode,0.5,-0.5/);
+    assert.match(csv, /completed,,economy,total_tokens,maka,240,opencode,360,120/);
 
     const markdown = renderHarnessAbReportMarkdown(report);
     assert.match(markdown, /# Maka vs OpenCode — GLM-5\.2 Harness Comparison/);
@@ -86,6 +87,32 @@ describe('harness A/B report', () => {
       passRate: 0,
     });
     assert.equal(report.effectiveness.candidateMinusBaseline, -1);
+  });
+
+  test('preserves an early stop in every report format and rejects completion', () => {
+    const summary = summarizeAbComparison({
+      runId: 'glm-harness-ab',
+      roundId: 'ab-summary',
+      baselineArmId: 'maka',
+      candidateArmId: 'opencode',
+      evaluationTaskIds: ['a'],
+      baselineRuns: [[completed('a', true)]],
+      candidateRuns: [[providerBilling('a')]],
+    });
+    const report = buildHarnessAbReport({
+      ...summary,
+      stopReason: 'systemic_provider_failure',
+    });
+
+    assert.equal(report.runStatus, 'stopped');
+    assert.equal(report.stopReason, 'systemic_provider_failure');
+    assert.match(renderHarnessAbReportCsv(report), /^run_status,stop_reason,axis,metric,/);
+    assert.match(renderHarnessAbReportCsv(report), /stopped,systemic_provider_failure,effectiveness,pass_rate/);
+    assert.match(renderHarnessAbReportMarkdown(report), /Status: stopped \(systemic_provider_failure\)\./);
+    assert.throws(
+      () => assertHarnessAbReportCompleted(report),
+      /harness A\/B stopped: systemic_provider_failure/,
+    );
   });
 });
 
