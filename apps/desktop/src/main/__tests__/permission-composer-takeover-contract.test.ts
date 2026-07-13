@@ -96,6 +96,12 @@ describe('permission composer takeover', () => {
     assert.match(prompt, /variant="secondary"[\s\S]*?props\.onStop/);
     assert.match(prompt, /ref=\{denyButtonRef\}[\s\S]*?variant="secondary"[\s\S]*?submit\('deny'\)/);
     assert.match(prompt, /variant=\{isDestructive \? 'destructive' : 'default'\}[\s\S]*?submit\('allow'\)/);
+    assert.equal(
+      prompt.match(/size="md"/g)?.length,
+      3,
+      'all three high-stakes decisions must use the governed 13px control tier',
+    );
+    assert.doesNotMatch(prompt, /size="sm"/, 'caption-sized buttons are too small for high-stakes decisions');
     assert.doesNotMatch(prompt, /oklch\(from_var\(--destructive\)|hover:bg-/, 'permission actions must use governed Button variants');
   });
 

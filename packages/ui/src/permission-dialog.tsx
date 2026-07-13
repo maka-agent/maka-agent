@@ -158,7 +158,7 @@ export function PermissionPrompt(props: {
               <UiButton
                 className="maka-button"
                 variant="secondary"
-                size="sm"
+                size="md"
                 type="button"
                 disabled={props.stopPending}
                 onClick={() => void props.onStop()}
@@ -169,7 +169,7 @@ export function PermissionPrompt(props: {
                 ref={denyButtonRef}
                 className="maka-button"
                 variant="secondary"
-                size="sm"
+                size="md"
                 type="button"
                 disabled={responsePending}
                 onClick={() => submit('deny')}
@@ -179,7 +179,7 @@ export function PermissionPrompt(props: {
               <UiButton
                 className="maka-button"
                 variant={isDestructive ? 'destructive' : 'default'}
-                size="sm"
+                size="md"
                 type="button"
                 disabled={responsePending}
                 onClick={() => submit('allow')}
