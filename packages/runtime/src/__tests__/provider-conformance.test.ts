@@ -150,6 +150,75 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.toolCalls[0]?.toolName, 'echo');
     assert.deepEqual(result.toolCalls[0]?.input, { text: 'hello' });
   });
+
+  test('xAI discovers exact account model ids and completes an OpenAI-compatible tool-call turn', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer xai-test-key');
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        respondJson(response, 200, {
+          object: 'list',
+          data: [{ id: 'grok-4.5', object: 'model', owned_by: 'xai' }],
+        });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      requestBody = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      respondJson(response, 200, {
+        id: 'chatcmpl-xai',
+        object: 'chat.completion',
+        created: 1,
+        model: 'grok-4.5',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_echo',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'xai',
+      name: 'xAI',
+      providerType: 'xai',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: 'grok-4.5',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'xai-test-key');
+    assert.deepEqual(models, [{ id: 'grok-4.5' }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'xai-test-key', modelId: 'grok-4.5' }),
+      prompt: 'Call echo with hello.',
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+        }),
+      },
+    });
+
+    assert.equal(requestBody?.model, 'grok-4.5');
+    assert.deepEqual(
+      (requestBody?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    assert.equal(result.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.toolCalls[0]?.input, { text: 'hello' });
+  });
 });
 
 async function startJsonServer(

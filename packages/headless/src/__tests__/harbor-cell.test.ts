@@ -2210,6 +2210,32 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves xAI only from xAI credential env without rewriting the model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'xai',
+      model: 'grok-4.5',
+      env: {
+        XAI_API_KEY: 'xai-key',
+        XAI_BASE_URL: 'https://api.x.ai/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'xai-key');
+    assert.equal(resolved.connection.providerType, 'xai');
+    assert.equal(resolved.connection.defaultModel, 'grok-4.5');
+    assert.equal(resolved.connection.baseUrl, 'https://api.x.ai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'xai',
+      model: 'grok-4.5',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves ai-sdk api key from a *_API_KEY_FILE without exposing the secret on argv', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-cell-key-'));
     try {

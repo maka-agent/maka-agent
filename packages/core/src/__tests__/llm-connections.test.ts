@@ -38,6 +38,7 @@ describe('provider compatibility contract', () => {
       'MiniMax',
       'MiniMax-cn',
       'siliconflow',
+      'xai',
       'ollama',
       'openai-compatible',
       'claude-subscription',
@@ -54,6 +55,7 @@ describe('provider compatibility contract', () => {
       'MiniMax',
       'MiniMax-cn',
       'siliconflow',
+      'xai',
       'ollama',
       'kimi-coding-plan',
       'openai-compatible',
@@ -71,6 +73,7 @@ describe('provider compatibility contract', () => {
       'anthropic',
       'openai',
       'google',
+      'xai',
       'ollama',
       'openai-compatible',
     ]);
@@ -95,6 +98,34 @@ describe('provider compatibility contract', () => {
     assert.deepEqual(PROVIDER_REGISTRY.siliconflow.modelDiscovery.query, { sub_type: 'chat' });
     assert.equal(PROVIDER_REGISTRY.ollama.modelDiscovery.kind, 'ollama');
     assert.equal(PROVIDER_REGISTRY['codex-subscription'].modelDiscovery.kind, 'fallback');
+  });
+
+  it('owns the complete xAI provider contract under the stable xai id', () => {
+    assert.deepEqual(PROVIDER_REGISTRY.xai, {
+      label: 'xAI',
+      description: 'Grok models for chat, reasoning, vision, and tool use.',
+      baseUrl: 'https://api.x.ai/v1',
+      authKind: 'api_key',
+      backendKind: 'ai-sdk',
+      fallbackModels: [
+        'grok-4.5',
+        'grok-4.20-0309-non-reasoning',
+        'grok-4.20-0309-reasoning',
+        'grok-4.3',
+        'grok-build-0.1',
+      ],
+      status: 'ready',
+      protocol: 'openai',
+      runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+      modelDiscovery: { kind: 'protocol' },
+      category: 'overseas',
+      catalogGroup: 'api',
+      catalogBadge: 'API',
+      signupUrl: 'https://console.x.ai/',
+      modelsDevId: 'xai',
+      readyOrder: 10,
+      catalogOrder: 12,
+    });
   });
 });
 

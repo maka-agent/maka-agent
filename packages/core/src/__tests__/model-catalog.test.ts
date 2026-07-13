@@ -9,6 +9,31 @@ import { isConnectionReady } from '../connection-readiness.js';
 import type { LlmConnection, ModelInfo, ProviderType } from '../llm-connections.js';
 
 describe('ModelCatalogEntry', () => {
+  it('uses the checked-in xAI snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'xai',
+        providerType: 'xai',
+        defaultModel: 'grok-4.5',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), [
+      'grok-4.5',
+      'grok-4.20-0309-non-reasoning',
+      'grok-4.20-0309-reasoning',
+      'grok-4.3',
+      'grok-build-0.1',
+    ]);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
   it('uses models.dev fallback metadata for a SiliconFlow connection before live discovery', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {
