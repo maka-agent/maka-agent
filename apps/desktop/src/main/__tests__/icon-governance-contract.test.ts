@@ -519,7 +519,7 @@ describe('icon + typography governance contract', () => {
     assert.match(componentSrc, /case 'stepfun':\s*return <ProviderAssetMask src=\{stepfunBrandMark\} \/>/);
     assert.match(
       componentSrc,
-      /case 'stepfun-step-plan':\s*case 'stepfun-ai':\s*case 'stepfun':\s*return <ProviderAssetMask src=\{stepfunBrandMark\} \/>/,
+      /case 'stepfun-ai-step-plan':\s*case 'stepfun-step-plan':\s*case 'stepfun-ai':\s*case 'stepfun':\s*return <ProviderAssetMask src=\{stepfunBrandMark\} \/>/,
       'catalog and detail must route every StepFun access path through the same shared mark and mask seam',
     );
   });
