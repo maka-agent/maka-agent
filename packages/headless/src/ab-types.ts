@@ -1,7 +1,7 @@
 import type { FixedPromptTask, FixedPromptTaskWalEvent } from './fixed-prompt-controller.js';
 import type { HarborCellContextBudgetPolicySnapshot } from './cell-output.js';
 
-export type AbExperimentKind = 'prompt' | 'tools' | 'provider' | 'runtime';
+export type AbExperimentKind = 'prompt' | 'tools' | 'provider' | 'runtime' | 'harness';
 
 export interface AbArmSpec {
   id: string;
@@ -259,6 +259,7 @@ export interface AbComparisonSummary {
 export interface AbRunManifestInput {
   experimentKind: AbExperimentKind;
   arms: readonly [AbArmSpec, AbArmSpec];
+  metadata?: Record<string, unknown>;
   taskBudgetSec: number;
   harborTimeoutMs: number;
   subjectFingerprint: string;
