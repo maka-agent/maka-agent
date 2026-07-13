@@ -24,13 +24,15 @@ export function AddProviderForm(props: {
   const [slug, setSlug] = useState(() => nextSlug(props.providerType, props.existingSlugs));
   const [name, setName] = useState(display.name);
   const [baseUrl, setBaseUrl] = useState(defaults.baseUrl);
+  const [cloudflareAccountId, setCloudflareAccountId] = useState('');
   const [defaultModel, setDefaultModel] = useState(recommendedDefaultModel);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const addProviderMountedRef = useMountedRef();
 
-  const requiresBaseUrl = !defaults.baseUrl;
+  const isCloudflareWorkersAi = props.providerType === 'cloudflare-workers-ai';
+  const requiresBaseUrl = !defaults.baseUrl && !isCloudflareWorkersAi;
   const isExperimental = defaults.status === 'phase3-experimental';
   const isWiredOAuth = isWiredOAuthProvider(props.providerType);
 
@@ -46,6 +48,10 @@ export function AddProviderForm(props: {
     const slugError = validateSlug(slug);
     if (slugError) return setError(slugError);
     if (props.existingSlugs.includes(slug)) return setError('连接标识已存在');
+    const normalizedCloudflareAccountId = cloudflareAccountId.trim();
+    if (isCloudflareWorkersAi && !normalizedCloudflareAccountId) {
+      return setError('请填写 Cloudflare Account ID');
+    }
     if (requiresBaseUrl && !baseUrl.trim()) return setError('这个供应商需要填写服务地址');
     if (isExperimental) {
       return setError(isWiredOAuth
@@ -55,11 +61,17 @@ export function AddProviderForm(props: {
     busyRef.current = true;
     setBusy(true);
     try {
+      const resolvedBaseUrl = isCloudflareWorkersAi
+        ? defaults.baseUrlTemplate?.replace(
+            '${CLOUDFLARE_ACCOUNT_ID}',
+            encodeURIComponent(normalizedCloudflareAccountId),
+          )
+        : baseUrl || undefined;
       const connection = await props.bridge.create({
         slug,
         name: name || display.name,
         providerType: props.providerType,
-        baseUrl: baseUrl || undefined,
+        baseUrl: resolvedBaseUrl,
         defaultModel,
       });
       if (!addProviderMountedRef.current) return;
@@ -99,16 +111,29 @@ export function AddProviderForm(props: {
         <span>显示名称</span>
         <Input value={name} onChange={(event) => setName(event.currentTarget.value)} placeholder={display.name} disabled={isExperimental || busy} aria-label="模型供应商显示名称" />
       </label>
-      <label>
-        <span>服务地址 {requiresBaseUrl ? '（必填）' : ''}</span>
-        <Input
-          value={baseUrl}
-          onChange={(event) => setBaseUrl(event.currentTarget.value)}
-          placeholder={defaults.baseUrl || 'https://…'}
-          disabled={isExperimental || busy}
-          aria-label="模型供应商服务地址"
-        />
-      </label>
+      {isCloudflareWorkersAi ? (
+        <label>
+          <span>Cloudflare Account ID（必填）</span>
+          <Input
+            value={cloudflareAccountId}
+            onChange={(event) => setCloudflareAccountId(event.currentTarget.value)}
+            placeholder="填写账户 ID"
+            disabled={busy}
+            aria-label="Cloudflare 账户 ID"
+          />
+        </label>
+      ) : (
+        <label>
+          <span>服务地址 {requiresBaseUrl ? '（必填）' : ''}</span>
+          <Input
+            value={baseUrl}
+            onChange={(event) => setBaseUrl(event.currentTarget.value)}
+            placeholder={defaults.baseUrl || 'https://…'}
+            disabled={isExperimental || busy}
+            aria-label="模型供应商服务地址"
+          />
+        </label>
+      )}
       <label>
         <span>默认模型</span>
         <Input

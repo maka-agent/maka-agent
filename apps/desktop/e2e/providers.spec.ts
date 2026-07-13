@@ -251,6 +251,47 @@ test('adds DeepInfra with its exact snapshot model and shared theme-aware brand 
   await expect(page.getByText('moonshotai/Kimi-K2.7-Code', { exact: true }).first()).toBeVisible();
 });
 
+test('adds Cloudflare Workers AI with an account-scoped endpoint and exact model id', async ({ window: page }) => {
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
+  await page.getByRole('button', { name: '添加服务商' }).click();
+
+  await page.getByRole('tab', { name: 'API', exact: true }).click();
+  await page.getByPlaceholder('搜索服务商').fill('Cloudflare Workers AI');
+  const catalogMark = page.locator(
+    '.providerCatalogRow[data-provider="cloudflare-workers-ai"] .providerLogo .providerAssetMask',
+  );
+  await expect(catalogMark).toBeVisible();
+  expect(await catalogMark.evaluate(maskRenderContract)).toEqual({
+    usesAssetMask: true,
+    followsForeground: true,
+  });
+  await page.getByRole('button', { name: /添加模型供应商：Cloudflare Workers AI/ }).click();
+
+  const accountId = 'account-123';
+  const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`;
+  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('cloudflare-workers-ai');
+  await expect(page.getByLabel('Cloudflare 账户 ID')).toHaveValue('');
+  await expect(page.getByLabel('模型供应商服务地址')).toHaveCount(0);
+  await page.getByLabel('Cloudflare 账户 ID').fill(accountId);
+  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('@cf/moonshotai/kimi-k2.6');
+  await page.getByRole('button', { name: '保存供应商' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Cloudflare Workers AI', exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '服务地址', exact: true })).toHaveValue(baseUrl);
+  const detailMark = page.locator(
+    '.providerSubpageHeader .providerLogo[data-provider="cloudflare-workers-ai"] .providerAssetMask',
+  );
+  await expect(detailMark).toBeVisible();
+  expect(await detailMark.evaluate(maskRenderContract)).toEqual({
+    usesAssetMask: true,
+    followsForeground: true,
+  });
+  await expect(page.getByText('@cf/moonshotai/kimi-k2.6', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+});
+
 test('adds Fireworks AI with its exact snapshot model and shared upstream mark', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();

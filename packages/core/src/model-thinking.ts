@@ -44,6 +44,7 @@ export function isThinkingLevel(value: unknown): value is ThinkingLevel {
 export type ThinkingOffBehavior =
   | 'anthropic-thinking-disabled'
   | 'cohere-thinking-disabled'
+  | 'cloudflare-chat-template-thinking-false'
   | 'google-thinking-budget-zero'
   | 'volcengine-thinking-disabled';
 

@@ -362,6 +362,35 @@ describe('default session target resolver', () => {
     assert.equal(target.model, modelId);
   });
 
+  test('resolves Cloudflare Workers AI credentials without rewriting account scope or model id', async () => {
+    const modelId = '@cf/moonshotai/kimi-k2.6';
+    const baseUrl = 'https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1';
+    const connection = makeConnection({
+      slug: 'cloudflare-workers-ai',
+      name: 'Cloudflare Workers AI',
+      providerType: 'cloudflare-workers-ai',
+      baseUrl,
+      defaultModel: modelId,
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'cloudflare-workers-ai',
+        get: async (slug) => slug === 'cloudflare-workers-ai' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => (
+          kind === 'api_key' ? 'cloudflare-workers-ai-test-token' : null
+        ),
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'cloudflare-workers-ai');
+    assert.equal(target.connection.baseUrl, baseUrl);
+    assert.equal(target.apiKey, 'cloudflare-workers-ai-test-token');
+    assert.equal(target.model, modelId);
+  });
+
   test('resolves NVIDIA credentials without rewriting the selected model id', async () => {
     const modelId = 'nvidia/nemotron-3-super-120b-a12b';
     const connection = makeConnection({

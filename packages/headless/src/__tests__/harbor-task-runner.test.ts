@@ -333,6 +333,40 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
+  test('builds the Cloudflare Workers AI host base URL from the non-secret account id', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      const captured: { config?: Record<string, unknown> } = {};
+      let harborEnv: Record<string, string> | undefined;
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'cloudflare-workers-ai/@cf/moonshotai/kimi-k2.6',
+        provider: 'cloudflare-workers-ai',
+        apiKeyFile: keyFile,
+        agentEnv: { CLOUDFLARE_ACCOUNT_ID: 'account-123' },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      const agent = (captured.config!.agents as Array<Record<string, unknown>>)[0]!;
+      const agentEnv = agent.env as Record<string, string>;
+      assert.equal(agent.model_name, '@cf/moonshotai/kimi-k2.6');
+      assert.equal(agentEnv.MAKA_MODEL, '@cf/moonshotai/kimi-k2.6');
+      assert.equal(agentEnv.CLOUDFLARE_ACCOUNT_ID, 'account-123');
+      assert.equal(agentEnv.CLOUDFLARE_API_KEY, undefined);
+      assert.equal(agentEnv.CLOUDFLARE_API_KEY_FILE, undefined);
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'CLOUDFLARE_API_KEY');
+      assert.equal(
+        harborEnv?.MAKA_HOST_BASE_URL,
+        'https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1',
+      );
+    });
+  });
+
   for (const model of [
     'hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M',
     'qwen3.5:cloud',

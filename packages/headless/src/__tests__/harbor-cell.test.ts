@@ -2660,6 +2660,28 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves Cloudflare Workers AI from account id and token without rewriting the model id', () => {
+    const modelId = '@cf/moonshotai/kimi-k2.6';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'cloudflare-workers-ai',
+      model: modelId,
+      env: {
+        CLOUDFLARE_ACCOUNT_ID: 'account-123',
+        CLOUDFLARE_API_KEY: 'cloudflare-token',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'cloudflare-token');
+    assert.equal(resolved.connection.providerType, 'cloudflare-workers-ai');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(
+      resolved.connection.baseUrl,
+      'https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1',
+    );
+  });
+
   test('resolves Fireworks only from Fireworks credential env without rewriting the model path', () => {
     const model = 'accounts/fireworks/models/kimi-k2p6';
     const resolved = resolveHarborCellAiSdkEnv({

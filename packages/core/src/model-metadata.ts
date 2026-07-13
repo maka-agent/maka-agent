@@ -187,6 +187,15 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
       thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
     },
   },
+  'cloudflare-workers-ai': {
+    '@cf/moonshotai/kimi-k2.6': {
+      thinkingOptions: {
+        efforts: ['low', 'medium', 'high'],
+        toggle: true,
+        offBehavior: 'cloudflare-chat-template-thinking-false',
+      },
+    },
+  },
   deepseek: {
     'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
   },

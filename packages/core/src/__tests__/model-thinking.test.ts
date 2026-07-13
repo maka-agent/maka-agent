@@ -138,6 +138,17 @@ describe('thinkingOptionsForModel', () => {
     assert.equal(thinkingOptionsForModel('vercel', 'grok-4.3'), undefined);
   });
 
+  test('Cloudflare Workers AI Kimi K2.6 exposes only its documented effort and off wires', () => {
+    assert.deepEqual(
+      thinkingOptionsForModel('cloudflare-workers-ai', '@cf/moonshotai/kimi-k2.6'),
+      {
+        efforts: ['low', 'medium', 'high'],
+        toggle: true,
+        offBehavior: 'cloudflare-chat-template-thinking-false',
+      },
+    );
+  });
+
   test('claude-subscription inherits anthropic thinking options (displayMetadataOnly preserves them)', () => {
     assert.deepEqual(thinkingOptionsForModel('claude-subscription', 'claude-opus-4-8'), { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] });
     assert.deepEqual(thinkingOptionsForModel('claude-subscription', 'claude-haiku-4-5'), { toggle: true, offBehavior: 'anthropic-thinking-disabled' });

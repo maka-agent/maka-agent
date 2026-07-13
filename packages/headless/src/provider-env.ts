@@ -1,9 +1,10 @@
-import type { ProviderType } from '@maka/core';
+import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core';
 
 export interface ProviderCredentialEnv {
   apiKeys: readonly string[];
   apiKeyFile: string;
   baseUrls: readonly string[];
+  accountId?: string;
 }
 
 const PROVIDER_CREDENTIAL_ENV = {
@@ -25,6 +26,12 @@ const PROVIDER_CREDENTIAL_ENV = {
   cohere: env('COHERE', ['COHERE_BASE_URL']),
   togetherai: env('TOGETHER', ['TOGETHER_BASE_URL']),
   deepinfra: env('DEEPINFRA', ['DEEPINFRA_BASE_URL']),
+  'cloudflare-workers-ai': env(
+    'CLOUDFLARE',
+    ['CLOUDFLARE_WORKERS_AI_BASE_URL'],
+    [],
+    'CLOUDFLARE_ACCOUNT_ID',
+  ),
   'fireworks-ai': env('FIREWORKS', ['FIREWORKS_BASE_URL']),
   nvidia: env('NVIDIA', ['NVIDIA_BASE_URL']),
   'tencent-tokenhub': env('TENCENT_TOKENHUB', ['TENCENT_TOKENHUB_BASE_URL']),
@@ -48,14 +55,39 @@ export function requireProviderCredentialEnv(provider: string): ProviderCredenti
   return definition;
 }
 
+export function providerBaseUrlFromEnv(
+  provider: string,
+  values: Readonly<Record<string, string | undefined>>,
+): string | undefined {
+  if (!(provider in PROVIDER_DEFAULTS)) return undefined;
+  const providerType = provider as ProviderType;
+  const credentialEnv = providerCredentialEnv(provider);
+  for (const name of credentialEnv?.baseUrls ?? []) {
+    const value = values[name]?.trim();
+    if (value) return value;
+  }
+
+  const accountId = credentialEnv?.accountId
+    ? values[credentialEnv.accountId]?.trim()
+    : undefined;
+  const template = PROVIDER_DEFAULTS[providerType].baseUrlTemplate;
+  if (!accountId || !template) return undefined;
+  return template.replace(
+    '${CLOUDFLARE_ACCOUNT_ID}',
+    encodeURIComponent(accountId),
+  );
+}
+
 function env(
   prefix: string,
   baseUrls: readonly string[] = [],
   fallbackApiKeys: readonly string[] = [],
+  accountId?: string,
 ): ProviderCredentialEnv {
   return {
     apiKeys: [`${prefix}_API_KEY`, ...fallbackApiKeys],
     apiKeyFile: `${prefix}_API_KEY_FILE`,
     baseUrls,
+    ...(accountId ? { accountId } : {}),
   };
 }

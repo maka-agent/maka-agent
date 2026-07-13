@@ -50,7 +50,11 @@ import { configWithEconomyTaskPolicy, resolveEconomyTaskMode } from './economy-t
 import type { HeadlessBackendContext, IsolatedToolExecutor, RealBackendIsolation } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES, validateRealBackendIsolation } from './isolation.js';
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
-import { providerCredentialEnv, requireProviderCredentialEnv } from './provider-env.js';
+import {
+  providerBaseUrlFromEnv,
+  providerCredentialEnv,
+  requireProviderCredentialEnv,
+} from './provider-env.js';
 import { backendNeedsIsolation } from './runner.js';
 import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools, type BuildIsolatedHeadlessToolsOptions } from './tools.js';
 import {
@@ -1561,20 +1565,12 @@ function connectionFromEnv(
     slug: env.MAKA_LLM_CONNECTION_SLUG ?? provider,
     name: defaults.label,
     providerType: provider,
-    baseUrl: env.MAKA_BASE_URL ?? providerBaseUrl(provider, env) ?? defaults.baseUrl,
+    baseUrl: env.MAKA_BASE_URL ?? providerBaseUrlFromEnv(provider, env) ?? defaults.baseUrl,
     defaultModel: model,
     enabled: true,
     createdAt: ts,
     updatedAt: ts,
   };
-}
-
-function providerBaseUrl(provider: ProviderType, env: RunHarborCellEnv): string | undefined {
-  for (const name of providerCredentialEnv(provider)?.baseUrls ?? []) {
-    const value = env[name];
-    if (value) return value;
-  }
-  return undefined;
 }
 
 function apiKeyFromEnv(provider: ProviderType, env: RunHarborCellEnv, connectionSlug: string): string {

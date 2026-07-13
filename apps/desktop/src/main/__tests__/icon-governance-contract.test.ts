@@ -41,6 +41,7 @@ const MISTRAL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/as
 const COHERE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cohere.svg');
 const TOGETHER_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/together.svg');
 const DEEPINFRA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/deepinfra.svg');
+const CLOUDFLARE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cloudflare.svg');
 const FIREWORKS_BRAND_MARK_FILE = resolve(
   REPO_ROOT,
   'apps/desktop/src/renderer/assets/provider-brands/fireworks.svg',
@@ -303,6 +304,33 @@ describe('icon + typography governance contract', () => {
     assert.match(catalog, /<ProviderLogo type=\{props\.type\} \/>/);
     assert.match(providersPanel, /<ProviderLogo type=\{props\.providerType\} compact \/>/);
     assert.match(onboardingHero, /<ProviderLogo type=\{type\} compact \/>/);
+  });
+
+  it('vendors and routes the byte-exact Cloudflare SVG through the shared mask and notice seams', async () => {
+    const [marks, asset, notices] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(CLOUDFLARE_BRAND_MARK_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      '78f8973dad59f8af7c4042ef6be451d809a4e14bdb2151a75a76b4e0811fd22f',
+      'Cloudflare SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0',
+    );
+    assert.match(
+      marks,
+      /Cloudflare mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cloudflare\.svg[\s\S]*license: MIT[\s\S]*SHA-256: 78f8973dad59f8af7c4042ef6be451d809a4e14bdb2151a75a76b4e0811fd22f/,
+    );
+    assert.match(marks, /import cloudflareMarkUrl from '\.\.\/assets\/provider-brands\/cloudflare\.svg';/);
+    assert.match(
+      marks,
+      /case 'cloudflare-workers-ai':\s*return <ProviderAssetMask src=\{cloudflareMarkUrl\} \/>/,
+    );
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/cloudflare\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cloudflare\.svg[\s\S]*78f8973dad59f8af7c4042ef6be451d809a4e14bdb2151a75a76b4e0811fd22f/,
+    );
   });
 
   it('vendors and routes the byte-exact Fireworks SVG through the shared mask and notice seams', async () => {

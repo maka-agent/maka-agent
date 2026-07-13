@@ -19,6 +19,7 @@ export type ProviderRuntimeAdapter =
       name: 'provider' | 'connection';
       passFetch?: boolean;
       requireBaseUrl?: boolean;
+      replayAssistantReasoningAs?: 'reasoning';
     }
   | { kind: 'unavailable' };
 
@@ -45,6 +46,7 @@ export interface ProviderDefaults {
   label: string;
   description: string;
   baseUrl: string;
+  baseUrlTemplate?: string;
   authKind: 'api_key' | 'optional_api_key' | 'oauth_token' | 'none';
   backendKind: BackendKind;
   fallbackModels: string[];
@@ -241,6 +243,21 @@ const vercelModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA.vercel,
   ['anthropic/claude-opus-4.8'],
 ).filter((id) => GENERATED_MODELS_DEV_METADATA.vercel[id]?.lifecycle !== 'deprecated');
+const cloudflareWorkersAi = GENERATED_MODELS_DEV_PROVIDER_FACTS['cloudflare-workers-ai'];
+if (cloudflareWorkersAi.id !== 'cloudflare-workers-ai') {
+  throw new Error('models.dev Cloudflare Workers AI provider facts are missing stable id cloudflare-workers-ai');
+}
+if (
+  cloudflareWorkersAi.api
+  !== 'https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1'
+) {
+  throw new Error('models.dev Cloudflare Workers AI provider facts are missing the account-scoped API');
+}
+const cloudflareWorkersAiModelIds = toolCallingModelIds(
+  'Cloudflare Workers AI',
+  GENERATED_MODELS_DEV_METADATA['cloudflare-workers-ai'],
+  ['@cf/moonshotai/kimi-k2.6', '@cf/moonshotai/kimi-k2.7-code'],
+);
 
 function toolCallingModelIds(
   providerLabel: string,
@@ -817,6 +834,31 @@ const providerRegistry = {
     modelsDevId: deepinfra.id,
     readyOrder: 29,
     catalogOrder: 29,
+  },
+  'cloudflare-workers-ai': {
+    label: cloudflareWorkersAi.name,
+    description: 'Cloudflare-hosted models over the account-scoped Workers AI API.',
+    baseUrl: '',
+    baseUrlTemplate: cloudflareWorkersAi.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: cloudflareWorkersAiModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: {
+      kind: 'openai-compatible',
+      name: 'provider',
+      requireBaseUrl: true,
+      replayAssistantReasoningAs: 'reasoning',
+    },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://dash.cloudflare.com/profile/api-tokens',
+    modelsDevId: cloudflareWorkersAi.id,
+    readyOrder: 33,
+    catalogOrder: 33,
   },
   ollama: {
     label: 'Ollama',

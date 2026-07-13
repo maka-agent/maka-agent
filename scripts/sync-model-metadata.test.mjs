@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -268,6 +268,40 @@ test('sync-model-metadata vendors DeepInfra provider facts and exact model ids',
   assert.match(generated, /"deepinfra": \{/);
   assert.match(generated, /"deepinfra": \{"id":"deepinfra","name":"Deep Infra","doc":"https:\/\/deepinfra\.com\/models"\}/);
   assert.match(generated, /"moonshotai\/Kimi-K2\.7-Code": \{"displayName":"Kimi K2\.7 Code"/);
+  assert.match(generated, /"reasoning":true,"functionCalling":true/);
+});
+
+test('sync-model-metadata vendors Cloudflare Workers AI identity and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog['cloudflare-workers-ai'] = {
+    ...catalog['cloudflare-workers-ai'],
+    name: 'Cloudflare Workers AI',
+    api: 'https://api.cloudflare.com/client/v4/accounts/\${CLOUDFLARE_ACCOUNT_ID}/ai/v1',
+    doc: 'https://developers.cloudflare.com/workers-ai/models/',
+    models: {
+      '@cf/moonshotai/kimi-k2.6': {
+        id: '@cf/moonshotai/kimi-k2.6',
+        name: 'Kimi K2.6',
+        reasoning: true,
+        tool_call: true,
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        limit: { context: 262_144, output: 32_768 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"cloudflare-workers-ai": \{/);
+  assert.match(generated, /"cloudflare-workers-ai": \{"id":"cloudflare-workers-ai","name":"Cloudflare Workers AI"/);
+  assert.match(generated, /"@cf\/moonshotai\/kimi-k2\.6": \{"displayName":"Kimi K2\.6"/);
   assert.match(generated, /"reasoning":true,"functionCalling":true/);
 });
 

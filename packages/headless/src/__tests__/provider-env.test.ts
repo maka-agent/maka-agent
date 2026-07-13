@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { providerCredentialEnv, requireProviderCredentialEnv } from '../provider-env.js';
+import {
+  providerBaseUrlFromEnv,
+  providerCredentialEnv,
+  requireProviderCredentialEnv,
+} from '../provider-env.js';
 
 test('MiniMax Coding Plan uses a credential namespace separate from MiniMax direct API', () => {
   assert.deepEqual(providerCredentialEnv('minimax-coding-plan'), {
@@ -61,6 +65,29 @@ test('DeepInfra keeps its official provider-scoped credential environment names'
     apiKeyFile: 'DEEPINFRA_API_KEY_FILE',
     baseUrls: ['DEEPINFRA_BASE_URL'],
   });
+});
+
+test('Cloudflare Workers AI separates account scope from API token credentials', () => {
+  assert.deepEqual(providerCredentialEnv('cloudflare-workers-ai'), {
+    apiKeys: ['CLOUDFLARE_API_KEY'],
+    apiKeyFile: 'CLOUDFLARE_API_KEY_FILE',
+    baseUrls: ['CLOUDFLARE_WORKERS_AI_BASE_URL'],
+    accountId: 'CLOUDFLARE_ACCOUNT_ID',
+  });
+  assert.equal(
+    providerBaseUrlFromEnv('cloudflare-workers-ai', {
+      CLOUDFLARE_ACCOUNT_ID: 'account-123',
+    }),
+    'https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1',
+  );
+  assert.equal(
+    providerBaseUrlFromEnv('cloudflare-workers-ai', {
+      CLOUDFLARE_ACCOUNT_ID: 'account-123',
+      CLOUDFLARE_WORKERS_AI_BASE_URL: 'https://workers-ai.example.test/v1',
+    }),
+    'https://workers-ai.example.test/v1',
+  );
+  assert.equal(providerBaseUrlFromEnv('cloudflare-workers-ai', {}), undefined);
 });
 
 test('Fireworks AI keeps provider-scoped credential environment names', () => {
