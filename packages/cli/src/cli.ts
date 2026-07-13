@@ -110,6 +110,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
       let context;
       try {
         context = await createMakaCliRuntimeContext({
+          surface: 'tui',
           workspaceRoot,
           cwd: process.cwd(),
         });
