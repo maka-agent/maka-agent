@@ -1,4 +1,4 @@
-import type { AbArmSummary, AbComparisonSummary } from './ab-types.js';
+import type { AbComparisonSummary, AbTokenCostSummary } from './ab-types.js';
 
 export interface HarnessAbArmEffectiveness {
   armId: string;
@@ -84,8 +84,18 @@ export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbRep
     },
     economy: {
       basis: 'cache-aware-api-equivalent-usd',
-      baseline: armEconomy(summary.baselineArmId, summary.baseline),
-      candidate: armEconomy(summary.candidateArmId, summary.candidate),
+      baseline: armEconomy(
+        summary.baselineArmId,
+        summary.pairedAttempts.baselineTokenCostSummary,
+        summary.pairedAttempts.evaluatedPairs,
+        summary.pairedAttempts.baselinePassed,
+      ),
+      candidate: armEconomy(
+        summary.candidateArmId,
+        summary.pairedAttempts.candidateTokenCostSummary,
+        summary.pairedAttempts.evaluatedPairs,
+        summary.pairedAttempts.candidatePassed,
+      ),
     },
   };
 }
@@ -164,8 +174,12 @@ function pairedArmEffectiveness(
   return { armId, passed, evaluated, passRate: divide(passed, evaluated) };
 }
 
-function armEconomy(armId: string, arm: AbArmSummary): HarnessAbArmEconomy {
-  const tokens = arm.tokenCostSummary;
+function armEconomy(
+  armId: string,
+  tokens: AbTokenCostSummary,
+  evaluated: number,
+  passed: number,
+): HarnessAbArmEconomy {
   return {
     armId,
     inputTokens: tokens.input,
@@ -174,9 +188,9 @@ function armEconomy(armId: string, arm: AbArmSummary): HarnessAbArmEconomy {
     outputTokens: tokens.output,
     totalTokens: tokens.total,
     apiEquivalentCostUsd: tokens.costUsd,
-    tokensPerEvaluated: divide(tokens.total, arm.valid),
-    costPerEvaluatedUsd: divide(tokens.costUsd, arm.valid),
-    costPerPassUsd: divide(tokens.costUsd, arm.passed),
+    tokensPerEvaluated: divide(tokens.total, evaluated),
+    costPerEvaluatedUsd: divide(tokens.costUsd, evaluated),
+    costPerPassUsd: divide(tokens.costUsd, passed),
   };
 }
 

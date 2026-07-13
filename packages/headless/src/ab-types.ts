@@ -197,6 +197,8 @@ export interface AbAttemptPairSummary {
   evaluatedPairs: number;
   baselinePassed: number;
   candidatePassed: number;
+  baselineTokenCostSummary: AbTokenCostSummary;
+  candidateTokenCostSummary: AbTokenCostSummary;
   wins: number;
   losses: number;
   ties: number;

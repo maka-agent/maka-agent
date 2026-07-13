@@ -482,6 +482,8 @@ function summarizeAttemptPairs(
   const excludedPairIds: string[] = [];
   const budgetDiscordantPairIds: string[] = [];
   const infraOrPlumbingDiscordantPairIds: string[] = [];
+  const baselineEvaluatedEvents: FixedPromptTaskWalEvent[] = [];
+  const candidateEvaluatedEvents: FixedPromptTaskWalEvent[] = [];
   let observedPairs = 0;
   let evaluatedPairs = 0;
   let baselinePassed = 0;
@@ -512,6 +514,8 @@ function summarizeAttemptPairs(
         continue;
       }
       evaluatedPairs += 1;
+      baselineEvaluatedEvents.push(baseline);
+      candidateEvaluatedEvents.push(candidate);
       if (baseline.passed) baselinePassed += 1;
       if (candidate.passed) candidatePassed += 1;
       if (candidate.passed === baseline.passed) {
@@ -529,6 +533,8 @@ function summarizeAttemptPairs(
     evaluatedPairs,
     baselinePassed,
     candidatePassed,
+    baselineTokenCostSummary: summarizeTokenCost(baselineEvaluatedEvents),
+    candidateTokenCostSummary: summarizeTokenCost(candidateEvaluatedEvents),
     wins,
     losses,
     ties,

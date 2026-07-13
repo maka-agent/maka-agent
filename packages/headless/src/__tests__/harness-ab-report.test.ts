@@ -89,6 +89,32 @@ describe('harness A/B report', () => {
     assert.equal(report.effectiveness.candidateMinusBaseline, -1);
   });
 
+  test('reports economy over the same evaluated pairs as effectiveness', () => {
+    const summary = summarizeAbComparison({
+      runId: 'glm-harness-ab',
+      roundId: 'ab-summary',
+      baselineArmId: 'maka',
+      candidateArmId: 'opencode',
+      evaluationTaskIds: ['a', 'b'],
+      baselineRuns: [[
+        usage('a', true, 100, 0, 0, 0.1),
+        usage('b', true, 900, 0, 0, 0.9),
+      ]],
+      candidateRuns: [[
+        usage('a', true, 100, 0, 0, 0.1),
+        providerBilling('b'),
+      ]],
+    });
+
+    const report = buildHarnessAbReport(summary);
+
+    assert.equal(report.effectiveness.pairedEvaluated, 1);
+    assert.equal(report.economy.baseline.totalTokens, 100);
+    assert.equal(report.economy.candidate.totalTokens, 100);
+    assert.equal(report.economy.baseline.tokensPerEvaluated, 100);
+    assert.equal(report.economy.candidate.tokensPerEvaluated, 100);
+  });
+
   test('preserves an early stop in every report format and rejects completion', () => {
     const summary = summarizeAbComparison({
       runId: 'glm-harness-ab',
