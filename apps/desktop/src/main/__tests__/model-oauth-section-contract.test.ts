@@ -110,17 +110,17 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       src,
-      /function navigate\(nextPage: ProviderPage\) \{[\s\S]*providerPageLifecycleRef\.current \+= 1;[\s\S]*setPage\(nextPage\);[\s\S]*\}/,
+      /function navigate\(nextPage: ProviderPage, focusTarget: ProviderFocusTarget\) \{[\s\S]*providerPageLifecycleRef\.current \+= 1;[\s\S]*pendingFocusRef\.current = focusTarget;[\s\S]*setPage\(nextPage\);[\s\S]*\}/,
       'navigating away must invalidate pending page-scoped continuations',
     );
     assert.match(
       src,
-      /onCreated=\{async \(slug\) => \{[\s\S]*const lifecycle = providerPageLifecycleRef\.current;[\s\S]*const reloaded = await reload\(\);[\s\S]*providerPageLifecycleRef\.current !== lifecycle[\s\S]*\) return;[\s\S]*navigate\(\{ kind: 'detail', slug \}\);/,
+      /onCreated=\{async \(slug\) => \{[\s\S]*const lifecycle = providerPageLifecycleRef\.current;[\s\S]*const reloaded = await reload\(\);[\s\S]*providerPageLifecycleRef\.current !== lifecycle[\s\S]*\) return;[\s\S]*navigate\(\{ kind: 'detail', slug \}, \{ kind: 'child-back' \}\);/,
       'AddProviderForm completion must not navigate a stale page after ProvidersPanel unmounts or back navigation',
     );
     assert.match(
       src,
-      /onDeleted=\{async \(\) => \{[\s\S]*if \(!providersPanelMountedRef\.current\) return;[\s\S]*navigate\(\{ kind: 'connections' \}\);[\s\S]*await reload\(\);/,
+      /onDeleted=\{async \(\) => \{[\s\S]*if \(!providersPanelMountedRef\.current\) return;[\s\S]*navigate\(\{ kind: 'connections' \}, \{ kind: 'add-provider' \}\);[\s\S]*await reload\(\);/,
       'Connection delete completion must not write ProvidersPanel state after unmount',
     );
   });

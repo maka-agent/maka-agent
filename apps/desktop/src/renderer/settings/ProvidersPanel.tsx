@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronRight, Plus, Search } from '@maka/ui/icons';
 import {
   CATALOG_PROVIDER_TYPES,
@@ -32,6 +32,12 @@ type ProviderPage =
   | { kind: 'add'; providerType: ProviderType }
   | { kind: 'detail'; slug: string };
 
+type ProviderFocusTarget =
+  | { kind: 'child-back' }
+  | { kind: 'add-provider' }
+  | { kind: 'catalog-provider'; providerType: ProviderType }
+  | { kind: 'connection'; slug: string };
+
 type CatalogCategory = ProviderCatalogGroup;
 
 const CATALOG_TABS: Array<{ id: CatalogCategory; label: string }> = [
@@ -63,12 +69,23 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   const providersPanelMountedRef = useRef(false);
   const providersReloadTicketRef = useRef(0);
   const providerPageLifecycleRef = useRef(0);
+  const providersPanelRef = useRef<HTMLDivElement>(null);
+  const pendingFocusRef = useRef<ProviderFocusTarget | null>(null);
   const toast = useToast();
 
-  function navigate(nextPage: ProviderPage) {
+  function navigate(nextPage: ProviderPage, focusTarget: ProviderFocusTarget) {
     providerPageLifecycleRef.current += 1;
+    pendingFocusRef.current = focusTarget;
     setPage(nextPage);
   }
+
+  useLayoutEffect(() => {
+    const focusTarget = pendingFocusRef.current;
+    const panel = providersPanelRef.current;
+    if (!focusTarget || !panel) return;
+    pendingFocusRef.current = null;
+    providerFocusElement(panel, focusTarget)?.focus({ preventScroll: true });
+  }, [page]);
 
   async function reload(): Promise<boolean> {
     const ticket = ++providersReloadTicketRef.current;
@@ -148,6 +165,13 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
       .map((group) => group.type),
     [providerGroups, defaultSlug],
   );
+  const pendingFocus = pendingFocusRef.current;
+  const focusRestoreGroup = pendingFocus?.kind === 'connection'
+    ? connections.find((connection) => connection.slug === pendingFocus.slug)?.providerType
+    : undefined;
+  const initialOpenGroups = focusRestoreGroup && !defaultOpenGroups.includes(focusRestoreGroup)
+    ? [...defaultOpenGroups, focusRestoreGroup]
+    : defaultOpenGroups;
 
   function chipTitle(connection: LlmConnection): string {
     return `${connection.name} · ${chipStatusText(connection)}`;
@@ -200,11 +224,11 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
 
   if (page.kind === 'catalog') {
     return (
-      <div className="providersPanel providerChildPage">
+      <div ref={providersPanelRef} className="providersPanel providerChildPage">
         <ProviderPageHeader
           title="添加服务商"
           description="搜索 Maka 支持的 API、模型计划、聚合服务与本地运行时。"
-          onBack={() => navigate({ kind: 'connections' })}
+          onBack={() => navigate({ kind: 'connections' }, { kind: 'add-provider' })}
         />
         <PrimitiveTabs
           className="catalogTabsRoot"
@@ -241,7 +265,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
                         key={type}
                         type={type}
                         count={configuredByType(type)}
-                        onSelect={() => navigate({ kind: 'add', providerType: type })}
+                        onSelect={() => navigate({ kind: 'add', providerType: type }, { kind: 'child-back' })}
                       />
                     ))}
                   </div>
@@ -258,11 +282,11 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
 
   if (page.kind === 'add') {
     return (
-      <div className="providersPanel providerChildPage">
+      <div ref={providersPanelRef} className="providersPanel providerChildPage">
         <ProviderPageHeader
           title="配置服务商"
           description="保存后可以拉取账号可用模型，并继续测试连接。"
-          onBack={() => navigate({ kind: 'catalog' })}
+          onBack={() => navigate({ kind: 'catalog' }, { kind: 'catalog-provider', providerType: page.providerType })}
         />
         <div className="providerInlineEditor">
           <AddProviderForm
@@ -270,12 +294,12 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
             bridge={bridge}
             providerType={page.providerType}
             existingSlugs={connections.map((connection) => connection.slug)}
-            onCancel={() => navigate({ kind: 'catalog' })}
+            onCancel={() => navigate({ kind: 'catalog' }, { kind: 'catalog-provider', providerType: page.providerType })}
             onCreated={async (slug) => {
               const lifecycle = providerPageLifecycleRef.current;
               const reloaded = await reload();
               if (!reloaded || !providersPanelMountedRef.current || providerPageLifecycleRef.current !== lifecycle) return;
-              navigate({ kind: 'detail', slug });
+              navigate({ kind: 'detail', slug }, { kind: 'child-back' });
             }}
           />
         </div>
@@ -285,11 +309,11 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
 
   if (page.kind === 'detail' && selected) {
     return (
-      <div className="providersPanel providerChildPage">
+      <div ref={providersPanelRef} className="providersPanel providerChildPage">
         <ProviderPageHeader
           title={selected.name}
           description={`${providerDisplay(selected.providerType).name} · 模型、凭据与连接状态`}
-          onBack={() => navigate({ kind: 'connections' })}
+          onBack={() => navigate({ kind: 'connections' }, { kind: 'connection', slug: selected.slug })}
         />
         <div className="providerInlineEditor">
           <ConnectionDetail
@@ -300,7 +324,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
             onChanged={async () => { await reload(); }}
             onDeleted={async () => {
               if (!providersPanelMountedRef.current) return;
-              navigate({ kind: 'connections' });
+              navigate({ kind: 'connections' }, { kind: 'add-provider' });
               await reload();
             }}
           />
@@ -310,14 +334,18 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   }
 
   return (
-    <div className="providersPanel providersMarketPanel">
+    <div ref={providersPanelRef} className="providersPanel providersMarketPanel">
       <section className="providerMarket">
         <div className="providerRootHeader">
           <div>
             <h3>模型连接</h3>
             <p>管理服务商凭据、默认模型和连接状态。</p>
           </div>
-          <Button type="button" onClick={() => navigate({ kind: 'catalog' })}>
+          <Button
+            type="button"
+            data-provider-focus="add-provider"
+            onClick={() => navigate({ kind: 'catalog' }, { kind: 'child-back' })}
+          >
             <Plus size={15} aria-hidden="true" />
             添加服务商
           </Button>
@@ -339,7 +367,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
               <small>点击右上角“添加服务商”开始配置。</small>
             </div>
           ) : (
-            <PrimitiveAccordion className="enabledAccordion" multiple defaultValue={defaultOpenGroups}>
+            <PrimitiveAccordion className="enabledAccordion" multiple defaultValue={initialOpenGroups}>
               {providerGroups.map((group) => {
                 const single = group.connections.length === 1;
                 const problem = group.rollup === 'err' || group.rollup === 'warn';
@@ -371,10 +399,11 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
                               className="enabledConnRow mx-2 py-2 pr-6 pl-10"
                               selected={connection.slug === defaultSlug}
                               data-test-status={connection.lastTestStatus ?? 'untested'}
+                              data-connection-slug={connection.slug}
                               data-disabled={connection.enabled ? undefined : 'true'}
                               aria-label={chipAriaLabel(connection)}
                               title={chipTitle(connection)}
-                              render={<button type="button" onClick={() => navigate({ kind: 'detail', slug: connection.slug })} />}
+                              render={<button type="button" onClick={() => navigate({ kind: 'detail', slug: connection.slug }, { kind: 'child-back' })} />}
                             >
                               <ItemContent>
                                 <ItemTitle className="enabledConnTitle">
@@ -415,7 +444,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
 function ProviderPageHeader(props: { title: string; description: string; onBack(): void }) {
   return (
     <header className="providerSubpageHeader">
-      <Button type="button" variant="quiet" className="providerSubpageBack" aria-label="返回模型连接" onClick={props.onBack}>
+      <Button type="button" variant="quiet" className="providerSubpageBack" data-provider-focus="child-back" aria-label="返回模型连接" onClick={props.onBack}>
         <ArrowLeft size={16} aria-hidden="true" />
         返回
       </Button>
@@ -425,4 +454,19 @@ function ProviderPageHeader(props: { title: string; description: string; onBack(
       </div>
     </header>
   );
+}
+
+function providerFocusElement(panel: HTMLElement, target: ProviderFocusTarget): HTMLElement | undefined {
+  if (target.kind === 'child-back') {
+    return panel.querySelector<HTMLElement>('[data-provider-focus="child-back"]') ?? undefined;
+  }
+  if (target.kind === 'add-provider') {
+    return panel.querySelector<HTMLElement>('[data-provider-focus="add-provider"]') ?? undefined;
+  }
+  if (target.kind === 'catalog-provider') {
+    return [...panel.querySelectorAll<HTMLElement>('[data-provider][data-status="ready"]')]
+      .find((element) => element.dataset.provider === target.providerType);
+  }
+  return [...panel.querySelectorAll<HTMLElement>('[data-connection-slug]')]
+    .find((element) => element.dataset.connectionSlug === target.slug);
 }
