@@ -18,7 +18,11 @@ import {
   HarborTaskRunner,
 } from './fixed-prompt-controller.js';
 import { startProviderAuthProxy } from './provider-auth-proxy.js';
-import { providerCredentialEnv, requireProviderCredentialEnv } from './provider-env.js';
+import {
+  providerBaseUrlFromEnv,
+  providerCredentialEnv,
+  requireProviderCredentialEnv,
+} from './provider-env.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -464,10 +468,10 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
   const provider = options.provider ?? 'deepseek';
   if (!options.apiKeyFile && providerRequiresSecret(provider)) return null;
   const providerEnv = providerCredentialEnv(provider);
-  const [primaryBaseUrl, ...fallbackBaseUrls] = providerEnv?.baseUrls ?? [];
+  const [primaryBaseUrl] = providerEnv?.baseUrls ?? [];
   const baseUrl = (primaryBaseUrl ? options.agentEnv?.[primaryBaseUrl] : undefined)
     ?? options.agentEnv?.MAKA_BASE_URL
-    ?? fallbackBaseUrls.map((name) => options.agentEnv?.[name]).find(Boolean);
+    ?? providerBaseUrlFromEnv(provider, options.agentEnv ?? {});
   if (options.agent === 'opencode') {
     const apiKeyFile = options.apiKeyFile;
     if (!apiKeyFile) return null;
