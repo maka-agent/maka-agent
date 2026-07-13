@@ -31,6 +31,7 @@ import {
 } from './run-prompt-ab.mjs';
 
 const EXPECTED_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
+const CANARY_TASKS = 2;
 const PILOT_TASKS = 30;
 const PROVIDER = 'zai-coding-plan';
 const MODEL = 'glm-5.2';
@@ -57,8 +58,8 @@ function envPath(name, fallback) {
 
 function runLimit(raw) {
   const parsed = Number(raw ?? PILOT_TASKS);
-  if (parsed !== PILOT_TASKS && parsed !== EXPECTED_TASKS) {
-    throw new Error(`MAKA_HARNESS_AB_LIMIT must be ${PILOT_TASKS} or ${EXPECTED_TASKS}`);
+  if (parsed !== CANARY_TASKS && parsed !== PILOT_TASKS && parsed !== EXPECTED_TASKS) {
+    throw new Error(`MAKA_HARNESS_AB_LIMIT must be ${CANARY_TASKS}, ${PILOT_TASKS}, or ${EXPECTED_TASKS}`);
   }
   return parsed;
 }
