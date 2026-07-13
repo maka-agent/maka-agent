@@ -275,6 +275,24 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the DeepInfra provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const modelId = 'moonshotai/Kimi-K2.7-Code';
+      await store.create({
+        slug: 'deepinfra',
+        name: 'Deep Infra',
+        providerType: 'deepinfra',
+        defaultModel: modelId,
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'deepinfra');
+      assert.equal(persisted.connections[0]?.defaultModel, modelId);
+    });
+  });
+
   test('persists the NVIDIA provider id and exact default model', async () => {
     await withConnectionStore(async (store, dir) => {
       const modelId = 'nvidia/nemotron-3-super-120b-a12b';
