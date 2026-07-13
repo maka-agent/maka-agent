@@ -76,6 +76,7 @@ describe('Harbor adapter contract', () => {
       'packages/headless/harbor/maka_agent.py',
       'packages/headless/harbor/run-cell.mjs',
       'packages/headless/harbor/run-host-cell.mjs',
+      'packages/headless/harbor/run-harness-ab.mjs',
       'packages/headless/harbor/run-prompt-ab.mjs',
       'packages/headless/harbor/run-prompt-control.mjs',
       'packages/headless/harbor/run-prompt-optimization.mjs',
@@ -1201,6 +1202,20 @@ try:
         assert os.environ.get("ZAI_API_KEY") is None
         assert os.environ.get("ZAI_BASE_URL") is None
 
+        agent._parse_stdout = lambda: [
+            {
+                "type": "step_finish",
+                "part": {
+                    "tokens": {
+                        "input": 60,
+                        "output": 20,
+                        "reasoning": 5,
+                        "cache": {"read": 40, "write": 0},
+                    }
+                },
+            },
+            {"type": "tool", "part": {"type": "tool", "tool": "bash"}},
+        ]
         agent.populate_context_post_run(context)
         expected = (60 / 1_000_000 * 2) + (20 / 1_000_000 * 10) + (40 / 1_000_000 * 0.5)
         assert abs(context.cost_usd - expected) < 1e-12, context.cost_usd
@@ -1216,6 +1231,8 @@ try:
         assert cell["executionIdentity"]["model"] == "glm-5.2", cell
         assert cell["executionIdentity"]["reasoningEffort"] == "max", cell
         assert cell["tokenSummary"]["cachedInput"] == 40, cell
+        assert cell["tokenSummary"]["reasoning"] == 5, cell
+        assert cell["toolSummary"]["actualToolCallCounts"] == {"bash": 1}, cell
         assert "test-zai-key" not in json.dumps(cell), cell
         print("opencode_estimated_cost_usd", context.cost_usd)
 finally:
