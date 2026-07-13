@@ -134,6 +134,7 @@ let PAGE_INSERTED = false;
 const FIELD_VALUES = new Map();
 const SNAPSHOT_DELAY_MS = Number(process.env.CUA_MOCK_SNAPSHOT_DELAY_MS || 0);
 const REFETCH_MODE = process.env.CUA_MOCK_REFETCH_MODE || '';
+const DYNAMIC_CONTENT = process.env.CUA_MOCK_DYNAMIC_CONTENT === '1';
 let WINDOW_STATE_CALLS = 0;
 // 1x1 transparent PNG (tiny, well under the frame cap).
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -203,8 +204,12 @@ function handle(msg) {
           element_index: 7,
           element_token: 'snapshot:7',
           role: AX_ROLE,
-          label: AX_LABEL || undefined,
-          value: FIELD_VALUES.has(snapshotWindowId)
+          label: DYNAMIC_CONTENT && WINDOW_STATE_CALLS > 1
+            ? 'updated label'
+            : AX_LABEL || undefined,
+          value: DYNAMIC_CONTENT && WINDOW_STATE_CALLS > 1
+            ? 'updated value'
+            : FIELD_VALUES.has(snapshotWindowId)
             ? NATIVE_READBACK_VALUE || FIELD_VALUES.get(snapshotWindowId) || ''
             : '',
           frame: snapshotFrame,
@@ -462,6 +467,8 @@ function makeBackend(opts: {
   resolveContentFingerprint?: CuaDriverBackendOptions['resolveContentFingerprint'];
   semanticPointerResult?: Record<string, unknown>;
   refetchMode?: 'replacement' | 'moved' | 'missing' | 'ambiguous';
+  dynamicContent?: boolean;
+  useDefaultContentFingerprint?: boolean;
   resolveDisplays?: CuaDriverBackendOptions['resolveDisplays'];
   physicalInputRecentlyActive?: CuaDriverBackendOptions['physicalInputRecentlyActive'];
   onTrace?: CuaDriverBackendOptions['onTrace'];
@@ -493,6 +500,7 @@ function makeBackend(opts: {
   process.env.CUA_MOCK_PAGE_DOCUMENT_MARKER = opts.pageDocumentMarker ?? 'document-a';
   process.env.CUA_MOCK_SNAPSHOT_DELAY_MS = String(opts.snapshotDelayMs ?? 0);
   process.env.CUA_MOCK_REFETCH_MODE = opts.refetchMode ?? '';
+  process.env.CUA_MOCK_DYNAMIC_CONTENT = opts.dynamicContent ? '1' : '';
   const rawBackend = createCuaDriverBackend({
     binaryPath: mockPath,
     hostBundleId: HOST_BUNDLE_ID,
@@ -504,8 +512,12 @@ function makeBackend(opts: {
     ...(opts.resolvePageDocumentFingerprint
       ? { resolvePageDocumentFingerprint: opts.resolvePageDocumentFingerprint }
       : {}),
-    resolveContentFingerprint: opts.resolveContentFingerprint
-      ?? (() => 'test-content-fingerprint'),
+    ...(!opts.useDefaultContentFingerprint
+      ? {
+          resolveContentFingerprint: opts.resolveContentFingerprint
+            ?? (() => 'test-content-fingerprint'),
+        }
+      : {}),
     ...(opts.resolveDisplays ? { resolveDisplays: opts.resolveDisplays } : {}),
     ...(opts.physicalInputRecentlyActive
       ? { physicalInputRecentlyActive: opts.physicalInputRecentlyActive }
@@ -1130,7 +1142,7 @@ describe('cua-driver backend', () => {
   it('ignores ephemeral AX indexes and tokens in structural fingerprints', async () => {
     let read = 0;
     const { backend } = makeBackend({
-      resolveContentFingerprint: undefined,
+      useDefaultContentFingerprint: true,
     });
     const signal = new AbortController().signal;
     const observation = await backend.observeApp?.({
@@ -1159,6 +1171,73 @@ describe('cua-driver backend', () => {
       result.outcome.ok ? undefined : result.outcome.error,
       'target_changed',
     );
+  });
+
+  it('ignores dynamic labels and values in coordinate fingerprints', async () => {
+    const { backend, logPath } = makeBackend({
+      dynamicContent: true,
+      useDefaultContentFingerprint: true,
+    });
+    const signal = new AbortController().signal;
+    const observation = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, signal, DEFAULT_RUN_CONTEXT);
+
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 400, y: 200 } },
+      signal,
+      {
+        ...DEFAULT_RUN_CONTEXT,
+        boundAction: {
+          ...boundCoordinateAction(),
+          target: {
+            ...boundCoordinateAction().target,
+            contentFingerprint: observation.contentFingerprint,
+          },
+        },
+      },
+    );
+
+    assert.notEqual(
+      result.outcome.ok ? undefined : result.outcome.error,
+      'target_changed',
+    );
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 1);
+  });
+
+  it('still rejects a semantic target whose own identity changed', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      axLabel: 'Original',
+      dynamicContent: true,
+      useDefaultContentFingerprint: true,
+    });
+    const signal = new AbortController().signal;
+    const context = {
+      sessionId: 'dynamic-semantic',
+      turnId: 'turn-1',
+      toolCallId: 'observe',
+    };
+    const observation = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: false,
+    }, signal, context);
+
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: observation.observationId,
+      elementId: '7',
+      elementIdentity: observation.elements[0]!.identity,
+    }, signal, {
+      ...context,
+      toolCallId: 'click',
+      boundAction: boundElementAction(observation, '7'),
+    });
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'stale_frame');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
   });
 
   it('does not treat omitted no-screenshot dimensions as a layout change', async () => {

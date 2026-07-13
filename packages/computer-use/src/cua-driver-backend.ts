@@ -353,8 +353,6 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const structural = [
       ...new Set([...elements].map((element) => JSON.stringify({
         role: element.role,
-        label: element.label,
-        value: element.value,
         frame: element.frame,
         depth: element.depth,
       }))),
