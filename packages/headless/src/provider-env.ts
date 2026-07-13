@@ -27,6 +27,7 @@ const PROVIDER_CREDENTIAL_ENV = {
   'tencent-tokenhub': env('TENCENT_TOKENHUB', ['TENCENT_TOKENHUB_BASE_URL']),
   stepfun: env('STEPFUN', ['STEPFUN_BASE_URL']),
   'stepfun-ai': env('STEPFUN_AI', ['STEPFUN_AI_BASE_URL']),
+  'volcengine-ark': env('ARK', ['ARK_BASE_URL']),
   'openai-compatible': env('OPENAI', ['OPENAI_BASE_URL']),
   'claude-subscription': env('ANTHROPIC'),
 } satisfies Partial<Record<ProviderType, ProviderCredentialEnv>>;

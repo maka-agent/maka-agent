@@ -94,3 +94,11 @@ test('StepFun Global keeps direct API credentials separate from China and plan i
     baseUrls: ['STEPFUN_AI_BASE_URL'],
   });
 });
+
+test('Volcengine Ark direct API uses its official credential namespace', () => {
+  assert.deepEqual(providerCredentialEnv('volcengine-ark'), {
+    apiKeys: ['ARK_API_KEY'],
+    apiKeyFile: 'ARK_API_KEY_FILE',
+    baseUrls: ['ARK_BASE_URL'],
+  });
+});

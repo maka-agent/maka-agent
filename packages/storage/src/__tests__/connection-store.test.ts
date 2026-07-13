@@ -42,6 +42,24 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the Volcengine Ark provider id and exact snapshot model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const modelId = 'doubao-seed-2-0-pro-260215';
+      await store.create({
+        slug: 'volcengine-ark',
+        name: 'Volcengine Ark (China)',
+        providerType: 'volcengine-ark',
+        defaultModel: modelId,
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'volcengine-ark');
+      assert.equal(persisted.connections[0]?.defaultModel, modelId);
+    });
+  });
+
   test('persists the Fireworks provider id and exact model path', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

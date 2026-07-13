@@ -4,6 +4,30 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 import { listReadyModelChoices, resolveDefaultSessionTarget } from '../connection-target.js';
 
 describe('default session target resolver', () => {
+  test('resolves Volcengine Ark credentials without rewriting the snapshot model id', async () => {
+    const modelId = 'doubao-seed-2-0-pro-260215';
+    const connection = makeConnection({
+      slug: 'volcengine-ark',
+      name: 'Volcengine Ark (China)',
+      providerType: 'volcengine-ark',
+      defaultModel: modelId,
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'volcengine-ark',
+        get: async (slug) => slug === 'volcengine-ark' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'ark-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'volcengine-ark');
+    assert.equal(target.apiKey, 'ark-test-key');
+    assert.equal(target.model, modelId);
+  });
+
   test('resolves Fireworks credentials without rewriting the exact model path', async () => {
     const connection = makeConnection({
       slug: 'fireworks-ai',

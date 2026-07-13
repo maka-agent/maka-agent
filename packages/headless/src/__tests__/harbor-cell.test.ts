@@ -2362,6 +2362,33 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves Volcengine Ark only from its official direct API credential env', () => {
+    const modelId = 'doubao-seed-2-0-pro-260215';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'volcengine-ark',
+      model: modelId,
+      env: {
+        ARK_API_KEY: 'ark-key',
+        ARK_BASE_URL: 'https://ark.cn-shanghai.volces.com/api/v3',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'ark-key');
+    assert.equal(resolved.connection.providerType, 'volcengine-ark');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(resolved.connection.baseUrl, 'https://ark.cn-shanghai.volces.com/api/v3');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'volcengine-ark',
+      model: modelId,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves Cerebras only from Cerebras credential env without rewriting the model id', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'cerebras',
