@@ -46,6 +46,7 @@ test('harness A/B CLI dry-run freezes all 89 tasks without reading credentials',
     assert.equal(manifest.metadata.metric, 'pass@1');
     assert.equal(manifest.arms[1].metadata.version, '1.17.18');
     assert.equal(manifest.arms[1].metadata.config.pure, true);
+    assert.equal(manifest.arms[1].metadata.config.permissions, 'auto');
     await assert.rejects(readFile(join(outDir, 'dry-run', 'controller', 'results.jsonl')), /ENOENT/);
   } finally {
     await rm(dir, { recursive: true, force: true });

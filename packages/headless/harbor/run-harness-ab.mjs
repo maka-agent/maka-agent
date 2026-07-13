@@ -110,7 +110,7 @@ async function main() {
           externalSystemPrompt: 'empty',
           variant: REASONING_EFFORT,
           pure: true,
-          permissions: 'dangerously-skip',
+          permissions: 'auto',
         },
       },
     ],
