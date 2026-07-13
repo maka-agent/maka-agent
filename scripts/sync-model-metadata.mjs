@@ -18,6 +18,7 @@ const PROVIDERS = {
   siliconflow: 'siliconflow',
   stepfun: 'stepfun',
   togetherai: 'togetherai',
+  'tencent-coding-plan': 'tencent-coding-plan',
   'tencent-tokenhub': 'tencent-tokenhub',
   xai: 'xai',
   'zai-coding-plan': 'zai-coding-plan',

@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'tencent-tokenhub', 'togetherai', 'xai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'tencent-coding-plan', 'tencent-tokenhub', 'togetherai', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -276,6 +276,42 @@ test('sync-model-metadata vendors Tencent TokenHub provider facts and exact mode
   assert.match(generated, /"tencent-tokenhub": \{"id":"tencent-tokenhub","name":"Tencent TokenHub","api":"https:\/\/tokenhub\.tencentmaas\.com\/v1"/);
   assert.match(generated, /"hy3": \{"displayName":"Hy3"/);
   assert.match(generated, /"hy3-preview": \{"displayName":"Hy3 preview"/);
+});
+
+test('sync-model-metadata vendors Tencent Coding Plan provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog['tencent-coding-plan'] = {
+    ...catalog['tencent-coding-plan'],
+    name: 'Tencent Coding Plan (China)',
+    api: 'https://api.lkeap.cloud.tencent.com/coding/v3',
+    doc: 'https://cloud.tencent.com/document/product/1772/128947',
+    models: {
+      'tc-code-latest': {
+        id: 'tc-code-latest', name: 'Auto', reasoning: false, tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 131_072, output: 16_384 },
+      },
+      'glm-5': {
+        id: 'glm-5', name: 'GLM-5', reasoning: true, tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 202_752, output: 16_384 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"tencent-coding-plan": \{/);
+  assert.match(generated, /"tencent-coding-plan": \{"id":"tencent-coding-plan","name":"Tencent Coding Plan \(China\)","api":"https:\/\/api\.lkeap\.cloud\.tencent\.com\/coding\/v3"/);
+  assert.match(generated, /"tc-code-latest": \{"displayName":"Auto"/);
+  assert.match(generated, /"glm-5": \{"displayName":"GLM-5"/);
 });
 
 test('sync-model-metadata vendors StepFun China direct provider facts and exact model ids', async () => {
