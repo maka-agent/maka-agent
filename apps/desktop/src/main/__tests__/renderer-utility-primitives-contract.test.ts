@@ -20,7 +20,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
       /const result = normalizeBrowserAddressInput\(address\);[\s\S]*if \(!result\.ok\) \{[\s\S]*toast\.error\('无法打开地址', browserAddressFailureCopy\(result\.reason\)\);[\s\S]*return;[\s\S]*const ownerSessionId = sessionId;[\s\S]*window\.maka\.browser\.navigate\(ownerSessionId, result\.url\)/,
       'BrowserPanel must validate addresses with the shared helper before invoking browser navigation',
     );
-    assert.match(source, /const browserPanelMountedRef = useRef\(false\)/);
+    assert.match(source, /const browserPanelMountedRef = useMountedRef\(\)/);
     assert.match(source, /const browserPanelSessionIdRef = useRef\(sessionId\)/);
     assert.match(source, /browserPanelSessionIdRef\.current = sessionId/);
     assert.match(

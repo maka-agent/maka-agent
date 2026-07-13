@@ -137,12 +137,12 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(ui, /const \[localPending,\s*setLocalPending\] = useState\(false\);/);
     assert.match(ui, /const pendingRef = useRef\(false\);/);
     assert.match(ui, /const pending = props\.pending \|\| localPending;/);
-    assert.match(ui, /const modelSwitcherMountedRef = useRef\(true\);/);
+    assert.match(ui, /const modelSwitcherMountedRef = useMountedRef\(\);/);
     assert.match(ui, /const pendingModelChangeRef = useRef<\{ sessionId: string; token: number \} \| null>\(null\);/);
     assert.match(ui, /const pendingModelChangeTokenRef = useRef\(0\);/);
     assert.match(
       ui,
-      /useEffect\(\(\) => \{[\s\S]*modelSwitcherMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*modelSwitcherMountedRef\.current = false;[\s\S]*pendingModelChangeRef\.current = null;[\s\S]*pendingModelChangeTokenRef\.current \+= 1;[\s\S]*pendingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*pendingModelChangeRef\.current = null;[\s\S]*pendingModelChangeTokenRef\.current \+= 1;[\s\S]*pendingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\);/,
       'model switcher must release pending ownership when the chat header unmounts',
     );
     assert.match(

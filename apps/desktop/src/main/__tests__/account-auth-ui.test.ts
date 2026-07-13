@@ -232,7 +232,7 @@ describe('Account settings credential probe UI', () => {
     );
     assert.match(
       page,
-      /const accountPageMountedRef = useRef\(false\);[\s\S]*useEffect\(\(\) => \{[\s\S]*accountPageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*accountPageMountedRef\.current = false;[\s\S]*testingSlugRef\.current = null;/,
+      /const accountPageMountedRef = useMountedRef\(\);[\s\S]*useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*testingSlugRef\.current = null;/,
       'Account page must release test ownership when Settings closes',
     );
     assert.match(
@@ -258,12 +258,12 @@ describe('Account settings credential probe UI', () => {
 
     assert.match(
       page,
-      /const accountPageMountedRef = useRef\(false\);/,
+      /const accountPageMountedRef = useMountedRef\(\);/,
       'Account page must track mounted ownership for connection tests',
     );
     assert.match(
       page,
-      /return \(\) => \{[\s\S]*accountPageMountedRef\.current = false;[\s\S]*testingSlugRef\.current = null;/,
+      /return \(\) => \{[\s\S]*testingSlugRef\.current = null;/,
       'Account page cleanup must release an in-flight connection test owner',
     );
     assert.match(

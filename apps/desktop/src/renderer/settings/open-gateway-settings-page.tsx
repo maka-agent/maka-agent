@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppSettings, OpenGatewayRuntimeStatus, UpdateAppSettingsResult } from '@maka/core';
-import { Button, Input, NumberField, NumberFieldInput, SettingsSelect, SettingsSwitch as Switch, Textarea, useToast } from '@maka/ui';
+import { Button, Input, NumberField, NumberFieldInput, SettingsSelect, SettingsSwitch as Switch, Textarea, useMountedRef, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { MetricCard } from './settings-metric-card';
 import { SettingsRows, SettingRow } from './settings-rows';
@@ -23,13 +23,11 @@ export function OpenGatewaySettingsPage(props: {
   const gatewayPendingSaveCountRef = useRef(0);
   const gatewaySaveTicketRef = useRef(0);
   const copyingGatewayActionRef = useRef<string | null>(null);
-  const openGatewayMountedRef = useRef(false);
+  const openGatewayMountedRef = useMountedRef();
   const toast = useToast();
 
   useEffect(() => {
-    openGatewayMountedRef.current = true;
     return () => {
-      openGatewayMountedRef.current = false;
       gatewaySaveTicketRef.current += 1;
       copyingGatewayActionRef.current = null;
     };

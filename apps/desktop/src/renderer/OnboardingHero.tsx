@@ -535,7 +535,7 @@ function ReadyEmptyHero(props: {
   const [submitPending, setSubmitPending] = useState(false);
   const [pendingImportAction, setPendingImportAction] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const readyHeroMountedRef = useRef(true);
+  const readyHeroMountedRef = useMountedRef();
   const submitPendingRef = useRef(false);
   const compositionActiveRef = useRef(false);
   const importActionOwnerRef = useRef<ChatInputActionOwner<string> | null>(null);
@@ -546,9 +546,7 @@ function ReadyEmptyHero(props: {
   }
 
   useEffect(() => {
-    readyHeroMountedRef.current = true;
     return () => {
-      readyHeroMountedRef.current = false;
       submitPendingRef.current = false;
       importActionOwnerRef.current?.reset();
     };

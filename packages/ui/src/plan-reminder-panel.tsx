@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import {
   ArchiveRestore,
   Check,
@@ -133,7 +134,7 @@ export function PlanReminderPanel(props: {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitPending, setSubmitPending] = useState(false);
   const [pendingActionKeys, setPendingActionKeys] = useState<ReadonlySet<string>>(() => new Set());
-  const planReminderMountedRef = useRef(true);
+  const planReminderMountedRef = useMountedRef();
   const submitPendingRef = useRef(false);
   const refreshPendingRef = useRef(false);
   const pendingActionKeysRef = useRef<Set<string>>(new Set());
@@ -185,9 +186,7 @@ export function PlanReminderPanel(props: {
   const auditReport = props.auditReport ?? deriveCapabilityAuditReport({ planReminders: props.reminders });
 
   useEffect(() => {
-    planReminderMountedRef.current = true;
     return () => {
-      planReminderMountedRef.current = false;
       submitPendingRef.current = false;
       refreshPendingRef.current = false;
       pendingActionKeysRef.current = new Set();

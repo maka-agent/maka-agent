@@ -17,12 +17,12 @@ describe('permission prompt response guard', () => {
 
     assert.match(prompt, /const \[responsePending, setResponsePending\] = useState\(false\);/);
     assert.match(prompt, /const responsePendingRef = useRef\(false\);/);
-    assert.match(prompt, /const permissionMountedRef = useRef\(true\);/);
+    assert.match(prompt, /const permissionMountedRef = useMountedRef\(\);/);
     assert.match(prompt, /const activePermissionRequestIdRef = useRef\(props\.request\.requestId\);/);
     assert.match(
       prompt,
-      /useEffect\(\(\) => \{\s*permissionMountedRef\.current = true;\s*return \(\) => \{\s*permissionMountedRef\.current = false;\s*\};\s*\}, \[\]\)/,
-      'permission response settlement must not update state after the prompt unmounts',
+      /if \(permissionMountedRef\.current\) setResponsePending\(false\);/,
+      'permission response settlement must not update state after the prompt unmounts; mount state is owned by the shared useMountedRef hook',
     );
     assert.match(
       prompt,

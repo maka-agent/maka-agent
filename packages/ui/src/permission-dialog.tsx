@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import type { PermissionRequestEvent, PermissionResponse } from '@maka/core';
 import { derivePermissionRequestHealth, formatPermissionRequestWait, readWriteStdinInputPreview } from '@maka/core';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
@@ -42,15 +43,8 @@ export function PermissionPrompt(props: {
   const [now, setNow] = useState(() => Date.now());
   const responsePendingRef = useRef(false);
   const denyButtonRef = useRef<HTMLButtonElement>(null);
-  const permissionMountedRef = useRef(true);
+  const permissionMountedRef = useMountedRef();
   const activePermissionRequestIdRef = useRef(props.request.requestId);
-
-  useEffect(() => {
-    permissionMountedRef.current = true;
-    return () => {
-      permissionMountedRef.current = false;
-    };
-  }, []);
 
   useEffect(() => {
     activePermissionRequestIdRef.current = props.request.requestId;

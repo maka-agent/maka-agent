@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import {
   Blocks,
   BookOpen,
@@ -704,13 +705,11 @@ export function SkillsModuleMain(props: {
 }) {
   const [pendingSkillAction, setPendingSkillAction] = useState<string | null>(null);
   const [skillSearchQuery, setSkillSearchQuery] = useState('');
-  const skillActionMountedRef = useRef(true);
+  const skillActionMountedRef = useMountedRef();
   const pendingSkillActionRef = useRef<string | null>(null);
 
   useEffect(() => {
-    skillActionMountedRef.current = true;
     return () => {
-      skillActionMountedRef.current = false;
       pendingSkillActionRef.current = null;
     };
   }, []);

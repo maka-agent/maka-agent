@@ -1,4 +1,5 @@
 import { Fragment, memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import { AlertOctagon, Ban, Brain, Check, ChevronRight, Copy, GitBranch, Info, Loader2, RefreshCcw, Timer } from './icons.js';
 import { type ClipboardCopyPhase, useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { Markdown } from './markdown.js';
@@ -503,7 +504,7 @@ function TurnFooterActions(props: {
   const [copyPhase, setCopyPhase] = useState<ClipboardCopyPhase | null>(null);
   const copyPendingRef = useRef(false);
   const copyResetTimerRef = useRef<number | null>(null);
-  const copyMountedRef = useRef(true);
+  const copyMountedRef = useMountedRef();
 
   function clearCopyResetTimer() {
     if (copyResetTimerRef.current === null) return;
@@ -512,9 +513,7 @@ function TurnFooterActions(props: {
   }
 
   useEffect(() => {
-    copyMountedRef.current = true;
     return () => {
-      copyMountedRef.current = false;
       clearCopyResetTimer();
     };
   }, []);

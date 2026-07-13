@@ -16,7 +16,7 @@ import {
   type ProviderType,
 } from '@maka/core';
 import { formatRelativeTimestamp } from '@maka/core';
-import { Button, Chip, FieldDescription, FieldRoot, Input, Label, useToast } from '@maka/ui';
+import { Button, Chip, FieldDescription, FieldRoot, Input, Label, useMountedRef, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { buildCatalogModelChoices } from '../model-catalog-choices';
 import { providerDisplay } from './provider-display';
@@ -114,7 +114,7 @@ export function ConnectionDetail(props: {
   const fetchingModelsRef = useRef(false);
   const settingDefaultRef = useRef(false);
   const deletingRef = useRef(false);
-  const connectionDetailMountedRef = useRef(false);
+  const connectionDetailMountedRef = useMountedRef();
   const connectionDetailLifecycleRef = useRef(0);
   const toast = useToast();
   const needsApiKey = defaults.authKind === 'api_key';
@@ -136,10 +136,8 @@ export function ConnectionDetail(props: {
   const detailActionBusy = busy || testing || fetchingModels || settingDefault || deleting;
 
   useEffect(() => {
-    connectionDetailMountedRef.current = true;
     connectionDetailLifecycleRef.current += 1;
     return () => {
-      connectionDetailMountedRef.current = false;
       connectionDetailLifecycleRef.current += 1;
       busyRef.current = false;
       testingRef.current = false;

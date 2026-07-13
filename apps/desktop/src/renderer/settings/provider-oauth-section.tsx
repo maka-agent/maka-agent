@@ -15,6 +15,7 @@ import {
   ItemTitle,
   RelativeTime,
   Textarea,
+  useMountedRef,
   useToast,
 } from '@maka/ui';
 import { type StatusTone } from './settings-status-badge';
@@ -79,7 +80,7 @@ const MODEL_OAUTH_CARDS: ReadonlyArray<ModelOAuthCard> = [
 export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void> }) {
   const [openModal, setOpenModal] = useState<OAuthServiceId | null>(null);
   const toast = useToast();
-  const modelOAuthMountedRef = useRef(false);
+  const modelOAuthMountedRef = useMountedRef();
   const modelOAuthRefreshTicketRef = useRef(0);
   // PR-OAUTH-CARD-LIVE-STATE-0 (WAWQAQ msg d79fd115 follow-up):
   // before this lift the 3 button cards stayed at the static
@@ -144,10 +145,8 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
   }
 
   useEffect(() => {
-    modelOAuthMountedRef.current = true;
     void refreshAllCards();
     return () => {
-      modelOAuthMountedRef.current = false;
       modelOAuthRefreshTicketRef.current += 1;
     };
   }, []);
@@ -430,11 +429,9 @@ function ClaudeSubscriptionCard() {
   // would `setState` on an unmounted component (loud warning in dev,
   // masks real bugs in prod). Mirror the `mountedRef` pattern other
   // settings sub-cards in this file use.
-  const claudeCardMountedRef = useRef(true);
+  const claudeCardMountedRef = useMountedRef();
   useEffect(() => {
-    claudeCardMountedRef.current = true;
     return () => {
-      claudeCardMountedRef.current = false;
       const pendingAuthRequestId = claudeAuthRequestIdRef.current;
       claudeAuthRequestIdRef.current = null;
       if (pendingAuthRequestId) void window.maka.claudeSubscription.cancelAuthorization(pendingAuthRequestId);

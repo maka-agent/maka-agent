@@ -55,10 +55,10 @@ describe('composer send guard', () => {
     const composerBlock = source.match(/export const Composer = forwardRef[\s\S]*$/)?.[0] ?? '';
     const sendCurrent = source.match(/async function sendCurrent\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
-    assert.match(composerBlock, /const composerMountedRef = useRef\(true\)/);
+    assert.match(composerBlock, /const composerMountedRef = useMountedRef\(\)/);
     assert.match(
       composerBlock,
-      /useEffect\(\(\) => \{\s*composerMountedRef\.current = true;[\s\S]*?return \(\) => \{\s*composerMountedRef\.current = false;\s*sendPendingRef\.current = false;\s*importActionOwnerRef\.current\?\.reset\(\);\s*\};\s*\}, \[\]\)/,
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*sendPendingRef\.current = false;\s*importActionOwnerRef\.current\?\.reset\(\);\s*\};\s*\}, \[\]\)/,
       'Composer must release send/import pending owners when it unmounts or StrictMode replays cleanup',
     );
     assert.match(

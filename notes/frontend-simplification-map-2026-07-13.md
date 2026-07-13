@@ -94,11 +94,69 @@ dist/**/*.test.js). Real finds verified by hand before acting.
   its knip ignore; the overlay-scrollbars contract's per-file assertion upgraded to a
   repo-wide ban on @base-ui react scroll-area imports (stronger invariant, no
   coverage lost).
-- [ ] **D-2 — mounted-guard long tail**: ~30 remaining `*MountedRef` sites across
-  renderer settings pages and packages/ui panels (see `grep -ri "mountedref = useRef"`).
-  Mechanical agent sweep: swap to useMountedRef, keep per-site companion-ref cleanup
-  effects, re-pin any contract that quotes the old shape. Watch the useRef(false)
-  variants — verify no pre-effect reads before flipping initial value semantics.
+- [x] **D-2 — SHIPPED: mounted-guard long tail.** Converted 34 of the 35 census
+  `*MountedRef` sites to `useMountedRef` — 20 renderer settings sites, 4 other
+  renderer sites (OnboardingHero readyHero, FirstRunChecklist, artifact-pane,
+  browser-panel), 10 packages/ui panels (chat-turn, chat-model-switcher, search-modal,
+  plan-reminder-panel, clipboard-feedback, skills-panel, composer, permission-dialog,
+  session-history-list, daily-review-panel). Kept each site's companion-ref cleanup
+  effect and its ref name; deleted the whole effect only where it did nothing but the
+  mounted flag (browser-panel, permission-dialog). packages/ui sites import the hook
+  from `./use-mounted-ref.js` per house style. Re-pinned ~30 contract assertions across
+  ~20 test files to the shared-hook shape (definition lines + effect blocks). The
+  useRef(false) variants all read the flag only inside async handlers — no pre-effect
+  reads — so flipping to true-initial semantics is behavior-preserving. Deliberately
+  NOT converted: use-memory-settings-controller (lifecycle-counter variant — cleanup
+  reset is guarded by a lifecycle counter and reads combine mounted with lifecycle
+  equality, same shape as use-workspace-instructions-controller) and app-shell.tsx
+  rendererMountedRef (Round B owns that file).
+- [~] **E — app-shell derived-value extraction (Round B follow-on) — blade 1 SHIPPED,
+  blade 2 SKIPPED. branch refactor/app-shell-view-split. app-shell.tsx 1680 → 1562.**
+  1. **Derived-value extraction — SHIPPED (2 commits).** The whole ~210-line derived
+     block moved into two pure-derivation hooks following the use-shell-connections /
+     use-project-context house style, zero behavior change, every memo keeping its exact
+     dep array + referential stability:
+     - `use-shell-chat-model.ts` (195 lines): model/thinking selection (chatModelChoices,
+       active/new-chat model+label, thinking-variant lists, sticky-pick validation, both
+       pending new-chat states) + the two chat-header alert memos. openSettingsSection is
+       injected so chatConnectionAlert keeps its identical exhaustive-deps-excluded memo.
+     - `use-shell-live-turn.ts` (112 lines): live-turn projection (activeShellRunUpdates,
+       streaming/thinking slices, streamingSessionIds pulse set, liveTools/
+       hasInFlightLiveTools) + the #646 turn-wait cues. `activeLiveTurn` stays pinned in
+       app-shell.tsx (streaming-timeline source-slice contract) and is passed in.
+     Re-pinned: added both files to renderer-shell-source-helpers combined allowlist;
+     added use-shell-chat-model.ts to the composer-new-chat model-picker contract's two
+     subset reads (pendingNewChatModel / validPendingNewChatModel / newChatThinkingLevel
+     declarations moved into the hook). All other model/live-turn contracts read combined
+     source and auto-followed via the allowlist.
+  2. **JSX return split — SKIPPED (disproportionately risky + net-negative, per the
+     ship-what's-done rule; Round B skip note is the model).** The ~340-line return's
+     content area is irreducibly coupled to ~110 AppShell locals, and every meaningful
+     chunk is pinned to app-shell.tsx by a DIRECT-read (non-combined) contract: ChatView
+     `liveTurn={activeLiveTurn}` (streaming-timeline), Composer `onPickAttachments`/
+     `onAttachFilePaths` (attachment-frontend) + `onPickNewChatModel` (composer-new-chat),
+     SessionListPanel `statusGroups={sessionListGroups}` (session-project-view), the
+     DailyReviewPage `onCopyMarkdown` (daily-review-copy-feedback), and the onboarding
+     `onSkip` handler (onboarding-one-time-regression). Extracting any of them into a
+     layout sub-component (a) forces ~50–110 props of straight-through drilling that ADDS
+     net interface/destructure boilerplate rather than pruning it (counter to the round's
+     goal), (b) requires structurally re-pinning 5+ behavioral contracts that specifically
+     assert "the shell orchestrator wires handler X into element Y", and (c) still lands
+     app-shell.tsx ≈ 1300 — the ≤1100 target is not safely reachable without over-
+     extraction under the zero-behavior mandate. Left in place with this note; the
+     derived-value extraction (blade 1) captures the genuine simplification.
+  Gates (each commit): desktop 2399/2399, ui 125/125, full typecheck 0, check-dead-css
+  clean, knip desktop+ui 0. Final: alignment auditor (AUDIT_PORT_BASE=19900) exit 0, all
+  9 fixtures clean. CDP branch-vs-baseline captures (real Electron, light+dark 1280) of
+  turn-narrative / module-skills / settings-general / first-run: module-skills + first-run
+  byte-identical; settings-general independently non-deterministic (baseline itself yields
+  two hashes across repeated passes — pre-existing capture flake, unrelated); turn-narrative
+  differs ONLY in a 311×24px region at the very bottom of the frame — the composer footer
+  git-branch chip, which renders the worktree's real HEAD (the baseline had to be captured
+  in DETACHED-HEAD state since the `main` branch ref is held by the concurrent worktree, so
+  the chip shows `—` vs the feature-branch name). Pixel-diff bbox confirmed x:[1106-1417]
+  y:[1570-1594]; every other pixel identical, and the chip-less fixtures are byte-identical
+  — i.e. the derivation extraction is a proven render no-op.
 
 Update checkboxes as rounds ship. Every round: suite + typecheck + dead-css +
 alignment auditor + CDP spot captures, exit-code gated.
