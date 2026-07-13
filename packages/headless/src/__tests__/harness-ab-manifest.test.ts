@@ -10,7 +10,7 @@ import {
 } from '../harness-ab-manifest.js';
 
 describe('harness A/B manifest', () => {
-  test('freezes one deterministic 40-task prefix inside the full task order', () => {
+  test('freezes one deterministic 30-task prefix inside the full task order', () => {
     const taskIds = Array.from({ length: 89 }, (_, index) => `task-${String(index + 1).padStart(2, '0')}`);
     const input = manifestInput(taskIds);
 
@@ -19,7 +19,7 @@ describe('harness A/B manifest', () => {
     assert.equal(manifest.experimentKind, 'harness');
     assert.equal(manifest.reps, 1);
     assert.equal(manifest.evaluationTaskIds.length, 89);
-    assert.deepEqual(manifest.pilotTaskIds, manifest.evaluationTaskIds.slice(0, 40));
+    assert.deepEqual(manifest.pilotTaskIds, manifest.evaluationTaskIds.slice(0, 30));
     assert.deepEqual(
       manifest.evaluationTaskIds,
       deterministicHarnessTaskOrder([...taskIds].reverse(), input.orderSeed),
@@ -35,7 +35,7 @@ describe('harness A/B manifest', () => {
         outerTimeoutGraceSec: 900,
       },
       metric: 'pass@1',
-      order: { algorithm: 'sha256-rank-v1', seed: 'maka-glm-5.2-v1', pilotTaskCount: 40 },
+      order: { algorithm: 'sha256-rank-v1', seed: 'maka-glm-5.2-v1', pilotTaskCount: 30 },
       model: { provider: 'zai-coding-plan', id: 'glm-5.2', reasoningEffort: 'max' },
       pricing: {
         currency: 'USD',
@@ -105,7 +105,7 @@ function manifestInput(taskIds: readonly string[]) {
     },
     taskIds,
     orderSeed: 'maka-glm-5.2-v1',
-    pilotTaskCount: Math.min(40, taskIds.length),
+    pilotTaskCount: Math.min(30, taskIds.length),
     model: { provider: 'zai-coding-plan', id: 'glm-5.2', reasoningEffort: 'max' as const },
     pricing: {
       currency: 'USD' as const,

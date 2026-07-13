@@ -31,7 +31,7 @@ import {
 } from './run-prompt-ab.mjs';
 
 const EXPECTED_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
-const PILOT_TASKS = 40;
+const PILOT_TASKS = 30;
 const PROVIDER = 'zai-coding-plan';
 const MODEL = 'glm-5.2';
 const MODEL_SPEC = `${PROVIDER}/${MODEL}`;

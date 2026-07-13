@@ -9,6 +9,25 @@ import { TERMINAL_BENCH_2_1_TASK_IDS } from '../harness-ab-manifest.js';
 
 const execFileAsync = promisify(execFile);
 
+test('harness A/B CLI accepts the fixed 30-task pilot limit', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-cli-'));
+  try {
+    const scriptPath = new URL('../../harbor/run-harness-ab.mjs', import.meta.url);
+    await assert.rejects(execFileAsync(process.execPath, [scriptPath.pathname], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        MAKA_HARNESS_AB_OUT_DIR: join(dir, 'out'),
+        MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
+        MAKA_HARNESS_AB_LIMIT: '30',
+        MAKA_HARNESS_AB_DRY_RUN: '1',
+      },
+    }), /Terminal-Bench 2\.1 task set mismatch/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('harness A/B CLI rejects modified task contents before reading credentials', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-cli-'));
   try {
@@ -27,7 +46,7 @@ test('harness A/B CLI rejects modified task contents before reading credentials'
         MAKA_HARNESS_AB_OUT_DIR: outDir,
         MAKA_HARNESS_AB_TASKS_ROOT: tasksRoot,
         MAKA_HARNESS_AB_RUN_ID: 'dry-run',
-        MAKA_HARNESS_AB_LIMIT: '40',
+        MAKA_HARNESS_AB_LIMIT: '30',
         MAKA_HARNESS_AB_DRY_RUN: '1',
         MAKA_HARNESS_AB_KEY_FILE: join(dir, 'must-not-be-read'),
         MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT: `sha256:${'a'.repeat(64)}`,
