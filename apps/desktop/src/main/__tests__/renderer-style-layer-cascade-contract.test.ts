@@ -86,6 +86,16 @@ describe('renderer style layer cascade contract', () => {
     );
   });
 
+  it('keeps composite session-list controls on one complete interaction contract', async () => {
+    const styles = await readAllRendererCss();
+    const controls = ':is\\(\\.maka-list-group-toggle, \\.maka-list-project-heading, \\.maka-list-project-more\\)';
+
+    assert.match(styles, new RegExp(`${controls}:hover\\s*\\{[^}]*background:\\s*var\\(--state-hover-bg\\);`));
+    assert.match(styles, new RegExp(`${controls}:active\\s*\\{[^}]*background:\\s*var\\(--state-selected-bg\\);`));
+    assert.match(styles, new RegExp(`${controls}:focus-visible\\s*\\{[^}]*outline:\\s*var\\(--focus-ring-width\\) solid var\\(--focus-ring\\);`));
+    assert.match(styles, new RegExp(`${controls}:disabled\\s*\\{[^}]*opacity:\\s*0\\.45;`));
+  });
+
   it('keeps .settingsHealthRefresh out of any @layer so it can override secondary Button utilities', async () => {
     const styles = await readAllRendererCss();
     const layers = enclosingLayerCount(styles, '.settingsHealthRefresh {');

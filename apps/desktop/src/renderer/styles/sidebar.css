@@ -642,10 +642,31 @@
   border: 0;
   text-align: left;
 }
-.maka-list-group-toggle:focus-visible {
+:is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more) {
+  transition:
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong),
+    opacity var(--duration-base) var(--ease-out-strong);
+}
+:is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more):hover {
+  background: var(--state-hover-bg);
+  color: var(--foreground);
+}
+:is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more):active {
+  background: var(--state-selected-bg);
+}
+:is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more):focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: var(--focus-ring-offset);
   border-radius: var(--radius-control);
+}
+:is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more):disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+:is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more):disabled:hover {
+  background: transparent;
+  color: var(--muted-foreground);
 }
 .maka-list-group-count {
   font-variant-numeric: tabular-nums;
