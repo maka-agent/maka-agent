@@ -11,6 +11,9 @@
 当前实施计划：
 
 - `docs/sandbox/agent-runtime-codex-sandbox-phase-7-8-plan.md`
+- `docs/sandbox/agent-runtime-codex-sandbox-phase-9-plan.md`
+- `docs/sandbox/agent-runtime-additional-permissions-plan.md`
+- `docs/sandbox/agent-runtime-unsandboxed-retry-plan.md`
 
 当前路线已经明确：
 
@@ -43,7 +46,6 @@
 - sandbox cwd 映射。
 - Windows sandbox。
 - Docker / remote executor。
-- Codex-style unsandboxed retry。
 - 完整 managed network proxy。
 
 ## 阶段总览
@@ -63,6 +65,8 @@ Phase 7.7: 文件工具接入 OS sandboxed worker/helper
 Phase 7.8: 补齐 headless / isolated / child agent 默认接线
 Phase 8: sandbox-aware PermissionEngine / policy
 Phase 9: runtime/model context 与 diagnostics
+Phase 9.5: single-command additional permissions
+Phase 9.6: auto review 与 explicit unsandboxed retry
 Phase 10: Linux sandbox backend / helper / distribution
 ```
 
@@ -869,7 +873,7 @@ SandboxTransformResult
 >
 > 实现结果：Phase 9 已完成。runtime 已提供版本化 Snapshot builder、稳定 System Prompt 权限原则、每 Turn 动态 `<sandbox_context>`、无路径 RunTrace projection，以及安全的 sandbox error metadata。desktop、CLI、child 和 headless 都从各自 runtime assembly 的同一份 context/capabilities 构建 Snapshot；headless 保持 explicit external，child 不继承 parent Snapshot。
 >
-> 本阶段没有增加大型 UI、renderer IPC、telemetry schema、unsandboxed retry 或 host fallback。完整 runtime、core、CLI 和 headless 测试以及 desktop 定向 assembly contract 已通过；desktop 全量测试在当前外层沙箱中因本地监听和文件 watcher 被拒绝而无法完成，需在允许本地端口与 watcher 的环境中补跑。
+> 本阶段没有增加大型 UI、renderer IPC、telemetry schema、unsandboxed retry 或 host fallback。完整 core、storage、runtime、headless、CLI、UI 和 desktop 测试、全仓库 typecheck 与 production build 均已在允许本地监听和文件 watcher 的环境中通过。
 
 验收标准：
 
@@ -890,6 +894,134 @@ SandboxTransformResult
 - `tool_failed` sandbox metadata serialization tests。
 - desktop、CLI、child、headless assembly contract tests。
 - 路径去重/上限/换行清理和敏感字段不泄露测试。
+
+## Phase 9.5: single-command additional permissions
+
+目标：允许用户只为当前一个工具调用授予超出 active `PermissionProfile` 的最小权限，同时保持 session mode、base profile、业务层 matcher 和 OS sandbox 语义一致。
+
+建议文件：
+
+- 新增：`packages/core/src/additional-permissions.ts`
+- 修改：`packages/core/src/permission-profile.ts`
+- 修改：`packages/core/src/permission.ts`
+- 修改：`packages/core/src/events.ts`
+- 新增：`packages/runtime/src/additional-permissions/`
+- 修改：`packages/runtime/src/permission-engine.ts`
+- 修改：`packages/runtime/src/tool-runtime.ts`
+- 修改：`packages/runtime/src/workspace-executor.ts`
+- 修改：`packages/runtime/src/shell-run-manager.ts`
+- 修改：`packages/runtime/src/sandbox/sandbox-manager.ts`
+- 修改：`packages/runtime/src/sandbox/macos-seatbelt.ts`
+- 修改：filesystem worker、desktop、CLI、child、headless 和 external executor assembly
+- 测试：core/runtime/storage/desktop/CLI/headless contract 与 macOS smoke tests
+
+任务：
+
+- [x] 定义 `AdditionalPermissionProfile`、filesystem entry、exact/subtree scope 和固定 limits。
+- [x] 实现 additional profile validator、normalizer、deterministic merge 和 stable hash。
+- [x] 扩展 path matcher，支持 exact/subtree 并固定 hard deny 优先级。
+- [x] 支持 protected metadata 的具体 path write exception，不移除其他 metadata 保护。
+- [x] 实现 existing/missing target canonicalization、symlink 展示与执行路径、二次校验。
+- [x] 将 PermissionRequest 改为普通审批与 additional permission 审批的判别 union。
+- [x] ask 模式合并普通 tool approval 和 additional permission approval，避免双弹窗。
+- [x] execute 模式对 additional permission 始终进行显式 AutoReview，不弹用户 prompt。
+- [x] bypass 模式不创建无意义的 grant；explore 模式保持 fail closed。
+- [x] 实现绑定 session/turn/toolUseId/toolName/intent hash 的一次性 grant。
+- [x] grant 在 deny、timeout、abort、session stop、intent mismatch、path drift 或首次消费后失效。
+- [x] 为 Read/Write/Edit/Glob/Grep 增加 runtime-owned 最小权限 planner。
+- [x] 为 foreground/background Bash 增加显式 `with_additional_permissions` schema 和 justification。
+- [x] 禁止从 Bash command string 猜测 path 权限。
+- [x] 让 `SandboxManager.transform()` 基于 base + additional 生成真实 effective profile。
+- [x] 让 ProfileEnforcedFileOperations、filesystem worker 和 Seatbelt 使用同一 effective profile。
+- [x] macOS Seatbelt 支持 exact/literal、subtree/subpath、metadata exception 和单命令 network enabled。
+- [x] external executor 显式声明 `supportsAdditionalPermissions: false`，未提供受信任的外部 grant 协议时在审批或执行前 fail closed。
+- [x] desktop/CLI 复用现有审批 UI，展示 path、scope、access、network 和风险摘要。
+- [x] child grant 绑定 child run，不继承 parent grant；无 approval broker 时 fail closed。
+- [x] headless/intervention 投影 needs_approval，non-interactive runtime 不自动批准。
+- [x] 增加 additional permission RunTrace 事件和不含 path/argv/env/grant 的安全投影。
+- [x] foreground/background/file tools、并发、重放、symlink、protected metadata 和 network 恢复测试通过。
+- [x] 规范化 macOS `:tmpdir` / `:slash_tmp`，让 profile precheck、write lock、filesystem worker 和 Seatbelt 对 `/tmp` 与 `/private/tmp` 使用同一 enforcement path。
+- [x] filesystem worker client 校验原始 grant 后，只向 worker 下发当前规范化操作所需的 one-shot exact/subtree capability。
+- [x] 完整 macOS smoke、全仓库 test、typecheck 和 build 通过。
+
+> 具体方案：additional permissions 使用独立、受限的增量数据模型，不允许模型或 renderer 构造完整 PermissionProfile。filesystem grant 只包含 runtime 规范化后的 path、read/write 和 exact/subtree；network grant 的当前准确语义是“只为当前 Bash 调用启用全部直接网络”。域名、method 和 port 级授权必须等待 managed network proxy，不能在本阶段误报为已实现。
+>
+> effective profile 的优先级固定为 `explicit hard deny > approved additional allow > protected metadata default deny-write > base allow > default deny`。additional write 可以在用户明确批准后为 `.git/config` 等具体 path 建立单次 exception，但不能移除其他 `.git`、`.agents` 或 `.codex` 保护，也不能覆盖 explicit deny。
+>
+> PermissionEngine 保存 immutable proposal，并只接受 renderer 的 allow-once/deny 决策。获批 grant 绑定 session、turn、toolUseId、toolName、intent hash 和 permissions hash，只存在于 runtime 内存；不支持 rememberForTurn、跨调用复用或 child 继承。路径在申请前和执行前各规范化一次，symlink target 或 target type 发生变化时 grant 失效。
+>
+> 文件工具根据自身结构化参数自动提出最小权限；Bash 不解析 command string，只接受显式 additional permission 声明。所有 per-call context 显式传到 WorkspaceExecutor、ShellRunProcessManager、filesystem worker 和 SandboxManager，不使用 process-global mutable state 或 AsyncLocalStorage。
+>
+> 本阶段不实现 unsandboxed retry、host fallback、永久规则或大型 settings UI。详细模块、协议、测试矩阵和 14 个 commit 见 `docs/sandbox/agent-runtime-additional-permissions-plan.md`。
+>
+> 实施结果：core model/matcher、runtime planner/grant lifecycle、foreground/background Bash、五个文件工具、filesystem worker、SandboxManager、macOS Seatbelt、desktop/CLI 审批和安全 diagnostics 投影已接通。external/headless 当前是显式 unsupported 并 fail closed，不会将本地 grant 盲目透传给外部执行器。
+>
+> 验证状态：`npm test`、`npm run typecheck`、`npm run build`、macOS 真实 Seatbelt smoke 和 core/runtime/storage/headless/CLI/UI/desktop 各 workspace 测试均通过。desktop main 全量为 2145/2145；本轮根级聚合测试中的 OpenGateway SSE 用例也正常完成。
+
+验收标准：
+
+- additional permission 只对获批的一个 tool intent 生效。
+- matcher、worker 和 Seatbelt 对 exact/subtree、deny、metadata exception 和 network 的理解一致。
+- workspace 外与 protected metadata 可以精确授权，sibling/parent/symlink 不泄漏权限。
+- foreground/background Bash 和全部文件工具都使用 effective profile。
+- desktop、CLI、child、headless 和 external executor 行为明确且 fail closed。
+- grant 不持久化、不复用，diagnostics 不泄露敏感执行信息。
+
+测试建议：
+
+- core validator、matcher、merge、hash 和 priority tests。
+- PermissionEngine combined approval、single-use、timeout、abort、并发和 intent binding tests。
+- foreground/background/file tool propagation tests。
+- filesystem worker protocol 与 symlink/lock/Edit regression tests。
+- macOS exact/subtree/outside/protected metadata/network smoke tests。
+- desktop/CLI/headless/child/external surface contract tests。
+- 全仓库 `npm test`、`npm run typecheck` 和 `npm run build`。
+
+## Phase 9.6: auto review 与 explicit unsandboxed retry
+
+目标：对齐 Codex 的 approval reviewer 分层，让 `execute` 模式在不弹人工审批框的情况下进行受限 AutoReview，并允许 Bash 通过一次新的显式调用申请精确的 unsandboxed execution。
+
+任务：
+
+- [x] 定义 `ApprovalsReviewer`、risk level 和 mode -> reviewer routing policy。
+- [x] 保留 `ask -> user`，实现 `execute -> auto_review`；AutoReviewer 缺失、异常、超时或输出无效时 fail closed。
+- [x] AutoReviewer 使用无 tools 的独立 structured-output model call，并把 tool args/workspace text 当成不可信数据。
+- [x] Bash schema 增加互斥的 `require_escalated + justification` 声明。
+- [x] `explore` 拒绝 escalation；`bypass` 不创建无意义 grant。
+- [x] 定义 immutable `SandboxEscalationProposal` 和绑定 session/turn/toolUseId/intent/command/cwd 的 one-shot grant。
+- [x] grant 具有短 TTL，只能消费一次，command/cwd/intent 不匹配时 fail closed。
+- [x] foreground 与 background Bash 在拿到有效 grant 后才使用 `SandboxablePreference.forbid`。
+- [x] additional permissions 与 unsandboxed execution 不允许在同一调用中组合。
+- [x] macOS Seatbelt denial 使用保守 classifier 标记 `likely sandbox denial`，普通 non-zero/timeout/abort 不触发。
+- [x] 失败结果向模型暴露结构化 recovery，并要求使用同一命令发起新的显式 `require_escalated` 调用。
+- [x] 不做 runtime 自动 replay，不做静默 host fallback。
+- [x] desktop/CLI 的 user approval 只提供 allow-once/deny，不允许 remember-for-turn。
+- [x] renderer IPC 拒绝伪造 `reviewer`、`rationale` 和 `riskLevel` 等受信任字段。
+- [x] RunTrace 记录 routing、AutoReview、escalation 与 denial 事件，不记录原始 argv/env/grant。
+- [x] foreground/background、AutoReview allow/deny/fail-closed、TTL、重放与 mismatch 单元测试通过。
+- [x] AutoReview deny 或终态失败后，阻止同一 turn 内通过新 `toolCallId` 重提完全相同的 command/cwd 来重复抽取审批结果。
+- [x] macOS 真实 smoke 覆盖默认 Seatbelt 拒绝以及 exact approved retry 成功。
+- [x] 全仓库 `npm test`、`npm run typecheck` 和 `npm run build` 通过。
+
+> 具体方案：approval policy、permission profile 和 reviewer 是三个独立维度。`PermissionMode` 继续作为用户入口；`ask` 将 request 发送到既有 UI，`execute` 将同一 request 交给无工具能力的 AutoReviewer。AutoReview 不是默认放行，任何 reviewer 终态失败都记录 deny。
+>
+> 本阶段名称沿用“unsandboxed retry”，但实际语义不是 runtime 自动重放第一次失败的进程。第一次 Seatbelt denial 只产生结构化提示；模型必须使用完全相同的 command 发起新的 Bash tool call，并显式声明 `require_escalated`。审批通过后，runtime 为这一个新 tool call 发放 exact one-shot grant。
+>
+> `SandboxManager` 不负责审批，也不信任 tool args 中的 `forbid`。只有 PermissionEngine 内部生成并由 ToolRuntime 消费的 grant 能进入 trusted permission context；foreground/background executor 会再次核对 command 和 cwd 后才关闭 sandbox。
+>
+> 已实现内容：core request/decision/routing model、ApprovalCoordinator、AI SDK AutoReviewer、proposal/grant lifecycle、foreground/background executor、macOS denial classifier、terminal/shell-run recovery metadata、desktop/CLI 最小 UI 与 IPC 防伪、RuntimeEvent/RunTrace 审计。
+>
+> 未实现内容：永久 prefix rule、跨 turn/session grant、AutoReview deny 后的人工 override、remote/external executor escalation protocol、Linux/Windows backend，以及 managed domain/method network allowlist。详细设计见 `docs/sandbox/agent-runtime-unsandboxed-retry-plan.md`。
+>
+> E2E 回归补充：`/tmp` 在 macOS 上会解析为 `/private/tmp`。runtime path context、文件工具 profile precheck、write lock、worker operation capability 和 Seatbelt policy 已统一使用规范化 enforcement path。AutoReview deny/failure 也会在当前 turn 记录 exact command/cwd，阻止模型通过更换 tool call id 立即重复审核；新用户消息开始下一 turn 后该记录清空。
+
+验收标准：
+
+- `execute` 模式需要审批的动作不会弹普通人工审批框，也不会无条件执行。
+- 任意模型输出、renderer payload 或 tool args 都不能直接关闭 sandbox。
+- 同一个 grant 不能用于不同 command、cwd、tool call、turn 或第二次执行。
+- sandbox denial 后不会自动 host retry；只有新的显式调用在获批后执行。
+- foreground 与 background Bash 使用同一套安全语义和审计字段。
 
 ## Phase 10: Linux sandbox backend / helper / distribution
 
@@ -1044,30 +1176,31 @@ M8: 文件工具真实 filesystem operation 在 macOS sandboxed worker 中执行
 M9: headless / isolated / child agent 默认接线完成。
 M10: execute 模式不再依赖 shell_unsafe regex 作为安全边界。
 M11: runtime/model context 可以展示当前 sandbox 状态。
+M11.5: 单个工具调用可以使用用户明确批准的一次性最小权限。
 M12: Linux command 与 filesystem worker backend 接入。
 ```
 
 ## 建议实施顺序
 
-前七个基础阶段已经完成或进入默认 assembly。后续优先保持每个阶段可测试、可回滚，并坚持先完成 macOS 主线，再接 Linux：
+Phase 1-9 和 macOS 主线验证已经完成。后续优先保持每个阶段可测试、可回滚，并让平台无关能力先在 macOS 执行边界稳定，再接 Linux：
 
 ```text
-1. 完成 background Bash sandbox，消除 desktop / CLI 默认 Bash 的 host execution 缺口。
-2. 实现 macOS sandboxed filesystem worker，让文件工具获得 OS 级兜底。
-3. 补齐 headless / isolated / child agent 默认 runtime 接线。
-4. 让 PermissionEngine 理解 active profile 和真实 sandbox availability。
-5. 增加 runtime/model diagnostics，暴露 backend 与 capability failure。
-6. 确定 Linux helper、bubblewrap 和 seccomp 的构建/分发方案。
-7. 实现 Linux backend 的 filesystem view、protected metadata 和 network/seccomp。
-8. 让 foreground Bash、background Bash 和 filesystem worker 在 Linux 上复用同一 backend。
-9. 完成 Linux 发布产物和真实 smoke tests。
+1. 实现 AdditionalPermissionProfile、effective profile merge 和一次性 grant。
+2. 接入文件工具、foreground/background Bash、Seatbelt 和 filesystem worker。
+3. 补齐 desktop、CLI、child、headless/external 审批与 diagnostics，并完成 macOS smoke。
+4. 确定 Linux helper、bubblewrap 和 seccomp 的构建/分发方案。
+5. 实现 Linux backend 的 filesystem view、protected metadata 和 network/seccomp。
+6. 让 foreground Bash、background Bash 和 filesystem worker 在 Linux 上复用同一 backend。
+7. 让 Linux backend 消费同一 additional permissions/effective profile contract。
+8. 完成 Linux 发布产物和真实 smoke tests。
 ```
 
 关键原则：
 
 - 不把 Bash regex 当安全边界。
 - 不静默从 sandbox 降级到 host shell。
-- 不在第一版做 unsandboxed retry。
+- Additional permissions 不隐式变成 unsandboxed retry。
+- 不在 Additional Permissions 阶段做 unsandboxed retry。
 - 不引入 worktree/write-back 相关实现。
 - macOS 和 Linux 只在 platform backend / launcher/helper 层分岔。
 - 不为 Linux 复制 PermissionProfile、Bash tool、file tool 或 WorkspaceExecutor。
