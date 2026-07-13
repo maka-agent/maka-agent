@@ -29,8 +29,8 @@ When `incognitoActive` is true, current consumers enforce these boundaries:
 - Thread search returns a disabled result instead of searching stored threads.
 - Local memory rejects durable reads and writes.
 - Plan reminders reject creation and triggering; automation blocks trigger execution.
-- Web search rejects outbound queries.
-- System notifications are suppressed.
+- Agent and live-query web search reject user search queries; credential tests remain explicit user actions.
+- Run-completion notifications are suppressed; permission self-tests remain explicit user actions.
 
 New privacy-sensitive consumers must take the main-owned context at their existing boundary and define a fail-closed incognito result. Do not add another incognito flag, copy the state into a parallel store, or let a renderer self-attest.
 

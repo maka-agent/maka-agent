@@ -25,9 +25,10 @@ export interface WorkspacePrivacyContext {
    * incognito on their own. Defaults to `false` on a fresh workspace.
    *
    * Current consumers block thread search, local-memory reads/writes,
-   * plan-reminder creation/triggering, automation trigger execution, outbound
-   * web search, and system notifications while this is true. New consumers
-   * must define their own fail-closed result at the main-process boundary.
+   * plan-reminder creation/triggering, automation trigger execution, user web
+   * search queries, and run-completion notifications while this is true.
+   * Explicit credential and permission self-tests remain user actions. New
+   * consumers must define their own fail-closed result at the main boundary.
    */
   incognitoActive: boolean;
 }
