@@ -9,6 +9,29 @@ import { isConnectionReady } from '../connection-readiness.js';
 import type { LlmConnection, ModelInfo, ProviderType } from '../llm-connections.js';
 
 describe('ModelCatalogEntry', () => {
+  it('uses models.dev fallback metadata for a SiliconFlow connection before live discovery', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'siliconflow',
+        providerType: 'siliconflow',
+        defaultModel: 'moonshotai/Kimi-K2.6',
+      },
+    });
+
+    const kimi = entries.find((entry) => entry.id === 'moonshotai/Kimi-K2.6');
+    assert.ok(kimi, 'the exact models.dev id must remain selectable');
+    assert.equal(kimi.source, 'static_catalog');
+    assert.equal(kimi.capabilitySource, 'static_catalog');
+    assert.equal(kimi.contextWindow, 262_000);
+    assert.equal(kimi.maxOutputTokens, 262_000);
+    assert.deepEqual(kimi.capabilities, {
+      chat: true,
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
   it('normalizes Z.ai fetched models as provider_api facts without guessing unknown capabilities', () => {
     const models: ModelInfo[] = [
       { id: 'glm-4.5' },

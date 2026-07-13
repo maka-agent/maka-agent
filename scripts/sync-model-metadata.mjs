@@ -11,6 +11,7 @@ const PROVIDERS = {
   'MiniMax-cn': 'minimax-cn',
   moonshot: 'moonshotai-cn',
   openai: 'openai',
+  siliconflow: 'siliconflow',
   'zai-coding-plan': 'zai-coding-plan',
 };
 
@@ -24,6 +25,7 @@ const catalog = JSON.parse(inputPath
     }));
 
 const generated = {};
+const generatedProviders = {};
 for (const [providerType, sourceId] of Object.entries(PROVIDERS)) {
   const provider = catalog[sourceId];
   if (!provider) {
@@ -32,6 +34,17 @@ for (const [providerType, sourceId] of Object.entries(PROVIDERS)) {
   if (!provider.models || typeof provider.models !== 'object') {
     throw new Error(`models.dev provider ${sourceId} has no models object`);
   }
+  if (typeof provider.id !== 'string'
+    || typeof provider.name !== 'string'
+    || typeof provider.doc !== 'string') {
+    throw new Error(`models.dev provider ${sourceId} has an unsupported shape`);
+  }
+  generatedProviders[providerType] = {
+    id: provider.id,
+    name: provider.name,
+    ...(typeof provider.api === 'string' ? { api: provider.api } : {}),
+    doc: provider.doc,
+  };
   generated[providerType] = Object.fromEntries(
     Object.entries(provider.models)
       .sort(([left], [right]) => left.localeCompare(right))
@@ -76,6 +89,11 @@ for (const [provider, models] of Object.entries(generated)) {
     lines.push(`    ${JSON.stringify(id)}: ${JSON.stringify(metadata)},`);
   }
   lines.push('  },');
+}
+lines.push('};', '');
+lines.push(`export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<${Object.keys(PROVIDERS).map(JSON.stringify).join(' | ')}, { id: string; name: string; api?: string; doc: string }> = {`);
+for (const [provider, facts] of Object.entries(generatedProviders)) {
+  lines.push(`  ${JSON.stringify(provider)}: ${JSON.stringify(facts)},`);
 }
 lines.push('};', '');
 await writeFile(outputPath, lines.join('\n'));

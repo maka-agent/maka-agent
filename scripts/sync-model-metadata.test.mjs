@@ -7,19 +7,24 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'deepseek', 'google', 'minimax', 'minimax-cn', 'moonshotai-cn', 'openai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'deepseek', 'google', 'minimax', 'minimax-cn', 'moonshotai-cn', 'openai', 'siliconflow', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
-  const fallback = {
-    doc: 'https://example.com/models',
-    models: {
-      model: {
-        name: 'Model', reasoning: false, tool_call: false,
-        limit: { context: 1, output: 1 },
+  return Object.fromEntries(PROVIDER_IDS.map((id) => {
+    const fallback = {
+      id,
+      name: id,
+      api: `https://api.example.com/${id}`,
+      doc: 'https://example.com/models',
+      models: {
+        model: {
+          name: 'Model', reasoning: false, tool_call: false,
+          limit: { context: 1, output: 1 },
+        },
       },
-    },
-  };
-  return Object.fromEntries(PROVIDER_IDS.map((id) => [id, id === 'openai' ? openai : fallback]));
+    };
+    return [id, id === 'openai' ? { ...fallback, ...openai } : fallback];
+  }));
 }
 
 test('sync-model-metadata maps models.dev modalities into Maka metadata', async () => {
@@ -55,6 +60,7 @@ test('sync-model-metadata maps models.dev modalities into Maka metadata', async 
   assert.match(generated, /"text-model".*"lifecycle":"deprecated".*"vision":false/);
   assert.match(generated, /"unknown-modality-model".*"capabilities":\{"reasoning":false,"functionCalling":false\}/);
   assert.match(generated, /export const GENERATED_MODELS_DEV_METADATA/);
+  assert.match(generated, /export const GENERATED_MODELS_DEV_PROVIDER_FACTS/);
 });
 
 test('sync-model-metadata rejects incomplete upstream model data', async () => {

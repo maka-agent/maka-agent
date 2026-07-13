@@ -5,6 +5,7 @@ import type {
   ProviderType,
 } from './llm-connections.js';
 import { PROVIDER_DEFAULTS } from './llm-connections.js';
+import { modelsDevFallbackModelsForProvider } from './provider-registry.js';
 import type { PricingConfig } from './usage-stats/types.js';
 import { curatedCatalogFallbackModelsForProvider, lookupModelMetadata } from './model-metadata.js';
 
@@ -110,6 +111,7 @@ export interface BuildModelCatalogInput {
   modelSource?: ModelDiscoverySource;
   modelsFetchedAt?: number;
   fallbackModels?: string[];
+  fallbackModelInfo?: ModelInfo[];
   now?: number;
   staleAfterMs?: number;
   providerAvailable?: boolean;
@@ -129,10 +131,12 @@ export function buildModelCatalogEntries(input: BuildModelCatalogInput): ModelCa
   const source = liveModels
     ? modelSource === 'fetched' ? 'provider_api' : 'static_catalog'
     : 'static_catalog';
-  const rawModels = liveModels ?? (input.fallbackModels ?? []).map((id) => ({
-    id,
-    ...displayNameForKnownModel(input.providerType, id),
-  }));
+  const rawModels = liveModels
+    ?? input.fallbackModelInfo
+    ?? (input.fallbackModels ?? []).map((id) => ({
+      id,
+      ...displayNameForKnownModel(input.providerType, id),
+    }));
   const savedChoiceSources = savedChoiceSourcesById(input.savedModelIds);
   const seen = new Set<string>();
   const entries = rawModels
@@ -162,6 +166,13 @@ export function buildConnectionModelCatalogEntries(input: BuildConnectionModelCa
   const { connection } = input;
   const defaults = PROVIDER_DEFAULTS[connection.providerType];
   const catalogFallbackModels = curatedCatalogFallbackModelsForProvider(connection.providerType);
+  const modelsDevFallbackModels = input.fallbackModels
+    ? undefined
+    : modelsDevFallbackModelsForProvider(connection.providerType);
+  const fallbackModels = input.fallbackModels
+    ?? catalogFallbackModels
+    ?? modelsDevFallbackModels?.map((model) => model.id)
+    ?? defaults.fallbackModels;
   return buildModelCatalogEntries({
     providerType: connection.providerType,
     connectionSlug: connection.slug,
@@ -169,7 +180,8 @@ export function buildConnectionModelCatalogEntries(input: BuildConnectionModelCa
     models: connection.models,
     modelSource: connection.modelSource,
     modelsFetchedAt: connection.modelsFetchedAt,
-    fallbackModels: input.fallbackModels ?? [...(catalogFallbackModels ?? defaults.fallbackModels)],
+    fallbackModels: [...fallbackModels],
+    ...(modelsDevFallbackModels ? { fallbackModelInfo: [...modelsDevFallbackModels] } : {}),
     now: input.now,
     staleAfterMs: input.staleAfterMs,
     providerAvailable: input.providerAvailable,

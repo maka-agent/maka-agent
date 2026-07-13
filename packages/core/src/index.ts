@@ -758,10 +758,13 @@ export type {
   ModelDiscoverySource,
   ModelInfo,
   ProviderCategory,
+  ProviderCatalogGroup,
   ProviderDefaults,
+  ProviderRuntimeAdapter,
   ProviderType,
   UpdateConnectionInput,
 } from './llm-connections.js';
+export { modelsDevFallbackModelsForProvider } from './provider-registry.js';
 export {
   CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS,
   PROVIDER_DEFAULTS,

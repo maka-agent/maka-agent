@@ -20,7 +20,7 @@
  * harness (URI-encoded delimiters, malformed input fall-through).
  */
 
-import type { ProviderType } from '@maka/core';
+import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core';
 
 export interface ChatModelChoice {
   connectionSlug: string;
@@ -44,10 +44,10 @@ export interface ChatModelChoice {
 /**
  * Short, leak-safe provider labels for menu headings. UI display copy lives in
  * the UI layer (not `@maka/core`). `satisfies` keeps it exhaustive over
- * `ProviderType` at compile time without a hand-maintained list — add a
- * provider and this object stops type-checking until it gets a label.
+ * `ProviderType`. models.dev-backed providers fall through to the shared
+ * registry label so this UI does not become another provider fact table.
  */
-const PROVIDER_SHORT_LABEL = {
+const PROVIDER_SHORT_LABEL: Partial<Record<ProviderType, string>> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   google: 'Google',
@@ -63,7 +63,7 @@ const PROVIDER_SHORT_LABEL = {
   'claude-subscription': 'Claude 订阅',
   'codex-subscription': 'OpenAI OAuth',
   'gemini-cli': 'Gemini CLI',
-} satisfies Record<ProviderType, string>;
+};
 
 export interface ModelMenuGroup {
   connectionSlug: string;
@@ -127,7 +127,7 @@ export function modelMenuGroups(choices: ChatModelChoice[]): ModelMenuGroup[] {
         choices: group.choices,
       };
     }
-    const label = PROVIDER_SHORT_LABEL[group.providerType];
+    const label = PROVIDER_SHORT_LABEL[group.providerType] ?? PROVIDER_DEFAULTS[group.providerType].label;
     const ambiguous = (connectionsPerType.get(group.providerType) ?? 0) > 1;
     return {
       connectionSlug: group.connectionSlug,

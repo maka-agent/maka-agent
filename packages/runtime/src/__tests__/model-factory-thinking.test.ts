@@ -110,6 +110,19 @@ describe('getAIModel: litellm provider', () => {
   });
 });
 
+describe('getAIModel: models.dev registry providers', () => {
+  test('routes SiliconFlow through the shared OpenAI-compatible adapter without rewriting model ids', () => {
+    const model = getAIModel({
+      connection: conn('siliconflow'),
+      apiKey: 'sf-test-key',
+      modelId: 'moonshotai/Kimi-K2.6',
+    });
+
+    assert.equal(model.provider, 'siliconflow.chat');
+    assert.equal(model.modelId, 'moonshotai/Kimi-K2.6');
+  });
+});
+
 describe('buildProviderOptions: litellm falls through to default (empty options)', () => {
   test('litellm returns empty options regardless of thinking level', () => {
     assert.deepEqual(buildProviderOptions(conn('litellm'), 'gpt-4o'), {});

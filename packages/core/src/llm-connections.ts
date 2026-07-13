@@ -6,6 +6,7 @@
  */
 
 import type { BackendKind } from './session.js';
+import { SILICONFLOW_PROVIDER_DEFAULTS } from './provider-registry.js';
 
 export type { BackendKind } from './session.js';
 
@@ -19,6 +20,7 @@ export type ProviderType =
   | 'zai-coding-plan'
   | 'MiniMax'
   | 'MiniMax-cn'
+  | 'siliconflow'
   | 'litellm'
   | 'ollama'
   | 'openai-compatible'
@@ -27,6 +29,8 @@ export type ProviderType =
   | 'gemini-cli';
 
 export type ProviderCategory = 'oauth' | 'domestic' | 'overseas' | 'local' | 'custom';
+export type ProviderCatalogGroup = 'recommended' | 'plans' | 'api' | 'aggregators' | 'local';
+export type ProviderRuntimeAdapter = 'anthropic' | 'openai' | 'openai-compatible' | 'google';
 
 export type ConnectionAuth =
   | { kind: 'api_key'; apiKey: string }
@@ -104,9 +108,12 @@ export interface ProviderDefaults {
   fallbackModels: string[];
   status: 'ready' | 'phase3-experimental';
   protocol: 'anthropic' | 'openai' | 'google';
+  runtimeAdapter?: ProviderRuntimeAdapter;
   category: ProviderCategory;
+  catalogGroup?: ProviderCatalogGroup;
   catalogBadge?: string;
   signupUrl?: string;
+  modelsDevId?: string;
 }
 
 export const CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS = new Set([
@@ -236,6 +243,7 @@ export const PROVIDER_DEFAULTS: Record<ProviderType, ProviderDefaults> = {
     catalogBadge: 'API',
     signupUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
   },
+  siliconflow: SILICONFLOW_PROVIDER_DEFAULTS,
   litellm: {
     label: 'LiteLLM',
     description: 'AI gateway proxy for 100+ LLM providers.',
@@ -324,6 +332,7 @@ export const READY_PROVIDER_TYPES: ProviderType[] = [
   'zai-coding-plan',
   'MiniMax',
   'MiniMax-cn',
+  'siliconflow',
   'ollama',
   'kimi-coding-plan',
   'openai-compatible',
@@ -336,6 +345,7 @@ export const CATALOG_PROVIDER_TYPES: ProviderType[] = [
   'zai-coding-plan',
   'MiniMax',
   'MiniMax-cn',
+  'siliconflow',
   'anthropic',
   'openai',
   'google',
