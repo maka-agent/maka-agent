@@ -1,32 +1,29 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PermissionRequestEvent, PermissionResponse } from '@maka/core';
 import { derivePermissionRequestHealth, formatPermissionRequestWait, readWriteStdinInputPreview } from '@maka/core';
-import { AlertOctagon, AlertTriangle, FileEdit, GitMerge, Globe, HelpCircle, ShieldAlert, Terminal, Wifi } from './icons.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Button as UiButton, Checkbox } from './ui.js';
 import { redactSecrets } from './redact.js';
 import { formatRedactedJson } from './tool-format.js';
 
-// Per-reason presentation hints. Drives icon + headline + risk tone in the
-// prompt so the user can scan it in 1-2 seconds before reading the
-// args block.
+// Per-reason presentation hints. The headline states the decision while tone
+// handles the minimum visual distinction needed for higher-risk requests.
 type ReasonKind = PermissionRequestEvent['reason'];
 
 interface ReasonPreset {
   prompt: string;
-  Icon: typeof AlertTriangle;
   tone: 'info' | 'caution' | 'destructive';
 }
 
 const REASON_PRESETS: Record<ReasonKind, ReasonPreset> = {
-  shell_dangerous: { prompt: '允许执行高风险 shell 命令？', Icon: Terminal, tone: 'caution' },
-  file_write: { prompt: '允许写入或创建文件？', Icon: FileEdit, tone: 'info' },
-  fs_destructive: { prompt: '允许执行不可恢复的文件操作？', Icon: AlertOctagon, tone: 'destructive' },
-  git_destructive: { prompt: '允许执行不可恢复的 Git 操作？', Icon: GitMerge, tone: 'destructive' },
-  network: { prompt: '允许发起网络请求？', Icon: Wifi, tone: 'info' },
-  privileged: { prompt: '允许执行特权操作？', Icon: ShieldAlert, tone: 'destructive' },
-  browser: { prompt: '允许操作已登录的浏览器？', Icon: Globe, tone: 'caution' },
-  custom: { prompt: '允许执行此操作？', Icon: HelpCircle, tone: 'info' },
+  shell_dangerous: { prompt: '允许执行高风险 shell 命令？', tone: 'caution' },
+  file_write: { prompt: '允许写入或创建文件？', tone: 'info' },
+  fs_destructive: { prompt: '允许执行不可恢复的文件操作？', tone: 'destructive' },
+  git_destructive: { prompt: '允许执行不可恢复的 Git 操作？', tone: 'destructive' },
+  network: { prompt: '允许发起网络请求？', tone: 'info' },
+  privileged: { prompt: '允许执行特权操作？', tone: 'destructive' },
+  browser: { prompt: '允许操作已登录的浏览器？', tone: 'caution' },
+  custom: { prompt: '允许执行此操作？', tone: 'info' },
 };
 
 export function PermissionPrompt(props: {
@@ -100,6 +97,8 @@ export function PermissionPrompt(props: {
   const preset = REASON_PRESETS[props.request.reason] ?? REASON_PRESETS.custom;
   const summary = renderPermissionSummary(props.request);
   const details = renderPermissionDetails(props.request);
+  const additionalArgs = permissionAdditionalArgs(props.request);
+  const showDisclosure = details !== undefined || additionalArgs !== undefined;
   const isDestructive = preset.tone === 'destructive';
   const context = props.request.hint ?? (isDestructive
     ? '此操作无法恢复，请确认上面的内容。'
@@ -116,14 +115,13 @@ export function PermissionPrompt(props: {
     >
       <div className="maka-permission-prompt-inner agents-parchment-paper-surface">
         <header className="maka-permission-header">
-          <span className="maka-permission-icon" aria-hidden="true">
-            <preset.Icon size={20} />
-          </span>
           <div className="maka-permission-title-row">
             <h2 className="maka-permission-title" id="permissionTitle">{preset.prompt}</h2>
-            <span className="maka-permission-age" data-status={health.status}>
-              已等待 {waitLabel}
-            </span>
+            {health.status !== 'fresh' && (
+              <span className="maka-permission-age" data-status={health.status}>
+                已等待 {waitLabel}
+              </span>
+            )}
           </div>
         </header>
         <div className="maka-permission-body">
@@ -138,10 +136,12 @@ export function PermissionPrompt(props: {
           )}
         </div>
         <Collapsible className="maka-permission-raw">
-          <CollapsiblePanel>
-            {details && <div className="maka-permission-details">{details}</div>}
-            <pre className="maka-code">{formatRedactedJson(props.request.args)}</pre>
-          </CollapsiblePanel>
+          {showDisclosure && (
+            <CollapsiblePanel>
+              {details && <div className="maka-permission-details">{details}</div>}
+              {additionalArgs && <pre className="maka-code">{formatRedactedJson(additionalArgs)}</pre>}
+            </CollapsiblePanel>
+          )}
           <footer className="permissionActions">
             <div className="maka-permission-utility-actions">
               <UiButton
@@ -154,7 +154,7 @@ export function PermissionPrompt(props: {
               >
                 {props.stopPending ? '停止中…' : '停止'}
               </UiButton>
-              <CollapsibleTrigger>完整参数</CollapsibleTrigger>
+              {showDisclosure && <CollapsibleTrigger>完整参数</CollapsibleTrigger>}
               <label className="permissionRemember">
                 <Checkbox
                   checked={rememberForTurn}
@@ -243,8 +243,12 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
       return renderBrowserSummary(request.toolName, args);
     case 'Bash': {
       const command = typeof args.command === 'string' ? args.command : undefined;
+      const cwd = typeof args.cwd === 'string' ? args.cwd : undefined;
       if (!command) return undefined;
-      return <pre className="maka-code maka-permission-command">{redactSecrets(command)}</pre>;
+      const commandSummary = cwd
+        ? `在 ${redactSecrets(cwd)}\n${redactSecrets(command)}`
+        : redactSecrets(command);
+      return <pre className="maka-code maka-permission-command">{commandSummary}</pre>;
     }
     case 'WriteStdin': {
       const input = readWriteStdinInputPreview(args);
@@ -364,6 +368,23 @@ function renderPermissionDetails(request: PermissionRequestEvent): ReactNode | u
     }
     default:
       return undefined;
+  }
+}
+
+function permissionAdditionalArgs(request: PermissionRequestEvent): Record<string, unknown> | undefined {
+  const args = (request.args ?? {}) as Record<string, unknown>;
+  switch (request.toolName) {
+    case 'Bash': {
+      const { command: _command, cwd: _cwd, ...additional } = args;
+      return Object.keys(additional).length > 0 ? additional : undefined;
+    }
+    case 'Write':
+    case 'Edit':
+    case 'OfficeDocumentEdit':
+    case 'WriteStdin':
+      return undefined;
+    default:
+      return Object.keys(args).length > 0 ? args : undefined;
   }
 }
 

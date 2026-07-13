@@ -24,10 +24,7 @@
 }
 
 .maka-permission-header {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  align-items: start;
-  gap: var(--space-2);
+  min-width: 0;
 }
 
 .maka-permission-title-row {
@@ -45,26 +42,6 @@
   font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
-}
-
-.maka-permission-icon {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-control);
-  background: oklch(from var(--info) l c h / 0.10);
-  color: var(--info-text);
-}
-
-.maka-permission-prompt[data-tone="caution"] .maka-permission-icon {
-  background: oklch(from var(--warning) l c h / 0.12);
-  color: var(--warning-text);
-}
-
-.maka-permission-prompt[data-tone="destructive"] .maka-permission-icon {
-  background: oklch(from var(--destructive) l c h / 0.10);
-  color: var(--destructive-text);
 }
 
 .maka-permission-prompt[data-tone="destructive"] .maka-permission-prompt-inner {
@@ -269,6 +246,23 @@
   grid-template-columns: repeat(2, minmax(88px, 1fr));
   align-items: center;
   gap: var(--space-1-5);
+}
+
+.maka-permission-decision-actions .maka-button {
+  transition:
+    transform var(--duration-quick) var(--ease-out-strong),
+    background var(--duration-quick) var(--ease-out-strong),
+    border-color var(--duration-quick) var(--ease-out-strong),
+    box-shadow var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-permission-decision-actions .maka-button:hover {
+  transform: translateY(var(--lift-hover));
+  box-shadow: var(--shadow-minimal);
+}
+
+.maka-permission-decision-actions .maka-button:active {
+  transform: translateY(0);
 }
 
 @container (max-width: 460px) {

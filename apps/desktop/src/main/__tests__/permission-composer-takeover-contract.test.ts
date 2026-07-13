@@ -80,15 +80,44 @@ describe('permission composer takeover', () => {
     assert.doesNotMatch(prompt, /maka-permission-subtitle/, 'the decision title must not repeat tool and reason metadata');
     assert.doesNotMatch(prompt, /maka-permission-danger-note/, 'destructive consequences must be stated once, not repeated');
     assert.doesNotMatch(prompt, /maka-permission-stale-note/, 'wait age metadata must not add a second warning block');
+    assert.doesNotMatch(prompt, /maka-permission-icon|preset\.Icon/, 'the decision title does not need a second risk symbol');
+    assert.match(
+      prompt,
+      /\{health\.status !== 'fresh' && \([\s\S]*?className="maka-permission-age"/,
+      'fresh requests must not spend space saying that they just arrived',
+    );
     assert.match(prompt, /const context = props\.request\.hint \?\? \(isDestructive/);
     assert.match(prompt, /className="maka-permission-context"/);
     assert.match(
       prompt,
-      /<div className="maka-permission-utility-actions">[\s\S]*?props\.onStop[\s\S]*?<CollapsibleTrigger>完整参数<\/CollapsibleTrigger>[\s\S]*?<\/div>[\s\S]*?<div className="maka-permission-decision-actions">/,
+      /<div className="maka-permission-utility-actions">[\s\S]*?props\.onStop[\s\S]*?\{showDisclosure && <CollapsibleTrigger>完整参数<\/CollapsibleTrigger>\}[\s\S]*?<\/div>[\s\S]*?<div className="maka-permission-decision-actions">/,
       'Stop and disclosure are utilities; allow and deny are the only decision pair',
     );
     assert.match(prompt, /ref=\{denyButtonRef\}[\s\S]*?size="sm"[\s\S]*?submit\('deny'\)/);
     assert.match(prompt, /variant=\{isDestructive \? 'outline' : 'default'\}[\s\S]*?size="sm"[\s\S]*?submit\('allow'\)/);
+  });
+
+  it('only offers disclosure for information not already present in the summary', async () => {
+    const permissionSource = await readFile(
+      join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'permission-dialog.tsx'),
+      'utf8',
+    );
+    const prompt = permissionSource.match(
+      /export function PermissionPrompt[\s\S]*?function renderBrowserSummary/,
+    )?.[0] ?? '';
+    const additionalArgs = permissionSource.match(
+      /function permissionAdditionalArgs[\s\S]*?function permissionTextPreview/,
+    )?.[0] ?? '';
+    const summary = permissionSource.match(
+      /function renderPermissionSummary[\s\S]*?function renderPermissionDetails/,
+    )?.[0] ?? '';
+
+    assert.match(prompt, /const showDisclosure = details !== undefined \|\| additionalArgs !== undefined;/);
+    assert.match(prompt, /\{showDisclosure && \([\s\S]*?<CollapsiblePanel>/);
+    assert.match(prompt, /\{showDisclosure && <CollapsibleTrigger>完整参数<\/CollapsibleTrigger>\}/);
+    assert.doesNotMatch(prompt, /formatRedactedJson\(props\.request\.args\)/, 'the disclosure must not repeat every summarized arg');
+    assert.match(summary, /const commandSummary = cwd[\s\S]*?在 \$\{redactSecrets\(cwd\)\}/);
+    assert.match(additionalArgs, /case 'Bash':[\s\S]*?command: _command, cwd: _cwd[\s\S]*?return Object\.keys\(additional\)\.length > 0/);
   });
 
   it('uses the chat measure, compact composer geometry, and capped detail scrolling', async () => {
@@ -113,6 +142,15 @@ describe('permission composer takeover', () => {
     assert.match(disclosure, /width:\s*auto/, 'the shared full-width trigger must not break the utility row');
     assert.match(ruleBody(css, '.maka-permission-utility-actions'), /flex-wrap:\s*nowrap/);
     assert.match(ruleBody(css, '.permissionRemember'), /font-size:\s*var\(--font-size-ui\)/);
+    const decisionButtons = ruleBody(css, '.maka-permission-decision-actions .maka-button');
+    assert.match(decisionButtons, /transition:[\s\S]*?transform var\(--duration-quick\)/);
+    assert.match(
+      css,
+      /\.maka-permission-decision-actions \.maka-button:hover\s*\{[^}]*transform:\s*translateY\(var\(--lift-hover\)\)[^}]*box-shadow:\s*var\(--shadow-minimal\)/,
+      'decision buttons need a visible tactile hover state',
+    );
+    assert.match(css, /\.maka-permission-decision-actions \.maka-button:active\s*\{[^}]*transform:\s*translateY\(0\)/);
+    assert.doesNotMatch(css, /\.maka-permission-icon\b/, 'removed title decoration must not leave dead CSS');
     assert.doesNotMatch(css, /\.permissionDialog\b/, 'the old modal geometry must be removed');
   });
 
@@ -133,7 +171,7 @@ describe('permission composer takeover', () => {
 
     assert.match(
       prompt,
-      /<Collapsible className="maka-permission-raw">[\s\S]*?<CollapsiblePanel>[\s\S]*?\{details[\s\S]*?formatRedactedJson[\s\S]*?<footer className="permissionActions">[\s\S]*?<CollapsibleTrigger>完整参数<\/CollapsibleTrigger>/,
+      /<Collapsible className="maka-permission-raw">[\s\S]*?\{showDisclosure && \([\s\S]*?<CollapsiblePanel>[\s\S]*?\{details[\s\S]*?formatRedactedJson\(additionalArgs\)[\s\S]*?<footer className="permissionActions">[\s\S]*?\{showDisclosure && <CollapsibleTrigger>完整参数<\/CollapsibleTrigger>\}/,
       'expanded details grow above the footer while the trigger shares the compact control row',
     );
     assert.doesNotMatch(summary, /maka-permission-diff/, 'diffs do not belong in the compact summary');

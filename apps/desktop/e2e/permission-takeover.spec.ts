@@ -14,7 +14,7 @@ test('permission request takes over the composer slot without hiding the workspa
   await expect(prompt.getByRole('button', { name: '拒绝操作' })).toBeFocused();
   await expect(prompt.getByRole('button', { name: '允许操作' })).toBeVisible();
   await expect(prompt.getByText('本轮记住')).toBeVisible();
-  await expect(prompt.getByRole('button', { name: /完整参数/ })).toBeVisible();
+  await expect(prompt.getByRole('button', { name: '完整参数' })).toHaveCount(0);
 
   const promptBox = await prompt.boundingBox();
   const panelBox = await permissionWindow.locator('.maka-panel-detail').boundingBox();

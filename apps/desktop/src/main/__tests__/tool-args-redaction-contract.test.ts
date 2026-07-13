@@ -17,7 +17,7 @@ describe('tool and permission args redaction', () => {
     assert.match(rendered, /command/);
   });
 
-  it('routes ToolActivity args through quiet formatters and PermissionPrompt through formatRedactedJson', async () => {
+  it('routes ToolActivity args through quiet formatters and only additional PermissionPrompt args through formatRedactedJson', async () => {
     const [toolSource, permissionSource, quietSource] = await Promise.all([
       readFile(join(process.cwd(), '../../packages/ui/src/tool-activity.tsx'), 'utf8'),
       readFile(join(process.cwd(), '../../packages/ui/src/permission-dialog.tsx'), 'utf8'),
@@ -34,8 +34,8 @@ describe('tool and permission args redaction', () => {
     // Keys and full lines are redacted in the quiet key/value formatter.
     assert.match(quietSource, /redactSecrets\(key\)/);
     assert.match(quietSource, /push\(redactSecrets\(line\)\)|lines\.push\(redactSecrets\(line\)\)/);
-    // Permission prompt still uses formatRedactedJson for its expanded dump.
-    assert.match(permissionPrompt, /\{formatRedactedJson\(props\.request\.args\)\}/);
+    // Permission prompt redacts only args that its summary and details have not already shown.
+    assert.match(permissionPrompt, /\{formatRedactedJson\(additionalArgs\)\}/);
     assert.doesNotMatch(permissionPrompt, /JSON\.stringify\(props\.request\.args/);
   });
 
