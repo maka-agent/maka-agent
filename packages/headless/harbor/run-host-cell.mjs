@@ -57,6 +57,7 @@ export async function main(options = {}) {
     cwd: env.MAKA_WORKDIR || process.cwd(),
     outputDir,
     storageRoot,
+    pricingProfile: env.MAKA_TRIAL_PRICING_SOURCE || 'unconfigured',
     ...(contextBudgetPolicy ? { contextBudgetPolicy } : {}),
     ...(continuationPolicy ? { continuationPolicy } : {}),
     ...(taskLedgerExperimentPolicy ? { taskToolSummaryEnabled: true } : {}),
