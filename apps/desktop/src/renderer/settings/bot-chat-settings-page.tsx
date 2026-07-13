@@ -438,13 +438,13 @@ export function BotChatSettingsPage(props: {
     return {
       provider,
       index,
-      channel: providerChannel,
       status: providerStatus,
       support: providerSupport,
       copy: providerCopy,
       configured: providerViewState.configured,
       needsAttention: providerViewState.needsAttention,
       currentError: providerViewState.currentError,
+      liveOperational: providerViewState.liveOperational,
     };
   });
   const activeChannels = overviewChannels
@@ -508,7 +508,7 @@ export function BotChatSettingsPage(props: {
                     {BOT_LABELS[entry.provider].label}
                     <Chip dot size="sm" variant={entry.copy.tone}>{entry.copy.label}</Chip>
                   </ItemTitle>
-                  <ItemDescription>{botOverviewDetail(entry.status, entry.currentError, entry.copy.detail)}</ItemDescription>
+                  <ItemDescription>{botOverviewDetail(entry.status, entry.currentError, entry.copy.detail, entry.liveOperational)}</ItemDescription>
                 </ItemContent>
                 <ItemActions><ChevronRight size={16} aria-hidden="true" /></ItemActions>
               </Item>
@@ -604,8 +604,8 @@ export function BotChatSettingsPage(props: {
         <section className="settingsBotRuntime" aria-labelledby="settings-bot-runtime-heading">
           <div className="settingsBotRuntimeHeader">
             <div>
-              <h4 id="settings-bot-runtime-heading">{selectedStatus?.running ? '正在监听新消息' : copy.label}</h4>
-              <p>{selectedStatus?.running ? '连接正常，无需处理。' : copy.detail}</p>
+              <h4 id="settings-bot-runtime-heading">{selectedViewState.liveOperational ? '正在监听新消息' : copy.label}</h4>
+              <p>{selectedViewState.liveOperational ? '连接正常，无需处理。' : copy.detail}</p>
             </div>
             <div className="settingsBotActionStack" role="group" aria-label={`${BOT_LABELS[selected].label}渠道操作`}>
               {selected === 'wechat' ? (
@@ -656,7 +656,7 @@ export function BotChatSettingsPage(props: {
             <AlertDescription>{statusLoadError}</AlertDescription>
           </Alert>
         )}
-        {selectedStatus?.reason && channel.enabled && !selectedStatus.running && (
+        {selectedStatus?.reason && channel.enabled && !selectedViewState.liveOperational && (
           <Alert variant="warning">
             <AlertTitle>{botStatusDetail(selectedStatus)}</AlertTitle>
             <AlertDescription>{copy.detail}</AlertDescription>
@@ -664,7 +664,7 @@ export function BotChatSettingsPage(props: {
         )}
         {selectedViewState.currentError && support !== 'planned' && (
           <Alert variant="error">
-            <AlertTitle>上次测试失败</AlertTitle>
+            <AlertTitle>最近一次失败</AlertTitle>
             <AlertDescription>{selectedViewState.currentError}</AlertDescription>
           </Alert>
         )}
@@ -910,13 +910,14 @@ function botOverviewDetail(
   status: BotStatus | undefined,
   currentError: string | undefined,
   fallback: string,
+  liveOperational: boolean,
 ): ReactNode {
   const identity = status?.identity?.username ?? status?.identity?.displayName;
-  if (status?.running) {
+  if (liveOperational) {
     return (
       <>
         监听中{identity ? ` · ${identity}` : ''}
-        {status.lastEventAt ? <> · <RelativeTime ts={status.lastEventAt} /></> : ''}
+        {status?.lastEventAt ? <> · <RelativeTime ts={status.lastEventAt} /></> : ''}
       </>
     );
   }

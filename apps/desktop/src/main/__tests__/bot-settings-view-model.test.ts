@@ -50,4 +50,24 @@ describe('Bot Settings view model', () => {
     assert.equal(result.needsAttention, false);
     assert.equal(result.currentError, undefined);
   });
+
+  it('does not treat a running but degraded listener as operational', () => {
+    const channel = createDefaultSettings().botChat.channels.wechat;
+    channel.enabled = true;
+    channel.readiness = 'operational';
+    channel.lastError = '轮询失败';
+    const status: BotStatus = {
+      platform: 'wechat',
+      running: true,
+      readiness: 'degraded',
+      reason: 'polling-timeout',
+      connection: 'polling',
+    };
+
+    const result = deriveBotChannelViewState({ channel, status });
+
+    assert.equal(result.liveOperational, false);
+    assert.equal(result.needsAttention, true);
+    assert.equal(result.currentError, '轮询失败');
+  });
 });

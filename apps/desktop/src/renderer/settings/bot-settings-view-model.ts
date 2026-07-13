@@ -9,6 +9,7 @@ export function deriveBotChannelViewState(input: {
   configured: boolean;
   needsAttention: boolean;
   currentError: string | undefined;
+  liveOperational: boolean;
 } {
   const { channel, status } = input;
   const readiness = channel.enabled || status?.running
@@ -28,7 +29,7 @@ export function deriveBotChannelViewState(input: {
     || (channel.enabled && status?.running === false)
   );
 
-  return { readiness, configured, needsAttention, currentError };
+  return { readiness, configured, needsAttention, currentError, liveOperational };
 }
 
 function isConfiguredReadiness(readiness: BotReadinessState): boolean {

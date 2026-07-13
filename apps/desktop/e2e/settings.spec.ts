@@ -61,7 +61,9 @@ test('remote access opens a channel detail from the overview and returns', async
 });
 
 test('remote access prioritizes a configured channel that needs attention', async ({ window: page }) => {
-  await page.evaluate(async () => {
+  const runtimeError = 'runtime-diagnostic-'.repeat(10);
+  await page.setViewportSize({ width: 990, height: 820 });
+  await page.evaluate(async (lastError) => {
     await window.maka.settings.update({
       botChat: {
         channels: {
@@ -74,18 +76,27 @@ test('remote access prioritizes a configured channel that needs attention', asyn
             connected: true,
             readiness: 'degraded',
             token: 'e2e-discord-placeholder',
-            lastError: '系统代理不可用',
+            lastError,
           },
         },
       },
     });
-  });
+  }, runtimeError);
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();
-  await page.getByRole('main', { name: '设置内容' }).getByRole('button', { name: '远程接入' }).click();
+  const settings = page.getByRole('main', { name: '设置内容' });
+  await settings.getByRole('button', { name: '远程接入' }).click();
 
   const activeChannels = page.getByRole('region', { name: '正在使用' }).getByRole('button');
   await expect(activeChannels).toHaveCount(2);
   await expect(activeChannels.nth(0)).toHaveAccessibleName(/管理 Discord/);
   await expect(activeChannels.nth(1)).toHaveAccessibleName(/管理 Telegram/);
+
+  await activeChannels.nth(0).click();
+  const recentFailure = settings.getByRole('alert').filter({ hasText: '最近一次失败' });
+  await expect(recentFailure).toContainText(runtimeError);
+  await expect(recentFailure.getByText(runtimeError)).toHaveCSS('overflow-wrap', 'anywhere');
+  await expect.poll(
+    () => settings.evaluate((element) => element.scrollWidth <= element.clientWidth),
+  ).toBe(true);
 });
