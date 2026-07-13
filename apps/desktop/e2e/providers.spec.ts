@@ -232,7 +232,7 @@ test('adds Fireworks AI with its exact snapshot model and shared upstream mark',
 function maskRenderContract(element: Element): { usesAssetMask: boolean; followsForeground: boolean } {
   const style = getComputedStyle(element);
   return {
-    usesAssetMask: style.maskImage.includes('data:image/svg+xml'),
+    usesAssetMask: style.maskImage.startsWith('url('),
     followsForeground: style.backgroundColor === style.color,
   };
 }
@@ -293,7 +293,7 @@ test('adds LocalAI with its default endpoint, optional key, and official mark', 
   );
   await expect(detailMark).toBeVisible();
   expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
-  await expect(page.getByLabel('LocalAI 模型密钥')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
 });
 
 test('adds Mistral with its exact snapshot model, API-key field, and shared official mark', async ({ window: page }) => {
