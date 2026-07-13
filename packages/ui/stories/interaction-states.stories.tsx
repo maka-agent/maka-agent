@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { SessionSummary } from '@maka/core';
+import { userEvent } from 'storybook/test';
 import { SessionListPanel } from '../src/session-list-panel.js';
 import { Button } from '../src/ui.js';
 
@@ -107,7 +108,12 @@ export const ListRowStates: Story = {
     hoverTarget?.setAttribute('data-state-target', 'hover');
     const focusTarget = canvasElement.querySelector<HTMLButtonElement>('.maka-list-row[data-active="true"] .maka-list-row-main');
     focusTarget?.setAttribute('data-state-target', 'focus');
-    focusTarget?.focus();
+    const tabStops = Array.from(canvasElement.querySelectorAll<HTMLButtonElement>('button:not([disabled])'));
+    const focusIndex = focusTarget ? tabStops.indexOf(focusTarget) : -1;
+    if (focusIndex > 0) {
+      tabStops[focusIndex - 1]?.focus();
+      await userEvent.tab();
+    }
   },
 };
 

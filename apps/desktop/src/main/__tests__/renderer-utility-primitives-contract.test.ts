@@ -323,7 +323,9 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.match(listRowStory, /setAttribute\('data-state-target', 'hover'\)/);
     assert.match(listRowStory, /querySelector<HTMLButtonElement>\('\.maka-list-row\[data-active="true"\] \.maka-list-row-main'\)/);
     assert.match(listRowStory, /setAttribute\('data-state-target', 'focus'\)/);
-    assert.match(listRowStory, /focusTarget\?\.focus\(\)/);
+    assert.match(story, /import \{ userEvent \} from 'storybook\/test';/);
+    assert.match(listRowStory, /await userEvent\.tab\(\)/);
+    assert.doesNotMatch(listRowStory, /focusTarget\?\.focus\(\)/);
 
     for (const selector of [
       'maka-artifact-pane-collapse',
