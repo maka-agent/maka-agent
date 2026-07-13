@@ -59,3 +59,17 @@ test('model plans expose only turn and action types', () => {
     actionTypes: ['click', 'type'],
   }]);
 });
+
+test('direct reports preserve an explicit provider and producer identity', () => {
+  const report = sanitizeCuDirectReport({
+    schemaVersion: 1,
+    evidenceClass: 'real-runtime',
+    scenarioId: 'appkit-ax-set-value',
+    producer: 'cu-real-ax-model-e2e',
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-6',
+    baseUrl: 'http://127.0.0.1:8537',
+  });
+  assert.equal(report.producer, 'cu-real-ax-model-e2e');
+  assert.equal(report.provider, 'anthropic');
+});
