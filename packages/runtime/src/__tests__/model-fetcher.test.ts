@@ -219,7 +219,7 @@ describe('fetchProviderModels', () => {
     assert.deepEqual(models, [{ id: 'claude-haiku-4-5-20251001' }]);
   });
 
-  test('MiniMax Coding Plan discovers exact model ids with bearer authentication', async () => {
+  test('MiniMax Coding Plan discovers exact model ids with Anthropic API-key authentication', async () => {
     let observedAuthorization = '';
     let observedApiKey = '';
     const server = await startJsonServer((request, response) => {
@@ -246,8 +246,8 @@ describe('fetchProviderModels', () => {
       updatedAt: 1,
     }, 'minimax-plan-secret');
 
-    assert.equal(observedAuthorization, 'Bearer minimax-plan-secret');
-    assert.equal(observedApiKey, '');
+    assert.equal(observedAuthorization, '');
+    assert.equal(observedApiKey, 'minimax-plan-secret');
     assert.deepEqual(models, [{ id: 'MiniMax-M3' }, { id: 'MiniMax-M2.7-highspeed' }]);
   });
 

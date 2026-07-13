@@ -23,7 +23,7 @@ export type ProviderRuntimeAdapter =
   | { kind: 'unavailable' };
 
 export type ProviderModelDiscovery =
-  | { kind: 'protocol'; auth?: 'bearer' | 'claude-subscription'; query?: Readonly<Record<string, string>> }
+  | { kind: 'protocol'; auth?: 'claude-subscription'; query?: Readonly<Record<string, string>> }
   | { kind: 'fallback' }
   | { kind: 'ollama' };
 
@@ -134,8 +134,8 @@ const providerRegistry = {
     fallbackModels: minimaxPlanModelIds,
     status: 'ready',
     protocol: 'anthropic',
-    runtimeAdapter: { kind: 'anthropic', auth: 'bearer', normalizeBaseUrl: true },
-    modelDiscovery: { kind: 'protocol', auth: 'bearer' },
+    runtimeAdapter: { kind: 'anthropic', auth: 'api-key', normalizeBaseUrl: true },
+    modelDiscovery: { kind: 'protocol' },
     category: 'overseas',
     catalogGroup: 'plans',
     catalogBadge: 'Coding',

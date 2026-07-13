@@ -88,8 +88,8 @@ describe('models.dev provider conformance', () => {
   test('MiniMax Coding Plan preserves an exact model id through discovery and an Anthropic tool-call turn', async () => {
     let requestBody: Record<string, unknown> | undefined;
     const server = await startJsonServer(async (request, response) => {
-      assert.equal(request.headers.authorization, 'Bearer minimax-plan-test-key');
-      assert.equal(request.headers['x-api-key'], undefined);
+      assert.equal(request.headers.authorization, undefined);
+      assert.equal(request.headers['x-api-key'], 'minimax-plan-test-key');
       if (request.method === 'GET' && request.url === '/anthropic/v1/models') {
         respondJson(response, 200, { data: [{ id: 'MiniMax-M2.7-highspeed' }] });
         return;

@@ -300,8 +300,8 @@ describe('provider URL defaults', () => {
     assert.equal(plan.baseUrl, 'https://api.minimax.io/anthropic');
     assert.equal(plan.authKind, 'api_key');
     assert.equal(plan.protocol, 'anthropic');
-    assert.deepEqual(plan.runtimeAdapter, { kind: 'anthropic', auth: 'bearer', normalizeBaseUrl: true });
-    assert.deepEqual(plan.modelDiscovery, { kind: 'protocol', auth: 'bearer' });
+    assert.deepEqual(plan.runtimeAdapter, { kind: 'anthropic', auth: 'api-key', normalizeBaseUrl: true });
+    assert.deepEqual(plan.modelDiscovery, { kind: 'protocol' });
     assert.equal(plan.category, 'overseas');
     assert.equal(plan.catalogGroup, 'plans');
     assert.equal(plan.modelsDevId, 'minimax');
