@@ -152,6 +152,7 @@ describe('RunTrace extraction contract', () => {
 
   test('RunTrace stays diagnostic-only and does not extend SessionEvent', async () => {
     const trace = await readRepo('packages/runtime/src/run-trace.ts');
+    const agentRun = await readRepo('packages/core/src/agent-run.ts');
     const events = await readRepo('packages/core/src/events.ts');
     const adapter = await readRepo('packages/runtime/src/model-adapter.ts');
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
@@ -160,7 +161,9 @@ describe('RunTrace extraction contract', () => {
 
     assert.match(trace, /export class RunTrace/);
     assert.match(trace, /export interface RunTraceEvent/);
-    assert.match(trace, /type RunTracePhase = 'turn' \| 'model' \| 'tool' \| 'permission' \| 'abort' \| 'usage'/);
+    assert.match(trace, /export type RunTracePhase = AgentRunEventPhase/);
+    assert.match(agentRun, /export type AgentRunEventPhase/);
+    assert.match(agentRun, /\| 'sandbox'/);
     assert.doesNotMatch(events, /RunTrace/);
     assert.doesNotMatch(events, /trace_/);
     assert.doesNotMatch(adapter, /RunTrace|recordRunTrace/);
