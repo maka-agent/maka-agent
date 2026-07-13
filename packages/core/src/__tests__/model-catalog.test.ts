@@ -9,6 +9,33 @@ import { isConnectionReady } from '../connection-readiness.js';
 import type { LlmConnection, ModelInfo, ProviderType } from '../llm-connections.js';
 
 describe('ModelCatalogEntry', () => {
+  it('uses the checked-in StepFun China snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'stepfun',
+        providerType: 'stepfun',
+        defaultModel: 'step-3.7-flash',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), [
+      'step-3.7-flash',
+      'step-3.5-flash-2603',
+      'step-3.5-flash',
+      'step-1-32k',
+      'step-2-16k',
+    ]);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 256_000);
+    assert.equal(entries[0]?.maxOutputTokens, 256_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
   it('uses the checked-in Tencent TokenHub snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

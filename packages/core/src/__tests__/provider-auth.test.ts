@@ -9,6 +9,19 @@ import {
 import type { LlmConnection } from '../llm-connections.js';
 
 describe('ProviderAuth contract', () => {
+  test('StepFun China uses the shared API-key credential and model-discovery flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'stepfun',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('stepfun');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
   test('Together AI uses the shared API-key credential flow under its stable provider id', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'togetherai',

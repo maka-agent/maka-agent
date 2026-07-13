@@ -44,6 +44,7 @@ const FIREWORKS_BRAND_MARK_FILE = resolve(
 );
 const NVIDIA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/nvidia.svg');
 const TENCENT_HUNYUAN_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/hunyuan.svg');
+const STEPFUN_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/stepfun.svg');
 const DESKTOP_PACKAGE_FILE = resolve(REPO_ROOT, 'apps/desktop/package.json');
 const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/public/THIRD_PARTY_LICENSES.txt');
 const ONBOARDING_HERO_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/OnboardingHero.tsx');
@@ -401,6 +402,31 @@ describe('icon + typography governance contract', () => {
       /Hunyuan mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/hunyuan\.svg[\s\S]*MIT[\s\S]*7306a65eb71c4de61e21a637e5c4fef94afde823678e225c46f891cc783f6531/,
     );
     assert.match(componentSrc, /case 'tencent-tokenhub':\s*return <ProviderAssetMask src=\{hunyuanBrandMark\} \/>/);
+  });
+
+  it('vendors and routes the byte-exact upstream StepFun mark through the shared asset-mask seam', async () => {
+    const [stepfunMark, componentSrc, notices] = await Promise.all([
+      readFile(STEPFUN_BRAND_MARK_FILE),
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(stepfunMark).digest('hex'),
+      'f46fbd1eee00a3dc7874395484bcc3e25a803e9eb4b79f07b7eec377a1e2f25c',
+      'the vendored StepFun mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 stepfun.svg',
+    );
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/stepfun\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/stepfun\.svg[\s\S]*f46fbd1eee00a3dc7874395484bcc3e25a803e9eb4b79f07b7eec377a1e2f25c/,
+      'StepFun must append byte-exact provenance to the existing Lobe Icons notice entry',
+    );
+    assert.match(componentSrc, /import stepfunBrandMark from '\.\.\/assets\/provider-brands\/stepfun\.svg';/);
+    assert.match(
+      componentSrc,
+      /StepFun mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/stepfun\.svg[\s\S]*MIT[\s\S]*f46fbd1eee00a3dc7874395484bcc3e25a803e9eb4b79f07b7eec377a1e2f25c/,
+    );
+    assert.match(componentSrc, /case 'stepfun':\s*return <ProviderAssetMask src=\{stepfunBrandMark\} \/>/);
   });
 
   it('ships the Lobe Icons MIT notice beside vendored provider assets', async () => {

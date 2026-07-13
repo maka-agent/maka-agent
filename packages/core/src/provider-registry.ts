@@ -105,6 +105,14 @@ const tencentTokenHubModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA['tencent-tokenhub'],
   ['hy3', 'hy3-preview'],
 );
+const stepfun = GENERATED_MODELS_DEV_PROVIDER_FACTS.stepfun;
+if (stepfun.id !== 'stepfun') throw new Error('models.dev StepFun provider facts are missing stable id stepfun');
+if (!stepfun.api) throw new Error('models.dev StepFun provider facts are missing api');
+const stepfunModelIds = toolCallingModelIds(
+  'StepFun',
+  GENERATED_MODELS_DEV_METADATA.stepfun,
+  ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash'],
+);
 
 const together = GENERATED_MODELS_DEV_PROVIDER_FACTS.togetherai;
 if (together.id !== 'togetherai') {
@@ -484,6 +492,25 @@ const providerRegistry = {
     modelsDevId: tencentTokenHub.id,
     readyOrder: 21,
     catalogOrder: 21,
+  },
+  stepfun: {
+    label: stepfun.name,
+    description: 'StepFun China models for multimodal reasoning and tool-use agents.',
+    baseUrl: stepfun.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: stepfunModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'domestic',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://platform.stepfun.com/interface-key',
+    modelsDevId: stepfun.id,
+    readyOrder: 22,
+    catalogOrder: 22,
   },
   ollama: {
     label: 'Ollama',

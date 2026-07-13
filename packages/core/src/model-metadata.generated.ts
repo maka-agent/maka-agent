@@ -2,7 +2,7 @@
 // Do not edit by hand; put access-path-specific facts in model-metadata.ts.
 import type { ModelMetadata } from './model-metadata.js';
 
-export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "togetherai" | "tencent-tokenhub" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
+export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "togetherai" | "tencent-tokenhub" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
   "anthropic": {
     "claude-fable-5": {"displayName":"Claude Fable 5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-haiku-4-5": {"displayName":"Claude Haiku 4.5 (latest)","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":200000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
@@ -354,6 +354,16 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
     "zai-org/GLM-5.2": {"displayName":"GLM-5.2","lifecycle":"active","docsUrl":"https://cloud.siliconflow.com/models","contextWindow":1049000,"maxOutputTokens":262000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
     "zai-org/GLM-5V-Turbo": {"displayName":"zai-org/GLM-5V-Turbo","lifecycle":"active","docsUrl":"https://cloud.siliconflow.com/models","contextWindow":200000,"maxOutputTokens":131072,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
   },
+  "stepfun": {
+    "step-1-32k": {"displayName":"Step 1 (32K)","lifecycle":"active","docsUrl":"https://platform.stepfun.com/docs/zh/overview/concept","contextWindow":32768,"maxOutputTokens":32768,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "step-2-16k": {"displayName":"Step 2 (16K)","lifecycle":"active","docsUrl":"https://platform.stepfun.com/docs/zh/overview/concept","contextWindow":16384,"maxOutputTokens":8192,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "step-3.5-flash": {"displayName":"Step 3.5 Flash","lifecycle":"active","docsUrl":"https://platform.stepfun.com/docs/zh/overview/concept","contextWindow":256000,"maxOutputTokens":256000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "step-3.5-flash-2603": {"displayName":"Step 3.5 Flash 2603","lifecycle":"active","docsUrl":"https://platform.stepfun.com/docs/zh/overview/concept","contextWindow":256000,"maxOutputTokens":256000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "step-3.7-flash": {"displayName":"Step 3.7 Flash","lifecycle":"active","docsUrl":"https://platform.stepfun.com/docs/zh/overview/concept","contextWindow":256000,"maxOutputTokens":256000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "step-tts-2": {"displayName":"Step TTS 2","lifecycle":"active","docsUrl":"https://platform.stepfun.com/docs/zh/overview/concept","contextWindow":0,"maxOutputTokens":0,"capabilities":{"vision":false,"reasoning":false,"functionCalling":false}},
+    "stepaudio-2.5-asr": {"displayName":"StepAudio 2.5 ASR","lifecycle":"active","docsUrl":"https://platform.stepfun.com/docs/zh/overview/concept","contextWindow":0,"maxOutputTokens":0,"capabilities":{"vision":false,"reasoning":false,"functionCalling":false}},
+    "stepaudio-2.5-tts": {"displayName":"StepAudio 2.5 TTS","lifecycle":"active","docsUrl":"https://platform.stepfun.com/docs/zh/overview/concept","contextWindow":0,"maxOutputTokens":0,"capabilities":{"vision":false,"reasoning":false,"functionCalling":false}},
+  },
   "togetherai": {
     "deepcogito/cogito-v2-1-671b": {"displayName":"Cogito v2.1 671B","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":163840,"maxOutputTokens":163840,"capabilities":{"vision":false,"reasoning":true,"functionCalling":false}},
     "deepseek-ai/DeepSeek-R1": {"displayName":"DeepSeek-R1","lifecycle":"deprecated","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":163839,"maxOutputTokens":163839,"capabilities":{"vision":false,"reasoning":true,"functionCalling":false}},
@@ -413,7 +423,7 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
   },
 };
 
-export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "togetherai" | "tencent-tokenhub" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
+export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "togetherai" | "tencent-tokenhub" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
   "anthropic": {"id":"anthropic","name":"Anthropic","doc":"https://docs.anthropic.com/en/docs/about-claude/models"},
   "cerebras": {"id":"cerebras","name":"Cerebras","doc":"https://inference-docs.cerebras.ai/models/overview"},
   "deepseek": {"id":"deepseek","name":"DeepSeek","api":"https://api.deepseek.com","doc":"https://api-docs.deepseek.com/quick_start/pricing"},
@@ -427,6 +437,7 @@ export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras
   "nvidia": {"id":"nvidia","name":"Nvidia","api":"https://integrate.api.nvidia.com/v1","doc":"https://docs.api.nvidia.com/nim/"},
   "openai": {"id":"openai","name":"OpenAI","doc":"https://platform.openai.com/docs/models"},
   "siliconflow": {"id":"siliconflow","name":"SiliconFlow","api":"https://api.siliconflow.com/v1","doc":"https://cloud.siliconflow.com/models"},
+  "stepfun": {"id":"stepfun","name":"StepFun (China)","api":"https://api.stepfun.com/v1","doc":"https://platform.stepfun.com/docs/zh/overview/concept"},
   "togetherai": {"id":"togetherai","name":"Together AI","doc":"https://docs.together.ai/docs/serverless-models"},
   "tencent-tokenhub": {"id":"tencent-tokenhub","name":"Tencent TokenHub","api":"https://tokenhub.tencentmaas.com/v1","doc":"https://cloud.tencent.com/document/product/1823/130050"},
   "xai": {"id":"xai","name":"xAI","doc":"https://docs.x.ai/docs/models"},

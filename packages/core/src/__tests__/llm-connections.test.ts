@@ -45,6 +45,7 @@ describe('provider compatibility contract', () => {
       'fireworks-ai',
       'nvidia',
       'tencent-tokenhub',
+      'stepfun',
       'ollama',
       'lm-studio',
       'openai-compatible',
@@ -74,6 +75,7 @@ describe('provider compatibility contract', () => {
       'fireworks-ai',
       'nvidia',
       'tencent-tokenhub',
+      'stepfun',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -97,6 +99,7 @@ describe('provider compatibility contract', () => {
       'fireworks-ai',
       'nvidia',
       'tencent-tokenhub',
+      'stepfun',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -294,6 +297,29 @@ describe('provider compatibility contract', () => {
     assert.equal(tencent.signupUrl, 'https://cloud.tencent.com/document/product/1823/130090');
     assert.equal(tencent.modelsDevId, 'tencent-tokenhub');
     assert.deepEqual(tencent.fallbackModels, ['hy3', 'hy3-preview']);
+  });
+
+  it('owns StepFun China direct API behavior under the stable stepfun id', () => {
+    const stepfun = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).stepfun;
+
+    assert.ok(stepfun, 'StepFun China direct API must be available through the shared provider registry');
+    assert.equal(stepfun.label, 'StepFun (China)');
+    assert.equal(stepfun.baseUrl, 'https://api.stepfun.com/v1');
+    assert.equal(stepfun.authKind, 'api_key');
+    assert.equal(stepfun.protocol, 'openai');
+    assert.deepEqual(stepfun.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(stepfun.modelDiscovery, { kind: 'protocol' });
+    assert.equal(stepfun.category, 'domestic');
+    assert.equal(stepfun.catalogGroup, 'api');
+    assert.equal(stepfun.signupUrl, 'https://platform.stepfun.com/interface-key');
+    assert.equal(stepfun.modelsDevId, 'stepfun');
+    assert.deepEqual(stepfun.fallbackModels, [
+      'step-3.7-flash',
+      'step-3.5-flash-2603',
+      'step-3.5-flash',
+      'step-1-32k',
+      'step-2-16k',
+    ]);
   });
 });
 

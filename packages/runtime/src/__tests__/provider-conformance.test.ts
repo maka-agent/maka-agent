@@ -1089,6 +1089,114 @@ describe('models.dev provider conformance', () => {
     assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
     assert.equal(result.text, 'Echoed hello.');
   });
+
+  test('StepFun China preserves its exact model id through discovery and the documented two-stage tool-call loop', async () => {
+    const modelId = 'step-3.7-flash';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer stepfun-test-key');
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        respondJson(response, 200, { object: 'list', data: [{ id: modelId }] });
+        return;
+      }
+
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-stepfun-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: '',
+              reasoning: 'I should call echo with the requested text.',
+              tool_calls: [{
+                id: 'call_stepfun_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+
+      respondJson(response, 200, {
+        id: 'chatcmpl-stepfun-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'stepfun',
+      name: 'StepFun (China)',
+      providerType: 'stepfun',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'stepfun-test-key');
+    assert.deepEqual(models, [{ id: modelId }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'stepfun-test-key', modelId: models[0]!.id }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_stepfun_echo' },
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      {
+        role: 'assistant',
+        content: null,
+        reasoning_content: 'I should call echo with the requested text.',
+        tool_calls: [{
+          id: 'call_stepfun_echo',
+          type: 'function',
+          function: { name: 'echo', arguments: '{"text":"hello"}' },
+        }],
+      },
+    );
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
+  });
 });
 
 async function startJsonServer(

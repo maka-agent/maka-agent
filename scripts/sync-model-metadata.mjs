@@ -16,6 +16,7 @@ const PROVIDERS = {
   nvidia: 'nvidia',
   openai: 'openai',
   siliconflow: 'siliconflow',
+  stepfun: 'stepfun',
   togetherai: 'togetherai',
   'tencent-tokenhub': 'tencent-tokenhub',
   xai: 'xai',

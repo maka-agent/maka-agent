@@ -23,6 +23,7 @@ import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertic
 import mistralBrandMark from '../assets/provider-brands/mistral.svg';
 import togetherBrandMark from '../assets/provider-brands/together.svg';
 import nvidiaMarkUrl from '../assets/provider-brands/nvidia.svg';
+import stepfunBrandMark from '../assets/provider-brands/stepfun.svg';
 import xaiMarkUrl from '../assets/provider-brands/xai.svg';
 
 // Real xAI/Grok mark vendored byte-for-byte from Lobe Icons:
@@ -73,6 +74,14 @@ function XAI(): ReactElement {
 // - path: packages/static-svg/icons/hunyuan.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: 7306a65eb71c4de61e21a637e5c4fef94afde823678e225c46f891cc783f6531
+
+// StepFun mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/stepfun.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: f46fbd1eee00a3dc7874395484bcc3e25a803e9eb4b79f07b7eec377a1e2f25c
 
 function ProviderAssetMask({ src }: { src: string }): ReactElement {
   const mask = `url("${src}")`;
@@ -255,6 +264,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <ProviderAssetMask src={mistralBrandMark} />;
     case 'tencent-tokenhub':
       return <ProviderAssetMask src={hunyuanBrandMark} />;
+    case 'stepfun':
+      return <ProviderAssetMask src={stepfunBrandMark} />;
     default:
       return <GenericProviderMark />;
   }

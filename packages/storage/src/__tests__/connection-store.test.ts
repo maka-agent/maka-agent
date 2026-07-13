@@ -24,6 +24,23 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the StepFun China provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'stepfun',
+        name: 'StepFun (China)',
+        providerType: 'stepfun',
+        defaultModel: 'step-3.7-flash',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'stepfun');
+      assert.equal(persisted.connections[0]?.defaultModel, 'step-3.7-flash');
+    });
+  });
+
   test('persists the Tencent TokenHub provider id and exact default model', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

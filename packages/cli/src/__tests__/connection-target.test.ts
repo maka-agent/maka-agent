@@ -27,6 +27,29 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'accounts/fireworks/models/kimi-k2p6');
   });
 
+  test('resolves StepFun China credentials without rewriting the selected model id', async () => {
+    const connection = makeConnection({
+      slug: 'stepfun',
+      name: 'StepFun (China)',
+      providerType: 'stepfun',
+      defaultModel: 'step-3.7-flash',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'stepfun',
+        get: async (slug) => slug === 'stepfun' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'stepfun-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'stepfun');
+    assert.equal(target.apiKey, 'stepfun-test-key');
+    assert.equal(target.model, 'step-3.7-flash');
+  });
+
   test('resolves Tencent TokenHub credentials without rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'tencent-tokenhub',

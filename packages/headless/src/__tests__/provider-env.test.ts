@@ -70,3 +70,11 @@ test('Tencent TokenHub keeps direct API credentials separate from Tencent plans'
     baseUrls: ['TENCENT_TOKENHUB_BASE_URL'],
   });
 });
+
+test('StepFun China keeps direct API credentials separate from global and plan identities', () => {
+  assert.deepEqual(providerCredentialEnv('stepfun'), {
+    apiKeys: ['STEPFUN_API_KEY'],
+    apiKeyFile: 'STEPFUN_API_KEY_FILE',
+    baseUrls: ['STEPFUN_BASE_URL'],
+  });
+});
