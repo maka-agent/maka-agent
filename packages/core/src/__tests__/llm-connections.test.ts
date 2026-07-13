@@ -311,7 +311,6 @@ describe('provider URL defaults', () => {
     assert.deepEqual(lmStudio.runtimeAdapter, {
       kind: 'openai-compatible',
       name: 'provider',
-      apiKeyFallback: 'lm-studio',
     });
     assert.deepEqual(lmStudio.modelDiscovery, { kind: 'protocol' });
     assert.deepEqual(lmStudio.fallbackModels, []);

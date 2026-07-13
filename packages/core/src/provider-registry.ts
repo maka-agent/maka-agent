@@ -338,7 +338,7 @@ const providerRegistry = {
     fallbackModels: [],
     status: 'ready',
     protocol: 'openai',
-    runtimeAdapter: { kind: 'openai-compatible', name: 'provider', apiKeyFallback: 'lm-studio' },
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
     modelDiscovery: { kind: 'protocol' },
     category: 'local',
     catalogGroup: 'local',
