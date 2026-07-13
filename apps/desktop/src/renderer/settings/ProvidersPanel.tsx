@@ -9,7 +9,7 @@ import {
 } from '@maka/core';
 import {
   Button,
-  Input,
+  InputGroup, InputGroupAddon, InputGroupInput,
   PrimitiveTabs, PrimitiveTabsList, PrimitiveTabsTrigger, PrimitiveTabsPanel,
   PrimitiveAccordion, PrimitiveAccordionItem, PrimitiveAccordionHeader, PrimitiveAccordionTrigger, PrimitiveAccordionPanel,
   Item, ItemContent, ItemTitle, ItemActions,
@@ -200,21 +200,8 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
 
   if (page.kind === 'catalog') {
     return (
-      <div className="providersPanel providerChildPage">
-        <ProviderPageHeader
-          title="添加服务商"
-          description="搜索 Maka 支持的 API、模型计划、聚合服务与本地运行时。"
-          onBack={() => navigate({ kind: 'connections' })}
-        />
-        <label className="providerCatalogSearch">
-          <Search size={15} aria-hidden="true" />
-          <Input
-            value={catalogQuery}
-            onChange={(event) => setCatalogQuery(event.currentTarget.value)}
-            placeholder="搜索服务商"
-            aria-label="搜索模型服务商"
-          />
-        </label>
+      <div className="providersPanel providersMarketPanel providerCatalogPage">
+        <ProviderCatalogHeader />
         <PrimitiveTabs
           className="catalogTabsRoot"
           value={catalogCategory}
@@ -227,6 +214,18 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
               </PrimitiveTabsTrigger>
             ))}
           </PrimitiveTabsList>
+          <InputGroup className="providerCatalogSearch">
+            <InputGroupAddon>
+              <Search aria-hidden="true" />
+            </InputGroupAddon>
+            <InputGroupInput
+              type="search"
+              value={catalogQuery}
+              onChange={(event) => setCatalogQuery(event.currentTarget.value)}
+              placeholder="搜索服务商"
+              aria-label="搜索模型服务商"
+            />
+          </InputGroup>
           {CATALOG_TABS.map((tab) => {
             const providers = providersForCategory(tab.id);
             return (
@@ -406,6 +405,17 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
         </section>
       </section>
     </div>
+  );
+}
+
+function ProviderCatalogHeader() {
+  return (
+    <header className="providerRootHeader providerCatalogHeader">
+      <div>
+        <h3>添加服务商</h3>
+        <p>搜索 Maka 支持的 API、模型计划、聚合服务与本地运行时。</p>
+      </div>
+    </header>
   );
 }
 

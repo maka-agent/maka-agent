@@ -565,6 +565,16 @@
   min-height: 500px;
 }
 
+.providersPanel.providerCatalogPage,
+.settingsSurface[data-modal="true"] .providersPanel.providerCatalogPage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--space-5);
+  width: min(100%, 760px);
+  min-height: 500px;
+}
+
 .providerSubpageHeader {
   display: grid;
   gap: var(--space-4);
@@ -578,22 +588,9 @@
 }
 
 .providerCatalogSearch {
-  position: relative;
-  display: block;
-}
-
-.providerCatalogSearch > svg {
-  position: absolute;
-  top: 50%;
-  left: var(--space-3);
-  color: var(--muted-foreground);
-  pointer-events: none;
-  transform: translateY(-50%);
-}
-
-.providerCatalogSearch input {
-  width: 100%;
-  padding-left: calc(var(--space-8) + var(--space-1));
+  width: min(100%, 360px);
+  min-height: var(--h-control-lg);
+  margin-top: var(--space-3);
 }
 
 .providerCatalogEmpty {

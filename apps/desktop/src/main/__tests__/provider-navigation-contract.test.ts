@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { describe, test } from 'node:test';
 
 const PANEL = resolve(import.meta.dirname, '../../../src/renderer/settings/ProvidersPanel.tsx');
+const PROVIDER_CSS = resolve(import.meta.dirname, '../../../src/renderer/styles/settings/provider-editor.css');
 
 describe('Settings model provider page hierarchy', () => {
   test('uses in-pane catalog, add, and detail pages instead of a config Sheet', async () => {
@@ -24,5 +25,28 @@ describe('Settings model provider page hierarchy', () => {
     for (const category of ['recommended', 'plans', 'api', 'aggregators', 'local']) {
       assert.match(source, new RegExp(`id:\\s*'${category}'`), `missing catalog category ${category}`);
     }
+  });
+
+  test('catalog is a top-level pane with standard search chrome below its category tabs', async () => {
+    const [source, css] = await Promise.all([
+      readFile(PANEL, 'utf8'),
+      readFile(PROVIDER_CSS, 'utf8'),
+    ]);
+
+    assert.match(
+      source,
+      /if \(page\.kind === 'catalog'\)[\s\S]*<ProviderCatalogHeader \/>/,
+      'the catalog must not render a child-page back action',
+    );
+    assert.match(
+      source,
+      /<PrimitiveTabsList[\s\S]*<InputGroup className="providerCatalogSearch">[\s\S]*<InputGroupAddon>[\s\S]*<Search[\s\S]*<InputGroupInput/,
+      'category scope must precede a standard grouped search field',
+    );
+    assert.match(
+      css,
+      /\.providerCatalogSearch\s*\{[^}]*width:\s*min\(100%, 360px\);[^}]*min-height:\s*var\(--h-control-lg\);/,
+      'catalog search must stay compact without collapsing below the standard control height',
+    );
   });
 });
