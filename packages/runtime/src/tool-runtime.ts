@@ -199,6 +199,7 @@ export class ToolRuntime {
    */
   private lastFailedToolCallSignature: string | undefined;
   private failedToolCallStreak = 0;
+  private lastAmbiguousComputerSignature: string | undefined;
 
   constructor(private readonly input: ToolRuntimeInput) {}
 
@@ -261,6 +262,7 @@ export class ToolRuntime {
     this.gating = undefined;
     this.lastFailedToolCallSignature = undefined;
     this.failedToolCallStreak = 0;
+    this.lastAmbiguousComputerSignature = undefined;
   }
 
   /**
@@ -385,6 +387,29 @@ export class ToolRuntime {
     // is told to change its approach. The block itself records no outcome, so the
     // streak stays parked and every further identical repeat stays blocked.
     const callSignature = `${tool.name} ${loopGateArgsKey(executionArgs, toolUseId)}`;
+    const computerSemanticSignature = tool.categoryHint === 'computer_use'
+      ? computerUseSemanticSignature(executionArgs)
+      : undefined;
+    if (
+      computerSemanticSignature
+      && computerSemanticSignature === this.lastAmbiguousComputerSignature
+    ) {
+      const reason = formatAmbiguousComputerLoopGateText();
+      await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
+      trace?.emit('tool', 'tool_failed', 'Blocked repeated ambiguous Computer Use target', {
+        toolUseId,
+        toolName: tool.name,
+        status: 'error',
+        errorClass: 'AmbiguousComputerTarget',
+      });
+      return this.errorReturn(reason);
+    }
+    if (
+      this.lastAmbiguousComputerSignature
+      && computerSemanticSignature !== this.lastAmbiguousComputerSignature
+    ) {
+      this.lastAmbiguousComputerSignature = undefined;
+    }
     if (
       callSignature === this.lastFailedToolCallSignature
       && this.failedToolCallStreak >= LOOP_GATE_IDENTICAL_THRESHOLD - 1
@@ -611,7 +636,7 @@ export class ToolRuntime {
         const durationMs = this.input.now() - startedAt;
 
         const content = coerceResultContent(result);
-        const toolResultStatus = deriveToolResultStatus(content);
+        const toolResultStatus = deriveToolResultStatus(content, result);
         const resultMsg: ToolResultMessage = {
           type: 'tool_result',
           id: this.input.newId(),
@@ -681,6 +706,9 @@ export class ToolRuntime {
         );
 
         attemptFailed = toolResultStatus !== 'success';
+        this.lastAmbiguousComputerSignature = isAmbiguousComputerFailure(result)
+          ? computerSemanticSignature
+          : undefined;
         return result;
       } finally {
         pauseTarget?.resume();
@@ -883,6 +911,27 @@ function loopGateArgsKey(args: unknown, callId: string): string {
   }
 }
 
+function computerUseSemanticSignature(args: unknown): string | undefined {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return undefined;
+  const record = args as Record<string, unknown>;
+  if (
+    record.action !== 'click_element'
+    && record.action !== 'set_value'
+    && record.action !== 'select_text'
+    && record.action !== 'secondary_action'
+  ) return undefined;
+  try {
+    return stableHash({
+      action: record.action,
+      element_id: record.element_id,
+      value: record.value,
+      text: record.text,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Recoverable message returned when the loop-gate blocks a repeated identical
  * failing call. Tells the model the retry is pointless and to change its approach.
@@ -893,6 +942,14 @@ export function formatLoopGateText(toolName: string): string {
     `repeatedly with no change between attempts, so it was not run again — the result ` +
     `would be the same. Change the arguments or take a different step (for example ` +
     `Read the file or inspect the relevant state) before retrying.`
+  );
+}
+
+export function formatAmbiguousComputerLoopGateText(): string {
+  return (
+    'Blocked: this Computer Use semantic target was already rejected as ambiguous '
+    + 'after a fresh observation. Do not retry the same element identity or guess '
+    + 'between duplicates; choose a uniquely identified target or stop.'
   );
 }
 
@@ -1007,7 +1064,16 @@ function buildTerminalFailureMessage(code: number, stdout: string, stderr: strin
   return parts.join('\n\n');
 }
 
-function deriveToolResultStatus(content: ToolResultContent): ToolInvocationRecord['status'] {
+function deriveToolResultStatus(
+  content: ToolResultContent,
+  raw?: unknown,
+): ToolInvocationRecord['status'] {
+  if (
+    raw
+    && typeof raw === 'object'
+    && typeof (raw as { error?: unknown }).error === 'string'
+    && (raw as { error: string }).error.length > 0
+  ) return 'error';
   if (content.kind === 'explore_agent' && content.ok === false) {
     return content.reason === 'aborted' ? 'aborted' : 'error';
   }
@@ -1038,6 +1104,15 @@ function deriveToolResultStatus(content: ToolResultContent): ToolInvocationRecor
   // ShellRun observations: their embedded process status stays model-visible,
   // but reading or returning the observation itself succeeded.
   return 'success';
+}
+
+function isAmbiguousComputerFailure(raw: unknown): boolean {
+  return Boolean(
+    raw
+    && typeof raw === 'object'
+    && (raw as { error?: unknown }).error === 'stale_frame'
+    && (raw as { failureClass?: unknown }).failureClass === 'ambiguous_target',
+  );
 }
 
 function summarizeArgs(toolName: string, args: unknown): string {
