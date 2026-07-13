@@ -35,6 +35,7 @@ const MINIMAX_BRAND_ASSET_FILE = resolve(
   'apps/desktop/src/renderer/assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg',
 );
 const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/xai.svg');
+const CEREBRAS_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cerebras.svg');
 const DESKTOP_PACKAGE_FILE = resolve(REPO_ROOT, 'apps/desktop/package.json');
 const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/public/THIRD_PARTY_LICENSES.txt');
 const ONBOARDING_HERO_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/OnboardingHero.tsx');
@@ -244,6 +245,24 @@ describe('icon + typography governance contract', () => {
     assert.match(onboardingHero, /<ProviderLogo type=\{type\} compact \/>/);
   });
 
+  it('vendors the unmodified upstream Cerebras mark with traceable provenance', async () => {
+    const [notices, cerebrasMark] = await Promise.all([
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+      readFile(CEREBRAS_BRAND_MARK_FILE),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(cerebrasMark).digest('hex'),
+      '05af9593eca3fefdb30c5ad042040f008beea2b27e0a6b7315c319492f7a44ff',
+      'the vendored Cerebras mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 cerebras.svg',
+    );
+    assert.match(
+      notices,
+      /Repository: https:\/\/github\.com\/lobehub\/lobe-icons[\s\S]*@lobehub\/icons-static-svg` version `1\.91\.0`[\s\S]*apps\/desktop\/src\/renderer\/assets\/provider-brands\/cerebras\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cerebras\.svg[\s\S]*05af9593eca3fefdb30c5ad042040f008beea2b27e0a6b7315c319492f7a44ff/,
+      'Cerebras provenance must identify the exact package release, upstream revision, path, and license',
+    );
+  });
+
   it('ships the Lobe Icons MIT notice beside vendored provider assets', async () => {
     const [desktopPackage, notices] = await Promise.all([
       readFile(DESKTOP_PACKAGE_FILE, 'utf8'),
@@ -262,6 +281,10 @@ describe('icon + typography governance contract', () => {
     assert.match(
       notices,
       /apps\/desktop\/src\/renderer\/assets\/provider-brands\/lmstudio\.svg[\s\S]*packages\/static-svg\/icons\/lmstudio\.svg[\s\S]*4a575e8382b52ce742ac5d21d361a7d2a08cea7c12390ee1bbb755ef7d3cc25b/,
+    );
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/cerebras\.svg[\s\S]*packages\/static-svg\/icons\/cerebras\.svg[\s\S]*05af9593eca3fefdb30c5ad042040f008beea2b27e0a6b7315c319492f7a44ff/,
     );
     assert.match(notices, /MIT License[\s\S]*Copyright \(c\) 2023 LobeHub[\s\S]*Permission is hereby granted/);
     assert.match(notices, /THE SOFTWARE IS PROVIDED "AS IS"/);

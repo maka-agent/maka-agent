@@ -15,6 +15,7 @@
 
 import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
+import cerebrasMarkUrl from '../assets/provider-brands/cerebras.svg';
 import lmStudioBrandMark from '../assets/provider-brands/lmstudio.svg';
 import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg';
 import xaiMarkUrl from '../assets/provider-brands/xai.svg';
@@ -40,6 +41,12 @@ function ProviderAssetMask({ src }: { src: string }): ReactElement {
   const mask = `url("${src}")`;
   return <span className="providerAssetMask" style={{ maskImage: mask, WebkitMaskImage: mask }} aria-hidden="true" />;
 }
+
+// Vendored byte-for-byte from @lobehub/icons-static-svg@1.91.0 (MIT):
+// https://github.com/lobehub/lobe-icons
+// Git commit: e4302041fbb3039608d25f9f618bd462783b875e
+// Source path: packages/static-svg/icons/cerebras.svg
+// Upstream SHA-256: 05af9593eca3fefdb30c5ad042040f008beea2b27e0a6b7315c319492f7a44ff
 
 function Claude(): ReactElement {
   return (
@@ -176,6 +183,8 @@ function Ollama(): ReactElement {
  */
 export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElement {
   switch (type) {
+    case 'cerebras':
+      return <ProviderAssetMask src={cerebrasMarkUrl} />;
     case 'xai':
       return <XAI />;
     case 'siliconflow':

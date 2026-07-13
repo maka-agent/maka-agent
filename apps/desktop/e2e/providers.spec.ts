@@ -28,12 +28,18 @@ test('adds Cerebras with its exact snapshot model and API-key credential field',
 
   await page.getByRole('tab', { name: 'API', exact: true }).click();
   await page.getByPlaceholder('搜索服务商').fill('Cerebras');
+  const catalogMark = page.locator('.providerCatalogRow[data-provider="cerebras"] .providerLogo .providerAssetMask');
+  await expect(catalogMark).toBeVisible();
+  expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
   await page.getByRole('button', { name: /添加模型供应商：Cerebras/ }).click();
   await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.cerebras.ai/v1');
   await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('gpt-oss-120b');
   await page.getByRole('button', { name: '保存供应商' }).click();
 
   await expect(page.getByRole('heading', { name: 'Cerebras', exact: true }).first()).toBeVisible();
+  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="cerebras"] .providerAssetMask');
+  await expect(detailMark).toBeVisible();
+  expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
   await expect(page.getByText('gpt-oss-120b', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
 });
