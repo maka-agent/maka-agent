@@ -192,12 +192,12 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
 
     assert.match(
       page,
-      /const personalizationMountedRef = useRef\(false\)/,
+      /const personalizationMountedRef = useMountedRef\(\)/,
       'Personalization save must track page ownership separately from React pending state',
     );
     assert.match(
       page,
-      /useEffect\(\(\) => \{[\s\S]*personalizationMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*personalizationMountedRef\.current = false;/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*persistTicketRef\.current \+= 1;/,
       'Personalization cleanup must release page ownership when Settings closes',
     );
     // Cleanup must invalidate any in-flight save's late apply (bump ticket)

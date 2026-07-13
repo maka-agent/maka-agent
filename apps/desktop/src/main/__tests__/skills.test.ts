@@ -1159,11 +1159,11 @@ name: Writer
 
     assert.match(modulePagesSource, /export function SkillsPage[\s\S]*<SkillsModuleMain/, 'SkillsPage must mount the skills main surface');
     assert.match(skillsModuleMain, /const \[pendingSkillAction, setPendingSkillAction\] = useState<string \| null>\(null\)/);
-    assert.match(skillsModuleMain, /const skillActionMountedRef = useRef\(true\)/);
+    assert.match(skillsModuleMain, /const skillActionMountedRef = useMountedRef\(\)/);
     assert.match(skillsModuleMain, /const pendingSkillActionRef = useRef<string \| null>\(null\)/);
     assert.match(
       skillsModuleMain,
-      /useEffect\(\(\) => \{\s*skillActionMountedRef\.current = true;[\s\S]*?return \(\) => \{\s*skillActionMountedRef\.current = false;\s*pendingSkillActionRef\.current = null;\s*\};\s*\}, \[\]\)/,
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*pendingSkillActionRef\.current = null;\s*\};\s*\}, \[\]\)/,
       'Skills actions must release pending ownership when the module unmounts',
     );
     assert.match(skillsModuleMain, /async function runSkillAction<Result>\(/);

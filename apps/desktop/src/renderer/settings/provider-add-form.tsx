@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { PROVIDER_DEFAULTS, validateSlug, type ProviderType } from '@maka/core';
-import { Button, Chip, Input } from '@maka/ui';
+import { Button, Chip, Input, useMountedRef } from '@maka/ui';
 import { buildCatalogRecommendedDefaultModel } from '../model-catalog-choices';
 import { providerDisplay } from './provider-display';
 import {
@@ -28,16 +28,14 @@ export function AddProviderForm(props: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  const addProviderMountedRef = useRef(false);
+  const addProviderMountedRef = useMountedRef();
 
   const requiresBaseUrl = !defaults.baseUrl;
   const isExperimental = defaults.status === 'phase3-experimental';
   const isWiredOAuth = isWiredOAuthProvider(props.providerType);
 
   useEffect(() => {
-    addProviderMountedRef.current = true;
     return () => {
-      addProviderMountedRef.current = false;
       busyRef.current = false;
     };
   }, []);

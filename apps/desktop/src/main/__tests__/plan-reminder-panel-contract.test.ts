@@ -23,7 +23,7 @@ describe('Plan Reminder panel async action contract', () => {
     assert.match(panelBlock, /const refreshPendingRef = useRef\(false\)/);
     assert.match(
       panelBlock,
-      /return \(\) => \{\s*planReminderMountedRef\.current = false;\s*submitPendingRef\.current = false;\s*refreshPendingRef\.current = false;\s*pendingActionKeysRef\.current = new Set\(\);/,
+      /return \(\) => \{\s*submitPendingRef\.current = false;\s*refreshPendingRef\.current = false;\s*pendingActionKeysRef\.current = new Set\(\);/,
       'Plan Reminder pending form/refresh owners must be released when the panel unmounts',
     );
 

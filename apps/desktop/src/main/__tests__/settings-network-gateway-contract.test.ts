@@ -141,12 +141,12 @@ describe('Settings network and gateway persistence contract', () => {
 
     assert.match(
       networkBlock,
-      /const networkPageMountedRef = useRef\(false\);/,
+      /const networkPageMountedRef = useMountedRef\(\);/,
       'Network proxy page must track mounted ownership for async save/test actions',
     );
     assert.match(
       networkBlock,
-      /useEffect\(\(\) => \{[\s\S]*networkPageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*networkPageMountedRef\.current = false;[\s\S]*proxySaveTicketRef\.current \+= 1;[\s\S]*proxyTestRunningRef\.current = false;/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*proxySaveTicketRef\.current \+= 1;[\s\S]*proxyTestRunningRef\.current = false;/,
       'Network proxy cleanup must invalidate save tickets and release test ownership when Settings closes',
     );
     assert.match(
@@ -261,12 +261,12 @@ describe('Settings network and gateway persistence contract', () => {
 
     assert.match(
       gatewayBlock,
-      /const openGatewayMountedRef = useRef\(false\);/,
+      /const openGatewayMountedRef = useMountedRef\(\);/,
       'Open Gateway page must track mounted ownership for async save/copy actions',
     );
     assert.match(
       gatewayBlock,
-      /useEffect\(\(\) => \{[\s\S]*openGatewayMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*openGatewayMountedRef\.current = false;[\s\S]*gatewaySaveTicketRef\.current \+= 1;[\s\S]*copyingGatewayActionRef\.current = null;/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*gatewaySaveTicketRef\.current \+= 1;[\s\S]*copyingGatewayActionRef\.current = null;/,
       'Open Gateway cleanup must invalidate save tickets and release copy ownership when Settings closes',
     );
     assert.match(

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { BotChannelSettings } from '@maka/core';
 import type { WechatBridgeQrCodeResult } from '@maka/runtime';
-import { Button, DialogContent, DialogHeader, DialogRoot, Input } from '@maka/ui';
+import { Button, DialogContent, DialogHeader, DialogRoot, Input, useMountedRef } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { settingsActionErrorMessage } from './settings-error-copy';
 
@@ -95,7 +95,7 @@ export function WeChatScanLoginModal(props: {
   const fetchingQrRef = useRef(false);
   const scanLoginPollingRef = useRef(false);
   const scanLoginConfirmingRef = useRef(false);
-  const scanLoginMountedRef = useRef(false);
+  const scanLoginMountedRef = useMountedRef();
   const scanLoginFetchTicketRef = useRef(0);
 
   async function fetchQr() {
@@ -128,10 +128,8 @@ export function WeChatScanLoginModal(props: {
   }
 
   useEffect(() => {
-    scanLoginMountedRef.current = true;
     void fetchQr();
     return () => {
-      scanLoginMountedRef.current = false;
       scanLoginFetchTicketRef.current += 1;
       fetchingQrRef.current = false;
       scanLoginPollingRef.current = false;

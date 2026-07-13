@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { generalizedErrorMessageChinese, redactSecrets } from '@maka/core';
-import { useToast } from '@maka/ui';
+import { useMountedRef, useToast } from '@maka/ui';
 import { createOneShotActionGuard, teardownPendingAuthorization } from './oauth-login-flow-guard';
 
 export { createOneShotActionGuard, teardownPendingAuthorization } from './oauth-login-flow-guard';
@@ -81,7 +81,7 @@ export function useOAuthLoginFlow(params: {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const pendingGuard = useRef(createOneShotActionGuard<OAuthLoginPendingAction>()).current;
   const authRequestIdRef = useRef<string | null>(null);
-  const oauthLoginFlowMountedRef = useRef(false);
+  const oauthLoginFlowMountedRef = useMountedRef();
 
   async function refresh(): Promise<boolean> {
     try {
@@ -99,10 +99,8 @@ export function useOAuthLoginFlow(params: {
   }
 
   useEffect(() => {
-    oauthLoginFlowMountedRef.current = true;
     void refresh();
     return () => {
-      oauthLoginFlowMountedRef.current = false;
       pendingGuard.finish();
       teardownPendingAuthorization(authRequestIdRef, (id) => void bridge.cancelAuthorization(id));
     };

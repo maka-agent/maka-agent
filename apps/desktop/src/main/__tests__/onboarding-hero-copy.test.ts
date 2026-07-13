@@ -411,10 +411,10 @@ describe('OnboardingHero Quick Chat draft lifecycle', () => {
 
     assert.match(readyBlock, /const \[submitPending, setSubmitPending\] = useState\(false\)/);
     assert.match(readyBlock, /const submitPendingRef = useRef\(false\)/);
-    assert.match(readyBlock, /const readyHeroMountedRef = useRef\(true\)/);
+    assert.match(readyBlock, /const readyHeroMountedRef = useMountedRef\(\)/);
     assert.match(
       readyBlock,
-      /useEffect\(\(\) => \{[\s\S]*readyHeroMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*readyHeroMountedRef\.current = false;[\s\S]*submitPendingRef\.current = false;[\s\S]*importActionOwnerRef\.current\?\.reset\(\);[\s\S]*\};[\s\S]*\}, \[\]\)/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*submitPendingRef\.current = false;[\s\S]*importActionOwnerRef\.current\?\.reset\(\);[\s\S]*\};[\s\S]*\}, \[\]\)/,
       'ReadyEmptyHero must clear async pending owners on unmount and restore mounted state during StrictMode replay',
     );
     assert.match(readyBlock, /const quickChatBusy = props\.quickChatPending \|\| submitPending/);

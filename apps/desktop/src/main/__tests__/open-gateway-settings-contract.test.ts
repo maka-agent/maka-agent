@@ -99,7 +99,7 @@ describe('Open Gateway Settings endpoint contract', () => {
 
     assert.match(
       gatewayBlock,
-      /const openGatewayMountedRef = useRef\(false\);[\s\S]*openGatewayMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*openGatewayMountedRef\.current = false;[\s\S]*copyingGatewayActionRef\.current = null;/,
+      /const openGatewayMountedRef = useMountedRef\(\);[\s\S]*return \(\) => \{[\s\S]*copyingGatewayActionRef\.current = null;/,
       'Open Gateway Settings must release copy ownership when the page closes',
     );
     assert.match(

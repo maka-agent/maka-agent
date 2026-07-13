@@ -94,11 +94,22 @@ dist/**/*.test.js). Real finds verified by hand before acting.
   its knip ignore; the overlay-scrollbars contract's per-file assertion upgraded to a
   repo-wide ban on @base-ui react scroll-area imports (stronger invariant, no
   coverage lost).
-- [ ] **D-2 — mounted-guard long tail**: ~30 remaining `*MountedRef` sites across
-  renderer settings pages and packages/ui panels (see `grep -ri "mountedref = useRef"`).
-  Mechanical agent sweep: swap to useMountedRef, keep per-site companion-ref cleanup
-  effects, re-pin any contract that quotes the old shape. Watch the useRef(false)
-  variants — verify no pre-effect reads before flipping initial value semantics.
+- [x] **D-2 — SHIPPED: mounted-guard long tail.** Converted 34 of the 35 census
+  `*MountedRef` sites to `useMountedRef` — 20 renderer settings sites, 4 other
+  renderer sites (OnboardingHero readyHero, FirstRunChecklist, artifact-pane,
+  browser-panel), 10 packages/ui panels (chat-turn, chat-model-switcher, search-modal,
+  plan-reminder-panel, clipboard-feedback, skills-panel, composer, permission-dialog,
+  session-history-list, daily-review-panel). Kept each site's companion-ref cleanup
+  effect and its ref name; deleted the whole effect only where it did nothing but the
+  mounted flag (browser-panel, permission-dialog). packages/ui sites import the hook
+  from `./use-mounted-ref.js` per house style. Re-pinned ~30 contract assertions across
+  ~20 test files to the shared-hook shape (definition lines + effect blocks). The
+  useRef(false) variants all read the flag only inside async handlers — no pre-effect
+  reads — so flipping to true-initial semantics is behavior-preserving. Deliberately
+  NOT converted: use-memory-settings-controller (lifecycle-counter variant — cleanup
+  reset is guarded by a lifecycle counter and reads combine mounted with lifecycle
+  equality, same shape as use-workspace-instructions-controller) and app-shell.tsx
+  rendererMountedRef (Round B owns that file).
 
 Update checkboxes as rounds ship. Every round: suite + typecheck + dead-css +
 alignment auditor + CDP spot captures, exit-code gated.

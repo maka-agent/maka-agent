@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppSettings, UpdateAppSettingsResult, WebSearchCredentialStatus } from '@maka/core';
 import { normalizeSearchUrl, webSearchCredentialStatusFromResponse } from '@maka/core';
-import { Button, Chip, Input, RelativeTime, SettingsSwitch as Switch, redactSecrets, useToast } from '@maka/ui';
+import { Button, Chip, Input, RelativeTime, SettingsSwitch as Switch, redactSecrets, useMountedRef, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { SettingsRows } from './settings-rows';
@@ -36,7 +36,7 @@ export function WebSearchSettingsPage(props: {
   const [liveQueryRunning, setLiveQueryRunning] = useState(false);
   const [liveQueryResults, setLiveQueryResults] = useState<readonly { title: string; url: string; snippet: string; source: string }[] | null>(null);
   const [liveQueryError, setLiveQueryError] = useState<string | null>(null);
-  const webSearchMountedRef = useRef(true);
+  const webSearchMountedRef = useMountedRef();
   const pendingWebSearchEnabledRef = useRef(false);
   const pendingCredentialActionRef = useRef<'save' | 'clear' | null>(null);
   const testingRef = useRef(false);
@@ -45,9 +45,7 @@ export function WebSearchSettingsPage(props: {
   const toast = useToast();
 
   useEffect(() => {
-    webSearchMountedRef.current = true;
     return () => {
-      webSearchMountedRef.current = false;
       pendingWebSearchEnabledRef.current = false;
       pendingCredentialActionRef.current = null;
       testingRef.current = false;

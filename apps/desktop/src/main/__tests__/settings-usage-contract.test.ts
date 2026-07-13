@@ -215,12 +215,12 @@ describe('Settings usage dashboard contract', () => {
 
     assert.match(
       usagePage,
-      /const usagePageMountedRef = useRef\(false\);/,
+      /const usagePageMountedRef = useMountedRef\(\);/,
       'Usage settings page must track mounted ownership for async preference and refresh work',
     );
     assert.match(
       usagePage,
-      /useEffect\(\(\) => \{[\s\S]*usagePageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*usagePageMountedRef\.current = false;[\s\S]*usageSaveTicketRef\.current \+= 1;[\s\S]*usageRefreshRunningRef\.current = false;/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*usageSaveTicketRef\.current \+= 1;[\s\S]*usageRefreshRunningRef\.current = false;/,
       'Usage settings cleanup must invalidate saves and release manual refresh ownership',
     );
     assert.match(

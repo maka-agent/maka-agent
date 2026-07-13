@@ -29,7 +29,7 @@ describe('ArtifactPane async lifecycle contract', () => {
     );
     assert.match(
       src,
-      /const artifactPaneMountedRef = useRef\(true\)/,
+      /const artifactPaneMountedRef = useMountedRef\(\)/,
       'ArtifactPane must track whether async artifact work still owns a mounted surface',
     );
     assert.match(
@@ -39,7 +39,7 @@ describe('ArtifactPane async lifecycle contract', () => {
     );
     assert.match(
       src,
-      /useEffect\(\(\) => \{[\s\S]*artifactPaneMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*artifactPaneMountedRef\.current = false;[\s\S]*artifactListRequestSeqRef\.current \+= 1;[\s\S]*pendingArtifactListRetryRef\.current = false;[\s\S]*pendingArtifactActionRef\.current = null;[\s\S]*\};[\s\S]*\}, \[\]\)/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*artifactListRequestSeqRef\.current \+= 1;[\s\S]*pendingArtifactListRetryRef\.current = false;[\s\S]*pendingArtifactActionRef\.current = null;[\s\S]*\};[\s\S]*\}, \[\]\)/,
       'ArtifactPane unmount must invalidate list responses, release pending owners, and be StrictMode replay safe',
     );
     assert.match(
@@ -181,7 +181,7 @@ describe('ArtifactPane async lifecycle contract', () => {
 
     assert.match(src, /const \[pendingArtifactAction, setPendingArtifactAction\] = useState<string \| null>\(null\)/);
     assert.match(src, /const pendingArtifactActionRef = useRef<string \| null>\(null\)/);
-    assert.match(src, /const artifactPaneMountedRef = useRef\(true\)/);
+    assert.match(src, /const artifactPaneMountedRef = useMountedRef\(\)/);
     assert.match(src, /const artifactActionBusy = pendingArtifactAction !== null/);
     assert.match(
       gateBlock,
