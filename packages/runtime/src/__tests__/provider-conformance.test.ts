@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { after, describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core';
-import { generateText, tool } from 'ai';
+import { generateText, stepCountIs, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { getAIModel } from '../model-factory.js';
@@ -151,8 +151,8 @@ describe('models.dev provider conformance', () => {
     assert.deepEqual(result.toolCalls[0]?.input, { text: 'hello' });
   });
 
-  test('xAI discovers exact account model ids and completes an OpenAI-compatible tool-call turn', async () => {
-    let requestBody: Record<string, unknown> | undefined;
+  test('xAI discovers exact account model ids and completes an OpenAI-compatible tool-call loop', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
     const server = await startJsonServer(async (request, response) => {
       assert.equal(request.headers.authorization, 'Bearer xai-test-key');
       if (request.method === 'GET' && request.url === '/v1/models') {
@@ -164,7 +164,22 @@ describe('models.dev provider conformance', () => {
       }
       assert.equal(request.method, 'POST');
       assert.equal(request.url, '/v1/chat/completions');
-      requestBody = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(JSON.parse(await readBody(request)) as Record<string, unknown>);
+      if (requestBodies.length === 2) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-xai-final',
+          object: 'chat.completion',
+          created: 2,
+          model: 'grok-4.5',
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+        });
+        return;
+      }
       respondJson(response, 200, {
         id: 'chatcmpl-xai',
         object: 'chat.completion',
@@ -203,21 +218,30 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'xai-test-key', modelId: 'grok-4.5' }),
       prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
       tools: {
         echo: tool({
           description: 'Echo text',
           inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
         }),
       },
     });
 
-    assert.equal(requestBody?.model, 'grok-4.5');
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), ['grok-4.5', 'grok-4.5']);
     assert.deepEqual(
-      (requestBody?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
-    assert.equal(result.toolCalls[0]?.toolName, 'echo');
-    assert.deepEqual(result.toolCalls[0]?.input, { text: 'hello' });
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
+    );
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolCalls[0]?.input, { text: 'hello' });
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
   });
 });
 
