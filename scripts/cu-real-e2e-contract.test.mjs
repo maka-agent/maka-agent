@@ -40,7 +40,9 @@ test('concurrent mode allows user input without allowing fixture focus takeover'
   assert.match(monitor, /!concurrentUserMode && receivedPhysicalInput/);
   assert.match(harness, /fail_closed_occluded/);
   assert.match(harness, /fail_closed_hidden/);
-  assert.match(harness, /background_dispatch_succeeded/);
+  assert.match(harness, /concurrent-coordinate-policy-fail-closed/);
+  assert.match(harness, /semantic_background_succeeded/);
+  assert.match(harness, /allowCompatibilityInputDispatch: !concurrentUserMode/);
   assert.match(harness, /appId: `pid:\$\{baseline\.fixturePID\}`/);
   assert.match(harness, /invalid concurrent execution baseline/);
 });
@@ -62,10 +64,12 @@ test('harness validates exact synthetic provenance before real actions', () => {
   assert.match(harness, /baseline\.canonicalAppPath !== expectedAppPath/);
 });
 
-test('truth claims require pixel OOP evidence and fresh-refetch ambiguity evidence', () => {
+test('truth claims isolate pixel evidence and keep concurrent dispatch semantic', () => {
   assert.match(harness, /afterClick\.oop\.lastEventTrusted !== true/);
   assert.match(harness, /afterClick\.oop\.webContentPID === afterClick\.oop\.hostPID/);
   assert.match(harness, /dispatch\?\.address !== 'px'/);
+  assert.match(harness, /blockedFlow\?\.error !== 'unsupported_action'/);
+  assert.match(harness, /concurrent semantic action violated its oracle/);
   assert.match(harness, /duplicateFlow\?\.error !== 'stale_frame'/);
   assert.match(harness, /ambiguous semantic action did not fail closed in backend refetch/);
   assert.match(harness, /stale-missing, process restart, and canonical live-process identity require native or driver follow-up/);
