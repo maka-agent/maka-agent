@@ -255,6 +255,8 @@ const computerTool = {
       ? new Set(['list_apps', 'observe', 'wait'])
       : scenario === 'ax-click' || scenario === 'ambiguity'
         ? new Set(['list_apps', 'observe', 'click_element', 'wait'])
+        : scenario === 'ax-multi-step'
+          ? new Set(['list_apps', 'observe', 'set_value', 'click_element', 'wait'])
         : new Set(['list_apps', 'observe', 'set_value', 'wait']);
     if (typeof action !== 'string' || !allowed.has(action)) {
       throw new Error(`model action '${String(action)}' is outside the AX-only scenario budget`);
@@ -331,6 +333,7 @@ const runtime = new AiSdkBackend({
     telemetry.push({
       toolName: record.toolName,
       status: record.status,
+      errorClass: record.errorClass,
       argsSummary: record.argsSummary,
     });
   },
@@ -342,10 +345,16 @@ try {
     ? 'Use Maka Computer to inspect "Codex CUA Lab". Start with list_apps, observe '
       + 'the exact app/window, report that "CUA Lab Set Value Field" is visible, '
       + 'do not mutate anything, then finish.'
-    : scenario === 'ax-click'
-      ? 'Use Maka Computer to click the element labeled "CUA Lab Primary Button" exactly '
+      : scenario === 'ax-click'
+        ? 'Use Maka Computer to click the element labeled "CUA Lab Primary Button" exactly '
         + 'once in "Codex CUA Lab". Start with list_apps and observe, use click_element '
         + 'with IDs from that observation, verify the fresh state, then finish. Never use coordinates.'
+      : scenario === 'ax-multi-step'
+        ? `Use Maka Computer in "Codex CUA Lab" to complete two semantic actions in order. `
+          + `First set "CUA Lab Set Value Field" to "${targetValue}" with set_value. `
+          + 'Then use the fresh observation returned by that action to click '
+          + '"CUA Lab Primary Button" exactly once with click_element. Verify both fresh '
+          + 'results, then finish. Never use coordinates, scroll, drag, type, or key actions.'
       : scenario === 'ambiguity'
         ? 'Use Maka Computer to click the observed element labeled "CUA Lab Stale Target" '
           + 'exactly once in "Codex CUA Lab". Start with list_apps and observe, then use '
@@ -402,7 +411,9 @@ try {
       `expected ${expectedSetValueDispatches} AX set_value dispatches, got ${setValueDispatches.length}`,
     );
   }
-  const expectedClickDispatches = scenario === 'ax-click' ? 1 : 0;
+  const expectedClickDispatches = (
+    scenario === 'ax-click' || scenario === 'ax-multi-step'
+  ) ? 1 : 0;
   if (modelClickDispatches.length !== expectedClickDispatches) {
     throw new Error(
       `expected ${expectedClickDispatches} model AX click dispatches, got ${modelClickDispatches.length}`,
@@ -438,7 +449,10 @@ try {
       );
     }
   }
-  if (scenario === 'ax-click' && fixtureState.controls.buttonClickCount !== 1) {
+  if (
+    (scenario === 'ax-click' || scenario === 'ax-multi-step')
+    && fixtureState.controls.buttonClickCount !== 1
+  ) {
     throw new Error(`primary button count mismatch: ${fixtureState.controls.buttonClickCount}`);
   }
   if (
@@ -473,6 +487,8 @@ try {
           ? 'appkit-ax-restart-recovery'
           : scenario === 'ax-click'
             ? 'appkit-ax-click'
+            : scenario === 'ax-multi-step'
+              ? 'appkit-ax-multi-step'
             : scenario === 'ambiguity'
               ? 'appkit-ax-ambiguity'
               : 'appkit-ax-set-value',
@@ -509,6 +525,24 @@ try {
       toolResultsPersisted: messages.filter((message) => message.type === 'tool_result').length,
       telemetrySuccesses: telemetry.filter((record) => record.status === 'success').length,
       telemetryErrors: telemetry.filter((record) => record.status === 'error').length,
+      telemetryErrorClasses: [
+        ...new Set(
+          telemetry
+            .filter((record) => record.status === 'error')
+            .map((record) => record.errorClass)
+            .filter(Boolean),
+        ),
+      ],
+      telemetryErrorActions: telemetry
+        .filter((record) => record.status === 'error')
+        .flatMap((record) => {
+          try {
+            const summary = JSON.parse(record.argsSummary ?? '{}');
+            return typeof summary.action === 'string' ? [summary.action] : [];
+          } catch {
+            return [];
+          }
+        }),
       semanticFailures: semanticOutcomes.filter((outcome) => !outcome.ok).length,
       semanticFailureCode: semanticOutcomes.find((outcome) => !outcome.ok)?.error,
       ambiguousSemanticFailures: semanticOutcomes.filter(

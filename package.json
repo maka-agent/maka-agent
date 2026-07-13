@@ -45,7 +45,9 @@
     "e2e:computer-use-real-ax-anthropic": "MAKA_CU_MODEL_PROVIDER=anthropic node scripts/cu-real-ax-model-e2e-launcher.mjs",
     "e2e:computer-use-real-ax-anthropic-recovery": "MAKA_CU_MODEL_PROVIDER=anthropic MAKA_CU_AX_MODEL_SCENARIO=intervention-recovery node scripts/cu-real-ax-model-e2e-launcher.mjs",
     "e2e:computer-use-real-ax-click": "MAKA_CU_AX_MODEL_SCENARIO=ax-click node scripts/cu-real-ax-model-e2e-launcher.mjs",
-    "e2e:computer-use-real-ax-ambiguity": "MAKA_CU_AX_MODEL_SCENARIO=ambiguity node scripts/cu-real-ax-model-e2e-launcher.mjs"
+    "e2e:computer-use-real-ax-ambiguity": "MAKA_CU_AX_MODEL_SCENARIO=ambiguity node scripts/cu-real-ax-model-e2e-launcher.mjs",
+    "e2e:computer-use-real-ax-multi-step": "MAKA_CU_AX_MODEL_SCENARIO=ax-multi-step node scripts/cu-real-ax-model-e2e-launcher.mjs",
+    "e2e:computer-use-real-ax-anthropic-multi-step": "MAKA_CU_MODEL_PROVIDER=anthropic MAKA_CU_AX_MODEL_SCENARIO=ax-multi-step node scripts/cu-real-ax-model-e2e-launcher.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.0.0",

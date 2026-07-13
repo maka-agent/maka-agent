@@ -28,6 +28,7 @@ test('real AX model E2E uses production Runtime and backend with an enforced sem
   assert.match(harness, /scenario === 'intervention-recovery'/);
   assert.match(harness, /scenario === 'restart-recovery'/);
   assert.match(harness, /scenario === 'ax-click'/);
+  assert.match(harness, /scenario === 'ax-multi-step'/);
   assert.match(harness, /scenario === 'ambiguity'/);
   assert.match(harness, /error: 'user_intervened'/);
   assert.match(harness, /target_missing/);

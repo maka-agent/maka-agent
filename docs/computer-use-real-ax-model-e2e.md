@@ -47,6 +47,9 @@ dispatch while the user is actively providing physical input.
   `target_missing`, then the model rediscovered the new process and succeeded;
 - AX click: one `click_element` dispatch and the external AppKit button oracle
   changed exactly once.
+- safe multi-step task: `set_value` followed by `click_element`, each using the
+  fresh observation from the prior step; one dispatch per semantic action and
+  zero pixel dispatch.
 
 ### Anthropic through coproxy
 
@@ -55,6 +58,8 @@ dispatch while the user is actively providing physical input.
 - AX set value through the full `AiSdkBackend` product path;
 - physical intervention recovery with the same re-observe sequence;
 - one verified AX dispatch and zero pixel dispatch in both mutation runs.
+- the same safe multi-step `set_value` then `click_element` task through the
+  full product loop.
 
 ### Kimi and MiniMax protocol paths
 
