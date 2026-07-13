@@ -24,6 +24,7 @@ export type ShellRunToolResult = Extract<ToolResultContent, { kind: 'shell_run' 
 export function shellRunUpdate(record: ShellRunRecord): ShellRunUpdate {
   return {
     sessionId: record.sessionId,
+    ownership: { kind: 'local' },
     sourceTurnId: record.sourceTurnId,
     sourceToolCallId: record.sourceToolCallId,
     result: shellRunSnapshotContent(record),

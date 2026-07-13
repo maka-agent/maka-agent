@@ -15,16 +15,18 @@ import {
 import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
 import { isThinkingLevel, thinkingVariantsForModel, type ThinkingLevel } from '@maka/core/model-thinking';
 import type { ProviderType } from '@maka/core/llm-connections';
-import type { ToolResultContent } from '@maka/core/events';
-import type { ShellRunUpdate } from '@maka/runtime';
+import {
+  ShellRunUpdateBuffer,
+  mergeShellRunUpdate,
+  projectShellRunUpdateForSession,
+  type ShellRunUpdate,
+} from '@maka/core';
 import type { ModelChoice } from './connection-target.js';
 import type { MakaSessionDriver, MakaSessionSwitchResult } from './session-driver.js';
 import {
   createMakaPiTranscriptState,
-  applyDetachedShellRunToTranscript,
-  applyShellRunUpdateToTranscript,
+  applyShellRunViewUpdateToTranscript,
   replaceTranscriptWithStoredMessages,
-  runningShellRunsInTranscript,
   submitCompactToTranscript,
   submitPromptToTranscript,
   toggleAllThinkingExpansion,
@@ -82,13 +84,7 @@ export interface MakaPiTuiInput {
    */
   attentionLongTurnThresholdMs?: number;
   subscribeShellRunUpdates?: (listener: (update: ShellRunUpdate) => void) => () => void;
-  readShellRun?: (
-    sessionId: string,
-    ref: string,
-  ) => Promise<{
-    ownerSessionId: string;
-    result: Extract<ToolResultContent, { kind: 'shell_run' }>;
-  }>;
+  listShellRunUpdates?: (sessionId: string) => Promise<ShellRunUpdate[]>;
   /**
    * Called after each agent turn settles. Receives an `injectTurn` that runs a
    * new turn rendered in the transcript — used for goal auto-continuation so
@@ -161,9 +157,82 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     state,
     onTick: requestRender,
   });
+  let shellRunOwnerMappings: ShellRunUpdate[] = [];
+  let hydratingShellRunsFor: string | undefined;
+  let shellRunHydrationEpoch = 0;
+  let shellRunHydrationRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  const pendingShellRunUpdates = new ShellRunUpdateBuffer('cli.pi-tui-hydration-buffer');
+  const applyShellRunViewUpdate = (candidate: ShellRunUpdate): boolean => {
+    const index = shellRunOwnerMappings.findIndex((update) => (
+      update.sessionId === candidate.sessionId
+      && update.sourceToolCallId === candidate.sourceToolCallId
+    ));
+    const merged = mergeShellRunUpdate(
+      index >= 0 ? shellRunOwnerMappings[index] : undefined,
+      candidate,
+      'cli.pi-tui-runner',
+    );
+    const retainOwnerMapping = merged.update.ownership.kind === 'source_owned'
+      && merged.update.result.status === 'running';
+    if (index >= 0 && retainOwnerMapping) shellRunOwnerMappings[index] = merged.update;
+    else if (index >= 0) shellRunOwnerMappings.splice(index, 1);
+    else if (retainOwnerMapping) shellRunOwnerMappings.push(merged.update);
+    return applyShellRunViewUpdateToTranscript(state, merged.update);
+  };
+  const replayPendingShellRunUpdates = (sessionId: string): boolean => {
+    const buffered = pendingShellRunUpdates.drain();
+    for (const update of buffered.updates) {
+      const projected = projectShellRunUpdateForSession(sessionId, shellRunOwnerMappings, update);
+      for (const viewUpdate of projected) applyShellRunViewUpdate(viewUpdate);
+    }
+    return buffered.overflowed;
+  };
+  const resetShellRunSessionState = (): void => {
+    shellRunOwnerMappings = [];
+    shellRunHydrationEpoch += 1;
+    if (shellRunHydrationRetryTimer !== undefined) clearTimeout(shellRunHydrationRetryTimer);
+    shellRunHydrationRetryTimer = undefined;
+    hydratingShellRunsFor = undefined;
+    pendingShellRunUpdates.clear();
+  };
+  const hydrateShellRuns = async (
+    sessionId: string,
+    epoch: number,
+    retryDelayMs = 250,
+  ): Promise<void> => {
+    try {
+      const updates = await input.listShellRunUpdates?.(sessionId);
+      if (closed || epoch !== shellRunHydrationEpoch || input.driver.getSessionId() !== sessionId) return;
+      for (const update of updates ?? []) applyShellRunViewUpdate(update);
+      const overflowed = replayPendingShellRunUpdates(sessionId);
+      shellRunElapsedTicker.sync();
+      requestRender();
+      if (overflowed) {
+        void hydrateShellRuns(sessionId, epoch);
+        return;
+      }
+      hydratingShellRunsFor = undefined;
+    } catch {
+      if (closed || epoch !== shellRunHydrationEpoch || input.driver.getSessionId() !== sessionId) return;
+      shellRunHydrationRetryTimer = setTimeout(() => {
+        shellRunHydrationRetryTimer = undefined;
+        void hydrateShellRuns(sessionId, epoch, Math.min(retryDelayMs * 2, 5_000));
+      }, retryDelayMs);
+    }
+  };
   const unsubscribeShellRunUpdates = input.subscribeShellRunUpdates?.((update) => {
-    if (closed || input.driver.getSessionId() !== update.sessionId) return;
-    if (!applyShellRunUpdateToTranscript(state, update.sourceToolCallId, update.result)) return;
+    const sessionId = input.driver.getSessionId();
+    if (closed || !sessionId) return;
+    if (hydratingShellRunsFor === sessionId) {
+      pendingShellRunUpdates.add(update);
+      return;
+    }
+    const projected = projectShellRunUpdateForSession(sessionId, shellRunOwnerMappings, update);
+    let changed = false;
+    for (const viewUpdate of projected) {
+      if (applyShellRunViewUpdate(viewUpdate)) changed = true;
+    }
+    if (!changed) return;
     shellRunElapsedTicker.sync();
     requestRender();
   });
@@ -215,6 +284,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const restoreTerminal = () => {
     removeProcessHandlers();
     unsubscribeShellRunUpdates?.();
+    resetShellRunSessionState();
     shellRunElapsedTicker.dispose();
     terminal.setProgress(false);
     // Drop the busy / attention title marker so the tab is not handed back to
@@ -429,22 +499,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
     replaceTranscriptWithStoredMessages(state, messages);
-    if (input.readShellRun) {
+    resetShellRunSessionState();
+    if (input.listShellRunUpdates) {
       const sessionId = summary.id;
-      await Promise.all(runningShellRunsInTranscript(state).map(async ({ sourceToolCallId, ref }) => {
-        try {
-          const read = await input.readShellRun?.(sessionId, ref);
-          if (!read || closed || input.driver.getSessionId() !== sessionId) return;
-          if (read.ownerSessionId !== sessionId && read.result.status === 'running') {
-            applyDetachedShellRunToTranscript(state, sourceToolCallId, read.result);
-          } else {
-            applyShellRunUpdateToTranscript(state, sourceToolCallId, read.result);
-          }
-        } catch {
-          // Missing legacy records must not make an otherwise valid session
-          // impossible to resume. Keep the stored card and let live updates win.
-        }
-      }));
+      hydratingShellRunsFor = sessionId;
+      await hydrateShellRuns(sessionId, shellRunHydrationEpoch);
+    } else {
+      hydratingShellRunsFor = undefined;
     }
     shellRunElapsedTicker.sync();
   };
@@ -592,6 +653,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const newSession = () => {
     input.driver.startNewSession();
+    resetShellRunSessionState();
     // Fresh transcript for the fresh session; the next prompt creates it on disk.
     // Leave the transcript empty (no confirmation notice) so /new opens on the
     // same welcome block as a cold start — the welcome block is the "fresh

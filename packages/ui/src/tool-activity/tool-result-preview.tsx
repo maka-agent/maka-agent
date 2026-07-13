@@ -7,7 +7,7 @@ import {
   type ShellOutput,
   type ToolResultContent,
 } from '@maka/core';
-import { AlertCircle, Ban, Check, Clock, Loader2, Plug } from '../icons.js';
+import { AlertCircle, Ban, Check, Clock, GitBranch, Loader2, Plug } from '../icons.js';
 import { previewVariants } from '../primitives/chat.js';
 import { redactSecrets } from '../redact.js';
 import { cn } from '../ui.js';
@@ -33,7 +33,12 @@ export const TOOL_OUTPUT_NOTE_CLASS =
   'm-0 text-[length:var(--font-size-base)] leading-normal text-[color:var(--muted-foreground)]';
 
 /** Routes persisted tool results to bounded, kind-specific preview cards. */
-export function ToolResultPreview(props: { content: ToolResultContent; toolName?: string; args?: unknown }) {
+export function ToolResultPreview(props: {
+  content: ToolResultContent;
+  toolName?: string;
+  args?: unknown;
+  shellRunSource?: 'owned' | 'unavailable';
+}) {
   const { content } = props;
 
   if (content.kind === 'file_diff') {
@@ -73,7 +78,7 @@ export function ToolResultPreview(props: { content: ToolResultContent; toolName?
 
   if (content.kind === 'shell_run') {
     if (props.toolName === 'WriteStdin') return <PtyControlPreview result={content} args={props.args} />;
-    return <ShellRunPreview result={content} />;
+    return <ShellRunPreview result={content} source={props.shellRunSource} />;
   }
 
   if (content.kind === 'office_document') {
@@ -277,6 +282,7 @@ function TerminalPreview(props: {
  * command/status/ref preview for pipes. Never collapse either to `[shell_run]`. */
 function ShellRunPreview(props: {
   result: Extract<ToolResultContent, { kind: 'shell_run' }>;
+  source?: 'owned' | 'unavailable';
 }) {
   const { result } = props;
   const safeCmd = redactSecrets(result.cmd);
@@ -290,11 +296,14 @@ function ShellRunPreview(props: {
         output={output?.mode === 'pty' ? output : undefined}
         safeCmd={safeCmd}
         attention={attention}
+        source={props.source}
       />
     );
   }
   const safeRef = redactSecrets(result.ref);
-  const statusLabel = shellRunStatusLabel(result.status);
+  const statusLabel = props.source === 'owned'
+    ? '由源会话管理'
+    : props.source === 'unavailable' ? '源会话不可用' : shellRunStatusLabel(result.status);
   const pipeOutput = output?.mode === 'pipes' ? output : undefined;
 
   return (
@@ -333,6 +342,7 @@ function PtyShellSurface(props: {
   output?: Extract<ShellOutput, { mode: 'pty' }>;
   safeCmd: string;
   attention: boolean;
+  source?: 'owned' | 'unavailable';
 }) {
   const { result, output } = props;
   return (
@@ -373,7 +383,7 @@ function PtyShellSurface(props: {
         )}
       </div>
       <footer className="flex min-h-8 items-center justify-end gap-1.5 px-3 pt-1 pb-2.5 text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">
-        <ShellRunStatus status={result.status} exitCode={result.exitCode} />
+        <ShellRunStatus status={result.status} exitCode={result.exitCode} source={props.source} />
       </footer>
     </div>
   );
@@ -382,7 +392,10 @@ function PtyShellSurface(props: {
 function ShellRunStatus(props: {
   status: Extract<ToolResultContent, { kind: 'shell_run' }>['status'];
   exitCode?: number;
+  source?: 'owned' | 'unavailable';
 }) {
+  if (props.source === 'owned') return <><GitBranch size={15} aria-hidden="true" />由源会话管理</>;
+  if (props.source === 'unavailable') return <><GitBranch size={15} aria-hidden="true" />源会话不可用</>;
   const suffix = props.exitCode !== undefined && props.exitCode !== 0 ? ` · 退出码 ${props.exitCode}` : '';
   switch (props.status) {
     case 'running':

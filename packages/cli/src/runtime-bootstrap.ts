@@ -42,7 +42,6 @@ import {
   createSettingsStore,
   createShellRunStore,
 } from '@maka/storage';
-import type { ToolResultContent } from '@maka/core/events';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
 import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
@@ -60,10 +59,7 @@ export interface MakaCliRuntimeContext {
   automationManager: AutomationManager;
   automationScheduler: AutomationScheduler;
   subscribeShellRunUpdates(listener: (update: ShellRunUpdate) => void): () => void;
-  readShellRun(sessionId: string, ref: string): Promise<{
-    ownerSessionId: string;
-    result: Extract<ToolResultContent, { kind: 'shell_run' }>;
-  }>;
+  listShellRunUpdates(sessionId: string): Promise<ShellRunUpdate[]>;
   goalManager: GoalManager;
   goalContinuationDeps: GoalContinuationDeps;
   close(): Promise<void>;
@@ -335,25 +331,6 @@ export async function createMakaCliRuntimeContext(
 
   automationScheduler.start();
 
-  const readShellRun = async (sessionId: string, ref: string) => {
-    let ownerSessionId: string | undefined = sessionId;
-    const visited = new Set<string>();
-    while (ownerSessionId && !visited.has(ownerSessionId)) {
-      visited.add(ownerSessionId);
-      try {
-        return {
-          ownerSessionId,
-          result: await shellRuns.inspectResource(ownerSessionId, ref),
-        };
-      } catch (error) {
-        if (!isNotFoundError(error)) throw error;
-        ownerSessionId = (await store.readHeader(ownerSessionId)).parentSessionId;
-        if (!ownerSessionId) throw error;
-      }
-    }
-    throw new Error(`Cannot resolve ShellRun owner for session ${sessionId}`);
-  };
-
   // Goal execution — external-evaluator continuation, sharing the runtime
   // sendMessage pipeline (so each continuation turn is a real, traced AgentRun).
   const goalContinuationDeps: GoalContinuationDeps = {
@@ -450,7 +427,7 @@ export async function createMakaCliRuntimeContext(
       shellRunListeners.add(listener);
       return () => shellRunListeners.delete(listener);
     },
-    readShellRun,
+    listShellRunUpdates: (sessionId) => runtime.listShellRunUpdates(sessionId),
     goalManager,
     goalContinuationDeps,
     close: async () => {
@@ -503,10 +480,6 @@ function userOptedIntoSemanticCompact(env: Record<string, string | undefined>): 
   }
   const mode = env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODE?.trim().toLowerCase();
   return mode === 'validate_only' || mode === 'prepare_step_dry_run' || mode === 'replace';
-}
-
-function isNotFoundError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
 export async function getOrCreateCliClaudeDeviceId(

@@ -10,7 +10,11 @@ import type {
   ThemePalette,
   ThemePreference,
 } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
+import {
+  ShellRunUpdateBuffer,
+  generalizedErrorMessageChinese,
+  type ShellRunUpdate,
+} from '@maka/core';
 import type { LiveTurnProjection, NavSelection, PermissionQueues } from '@maka/ui';
 import { messageReadErrorMessage } from './app-shell-copy';
 import { applyTheme, applyThemePalette } from './theme';
@@ -22,7 +26,11 @@ import {
   recordSessionEventStreamEvent,
 } from './session-event-health';
 import { settledSessionTransientIds } from './settled-session-transients.js';
-import { mergeShellRunUpdates, type ShellRunUpdatesBySession } from './shell-run-update-state.js';
+import {
+  mergeShellRunNotification,
+  mergeShellRunUpdates,
+  type ShellRunUpdatesBySession,
+} from './shell-run-update-state.js';
 
 type RefBox<T> = { current: T };
 type SessionEventHealthUpdater = (
@@ -424,14 +432,49 @@ export function useShellRunUpdates(options: {
     if (!sessionId) return;
 
     let disposed = false;
+    let hydrated = false;
+    let retryTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+    let retryDelayMs = 250;
+    const pending = new ShellRunUpdateBuffer('desktop.shell-run-hydration-buffer');
     const unsubscribe = window.maka.shellRuns.subscribeUpdates((update) => {
-      if (!disposed && update.sessionId === sessionId) applyUpdates(sessionId, [update]);
+      if (disposed) return;
+      if (!hydrated) {
+        pending.add(update);
+        return;
+      }
+      options.setShellRunUpdatesBySession((current) => (
+        mergeShellRunNotification(current, sessionId, update)
+      ));
     });
-    void window.maka.shellRuns.list(sessionId).then((updates) => {
-      if (!disposed) applyUpdates(sessionId, updates);
-    }).catch(() => {});
+    const hydrate = () => {
+      void window.maka.shellRuns.list(sessionId).then((updates) => {
+        if (disposed) return;
+        applyUpdates(sessionId, updates);
+        retryDelayMs = 250;
+        const buffered = pending.drain();
+        for (const update of buffered.updates) {
+          options.setShellRunUpdatesBySession((current) => (
+            mergeShellRunNotification(current, sessionId, update)
+          ));
+        }
+        if (buffered.overflowed) {
+          hydrate();
+          return;
+        }
+        hydrated = true;
+      }).catch(() => {
+        if (disposed) return;
+        retryTimer = globalThis.setTimeout(() => {
+          retryTimer = undefined;
+          hydrate();
+        }, retryDelayMs);
+        retryDelayMs = Math.min(retryDelayMs * 2, 5_000);
+      });
+    };
+    hydrate();
     return () => {
       disposed = true;
+      if (retryTimer !== undefined) globalThis.clearTimeout(retryTimer);
       unsubscribe();
     };
   }, [options.activeId]);

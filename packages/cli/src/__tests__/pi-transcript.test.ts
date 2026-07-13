@@ -6,7 +6,7 @@ import type { SessionEvent, ToolResultContent } from '@maka/core/events';
 import type { StoredMessage } from '@maka/core/session';
 import {
   appendUserPrompt,
-  applyDetachedShellRunToTranscript,
+  applyShellRunViewUpdateToTranscript,
   applyMakaSessionEventToTranscript,
   applyShellRunUpdateToTranscript,
   createMakaPiTranscriptState,
@@ -880,11 +880,28 @@ describe('Maka Pi TUI transcript', () => {
       type: 'tool_result', toolUseId: 'bash-bg', isError: false,
       content: shellRun({ stdout: '', stderr: '' }),
     }));
-    applyDetachedShellRunToTranscript(state, 'bash-bg', shellRun({ stdout: '', stderr: '' }));
+    applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'branch',
+      ownership: { kind: 'source_owned', sourceSessionId: 'source', ownerSessionId: 'source' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({ stdout: '', stderr: '' }),
+    });
 
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.match(rendered, /owned by source session/);
     assert.doesNotMatch(rendered, /continues in source session/);
+
+    applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'branch',
+      ownership: { kind: 'source_unavailable', sourceSessionId: 'source' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({ stdout: '', stderr: '' }),
+    });
+    const unavailable = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(unavailable, /source session unavailable/);
+    assert.doesNotMatch(unavailable, /Ask Maka to stop this task/);
   });
 
   test('folds a background-task Read result into its parent Bash card', () => {

@@ -65,6 +65,7 @@ describe('ShellRun UI projection', () => {
     const unrelatedTurn = settled[1];
     const update: ShellRunUpdate = {
       sessionId: 'session-1',
+      ownership: { kind: 'local' },
       sourceTurnId: 'turn-1',
       sourceToolCallId: 'bash-1',
       result: shellRunSnapshot(3, { status: 'completed', completedAt: 5, exitCode: 0 }),
@@ -111,6 +112,7 @@ describe('ShellRun UI projection', () => {
     };
     const update: ShellRunUpdate = {
       sessionId: 'session-1',
+      ownership: { kind: 'local' },
       sourceTurnId: 'turn-1',
       sourceToolCallId: 'bash-1',
       result: shellRunSnapshot(1),
@@ -126,6 +128,38 @@ describe('ShellRun UI projection', () => {
         : undefined,
       'ready',
     );
+  });
+
+  test('marks a running ShellRun inherited from a source session as detached', () => {
+    const settled = materializeTurns([
+      toolCall('bash-1', 'turn-1', 'Bash', { command: 'job', pty: true }, 1),
+      toolResult('bash-1', 'turn-1', shellRun(1), 2),
+    ]);
+    const turns = overlayShellRunUpdates(settled, [{
+      sessionId: 'branch-session',
+      ownership: {
+        kind: 'source_owned',
+        sourceSessionId: 'source-session',
+        ownerSessionId: 'source-session',
+      },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-1',
+      result: shellRunSnapshot(2),
+    }]);
+
+    assert.equal(turns[0]?.tools[0]?.shellRunSource, 'owned');
+    assert.equal(turns[0]?.tools[0]?.result?.kind === 'shell_run'
+      ? turns[0]?.tools[0]?.result?.status
+      : undefined, 'running');
+
+    const unavailable = overlayShellRunUpdates(settled, [{
+      sessionId: 'branch-session',
+      ownership: { kind: 'source_unavailable', sourceSessionId: 'source-session' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-1',
+      result: shellRunSnapshot(2),
+    }]);
+    assert.equal(unavailable[0]?.tools[0]?.shellRunSource, 'unavailable');
   });
 });
 

@@ -79,6 +79,8 @@ export interface ToolActivityItem {
    * the visible stream is not the full underlying output.
    */
   outputTruncated?: boolean;
+  /** Ownership state for a running ShellRun copied into a branched session. */
+  shellRunSource?: 'owned' | 'unavailable';
 }
 
 // system_note kinds that we surface inline to the user. Everything else
@@ -370,15 +372,23 @@ export function overlayShellRunUpdates(
   updates: readonly ShellRunUpdate[],
 ): readonly TurnViewModel[] {
   if (updates.length === 0) return turns;
-  const byToolUseId = new Map<string, Extract<ToolResultContent, { kind: 'shell_run' }>>();
+  const byToolUseId = new Map<string, {
+    result: Extract<ToolResultContent, { kind: 'shell_run' }>;
+    source: ToolActivityItem['shellRunSource'];
+  }>();
   for (const update of updates) {
     const current = byToolUseId.get(update.sourceToolCallId);
     const merged = mergeShellRunStateWithDiagnostics(
-      current,
+      current?.result,
       update.result,
       'ui.overlay-shell-run-updates',
     );
-    if (merged.changed) byToolUseId.set(update.sourceToolCallId, merged.result);
+    byToolUseId.set(update.sourceToolCallId, {
+      result: merged.result,
+      source: merged.result.status !== 'running' || update.ownership.kind === 'local'
+        ? undefined
+        : update.ownership.kind === 'source_owned' ? 'owned' : 'unavailable',
+    });
   }
   const projected = turns.flatMap((turn) => turn.tools).map((tool) => {
     const update = byToolUseId.get(tool.toolUseId);
@@ -387,10 +397,12 @@ export function overlayShellRunUpdates(
     if (tool.result && !current) return tool;
     const merged = mergeShellRunStateWithDiagnostics(
       current,
-      update,
+      update.result,
       'ui.overlay-shell-run-update',
     );
-    return merged.changed ? { ...tool, result: merged.result } : tool;
+    return merged.changed || tool.shellRunSource !== update.source
+      ? { ...tool, result: merged.result, shellRunSource: update.source }
+      : tool;
   });
   return projectTurnTools(turns, projected);
 }

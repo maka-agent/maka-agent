@@ -521,6 +521,56 @@ describe('tool activity presentation', () => {
     assert.match(markup, /white-space:pre/);
   });
 
+  it('labels a running inherited PTY by source-session ownership', () => {
+    const markup = renderToStaticMarkup(createElement(ToolResultPreview, {
+      toolName: 'Bash',
+      shellRunSource: 'owned',
+      content: {
+        kind: 'shell_run',
+        ref: 'maka://runtime/background-tasks/pty-branch',
+        mode: 'pty',
+        status: 'running',
+        cwd: '/repo',
+        cmd: 'interactive',
+        startedAt: 1,
+        updatedAt: 2,
+        revision: 2,
+        output: {
+          mode: 'pty',
+          screen: 'ready',
+          scrollback: '',
+          cols: 80,
+          rows: 24,
+          cursor: { x: 5, y: 0, visible: true },
+          alternateScreen: false,
+          truncated: false,
+          redacted: false,
+        },
+      },
+    }));
+
+    assert.match(markup, /由源会话管理/);
+    assert.doesNotMatch(markup, />运行中</);
+
+    const unavailableMarkup = renderToStaticMarkup(createElement(ToolResultPreview, {
+      toolName: 'Bash',
+      shellRunSource: 'unavailable',
+      content: {
+        kind: 'shell_run',
+        ref: 'maka://runtime/background-tasks/pty-branch',
+        mode: 'pty',
+        status: 'running',
+        cwd: '/repo',
+        cmd: 'interactive',
+        startedAt: 1,
+        updatedAt: 2,
+        revision: 2,
+      },
+    }));
+    assert.match(unavailableMarkup, /源会话不可用/);
+    assert.doesNotMatch(unavailableMarkup, />运行中</);
+  });
+
   it('renders a failed WriteStdin as operation metadata without its ShellRun panel', () => {
     const markup = renderToStaticMarkup(createElement(ToolActivity, {
       items: [{

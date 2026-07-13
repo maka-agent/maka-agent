@@ -1,4 +1,8 @@
-import { mergeShellRunStateWithDiagnostics, type ShellRunUpdate } from '@maka/core';
+import {
+  mergeShellRunUpdate,
+  projectShellRunUpdateForSession,
+  type ShellRunUpdate,
+} from '@maka/core';
 
 export type ShellRunUpdatesBySession = Record<string, Record<string, ShellRunUpdate>>;
 
@@ -10,17 +14,32 @@ export function mergeShellRunUpdates(
   for (const update of updates) {
     const session = next[update.sessionId] ?? {};
     const previous = session[update.sourceToolCallId];
-    const merged = mergeShellRunStateWithDiagnostics(
-      previous?.result,
-      update.result,
+    const merged = mergeShellRunUpdate(
+      previous,
+      update,
       'desktop.shell-run-update-state',
     );
     if (!merged.changed) continue;
     if (next === current) next = { ...current };
     next[update.sessionId] = {
       ...session,
-      [update.sourceToolCallId]: { ...update, result: merged.result },
+      [update.sourceToolCallId]: merged.update,
     };
   }
   return next;
+}
+
+export function mergeShellRunNotification(
+  current: ShellRunUpdatesBySession,
+  sessionId: string,
+  update: ShellRunUpdate,
+): ShellRunUpdatesBySession {
+  return mergeShellRunUpdates(
+    current,
+    projectShellRunUpdateForSession(
+      sessionId,
+      Object.values(current[sessionId] ?? {}),
+      update,
+    ),
+  );
 }

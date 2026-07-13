@@ -1221,7 +1221,7 @@ function registerIpc(): void {
     },
   );
   registerPlanReminderIpc({ planReminders, getWorkspacePrivacyContext });
-  ipcMain.handle('shell-runs:list', (_event, sessionId: string) => shellRuns.listSessionUpdates(sessionId));
+  ipcMain.handle('shell-runs:list', (_event, sessionId: string) => runtime.listShellRunUpdates(sessionId));
   ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
   ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {
     const cwd = input?.cwd ?? (await currentProjectRoot());

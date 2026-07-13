@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ShellRunSnapshotResult, ShellRunUpdate } from '@maka/core';
-import { mergeShellRunUpdates } from '../../renderer/shell-run-update-state.js';
+import {
+  mergeShellRunNotification,
+  mergeShellRunUpdates,
+} from '../../renderer/shell-run-update-state.js';
 
 test('ShellRun update state rejects a stale hydration result after a newer notification', () => {
   const current = mergeShellRunUpdates({}, [update(3)]);
@@ -14,9 +17,70 @@ test('ShellRun update state rejects a stale hydration result after a newer notif
   assert.equal(afterNewerNotification.session?.bash?.result.revision, 4);
 });
 
+test('ShellRun update state fans owner completion into an inherited session view', () => {
+  const inherited: ShellRunUpdate = {
+    sessionId: 'branch',
+    ownership: {
+      kind: 'source_owned',
+      sourceSessionId: 'parent',
+      ownerSessionId: 'owner',
+    },
+    sourceTurnId: 'turn',
+    sourceToolCallId: 'bash',
+    result: shellRun(3),
+  };
+  const current = mergeShellRunUpdates({}, [inherited]);
+  const ownerCompletion: ShellRunUpdate = {
+    sessionId: 'owner',
+    ownership: { kind: 'local' },
+    sourceTurnId: 'owner-turn',
+    sourceToolCallId: 'owner-bash',
+    result: {
+      ...shellRun(4),
+      status: 'completed',
+      completedAt: 4,
+      exitCode: 0,
+    },
+  };
+
+  const next = mergeShellRunNotification(current, 'branch', ownerCompletion);
+
+  assert.equal(next.branch?.bash?.sessionId, 'branch');
+  assert.deepEqual(next.branch?.bash?.ownership, inherited.ownership);
+  assert.equal(next.branch?.bash?.result.status, 'completed');
+  assert.equal(next.branch?.bash?.result.revision, 4);
+});
+
+test('ShellRun update state applies ownership changes at the same revision', () => {
+  const owned: ShellRunUpdate = {
+    sessionId: 'branch',
+    ownership: {
+      kind: 'source_owned',
+      sourceSessionId: 'parent',
+      ownerSessionId: 'owner',
+    },
+    sourceTurnId: 'turn',
+    sourceToolCallId: 'bash',
+    result: shellRun(3),
+  };
+  const current = mergeShellRunUpdates({}, [owned]);
+  const next = mergeShellRunUpdates(current, [{
+    ...owned,
+    ownership: { kind: 'source_unavailable', sourceSessionId: 'parent' },
+  }]);
+
+  assert.notEqual(next, current);
+  assert.deepEqual(next.branch?.bash?.ownership, {
+    kind: 'source_unavailable',
+    sourceSessionId: 'parent',
+  });
+  assert.equal(next.branch?.bash?.result.revision, 3);
+});
+
 function update(revision: number): ShellRunUpdate {
   return {
     sessionId: 'session',
+    ownership: { kind: 'local' },
     sourceTurnId: 'turn',
     sourceToolCallId: 'bash',
     result: shellRun(revision),

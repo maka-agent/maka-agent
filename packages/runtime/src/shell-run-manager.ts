@@ -6,6 +6,7 @@ import {
   type ShellOutput,
   type ShellRunPatch,
   type ShellRunRecord,
+  type ShellRunSnapshotResult,
   type ShellRunUpdate,
 } from '@maka/core';
 import type { ToolResultContent } from '@maka/core/events';
@@ -357,8 +358,13 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     return this.resourceDetail(sessionId, ref, true, abortSignal);
   }
 
-  async inspectResource(sessionId: string, ref: string): Promise<ShellRunToolResult> {
-    return this.resourceDetail(sessionId, ref, false, new AbortController().signal);
+  async inspectResource(sessionId: string, ref: string): Promise<ShellRunSnapshotResult> {
+    const result = await this.resourceDetail(sessionId, ref, false, new AbortController().signal);
+    if (result.output === undefined) {
+      throw new Error('ShellRun inspection did not produce a snapshot');
+    }
+    const { operation: _operation, ...snapshot } = result;
+    return snapshot;
   }
 
   async stopBackgroundTask(

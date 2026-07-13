@@ -1,6 +1,7 @@
 import type {
   ShellRunSnapshotResult,
   ShellRunStateResult,
+  ShellRunUpdate,
   ToolResultContent,
 } from './events.js';
 import {
@@ -14,6 +15,62 @@ import {
 export type ShellRunToolResult = Extract<ToolResultContent, { kind: 'shell_run' }>;
 type TerminalToolResult = Extract<ToolResultContent, { kind: 'terminal' }>;
 type ShellToolResult = TerminalToolResult | ShellRunToolResult;
+
+/** Bounds observer updates retained while a durable ShellRun view is hydrating. */
+export const SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES = 256;
+
+export interface ShellRunUpdateBufferDrain {
+  updates: ShellRunUpdate[];
+  overflowed: boolean;
+}
+
+export class ShellRunUpdateBuffer {
+  private readonly updates = new Map<string, ShellRunUpdate>();
+  private overflowed = false;
+
+  constructor(
+    private readonly context: string,
+    private readonly maxEntries = SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES,
+  ) {
+    if (!Number.isInteger(maxEntries) || maxEntries <= 0) {
+      throw new Error('ShellRun update buffer capacity must be a positive integer');
+    }
+  }
+
+  get size(): number {
+    return this.updates.size;
+  }
+
+  add(candidate: ShellRunUpdate): void {
+    const key = `${candidate.sessionId}\0${candidate.result.ref}`;
+    const current = this.updates.get(key);
+    const merged = mergeShellRunUpdate(current, candidate, this.context);
+    if (current && !merged.changed) return;
+    this.updates.delete(key);
+    this.updates.set(key, merged.update);
+    if (this.updates.size <= this.maxEntries) return;
+    const oldestKey = this.updates.keys().next().value;
+    if (oldestKey !== undefined) {
+      this.updates.delete(oldestKey);
+      this.overflowed = true;
+    }
+  }
+
+  drain(): ShellRunUpdateBufferDrain {
+    const drained = {
+      updates: [...this.updates.values()],
+      overflowed: this.overflowed,
+    };
+    this.updates.clear();
+    this.overflowed = false;
+    return drained;
+  }
+
+  clear(): void {
+    this.updates.clear();
+    this.overflowed = false;
+  }
+}
 
 export type ShellToolResultNormalization =
   | { state: 'not_shell' }
@@ -382,6 +439,11 @@ export interface ShellRunMergeDiagnostic {
 
 export type ShellRunMergeDiagnosticReporter = (diagnostic: ShellRunMergeDiagnostic) => void;
 
+export interface ShellRunUpdateMerge {
+  update: ShellRunUpdate;
+  changed: boolean;
+}
+
 export function shellRunStateProjection(result: ShellRunToolResult): ShellRunStateResult {
   const { operation: _operation, ...state } = result;
   return state;
@@ -455,8 +517,62 @@ export function mergeShellRunStateWithDiagnostics(
   return merged;
 }
 
+export function mergeShellRunUpdate(
+  current: ShellRunUpdate | undefined,
+  candidate: ShellRunUpdate,
+  context: string,
+  report?: ShellRunMergeDiagnosticReporter,
+): ShellRunUpdateMerge {
+  if (!current) return { update: candidate, changed: true };
+  const merged = mergeShellRunStateWithDiagnostics(current.result, candidate.result, context, report);
+  const candidateMetadataIsCurrent = current.result.ref === candidate.result.ref
+    && candidate.result.revision >= current.result.revision;
+  const metadata = candidateMetadataIsCurrent ? candidate : current;
+  const update = { ...metadata, result: merged.result };
+  return {
+    update,
+    changed: merged.changed || !shellRunUpdateMetadataEqual(current, update),
+  };
+}
+
+export function projectShellRunUpdateForSession(
+  sessionId: string,
+  current: readonly ShellRunUpdate[],
+  source: ShellRunUpdate,
+): ShellRunUpdate[] {
+  if (source.sessionId === sessionId) return [source];
+  return current.flatMap((view) => view.sessionId === sessionId
+    && view.ownership.kind === 'source_owned'
+    && view.ownership.ownerSessionId === source.sessionId
+    && view.result.ref === source.result.ref
+    ? [{ ...view, result: source.result }]
+    : []);
+}
+
 function reportShellRunMergeDiagnostic(diagnostic: ShellRunMergeDiagnostic): void {
   console.warn('[shell-run] state reconciliation invariant violation', diagnostic);
+}
+
+function shellRunUpdateMetadataEqual(left: ShellRunUpdate, right: ShellRunUpdate): boolean {
+  return left.sessionId === right.sessionId
+    && left.sourceTurnId === right.sourceTurnId
+    && left.sourceToolCallId === right.sourceToolCallId
+    && shellRunOwnershipEqual(left.ownership, right.ownership);
+}
+
+function shellRunOwnershipEqual(
+  left: ShellRunUpdate['ownership'],
+  right: ShellRunUpdate['ownership'],
+): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === 'local' && right.kind === 'local') return true;
+  if (left.kind === 'source_owned' && right.kind === 'source_owned') {
+    return left.sourceSessionId === right.sourceSessionId
+      && left.ownerSessionId === right.ownerSessionId;
+  }
+  return left.kind === 'source_unavailable'
+    && right.kind === 'source_unavailable'
+    && left.sourceSessionId === right.sourceSessionId;
 }
 
 function sameMetadata(left: ShellRunStateResult, right: ShellRunStateResult): boolean {

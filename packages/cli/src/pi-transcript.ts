@@ -13,6 +13,7 @@ import {
   mergeShellRunStateWithDiagnostics,
   projectToolActivityArgs,
   readWriteStdinInputPreview,
+  type ShellRunUpdate,
 } from '@maka/core';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
@@ -72,7 +73,7 @@ export type MakaPiTranscriptEntry =
       progress: BoundedChunkBuffer<string>;
       outputDeltas: BoundedChunkBuffer<MakaPiToolOutputDelta>;
       durationMs?: number;
-      status: 'running' | 'done' | 'error' | 'failed' | 'aborted' | 'detached';
+      status: 'running' | 'done' | 'error' | 'failed' | 'aborted' | 'detached' | 'unavailable';
     }
   | { kind: 'notice'; level: 'info' | 'error'; text: string };
 
@@ -114,31 +115,22 @@ export function refreshRunningShellRunElapsed(
   return found;
 }
 
-export function runningShellRunsInTranscript(
+export function applyShellRunViewUpdateToTranscript(
   state: MakaPiTranscriptState,
-): Array<{ sourceToolCallId: string; ref: string }> {
-  return state.entries.flatMap((entry) => entry.kind === 'tool'
-    && entry.toolName === 'Bash'
-    && entry.status === 'running'
-    && entry.result?.kind === 'shell_run'
-    && entry.result.status === 'running'
-    ? [{ sourceToolCallId: entry.toolUseId, ref: entry.result.ref }]
-    : []);
-}
-
-export function applyDetachedShellRunToTranscript(
-  state: MakaPiTranscriptState,
-  sourceToolCallId: string,
-  update: Extract<ToolResultContent, { kind: 'shell_run' }>,
+  update: ShellRunUpdate,
 ): boolean {
-  const applied = applyShellRunUpdateToTranscript(state, sourceToolCallId, update);
-  const tool = findToolEntry(state, sourceToolCallId);
+  const applied = applyShellRunUpdateToTranscript(state, update.sourceToolCallId, update.result);
+  const tool = findToolEntry(state, update.sourceToolCallId);
   if (!tool
     || tool.toolName !== 'Bash'
     || tool.result?.kind !== 'shell_run'
-    || tool.result.ref !== update.ref
+    || tool.result.ref !== update.result.ref
     || tool.result.status !== 'running') return applied;
-  tool.status = 'detached';
+  const status = update.ownership.kind === 'local'
+    ? 'running'
+    : update.ownership.kind === 'source_owned' ? 'detached' : 'unavailable';
+  if (tool.status === status) return applied;
+  tool.status = status;
   return true;
 }
 

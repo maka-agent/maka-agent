@@ -431,7 +431,12 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
         ) : isAutomationTool(item.toolName) && displayResult.kind === 'text' ? (
           <AutomationResultPreview text={displayResult.text} />
         ) : (
-          <ToolResultPreview content={displayResult} toolName={item.toolName} args={item.args} />
+          <ToolResultPreview
+            content={displayResult}
+            toolName={item.toolName}
+            args={item.args}
+            shellRunSource={item.shellRunSource}
+          />
         )
       )}
       {hasSharedPanelContent && (

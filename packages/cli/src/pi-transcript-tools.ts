@@ -31,6 +31,8 @@ function toolStatusText(entry: MakaPiToolEntry): string {
     ? ansi.yellow('running')
     : entry.status === 'detached'
       ? ansi.dim('detached')
+      : entry.status === 'unavailable'
+        ? ansi.dim('source unavailable')
       : entry.status === 'done'
         ? ansi.green('done')
         : ansi.red(entry.status);
@@ -125,6 +127,8 @@ function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolS
     return {
       text: entry.status === 'detached'
         ? ansi.dim('(owned by source session)')
+        : entry.status === 'unavailable'
+          ? ansi.dim('(source session unavailable)')
         : result.status === 'running'
           ? ansi.dim('(waiting for output)')
           : ansi.dim('(no output)'),

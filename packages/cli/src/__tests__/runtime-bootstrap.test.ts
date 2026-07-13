@@ -320,7 +320,7 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
-  test('resolves an inherited ShellRun through branch session lineage', async () => {
+  test('exposes canonical ShellRun updates through the runtime context', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const connectionStore = createConnectionStore(workspaceRoot);
       await connectionStore.create({
@@ -331,12 +331,6 @@ describe('Maka CLI runtime bootstrap', () => {
         const parent = await context.runtime.createSession({
           cwd: workspaceRoot, backend: 'ai-sdk', llmConnectionSlug: 'local',
           model: 'llama3.2', permissionMode: 'bypass', name: 'parent',
-        });
-        const runtimeDeps = (context.runtime as unknown as RuntimeWithPrivateDeps).deps;
-        const branch = await runtimeDeps.store.create({
-          cwd: workspaceRoot, backend: 'ai-sdk', llmConnectionSlug: 'local',
-          model: 'llama3.2', permissionMode: 'bypass', name: 'branch',
-          parentSessionId: parent.id,
         });
         const bash = context.tools.find((tool) => tool.name === 'Bash');
         assert.ok(bash);
@@ -352,9 +346,10 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(started.status, 'running');
         assert.ok(started.ref);
 
-        const inherited = await context.readShellRun(branch.id, started.ref);
-        assert.equal(inherited.ownerSessionId, parent.id);
-        assert.equal(inherited.result.status, 'running');
+        const updates = await context.listShellRunUpdates(parent.id);
+        const update = updates.find((candidate) => candidate.result.ref === started.ref);
+        assert.deepEqual(update?.ownership, { kind: 'local' });
+        assert.equal(update?.result.status, 'running');
       } finally {
         await context.close();
       }
@@ -384,8 +379,9 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.ok(started.ref);
 
         const hydrated = await waitFor(async () => {
-          const snapshot = await context.readShellRun('session-1', started.ref!);
-          return snapshot.result.status === 'completed' ? snapshot : undefined;
+          const updates = await context.listShellRunUpdates('session-1');
+          const snapshot = updates.find((candidate) => candidate.result.ref === started.ref);
+          return snapshot?.result.status === 'completed' ? snapshot : undefined;
         });
         assert.equal(hydrated.result.status, 'completed');
         const stored = await createShellRunStore(workspaceRoot).readShellRun(

@@ -2,11 +2,15 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  ShellRunUpdateBuffer,
   mergeShellRunState,
   mergeShellRunStateWithDiagnostics,
+  mergeShellRunUpdate,
   normalizeShellToolResultContent,
+  projectShellRunUpdateForSession,
   type ShellRunMergeDiagnostic,
   type ShellRunToolResult,
+  type ShellRunUpdate,
 } from '../index.js';
 
 describe('mergeShellRunState', () => {
@@ -58,6 +62,97 @@ describe('mergeShellRunState', () => {
       currentRevision: 2,
       candidateRevision: 2,
     }]);
+  });
+});
+
+describe('ShellRun view updates', () => {
+  it('fans an owner revision into the inherited view identity', () => {
+    const inherited = shellRunUpdate({
+      sessionId: 'branch',
+      ownership: {
+        kind: 'source_owned',
+        sourceSessionId: 'parent',
+        ownerSessionId: 'owner',
+      },
+      result: shellRun({ revision: 2 }),
+    });
+    const owner = shellRunUpdate({
+      sessionId: 'owner',
+      ownership: { kind: 'local' },
+      result: shellRun({
+        revision: 3,
+        status: 'completed',
+        completedAt: 3,
+        exitCode: 0,
+      }),
+    });
+
+    const projected = projectShellRunUpdateForSession('branch', [inherited], owner);
+
+    assert.equal(projected.length, 1);
+    assert.equal(projected[0]?.sessionId, 'branch');
+    assert.equal(projected[0]?.sourceToolCallId, 'bash-1');
+    assert.deepEqual(projected[0]?.ownership, inherited.ownership);
+    assert.equal(projected[0]?.result.status, 'completed');
+    assert.equal(projected[0]?.result.revision, 3);
+  });
+
+  it('applies ownership-only changes without letting stale revisions rewrite ownership', () => {
+    const owned = shellRunUpdate({
+      ownership: {
+        kind: 'source_owned',
+        sourceSessionId: 'parent',
+        ownerSessionId: 'owner',
+      },
+      result: shellRun({ revision: 2 }),
+    });
+    const unavailable = shellRunUpdate({
+      ownership: { kind: 'source_unavailable', sourceSessionId: 'parent' },
+      result: shellRun({ revision: 2 }),
+    });
+    const changed = mergeShellRunUpdate(owned, unavailable, 'test.ownership');
+    assert.equal(changed.changed, true);
+    assert.deepEqual(changed.update.ownership, unavailable.ownership);
+
+    const stale = shellRunUpdate({
+      ownership: { kind: 'local' },
+      result: shellRun({ revision: 1 }),
+    });
+    const retained = mergeShellRunUpdate(changed.update, stale, 'test.stale-ownership');
+    assert.equal(retained.changed, false);
+    assert.deepEqual(retained.update.ownership, unavailable.ownership);
+  });
+
+  it('bounds hydration updates while retaining the latest revision of recently active refs', () => {
+    const buffer = new ShellRunUpdateBuffer('test.hydration-buffer', 2);
+    const first = shellRunUpdate({
+      result: shellRun({ ref: 'maka://runtime/background-tasks/run-1', revision: 1 }),
+    });
+    const second = shellRunUpdate({
+      result: shellRun({ ref: 'maka://runtime/background-tasks/run-2', revision: 1 }),
+    });
+    const refreshedFirst = shellRunUpdate({
+      result: shellRun({ ref: 'maka://runtime/background-tasks/run-1', revision: 2 }),
+    });
+    const third = shellRunUpdate({
+      result: shellRun({ ref: 'maka://runtime/background-tasks/run-3', revision: 1 }),
+    });
+
+    buffer.add(first);
+    buffer.add(second);
+    buffer.add(refreshedFirst);
+    buffer.add(second);
+    buffer.add(third);
+
+    assert.equal(buffer.size, 2);
+    const drained = buffer.drain();
+    assert.equal(drained.overflowed, true);
+    assert.deepEqual(drained.updates.map((update) => [update.result.ref, update.result.revision]), [
+      ['maka://runtime/background-tasks/run-1', 2],
+      ['maka://runtime/background-tasks/run-3', 1],
+    ]);
+    assert.equal(buffer.size, 0);
+    assert.deepEqual(buffer.drain(), { updates: [], overflowed: false });
   });
 });
 
@@ -140,5 +235,16 @@ function pipeOutput(
     stdoutTruncated: false,
     stderrTruncated: false,
     redacted: false,
+  };
+}
+
+function shellRunUpdate(overrides: Partial<ShellRunUpdate>): ShellRunUpdate {
+  return {
+    sessionId: 'branch',
+    ownership: { kind: 'local' },
+    sourceTurnId: 'turn-1',
+    sourceToolCallId: 'bash-1',
+    result: shellRun(),
+    ...overrides,
   };
 }

@@ -373,11 +373,19 @@ export type ToolResultContent =
     };
 
 /** Durable ShellRun state updates use a separate observer channel from model turns. */
+export type ShellRunUpdateOwnership =
+  | { kind: 'local' }
+  | { kind: 'source_owned'; sourceSessionId: string; ownerSessionId: string }
+  | { kind: 'source_unavailable'; sourceSessionId: string };
+
 export interface ShellRunUpdate {
+  /** Session whose conversation view should consume this projection. */
   sessionId: string;
+  /** Whether the process is local or inherited, and whether its real owner is still resolvable. */
+  ownership: ShellRunUpdateOwnership;
   sourceTurnId: string;
   sourceToolCallId: string;
-  result: ShellRunSnapshotResult;
+  result: ShellRunStateResult;
 }
 
 export interface PermissionRequestEvent extends BaseEvent {
