@@ -298,6 +298,11 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   interface KeyboardTarget {
     window: CuaResolvedWindow;
     editable: boolean;
+    nativeEditableIdentity?: {
+      role: string;
+      label?: string;
+      value?: string;
+    };
     pageTarget?: CuaResolvedPageTextTarget;
   }
   const targetsBySession = new Map<string, { turnId: string; target: KeyboardTarget }>();
@@ -1505,13 +1510,34 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         message: 'background text input requires an AX-addressable editable field',
       };
     }
+    const identity = target.nativeEditableIdentity;
+    if (!identity) {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message: 'background text input requires the clicked editable field identity',
+      };
+    }
+    const resolveEditable = (elements: readonly CuaSnapshotElement[]) => {
+      const matches = elements.flatMap((candidate) => {
+        const element = normalizeCuaSnapshotElement(candidate);
+        if (
+          !element
+          || element.role !== identity.role
+          || element.label !== identity.label
+          || element.value !== identity.value
+        ) return [];
+        return [element];
+      });
+      return matches.length === 1 ? matches[0] : undefined;
+    };
     const snapshot = await snapshotTarget(target.window, signal);
-    const element = editableElementAtScreenPoint(snapshot.elements, target.window.screenPoint);
+    const element = resolveEditable(snapshot.elements);
     if (!element) {
       return {
         ok: false,
         error: 'unsupported_action',
-        message: 'editable field was not present in the fresh AX snapshot',
+        message: 'clicked editable field was missing or ambiguous in the fresh AX snapshot',
       };
     }
     if (element.value && element.value !== text) {
@@ -1544,10 +1570,17 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     );
     if (setResult?.isError) return normalizeCuaDriverOutcome(setResult);
     const after = await snapshotTarget(target.window, signal);
-    const verified = editableElementAtScreenPoint(
-      after.elements,
-      target.window.screenPoint,
-    )?.value === text;
+    const verifiedMatches = after.elements.flatMap((candidate) => {
+      const current = normalizeCuaSnapshotElement(candidate);
+      if (
+        !current
+        || current.role !== identity.role
+        || current.label !== identity.label
+        || current.value !== text
+      ) return [];
+      return [current];
+    });
+    const verified = verifiedMatches.length === 1;
     return verified
       ? {
           ok: true,
@@ -2235,6 +2268,19 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
                 target: {
                   window: win,
                   editable: editableElement !== undefined,
+                  ...(editableElement
+                    ? {
+                        nativeEditableIdentity: {
+                          role: editableElement.role,
+                          ...(editableElement.label === undefined
+                            ? {}
+                            : { label: editableElement.label }),
+                          ...(editableElement.value === undefined
+                            ? {}
+                            : { value: editableElement.value }),
+                        },
+                      }
+                    : {}),
                 },
               });
             }

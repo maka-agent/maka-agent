@@ -1954,6 +1954,37 @@ describe('cua-driver backend', () => {
     assert.ok(!methodTrace(records).includes('tools/call:list_apps'), 'must never resolve a frontmost pid to type into');
   });
 
+  it('refetches the clicked editable field by identity after layout reflow', async () => {
+    const { backend, logPath } = makeBackend({ refetchMode: 'moved' });
+    const sig = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      sig,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const typed = await backend.run({ type: 'type', text: 'after reflow' } as CuAction, sig);
+    assert.equal(typed.outcome.ok, true);
+
+    const call = toolCall(await readRecords(logPath), 'set_value');
+    assert.equal(call?.element_index, 9);
+    assert.equal(call?.element_token, 'snapshot:9');
+  });
+
+  it('refuses native text when the clicked editable identity becomes ambiguous', async () => {
+    const { backend, logPath } = makeBackend({ refetchMode: 'ambiguous' });
+    const sig = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      sig,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const typed = await backend.run({ type: 'type', text: 'must-not-land' } as CuAction, sig);
+    assert.equal(typed.outcome.ok, false);
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 0);
+  });
+
   it('parallel click then type waits for the new click target instead of using the old window', async () => {
     const { backend, logPath } = makeBackend({ delayTool: 'click', delayMs: 120 });
     const sig = new AbortController().signal;
