@@ -170,6 +170,28 @@ describe('ModelCatalogEntry', () => {
     assert.ok(entries.some((entry) => entry.id === 'Qwen/Qwen3.5-9B'));
   });
 
+  it('uses the checked-in DeepInfra snapshot until live discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'deepinfra',
+        providerType: 'deepinfra',
+        defaultModel: 'moonshotai/Kimi-K2.7-Code',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'moonshotai/Kimi-K2.7-Code');
+    assert.equal(entries[0]?.displayName, 'Kimi K2.7 Code');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'moonshotai/Kimi-K2.6'));
+    assert.ok(!entries.some((entry) => entry.id === 'BAAI/bge-m3'));
+  });
+
   it('uses the checked-in Fireworks snapshot until live discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

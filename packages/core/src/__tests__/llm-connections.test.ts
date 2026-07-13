@@ -52,6 +52,7 @@ describe('provider compatibility contract', () => {
       'stepfun-step-plan',
       'stepfun-ai',
       'volcengine-ark',
+      'deepinfra',
       'ollama',
       'lm-studio',
       'localai',
@@ -90,6 +91,7 @@ describe('provider compatibility contract', () => {
       'volcengine-coding-plan',
       'tencent-token-plan',
       'stepfun-step-plan',
+      'deepinfra',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -121,6 +123,7 @@ describe('provider compatibility contract', () => {
       'volcengine-coding-plan',
       'tencent-token-plan',
       'stepfun-step-plan',
+      'deepinfra',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -262,6 +265,24 @@ describe('provider compatibility contract', () => {
     assert.equal(mistral.fallbackModels[0], 'mistral-large-latest');
     assert.ok(mistral.fallbackModels.includes('mistral-small-latest'));
     assert.ok(!mistral.fallbackModels.includes('mistral-embed'));
+  });
+
+  it('owns DeepInfra direct API behavior under the stable deepinfra id', () => {
+    const deepinfra = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).deepinfra;
+
+    assert.ok(deepinfra, 'DeepInfra must be available through the shared provider registry');
+    assert.equal(deepinfra.label, 'Deep Infra');
+    assert.equal(deepinfra.baseUrl, 'https://api.deepinfra.com/v1/openai');
+    assert.equal(deepinfra.authKind, 'api_key');
+    assert.equal(deepinfra.protocol, 'openai');
+    assert.deepEqual(deepinfra.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(deepinfra.modelDiscovery, { kind: 'protocol' });
+    assert.equal(deepinfra.category, 'overseas');
+    assert.equal(deepinfra.catalogGroup, 'api');
+    assert.equal(deepinfra.modelsDevId, 'deepinfra');
+    assert.equal(deepinfra.fallbackModels[0], 'moonshotai/Kimi-K2.7-Code');
+    assert.ok(deepinfra.fallbackModels.includes('moonshotai/Kimi-K2.6'));
+    assert.ok(!deepinfra.fallbackModels.includes('BAAI/bge-m3'));
   });
 
   it('owns the complete Together AI provider contract under the stable togetherai id', () => {
