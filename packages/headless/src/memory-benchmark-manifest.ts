@@ -246,9 +246,10 @@ export function planMemoryBenchmarkResume(
 export async function readMemoryBenchmarkAttempts(
   runRoot: string,
   manifest: MemoryBenchmarkManifest,
+  containmentRoot = runRoot,
 ): Promise<MemoryBenchmarkAttemptArtifact[]> {
   const frozenManifest = validatedManifestSnapshot(manifest);
-  const path = await resolveManifestAttemptWalPath(runRoot, frozenManifest, false);
+  const path = await resolveManifestAttemptWalPath(runRoot, frozenManifest, false, containmentRoot);
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
@@ -378,6 +379,7 @@ export async function recomputeMemoryBenchmarkScore(
   runRoot: string,
   manifest: MemoryBenchmarkManifest,
   attempts: readonly MemoryBenchmarkAttemptArtifact[],
+  containmentRoot = runRoot,
 ): Promise<MemoryBenchmarkScore> {
   const frozenManifest = validatedManifestSnapshot(manifest);
   const resume = planMemoryBenchmarkResume(frozenManifest, attempts);
@@ -386,18 +388,19 @@ export async function recomputeMemoryBenchmarkScore(
   for (const attempt of attempts) {
     try {
       validateAttemptArtifactLayout(frozenManifest, attempt);
-      const transcriptPath = await resolveArtifactPath(runRoot, attempt.artifacts.transcript);
+      const transcriptPath = await resolveArtifactPath(runRoot, attempt.artifacts.transcript, containmentRoot);
       const transcriptContent = await readVerifiedArtifact(transcriptPath, attempt.artifactDigests.transcript, 'transcript');
       assertRedactedTranscriptContent(transcriptContent);
       const tokenRow = await readAndValidateTokenRecord(
         runRoot,
         attempt.artifacts.tokenRecord,
         attempt.attemptId,
+        containmentRoot,
       );
       if (hashMemoryBenchmarkArtifact(tokenRow) !== attempt.artifactDigests.tokenRecord) {
         throw new Error(`memory benchmark token CSV row digest does not match for ${attempt.attemptId}`);
       }
-      const verifierPath = await resolveArtifactPath(runRoot, attempt.artifacts.verifier);
+      const verifierPath = await resolveArtifactPath(runRoot, attempt.artifacts.verifier, containmentRoot);
       const verifierContent = await readVerifiedArtifact(verifierPath, attempt.artifactDigests.verifier, 'verifier');
       const verifierResult = parseHarborResultArtifact(verifierContent);
       assertMemoryBenchmarkArtifactRedacted(verifierResult);
@@ -534,10 +537,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function assertMemoryBenchmarkArtifactRedacted(value: unknown): void {
+export function assertMemoryBenchmarkArtifactRedacted(value: unknown): void {
   if (JSON.stringify(redactMemoryBenchmarkArtifact(value)) !== JSON.stringify(value)) {
     throw new Error('memory benchmark artifact contains unredacted credentials');
   }
+}
+
+export async function readVerifiedMemoryBenchmarkArtifact(
+  runRoot: string,
+  artifactPath: string,
+  expectedDigest: string,
+  containmentRoot = runRoot,
+): Promise<Buffer> {
+  sha256(expectedDigest, 'memory benchmark artifact digest');
+  return readVerifiedArtifact(await resolveArtifactPath(runRoot, artifactPath, containmentRoot), expectedDigest, 'external');
 }
 
 function assertRedactedTextContent(value: Uint8Array, label: string): void {
@@ -756,6 +769,7 @@ async function resolveManifestAttemptWalPath(
   runRoot: string,
   manifest: MemoryBenchmarkManifest,
   createParent: boolean,
+  containmentRoot = runRoot,
 ): Promise<string> {
   const artifactPath = manifest.artifactPaths.attemptsJsonl;
   relativeArtifactPath(artifactPath, 'memory benchmark manifest artifactPaths.attemptsJsonl');
@@ -769,10 +783,14 @@ async function resolveManifestAttemptWalPath(
   try {
     const entry = await lstat(path);
     if (entry.isSymbolicLink()) throw new Error('memory benchmark attempt WAL must not be a symlink');
-    const [realRoot, realPath] = await Promise.all([realpath(root), realpath(path)]);
+    const [realRoot, realPath, realContainment] = await Promise.all([realpath(root), realpath(path), realpath(containmentRoot)]);
     const realRelativePath = relative(realRoot, realPath);
     if (realRelativePath.startsWith('..') || realRelativePath === '') {
       throw new Error('memory benchmark attempt WAL must not escape through a symlink');
+    }
+    const containmentRelative = relative(realContainment, realPath);
+    if (containmentRelative.startsWith('..') || containmentRelative === '') {
+      throw new Error('memory benchmark attempt WAL must stay inside its containment root');
     }
     return realPath;
   } catch (error) {
@@ -837,7 +855,7 @@ function normalizeArtifactPath(path: string): string {
   return path.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
-async function resolveArtifactPath(runRoot: string, artifactPath: string): Promise<string> {
+async function resolveArtifactPath(runRoot: string, artifactPath: string, containmentRoot = runRoot): Promise<string> {
   relativeArtifactPath(artifactPath, 'memory benchmark artifact path');
   const root = resolve(runRoot);
   const resolved = resolve(root, artifactPath);
@@ -845,10 +863,18 @@ async function resolveArtifactPath(runRoot: string, artifactPath: string): Promi
   if (relativePath.startsWith('..') || relativePath === '') {
     throw new Error('memory benchmark artifact path must resolve inside the run root');
   }
-  const [realRoot, realArtifact] = await Promise.all([realpath(root), realpath(resolved)]);
+  const [realRoot, realArtifact, realContainment] = await Promise.all([
+    realpath(root),
+    realpath(resolved),
+    realpath(containmentRoot),
+  ]);
   const realRelativePath = relative(realRoot, realArtifact);
   if (realRelativePath.startsWith('..') || realRelativePath === '') {
     throw new Error('memory benchmark artifact path must not escape through a symlink');
+  }
+  const containmentRelative = relative(realContainment, realArtifact);
+  if (containmentRelative.startsWith('..') || containmentRelative === '') {
+    throw new Error('memory benchmark artifact path must stay inside its containment root');
   }
   return realArtifact;
 }
@@ -857,12 +883,13 @@ async function readAndValidateTokenRecord(
   runRoot: string,
   tokenRecord: string,
   attemptId: string,
+  containmentRoot = runRoot,
 ): Promise<string> {
   const separator = tokenRecord.indexOf('#');
   if (separator <= 0 || tokenRecord.slice(separator + 1) !== attemptId) {
     throw new Error(`memory benchmark tokenRecord must reference its attemptId: ${attemptId}`);
   }
-  const tokenPath = await resolveArtifactPath(runRoot, tokenRecord.slice(0, separator));
+  const tokenPath = await resolveArtifactPath(runRoot, tokenRecord.slice(0, separator), containmentRoot);
   const rows = (await readFile(tokenPath, 'utf8')).trimEnd().split('\n').map((line) => line.split(','));
   const header = rows.shift();
   const expectedHeader = ['attempt_id', 'input_tokens', 'output_tokens', 'reasoning_tokens', 'total_tokens'];

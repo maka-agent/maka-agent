@@ -8,6 +8,7 @@ export {
   MEMORY_BENCHMARK_MANIFEST_SCHEMA_VERSION,
   MEMORY_BENCHMARK_FORMAT_V1,
   appendMemoryBenchmarkAttempt,
+  assertMemoryBenchmarkArtifactRedacted,
   buildMemoryBenchmarkAttemptId,
   buildMemoryBenchmarkManifest,
   ensureMemoryBenchmarkManifest,
@@ -16,6 +17,7 @@ export {
   parseMemoryBenchmarkManifest,
   planMemoryBenchmarkResume,
   readMemoryBenchmarkAttempts,
+  readVerifiedMemoryBenchmarkArtifact,
   recomputeMemoryBenchmarkScore,
   redactMemoryBenchmarkArtifact,
   writeRedactedMemoryBenchmarkJson,
@@ -32,6 +34,26 @@ export type {
   MemoryBenchmarkScore,
   MemoryBenchmarkWriteOptions,
 } from './memory-benchmark-manifest.js';
+export {
+  MEMORY_BASELINE_SCHEMA_VERSION,
+  auditCurrentMakaMemoryBaseline,
+  buildCurrentMakaMemoryBaseline,
+  buildNextCurrentMakaMemoryBaseline,
+  loadCurrentMakaMemoryBaseline,
+  parseCurrentMakaMemoryBaseline,
+  writeCurrentMakaMemoryBaseline,
+  writeCurrentMakaMemoryBaselineSnapshot,
+} from './memory-baseline.js';
+export type {
+  CurrentMakaMemoryBaseline,
+  CurrentMakaMemoryBaselineInput,
+  CurrentMakaMemoryBaselineSnapshot,
+  MemoryBaselineCapabilityProbe,
+  MemoryBaselineCalibrationEvidence,
+  MemoryBaselineKnownGap,
+  MemoryBaselineRunAudit,
+  MemoryBaselineRunReference,
+} from './memory-baseline.js';
 export {
   BUNDLED_MEMORY_BENCHMARK_CATEGORY_COUNTS,
   BUNDLED_MEMORY_BENCHMARK_HASHES,

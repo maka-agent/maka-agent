@@ -177,6 +177,21 @@ frozen artifacts still match their source. Maintainers may use the generator's
 Bundled `v1` files are immutable. Any content change requires a new dataset id
 and version rather than updating the pinned hash in place.
 
+## Current Maka memory baseline
+
+`buildCurrentMakaMemoryBaseline` combines the existing model calibration,
+benchmark manifest, WAL, Harbor importer, and offline scorer contracts. A frozen
+baseline retains six capability probes, three formal calibration reports,
+clean-subject run manifests, explicit known gaps, model/effort configuration,
+dataset hashes, strategy hashes, and repetitions.
+
+`auditCurrentMakaMemoryBaseline` reads the manifest-declared attempts,
+transcripts, exact token rows, and Harbor verifier artifacts without contacting
+a model. Incomplete, tampered, or non-authoritative evidence produces an
+`invalid` snapshot and remains available for audit. Baseline descriptors and
+snapshots use the existing create-only redacted artifact writer, so a repeated
+run must use a new baseline id/path and cannot overwrite frozen evidence.
+
 Tasks may also use typed benchmark verifiers. Terminal-Bench is the first
 carrier, but it is an adapter hook rather than a runtime architecture:
 
