@@ -37,6 +37,15 @@ import { truncateToolOutput } from './tool-output.js';
 import { stableHash } from './request-shape.js';
 import type { RunTraceLike } from './run-trace.js';
 
+export type ToolModelOutputPart =
+  | { type: 'text'; text: string }
+  | { type: 'image-data'; data: string; mediaType: string };
+
+export interface ToolModelOutput {
+  type: 'content';
+  value: ToolModelOutputPart[];
+}
+
 export interface MakaTool<P = any, R = unknown> {
   /** Canonical (Claude-SDK-style) name. Pi adapter translates to canonical. */
   name: string;
@@ -57,6 +66,11 @@ export interface MakaTool<P = any, R = unknown> {
   categoryHint?: ToolCategory;
   /** Optional trusted facts about the executor that runs this tool. */
   executionFacts?: ToolExecutionFacts;
+  /** Optional permission/persistence projection derived from frozen execution args. */
+  permissionArgs?: (
+    args: P,
+    context: Pick<MakaToolContext, 'sessionId' | 'turnId' | 'toolCallId'>,
+  ) => unknown;
   /** Optional trusted platform sandbox availability for this tool. */
   sandbox?: {
     platformSandboxAvailable: boolean;
@@ -65,6 +79,12 @@ export interface MakaTool<P = any, R = unknown> {
   });
   /** Real tool implementation. Called only after permission allows. */
   impl: (args: P, ctx: MakaToolContext) => Promise<R> | R;
+  /** Optional provider-visible content mapping, used for screenshot image parts. */
+  toModelOutput?: (options: {
+    toolCallId: string;
+    input: unknown;
+    output: unknown;
+  }) => ToolModelOutput;
 }
 
 export interface MakaToolContext {
@@ -258,10 +278,17 @@ export class ToolRuntime {
     ctx: { toolCallId: string; abortSignal: AbortSignal },
   ): Promise<unknown> {
     const executionArgs = snapshotToolArgs(args);
-    const persistedArgs = tool.categoryHint === 'computer_use'
-      ? computerUseApprovalSummary(executionArgs)
-      : executionArgs;
     const toolUseId = ctx.toolCallId;
+    const permissionArgs = tool.permissionArgs
+      ? snapshotToolArgs(tool.permissionArgs(executionArgs as never, {
+          sessionId: this.input.sessionId,
+          turnId,
+          toolCallId: toolUseId,
+        }))
+      : executionArgs;
+    const persistedArgs = tool.categoryHint === 'computer_use'
+      ? computerUseApprovalSummary(permissionArgs)
+      : permissionArgs;
     const now = this.input.now();
     const toolIntent = describeToolIntent(tool, persistedArgs);
     const trace = this.input.getRunTrace?.() ?? null;
@@ -355,7 +382,7 @@ export class ToolRuntime {
         turnId,
         toolUseId,
         toolName: tool.name,
-        args: executionArgs,
+        args: permissionArgs,
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         permissionRequired: tool.permissionRequired !== false,

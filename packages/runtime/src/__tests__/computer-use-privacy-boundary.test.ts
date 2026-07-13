@@ -16,6 +16,7 @@ test('Computer Use snapshots execution args and persists only the approval summa
   const invocations: ToolInvocationRecord[] = [];
   const observedImplArgs: unknown[] = [];
   const observedSandboxArgs: unknown[] = [];
+  const observedPermissionContexts: unknown[] = [];
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const runtime = new ToolRuntime({
@@ -36,6 +37,14 @@ test('Computer Use snapshots execution args and persists only the approval summa
     parameters: {},
     categoryHint: 'computer_use',
     permissionRequired: true,
+    permissionArgs: (permissionInput, permissionContext) => {
+      observedPermissionContexts.push(permissionContext);
+      return {
+        ...(permissionInput as Record<string, unknown>),
+        app: 'Runtime Target',
+        window_id: 42,
+      };
+    },
     sandbox: ({ args: sandboxArgs }) => {
       observedSandboxArgs.push(sandboxArgs);
       return { platformSandboxAvailable: true };
@@ -81,11 +90,17 @@ test('Computer Use snapshots execution args and persists only the approval summa
     text: 'secret text',
     coordinate: [123, 456],
   }]);
+  assert.deepEqual(observedPermissionContexts, [{
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    toolCallId: 'tool-1',
+  }]);
   const expectedSummary = {
     action: 'type',
     approvalClass: 'keyboard_mutation',
     rememberForTurnAllowed: true,
-    app: 'Example',
+    app: 'Runtime Target',
+    windowId: 42,
     observationId: 'frame-1',
   };
   const call = messages.find((message) => message.type === 'tool_call');

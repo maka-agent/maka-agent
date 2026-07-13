@@ -887,6 +887,7 @@ export class AiSdkBackend implements AgentBackend {
         description: t.description,
         inputSchema: t.parameters,
         execute: this.wrapToolExecute(t, turnId, queue),
+        ...(t.toModelOutput ? { toModelOutput: t.toModelOutput } : {}),
       };
     }
 

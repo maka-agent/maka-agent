@@ -70,6 +70,45 @@ export type {
   MakaTool as BuiltinMakaTool,
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
+export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
+export type {
+  ComputerUseToolSet,
+  CuAppSummary,
+  CuDispatchBackend,
+  CuDispatchEvidence,
+  CuDispatchOutcome,
+  CuObservedElement,
+  CuObservation,
+  CuRunContext,
+  CuRunResult,
+  CuScreenshot,
+  CuSemanticAction,
+} from './computer-use-tools.js';
+export {
+  bindCuaAction,
+  bindCuaActionToObservation,
+  bindCuaSemanticActionToObservation,
+  CuaFrameState,
+  fingerprintCuaAction,
+  fingerprintCuaSemanticAction,
+} from './cua-frame-state.js';
+export type {
+  CuaActionClaimResult,
+  CuaActionConfirmationResult,
+  CuaActionRejectionReason,
+  CuaBoundAction,
+  CuaFrameIdentity,
+  CuaObservation,
+  CuaObservationSnapshot,
+} from './cua-frame-state.js';
+export { CUA_SESSION_STATUSES, CuaSessionState } from './cua-session-state.js';
+export type {
+  CuaActionLease,
+  CuaActionLeaseResult,
+  CuaSessionActionBlockReason,
+  CuaSessionSnapshot,
+  CuaSessionStatus,
+} from './cua-session-state.js';
 export {
   buildManagedBashTool,
   buildForegroundBashTool,
