@@ -1297,6 +1297,35 @@ describe('cua-driver backend', () => {
     assert.equal(toolCalls(records, 'click').length, 0);
   });
 
+  it('rejects a bound Electron action when the observation had no page identity', async () => {
+    const { backend, logPath } = makeBackend({
+      processKind: 'electron',
+      pageTarget: testPageTarget(),
+      semanticPointerResult: {
+        supported: true,
+        ok: true,
+        kind: 'left_click',
+        clickEvents: 1,
+      },
+    });
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 400, y: 200 } } as CuAction,
+      new AbortController().signal,
+      {
+        ...DEFAULT_RUN_CONTEXT,
+        boundAction: boundCoordinateAction(),
+      },
+    );
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) {
+      assert.equal(result.outcome.error, 'page_target_changed');
+    }
+    const records = await readRecords(logPath);
+    assert.equal(businessPageCalls(records).length, 0);
+    assert.equal(toolCalls(records, 'click').length, 0);
+  });
+
   it('rejects a replaced Electron document with the same target id and URL', async () => {
     let reads = 0;
     const pageTarget = testPageTarget();

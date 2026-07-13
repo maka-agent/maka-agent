@@ -1674,6 +1674,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     signal: AbortSignal,
     toolCallId: string,
     boundPage?: ComputerUsePageIdentity,
+    requireBoundPage = false,
   ): Promise<{
     handled: boolean;
     outcome?: CuRunResult['outcome'];
@@ -1682,6 +1683,16 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   }> {
     const processKind = await (opts.classifyProcess ?? classifyMacProcess)(window.pid);
     if (processKind !== 'electron') return { handled: false };
+    if (requireBoundPage && !boundPage) {
+      return {
+        handled: true,
+        outcome: {
+          ok: false,
+          error: 'page_target_changed',
+          message: 'bound Electron action is missing observed page identity',
+        },
+      };
+    }
     const resolvePageTextTarget = opts.resolvePageTextTarget ?? ((input) =>
       resolveCuaPageTextTarget(input));
     const pageTarget = await resolvePageTextTarget({
@@ -2112,6 +2123,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               signal,
               context.toolCallId,
               context.boundAction?.target?.page,
+              context.boundAction?.target !== undefined,
             );
             if (semantic.handled && semantic.outcome) {
               if (
@@ -2359,6 +2371,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             signal,
             context.toolCallId,
             context.boundAction?.target?.page,
+            context.boundAction?.target !== undefined,
           );
           if (semantic.handled && semantic.outcome) {
             return { outcome: semantic.outcome, resolvedScreenPoint: to.screenPoint };
