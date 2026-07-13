@@ -114,7 +114,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     : [];
   let busy = false;
   let closed = false;
-  let permissionInFlight = false;
+  let permissionResponseInFlightRequestId: string | null = null;
   let userQuestionInFlight = false;
   let userQuestionOverlay: OverlayHandle | undefined;
   let userQuestionProgress: {
@@ -356,32 +356,20 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     rememberForTurn = false,
   ): boolean => {
     const request = activePermissionRequest(state);
-    if (!request || permissionInFlight) return false;
-    permissionInFlight = true;
+    if (!request || permissionResponseInFlightRequestId !== null) return false;
+    permissionResponseInFlightRequestId = request.requestId;
     // Keep the prompt visible until the driver accepts the response. If it
-    // rejects, the user can retry with y/n instead of being stuck.
+    // rejects, the user can retry with y/n instead of being stuck. A resolved
+    // call only means the response was submitted; the event stream owns dequeue.
     void input.driver.respondToPermission({
       requestId: request.requestId,
       decision,
       ...(decision === 'allow' ? { rememberForTurn } : {}),
     })
-      .then(() => {
-        permissionInFlight = false;
-        // The turn may have ended (error/abort/complete) and cleared the pending
-        // prompt while this response was in flight; only record success if the
-        // request is still the active one.
-        if (activePermissionRequest(state)?.requestId !== request.requestId) return;
-        completePendingInteraction(state, request.requestId);
-        state.entries.push({
-          kind: 'notice',
-          level: 'info',
-          text: `Permission ${decision}ed for ${request.toolName}`,
-        });
-        requestRender();
-        syncUserQuestionOverlay();
-      })
       .catch((error) => {
-        permissionInFlight = false;
+        if (permissionResponseInFlightRequestId === request.requestId) {
+          permissionResponseInFlightRequestId = null;
+        }
         reportError(error);
       });
     return true;
@@ -428,6 +416,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // ran — a quick failure in a background tab would otherwise stay silent.
       onError: () => attention.attentionNeeded(),
       onChange: () => {
+        if (
+          permissionResponseInFlightRequestId !== null
+          && activePermissionRequest(state)?.requestId !== permissionResponseInFlightRequestId
+        ) {
+          permissionResponseInFlightRequestId = null;
+        }
         // A pending decision blocks the turn; ring an unfocused terminal once when
         // the prompt first appears (not on every render) so the user is not left
         // waiting on a prompt they cannot see.

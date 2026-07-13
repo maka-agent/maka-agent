@@ -281,6 +281,64 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('waits for permission acknowledgement before advancing concurrent requests', async () => {
+    const terminal = new FakeTerminal();
+    let releaseFirstAck!: () => void;
+    const firstAck = new Promise<void>((resolve) => {
+      releaseFirstAck = resolve;
+    });
+    const driver = new PermissionPromptDriver(
+      ['printf first', 'printf second'],
+      async (index) => {
+        if (index === 0) await firstAck;
+      },
+    );
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('u');
+    terminal.input('n');
+    terminal.input('\r');
+
+    await waitFor(() => driver.permissionRequests === 2);
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('printf first'));
+    assert.doesNotMatch(plainTerminalOutput(terminal.screenOutput()), /printf second/);
+
+    terminal.input('n');
+    await waitFor(() => driver.permissionResponses.length === 1);
+    terminal.input('y');
+    await delay(0);
+    assert.equal(driver.permissionResponses.length, 1);
+    assert.match(plainTerminalOutput(terminal.screenOutput()), /printf first/);
+    assert.doesNotMatch(plainTerminalOutput(terminal.screenOutput()), /printf second/);
+
+    releaseFirstAck();
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('printf second'));
+
+    terminal.input('y');
+    await waitFor(() => driver.permissionResponses.length === 2);
+    assert.deepEqual(driver.permissionResponses, [
+      { requestId: 'permission-1', decision: 'deny' },
+      { requestId: 'permission-2', decision: 'allow', rememberForTurn: false },
+    ]);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('answers sequential questions with a choice, Escape, and Other input', async () => {
     const terminal = new FakeTerminal();
     const driver = new UserQuestionPromptDriver();
@@ -2969,7 +3027,12 @@ class PermissionPromptDriver implements MakaSessionDriver {
   readonly permissionResponses: PermissionResponse[] = [];
   permissionRequests = 0;
   stopCalls = 0;
-  private continueAfterPermission: (() => void) | null = null;
+  private permissionResponseWaiter: (() => void) | null = null;
+
+  constructor(
+    private readonly commands: readonly string[] = ['npm test'],
+    private readonly beforePermissionAck: (index: number) => Promise<void> = async () => {},
+  ) {}
 
   async listSessions(): Promise<SessionSummary[]> {
     return [];
@@ -2978,38 +3041,48 @@ class PermissionPromptDriver implements MakaSessionDriver {
   async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
-    this.permissionRequests += 1;
-    yield {
-      type: 'permission_request',
-      id: 'event-permission',
-      turnId: 'turn-1',
-      ts: 1,
-      requestId: 'permission-1',
-      toolUseId: 'tool-1',
-      toolName: 'Bash',
-      category: 'shell_unsafe',
-      reason: 'shell_dangerous',
-      args: { command: 'npm test' },
-      rememberForTurnAllowed: true,
-    };
-    await new Promise<void>((resolve) => {
-      this.continueAfterPermission = resolve;
-    });
-    yield {
-      type: 'permission_decision_ack',
-      id: 'event-decision',
-      turnId: 'turn-1',
-      ts: 2,
-      requestId: 'permission-1',
-      toolUseId: 'tool-1',
-      decision: 'allow',
-      rememberForTurn: true,
-    };
+    for (const [index, command] of this.commands.entries()) {
+      this.permissionRequests += 1;
+      yield {
+        type: 'permission_request',
+        id: `event-permission-${index + 1}`,
+        turnId: 'turn-1',
+        ts: index + 1,
+        requestId: `permission-${index + 1}`,
+        toolUseId: `tool-${index + 1}`,
+        toolName: 'Bash',
+        category: 'shell_unsafe',
+        reason: 'shell_dangerous',
+        args: { command },
+        rememberForTurnAllowed: true,
+      };
+    }
+    for (const index of this.commands.keys()) {
+      while (this.permissionResponses.length <= index) {
+        await new Promise<void>((resolve) => {
+          this.permissionResponseWaiter = resolve;
+        });
+      }
+      const response = this.permissionResponses[index]!;
+      await this.beforePermissionAck(index);
+      yield {
+        type: 'permission_decision_ack',
+        id: `event-decision-${index + 1}`,
+        turnId: 'turn-1',
+        ts: this.commands.length + index + 1,
+        requestId: response.requestId,
+        toolUseId: `tool-${index + 1}`,
+        decision: response.decision,
+        ...(response.rememberForTurn !== undefined
+          ? { rememberForTurn: response.rememberForTurn }
+          : {}),
+      };
+    }
     yield {
       type: 'complete',
       id: 'event-complete',
       turnId: 'turn-1',
-      ts: 3,
+      ts: this.commands.length * 2 + 1,
       stopReason: 'end_turn',
     };
   }
@@ -3020,7 +3093,9 @@ class PermissionPromptDriver implements MakaSessionDriver {
 
   async respondToPermission(response: PermissionResponse): Promise<void> {
     this.permissionResponses.push(response);
-    this.continueAfterPermission?.();
+    const waiter = this.permissionResponseWaiter;
+    this.permissionResponseWaiter = null;
+    waiter?.();
   }
   async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}

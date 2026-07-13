@@ -235,6 +235,7 @@ export async function submitPromptToTranscript(input: {
     }
   } catch (error) {
     errored = true;
+    clearPendingInteractions(input.state);
     input.state.entries.push({
       kind: 'notice',
       level: 'error',
@@ -317,6 +318,7 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'tool_result': {
+      completePendingPermissionsForToolUseId(state, event.toolUseId);
       const tool = findToolEntry(state, event.toolUseId);
       const shellRun = event.content.kind === 'shell_run' ? event.content : undefined;
       const parent = shellRun
@@ -725,8 +727,23 @@ function enqueuePendingInteraction(
   state: MakaPiTranscriptState,
   request: MakaPiPendingInteraction,
 ): void {
+  if (findPendingInteraction(state, request.requestId)) return;
   if (!state.pendingInteraction) state.pendingInteraction = request;
   else state.queuedInteractions.push(request);
+}
+
+function completePendingPermissionsForToolUseId(
+  state: MakaPiTranscriptState,
+  toolUseId: string,
+): void {
+  const requestIds = [state.pendingInteraction, ...state.queuedInteractions]
+    .filter(
+      (request): request is PermissionRequestEvent => (
+        request?.type === 'permission_request' && request.toolUseId === toolUseId
+      ),
+    )
+    .map((request) => request.requestId);
+  for (const requestId of requestIds) completePendingInteraction(state, requestId);
 }
 
 function findPendingInteraction(
