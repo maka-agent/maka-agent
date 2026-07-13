@@ -116,6 +116,26 @@ describe('ModelCatalogEntry', () => {
     });
   });
 
+  it('uses the checked-in NVIDIA snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'nvidia',
+        providerType: 'nvidia',
+        defaultModel: 'nvidia/nemotron-3-super-120b-a12b',
+      },
+    });
+
+    const recommended = entries[0];
+    assert.equal(recommended?.id, 'nvidia/nemotron-3-super-120b-a12b');
+    assert.equal(recommended?.source, 'static_catalog');
+    assert.equal(recommended?.provenance.modelSource, 'fallback');
+    assert.deepEqual(recommended?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'openai/gpt-oss-120b'));
+  });
+
   it('uses models.dev fallback metadata for a SiliconFlow connection before live discovery', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

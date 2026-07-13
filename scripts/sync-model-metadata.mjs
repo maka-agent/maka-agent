@@ -13,6 +13,7 @@ const PROVIDERS = {
   'MiniMax-cn': 'minimax-cn',
   mistral: 'mistral',
   moonshot: 'moonshotai-cn',
+  nvidia: 'nvidia',
   openai: 'openai',
   siliconflow: 'siliconflow',
   togetherai: 'togetherai',

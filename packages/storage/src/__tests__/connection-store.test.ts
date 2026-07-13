@@ -78,6 +78,24 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the NVIDIA provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const modelId = 'nvidia/nemotron-3-super-120b-a12b';
+      await store.create({
+        slug: 'nvidia',
+        name: 'NVIDIA',
+        providerType: 'nvidia',
+        defaultModel: modelId,
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'nvidia');
+      assert.equal(persisted.connections[0]?.defaultModel, modelId);
+    });
+  });
+
   test('persists the MiniMax Coding Plan provider id and exact default model', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

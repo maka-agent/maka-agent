@@ -73,8 +73,13 @@ if (xai.id !== 'xai') throw new Error('models.dev xAI provider facts are missing
 const xaiModelIds = toolCallingModelIds('xAI', GENERATED_MODELS_DEV_METADATA.xai, ['grok-4.5']);
 const cerebras = GENERATED_MODELS_DEV_PROVIDER_FACTS.cerebras;
 if (cerebras.id !== 'cerebras') throw new Error('models.dev Cerebras provider facts are missing stable id cerebras');
-
 const cerebrasModelIds = toolCallingModelIds('Cerebras', GENERATED_MODELS_DEV_METADATA.cerebras, ['gpt-oss-120b']);
+const nvidia = GENERATED_MODELS_DEV_PROVIDER_FACTS.nvidia;
+if (nvidia.id !== 'nvidia') throw new Error('models.dev NVIDIA provider facts are missing stable id nvidia');
+if (!nvidia.api) throw new Error('models.dev NVIDIA provider facts are missing api');
+const nvidiaModelIds = toolCallingModelIds('NVIDIA', GENERATED_MODELS_DEV_METADATA.nvidia, [
+  'nvidia/nemotron-3-super-120b-a12b',
+]);
 
 const mistral = GENERATED_MODELS_DEV_PROVIDER_FACTS.mistral;
 if (mistral.id !== 'mistral') throw new Error('models.dev Mistral provider facts are missing stable id mistral');
@@ -430,6 +435,25 @@ const providerRegistry = {
     modelsDevId: fireworks.id,
     readyOrder: 19,
     catalogOrder: 19,
+  },
+  nvidia: {
+    label: 'NVIDIA',
+    description: 'NVIDIA-hosted models for reasoning, vision, and tool use.',
+    baseUrl: nvidia.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: nvidiaModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://build.nvidia.com/',
+    modelsDevId: nvidia.id,
+    readyOrder: 20,
+    catalogOrder: 20,
   },
   ollama: {
     label: 'Ollama',

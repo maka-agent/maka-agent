@@ -101,6 +101,30 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'MiniMaxAI/MiniMax-M3');
   });
 
+  test('resolves NVIDIA credentials without rewriting the selected model id', async () => {
+    const modelId = 'nvidia/nemotron-3-super-120b-a12b';
+    const connection = makeConnection({
+      slug: 'nvidia',
+      name: 'NVIDIA',
+      providerType: 'nvidia',
+      defaultModel: modelId,
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'nvidia',
+        get: async (slug) => slug === 'nvidia' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'nvidia-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'nvidia');
+    assert.equal(target.apiKey, 'nvidia-test-key');
+    assert.equal(target.model, modelId);
+  });
+
   test('resolves MiniMax Coding Plan credentials without rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'minimax-plan',

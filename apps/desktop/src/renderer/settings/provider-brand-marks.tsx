@@ -21,6 +21,7 @@ import lmStudioBrandMark from '../assets/provider-brands/lmstudio.svg';
 import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg';
 import mistralBrandMark from '../assets/provider-brands/mistral.svg';
 import togetherBrandMark from '../assets/provider-brands/together.svg';
+import nvidiaMarkUrl from '../assets/provider-brands/nvidia.svg';
 import xaiMarkUrl from '../assets/provider-brands/xai.svg';
 
 // Real xAI/Grok mark vendored byte-for-byte from Lobe Icons:
@@ -204,6 +205,8 @@ function Ollama(): ReactElement {
  */
 export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElement {
   switch (type) {
+    case 'nvidia':
+      return <ProviderAssetMask src={nvidiaMarkUrl} />;
     case 'cerebras':
       return <ProviderAssetMask src={cerebrasMarkUrl} />;
     case 'xai':

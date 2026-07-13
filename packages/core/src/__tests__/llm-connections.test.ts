@@ -43,6 +43,7 @@ describe('provider compatibility contract', () => {
       'mistral',
       'togetherai',
       'fireworks-ai',
+      'nvidia',
       'ollama',
       'lm-studio',
       'openai-compatible',
@@ -70,6 +71,7 @@ describe('provider compatibility contract', () => {
       'minimax-coding-plan',
       'togetherai',
       'fireworks-ai',
+      'nvidia',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -91,6 +93,7 @@ describe('provider compatibility contract', () => {
       'lm-studio',
       'openai-compatible',
       'fireworks-ai',
+      'nvidia',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -250,6 +253,27 @@ describe('provider compatibility contract', () => {
       readyOrder: 19,
       catalogOrder: 19,
     });
+  });
+
+  it('owns the complete NVIDIA direct API contract under the stable nvidia id', () => {
+    const provider = PROVIDER_REGISTRY.nvidia;
+
+    assert.equal(provider.label, 'NVIDIA');
+    assert.equal(provider.description, 'NVIDIA-hosted models for reasoning, vision, and tool use.');
+    assert.equal(provider.baseUrl, 'https://integrate.api.nvidia.com/v1');
+    assert.equal(provider.authKind, 'api_key');
+    assert.equal(provider.backendKind, 'ai-sdk');
+    assert.equal(provider.fallbackModels[0], 'nvidia/nemotron-3-super-120b-a12b');
+    assert.ok(provider.fallbackModels.includes('openai/gpt-oss-120b'));
+    assert.equal(provider.status, 'ready');
+    assert.equal(provider.protocol, 'openai');
+    assert.deepEqual(provider.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(provider.modelDiscovery, { kind: 'protocol', filter: 'fallback-models' });
+    assert.equal(provider.category, 'overseas');
+    assert.equal(provider.catalogGroup, 'api');
+    assert.equal(provider.catalogBadge, 'API');
+    assert.equal(provider.signupUrl, 'https://build.nvidia.com/');
+    assert.equal(provider.modelsDevId, 'nvidia');
   });
 });
 

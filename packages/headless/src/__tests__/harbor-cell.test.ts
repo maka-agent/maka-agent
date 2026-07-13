@@ -2358,6 +2358,33 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves NVIDIA only from NVIDIA credential env without rewriting the model id', () => {
+    const modelId = 'nvidia/nemotron-3-super-120b-a12b';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'nvidia',
+      model: modelId,
+      env: {
+        NVIDIA_API_KEY: 'nvidia-key',
+        NVIDIA_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'nvidia-key');
+    assert.equal(resolved.connection.providerType, 'nvidia');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(resolved.connection.baseUrl, 'https://integrate.api.nvidia.com/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'nvidia',
+      model: modelId,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves ai-sdk api key from a *_API_KEY_FILE without exposing the secret on argv', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-cell-key-'));
     try {

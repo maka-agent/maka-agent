@@ -42,6 +42,7 @@ const FIREWORKS_BRAND_MARK_FILE = resolve(
   REPO_ROOT,
   'apps/desktop/src/renderer/assets/provider-brands/fireworks.svg',
 );
+const NVIDIA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/nvidia.svg');
 const DESKTOP_PACKAGE_FILE = resolve(REPO_ROOT, 'apps/desktop/package.json');
 const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/public/THIRD_PARTY_LICENSES.txt');
 const ONBOARDING_HERO_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/OnboardingHero.tsx');
@@ -349,6 +350,31 @@ describe('icon + typography governance contract', () => {
       /Mistral mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*32f4083f7a20b67ecdc7b29c0af031ada5a29c52[\s\S]*packages\/static-svg\/icons\/mistral\.svg[\s\S]*MIT[\s\S]*a06cfa54e7deff7f7544175b006b7f8a03fbc5624c44f7d553a44d07ea96e629/,
     );
     assert.match(componentSrc, /case 'mistral':\s*return <ProviderAssetMask src=\{mistralBrandMark\} \/>/);
+  });
+
+  it('vendors the unmodified upstream NVIDIA mark with traceable provenance', async () => {
+    const [marks, notices, nvidiaMark] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+      readFile(NVIDIA_BRAND_MARK_FILE),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(nvidiaMark).digest('hex'),
+      '5a419b99e0ffdbfbe8caa7ec25581054eae03024da59cb860c54ea55ac8e7e73',
+      'the vendored NVIDIA mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 nvidia.svg',
+    );
+    assert.match(
+      notices,
+      /Repository: https:\/\/github\.com\/lobehub\/lobe-icons[\s\S]*@lobehub\/icons-static-svg` version `1\.91\.0`[\s\S]*apps\/desktop\/src\/renderer\/assets\/provider-brands\/nvidia\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/nvidia\.svg[\s\S]*5a419b99e0ffdbfbe8caa7ec25581054eae03024da59cb860c54ea55ac8e7e73/,
+      'NVIDIA provenance must identify the exact package release, upstream revision, path, and license',
+    );
+    assert.match(
+      marks,
+      /import nvidiaMarkUrl from '\.\.\/assets\/provider-brands\/nvidia\.svg';[\s\S]*case 'nvidia':\s*return <ProviderAssetMask src=\{nvidiaMarkUrl\} \/>/,
+      'the stable NVIDIA provider id must consume the sole shared asset-mask seam',
+    );
+    assert.doesNotMatch(marks, /NvidiaMask|nvidiaAssetMask/);
   });
 
   it('ships the Lobe Icons MIT notice beside vendored provider assets', async () => {

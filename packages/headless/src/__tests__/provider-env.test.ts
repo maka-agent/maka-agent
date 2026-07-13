@@ -54,3 +54,11 @@ test('Fireworks AI keeps provider-scoped credential environment names', () => {
     baseUrls: ['FIREWORKS_BASE_URL'],
   });
 });
+
+test('NVIDIA credentials stay provider-scoped and support key files', () => {
+  assert.deepEqual(providerCredentialEnv('nvidia'), {
+    apiKeys: ['NVIDIA_API_KEY'],
+    apiKeyFile: 'NVIDIA_API_KEY_FILE',
+    baseUrls: ['NVIDIA_BASE_URL'],
+  });
+});

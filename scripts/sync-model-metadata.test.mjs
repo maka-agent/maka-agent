@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'openai', 'siliconflow', 'togetherai', 'xai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'togetherai', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -207,6 +207,39 @@ test('sync-model-metadata vendors Fireworks AI provider facts and exact model id
   assert.match(generated, /"fireworks-ai": \{/);
   assert.match(generated, /"fireworks-ai": \{"id":"fireworks-ai","name":"Fireworks AI","api":"https:\/\/api\.fireworks\.ai\/inference\/v1\/"/);
   assert.match(generated, /"accounts\/fireworks\/models\/kimi-k2p6": \{"displayName":"Kimi K2\.6"/);
+});
+
+test('sync-model-metadata vendors NVIDIA provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.nvidia = {
+    ...catalog.nvidia,
+    name: 'Nvidia',
+    api: 'https://integrate.api.nvidia.com/v1',
+    doc: 'https://docs.api.nvidia.com/nim/',
+    models: {
+      'nvidia/nemotron-3-super-120b-a12b': {
+        id: 'nvidia/nemotron-3-super-120b-a12b',
+        name: 'Nemotron 3 Super',
+        reasoning: true,
+        tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 262_144, output: 262_144 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"nvidia": \{/);
+  assert.match(generated, /"nvidia": \{"id":"nvidia","name":"Nvidia","api":"https:\/\/integrate\.api\.nvidia\.com\/v1"/);
+  assert.match(generated, /"nvidia\/nemotron-3-super-120b-a12b": \{"displayName":"Nemotron 3 Super"/);
 });
 
 test('sync-model-metadata rejects incomplete upstream model data', async () => {
