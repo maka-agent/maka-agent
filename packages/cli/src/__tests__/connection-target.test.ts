@@ -73,6 +73,29 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'hy3-preview');
   });
 
+  test('resolves Tencent Coding Plan credentials without rewriting the selected model id', async () => {
+    const connection = makeConnection({
+      slug: 'tencent-coding-plan',
+      name: 'Tencent Coding Plan (China)',
+      providerType: 'tencent-coding-plan',
+      defaultModel: 'glm-5',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'tencent-coding-plan',
+        get: async (slug) => slug === 'tencent-coding-plan' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'tencent-coding-plan-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'tencent-coding-plan');
+    assert.equal(target.apiKey, 'tencent-coding-plan-test-key');
+    assert.equal(target.model, 'glm-5');
+  });
+
   test('resolves LM Studio without reading a credential or rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'lm-studio',

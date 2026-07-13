@@ -72,6 +72,7 @@ export function deriveProviderAuthContract(input: ProviderAuthContractInput): Pr
   const defaults = PROVIDER_DEFAULTS[input.providerType];
   const enabled = input.enabled ?? true;
   const hasSecret = Boolean(input.hasSecret);
+  const supportsModelDiscovery = defaults.modelDiscovery.kind !== 'fallback';
   const actionAvailability = hiddenActions();
 
   if (!enabled) {
@@ -104,7 +105,7 @@ export function deriveProviderAuthContract(input: ProviderAuthContractInput): Pr
         actionAvailability: {
           ...actionAvailability,
           test_credentials: hasSecret ? 'available' : 'hidden',
-          fetch_models: hasSecret ? 'available' : 'hidden',
+          fetch_models: hasSecret && supportsModelDiscovery ? 'available' : 'hidden',
           start_oauth: hasSecret ? 'hidden' : 'available',
           refresh_oauth: hasSecret ? 'available' : 'hidden',
           revoke_auth: hasSecret ? 'available' : 'hidden',
@@ -143,7 +144,7 @@ export function deriveProviderAuthContract(input: ProviderAuthContractInput): Pr
       actionAvailability: {
         ...actionAvailability,
         test_credentials: 'available',
-        fetch_models: 'available',
+        fetch_models: supportsModelDiscovery ? 'available' : 'hidden',
       },
       copy: {
         label: `${defaults.label} 不需要凭据`,
@@ -165,7 +166,7 @@ export function deriveProviderAuthContract(input: ProviderAuthContractInput): Pr
       ...actionAvailability,
       save_secret: 'available',
       test_credentials: hasSecret ? 'available' : 'hidden',
-      fetch_models: hasSecret ? 'available' : 'hidden',
+      fetch_models: hasSecret && supportsModelDiscovery ? 'available' : 'hidden',
       revoke_auth: hasSecret ? 'available' : 'hidden',
     },
     copy: copyForApiKey(defaults.label, state),

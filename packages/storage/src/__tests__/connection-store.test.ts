@@ -58,6 +58,23 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the Tencent Coding Plan provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'tencent-coding-plan',
+        name: 'Tencent Coding Plan (China)',
+        providerType: 'tencent-coding-plan',
+        defaultModel: 'glm-5',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'tencent-coding-plan');
+      assert.equal(persisted.connections[0]?.defaultModel, 'glm-5');
+    });
+  });
+
   test('persists the LM Studio provider id and exact local model id', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

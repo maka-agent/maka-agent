@@ -9,6 +9,19 @@ import {
 import type { LlmConnection } from '../llm-connections.js';
 
 describe('ProviderAuth contract', () => {
+  test('Tencent Coding Plan uses the shared API-key credential and fallback-model flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'tencent-coding-plan',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('tencent-coding-plan');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
   test('StepFun China uses the shared API-key credential and model-discovery flow', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'stepfun',

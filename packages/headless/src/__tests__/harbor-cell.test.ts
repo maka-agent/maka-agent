@@ -2279,6 +2279,33 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('does not load Tencent Coding Plan credentials in non-interactive Harbor runs', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-cell-tencent-coding-plan-'));
+    try {
+      const credentialsPath = join(dir, 'credentials.json');
+      await writeFile(credentialsPath, `${JSON.stringify({
+        version: 1,
+        values: { 'tencent-coding-plan:apiKey': 'must-not-load-in-headless' },
+      })}\n`, 'utf8');
+
+      const resolved = resolveHarborCellAiSdkEnv({
+        provider: 'tencent-coding-plan',
+        model: 'glm-5',
+        env: {
+          MAKA_CREDENTIALS_PATH: credentialsPath,
+          TENCENT_CODING_PLAN_API_KEY: 'must-also-not-load-in-headless',
+        },
+        ts: 1,
+      });
+
+      assert.equal(resolved.apiKey, '');
+      assert.equal(resolved.connection.providerType, 'tencent-coding-plan');
+      assert.equal(resolved.connection.defaultModel, 'glm-5');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('resolves StepFun China only from its direct API credential env', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'stepfun',

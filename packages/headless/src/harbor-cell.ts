@@ -1578,7 +1578,9 @@ function providerBaseUrl(provider: ProviderType, env: RunHarborCellEnv): string 
 }
 
 function apiKeyFromEnv(provider: ProviderType, env: RunHarborCellEnv, connectionSlug: string): string {
-  return resolveApiKey(env, providerCredentialEnv(provider)?.apiKeys ?? [], connectionSlug);
+  const credentialEnv = providerCredentialEnv(provider);
+  if (!credentialEnv) return '';
+  return resolveApiKey(env, credentialEnv.apiKeys, connectionSlug);
 }
 
 // Resolve an API key from either the raw env var or its `<NAME>_FILE` companion.

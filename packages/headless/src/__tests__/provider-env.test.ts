@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { providerCredentialEnv } from '../provider-env.js';
+import { providerCredentialEnv, requireProviderCredentialEnv } from '../provider-env.js';
 
 test('MiniMax Coding Plan uses a credential namespace separate from MiniMax direct API', () => {
   assert.deepEqual(providerCredentialEnv('minimax-coding-plan'), {
@@ -69,6 +69,14 @@ test('Tencent TokenHub keeps direct API credentials separate from Tencent plans'
     apiKeyFile: 'TENCENT_TOKENHUB_API_KEY_FILE',
     baseUrls: ['TENCENT_TOKENHUB_BASE_URL'],
   });
+});
+
+test('Tencent Coding Plan is unavailable to non-interactive headless credential loading', () => {
+  assert.equal(providerCredentialEnv('tencent-coding-plan'), undefined);
+  assert.throws(
+    () => requireProviderCredentialEnv('tencent-coding-plan'),
+    /provider does not support API key files: tencent-coding-plan/,
+  );
 });
 
 test('StepFun China keeps direct API credentials separate from global and plan identities', () => {
