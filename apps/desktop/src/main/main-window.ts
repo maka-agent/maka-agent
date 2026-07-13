@@ -44,6 +44,7 @@ interface MainWindowControllerDeps {
   // main.ts computes this from the same isE2e gate that also guards userData
   // and the fake backend, so main-window.ts owns no env policy of its own.
   startHidden: boolean;
+  onClose?: () => void;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -339,6 +340,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     mainWindow.on('unmaximize', scheduleSave);
     mainWindow.on('close', () => {
       clearShowFallbackTimer();
+      deps.onClose?.();
       if (saveTimer) clearTimeout(saveTimer);
       // The window owns the embedded-browser views (children of its contentView);
       // tear them down so their WebContents close with it instead of leaking.

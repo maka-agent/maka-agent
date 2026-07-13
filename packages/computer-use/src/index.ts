@@ -54,3 +54,11 @@ export type {
 } from './cua-driver-snapshot.js';
 export { resolveCuaDisplaySnapshots } from './display-snapshot.js';
 export type { CuaHostDisplay } from './display-snapshot.js';
+export { createComputerUseOverlayHook } from './computer-use-overlay-hook.js';
+export type {
+  CursorActionKind,
+  CursorCancelInput,
+  CursorCompleteInput,
+  CursorMoveInput,
+  OverlayCursorSink,
+} from './computer-use-overlay-hook.js';

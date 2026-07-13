@@ -161,6 +161,29 @@ export interface CuRunContext {
   boundAction?: CuaBoundAction;
 }
 
+export interface CuPresentationFence {
+  readyForInteraction: Promise<void>;
+  finished: Promise<void>;
+}
+
+export interface CuOverlayHookContext {
+  sessionId: string;
+  toolCallId: string;
+  presentationScreenPoint?: CuPoint;
+}
+
+export interface CuOverlayHook {
+  onActionBegin(
+    action: CuAction,
+    context: CuOverlayHookContext,
+  ): CuPresentationFence | void;
+  onActionEnd?(
+    action: CuAction,
+    result: CuRunResult | undefined,
+    context: CuOverlayHookContext,
+  ): void | Promise<void>;
+}
+
 /**
  * The host dispatch seam. Implemented in @maka/computer-use by the cua-driver
  * backend, which spawns trycua/cua-driver and speaks its JSON-RPC protocol over
@@ -536,8 +559,15 @@ function persistedObservationText(observation: CuObservation): string {
 
 export function buildComputerUseTools(deps: {
   backend: CuDispatchBackend;
+  overlay?: CuOverlayHook;
+  presentationReadyTimeoutMs?: number;
 }): ComputerUseToolSet {
+  const presentationReadyTimeoutMs = deps.presentationReadyTimeoutMs ?? 1_000;
   const invocationQueues = new Map<string, Promise<void>>();
+  const presentationWaiters = new Map<string, Set<() => void>>();
+  const presentationQueueWaiters = new Map<string, Set<() => void>>();
+  const presentationGenerations = new Map<string, number>();
+  let presentationQueue = Promise.resolve();
   interface SessionObservationRecord {
     turnId: string;
     state: CuaFrameState;
@@ -796,6 +826,172 @@ export function buildComputerUseTools(deps: {
     }
   }
 
+  function presentationScreenPoint(
+    boundAction: CuaBoundAction | undefined,
+  ): CuPoint | undefined {
+    const source = boundAction?.sourceStartCoordinate
+      ?? boundAction?.sourceCoordinate;
+    const sourceBounds = boundAction?.target.sourceBoundsPx;
+    const windowBounds = boundAction?.target.bounds;
+    if (!source || !sourceBounds || !windowBounds) return undefined;
+    if (sourceBounds.width <= 0 || sourceBounds.height <= 0) return undefined;
+    return {
+      x: windowBounds.x
+        + source.x / sourceBounds.width * windowBounds.width,
+      y: windowBounds.y
+        + source.y / sourceBounds.height * windowBounds.height,
+    };
+  }
+
+  async function waitForPresentationReady(
+    fence: CuPresentationFence | undefined,
+    signal: AbortSignal,
+    sessionId: string,
+  ): Promise<void> {
+    if (!fence) return;
+    if (signal.aborted) throw signal.reason ?? new Error('aborted');
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        const waiters = presentationWaiters.get(sessionId);
+        waiters?.delete(wake);
+        if (waiters?.size === 0) presentationWaiters.delete(sessionId);
+        if (error) reject(error);
+        else resolve();
+      };
+      const timer = setTimeout(finish, presentationReadyTimeoutMs);
+      const onAbort = () => finish(signal.reason ?? new Error('aborted'));
+      const wake = () => finish();
+      const waiters = presentationWaiters.get(sessionId) ?? new Set();
+      waiters.add(wake);
+      presentationWaiters.set(sessionId, waiters);
+      signal.addEventListener('abort', onAbort, { once: true });
+      fence.readyForInteraction.then(
+        () => finish(),
+        () => finish(),
+      );
+    });
+  }
+
+  async function runWithPresentation(
+    action: CuAction,
+    context: CuRunContext,
+    signal: AbortSignal,
+    dispatch: () => Promise<CuRunResult>,
+    beforeDispatch?: () => ComputerToolResult | undefined,
+    invocationGeneration = 0,
+  ): Promise<{
+    result?: CuRunResult;
+    blocked?: ComputerToolResult;
+    finish(result?: CuRunResult): void;
+  }> {
+    let releasePresentation!: () => void;
+    const previousPresentation = presentationQueue;
+    const presentationGate = new Promise<void>((resolve) => {
+      releasePresentation = resolve;
+    });
+    if (deps.overlay) {
+      presentationQueue = previousPresentation.then(() => presentationGate);
+      if (
+        (presentationGenerations.get(context.sessionId) ?? 0)
+        !== invocationGeneration
+      ) {
+        releasePresentation();
+        return {
+          blocked: sessionFailure('user_stopped'),
+          finish: () => {},
+        };
+      }
+      let queuedCancelled = false;
+      await Promise.race([
+        previousPresentation,
+        new Promise<void>((resolve) => {
+          const cancel = () => {
+            queuedCancelled = true;
+            resolve();
+          };
+          const waiters = presentationQueueWaiters.get(context.sessionId)
+            ?? new Set();
+          waiters.add(cancel);
+          presentationQueueWaiters.set(context.sessionId, waiters);
+          if (
+            (presentationGenerations.get(context.sessionId) ?? 0)
+            !== invocationGeneration
+          ) {
+            cancel();
+          }
+          void previousPresentation.finally(() => {
+            waiters.delete(cancel);
+            if (waiters.size === 0) {
+              presentationQueueWaiters.delete(context.sessionId);
+            }
+          });
+        }),
+      ]);
+      if (
+        queuedCancelled
+        || (presentationGenerations.get(context.sessionId) ?? 0)
+          !== invocationGeneration
+      ) {
+        releasePresentation();
+        return {
+          blocked: sessionFailure('user_stopped'),
+          finish: () => {},
+        };
+      }
+    }
+    const overlayContext: CuOverlayHookContext = {
+      sessionId: context.sessionId,
+      toolCallId: context.toolCallId,
+      ...(context.boundAction
+        ? {
+            presentationScreenPoint: presentationScreenPoint(
+              context.boundAction,
+            ),
+          }
+        : {}),
+    };
+    let fence: CuPresentationFence | undefined;
+    try {
+      fence = deps.overlay?.onActionBegin(action, overlayContext) ?? undefined;
+      void fence?.finished.catch(() => {});
+    } catch {
+      fence = undefined;
+    }
+    let finished = false;
+    const finish = (result?: CuRunResult) => {
+      if (finished) return;
+      finished = true;
+      try {
+        void Promise.resolve(
+          deps.overlay?.onActionEnd?.(action, result, overlayContext),
+        ).catch(() => {});
+      } catch {
+        // Presentation is best-effort and cannot change execution outcome.
+      }
+      releasePresentation?.();
+    };
+    try {
+      if (fence) {
+        await waitForPresentationReady(fence, signal, context.sessionId);
+      }
+      const blocked = beforeDispatch?.();
+      if (blocked) {
+        finish();
+        return { blocked, finish };
+      }
+      const result = await dispatch();
+      return { result, finish };
+    } catch (error) {
+      finish();
+      throw error;
+    }
+  }
+
   const tool: MakaTool<ComputerParams, ComputerToolResult> = {
     name: 'maka_computer',
     displayName: 'Maka Computer',
@@ -854,6 +1050,7 @@ export function buildComputerUseTools(deps: {
     }): Promise<ComputerToolResult> => {
       if (abortSignal.aborted) return { text: 'computer aborted before start' };
       const input = snapshotComputerParams(computerParams.parse(args));
+      const invocationGeneration = presentationGenerations.get(sessionId) ?? 0;
       return withInvocationQueue(sessionId, abortSignal, async () => {
         const state = sessionState(sessionId, turnId);
         const observationLease = input.action === 'observe'
@@ -1067,49 +1264,83 @@ export function buildComputerUseTools(deps: {
             ...modelAction,
             observationId: record.backendObservationId,
           };
+          const summaryAction: CuAction = semanticAction.type === 'click_element'
+            ? {
+                type: 'left_click',
+                coordinate: binding.sourceCoordinate ?? { x: 0, y: 0 },
+              }
+            : semanticAction.type === 'press_key'
+              ? { type: 'key', text: semanticAction.key }
+              : semanticAction.type === 'set_value'
+                ? { type: 'type', text: semanticAction.value }
+                : semanticAction.type === 'select_text'
+                  ? { type: 'type', text: semanticAction.text }
+                  : { type: 'key', text: semanticAction.action };
           let result: CuRunResult | undefined;
           let consumeFailure: ComputerToolResult | undefined;
+          let presentation:
+            | Awaited<ReturnType<typeof runWithPresentation>>
+            | undefined;
           try {
             if (!actionLease) return sessionFailure('no_active_frame');
             const leaseFailure = validateActionLease(state, actionLease);
             if (leaseFailure) return leaseFailure;
-            result = await deps.backend.runSemantic(
-              semanticAction,
+            const operationContext = { ...runCtx, boundAction: binding };
+            presentation = await runWithPresentation(
+              summaryAction,
+              operationContext,
               abortSignal,
-              { ...runCtx, boundAction: binding },
+              () => deps.backend.runSemantic!(
+                semanticAction,
+                abortSignal,
+                operationContext,
+              ),
+              () => validateActionLease(state, actionLease),
+              invocationGeneration,
             );
+            if (presentation.blocked) return presentation.blocked;
+            if (!presentation.result) return bindingFailure('capture_failed');
+            result = presentation.result;
             const postDispatchFailure = validateActionLease(state, actionLease);
-            if (postDispatchFailure) return postDispatchFailure;
+            if (postDispatchFailure) {
+              presentation.finish();
+              return postDispatchFailure;
+            }
           } finally {
             consumeFailure = consumeBoundAction(record, binding);
             if (actionLease && state.validateLease(actionLease).ok) {
               state.reobserveRequired();
             }
           }
-          if (consumeFailure) return consumeFailure;
-          if (!result) return bindingFailure('capture_failed');
-          const summaryAction: CuAction = semanticAction.type === 'click_element'
-            ? { type: 'left_click', coordinate: { x: 0, y: 0 } }
-            : semanticAction.type === 'press_key'
-              ? { type: 'key', text: semanticAction.key }
-            : semanticAction.type === 'set_value'
-                ? { type: 'type', text: semanticAction.value }
-                : semanticAction.type === 'select_text'
-                  ? { type: 'type', text: semanticAction.text }
-                  : { type: 'key', text: semanticAction.action };
-          const text = summarize(summaryAction, result);
-          const freshObservation = result.outcome.ok
-            ? await freshFullObservation(
-                state,
-                record,
-                result,
-                abortSignal,
-                { ...runCtx, boundAction: binding },
-              )
-            : undefined;
-          if (result.outcome.ok && !freshObservation) {
+          if (consumeFailure) {
+            presentation?.finish();
+            return consumeFailure;
+          }
+          if (!result) {
+            presentation?.finish();
             return bindingFailure('capture_failed');
           }
+          let freshObservation: CuObservation | undefined;
+          try {
+            freshObservation = result.outcome.ok
+              ? await freshFullObservation(
+                  state,
+                  record,
+                  result,
+                  abortSignal,
+                  { ...runCtx, boundAction: binding },
+                )
+              : undefined;
+          } catch (error) {
+            presentation?.finish();
+            throw error;
+          }
+          if (result.outcome.ok && !freshObservation) {
+            presentation?.finish();
+            return bindingFailure('capture_failed');
+          }
+          presentation?.finish(result);
+          const text = summarize(summaryAction, result);
           const freshModelState = freshObservation
             ? `\nFresh observation:\n${observationText(freshObservation)}`
             : '';
@@ -1153,20 +1384,41 @@ export function buildComputerUseTools(deps: {
           return { text: 'computer failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)' };
         }
         let result: CuRunResult | undefined;
+        let presentation:
+          | Awaited<ReturnType<typeof runWithPresentation>>
+          | undefined;
         {
           try {
             if (actionLease) {
               const leaseFailure = validateActionLease(state, actionLease);
               if (leaseFailure) return leaseFailure;
             }
-            result = await deps.backend.run(
+            const operationContext = {
+              ...runCtx,
+              ...(boundAction ? { boundAction } : {}),
+            };
+            presentation = await runWithPresentation(
               action,
+              operationContext,
               abortSignal,
-              { ...runCtx, ...(boundAction ? { boundAction } : {}) },
+              () => deps.backend.run(
+                action,
+                abortSignal,
+                operationContext,
+              ),
+              actionLease
+                ? () => validateActionLease(state, actionLease)
+                : undefined,
+              invocationGeneration,
             );
+            if (presentation.blocked) return presentation.blocked;
+            result = presentation.result;
             if (actionLease) {
               const leaseFailure = validateActionLease(state, actionLease);
-              if (leaseFailure) return leaseFailure;
+              if (leaseFailure) {
+                presentation.finish();
+                return leaseFailure;
+              }
             }
           } finally {
             if (actionLease && state.validateLease(actionLease).ok) {
@@ -1180,19 +1432,34 @@ export function buildComputerUseTools(deps: {
           // bounded frame never bloats history.
           let bindingResult: ComputerToolResult | undefined;
           if (boundAction) bindingResult = consumeBoundAction(record, boundAction);
-          if (bindingResult) return bindingResult;
-          const freshObservation = actionLease && result.outcome.ok
-            ? await freshFullObservation(
-                state,
-                record,
-                result,
-                abortSignal,
-                { ...runCtx, boundAction },
-              )
-            : undefined;
-          if (actionLease && result.outcome.ok && !freshObservation) {
+          if (bindingResult) {
+            presentation?.finish();
+            return bindingResult;
+          }
+          if (!result) {
+            presentation?.finish();
             return bindingFailure('capture_failed');
           }
+          let freshObservation: CuObservation | undefined;
+          try {
+            freshObservation = actionLease && result.outcome.ok
+              ? await freshFullObservation(
+                  state,
+                  record,
+                  result,
+                  abortSignal,
+                  { ...runCtx, boundAction },
+                )
+              : undefined;
+          } catch (error) {
+            presentation?.finish();
+            throw error;
+          }
+          if (actionLease && result.outcome.ok && !freshObservation) {
+            presentation?.finish();
+            return bindingFailure('capture_failed');
+          }
+          presentation?.finish(result);
           const modelRefresh = freshObservation
             ? `\nFresh observation:\n${observationText(freshObservation)}`
             : actionLease
@@ -1243,6 +1510,12 @@ export function buildComputerUseTools(deps: {
   };
   const tools = [tool] as ComputerUseToolSet;
   tools.clearSession = (sessionId: string) => {
+    presentationGenerations.set(
+      sessionId,
+      (presentationGenerations.get(sessionId) ?? 0) + 1,
+    );
+    for (const wake of presentationQueueWaiters.get(sessionId) ?? []) wake();
+    for (const wake of presentationWaiters.get(sessionId) ?? []) wake();
     sessionStates.get(sessionId)?.state.userStopped();
     invalidateObservation(sessionId);
     observations.delete(sessionId);

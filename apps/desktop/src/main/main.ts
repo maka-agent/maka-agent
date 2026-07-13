@@ -172,6 +172,8 @@ import {
   computerUseServiceHealth,
   createComputerUseHost,
 } from './computer-use-host.js';
+import { createCursorOverlayController } from './computer-use/cursor-overlay-window.js';
+import { createComputerUseOverlayHook } from '@maka/computer-use';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
 import { createDailyReviewMainService } from './daily-review-main.js';
@@ -479,11 +481,13 @@ const systemPromptService = createSystemPromptMainService({
 // over 31s). The E2E harness sets it, not the workflow — see fixtures.ts.
 const startHidden = (Boolean(visualSmokeFixture) || isE2e)
   && process.env.MAKA_E2E_SHOW_WINDOW !== '1';
+let onMainWindowClose = (): void => {};
 const mainWindowController = createMainWindowController({
   workspaceRoot,
   visualSmokeFixture,
   settingsStore,
   startHidden,
+  onClose: () => onMainWindowClose(),
 });
 // Shared by 'second-instance' and 'activate': focus the existing window, or
 // create one if all windows were closed while the app (macOS: still in the
@@ -545,6 +549,8 @@ const officeTools: MakaTool[] = [buildOfficeDocumentTool(), buildOfficeDocumentE
 // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
 // outside the app (no host) they report the browser as unavailable.
 const browserTools: MakaTool[] = buildBrowserTools();
+const computerUseOverlay = createCursorOverlayController();
+onMainWindowClose = () => computerUseOverlay.destroyAll();
 const computerUseHost = createComputerUseHost({
   isPackaged: app.isPackaged,
   resourcesPath: process.resourcesPath,
@@ -562,6 +568,7 @@ const computerUseHost = createComputerUseHost({
     }
   },
   physicalInputRecentlyActive: () => powerMonitor.getSystemIdleTime() < 1,
+  overlay: createComputerUseOverlayHook(computerUseOverlay),
 });
 const computerUse = computerUseHost.selected;
 const computerUseTools = computerUse.tools;
@@ -1369,6 +1376,7 @@ function registerIpc(): void {
     });
   });
   ipcMain.handle('sessions:stop', async (_event, sessionId: string, input?: { source?: 'stop_button' }) => {
+    computerUseOverlay.clearForSession(sessionId);
     computerUseTools.clearSession(sessionId);
     await runtime.stopSession(sessionId, normalizeStopSessionInput(input));
     emitSessionsChanged('status-change', sessionId);
@@ -1449,6 +1457,7 @@ function registerIpc(): void {
     return session;
   });
   ipcMain.handle('sessions:archive', async (_event, sessionId: string) => {
+    computerUseOverlay.clearForSession(sessionId);
     computerUseTools.clearSession(sessionId);
     await runtime.archive(sessionId);
     // An archived conversation is no longer shown: drop its browser connection
@@ -1525,6 +1534,7 @@ function registerIpc(): void {
     return next;
   });
   ipcMain.handle('sessions:remove', async (_event, sessionId: string) => {
+    computerUseOverlay.clearForSession(sessionId);
     computerUseTools.clearSession(sessionId);
     await runtime.remove(sessionId);
     // Drop the conversation's browser connection and destroy its view (no-op
@@ -1810,6 +1820,7 @@ async function streamEvents(
       }
       if (isTurnStatusChangingSessionEvent(event)) {
         emitSessionsChanged('turn-status-change', sessionId);
+        computerUseOverlay.clearForSession(sessionId);
         computerUseTools.clearSession(sessionId);
       }
     }
@@ -1841,6 +1852,7 @@ async function streamEvents(
     openGateway.publishSessionEvent(sessionId, event);
     emitSessionsChanged('status-change', sessionId);
     emitSessionsChanged('turn-status-change', sessionId);
+    computerUseOverlay.clearForSession(sessionId);
     computerUseTools.clearSession(sessionId);
     if (!finalAppendBroadcasted) {
       emitSessionsChanged('message-appended', sessionId);
@@ -2147,6 +2159,7 @@ async function runBackgroundStartup(): Promise<void> {
 }
 
 app.on('window-all-closed', () => {
+  computerUseOverlay.destroyAll();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -2171,6 +2184,7 @@ async function runBeforeQuitCleanup(): Promise<void> {
   planReminders.stopTimers();
   dailyReview.stopScheduler();
   const results = await Promise.allSettled([
+    Promise.resolve().then(() => computerUseOverlay.destroyAll()),
     Promise.resolve().then(() => computerUse.backend?.dispose?.()),
     botRegistry.stopAll(),
     openGateway.stop(),

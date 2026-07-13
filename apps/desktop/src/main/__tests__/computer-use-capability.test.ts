@@ -12,9 +12,10 @@ describe('Desktop Computer Use production wiring', () => {
       'utf8',
     );
     assert.match(main, /createComputerUseHost/);
+    assert.match(main, /createCursorOverlayController/);
+    assert.match(main, /createComputerUseOverlayHook/);
     assert.match(main, /computerUseTools/);
     assert.match(main, /id:\s*'computer_use'/);
-    assert.doesNotMatch(main, /createComputerUseOverlayHook/);
     assert.doesNotMatch(main, /createAnthropicComputerHarness|createKimiComputerHarness|createMiniMaxComputerHarness/);
   });
 
@@ -24,11 +25,17 @@ describe('Desktop Computer Use production wiring', () => {
       'utf8',
     );
     assert.match(main, /sessions:stop[\s\S]*computerUseTools\.clearSession/);
+    assert.match(main, /sessions:stop[\s\S]*computerUseOverlay\.clearForSession/);
     assert.match(main, /sessions:archive[\s\S]*computerUseTools\.clearSession/);
+    assert.match(main, /sessions:archive[\s\S]*computerUseOverlay\.clearForSession/);
     assert.match(main, /sessions:remove[\s\S]*computerUseTools\.clearSession/);
+    assert.match(main, /sessions:remove[\s\S]*computerUseOverlay\.clearForSession/);
     assert.match(main, /isTurnStatusChangingSessionEvent[\s\S]*computerUseTools\.clearSession/);
     assert.match(main, /catch \(error\)[\s\S]*computerUseTools\.clearSession/);
     assert.match(main, /Promise\.allSettled\(\[[\s\S]*computerUse\.backend\?\.dispose/);
+    assert.match(main, /Promise\.allSettled\(\[[\s\S]*computerUseOverlay\.destroyAll/);
+    assert.match(main, /window-all-closed[\s\S]*computerUseOverlay\.destroyAll/);
+    assert.match(main, /onMainWindowClose = \(\) => computerUseOverlay\.destroyAll/);
   });
 
   it('reports scoped approval and live service health instead of binary-only healthy', async () => {

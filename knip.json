@@ -7,6 +7,8 @@
       "entry": [
         "src/main/main.ts",
         "src/preload/preload.ts",
+        "src/overlay/cursor-overlay.ts",
+        "src/overlay/cursor-overlay-preload.ts",
         "src/renderer/main.tsx",
         "src/main/**/*.test.ts",
         "src/renderer/**/*.test.ts",

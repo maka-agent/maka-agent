@@ -14,6 +14,7 @@ import {
   selectComputerUseBackend,
   type SelectedComputerUseBackend,
 } from '@maka/computer-use';
+import type { CuOverlayHook } from '@maka/runtime';
 
 export interface ComputerUseHostState {
   selected: SelectedComputerUseBackend;
@@ -43,6 +44,7 @@ export function createComputerUseHost(input: {
     mimeType: string,
   ) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
   physicalInputRecentlyActive?: () => boolean | Promise<boolean>;
+  overlay?: CuOverlayHook;
 }): ComputerUseHostState {
   const manifestPath = input.manifestPath ?? (input.isPackaged
     ? join(input.resourcesPath, 'bundled-tools.json')
@@ -99,6 +101,7 @@ export function createComputerUseHost(input: {
         ...(input.physicalInputRecentlyActive
           ? { physicalInputRecentlyActive: input.physicalInputRecentlyActive }
           : {}),
+        ...(input.overlay ? { overlay: input.overlay } : {}),
       }),
       binaryPath,
       expectedBinarySha256,

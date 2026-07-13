@@ -198,6 +198,359 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.ok(tool.parameters, 'carries a zod parameter schema');
   });
 
+  test('waits for presentation readiness before dispatch without waiting for finish', async () => {
+    const events: string[] = [];
+    let ready!: () => void;
+    const readyForInteraction = new Promise<void>((resolve) => { ready = resolve; });
+    const [tool] = buildComputerUseTools({
+      backend: {
+        async preflight() {
+          return { accessibility: true, screenRecording: true };
+        },
+        async run() {
+          events.push('dispatch');
+          return { outcome: { ok: true, tier: 'ax', verified: true } };
+        },
+      },
+      overlay: {
+        onActionBegin() {
+          events.push('presentation');
+          return {
+            readyForInteraction,
+            finished: new Promise<void>(() => {}),
+          };
+        },
+        onActionEnd() {
+          events.push('end');
+        },
+      },
+      presentationReadyTimeoutMs: 10_000,
+    });
+
+    const pending = tool.impl({ action: 'wait' } as never, ctx());
+    while (events.length === 0) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.deepEqual(events, ['presentation']);
+    ready();
+    await pending;
+    assert.deepEqual(events, ['presentation', 'dispatch', 'end']);
+  });
+
+  test('presentation readiness timeout fails open', async () => {
+    const events: string[] = [];
+    const [tool] = buildComputerUseTools({
+      backend: {
+        async preflight() {
+          return { accessibility: true, screenRecording: true };
+        },
+        async run() {
+          events.push('dispatch');
+          return { outcome: { ok: true, tier: 'ax', verified: true } };
+        },
+      },
+      overlay: {
+        onActionBegin() {
+          return {
+            readyForInteraction: new Promise<void>(() => {}),
+            finished: new Promise<void>(() => {}),
+          };
+        },
+      },
+      presentationReadyTimeoutMs: 5,
+    });
+    await tool.impl({ action: 'wait' } as never, ctx());
+    assert.deepEqual(events, ['dispatch']);
+  });
+
+  test('user stop while presentation is pending prevents native dispatch', async () => {
+    const readyForInteraction = new Promise<void>(() => {});
+    let dispatchCount = 0;
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+    };
+    backend.observeApp = async () => observation();
+    backend.run = async () => {
+      dispatchCount += 1;
+      return { outcome: { ok: true, tier: 'ax', verified: true } };
+    };
+    const tools = buildComputerUseTools({
+      backend,
+      overlay: {
+        onActionBegin() {
+          return {
+            readyForInteraction,
+            finished: new Promise<void>(() => {}),
+          };
+        },
+      },
+      presentationReadyTimeoutMs: 10_000,
+    });
+    const [tool] = tools;
+    const observed = await tool.impl({
+      action: 'observe',
+      app: 'Fixture',
+    } as never, ctx()) as {
+      modelText?: string;
+    };
+    const observationId = JSON.parse(observed.modelText ?? '{}').observation_id;
+    const pending = tool.impl({
+      action: 'left_click',
+      observation_id: observationId,
+      coordinate: [10, 10],
+    } as never, ctx());
+    await Promise.resolve();
+    tools.clearSession('s1');
+    const result = await pending as { error?: string };
+    assert.equal(dispatchCount, 0);
+    assert.ok(
+      result.error === 'user_stopped' || result.error === 'no_active_frame',
+      `unexpected stop rejection: ${result.error}`,
+    );
+  });
+
+  test('abort while presentation is pending prevents native dispatch', async () => {
+    const abortController = new AbortController();
+    let dispatchCount = 0;
+    const [tool] = buildComputerUseTools({
+      backend: {
+        async preflight() {
+          return { accessibility: true, screenRecording: true };
+        },
+        async run() {
+          dispatchCount += 1;
+          return { outcome: { ok: true, tier: 'ax', verified: true } };
+        },
+      },
+      overlay: {
+        onActionBegin() {
+          return {
+            readyForInteraction: new Promise<void>(() => {}),
+            finished: new Promise<void>(() => {}),
+          };
+        },
+      },
+      presentationReadyTimeoutMs: 10_000,
+    });
+    const pending = tool.impl(
+      { action: 'wait' } as never,
+      ctx(abortController.signal),
+    );
+    await Promise.resolve();
+    abortController.abort(new Error('stopped'));
+    await assert.rejects(Promise.resolve(pending), /stopped/);
+    assert.equal(dispatchCount, 0);
+  });
+
+  test('presentation receives the observation-bound screen point', async () => {
+    let point: { x: number; y: number } | undefined;
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+    };
+    backend.observeApp = async () => observation({
+      windowBounds: { x: 100, y: 50, width: 400, height: 300 },
+      sourceBoundsPx: { x: 0, y: 0, width: 800, height: 600 },
+    });
+    const [tool] = buildComputerUseTools({
+      backend,
+      overlay: {
+        onActionBegin(_action, context) {
+          point = context.presentationScreenPoint;
+        },
+      },
+    });
+    const observed = await tool.impl({
+      action: 'observe',
+      app: 'Fixture',
+    } as never, ctx()) as {
+      modelText?: string;
+    };
+    const observationId = JSON.parse(observed.modelText ?? '{}').observation_id;
+    await tool.impl({
+      action: 'left_click',
+      observation_id: observationId,
+      coordinate: [400, 300],
+    } as never, ctx());
+    assert.deepEqual(point, { x: 300, y: 200 });
+  });
+
+  test('discarded dispatch result cancels presentation instead of showing success', async () => {
+    const ended: Array<boolean | undefined> = [];
+    let tools: ReturnType<typeof buildComputerUseTools>;
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      captureObservation: NonNullable<CuDispatchBackend['captureObservation']>;
+    };
+    backend.observeApp = async () => observation();
+    backend.captureObservation = async () => observation({
+      observationId: 'backend-obs-2',
+    });
+    backend.run = async () => {
+      tools.sessionEvents.physicalUserIntervened('s1');
+      return { outcome: { ok: true, tier: 'ax', verified: true } };
+    };
+    tools = buildComputerUseTools({
+      backend,
+      overlay: {
+        onActionBegin() {
+          return {
+            readyForInteraction: Promise.resolve(),
+            finished: Promise.resolve(),
+          };
+        },
+        onActionEnd(_action, result) {
+          ended.push(result?.outcome.ok);
+        },
+      },
+    });
+    const [tool] = tools;
+    const observed = await tool.impl({
+      action: 'observe',
+      app: 'Fixture',
+    } as never, ctx()) as {
+      modelText?: string;
+    };
+    const observationId = JSON.parse(observed.modelText ?? '{}').observation_id;
+    const result = await tool.impl({
+      action: 'left_click',
+      observation_id: observationId,
+      coordinate: [10, 10],
+    } as never, ctx()) as { error?: string };
+    assert.equal(result.error, 'user_intervened');
+    assert.deepEqual(ended, [undefined]);
+  });
+
+  test('presentation promise rejections are isolated from execution', async () => {
+    const [tool] = buildComputerUseTools({
+      backend: fakeBackend(),
+      overlay: {
+        onActionBegin() {
+          return {
+            readyForInteraction: Promise.resolve(),
+            finished: Promise.reject(new Error('finished failed')),
+          };
+        },
+        async onActionEnd() {
+          throw new Error('end failed');
+        },
+      },
+    });
+    const result = await tool.impl({ action: 'wait' } as never, ctx()) as {
+      text: string;
+    };
+    assert.match(result.text, /computer\.wait ok/);
+    await new Promise((resolve) => setImmediate(resolve));
+  });
+
+  test('one visual overlay serializes presentation across independent sessions', async () => {
+    const events: string[] = [];
+    const ready = new Map<string, () => void>();
+    const backend: CuDispatchBackend = {
+      async preflight() {
+        return { accessibility: true, screenRecording: true };
+      },
+      async run(_action, _signal, context) {
+        events.push(`dispatch:${context.sessionId}`);
+        return { outcome: { ok: true, tier: 'ax', verified: true } };
+      },
+    };
+    const [tool] = buildComputerUseTools({
+      backend,
+      overlay: {
+        onActionBegin(_action, context) {
+          events.push(`presentation:${context.sessionId}`);
+          return {
+            readyForInteraction: new Promise<void>((resolve) => {
+              ready.set(context.sessionId, resolve);
+            }),
+            finished: Promise.resolve(),
+          };
+        },
+      },
+      presentationReadyTimeoutMs: 10_000,
+    });
+    const first = tool.impl(
+      { action: 'wait' } as never,
+      ctx(undefined, { sessionId: 's1', toolCallId: 'a1' }),
+    );
+    const second = tool.impl(
+      { action: 'wait' } as never,
+      ctx(undefined, { sessionId: 's2', toolCallId: 'a2' }),
+    );
+    while (!ready.has('s1')) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.deepEqual(events, ['presentation:s1']);
+    ready.get('s1')?.();
+    await first;
+    while (!ready.has('s2')) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.deepEqual(events, [
+      'presentation:s1',
+      'dispatch:s1',
+      'presentation:s2',
+    ]);
+    ready.get('s2')?.();
+    await second;
+  });
+
+  test('clearSession releases an action queued behind another presentation', async () => {
+    let releaseFirst!: () => void;
+    const firstReady = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let firstDispatchStarted!: () => void;
+    const dispatchStarted = new Promise<void>((resolve) => {
+      firstDispatchStarted = resolve;
+    });
+    let releaseDispatch!: () => void;
+    const dispatchGate = new Promise<void>((resolve) => {
+      releaseDispatch = resolve;
+    });
+    const backend: CuDispatchBackend = {
+      async preflight() {
+        return { accessibility: true, screenRecording: true };
+      },
+      async run(_action, _signal, context) {
+        if (context.sessionId === 's1') {
+          firstDispatchStarted();
+          await dispatchGate;
+        }
+        return { outcome: { ok: true, tier: 'ax', verified: true } };
+      },
+    };
+    const tools = buildComputerUseTools({
+      backend,
+      overlay: {
+        onActionBegin(_action, context) {
+          return {
+            readyForInteraction: context.sessionId === 's1'
+              ? firstReady
+              : Promise.resolve(),
+            finished: Promise.resolve(),
+          };
+        },
+      },
+      presentationReadyTimeoutMs: 10_000,
+    });
+    const [tool] = tools;
+    const first = tool.impl(
+      { action: 'wait' } as never,
+      ctx(undefined, { sessionId: 's1', toolCallId: 'a1' }),
+    );
+    releaseFirst();
+    await dispatchStarted;
+    const second = tool.impl(
+      { action: 'wait' } as never,
+      ctx(undefined, { sessionId: 's2', toolCallId: 'a2' }),
+    );
+    await Promise.resolve();
+    tools.clearSession('s2');
+    const secondResult = await second as { error?: string };
+    assert.equal(secondResult.error, 'user_stopped');
+    releaseDispatch();
+    await first;
+  });
+
   test('list_apps and observe expose one provider-neutral Sky-like surface', async () => {
     const backend = fakeBackend() as CuDispatchBackend & {
       listApps: NonNullable<CuDispatchBackend['listApps']>;
