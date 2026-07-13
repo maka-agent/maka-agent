@@ -1007,6 +1007,7 @@ describe('models.dev provider conformance', () => {
             message: {
               role: 'assistant',
               content: null,
+              reasoning_content: 'I should call echo with the requested text.',
               tool_calls: [{
                 id: 'call_tencent_echo',
                 type: 'function',
@@ -1061,6 +1062,7 @@ describe('models.dev provider conformance', () => {
     });
 
     assert.equal(requestBodies.length, 2);
+    assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
       (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
@@ -1069,6 +1071,19 @@ describe('models.dev provider conformance', () => {
     assert.deepEqual(
       (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_tencent_echo' },
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      {
+        role: 'assistant',
+        content: null,
+        reasoning_content: 'I should call echo with the requested text.',
+        tool_calls: [{
+          id: 'call_tencent_echo',
+          type: 'function',
+          function: { name: 'echo', arguments: '{"text":"hello"}' },
+        }],
+      },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
     assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });

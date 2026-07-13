@@ -480,7 +480,7 @@ const providerRegistry = {
     category: 'domestic',
     catalogGroup: 'api',
     catalogBadge: 'API',
-    signupUrl: tencentTokenHub.doc,
+    signupUrl: 'https://cloud.tencent.com/document/product/1823/130090',
     modelsDevId: tencentTokenHub.id,
     readyOrder: 21,
     catalogOrder: 21,

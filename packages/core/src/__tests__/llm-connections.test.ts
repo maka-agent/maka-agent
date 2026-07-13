@@ -291,6 +291,7 @@ describe('provider compatibility contract', () => {
     assert.deepEqual(tencent.modelDiscovery, { kind: 'protocol' });
     assert.equal(tencent.category, 'domestic');
     assert.equal(tencent.catalogGroup, 'api');
+    assert.equal(tencent.signupUrl, 'https://cloud.tencent.com/document/product/1823/130090');
     assert.equal(tencent.modelsDevId, 'tencent-tokenhub');
     assert.deepEqual(tencent.fallbackModels, ['hy3', 'hy3-preview']);
   });
