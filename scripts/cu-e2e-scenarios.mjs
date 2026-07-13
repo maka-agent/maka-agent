@@ -94,7 +94,7 @@ export const CU_E2E_SCENARIOS = Object.freeze([
     id: 'l1-single-click',
     level: 'L1',
     prompt:
-      'First observe the window "Maka CUA L1 Single Click Fixture". Then use click_element on the observed "Increment once" button exactly once. Do not use coordinate clicks and do not click the red button.',
+      'Observe the window "Maka CUA L1 Single Click Fixture" twice so its AX tree is stable. Then use click_element from the second observation on "Increment once" exactly once. Do not use coordinate clicks and do not click the red button.',
     fixtureSetup: {
       layout: 'single',
       windows: [
@@ -489,6 +489,33 @@ export function validateCuE2eScenario(scenario) {
     )
   ) {
     throw new Error(`${scenario.id}.maxActionCounts must map known actions to non-negative integers`);
+  }
+  const minimumCounts = scenario.minimumActionCounts ?? {};
+  const maximumCounts = scenario.maxActionCounts ?? {};
+  for (const action of [
+    ...Object.keys(minimumCounts),
+    ...Object.keys(maximumCounts),
+  ]) {
+    if (!scenario.allowedActions.includes(action)) {
+      throw new Error(`${scenario.id} count budget references disallowed action "${action}"`);
+    }
+  }
+  for (const [action, minimum] of Object.entries(minimumCounts)) {
+    const maximum = maximumCounts[action];
+    if (maximum !== undefined && minimum > maximum) {
+      throw new Error(`${scenario.id}.${action} minimum exceeds maximum`);
+    }
+  }
+  if (scenario.maxTotalActions !== undefined) {
+    const minimumTotal = Object.values(minimumCounts)
+      .reduce((sum, count) => sum + count, 0);
+    if (minimumTotal > scenario.maxTotalActions) {
+      throw new Error(`${scenario.id} minimum action counts exceed maxTotalActions`);
+    }
+    if (Object.values(maximumCounts).some((count) =>
+      count > scenario.maxTotalActions)) {
+      throw new Error(`${scenario.id} action maximum exceeds maxTotalActions`);
+    }
   }
   if (typeof scenario.realRunEnabled !== 'boolean') {
     throw new Error(`${scenario.id}.realRunEnabled must be boolean`);

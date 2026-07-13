@@ -254,33 +254,43 @@ export async function createCuE2eFixture({
   };
 
   const bounds = layoutBounds(scenario.fixtureSetup, workArea);
-  for (const [index, spec] of scenario.fixtureSetup.windows.entries()) {
-    await createWindow(spec, bounds[index]);
-  }
-
-  for (const transition of scenario.fixtureSetup.transitions ?? []) {
-    const stale = windows.get(transition.removeWindowId);
-    const staleBounds = stale?.getBounds() ?? bounds[0];
-    if (stale && !stale.isDestroyed()) {
-      staleWindowIds.push(stale.id);
-      stale.destroy();
+  try {
+    for (const [index, spec] of scenario.fixtureSetup.windows.entries()) {
+      await createWindow(spec, bounds[index]);
     }
-    windows.delete(transition.removeWindowId);
-    specs.delete(transition.removeWindowId);
-    await createWindow(transition.addWindow, staleBounds);
-  }
 
-  for (const windowId of scenario.fixtureSetup.zOrder ?? [...windows.keys()]) {
-    const window = windows.get(windowId);
-    if (window && !window.isDestroyed()) {
-      window.showInactive();
-      window.moveTop();
+    for (const transition of scenario.fixtureSetup.transitions ?? []) {
+      const stale = windows.get(transition.removeWindowId);
+      const staleBounds = stale?.getBounds() ?? bounds[0];
+      if (stale && !stale.isDestroyed()) {
+        staleWindowIds.push(stale.id);
+        stale.destroy();
+      }
+      windows.delete(transition.removeWindowId);
+      specs.delete(transition.removeWindowId);
+      await createWindow(transition.addWindow, staleBounds);
     }
+
+    for (const windowId of scenario.fixtureSetup.zOrder ?? [...windows.keys()]) {
+      const window = windows.get(windowId);
+      if (window && !window.isDestroyed()) {
+        window.showInactive();
+        window.moveTop();
+      }
+    }
+  } catch (error) {
+    for (const window of windows.values()) {
+      if (!window.isDestroyed()) window.destroy();
+    }
+    throw error;
   }
 
   return {
     scenario,
     staleWindowIds: Object.freeze(staleWindowIds),
+    windowIds() {
+      return [...windows.keys()];
+    },
     getWindow(windowId) {
       const window = windows.get(windowId);
       if (!window || window.isDestroyed()) throw new Error(`unknown fixture window "${windowId}"`);

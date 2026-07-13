@@ -18,6 +18,7 @@ import {
 } from './cu-e2e-scenarios.mjs';
 import {
   sanitizeCuActionRecord,
+  sanitizeCuReport,
   sanitizeCuTrace,
 } from './cu-report-sanitize.mjs';
 import {
@@ -41,6 +42,24 @@ const scenario = getCuE2eScenario(
 );
 if (!scenario.realRunEnabled) {
   throw new Error(`scenario ${scenario.id} is not enabled for real-model runs`);
+}
+if (scenario.runner) {
+  throw new Error(
+    `scenario ${scenario.id} requires dedicated runner ${scenario.runner}`,
+  );
+}
+const availableCapabilities = new Set(
+  String(process.env.MAKA_CU_EXECUTION_CAPABILITIES ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
+for (const capability of scenario.requiresExecutionCapabilities) {
+  if (!availableCapabilities.has(capability)) {
+    throw new Error(
+      `scenario ${scenario.id} requires unavailable capability ${capability}`,
+    );
+  }
 }
 
 const timeoutMs = Number(process.env.MAKA_CU_REAL_MODEL_TIMEOUT_MS ?? 180_000);
@@ -133,7 +152,17 @@ async function waitForLine(child, marker, timeout) {
   });
 }
 
-function actionRecords(events) {
+function parseOwnedTarget(text, fixturePid) {
+  if (typeof text !== 'string') return false;
+  try {
+    const value = JSON.parse(text);
+    return Number(value.pid) === fixturePid;
+  } catch {
+    return false;
+  }
+}
+
+function actionRecords(events, fixturePid, allowedApps) {
   const starts = new Map();
   const records = [];
   for (const event of events) {
@@ -142,10 +171,24 @@ function actionRecords(events) {
     }
     if (event.type === 'tool_result' && starts.has(event.toolUseId)) {
       const start = starts.get(event.toolUseId);
+      const text = event.content?.kind === 'text' ? event.content.text : undefined;
+      const resultCode = typeof text === 'string'
+        ? text.match(/\bfailed:\s*([a-z][a-z0-9_]{1,63})\b/i)?.[1]
+        : undefined;
+      const type = start.args?.action;
+      const targetOwned = type === 'observe'
+        || type === 'screenshot'
+        ? allowedApps.has(start.args?.app)
+          && (parseOwnedTarget(text, fixturePid) || event.isError === false)
+        : type === 'list_apps'
+          ? false
+        : typeof start.args?.observationId === 'string';
       records.push(sanitizeCuActionRecord({
         action: start.args,
         durationMs: event.durationMs,
-        text: event.content?.kind === 'text' ? event.content.text : undefined,
+        text,
+        success: event.isError === false && !resultCode,
+        targetOwned,
       }));
     }
   }
@@ -246,6 +289,13 @@ async function run() {
         MAKA_CU_REAL_MODEL_POLICY: JSON.stringify({
           allowedActions: scenario.allowedActions,
           maxTotalActions: scenario.maxTotalActions,
+          maxActionCounts: scenario.maxActionCounts ?? Object.fromEntries(
+            scenario.allowedActions.map((action) => [
+              action,
+              scenario.maxTotalActions,
+            ]),
+          ),
+          allowedApps: scenario.fixtureSetup.windows.map((window) => window.title),
         }),
         MAKA_CU_REAL_MODEL_TRACE: tracePath,
       },
@@ -316,7 +366,7 @@ async function run() {
     );
     const fixturePages = fixtureBrowser.contexts().flatMap((context) => context.pages());
     const fixtureState = {};
-    for (const windowSpec of scenario.fixtureSetup.windows) {
+    for (const windowSpec of activeWindowSpecs(scenario)) {
       const pageForTitle = await Promise.all(
         fixturePages.map(async (candidate) => ({
           candidate,
@@ -331,21 +381,35 @@ async function run() {
     }
     const evaluation = evaluateCuE2eScenarioState(scenario, fixtureState);
     const events = runResult.events.map(safeEvent).filter(Boolean);
-    const actions = actionRecords(runResult.events);
     const driverTraces = await readFile(tracePath, 'utf8')
       .then((text) => text.split('\n').filter(Boolean).map((line) => JSON.parse(line)))
       .catch((error) => {
         if (error?.code === 'ENOENT') return [];
         throw error;
       });
+    const actions = bindActionTargets(
+      actionRecords(
+        runResult.events,
+        fixture.pid,
+        new Set(activeWindowSpecs(scenario).map((window) => window.title)),
+      ),
+      driverTraces,
+      fixture.pid,
+    );
     const runStore = createAgentRunStore(workspace);
-    const runHeaders = await runStore.listSessionRuns(runResult.sessionId);
-    const runHeader = runHeaders.find((entry) =>
-      entry.turnId === runResult.turnId);
+    const runHeader = await waitForRunHeader(
+      runStore,
+      runResult.sessionId,
+      runResult.turnId,
+    );
+    const qualifyingActions = actions.filter((action) =>
+      action.success === true
+      && action.targetOwned === true
+      && scenario.allowedActions.includes(action.type));
     const actionCounts = Object.fromEntries(
       scenario.allowedActions.map((action) => [
         action,
-        actions.filter((record) => record.type === action).length,
+        qualifyingActions.filter((record) => record.type === action).length,
       ]),
     );
     const minimumActionsPassed = Object.entries(
@@ -353,9 +417,25 @@ async function run() {
     ).every(([action, minimum]) => (actionCounts[action] ?? 0) >= minimum);
     const terminalPassed =
       runResult.terminalEvent.type === 'complete'
-      && runResult.terminalEvent.stopReason !== 'user_stop';
-    const qualified = terminalPassed && minimumActionsPassed && evaluation.pass;
-    const report = {
+      && runResult.terminalEvent.stopReason === 'end_turn';
+    const actionsWithinBudget =
+      actions.length <= scenario.maxTotalActions
+      && actions.every((action) =>
+        scenario.allowedActions.includes(action.type))
+      && Object.entries(scenario.maxActionCounts ?? {}).every(
+        ([action, maximum]) =>
+          actions.filter((record) => record.type === action).length <= maximum,
+      );
+    const dispatchPathPassed = requiredDispatchPathPassed(
+      scenario,
+      driverTraces,
+    );
+    const qualified = terminalPassed
+      && minimumActionsPassed
+      && actionsWithinBudget
+      && dispatchPathPassed
+      && evaluation.pass;
+    const report = sanitizeCuReport({
       schemaVersion: 1,
       evidenceClass: 'real-runtime',
       policyMode: 'bypassed',
@@ -379,6 +459,8 @@ async function run() {
       actionCount: actions.length,
       actionCounts,
       minimumActionsPassed,
+      actionsWithinBudget,
+      dispatchPathPassed,
       actions,
       fixtureState,
       expectedState: evaluation.expected,
@@ -395,7 +477,7 @@ async function run() {
           : 'inconclusive',
       traces: events.map(sanitizeCuTrace).filter(Boolean),
       driverTraces: driverTraces.map(sanitizeCuTrace).filter(Boolean),
-    };
+    });
     await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, {
       flag: 'wx',
       mode: 0o600,
@@ -418,19 +500,87 @@ async function run() {
 }
 
 run().catch(async (error) => {
-  const failure = {
+  const failure = sanitizeCuReport({
     schemaVersion: 1,
     evidenceClass: 'real-runtime',
     scenarioId: scenario.id,
     producer: 'cu-real-model-launcher',
     status: 'inconclusive',
-    failure: error instanceof Error ? error.message : String(error),
-  };
+    terminal: { type: 'error' },
+    run: {
+      status: 'failed',
+      failureClass:
+        typeof error?.code === 'string'
+          ? error.code
+          : error instanceof Error
+            ? error.name
+            : 'unknown',
+    },
+  });
   await mkdir(dirname(reportPath), { recursive: true }).catch(() => {});
   await writeFile(reportPath, `${JSON.stringify(failure, null, 2)}\n`, {
     flag: 'wx',
     mode: 0o600,
   }).catch(() => {});
-  console.error('Real-model Computer Use E2E failed:', failure.failure);
+  console.error('Real-model Computer Use E2E failed');
   process.exitCode = 1;
 });
+
+function requiredDispatchPathPassed(scenario, traces) {
+  const mutationActions = scenario.allowedActions.filter((action) =>
+    !['list_apps', 'observe', 'screenshot', 'cursor_position', 'wait'].includes(action));
+  if (mutationActions.length === 0) return true;
+  return traces.some((trace) =>
+    trace.type === 'dispatch'
+    && (
+      trace.address === 'ax'
+      || trace.address === 'semantic'
+    ));
+}
+
+function bindActionTargets(actions, traces, fixturePid) {
+  const dispatches = traces.filter((trace) =>
+    trace.type === 'dispatch'
+    && Number(trace.pid) === fixturePid
+    && (
+      trace.address === 'ax'
+      || trace.address === 'semantic'
+    ));
+  const consumed = new Set();
+  return actions.map((action) => {
+    if (typeof action.targetOwned === 'boolean') return action;
+    const index = dispatches.findIndex((trace, traceIndex) =>
+      !consumed.has(traceIndex)
+      && trace.actionType === action.type);
+    if (index >= 0) consumed.add(index);
+    return { ...action, targetOwned: index >= 0 };
+  });
+}
+
+function activeWindowSpecs(scenario) {
+  const specs = new Map(
+    scenario.fixtureSetup.windows.map((window) => [window.id, window]),
+  );
+  for (const transition of scenario.fixtureSetup.transitions ?? []) {
+    specs.delete(transition.removeWindowId);
+    specs.set(transition.addWindow.id, transition.addWindow);
+  }
+  return [...specs.values()];
+}
+
+async function waitForRunHeader(store, sessionId, turnId) {
+  const deadline = Date.now() + 2_000;
+  let latest;
+  do {
+    latest = (await store.listSessionRuns(sessionId))
+      .find((entry) => entry.turnId === turnId);
+    if (
+      latest
+      && latest.status !== 'created'
+      && latest.status !== 'running'
+      && latest.status !== 'waiting_permission'
+    ) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } while (Date.now() < deadline);
+  return latest;
+}

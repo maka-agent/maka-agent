@@ -28,6 +28,7 @@ test('real-model launcher uses an isolated profile and the production Desktop IP
 test('real-model launcher owns a synthetic fixture and emits only sanitized evidence', () => {
   assert.match(launcher, /cu-real-model-fixture\.mjs/);
   assert.match(launcher, /sanitizeCuActionRecord/);
+  assert.match(launcher, /sanitizeCuReport/);
   assert.match(launcher, /sanitizeCuTrace/);
   assert.match(launcher, /evaluateCuE2eScenarioState/);
   assert.match(launcher, /createAgentRunStore/);
@@ -35,6 +36,12 @@ test('real-model launcher owns a synthetic fixture and emits only sanitized evid
   assert.doesNotMatch(launcher, /failureMessage:\s*runHeader\.failureMessage/);
   assert.match(launcher, /minimumActionsPassed/);
   assert.match(launcher, /terminalPassed/);
+  assert.match(launcher, /stopReason === 'end_turn'/);
+  assert.match(launcher, /actionsWithinBudget/);
+  assert.match(launcher, /dispatchPathPassed/);
+  assert.match(launcher, /targetOwned === true/);
+  assert.match(launcher, /scenario\.runner/);
+  assert.match(launcher, /requiresExecutionCapabilities/);
   assert.match(launcher, /status: qualified/);
   assert.match(launcher, /evidenceClass: 'real-runtime'/);
   assert.doesNotMatch(launcher, /readMessages\(/);

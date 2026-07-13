@@ -161,6 +161,30 @@ test('validation rejects ambiguous or unsafe scenario declarations', () => {
     () => validateCuE2eScenario({ ...base, contractChecks: ['not-a-contract'] }),
     /unknown check/,
   );
+  assert.throws(
+    () => validateCuE2eScenario({
+      ...base,
+      minimumActionCounts: { left_click: 1 },
+    }),
+    /disallowed action/,
+  );
+  assert.throws(
+    () => validateCuE2eScenario({
+      ...base,
+      minimumActionCounts: { observe: 3 },
+      maxActionCounts: { observe: 2 },
+    }),
+    /minimum exceeds maximum/,
+  );
+  assert.throws(
+    () => validateCuE2eScenario({
+      ...base,
+      minimumActionCounts: { observe: 2, click_element: 2 },
+      maxActionCounts: { observe: 2, click_element: 2 },
+      maxTotalActions: 3,
+    }),
+    /exceed maxTotalActions/,
+  );
 });
 
 test('fixture helper is Electron-only and does not import Maka runtime or runners', async () => {

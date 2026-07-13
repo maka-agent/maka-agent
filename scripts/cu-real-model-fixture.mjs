@@ -14,8 +14,8 @@ let fixture;
 app.whenReady().then(async () => {
   fixture = await createCuE2eFixture({ BrowserWindow, screen, scenario });
   for (let index = 0; index < 4; index += 1) {
-    for (const windowSpec of scenario.fixtureSetup.windows) {
-      const window = fixture.getWindow(windowSpec.id);
+    for (const windowId of fixture.windowIds()) {
+      const window = fixture.getWindow(windowId);
       window.showInactive();
       window.moveTop();
     }

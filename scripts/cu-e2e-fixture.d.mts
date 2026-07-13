@@ -27,6 +27,7 @@ export function createCuE2eFixture(input: {
 }): Promise<{
   scenario: CuE2eScenario;
   staleWindowIds: readonly number[];
+  windowIds(): string[];
   getWindow(windowId: string): FixtureWindow;
   getWindowTitle(windowId: string): string;
   readState(windowId: string): Promise<unknown>;

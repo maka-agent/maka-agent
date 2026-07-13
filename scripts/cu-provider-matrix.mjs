@@ -116,16 +116,41 @@ function deepSubsetEqual(actual, expected) {
 }
 
 function normalizeFixture(report, scenario) {
-  const definition = scenario.fixture;
-  const expected = definition?.expected ?? definition ?? null;
-  const actual = report.fixtureState ?? report.state ?? report.fixture?.actual ?? report.fixture ?? null;
-  if (expected == null) return { status: 'not-defined', expected: null, actual };
-  if (actual == null) return { status: 'unknown', expected, actual: null };
+  const assertions = Array.isArray(scenario.expectedState)
+    ? scenario.expectedState
+    : [];
+  if (assertions.length === 0) {
+    return { status: 'not-defined', expected: [], actual: report.fixtureState ?? null };
+  }
+  if (!report.fixtureState || typeof report.fixtureState !== 'object') {
+    return { status: 'unknown', expected: assertions, actual: null };
+  }
+  const results = assertions.map((assertion) => {
+    const actual = valuesAtPath(
+      report.fixtureState?.[assertion.windowId],
+      assertion.path,
+    );
+    return {
+      ...assertion,
+      actual,
+      pass: actual !== undefined && assertionMatches(assertion, actual),
+    };
+  });
   return {
-    status: deepSubsetEqual(actual, expected) ? 'pass' : 'fail',
-    expected,
-    actual,
+    status: results.every((result) => result.pass) ? 'pass' : 'fail',
+    expected: assertions,
+    actual: report.fixtureState,
+    results,
   };
+}
+
+function assertionMatches(assertion, actual) {
+  if (Object.hasOwn(assertion, 'equals')) return deepSubsetEqual(actual, assertion.equals);
+  if (Object.hasOwn(assertion, 'greaterThan')) return actual > assertion.greaterThan;
+  if (Object.hasOwn(assertion, 'greaterThanOrEqual')) return actual >= assertion.greaterThanOrEqual;
+  if (Object.hasOwn(assertion, 'lessThan')) return actual < assertion.lessThan;
+  if (Object.hasOwn(assertion, 'lessThanOrEqual')) return actual <= assertion.lessThanOrEqual;
+  return false;
 }
 
 function effectId(effect) {
@@ -137,15 +162,10 @@ function effectId(effect) {
 function normalizeForbiddenEffects(report, scenario) {
   const definitions = Array.isArray(scenario.forbiddenEffects) ? scenario.forbiddenEffects : [];
   const reported = report.forbiddenEffects;
-  const observed = Array.isArray(reported)
-    ? reported
-    : Array.isArray(report.effects)
-      ? report.effects
-      : Array.isArray(reported?.observed)
-        ? reported.observed
-        : [];
+  const observed = Array.isArray(reported?.observed) ? reported.observed : [];
   const observedIds = new Set(observed.map(effectId).filter(Boolean));
   const violations = [];
+  let missingEvidence = false;
 
   for (const definition of definitions) {
     if (typeof definition === 'string') {
@@ -159,21 +179,36 @@ function normalizeForbiddenEffects(report, scenario) {
       continue;
     }
     if (definition.path) {
-      const actual = valuesAtPath(report, definition.path);
+      const actual = valuesAtPath(
+        report.fixtureState?.[definition.windowId],
+        definition.path,
+      );
       const safeValue = Object.hasOwn(definition, 'equals') ? definition.equals : definition.allowed;
-      if (safeValue !== undefined && actual !== undefined && !deepSubsetEqual(actual, safeValue)) {
-        violations.push({ id, source: definition.path, expected: safeValue, actual });
+      if (actual === undefined) {
+        missingEvidence = true;
+      } else if (safeValue !== undefined && !deepSubsetEqual(actual, safeValue)) {
+        violations.push({
+          id,
+          source: `${definition.windowId}.${definition.path}`,
+          expected: safeValue,
+          actual,
+        });
       }
     }
   }
 
   if (reported?.status === 'fail' || reported?.pass === false) {
-    violations.push(...(reported.violations ?? [{ id: 'reported-failure', source: 'report' }]));
+    const reportedViolations = Array.isArray(reported.violations)
+      ? reported.violations
+      : [{ id: 'reported-failure', source: 'report' }];
+    violations.push(...reportedViolations);
   }
   return {
     status: definitions.length === 0 && reported == null
       ? 'not-defined'
-      : violations.length > 0
+      : missingEvidence
+        ? 'unknown'
+        : violations.length > 0
         ? 'fail'
         : 'pass',
     forbidden: definitions,
@@ -221,12 +256,70 @@ export function normalizeReport(report, scenario) {
   };
 }
 
+function validateRealReport(report, provider, scenario) {
+  const errors = [];
+  if (report.schemaVersion !== 1) errors.push('schemaVersion must be 1');
+  if (report.evidenceClass !== 'real-runtime') errors.push('evidenceClass must be real-runtime');
+  if (report.scenarioId !== scenario.id) errors.push('scenarioId mismatch');
+  if (report.status !== 'pass') errors.push('report status must be pass');
+  if (report.transportClass !== 'live-network') errors.push('transportClass must be live-network');
+  if (typeof report.producer !== 'string' || !report.producer) errors.push('producer missing');
+  if (report.provider !== provider.id) errors.push('provider mismatch');
+  const expectedModel = select(provider.model ?? provider.modelId, scenario.id);
+  if (expectedModel && report.model !== expectedModel) errors.push('model mismatch');
+  if (
+    report.terminal?.type !== 'complete'
+    || report.terminal?.stopReason !== 'end_turn'
+  ) errors.push('terminal must be complete/end_turn');
+  const actions = Array.isArray(report.actions) ? report.actions : [];
+  if (report.actionCount !== actions.length) errors.push('actionCount mismatch');
+  if (report.minimumActionsPassed !== true) errors.push('minimumActionsPassed must be true');
+  if (report.actionsWithinBudget !== true) errors.push('actionsWithinBudget must be true');
+  if (actions.some((action) =>
+    action.success !== true
+    || action.targetOwned !== true
+    || !scenario.allowedActions.includes(action.type))) {
+    errors.push('actions must be successful, owned, and allowed');
+  }
+  if (
+    Number.isInteger(scenario.maxTotalActions)
+    && actions.length > scenario.maxTotalActions
+  ) errors.push('total action budget exceeded');
+  for (const [action, maximum] of Object.entries(scenario.maxActionCounts ?? {})) {
+    if (actions.filter((entry) => entry.type === action).length > maximum) {
+      errors.push(`${action} action budget exceeded`);
+    }
+  }
+  for (const [action, minimum] of Object.entries(scenario.minimumActionCounts ?? {})) {
+    if (actions.filter((entry) => entry.type === action).length < minimum) {
+      errors.push(`${action} minimum action count missing`);
+    }
+  }
+  const mutationActions = actions.filter((action) =>
+    !['list_apps', 'observe', 'screenshot', 'cursor_position', 'wait'].includes(action.type));
+  if (mutationActions.length > 0) {
+    const safeDispatch = Array.isArray(report.driverTraces)
+      && report.driverTraces.some((trace) =>
+        trace.type === 'dispatch'
+        && (trace.address === 'ax' || trace.address === 'semantic'));
+    if (!safeDispatch) errors.push('safe dispatch evidence missing');
+    if (report.dispatchPathPassed !== true) errors.push('dispatchPathPassed must be true');
+  }
+  return errors;
+}
+
 function rowStatus(readiness, report, metrics) {
   if (readiness === 'unsupported') return 'unsupported';
   if (readiness === 'contract') return 'contract-only';
   if (!report) return 'missing-report';
-  if (metrics.fixture.status === 'fail' || metrics.forbiddenEffects.status === 'fail') return 'fail';
-  if (metrics.fixture.status === 'unknown') return 'inconclusive';
+  if (
+    metrics.fixture.status === 'fail'
+    || metrics.forbiddenEffects.status === 'fail'
+  ) return 'fail';
+  if (
+    metrics.fixture.status === 'unknown'
+    || metrics.forbiddenEffects.status === 'unknown'
+  ) return 'inconclusive';
   if (report.policyMode === 'bypassed') return 'pass-policy-bypassed';
   return 'pass';
 }
@@ -294,15 +387,13 @@ export async function buildProviderMatrix({
       if (readiness === 'real' && reportPath) {
         try {
           report = await loadReport(reportPath);
-          if (report.scenarioId !== scenario.id) {
-            reportError =
-              `scenario mismatch: report=${JSON.stringify(report.scenarioId)} `
-              + `expected=${JSON.stringify(scenario.id)}`;
-            report = null;
-          } else if (report.evidenceClass !== 'real-runtime') {
-            reportError =
-              `real provider reports require evidenceClass="real-runtime"; received `
-              + `${JSON.stringify(report.evidenceClass)}`;
+          const validationErrors = validateRealReport(
+            report,
+            provider,
+            scenario,
+          );
+          if (validationErrors.length > 0) {
+            reportError = validationErrors.join('; ');
             report = null;
           }
         } catch (error) {

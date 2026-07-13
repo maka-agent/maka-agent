@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   sanitizeCuDirectReport,
   sanitizeCuModelPlans,
+  sanitizeCuReport,
 } from './cu-report-sanitize.mjs';
 
 test('CU reports keep metrics while dropping typed text, coordinates, URL secrets, and trace payloads', () => {
@@ -60,16 +61,41 @@ test('model plans expose only turn and action types', () => {
   }]);
 });
 
-test('direct reports preserve an explicit provider and producer identity', () => {
-  const report = sanitizeCuDirectReport({
+test('report sanitizer preserves validated attribution and drops arbitrary fields', () => {
+  const report = sanitizeCuReport({
     schemaVersion: 1,
     evidenceClass: 'real-runtime',
-    scenarioId: 'appkit-ax-set-value',
-    producer: 'cu-real-ax-model-e2e',
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-6',
-    baseUrl: 'http://127.0.0.1:8537',
+    scenarioId: 'l0-observe-only',
+    producer: 'cu-real-model-launcher',
+    transportClass: 'live-network',
+    policyMode: 'bypassed',
+    provider: 'openai',
+    model: 'gpt-5.4',
+    status: 'inconclusive',
+    failure: 'private provider body',
+    loopStatus: { private: true },
+    turns: [{ text: 'private' }],
+    state: { private: true },
+    display: { private: true },
+    traces: [{
+      type: 'dispatch',
+      actionType: 'click_element',
+      path: 'private-path',
+      effect: 'private-effect',
+      address: 'ax',
+      tool: 'click',
+    }],
   });
-  assert.equal(report.producer, 'cu-real-ax-model-e2e');
-  assert.equal(report.provider, 'anthropic');
+  assert.equal(report.producer, 'cu-real-model-launcher');
+  assert.equal(report.provider, 'openai');
+  assert.equal(report.model, 'gpt-5.4');
+  assert.deepEqual(report.traces, [{
+    type: 'dispatch',
+    actionType: 'click_element',
+    address: 'ax',
+    tool: 'click',
+  }]);
+  const serialized = JSON.stringify(report);
+  assert.doesNotMatch(serialized, /private/);
+  assert.doesNotMatch(serialized, /loopStatus|turns|display/);
 });

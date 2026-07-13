@@ -3,22 +3,28 @@ import type { ComputerUseToolSet, MakaTool } from '@maka/runtime';
 export interface ComputerUseRealModelPolicy {
   allowedActions: readonly string[];
   maxTotalActions: number;
+  maxActionCounts: Readonly<Record<string, number>>;
+  allowedApps: readonly string[];
 }
 
 export function parseComputerUseRealModelPolicy(
   raw: string | undefined,
-): ComputerUseRealModelPolicy | undefined {
-  if (!raw) return undefined;
+): ComputerUseRealModelPolicy {
+  if (!raw) throw new Error('Missing Computer Use real-model policy');
   const value = JSON.parse(raw) as {
     allowedActions?: unknown;
     maxTotalActions?: unknown;
+    maxActionCounts?: unknown;
+    allowedApps?: unknown;
   };
+  const allowedActions = Array.isArray(value.allowedActions)
+    ? value.allowedActions
+    : [];
   if (
-    !Array.isArray(value.allowedActions)
-    || value.allowedActions.length === 0
-    || value.allowedActions.some((action) =>
+    allowedActions.length === 0
+    || allowedActions.some((action) =>
       typeof action !== 'string' || !action.trim())
-    || new Set(value.allowedActions).size !== value.allowedActions.length
+    || new Set(allowedActions).size !== allowedActions.length
   ) {
     throw new Error('Invalid Computer Use real-model allowedActions');
   }
@@ -29,9 +35,30 @@ export function parseComputerUseRealModelPolicy(
   ) {
     throw new Error('Invalid Computer Use real-model maxTotalActions');
   }
+  if (
+    !value.maxActionCounts
+    || typeof value.maxActionCounts !== 'object'
+    || Array.isArray(value.maxActionCounts)
+    || Object.entries(value.maxActionCounts).some(([action, count]) =>
+      !allowedActions.includes(action)
+      || !Number.isInteger(count)
+      || (count as number) < 0)
+  ) {
+    throw new Error('Invalid Computer Use real-model maxActionCounts');
+  }
+  if (
+    !Array.isArray(value.allowedApps)
+    || value.allowedApps.length === 0
+    || value.allowedApps.some((app) =>
+      typeof app !== 'string' || !app.trim())
+  ) {
+    throw new Error('Invalid Computer Use real-model allowedApps');
+  }
   return {
-    allowedActions: value.allowedActions,
+    allowedActions,
     maxTotalActions: value.maxTotalActions as number,
+    maxActionCounts: value.maxActionCounts as Record<string, number>,
+    allowedApps: value.allowedApps,
   };
 }
 
@@ -41,7 +68,10 @@ export function applyComputerUseRealModelPolicy(
 ): ComputerUseToolSet {
   if (!policy) return tools;
   let totalActions = 0;
+  const actionCounts = new Map<string, number>();
+  const ownedObservations = new Set<string>();
   const allowed = new Set(policy.allowedActions);
+  const allowedApps = new Set(policy.allowedApps);
   const wrapped = tools.map((tool) => {
     if (tool.name !== 'maka_computer') return tool;
     return {
@@ -63,7 +93,58 @@ export function applyComputerUseRealModelPolicy(
             error: 'unsupported_action_policy',
           };
         }
-        return tool.impl(args as never, context);
+        const app = (args as { app?: unknown })?.app;
+        if (
+          (action === 'observe' || action === 'screenshot')
+          && (typeof app !== 'string' || !allowedApps.has(app))
+        ) {
+          return {
+            text: `maka_computer.${action} failed: target_policy_mismatch`,
+            error: 'target_policy_mismatch',
+          };
+        }
+        const observationId = (args as {
+          observation_id?: unknown;
+        })?.observation_id;
+        if (
+          action !== 'observe'
+          && action !== 'screenshot'
+          && action !== 'list_apps'
+          && (
+            typeof observationId !== 'string'
+            || !ownedObservations.has(observationId)
+          )
+        ) {
+          return {
+            text: `maka_computer.${action} failed: target_policy_mismatch`,
+            error: 'target_policy_mismatch',
+          };
+        }
+        const actionCount = (actionCounts.get(action) ?? 0) + 1;
+        actionCounts.set(action, actionCount);
+        if (actionCount > (policy.maxActionCounts[action] ?? 0)) {
+          return {
+            text: `maka_computer.${action} failed: action_budget_exceeded`,
+            error: 'action_budget_exceeded',
+          };
+        }
+        const result = await tool.impl(args as never, context);
+        if (action === 'observe') {
+          const text = (result as { text?: unknown })?.text;
+          if (typeof text === 'string') {
+            try {
+              const parsed = JSON.parse(text) as {
+                observation_id?: unknown;
+              };
+              if (typeof parsed.observation_id === 'string') {
+                ownedObservations.add(parsed.observation_id);
+              }
+            } catch {
+              // A failed/non-JSON observation never creates target ownership.
+            }
+          }
+        }
+        return result;
       },
     };
   }) as ComputerUseToolSet;

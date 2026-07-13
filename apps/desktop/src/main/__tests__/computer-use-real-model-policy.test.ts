@@ -13,7 +13,9 @@ function tool(calls: string[]): MakaTool {
     parameters: {},
     impl: async (args) => {
       calls.push((args as { action: string }).action);
-      return { text: 'ok' };
+      return (args as { action: string }).action === 'observe'
+        ? { text: '{"observation_id":"owned-observation"}' }
+        : { text: 'ok' };
     },
   };
 }
@@ -39,10 +41,18 @@ test('parses one bounded allowlist and rejects malformed policies', () => {
   assert.deepEqual(parseComputerUseRealModelPolicy(JSON.stringify({
     allowedActions: ['list_apps', 'observe', 'wait'],
     maxTotalActions: 4,
+    maxActionCounts: { list_apps: 1, observe: 2, wait: 1 },
+    allowedApps: ['Fixture'],
   })), {
     allowedActions: ['list_apps', 'observe', 'wait'],
     maxTotalActions: 4,
+    maxActionCounts: { list_apps: 1, observe: 2, wait: 1 },
+    allowedApps: ['Fixture'],
   });
+  assert.throws(
+    () => parseComputerUseRealModelPolicy(undefined),
+    /Missing Computer Use real-model policy/,
+  );
   assert.throws(
     () => parseComputerUseRealModelPolicy('{"allowedActions":[],"maxTotalActions":0}'),
     /Invalid Computer Use real-model/,
@@ -54,6 +64,8 @@ test('blocks disallowed and over-budget actions before dispatch', async () => {
   const [wrapped] = applyComputerUseRealModelPolicy(toolSet(calls), {
     allowedActions: ['observe'],
     maxTotalActions: 2,
+    maxActionCounts: { observe: 1 },
+    allowedApps: ['Fixture'],
   });
   const context = {
     sessionId: 's',
@@ -64,8 +76,11 @@ test('blocks disallowed and over-budget actions before dispatch', async () => {
     emitOutput() {},
   };
 
-  const allowed = await wrapped.impl({ action: 'observe' } as never, context) as { text: string };
-  assert.equal(allowed.text, 'ok');
+  const allowed = await wrapped.impl({
+    action: 'observe',
+    app: 'Fixture',
+  } as never, context) as { text: string };
+  assert.match(allowed.text, /owned-observation/);
   const disallowed = await wrapped.impl(
     { action: 'left_click' } as never,
     context,
@@ -75,7 +90,7 @@ test('blocks disallowed and over-budget actions before dispatch', async () => {
     /unsupported_action_policy/,
   );
   const overBudget = await wrapped.impl(
-    { action: 'observe' } as never,
+    { action: 'observe', app: 'Fixture' } as never,
     context,
   ) as { text: string };
   assert.match(
@@ -83,4 +98,62 @@ test('blocks disallowed and over-budget actions before dispatch', async () => {
     /total_action_budget_exceeded/,
   );
   assert.deepEqual(calls, ['observe']);
+});
+
+test('blocks wrong targets before dispatch', async () => {
+  const calls: string[] = [];
+  const [wrapped] = applyComputerUseRealModelPolicy(toolSet(calls), {
+    allowedActions: ['observe', 'click_element'],
+    maxTotalActions: 3,
+    maxActionCounts: { observe: 2, click_element: 1 },
+    allowedApps: ['Owned Fixture'],
+  });
+  const context = {
+    sessionId: 's',
+    turnId: 't',
+    toolCallId: 'c',
+    cwd: '/tmp',
+    abortSignal: new AbortController().signal,
+    emitOutput() {},
+  };
+  const wrong = await wrapped.impl({
+    action: 'observe',
+    app: 'Other App',
+  } as never, context) as { text: string };
+  const unbound = await wrapped.impl({
+    action: 'click_element',
+    element_id: '7',
+  } as never, context) as { text: string };
+  assert.match(wrong.text, /target_policy_mismatch/);
+  assert.match(unbound.text, /target_policy_mismatch/);
+  assert.deepEqual(calls, []);
+});
+
+test('semantic mutations require an observation created by the owned fixture', async () => {
+  const calls: string[] = [];
+  const [wrapped] = applyComputerUseRealModelPolicy(toolSet(calls), {
+    allowedActions: ['observe', 'click_element'],
+    maxTotalActions: 3,
+    maxActionCounts: { observe: 1, click_element: 1 },
+    allowedApps: ['Owned Fixture'],
+  });
+  const context = {
+    sessionId: 's',
+    turnId: 't',
+    toolCallId: 'c',
+    cwd: '/tmp',
+    abortSignal: new AbortController().signal,
+    emitOutput() {},
+  };
+  await wrapped.impl({
+    action: 'observe',
+    app: 'Owned Fixture',
+  } as never, context);
+  const owned = await wrapped.impl({
+    action: 'click_element',
+    observation_id: 'owned-observation',
+    element_id: '7',
+  } as never, context) as { text: string };
+  assert.equal(owned.text, 'ok');
+  assert.deepEqual(calls, ['observe', 'click_element']);
 });
