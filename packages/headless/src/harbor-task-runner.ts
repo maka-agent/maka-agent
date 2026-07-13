@@ -17,6 +17,7 @@ import {
   HarborTaskRunner,
 } from './fixed-prompt-controller.js';
 import { startProviderAuthProxy } from './provider-auth-proxy.js';
+import { requireProviderCredentialEnv } from './provider-env.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -108,16 +109,6 @@ export interface HarborRunResult {
 }
 
 export type HarborProcessRunner = (request: HarborRunRequest) => Promise<HarborRunResult>;
-
-const PROVIDER_SECRET_ENV: Record<string, { key: string; file: string; baseUrl: string }> = {
-  deepseek: { key: 'DEEPSEEK_API_KEY', file: 'DEEPSEEK_API_KEY_FILE', baseUrl: 'DEEPSEEK_BASE_URL' },
-  openai: { key: 'OPENAI_API_KEY', file: 'OPENAI_API_KEY_FILE', baseUrl: 'OPENAI_BASE_URL' },
-  'openai-compatible': { key: 'OPENAI_API_KEY', file: 'OPENAI_API_KEY_FILE', baseUrl: 'OPENAI_BASE_URL' },
-  moonshot: { key: 'MOONSHOT_API_KEY', file: 'MOONSHOT_API_KEY_FILE', baseUrl: 'MOONSHOT_BASE_URL' },
-  google: { key: 'GOOGLE_API_KEY', file: 'GOOGLE_API_KEY_FILE', baseUrl: 'GOOGLE_BASE_URL' },
-  anthropic: { key: 'ANTHROPIC_API_KEY', file: 'ANTHROPIC_API_KEY_FILE', baseUrl: 'ANTHROPIC_BASE_URL' },
-  'zai-coding-plan': { key: 'ZAI_API_KEY', file: 'ZAI_API_KEY_FILE', baseUrl: 'ZAI_BASE_URL' },
-};
 
 const EXPERIMENT_IDENTITY_ENV_KEYS = new Set([
   'MAKA_BACKEND',
@@ -464,18 +455,17 @@ function positiveIntEnv(raw: string | undefined): number | undefined {
   return Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
-function providerSecretEnv(provider: string): { key: string; file: string; baseUrl: string } {
-  return PROVIDER_SECRET_ENV[provider] ?? PROVIDER_SECRET_ENV.openai!;
-}
-
 async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promise<{
   env: Record<string, string>;
   close?: () => Promise<void>;
 } | null> {
   if (!options.apiKeyFile) return null;
   const provider = options.provider ?? 'deepseek';
-  const providerEnv = providerSecretEnv(provider);
-  const baseUrl = options.agentEnv?.[providerEnv.baseUrl] ?? options.agentEnv?.MAKA_BASE_URL ?? options.agentEnv?.OPENAI_BASE_URL;
+  const providerEnv = requireProviderCredentialEnv(provider);
+  const [primaryBaseUrl, ...fallbackBaseUrls] = providerEnv.baseUrls;
+  const baseUrl = (primaryBaseUrl ? options.agentEnv?.[primaryBaseUrl] : undefined)
+    ?? options.agentEnv?.MAKA_BASE_URL
+    ?? fallbackBaseUrls.map((name) => options.agentEnv?.[name]).find(Boolean);
   if (options.agent === 'opencode') {
     if (!baseUrl) throw new Error(`OpenCode provider ${provider} requires a base URL`);
     const proxy = await startProviderAuthProxy({
@@ -494,17 +484,17 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
     env: {
       MAKA_HOST_REPO_ROOT: options.makaRepoPath,
       MAKA_HOST_API_KEY_FILE: options.apiKeyFile,
-      MAKA_HOST_API_KEY_ENV_NAME: normalizeRawKeyEnvName(options.apiKeyEnvName ?? providerEnv.key),
+      MAKA_HOST_API_KEY_ENV_NAME: normalizeRawKeyEnvName(options.apiKeyEnvName ?? providerEnv.apiKeys[0]!),
       ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
     },
   };
 }
 
 function taskAgentEnvWithoutProviderSecrets(options: HarborTaskRunnerOptions): Record<string, string> {
-  const providerEnv = providerSecretEnv(options.provider ?? 'deepseek');
+  const providerEnv = requireProviderCredentialEnv(options.provider ?? 'deepseek');
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(options.agentEnv ?? {})) {
-    if (key === providerEnv.key || key === providerEnv.file || key === providerEnv.baseUrl) continue;
+    if (providerEnv.apiKeys.includes(key) || key === providerEnv.apiKeyFile || providerEnv.baseUrls.includes(key)) continue;
     if (/_API_KEY(_FILE)?$/.test(key)) continue;
     result[key] = value;
   }

@@ -50,6 +50,7 @@ import { configWithEconomyTaskPolicy, resolveEconomyTaskMode } from './economy-t
 import type { HeadlessBackendContext, IsolatedToolExecutor, RealBackendIsolation } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES, validateRealBackendIsolation } from './isolation.js';
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
+import { providerCredentialEnv, requireProviderCredentialEnv } from './provider-env.js';
 import { backendNeedsIsolation } from './runner.js';
 import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools, type BuildIsolatedHeadlessToolsOptions } from './tools.js';
 import {
@@ -116,6 +117,10 @@ export interface RunHarborCellResult {
 }
 
 export type RunHarborCellEnv = Record<string, string | undefined>;
+
+export function providerApiKeyEnvName(provider: string): string {
+  return requireProviderCredentialEnv(provider).apiKeys[0]!;
+}
 
 export const HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT = 'Continue the same benchmark task from the current workspace state. Do not restart. If the task is complete, provide the final response.';
 const HARBOR_CELL_DEFAULT_MAX_STEPS_PER_TURN = 50;
@@ -1565,57 +1570,15 @@ function connectionFromEnv(
 }
 
 function providerBaseUrl(provider: ProviderType, env: RunHarborCellEnv): string | undefined {
-  switch (provider) {
-    case 'deepseek':
-      return env.DEEPSEEK_BASE_URL ?? env.OPENAI_BASE_URL;
-    case 'openai':
-    case 'openai-compatible':
-      return env.OPENAI_BASE_URL;
-    case 'moonshot':
-      return env.MOONSHOT_BASE_URL;
-    case 'zai-coding-plan':
-      return env.ZAI_BASE_URL;
-    case 'MiniMax':
-    case 'MiniMax-cn':
-      return env.MINIMAX_BASE_URL;
-    default:
-      return undefined;
+  for (const name of providerCredentialEnv(provider)?.baseUrls ?? []) {
+    const value = env[name];
+    if (value) return value;
   }
+  return undefined;
 }
 
 function apiKeyFromEnv(provider: ProviderType, env: RunHarborCellEnv, connectionSlug: string): string {
-  const names: string[] = [];
-  switch (provider) {
-    case 'deepseek':
-      names.push('DEEPSEEK_API_KEY', 'OPENAI_API_KEY');
-      break;
-    case 'openai':
-    case 'openai-compatible':
-      names.push('OPENAI_API_KEY');
-      break;
-    case 'moonshot':
-      names.push('MOONSHOT_API_KEY', 'OPENAI_API_KEY');
-      break;
-    case 'zai-coding-plan':
-      names.push('ZAI_API_KEY', 'ZAI_CODING_CN_API_KEY', 'OPENAI_API_KEY');
-      break;
-    case 'google':
-      names.push('GOOGLE_API_KEY');
-      break;
-    case 'anthropic':
-    case 'kimi-coding-plan':
-    case 'claude-subscription':
-      names.push('ANTHROPIC_API_KEY');
-      break;
-    case 'MiniMax':
-    case 'MiniMax-cn':
-      names.push('MINIMAX_API_KEY');
-      break;
-    default:
-      names.push('OPENAI_API_KEY');
-      break;
-  }
-  return resolveApiKey(env, names, connectionSlug);
+  return resolveApiKey(env, providerCredentialEnv(provider)?.apiKeys ?? [], connectionSlug);
 }
 
 // Resolve an API key from either the raw env var or its `<NAME>_FILE` companion.

@@ -9,6 +9,29 @@ import { isConnectionReady } from '../connection-readiness.js';
 import type { LlmConnection, ModelInfo, ProviderType } from '../llm-connections.js';
 
 describe('ModelCatalogEntry', () => {
+  it('uses models.dev fallback metadata for a SiliconFlow connection before live discovery', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'siliconflow',
+        providerType: 'siliconflow',
+        defaultModel: 'moonshotai/Kimi-K2.6',
+      },
+    });
+
+    const kimi = entries.find((entry) => entry.id === 'moonshotai/Kimi-K2.6');
+    assert.ok(kimi, 'the exact models.dev id must remain selectable');
+    assert.equal(kimi.source, 'static_catalog');
+    assert.equal(kimi.capabilitySource, 'static_catalog');
+    assert.equal(kimi.contextWindow, 262_000);
+    assert.equal(kimi.maxOutputTokens, 262_000);
+    assert.deepEqual(kimi.capabilities, {
+      chat: true,
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
   it('normalizes Z.ai fetched models as provider_api facts without guessing unknown capabilities', () => {
     const models: ModelInfo[] = [
       { id: 'glm-4.5' },
@@ -124,9 +147,9 @@ describe('ModelCatalogEntry', () => {
 
   it('marks deprecated metadata without blocking live availability', () => {
     const [entry] = buildModelCatalogEntries({
-      providerType: 'deepseek',
-      defaultModel: 'deepseek-chat',
-      models: [{ id: 'deepseek-chat' }],
+      providerType: 'anthropic',
+      defaultModel: 'claude-opus-4-1-20250805',
+      models: [{ id: 'claude-opus-4-1-20250805' }],
       modelSource: 'fetched',
     });
 
@@ -378,7 +401,7 @@ describe('ModelCatalogEntry', () => {
     assert.equal(entry?.unavailableReason, 'unsupported_for_chat');
     assert.equal(entry?.availability, 'blocked');
     assert.equal(entry?.canUseAsChatDefault, false);
-    assert.deepEqual(entry?.capabilities, { imageGeneration: true });
+    assert.deepEqual(entry?.capabilities, { vision: true, imageGeneration: true });
 
     const validation = validateChatDefaultModel(input);
     assert.deepEqual(
@@ -579,7 +602,6 @@ describe('ModelCatalogEntry', () => {
       ([
         ['google', 'gemini-1.5-pro'],
         ['moonshot', 'moonshot-v1-8k'],
-        ['kimi-coding-plan', 'kimi-for-coding'],
       ] as const).map(([providerType, model]) => {
         const [entry] = buildModelCatalogEntries({
           providerType,
@@ -600,7 +622,6 @@ describe('ModelCatalogEntry', () => {
       [
         ['gemini-1.5-pro', undefined, undefined, undefined, 'unknown', {}],
         ['moonshot-v1-8k', undefined, undefined, undefined, 'unknown', {}],
-        ['kimi-for-coding', undefined, undefined, undefined, 'unknown', {}],
       ],
     );
   });

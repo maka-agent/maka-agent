@@ -1,13 +1,11 @@
 import { useLayoutEffect, useState, type ReactNode } from 'react';
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
-import { X } from '@maka/ui/icons';
-import { Button } from '@maka/ui';
 
 /**
  * Nested dialog that slides in from the right of the settings surface.
  *
- * Routes the three provider sub-sheets (ProviderConfigSheetOverlay,
- * ClaudeSubscriptionModal, SubscriptionLoginModal) through Base UI Dialog so
+ * Routes OAuth login dialogs (ClaudeSubscriptionModal and
+ * SubscriptionLoginModal) through Base UI Dialog so
  * focus trap, Esc, and aria-hidden on the settings nav come from Base UI's
  * modal layer instead of the hand-written `useModalA11y` + the
  * `useProviderSheetBackgroundInert` DOM walker (#520 PR7 commit 3).
@@ -63,23 +61,5 @@ export function ProviderSheet(props: {
         </BaseDialog.Popup>
       </BaseDialog.Portal>
     </BaseDialog.Root>
-  );
-}
-
-export function ProviderConfigSheetOverlay(props: { onClose(): void; children: ReactNode }) {
-  return (
-    <ProviderSheet onClose={props.onClose} ariaLabel="模型供应商配置">
-      <Button
-        type="button"
-        variant="quiet"
-        size="icon-sm"
-        className="providerConfigSheetClose"
-        aria-label="关闭模型配置"
-        onClick={props.onClose}
-      >
-        <X aria-hidden="true" />
-      </Button>
-      {props.children}
-    </ProviderSheet>
   );
 }

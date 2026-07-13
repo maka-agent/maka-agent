@@ -26,6 +26,7 @@ import { describe, it } from 'node:test';
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const ICONS_FILE = resolve(REPO_ROOT, 'packages/ui/src/icons.tsx');
 const SIDEBAR_NAV_FILE = resolve(REPO_ROOT, 'packages/ui/src/session-sidebar-nav.tsx');
+const PROVIDER_BRAND_MARKS_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/provider-brand-marks.tsx');
 
 // Fixed brand assets, not generic UI icons — their hand-authored SVGs keep
 // their own stroke weight and are exempt from the call-site stroke sweep.
@@ -111,6 +112,21 @@ describe('icon + typography governance contract', () => {
       [],
       'icons.tsx is the only lucide-react seam in packages/ui/src (funnel integrity). '
         + `Route these through @maka/ui/icons named exports:\n  ${offenders.join('\n  ')}`,
+    );
+  });
+
+  it('uses the vendored SiliconCloud brand mark for SiliconFlow', async () => {
+    const src = await readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8');
+
+    assert.match(
+      src,
+      /function SiliconCloud\(\)[\s\S]*d="M22\.956 6\.521H12\.522c-\.577 0-1\.044\.468-1\.044 1\.044v3\.13/,
+      'SiliconFlow must use the upstream @lobehub/icons-static-svg SiliconCloud path, not a hand-drawn placeholder',
+    );
+    assert.match(
+      src,
+      /case 'siliconflow':\s*return <SiliconCloud \/>/,
+      'the SiliconFlow provider must resolve to its real brand mark',
     );
   });
 });

@@ -186,6 +186,14 @@ npm --workspace @maka/headless test
 npm --workspace @maka/desktop test
 ```
 
+用以下命令从 models.dev 更新 `packages/core/src/model-metadata.generated.ts`，并运行相关测试。访问路径特有的 override 写在 `model-metadata.ts`，不要手动修改生成文件。
+
+```sh
+npm run sync:model-metadata
+npm run test:scripts
+npm --workspace @maka/core test
+```
+
 Desktop 的真实窗口与视觉验证：
 
 ```sh

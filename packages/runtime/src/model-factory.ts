@@ -3,7 +3,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModelV3 } from '@ai-sdk/provider';
-import { effectiveBaseUrl, type LlmConnection, type ProviderType } from '@maka/core/llm-connections';
+import { PROVIDER_DEFAULTS, effectiveBaseUrl, type LlmConnection, type ProviderType } from '@maka/core/llm-connections';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { thinkingOptionsForModel, thinkingVariantsForModel } from '@maka/core/model-thinking';
 import { anthropicV1BaseUrl, googleV1BetaBaseUrl } from './provider-urls.js';
@@ -24,6 +24,16 @@ const ANTHROPIC_BETA =
 export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
   const { connection, apiKey, modelId, fetch } = input;
   const baseURL = effectiveBaseUrl(connection);
+  const definition = PROVIDER_DEFAULTS[connection.providerType];
+
+  if (definition.runtimeAdapter === 'openai-compatible') {
+    return createOpenAICompatible({
+      name: connection.providerType,
+      apiKey,
+      baseURL,
+      fetch,
+    }).chatModel(modelId);
+  }
 
   switch (connection.providerType) {
     case 'anthropic':
@@ -123,6 +133,8 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         apiKey,
         baseURL,
       }).chatModel(modelId);
+    default:
+      throw new Error(`No runtime adapter configured for provider ${connection.providerType}`);
   }
 }
 

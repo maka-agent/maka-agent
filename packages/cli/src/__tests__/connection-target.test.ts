@@ -4,6 +4,29 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 import { listReadyModelChoices, resolveDefaultSessionTarget } from '../connection-target.js';
 
 describe('default session target resolver', () => {
+  test('resolves a SiliconFlow registry connection without rewriting its model id', async () => {
+    const connection = makeConnection({
+      slug: 'siliconflow',
+      name: 'SiliconFlow',
+      providerType: 'siliconflow',
+      defaultModel: 'moonshotai/Kimi-K2.6',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'siliconflow',
+        get: async (slug) => slug === 'siliconflow' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'sf-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'siliconflow');
+    assert.equal(target.apiKey, 'sf-test-key');
+    assert.equal(target.model, 'moonshotai/Kimi-K2.6');
+  });
+
   test('uses the default ready connection and requested model', async () => {
     const connection = makeConnection({
       slug: 'local',

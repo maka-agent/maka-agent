@@ -12,24 +12,6 @@
   line-height: var(--leading-snug);
 }
 
-.catalogTabs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-2);
-}
-
-.catalogTab {
-  min-height: 38px;
-  display: grid;
-  gap: var(--space-0-5);
-  border: var(--border-width-hairline) solid transparent;
-  border-radius: var(--radius-surface);
-  background: var(--foreground-3);
-  color: var(--foreground);
-  padding: var(--space-1-5) var(--space-2);
-  text-align: left;
-}
-
 .catalogTabs strong {
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
@@ -130,20 +112,13 @@
   margin-top: var(--space-1);
 }
 
-/* Direct child only: this is the sheet's own title/badges header. The
- * descendant form (`.providerEditor header`) also matched the nested
- * `.modelTableHeader`, leaking the close-button padding-right onto the
- * model card and pushing its refresh button 36px off the right edge. */
+/* Direct child only: the descendant model table header must not inherit the
+ * editor title layout. Provider editors now live in the Settings main pane. */
 .providerEditor > header {
   display: flex;
   align-items: start;
   justify-content: space-between;
   gap: var(--space-3);
-  /* Reserve the top-right corner for the absolutely-positioned sheet
-   * close button (.providerConfigSheetClose: 32px wide at right:14px,
-   * intruding ~30px into the 16px-padded content box). Without this the
-   * right-aligned header badges (默认 / 国内) slide under the X. */
-  padding-right: var(--space-10);
 }
 
 .providerEditor label {
@@ -541,20 +516,100 @@
 .providerMarket {
   min-height: 500px;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-  gap: var(--space-3);
+  align-content: start;
+  gap: var(--space-6);
 }
 
-/* Account-bound OAuth providers live under the OAuth catalog tab, as
-   a peer of 国内 / 海外 / 本地 instead of a pinned standalone section.
-   Keep the same catalog grid/card chrome across every provider tab so
-   OAuth, 国内, 海外, and 本地 do not look like unrelated surfaces. */
+/* OAuth is an account connection, not a provider transport category. It
+   stays on the connection page while preserving its modal login flow. */
 .providerOAuthCatalog {
   min-height: 0;
   display: grid;
   gap: var(--space-3);
   overflow: auto;
   padding-right: var(--space-1);
+}
+
+.providerRootHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.providerRootHeader h3,
+.providerSubpageHeader h3,
+.providerAccountSectionHeader h3 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-bold);
+}
+
+.providerRootHeader p,
+.providerSubpageHeader p,
+.providerAccountSectionHeader p {
+  margin: var(--space-1) 0 0;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-normal);
+}
+
+.providersPanel.providerChildPage,
+.settingsSurface[data-modal="true"] .providersPanel.providerChildPage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--space-5);
+  width: min(100%, 760px);
+  min-height: 500px;
+}
+
+.providerSubpageHeader {
+  display: grid;
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: var(--border-width-hairline) solid var(--border-subtle);
+}
+
+.providerSubpageBack {
+  justify-self: start;
+  margin-left: calc(var(--space-2) * -1);
+}
+
+.providerCatalogSearch {
+  width: min(100%, 360px);
+  min-height: var(--h-control-lg);
+  margin-top: var(--space-3);
+}
+
+.providerCatalogEmpty {
+  color: var(--muted-foreground);
+  font-size: var(--font-size-ui);
+  padding: var(--space-8) var(--space-2);
+  text-align: center;
+}
+
+.providerInlineEditor {
+  min-width: 0;
+}
+
+.providerAccountSection {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-5);
+  border-top: var(--border-width-hairline) solid var(--border-subtle);
+}
+
+@media (max-width: 620px) {
+  .providerRootHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .providerRootHeader > button {
+    align-self: start;
+  }
 }
 .providerOAuthError {
   border: var(--border-width-hairline) solid color-mix(in srgb, var(--warning) 32%, transparent);
@@ -603,8 +658,7 @@
 }
 
 .enabledStripHeader h3,
-.providerMarketHeader h3,
-.customProviderEntry h3 {
+.providerAccountSectionHeader h3 {
   margin: 0;
   color: var(--foreground);
   font-size: var(--font-size-ui);
@@ -612,8 +666,7 @@
 }
 
 .enabledStripHeader span,
-.providerMarketHeader p,
-.customProviderEntry p {
+.providerAccountSectionHeader p {
   font-variant-numeric: tabular-nums;
   margin: 0;
   color: var(--muted-foreground);

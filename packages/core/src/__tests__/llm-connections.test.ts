@@ -186,6 +186,21 @@ describe('validateConnectionBaseUrl (PR-UI-IPC-1, @kenji msg 35260e29)', () => {
 });
 
 describe('provider URL defaults', () => {
+  it('exposes SiliconFlow with models.dev provider facts and exact model ids', () => {
+    const siliconflow = (PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]>>).siliconflow;
+
+    assert.ok(siliconflow, 'SiliconFlow must be available through the shared provider registry');
+    assert.equal(siliconflow.label, 'SiliconFlow');
+    assert.equal(siliconflow.baseUrl, 'https://api.siliconflow.com/v1');
+    assert.equal(siliconflow.authKind, 'api_key');
+    assert.equal(siliconflow.protocol, 'openai');
+    assert.equal(
+      siliconflow.fallbackModels[0],
+      'moonshotai/Kimi-K2.6',
+      'the Maka recommendation must use an exact models.dev id, including provider namespace and case',
+    );
+  });
+
   it('labels the ChatGPT account path as OpenAI OAuth, not Codex subscription', () => {
     assert.equal(PROVIDER_DEFAULTS['codex-subscription'].label, 'OpenAI OAuth (ChatGPT / Codex)');
     assert.equal(PROVIDER_DEFAULTS['codex-subscription'].description, 'ChatGPT/Codex account OAuth path for OpenAI Responses models.');

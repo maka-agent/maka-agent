@@ -758,7 +758,9 @@ export type {
   ModelDiscoverySource,
   ModelInfo,
   ProviderCategory,
+  ProviderCatalogGroup,
   ProviderDefaults,
+  ProviderRuntimeAdapter,
   ProviderType,
   UpdateConnectionInput,
 } from './llm-connections.js';

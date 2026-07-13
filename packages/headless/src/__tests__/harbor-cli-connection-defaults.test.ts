@@ -435,4 +435,20 @@ describe('resolveHarborRunOptions backend guard', () => {
     assert.equal(opts.env.ANTHROPIC_API_KEY_FILE, '/tmp/key');
     assert.equal(opts.env.DEEPSEEK_API_KEY_FILE, undefined);
   });
+
+  test('--api-key-file uses the SiliconFlow credential file env', async () => {
+    const opts = await resolveHarborRunOptions(
+      [
+        '--provider', 'siliconflow',
+        '--model', 'moonshotai/Kimi-K2.6',
+        '--instruction', 'test',
+        '--api-key-file', '/tmp/siliconflow-key',
+        '--isolation', 'harbor-local',
+      ],
+      {},
+    );
+
+    assert.equal(opts.env.SILICONFLOW_API_KEY_FILE, '/tmp/siliconflow-key');
+    assert.equal(opts.env.OPENAI_API_KEY_FILE, undefined);
+  });
 });

@@ -19,12 +19,10 @@ import {
   resolveModelVisionSupport,
   DEEP_RESEARCH_SESSION_LABEL,
   botDisplayLabel,
-  humanizeBotStatusReason,
 } from '@maka/core';
 import type {
   AppSettings,
   BotProvider,
-  BotReadinessState,
   ConnectionEvent,
   CreateSessionInput,
   PermissionMode,
@@ -39,6 +37,7 @@ import type {
   UpdateAppSettingsResult,
   UpdateAppSettingsInput,
 } from '@maka/core';
+import { deriveBotStatusPersistenceUpdate } from './bot-status-persistence.js';
 import { buildWebSearchAgentTool, WEB_SEARCH_TOOL_NAME } from './web-search/agent-tool.js';
 import { buildRiveWorkflowTool } from './rive-workflow-tool.js';
 import { runThreadSearch } from './search/thread-search.js';
@@ -598,11 +597,10 @@ const childAgentTools = buildChildAgentTools([
   webSearchTool,
 ]);
 let lookupPricing = buildPricingLookup();
-// PR-BOT-LASTERROR-FROM-SEND-0: per-platform last-observed readiness so
-// we only persist `lastError` on transitions, not on every status emit
-// (avoids thrashing the settings file when the live bridge re-emits the
-// same readiness during reconnect attempts).
-const previousBotReadiness = new Map<BotProvider, BotReadinessState>();
+// Track the last status fields that affect persisted diagnostics. The reason
+// is part of the key because a running bridge can remain degraded while a
+// newer, more useful failure replaces the previous one.
+const previousBotStatus = new Map<BotProvider, Pick<BotStatus, 'readiness' | 'reason'>>();
 let botIncoming: ReturnType<typeof createBotIncomingMainService>;
 // botIncoming is wired at module load, before registerIpc() defines the
 // current-project-root resolver. registerIpc reassigns this once the resolver
@@ -626,32 +624,18 @@ const botRegistry = new BotRegistry({
     // existing connection-test path writes `lastError` only on test
     // failures; without this hook, a runtime 429 / timeout would
     // disappear the moment the renderer status panel closed.
-    const prev = previousBotReadiness.get(status.platform);
-    previousBotReadiness.set(status.platform, status.readiness);
-    if (prev === status.readiness) return;
-    if (status.readiness === 'degraded') {
-      const humanized = humanizeBotStatusReason(status.reason);
-      if (humanized) {
-        void settingsStore.update({
-          botChat: {
-            channels: {
-              [status.platform]: {
-                lastError: humanized,
-                readinessUpdatedAt: Date.now(),
-              },
-            },
-          },
-        }).catch(() => {});
-      }
-    } else if (status.readiness === 'operational' && prev === 'degraded') {
-      // Clear `lastError` once the bridge recovers; otherwise the
-      // Settings page would keep surfacing a stale failure description
-      // even though sends are succeeding.
+    const previous = previousBotStatus.get(status.platform);
+    previousBotStatus.set(status.platform, {
+      readiness: status.readiness,
+      reason: status.reason,
+    });
+    const update = deriveBotStatusPersistenceUpdate(previous, status);
+    if (update) {
       void settingsStore.update({
         botChat: {
           channels: {
             [status.platform]: {
-              lastError: undefined,
+              ...update,
               readinessUpdatedAt: Date.now(),
             },
           },
