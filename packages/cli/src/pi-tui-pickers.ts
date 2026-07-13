@@ -150,7 +150,7 @@ export class UserQuestionTextOverlay implements Component {
     const safeWidth = Math.max(1, width);
     return [
       padLine(`${this.input.title} ${ansi.accent(this.input.rightLabel)}`, safeWidth),
-      padLine(ansi.dim('Type another answer · Enter submit · Esc unanswered'), safeWidth),
+      padLine(ansi.dim('Type another answer · Enter submit · Esc unanswered · Ctrl+C stop'), safeWidth),
       ...this.editor.render(safeWidth).map((line) => padLine(line, safeWidth)),
       padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
     ];

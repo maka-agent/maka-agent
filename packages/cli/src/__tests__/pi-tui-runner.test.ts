@@ -297,6 +297,7 @@ describe('Maka Pi TUI runner', () => {
       'Choose an approach',
       'Maka claude-sonnet-4-5 claude-subscription ask /repo',
     );
+    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('Ctrl+C stop'));
 
     terminal.input('\r');
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Keep the default'));
@@ -306,6 +307,7 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\x1b[B');
     terminal.input('\r');
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Type another answer'));
+    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('Ctrl+C stop'));
     terminal.input('Use the existing seam');
     terminal.input('\r');
 

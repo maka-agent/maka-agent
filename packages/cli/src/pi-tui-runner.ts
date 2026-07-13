@@ -644,7 +644,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     userQuestionOverlay = showBottomPicker(new PickerOverlay(list, {
       title: question.question,
       rightLabel: `${progress.index + 1} / ${request.questions.length}`,
-      hint: '↑↓ move · Enter select · Esc unanswered',
+      hint: '↑↓ move · Enter select · Esc unanswered · Ctrl+C stop',
     }));
   };
 
