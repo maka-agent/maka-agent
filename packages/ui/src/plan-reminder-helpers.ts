@@ -198,7 +198,11 @@ export function planReminderSearchText(reminder: PlanReminder): string {
   ].filter(Boolean).join('\n');
 }
 
-export function planReminderDisplayRows(filter: 'all' | PlanReminderStatus, reminders: PlanReminder[]): PlanReminderDisplayRow[] {
+// Not exported: this display-list builder currently has no external consumer.
+// Demoted (was `export`) to keep it — and its sibling helpers it references —
+// out of knip's unused-export report without deleting the cohesive plan-reminder
+// display API. Re-export if/when a panel adopts it.
+function planReminderDisplayRows(filter: 'all' | PlanReminderStatus, reminders: PlanReminder[]): PlanReminderDisplayRow[] {
   if (filter !== 'all') return reminders.map((reminder) => ({ kind: 'reminder', reminder }));
   const rows: PlanReminderDisplayRow[] = [];
   for (const status of ['scheduled', 'paused', 'completed'] satisfies PlanReminderStatus[]) {

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreExportsUsedInFile": true,
+  "tags": ["-knipignore"],
+  "workspaces": {
+    "apps/desktop": {
+      "entry": [
+        "src/main/main.ts",
+        "src/preload/preload.ts",
+        "src/renderer/main.tsx",
+        "src/main/**/*.test.ts",
+        "src/renderer/**/*.test.ts",
+        "e2e/**/*.spec.ts",
+        "e2e/playwright.config.ts",
+        ".storybook/main.ts",
+        ".storybook/preview.@(ts|tsx)",
+        "stories/**/*.@(ts|tsx)",
+        "scripts/dev.mjs",
+        "scripts/browser-observe-act-smoke.mjs"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "e2e/**/*.ts",
+        "stories/**/*.{ts,tsx}",
+        "scripts/**/*.mjs"
+      ],
+      "ignoreDependencies": [
+        "overlayscrollbars",
+        "@fontsource-variable/geist",
+        "@fontsource-variable/geist-mono"
+      ],
+      "ignoreBinaries": ["taskkill"]
+    },
+    "packages/ui": {
+      "entry": [
+        "src/index.ts",
+        "src/icons.tsx",
+        "src/artifact-preview-registry.ts",
+        "src/assistant-stream.ts",
+        "src/maka-uri.ts",
+        "src/smooth-stream.ts",
+        "src/**/*.test.ts",
+        "src/**/*.test.tsx",
+        "stories/**/*.@(ts|tsx)"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "stories/**/*.{ts,tsx}"
+      ],
+      "ignoreDependencies": ["@storybook/react-vite"],
+      "ignore": ["src/primitives/scroll-area.tsx"]
+    }
+  }
+}

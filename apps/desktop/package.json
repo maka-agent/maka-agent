@@ -36,6 +36,7 @@
     "screenshots:baseline:stable": "node ../../scripts/diff-screenshots.mjs --update-baseline --subset stable"
   },
   "dependencies": {
+    "@base-ui/react": "^1.5.0",
     "@fontsource-variable/geist": "^5.2.9",
     "@fontsource-variable/geist-mono": "^5.2.8",
     "@jackwener/opencli": "1.8.4",
@@ -63,6 +64,7 @@
     "esbuild": "^0.27.7",
     "postcss": "8.5.15",
     "storybook": "^10.4.6",
+    "streamdown": "^2.5.0",
     "tailwindcss": "^4.3.1"
   }
 }

@@ -34,6 +34,13 @@ export function sessionEventErrorMessage(event: Extract<SessionEvent, { type: 'e
   return generalizedErrorMessageChinese(new Error(event.message), '对话运行失败，请稍后重试。');
 }
 
+/**
+ * @knipignore Retained as the canonical raw-error cleaner. It has no live
+ * call sites by design: the fail-soft contract tests (session-open-routing,
+ * permission-response-ipc-boundary, renderer-startup-fail-soft, skills, etc.)
+ * assert.doesNotMatch that visible toasts pipe `cleanErrorMessage(error)`, so
+ * this export is referenced by name across the suite even though nothing imports it.
+ */
 export function cleanErrorMessage(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
   return cleanEventMessage(raw);

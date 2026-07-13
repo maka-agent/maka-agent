@@ -16,10 +16,6 @@ export type OpenPathFailureReason =
   | 'not-a-directory'
   | 'open-failed';
 
-export type OpenPathResult =
-  | { ok: true; opened: string }
-  | { ok: false; reason: OpenPathFailureReason };
-
 /** Closed-form mapping from enum to renderer-localized copy. */
 export function openPathFailureCopy(reason: OpenPathFailureReason | string): string {
   switch (reason) {

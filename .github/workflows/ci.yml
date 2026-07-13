@@ -22,6 +22,12 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run typecheck
+      # Dead-code / dependency governance. Entry points and reasoned ignores
+      # live in knip.json; both workspaces must stay at zero findings.
+      - name: Knip (apps/desktop)
+        run: npx knip --workspace apps/desktop
+      - name: Knip (packages/ui)
+        run: npx knip --workspace packages/ui
 
   test:
     runs-on: ubuntu-latest
