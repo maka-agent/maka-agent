@@ -56,6 +56,7 @@ describe('provider compatibility contract', () => {
       'stepfun-ai',
       'volcengine-ark',
       'deepinfra',
+      'cloudflare-workers-ai',
       'ollama',
       'lm-studio',
       'localai',
@@ -98,6 +99,7 @@ describe('provider compatibility contract', () => {
       'cohere',
       'vercel',
       'stepfun-ai-step-plan',
+      'cloudflare-workers-ai',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -133,6 +135,7 @@ describe('provider compatibility contract', () => {
       'cohere',
       'vercel',
       'stepfun-ai-step-plan',
+      'cloudflare-workers-ai',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -335,6 +338,32 @@ describe('provider compatibility contract', () => {
     assert.equal(cohere.fallbackModels[0], 'command-a-plus-05-2026');
     assert.ok(cohere.fallbackModels.includes('command-a-reasoning-08-2025'));
     assert.ok(!cohere.fallbackModels.includes('c4ai-aya-expanse-32b'));
+  });
+
+  it('owns Cloudflare Workers AI under one account-scoped stable provider id', () => {
+    const cloudflare = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY] & { baseUrlTemplate?: string }>>)['cloudflare-workers-ai'];
+
+    assert.ok(cloudflare, 'Cloudflare Workers AI must be available through the shared provider registry');
+    assert.equal(cloudflare.label, 'Cloudflare Workers AI');
+    assert.equal(cloudflare.baseUrl, '');
+    assert.equal(
+      cloudflare.baseUrlTemplate,
+      'https://api.cloudflare.com/client/v4/accounts/\${CLOUDFLARE_ACCOUNT_ID}/ai/v1',
+    );
+    assert.equal(cloudflare.authKind, 'api_key');
+    assert.equal(cloudflare.protocol, 'openai');
+    assert.deepEqual(cloudflare.runtimeAdapter, {
+      kind: 'openai-compatible',
+      name: 'provider',
+      requireBaseUrl: true,
+    });
+    assert.deepEqual(cloudflare.modelDiscovery, { kind: 'fallback' });
+    assert.equal(cloudflare.category, 'overseas');
+    assert.equal(cloudflare.catalogGroup, 'api');
+    assert.equal(cloudflare.modelsDevId, 'cloudflare-workers-ai');
+    assert.equal(cloudflare.fallbackModels[0], '@cf/moonshotai/kimi-k2.6');
+    assert.ok(cloudflare.fallbackModels.includes('@cf/moonshotai/kimi-k2.7-code'));
+    assert.ok(cloudflare.fallbackModels.every((id) => id.startsWith('@cf/')));
   });
 
   it('owns the complete Together AI provider contract under the stable togetherai id', () => {

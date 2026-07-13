@@ -6,6 +6,7 @@ const PROVIDERS = {
   anthropic: 'anthropic',
   cerebras: 'cerebras',
   cohere: 'cohere',
+  'cloudflare-workers-ai': 'cloudflare-workers-ai',
   deepinfra: 'deepinfra',
   deepseek: 'deepseek',
   'fireworks-ai': 'fireworks-ai',
