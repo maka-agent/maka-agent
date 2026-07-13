@@ -21,7 +21,7 @@
 
 import { ArrowRight, ArrowUp, ChevronRight, RotateCcw, Sparkles, KeyRound, Settings as SettingsIcon, Cpu, AlertCircle, FolderOpen, Paperclip, X } from '@maka/ui/icons';
 import { Fragment, useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
-import type { LlmConnection, OnboardingState, ProviderType, QuickChatMode, SettingsSection } from '@maka/core';
+import { RECOMMENDED_PROVIDER_TYPES, type LlmConnection, type OnboardingState, type QuickChatMode, type SettingsSection } from '@maka/core';
 import {
   Button,
   Item,
@@ -91,23 +91,12 @@ const READY_HERO_COPY_BY_LOCALE: Record<UiLocale, {
   },
 };
 
-// Titles are PROVIDER-forward and version-free (no `GPT-4o` / `DeepSeek-V3`
-// — those go stale). The row description comes from `providerDisplay` so
-// copy has a single source of truth shared with Settings · 模型.
-const FEATURED: Array<{ type: ProviderType; tag: string; recommended?: boolean }> = [
-  { type: 'anthropic', tag: 'Claude · Anthropic', recommended: true },
-  { type: 'openai', tag: 'OpenAI' },
-  { type: 'zai-coding-plan', tag: 'GLM Coding Plan · Z.ai' },
-  { type: 'MiniMax', tag: 'MiniMax M-series' },
-  { type: 'kimi-coding-plan', tag: 'Kimi · Moonshot' },
-  { type: 'deepseek', tag: 'DeepSeek' },
-  { type: 'ollama', tag: 'Ollama' },
-];
-
 export interface OnboardingHeroProps {
   state: OnboardingState;
   /** Open Settings with a specific section preselected. */
   onOpenSettings: (section?: SettingsSection) => void;
+  /** Open the shared Settings provider catalog. */
+  onBrowseProviders: () => void;
   /**
    * Quick Chat submit handler (PR110b `quickChat:start`). Only
    * called from the `ready_empty` branch. The caller is responsible
@@ -174,6 +163,7 @@ export function OnboardingHero(props: OnboardingHeroProps) {
       return (
         <NeedsConnectionHero
           onOpenSettings={props.onOpenSettings}
+          onBrowseProviders={props.onBrowseProviders}
           onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
           refreshConnectionsPending={refreshConnectionsPending}
           onSkip={props.onSkip}
@@ -260,6 +250,7 @@ function connectionLabel(
 
 function NeedsConnectionHero(props: {
   onOpenSettings: (section?: SettingsSection) => void;
+  onBrowseProviders: () => void;
   onRefreshConnections?: () => void;
   refreshConnectionsPending?: boolean;
   onSkip?: () => Promise<void> | void;
@@ -284,10 +275,10 @@ function NeedsConnectionHero(props: {
           providers are added without pushing the footer off-screen. */}
       <div className="maka-firstrun-list">
         <ul role="list">
-          {FEATURED.map((entry) => {
-            const display = providerDisplay(entry.type);
+          {RECOMMENDED_PROVIDER_TYPES.map((type) => {
+            const display = providerDisplay(type);
             return (
-              <li key={entry.type}>
+              <li key={type}>
                 <Item
                   className="maka-firstrun-row px-3.5 py-2"
                   render={
@@ -298,15 +289,10 @@ function NeedsConnectionHero(props: {
                   }
                 >
                   <ItemMedia>
-                    <ProviderLogo type={entry.type} compact />
+                    <ProviderLogo type={type} compact />
                   </ItemMedia>
                   <ItemContent>
-                    <ItemTitle>
-                      {entry.tag}
-                      {entry.recommended && (
-                        <span className="maka-firstrun-tag">常用</span>
-                      )}
-                    </ItemTitle>
+                    <ItemTitle>{display.name}</ItemTitle>
                     <ItemDescription>{display.description}</ItemDescription>
                   </ItemContent>
                   <ItemActions>
@@ -322,8 +308,11 @@ function NeedsConnectionHero(props: {
       {/* Designer audit P2-15: the footer's primary 打开设置·模型 button
           duplicated what clicking any provider row above already does (the
           list header even says 点一个进入设置). One affordance per action —
-          the footer keeps only the two genuinely distinct paths. */}
+          the footer keeps only genuinely distinct paths. */}
       <footer className="maka-onboarding-footer">
+        <Button type="button" variant="outline" onClick={props.onBrowseProviders}>
+          浏览全部服务商
+        </Button>
         {props.onRefreshConnections && (
           <Button
             type="button"

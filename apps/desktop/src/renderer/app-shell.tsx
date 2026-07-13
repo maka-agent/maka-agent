@@ -210,6 +210,7 @@ export function AppShell({
   } = useShellConnections({ toastApi });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsRequestedSection, setSettingsRequestedSection] = useState<SettingsSection | undefined>(undefined);
+  const [settingsProviderCatalogOpen, setSettingsProviderCatalogOpen] = useState(false);
   const [themePref, setThemePref] = useState<ThemePreference>('auto');
   const [themePalette, setThemePalette] = useState<ThemePalette>('default');
   const [userLabel, setUserLabel] = useState<string>('');
@@ -1159,6 +1160,7 @@ export function AppShell({
   }
 
   function openSettings() {
+    setSettingsProviderCatalogOpen(false);
     setSettingsOpen(true);
   }
 
@@ -1206,11 +1208,20 @@ export function AppShell({
   function openSettingsSection(section: SettingsSection) {
     safeLocalStorageSet('maka-settings-section-v1', section);
     setSettingsRequestedSection(section);
+    setSettingsProviderCatalogOpen(false);
+    setSettingsOpen(true);
+  }
+
+  function openProviderCatalog() {
+    safeLocalStorageSet('maka-settings-section-v1', 'models');
+    setSettingsRequestedSection('models');
+    setSettingsProviderCatalogOpen(true);
     setSettingsOpen(true);
   }
 
   function closeSettings() {
     setSettingsOpen(false);
+    setSettingsProviderCatalogOpen(false);
     // PR110c: re-pull onboarding snapshot when the user closes the
     // Settings modal — they may have just configured a default
     // connection or supplied a credential. Existing connections /
@@ -1474,6 +1485,7 @@ export function AppShell({
                           if (section) openSettingsSection(section);
                           else openSettings();
                         }}
+                        onBrowseProviders={openProviderCatalog}
                         onQuickChatSubmit={handleQuickChatSubmit}
                         quickChatPending={quickChatPending}
                         connections={connections}
@@ -1640,6 +1652,7 @@ export function AppShell({
         setThemePalette={setThemePalette}
         setUserLabel={setUserLabel}
         settingsRequestedSection={settingsRequestedSection}
+        settingsProviderCatalogOpen={settingsProviderCatalogOpen}
         onOpenDailyReview={() => {
           closeSettings();
           setNavSelection({ section: 'daily-review' });

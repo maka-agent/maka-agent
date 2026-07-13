@@ -49,10 +49,13 @@ const CATALOG_TABS: Array<{ id: CatalogCategory; label: string }> = [
   { id: 'local', label: '本地' },
 ];
 
-export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
+export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
+  bridge: ConnectionsBridge;
+  initialPage?: 'connections' | 'catalog';
+}) {
   const [connections, setConnections] = useState<LlmConnection[]>([]);
   const [defaultSlug, setDefaultSlug] = useState<string | null>(null);
-  const [page, setPage] = useState<ProviderPage>({ kind: 'connections' });
+  const [page, setPage] = useState<ProviderPage>({ kind: initialPage });
   const [catalogCategory, setCatalogCategory] = useState<CatalogCategory>('recommended');
   const [catalogQuery, setCatalogQuery] = useState('');
   const [loading, setLoading] = useState(true);

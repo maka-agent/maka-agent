@@ -44,6 +44,7 @@ export function SettingsSurface(props: {
   onThemePaletteChange(palette: ThemePalette): void;
   onUserLabelChange?(label: string): void;
   requestedSection?: SettingsSection;
+  openProviderCatalog?: boolean;
   initialFocusRef: RefObject<HTMLButtonElement | null>;
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
@@ -257,6 +258,7 @@ export function SettingsSurface(props: {
               onThemePaletteChange={props.onThemePaletteChange}
               onOpenDailyReview={props.onOpenDailyReview}
               onOpenSession={props.onOpenSession}
+              openProviderCatalog={props.openProviderCatalog}
             />
           )}
         </OverlayScrollArea>
@@ -281,6 +283,7 @@ function SettingsPage(props: {
   onThemePaletteChange(palette: ThemePalette): void;
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
+  openProviderCatalog?: boolean;
 }) {
   // PR-FE-BUG-HUNT-0 (kenji bug-hunt 2026-06-24): the inline `void
   // props.onUpdateSettings(...)` at the privacy toggle below
@@ -292,7 +295,10 @@ function SettingsPage(props: {
     case 'models':
       return (
         <div className="settingsStructuredPage settingsModelsPage">
-          <ProvidersPanel bridge={window.maka.connections} />
+          <ProvidersPanel
+            bridge={window.maka.connections}
+            initialPage={props.openProviderCatalog ? 'catalog' : 'connections'}
+          />
         </div>
       );
     case 'usage':

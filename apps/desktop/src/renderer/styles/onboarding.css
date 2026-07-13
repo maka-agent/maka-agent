@@ -250,18 +250,6 @@
   border-top: var(--border-width-hairline) solid var(--border);
 }
 
-/* --- "常用" tag inside a provider row title --- */
-.maka-firstrun-tag {
-  flex: 0 0 auto;
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--leading-none);
-  color: var(--nav-active);
-  background: oklch(from var(--nav-active) l c h / 0.12);
-  padding: var(--space-0-5) var(--space-1-5);
-  border-radius: var(--radius-control);
-}
-
 .maka-firstrun .maka-onboarding-footer {
   margin-top: var(--space-6);
 }

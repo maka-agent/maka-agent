@@ -361,6 +361,14 @@ describe('getOnboardingSetupSteps — first-run AI setup guide', () => {
 });
 
 describe('OnboardingHero Quick Chat draft lifecycle', () => {
+  it('renders first-run provider recommendations from the shared registry', async () => {
+    const hero = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
+
+    assert.match(hero, /RECOMMENDED_PROVIDER_TYPES/);
+    assert.match(hero, /RECOMMENDED_PROVIDER_TYPES\.map\(\(type\) =>/);
+    assert.doesNotMatch(hero, /const FEATURED\s*=/, 'onboarding must not own a parallel provider list');
+  });
+
   it('keeps first-run form controls on shared UI primitives', async () => {
     const hero = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
     const checklist = await readFile(new URL('../../../src/renderer/FirstRunChecklist.tsx', import.meta.url), 'utf8');

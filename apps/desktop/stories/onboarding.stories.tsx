@@ -69,6 +69,7 @@ function heroProps(state: OnboardingState) {
   return {
     state,
     onOpenSettings: (_section?: SettingsSection) => undefined,
+    onBrowseProviders: () => undefined,
     onQuickChatSubmit: async () => true,
     connections,
     onRefreshConnections: async () => undefined,

@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { PROVIDER_REGISTRY, RECOMMENDED_PROVIDER_TYPES } from '@maka/core';
 
 /**
  * First-run flow: a brand-new workspace (empty userData) must boot to the main
@@ -7,7 +8,20 @@ import { test, expect } from './fixtures';
  * E2E isolation seam (MAKA_E2E_USER_DATA_DIR) and the fake-backend switch
  * (MAKA_E2E) that the rest of the suite depends on.
  */
-test('boots to the main window on a fresh workspace', async ({ emptyWindow: page }) => {
+test('boots to registry recommendations and browses the shared provider catalog', async ({ emptyWindow: page }) => {
   await expect(page).toHaveTitle('Maka');
   await expect(page.locator('#root')).not.toBeEmpty();
+
+  const providerRows = page.locator('.maka-firstrun-row');
+  await expect(providerRows).toHaveCount(RECOMMENDED_PROVIDER_TYPES.length);
+  await expect(providerRows).toContainText(
+    RECOMMENDED_PROVIDER_TYPES.map((type) => PROVIDER_REGISTRY[type].label),
+  );
+
+  await page.getByRole('button', { name: '浏览全部服务商' }).click();
+
+  await expect(page.getByLabel('设置内容')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '添加服务商' })).toBeVisible();
+  await expect(page.getByRole('tablist', { name: '模型供应商分类' })).toBeVisible();
+  await expect(page.getByPlaceholder('搜索服务商')).toBeVisible();
 });
