@@ -934,7 +934,10 @@ function renderPermissionPrompt(request: PermissionRequestEvent, width: number):
   const summary = permissionRequestSummary(request);
   if (summary) lines.push(...renderIndented(summary, width, 2));
   if (request.hint) lines.push(...renderIndented(request.hint, width, 2).map(ansi.dim));
-  lines.push(fitLine(ansi.dim('y/Enter allow  n/Esc deny'), width));
+  const actions = request.rememberForTurnAllowed === true
+    ? 'y/Enter allow once  a allow for turn  n/Esc deny'
+    : 'y/Enter allow once  n/Esc deny';
+  lines.push(fitLine(ansi.dim(actions), width));
   return lines;
 }
 

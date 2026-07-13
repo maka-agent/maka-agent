@@ -685,6 +685,117 @@ describe('preToolUse — browser permission contract', () => {
   });
 });
 
+describe('preToolUse — Computer Use permission contract', () => {
+  test('Computer Use is blocked in explore and prompts in ask/execute', () => {
+    for (const mode of ['ask', 'execute'] as const) {
+      const result = evaluate(
+        'maka_computer',
+        { action: 'observe', app: 'Example' },
+        mode,
+        [],
+        'computer_use',
+      );
+      expect(result.needsPrompt).toBe(true);
+      expect(result.partialRequest?.reason).toBe('computer_use');
+    }
+    const explore = evaluate(
+      'maka_computer',
+      { action: 'observe', app: 'Example' },
+      'explore',
+      [],
+      'computer_use',
+    );
+    expect(explore.proceed).toBe(false);
+    expect(explore.needsPrompt).toBe(false);
+  });
+
+  test('permission events receive an allowlisted summary, not sensitive action args', () => {
+    const result = evaluate(
+      'maka_computer',
+      {
+        action: 'type',
+        app: 'Example',
+        window_id: 42,
+        observation_id: 'frame-7',
+        text: 'secret text',
+        coordinate: [123, 456],
+      },
+      'execute',
+      [],
+      'computer_use',
+    );
+    expect(result.partialRequest?.args).toEqual({
+      action: 'type',
+      approvalClass: 'keyboard_mutation',
+      rememberForTurnAllowed: true,
+      app: 'Example',
+      windowId: 42,
+      observationId: 'frame-7',
+    });
+  });
+
+  test('remembered metadata permission does not authorize screenshots or mutations', () => {
+    const metadataArgs = {
+      action: 'observe',
+      include_screenshot: false,
+      app: 'Example',
+      window_id: 42,
+    };
+    const remembered = [permissionScopeKey('maka_computer', metadataArgs, 'computer_use')];
+    const metadata = evaluate(
+      'maka_computer',
+      metadataArgs,
+      'execute',
+      remembered,
+      'computer_use',
+    );
+    const screenshot = evaluate(
+      'maka_computer',
+      { ...metadataArgs, include_screenshot: true },
+      'execute',
+      remembered,
+      'computer_use',
+    );
+    const click = evaluate(
+      'maka_computer',
+      {
+        action: 'left_click',
+        observation_id: 'frame-7',
+        coordinate: [10, 20],
+      },
+      'execute',
+      remembered,
+      'computer_use',
+    );
+
+    expect(metadata.proceed).toBe(true);
+    expect(screenshot.needsPrompt).toBe(true);
+    expect(click.needsPrompt).toBe(true);
+  });
+
+  test('malformed Computer Use requests cannot use a forged remembered scope', () => {
+    const args = {
+      action: 'raw_unknown_action',
+      app: 'Example',
+    };
+    const remembered = [permissionScopeKey(
+      'maka_computer',
+      args,
+      'computer_use',
+    )];
+    const result = evaluate(
+      'maka_computer',
+      args,
+      'execute',
+      remembered,
+      'computer_use',
+    );
+    expect(result.needsPrompt).toBe(true);
+    expect(result.proceed).toBe(false);
+    expect(result.partialRequest?.rememberForTurnAllowed).toBe(false);
+  });
+});
+
 describe('PERMISSION_POLICY matrix invariants', () => {
   const categories: ToolCategory[] = [
     'read',
@@ -697,6 +808,7 @@ describe('PERMISSION_POLICY matrix invariants', () => {
     'network_send',
     'privileged',
     'browser',
+    'computer_use',
     'custom_tool',
     'subagent',
   ];
@@ -736,6 +848,13 @@ describe('PERMISSION_POLICY matrix invariants', () => {
     // The key contrast with network_send: not silently allowed in execute.
     expect(PERMISSION_POLICY.execute.browser).toBe('prompt');
     expect(PERMISSION_POLICY.bypass.browser).toBe('allow');
+  });
+
+  test('computer_use is blocked in explore, prompts in ask/execute, and only bypass allows it', () => {
+    expect(PERMISSION_POLICY.explore.computer_use).toBe('block');
+    expect(PERMISSION_POLICY.ask.computer_use).toBe('prompt');
+    expect(PERMISSION_POLICY.execute.computer_use).toBe('prompt');
+    expect(PERMISSION_POLICY.bypass.computer_use).toBe('allow');
   });
 
   test('explore mode allows local reads but no shell (web_read prompts post PR-AGENT-WEB-SEARCH-TOOL-0)', () => {

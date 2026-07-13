@@ -340,7 +340,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   process.once('uncaughtException', handleUncaughtException);
   process.once('unhandledRejection', handleUnhandledRejection);
 
-  const respondToPendingPermission = (decision: 'allow' | 'deny'): boolean => {
+  const respondToPendingPermission = (
+    decision: 'allow' | 'deny',
+    rememberForTurn = false,
+  ): boolean => {
     const request = state.pendingPermission;
     if (!request || permissionInFlight) return false;
     permissionInFlight = true;
@@ -349,7 +352,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     void input.driver.respondToPermission({
       requestId: request.requestId,
       decision,
-      ...(decision === 'allow' ? { rememberForTurn: true } : {}),
+      ...(decision === 'allow' ? { rememberForTurn } : {}),
     })
       .then(() => {
         permissionInFlight = false;
@@ -997,7 +1000,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     }
     if (state.pendingPermission) {
       if (matchesKey(data, 'y') || matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
-        respondToPendingPermission('allow');
+        respondToPendingPermission('allow', false);
+        return { consume: true };
+      }
+      if (
+        matchesKey(data, 'a')
+        && state.pendingPermission.rememberForTurnAllowed === true
+      ) {
+        respondToPendingPermission('allow', true);
         return { consume: true };
       }
       if (matchesKey(data, 'n') || matchesKey(data, Key.escape)) {

@@ -402,9 +402,11 @@ export interface PermissionRequestEvent extends BaseEvent {
     | 'git_destructive'
     | 'privileged'
     | 'browser'
+    | 'computer_use'
     | 'custom';
   args: unknown;
   hint?: string;
+  rememberForTurnAllowed?: boolean;
 }
 
 /**

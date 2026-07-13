@@ -52,6 +52,7 @@ interface ParkedRequest {
   toolUseId: string;
   category: ToolCategory;
   scopeKey: string;
+  rememberForTurnAllowed: boolean;
   resolve(response: PermissionResponse): void;
   reject(err: Error): void;
 }
@@ -145,15 +146,16 @@ export class PermissionEngine {
    */
   evaluate(input: EvaluateInput): EvaluateResult {
     const state = this.requireTurn(input.turnId);
+    const args = snapshotPermissionArgs(input.args);
 
     const category = classifyToolUse({
       toolName: input.toolName,
-      args: input.args,
+      args,
       ...(input.categoryHint !== undefined ? { categoryHint: input.categoryHint } : {}),
     });
     const ruleDecision = matchToolPermissionRules({
       toolName: input.toolName,
-      args: input.args,
+      args,
       category,
       rules: input.permissionRules ?? [],
     });
@@ -181,7 +183,7 @@ export class PermissionEngine {
 
     const pre: PreToolUseResult = preToolUse({
       toolName: input.toolName,
-      args: input.args,
+      args,
       ...(input.categoryHint !== undefined ? { categoryHint: input.categoryHint } : {}),
       ...(input.executionFacts !== undefined ? { executionFacts: input.executionFacts } : {}),
       ...(input.sandbox !== undefined ? { sandbox: input.sandbox } : {}),
@@ -217,7 +219,11 @@ export class PermissionEngine {
       toolName: pre.partialRequest.toolName,
       category: pre.partialRequest.category,
       reason: pre.partialRequest.reason,
-      args: projectToolActivityArgs(pre.partialRequest.toolName, pre.partialRequest.args),
+      args: projectToolActivityArgs(
+        pre.partialRequest.toolName,
+        pre.partialRequest.args,
+      ),
+      rememberForTurnAllowed: pre.partialRequest.rememberForTurnAllowed,
       ...(input.hint !== undefined ? { hint: input.hint } : {}),
     };
 
@@ -233,6 +239,7 @@ export class PermissionEngine {
       toolUseId: input.toolUseId,
       category: pre.category,
       scopeKey: pre.scopeKey,
+      rememberForTurnAllowed: pre.partialRequest.rememberForTurnAllowed !== false,
       resolve: resolveFn,
       reject: rejectFn,
     });
@@ -267,7 +274,11 @@ export class PermissionEngine {
 
     state.parked.delete(response.requestId);
 
-    if (response.decision === 'allow' && response.rememberForTurn) {
+    if (
+      response.decision === 'allow'
+      && response.rememberForTurn
+      && parked.rememberForTurnAllowed
+    ) {
       state.remembered.add(parked.scopeKey);
       // The user allowed this scope for the whole turn, so other requests
       // already parked under the same scope (e.g. the rest of a parallel
@@ -283,7 +294,11 @@ export class PermissionEngine {
       }
     }
 
-    parked.resolve(response);
+    parked.resolve(
+      parked.rememberForTurnAllowed
+        ? response
+        : { ...response, rememberForTurn: false },
+    );
     return { category: parked.category, toolUseId: parked.toolUseId };
   }
 
@@ -316,6 +331,33 @@ export class PermissionEngine {
     }
     return state;
   }
+}
+
+function snapshotPermissionArgs(value: unknown): unknown {
+  return snapshotPermissionValue(value, new WeakSet<object>());
+}
+
+function snapshotPermissionValue(
+  value: unknown,
+  seen: WeakSet<object>,
+): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) throw new Error('Permission arguments must not contain cycles');
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return Object.freeze(
+      value.map((entry) => snapshotPermissionValue(entry, seen)),
+    );
+  }
+  const output: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !('value' in descriptor)) {
+      throw new Error(`Permission argument ${key} must be a plain data property`);
+    }
+    output[key] = snapshotPermissionValue(descriptor.value, seen);
+  }
+  return Object.freeze(output);
 }
 
 // ============================================================================

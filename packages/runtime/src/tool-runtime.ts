@@ -21,6 +21,7 @@ import type {
   ToolPermissionRule,
 } from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
+import { computerUseApprovalSummary } from '@maka/core';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import { redactSecrets } from '@maka/core/redaction';
@@ -256,9 +257,13 @@ export class ToolRuntime {
     args: unknown,
     ctx: { toolCallId: string; abortSignal: AbortSignal },
   ): Promise<unknown> {
+    const executionArgs = snapshotToolArgs(args);
+    const persistedArgs = tool.categoryHint === 'computer_use'
+      ? computerUseApprovalSummary(executionArgs)
+      : executionArgs;
     const toolUseId = ctx.toolCallId;
     const now = this.input.now();
-    const toolIntent = describeToolIntent(tool, args);
+    const toolIntent = describeToolIntent(tool, persistedArgs);
     const trace = this.input.getRunTrace?.() ?? null;
 
     const stepId = this.input.getCurrentStepId?.();
@@ -271,7 +276,7 @@ export class ToolRuntime {
       ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
-      args,
+      args: persistedArgs,
       // Persist the same step id the tool_start event carries so the UI
       // timeline and post-restart backfill can pair this call with its step.
       ...(stepId !== undefined ? { stepId } : {}),
@@ -285,7 +290,7 @@ export class ToolRuntime {
       toolUseId,
       toolName: tool.name,
       ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
-      args,
+      args: persistedArgs,
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
       ...(stepId !== undefined ? { stepId } : {}),
@@ -308,7 +313,7 @@ export class ToolRuntime {
     // so polling and iterate-then-retry are never gated. Recoverable: the model
     // is told to change its approach. The block itself records no outcome, so the
     // streak stays parked and every further identical repeat stays blocked.
-    const callSignature = `${tool.name} ${loopGateArgsKey(args, toolUseId)}`;
+    const callSignature = `${tool.name} ${loopGateArgsKey(executionArgs, toolUseId)}`;
     if (
       callSignature === this.lastFailedToolCallSignature
       && this.failedToolCallStreak >= LOOP_GATE_IDENTICAL_THRESHOLD - 1
@@ -350,7 +355,7 @@ export class ToolRuntime {
         turnId,
         toolUseId,
         toolName: tool.name,
-        args,
+        args: executionArgs,
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         permissionRequired: tool.permissionRequired !== false,
@@ -358,10 +363,10 @@ export class ToolRuntime {
         ...(tool.sandbox !== undefined ? {
           sandbox: typeof tool.sandbox === 'function'
             ? tool.sandbox({
-                permissionMode: this.input.header.permissionMode,
-                cwd: this.input.header.cwd,
-                args,
-              })
+              permissionMode: this.input.header.permissionMode,
+              cwd: this.input.header.cwd,
+              args: executionArgs,
+            })
             : tool.sandbox,
         } : {}),
         mode: this.input.header.permissionMode,
@@ -517,7 +522,7 @@ export class ToolRuntime {
       pauseTarget?.pause();
       try {
         const runId = this.input.getCurrentRunId?.();
-        const result = await tool.impl(args as never, {
+        const result = await tool.impl(executionArgs as never, {
           sessionId: this.input.sessionId,
           turnId,
           ...(runId ? { runId } : {}),
@@ -566,8 +571,10 @@ export class ToolRuntime {
           modelId: this.input.modelId,
           durationMs,
           status: toolResultStatus,
-          argsSummary: summarizeArgs(tool.name, args),
-          bytesIn: byteLength(args),
+          argsSummary: tool.categoryHint === 'computer_use'
+            ? summarizePersistedArgs(persistedArgs)
+            : summarizeArgs(tool.name, executionArgs),
+          bytesIn: byteLength(persistedArgs),
           bytesOut: byteLength(result),
           startedAt,
         });
@@ -585,7 +592,7 @@ export class ToolRuntime {
             toolUseId,
             toolName: tool.name,
             cwd: this.input.header.cwd,
-            args,
+            args: persistedArgs,
             result,
           },
           this.input.recordToolArtifacts,
@@ -608,7 +615,7 @@ export class ToolRuntime {
       }
     } catch (err) {
       output.flush();
-      const terminalFailure = coerceTerminalFailure(tool, this.input.header.cwd, args, err);
+      const terminalFailure = coerceTerminalFailure(tool, this.input.header.cwd, executionArgs, err);
       if (terminalFailure) {
         const durationMs = Math.max(0, this.input.now() - startedAt);
         const resultMsg: ToolResultMessage = {
@@ -642,8 +649,10 @@ export class ToolRuntime {
           durationMs,
           status: 'error',
           errorClass: classifyError(err),
-          argsSummary: summarizeArgs(tool.name, args),
-          bytesIn: byteLength(args),
+          argsSummary: tool.categoryHint === 'computer_use'
+            ? summarizePersistedArgs(persistedArgs)
+            : summarizeArgs(tool.name, executionArgs),
+          bytesIn: byteLength(persistedArgs),
           bytesOut: byteLength(terminalFailure.content),
           startedAt,
         });
@@ -668,8 +677,10 @@ export class ToolRuntime {
         durationMs: Math.max(0, this.input.now() - startedAt),
         status: 'error',
         errorClass: classifyError(err),
-        argsSummary: summarizeArgs(tool.name, args),
-        bytesIn: byteLength(args),
+        argsSummary: tool.categoryHint === 'computer_use'
+          ? summarizePersistedArgs(persistedArgs)
+          : summarizeArgs(tool.name, executionArgs),
+        bytesIn: byteLength(persistedArgs),
         bytesOut: 0,
         startedAt,
       });
@@ -938,6 +949,12 @@ function summarizeArgs(toolName: string, args: unknown): string {
   return text.length <= 512 ? text : `${text.slice(0, 511)}…`;
 }
 
+function summarizePersistedArgs(args: unknown): string {
+  const raw = typeof args === 'string' ? args : JSON.stringify(args ?? null);
+  const text = redactSecrets(raw);
+  return text.length <= 512 ? text : `${text.slice(0, 511)}…`;
+}
+
 function describeToolIntent(tool: MakaTool, args: unknown): string | undefined {
   if (tool.categoryHint !== 'subagent' || tool.name !== 'ExploreAgent') return undefined;
   if (!args || typeof args !== 'object') return undefined;
@@ -953,4 +970,26 @@ function byteLength(value: unknown): number {
   if (value === undefined) return 0;
   const text = typeof value === 'string' ? value : JSON.stringify(value ?? null);
   return Buffer.byteLength(text, 'utf8');
+}
+
+function snapshotToolArgs(value: unknown): unknown {
+  return snapshotJsonValue(value, new WeakSet<object>());
+}
+
+function snapshotJsonValue(value: unknown, seen: WeakSet<object>): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) throw new Error('Tool arguments must not contain cycles');
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map((entry) => snapshotJsonValue(entry, seen)));
+  }
+  const output: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !('value' in descriptor)) {
+      throw new Error(`Tool argument ${key} must be a plain data property`);
+    }
+    output[key] = snapshotJsonValue(descriptor.value, seen);
+  }
+  return Object.freeze(output);
 }

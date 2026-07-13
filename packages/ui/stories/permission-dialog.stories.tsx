@@ -27,6 +27,7 @@ function makeRequest(input: {
   args: unknown;
   hint?: string;
   ageMs?: number;
+  rememberForTurnAllowed?: boolean;
 }): PermissionRequestEvent {
   return {
     id: `evt-${input.requestId}`,
@@ -40,6 +41,9 @@ function makeRequest(input: {
     args: input.args,
     ts: NOW - (input.ageMs ?? 0),
     ...(input.hint ? { hint: input.hint } : {}),
+    ...(input.rememberForTurnAllowed !== undefined
+      ? { rememberForTurnAllowed: input.rememberForTurnAllowed }
+      : {}),
   };
 }
 
@@ -229,6 +233,30 @@ export const Browser: Story = {
           category: 'browser',
           reason: 'browser',
           args: { url: 'https://example.com', ref: 'main' },
+        })}
+        onRespond={noop}
+      />
+    </ComposerSlotBackdrop>
+  ),
+};
+
+export const ComputerUse: Story = {
+  render: () => (
+    <ComposerSlotBackdrop>
+      <PermissionPromptStory
+        request={makeRequest({
+          requestId: 'req-computer-use',
+          toolName: 'maka_computer',
+          category: 'computer_use',
+          reason: 'computer_use',
+          rememberForTurnAllowed: true,
+          args: {
+            action: 'left_click',
+            approvalClass: 'pointer_mutation',
+            app: 'Example App',
+            windowId: 42,
+            observationId: 'frame-7',
+          },
         })}
         onRespond={noop}
       />

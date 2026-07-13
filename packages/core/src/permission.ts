@@ -7,6 +7,11 @@
  * requestId at the call site.
  */
 
+import {
+  computerUseApprovalScopeKey,
+  computerUseApprovalSummary,
+} from './computer-use.js';
+
 // ============================================================================
 // Mode + Tool categories
 // ============================================================================
@@ -31,6 +36,7 @@ export type ToolCategory =
   | 'network_send' //      POST / PUT / DELETE
   | 'privileged' //        sudo, chmod, chown, kill, systemctl
   | 'browser' //           embedded-browser observe→act on the user's logged-in sessions
+  | 'computer_use' //      host-level observation and input on the user's real applications
   | 'custom_tool' //       our own session-scoped tools without a stricter category hint
   | 'subagent'; //         read-only delegated exploration tools
 
@@ -45,6 +51,7 @@ export const TOOL_CATEGORIES: readonly ToolCategory[] = [
   'network_send',
   'privileged',
   'browser',
+  'computer_use',
   'custom_tool',
   'subagent',
 ];
@@ -144,6 +151,7 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     // Driving the user's logged-in browser is an out-of-process effect; explore
     // mode is read-only-local, so block it like other network/write effects.
     browser: 'block',
+    computer_use: 'block',
     custom_tool: 'prompt',
     subagent: 'allow',
   },
@@ -158,6 +166,7 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     network_send: 'prompt',
     privileged: 'prompt',
     browser: 'prompt',
+    computer_use: 'prompt',
     custom_tool: 'allow',
     subagent: 'prompt',
   },
@@ -182,6 +191,9 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     // visible view stays a confirmed safety net, not a default-allow. The
     // user's "allow for this turn" then carries the observe→act loop.
     browser: 'prompt',
+    // Computer Use uses target- and action-class scope keys. Remembering a
+    // metadata read never authorizes a screenshot or mutation.
+    computer_use: 'prompt',
   },
   bypass: {
     read: 'allow',
@@ -194,6 +206,7 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     network_send: 'allow',
     privileged: 'allow',
     browser: 'allow',
+    computer_use: 'allow',
     custom_tool: 'allow',
     subagent: 'allow',
   },
@@ -503,6 +516,8 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
   // (2) Policy lookup + turn-remembered check
   const decision = policyDecisionForInput(input, category);
   const scopeKey = permissionScopeKey(input.toolName, input.args, category);
+  const turnMemoryAllowed = category !== 'computer_use'
+    || computerUseApprovalSummary(input.args).rememberForTurnAllowed;
   if (decision === 'allow') {
     return { proceed: true, needsPrompt: false, category, scopeKey };
   }
@@ -515,7 +530,7 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
       blockReason: `Tool category "${category}" is blocked in mode "${input.mode}"`,
     };
   }
-  if (input.turnRemembered.has(scopeKey)) {
+  if (turnMemoryAllowed && input.turnRemembered.has(scopeKey)) {
     return { proceed: true, needsPrompt: false, category, scopeKey };
   }
 
@@ -529,7 +544,10 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
       toolName: input.toolName,
       category,
       reason: categoryToReason(category),
-      args: input.args,
+      args: permissionRequestArgs(input.args, category),
+      ...(permissionRememberForTurnAllowed(input.args, category)
+        ? { rememberForTurnAllowed: true }
+        : { rememberForTurnAllowed: false }),
     },
   };
 }
@@ -550,6 +568,7 @@ export function permissionScopeKey(toolName: string, args: unknown, category: To
   // is the safety net for which page is driven. Other categories stay scoped
   // to the specific tool + args below.
   if (category === 'browser') return 'browser';
+  if (category === 'computer_use') return computerUseApprovalScopeKey(args);
   switch (toolName) {
     case 'Write':
     case 'Edit':
@@ -626,6 +645,8 @@ function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {
       return 'privileged';
     case 'browser':
       return 'browser';
+    case 'computer_use':
+      return 'computer_use';
     default:
       return 'custom';
   }
@@ -648,9 +669,25 @@ export interface PermissionRequest {
     | 'git_destructive'
     | 'privileged'
     | 'browser'
+    | 'computer_use'
     | 'custom';
   args: unknown;
   hint?: string;
+  rememberForTurnAllowed?: boolean;
+}
+
+function permissionRequestArgs(args: unknown, category: ToolCategory): unknown {
+  return category === 'computer_use'
+    ? computerUseApprovalSummary(args)
+    : args;
+}
+
+function permissionRememberForTurnAllowed(
+  args: unknown,
+  category: ToolCategory,
+): boolean {
+  return category !== 'computer_use'
+    || computerUseApprovalSummary(args).rememberForTurnAllowed;
 }
 
 export interface PermissionResponse {

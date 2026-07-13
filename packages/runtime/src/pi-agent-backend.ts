@@ -9,9 +9,10 @@ import type {
   ToolResultMessage,
   TokenUsageMessage,
 } from '@maka/core';
+import { computerUseApprovalSummary } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import { redactSecrets } from '@maka/core/redaction';
-import type { ToolCategory } from '@maka/core/permission';
+import { isToolCategory, type ToolCategory } from '@maka/core/permission';
 
 import type { AgentBackend } from '@maka/core/backend-types';
 import type { AppendMessageFn } from './ai-sdk-backend.js';
@@ -192,7 +193,8 @@ export class PiAgentBackend implements AgentBackend {
             await persistAssistant();
             stepHasTools = true;
             activeToolUseIds.add(frame.toolUseId);
-            await this.ensureToolCall(turnId, frame.toolUseId, frame.toolName, frame.args, frame.displayName, frame.intent, messageId);
+            const projectedArgs = projectPiToolArgs(frame.toolName, frame.args);
+            await this.ensureToolCall(turnId, frame.toolUseId, frame.toolName, projectedArgs, frame.displayName, frame.intent, messageId);
             yield {
               type: 'tool_start',
               id: this.newId(),
@@ -200,7 +202,7 @@ export class PiAgentBackend implements AgentBackend {
               ts: this.now(),
               toolUseId: frame.toolUseId,
               toolName: frame.toolName,
-              args: redactUnknown(frame.args),
+              args: projectedArgs,
               ...(frame.displayName ? { displayName: frame.displayName } : {}),
               ...(frame.intent ? { intent: redactBoundedText(frame.intent, 240) } : {}),
               stepId: messageId,
@@ -338,13 +340,18 @@ export class PiAgentBackend implements AgentBackend {
     turnId: string,
     frame: Extract<PiAgentFrame, { type: 'permission_request' }>,
   ): AsyncIterable<SessionEvent> {
-    await this.ensureToolCall(turnId, frame.toolUseId, frame.toolName, frame.args);
+    const projectedArgs = projectPiToolArgs(
+      frame.toolName,
+      frame.args,
+      frame.categoryHint,
+    );
+    await this.ensureToolCall(turnId, frame.toolUseId, frame.toolName, projectedArgs);
     const verdict = this.input.permissionEngine.evaluate({
       sessionId: this.sessionId,
       turnId,
       toolUseId: frame.toolUseId,
       toolName: frame.toolName,
-      args: redactUnknown(frame.args),
+      args: frame.args,
       ...(frame.categoryHint ? { categoryHint: frame.categoryHint } : {}),
       mode: this.input.header.permissionMode,
       ...(frame.hint ? { hint: redactBoundedText(frame.hint, 240) } : {}),
@@ -501,6 +508,16 @@ export class PiAgentBackend implements AgentBackend {
   }
 }
 
+function projectPiToolArgs(
+  toolName: string,
+  args: unknown,
+  categoryHint?: ToolCategory,
+): unknown {
+  return categoryHint === 'computer_use' || toolName === 'maka_computer'
+    ? computerUseApprovalSummary(args)
+    : redactUnknown(args);
+}
+
 export function normalizePiAgentFrame(frame: unknown): PiAgentFrame | null {
   if (!frame || typeof frame !== 'object') return null;
   const value = frame as Record<string, unknown>;
@@ -601,18 +618,4 @@ function redactUnknown(value: unknown): unknown {
   } catch {
     return '[无法序列化的参数]';
   }
-}
-
-function isToolCategory(value: unknown): value is ToolCategory {
-  return value === 'read' ||
-    value === 'web_read' ||
-    value === 'file_write' ||
-    value === 'fs_destructive' ||
-    value === 'shell_safe' ||
-    value === 'shell_unsafe' ||
-    value === 'git_destructive' ||
-    value === 'network_send' ||
-    value === 'privileged' ||
-    value === 'custom_tool' ||
-    value === 'subagent';
 }

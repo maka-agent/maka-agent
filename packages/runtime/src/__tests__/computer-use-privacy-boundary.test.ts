@@ -1,0 +1,139 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import type {
+  LlmConnection,
+  SessionEvent,
+  SessionHeader,
+  StoredMessage,
+  ToolInvocationRecord,
+} from '@maka/core';
+import { PermissionEngine } from '../permission-engine.js';
+import { ToolRuntime, type MakaTool } from '../tool-runtime.js';
+
+test('Computer Use snapshots execution args and persists only the approval summary', async () => {
+  const messages: StoredMessage[] = [];
+  const events: SessionEvent[] = [];
+  const invocations: ToolInvocationRecord[] = [];
+  const observedImplArgs: unknown[] = [];
+  const observedSandboxArgs: unknown[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const runtime = new ToolRuntime({
+    sessionId: 'session-1',
+    header: header(),
+    connection: connection(),
+    modelId: 'mock-model',
+    appendMessage: async (message) => { messages.push(message); },
+    permissionEngine: new PermissionEngine({ newId: nextId(), now: () => 1 }),
+    newId: nextId(),
+    now: () => 1,
+    getPermissionPauseTarget: () => null,
+    recordToolInvocation: (record) => { invocations.push(record); },
+  });
+  const tool: MakaTool = {
+    name: 'maka_computer',
+    description: 'test',
+    parameters: {},
+    categoryHint: 'computer_use',
+    permissionRequired: true,
+    sandbox: ({ args: sandboxArgs }) => {
+      observedSandboxArgs.push(sandboxArgs);
+      return { platformSandboxAvailable: true };
+    },
+    impl: async (args) => {
+      await gate;
+      observedImplArgs.push(args);
+      return { ok: true };
+    },
+  };
+  const args = {
+    action: 'type',
+    app: 'Example',
+    observation_id: 'frame-1',
+    text: 'secret text',
+    coordinate: [123, 456],
+  };
+  const execution = runtime.wrapToolExecute(tool, 'turn-1', {
+    push: (event) => events.push(event),
+  })(args, {
+    toolCallId: 'tool-1',
+    abortSignal: new AbortController().signal,
+  });
+
+  args.app = 'Mutated';
+  args.observation_id = 'frame-999';
+  args.text = 'changed secret';
+  args.coordinate[0] = 999;
+  release();
+  await execution;
+
+  assert.deepEqual(observedImplArgs, [{
+    action: 'type',
+    app: 'Example',
+    observation_id: 'frame-1',
+    text: 'secret text',
+    coordinate: [123, 456],
+  }]);
+  assert.deepEqual(observedSandboxArgs, [{
+    action: 'type',
+    app: 'Example',
+    observation_id: 'frame-1',
+    text: 'secret text',
+    coordinate: [123, 456],
+  }]);
+  const expectedSummary = {
+    action: 'type',
+    approvalClass: 'keyboard_mutation',
+    rememberForTurnAllowed: true,
+    app: 'Example',
+    observationId: 'frame-1',
+  };
+  const call = messages.find((message) => message.type === 'tool_call');
+  assert.deepEqual(call?.type === 'tool_call' ? call.args : undefined, expectedSummary);
+  const start = events.find((event) => event.type === 'tool_start');
+  assert.deepEqual(start?.type === 'tool_start' ? start.args : undefined, expectedSummary);
+  assert.equal(invocations.length, 1);
+  assert.match(invocations[0]!.argsSummary ?? '', /keyboard_mutation/);
+  assert.doesNotMatch(invocations[0]!.argsSummary ?? '', /secret|123|456/);
+});
+
+function nextId(): () => string {
+  let sequence = 0;
+  return () => `id-${++sequence}`;
+}
+
+function header(): SessionHeader {
+  return {
+    id: 'session-1',
+    workspaceRoot: '/workspace',
+    cwd: '/workspace',
+    createdAt: 1,
+    lastUsedAt: 1,
+    name: 'Test',
+    isFlagged: false,
+    labels: [],
+    isArchived: false,
+    status: 'active',
+    statusUpdatedAt: 1,
+    hasUnread: false,
+    backend: 'ai-sdk',
+    llmConnectionSlug: 'test',
+    connectionLocked: true,
+    model: 'mock-model',
+    permissionMode: 'bypass',
+    schemaVersion: 1,
+  };
+}
+
+function connection(): LlmConnection {
+  return {
+    slug: 'test',
+    name: 'Test',
+    providerType: 'openai-compatible',
+    baseUrl: 'https://example.invalid',
+    defaultModel: 'mock-model',
+    enabled: true,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}

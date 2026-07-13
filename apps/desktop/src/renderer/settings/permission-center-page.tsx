@@ -603,6 +603,7 @@ function actionApprovalLabel(state: CapabilitySnapshot['actionApproval']['state'
   switch (state) {
     case 'not_required': return '不需要审批';
     case 'required_per_action': return '每次调用都需审批';
+    case 'required_scoped_lease': return '按目标与动作类别授权';
     case 'pending': return '审批挂起';
     case 'approved': return '当前会话已批准';
     case 'denied': return '当前会话已拒绝';
@@ -612,7 +613,7 @@ function actionApprovalTone(state: CapabilitySnapshot['actionApproval']['state']
   if (state === 'approved') return 'success';
   if (state === 'denied') return 'destructive';
   if (state === 'pending') return 'warning';
-  if (state === 'required_per_action') return 'info';
+  if (state === 'required_per_action' || state === 'required_scoped_lease') return 'info';
   return 'neutral';
 }
 

@@ -24,6 +24,7 @@ const REASON_PRESETS: Record<ReasonKind, ReasonPreset> = {
   network: { prompt: '允许发起网络请求？', tone: 'info' },
   privileged: { prompt: '允许执行特权操作？', tone: 'destructive' },
   browser: { prompt: '允许操作已登录的浏览器？', tone: 'caution' },
+  computer_use: { prompt: '允许读取或操作本机应用？', tone: 'caution' },
   custom: { prompt: '允许执行此操作？', tone: 'info' },
 };
 
@@ -131,6 +132,11 @@ export function PermissionPrompt(props: {
               勾选后，本轮接下来的浏览、读取页面、导航、点击、输入都不再逐次询问。你会全程看到它操作的页面，随时可以停止；本轮结束后授权失效。
             </p>
           )}
+          {props.request.reason === 'computer_use' && rememberForTurn && (
+            <p className="maka-permission-context" role="note">
+              只会记住上方显示的目标、动作和授权类别。读取授权不会扩展为截图或输入授权；目标或动作类别变化时仍会再次询问。
+            </p>
+          )}
         </div>
         <Collapsible className="maka-permission-raw">
           {showDisclosure && (
@@ -142,14 +148,16 @@ export function PermissionPrompt(props: {
           <footer className="permissionActions">
             <div className="maka-permission-utility-actions">
               {showDisclosure && <CollapsibleTrigger>{disclosureLabel}</CollapsibleTrigger>}
-              <label className="permissionRemember">
-                <Checkbox
-                  checked={rememberForTurn}
-                  disabled={decisionsDisabled}
-                  onCheckedChange={(checked) => setRememberForTurn(checked === true)}
-                />
-                本轮记住
-              </label>
+              {props.request.rememberForTurnAllowed !== false && (
+                <label className="permissionRemember">
+                  <Checkbox
+                    checked={rememberForTurn}
+                    disabled={decisionsDisabled}
+                    onCheckedChange={(checked) => setRememberForTurn(checked === true)}
+                  />
+                  本轮记住
+                </label>
+              )}
             </div>
             <div className="maka-permission-decision-actions" role="group" aria-label="权限操作">
               <UiButton
@@ -223,6 +231,24 @@ function renderBrowserSummary(toolName: string, args: Record<string, unknown>): 
 function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | undefined {
   const args = (request.args ?? {}) as Record<string, unknown>;
   switch (request.toolName) {
+    case 'maka_computer': {
+      const action = typeof args.action === 'string' ? args.action : 'unknown';
+      const approvalClass = typeof args.approvalClass === 'string' ? args.approvalClass : 'unknown';
+      const app = typeof args.app === 'string' ? args.app : undefined;
+      const windowId = typeof args.windowId === 'number' ? args.windowId : undefined;
+      return (
+        <>
+          <p className="maka-permission-line">
+            Computer Use：<code>{action}</code>（{approvalClass}）
+          </p>
+          {(app || windowId !== undefined) && (
+            <p className="maka-permission-meta">
+              目标 {app ?? '当前应用'}{windowId !== undefined ? ` · window ${windowId}` : ''}
+            </p>
+          )}
+        </>
+      );
+    }
     case 'browser_navigate':
     case 'browser_snapshot':
     case 'browser_click':

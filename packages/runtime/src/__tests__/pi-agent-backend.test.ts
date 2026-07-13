@@ -214,6 +214,111 @@ describe('PiAgentBackend skeleton', () => {
     assert.equal(third.value?.type === 'tool_result' ? third.value.isError : false, true);
   });
 
+  test('preserves the computer_use category and redacts Computer Use permission args', async () => {
+    const messages: StoredMessage[] = [];
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'ask' }),
+      appendMessage: async (message) => { messages.push(message); },
+      permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(4_200) }),
+      transport: frames([
+        {
+          type: 'permission_request',
+          toolUseId: 'tool-1',
+          toolName: 'maka_computer',
+          args: {
+            action: 'type',
+            app: 'Example',
+            observation_id: 'frame-1',
+            text: 'secret text',
+            coordinate: [123, 456],
+          },
+          categoryHint: 'computer_use',
+        },
+        { type: 'complete' },
+      ]),
+      newId: nextId('id'),
+      now: nextNow(4_300),
+    });
+
+    const iterator = backend.send({ turnId: 'turn-1', text: 'type', context: [] })[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    assert.equal(first.value?.type, 'permission_request');
+    if (first.value?.type !== 'permission_request') return;
+    assert.equal(first.value.category, 'computer_use');
+    assert.equal(first.value.reason, 'computer_use');
+    assert.deepEqual(first.value.args, {
+      action: 'type',
+      approvalClass: 'keyboard_mutation',
+      rememberForTurnAllowed: true,
+      app: 'Example',
+      observationId: 'frame-1',
+    });
+    const toolCall = messages.find((message) => message.type === 'tool_call');
+    assert.deepEqual(
+      toolCall?.type === 'tool_call' ? toolCall.args : undefined,
+      first.value.args,
+    );
+    assert.doesNotMatch(JSON.stringify(messages), /secret text|123|456/);
+  });
+
+  test('projects raw Computer Use tool_start args before persistence or emission', async () => {
+    const messages: StoredMessage[] = [];
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'bypass' }),
+      appendMessage: async (message) => { messages.push(message); },
+      permissionEngine: new PermissionEngine({
+        newId: nextId('permission'),
+        now: nextNow(4_400),
+      }),
+      transport: frames([
+        {
+          type: 'tool_start',
+          toolUseId: 'tool-1',
+          toolName: 'maka_computer',
+          args: {
+            action: 'type',
+            app: 'Example',
+            window_id: 42,
+            observation_id: 'frame-1',
+            text: 'secret text',
+            coordinate: [123, 456],
+          },
+        },
+        { type: 'complete' },
+      ]),
+      newId: nextId('id'),
+      now: nextNow(4_450),
+    });
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({
+      turnId: 'turn-1',
+      text: 'type',
+      context: [],
+    })) {
+      events.push(event);
+    }
+    const start = events.find((event) => event.type === 'tool_start');
+    const expected = {
+      action: 'type',
+      approvalClass: 'keyboard_mutation',
+      rememberForTurnAllowed: true,
+      app: 'Example',
+      windowId: 42,
+      observationId: 'frame-1',
+    };
+    assert.deepEqual(start?.type === 'tool_start' ? start.args : undefined, expected);
+    const toolCall = messages.find((message) => message.type === 'tool_call');
+    assert.deepEqual(
+      toolCall?.type === 'tool_call' ? toolCall.args : undefined,
+      expected,
+    );
+    assert.doesNotMatch(JSON.stringify(events), /secret text|123|456/);
+    assert.doesNotMatch(JSON.stringify(messages), /secret text|123|456/);
+  });
+
   test('suppresses later child output for a denied permission request', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({

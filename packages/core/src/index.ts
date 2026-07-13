@@ -263,6 +263,44 @@ export {
   preToolUse,
 } from './permission.js';
 
+// computer-use.ts
+export type {
+  ComputerUseActionOutcome,
+  ComputerUseApprovalClass,
+  ComputerUseApprovalSummary,
+  ComputerUseDispatchEvidence,
+  ComputerUseDispatchTier,
+  ComputerUseDisplayIdentity,
+  ComputerUseEffect,
+  ComputerUseErrorCode,
+  ComputerUseBoundAction,
+  ComputerUseFrameIdentity,
+  ComputerUseFrameSourceKind,
+  ComputerUseObservationIdentity,
+  ComputerUsePageIdentity,
+  ComputerUseRect,
+  ComputerUseScreenFrame,
+  ComputerUseWindowIdentity,
+  CuAction,
+  CuActionType,
+  CuPoint,
+  CuRegion,
+  CuScrollDirection,
+} from './computer-use.js';
+export {
+  COMPUTER_USE_ACTION_TYPES,
+  COMPUTER_USE_APPROVAL_CLASSES,
+  COMPUTER_USE_DISPATCH_TIERS,
+  COMPUTER_USE_EFFECTS,
+  COMPUTER_USE_ERROR_CODES,
+  COMPUTER_USE_FRAME_SOURCE_KINDS,
+  CU_ACTION_TYPES,
+  CU_SCROLL_DIRECTIONS,
+  computerUseApprovalScopeKey,
+  computerUseApprovalSummary,
+  isComputerUseErrorCode,
+} from './computer-use.js';
+
 // permission-profile.ts
 export type {
   PermissionProfile,

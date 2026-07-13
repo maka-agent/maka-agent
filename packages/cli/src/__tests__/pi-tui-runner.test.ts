@@ -193,6 +193,44 @@ describe('Maka Pi TUI runner', () => {
     assert.deepEqual(driver.permissionResponses, [{
       requestId: 'permission-1',
       decision: 'allow',
+      rememberForTurn: false,
+    }]);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('allows a pending permission request for the turn with a', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionPromptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('u');
+    terminal.input('n');
+    terminal.input('\r');
+
+    await waitFor(() => driver.permissionRequests === 1);
+    await delay(20);
+    terminal.input('a');
+    await waitFor(() => driver.permissionResponses.length === 1);
+
+    assert.deepEqual(driver.permissionResponses, [{
+      requestId: 'permission-1',
+      decision: 'allow',
       rememberForTurn: true,
     }]);
 
@@ -2892,6 +2930,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
       args: { command: 'npm test' },
+      rememberForTurnAllowed: true,
     };
     await new Promise<void>((resolve) => {
       this.continueAfterPermission = resolve;
