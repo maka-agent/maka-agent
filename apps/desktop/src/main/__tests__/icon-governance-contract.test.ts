@@ -460,7 +460,7 @@ describe('icon + typography governance contract', () => {
     );
   });
 
-  it('vendors and routes the byte-exact Tencent Cloud mark for Tencent Coding Plan', async () => {
+  it('routes Tencent plans through the shared byte-exact Tencent Cloud mark', async () => {
     const [tencentCloudMark, componentSrc, notices] = await Promise.all([
       readFile(TENCENT_CLOUD_BRAND_MARK_FILE),
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
@@ -484,7 +484,7 @@ describe('icon + typography governance contract', () => {
     );
     assert.match(
       componentSrc,
-      /case 'tencent-coding-plan':\s*return <ProviderAssetMask src=\{tencentCloudBrandMark\} \/>/,
+      /case 'tencent-coding-plan':\s*case 'tencent-token-plan':\s*return <ProviderAssetMask src=\{tencentCloudBrandMark\} \/>/,
     );
   });
 

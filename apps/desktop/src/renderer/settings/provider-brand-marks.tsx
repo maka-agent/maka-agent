@@ -283,6 +283,7 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
     case 'tencent-tokenhub':
       return <ProviderAssetMask src={hunyuanBrandMark} />;
     case 'tencent-coding-plan':
+    case 'tencent-token-plan':
       return <ProviderAssetMask src={tencentCloudBrandMark} />;
     case 'stepfun-ai':
     case 'stepfun':
