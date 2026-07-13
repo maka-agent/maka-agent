@@ -276,11 +276,10 @@ describe('icon + typography governance contract', () => {
     const componentSrc = await readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8');
     const asset = await readFile(LM_STUDIO_BRAND_ASSET_FILE);
 
-    assert.equal(asset.at(-1), 0x0a, 'vendored text assets keep the repository POSIX newline');
     assert.equal(
-      createHash('sha256').update(asset.subarray(0, -1)).digest('hex'),
+      createHash('sha256').update(asset).digest('hex'),
       '4a575e8382b52ce742ac5d21d361a7d2a08cea7c12390ee1bbb755ef7d3cc25b',
-      'LM Studio SVG payload must remain byte-identical to @lobehub/icons-static-svg@1.91.0',
+      'LM Studio SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0',
     );
     assert.match(componentSrc, /https:\/\/github\.com\/lobehub\/lobe-icons/);
     assert.match(componentSrc, /@lobehub\/icons-static-svg@1\.91\.0/);
