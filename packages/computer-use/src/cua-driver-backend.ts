@@ -874,15 +874,19 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   function elementMatchesIdentity(
     element: NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>,
     identity: CuObservedElement['identity'] | undefined,
+    original?: NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>,
   ): boolean {
     if (!identity) return false;
     if (element.role !== identity.role) return false;
-    if (
-      identity.token !== undefined
-      && element.element_token === identity.token
-    ) return true;
     const label = identity.label?.trim();
-    return !!label && element.label === identity.label;
+    if (label) return element.label === identity.label;
+    return !!original
+      && element.depth === original.depth
+      && element.frame.x === original.frame.x
+      && element.frame.y === original.frame.y
+      && element.frame.w === original.frame.w
+      && element.frame.h === original.frame.h
+      && element.value === original.value;
   }
 
   function dedupeSemanticElements(
@@ -1310,7 +1314,9 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         },
       };
     }
-    const matches = fresh.filter((candidate) => elementMatchesIdentity(candidate, identity));
+    const matches = fresh.filter(
+      (candidate) => elementMatchesIdentity(candidate, identity, original),
+    );
     if (matches.length === 1) return matches[0]!;
     return {
       outcome: {

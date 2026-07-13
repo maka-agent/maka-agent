@@ -712,6 +712,30 @@ describe('cua-driver backend', () => {
     assert.equal(click?.element_token, 'snapshot:9');
   });
 
+  it('does not treat a reused token as cross-snapshot semantic identity', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      axLabel: 'Continue',
+      refetchMode: 'missing',
+    });
+    const signal = new AbortController().signal;
+    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
+    const observation = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, signal, context);
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: observation.observationId,
+      elementId: '7',
+      elementIdentity: observation.elements[0]!.identity,
+    }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.match(result.outcome.message, /missing/);
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+  });
+
   it('refetches a tokenless element by one unique role and label match', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
@@ -737,7 +761,7 @@ describe('cua-driver backend', () => {
     assert.equal(click?.element_token, 'snapshot:9');
   });
 
-  it('rejects stale refetch without a stable token or label', async () => {
+  it('refetches an unlabeled element by unique structural identity', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
       refetchMode: 'replacement',
@@ -755,15 +779,15 @@ describe('cua-driver backend', () => {
       elementIdentity: observation.elements[0]!.identity,
     }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
 
-    assert.equal(result.outcome.ok, false);
-    if (!result.outcome.ok) assert.equal(result.outcome.error, 'stale_frame');
-    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+    assert.equal(result.outcome.ok, true);
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 1);
   });
 
   for (const refetchMode of ['missing', 'ambiguous'] as const) {
     it(`rejects a ${refetchMode} refetched element without dispatch`, async () => {
       const { backend, logPath } = makeBackend({
         axRole: 'AXButton',
+        axLabel: 'Continue',
         refetchMode,
       });
       const signal = new AbortController().signal;
