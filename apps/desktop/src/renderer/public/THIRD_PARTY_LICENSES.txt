@@ -53,6 +53,10 @@ This file records notices for third-party source assets vendored into the Maka d
     - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
     - Upstream path: `packages/static-svg/icons/stepfun.svg`
     - SHA-256: `f46fbd1eee00a3dc7874395484bcc3e25a803e9eb4b79f07b7eec377a1e2f25c`
+  - `apps/desktop/src/renderer/assets/provider-brands/volcengine.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/volcengine.svg`
+    - SHA-256: `f29d0bdc284b33d8664ef221add7fbf06a5b370ef92767fa33f6020c914d3d33`
 
 MIT License
 

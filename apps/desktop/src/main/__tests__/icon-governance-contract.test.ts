@@ -46,6 +46,7 @@ const NVIDIA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/ass
 const TENCENT_HUNYUAN_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/hunyuan.svg');
 const TENCENT_CLOUD_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/tencentcloud.svg');
 const STEPFUN_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/stepfun.svg');
+const VOLCENGINE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/volcengine.svg');
 const DESKTOP_PACKAGE_FILE = resolve(REPO_ROOT, 'apps/desktop/package.json');
 const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/public/THIRD_PARTY_LICENSES.txt');
 const ONBOARDING_HERO_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/OnboardingHero.tsx');
@@ -428,6 +429,31 @@ describe('icon + typography governance contract', () => {
       /StepFun mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/stepfun\.svg[\s\S]*MIT[\s\S]*f46fbd1eee00a3dc7874395484bcc3e25a803e9eb4b79f07b7eec377a1e2f25c/,
     );
     assert.match(componentSrc, /case 'stepfun':\s*return <ProviderAssetMask src=\{stepfunBrandMark\} \/>/);
+  });
+
+  it('vendors and routes the byte-exact upstream Volcengine mark through the shared asset-mask seam', async () => {
+    const [volcengineMark, componentSrc, notices] = await Promise.all([
+      readFile(VOLCENGINE_BRAND_MARK_FILE),
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(volcengineMark).digest('hex'),
+      'f29d0bdc284b33d8664ef221add7fbf06a5b370ef92767fa33f6020c914d3d33',
+      'the vendored Volcengine mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 volcengine.svg',
+    );
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/volcengine\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/volcengine\.svg[\s\S]*f29d0bdc284b33d8664ef221add7fbf06a5b370ef92767fa33f6020c914d3d33/,
+      'Volcengine must append byte-exact provenance to the existing Lobe Icons notice entry',
+    );
+    assert.match(componentSrc, /import volcengineBrandMark from '\.\.\/assets\/provider-brands\/volcengine\.svg';/);
+    assert.match(
+      componentSrc,
+      /Volcengine mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/volcengine\.svg[\s\S]*MIT[\s\S]*f29d0bdc284b33d8664ef221add7fbf06a5b370ef92767fa33f6020c914d3d33/,
+    );
+    assert.match(componentSrc, /case 'volcengine-ark':\s*return <ProviderAssetMask src=\{volcengineBrandMark\} \/>/);
   });
 
   it('vendors and routes the byte-exact Tencent Cloud mark for Tencent Coding Plan', async () => {

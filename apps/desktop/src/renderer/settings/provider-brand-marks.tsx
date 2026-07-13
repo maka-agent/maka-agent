@@ -25,6 +25,7 @@ import mistralBrandMark from '../assets/provider-brands/mistral.svg';
 import togetherBrandMark from '../assets/provider-brands/together.svg';
 import nvidiaMarkUrl from '../assets/provider-brands/nvidia.svg';
 import stepfunBrandMark from '../assets/provider-brands/stepfun.svg';
+import volcengineBrandMark from '../assets/provider-brands/volcengine.svg';
 import xaiMarkUrl from '../assets/provider-brands/xai.svg';
 
 // Real xAI/Grok mark vendored byte-for-byte from Lobe Icons:
@@ -91,6 +92,14 @@ function XAI(): ReactElement {
 // - path: packages/static-svg/icons/stepfun.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: f46fbd1eee00a3dc7874395484bcc3e25a803e9eb4b79f07b7eec377a1e2f25c
+
+// Volcengine mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/volcengine.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: f29d0bdc284b33d8664ef221add7fbf06a5b370ef92767fa33f6020c914d3d33
 
 function ProviderAssetMask({ src }: { src: string }): ReactElement {
   const mask = `url("${src}")`;
@@ -278,6 +287,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
     case 'stepfun-ai':
     case 'stepfun':
       return <ProviderAssetMask src={stepfunBrandMark} />;
+    case 'volcengine-ark':
+      return <ProviderAssetMask src={volcengineBrandMark} />;
     default:
       return <GenericProviderMark />;
   }
