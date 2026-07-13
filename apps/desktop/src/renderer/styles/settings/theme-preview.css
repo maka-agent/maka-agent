@@ -590,11 +590,6 @@
   line-height: var(--leading-normal);
 }
 
-.settingsWechatQrSecondary:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.24);
-}
-
 .settingsWechatQrBody {
   display: grid;
   place-items: center;
@@ -659,26 +654,6 @@
   color: var(--destructive-text);
 }
 
-.settingsWechatQrSecondary {
-  min-height: 30px;
-  border: var(--border-width-hairline) solid oklch(from var(--accent) l c h / 0.34);
-  border-radius: var(--radius-surface);
-  background: var(--background);
-  color: var(--accent);
-  padding: 0 var(--space-3);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-medium);
-}
-
-.settingsWechatQrSecondary:hover {
-  background: oklch(from var(--accent) l c h / 0.08);
-}
-
-.settingsWechatQrSecondary:disabled {
-  opacity: var(--opacity-disabled);
-  cursor: progress;
-}
-
 .settingsThemeLabel {
   display: grid;
   min-width: 0;
@@ -720,4 +695,3 @@
 .settingsSubheading + .settingsThemeOptions {
   margin-top: calc(var(--space-1-5) * -1);
 }
-

@@ -49,7 +49,7 @@ describe('subagent UI contract', () => {
     const source = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'tool-activity.tsx'), 'utf8');
     const block = source.match(/export function OverlayHost[\s\S]*?^}/m)?.[0] ?? '';
 
-    assert.match(block, /<UiButton[\s\S]*className=\{cn\('maka-button', previewVariants\(\{ part: 'close' \}\)\)\}/);
+    assert.match(block, /<UiButton[\s\S]*className=\{previewVariants\(\{ part: 'close' \}\)\}[\s\S]*variant="ghost"[\s\S]*size="sm"/);
     assert.match(block, /aria-label="关闭预览"/);
     // Icon stroke governance round: per-call-site strokeWidth props were
     // deleted so lucide glyphs ride one governed weight (svg.lucide CSS rule).

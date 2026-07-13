@@ -211,7 +211,8 @@ describe('ArtifactPane async lifecycle contract', () => {
     assert.match(toolbarBlock, /另存中…/);
     assert.match(toolbarBlock, /复制中…/);
     assert.match(toolbarBlock, /删除中…/);
-    assert.match(css, /\.maka-artifact-toolbar-button:disabled \{[\s\S]*cursor: default;[\s\S]*opacity: var\(--opacity-disabled\);[\s\S]*\}/);
-    assert.match(css, /\.maka-artifact-toolbar-button\[data-pending="true"\] \{[\s\S]*opacity: var\(--opacity-pending\);[\s\S]*\}/);
+    assert.doesNotMatch(css, /\.maka-artifact-toolbar-button\b/, 'artifact actions must not restore consumer-owned Button states');
+    assert.match(toolbarBlock, /variant="secondary"\s+size="sm"/);
+    assert.match(toolbarBlock, /variant="destructive" size="icon-sm"/);
   });
 });

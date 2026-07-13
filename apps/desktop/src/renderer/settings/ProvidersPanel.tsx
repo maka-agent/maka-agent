@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Button as BaseButton } from '@base-ui/react/button';
 import { ArrowLeft, ChevronRight, Plus, Search } from '@maka/ui/icons';
 import {
   CATALOG_PROVIDER_TYPES,
@@ -342,10 +343,10 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
             {connections.length > 0 && <span>{providerGroups.length} 个服务商 · {connections.length} 个连接</span>}
           </div>
           {loadError ? (
-            <Button className="enabledEmptyChip enabledEmptyAction" type="button" variant="ghost" onClick={() => void reload()}>
+            <BaseButton className="enabledEmptyChip enabledEmptyAction" type="button" onClick={() => void reload()}>
               <strong>模型连接载入失败</strong>
               <small>{loadError} · 点击重试。</small>
-            </Button>
+            </BaseButton>
           ) : connections.length === 0 ? (
             <div className="enabledEmptyChip" role="note">
               <strong>等待添加服务商</strong>

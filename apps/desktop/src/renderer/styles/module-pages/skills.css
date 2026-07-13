@@ -248,15 +248,6 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   gap: var(--space-1);
 }
 
-.maka-skill-filter-pill {
-  min-width: 0;
-  min-height: var(--h-control-sm);
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  padding: 0 var(--space-2-5);
-}
-
 .maka-skill-market {
   display: grid;
   gap: var(--space-3);
@@ -347,27 +338,6 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
-}
-
-/* + install: quiet icon button anchored top-right of the card head; only
-   this element acts, keeping the card body an honest inert surface. */
-.maka-skill-market-install-button {
-  flex: 0 0 auto;
-  width: var(--h-control-sm);
-  min-width: var(--h-control-sm);
-  height: var(--h-control-sm);
-  padding: 0;
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--background);
-  color: var(--muted-foreground);
-  transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
-}
-
-.maka-skill-market-card:hover .maka-skill-market-install-button:not(:disabled),
-.maka-skill-market-install-button:not(:disabled):hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
 }
 
 .maka-skill-market-category {
@@ -670,21 +640,6 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
 
 .maka-skill-library-open-button {
   justify-self: end;
-  width: var(--maka-skill-library-action-size);
-  min-width: var(--maka-skill-library-action-size);
-  height: var(--maka-skill-library-action-size);
-  padding: 0;
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--background);
-  color: var(--muted-foreground);
-  transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
-}
-
-.maka-skill-library-item:hover .maka-skill-library-open-button,
-.maka-skill-library-item:focus-within .maka-skill-library-open-button {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
 }
 
 .maka-skill-library-runtime-switch {

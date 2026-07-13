@@ -257,7 +257,7 @@ function SkillLibraryPanel(props: {
             <UiButton
               type="button"
               variant="secondary"
-              className="maka-skill-filter-pill"
+              size="sm"
               onClick={props.onImportManagedSkillSource}
               disabled={!props.onImportManagedSkillSource || props.actionBusy}
             >
@@ -303,8 +303,8 @@ function SkillLibraryPanel(props: {
                       workspace, so it reads as a real state, not a toggle. */}
                   <UiButton
                     type="button"
-                    variant="ghost"
-                    className="maka-skill-market-install-button"
+                    variant="secondary"
+                    size="icon-sm"
                     onClick={() => props.onInstallManagedSkill?.(source.id)}
                     disabled={installed || props.actionBusy || !props.onInstallManagedSkill}
                     aria-label={`安装 ${source.name}`}
@@ -365,8 +365,8 @@ function SkillLibraryPanel(props: {
                       once installed, so the button reads as a state, not a toggle. */}
                   <UiButton
                     type="button"
-                    variant="ghost"
-                    className="maka-skill-market-install-button"
+                    variant="secondary"
+                    size="icon-sm"
                     onClick={() => props.onInstallBundledSkill?.(entry.id)}
                     disabled={entry.installed || props.actionBusy || !props.onInstallBundledSkill}
                     aria-label={`安装 ${entry.name}`}
@@ -484,7 +484,8 @@ function SkillLibraryPanel(props: {
                   )}
                   <UiButton
                     type="button"
-                    variant="ghost"
+                    variant="secondary"
+                    size="icon-sm"
                     className="maka-skill-library-open-button"
                     onClick={() => props.onOpenSkill?.(skill.id)}
                     disabled={props.actionBusy || !props.onOpenSkill}
@@ -554,7 +555,7 @@ function SkillLibraryPanel(props: {
         <UiButton
           type="button"
           variant="ghost"
-          className="maka-skill-filter-pill"
+          size="sm"
           onClick={() => setUpdatePreview(null)}
           disabled={props.actionBusy}
         >
@@ -563,7 +564,7 @@ function SkillLibraryPanel(props: {
         <UiButton
           type="button"
           variant="secondary"
-          className="maka-skill-filter-pill"
+          size="sm"
           onClick={() => void applyManagedSkillUpdate(updatePreview)}
           disabled={props.actionBusy || !props.onUpdateManagedSkill}
         >
@@ -754,7 +755,7 @@ export function SkillsModuleMain(props: {
             />
           </label>
           <UiButton
-            className="maka-button"
+            className="maka-skill-header-utility"
             variant="secondary"
             type="button"
             onClick={() => void runSkillAction('folder', props.onOpenSkillsFolder)}
@@ -778,7 +779,7 @@ export function SkillsModuleMain(props: {
             <span className="maka-visually-hidden">{skillCreateLegacyLabel}</span>
           </UiButton>
           <UiButton
-            className="maka-button"
+            className="maka-skill-header-utility"
             variant="secondary"
             type="button"
             onClick={() => void runSkillAction('refresh', props.onRefreshSkills)}

@@ -109,7 +109,6 @@ describe('renderer utility surfaces use shared UI primitives', () => {
       'maka-artifact-pane-collapse',
       'maka-artifact-error-retry',
       'maka-artifact-row',
-      'maka-artifact-toolbar-button',
     ]) {
       assert.match(source, new RegExp(`<Button[\\s\\S]*className="${className}`));
     }
@@ -215,5 +214,55 @@ describe('renderer utility surfaces use shared UI primitives', () => {
       /<Button\s+type="button"\s+variant="destructive"\s+onClick=\{\(\) => void clearInputHistory\(\)\}/,
     );
     assert.doesNotMatch(source, /className="[^"]*destructive[^"]*"/);
+  });
+
+  it('keeps shared Button geometry and interaction states out of consumer CSS', async () => {
+    const consumerPaths = [
+      'packages/ui/src/composer.tsx',
+      'packages/ui/src/empty-state.tsx',
+      'packages/ui/src/plan-reminder-panel.tsx',
+      'packages/ui/src/skills-panel.tsx',
+      'packages/ui/src/tool-activity.tsx',
+      'apps/desktop/src/renderer/artifact-pane.tsx',
+      'apps/desktop/src/renderer/settings/ProvidersPanel.tsx',
+      'apps/desktop/src/renderer/settings/bot-wechat-login.tsx',
+    ];
+    const consumers = await Promise.all(
+      consumerPaths.map((path) => readFile(join(repoRoot, path), 'utf8')),
+    );
+    const tokens = await readFile(join(process.cwd(), 'src/renderer/maka-tokens.css'), 'utf8');
+    const skillsCss = await readFile(join(process.cwd(), 'src/renderer/styles/module-pages/skills.css'), 'utf8');
+    const rendererCss = await readRendererContractCss();
+
+    for (const [index, source] of consumers.entries()) {
+      assert.doesNotMatch(source, /className=(?:"[^"]*\bmaka-button\b|\{cn\('maka-button')/, `${consumerPaths[index]} must not restore the legacy Button layer`);
+    }
+    assert.doesNotMatch(tokens, /\.maka-button(?:\s|:|\[|\{)/, 'renderer tokens must not keep a parallel Button implementation');
+
+    assert.doesNotMatch(skillsCss, /\.maka-skill-filter-pill\b/);
+    assert.doesNotMatch(skillsCss, /\.maka-skill-market-install-button\b/);
+    assert.doesNotMatch(skillsCss, /\.maka-skill-library-item:(?:hover|focus-within) \.maka-skill-library-open-button/);
+    assert.match(skillsCss, /\.maka-skill-library-open-button\s*\{\s*justify-self:\s*end;\s*\}/);
+
+    const skills = consumers[3];
+    assert.match(skills, /variant="secondary"\s+size="icon-sm"\s+onClick=\{\(\) => props\.onInstallManagedSkill/);
+    assert.match(skills, /variant="secondary"\s+size="icon-sm"\s+className="maka-skill-library-open-button"/);
+    assert.doesNotMatch(skills, /className="maka-skill-filter-pill"/);
+    assert.doesNotMatch(skills, /className="maka-skill-market-install-button"/);
+
+    const artifactPane = consumers[5];
+    assert.doesNotMatch(artifactPane, /className="[^"]*maka-artifact-toolbar-button/);
+    assert.match(artifactPane, /variant="destructive" size="icon-sm"/);
+    assert.doesNotMatch(rendererCss, /\.maka-artifact-toolbar-button\b/);
+
+    const providers = consumers[6];
+    assert.match(providers, /import \{ Button as BaseButton \} from '@base-ui\/react\/button';/);
+    assert.match(providers, /<BaseButton className="enabledEmptyChip enabledEmptyAction"/);
+    assert.doesNotMatch(providers, /<Button className="enabledEmptyChip enabledEmptyAction"/);
+
+    const wechat = consumers[7];
+    assert.doesNotMatch(wechat, /className="settingsWechatQrSecondary"/);
+    assert.equal(wechat.match(/<Button type="button" variant="secondary" size="sm" disabled=\{loading\} onClick=\{reloadQrCode\}>/g)?.length, 3);
+    assert.doesNotMatch(rendererCss, /\.settingsWechatQrSecondary\b/);
   });
 });

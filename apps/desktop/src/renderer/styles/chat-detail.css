@@ -576,44 +576,6 @@
   background: var(--border);
 }
 
-.maka-artifact-toolbar-button {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  border: var(--border-width-hairline) solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
-  border-radius: var(--radius-control);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--font-size-caption);
-}
-
-.maka-artifact-toolbar-button:hover {
-  background: var(--state-hover-bg);
-}
-
-.maka-artifact-toolbar-button:disabled {
-  cursor: default;
-  opacity: var(--opacity-disabled);
-}
-
-.maka-artifact-toolbar-button:disabled:hover {
-  background: var(--background);
-}
-
-.maka-artifact-toolbar-button[data-pending="true"] {
-  opacity: var(--opacity-pending);
-}
-
-.maka-artifact-toolbar-destructive {
-  color: var(--destructive-text);
-  border-color: oklch(from var(--destructive) l c h / 0.32);
-  /* Icon-only footprint (see artifact-pane.tsx destructive label note):
-     square-ish hit area, no text gap. */
-  gap: 0;
-  padding: var(--space-1) var(--space-1-5);
-}
-
 /* Visually hidden, still announced: the 删除/删除中… label only exists
    for assistive tech. Keeping it in-flow reintroduces the toolbar wrap
    this exists to prevent. */

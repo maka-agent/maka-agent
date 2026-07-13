@@ -495,9 +495,9 @@ describe('tool error copy feedback contract', () => {
     // (issue #332 PR3c): the pending / copy-feedback chrome — which lived UNLAYERED
     // in tool-output.css so it out-ranked the ghost button — now lives as literal
     // arbitrary utilities inlined on the copy button's `className`. We slice the
-    // `ToolErrorBanner` block and require the utilities to appear on an actual
-    // `className="maka-button …"` so the assertion proves BOTH that the state
-    // utilities exist AND that the banner's copy button wears them — a whole-file
+    // `ToolErrorBanner` block and require the utilities to appear on the actual
+    // copy button, without restoring the retired `.maka-button` layer. This proves
+    // BOTH that the state utilities exist AND that the button wears them — a whole-file
     // scan would false-pass if the string drifted to another component. These are
     // arbitrary-value utilities (source == computed), so this source contract is the
     // proof; the computed-style harness only re-diffs the non-trivial container box.
@@ -507,7 +507,7 @@ describe('tool error copy feedback contract', () => {
 
     assert.match(
       block,
-      /className="maka-button \[align-self:start\] data-\[pending=true\]:cursor-progress/,
+      /className="\[align-self:start\] data-\[pending=true\]:cursor-progress/,
       'The tool-error copy button must wear the leaf state utilities inline on its className.',
     );
     assert.match(

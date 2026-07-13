@@ -468,9 +468,8 @@ const previewVariants = cva("", {
       // the structured-card kind parts override them by tailwind-merge (note 1).
       overlay:
         "mt-1 mx-0 mb-0 max-h-[180px] overflow-auto [font-family:var(--font-mono)] [font-variant-ligatures:none] text-xs [white-space:pre-wrap] [word-break:break-word]",
-      // `.maka-overlay-close` — the dismiss action (layered over `.maka-button`).
-      close:
-        "justify-self-end inline-flex items-center gap-1 min-h-6 px-1.5",
+      // Overlay placement only; Button owns the dismiss action's proportions.
+      close: "justify-self-end",
 
       // ── file diff (shared with apps/desktop artifact-preview) ─────────────
       // `.maka-tool-diff` — the card shell. `[white-space:normal]` overrides the

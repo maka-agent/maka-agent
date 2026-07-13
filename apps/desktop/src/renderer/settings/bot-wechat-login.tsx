@@ -335,7 +335,7 @@ export function WechatQrLoginModal(props: {
           ) : expired ? (
             <div className="settingsWechatQrState" data-tone="warning">
               二维码已过期
-              <Button type="button" variant="secondary" className="settingsWechatQrSecondary" disabled={loading} onClick={reloadQrCode}>
+              <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={reloadQrCode}>
                 {loading ? '刷新中…' : '刷新二维码'}
               </Button>
             </div>
@@ -350,14 +350,14 @@ export function WechatQrLoginModal(props: {
             <div className="settingsWechatQrState" data-tone="error" role="alert">
               <strong>{error.error}</strong>
               <span>{error.hint}</span>
-              <Button type="button" variant="secondary" className="settingsWechatQrSecondary" disabled={loading} onClick={reloadQrCode}>
+              <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={reloadQrCode}>
                 {loading ? '重试中…' : '重试'}
               </Button>
             </div>
           ) : (
             <div className="settingsWechatQrState" data-tone="loading">
               bridge 正在生成二维码
-              <Button type="button" variant="secondary" className="settingsWechatQrSecondary" disabled={loading} onClick={reloadQrCode}>
+              <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={reloadQrCode}>
                 {loading ? '获取中…' : '重新获取'}
               </Button>
             </div>

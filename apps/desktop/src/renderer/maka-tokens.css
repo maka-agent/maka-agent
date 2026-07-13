@@ -1261,34 +1261,6 @@ html[data-os="darwin"].dark {
     font-size: var(--font-size-ui);
   }
 
-  /* ---- Buttons ---------------------------------------------------- */
-
-  .maka-button {
-    /* PR-UI-LAYOUT-12: button polish for warm canvas.
-     * - Padding 6/12 → 7/14 — more comfortable hit target.
-     * - Min-height pinned at 32px (was implicit; varied by content).
-     * - Focus ring added (was missing — only browser default outline). */
-    appearance: none;
-    min-height: 32px;
-    border: var(--border-width-hairline) solid var(--border);
-    background: var(--background);
-    color: var(--foreground);
-    padding: var(--space-1-5) var(--space-3);
-    border-radius: var(--radius-control);
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-medium);
-    line-height: var(--leading-tight);
-    transition: background var(--duration-quick) var(--ease-out-strong), border-color var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
-  }
-  .maka-button:hover  { background: var(--state-hover-bg); }
-  .maka-button:active { background: var(--state-selected-bg); }
-  .maka-button:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.16);
-  }
-  .maka-button[disabled],
-  .maka-button[aria-disabled="true"] { opacity: var(--opacity-disabled); cursor: not-allowed; }
-
   /* ---- Tabs ------------------------------------------------------- */
 
   /* Shared tab spec (#499 P0-3): one `maka-tab` class + `underline`/`pill`

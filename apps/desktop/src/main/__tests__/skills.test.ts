@@ -1232,7 +1232,7 @@ name: Writer
     assert.match(skillPanel, /<div className="maka-skill-market-grid">/, '市场 tab renders managed sources as a card grid');
     assert.match(skillPanel, /const marketSources = useMemo\(/, '市场 grid is a pure client-side filter/sort over managedSkillSources');
     assert.match(skillPanel, /官方精选/, '市场 grid carries the 官方精选 section label');
-    assert.match(skillPanel, /className="maka-skill-market-install-button"[\s\S]*aria-label=\{`安装 \$\{source\.name\}`\}/, 'only the + install icon-button acts; the market card body stays inert');
+    assert.match(skillPanel, /variant="secondary"\s+size="icon-sm"[\s\S]*aria-label=\{`安装 \$\{source\.name\}`\}/, 'only the governed install icon-button acts; the market card body stays inert');
     assert.match(skillPanel, /导入本地 Skill/);
     assert.doesNotMatch(skillPanel, /const managedSources = \(/, '来源库 list was replaced by the 市场 card grid');
     assert.match(skillPanel, /onInstallManagedSkill\?\(sourceId: string\): void \| Promise<void>/);

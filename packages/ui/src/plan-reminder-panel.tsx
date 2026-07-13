@@ -843,7 +843,7 @@ export function PlanReminderPanel(props: {
             )}
             <footer className="maka-plan-form-footer">
               <UiButton
-                className="maka-button maka-plan-submit"
+                className="maka-plan-submit"
                 variant="secondary"
                 type="button"
                 onClick={closeReminderDialog}
@@ -851,7 +851,7 @@ export function PlanReminderPanel(props: {
               >
                 取消
               </UiButton>
-              <UiButton className="maka-button maka-plan-submit" type="submit" disabled={submitDisabled}>
+              <UiButton className="maka-plan-submit" type="submit" disabled={submitDisabled}>
                 {isEditing ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
                 <span>{submitPending ? (isEditing ? '保存中…' : '创建中…') : (isEditing ? '保存提醒' : '创建提醒')}</span>
               </UiButton>

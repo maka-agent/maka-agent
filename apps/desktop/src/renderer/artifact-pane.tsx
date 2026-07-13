@@ -516,7 +516,6 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   type="button"
                   variant="secondary"
                   size="sm"
-                  className="maka-artifact-toolbar-button"
                   onClick={() => void runArtifactAction(`${selected.id}:open`, () => openInFinder(selected.id))}
                   disabled={artifactActionBusy}
                   data-pending={pendingArtifactAction === `${selected.id}:open` ? 'true' : undefined}
@@ -529,7 +528,6 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   type="button"
                   variant="secondary"
                   size="sm"
-                  className="maka-artifact-toolbar-button"
                   onClick={() => void runArtifactAction(`${selected.id}:save`, () => saveAs(selected.id))}
                   disabled={artifactActionBusy}
                   data-pending={pendingArtifactAction === `${selected.id}:save` ? 'true' : undefined}
@@ -543,7 +541,6 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                     type="button"
                     variant="secondary"
                     size="sm"
-                    className="maka-artifact-toolbar-button"
                     onClick={() => void runArtifactAction(`${selected.id}:copy`, () => copyText(selected.id))}
                     disabled={artifactActionBusy}
                     data-pending={pendingArtifactAction === `${selected.id}:copy` ? 'true' : undefined}
@@ -558,7 +555,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               <ToolbarGroup className="maka-artifact-toolbar-group maka-artifact-toolbar-danger-group">
                 <Tooltip>
                   <TooltipTrigger
-                    render={<Button type="button" variant="destructive" size="sm" className="maka-artifact-toolbar-button maka-artifact-toolbar-destructive" />}
+                    render={<Button type="button" variant="destructive" size="icon-sm" />}
                     onClick={() => void runArtifactAction(`${selected.id}:delete`, () => deleteArtifact(selected.id))}
                     disabled={artifactActionBusy}
                     data-pending={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}

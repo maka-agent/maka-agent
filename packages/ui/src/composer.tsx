@@ -703,7 +703,6 @@ export const Composer = forwardRef<
             )}
             {props.streaming ? (
               <UiButton
-                className="maka-button"
                 variant="default"
                 size="sm"
                 type="button"

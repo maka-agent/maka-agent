@@ -307,8 +307,8 @@ describe('Bot settings UI contract', () => {
     assert.match(settings, /window\.setInterval\(\(\) => \{[\s\S]*reloadQrCode\(\)/, 'WeChat bridge QR polling must not bypass the reload guard');
     assert.match(settings, /setResult\(\{[\s\S]*ok: false,[\s\S]*error: settingsActionErrorMessage\(error\),[\s\S]*hint: '读取本机 wechat-bridge 二维码失败，请确认 bridge 已启动。'/, 'WeChat bridge QR thrown failures must use the Settings scrubber before rendering');
     assert.doesNotMatch(settings, /error: error instanceof Error \? error\.message : String\(error\)/, 'WeChat bridge QR modal must not render raw thrown Error.message');
-    assert.match(settings, /className="settingsWechatQrSecondary" disabled=\{loading\} onClick=\{reloadQrCode\}/, 'WeChat bridge QR refresh buttons must disable while a QR reload is in flight');
-    assert.match(styles, /\.settingsWechatQrSecondary:disabled\s*\{[\s\S]*cursor:\s*progress/, 'WeChat bridge QR reload buttons must have a visible pending state');
+    assert.match(settings, /variant="secondary" size="sm" disabled=\{loading\} onClick=\{reloadQrCode\}/, 'WeChat bridge QR refresh buttons must use the governed compact tier and disable while a QR reload is in flight');
+    assert.doesNotMatch(styles, /\.settingsWechatQrSecondary\b/, 'WeChat QR actions must not restore consumer-owned Button states');
     assert.match(settings, /window\.maka\.settings\.bots\.wechatQrCode\(\)/, 'QR modal must call the bridge QR IPC');
     assert.match(settings, /<img src=\{qrDataUrl\} alt="微信扫码登录二维码"/, 'QR modal must render a visible QR image');
     assert.match(settings, /setWechatQrOpen\(true\)/, 'Scan-login button must open the QR modal');
