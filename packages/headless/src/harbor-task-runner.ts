@@ -16,6 +16,7 @@ import {
   HarborTaskRunOutput,
   HarborTaskRunner,
 } from './fixed-prompt-controller.js';
+import { startProviderAuthProxy } from './provider-auth-proxy.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -161,30 +162,35 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       agentEnv: mergeAgentEnv(options.agentEnv, input.agentEnv),
     };
     assertNoProviderSecretsInAgentEnv(runnerOptions.agentEnv);
-    const hostProviderEnv = hostSideProviderEnv(runnerOptions);
+    const hasHostProviderAuth = runnerOptions.apiKeyFile !== undefined;
     const configPath = join(jobsDir, 'job-config.json');
     const { agentEnv: _attemptAgentEnv, ...inputWithoutAttemptEnv } = input;
     const config = buildHarborJobConfig(inputWithoutAttemptEnv, {
       ...runnerOptions,
       jobsDir,
       jobName,
-      ...(hostProviderEnv ? { agentEnv: taskAgentEnvWithoutProviderSecrets(runnerOptions) } : {}),
+      ...(hasHostProviderAuth ? { agentEnv: taskAgentEnvWithoutProviderSecrets(runnerOptions) } : {}),
     });
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 
     const args = ['run', '--config', configPath, '--yes'];
     let result: HarborRunResult;
     try {
-      result = await runHarbor({
-        harborBin,
-        configPath,
-        jobName,
-        jobsDir,
-        args,
-        cwd: options.makaRepoPath,
-        timeoutMs: resolveHarborTimeoutMs(runnerOptions, input),
-        env: { PYTHONPATH: pythonPath, ...(hostProviderEnv ?? {}) },
-      });
+      const providerRuntime = await hostSideProviderRuntime(runnerOptions);
+      try {
+        result = await runHarbor({
+          harborBin,
+          configPath,
+          jobName,
+          jobsDir,
+          args,
+          cwd: options.makaRepoPath,
+          timeoutMs: resolveHarborTimeoutMs(runnerOptions, input),
+          env: { PYTHONPATH: pythonPath, ...(providerRuntime?.env ?? {}) },
+        });
+      } finally {
+        await providerRuntime?.close?.();
+      }
     } catch (error) {
       if (isBudgetExhaustedError(error)) throw error;
       throw new HarborInfraError(`harbor run failed to launch for task ${input.task.id}`, errorText(error));
@@ -462,23 +468,35 @@ function providerSecretEnv(provider: string): { key: string; file: string; baseU
   return PROVIDER_SECRET_ENV[provider] ?? PROVIDER_SECRET_ENV.openai!;
 }
 
-function hostSideProviderEnv(options: HarborTaskRunnerOptions): Record<string, string> | null {
+async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promise<{
+  env: Record<string, string>;
+  close?: () => Promise<void>;
+} | null> {
   if (!options.apiKeyFile) return null;
   const provider = options.provider ?? 'deepseek';
   const providerEnv = providerSecretEnv(provider);
   const baseUrl = options.agentEnv?.[providerEnv.baseUrl] ?? options.agentEnv?.MAKA_BASE_URL ?? options.agentEnv?.OPENAI_BASE_URL;
   if (options.agent === 'opencode') {
-    const rawKeyEnvName = normalizeRawKeyEnvName(options.apiKeyEnvName ?? providerEnv.key);
+    if (!baseUrl) throw new Error(`OpenCode provider ${provider} requires a base URL`);
+    const proxy = await startProviderAuthProxy({
+      upstreamBaseUrl: baseUrl,
+      apiKeyFile: options.apiKeyFile,
+    });
     return {
-      [`${rawKeyEnvName}_FILE`]: options.apiKeyFile,
-      ...(baseUrl ? { [providerEnv.baseUrl]: baseUrl } : {}),
+      env: {
+        MAKA_OPENCODE_PROVIDER_PROXY_URL: proxy.baseUrl,
+        MAKA_OPENCODE_PROVIDER_PROXY_TOKEN: proxy.token,
+      },
+      close: proxy.close,
     };
   }
   return {
-    MAKA_HOST_REPO_ROOT: options.makaRepoPath,
-    MAKA_HOST_API_KEY_FILE: options.apiKeyFile,
-    MAKA_HOST_API_KEY_ENV_NAME: normalizeRawKeyEnvName(options.apiKeyEnvName ?? providerEnv.key),
-    ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
+    env: {
+      MAKA_HOST_REPO_ROOT: options.makaRepoPath,
+      MAKA_HOST_API_KEY_FILE: options.apiKeyFile,
+      MAKA_HOST_API_KEY_ENV_NAME: normalizeRawKeyEnvName(options.apiKeyEnvName ?? providerEnv.key),
+      ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
+    },
   };
 }
 

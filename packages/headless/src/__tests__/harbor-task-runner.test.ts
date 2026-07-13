@@ -224,7 +224,7 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
-  test('keeps the OpenCode key file in Harbor process env and out of the job config', async () => {
+  test('gives OpenCode an ephemeral host proxy without exposing the provider key file', async () => {
     await withRun(async ({ jobsDir, repo, keyFile }) => {
       const captured: { config?: Record<string, unknown> } = {};
       let harborEnv: Record<string, string> | undefined;
@@ -246,9 +246,15 @@ describe('createHarborTaskRunner', () => {
 
       await runner(runInput());
 
-      assert.equal(harborEnv?.ZAI_API_KEY_FILE, keyFile);
-      assert.equal(harborEnv?.ZAI_BASE_URL, 'https://api.z.ai/api/coding/paas/v4');
+      assert.equal(harborEnv?.ZAI_API_KEY_FILE, undefined);
+      assert.match(harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_URL ?? '', /^http:\/\/host\.docker\.internal:\d+$/);
+      assert.match(harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_TOKEN ?? '', /^[a-f0-9]{64}$/);
+      assert.notEqual(harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_TOKEN, keyFile);
+      assert.doesNotMatch(JSON.stringify(harborEnv), /deepseek-key|sk-secret/);
       assert.doesNotMatch(JSON.stringify(captured.config), /ZAI_API_KEY|deepseek-key|sk-secret/);
+      const closedProxyUrl = harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_URL?.replace('host.docker.internal', '127.0.0.1');
+      assert.ok(closedProxyUrl);
+      await assert.rejects(fetch(closedProxyUrl));
     });
   });
 

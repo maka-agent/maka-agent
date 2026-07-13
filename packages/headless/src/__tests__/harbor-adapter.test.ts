@@ -1172,8 +1172,8 @@ try:
         key_path = Path(tmp) / "zai-key"
         key_path.write_text("test-zai-key\n", encoding="utf-8")
         agent = MakaOpenCodeAgent(Path(tmp), extra_env={
-            "ZAI_API_KEY_FILE": str(key_path),
-            "ZAI_BASE_URL": "https://api.z.ai/api/coding/paas/v4",
+            "MAKA_OPENCODE_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_OPENCODE_PROVIDER_PROXY_TOKEN": "ephemeral-proxy-token",
             "MAKA_LLM_CONNECTION_SLUG": "zai-coding-plan",
             "MAKA_SYSTEM_PROMPT": "",
             "MAKA_REASONING_EFFORT": "max",
@@ -1206,16 +1206,13 @@ try:
         assert "--dangerously-skip-permissions" not in command, command
         assert "--variant=max" in command, command
         assert "templated: hi" in command, command
-        assert "ZAI_API_KEY" not in env, env
-        assert env["ZAI_BASE_URL"] == "https://api.z.ai/api/coding/paas/v4", env
-        assert environment.uploaded_files == [(str(key_path), "/tmp/maka-opencode-zai-api-key")], environment.uploaded_files
-        assert 'cat -- /tmp/maka-opencode-zai-api-key' in command, command
+        assert env["ZAI_API_KEY"] == "ephemeral-proxy-token", env
+        assert env["ZAI_BASE_URL"] == "http://host.docker.internal:43210", env
+        assert environment.uploaded_files == [], environment.uploaded_files
+        assert 'cat --' not in command, command
         assert "test-zai-key" not in command, command
         assert "test-zai-key" not in json.dumps(env), env
-        assert environment.root_commands == [
-            ("chmod 0444 -- /tmp/maka-opencode-zai-api-key", {"user": 0}),
-            ("rm -f -- /tmp/maka-opencode-zai-api-key", {"user": 0}),
-        ], environment.root_commands
+        assert environment.root_commands == [], environment.root_commands
         assert os.environ.get("ZAI_API_KEY") is None
         assert os.environ.get("ZAI_BASE_URL") is None
 
@@ -1253,8 +1250,8 @@ try:
         assert "test-zai-key" not in json.dumps(cell), cell
 
         failing_agent = MakaOpenCodeAgent(Path(tmp), extra_env={
-            "ZAI_API_KEY_FILE": str(key_path),
-            "ZAI_BASE_URL": "https://api.z.ai/api/coding/paas/v4",
+            "MAKA_OPENCODE_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_OPENCODE_PROVIDER_PROXY_TOKEN": "ephemeral-proxy-token",
             "MAKA_LLM_CONNECTION_SLUG": "zai-coding-plan",
             "MAKA_SYSTEM_PROMPT": "",
             "MAKA_REASONING_EFFORT": "max",

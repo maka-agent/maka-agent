@@ -20,8 +20,6 @@ from trial_pricing import estimate_cost, pricing_from_env
 class MakaOpenCodeAgent(OpenCode):
     """Run Harbor's OpenCode agent while normalizing trial cost fields."""
 
-    _ZAI_KEY_PATH = "/tmp/maka-opencode-zai-api-key"
-
     @staticmethod
     def name() -> str:
         return "opencode"
@@ -105,15 +103,13 @@ class MakaOpenCodeAgent(OpenCode):
         provider, _ = self.model_name.split("/", 1)
         if provider != "zai-coding-plan":
             raise ValueError(f"Unsupported Maka OpenCode benchmark provider: {provider}")
-        key_file = self._get_env("ZAI_API_KEY_FILE")
-        if not key_file:
-            raise ValueError("zai-coding-plan requires ZAI_API_KEY_FILE")
-        await environment.upload_file(Path(key_file), self._ZAI_KEY_PATH)
-        await environment.exec(
-            command=f"chmod 0444 -- {shlex.quote(self._ZAI_KEY_PATH)}",
-            user=0,
-        )
+        proxy_url = self._get_env("MAKA_OPENCODE_PROVIDER_PROXY_URL")
+        proxy_token = self._get_env("MAKA_OPENCODE_PROVIDER_PROXY_TOKEN")
+        if not proxy_url or not proxy_token:
+            raise ValueError("zai-coding-plan requires the host provider proxy")
         env = self._provider_env(provider)
+        env["ZAI_BASE_URL"] = proxy_url
+        env["ZAI_API_KEY"] = proxy_token
         env["OPENCODE_FAKE_VCS"] = "git"
 
         skills_command = self._build_register_skills_command()
@@ -133,7 +129,6 @@ class MakaOpenCodeAgent(OpenCode):
         runner_path = self._stop_runner_path()
         grace_ms = self._stop_grace_ms()
         command = (
-            f"export ZAI_API_KEY=\"$(cat -- {shlex.quote(self._ZAI_KEY_PATH)})\"; "
             ". ~/.nvm/nvm.sh; "
             f"node {shlex.quote(runner_path)} "
             "--output /logs/agent/opencode.txt "
@@ -143,13 +138,7 @@ class MakaOpenCodeAgent(OpenCode):
             f"{cli_flags_arg}{variant_arg}--thinking --auto -- "
             f"{escaped_instruction}"
         )
-        try:
-            await self.exec_as_agent(environment, command=command, env=env)
-        finally:
-            await environment.exec(
-                command=f"rm -f -- {shlex.quote(self._ZAI_KEY_PATH)}",
-                user=0,
-            )
+        await self.exec_as_agent(environment, command=command, env=env)
 
     def _stop_runner_path(self) -> str:
         maka_repo = self._get_env("MAKA_REPO_ROOT") or "/opt/maka-agent"
@@ -173,7 +162,7 @@ class MakaOpenCodeAgent(OpenCode):
 
     def _provider_env(self, provider: str) -> dict[str, str]:
         env: dict[str, str] = {}
-        for key in ("ZAI_BASE_URL", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
+        for key in ("XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
             value = self._get_env(key)
             if value:
                 env[key] = value
