@@ -18,6 +18,8 @@ describe('harness A/B manifest', () => {
 
     assert.equal(manifest.experimentKind, 'harness');
     assert.equal(manifest.reps, 1);
+    assert.equal(manifest.maxConcurrency, 2);
+    assert.equal(manifest.maxConcurrentAttempts, 4);
     assert.equal(manifest.evaluationTaskIds.length, 89);
     assert.deepEqual(manifest.pilotTaskIds, manifest.evaluationTaskIds.slice(0, 30));
     assert.deepEqual(

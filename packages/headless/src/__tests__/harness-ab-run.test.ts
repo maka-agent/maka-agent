@@ -9,6 +9,52 @@ import { runHarnessAbComparison } from '../harness-ab-run.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 
 describe('runHarnessAbComparison', () => {
+  test('runs two paired tasks concurrently with both harness arms in parallel', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-concurrency-'));
+    try {
+      const promptPath = join(dir, 'empty-system-prompt.txt');
+      await writeFile(promptPath, '', 'utf8');
+      let release!: () => void;
+      const releasePromise = new Promise<void>((resolve) => { release = resolve; });
+      let fourStarted!: () => void;
+      const fourStartedPromise = new Promise<void>((resolve) => { fourStarted = resolve; });
+      let active = 0;
+      let maxActive = 0;
+      const calls: string[] = [];
+      const beforeRun = async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        if (active === 4) fourStarted();
+        await releasePromise;
+        active -= 1;
+      };
+      const comparison = runHarnessAbComparison({
+        runId: 'glm-harness-ab',
+        runRoot: dir,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        systemPromptPath: promptPath,
+        resumeFingerprint: 'sha256:manifest',
+        evaluationTasks: ['a', 'b', 'c'].map((id) => ({ id, path: `/tasks/${id}` })),
+        arms: [
+          harnessArm('maka', calls, beforeRun),
+          harnessArm('opencode', calls, beforeRun),
+        ],
+      });
+
+      const observedFour = await Promise.race([
+        fourStartedPromise.then(() => true),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), 100)),
+      ]);
+      release();
+      await comparison;
+
+      assert.equal(observedFour, true);
+      assert.equal(maxActive, 4);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('extends a completed prefix without rerunning valid cells', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-'));
     try {

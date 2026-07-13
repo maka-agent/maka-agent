@@ -8,7 +8,10 @@ import {
   type FixedPromptTask,
   type HarborTaskRunner,
 } from './fixed-prompt-controller.js';
-import type { HarnessAbArmId } from './harness-ab-manifest.js';
+import {
+  HARNESS_AB_PAIR_CONCURRENCY,
+  type HarnessAbArmId,
+} from './harness-ab-manifest.js';
 
 export interface HarnessAbRuntimeArm {
   id: HarnessAbArmId;
@@ -53,8 +56,8 @@ async function runHarnessAbComparisonUnlocked(
     ],
     evaluationTasks: input.evaluationTasks,
     reps: 1,
-    maxConcurrency: 1,
-    armExecution: 'sequential',
+    maxConcurrency: HARNESS_AB_PAIR_CONCURRENCY,
+    armExecution: 'parallel',
     runArm: async ({ roundId, arm, task }) => {
       const runtimeArm = input.arms.find((candidate) => candidate.id === arm.id);
       if (!runtimeArm) throw new Error(`harness A/B arm ${arm.id} is not configured`);
