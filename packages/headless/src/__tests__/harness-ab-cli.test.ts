@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'node:test';
+import { TERMINAL_BENCH_2_1_TASK_IDS } from '../harness-ab-manifest.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -12,8 +13,7 @@ test('harness A/B CLI dry-run freezes all 89 tasks without reading credentials',
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-cli-'));
   try {
     const tasksRoot = join(dir, 'tasks');
-    for (let index = 1; index <= 89; index += 1) {
-      const id = `task-${String(index).padStart(2, '0')}`;
+    for (const id of TERMINAL_BENCH_2_1_TASK_IDS) {
       const taskDir = join(tasksRoot, `hash-${id}`, id);
       await mkdir(taskDir, { recursive: true });
       await writeFile(join(taskDir, 'task.toml'), '[agent]\ntimeout_sec = 900\n', 'utf8');

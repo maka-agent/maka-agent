@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
+  assertTerminalBench21TaskSet,
   buildHarnessAbRunManifest,
   deterministicHarnessTaskOrder,
+  TERMINAL_BENCH_2_1_TASK_IDS,
 } from '../harness-ab-manifest.js';
 
 describe('harness A/B manifest', () => {
@@ -67,6 +69,16 @@ describe('harness A/B manifest', () => {
     assert.throws(
       () => buildHarnessAbRunManifest({ ...manifestInput(['a']), pilotTaskCount: 2 }),
       /pilotTaskCount must be between 1 and 1/,
+    );
+  });
+
+  test('rejects an arbitrary 89-task source that is not Terminal-Bench 2.1', () => {
+    assert.doesNotThrow(() => assertTerminalBench21TaskSet([...TERMINAL_BENCH_2_1_TASK_IDS].reverse()));
+    assert.throws(
+      () => assertTerminalBench21TaskSet(
+        Array.from({ length: 89 }, (_, index) => `task-${String(index + 1).padStart(2, '0')}`),
+      ),
+      /Terminal-Bench 2\.1 task set mismatch.*missing: adaptive-rejection-sampler.*unexpected: task-01/,
     );
   });
 });

@@ -7,7 +7,12 @@ import { fileURLToPath } from 'node:url';
 import { ensureAbRunManifest } from '#ab-manifest';
 import { discoverCachedHarborTasks, resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
 import { createHarborTaskRunner } from '#harbor-task-runner';
-import { buildHarnessAbRunManifest } from '#harness-ab-manifest';
+import {
+  assertTerminalBench21TaskSet,
+  buildHarnessAbRunManifest,
+  TERMINAL_BENCH_2_1_REVISION,
+  TERMINAL_BENCH_2_1_TASK_IDS,
+} from '#harness-ab-manifest';
 import { runHarnessAbComparison } from '#harness-ab-run';
 import {
   buildHarnessAbReport,
@@ -20,7 +25,7 @@ import {
   buildToolchainFingerprint,
 } from './run-prompt-ab.mjs';
 
-const EXPECTED_TASKS = 89;
+const EXPECTED_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
 const PILOT_TASKS = 40;
 const PROVIDER = 'zai-coding-plan';
 const MODEL = 'glm-5.2';
@@ -64,9 +69,7 @@ async function main() {
   const limit = runLimit(process.env.MAKA_HARNESS_AB_LIMIT);
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   const allTasks = await discoverCachedHarborTasks(tasksRoot);
-  if (allTasks.length !== EXPECTED_TASKS) {
-    throw new Error(`Terminal-Bench 2.1 task root must contain exactly ${EXPECTED_TASKS} unique tasks; found ${allTasks.length}`);
-  }
+  assertTerminalBench21TaskSet(allTasks.map((task) => task.id));
 
   const subjectFingerprint = await buildSubjectFingerprint(
     makaRepoPath,
@@ -82,12 +85,12 @@ async function main() {
     benchmark: {
       dataset: 'terminal-bench',
       version: '2.1',
-      revision: taskSourceFingerprint,
+      revision: TERMINAL_BENCH_2_1_REVISION,
       timeoutPolicy: 'task-native',
       timeoutMultiplier: 1,
       outerTimeoutGraceSec: HARBOR_SETUP_TEARDOWN_GRACE_SEC,
     },
-    taskIds: allTasks.map((task) => task.id),
+    taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
     orderSeed: ORDER_SEED,
     pilotTaskCount: PILOT_TASKS,
     model: { provider: PROVIDER, id: MODEL, reasoningEffort: REASONING_EFFORT },
