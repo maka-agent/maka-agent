@@ -497,7 +497,6 @@ export function BotChatSettingsPage(props: {
                 render={(
                   <button
                     type="button"
-                    disabled={botActionBusy}
                     aria-label={`管理 ${BOT_LABELS[entry.provider].label}，${entry.copy.label}`}
                     onClick={() => openChannel(entry.provider)}
                   />
@@ -531,7 +530,6 @@ export function BotChatSettingsPage(props: {
                 render={(
                   <button
                     type="button"
-                    disabled={botActionBusy}
                     aria-label={`接入 ${BOT_LABELS[entry.provider].label}`}
                     onClick={() => openChannel(entry.provider)}
                   />

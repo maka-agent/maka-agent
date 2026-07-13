@@ -36,9 +36,25 @@ test('remote access opens a channel detail from the overview and returns', async
     () => telegramRow.evaluate((element) => getComputedStyle(element).boxShadow),
   ).toBe('none');
 
+  await telegramRow.focus();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect.poll(
+    () => telegramRow.evaluate((element) => getComputedStyle(element).boxShadow),
+  ).not.toBe('none');
+
   await telegramRow.click();
   await expect(settings.getByRole('heading', { name: /Telegram/ })).toBeVisible();
   await expect(settings.getByRole('button', { name: '返回远程接入' })).toBeVisible();
+  await expect(settings.getByRole('heading', { name: '连接配置' })).toBeVisible();
+  await expect(settings.getByLabel('Telegram Bot Token')).toBeVisible();
+
+  const detailHeadings = await settings.getByRole('heading').allTextContents();
+  expect(detailHeadings.indexOf('待配置')).toBeLessThan(detailHeadings.indexOf('连接配置'));
+
+  const identityValue = settings.getByLabel('Telegram运行状态').locator('dd').first();
+  await expect(identityValue).toHaveCSS('white-space', 'normal');
+  await expect(identityValue).toHaveCSS('overflow-wrap', 'anywhere');
 
   await settings.getByRole('button', { name: '返回远程接入' }).click();
   await expect(settings.getByRole('heading', { name: '接入更多渠道' })).toBeVisible();
@@ -68,7 +84,7 @@ test('remote access prioritizes a configured channel that needs attention', asyn
   await page.getByRole('button', { name: '设置' }).click();
   await page.getByRole('main', { name: '设置内容' }).getByRole('button', { name: '远程接入' }).click();
 
-  const activeChannels = page.locator('.settingsRemoteAccessActiveList').getByRole('button');
+  const activeChannels = page.getByRole('region', { name: '正在使用' }).getByRole('button');
   await expect(activeChannels).toHaveCount(2);
   await expect(activeChannels.nth(0)).toHaveAccessibleName(/管理 Discord/);
   await expect(activeChannels.nth(1)).toHaveAccessibleName(/管理 Telegram/);

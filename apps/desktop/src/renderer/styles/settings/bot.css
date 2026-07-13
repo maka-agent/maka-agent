@@ -65,7 +65,6 @@
   min-height: 64px;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-2-5);
-  box-shadow: none;
 }
 
 .settingsRemoteAccessChannelRow[data-attention="true"] {
@@ -198,11 +197,9 @@
 .settingsBotStatusGrid dd {
   min-width: 0;
   margin: 0;
-  overflow: hidden;
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .settingsBotConfigurationHeader {

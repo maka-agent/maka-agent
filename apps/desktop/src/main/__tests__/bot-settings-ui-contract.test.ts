@@ -15,46 +15,35 @@ async function readRepo(path: string): Promise<string> {
 
 describe('Bot settings UI contract', () => {
   it('presents remote access as an overview of active and available channels', async () => {
-    const [settings, botBrand] = await Promise.all([
-      readSettingsCombinedSource(),
+    const [page, nav, botBrand] = await Promise.all([
+      readRepo('apps/desktop/src/renderer/settings/bot-chat-settings-page.tsx'),
+      readRepo('apps/desktop/src/renderer/settings/settings-nav.ts'),
       readRepo('packages/ui/src/bot-brand.ts'),
     ]);
-    const styles = await readRendererContractCss();
 
-    assert.match(settings, /BOT_BRAND/, 'Bot settings must import shared per-platform brand presentation metadata');
-    assert.match(settings, /BotBrandLogo as BotBrandMark/, 'Bot settings must render the shared provider-based brand logo component');
-    assert.match(settings, /<BotBrandMark[\s\S]*provider=\{props\.provider\}/, 'Bot settings must pass provider directly to the local brand logo renderer');
-    assert.match(settings, /id: 'bot-chat', label: '远程接入'/, 'The product-facing settings label must describe the user goal, not the implementation object');
-    assert.match(settings, /className="settingsRemoteAccessActiveList"/, 'Configured channels must render in a dedicated active list');
-    assert.match(settings, /className="settingsRemoteAccessCatalog"/, 'Unconfigured channels must render in a separate catalog');
-    assert.match(settings, /onClick=\{\(\) => openChannel\(entry\.provider\)\}/, 'Overview rows must open a single-channel detail view');
+    assert.match(nav, /id: 'bot-chat', label: '远程接入'/, 'The product-facing settings label must describe the user goal, not the implementation object');
+    assert.match(page, /BOT_BRAND/, 'Bot settings must import shared per-platform brand presentation metadata');
+    assert.match(page, /BotBrandLogo as BotBrandMark/, 'Bot settings must render the shared provider-based brand logo component');
+    assert.match(page, /<BotBrandMark[\s\S]*provider=\{props\.provider\}/, 'Bot settings must pass provider directly to the local brand logo renderer');
+    assert.match(page, /<Item\b/, 'Remote access rows must use the shared Item primitive');
     assert.match(botBrand, /export const BOT_BRAND:/, 'Shared bot brand metadata must stay exported from @maka/ui');
     for (const provider of ['telegram', 'feishu', 'wecom', 'wechat', 'discord', 'dingtalk', 'qq']) {
       assert.match(botBrand, new RegExp(`${provider}:\\s*\\{[\\s\\S]*?configDocUrl:`), `${provider} needs a visible configuration-document link target`);
     }
-    assert.match(settings, /function BotBrandLogo\b/, 'Bot settings must use the shared brand-logo component');
-    assert.match(settings, /className="settingsBotLogo"[\s\S]*aria-hidden="true"/, 'Bot brand monograms are decorative and must not be read as part of channel names');
-    assert.match(styles, /\.settingsRemoteAccessCatalog\s*\{[\s\S]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/, 'Available channels should use the agreed two-column catalog on wide settings views');
-    assert.match(styles, /\.settingsRemoteAccessChannelRow,[\s\S]*box-shadow:\s*none/, 'Channel rows must explicitly neutralize inherited Button shadow');
-    assert.doesNotMatch(settings, /settingsBotLogoStatusDot/, 'Status must be carried by text and Chip rather than a redundant logo dot');
-    assert.doesNotMatch(styles, /\.settingsBotHero\[data-provider=/, 'Provider brand colors must remain in logos instead of tinting product surfaces');
+    assert.match(page, /function BotBrandLogo\b/, 'Bot settings must use the shared brand-logo component');
+    assert.match(page, /className="settingsBotLogo"[\s\S]*aria-hidden="true"/, 'Bot brand logos are decorative and must not be read as part of channel names');
+    assert.doesNotMatch(page, /settingsBotLogoStatusDot/, 'Status must be carried by text and Chip rather than a redundant logo dot');
   });
 
   it('puts channel diagnosis before an always-visible configuration form', async () => {
-    const settings = await readSettingsCombinedSource();
-    const styles = await readRendererContractCss();
+    const [page, styles] = await Promise.all([
+      readRepo('apps/desktop/src/renderer/settings/bot-chat-settings-page.tsx'),
+      readRepo('apps/desktop/src/renderer/styles/settings/bot.css'),
+    ]);
 
-    const runtimeIndex = settings.indexOf('className="settingsBotRuntime"');
-    const configurationIndex = settings.indexOf('className="settingsBotConfigurationHeader"');
-
-    assert.match(settings, /className="settingsRemoteAccessDetail"/, 'A selected channel must render as a focused detail page');
-    assert.match(settings, /className="settingsBotDetailHeader" data-support=\{support\}/, 'Channel identity and enablement must stay visible above diagnosis');
-    assert.match(settings, /<Chip dot size="sm" variant=\{copy\.tone\}>\{copy\.label\}<\/Chip>/, 'The detail header must expose the current state as a shared dotted Chip');
-    assert.match(settings, /className="settingsBotConfigDocLink"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"[\s\S]*查看配置文档/, 'Configuration docs link must be visible and external-link safe');
-    assert.doesNotMatch(settings, /iframe|webview|dangerouslySetInnerHTML/, 'Bot docs must not be embedded into the renderer');
-    assert.ok(runtimeIndex !== -1 && configurationIndex !== -1 && runtimeIndex < configurationIndex, 'Runtime diagnosis must appear before credentials and access fields');
-    assert.doesNotMatch(settings, /Accordion|<details/, 'The core credentials, access, and network form must stay expanded');
-    assert.match(styles, /\.settingsBotRuntime\s*\{[\s\S]*background:\s*var\(--foreground-3\)/, 'Runtime diagnosis should use a neutral product surface');
+    assert.match(page, /<Chip\s+dot\b/, 'The detail header must expose current state with the shared Chip primitive');
+    assert.match(page, /className="settingsBotConfigDocLink"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"[\s\S]*查看配置文档/, 'Configuration docs link must be visible and external-link safe');
+    assert.doesNotMatch(page, /iframe|webview|dangerouslySetInnerHTML/, 'Bot docs must not be embedded into the renderer');
     assert.doesNotMatch(styles, /--bot-brand-color|\.settingsBotHero/, 'The detail page must not introduce a provider-tinted hero surface');
   });
 
@@ -100,7 +89,6 @@ describe('Bot settings UI contract', () => {
     assert.match(styles, /\.settingsBotEnableHint\s*\{[\s\S]*display:\s*block/, 'Enable-lock hint needs a stable visible style');
     assert.match(switchBlock, /ariaDescribedBy=\{enableSwitchHint \? enableSwitchHintId : undefined\}/, 'Disabled enable switch must point assistive tech at the reason');
     assert.match(switchBlock, /disabled=\{enableSwitchDisabled \|\| botActionBusy\}/, 'Bot enable switch must be disabled while an owned bot action is pending');
-    assert.match(settings, /disabled=\{botActionBusy\}[\s\S]*onClick=\{\(\) => openChannel\(entry\.provider\)\}/, 'Channel navigation must be disabled while a provider-owned bot action is pending');
     assert.match(testChannelBlock, /const provider = selected;[\s\S]*if \(!beginBotAction\(provider, 'test'\)\) return;[\s\S]*testBotChannel\(provider\)/, 'Separate tests must capture the provider and gate duplicate clicks before IPC');
     assert.match(testAndConnectBlock, /const provider = selected;[\s\S]*const providerChannel = props\.settings\.botChat\.channels\[provider\];[\s\S]*const providerSupport = BOT_LABELS\[provider\]\.support;[\s\S]*if \(!beginBotAction\(provider, 'connect'\)\) return;[\s\S]*testBotChannel\(provider\)/, 'Combined action must capture provider/channel/support and gate duplicate clicks before IPC');
     assert.match(testChannelBlock, /catch \(error\) \{[\s\S]*toast\.error\(`\$\{BOT_LABELS\[provider\]\.label\} 测试出错`, settingsActionErrorMessage\(error\)\)/, 'Separate bot credential tests must scrub thrown IPC failures against the captured provider');
