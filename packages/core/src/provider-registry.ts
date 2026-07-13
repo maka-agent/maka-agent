@@ -134,6 +134,28 @@ const volcengineCodingPlanModelIds = [
   'kimi-k2.6',
   'kimi-k2.7-code',
 ] as const;
+const tencentTokenPlan = GENERATED_MODELS_DEV_PROVIDER_FACTS['tencent-token-plan'];
+if (tencentTokenPlan.id !== 'tencent-token-plan') {
+  throw new Error('models.dev Tencent Token Plan provider facts are missing stable id tencent-token-plan');
+}
+if (!tencentTokenPlan.api) throw new Error('models.dev Tencent Token Plan provider facts are missing api');
+if (!GENERATED_MODELS_DEV_METADATA['tencent-token-plan'].hy3?.capabilities?.functionCalling) {
+  throw new Error('models.dev Tencent Token Plan snapshot is missing tool-capable model hy3');
+}
+// Tencent's personal-plan docs are authoritative for this access-path allowlist.
+// The inference endpoint does not publish a /models discovery contract.
+const tencentTokenPlanModelIds = [
+  'tc-code-latest',
+  'deepseek-v4-flash-202605',
+  'deepseek-v4-pro-202606',
+  'minimax-m2.5',
+  'minimax-m2.7',
+  'glm-5',
+  'glm-5.1',
+  'kimi-k2.5',
+  'hy3',
+  'hy3-preview',
+] as const;
 const stepfun = GENERATED_MODELS_DEV_PROVIDER_FACTS.stepfun;
 if (stepfun.id !== 'stepfun') throw new Error('models.dev StepFun provider facts are missing stable id stepfun');
 if (!stepfun.api) throw new Error('models.dev StepFun provider facts are missing api');
@@ -286,6 +308,25 @@ const providerRegistry = {
     signupUrl: 'https://www.volcengine.com/activity/codingplan',
     readyOrder: 26,
     catalogOrder: 26,
+  },
+  'tencent-token-plan': {
+    label: tencentTokenPlan.name,
+    description: 'Tencent Cloud Token Plan for interactive personal agents and coding tools.',
+    baseUrl: tencentTokenPlan.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [...tencentTokenPlanModelIds],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'domestic',
+    catalogGroup: 'plans',
+    catalogBadge: 'Token',
+    signupUrl: 'https://console.cloud.tencent.com/tokenhub/tokenplan/common',
+    modelsDevId: tencentTokenPlan.id,
+    readyOrder: 27,
+    catalogOrder: 27,
   },
   openai: {
     label: 'OpenAI',

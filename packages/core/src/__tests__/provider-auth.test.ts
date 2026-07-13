@@ -22,6 +22,19 @@ describe('ProviderAuth contract', () => {
     expect(contract.actionAvailability.fetch_models).toBe('hidden');
   });
 
+  test('Tencent Token Plan uses an independent API key and fallback-model flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'tencent-token-plan',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('tencent-token-plan');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
   test('Tencent Coding Plan uses the shared API-key credential and fallback-model flow', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'tencent-coding-plan',

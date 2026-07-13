@@ -32,6 +32,7 @@ describe('provider compatibility contract', () => {
       'minimax-coding-plan',
       'tencent-coding-plan',
       'volcengine-coding-plan',
+      'tencent-token-plan',
       'openai',
       'google',
       'deepseek',
@@ -84,6 +85,7 @@ describe('provider compatibility contract', () => {
       'stepfun-ai',
       'volcengine-ark',
       'volcengine-coding-plan',
+      'tencent-token-plan',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -112,6 +114,7 @@ describe('provider compatibility contract', () => {
       'stepfun-ai',
       'volcengine-ark',
       'volcengine-coding-plan',
+      'tencent-token-plan',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -358,6 +361,35 @@ describe('provider compatibility contract', () => {
       'glm-5',
       'minimax-m2.5',
       'kimi-k2.5',
+    ]);
+  });
+
+  it('owns Tencent Token Plan behavior under its independent persisted id', () => {
+    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['tencent-token-plan'];
+
+    assert.ok(plan, 'Tencent Token Plan must be available through the shared provider registry');
+    assert.equal(plan.label, 'Tencent Token Plan');
+    assert.equal(plan.baseUrl, 'https://api.lkeap.cloud.tencent.com/plan/v3');
+    assert.equal(plan.authKind, 'api_key');
+    assert.equal(plan.protocol, 'openai');
+    assert.deepEqual(plan.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(plan.modelDiscovery, { kind: 'fallback' });
+    assert.equal(plan.category, 'domestic');
+    assert.equal(plan.catalogGroup, 'plans');
+    assert.equal(plan.catalogBadge, 'Token');
+    assert.equal(plan.signupUrl, 'https://console.cloud.tencent.com/tokenhub/tokenplan/common');
+    assert.equal(plan.modelsDevId, 'tencent-token-plan');
+    assert.deepEqual(plan.fallbackModels, [
+      'tc-code-latest',
+      'deepseek-v4-flash-202605',
+      'deepseek-v4-pro-202606',
+      'minimax-m2.5',
+      'minimax-m2.7',
+      'glm-5',
+      'glm-5.1',
+      'kimi-k2.5',
+      'hy3',
+      'hy3-preview',
     ]);
   });
 
