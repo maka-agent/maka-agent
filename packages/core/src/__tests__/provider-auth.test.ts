@@ -9,6 +9,19 @@ import {
 import type { LlmConnection } from '../llm-connections.js';
 
 describe('ProviderAuth contract', () => {
+  test('DeepInfra uses the shared API-key credential and model-discovery flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'deepinfra',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('deepinfra');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
   test('Volcengine Ark Coding Plan uses an isolated API key and hides unsupported refresh', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'volcengine-coding-plan',

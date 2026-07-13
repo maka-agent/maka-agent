@@ -61,6 +61,9 @@ describe('buildProviderOptions: thinking level', () => {
   });
 
   test('openai-compatible sends reasoningEffort for effort levels and does not expose no-op off', () => {
+    assert.deepEqual([...thinkingVariantsForModel('deepinfra', 'moonshotai/Kimi-K2.7-Code')], ['off', 'low', 'medium', 'high']);
+    assert.deepEqual(buildProviderOptions(conn('deepinfra'), 'moonshotai/Kimi-K2.7-Code', 'high'), { deepinfra: { reasoningEffort: 'high' } });
+    assert.deepEqual(buildProviderOptions(conn('deepinfra'), 'moonshotai/Kimi-K2.7-Code', 'off'), { deepinfra: { reasoningEffort: 'none' } });
     assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-v4-flash')], ['high', 'max']);
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'high'), { deepseek: { reasoningEffort: 'high' } });
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'max'), { deepseek: { reasoningEffort: 'max' } });
@@ -150,6 +153,7 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
     { providerType: 'google', model: 'gemini-3-pro-preview' },
     { providerType: 'google', model: 'gemini-3.5-flash' },
     { providerType: 'deepseek', model: 'deepseek-v4-flash' },
+    { providerType: 'deepinfra', model: 'moonshotai/Kimi-K2.7-Code' },
     { providerType: 'zai-coding-plan', model: 'glm-5.2', slug: 'zai-coding-plan' },
     { providerType: 'volcengine-ark', model: 'doubao-seed-2-0-pro-260215' },
   ];

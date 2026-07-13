@@ -170,6 +170,11 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
     hy3: { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
     'hy3-preview': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
   },
+  deepinfra: {
+    'moonshotai/Kimi-K2.7-Code': {
+      thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
+    },
+  },
   deepseek: {
     'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
   },

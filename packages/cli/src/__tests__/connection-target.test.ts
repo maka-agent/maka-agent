@@ -315,6 +315,30 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'MiniMaxAI/MiniMax-M3');
   });
 
+  test('resolves DeepInfra credentials without rewriting the exact model id', async () => {
+    const modelId = 'moonshotai/Kimi-K2.7-Code';
+    const connection = makeConnection({
+      slug: 'deepinfra',
+      name: 'Deep Infra',
+      providerType: 'deepinfra',
+      defaultModel: modelId,
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'deepinfra',
+        get: async (slug) => slug === 'deepinfra' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'deepinfra-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'deepinfra');
+    assert.equal(target.apiKey, 'deepinfra-test-key');
+    assert.equal(target.model, modelId);
+  });
+
   test('resolves NVIDIA credentials without rewriting the selected model id', async () => {
     const modelId = 'nvidia/nemotron-3-super-120b-a12b';
     const connection = makeConnection({

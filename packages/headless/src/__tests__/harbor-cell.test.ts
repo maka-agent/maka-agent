@@ -2547,6 +2547,33 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves DeepInfra only from DeepInfra credential env without rewriting the model id', () => {
+    const modelId = 'moonshotai/Kimi-K2.7-Code';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'deepinfra',
+      model: modelId,
+      env: {
+        DEEPINFRA_API_KEY: 'deepinfra-key',
+        DEEPINFRA_BASE_URL: 'https://api.deepinfra.com/v1/openai',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'deepinfra-key');
+    assert.equal(resolved.connection.providerType, 'deepinfra');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(resolved.connection.baseUrl, 'https://api.deepinfra.com/v1/openai');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'deepinfra',
+      model: modelId,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves Fireworks only from Fireworks credential env without rewriting the model path', () => {
     const model = 'accounts/fireworks/models/kimi-k2p6';
     const resolved = resolveHarborCellAiSdkEnv({

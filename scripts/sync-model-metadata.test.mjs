@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'stepfun-ai', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'xai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepinfra', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'stepfun-ai', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -178,6 +178,37 @@ test('sync-model-metadata vendors Together AI provider facts and exact model ids
   assert.match(generated, /"togetherai": \{/);
   assert.match(generated, /"togetherai": \{"id":"togetherai","name":"Together AI","doc":"https:\/\/docs\.together\.ai\/docs\/serverless-models"\}/);
   assert.match(generated, /"openai\/gpt-oss-20b": \{"displayName":"GPT OSS 20B"/);
+});
+
+test('sync-model-metadata vendors DeepInfra provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.deepinfra = {
+    ...catalog.deepinfra,
+    name: 'Deep Infra',
+    api: undefined,
+    doc: 'https://deepinfra.com/models',
+    models: {
+      'moonshotai/Kimi-K2.7-Code': {
+        id: 'moonshotai/Kimi-K2.7-Code', name: 'Kimi K2.7 Code', reasoning: true, tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 262_000, output: 262_000 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"deepinfra": \{/);
+  assert.match(generated, /"deepinfra": \{"id":"deepinfra","name":"Deep Infra","doc":"https:\/\/deepinfra\.com\/models"\}/);
+  assert.match(generated, /"moonshotai\/Kimi-K2\.7-Code": \{"displayName":"Kimi K2\.7 Code"/);
+  assert.match(generated, /"reasoning":true,"functionCalling":true/);
 });
 
 test('sync-model-metadata vendors Fireworks AI provider facts and exact model ids', async () => {

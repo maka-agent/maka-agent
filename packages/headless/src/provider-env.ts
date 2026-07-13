@@ -22,6 +22,7 @@ const PROVIDER_CREDENTIAL_ENV = {
   cerebras: env('CEREBRAS', ['CEREBRAS_BASE_URL']),
   mistral: env('MISTRAL', ['MISTRAL_BASE_URL']),
   togetherai: env('TOGETHER', ['TOGETHER_BASE_URL']),
+  deepinfra: env('DEEPINFRA', ['DEEPINFRA_BASE_URL']),
   'fireworks-ai': env('FIREWORKS', ['FIREWORKS_BASE_URL']),
   nvidia: env('NVIDIA', ['NVIDIA_BASE_URL']),
   'tencent-tokenhub': env('TENCENT_TOKENHUB', ['TENCENT_TOKENHUB_BASE_URL']),

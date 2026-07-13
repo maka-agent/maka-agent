@@ -38,6 +38,7 @@ const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets
 const CEREBRAS_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cerebras.svg');
 const MISTRAL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/mistral.svg');
 const TOGETHER_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/together.svg');
+const DEEPINFRA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/deepinfra.svg');
 const FIREWORKS_BRAND_MARK_FILE = resolve(
   REPO_ROOT,
   'apps/desktop/src/renderer/assets/provider-brands/fireworks.svg',
@@ -243,6 +244,32 @@ describe('icon + typography governance contract', () => {
     assert.match(
       notices,
       /apps\/desktop\/src\/renderer\/assets\/provider-brands\/together\.svg[\s\S]*packages\/static-svg\/icons\/together\.svg[\s\S]*b3ec218e7e0b0432a2ce07f5ec98a1dcd24f808c74d5fee624ab31e4947feef3/,
+    );
+  });
+
+  it('vendors and routes the byte-exact Lobe Icons DeepInfra SVG through the shared mask seam', async () => {
+    const [marks, asset, notices] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(DEEPINFRA_BRAND_MARK_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      '2a20be86e90b3c2085d5b3213f52c75e4f0041b239d6140475f5809863d45392',
+      'DeepInfra SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 deepinfra.svg',
+    );
+    assert.match(marks, /https:\/\/github\.com\/lobehub\/lobe-icons/);
+    assert.match(marks, /@lobehub\/icons-static-svg@1\.91\.0/);
+    assert.match(marks, /e4302041fbb3039608d25f9f618bd462783b875e/);
+    assert.match(marks, /packages\/static-svg\/icons\/deepinfra\.svg/);
+    assert.match(marks, /license: MIT/);
+    assert.match(marks, /2a20be86e90b3c2085d5b3213f52c75e4f0041b239d6140475f5809863d45392/);
+    assert.match(marks, /import deepinfraBrandMark from '\.\.\/assets\/provider-brands\/deepinfra\.svg';/);
+    assert.match(marks, /case 'deepinfra':\s*return <ProviderAssetMask src=\{deepinfraBrandMark\} \/>/);
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/deepinfra\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/deepinfra\.svg[\s\S]*2a20be86e90b3c2085d5b3213f52c75e4f0041b239d6140475f5809863d45392/,
     );
   });
 

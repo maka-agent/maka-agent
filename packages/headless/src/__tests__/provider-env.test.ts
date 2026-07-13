@@ -47,6 +47,14 @@ test('Together AI keeps its official provider-scoped credential environment name
   });
 });
 
+test('DeepInfra keeps its official provider-scoped credential environment names', () => {
+  assert.deepEqual(providerCredentialEnv('deepinfra'), {
+    apiKeys: ['DEEPINFRA_API_KEY'],
+    apiKeyFile: 'DEEPINFRA_API_KEY_FILE',
+    baseUrls: ['DEEPINFRA_BASE_URL'],
+  });
+});
+
 test('Fireworks AI keeps provider-scoped credential environment names', () => {
   assert.deepEqual(providerCredentialEnv('fireworks-ai'), {
     apiKeys: ['FIREWORKS_API_KEY'],

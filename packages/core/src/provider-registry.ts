@@ -25,6 +25,7 @@ export type ProviderModelDiscovery =
   | {
       kind: 'protocol';
       auth?: 'claude-subscription';
+      path?: string;
       query?: Readonly<Record<string, string>>;
       responseShape?: 'array-or-data';
       filter?: 'fallback-models';
@@ -199,6 +200,15 @@ const togetherModelIds = toolCallingModelIds(
   'Together AI',
   GENERATED_MODELS_DEV_METADATA.togetherai,
   ['MiniMaxAI/MiniMax-M3'],
+);
+const deepinfra = GENERATED_MODELS_DEV_PROVIDER_FACTS.deepinfra;
+if (deepinfra.id !== 'deepinfra') {
+  throw new Error('models.dev DeepInfra provider facts are missing stable id deepinfra');
+}
+const deepinfraModelIds = toolCallingModelIds(
+  'DeepInfra',
+  GENERATED_MODELS_DEV_METADATA.deepinfra,
+  ['moonshotai/Kimi-K2.7-Code', 'moonshotai/Kimi-K2.6'],
 );
 
 function toolCallingModelIds(
@@ -700,6 +710,25 @@ const providerRegistry = {
     signupUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/model',
     readyOrder: 25,
     catalogOrder: 25,
+  },
+  deepinfra: {
+    label: deepinfra.name,
+    description: 'Hosted open models for multimodal reasoning and tool-use agents.',
+    baseUrl: 'https://api.deepinfra.com/v1/openai',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: deepinfraModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol', path: '/v1/models', filter: 'fallback-models' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://deepinfra.com/dash/api_keys',
+    modelsDevId: deepinfra.id,
+    readyOrder: 29,
+    catalogOrder: 29,
   },
   ollama: {
     label: 'Ollama',
