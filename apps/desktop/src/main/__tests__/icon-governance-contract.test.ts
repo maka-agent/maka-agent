@@ -433,6 +433,11 @@ describe('icon + typography governance contract', () => {
       /StepFun mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/stepfun\.svg[\s\S]*MIT[\s\S]*f46fbd1eee00a3dc7874395484bcc3e25a803e9eb4b79f07b7eec377a1e2f25c/,
     );
     assert.match(componentSrc, /case 'stepfun':\s*return <ProviderAssetMask src=\{stepfunBrandMark\} \/>/);
+    assert.match(
+      componentSrc,
+      /case 'stepfun-step-plan':\s*case 'stepfun-ai':\s*case 'stepfun':\s*return <ProviderAssetMask src=\{stepfunBrandMark\} \/>/,
+      'catalog and detail must route every StepFun access path through the same shared mark and mask seam',
+    );
   });
 
   it('vendors and routes the byte-exact upstream Volcengine mark through the shared asset-mask seam', async () => {

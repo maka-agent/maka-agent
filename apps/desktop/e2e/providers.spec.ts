@@ -357,15 +357,16 @@ test('adds Tencent TokenHub with its exact snapshot model, API-key field, and sh
 });
 
 for (const stepfun of [
-  { label: 'StepFun (China)', providerType: 'stepfun', baseUrl: 'https://api.stepfun.com/v1' },
-  { label: 'StepFun (Global)', providerType: 'stepfun-ai', baseUrl: 'https://api.stepfun.ai/v1' },
+  { label: 'StepFun (China)', providerType: 'stepfun', baseUrl: 'https://api.stepfun.com/v1', tab: 'API', model: 'step-3.7-flash' },
+  { label: 'StepFun Step Plan (China)', providerType: 'stepfun-step-plan', baseUrl: 'https://api.stepfun.com/step_plan/v1', tab: '模型计划', model: 'step-3.7-flash' },
+  { label: 'StepFun (Global)', providerType: 'stepfun-ai', baseUrl: 'https://api.stepfun.ai/v1', tab: 'API', model: 'step-3.7-flash' },
 ] as const) test(`adds ${stepfun.label} with its exact snapshot model, API-key field, and shared official mark`, async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();
   await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
   await page.getByRole('button', { name: '添加服务商' }).click();
 
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
+  await page.getByRole('tab', { name: stepfun.tab, exact: true }).click();
   await page.getByPlaceholder('搜索服务商').fill('StepFun');
   const catalogMark = page.locator(
     `.providerCatalogRow[data-provider="${stepfun.providerType}"] .providerLogo .providerAssetMask`,
@@ -376,7 +377,7 @@ for (const stepfun of [
 
   await expect(page.getByLabel('模型供应商连接标识')).toHaveValue(stepfun.providerType);
   await expect(page.getByLabel('模型供应商服务地址')).toHaveValue(stepfun.baseUrl);
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('step-3.7-flash');
+  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue(stepfun.model);
   await page.getByRole('button', { name: '保存供应商' }).click();
 
   await expect(page.getByRole('heading', { name: stepfun.label, exact: true }).first()).toBeVisible();
@@ -385,7 +386,7 @@ for (const stepfun of [
   );
   await expect(detailMark).toBeVisible();
   expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
-  await expect(page.getByText('step-3.7-flash', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(stepfun.model, { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
 });
 
