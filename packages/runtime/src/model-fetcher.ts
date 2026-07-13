@@ -76,7 +76,7 @@ async function fetchProviderModelsStrict(
       return filterDiscoveredModels(models, discovery.filter, definition.fallbackModels);
     }
     case 'openai': {
-      const r = await proxiedFetch(modelListUrl(baseUrl, discovery.query), {
+      const r = await proxiedFetch(modelListUrl(baseUrl, discovery.path, discovery.query), {
         headers: {
           'content-type': 'application/json',
           ...(apiKey && providerAuthSupportsApiKey(connection.providerType)
@@ -118,8 +118,14 @@ function filterDiscoveredModels(
   return models.filter((model) => supported.has(model.id));
 }
 
-function modelListUrl(baseUrl: string, query: Readonly<Record<string, string>> | undefined): string {
-  const url = `${stripTrailing(baseUrl)}/models`;
+function modelListUrl(
+  baseUrl: string,
+  path: string | undefined,
+  query: Readonly<Record<string, string>> | undefined,
+): string {
+  const url = path
+    ? new URL(path, `${stripTrailing(baseUrl)}/`).toString()
+    : `${stripTrailing(baseUrl)}/models`;
   const search = query ? new URLSearchParams(query).toString() : '';
   return search ? `${url}?${search}` : url;
 }

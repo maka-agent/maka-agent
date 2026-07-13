@@ -718,7 +718,7 @@ describe('models.dev provider conformance', () => {
     const requestBodies: Array<Record<string, unknown>> = [];
     const server = await startJsonServer(async (request, response) => {
       assert.equal(request.headers.authorization, 'Bearer deepinfra-test-key');
-      if (request.method === 'GET' && request.url === '/v1/openai/models') {
+      if (request.method === 'GET' && request.url === '/v1/models') {
         respondJson(response, 200, {
           object: 'list',
           data: [

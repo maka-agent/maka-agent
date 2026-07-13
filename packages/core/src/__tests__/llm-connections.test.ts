@@ -276,7 +276,11 @@ describe('provider compatibility contract', () => {
     assert.equal(deepinfra.authKind, 'api_key');
     assert.equal(deepinfra.protocol, 'openai');
     assert.deepEqual(deepinfra.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
-    assert.deepEqual(deepinfra.modelDiscovery, { kind: 'protocol', filter: 'fallback-models' });
+    assert.deepEqual(deepinfra.modelDiscovery, {
+      kind: 'protocol',
+      path: '/v1/models',
+      filter: 'fallback-models',
+    });
     assert.equal(deepinfra.category, 'overseas');
     assert.equal(deepinfra.catalogGroup, 'api');
     assert.equal(deepinfra.modelsDevId, 'deepinfra');

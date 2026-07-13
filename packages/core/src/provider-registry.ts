@@ -25,6 +25,7 @@ export type ProviderModelDiscovery =
   | {
       kind: 'protocol';
       auth?: 'claude-subscription';
+      path?: string;
       query?: Readonly<Record<string, string>>;
       responseShape?: 'array-or-data';
       filter?: 'fallback-models';
@@ -720,7 +721,7 @@ const providerRegistry = {
     status: 'ready',
     protocol: 'openai',
     runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
-    modelDiscovery: { kind: 'protocol', filter: 'fallback-models' },
+    modelDiscovery: { kind: 'protocol', path: '/v1/models', filter: 'fallback-models' },
     category: 'overseas',
     catalogGroup: 'api',
     catalogBadge: 'API',
