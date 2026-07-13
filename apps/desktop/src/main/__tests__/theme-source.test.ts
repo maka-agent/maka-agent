@@ -65,6 +65,13 @@ describe('theme-source', () => {
       assert.match(body, /target !== mainWindow/, 'must reject senders that are not the tracked main window');
       assert.match(body, /isThemePreference\(themePref\)/, 'must reject values that are not a valid ThemePreference');
       assert.match(body, /nativeTheme\.themeSource = toNativeThemeSource\(themePref\)/, 'must assign via the shared mapping helper');
+      // A runtime theme switch must deterministically re-sync the native
+      // chrome: nativeTheme.themeSource alone does not update the window's
+      // captured-at-creation backgroundColor, nor reliably re-tint the macOS
+      // vibrancy material (Reduce Transparency / some macOS builds leave the
+      // frosted sidebar on the old theme). Re-assert both here.
+      assert.match(body, /setBackgroundColor\(/, 'must refresh the window backgroundColor on theme change (it is captured once at creation otherwise)');
+      assert.match(body, /setVibrancy\(null\)[\s\S]*setVibrancy\(MAIN_WINDOW_VIBRANCY\)/, 'must recreate the macOS vibrancy view so it re-reads the new effective appearance');
     });
 
     it('createWindow syncs nativeTheme.themeSource before creating the BrowserWindow, not only via the later IPC call', async () => {

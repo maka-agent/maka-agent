@@ -71,6 +71,18 @@ export function safeSendToRenderer(channel: string, ...args: unknown[]): void {
 const MAIN_WINDOW_TRAFFIC_LIGHT_POSITION = { x: 14, y: 14 } as const;
 const HIDDEN_TRAFFIC_LIGHT_POSITION = { x: -100, y: -100 } as const;
 
+// Window base fill per resolved theme. Used both for the first-frame
+// `backgroundColor` at creation AND for the runtime re-sync on theme change
+// (setThemeSource), so the two can't drift.
+const WINDOW_BG_DARK = '#1c1d21';
+const WINDOW_BG_LIGHT = '#f3f3f5';
+
+// macOS sidebar vibrancy material. The window is created with this on darwin
+// (outside visual-smoke); setThemeSource re-asserts it on theme change.
+const MAIN_WINDOW_VIBRANCY = 'sidebar' as const;
+const MAIN_WINDOW_USES_VIBRANCY =
+  process.platform === 'darwin' && !process.env.MAKA_VISUAL_SMOKE_FIXTURE;
+
 // PR-SHOW-AFTER-FIRST-COMMIT: fallback reveal delay for a renderer that never
 // signals its first painted frame (window:notifyRendererReady). main.tsx's
 // onboarding prefetch bails at 2500ms; the remainder is headroom for React +
@@ -163,7 +175,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     const isDark =
       themePref === 'dark' ||
       (themePref === 'auto' && nativeTheme.shouldUseDarkColors);
-    const initialBg = isDark ? '#1c1d21' : '#f3f3f5';
+    const initialBg = isDark ? WINDOW_BG_DARK : WINDOW_BG_LIGHT;
     // Astro-Han review (#493): sync nativeTheme here too, not only via the
     // renderer's later setThemeSource() IPC call -- otherwise the vibrancy
     // material behind the sidebar can still flash the *system* theme's tint
@@ -240,9 +252,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // Skip vibrancy under MAKA_VISUAL_SMOKE_FIXTURE — capture environments
       // can't paint native window material reliably, and the auto-capture
       // renderer would stall waiting for compositor frames that never settle.
-      ...(process.platform === 'darwin' && !process.env.MAKA_VISUAL_SMOKE_FIXTURE
-        ? { vibrancy: 'sidebar' as const }
-        : {}),
+      ...(MAIN_WINDOW_USES_VIBRANCY ? { vibrancy: MAIN_WINDOW_VIBRANCY } : {}),
       webPreferences: {
         preload: join(import.meta.dirname, '..', 'preload', 'preload.cjs'),
         // Defense-in-depth flags (@kenji PR96 review). The external-link guard
@@ -402,6 +412,27 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       if (!target || target !== mainWindow) return;
       if (!isThemePreference(themePref)) return;
       nativeTheme.themeSource = toNativeThemeSource(themePref);
+
+      // Setting nativeTheme.themeSource alone is NOT enough to re-sync the
+      // window's native chrome on a runtime theme switch:
+      //  - `backgroundColor` is captured once at createWindow() from the boot
+      //    theme and is otherwise never updated, so after a dark→light switch a
+      //    window created in dark keeps a dark base fill behind the sidebar.
+      //  - the macOS `vibrancy: 'sidebar'` material (NSVisualEffectView) does
+      //    not reliably re-read the window's effective appearance when
+      //    themeSource flips at runtime — under Reduce Transparency, or on some
+      //    macOS builds, the frosted sidebar stays tinted to the OLD theme while
+      //    the (opaque, CSS-var-driven) content pane repaints to the new one.
+      //    Symptom: dark sidebar + light content after switching to light.
+      // Re-assert both here so the native backdrop deterministically follows the
+      // in-app theme instead of relying on an implicit auto-update.
+      const isDark = nativeTheme.shouldUseDarkColors;
+      mainWindow.setBackgroundColor(isDark ? WINDOW_BG_DARK : WINDOW_BG_LIGHT);
+      if (MAIN_WINDOW_USES_VIBRANCY) {
+        // Recreate the vibrancy view so it picks up the current appearance.
+        mainWindow.setVibrancy(null);
+        mainWindow.setVibrancy(MAIN_WINDOW_VIBRANCY);
+      }
     },
     setTitleBarOverlayTheme(sender, isDark) {
       const target = BrowserWindow.fromWebContents(sender);
