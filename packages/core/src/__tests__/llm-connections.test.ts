@@ -14,11 +14,88 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import {
+  CATALOG_PROVIDER_TYPES,
   PROVIDER_DEFAULTS,
+  PROVIDER_REGISTRY,
+  READY_PROVIDER_TYPES,
+  RECOMMENDED_PROVIDER_TYPES,
   normalizeConnectionBaseUrl,
   persistedBaseUrl,
   validateConnectionBaseUrl,
 } from '../llm-connections.js';
+
+describe('provider compatibility contract', () => {
+  it('keeps persisted provider ids and existing provider ordering stable', () => {
+    assert.deepEqual(Object.keys(PROVIDER_DEFAULTS), [
+      'anthropic',
+      'kimi-coding-plan',
+      'openai',
+      'google',
+      'deepseek',
+      'moonshot',
+      'zai-coding-plan',
+      'MiniMax',
+      'MiniMax-cn',
+      'siliconflow',
+      'litellm',
+      'ollama',
+      'openai-compatible',
+      'claude-subscription',
+      'codex-subscription',
+      'gemini-cli',
+    ]);
+    assert.deepEqual(READY_PROVIDER_TYPES, [
+      'anthropic',
+      'openai',
+      'google',
+      'deepseek',
+      'moonshot',
+      'zai-coding-plan',
+      'MiniMax',
+      'MiniMax-cn',
+      'siliconflow',
+      'ollama',
+      'kimi-coding-plan',
+      'openai-compatible',
+    ]);
+    assert.deepEqual(CATALOG_PROVIDER_TYPES, [
+      'kimi-coding-plan',
+      'deepseek',
+      'moonshot',
+      'zai-coding-plan',
+      'MiniMax',
+      'MiniMax-cn',
+      'siliconflow',
+      'anthropic',
+      'openai',
+      'google',
+      'ollama',
+      'litellm',
+      'openai-compatible',
+    ]);
+  });
+
+  it('derives catalog, recommendation, runtime, and discovery behavior from one registry', () => {
+    assert.equal(PROVIDER_DEFAULTS, PROVIDER_REGISTRY, 'the compatibility export must not copy registry state');
+    assert.deepEqual(RECOMMENDED_PROVIDER_TYPES, [
+      'siliconflow',
+      'anthropic',
+      'openai',
+      'google',
+      'kimi-coding-plan',
+      'deepseek',
+      'ollama',
+    ]);
+    assert.equal(PROVIDER_REGISTRY['kimi-coding-plan'].catalogGroup, 'plans');
+    assert.equal(PROVIDER_REGISTRY.siliconflow.catalogGroup, 'aggregators');
+    assert.equal(PROVIDER_REGISTRY.ollama.catalogGroup, 'local');
+    assert.equal(PROVIDER_REGISTRY.siliconflow.runtimeAdapter.kind, 'openai-compatible');
+    assert.equal(PROVIDER_REGISTRY.siliconflow.modelDiscovery.kind, 'protocol');
+    assert.deepEqual(PROVIDER_REGISTRY.siliconflow.modelDiscovery.query, { sub_type: 'chat' });
+    assert.equal(PROVIDER_REGISTRY.ollama.modelDiscovery.kind, 'ollama');
+    assert.equal(PROVIDER_REGISTRY['codex-subscription'].modelDiscovery.kind, 'fallback');
+  });
+});
 
 describe('validateConnectionBaseUrl (PR-UI-IPC-1, @kenji msg 35260e29)', () => {
   describe('accept (returns null)', () => {

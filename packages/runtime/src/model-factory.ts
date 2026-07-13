@@ -25,37 +25,13 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
   const { connection, apiKey, modelId, fetch } = input;
   const baseURL = effectiveBaseUrl(connection);
   const definition = PROVIDER_DEFAULTS[connection.providerType];
+  const adapter = definition.runtimeAdapter;
 
-  if (definition.runtimeAdapter === 'openai-compatible') {
-    return createOpenAICompatible({
-      name: connection.providerType,
-      apiKey,
-      baseURL,
-      fetch,
-    }).chatModel(modelId);
-  }
-
-  switch (connection.providerType) {
+  switch (adapter.kind) {
     case 'anthropic':
-    case 'kimi-coding-plan':
-      // Both send through the Anthropic SDK, normalizing the base URL to /v1
-      // (anthropicV1BaseUrl) so a baseUrl override omitting `/v1` sends to
-      // `<root>/v1/messages` instead of 404ing on `<root>/messages`, matching
-      // the probe/model-fetch paths.
       return createAnthropic({
-        apiKey,
-        baseURL: anthropicV1BaseUrl(baseURL),
-        headers: { 'anthropic-beta': ANTHROPIC_BETA },
-      }).chat(modelId);
-
-    case 'MiniMax':
-    case 'MiniMax-cn':
-      // MiniMax's Anthropic-compatible API accepts both x-api-key and Bearer,
-      // but documents Bearer as recommended (and it takes precedence when both
-      // are sent), so pass the key as authToken to emit `Authorization: Bearer`.
-      return createAnthropic({
-        authToken: apiKey,
-        baseURL,
+        ...(adapter.auth === 'bearer' ? { authToken: apiKey } : { apiKey }),
+        baseURL: adapter.normalizeBaseUrl ? anthropicV1BaseUrl(baseURL) : baseURL,
         headers: { 'anthropic-beta': ANTHROPIC_BETA },
       }).chat(modelId);
 
@@ -75,7 +51,7 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         headers: codexSubscriptionHeaders(apiKey),
       }).responses(modelId);
 
-    case 'gemini-cli':
+    case 'unavailable':
       throw new Error(`${connection.providerType} is experimental and not wired yet`);
 
     case 'openai': {
@@ -85,56 +61,23 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
     }
 
     case 'google':
-      // Normalize to /v1beta so a baseUrl override omitting it still hits
-      // `<root>/v1beta/models/{model}` instead of 404ing.
-      return createGoogleGenerativeAI({ apiKey, baseURL: googleV1BetaBaseUrl(baseURL) }).chat(modelId);
-
-    case 'deepseek':
-      return createOpenAICompatible({
-        name: 'deepseek',
+      return createGoogleGenerativeAI({
         apiKey,
-        baseURL: baseURL || 'https://api.deepseek.com',
-      }).chatModel(modelId);
+        baseURL: googleV1BetaBaseUrl(baseURL),
+      }).chat(modelId);
 
-    case 'moonshot':
-      return createOpenAICompatible({
-        name: 'moonshot',
-        apiKey,
-        baseURL: baseURL || 'https://api.moonshot.cn/v1',
-      }).chatModel(modelId);
-
-    case 'zai-coding-plan':
-      return createOpenAICompatible({
-        name: 'zai-coding-plan',
-        apiKey,
-        baseURL: baseURL || 'https://api.z.ai/api/coding/paas/v4',
-      }).chatModel(modelId);
-
-    case 'litellm':
-      return createOpenAICompatible({
-        name: 'litellm',
-        apiKey,
-        baseURL: baseURL || 'http://localhost:4000/v1',
-      }).chatModel(modelId);
-
-    case 'ollama':
-      return createOpenAICompatible({
-        name: 'ollama',
-        apiKey: apiKey || 'ollama',
-        baseURL: baseURL || 'http://localhost:11434/v1',
-      }).chatModel(modelId);
-
-    case 'openai-compatible':
-      if (!baseURL) {
-        throw new Error(`openai-compatible connection ${connection.slug} requires a base URL`);
+    case 'openai-compatible': {
+      if (adapter.requireBaseUrl && !baseURL) {
+        throw new Error(`${connection.providerType} connection ${connection.slug} requires a base URL`);
       }
+      const name = adapter.name === 'connection' ? connection.slug : connection.providerType;
       return createOpenAICompatible({
-        name: connection.slug,
-        apiKey,
+        name,
+        apiKey: adapter.apiKeyFallback ? apiKey || adapter.apiKeyFallback : apiKey,
         baseURL,
+        ...(adapter.passFetch ? { fetch } : {}),
       }).chatModel(modelId);
-    default:
-      throw new Error(`No runtime adapter configured for provider ${connection.providerType}`);
+    }
   }
 }
 
