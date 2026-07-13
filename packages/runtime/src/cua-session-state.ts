@@ -109,12 +109,12 @@ export class CuaSessionState {
   }
 
   blockedUrlDetected(): CuaSessionSnapshot {
-    if (this.status === 'user_stopped') return this.snapshot();
+    if (this.isTerminal()) return this.snapshot();
     return this.transition('blocked_url');
   }
 
   userStopped(): CuaSessionSnapshot {
-    if (this.status === 'user_stopped') return this.snapshot();
+    if (this.isTerminal()) return this.snapshot();
     return this.transition('user_stopped');
   }
 

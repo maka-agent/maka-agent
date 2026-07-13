@@ -567,6 +567,7 @@ export function buildComputerUseTools(deps: {
   const presentationWaiters = new Map<string, Set<() => void>>();
   const presentationQueueWaiters = new Map<string, Set<() => void>>();
   const presentationGenerations = new Map<string, number>();
+  const pendingInvocationTurns = new Map<string, Set<string>>();
   let presentationQueue = Promise.resolve();
   interface SessionObservationRecord {
     turnId: string;
@@ -609,6 +610,16 @@ export function buildComputerUseTools(deps: {
     const next = { turnId, state: new CuaFrameState() };
     observations.set(sessionId, next);
     return next;
+  }
+
+  function trackPendingInvocation(sessionId: string, turnId: string): () => void {
+    const turns = pendingInvocationTurns.get(sessionId) ?? new Set<string>();
+    turns.add(turnId);
+    pendingInvocationTurns.set(sessionId, turns);
+    return () => {
+      turns.delete(turnId);
+      if (turns.size === 0) pendingInvocationTurns.delete(sessionId);
+    };
   }
 
   function invalidateObservation(sessionId: string): void {
@@ -1079,7 +1090,9 @@ export function buildComputerUseTools(deps: {
       if (abortSignal.aborted) return { text: 'computer aborted before start' };
       const input = snapshotComputerParams(computerParams.parse(args));
       const invocationGeneration = presentationGenerations.get(sessionId) ?? 0;
-      return withInvocationQueue(sessionId, abortSignal, async () => {
+      const releasePendingInvocation = trackPendingInvocation(sessionId, turnId);
+      try {
+        return await withInvocationQueue(sessionId, abortSignal, async () => {
         const state = sessionState(sessionId, turnId);
         const requiresObservationLease = (
           input.action === 'observe'
@@ -1132,6 +1145,15 @@ export function buildComputerUseTools(deps: {
             return { text: 'maka_computer.list_apps failed: unsupported_action' };
           }
           const apps = await deps.backend.listApps(abortSignal);
+          if (
+            !observationLease?.ok
+            || !state.validateObservationLease(observationLease.lease).ok
+          ) {
+            const blocked = state.beforeAction();
+            return sessionFailure(
+              blocked.ok ? 'reobserve_required' : blocked.reason,
+            );
+          }
           return {
             text: JSON.stringify({
               app_count: apps.length,
@@ -1215,6 +1237,15 @@ export function buildComputerUseTools(deps: {
             windowId: input.window_id,
             includeScreenshot: true,
           }, abortSignal, runCtx);
+          if (
+            !observationLease?.ok
+            || !state.validateObservationLease(observationLease.lease).ok
+          ) {
+            const blocked = state.beforeAction();
+            return sessionFailure(
+              blocked.ok ? 'reobserve_required' : blocked.reason,
+            );
+          }
           if (!screenshotObservation.screenshot) {
             return { text: 'maka_computer.screenshot failed: capture_failed' };
           }
@@ -1450,6 +1481,15 @@ export function buildComputerUseTools(deps: {
             if (presentation.blocked) return presentation.blocked;
             result = presentation.result;
             if (result) applyTypedOutcomeState(state, result.outcome);
+            if (observationLease?.ok) {
+              const validated = state.validateObservationLease(
+                observationLease.lease,
+              );
+              if (!validated.ok) {
+                presentation.finish();
+                return sessionFailure(validated.reason);
+              }
+            }
             if (actionLease) {
               const leaseFailure = validateActionLease(state, actionLease);
               if (leaseFailure) {
@@ -1518,7 +1558,10 @@ export function buildComputerUseTools(deps: {
               }
             : { text, modelText };
         }
-      });
+        });
+      } finally {
+        releasePendingInvocation();
+      }
     },
     // Map the raw result into model-visible content: the summary as text, plus the
     // screenshot as a native image block when present. `image-data` becomes the
@@ -1553,7 +1596,13 @@ export function buildComputerUseTools(deps: {
     );
     for (const wake of presentationQueueWaiters.get(sessionId) ?? []) wake();
     for (const wake of presentationWaiters.get(sessionId) ?? []) wake();
-    sessionState(sessionId).userStopped();
+    const current = sessionStates.get(sessionId);
+    if (current) {
+      current.state.userStopped();
+    } else {
+      const pendingTurn = pendingInvocationTurns.get(sessionId)?.values().next().value;
+      if (pendingTurn) sessionState(sessionId, pendingTurn).userStopped();
+    }
     invalidateObservation(sessionId);
     observations.delete(sessionId);
     deps.backend.clearSession?.(sessionId);

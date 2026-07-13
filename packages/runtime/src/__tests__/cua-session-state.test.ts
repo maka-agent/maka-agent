@@ -135,6 +135,7 @@ describe('CuaSessionState', () => {
     blocked.screenLocked();
     blocked.reobserveRequired();
     blocked.physicalUserIntervened();
+    blocked.userStopped();
     assert.deepEqual(blocked.snapshot(), {
       status: 'blocked_url',
       generation: 1,

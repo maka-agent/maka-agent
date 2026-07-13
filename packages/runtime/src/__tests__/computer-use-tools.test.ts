@@ -1315,27 +1315,74 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.equal(observeAppCalls, 0);
   });
 
-  test('clearSession blocks host-reading actions in the same turn', async () => {
-    let preflightCalls = 0;
-    const backend = fakeBackend();
-    backend.preflight = async () => {
-      preflightCalls += 1;
-      return { accessibility: true, screenRecording: true };
+  test('clearSession after a non-CU turn does not block the next turn observe', async () => {
+    let observeAppCalls = 0;
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+    };
+    backend.observeApp = async () => {
+      observeAppCalls += 1;
+      return observation();
     };
     const tools = buildComputerUseTools({ backend });
     const tool = tools[0];
-    tools.clearSession('s1');
 
+    tools.clearSession('s1');
+    const result = await tool.impl(
+      { action: 'observe', app: 'Fixture' } as never,
+      ctx(undefined, { turnId: 'next-turn', toolCallId: 'observe-next' }),
+    ) as { text: string };
+
+    assert.doesNotMatch(result.text, /user_stopped/);
+    assert.equal(observeAppCalls, 1);
+  });
+
+  test('clearSession fences host-reading results that complete after stop', async () => {
     for (const input of [
       { action: 'list_apps' },
       { action: 'screenshot', app: 'Fixture' },
       { action: 'cursor_position' },
       { action: 'wait', duration: 0.001 },
     ] as const) {
-      const result = await tool.impl(input as never, ctx()) as { text: string };
-      assert.match(result.text, /user_stopped/);
+      let release!: () => void;
+      let started!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const entered = new Promise<void>((resolve) => { started = resolve; });
+      const backend = fakeBackend() as CuDispatchBackend & {
+        listApps: NonNullable<CuDispatchBackend['listApps']>;
+        observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      };
+      backend.listApps = async () => {
+        started();
+        await gate;
+        return [];
+      };
+      backend.observeApp = async () => {
+        started();
+        await gate;
+        return observation();
+      };
+      backend.run = async (action) => {
+        started();
+        await gate;
+        return action.type === 'cursor_position'
+          ? {
+              outcome: { ok: true, tier: 'coordinate-background' },
+              resolvedScreenPoint: { x: 10, y: 20 },
+            }
+          : { outcome: { ok: true, tier: 'coordinate-background' } };
+      };
+      const tools = buildComputerUseTools({ backend });
+      const tool = tools[0];
+      const pending = tool.impl(input as never, ctx());
+      await entered;
+      tools.clearSession('s1');
+      release();
+
+      const result = await pending as { text: string; screenshot?: unknown };
+      assert.match(result.text, /user_stopped/, input.action);
+      assert.equal(result.screenshot, undefined, input.action);
     }
-    assert.equal(preflightCalls, 0);
   });
 
   test('S17: surfaces the typed backend failure code without leaking raw driver text', async () => {
