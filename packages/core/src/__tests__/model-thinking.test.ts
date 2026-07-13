@@ -138,6 +138,11 @@ describe('thinkingVariantsForModel', () => {
     assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-chat')], []);
   });
 
+  test('Tencent Token Plan HY 3 models expose the documented low/medium/high efforts', () => {
+    assert.deepEqual([...thinkingVariantsForModel('tencent-token-plan', 'hy3')], ['low', 'medium', 'high']);
+    assert.deepEqual([...thinkingVariantsForModel('tencent-token-plan', 'hy3-preview')], ['low', 'medium', 'high']);
+  });
+
   test('zai glm-5.2 high/max; toggle-only GLM models expose none until an off wire is declared', () => {
     assert.deepEqual([...thinkingVariantsForModel('zai-coding-plan', 'glm-5.2')], ['high', 'max']);
     assert.deepEqual([...thinkingVariantsForModel('zai-coding-plan', 'glm-5.1')], []);

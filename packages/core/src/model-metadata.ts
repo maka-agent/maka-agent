@@ -150,6 +150,7 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
   'volcengine-coding-plan': VOLCENGINE_CODING_PLAN_MODEL_METADATA,
   'tencent-token-plan': {
     hy3: { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+    'hy3-preview': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
   },
   deepseek: {
     'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
