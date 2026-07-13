@@ -774,7 +774,7 @@ describe('createHarborTaskRunner timeout', () => {
     });
   });
 
-  test('throws a budget exhaustion error when the harbor process times out', async () => {
+  test('classifies the outer Harbor watchdog as infrastructure failure', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       const runner = createHarborTaskRunner({
         makaRepoPath: repo,
@@ -789,11 +789,11 @@ describe('createHarborTaskRunner timeout', () => {
           signal: 'SIGKILL',
         }),
       });
-      await assert.rejects(runner(runInput()), FixedPromptBudgetExhaustedError);
+      await assert.rejects(runner(runInput()), HarborInfraError);
     });
   });
 
-  test('recovers cell usage and identity after the harbor process wall timeout', async () => {
+  test('keeps an outer watchdog timeout infrastructural after cell output exists', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       const writeArtifacts = fakeRunner({ cell: cellOutput({
         executionIdentity: {
@@ -813,16 +813,11 @@ describe('createHarborTaskRunner timeout', () => {
         },
       });
 
-      await assert.rejects(runner(runInput()), (error: unknown) => {
-        assert.ok(error instanceof FixedPromptBudgetExhaustedError);
-        assert.equal(error.artifactRefs?.tokenSummary?.total, 150);
-        assert.equal(error.artifactRefs?.cellOutput?.executionIdentity?.model, 'deepseek-v4-flash');
-        return true;
-      });
+      await assert.rejects(runner(runInput()), HarborInfraError);
     });
   });
 
-  test('recovers early execution identity when wall timeout precedes cell output', async () => {
+  test('keeps an outer watchdog timeout infrastructural after early identity exists', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       const executionIdentity = {
         llmConnectionSlug: 'deepseek',
@@ -841,14 +836,7 @@ describe('createHarborTaskRunner timeout', () => {
         },
       });
 
-      await assert.rejects(runner(runInput()), (error: unknown) => {
-        assert.ok(error instanceof FixedPromptBudgetExhaustedError);
-        assert.deepEqual(
-          (error.artifactRefs as { executionIdentity?: HarborCellExecutionIdentity } | undefined)?.executionIdentity,
-          executionIdentity,
-        );
-        return true;
-      });
+      await assert.rejects(runner(runInput()), HarborInfraError);
     });
   });
 });

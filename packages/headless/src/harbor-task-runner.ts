@@ -190,11 +190,9 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       throw new HarborInfraError(`harbor run failed to launch for task ${input.task.id}`, errorText(error));
     }
     if (result.timedOut) {
-      const artifactRefs = await readTimedOutCellArtifacts(jobDir, basename(input.task.path), input.task.id);
-      throw new FixedPromptBudgetExhaustedError(
+      throw new HarborInfraError(
         `harbor run timed out for task ${input.task.id}`,
         tail(result.stderr || result.stdout),
-        artifactRefs ?? undefined,
       );
     }
     if (result.exitCode !== 0) {
@@ -285,15 +283,6 @@ function cellArtifactRefs(cell: HarborCellOutput, hostEventsPath: string, trialD
     tokenSummary: cell.tokenSummary,
     cellOutput: { ...cell, runtimeEventsPath: hostEventsPath, traceEventsPath },
   };
-}
-
-async function readTimedOutCellArtifacts(jobDir: string, taskName: string, taskId: string) {
-  try {
-    const trialDir = await findTrialDir(jobDir, taskName);
-    return await readTimedOutTrialArtifacts(trialDir, taskId);
-  } catch {
-    return null;
-  }
 }
 
 async function readTimedOutTrialArtifacts(trialDir: string, taskId: string) {
