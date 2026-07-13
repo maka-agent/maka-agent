@@ -61,7 +61,7 @@ export const NeutralButtonStates: Story = {
         </Button>
       </div>
       <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: 0 }}>
-        Transparent neutral variants (ghost/outline/quiet) use the shared hover and pressed state tokens. Filled secondary buttons step from 5% to 8% to 10% foreground so their interaction feedback stays visible.
+        Neutral variants (ghost/outline/secondary/quiet) press with state tokens: hover = <code>bg-muted</code> (var(--muted)), pressed = <code>--state-selected-bg</code>. Matches ui.tsx buttonVariants.
       </p>
     </div>
   ),
