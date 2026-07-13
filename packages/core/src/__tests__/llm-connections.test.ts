@@ -48,6 +48,7 @@ describe('provider compatibility contract', () => {
       'tencent-tokenhub',
       'stepfun',
       'stepfun-ai',
+      'volcengine-ark',
       'ollama',
       'lm-studio',
       'openai-compatible',
@@ -80,6 +81,7 @@ describe('provider compatibility contract', () => {
       'stepfun',
       'tencent-coding-plan',
       'stepfun-ai',
+      'volcengine-ark',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -106,6 +108,7 @@ describe('provider compatibility contract', () => {
       'stepfun',
       'tencent-coding-plan',
       'stepfun-ai',
+      'volcengine-ark',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -370,6 +373,23 @@ describe('provider compatibility contract', () => {
       'step-3.5-flash-2603',
       'step-3.5-flash',
     ]);
+  });
+
+  it('owns Volcengine Ark China direct API behavior under the stable volcengine-ark id', () => {
+    const ark = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['volcengine-ark'];
+
+    assert.ok(ark, 'Volcengine Ark China direct API must have its own persisted provider id');
+    assert.equal(ark.label, 'Volcengine Ark (China)');
+    assert.equal(ark.baseUrl, 'https://ark.cn-beijing.volces.com/api/v3');
+    assert.equal(ark.authKind, 'api_key');
+    assert.equal(ark.protocol, 'openai');
+    assert.deepEqual(ark.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(ark.modelDiscovery, { kind: 'fallback' });
+    assert.equal(ark.category, 'domestic');
+    assert.equal(ark.catalogGroup, 'api');
+    assert.equal(ark.signupUrl, 'https://console.volcengine.com/ark/region:ark+cn-beijing/model');
+    assert.equal(ark.modelsDevId, undefined);
+    assert.deepEqual(ark.fallbackModels, ['doubao-seed-2-0-pro-260215']);
   });
 });
 

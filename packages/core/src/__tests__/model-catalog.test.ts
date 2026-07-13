@@ -34,6 +34,25 @@ describe('ModelCatalogEntry', () => {
     });
   });
 
+  it('uses the official Volcengine Ark snapshot without inventing live model discovery', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'volcengine-ark',
+        providerType: 'volcengine-ark',
+        defaultModel: 'doubao-seed-2-0-pro-260215',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), ['doubao-seed-2-0-pro-260215']);
+    assert.equal(entries[0]?.displayName, 'Doubao Seed 2.0 Pro');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
   it('uses the checked-in StepFun China snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

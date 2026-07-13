@@ -1232,6 +1232,109 @@ describe('models.dev provider conformance', () => {
     assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
     assert.equal(result.text, 'Echoed hello.');
   });
+
+  test('Volcengine Ark preserves its snapshot model id through the documented two-stage tool-call loop', async () => {
+    const modelId = 'doubao-seed-2-0-pro-260215';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer ark-test-key');
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/api/v3/chat/completions');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-ark-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'I should call echo with the requested text.',
+              tool_calls: [{
+                id: 'call_ark_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+
+      respondJson(response, 200, {
+        id: 'chatcmpl-ark-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'volcengine-ark',
+      name: 'Volcengine Ark (China)',
+      providerType: 'volcengine-ark',
+      baseUrl: `${server.url}/api/v3`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'ark-test-key');
+    assert.deepEqual(models, [{ id: modelId }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'ark-test-key', modelId: models[0]!.id }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_ark_echo' },
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      {
+        role: 'assistant',
+        content: null,
+        reasoning_content: 'I should call echo with the requested text.',
+        tool_calls: [{
+          id: 'call_ark_echo',
+          type: 'function',
+          function: { name: 'echo', arguments: '{"text":"hello"}' },
+        }],
+      },
+    );
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
+  });
 });
 
 async function assertOllamaModelContract(
