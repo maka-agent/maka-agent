@@ -53,6 +53,7 @@ test('monitor rejects lock, foreground change, pointer movement, and physical in
   assert.match(monitor, /frontmost PID changed/);
   assert.match(monitor, /pointer moved during isolated E2E/);
   assert.match(monitor, /physical user input detected/);
+  assert.match(monitor, /initialPhysicalInputAge/);
 });
 
 test('harness validates exact synthetic provenance before real actions', () => {

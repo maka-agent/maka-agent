@@ -1,4 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { createCuaDriverBackend } from '../packages/computer-use/dist/index.js';
@@ -9,7 +10,9 @@ const binaryPath = join(repoRoot, 'apps/desktop/resources/bin/cua-driver');
 const labRoot = '/Users/haoqing/Documents/Learning/codex-computer-use-lab';
 const expectedAppPath = join(labRoot, 'test-app/build/Codex CUA Lab.app');
 const statePath = join(labRoot, 'test-app/runtime/state.json');
+const monitorPath = join(repoRoot, 'scripts/cu-real-e2e-monitor.swift');
 const temporaryDirectory = process.env.MAKA_CU_RESTART_TEMP_DIR;
+const physicalInputProbe = process.env.MAKA_CU_PHYSICAL_INPUT_PROBE;
 const oldPID = Number(process.env.MAKA_CU_RESTART_OLD_PID);
 const soakRounds = Number(process.env.MAKA_CU_RESTART_SOAK_ROUNDS);
 const expectedBinarySha256 =
@@ -26,6 +29,7 @@ if (
   || !Number.isInteger(soakRounds)
   || soakRounds < 1
   || soakRounds > 20
+  || !physicalInputProbe
 ) {
   throw new Error('process restart E2E requires launcher-owned inputs');
 }
@@ -37,6 +41,38 @@ const restartCompletePath = (round) =>
   join(resolvedTemporaryDirectory, `restart-complete-${round}.json`);
 const delay = (milliseconds) =>
   new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
+async function physicalInputRecentlyActive() {
+  const output = await new Promise((resolvePromise, reject) => {
+    execFile(physicalInputProbe, ['age'], {
+      encoding: 'utf8',
+      timeout: 1_000,
+    }, (error, stdout, stderr) => {
+      if (error) reject(new Error(stderr || error.message));
+      else resolvePromise(stdout.trim());
+    });
+  });
+  const ageSeconds = Number(output);
+  if (!Number.isFinite(ageSeconds)) {
+    throw new Error(`invalid physical input snapshot: ${output}`);
+  }
+  return ageSeconds < 1;
+}
+
+async function pulsePhysicalInput() {
+  const output = await new Promise((resolvePromise, reject) => {
+    execFile(physicalInputProbe, ['pulse'], {
+      encoding: 'utf8',
+      timeout: 1_000,
+    }, (error, stdout, stderr) => {
+      if (error) reject(new Error(stderr || error.message));
+      else resolvePromise(stdout.trim());
+    });
+  });
+  const ageSeconds = Number(output);
+  if (!Number.isFinite(ageSeconds) || ageSeconds >= 1) {
+    throw new Error(`physical-input pulse did not reset idle age: ${output}`);
+  }
+}
 
 async function waitForJson(path, label, timeoutMs = 15_000) {
   const deadline = Date.now() + timeoutMs;
@@ -62,6 +98,7 @@ const backend = createCuaDriverBackend({
   expectedServerVersion: '0.7.1',
   expectedProtocolVersion: '2025-06-18',
   timeoutMs: 10_000,
+  physicalInputRecentlyActive,
   onTrace(event) {
     traces.push(event);
   },
@@ -316,6 +353,7 @@ try {
       freshReady.element,
     );
     const freshToolCallId = `fresh-process-coordinate-click-r${round}`;
+    if (round === 1) await pulsePhysicalInput();
     const freshClick = await call({
       action: 'left_click',
       observation_id: freshReady.observed.model.observation_id,
@@ -332,13 +370,14 @@ try {
         && event.toolCallId === freshToolCallId,
     );
     const freshOccluded = freshRunResult?.error === 'target_occluded';
+    const freshUserIntervened = freshRunResult?.error === 'user_intervened';
     const freshSucceeded = !freshClick.error
       && dispatch?.address === 'px'
       && newStateAfterClick.coordinate.clickCount === 1
       && newStateAfterClick.coordinate.decoyClickCount === 0;
     if (
-      (!freshSucceeded && !freshOccluded)
-      || (freshOccluded && (
+      (!freshSucceeded && !freshOccluded && !freshUserIntervened)
+      || ((freshOccluded || freshUserIntervened) && (
         dispatch
         || newStateAfterClick.coordinate.clickCount !== 0
         || newStateAfterClick.coordinate.decoyClickCount !== 0
@@ -347,6 +386,45 @@ try {
       || newStateAfterClick.oop.webContentPID !== newWebContentPID
     ) {
       throw new Error(`round ${round} fresh process action violated its oracle`);
+    }
+
+    if (round === 1) {
+      if (!freshUserIntervened) {
+        throw new Error('round 1 physical-input pulse did not fence dispatch');
+      }
+      await delay(1_100);
+      tools.clearSession('process-restart-e2e');
+      const recoveryReady = await observeUntilElement(
+        newPID,
+        'CUA Lab Coordinate Target',
+        'observe-after-intervention-r1',
+        'turn-recovery-r1',
+      );
+      const recoveryCoordinate = coordinateForElement(
+        recoveryReady.observed,
+        recoveryReady.element,
+      );
+      const recoveryToolCallId = 'fresh-process-recovery-click-r1';
+      const recoveryClick = await call({
+        action: 'left_click',
+        observation_id: recoveryReady.observed.model.observation_id,
+        coordinate: recoveryCoordinate,
+      }, recoveryToolCallId, 'turn-recovery-r1');
+      await delay(150);
+      const recoveryState = await readState();
+      const recoveryDispatch = traces.find(
+        (event) => event.type === 'dispatch'
+          && event.toolCallId === recoveryToolCallId,
+      );
+      if (
+        recoveryClick.error
+        || recoveryDispatch?.address !== 'px'
+        || recoveryState.coordinate.clickCount !== 1
+        || recoveryState.coordinate.decoyClickCount !== 0
+      ) {
+        throw new Error('round 1 did not recover after the physical-input quiet window');
+      }
+      newStateAfterClick.coordinate = recoveryState.coordinate;
     }
 
     const serviceState = backend.serviceState();
@@ -382,6 +460,8 @@ try {
       fresh: {
         outcome: freshOccluded
           ? 'fail_closed_occluded'
+          : freshUserIntervened
+            ? 'fail_closed_user_intervened'
           : 'background_dispatch_succeeded',
         dispatchAddress: dispatch?.address,
         mutation: [

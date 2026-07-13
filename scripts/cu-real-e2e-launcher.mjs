@@ -175,8 +175,9 @@ function startMonitor(input = {}) {
           mode: fields[0],
           frontmostPID: Number(fields[1]),
           pointer: { x: Number(fields[2]), y: Number(fields[3]) },
-          bundleIdentifier: fields[4],
-          canonicalAppPath: fields.slice(5).join('\t'),
+          physicalInputAgeSeconds: Number(fields[4]),
+          bundleIdentifier: fields[5],
+          canonicalAppPath: fields.slice(6).join('\t'),
         });
       } else if (kind === 'CHANGE' || kind === 'ERROR') {
         fail(new Error(fields.join('\t') || line));

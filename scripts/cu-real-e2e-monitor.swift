@@ -68,9 +68,15 @@ let physicalEventTypes: [CGEventType] = [
     .rightMouseDragged,
     .otherMouseDragged
 ]
+let initialPhysicalInputAge = physicalEventTypes.map { eventType in
+    CGEventSource.secondsSinceLastEventType(
+        .hidSystemState,
+        eventType: eventType
+    )
+}.min() ?? .infinity
 print(
     "READY\t\(mode)\t\(frontmostPID)\t\(initialPointer.x)\t\(initialPointer.y)"
-        + "\t\(bundleIdentifier)\t\(bundlePath)"
+        + "\t\(initialPhysicalInputAge)\t\(bundleIdentifier)\t\(bundlePath)"
 )
 if snapshotMode {
     exit(0)

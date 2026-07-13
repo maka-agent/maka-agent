@@ -8,6 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..');
 const harnessPath = join(here, 'cu-process-restart-e2e.mjs');
 const monitorPath = join(here, 'cu-real-e2e-monitor.swift');
+const physicalInputProbeSource = join(here, 'cu-physical-input-probe.swift');
 const labRoot = '/Users/haoqing/Documents/Learning/codex-computer-use-lab';
 const statePath = join(labRoot, 'test-app', 'runtime', 'state.json');
 const SOAK_ROUNDS = 5;
@@ -245,7 +246,8 @@ function startFocusMonitor() {
         readyResolve({
           frontmostPID: Number(fields[1]),
           pointer: { x: Number(fields[2]), y: Number(fields[3]) },
-          bundleIdentifier: fields[4],
+          physicalInputAgeSeconds: Number(fields[4]),
+          bundleIdentifier: fields[5],
         });
       } else if (kind === 'CHANGE' || kind === 'ERROR') {
         fail(new Error(fields.join('\t') || line));
@@ -283,6 +285,15 @@ async function run() {
       stdio: ['ignore', 'ignore', 'inherit'],
     });
     await runBuilds();
+    const physicalInputProbePath = join(
+      temporaryDirectory,
+      'cu-physical-input-probe',
+    );
+    await runChild('swiftc', [
+      physicalInputProbeSource,
+      '-o',
+      physicalInputProbePath,
+    ], { stdio: ['ignore', 'ignore', 'inherit'] });
     fixtureTouched = true;
     await runFixtureScript('stop.sh');
     await runFixtureScript('reset.sh');
@@ -309,6 +320,7 @@ async function run() {
         MAKA_CU_RESTART_OLD_PID: String(oldPID),
         MAKA_CU_RESTART_SOAK_ROUNDS: String(SOAK_ROUNDS),
         MAKA_CU_RESTART_TEMP_DIR: temporaryDirectory,
+        MAKA_CU_PHYSICAL_INPUT_PROBE: physicalInputProbePath,
       },
       stdio: ['ignore', 'inherit', 'inherit'],
     });

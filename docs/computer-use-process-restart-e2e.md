@@ -63,6 +63,7 @@ repeat 5 times with one backend/Runtime instance:
   -> execute fresh coordinate action
   -> if visible, require px dispatch, target 0 -> 1, decoy 0 -> 0
   -> if covered by the user's window, require target_occluded and mutation 0 -> 0
+  -> if physical user input is recent, require user_intervened and mutation 0 -> 0
   -> require cua-driver generations stable and restartAttempts == 0
 ```
 
