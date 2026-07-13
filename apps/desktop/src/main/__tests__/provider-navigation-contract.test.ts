@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { describe, test } from 'node:test';
+
+const PANEL = resolve(import.meta.dirname, '../../../src/renderer/settings/ProvidersPanel.tsx');
+
+describe('Settings model provider page hierarchy', () => {
+  test('uses in-pane catalog, add, and detail pages instead of a config Sheet', async () => {
+    const source = await readFile(PANEL, 'utf8');
+
+    assert.match(source, /type ProviderPage\s*=/, 'ProvidersPanel must own an explicit child-page state');
+    assert.match(source, /kind:\s*'catalog'/, 'the provider catalog must be an independent child page');
+    assert.match(source, /kind:\s*'add'/, 'provider configuration must be an independent child page');
+    assert.match(source, /kind:\s*'detail'/, 'connection detail must be an independent child page');
+    assert.match(source, /aria-label="返回模型连接"/, 'child pages must expose a keyboard-accessible back action');
+    assert.doesNotMatch(source, /ProviderConfigSheetOverlay/, 'provider configuration must not remain in a right Sheet');
+  });
+
+  test('catalog supports search and the five user-intent categories', async () => {
+    const source = await readFile(PANEL, 'utf8');
+
+    assert.match(source, /placeholder="搜索服务商"/);
+    for (const category of ['recommended', 'plans', 'api', 'aggregators', 'local']) {
+      assert.match(source, new RegExp(`id:\\s*'${category}'`), `missing catalog category ${category}`);
+    }
+  });
+});

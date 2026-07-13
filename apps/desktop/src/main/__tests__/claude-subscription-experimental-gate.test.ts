@@ -253,7 +253,7 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
     );
   });
 
-  it('ProvidersPanel keeps OAuth login out of CATALOG_PROVIDER_TYPES but surfaces it as a real tab', async () => {
+  it('ProvidersPanel keeps OAuth login out of CATALOG_PROVIDER_TYPES and surfaces it as account connections', async () => {
     const [src, core] = await Promise.all([
       readProviderSettingsCombinedSource(),
       readFile(resolve(REPO_ROOT, 'packages', 'core', 'src', 'llm-connections.ts'), 'utf8'),
@@ -268,11 +268,11 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
         `${provider} must stay out of the visible model provider catalog until its send path is actually open`,
       );
     }
-    assert.match(src, /\{\s*id:\s*'oauth'[\s\S]*label:\s*'OAuth'/, 'model provider catalog must show OAuth as a peer tab');
+    assert.doesNotMatch(src, /\{\s*id:\s*'oauth'/, 'model provider transport catalog must not classify OAuth as a provider category');
     assert.match(
       src,
-      /<PrimitiveTabsPanel value="oauth">\s*<ModelOAuthSection\s+onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\}\s*\/>\s*<\/PrimitiveTabsPanel>/,
-      'OAuth tab must render the real login cards, not an empty roadmap tile',
+      /<section className="providerAccountSection" aria-label="账号连接">[\s\S]*<ModelOAuthSection onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\} \/>[\s\S]*<\/section>/,
+      'account connections must render the real OAuth login cards, not an empty roadmap tile',
     );
     assert.doesNotMatch(
       src,

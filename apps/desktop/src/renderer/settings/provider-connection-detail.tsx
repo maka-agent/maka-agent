@@ -478,12 +478,12 @@ export function ConnectionDetail(props: {
             </strong>
             <span>
               {hasSecret === true
-                ? '该模型连接使用主进程保存的 OAuth access token；若请求提示需要重新登录，请到 OAuth 分类的登录卡片重新授权。'
+                ? '该模型连接使用主进程保存的 OAuth access token；若请求提示需要重新登录，请到账号连接重新授权。'
                 : hasSecret === 'loading'
                   ? '正在读取本机 OAuth 登录状态，读取完成前不会把未知状态显示成未登录。'
                   : hasSecret === 'error'
                     ? '暂时无法读取本机 OAuth 登录状态；请刷新页面或重新打开设置。'
-                    : '请到 OAuth 分类的登录卡片完成登录；登录成功后会自动出现在模型连接里。'}
+                    : '请到账号连接完成登录；登录成功后会自动出现在模型连接里。'}
             </span>
           </div>
         )

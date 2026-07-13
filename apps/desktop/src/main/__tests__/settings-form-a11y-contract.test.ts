@@ -53,7 +53,6 @@ describe('Settings form accessibility labels', () => {
     // orphan classes (no TSX consumer); the comma-grouped rule
     // collapsed to `.settingsRow` alone.
     const providerSurfaces = styles.match(/\.settingsRow\s*\{[\s\S]*?\}/g)?.at(0) ?? '';
-    const catalogTabsButton = styles.match(/\.catalogTab\s*\{[\s\S]*?\}/)?.[0] ?? '';
     // PR-MODEL-PAGE-ITEM-GOVERNANCE: the provider catalog moved off the
     // hand-written .providerCatalogCard grid onto the shared shadcn Item
     // primitive (.providerCatalogRow) in a seamless single-column list, so
@@ -85,7 +84,6 @@ describe('Settings form accessibility labels', () => {
     // orphan; only `.settingsRow` remains in the live rule. The
     // border-radius / shadow geometry still applies via the same
     // rule which is captured by `providerSurfaces` now.
-    assert.match(catalogTabsButton, /border-radius:\s*var\(--radius-surface\);/, 'Settings model category tabs should use reference implementation rounded-lg geometry');
     assert.match(providerMarketGridRule, /grid-template-columns:\s*1fr;/, 'Settings provider catalog should render as a seamless single-column row list, not a card grid');
     assert.ok(providerCatalogRow, 'Settings provider catalog rows should be governed by the shared .providerCatalogRow (Item) class');
     // PR-DELETE-ORPHAN-CSS: providerIcon assertion removed (orphan).

@@ -51,7 +51,7 @@ export function AddProviderForm(props: {
     if (requiresBaseUrl && !baseUrl.trim()) return setError('这个供应商需要填写服务地址');
     if (isExperimental) {
       return setError(isWiredOAuth
-        ? '请到 OAuth 分类完成账号登录；登录成功后会自动创建模型连接。'
+        ? '请到账号连接完成登录；登录成功后会自动创建模型连接。'
         : '该账号登录暂未接入聊天发送；请先使用同一家厂商的模型密钥。');
     }
     busyRef.current = true;
@@ -87,9 +87,9 @@ export function AddProviderForm(props: {
       </header>
       {isExperimental && (
         <div className="providerUnavailableNotice">
-          <strong>{isWiredOAuth ? '使用 OAuth 分类登录' : '账号登录暂未接入'}</strong>
+          <strong>{isWiredOAuth ? '使用账号连接登录' : '账号登录暂未接入'}</strong>
           <span>{isWiredOAuth
-            ? '不要在这里手动添加；请回到 OAuth 分类完成登录，Maka 会自动创建并刷新模型连接。'
+            ? '不要在这里手动添加；请回到模型连接页的账号连接完成登录，Maka 会自动创建并刷新模型连接。'
             : '这类账号登录暂未接入聊天发送。当前请先使用同一家厂商的模型密钥。'}</span>
         </div>
       )}
