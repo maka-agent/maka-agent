@@ -162,6 +162,7 @@ export const MEMORY_BLOCK_REASONS = [
   'persistence_invalid',
   'renderer_provenance_forged',
   'mode_disallows_candidate',
+  'source_refs_required',
 ] as const;
 export type MemoryBlockReason = typeof MEMORY_BLOCK_REASONS[number];
 
@@ -174,6 +175,20 @@ export type MemoryBlockReason = typeof MEMORY_BLOCK_REASONS[number];
  */
 export const MEMORY_SCOPES = ['workspace', 'session'] as const;
 export type MemoryScope = typeof MEMORY_SCOPES[number];
+
+export const MEMORY_SOURCE_REF_KINDS = [
+  'manual_editor',
+  'proposal',
+  'chat_turn',
+  'approval_surface',
+] as const;
+export type MemorySourceRefKind = typeof MEMORY_SOURCE_REF_KINDS[number];
+export const MEMORY_SOURCE_REF_MAX_CHARS = 96;
+
+export interface MemorySourceRef {
+  kind: MemorySourceRefKind;
+  ref: string;
+}
 
 // ---------------------------------------------------------------------------
 // Shapes
@@ -212,6 +227,8 @@ export interface DurableMemoryEntry {
   persistenceState: 'active';
   content: string;
   scope: MemoryScope;
+  /** Required owner when scope is session. */
+  sessionId?: string;
   createdAt: number;
   /**
    * Required confirmation timestamp. Per gate #2 (manual confirm before
@@ -219,6 +236,8 @@ export interface DurableMemoryEntry {
    * timestamp. The normalizer enforces presence + finite + non-negative.
    */
   confirmedAt: number;
+  /** At least one bounded provenance reference is required for every durable active entry. */
+  sourceRefs: readonly MemorySourceRef[];
   /** Optional opaque reference back to the surface that requested write. */
   sourceTurnId?: string;
 }
@@ -235,6 +254,8 @@ export interface DraftMemoryEntry {
   persistenceState: 'draft' | 'review_required';
   content: string;
   scope: MemoryScope;
+  /** Required owner when scope is session. */
+  sessionId?: string;
   proposedAt: number;
   /** No `confirmedAt` here by design — draft state means not confirmed. */
 }
@@ -256,8 +277,12 @@ export interface MemoryWriteRequest {
   persistenceState: MemoryPersistenceState | string;
   content: string;
   scope: MemoryScope | string;
+  /** Required when scope is session. */
+  sessionId?: string;
   /** Required when `source` is a `MemorySource` AND `persistenceState === 'active'`. */
   confirmedAt?: number;
+  /** Required for durable active writes; ignored for candidate-only drafts. */
+  sourceRefs?: readonly MemorySourceRef[];
   sourceTurnId?: string;
 }
 
@@ -478,6 +503,8 @@ export function validateMemoryWriteRequest(
   // 4. scope.
   const scope = normalizeMemoryScope(request.scope);
   if (!scope.ok) return scope;
+  const sessionId = normalizeMemorySessionOwner(request.sessionId, scope.value);
+  if (!sessionId.ok) return sessionId;
   // 5. persistence.
   const persistence = normalizeMemoryPersistenceState(request.persistenceState);
   if (!persistence.ok) return persistence;
@@ -518,6 +545,8 @@ export function validateMemoryWriteRequest(
         'durable active memory entries require a finite non-negative confirmedAt',
       );
     }
+    const sourceRefs = normalizeMemorySourceRefs(request.sourceRefs);
+    if (!sourceRefs.ok) return sourceRefs;
     // Renderer-forged provenance defense (gate #9).
     if (context.originatedFromRenderer) {
       return invalid(
@@ -533,8 +562,10 @@ export function validateMemoryWriteRequest(
       persistenceState: 'active',
       content: content.value,
       scope: scope.value,
+      ...(sessionId.value ? { sessionId: sessionId.value } : {}),
       createdAt: confirmedAt,
       confirmedAt,
+      sourceRefs: sourceRefs.value,
       sourceTurnId: request.sourceTurnId,
     };
     return { ok: true, value: entry };
@@ -548,6 +579,7 @@ export function validateMemoryWriteRequest(
     persistenceState: persistence.value as 'draft' | 'review_required',
     content: content.value,
     scope: scope.value,
+    ...(sessionId.value ? { sessionId: sessionId.value } : {}),
     proposedAt: context.now ?? Date.now(),
   };
   return { ok: true, value: draft };
@@ -559,4 +591,51 @@ export function validateMemoryWriteRequest(
 
 function invalid<T>(reason: MemoryBlockReason, message: string): MemoryResult<T> {
   return { ok: false, reason, message };
+}
+
+export function normalizeMemorySourceRefs(input: unknown): MemoryResult<readonly MemorySourceRef[]> {
+  if (!Array.isArray(input) || input.length === 0 || input.length > 16) {
+    return invalid('source_refs_required', 'durable active memory entries require 1 to 16 source refs');
+  }
+  const refs: MemorySourceRef[] = [];
+  const seen = new Set<string>();
+  for (const candidate of input) {
+    if (!candidate || typeof candidate !== 'object') {
+      return invalid('source_refs_required', 'memory source refs must be objects');
+    }
+    const value = candidate as Partial<MemorySourceRef>;
+    if (!(MEMORY_SOURCE_REF_KINDS as readonly string[]).includes(value.kind ?? '')) {
+      return invalid('source_refs_required', 'memory source ref kind is invalid');
+    }
+    if (typeof value.ref !== 'string') {
+      return invalid('source_refs_required', 'memory source ref value must be a string');
+    }
+    const ref = value.ref.trim();
+    if (!ref || ref.length > MEMORY_SOURCE_REF_MAX_CHARS) {
+      return invalid('source_refs_required', 'memory source ref value is empty or too long');
+    }
+    const kind = value.kind as MemorySourceRefKind;
+    const key = `${kind}:${ref}`;
+    if (seen.has(key)) {
+      return invalid('source_refs_required', 'memory source refs must not contain duplicates');
+    }
+    seen.add(key);
+    refs.push({ kind, ref });
+  }
+  return { ok: true, value: refs };
+}
+
+function normalizeMemorySessionOwner(
+  input: unknown,
+  scope: MemoryScope,
+): MemoryResult<string | undefined> {
+  if (scope === 'workspace') return { ok: true, value: undefined };
+  if (typeof input !== 'string') {
+    return invalid('scope_invalid', 'session-scoped memory requires a sessionId owner');
+  }
+  const sessionId = input.trim();
+  if (!sessionId || sessionId.length > 128) {
+    return invalid('scope_invalid', 'session-scoped memory requires a bounded sessionId owner');
+  }
+  return { ok: true, value: sessionId };
 }

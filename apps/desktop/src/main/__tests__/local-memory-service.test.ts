@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { describe, it } from 'node:test';
 import {
   createDefaultSettings,
+  parseLocalMemoryMarkdown,
   readLocalMemoryDocumentVersion,
   withLocalMemoryDocumentVersion,
   type AppSettings,
@@ -182,7 +183,7 @@ describe('LocalMemoryService', () => {
       '# Maka Memory',
       '',
       '## Seed',
-      '<!-- maka-memory: id=seed status=active scope=workspace -->',
+      '<!-- maka-memory: id=seed entrySchema=maka.local_memory.entry.v1 compatSource=structured_v1 migrationState=not_required source=user_authored status=active scope=workspace confirmedAt=1700000000000 approvedBy=user approvalSurface=manual_editor_save sourceRefs=manual_editor:MEMORY.md -->',
       'seed-v1',
     ].join('\n'));
     const afterSave = await service.readForAgent({ workspaceRoot, sessionId: 'session-a', projection });
@@ -382,6 +383,59 @@ describe('LocalMemoryService', () => {
     assert.equal(await stat(restarted.transactionFile).catch(() => null), null);
   });
 
+  it('keeps legacy compatibility read-only across concurrent projections and restart', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-memory-legacy-compat-'));
+    let settings = {
+      ...createDefaultSettings(),
+      localMemory: { enabled: true, agentReadEnabled: true },
+    };
+    const deps = {
+      workspaceRoot,
+      getSettings: async () => settings,
+      updateSettings: async (patch: { localMemory: Partial<AppSettings['localMemory']> }) => {
+        settings = { ...settings, localMemory: { ...settings.localMemory, ...patch.localMemory } };
+        return settings;
+      },
+      getPrivacyContext: async () => ({ incognitoActive: false }),
+    };
+    const first = new LocalMemoryService(deps);
+    await first.save([
+      '# Maka Memory',
+      '',
+      '## Legacy preference',
+      '<!-- maka-memory: id=legacy status=active -->',
+      'legacy compatibility content',
+    ].join('\n'));
+
+    const second = new LocalMemoryService(deps);
+    const [firstProjection, secondProjection] = await Promise.all([
+      first.captureAgentMemoryProjection(),
+      second.captureAgentMemoryProjection(),
+    ]);
+    assert.ok(firstProjection);
+    assert.ok(secondProjection);
+    for (const projection of [firstProjection, secondProjection]) {
+      const parsed = parseLocalMemoryMarkdown(projection?.content ?? '');
+      assert.equal(parsed.durableActiveEntries.length, 0);
+      assert.deepEqual(parsed.compatibilityEntries.map((entry) => entry.id), ['legacy']);
+      assert.equal(parsed.entries[0]?.migrationState, 'legacy_read_only');
+    }
+
+    const restarted = new LocalMemoryService(deps);
+    const state = await restarted.getState();
+    assert.equal(state.activeEntryCount, 0);
+    assert.equal(state.activeEntries.length, 0);
+    assert.deepEqual(state.compatibilityEntries.map((entry) => entry.id), ['legacy']);
+    assert.equal(state.entries[0]?.compatibilitySource, 'legacy_markdown');
+    assert.equal(state.entries[0]?.approvalState, 'compatibility_unconfirmed');
+    const read = await restarted.readForAgent({ workspaceRoot, sessionId: 'session-a' });
+    assert.equal(read.status, 'visible');
+    if (read.status === 'visible') {
+      assert.match(read.promptBody, /legacy compatibility content/);
+      assert.equal(read.trace.decisions[0]?.decision, 'selected_legacy_workspace_compat');
+    }
+  });
+
   it('never lets an older concurrent read regress a shared projection', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-memory-projection-race-'));
     let settings = { ...createDefaultSettings(), localMemory: { enabled: true, agentReadEnabled: true } };
@@ -531,10 +585,11 @@ describe('LocalMemoryService', () => {
     ].join('\n');
     const state = await service.save(next);
     assert.equal(state.entryCount, 1);
-    assert.equal(state.activeEntryCount, 1);
+    assert.equal(state.activeEntryCount, 0);
     assert.equal(state.archivedEntryCount, 0);
     assert.equal(state.entries.length, 1);
-    assert.equal(state.activeEntries.length, 1);
+    assert.equal(state.activeEntries.length, 0);
+    assert.equal(state.compatibilityEntries.length, 1);
     assert.equal(state.archivedEntries.length, 0);
     assert.equal(state.latestBackup?.kind, 'save');
     assert.match(state.latestBackup?.path ?? '', /MEMORY\.md\.bak$/);
@@ -745,7 +800,7 @@ describe('LocalMemoryService', () => {
     assert.equal(state.latestBackup?.kind, 'reset');
     assert.match(state.latestBackup?.path ?? '', /MEMORY\.md\.reset\.bak$/);
     assert.equal(typeof state.latestBackup?.updatedAt, 'number');
-    assert.equal(state.latestBackup?.activeEntryCount, 1);
+    assert.equal(state.latestBackup?.activeEntryCount, 0);
     assert.equal(state.latestBackup?.archivedEntryCount, 0);
     assert.equal(state.latestBackup?.safeMode, false);
     assert.ok((state.latestBackup?.sizeBytes ?? 0) > 0);
@@ -859,11 +914,11 @@ describe('LocalMemoryService', () => {
       '# Maka Memory',
       '',
       '## Active',
-      '<!-- maka-memory: id=active origin=manual status=active -->',
+      strictMemoryMeta('active', 'active'),
       'Use this.',
       '',
       '## Archived',
-      '<!-- maka-memory: id=archived origin=manual status=archived -->',
+      strictMemoryMeta('archived', 'archived'),
       'Do not use this.',
     ].join('\n'));
 
@@ -920,6 +975,79 @@ describe('LocalMemoryService', () => {
     assert.equal(updates[0]?.action, 'approved');
     assert.equal(updates[0]?.title, 'Tone');
     assert.equal(service.consumePendingPromptUpdates().length, 0);
+  });
+
+  it('persists session ownership through remember, proposal approval, and restart', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-memory-session-owner-'));
+    let settings = {
+      ...createDefaultSettings(),
+      localMemory: { enabled: true, agentReadEnabled: true },
+    };
+    const deps = {
+      workspaceRoot,
+      getSettings: async () => settings,
+      updateSettings: async (patch: { localMemory: Partial<AppSettings['localMemory']> }) => {
+        settings = { ...settings, localMemory: { ...settings.localMemory, ...patch.localMemory } };
+        return settings;
+      },
+      getPrivacyContext: async () => ({ incognitoActive: false }),
+      now: () => 1_700_000_000_000,
+    };
+    const service = new LocalMemoryService(deps);
+    await service.getState();
+
+    const missingRememberOwner = await service.rememberUserAuthored({
+      title: 'Missing owner',
+      content: 'must not persist',
+      scope: 'session',
+    });
+    assert.equal(missingRememberOwner.ok, false);
+    if (!missingRememberOwner.ok) assert.equal(missingRememberOwner.reason, 'scope_invalid');
+
+    const missingProposalOwner = await service.proposeMemory({
+      title: 'Missing proposal owner',
+      content: 'must not enter pending',
+      scope: 'session',
+    });
+    assert.equal(missingProposalOwner.ok, false);
+    if (!missingProposalOwner.ok) assert.equal(missingProposalOwner.reason, 'session_owner_required');
+
+    const remembered = await service.rememberUserAuthored({
+      title: 'Owned direct memory',
+      content: 'remembered-session-a-only',
+      scope: 'session',
+      sessionId: 'session-a',
+    });
+    assert.equal(remembered.ok, true);
+
+    const proposed = await service.proposeMemory({
+      title: 'Owned proposal',
+      content: 'approved-session-a-only',
+      scope: 'session',
+      sessionId: 'session-a',
+    });
+    assert.equal(proposed.ok, true);
+    if (!proposed.ok) return;
+    const proposalId = proposed.proposal?.proposalId ?? proposed.proposal?.id;
+    assert.ok(proposalId);
+    assert.equal((await service.approveProposal(proposalId)).ok, true);
+
+    const restarted = new LocalMemoryService(deps);
+    const state = await restarted.getState();
+    const owned = state.activeEntries.filter((entry) => entry.sessionId === 'session-a');
+    assert.deepEqual(owned.map((entry) => entry.scope), ['session', 'session']);
+
+    const ownerRead = await restarted.readForAgent({ workspaceRoot, sessionId: 'session-a' });
+    assert.equal(ownerRead.status, 'visible');
+    if (ownerRead.status === 'visible') {
+      assert.match(ownerRead.promptBody, /remembered-session-a-only/);
+      assert.match(ownerRead.promptBody, /approved-session-a-only/);
+    }
+
+    const otherRead = await restarted.readForAgent({ workspaceRoot, sessionId: 'session-b' });
+    if (otherRead.status === 'visible') {
+      assert.doesNotMatch(otherRead.promptBody, /remembered-session-a-only|approved-session-a-only/);
+    }
   });
 
   it('rejects a pending proposal without creating active memory', async () => {
@@ -1051,6 +1179,10 @@ describe('LocalMemoryService', () => {
     assert.match(state.reason ?? '', /outside the workspace/);
   });
 });
+
+function strictMemoryMeta(id: string, status: 'active' | 'archived'): string {
+  return `<!-- maka-memory: id=${id} entrySchema=maka.local_memory.entry.v1 compatSource=structured_v1 migrationState=not_required origin=manual source=user_authored status=${status} scope=workspace confirmedAt=1700000000000 approvedBy=user approvalSurface=manual_editor_save sourceRefs=manual_editor:MEMORY.md -->`;
+}
 
 function agentReadFixture(): string {
   return [

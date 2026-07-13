@@ -31,7 +31,7 @@ export type {
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
 
-export { AiSdkBackend } from './ai-sdk-backend.js';
+export { AiSdkBackend, ProviderReplayProjectionError } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export type {
   AgentBackend,
@@ -448,6 +448,19 @@ export type {
   SemanticCompactSummaryRequest,
   SemanticCompactValidationResult,
 } from './semantic-compact.js';
+export {
+  estimateProviderMessagesTokens,
+  projectProviderReplayMessages,
+  validateProviderMessageShape,
+} from './provider-replay-projection.js';
+export type {
+  ProviderMessageShapeFailureReason,
+  ProviderMessageShapeValidation,
+  ProviderReplayProjectionFailure,
+  ProviderReplayProjectionFailureReason,
+  ProviderReplayProjectionPolicy,
+  ProviderReplayProjectionResult,
+} from './provider-replay-projection.js';
 export { testConnection } from './test-connection.js';
 export { fetchProviderModels } from './model-fetcher.js';
 

@@ -22,6 +22,7 @@ import {
 import { compactionDecisionDiagnosticPatch } from './compaction-boundary.js';
 import { estimateTokens } from './context-budget.js';
 import type { CompactSummaryResult, NormalizedAiSdkUsage } from './model-adapter.js';
+import { validateProviderMessageShape } from './provider-replay-projection.js';
 
 const DEFAULT_CHARS_PER_TOKEN = 4;
 const DEFAULT_MAX_SUMMARY_TOKENS = 768;
@@ -628,10 +629,15 @@ export function validateSemanticCompactReplacementShape(input: {
     semanticCompactBlockToModelMessage(input.block),
     ...input.originalMessages.slice(endMessageIndex + 1),
   ];
-  if (
-    input.replacementMessages.some((message) => !isBasicProviderMessageShape(message))
-    || !sameModelMessages(expectedMessages, input.replacementMessages)
-  ) {
+  const providerShape = validateProviderMessageShape(input.replacementMessages);
+  if (!providerShape.valid) {
+    add('provider_message_structure_invalid');
+    if (providerShape.reasons.some((reason) => reason.startsWith('tool_') || reason === 'duplicate_tool_call_id')) {
+      add('tool_pair_split');
+    }
+    if (providerShape.reasons.includes('thinking_after_tool_call')) add('thinking_pair_split');
+  }
+  if (!sameModelMessages(expectedMessages, input.replacementMessages)) {
     add('provider_message_structure_invalid');
   }
 
@@ -1546,23 +1552,6 @@ function sourceRefKindForEntry(entry: ActiveFullCompactSourceEntry): ActiveFullC
   if (entry.archiveRef) return 'active_archive_placeholder';
   if (entry.runtimeEventId) return 'runtime_event';
   return 'provider_message';
-}
-
-function isBasicProviderMessageShape(message: ModelMessage): boolean {
-  const candidate = message as { role?: unknown; content?: unknown };
-  if (
-    candidate.role !== 'system'
-    && candidate.role !== 'user'
-    && candidate.role !== 'assistant'
-    && candidate.role !== 'tool'
-  ) {
-    return false;
-  }
-  if (typeof candidate.content === 'string') return candidate.role !== 'tool';
-  if (!Array.isArray(candidate.content) || !candidate.content.every((part) => isRecord(part) && nonEmpty(part.type))) {
-    return false;
-  }
-  return candidate.role !== 'tool' || candidate.content.every((part) => part.type === 'tool-result');
 }
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {

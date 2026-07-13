@@ -18,6 +18,10 @@ describe('local MEMORY.md Settings UI contract', () => {
 
     assert.match(src, /<MemoryEntryList[\s\S]*title="生效记忆"[\s\S]*entries=\{filteredActiveEntries\}/);
     assert.match(src, /<MemoryEntryList[\s\S]*title="已归档记忆"[\s\S]*entries=\{filteredArchivedEntries\}[\s\S]*archived/);
+    assert.match(src, /title="兼容只读记忆"[\s\S]*entries=\{filteredCompatibilityEntries\}/);
+    assert.match(src, /title="需要修复的记忆"[\s\S]*entries=\{filteredMalformedEntries\}/);
+    assert.match(src, /旧格式兼容条目，不属于已确认的 durable memory/);
+    assert.match(src, /格式不完整，只读保留且不会进入 prompt/);
     assert.match(src, /<div className="settingsMemoryManualAdd" role="group" aria-label="手动添加本地记忆">/);
     assert.doesNotMatch(src, /<div className="settingsMemoryManualAdd" aria-label="手动添加本地记忆">/);
     assert.match(src, /visibleMemoryEntries\.archivedEntries\.length > 0/);
@@ -357,6 +361,8 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(src, /const statusActionLabel = props\.draftDirty/);
     assert.match(src, /:\s*props\.archived\s*\?\s*'恢复'\s*:\s*'归档';/);
     assert.match(src, /window\.maka\.memory\.save\(result\.draft\)/);
+    assert.match(src, /confirmation_required/);
+    assert.match(src, /旧格式记忆缺少确认来源/);
   });
 
   it('keeps archive and restore draft-only when MEMORY.md has unsaved edits', async () => {

@@ -47,6 +47,7 @@ export interface LocalMemoryProposalInput {
   title: string;
   content: string;
   scope?: LocalMemoryScope;
+  sessionId?: string;
   sourceTurnId?: string;
 }
 
@@ -54,6 +55,7 @@ export interface LocalMemoryRememberInput {
   title: string;
   content: string;
   scope?: LocalMemoryScope;
+  sessionId?: string;
 }
 
 export interface LocalMemoryAgentReadInput {
@@ -136,6 +138,8 @@ export class LocalMemoryService {
         archivedEntryCount: 0,
         entries: [],
         activeEntries: [],
+        compatibilityEntries: [],
+        malformedEntries: [],
         archivedEntries: [],
         reason: '隐身模式下禁用本地记忆读写。',
       };
@@ -152,6 +156,8 @@ export class LocalMemoryService {
         archivedEntryCount: 0,
         entries: [],
         activeEntries: [],
+        compatibilityEntries: [],
+        malformedEntries: [],
         archivedEntries: [],
       };
     }
@@ -174,6 +180,8 @@ export class LocalMemoryService {
           archivedEntryCount: 0,
           entries: [],
           activeEntries: [],
+          compatibilityEntries: [],
+          malformedEntries: [],
           archivedEntries: [],
           latestBackup: latestBackup ?? undefined,
           backups,
@@ -191,6 +199,8 @@ export class LocalMemoryService {
         archivedEntryCount: parsed.archivedEntries.length,
         entries: parsed.entries,
         activeEntries: parsed.activeEntries,
+        compatibilityEntries: parsed.compatibilityEntries,
+        malformedEntries: parsed.malformedEntries,
         archivedEntries: parsed.archivedEntries,
         latestEntry: parsed.activeEntries.at(-1),
         latestBackup: latestBackup ?? undefined,
@@ -208,6 +218,8 @@ export class LocalMemoryService {
         archivedEntryCount: 0,
         entries: [],
         activeEntries: [],
+        compatibilityEntries: [],
+        malformedEntries: [],
         archivedEntries: [],
         reason: error instanceof Error ? error.message : 'memory read failed',
         };
@@ -333,6 +345,8 @@ export class LocalMemoryService {
         archivedEntryCount: 0,
         entries: [],
         activeEntries: [],
+        compatibilityEntries: [],
+        malformedEntries: [],
         archivedEntries: [],
         reason: parsed.reason,
       };
@@ -375,6 +389,7 @@ export class LocalMemoryService {
         title: input.title,
         content: redactSecrets(content.value),
         scope: scope.value,
+        sessionId: input.sessionId,
         sourceTurnId: input.sourceTurnId,
         proposedAt: now,
       });
@@ -399,7 +414,9 @@ export class LocalMemoryService {
         persistenceState: 'active',
         content: input.content,
         scope: input.scope ?? 'workspace',
+        sessionId: input.sessionId,
         confirmedAt: now,
+        sourceRefs: [{ kind: 'manual_editor', ref: 'MEMORY.md' }],
       },
       { mode: 'manual_with_drafts', incognitoActive: gate.privacy.incognitoActive, originatedFromRenderer: false, now },
     );
@@ -416,6 +433,7 @@ export class LocalMemoryService {
         content: redactSecrets(validation.value.content),
         source: 'user_authored',
         scope: input.scope ?? 'workspace',
+        sessionId: input.sessionId,
         confirmedAt: now,
         approvalSurface: 'manual_editor_save',
       });
@@ -451,8 +469,13 @@ export class LocalMemoryService {
           persistenceState: 'active',
           content: proposal.content,
           scope: proposal.scope ?? 'workspace',
+          sessionId: proposal.sessionId,
           confirmedAt: now,
           sourceTurnId: proposal.sourceTurnId,
+          sourceRefs: [
+            { kind: 'proposal', ref: proposalId },
+            ...(proposal.sourceTurnId ? [{ kind: 'chat_turn' as const, ref: proposal.sourceTurnId }] : []),
+          ],
         },
         { mode: 'manual_with_drafts', incognitoActive: gate.privacy.incognitoActive, originatedFromRenderer: false, now },
       );
@@ -1139,6 +1162,9 @@ function localMemoryMutationFailureMessage(reason: string): string {
       return '找不到这条记忆。';
     case 'not_pending':
       return '这条记忆不在待审核状态。';
+    case 'session_owner_required':
+    case 'scope_invalid':
+      return '会话级记忆必须绑定有效的会话 ID。';
     case 'oversize':
       return 'MEMORY.md 超出安全上限。';
     case 'mode_off':

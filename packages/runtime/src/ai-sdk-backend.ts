@@ -116,6 +116,10 @@ import {
   type SemanticCompactControllerState,
 } from './semantic-compact.js';
 import {
+  projectProviderReplayMessages,
+  type ProviderReplayProjectionFailure,
+} from './provider-replay-projection.js';
+import {
   compactionDecisionDiagnosticPatch,
   historyCompactBlockToCompactionBoundary,
 } from './compaction-boundary.js';
@@ -202,6 +206,33 @@ export type {
 } from '@maka/core/backend-types';
 
 export const INVALID_TOOL_NAME = 'invalid';
+
+interface PriorReplayProjection {
+  messages: ModelMessage[];
+  messageTurnIds?: Array<string | undefined>;
+  protectedTurnIds?: string[];
+  gate: RuntimeEventReplayFallbackGate | 'stored_message_projection';
+  diagnostics: RuntimeEventModelReplayPlan['diagnostics'];
+  runtimeEventCount?: number;
+  contextBudget?: ContextBudgetDiagnostic;
+}
+
+type ProviderReplayProjectionGate = PriorReplayProjection['gate']
+  | 'semantic_compact_failed_open'
+  | 'active_full_compact_failed_open';
+
+export class ProviderReplayProjectionError extends Error {
+  readonly code = 'PROVIDER_REPLAY_PROJECTION_FAILED';
+
+  constructor(
+    readonly gate: ProviderReplayProjectionGate,
+    readonly failure: ProviderReplayProjectionFailure,
+    readonly diagnostic?: ContextBudgetDiagnostic,
+  ) {
+    super(`Provider replay projection failed: ${failure.reason}`);
+    this.name = 'ProviderReplayProjectionError';
+  }
+}
 
 export function composePrepareStep(
   toolAvailability: PrepareStepFunctionLike | undefined,
@@ -891,7 +922,14 @@ export class AiSdkBackend implements AgentBackend {
     }
 
     // --- Build messages from RuntimeEvent history and its compatibility projection. ---
-    const priorReplay = await this.buildPriorMessages(input);
+    let priorReplay: Awaited<ReturnType<AiSdkBackend['buildPriorMessages']>>;
+    try {
+      priorReplay = await this.buildPriorMessages(input);
+    } catch (error) {
+      queue.close();
+      this.cleanupAfterTurn(turnId);
+      throw error;
+    }
 
     // --- Background pump: streamText → fullStream → normalize → queue ---
     const pumpDone: Promise<void> = (async () => {
@@ -1064,6 +1102,9 @@ export class AiSdkBackend implements AgentBackend {
         for await (const chunk of result.fullStream) {
           if (this.aborted) break;
           watchdog.markActivity();
+          if (chunk.type === 'error') {
+            throw chunk.error;
+          }
           // Step boundary, version-tolerant: AI SDK v6 delimits steps with
           // `start-step` / `finish-step`, older releases said `step-finish`.
           // Missing the boundary would silently degrade back to one message per
@@ -1425,18 +1466,19 @@ export class AiSdkBackend implements AgentBackend {
    *  V0.1: text-only round-tripping. Tool calls / results within projected
    *  history are deliberately NOT replayed unless RuntimeEvent native replay
    *  is available for the provider. */
-  private async buildPriorMessages(input: BackendSendInput): Promise<{
-    messages: ModelMessage[];
-    gate: RuntimeEventReplayFallbackGate | 'stored_message_projection';
-    diagnostics: RuntimeEventModelReplayPlan['diagnostics'];
-    runtimeEventCount?: number;
-    contextBudget?: ContextBudgetDiagnostic;
-  }> {
-    const projectedMessages = await this.materializePriorMessages(
-      input.context.filter((message) => message.turnId !== input.turnId),
-    );
+  private async buildPriorMessages(input: BackendSendInput): Promise<PriorReplayProjection> {
+    const priorStoredMessages = input.context.filter((message) => message.turnId !== input.turnId);
+    const projectedMessages = await this.materializePriorMessages(priorStoredMessages);
+    const projectedMessageTurnIds = priorStoredMessages
+      .filter((message) => message.type === 'user' || message.type === 'assistant')
+      .map((message) => message.turnId);
     if (!input.runtimeContext) {
-      return { messages: projectedMessages, gate: 'stored_message_projection', diagnostics: [] };
+      return this.finalizePriorReplayProjection({
+        messages: projectedMessages,
+        messageTurnIds: projectedMessageTurnIds,
+        gate: 'stored_message_projection',
+        diagnostics: [],
+      }, this.input.contextBudget);
     }
     const priorRuntimeContext = input.runtimeContext.filter((event) => event.turnId !== input.turnId);
     const preparedContextBudget = await this.prepareContextBudgetPolicy(priorRuntimeContext);
@@ -1444,6 +1486,7 @@ export class AiSdkBackend implements AgentBackend {
     const budgeted = applyRuntimeEventContextBudget(priorRuntimeContext, contextBudget);
     let runtimeContext = budgeted?.events
       ?? priorRuntimeContext;
+    const protectedReplayTurnIds = new Set<string>();
     let contextBudgetDiagnostic = budgeted?.diagnostic;
     if (preparedContextBudget.diagnosticPatch) {
       contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
@@ -1527,6 +1570,7 @@ export class AiSdkBackend implements AgentBackend {
       ? new Set(historyAround.events.map((event) => runtimeEventTurnKey(event)))
       : undefined;
     if (historyAround.events.length > 0) {
+      for (const hit of historyAround.hits) protectedReplayTurnIds.add(hit.turnId);
       runtimeContext = mergeRuntimeEventsInOriginalOrder(priorRuntimeContext, runtimeContext, historyAround.events);
       contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
         contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
@@ -1549,6 +1593,14 @@ export class AiSdkBackend implements AgentBackend {
       },
     );
     runtimeContext = synthesis.events;
+    const selectedSynthesisEventIds = new Set(
+      synthesis.selectedBlocks.map((block) => `synthesis-cache:${block.blockId}`),
+    );
+    for (const event of runtimeContext) {
+      if (selectedSynthesisEventIds.has(event.id)) {
+        protectedReplayTurnIds.add(runtimeEventTurnKey(event));
+      }
+    }
     if (contextBudget?.synthesisCache?.enabled === true) {
       contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
         contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
@@ -1628,51 +1680,156 @@ export class AiSdkBackend implements AgentBackend {
       { toolActivityTurnIds: collectToolActivityTurnIds(priorRuntimeContext) },
     );
     if (plan.items.length === 0) {
-      return {
+      return this.finalizePriorReplayProjection({
         messages: projectedMessages,
+        messageTurnIds: projectedMessageTurnIds,
+        protectedTurnIds: [...protectedReplayTurnIds],
         gate: 'stored_message_projection',
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
         ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
-      };
+      }, contextBudget);
     }
 
     if (hasBlockingReplayDiagnostics(plan)) {
-      return {
+      return this.finalizePriorReplayProjection({
         messages: projectedMessages,
+        messageTurnIds: projectedMessageTurnIds,
+        protectedTurnIds: [...protectedReplayTurnIds],
         gate: 'runtime_replay_unsupported_semantics',
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
         ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
-      };
+      }, contextBudget);
     }
 
     if (!plan.hasProviderNativeSemantics) {
-      return {
-        messages: await this.materializeRuntimeReplayPlan(plan),
+      const materialized = await this.materializeRuntimeReplayPlan(
+        plan,
+        new Map(runtimeContext.map((event) => [event.id, runtimeEventTurnKey(event)])),
+      );
+      return this.finalizePriorReplayProjection({
+        messages: materialized.messages,
+        messageTurnIds: materialized.messageTurnIds,
+        protectedTurnIds: [...protectedReplayTurnIds],
         gate: 'runtime_replay_text_only',
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
         ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
-      };
+      }, contextBudget);
     }
 
     if (!this.canReplayProviderNative(plan)) {
-      return {
+      return this.finalizePriorReplayProjection({
         messages: projectedMessages,
+        messageTurnIds: projectedMessageTurnIds,
+        protectedTurnIds: [...protectedReplayTurnIds],
         gate: 'runtime_replay_unsupported_semantics',
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
         ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
-      };
+      }, contextBudget);
     }
 
-    return {
-      messages: await this.materializeRuntimeReplayPlan(plan),
+    const materialized = await this.materializeRuntimeReplayPlan(
+      plan,
+      new Map(runtimeContext.map((event) => [event.id, runtimeEventTurnKey(event)])),
+    );
+    return this.finalizePriorReplayProjection({
+      messages: materialized.messages,
+      messageTurnIds: materialized.messageTurnIds,
+      protectedTurnIds: [...protectedReplayTurnIds],
       gate: 'runtime_replay_provider_native',
       diagnostics: plan.diagnostics,
       runtimeEventCount: runtimeContext.length,
       ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
+    }, contextBudget);
+  }
+
+  private finalizePriorReplayProjection(
+    candidate: PriorReplayProjection,
+    policy: ContextBudgetPolicy | undefined,
+  ): PriorReplayProjection {
+    const projection = projectProviderReplayMessages(candidate.messages, {
+      maxEstimatedTokens: policy?.maxHistoryEstimatedTokens,
+      maxTurns: policy?.maxHistoryTurns,
+      minRecentTurns: policy?.minRecentTurns,
+      charsPerToken: policy?.charsPerToken,
+      messageTurnIds: candidate.messageTurnIds,
+      protectedTurnIds: candidate.protectedTurnIds,
+    });
+    if (!projection.ok) {
+      const diagnostic = policy
+        ? mergeContextBudgetDiagnostic(
+            candidate.contextBudget ?? minimalContextBudgetDiagnostic(),
+            {
+              enabled: true,
+              ...(policy.name ? { policyName: policy.name } : {}),
+              ...(policy.maxHistoryEstimatedTokens !== undefined
+                ? { maxHistoryEstimatedTokens: policy.maxHistoryEstimatedTokens }
+                : {}),
+              ...(policy.maxHistoryTurns !== undefined ? { maxHistoryTurns: policy.maxHistoryTurns } : {}),
+              estimatedTokensBefore: projection.failure.estimatedTokensBefore,
+              estimatedTokensAfter: projection.failure.estimatedTokensBefore,
+              compactionDecisions: compactionDecisionDiagnosticPatch({
+                stage: 'priorReplay',
+                sourceKind: 'providerMessages',
+                decision: 'failedOpen',
+                boundaryKind: 'providerReplayFallback',
+                reason: candidate.gate,
+                failOpenReason: projection.failure.reason,
+                estimatedTokensBefore: projection.failure.estimatedTokensBefore,
+                estimatedTokensAfter: projection.failure.estimatedTokensBefore,
+                skippedReasonCounts: {
+                  [projection.failure.reason]: 1,
+                  ...Object.fromEntries(projection.failure.shapeReasons.map((reason) => [reason, 1])),
+                },
+              }).compactionDecisions,
+            },
+          )
+        : candidate.contextBudget;
+      throw new ProviderReplayProjectionError(candidate.gate, projection.failure, diagnostic);
+    }
+
+    if (!policy) return { ...candidate, messages: projection.messages };
+    const diagnostic = mergeContextBudgetDiagnostic(
+      candidate.contextBudget ?? minimalContextBudgetDiagnostic(),
+      {
+        enabled: true,
+        ...(policy.name ? { policyName: policy.name } : {}),
+        ...(policy.maxHistoryEstimatedTokens !== undefined
+          ? { maxHistoryEstimatedTokens: policy.maxHistoryEstimatedTokens }
+          : {}),
+        ...(policy.maxHistoryTurns !== undefined ? { maxHistoryTurns: policy.maxHistoryTurns } : {}),
+        estimatedTokensBefore: projection.estimatedTokensBefore,
+        estimatedTokensAfter: projection.estimatedTokensAfter,
+        keptTurns: projection.keptTurns,
+        droppedTurns: projection.droppedTurns,
+        keptEvents: projection.keptMessages,
+        droppedEvents: projection.droppedMessages,
+        compactionDecisions: compactionDecisionDiagnosticPatch({
+          stage: 'priorReplay',
+          sourceKind: 'providerMessages',
+          decision: projection.trimmed ? 'replaced' : 'unchanged',
+          boundaryKind: 'providerReplayFallback',
+          reason: candidate.gate,
+          estimatedTokensBefore: projection.estimatedTokensBefore,
+          estimatedTokensAfter: projection.estimatedTokensAfter,
+          ...(projection.trimmed
+            ? {
+                skippedReasonCounts: {
+                  dropped_messages: projection.droppedMessages,
+                  dropped_turns: projection.droppedTurns,
+                },
+              }
+            : {}),
+        }).compactionDecisions,
+      },
+    );
+    return {
+      ...candidate,
+      messages: projection.messages,
+      contextBudget: diagnostic,
     };
   }
 
@@ -1870,6 +2027,17 @@ export class AiSdkBackend implements AgentBackend {
         };
         return { messages: rewritten.messages };
       }
+      if (!dryRun && rewritten.decision === 'failedOpen') {
+        return {
+          messages: this.guardActiveStepFallbackMessages({
+            gate: 'semantic_compact_failed_open',
+            messages: projectedMessages ?? rewritten.messages,
+            maxEstimatedTokens: policy.maxActiveEstimatedTokens,
+            charsPerToken: this.input.contextBudget?.charsPerToken,
+            onDiagnosticPatch,
+          }),
+        };
+      }
       return !dryRun && projectedMessages ? { messages: projectedMessages } : undefined;
     };
   }
@@ -1917,8 +2085,88 @@ export class AiSdkBackend implements AgentBackend {
         };
         return { messages: rewritten.messages };
       }
+      if (!dryRun && rewritten.decision === 'failedOpen') {
+        return {
+          messages: this.guardActiveStepFallbackMessages({
+            gate: 'active_full_compact_failed_open',
+            messages: projectedMessages ?? rewritten.messages,
+            maxEstimatedTokens: policy.maxActiveEstimatedTokens,
+            charsPerToken: this.input.contextBudget?.charsPerToken,
+            onDiagnosticPatch,
+          }),
+        };
+      }
       return !dryRun && projectedMessages ? { messages: projectedMessages } : undefined;
     };
+  }
+
+  private guardActiveStepFallbackMessages(input: {
+    gate: Extract<ProviderReplayProjectionGate, 'semantic_compact_failed_open' | 'active_full_compact_failed_open'>;
+    messages: readonly ModelMessage[];
+    maxEstimatedTokens?: number;
+    charsPerToken?: number;
+    onDiagnosticPatch?: (patch: Partial<ContextBudgetDiagnostic>) => void;
+  }): ModelMessage[] {
+    const projection = projectProviderReplayMessages(input.messages, {
+      maxEstimatedTokens: input.maxEstimatedTokens,
+      minRecentTurns: 1,
+      charsPerToken: input.charsPerToken,
+    });
+    if (!projection.ok) {
+      const patch: Partial<ContextBudgetDiagnostic> = {
+        enabled: true,
+        estimatedTokensBefore: projection.failure.estimatedTokensBefore,
+        estimatedTokensAfter: projection.failure.estimatedTokensBefore,
+        compactionDecisions: compactionDecisionDiagnosticPatch({
+          stage: 'activeStep',
+          sourceKind: 'providerMessages',
+          decision: 'failedOpen',
+          boundaryKind: 'providerReplayFallback',
+          reason: input.gate,
+          failOpenReason: projection.failure.reason,
+          estimatedTokensBefore: projection.failure.estimatedTokensBefore,
+          estimatedTokensAfter: projection.failure.estimatedTokensBefore,
+          skippedReasonCounts: {
+            [projection.failure.reason]: 1,
+            ...Object.fromEntries(projection.failure.shapeReasons.map((reason) => [reason, 1])),
+          },
+        }).compactionDecisions,
+      };
+      input.onDiagnosticPatch?.(patch);
+      throw new ProviderReplayProjectionError(
+        input.gate,
+        projection.failure,
+        mergeContextBudgetDiagnostic(minimalContextBudgetDiagnostic(), patch),
+      );
+    }
+
+    input.onDiagnosticPatch?.({
+      enabled: true,
+      estimatedTokensBefore: projection.estimatedTokensBefore,
+      estimatedTokensAfter: projection.estimatedTokensAfter,
+      keptTurns: projection.keptTurns,
+      droppedTurns: projection.droppedTurns,
+      keptEvents: projection.keptMessages,
+      droppedEvents: projection.droppedMessages,
+      compactionDecisions: compactionDecisionDiagnosticPatch({
+        stage: 'activeStep',
+        sourceKind: 'providerMessages',
+        decision: projection.trimmed ? 'replaced' : 'unchanged',
+        boundaryKind: 'providerReplayFallback',
+        reason: input.gate,
+        estimatedTokensBefore: projection.estimatedTokensBefore,
+        estimatedTokensAfter: projection.estimatedTokensAfter,
+        ...(projection.trimmed
+          ? {
+              skippedReasonCounts: {
+                dropped_messages: projection.droppedMessages,
+                dropped_turns: projection.droppedTurns,
+              },
+            }
+          : {}),
+      }).compactionDecisions,
+    });
+    return projection.messages;
   }
 
   private recordSemanticCompactSummaryCall(input: {
@@ -2505,11 +2753,15 @@ export class AiSdkBackend implements AgentBackend {
    * (no step id) keep the older shape: tool calls form a tool-only assistant,
    * text/thinking become standalone messages.
    */
-  private async materializeRuntimeReplayPlan(plan: RuntimeEventModelReplayPlan): Promise<ModelMessage[]> {
+  private async materializeRuntimeReplayPlan(
+    plan: RuntimeEventModelReplayPlan,
+    turnIdByEventId: ReadonlyMap<string, string>,
+  ): Promise<{ messages: ModelMessage[]; messageTurnIds: Array<string | undefined> }> {
     type ToolCallItem = Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>;
     type ToolResultItem = Extract<RuntimeEventModelReplayItem, { kind: 'tool_result' }>;
     type ThinkingItem = Extract<RuntimeEventModelReplayItem, { kind: 'thinking' }>;
     const out: ModelMessage[] = [];
+    const messageTurnIds: Array<string | undefined> = [];
     let bufferedCalls: ToolCallItem[] = [];
     const results = new Map<string, ToolResultItem>();
     const reasoningByStep = new Map<string, ThinkingItem>();
@@ -2519,6 +2771,10 @@ export class AiSdkBackend implements AgentBackend {
       text: item.text,
       providerOptions: { anthropic: { signature: item.signature } },
     });
+    const pushMessage = (message: ModelMessage, eventId: string | undefined) => {
+      out.push(message);
+      messageTurnIds.push(eventId ? turnIdByEventId.get(eventId) : undefined);
+    };
     // Tool results are emitted only when their tool_call claims them here. A
     // result whose call never appears in the plan (sliced-away call, corrupt
     // ledger) is INTENTIONALLY dropped at the end: a standalone tool message
@@ -2532,7 +2788,7 @@ export class AiSdkBackend implements AgentBackend {
         const result = results.get(call.toolCallId);
         if (!result) continue;
         results.delete(call.toolCallId);
-        out.push({
+        pushMessage({
           role: 'tool',
           content: [{
             type: 'tool-result',
@@ -2540,7 +2796,7 @@ export class AiSdkBackend implements AgentBackend {
             toolName: result.toolName,
             output: toolResultOutput(result.output, result.isError),
           }],
-        });
+        }, result.eventId);
       }
     };
     // Emit one assistant message for a step: reasoning (if any), text (if any),
@@ -2552,7 +2808,8 @@ export class AiSdkBackend implements AgentBackend {
       for (const call of calls) {
         content.push({ type: 'tool-call', toolCallId: call.toolCallId, toolName: call.toolName, input: call.input });
       }
-      if (content.length > 0) out.push({ role: 'assistant', content } as ModelMessage);
+      const sourceEventId = reasoning?.eventId ?? calls[0]?.eventId;
+      if (content.length > 0) pushMessage({ role: 'assistant', content } as ModelMessage, sourceEventId);
       pushToolResults(calls);
     };
     // Emit tool calls no assistant text closed: a thinking + tool step with no
@@ -2599,13 +2856,13 @@ export class AiSdkBackend implements AgentBackend {
           } else {
             // Legacy standalone reasoning (pure-reasoning turn): emit on its own.
             flushLooseCalls();
-            out.push({ role: 'assistant', content: [reasoningPart(item)] } as ModelMessage);
+            pushMessage({ role: 'assistant', content: [reasoningPart(item)] } as ModelMessage, item.eventId);
           }
           break;
         case 'text':
           if (item.role !== 'assistant') {
             flushLooseCalls();
-            out.push(await this.materializeRuntimeReplayItem(item));
+            pushMessage(await this.materializeRuntimeReplayItem(item), item.eventId);
             break;
           }
           if (item.stepId !== undefined) {
@@ -2616,12 +2873,27 @@ export class AiSdkBackend implements AgentBackend {
             // Earlier steps' unclosed calls flush first (with their own parked
             // reasoning, if any) so step order is preserved.
             if (otherCalls.length > 0) emitGroupedCalls(otherCalls);
-            emitStep(reasoningByStep.get(stepId), item.content, thisCalls);
+            const reasoning = reasoningByStep.get(stepId);
+            const content: unknown[] = [];
+            if (reasoning) content.push(reasoningPart(reasoning));
+            if (item.content.length > 0) content.push({ type: 'text', text: item.content });
+            for (const call of thisCalls) {
+              content.push({
+                type: 'tool-call',
+                toolCallId: call.toolCallId,
+                toolName: call.toolName,
+                input: call.input,
+              });
+            }
+            if (content.length > 0) {
+              pushMessage({ role: 'assistant', content } as ModelMessage, item.eventId);
+            }
+            pushToolResults(thisCalls);
             reasoningByStep.delete(stepId);
           } else {
             // Legacy per-turn assistant text: standalone after any tool block.
             flushLooseCalls();
-            out.push({ role: 'assistant', content: item.content });
+            pushMessage({ role: 'assistant', content: item.content }, item.eventId);
           }
           break;
       }
@@ -2629,9 +2901,9 @@ export class AiSdkBackend implements AgentBackend {
     flushLooseCalls();
     // Any reasoning whose closing text never arrived (defensive): emit standalone.
     for (const reasoning of reasoningByStep.values()) {
-      out.push({ role: 'assistant', content: [reasoningPart(reasoning)] } as ModelMessage);
+      pushMessage({ role: 'assistant', content: [reasoningPart(reasoning)] } as ModelMessage, reasoning.eventId);
     }
-    return out;
+    return { messages: out, messageTurnIds };
   }
 
   private async materializeRuntimeReplayItem(item: RuntimeEventModelReplayItem): Promise<ModelMessage> {

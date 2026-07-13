@@ -514,6 +514,9 @@ export function MemorySettingsPage(props: {
         case 'not_found':
           toast.error('无法更新记忆', '当前草稿里找不到这条记忆；请先保存或刷新后重试。');
           return;
+        case 'confirmation_required':
+          toast.error('无法恢复记忆', '这条旧格式记忆缺少确认来源；请重新添加或通过审核流程确认。');
+          return;
         case 'oversize':
           toast.error('无法更新记忆', 'MEMORY.md 超出安全上限，请先删减旧内容。');
           return;
@@ -554,6 +557,8 @@ export function MemorySettingsPage(props: {
     archivedEntryCount: 0,
     entries: [],
     activeEntries: [],
+    compatibilityEntries: [],
+    malformedEntries: [],
     archivedEntries: [],
   } satisfies LocalMemoryState;
   const memoryDraftDirty = draft !== effective.content;
@@ -572,7 +577,18 @@ export function MemorySettingsPage(props: {
     () => filterLocalMemoryEntries(visibleMemoryEntries.archivedEntries, normalizedMemoryEntryQuery),
     [visibleMemoryEntries.archivedEntries, normalizedMemoryEntryQuery],
   );
-  const filteredEntryCount = filteredActiveEntries.length + filteredArchivedEntries.length;
+  const filteredCompatibilityEntries = useMemo(
+    () => filterLocalMemoryEntries(visibleMemoryEntries.compatibilityEntries, normalizedMemoryEntryQuery),
+    [visibleMemoryEntries.compatibilityEntries, normalizedMemoryEntryQuery],
+  );
+  const filteredMalformedEntries = useMemo(
+    () => filterLocalMemoryEntries(visibleMemoryEntries.malformedEntries, normalizedMemoryEntryQuery),
+    [visibleMemoryEntries.malformedEntries, normalizedMemoryEntryQuery],
+  );
+  const filteredEntryCount = filteredActiveEntries.length
+    + filteredArchivedEntries.length
+    + filteredCompatibilityEntries.length
+    + filteredMalformedEntries.length;
   const localMemoryPromptPreview = useMemo(() => buildLocalMemoryPromptBody(draft) ?? '', [draft]);
   const promptPreviewBlockedReason = localMemoryPromptPreviewBlockedReason(effective);
   const promptPreviewWillInject = localMemoryPromptPreview.length > 0 && !promptPreviewBlockedReason;
@@ -876,6 +892,28 @@ export function MemorySettingsPage(props: {
                   onStatusChange={updateMemoryEntryStatus}
                 />
               )}
+              {visibleMemoryEntries.compatibilityEntries.length > 0 && (
+                <MemoryEntryList
+                  title="兼容只读记忆"
+                  entries={filteredCompatibilityEntries}
+                  filtered={normalizedMemoryEntryQuery.length > 0}
+                  compatibility
+                  pendingCopyIds={pendingMemoryActions}
+                  onCopyReference={copyMemoryEntryReference}
+                  onFocusDraft={focusMemoryEntryInDraft}
+                />
+              )}
+              {visibleMemoryEntries.malformedEntries.length > 0 && (
+                <MemoryEntryList
+                  title="需要修复的记忆"
+                  entries={filteredMalformedEntries}
+                  filtered={normalizedMemoryEntryQuery.length > 0}
+                  malformed
+                  pendingCopyIds={pendingMemoryActions}
+                  onCopyReference={copyMemoryEntryReference}
+                  onFocusDraft={focusMemoryEntryInDraft}
+                />
+              )}
             </div>
           )}
         </>
@@ -993,6 +1031,8 @@ function MemoryEntryList(props: {
   entries: LocalMemoryState['activeEntries'];
   filtered?: boolean;
   archived?: boolean;
+  compatibility?: boolean;
+  malformed?: boolean;
   draftDirty?: boolean;
   busy?: boolean;
   pendingCopyIds?: ReadonlySet<string>;
@@ -1055,8 +1095,17 @@ function MemoryEntryList(props: {
                     </span>
                   )}
                 </small>
-                <span className="settingsMemoryPromptScope" data-active={props.archived ? 'false' : 'true'}>
-                  {props.archived ? '已归档，不进入 prompt' : '生效条目，会进入本地记忆 prompt'}
+                <span
+                  className="settingsMemoryPromptScope"
+                  data-active={props.archived || props.compatibility || props.malformed ? 'false' : 'true'}
+                >
+                  {props.malformed
+                    ? '格式不完整，只读保留且不会进入 prompt'
+                    : props.compatibility
+                      ? '旧格式兼容条目，不属于已确认的 durable memory'
+                      : props.archived
+                        ? '已归档，不进入 prompt'
+                        : '生效条目，会进入本地记忆 prompt'}
                 </span>
                 <p>{entry.content}</p>
                 {(props.onCopyReference || props.onFocusDraft || props.onStatusChange) && (

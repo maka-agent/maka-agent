@@ -56,7 +56,12 @@ describe('IPC surface contract', () => {
     assert.match(normalizeBlock, /title/);
     assert.match(normalizeBlock, /content/);
     assert.match(normalizeBlock, /scope/);
+    assert.match(normalizeBlock, /sessionId/);
     assert.doesNotMatch(normalizeBlock, /confirmedAt|status|sourceTurnId|source:/);
+    assert.match(main, /proposeMemory\(\{[\s\S]*sessionId: proposal\.sessionId/);
+    assert.match(main, /rememberUserAuthored\(\{[\s\S]*sessionId: memory\.sessionId/);
+    assert.match(preload, /propose\(input: \{ title: string; content: string; scope\?: 'workspace' \| 'session'; sessionId\?: string \}\)/);
+    assert.match(preload, /remember\(input: \{ title: string; content: string; scope\?: 'workspace' \| 'session'; sessionId\?: string \}\)/);
   });
 
   it('wires memory to main-owned privacy state and current-turn update tail', async () => {

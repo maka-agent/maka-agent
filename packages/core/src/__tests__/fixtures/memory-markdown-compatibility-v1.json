@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "maka.local_memory.compatibility_fixture.v1",
+  "cases": [
+    {
+      "id": "strict-active",
+      "markdown": "## Strict\n<!-- maka-memory: id=strict entrySchema=maka.local_memory.entry.v1 compatSource=structured_v1 migrationState=not_required source=user_authored status=active scope=workspace confirmedAt=1700000000000 approvedBy=user approvalSurface=manual_editor_save sourceRefs=manual_editor:MEMORY.md -->\nstrict-visible",
+      "expected": { "durableActive": 1, "compatibility": 0, "malformed": 0, "compatVisible": true, "strictVisible": true }
+    },
+    {
+      "id": "plain-legacy",
+      "markdown": "## Legacy\nlegacy-compatible",
+      "expected": { "durableActive": 0, "compatibility": 1, "malformed": 0, "compatVisible": true, "strictVisible": false }
+    },
+    {
+      "id": "old-active-metadata",
+      "markdown": "## Old\n<!-- maka-memory: id=old status=active scope=workspace -->\nold-compatible",
+      "expected": { "durableActive": 0, "compatibility": 1, "malformed": 0, "compatVisible": true, "strictVisible": false }
+    },
+    {
+      "id": "malformed-v1-active",
+      "markdown": "## Broken\n<!-- maka-memory: id=broken entrySchema=maka.local_memory.entry.v1 compatSource=structured_v1 migrationState=not_required source=user_authored status=active scope=workspace approvedBy=user approvalSurface=manual_editor_save -->\nbroken-never-visible",
+      "expected": { "durableActive": 0, "compatibility": 0, "malformed": 1, "compatVisible": false, "strictVisible": false }
+    },
+    {
+      "id": "legacy-archived",
+      "markdown": "## Archived\n<!-- maka-memory: id=archived status=archived -->\narchived-never-visible",
+      "expected": { "durableActive": 0, "compatibility": 1, "malformed": 0, "compatVisible": false, "strictVisible": false }
+    }
+  ]
+}
