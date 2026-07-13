@@ -120,6 +120,20 @@ for (const id of tencentCodingPlanModelIds) {
     throw new Error(`models.dev Tencent Coding Plan snapshot is missing tool-capable model ${id}`);
   }
 }
+const volcengineCodingPlanModelIds = [
+  'ark-code-latest',
+  'doubao-seed-2.0-code',
+  'doubao-seed-2.0-pro',
+  'doubao-seed-2.0-lite',
+  'doubao-seed-code',
+  'minimax-m2.7',
+  'minimax-m3',
+  'glm-5.2',
+  'deepseek-v4-flash',
+  'deepseek-v4-pro',
+  'kimi-k2.6',
+  'kimi-k2.7-code',
+] as const;
 const stepfun = GENERATED_MODELS_DEV_PROVIDER_FACTS.stepfun;
 if (stepfun.id !== 'stepfun') throw new Error('models.dev StepFun provider facts are missing stable id stepfun');
 if (!stepfun.api) throw new Error('models.dev StepFun provider facts are missing api');
@@ -254,6 +268,24 @@ const providerRegistry = {
     modelsDevId: tencentCodingPlan.id,
     readyOrder: 23,
     catalogOrder: 23,
+  },
+  'volcengine-coding-plan': {
+    label: 'Volcengine Ark Coding Plan (China)',
+    description: 'Volcengine Ark subscription for interactive AI coding tools.',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [...volcengineCodingPlanModelIds],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'domestic',
+    catalogGroup: 'plans',
+    catalogBadge: 'Coding',
+    signupUrl: 'https://www.volcengine.com/activity/codingplan',
+    readyOrder: 24,
+    catalogOrder: 24,
   },
   openai: {
     label: 'OpenAI',

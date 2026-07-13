@@ -104,6 +104,22 @@ const SILICONFLOW_MODEL_OVERRIDES: Record<string, ModelMetadata> = Object.fromEn
     .map(([id]) => [id, { capabilities: { chat: true } }]),
 );
 
+const VOLCENGINE_CODING_PLAN_DOCS = 'https://www.volcengine.com/docs/82379/1925114';
+const VOLCENGINE_CODING_PLAN_MODEL_METADATA: Record<string, ModelMetadata> = {
+  'ark-code-latest': planModel('Ark Code Latest', false),
+  'doubao-seed-2.0-code': planModel('Doubao Seed 2.0 Code', true),
+  'doubao-seed-2.0-pro': planModel('Doubao Seed 2.0 Pro', true),
+  'doubao-seed-2.0-lite': planModel('Doubao Seed 2.0 Lite', true),
+  'doubao-seed-code': planModel('Doubao Seed Code', true),
+  'minimax-m2.7': planModel('MiniMax-M2.7', false, 200_000, 128_000),
+  'minimax-m3': planModel('MiniMax-M3', true, 512_000, 128_000),
+  'glm-5.2': planModel('GLM-5.2', false, 1_024_000, 128_000),
+  'deepseek-v4-flash': planModel('DeepSeek-V4-Flash', false, 1_024_000, 384_000),
+  'deepseek-v4-pro': planModel('DeepSeek-V4-Pro', false, 1_024_000, 384_000),
+  'kimi-k2.6': planModel('Kimi-K2.6', true, 256_000, 32_000),
+  'kimi-k2.7-code': planModel('Kimi-K2.7-Code', true, 256_000, 32_000),
+};
+
 // Facts that models.dev cannot express: provider wire controls and
 // access-path-specific aliases/limits. Standard model facts stay generated.
 const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMetadata>>> = {
@@ -131,6 +147,7 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
       },
     },
   },
+  'volcengine-coding-plan': VOLCENGINE_CODING_PLAN_MODEL_METADATA,
   deepseek: {
     'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
   },
@@ -146,6 +163,22 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
     'kimi-for-coding-highspeed': { displayName: 'Kimi for Coding (HighSpeed)', lifecycle: 'active', docsUrl: 'https://www.kimi.com/code/docs/en/', contextWindow: 262_144, maxOutputTokens: 32_768, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
   },
 };
+
+function planModel(
+  displayName: string,
+  vision: boolean,
+  contextWindow?: number,
+  maxOutputTokens?: number,
+): ModelMetadata {
+  return {
+    displayName,
+    lifecycle: 'active',
+    docsUrl: VOLCENGINE_CODING_PLAN_DOCS,
+    ...(contextWindow === undefined ? {} : { contextWindow }),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+    capabilities: { ...REASONING_FUNCTION_CALLING, vision },
+  };
+}
 
 function displayMetadataOnly(
   source: Record<string, ModelMetadata>,

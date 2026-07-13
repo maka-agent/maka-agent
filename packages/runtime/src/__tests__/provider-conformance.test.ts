@@ -1122,6 +1122,118 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.text, 'Echoed hello.');
   });
 
+  test('Volcengine Ark Coding Plan preserves fallback model reasoning through a two-stage tool-call loop', async () => {
+    const modelId = 'glm-5.2';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer volcengine-coding-plan-test-key');
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/api/coding/v3/chat/completions');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-volcengine-coding-plan-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'I should call echo with the requested text.',
+              tool_calls: [{
+                id: 'call_volcengine_coding_plan_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+
+      respondJson(response, 200, {
+        id: 'chatcmpl-volcengine-coding-plan-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'volcengine-coding-plan',
+      name: 'Volcengine Ark Coding Plan (China)',
+      providerType: 'volcengine-coding-plan',
+      baseUrl: `${server.url}/api/coding/v3`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'volcengine-coding-plan-test-key');
+    assert.deepEqual(models.map(({ id }) => id), [
+      'ark-code-latest',
+      'doubao-seed-2.0-code',
+      'doubao-seed-2.0-pro',
+      'doubao-seed-2.0-lite',
+      'doubao-seed-code',
+      'minimax-m2.7',
+      'minimax-m3',
+      'glm-5.2',
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
+      'kimi-k2.6',
+      'kimi-k2.7-code',
+    ]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'volcengine-coding-plan-test-key', modelId }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      {
+        role: 'assistant',
+        content: null,
+        reasoning_content: 'I should call echo with the requested text.',
+        tool_calls: [{
+          id: 'call_volcengine_coding_plan_echo',
+          type: 'function',
+          function: { name: 'echo', arguments: '{"text":"hello"}' },
+        }],
+      },
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_volcengine_coding_plan_echo' },
+    );
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
   for (const stepfun of [
     { label: 'StepFun China', providerType: 'stepfun', apiKey: 'stepfun-test-key' },
     { label: 'StepFun Global', providerType: 'stepfun-ai', apiKey: 'stepfun-global-test-key' },

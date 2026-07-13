@@ -4,6 +4,22 @@ import { lookupModelMetadata, resolveModelVisionSupport } from '../model-metadat
 import { PROVIDER_DEFAULTS, type ModelInfo, type ProviderType } from '../llm-connections.js';
 
 describe('model-metadata vision capability', () => {
+  it('uses Volcengine Coding Plan model facts for its exact fallback allowlist', () => {
+    for (const modelId of PROVIDER_DEFAULTS['volcengine-coding-plan'].fallbackModels) {
+      assert.equal(
+        lookupModelMetadata('volcengine-coding-plan', modelId).capabilities?.functionCalling,
+        true,
+        modelId,
+      );
+    }
+
+    const kimi = lookupModelMetadata('volcengine-coding-plan', 'kimi-k2.7-code');
+    assert.equal(kimi.capabilities?.vision, true);
+    assert.equal(kimi.capabilities?.reasoning, true);
+    assert.equal(kimi.contextWindow, 256_000);
+    assert.equal(kimi.maxOutputTokens, 32_000);
+  });
+
   it('reuses MiniMax snapshot facts for the Coding Plan access path', () => {
     assert.deepEqual(
       lookupModelMetadata('minimax-coding-plan', 'MiniMax-M3'),

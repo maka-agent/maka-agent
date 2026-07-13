@@ -31,6 +31,7 @@ describe('provider compatibility contract', () => {
       'kimi-coding-plan',
       'minimax-coding-plan',
       'tencent-coding-plan',
+      'volcengine-coding-plan',
       'openai',
       'google',
       'deepseek',
@@ -82,6 +83,7 @@ describe('provider compatibility contract', () => {
       'tencent-coding-plan',
       'stepfun-ai',
       'volcengine-ark',
+      'volcengine-coding-plan',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -109,6 +111,7 @@ describe('provider compatibility contract', () => {
       'tencent-coding-plan',
       'stepfun-ai',
       'volcengine-ark',
+      'volcengine-coding-plan',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -139,6 +142,33 @@ describe('provider compatibility contract', () => {
     assert.deepEqual(PROVIDER_REGISTRY.siliconflow.modelDiscovery.query, { sub_type: 'chat' });
     assert.equal(PROVIDER_REGISTRY.ollama.modelDiscovery.kind, 'ollama');
     assert.equal(PROVIDER_REGISTRY['codex-subscription'].modelDiscovery.kind, 'fallback');
+  });
+
+  it('owns Volcengine Ark Coding Plan as a fallback-only interactive coding access path', () => {
+    const provider = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['volcengine-coding-plan'];
+
+    assert.ok(provider);
+    assert.equal(provider.label, 'Volcengine Ark Coding Plan (China)');
+    assert.equal(provider.baseUrl, 'https://ark.cn-beijing.volces.com/api/coding/v3');
+    assert.equal(provider.authKind, 'api_key');
+    assert.equal(provider.protocol, 'openai');
+    assert.deepEqual(provider.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(provider.modelDiscovery, { kind: 'fallback' });
+    assert.equal(provider.catalogGroup, 'plans');
+    assert.deepEqual(provider.fallbackModels, [
+      'ark-code-latest',
+      'doubao-seed-2.0-code',
+      'doubao-seed-2.0-pro',
+      'doubao-seed-2.0-lite',
+      'doubao-seed-code',
+      'minimax-m2.7',
+      'minimax-m3',
+      'glm-5.2',
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
+      'kimi-k2.6',
+      'kimi-k2.7-code',
+    ]);
   });
 
   it('owns the complete xAI provider contract under the stable xai id', () => {
