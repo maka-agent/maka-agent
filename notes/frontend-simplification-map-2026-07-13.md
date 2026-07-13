@@ -89,6 +89,11 @@ dist/**/*.test.js). Real finds verified by hand before acting.
   of the @maka/ui helper. Deliberately NOT converted: use-workspace-instructions-
   controller (lifecycle-counter variant, not boilerplate) and app-shell.tsx
   rendererMountedRef (Round B owns that file).
+- [x] **A follow-up — orphan scroll-area.tsx removed.** primitives/scroll-area.tsx
+  (34 lines, zero consumers, never exported from the ui index) deleted together with
+  its knip ignore; the overlay-scrollbars contract's per-file assertion upgraded to a
+  repo-wide ban on @base-ui react scroll-area imports (stronger invariant, no
+  coverage lost).
 - [ ] **D-2 — mounted-guard long tail**: ~30 remaining `*MountedRef` sites across
   renderer settings pages and packages/ui panels (see `grep -ri "mountedref = useRef"`).
   Mechanical agent sweep: swap to useMountedRef, keep per-site companion-ref cleanup

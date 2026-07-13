@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { resolve } from 'node:path';
 import { readRendererContractCss } from './contract-css-helpers.js';
@@ -10,6 +10,18 @@ const REPO_ROOT = resolve(process.cwd(), '..', '..');
 
 function repoFile(path: string): Promise<string> {
   return readFile(resolve(REPO_ROOT, path), 'utf8');
+}
+
+async function readWorkspaceSources(dir: string): Promise<Array<[string, string]>> {
+  const root = resolve(REPO_ROOT, dir);
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  const sources: Array<[string, string]> = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !/\.tsx?$/.test(entry.name)) continue;
+    const abs = resolve(entry.parentPath, entry.name);
+    sources.push([abs.slice(root.length + 1), await readFile(abs, 'utf8')]);
+  }
+  return sources;
 }
 
 describe('OverlayScrollbars integration contract', () => {
@@ -44,11 +56,21 @@ describe('OverlayScrollbars integration contract', () => {
     assert.match(src, /elements:\s*\{[\s\S]*viewport,[\s\S]*content,[\s\S]*\}/, 'OverlayScrollbars must mount with explicit viewport/content elements');
   });
 
-  it('backs shared primitive ScrollArea with OverlayScrollbars instead of Base UI scrollbars', async () => {
-    const primitiveScrollArea = await repoFile('packages/ui/src/primitives/scroll-area.tsx');
+  it('keeps Base UI ScrollArea banned across both workspaces', async () => {
+    // Simplification Round A follow-up: the orphaned primitives/scroll-area.tsx
+    // wrapper (zero consumers, never exported from the ui index) is deleted;
+    // the invariant it carried — nothing reintroduces Base UI scrollbars —
+    // now holds repo-wide instead of for one file.
+    const uiSources = await readWorkspaceSources('packages/ui/src');
+    const desktopSources = await readWorkspaceSources('apps/desktop/src');
 
-    assert.match(primitiveScrollArea, /OverlayScrollArea/, 'shared primitive ScrollArea must render the shared OverlayScrollArea primitive');
-    assert.doesNotMatch(primitiveScrollArea, /@base-ui\/react\/scroll-area/, 'shared primitive ScrollArea must not reintroduce Base UI ScrollArea');
+    for (const [file, src] of [...uiSources, ...desktopSources]) {
+      assert.doesNotMatch(
+        src,
+        /@base-ui\/react\/scroll-area/,
+        `${file} must not reintroduce Base UI ScrollArea — all scroll surfaces go through OverlayScrollArea`,
+      );
+    }
   });
 
   it('loads vendor CSS and defines the Maka theme tokens', async () => {

@@ -47,8 +47,7 @@
         "src/**/*.{ts,tsx}",
         "stories/**/*.{ts,tsx}"
       ],
-      "ignoreDependencies": ["@storybook/react-vite"],
-      "ignore": ["src/primitives/scroll-area.tsx"]
+      "ignoreDependencies": ["@storybook/react-vite"]
     }
   }
 }
