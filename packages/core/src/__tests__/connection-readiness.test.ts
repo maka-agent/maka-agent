@@ -71,6 +71,21 @@ describe('isConnectionReady — model capability gate', () => {
     assert.deepEqual(verdict, { ready: true, model: 'custom-chat' });
   });
 
+  it('keeps optional-key LocalAI ready when no credential is stored', () => {
+    const verdict = isConnectionReady({
+      connection: connection({
+        slug: 'localai',
+        name: 'LocalAI',
+        providerType: 'localai',
+        defaultModel: 'qwen3-8b',
+        models: [{ id: 'qwen3-8b' }],
+      }),
+      hasSecret: false,
+    });
+
+    assert.deepEqual(verdict, { ready: true, model: 'qwen3-8b' });
+  });
+
   it('treats an enumerated fallback model list as the local send gate', () => {
     const verdict = isConnectionReady({
       connection: connection({

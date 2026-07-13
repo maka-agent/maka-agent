@@ -53,6 +53,7 @@ describe('provider compatibility contract', () => {
       'volcengine-ark',
       'ollama',
       'lm-studio',
+      'localai',
       'openai-compatible',
       'claude-subscription',
       'codex-subscription',
@@ -73,6 +74,7 @@ describe('provider compatibility contract', () => {
       'mistral',
       'ollama',
       'lm-studio',
+      'localai',
       'kimi-coding-plan',
       'openai-compatible',
       'minimax-coding-plan',
@@ -105,6 +107,7 @@ describe('provider compatibility contract', () => {
       'togetherai',
       'ollama',
       'lm-studio',
+      'localai',
       'openai-compatible',
       'fireworks-ai',
       'nvidia',
@@ -172,6 +175,22 @@ describe('provider compatibility contract', () => {
       'kimi-k2.6',
       'kimi-k2.7-code',
     ]);
+  });
+
+  it('owns LocalAI under one stable local provider id with optional API-key auth', () => {
+    const localai = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).localai;
+
+    assert.ok(localai, 'LocalAI must be available through the shared provider registry');
+    assert.equal(localai.label, 'LocalAI');
+    assert.equal(localai.baseUrl, 'http://localhost:8080/v1');
+    assert.equal(localai.authKind, 'optional_api_key');
+    assert.equal(localai.protocol, 'openai');
+    assert.deepEqual(localai.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(localai.modelDiscovery, { kind: 'protocol' });
+    assert.deepEqual(localai.fallbackModels, ['qwen3-8b']);
+    assert.equal(localai.category, 'local');
+    assert.equal(localai.catalogGroup, 'local');
+    assert.equal(localai.catalogBadge, 'Local');
   });
 
   it('owns the complete xAI provider contract under the stable xai id', () => {

@@ -42,7 +42,7 @@ export interface ProviderDefaults {
   label: string;
   description: string;
   baseUrl: string;
-  authKind: 'api_key' | 'oauth_token' | 'none';
+  authKind: 'api_key' | 'optional_api_key' | 'oauth_token' | 'none';
   backendKind: BackendKind;
   fallbackModels: string[];
   status: 'ready' | 'phase3-experimental';
@@ -705,6 +705,23 @@ const providerRegistry = {
     catalogBadge: 'Local',
     readyOrder: 14,
     catalogOrder: 17,
+  },
+  localai: {
+    label: 'LocalAI',
+    description: 'Local models served by LocalAI with optional API-key protection.',
+    baseUrl: 'http://localhost:8080/v1',
+    authKind: 'optional_api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: ['qwen3-8b'],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'local',
+    catalogGroup: 'local',
+    catalogBadge: 'Local',
+    readyOrder: 14.5,
+    catalogOrder: 17.5,
   },
   'openai-compatible': {
     label: 'OpenAI-compatible (custom)',

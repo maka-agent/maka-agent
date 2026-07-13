@@ -1,5 +1,6 @@
 import {
   PROVIDER_DEFAULTS,
+  providerAuthRequiresSecret,
   type ConnectionAuth,
   type ConnectionLastTestStatus,
   type LlmConnection,
@@ -80,9 +81,9 @@ export function deriveProviderAuthContract(input: ProviderAuthContractInput): Pr
       providerType: input.providerType,
       setupMode: setupModeForProvider(input.providerType),
       state: 'disabled',
-      validationStatus: input.lastTestStatus ?? (defaults.authKind === 'none' ? 'not_required' : 'not_run'),
-      requiresSecret: defaults.authKind !== 'none',
-      sendMayUseWithoutSecret: defaults.authKind === 'none',
+      validationStatus: input.lastTestStatus ?? (providerAuthRequiresSecret(input.providerType) ? 'not_run' : 'not_required'),
+      requiresSecret: providerAuthRequiresSecret(input.providerType),
+      sendMayUseWithoutSecret: !providerAuthRequiresSecret(input.providerType),
       actionAvailability,
       copy: {
         label: `${defaults.label} 已关闭`,
@@ -129,6 +130,30 @@ export function deriveProviderAuthContract(input: ProviderAuthContractInput): Pr
       copy: {
         label: `${defaults.label} 账号登录预览`,
         detail: '当前仅展示账号登录状态入口；普通模型密钥连接仍可在聊天模型中使用。',
+      },
+    };
+  }
+
+  if (defaults.authKind === 'optional_api_key') {
+    return {
+      providerType: input.providerType,
+      setupMode: 'api_key',
+      state: 'configured',
+      validationStatus: input.lastTestStatus ?? (hasSecret ? 'not_run' : 'not_required'),
+      requiresSecret: false,
+      sendMayUseWithoutSecret: true,
+      actionAvailability: {
+        ...actionAvailability,
+        save_secret: 'available',
+        test_credentials: 'available',
+        fetch_models: supportsModelDiscovery ? 'available' : 'hidden',
+        revoke_auth: hasSecret ? 'available' : 'hidden',
+      },
+      copy: {
+        label: `${defaults.label} 可选模型密钥`,
+        detail: hasSecret
+          ? '已保存可选模型密钥；也可删除密钥连接未启用鉴权的实例。'
+          : '模型密钥可选；未启用鉴权的实例可直接连接。',
       },
     };
   }

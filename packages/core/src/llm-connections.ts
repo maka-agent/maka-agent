@@ -35,6 +35,7 @@ export type {
 
 export type ConnectionAuth =
   | { kind: 'api_key'; apiKey: string }
+  | { kind: 'optional_api_key'; apiKey?: string }
   | { kind: 'oauth_token'; oauthToken: string; expiresAt?: number }
   | { kind: 'none' };
 
@@ -105,6 +106,16 @@ export const CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS = new Set([
 ]);
 
 export const PROVIDER_DEFAULTS = PROVIDER_REGISTRY;
+
+export function providerAuthRequiresSecret(providerType: ProviderType): boolean {
+  const authKind = PROVIDER_DEFAULTS[providerType].authKind;
+  return authKind === 'api_key' || authKind === 'oauth_token';
+}
+
+export function providerAuthSupportsApiKey(providerType: ProviderType): boolean {
+  const authKind = PROVIDER_DEFAULTS[providerType].authKind;
+  return authKind === 'api_key' || authKind === 'optional_api_key';
+}
 
 export function backendKindOf(c: Pick<LlmConnection, 'providerType'>): BackendKind {
   return PROVIDER_DEFAULTS[c.providerType].backendKind;
