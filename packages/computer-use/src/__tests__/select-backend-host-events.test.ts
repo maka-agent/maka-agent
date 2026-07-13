@@ -1,0 +1,66 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import type { CuDispatchBackend } from '@maka/runtime';
+import { selectComputerUseBackend } from '../select-backend.js';
+
+test('service invalidation producer advances Runtime to reobserve', async () => {
+  if (process.platform !== 'darwin') return;
+  let invalidate:
+    | ((input: {
+        sessionId: string;
+        reason: 'child_exit';
+        outcomeUnknown: boolean;
+      }) => void)
+    | undefined;
+  const backend: CuDispatchBackend = {
+    async preflight() {
+      return { accessibility: true, screenRecording: true };
+    },
+    async observeApp() {
+      return {
+        observationId: 'backend-observation',
+        appId: 'Fixture',
+        pid: 42,
+        windowId: 7,
+        elements: [],
+      };
+    },
+    async run() {
+      return { outcome: { ok: true, tier: 'ax', verified: true } };
+    },
+  };
+  const selected = selectComputerUseBackend({
+    binaryPath: '/tmp/fake-cua-driver',
+    expectedBinarySha256: '0'.repeat(64),
+    createBackend(options) {
+      invalidate = options.onSessionInvalidated as typeof invalidate;
+      return backend;
+    },
+  });
+  const [tool] = selected.tools;
+  await tool.impl({
+    action: 'observe',
+    app: 'Fixture',
+    include_screenshot: false,
+  } as never, {
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    toolCallId: 'observe',
+    cwd: '/tmp',
+    abortSignal: new AbortController().signal,
+    emitOutput() {},
+  });
+  assert.equal(
+    selected.tools.sessionEvents.snapshot('session-1').status,
+    'active',
+  );
+  invalidate?.({
+    sessionId: 'session-1',
+    reason: 'child_exit',
+    outcomeUnknown: false,
+  });
+  assert.equal(
+    selected.tools.sessionEvents.snapshot('session-1').status,
+    'reobserve_required',
+  );
+});

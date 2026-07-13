@@ -633,6 +633,34 @@ export function buildComputerUseTools(deps: {
     return validation.ok ? undefined : sessionFailure(validation.reason);
   }
 
+  function applyTypedOutcomeState(
+    state: CuaSessionState,
+    outcome: CuDispatchOutcome,
+  ): void {
+    if (outcome.ok) return;
+    switch (outcome.error) {
+      case 'user_intervened':
+        // The driver currently exposes no trustworthy debounce deadline.
+        // Re-observe immediately instead of entering an unrecoverable
+        // intervention_debounce state.
+        state.reobserveRequired();
+        return;
+      case 'screen_locked':
+        state.screenLocked();
+        return;
+      case 'blocked_url':
+        state.blockedUrlDetected();
+        return;
+      case 'outcome_unknown':
+      case 'service_unavailable':
+      case 'service_mismatch':
+        state.reobserveRequired();
+        return;
+      default:
+        return;
+    }
+  }
+
   function toObservationSnapshot(observation: CuObservation): CuaObservationSnapshot {
     const screenshotWidth = observation.screenshot?.widthPx;
     const screenshotHeight = observation.screenshot?.heightPx;
@@ -1301,6 +1329,7 @@ export function buildComputerUseTools(deps: {
             if (presentation.blocked) return presentation.blocked;
             if (!presentation.result) return bindingFailure('capture_failed');
             result = presentation.result;
+            applyTypedOutcomeState(state, result.outcome);
             const postDispatchFailure = validateActionLease(state, actionLease);
             if (postDispatchFailure) {
               presentation.finish();
@@ -1413,6 +1442,7 @@ export function buildComputerUseTools(deps: {
             );
             if (presentation.blocked) return presentation.blocked;
             result = presentation.result;
+            if (result) applyTypedOutcomeState(state, result.outcome);
             if (actionLease) {
               const leaseFailure = validateActionLease(state, actionLease);
               if (leaseFailure) {

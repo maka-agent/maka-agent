@@ -1159,6 +1159,47 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.doesNotMatch(unlocked.text, /screen_locked|reobserve_required/);
   });
 
+  for (const [error, expectedStatus] of [
+    ['user_intervened', 'reobserve_required'],
+    ['screen_locked', 'screen_locked'],
+    ['blocked_url', 'blocked_url'],
+    ['outcome_unknown', 'reobserve_required'],
+    ['service_unavailable', 'reobserve_required'],
+  ] as const) {
+    test(`typed ${error} outcome advances Runtime to ${expectedStatus}`, async () => {
+      const backend = fakeBackend() as CuDispatchBackend & {
+        observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+        captureObservation: NonNullable<CuDispatchBackend['captureObservation']>;
+      };
+      backend.observeApp = async () => observation();
+      backend.captureObservation = async () => observation({
+        observationId: 'backend-obs-2',
+      });
+      backend.run = async () => ({
+        outcome: {
+          ok: false,
+          error,
+          message: error,
+        },
+      });
+      const tools = buildComputerUseTools({ backend });
+      const [tool] = tools;
+      const observed = await tool.impl({
+        action: 'observe',
+        app: 'Fixture',
+      } as never, ctx()) as { text: string };
+      await tool.impl({
+        action: 'left_click',
+        observation_id: JSON.parse(observed.text).observation_id,
+        coordinate: [25, 30],
+      } as never, ctx());
+      assert.equal(
+        tools.sessionEvents.snapshot('s1').status,
+        expectedStatus,
+      );
+    });
+  }
+
   test('a queued keyboard mutation cannot silently target a newer frame', async () => {
     let releaseClick!: () => void;
     const clickGate = new Promise<void>((resolve) => {
