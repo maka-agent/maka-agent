@@ -27,6 +27,23 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the Cerebras provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'cerebras',
+        name: 'Cerebras',
+        providerType: 'cerebras',
+        defaultModel: 'gpt-oss-120b',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'cerebras');
+      assert.equal(persisted.connections[0]?.defaultModel, 'gpt-oss-120b');
+    });
+  });
+
   test('persists the MiniMax Coding Plan provider id and exact default model', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

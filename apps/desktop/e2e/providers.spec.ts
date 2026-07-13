@@ -20,6 +20,24 @@ test('adds SiliconFlow from the provider catalog as an in-pane Settings flow', a
   await expect(page.locator('.providerConfigOverlay')).toHaveCount(0);
 });
 
+test('adds Cerebras with its exact snapshot model and API-key credential field', async ({ window: page }) => {
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
+  await page.getByRole('button', { name: '添加服务商' }).click();
+
+  await page.getByRole('tab', { name: 'API', exact: true }).click();
+  await page.getByPlaceholder('搜索服务商').fill('Cerebras');
+  await page.getByRole('button', { name: /添加模型供应商：Cerebras/ }).click();
+  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.cerebras.ai/v1');
+  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('gpt-oss-120b');
+  await page.getByRole('button', { name: '保存供应商' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Cerebras', exact: true }).first()).toBeVisible();
+  await expect(page.getByText('gpt-oss-120b', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+});
+
 test('adds MiniMax Coding Plan under its independent provider id with an exact snapshot model', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();

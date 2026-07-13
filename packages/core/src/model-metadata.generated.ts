@@ -2,7 +2,7 @@
 // Do not edit by hand; put access-path-specific facts in model-metadata.ts.
 import type { ModelMetadata } from './model-metadata.js';
 
-export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "moonshot" | "openai" | "siliconflow" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
+export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "moonshot" | "openai" | "siliconflow" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
   "anthropic": {
     "claude-fable-5": {"displayName":"Claude Fable 5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-haiku-4-5": {"displayName":"Claude Haiku 4.5 (latest)","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":200000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
@@ -18,6 +18,11 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "deepseek" | "g
     "claude-sonnet-4-5-20250929": {"displayName":"Claude Sonnet 4.5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-sonnet-4-6": {"displayName":"Claude Sonnet 4.6","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-sonnet-5": {"displayName":"Claude Sonnet 5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+  },
+  "cerebras": {
+    "gemma-4-31b": {"displayName":"Gemma 4 31B IT","lifecycle":"active","docsUrl":"https://inference-docs.cerebras.ai/models/overview","contextWindow":131072,"maxOutputTokens":40960,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "gpt-oss-120b": {"displayName":"GPT OSS 120B","lifecycle":"active","docsUrl":"https://inference-docs.cerebras.ai/models/overview","contextWindow":131072,"maxOutputTokens":40960,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "zai-glm-4.7": {"displayName":"Z.AI GLM-4.7","lifecycle":"active","docsUrl":"https://inference-docs.cerebras.ai/models/overview","contextWindow":131072,"maxOutputTokens":40960,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
   },
   "deepseek": {
     "deepseek-chat": {"displayName":"DeepSeek Chat","lifecycle":"active","docsUrl":"https://api-docs.deepseek.com/quick_start/pricing","contextWindow":1000000,"maxOutputTokens":384000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
@@ -234,8 +239,9 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "deepseek" | "g
   },
 };
 
-export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "moonshot" | "openai" | "siliconflow" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
+export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "moonshot" | "openai" | "siliconflow" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
   "anthropic": {"id":"anthropic","name":"Anthropic","doc":"https://docs.anthropic.com/en/docs/about-claude/models"},
+  "cerebras": {"id":"cerebras","name":"Cerebras","doc":"https://inference-docs.cerebras.ai/models/overview"},
   "deepseek": {"id":"deepseek","name":"DeepSeek","api":"https://api.deepseek.com","doc":"https://api-docs.deepseek.com/quick_start/pricing"},
   "google": {"id":"google","name":"Google","doc":"https://ai.google.dev/gemini-api/docs/models"},
   "gemini-cli": {"id":"google","name":"Google","doc":"https://ai.google.dev/gemini-api/docs/models"},

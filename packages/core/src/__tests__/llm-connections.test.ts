@@ -39,6 +39,7 @@ describe('provider compatibility contract', () => {
       'MiniMax-cn',
       'siliconflow',
       'xai',
+      'cerebras',
       'ollama',
       'lm-studio',
       'openai-compatible',
@@ -57,6 +58,7 @@ describe('provider compatibility contract', () => {
       'MiniMax-cn',
       'siliconflow',
       'xai',
+      'cerebras',
       'ollama',
       'lm-studio',
       'kimi-coding-plan',
@@ -76,6 +78,7 @@ describe('provider compatibility contract', () => {
       'openai',
       'google',
       'xai',
+      'cerebras',
       'ollama',
       'lm-studio',
       'openai-compatible',
@@ -136,6 +139,28 @@ describe('provider compatibility contract', () => {
       modelsDevId: 'xai',
       readyOrder: 10,
       catalogOrder: 12,
+    });
+  });
+
+  it('owns the complete Cerebras provider contract under the stable cerebras id', () => {
+    assert.deepEqual(PROVIDER_REGISTRY.cerebras, {
+      label: 'Cerebras',
+      description: 'Fast hosted open-model inference with reasoning and tool use.',
+      baseUrl: 'https://api.cerebras.ai/v1',
+      authKind: 'api_key',
+      backendKind: 'ai-sdk',
+      fallbackModels: ['gpt-oss-120b', 'gemma-4-31b', 'zai-glm-4.7'],
+      status: 'ready',
+      protocol: 'openai',
+      runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+      modelDiscovery: { kind: 'protocol' },
+      category: 'overseas',
+      catalogGroup: 'api',
+      catalogBadge: 'API',
+      signupUrl: 'https://cloud.cerebras.ai/',
+      modelsDevId: 'cerebras',
+      readyOrder: 11,
+      catalogOrder: 13,
     });
   });
 });

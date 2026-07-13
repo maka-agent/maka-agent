@@ -4,6 +4,7 @@ const SOURCE_URL = 'https://models.dev/api.json';
 const DEFAULT_OUTPUT = 'packages/core/src/model-metadata.generated.ts';
 const PROVIDERS = {
   anthropic: 'anthropic',
+  cerebras: 'cerebras',
   deepseek: 'deepseek',
   google: 'google',
   'gemini-cli': 'google',

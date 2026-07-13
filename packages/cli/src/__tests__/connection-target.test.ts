@@ -32,6 +32,29 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF');
   });
 
+  test('resolves Cerebras credentials without rewriting the selected model id', async () => {
+    const connection = makeConnection({
+      slug: 'cerebras',
+      name: 'Cerebras',
+      providerType: 'cerebras',
+      defaultModel: 'gpt-oss-120b',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'cerebras',
+        get: async (slug) => slug === 'cerebras' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'cerebras-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'cerebras');
+    assert.equal(target.apiKey, 'cerebras-test-key');
+    assert.equal(target.model, 'gpt-oss-120b');
+  });
+
   test('resolves MiniMax Coding Plan credentials without rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'minimax-plan',

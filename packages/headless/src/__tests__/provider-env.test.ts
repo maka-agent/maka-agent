@@ -22,3 +22,11 @@ test('xAI keeps provider-scoped credential environment names', () => {
     baseUrls: ['XAI_BASE_URL'],
   });
 });
+
+test('Cerebras credentials stay provider-scoped and support key files', () => {
+  assert.deepEqual(providerCredentialEnv('cerebras'), {
+    apiKeys: ['CEREBRAS_API_KEY'],
+    apiKeyFile: 'CEREBRAS_API_KEY_FILE',
+    baseUrls: ['CEREBRAS_BASE_URL'],
+  });
+});

@@ -19,6 +19,7 @@ const PROVIDER_CREDENTIAL_ENV = {
   'MiniMax-cn': env('MINIMAX', ['MINIMAX_BASE_URL']),
   siliconflow: env('SILICONFLOW', ['SILICONFLOW_BASE_URL']),
   xai: env('XAI', ['XAI_BASE_URL']),
+  cerebras: env('CEREBRAS', ['CEREBRAS_BASE_URL']),
   'openai-compatible': env('OPENAI', ['OPENAI_BASE_URL']),
   'claude-subscription': env('ANTHROPIC'),
 } satisfies Partial<Record<ProviderType, ProviderCredentialEnv>>;

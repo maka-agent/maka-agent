@@ -18,12 +18,11 @@ describe('models.dev provider conformance', () => {
     const modelId = 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF';
     const requestBodies: Array<Record<string, unknown>> = [];
     const server = await startJsonServer(async (request, response) => {
-      assert.equal(request.headers.authorization, undefined);
-      if (request.method === 'GET' && request.url === '/v1/models') {
-        respondJson(response, 200, { data: [{ id: modelId }] });
-        return;
-      }
-
+    assert.equal(request.headers.authorization, undefined);
+    if (request.method === 'GET' && request.url === '/v1/models') {
+      respondJson(response, 200, { data: [{ id: modelId }] });
+      return;
+    }
       assert.equal(request.method, 'POST');
       assert.equal(request.url, '/v1/chat/completions');
       const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
@@ -102,6 +101,102 @@ describe('models.dev provider conformance', () => {
     assert.equal(secondMessages.some((message) => message.role === 'tool'), true);
     assert.equal(JSON.stringify(secondMessages).includes('hello'), true);
     assert.equal(result.text, 'Echo returned hello.');
+  });
+
+  test('Cerebras discovers exact account model ids and completes its documented two-stage tool-call loop', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer cerebras-test-key');
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        respondJson(response, 200, { data: [{ id: 'gpt-oss-120b' }] });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      const messages = body.messages as Array<{ role: string }>;
+      if (messages.some(({ role }) => role === 'tool')) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-cerebras-final',
+          object: 'chat.completion',
+          created: 2,
+          model: 'gpt-oss-120b',
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+        });
+        return;
+      }
+      respondJson(response, 200, {
+        id: 'chatcmpl-cerebras-tool',
+        object: 'chat.completion',
+        created: 1,
+        model: 'gpt-oss-120b',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_echo',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'cerebras',
+      name: 'Cerebras',
+      providerType: 'cerebras',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: 'gpt-oss-120b',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'cerebras-test-key');
+    assert.deepEqual(models, [{ id: 'gpt-oss-120b' }]);
+
+    const result = await generateText({
+      model: getAIModel({
+        connection,
+        apiKey: 'cerebras-test-key',
+        modelId: models[0]!.id,
+      }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), ['gpt-oss-120b', 'gpt-oss-120b']);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
+    );
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolCalls[0]?.input, { text: 'hello' });
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
   });
 
   test('SiliconFlow discovers exact model ids and completes an OpenAI-compatible tool-call turn', async () => {

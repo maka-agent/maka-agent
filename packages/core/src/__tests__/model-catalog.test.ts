@@ -34,6 +34,28 @@ describe('ModelCatalogEntry', () => {
     });
   });
 
+  it('uses the checked-in Cerebras snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'cerebras',
+        providerType: 'cerebras',
+        defaultModel: 'gpt-oss-120b',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), [
+      'gpt-oss-120b',
+      'gemma-4-31b',
+      'zai-glm-4.7',
+    ]);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
   it('uses models.dev fallback metadata for a SiliconFlow connection before live discovery', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

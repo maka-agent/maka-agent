@@ -60,6 +60,10 @@ const minimaxPlanModelIds = toolCallingModelIds('MiniMax', GENERATED_MODELS_DEV_
 const xai = GENERATED_MODELS_DEV_PROVIDER_FACTS.xai;
 if (xai.id !== 'xai') throw new Error('models.dev xAI provider facts are missing stable id xai');
 const xaiModelIds = toolCallingModelIds('xAI', GENERATED_MODELS_DEV_METADATA.xai, ['grok-4.5']);
+const cerebras = GENERATED_MODELS_DEV_PROVIDER_FACTS.cerebras;
+if (cerebras.id !== 'cerebras') throw new Error('models.dev Cerebras provider facts are missing stable id cerebras');
+
+const cerebrasModelIds = toolCallingModelIds('Cerebras', GENERATED_MODELS_DEV_METADATA.cerebras, ['gpt-oss-120b']);
 
 function toolCallingModelIds(
   providerLabel: string,
@@ -311,6 +315,25 @@ const providerRegistry = {
     readyOrder: 10,
     catalogOrder: 12,
   },
+  cerebras: {
+    label: cerebras.name,
+    description: 'Fast hosted open-model inference with reasoning and tool use.',
+    baseUrl: 'https://api.cerebras.ai/v1',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: cerebrasModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://cloud.cerebras.ai/',
+    modelsDevId: cerebras.id,
+    readyOrder: 11,
+    catalogOrder: 13,
+  },
   ollama: {
     label: 'Ollama',
     description: 'Local models from Ollama on localhost.',
@@ -325,8 +348,8 @@ const providerRegistry = {
     category: 'local',
     catalogGroup: 'local',
     catalogBadge: 'Local',
-    readyOrder: 11,
-    catalogOrder: 13,
+    readyOrder: 12,
+    catalogOrder: 14,
     recommendedOrder: 7,
   },
   'lm-studio': {
