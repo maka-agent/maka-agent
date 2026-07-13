@@ -127,6 +127,7 @@ const AX_LABEL = process.env.CUA_MOCK_AX_LABEL || '';
 const SEMANTIC_OCCLUDED = process.env.CUA_MOCK_SEMANTIC_OCCLUDED === '1';
 const PAGE_EXEC_RESULT = process.env.CUA_MOCK_PAGE_EXEC_RESULT || '';
 const PAGE_READBACK_VALUE = process.env.CUA_MOCK_PAGE_READBACK_VALUE || '';
+const NATIVE_READBACK_VALUE = process.env.CUA_MOCK_NATIVE_READBACK_VALUE || '';
 const PAGE_DOCUMENT_MARKER = process.env.CUA_MOCK_PAGE_DOCUMENT_MARKER || 'document-a';
 let PAGE_FIELD_VALUE = process.env.CUA_MOCK_PAGE_FIELD_VALUE || '';
 let PAGE_INSERTED = false;
@@ -203,7 +204,9 @@ function handle(msg) {
           element_token: 'snapshot:7',
           role: AX_ROLE,
           label: AX_LABEL || undefined,
-          value: FIELD_VALUES.get(snapshotWindowId) || '',
+          value: FIELD_VALUES.has(snapshotWindowId)
+            ? NATIVE_READBACK_VALUE || FIELD_VALUES.get(snapshotWindowId) || ''
+            : '',
           frame: snapshotFrame,
         };
         const refetchedElements = WINDOW_STATE_CALLS === 2 && REFETCH_MODE === 'replacement'
@@ -453,6 +456,7 @@ function makeBackend(opts: {
   pageTarget?: CuaResolvedPageTextTarget;
   pageFieldValue?: string;
   pageReadbackValue?: string;
+  nativeReadbackValue?: string;
   pageDocumentMarker?: string;
   resolvePageDocumentFingerprint?: CuaDriverBackendOptions['resolvePageDocumentFingerprint'];
   resolveContentFingerprint?: CuaDriverBackendOptions['resolveContentFingerprint'];
@@ -485,6 +489,7 @@ function makeBackend(opts: {
     : '';
   process.env.CUA_MOCK_PAGE_FIELD_VALUE = opts.pageFieldValue ?? '';
   process.env.CUA_MOCK_PAGE_READBACK_VALUE = opts.pageReadbackValue ?? '';
+  process.env.CUA_MOCK_NATIVE_READBACK_VALUE = opts.nativeReadbackValue ?? '';
   process.env.CUA_MOCK_PAGE_DOCUMENT_MARKER = opts.pageDocumentMarker ?? 'document-a';
   process.env.CUA_MOCK_SNAPSHOT_DELAY_MS = String(opts.snapshotDelayMs ?? 0);
   process.env.CUA_MOCK_REFETCH_MODE = opts.refetchMode ?? '';
@@ -2267,7 +2272,7 @@ describe('cua-driver backend', () => {
     const failed = await mismatch.backend.run({ type: 'type', text: 'missing' } as CuAction, sig);
     assert.equal(failed.outcome.ok, false);
     if (!failed.outcome.ok) {
-      assert.equal(failed.outcome.error, 'capture_failed');
+      assert.equal(failed.outcome.error, 'outcome_unknown');
       assert.equal(failed.outcome.evidence?.path, 'cdp');
     }
     const mismatchPageCalls = businessPageCalls(await readRecords(mismatch.logPath));
@@ -2277,6 +2282,127 @@ describe('cua-driver backend', () => {
       'insert_text',
       'execute_javascript',
     ]);
+  });
+
+  it('native AX text readback mismatch preserves outcome_unknown', async () => {
+    const { backend, logPath } = makeBackend({
+      nativeReadbackValue: 'wrong',
+    });
+    const signal = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const result = await backend.run(
+      { type: 'type', text: 'expected' } as CuAction,
+      signal,
+    );
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) {
+      assert.equal(result.outcome.error, 'outcome_unknown');
+      assert.equal(result.outcome.evidence?.path, 'ax');
+    }
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 1);
+  });
+
+  it('semantic dispatch followed by oversized fresh capture returns outcome_unknown', async () => {
+    let compressions = 0;
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      bigImage: true,
+      compressFrame: (base64, mimeType) => {
+        compressions += 1;
+        return compressions === 1
+          ? { base64: 'anVzdGpwZWc=', mimeType: 'image/jpeg' }
+          : {
+              base64: 'A'.repeat(12_000_000),
+              mimeType: mimeType as 'image/png' | 'image/jpeg',
+            };
+      },
+    });
+    const signal = new AbortController().signal;
+    const context = {
+      sessionId: 'capture-after-dispatch',
+      turnId: 'turn-1',
+      toolCallId: 'observe',
+    };
+    const observed = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, signal, context);
+
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: observed.observationId,
+      elementId: '7',
+      elementIdentity: observed.elements[0]!.identity,
+    }, signal, {
+      ...context,
+      toolCallId: 'click',
+      boundAction: boundElementAction(observed, '7'),
+    });
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) {
+      assert.equal(result.outcome.error, 'outcome_unknown');
+      assert.match(result.outcome.message, /delivered/);
+    }
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 1);
+  });
+
+  it('failed screenshot normalization does not evict a usable observation', async () => {
+    let compressions = 0;
+    const { backend } = makeBackend({
+      axRole: 'AXButton',
+      bigImage: true,
+      compressFrame: (base64, mimeType) => {
+        compressions += 1;
+        return compressions <= 16
+          ? { base64: 'anVzdGpwZWc=', mimeType: 'image/jpeg' }
+          : {
+              base64: 'A'.repeat(12_000_000),
+              mimeType: mimeType as 'image/png' | 'image/jpeg',
+            };
+      },
+    });
+    const signal = new AbortController().signal;
+    const context = {
+      sessionId: 'observation-cap',
+      turnId: 'turn-1',
+      toolCallId: 'observe',
+    };
+    const observations = [];
+    for (let index = 0; index < 16; index += 1) {
+      observations.push(await backend.observeApp!({
+        app: 'Fixture Window',
+        includeScreenshot: true,
+      }, signal, { ...context, toolCallId: `observe-${index}` }));
+    }
+    await assert.rejects(
+      backend.observeApp!({
+        app: 'Fixture Window',
+        includeScreenshot: true,
+      }, signal, { ...context, toolCallId: 'failed-observe' }),
+    );
+
+    const first = observations[0]!;
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: first.observationId,
+      elementId: '7',
+      elementIdentity: first.elements[0]!.identity,
+    }, signal, {
+      ...context,
+      toolCallId: 'oldest-click',
+      boundAction: boundElementAction(first, '7'),
+    });
+    assert.notEqual(
+      result.outcome.ok ? undefined : result.outcome.error,
+      'stale_frame',
+    );
   });
 
   it('abort after delivery returns outcome_unknown and the next call uses a fresh child', async () => {

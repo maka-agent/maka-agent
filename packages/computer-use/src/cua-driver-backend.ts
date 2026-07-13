@@ -930,17 +930,6 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const axContentFingerprint = opts.resolveContentFingerprint
       ? opts.resolveContentFingerprint([...elements.values()])
       : contentFingerprint(elements.values());
-    storeObservation(observationId, {
-      context: { sessionId: context.sessionId, turnId: context.turnId },
-      appId,
-      window,
-      elements,
-      contentFingerprint: axContentFingerprint,
-      ...(page ? { page } : {}),
-      ...(screenshotWidthPx ? { screenshotWidthPx } : {}),
-      ...(screenshotHeightPx ? { screenshotHeightPx } : {}),
-      ...(displays ? { displays } : {}),
-    });
     const image = includeScreenshot
       ? state?.content?.find((content) => content.type === 'image' && typeof content.data === 'string')
       : undefined;
@@ -956,6 +945,17 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       throw new CuaDriverCaptureError(normalizedScreenshot);
     }
     const screenshot = normalizedScreenshot;
+    storeObservation(observationId, {
+      context: { sessionId: context.sessionId, turnId: context.turnId },
+      appId,
+      window,
+      elements,
+      contentFingerprint: axContentFingerprint,
+      ...(page ? { page } : {}),
+      ...(screenshotWidthPx ? { screenshotWidthPx } : {}),
+      ...(screenshotHeightPx ? { screenshotHeightPx } : {}),
+      ...(displays ? { displays } : {}),
+    });
     return {
       observationId,
       appId,
@@ -1557,7 +1557,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         }
       : {
           ok: false,
-          error: 'capture_failed',
+          error: 'outcome_unknown',
           message: 'AXValue write could not be confirmed by a fresh snapshot',
           evidence: { path: 'ax', effect: 'unverifiable' },
         };
@@ -1662,7 +1662,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         }
       : {
           ok: false,
-          error: 'capture_failed',
+          error: 'outcome_unknown',
           message: 'CDP Input.insertText could not be confirmed by DOM readback',
           evidence: { path: 'cdp', effect: 'unverifiable' },
         };
@@ -1913,7 +1913,24 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           }, signal);
           const outcome = normalizeCuaDriverOutcome(result);
           if (!outcome.ok) return { outcome };
-          const fresh = await observeResolvedWindow(validated, true, signal, context);
+          let fresh: CuObservation;
+          try {
+            fresh = await observeResolvedWindow(validated, true, signal, context);
+          } catch (error) {
+            if (error instanceof CuaDriverCaptureError) {
+              return {
+                outcome: {
+                  ok: false,
+                  error: 'outcome_unknown',
+                  message:
+                    `press_key was delivered but the fresh observation failed: `
+                    + error.result.outcome.message,
+                  evidence: { path: 'ax', effect: 'unverifiable' },
+                },
+              };
+            }
+            throw error;
+          }
           return {
             outcome,
             observation: fresh,
@@ -1964,12 +1981,29 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         }
         const outcome = normalizeCuaDriverOutcome(result);
         if (!outcome.ok) return { outcome };
-        const fresh = await observeResolvedWindow(
-          validated,
-          true,
-          signal,
-          context,
-        );
+        let fresh: CuObservation;
+        try {
+          fresh = await observeResolvedWindow(
+            validated,
+            true,
+            signal,
+            context,
+          );
+        } catch (error) {
+          if (error instanceof CuaDriverCaptureError) {
+            return {
+              outcome: {
+                ok: false,
+                error: 'outcome_unknown',
+                message:
+                  `${action.type} was delivered but the fresh observation failed: `
+                  + error.result.outcome.message,
+                evidence: { path: 'ax', effect: 'unverifiable' },
+              },
+            };
+          }
+          throw error;
+        }
         return {
           outcome,
           observation: fresh,
