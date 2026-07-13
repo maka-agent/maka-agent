@@ -124,9 +124,9 @@ describe('ModelCatalogEntry', () => {
 
   it('marks deprecated metadata without blocking live availability', () => {
     const [entry] = buildModelCatalogEntries({
-      providerType: 'deepseek',
-      defaultModel: 'deepseek-chat',
-      models: [{ id: 'deepseek-chat' }],
+      providerType: 'anthropic',
+      defaultModel: 'claude-opus-4-1-20250805',
+      models: [{ id: 'claude-opus-4-1-20250805' }],
       modelSource: 'fetched',
     });
 
@@ -378,7 +378,7 @@ describe('ModelCatalogEntry', () => {
     assert.equal(entry?.unavailableReason, 'unsupported_for_chat');
     assert.equal(entry?.availability, 'blocked');
     assert.equal(entry?.canUseAsChatDefault, false);
-    assert.deepEqual(entry?.capabilities, { imageGeneration: true });
+    assert.deepEqual(entry?.capabilities, { vision: true, imageGeneration: true });
 
     const validation = validateChatDefaultModel(input);
     assert.deepEqual(
@@ -579,7 +579,6 @@ describe('ModelCatalogEntry', () => {
       ([
         ['google', 'gemini-1.5-pro'],
         ['moonshot', 'moonshot-v1-8k'],
-        ['kimi-coding-plan', 'kimi-for-coding'],
       ] as const).map(([providerType, model]) => {
         const [entry] = buildModelCatalogEntries({
           providerType,
@@ -600,7 +599,6 @@ describe('ModelCatalogEntry', () => {
       [
         ['gemini-1.5-pro', undefined, undefined, undefined, 'unknown', {}],
         ['moonshot-v1-8k', undefined, undefined, undefined, 'unknown', {}],
-        ['kimi-for-coding', undefined, undefined, undefined, 'unknown', {}],
       ],
     );
   });

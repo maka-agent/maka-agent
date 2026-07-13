@@ -186,6 +186,14 @@ npm --workspace @maka/headless test
 npm --workspace @maka/desktop test
 ```
 
+Use the following commands to update `packages/core/src/model-metadata.generated.ts` from models.dev and run the focused tests. Keep access-path-specific overrides in `model-metadata.ts`; do not edit the generated file by hand.
+
+```sh
+npm run sync:model-metadata
+npm run test:scripts
+npm --workspace @maka/core test
+```
+
 Desktop real-window and visual verification:
 
 ```sh
