@@ -67,6 +67,34 @@ function connection(overrides: Partial<LlmConnection> & Pick<LlmConnection, 'slu
 }
 
 describe('model catalog picker helpers', () => {
+  it('keeps an Ollama cloud alias distinct and selects it unchanged', async () => {
+    const { buildCatalogChatModelChoices, pickCatalogDefaultChatModel } = await importModelCatalogChoices();
+    const ollama = connection({
+      slug: 'ollama-local',
+      providerType: 'ollama',
+      defaultModel: 'qwen3.5:cloud',
+      models: [{ id: 'qwen3.5' }, { id: 'qwen3.5:cloud' }],
+      modelSource: 'fetched',
+      modelsFetchedAt: 1_800_000_000_000,
+    });
+
+    assert.deepEqual(
+      buildCatalogChatModelChoices([ollama]).map(({ connectionSlug, providerType, model }) => ({
+        connectionSlug,
+        providerType,
+        model,
+      })),
+      [
+        { connectionSlug: 'ollama-local', providerType: 'ollama', model: 'qwen3.5' },
+        { connectionSlug: 'ollama-local', providerType: 'ollama', model: 'qwen3.5:cloud' },
+      ],
+    );
+    assert.deepEqual(pickCatalogDefaultChatModel(ollama), {
+      llmConnectionSlug: 'ollama-local',
+      model: 'qwen3.5:cloud',
+    });
+  });
+
   it('keeps Chat choices on send-wired providers and filters unsupported Codex ChatGPT models', async () => {
     const { buildCatalogChatModelChoices } = await importModelCatalogChoices();
 

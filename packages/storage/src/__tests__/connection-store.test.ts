@@ -7,6 +7,41 @@ import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { createConnectionStore } from '../connection-store.js';
 
 describe('FileConnectionStore', () => {
+  test('persists the Ollama provider and exact cloud alias in discovery and selection state', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const localModelId = 'qwen3.5';
+      const cloudModelId = 'qwen3.5:cloud';
+      const created = await store.create({
+        slug: 'ollama-local',
+        name: 'Ollama',
+        providerType: 'ollama',
+        defaultModel: localModelId,
+      });
+
+      await store.update(created.slug, {
+        defaultModel: cloudModelId,
+        models: [{ id: localModelId }, { id: cloudModelId }],
+        modelSource: 'fetched',
+        modelsFetchedAt: 1_800_000_000_000,
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{
+          providerType: string;
+          defaultModel: string;
+          models: Array<{ id: string }>;
+          modelSource: string;
+          modelsFetchedAt: number;
+        }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'ollama');
+      assert.equal(persisted.connections[0]?.defaultModel, cloudModelId);
+      assert.deepEqual(persisted.connections[0]?.models, [{ id: localModelId }, { id: cloudModelId }]);
+      assert.equal(persisted.connections[0]?.modelSource, 'fetched');
+      assert.equal(persisted.connections[0]?.modelsFetchedAt, 1_800_000_000_000);
+    });
+  });
+
   test('persists the Fireworks provider id and exact model path', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

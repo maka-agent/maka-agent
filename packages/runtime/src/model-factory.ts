@@ -73,7 +73,7 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
       const name = adapter.name === 'connection' ? connection.slug : connection.providerType;
       return createOpenAICompatible({
         name,
-        apiKey: adapter.apiKeyFallback ? apiKey || adapter.apiKeyFallback : apiKey,
+        apiKey,
         baseURL,
         ...(adapter.passFetch ? { fetch } : {}),
       }).chatModel(modelId);

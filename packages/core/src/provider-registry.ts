@@ -16,7 +16,6 @@ export type ProviderRuntimeAdapter =
   | {
       kind: 'openai-compatible';
       name: 'provider' | 'connection';
-      apiKeyFallback?: string;
       passFetch?: boolean;
       requireBaseUrl?: boolean;
     }
@@ -590,7 +589,7 @@ const providerRegistry = {
     fallbackModels: ['llama3.2', 'qwen2.5-coder', 'gemma3'],
     status: 'ready',
     protocol: 'openai',
-    runtimeAdapter: { kind: 'openai-compatible', name: 'provider', apiKeyFallback: 'ollama' },
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
     modelDiscovery: { kind: 'ollama' },
     category: 'local',
     catalogGroup: 'local',

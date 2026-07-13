@@ -307,38 +307,42 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
-  test('routes no-auth Ollama through the host-side cell without exposing credentials', async () => {
-    await withRun(async ({ jobsDir, repo }) => {
-      let harborEnv: Record<string, string> | undefined;
-      const captured: { config?: Record<string, unknown> } = {};
-      const baseUrl = 'http://127.0.0.1:11434/v1';
-      const model = 'hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M';
-      const runner = createHarborTaskRunner({
-        makaRepoPath: repo,
-        jobsDir,
-        model: `ollama/${model}`,
-        provider: 'ollama',
-        agentEnv: { MAKA_BASE_URL: baseUrl },
-        runHarbor: async (request) => {
-          harborEnv = request.env;
-          return fakeRunner({ reward: '1\n', captured })(request);
-        },
+  for (const model of [
+    'hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M',
+    'qwen3.5:cloud',
+  ]) {
+    test(`routes no-auth Ollama model ${model} through the host-side cell without exposing credentials`, async () => {
+      await withRun(async ({ jobsDir, repo }) => {
+        let harborEnv: Record<string, string> | undefined;
+        const captured: { config?: Record<string, unknown> } = {};
+        const baseUrl = 'http://127.0.0.1:11434/v1';
+        const runner = createHarborTaskRunner({
+          makaRepoPath: repo,
+          jobsDir,
+          model: `ollama/${model}`,
+          provider: 'ollama',
+          agentEnv: { MAKA_BASE_URL: baseUrl },
+          runHarbor: async (request) => {
+            harborEnv = request.env;
+            return fakeRunner({ reward: '1\n', captured })(request);
+          },
+        });
+
+        await runner(runInput());
+
+        assert.equal(harborEnv?.MAKA_HOST_REPO_ROOT, repo);
+        assert.equal(harborEnv?.MAKA_HOST_BASE_URL, baseUrl);
+        assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, 'true');
+        assert.equal(harborEnv?.MAKA_HOST_API_KEY, undefined);
+        assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, undefined);
+        const agent = (captured.config?.agents as Array<{ model_name: string; env: Record<string, string> }>)[0]!;
+        assert.equal(agent.model_name, model);
+        assert.equal(agent.env.MAKA_MODEL, model);
+        assert.equal(agent.env.MAKA_BASE_URL, undefined);
+        assert.doesNotMatch(JSON.stringify(captured.config), /API_KEY|127\.0\.0\.1:11434/);
       });
-
-      await runner(runInput());
-
-      assert.equal(harborEnv?.MAKA_HOST_REPO_ROOT, repo);
-      assert.equal(harborEnv?.MAKA_HOST_BASE_URL, baseUrl);
-      assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, 'true');
-      assert.equal(harborEnv?.MAKA_HOST_API_KEY, undefined);
-      assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, undefined);
-      const agent = (captured.config?.agents as Array<{ model_name: string; env: Record<string, string> }>)[0]!;
-      assert.equal(agent.model_name, model);
-      assert.equal(agent.env.MAKA_MODEL, model);
-      assert.equal(agent.env.MAKA_BASE_URL, undefined);
-      assert.doesNotMatch(JSON.stringify(captured.config), /API_KEY|127\.0\.0\.1:11434/);
     });
-  });
+  }
 
   test('rejects provider secrets in agentEnv even when host-side key file is configured', async () => {
     await withRun(async ({ jobsDir, repo, keyFile }) => {
