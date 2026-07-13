@@ -37,6 +37,7 @@ const MINIMAX_BRAND_ASSET_FILE = resolve(
 const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/xai.svg');
 const DESKTOP_PACKAGE_FILE = resolve(REPO_ROOT, 'apps/desktop/package.json');
 const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/public/THIRD_PARTY_LICENSES.txt');
+const ONBOARDING_HERO_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/OnboardingHero.tsx');
 
 // Fixed brand assets, not generic UI icons — their vendored SVGs keep
 // their own stroke weight and are exempt from the call-site stroke sweep.
@@ -197,6 +198,45 @@ describe('icon + typography governance contract', () => {
       /kind === 'detail' && selected[\s\S]*<ProviderPageHeader[\s\S]*providerType=\{selected\.providerType\}/,
       'saved connection detail must consume the shared provider logo seam',
     );
+  });
+
+  it('keeps the verified Ollama mark and routes it through catalog, detail, and first-run surfaces', async () => {
+    const [marks, catalog, providersPanel, onboardingHero, notices] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(PROVIDER_CATALOG_FILE, 'utf8'),
+      readFile(PROVIDERS_PANEL_FILE, 'utf8'),
+      readFile(ONBOARDING_HERO_FILE, 'utf8'),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.match(
+      marks,
+      /Vendored unchanged from @lobehub\/icons-static-svg@1\.91\.0:[\s\S]*github\.com\/lobehub\/lobe-icons\/blob\/32f4083f7a20b67ecdc7b29c0af031ada5a29c52\/packages\/static-svg\/icons\/ollama\.svg[\s\S]*MIT license/,
+      'the Ollama mark must record its repository, package version, commit, file path, license, and unchanged-vendor status',
+    );
+    const ollamaPath = marks.match(/function Ollama\(\)[\s\S]*?<path d="([^"]+)" \/>/)?.[1];
+    assert.ok(ollamaPath, 'the Ollama provider must render its vendored SVG path');
+    assert.equal(
+      createHash('sha256').update(ollamaPath).digest('hex'),
+      'fe847dff4bb6ae25ebec9a7def819ec2583023552b2e88a572c481aad2d32433',
+      'the complete Ollama path must remain byte-identical to the pinned Lobe Icons SVG',
+    );
+    assert.ok(
+      notices.includes(
+        '`apps/desktop/src/renderer/settings/provider-brand-marks.tsx` `Ollama` path\n' +
+          '    - Upstream path: `packages/static-svg/icons/ollama.svg`\n' +
+          '    - SHA-256: `fe847dff4bb6ae25ebec9a7def819ec2583023552b2e88a572c481aad2d32433`',
+      ),
+      'the shared Lobe Icons notice must inventory the vendored Ollama asset',
+    );
+    assert.match(marks, /case 'ollama':\s*return <Ollama \/>/);
+    assert.match(catalog, /<ProviderLogo type=\{props\.type\} \/>/);
+    assert.match(
+      providersPanel,
+      /providerType=\{selected\.providerType\}[\s\S]*function ProviderPageHeader[\s\S]*<ProviderLogo type=\{props\.providerType\} compact \/>/,
+      'the connection detail header must render the same provider mark as the catalog',
+    );
+    assert.match(onboardingHero, /<ProviderLogo type=\{type\} compact \/>/);
   });
 
   it('ships the Lobe Icons MIT notice beside vendored provider assets', async () => {

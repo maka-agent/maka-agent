@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { writeFile } from 'node:fs/promises';
 import { basename, delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
+import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core';
 import {
   validateHarborCellExecutionIdentity,
   validateHarborCellOutput,
@@ -17,7 +18,7 @@ import {
   HarborTaskRunner,
 } from './fixed-prompt-controller.js';
 import { startProviderAuthProxy } from './provider-auth-proxy.js';
-import { requireProviderCredentialEnv } from './provider-env.js';
+import { providerCredentialEnv, requireProviderCredentialEnv } from './provider-env.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -153,14 +154,15 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       agentEnv: mergeAgentEnv(options.agentEnv, input.agentEnv),
     };
     assertNoProviderSecretsInAgentEnv(runnerOptions.agentEnv);
-    const hasHostProviderAuth = runnerOptions.apiKeyFile !== undefined;
+    const hasHostProviderRuntime = runnerOptions.apiKeyFile !== undefined
+      || (runnerOptions.agent !== 'opencode' && providerAuthKind(runnerOptions.provider) === 'none');
     const configPath = join(jobsDir, 'job-config.json');
     const { agentEnv: _attemptAgentEnv, ...inputWithoutAttemptEnv } = input;
     const config = buildHarborJobConfig(inputWithoutAttemptEnv, {
       ...runnerOptions,
       jobsDir,
       jobName,
-      ...(hasHostProviderAuth ? { agentEnv: taskAgentEnvWithoutProviderSecrets(runnerOptions) } : {}),
+      ...(hasHostProviderRuntime ? { agentEnv: taskAgentEnvWithoutProviderSecrets(runnerOptions) } : {}),
     });
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 
@@ -459,18 +461,21 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
   env: Record<string, string>;
   close?: () => Promise<void>;
 } | null> {
-  if (!options.apiKeyFile) return null;
   const provider = options.provider ?? 'deepseek';
-  const providerEnv = requireProviderCredentialEnv(provider);
-  const [primaryBaseUrl, ...fallbackBaseUrls] = providerEnv.baseUrls;
+  const authKind = providerAuthKind(provider);
+  if (!options.apiKeyFile && authKind !== 'none') return null;
+  const providerEnv = providerCredentialEnv(provider);
+  const [primaryBaseUrl, ...fallbackBaseUrls] = providerEnv?.baseUrls ?? [];
   const baseUrl = (primaryBaseUrl ? options.agentEnv?.[primaryBaseUrl] : undefined)
     ?? options.agentEnv?.MAKA_BASE_URL
     ?? fallbackBaseUrls.map((name) => options.agentEnv?.[name]).find(Boolean);
   if (options.agent === 'opencode') {
+    const apiKeyFile = options.apiKeyFile;
+    if (!apiKeyFile) return null;
     if (!baseUrl) throw new Error(`OpenCode provider ${provider} requires a base URL`);
     const proxy = await startProviderAuthProxy({
       upstreamBaseUrl: baseUrl,
-      apiKeyFile: options.apiKeyFile,
+      apiKeyFile,
     });
     return {
       env: {
@@ -480,21 +485,26 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
       close: proxy.close,
     };
   }
+  const apiKeyEnvName = options.apiKeyFile
+    ? normalizeRawKeyEnvName(options.apiKeyEnvName ?? requireProviderCredentialEnv(provider).apiKeys[0]!)
+    : undefined;
   return {
     env: {
       MAKA_HOST_REPO_ROOT: options.makaRepoPath,
-      MAKA_HOST_API_KEY_FILE: options.apiKeyFile,
-      MAKA_HOST_API_KEY_ENV_NAME: normalizeRawKeyEnvName(options.apiKeyEnvName ?? providerEnv.apiKeys[0]!),
+      ...(options.apiKeyFile ? { MAKA_HOST_API_KEY_FILE: options.apiKeyFile } : {}),
+      ...(apiKeyEnvName ? { MAKA_HOST_API_KEY_ENV_NAME: apiKeyEnvName } : {}),
+      ...(authKind === 'none' ? { MAKA_HOST_NO_AUTH: 'true' } : {}),
       ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
     },
   };
 }
 
 function taskAgentEnvWithoutProviderSecrets(options: HarborTaskRunnerOptions): Record<string, string> {
-  const providerEnv = requireProviderCredentialEnv(options.provider ?? 'deepseek');
+  const providerEnv = providerCredentialEnv(options.provider ?? 'deepseek');
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(options.agentEnv ?? {})) {
-    if (providerEnv.apiKeys.includes(key) || key === providerEnv.apiKeyFile || providerEnv.baseUrls.includes(key)) continue;
+    if (providerEnv?.apiKeys.includes(key) || key === providerEnv?.apiKeyFile || providerEnv?.baseUrls.includes(key)) continue;
+    if (key === 'MAKA_BASE_URL') continue;
     if (/_API_KEY(_FILE)?$/.test(key)) continue;
     result[key] = value;
   }
@@ -517,6 +527,13 @@ function assertNoExperimentIdentityOverrides(agentEnv: Record<string, string> | 
 
 function normalizeRawKeyEnvName(name: string): string {
   return name.endsWith('_FILE') ? name.slice(0, -'_FILE'.length) : name;
+}
+
+function providerAuthKind(provider: string | undefined) {
+  const providerType = (provider ?? 'deepseek') as ProviderType;
+  const definition = PROVIDER_DEFAULTS[providerType];
+  if (!definition) throw new Error(`unsupported MAKA_PROVIDER: ${provider ?? ''}`);
+  return definition.authKind;
 }
 
 async function findTrialDir(jobDir: string, taskName: string): Promise<string> {

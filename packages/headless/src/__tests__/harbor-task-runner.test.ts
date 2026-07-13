@@ -258,6 +258,29 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
+  test('keeps no-auth providers on the existing OpenCode direct path', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      let harborEnv: Record<string, string> | undefined;
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        agent: 'opencode',
+        model: 'ollama/qwen2.5-coder:7b',
+        provider: 'ollama',
+        agentEnv: { MAKA_BASE_URL: 'http://host.docker.internal:11434/v1' },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n' })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, undefined);
+      assert.equal(harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_URL, undefined);
+    });
+  });
+
   test('routes SiliconFlow key files and base URLs through the host-side cell', async () => {
     await withRun(async ({ jobsDir, repo, keyFile }) => {
       let harborEnv: Record<string, string> | undefined;
@@ -281,6 +304,39 @@ describe('createHarborTaskRunner', () => {
       assert.equal(harborEnv?.MAKA_HOST_BASE_URL, 'https://api.siliconflow.cn/v1');
       const agent = (captured.config?.agents as Array<{ env: Record<string, string> }>)[0]!;
       assert.equal(agent.env.SILICONFLOW_BASE_URL, undefined);
+    });
+  });
+
+  test('routes no-auth Ollama through the host-side cell without exposing credentials', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      let harborEnv: Record<string, string> | undefined;
+      const captured: { config?: Record<string, unknown> } = {};
+      const baseUrl = 'http://127.0.0.1:11434/v1';
+      const model = 'hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M';
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: `ollama/${model}`,
+        provider: 'ollama',
+        agentEnv: { MAKA_BASE_URL: baseUrl },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(harborEnv?.MAKA_HOST_REPO_ROOT, repo);
+      assert.equal(harborEnv?.MAKA_HOST_BASE_URL, baseUrl);
+      assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, 'true');
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY, undefined);
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, undefined);
+      const agent = (captured.config?.agents as Array<{ model_name: string; env: Record<string, string> }>)[0]!;
+      assert.equal(agent.model_name, model);
+      assert.equal(agent.env.MAKA_MODEL, model);
+      assert.equal(agent.env.MAKA_BASE_URL, undefined);
+      assert.doesNotMatch(JSON.stringify(captured.config), /API_KEY|127\.0\.0\.1:11434/);
     });
   });
 

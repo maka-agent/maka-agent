@@ -243,6 +243,95 @@ describe('models.dev provider conformance', () => {
     assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
     assert.equal(result.text, 'Echoed hello.');
   });
+
+  test('Ollama discovers an exact local model id and completes a no-secret tool-call loop', async () => {
+    const modelId = 'hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      if (request.method === 'GET' && request.url === '/api/tags') {
+        assert.equal(request.headers.authorization, undefined);
+        respondJson(response, 200, { models: [{ name: modelId, model: modelId }] });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      assert.equal(request.headers.authorization, 'Bearer ollama');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-ollama-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [{
+                id: 'call_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+      respondJson(response, 200, {
+        id: 'chatcmpl-ollama-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'ollama-local',
+      name: 'Ollama',
+      providerType: 'ollama',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    assert.deepEqual(await fetchProviderModels(connection, ''), [{ id: modelId }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: '', modelId }),
+      prompt: 'Call echo with hello, then report the result.',
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ text }),
+        }),
+      },
+      stopWhen: stepCountIs(2),
+    });
+
+    assert.equal(result.text, 'Echoed hello.');
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    const secondMessages = requestBodies[1]?.messages as Array<{ role: string; content: string }>;
+    const toolMessage = secondMessages.find((message) => message.role === 'tool');
+    assert.ok(toolMessage);
+    assert.deepEqual(JSON.parse(toolMessage.content), { text: 'hello' });
+  });
 });
 
 async function startJsonServer(
