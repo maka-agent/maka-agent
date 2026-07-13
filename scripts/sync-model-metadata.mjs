@@ -20,6 +20,7 @@ const PROVIDERS = {
   'stepfun-ai': 'stepfun-ai',
   togetherai: 'togetherai',
   'tencent-coding-plan': 'tencent-coding-plan',
+  'tencent-token-plan': 'tencent-token-plan',
   'tencent-tokenhub': 'tencent-tokenhub',
   xai: 'xai',
   'zai-coding-plan': 'zai-coding-plan',

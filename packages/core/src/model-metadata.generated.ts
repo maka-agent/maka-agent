@@ -2,7 +2,7 @@
 // Do not edit by hand; put access-path-specific facts in model-metadata.ts.
 import type { ModelMetadata } from './model-metadata.js';
 
-export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "stepfun-ai" | "togetherai" | "tencent-coding-plan" | "tencent-tokenhub" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
+export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "stepfun-ai" | "togetherai" | "tencent-coding-plan" | "tencent-token-plan" | "tencent-tokenhub" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
   "anthropic": {
     "claude-fable-5": {"displayName":"Claude Fable 5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-haiku-4-5": {"displayName":"Claude Haiku 4.5 (latest)","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":200000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
@@ -418,6 +418,9 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
     "minimax-m2.5": {"displayName":"MiniMax-M2.5","lifecycle":"active","docsUrl":"https://cloud.tencent.com/document/product/1772/128947","contextWindow":204800,"maxOutputTokens":32768,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
     "tc-code-latest": {"displayName":"Auto","lifecycle":"active","docsUrl":"https://cloud.tencent.com/document/product/1772/128947","contextWindow":131072,"maxOutputTokens":16384,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
   },
+  "tencent-token-plan": {
+    "hy3": {"displayName":"Hy3","lifecycle":"active","docsUrl":"https://cloud.tencent.com/document/product/1823/130060","contextWindow":256000,"maxOutputTokens":64000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+  },
   "tencent-tokenhub": {
     "hy3": {"displayName":"Hy3","lifecycle":"active","docsUrl":"https://cloud.tencent.com/document/product/1823/130050","contextWindow":256000,"maxOutputTokens":64000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
     "hy3-preview": {"displayName":"Hy3 preview","lifecycle":"active","docsUrl":"https://cloud.tencent.com/document/product/1823/130050","contextWindow":256000,"maxOutputTokens":64000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
@@ -443,7 +446,7 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
   },
 };
 
-export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "stepfun-ai" | "togetherai" | "tencent-coding-plan" | "tencent-tokenhub" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
+export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "stepfun-ai" | "togetherai" | "tencent-coding-plan" | "tencent-token-plan" | "tencent-tokenhub" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
   "anthropic": {"id":"anthropic","name":"Anthropic","doc":"https://docs.anthropic.com/en/docs/about-claude/models"},
   "cerebras": {"id":"cerebras","name":"Cerebras","doc":"https://inference-docs.cerebras.ai/models/overview"},
   "deepseek": {"id":"deepseek","name":"DeepSeek","api":"https://api.deepseek.com","doc":"https://api-docs.deepseek.com/quick_start/pricing"},
@@ -461,6 +464,7 @@ export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras
   "stepfun-ai": {"id":"stepfun-ai","name":"StepFun (Global)","api":"https://api.stepfun.ai/v1","doc":"https://platform.stepfun.ai/docs/en/overview/concept"},
   "togetherai": {"id":"togetherai","name":"Together AI","doc":"https://docs.together.ai/docs/serverless-models"},
   "tencent-coding-plan": {"id":"tencent-coding-plan","name":"Tencent Coding Plan (China)","api":"https://api.lkeap.cloud.tencent.com/coding/v3","doc":"https://cloud.tencent.com/document/product/1772/128947"},
+  "tencent-token-plan": {"id":"tencent-token-plan","name":"Tencent Token Plan","api":"https://api.lkeap.cloud.tencent.com/plan/v3","doc":"https://cloud.tencent.com/document/product/1823/130060"},
   "tencent-tokenhub": {"id":"tencent-tokenhub","name":"Tencent TokenHub","api":"https://tokenhub.tencentmaas.com/v1","doc":"https://cloud.tencent.com/document/product/1823/130050"},
   "xai": {"id":"xai","name":"xAI","doc":"https://docs.x.ai/docs/models"},
   "zai-coding-plan": {"id":"zai-coding-plan","name":"Z.AI Coding Plan","api":"https://api.z.ai/api/coding/paas/v4","doc":"https://docs.z.ai/devpack/overview"},
