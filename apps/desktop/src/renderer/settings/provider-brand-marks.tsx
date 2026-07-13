@@ -147,6 +147,9 @@ function GenericProviderMark(): ReactElement {
   );
 }
 
+// Vendored unchanged from @lobehub/icons-static-svg@1.91.0:
+// https://github.com/lobehub/lobe-icons/blob/32f4083f7a20b67ecdc7b29c0af031ada5a29c52/packages/static-svg/icons/ollama.svg
+// Lobe Icons is MIT licensed; this path is consumed verbatim, not redrawn here.
 function Ollama(): ReactElement {
   return (
     <svg viewBox="0 0 24 24" role="img" fill="currentColor" fillRule="evenodd" xmlns="http://www.w3.org/2000/svg">
