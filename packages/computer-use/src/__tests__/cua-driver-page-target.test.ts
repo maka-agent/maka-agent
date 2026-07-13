@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-  CUA_INSPECT_PREPARED_ELEMENT_SCRIPT,
+  buildCuaInspectElementTokenScript,
   buildCuaPrepareElementAtScreenPointScript,
   buildCuaSemanticPointerActionScript,
   parseCuaFocusedPageElement,
@@ -112,19 +112,23 @@ describe('semantic pointer action script', () => {
   it('builds read-only element scripts and parses their JSON result', () => {
     const prepare = buildCuaPrepareElementAtScreenPointScript({ x: 10, y: 20 });
     assert.match(prepare, /elementFromPoint/);
-    assert.match(prepare, /__makaComputerUseTarget/);
+    assert.match(prepare, /__makaComputerUseElements/);
     assert.doesNotMatch(prepare, /\.focus\s*\(/);
-    assert.match(CUA_INSPECT_PREPARED_ELEMENT_SCRIPT, /__makaComputerUseReadElement/);
+    const inspect = buildCuaInspectElementTokenScript('element-1');
+    assert.match(inspect, /__makaComputerUseReadElement/);
+    assert.match(inspect, /document\.activeElement !== element/);
     assert.deepEqual(
       parseCuaFocusedPageElement(JSON.stringify({
         editable: true,
         value: 'ready',
         tagName: 'textarea',
+        elementToken: 'element-1',
       })),
       {
         editable: true,
         value: 'ready',
         tagName: 'textarea',
+        elementToken: 'element-1',
       },
     );
   });

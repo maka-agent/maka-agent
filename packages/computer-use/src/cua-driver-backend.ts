@@ -55,8 +55,7 @@ import {
   type CuaDriverJsonRpcResponse,
 } from './cua-driver-service.js';
 import {
-  CUA_INSPECT_PREPARED_ELEMENT_SCRIPT,
-  buildCuaPrepareElementAtScreenPointScript,
+  buildCuaInspectElementTokenScript,
   buildCuaSemanticPointerActionScript,
   parseCuaFocusedPageElement,
   parseCuaSemanticPointerResult,
@@ -298,6 +297,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   interface KeyboardTarget {
     window: CuaResolvedWindow;
     editable: boolean;
+    pageElementToken?: string;
     pageTarget?: CuaResolvedPageTextTarget;
   }
   const targetsBySession = new Map<string, { turnId: string; target: KeyboardTarget }>();
@@ -1575,6 +1575,14 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         message: 'background Electron text requires a verified text-editable click target',
       };
     }
+    const pageElementToken = target.pageElementToken;
+    if (!pageElementToken) {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message: 'background Electron text requires the clicked DOM element identity',
+      };
+    }
     const pageTarget = target.pageTarget ?? await (
       opts.resolvePageTextTarget ?? ((input) => resolveCuaPageTextTarget(input))
     )({
@@ -1608,9 +1616,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       )?.text;
       return { response, element: parseCuaFocusedPageElement(text) };
     };
-    const prepared = await executePageScript(
-      buildCuaPrepareElementAtScreenPointScript(target.window.screenPoint),
-    );
+    const prepared = await executePageScript(buildCuaInspectElementTokenScript(pageElementToken));
     if (prepared.response?.isError) return normalizeCuaDriverOutcome(prepared.response);
     const before = prepared.element;
     if (!before?.editable) {
@@ -1650,7 +1656,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       signal,
     );
     if (result?.isError) return normalizeCuaDriverOutcome(result);
-    const inspected = await executePageScript(CUA_INSPECT_PREPARED_ELEMENT_SCRIPT);
+    const inspected = await executePageScript(buildCuaInspectElementTokenScript(pageElementToken));
     if (inspected.response?.isError) return normalizeCuaDriverOutcome(inspected.response);
     const after = inspected.element;
     return after?.editable === true && after.value === text
@@ -2124,6 +2130,9 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
                   target: {
                     window: win,
                     editable: semantic.result?.editable === true,
+                    ...(semantic.result?.elementToken
+                      ? { pageElementToken: semantic.result.elementToken }
+                      : {}),
                     ...(semantic.pageTarget ? { pageTarget: semantic.pageTarget } : {}),
                   },
                 });

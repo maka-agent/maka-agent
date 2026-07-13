@@ -331,6 +331,7 @@ function handle(msg) {
                   : PAGE_FIELD_VALUE,
                 tagName: 'textarea',
                 inputType: '',
+                elementToken: 'element-1',
               })
             : PAGE_EXEC_RESULT
           : 'inserted through CDP';
@@ -2055,6 +2056,7 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'textarea',
+        elementToken: 'element-1',
         clickEvents: 1,
       },
     });
@@ -2240,6 +2242,7 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'textarea',
+        elementToken: 'element-1',
         clickEvents: 1,
       },
     });
@@ -2265,6 +2268,7 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'textarea',
+        elementToken: 'element-1',
         clickEvents: 1,
       },
     });
@@ -2282,6 +2286,32 @@ describe('cua-driver backend', () => {
       'insert_text',
       'execute_javascript',
     ]);
+  });
+
+  it('refuses Electron text ownership when the semantic click has no DOM element token', async () => {
+    const { backend, logPath } = makeBackend({
+      processKind: 'electron',
+      pageTarget: testPageTarget(),
+      emptyAx: true,
+      semanticPointerResult: {
+        supported: true,
+        ok: true,
+        kind: 'left_click',
+        editable: true,
+        tagName: 'textarea',
+        clickEvents: 1,
+      },
+    });
+    const signal = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const typed = await backend.run({ type: 'type', text: 'must-not-land' } as CuAction, signal);
+    assert.equal(typed.outcome.ok, false);
+    assert.equal(businessPageCalls(await readRecords(logPath)).length, 1);
   });
 
   it('native AX text readback mismatch preserves outcome_unknown', async () => {

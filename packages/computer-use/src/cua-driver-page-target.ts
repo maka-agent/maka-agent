@@ -13,6 +13,7 @@ export interface CuaFocusedPageElement {
   value: string;
   tagName: string;
   inputType?: string;
+  elementToken?: string;
 }
 
 export interface CuaResolvedPageTextTarget {
@@ -41,6 +42,7 @@ export interface CuaSemanticPointerResult {
   editable?: boolean;
   tagName?: string;
   inputType?: string;
+  elementToken?: string;
   clickEvents?: number;
   doubleClickEvents?: number;
   contextMenuEvents?: number;
@@ -58,11 +60,19 @@ export interface CuaPageTargetResolverDeps {
   fetchTargets?: (port: number, signal: AbortSignal) => Promise<CuaCdpPageTarget[]>;
 }
 
-export const CUA_INSPECT_PREPARED_ELEMENT_SCRIPT = `(() => {
-  const element = globalThis.__makaComputerUseTarget;
-  if (!element) return JSON.stringify({ editable: false, value: '', tagName: '' });
-  return JSON.stringify(globalThis.__makaComputerUseReadElement(element));
-})()`;
+export function buildCuaInspectElementTokenScript(elementToken: string): string {
+  return `(() => {
+    const token = ${JSON.stringify(elementToken)};
+    const element = globalThis.__makaComputerUseElements?.get(token);
+    if (!element || !element.isConnected || document.activeElement !== element) {
+      return JSON.stringify({ editable: false, value: '', tagName: '', elementToken: token });
+    }
+    return JSON.stringify({
+      ...globalThis.__makaComputerUseReadElement(element),
+      elementToken: token
+    });
+  })()`;
+}
 
 const TEXT_INPUT_TYPES = [
   'email',
@@ -175,11 +185,18 @@ export function buildCuaPrepareElementAtScreenPointScript(screenPoint: CuPoint):
       element = element.parentElement;
     }
     if (!element) {
-      globalThis.__makaComputerUseTarget = undefined;
       return JSON.stringify({ editable: false, value: '', tagName: '' });
     }
-    globalThis.__makaComputerUseTarget = element;
-    return JSON.stringify(globalThis.__makaComputerUseReadElement(element));
+    globalThis.__makaComputerUseElements ||= new Map();
+    globalThis.__makaComputerUseElements.clear();
+    globalThis.__makaComputerUseElementSequence =
+      (globalThis.__makaComputerUseElementSequence || 0) + 1;
+    const elementToken = String(globalThis.__makaComputerUseElementSequence);
+    globalThis.__makaComputerUseElements.set(elementToken, element);
+    return JSON.stringify({
+      ...globalThis.__makaComputerUseReadElement(element),
+      elementToken
+    });
   })()`;
 }
 
@@ -243,6 +260,15 @@ export function buildCuaSemanticPointerActionScript(
       const checkedChanged = beforeChecked !== undefined && element.checked !== beforeChecked;
       const valueChanged = beforeValue !== undefined && String(element.value ?? '') !== beforeValue;
       const focusedEditable = editable && document.activeElement === element;
+      let elementToken;
+      if (focusedEditable) {
+        globalThis.__makaComputerUseElements ||= new Map();
+        globalThis.__makaComputerUseElements.clear();
+        globalThis.__makaComputerUseElementSequence =
+          (globalThis.__makaComputerUseElementSequence || 0) + 1;
+        elementToken = String(globalThis.__makaComputerUseElementSequence);
+        globalThis.__makaComputerUseElements.set(elementToken, element);
+      }
       const ok = focusedEditable || checkedChanged || valueChanged || mutations > 0;
       return JSON.stringify({
         supported: true,
@@ -260,6 +286,7 @@ export function buildCuaSemanticPointerActionScript(
         editable,
         tagName,
         inputType,
+        ...(elementToken ? { elementToken } : {}),
         clickEvents,
         mutations,
         ...(typeof element.checked === 'boolean' ? { checked: element.checked } : {}),
@@ -431,6 +458,7 @@ export function parseCuaSemanticPointerResult(
       ...(typeof result.editable === 'boolean' ? { editable: result.editable } : {}),
       ...(typeof result.tagName === 'string' ? { tagName: result.tagName } : {}),
       ...(typeof result.inputType === 'string' ? { inputType: result.inputType } : {}),
+      ...(typeof result.elementToken === 'string' ? { elementToken: result.elementToken } : {}),
       ...(typeof result.clickEvents === 'number' ? { clickEvents: result.clickEvents } : {}),
       ...(typeof result.doubleClickEvents === 'number' ? { doubleClickEvents: result.doubleClickEvents } : {}),
       ...(typeof result.contextMenuEvents === 'number' ? { contextMenuEvents: result.contextMenuEvents } : {}),
@@ -531,5 +559,6 @@ function focusedPageElement(value: unknown): CuaFocusedPageElement {
     value: typeof result.value === 'string' ? result.value : '',
     tagName: typeof result.tagName === 'string' ? result.tagName : '',
     ...(typeof result.inputType === 'string' ? { inputType: result.inputType } : {}),
+    ...(typeof result.elementToken === 'string' ? { elementToken: result.elementToken } : {}),
   };
 }

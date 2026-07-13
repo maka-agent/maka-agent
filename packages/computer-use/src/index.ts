@@ -33,7 +33,7 @@ export type {
   CuaSemanticPointerResult,
 } from './cua-driver-page-target.js';
 export {
-  CUA_INSPECT_PREPARED_ELEMENT_SCRIPT,
+  buildCuaInspectElementTokenScript,
   buildCuaPrepareElementAtScreenPointScript,
   buildCuaSemanticPointerActionScript,
   parseCuaFocusedPageElement,
