@@ -26,6 +26,7 @@ const PROVIDER_CREDENTIAL_ENV = {
   nvidia: env('NVIDIA', ['NVIDIA_BASE_URL']),
   'tencent-tokenhub': env('TENCENT_TOKENHUB', ['TENCENT_TOKENHUB_BASE_URL']),
   stepfun: env('STEPFUN', ['STEPFUN_BASE_URL']),
+  'stepfun-step-plan': env('STEPFUN_STEP_PLAN', ['STEPFUN_STEP_PLAN_BASE_URL']),
   'stepfun-ai': env('STEPFUN_AI', ['STEPFUN_AI_BASE_URL']),
   'volcengine-ark': env('ARK', ['ARK_BASE_URL']),
   localai: env('LOCALAI', ['LOCALAI_BASE_URL']),

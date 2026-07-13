@@ -97,6 +97,29 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'step-3.7-flash');
   });
 
+  test('resolves StepFun Step Plan credentials without rewriting the selected model id', async () => {
+    const connection = makeConnection({
+      slug: 'stepfun-step-plan',
+      name: 'StepFun Step Plan (China)',
+      providerType: 'stepfun-step-plan',
+      defaultModel: 'step-router-v1',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'stepfun-step-plan',
+        get: async (slug) => slug === 'stepfun-step-plan' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'stepfun-step-plan-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'stepfun-step-plan');
+    assert.equal(target.apiKey, 'stepfun-step-plan-test-key');
+    assert.equal(target.model, 'step-router-v1');
+  });
+
   test('resolves StepFun Global credentials without rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'stepfun-ai',

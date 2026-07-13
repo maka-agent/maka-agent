@@ -136,6 +136,23 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the StepFun Step Plan China provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'stepfun-step-plan',
+        name: 'StepFun Step Plan (China)',
+        providerType: 'stepfun-step-plan',
+        defaultModel: 'step-router-v1',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'stepfun-step-plan');
+      assert.equal(persisted.connections[0]?.defaultModel, 'step-router-v1');
+    });
+  });
+
   test('persists the StepFun Global provider id and exact default model', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

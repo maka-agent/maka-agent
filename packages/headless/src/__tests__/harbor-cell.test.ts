@@ -2382,6 +2382,36 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves StepFun Step Plan China only from its independent credential env', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun-step-plan',
+      model: 'step-router-v1',
+      env: {
+        STEPFUN_STEP_PLAN_API_KEY: 'stepfun-step-plan-key',
+        STEPFUN_STEP_PLAN_BASE_URL: 'https://api.stepfun.com/step_plan/v1',
+        STEPFUN_API_KEY: 'direct-key-must-not-cross',
+        OPENAI_API_KEY: 'openai-key-must-not-cross',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'stepfun-step-plan-key');
+    assert.equal(resolved.connection.providerType, 'stepfun-step-plan');
+    assert.equal(resolved.connection.defaultModel, 'step-router-v1');
+    assert.equal(resolved.connection.baseUrl, 'https://api.stepfun.com/step_plan/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun-step-plan',
+      model: 'step-router-v1',
+      env: {
+        STEPFUN_API_KEY: 'direct-key-must-not-cross',
+        OPENAI_API_KEY: 'openai-key-must-not-cross',
+      },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves StepFun Global only from its independent direct API credential env', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'stepfun-ai',

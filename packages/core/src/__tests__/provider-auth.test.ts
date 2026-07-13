@@ -74,6 +74,19 @@ describe('ProviderAuth contract', () => {
     expect(contract.actionAvailability.fetch_models).toBe('available');
   });
 
+  test('StepFun Step Plan China uses an independent API-key credential and snapshot-model flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'stepfun-step-plan',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('stepfun-step-plan');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
   test('Volcengine Ark China uses the shared API-key credential and snapshot-model flow', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'volcengine-ark',
