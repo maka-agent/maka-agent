@@ -24,11 +24,8 @@ import {
   MakaUriContext,
   type NavSelection,
   SessionListPanel,
-  type BundledSkillCatalogEntry,
   SkillsPage,
-  type ManagedSkillSourceEntry,
   type SessionViewMode,
-  type SkillEntry,
   type TurnFooterActionMeta,
   useToast,
   activePermissionFor,
@@ -90,9 +87,8 @@ import type { AppShellCommandListOptions } from './app-shell-command-actions';
 import { AppShellTopbarActions, AppShellWorkspaceTopActions } from './app-shell-chrome-actions';
 import { AppShellOverlays } from './app-shell-overlays';
 import { createAppShellDailyReviewBridge } from './app-shell-daily-review-bridge';
-import { createAppShellPlanActions } from './app-shell-plan-actions';
+import { useAppShellModuleData } from './use-module-data';
 import { useAppShellProjectContext } from './use-project-context';
-import { createAppShellSkillActions } from './app-shell-skill-actions';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
 import { createAppShellVisualSmokeActions } from './app-shell-visual-smoke';
 import { createAppShellChatActions } from './app-shell-chat-actions';
@@ -227,10 +223,6 @@ export function AppShell({
   // so a stale value here can briefly mislabel the chip but never changes
   // which mode a session is created with.
   const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatDefaultPermissionMode>('ask');
-  const [skills, setSkills] = useState<SkillEntry[]>([]);
-  const [managedSkillSources, setManagedSkillSources] = useState<ManagedSkillSourceEntry[]>([]);
-  const [bundledSkillCatalog, setBundledSkillCatalog] = useState<BundledSkillCatalogEntry[]>([]);
-  const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
   // Persisted composer defaults seed the empty-state model, project path, and
   // recent workspace history so the home view is populated before the async
   // `app:info` round-trip completes on mount.
@@ -831,6 +823,10 @@ export function AppShell({
   }
 
   const {
+    skills,
+    managedSkillSources,
+    bundledSkillCatalog,
+    planReminders,
     refreshPlanReminders,
     createPlanReminder,
     updatePlanReminder,
@@ -839,10 +835,20 @@ export function AppShell({
     snoozePlanReminder,
     clearPlanReminderRunHistory,
     deletePlanReminder,
-  } = createAppShellPlanActions({
-    getPlanReminders: () => planReminders,
+    refreshSkills,
+    refreshManagedSkillSources,
+    refreshBundledSkillCatalog,
+    createSkillTemplate,
+    importManagedSkillSource,
+    installManagedSkill,
+    installBundledSkill,
+    previewManagedSkillUpdate,
+    updateManagedSkill,
+    setSkillEnabled,
+    openSkill,
+  } = useAppShellModuleData({
+    isSkillsSurfaceActive,
     isAutomationsSurfaceActive,
-    setPlanReminders,
     toastApi,
   });
 
@@ -865,26 +871,6 @@ export function AppShell({
   } = useAppShellProjectContext({
     persistedComposerDefaults,
     rendererMountedRef,
-    toastApi,
-  });
-
-  const {
-    refreshSkills,
-    refreshManagedSkillSources,
-    refreshBundledSkillCatalog,
-    createSkillTemplate,
-    importManagedSkillSource,
-    installManagedSkill,
-    installBundledSkill,
-    previewManagedSkillUpdate,
-    updateManagedSkill,
-    setSkillEnabled,
-    openSkill,
-  } = createAppShellSkillActions({
-    isSkillsSurfaceActive,
-    setSkills,
-    setManagedSkillSources,
-    setBundledSkillCatalog,
     toastApi,
   });
 
