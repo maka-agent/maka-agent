@@ -50,6 +50,7 @@ export function SettingsSurface(props: {
   onOpenSession?(sessionId: string): void;
 }) {
   const [section, setSection] = useState<SettingsSection>(() => props.requestedSection ?? readLastSettingsSection());
+  const [providerCatalogRequested, setProviderCatalogRequested] = useState(props.openProviderCatalog === true);
 
   // When the parent updates requestedSection (e.g. the palette opens
   // Settings with a different section while it's already mounted), reflect
@@ -108,6 +109,12 @@ export function SettingsSurface(props: {
   const settingsUpdateTicketRef = useRef(0);
   const usageReloadTicketRef = useRef(0);
   const toast = useToast();
+
+  useEffect(() => {
+    if (!loading && section === 'models' && providerCatalogRequested) {
+      setProviderCatalogRequested(false);
+    }
+  }, [loading, providerCatalogRequested, section]);
 
   useEffect(() => {
     settingsModalMountedRef.current = true;
@@ -258,7 +265,7 @@ export function SettingsSurface(props: {
               onThemePaletteChange={props.onThemePaletteChange}
               onOpenDailyReview={props.onOpenDailyReview}
               onOpenSession={props.onOpenSession}
-              openProviderCatalog={props.openProviderCatalog}
+              openProviderCatalog={providerCatalogRequested}
             />
           )}
         </OverlayScrollArea>

@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { describe, test } from 'node:test';
 
 const PANEL = resolve(import.meta.dirname, '../../../src/renderer/settings/ProvidersPanel.tsx');
+const SETTINGS_SURFACE = resolve(import.meta.dirname, '../../../src/renderer/settings/settings-surface.tsx');
 const PROVIDER_CSS = resolve(import.meta.dirname, '../../../src/renderer/styles/settings/provider-editor.css');
 
 describe('Settings model provider page hierarchy', () => {
@@ -47,6 +48,23 @@ describe('Settings model provider page hierarchy', () => {
       css,
       /\.providerCatalogSearch\s*\{[^}]*width:\s*min\(100%, 360px\);[^}]*min-height:\s*var\(--h-control-lg\);/,
       'catalog search must stay compact without collapsing below the standard control height',
+    );
+  });
+
+  test('consumes an external catalog request after its first loaded model-page mount', async () => {
+    const source = await readFile(SETTINGS_SURFACE, 'utf8');
+
+    assert.match(source, /useState\(props\.openProviderCatalog === true\)/);
+    assert.match(
+      source,
+      /if \(!loading && section === 'models' && providerCatalogRequested\) \{\s*setProviderCatalogRequested\(false\);\s*\}/,
+      'the first loaded model page must consume the one-shot catalog intent',
+    );
+    assert.match(source, /openProviderCatalog=\{providerCatalogRequested\}/);
+    assert.doesNotMatch(
+      source,
+      /openProviderCatalog=\{props\.openProviderCatalog\}/,
+      'the shell request must not be replayed every time the model page remounts',
     );
   });
 });
