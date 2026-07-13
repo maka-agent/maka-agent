@@ -774,7 +774,9 @@ export function AppShell({
   // already fetches the session list + connections internally, so separate
   // `sessions:list` / `connections:list` / `getDefault` IPCs are redundant.
   // This lets the UI show the sidebar + model picker immediately on first load.
-  const seededRefreshGenerationRef = useRef(-1);
+  const initialSnapshotSeededRef = useRef(false);
+  const mountedSnapshotSeededRef = useRef(false);
+  const bootstrapFallbackStartedRef = useRef(false);
   // useLayoutEffect, NOT useEffect: the snapshot render flips
   // `isOnboardingLoading` off while `sessions` is still []. A passive
   // effect seeds sessions AFTER the browser paints that frame, so users
@@ -784,19 +786,32 @@ export function AppShell({
   useLayoutEffect(() => {
     // Snapshot IPC failed — the seed path will never run, so fall back
     // to the classic boot pull or the sidebar stays empty forever.
-    if (onboarding.error && !onboarding.snapshot && seededRefreshGenerationRef.current < 0) {
-      seededRefreshGenerationRef.current = Number.POSITIVE_INFINITY;
+    if (
+      onboarding.error &&
+      !initialOnboardingSnapshot &&
+      !onboarding.firstMountedSnapshot &&
+      !bootstrapFallbackStartedRef.current
+    ) {
+      bootstrapFallbackStartedRef.current = true;
       void bootstrapSessions();
       void refreshConnections();
       return;
     }
-    const snapshot = onboarding.snapshot;
-    if (
-      !snapshot ||
-      onboarding.refreshGeneration > 1 ||
-      seededRefreshGenerationRef.current === onboarding.refreshGeneration
-    ) return;
-    seededRefreshGenerationRef.current = onboarding.refreshGeneration;
+    let snapshot: OnboardingSnapshot | null = null;
+    let releaseSelectionLease = false;
+    if (!initialSnapshotSeededRef.current && initialOnboardingSnapshot) {
+      initialSnapshotSeededRef.current = true;
+      snapshot = initialOnboardingSnapshot;
+    } else if (
+      !bootstrapFallbackStartedRef.current &&
+      !mountedSnapshotSeededRef.current &&
+      onboarding.firstMountedSnapshot
+    ) {
+      mountedSnapshotSeededRef.current = true;
+      snapshot = onboarding.firstMountedSnapshot;
+      releaseSelectionLease = true;
+    }
+    if (!snapshot) return;
     // Seed sessions. Display normalization MUST run here too — this is
     // a third renderer state entry alongside commitSessions /
     // upsertSessionSummary (#452): without it, legacy blocked/unknown
@@ -807,8 +822,8 @@ export function AppShell({
     // Seed connections — avoids separate connections:list + getDefault IPCs
     setConnections(snapshot.connections);
     setDefaultConnection(snapshot.defaultSlug);
-    if (onboarding.refreshGeneration === 1) bootstrapSelectionLease.release();
-  }, [onboarding.snapshot, onboarding.refreshGeneration, onboarding.error]);
+    if (releaseSelectionLease) bootstrapSelectionLease.release();
+  }, [initialOnboardingSnapshot, onboarding.firstMountedSnapshot, onboarding.error]);
   // PR110c (@kenji review): suppress hero AND the fallback EmptyChatHero
   // while the initial snapshot is in flight. Otherwise sessions.length===0
   // + snapshot===null flashes the prompt-suggestion EmptyChatHero before

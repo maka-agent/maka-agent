@@ -434,13 +434,13 @@ describe('permission response IPC boundary', () => {
 
     assert.match(
       onboardingSnapshotHook,
-      /refreshGeneration:\s*number/,
-      'the snapshot owner must identify successful mounted pulls separately from the pre-mount seed',
+      /firstMountedSnapshot:\s*OnboardingSnapshot \| null/,
+      'the snapshot owner must latch the first successful mounted pull separately from the pre-mount seed',
     );
     assert.match(
       renderer,
-      /onboarding\.refreshGeneration\s*>\s*1/,
-      'AppShell must reconcile the pre-mount snapshot and first mounted pull, then leave later refreshes to existing owners',
+      /snapshot = onboarding\.firstMountedSnapshot/,
+      'AppShell must consume the latched mounted snapshot instead of inferring it from a cumulative generation',
     );
     assert.doesNotMatch(
       renderer,
