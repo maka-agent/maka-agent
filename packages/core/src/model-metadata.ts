@@ -98,6 +98,12 @@ const OPENAI_OAUTH_MODEL_METADATA: Record<string, ModelMetadata> = {
   'gpt-5.3-codex-spark': GENERATED_MODELS_DEV_METADATA.openai['gpt-5.3-codex-spark']!,
 };
 
+const SILICONFLOW_MODEL_OVERRIDES: Record<string, ModelMetadata> = Object.fromEntries(
+  Object.entries(GENERATED_MODELS_DEV_METADATA.siliconflow)
+    .filter(([, metadata]) => metadata.capabilities?.functionCalling)
+    .map(([id]) => [id, { capabilities: { chat: true } }]),
+);
+
 // Facts that models.dev cannot express: provider wire controls and
 // access-path-specific aliases/limits. Standard model facts stay generated.
 const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMetadata>>> = {
@@ -107,6 +113,7 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
   google: GOOGLE_MODEL_OVERRIDES,
   'gemini-cli': GOOGLE_MODEL_OVERRIDES,
   'codex-subscription': OPENAI_OAUTH_MODEL_METADATA,
+  siliconflow: SILICONFLOW_MODEL_OVERRIDES,
   deepseek: {
     'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
   },

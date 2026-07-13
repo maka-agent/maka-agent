@@ -2,7 +2,7 @@ import {
   GENERATED_MODELS_DEV_METADATA,
   GENERATED_MODELS_DEV_PROVIDER_FACTS,
 } from './model-metadata.generated.js';
-import type { ModelInfo, ProviderDefaults, ProviderType } from './llm-connections.js';
+import type { ProviderDefaults } from './llm-connections.js';
 
 const siliconflow = GENERATED_MODELS_DEV_PROVIDER_FACTS.siliconflow;
 if (!siliconflow.api) throw new Error('models.dev SiliconFlow provider facts are missing api');
@@ -19,20 +19,9 @@ const orderedSiliconflowModels = [
   ...siliconflowModelEntries.filter(([id]) => !SILICONFLOW_RECOMMENDED_MODEL_IDS.includes(id)),
 ];
 
-const siliconflowModels: ModelInfo[] = orderedSiliconflowModels
+const siliconflowModelIds = orderedSiliconflowModels
   .filter(([, model]) => model.capabilities?.functionCalling)
-  .map(([id, model]) => ({
-    id,
-    displayName: model.displayName,
-    contextWindow: model.contextWindow,
-    maxOutputTokens: model.maxOutputTokens,
-    capabilities: {
-      chat: true,
-      vision: model.capabilities?.vision ?? false,
-      reasoning: model.capabilities?.reasoning ?? false,
-      functionCalling: model.capabilities?.functionCalling ?? false,
-    },
-  }));
+  .map(([id]) => id);
 
 export const SILICONFLOW_PROVIDER_DEFAULTS: ProviderDefaults = {
   label: siliconflow.name,
@@ -40,7 +29,7 @@ export const SILICONFLOW_PROVIDER_DEFAULTS: ProviderDefaults = {
   baseUrl: siliconflow.api,
   authKind: 'api_key',
   backendKind: 'ai-sdk',
-  fallbackModels: siliconflowModels.map((model) => model.id),
+  fallbackModels: siliconflowModelIds,
   status: 'ready',
   protocol: 'openai',
   runtimeAdapter: 'openai-compatible',
@@ -50,7 +39,3 @@ export const SILICONFLOW_PROVIDER_DEFAULTS: ProviderDefaults = {
   signupUrl: siliconflow.doc,
   modelsDevId: siliconflow.id,
 };
-
-export function modelsDevFallbackModelsForProvider(providerType: ProviderType): readonly ModelInfo[] | undefined {
-  return providerType === 'siliconflow' ? siliconflowModels : undefined;
-}
