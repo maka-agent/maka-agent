@@ -19,6 +19,7 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { relative, resolve, sep } from 'node:path';
 import { describe, it } from 'node:test';
@@ -27,8 +28,12 @@ const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const ICONS_FILE = resolve(REPO_ROOT, 'packages/ui/src/icons.tsx');
 const SIDEBAR_NAV_FILE = resolve(REPO_ROOT, 'packages/ui/src/session-sidebar-nav.tsx');
 const PROVIDER_BRAND_MARKS_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/provider-brand-marks.tsx');
+const MINIMAX_BRAND_ASSET_FILE = resolve(
+  REPO_ROOT,
+  'apps/desktop/src/renderer/assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg',
+);
 
-// Fixed brand assets, not generic UI icons — their hand-authored SVGs keep
+// Fixed brand assets, not generic UI icons — their vendored SVGs keep
 // their own stroke weight and are exempt from the call-site stroke sweep.
 const STROKE_EXCEPTION_FILES = new Set([
   resolve(REPO_ROOT, 'packages/ui/src/bot-brand-logo.tsx'),
@@ -137,6 +142,28 @@ describe('icon + typography governance contract', () => {
       src,
       /case 'minimax-coding-plan':\s*case 'MiniMax':\s*case 'MiniMax-cn':\s*return <MiniMaxMark \/>/,
       'MiniMax Coding Plan must reuse the MiniMax brand mark instead of the generic placeholder',
+    );
+  });
+
+  it('vendors the byte-exact official MiniMax brand-package SVG', async () => {
+    const componentSrc = await readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8');
+    const asset = await readFile(MINIMAX_BRAND_ASSET_FILE);
+
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      '386033f6d1cfc5359877b402221a819f272cf6333eae12a95858fdcc226811a5',
+      'MiniMax mark must remain byte-identical to the official brand-package member',
+    );
+    assert.match(componentSrc, /https:\/\/platform\.minimax\.io\/docs\/faq\/contact-us#brand-resources/);
+    assert.match(componentSrc, /https:\/\/file\.cdn\.minimax\.io\/public\/MiniMax_Logo\.zip/);
+    assert.match(
+      componentSrc,
+      /MiniMax_Logo\/svg\/logo-only\/vertical\/minimax_logo-only_vertical_color-bg_white-text\.svg/,
+    );
+    assert.match(
+      componentSrc,
+      /function MiniMaxMark\(\): ReactElement \{\s*return <img src=\{minimaxBrandMark\} alt="" \/>;\s*\}/,
+      'MiniMax providers must render the vendored official file, never an inline hand-drawn path',
     );
   });
 });

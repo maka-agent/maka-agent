@@ -28,6 +28,9 @@ test('adds MiniMax Coding Plan under its independent provider id with an exact s
 
   await page.getByRole('tab', { name: '模型计划' }).click();
   await page.getByPlaceholder('搜索服务商').fill('MiniMax Coding Plan');
+  await expect(
+    page.locator('.providerCatalogRow[data-provider="minimax-coding-plan"] .providerLogo img[src*="minimax-logo-only-vertical-color-bg-white-text-"]'),
+  ).toBeVisible();
   await page.getByRole('button', { name: /添加模型供应商：MiniMax Coding Plan/ }).click();
 
   await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('minimax-coding-plan');
@@ -36,6 +39,9 @@ test('adds MiniMax Coding Plan under its independent provider id with an exact s
   await page.getByRole('button', { name: '保存供应商' }).click();
 
   await expect(page.getByRole('heading', { name: 'MiniMax Coding Plan', exact: true }).first()).toBeVisible();
+  await expect(
+    page.locator('.providerSubpageHeader .providerLogo[data-provider="minimax-coding-plan"] img[src*="minimax-logo-only-vertical-color-bg-white-text-"]'),
+  ).toBeVisible();
   await expect(page.getByText('MiniMax-M3', { exact: true }).first()).toBeVisible();
 });
 

@@ -298,6 +298,7 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
         <ProviderPageHeader
           title={selected.name}
           description={`${providerDisplay(selected.providerType).name} · 模型、凭据与连接状态`}
+          providerType={selected.providerType}
           onBack={() => navigate({ kind: 'connections' }, { kind: 'connection', slug: selected.slug })}
         />
         <div className="providerInlineEditor">
@@ -426,16 +427,19 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
   );
 }
 
-function ProviderPageHeader(props: { title: string; description: string; onBack(): void }) {
+function ProviderPageHeader(props: { title: string; description: string; providerType?: ProviderType; onBack(): void }) {
   return (
     <header className="providerSubpageHeader">
       <Button type="button" variant="quiet" className="providerSubpageBack" data-provider-focus="child-back" aria-label="返回模型连接" onClick={props.onBack}>
         <ArrowLeft size={16} aria-hidden="true" />
         返回
       </Button>
-      <div>
-        <h3>{props.title}</h3>
-        <p>{props.description}</p>
+      <div className="providerSubpageIdentity">
+        {props.providerType && <ProviderLogo type={props.providerType} compact />}
+        <div>
+          <h3>{props.title}</h3>
+          <p>{props.description}</p>
+        </div>
       </div>
     </header>
   );

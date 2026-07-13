@@ -1,11 +1,12 @@
 // Official provider brand marks.
 //
-// SVG paths vendored from `@lobehub/icons-static-svg` (MIT-licensed,
+// Most SVG paths are vendored from `@lobehub/icons-static-svg` (MIT-licensed,
 // https://github.com/lobehub/lobe-icons) — the React package was NOT
 // adopted because its peerDependencies pull in antd + @lobehub/ui, which
 // we don't use. We copy only the handful of marks we render, so there is
-// zero runtime dependency. Each brand logo remains the trademark of its
-// owner and is used here only to identify the corresponding provider.
+// zero runtime dependency. MiniMax comes directly from its official brand
+// package, documented beside the import below. Each brand logo remains the
+// trademark of its owner and is used here only to identify the provider.
 //
 // Color marks keep their brand fill; monochrome marks use `currentColor`
 // so they inherit the plate's foreground color and stay legible in both
@@ -14,6 +15,7 @@
 
 import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
+import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg';
 
 function Claude(): ReactElement {
   return (
@@ -115,15 +117,13 @@ function ZAI(): ReactElement {
   );
 }
 
-// MiniMax ships no vendored logo in `@lobehub/icons-static-svg`, so we render
-// a neutral monochrome "M" glyph (currentColor) as an identifying placeholder
-// rather than misusing a trademarked asset. Swap in the official mark later.
+// Vendored byte-for-byte from MiniMax's official brand package:
+// https://platform.minimax.io/docs/faq/contact-us#brand-resources
+// https://file.cdn.minimax.io/public/MiniMax_Logo.zip
+// Source member:
+// MiniMax_Logo/svg/logo-only/vertical/minimax_logo-only_vertical_color-bg_white-text.svg
 function MiniMaxMark(): ReactElement {
-  return (
-    <svg viewBox="0 0 24 24" role="img" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
-      <path d="M4 18V6l5 8 5-8v12M20 6v12" />
-    </svg>
-  );
+  return <img src={minimaxBrandMark} alt="" />;
 }
 
 function GenericProviderMark(): ReactElement {

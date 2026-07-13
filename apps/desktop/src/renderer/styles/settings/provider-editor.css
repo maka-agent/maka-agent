@@ -577,6 +577,12 @@
   margin-left: calc(var(--space-2) * -1);
 }
 
+.providerSubpageIdentity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .providerCatalogSearch {
   width: min(100%, 360px);
   min-height: var(--h-control-lg);

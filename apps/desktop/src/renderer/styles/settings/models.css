@@ -222,7 +222,8 @@
 
 /* Color marks keep their own fill; monochrome marks declare
    `fill="currentColor"` and inherit the plate color (= foreground). */
-.providerLogo svg {
+.providerLogo svg,
+.providerLogo img {
   width: 64%;
   height: 64%;
   display: block;
