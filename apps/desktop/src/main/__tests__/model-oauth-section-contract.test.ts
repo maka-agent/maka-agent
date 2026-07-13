@@ -85,7 +85,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.ok(reloadMatch, 'ProvidersPanel reload() must exist');
     assert.match(
       panel,
-      /const providersPanelMountedRef = useRef\(false\);[\s\S]*const providersReloadTicketRef = useRef\(0\);[\s\S]*const providerPageLifecycleRef = useRef\(0\);/,
+      /const providersPanelMountedRef = useMountedRef\(\);[\s\S]*const providersReloadTicketRef = useRef\(0\);[\s\S]*const providerPageLifecycleRef = useRef\(0\);/,
       'ProvidersPanel reloads must track mounted state and latest request ownership',
     );
     assert.match(
@@ -100,7 +100,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       panel,
-      /return \(\) => \{[\s\S]*providersPanelMountedRef\.current = false;[\s\S]*providersReloadTicketRef\.current \+= 1;[\s\S]*unsubscribe\?\.\(\);/,
+      /return \(\) => \{[\s\S]*providersReloadTicketRef\.current \+= 1;[\s\S]*unsubscribe\?\.\(\);/,
       'ProvidersPanel cleanup must invalidate in-flight reloads and unsubscribe from connection events',
     );
     assert.match(
@@ -243,7 +243,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       addForm,
-      /const addProviderMountedRef = useRef\(false\)[\s\S]*useEffect\(\(\) => \{[\s\S]*addProviderMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*addProviderMountedRef\.current = false;[\s\S]*busyRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\);/,
+      /const addProviderMountedRef = useMountedRef\(\)[\s\S]*useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*busyRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\);/,
       'AddProviderForm must track its own sheet lifetime so pending create continuations cannot write after overlay close',
     );
     assert.match(
@@ -720,12 +720,12 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(
       detail,
-      /const connectionDetailMountedRef = useRef\(false\);[\s\S]*const connectionDetailLifecycleRef = useRef\(0\);/,
+      /const connectionDetailMountedRef = useMountedRef\(\);[\s\S]*const connectionDetailLifecycleRef = useRef\(0\);/,
       'ConnectionDetail must track mounted/lifecycle ownership',
     );
     assert.match(
       detail,
-      /useEffect\(\(\) => \{[\s\S]*connectionDetailMountedRef\.current = true;[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*return \(\) => \{[\s\S]*connectionDetailMountedRef\.current = false;[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*busyRef\.current = false;[\s\S]*testingRef\.current = false;[\s\S]*fetchingModelsRef\.current = false;[\s\S]*settingDefaultRef\.current = false;[\s\S]*deletingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[connection\.slug\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*return \(\) => \{[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*busyRef\.current = false;[\s\S]*testingRef\.current = false;[\s\S]*fetchingModelsRef\.current = false;[\s\S]*settingDefaultRef\.current = false;[\s\S]*deletingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[connection\.slug\]\);/,
       'ConnectionDetail cleanup must release every pending action owner on close or provider switch',
     );
     assert.match(
@@ -938,7 +938,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(
       section,
-      /const modelOAuthMountedRef = useRef\(false\);[\s\S]*const modelOAuthRefreshTicketRef = useRef\(0\);/,
+      /const modelOAuthMountedRef = useMountedRef\(\);[\s\S]*const modelOAuthRefreshTicketRef = useRef\(0\);/,
       'ModelOAuthSection must keep mounted and latest-refresh ownership refs',
     );
     assert.match(
@@ -948,7 +948,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       section,
-      /useEffect\(\(\) => \{[\s\S]*modelOAuthMountedRef\.current = true;[\s\S]*void refreshAllCards\(\);[\s\S]*return \(\) => \{[\s\S]*modelOAuthMountedRef\.current = false;[\s\S]*modelOAuthRefreshTicketRef\.current \+= 1;[\s\S]*\};[\s\S]*\}, \[\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*void refreshAllCards\(\);[\s\S]*return \(\) => \{[\s\S]*modelOAuthRefreshTicketRef\.current \+= 1;[\s\S]*\};[\s\S]*\}, \[\]\);/,
       'OAuth card refresh must invalidate in-flight requests on unmount',
     );
     assert.match(
@@ -1054,7 +1054,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       hook,
-      /const oauthLoginFlowMountedRef = useRef\(false\)/,
+      /const oauthLoginFlowMountedRef = useMountedRef\(\)/,
       'shared OAuth flow must own mounted state before writing async feedback',
     );
     assert.match(
@@ -1069,7 +1069,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       hook,
-      /useEffect\(\(\) => \{[\s\S]*oauthLoginFlowMountedRef\.current = true;[\s\S]*void refresh\(\);[\s\S]*return \(\) => \{[\s\S]*oauthLoginFlowMountedRef\.current = false;[\s\S]*pendingGuard\.finish\(\);[\s\S]*teardownPendingAuthorization\(authRequestIdRef, \(id\) => void bridge\.cancelAuthorization\(id\)\);[\s\S]*\};[\s\S]*\}, \[\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*void refresh\(\);[\s\S]*return \(\) => \{[\s\S]*pendingGuard\.finish\(\);[\s\S]*teardownPendingAuthorization\(authRequestIdRef, \(id\) => void bridge\.cancelAuthorization\(id\)\);[\s\S]*\};[\s\S]*\}, \[\]\);/,
       'shared OAuth flow cleanup must invalidate async feedback and cancel pending authorization',
     );
     assert.match(
@@ -1178,7 +1178,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       claudeCard,
-      /return \(\) => \{[\s\S]*claudeCardMountedRef\.current = false;[\s\S]*const pendingAuthRequestId = claudeAuthRequestIdRef\.current;[\s\S]*claudeAuthRequestIdRef\.current = null;[\s\S]*if \(pendingAuthRequestId\) void window\.maka\.claudeSubscription\.cancelAuthorization\(pendingAuthRequestId\);[\s\S]*\};/,
+      /return \(\) => \{[\s\S]*const pendingAuthRequestId = claudeAuthRequestIdRef\.current;[\s\S]*claudeAuthRequestIdRef\.current = null;[\s\S]*if \(pendingAuthRequestId\) void window\.maka\.claudeSubscription\.cancelAuthorization\(pendingAuthRequestId\);[\s\S]*\};/,
       'closing the Claude OAuth modal mid-login must cancel the pending auth request',
     );
     assert.match(

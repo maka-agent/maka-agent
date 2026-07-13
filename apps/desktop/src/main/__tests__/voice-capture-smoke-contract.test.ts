@@ -101,7 +101,7 @@ describe('voice capture smoke Settings contract', () => {
     assert.ok(voicePage, 'voice settings page source must be discoverable');
     assert.match(
       voicePage!,
-      /const voicePageMountedRef = useRef\(false\);[\s\S]*const activeVoiceCaptureStreamRef = useRef<MediaStream \| null>\(null\);[\s\S]*voicePageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*voicePageMountedRef\.current = false;[\s\S]*activeVoiceCaptureStreamRef\.current\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);[\s\S]*activeVoiceCaptureStreamRef\.current = null;[\s\S]*captureSmokeBusyRef\.current = false;/,
+      /const voicePageMountedRef = useMountedRef\(\);[\s\S]*const activeVoiceCaptureStreamRef = useRef<MediaStream \| null>\(null\);[\s\S]*return \(\) => \{[\s\S]*activeVoiceCaptureStreamRef\.current\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);[\s\S]*activeVoiceCaptureStreamRef\.current = null;[\s\S]*captureSmokeBusyRef\.current = false;/,
       'voice capture smoke must track page ownership and release the pending owner when Settings closes',
     );
     assert.match(

@@ -345,15 +345,13 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
   const toast = useToast();
   const [copyingOfficeCliInstall, setCopyingOfficeCliInstall] = useState(false);
   const copyingOfficeCliInstallRef = useRef(false);
-  const capabilityRowMountedRef = useRef(false);
+  const capabilityRowMountedRef = useMountedRef();
   const readinessCopy = CAPABILITY_READINESS_COPY[capability.readiness];
   const showOfficeCliInstallActions =
     capability.id === 'office_documents' && capability.runtimeProbe.state !== 'healthy';
 
   useEffect(() => {
-    capabilityRowMountedRef.current = true;
     return () => {
-      capabilityRowMountedRef.current = false;
       copyingOfficeCliInstallRef.current = false;
     };
   }, []);

@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Sparkles } from '@maka/ui/icons';
-import { Button, PageHeader, useToast } from '@maka/ui';
+import { Button, PageHeader, useMountedRef, useToast } from '@maka/ui';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -18,13 +18,12 @@ export function AboutSettingsPage() {
   const [infoError, setInfoError] = useState<string | null>(null);
   const [copyingEnvSummary, setCopyingEnvSummary] = useState(false);
   const copyingEnvSummaryRef = useRef(false);
-  const aboutPageMountedRef = useRef(false);
+  const aboutPageMountedRef = useMountedRef();
   const toast = useToast();
   const envSummaryHelpId = useId();
 
   useEffect(() => {
     let cancelled = false;
-    aboutPageMountedRef.current = true;
     window.maka.app
       .info()
       .then((next) => {
@@ -41,7 +40,6 @@ export function AboutSettingsPage() {
     });
     return () => {
       cancelled = true;
-      aboutPageMountedRef.current = false;
       copyingEnvSummaryRef.current = false;
     };
   }, [toast]);

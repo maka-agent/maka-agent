@@ -14,6 +14,7 @@ import {
   PrimitiveTabs, PrimitiveTabsList, PrimitiveTabsTrigger, PrimitiveTabsPanel,
   PrimitiveAccordion, PrimitiveAccordionItem, PrimitiveAccordionHeader, PrimitiveAccordionTrigger, PrimitiveAccordionPanel,
   Item, ItemContent, ItemTitle, ItemActions,
+  useMountedRef,
   useToast,
 } from '@maka/ui';
 import { chipStatusText, rollupForGroup } from './provider-connection-status';
@@ -57,7 +58,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   const [catalogQuery, setCatalogQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const providersPanelMountedRef = useRef(false);
+  const providersPanelMountedRef = useMountedRef();
   const providersReloadTicketRef = useRef(0);
   const providerPageLifecycleRef = useRef(0);
   const providersPanelRef = useRef<HTMLDivElement>(null);
@@ -105,13 +106,11 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   }
 
   useEffect(() => {
-    providersPanelMountedRef.current = true;
     void reload();
     const unsubscribe = bridge.subscribeEvents?.(() => {
       void reload();
     });
     return () => {
-      providersPanelMountedRef.current = false;
       providersReloadTicketRef.current += 1;
       providerPageLifecycleRef.current += 1;
       unsubscribe?.();

@@ -33,6 +33,7 @@ import {
   SettingsSelect,
   SettingsSwitch as Switch,
   Textarea,
+  useMountedRef,
   useToast,
 } from '@maka/ui';
 import { PasswordInput } from './password-input';
@@ -176,16 +177,14 @@ export function BotChatSettingsPage(props: {
   const toast = useToast();
   const selectedStatus = statuses?.[selected];
   const pendingBotActionRef = useRef<BotPendingAction | null>(null);
-  const botPageMountedRef = useRef(false);
+  const botPageMountedRef = useMountedRef();
   const botActionBusy = pendingBotAction !== null;
   const selectedBotActionPending = pendingBotAction?.provider === selected ? pendingBotAction.action : null;
   const testing = selectedBotActionPending === 'test' || selectedBotActionPending === 'connect';
   const restarting = selectedBotActionPending === 'restart';
 
   useEffect(() => {
-    botPageMountedRef.current = true;
     return () => {
-      botPageMountedRef.current = false;
       pendingBotActionRef.current = null;
     };
   }, []);

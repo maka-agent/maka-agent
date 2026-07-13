@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AppSettings, UpdateAppSettingsResult, UsageRange, UsageStats } from '@maka/core';
-import { Button, Input, SettingsSegmented as Segmented, SettingsSelect, SettingsSwitch as Switch, useToast } from '@maka/ui';
+import { Button, Input, SettingsSegmented as Segmented, SettingsSelect, SettingsSwitch as Switch, useMountedRef, useToast } from '@maka/ui';
 import { RefreshCcw } from '@maka/ui/icons';
 import { MetricCard } from './settings-metric-card';
 import { settingsActionErrorMessage } from './settings-error-copy';
@@ -20,7 +20,7 @@ export function UsageSettingsPage(props: {
   const usagePendingSaveCountRef = useRef(0);
   const usageSaveTicketRef = useRef(0);
   const usageRefreshRunningRef = useRef(false);
-  const usagePageMountedRef = useRef(false);
+  const usagePageMountedRef = useMountedRef();
   const stats = props.stats;
   const toast = useToast();
 
@@ -37,9 +37,7 @@ export function UsageSettingsPage(props: {
   }, [persistedUsage]);
 
   useEffect(() => {
-    usagePageMountedRef.current = true;
     return () => {
-      usagePageMountedRef.current = false;
       usageSaveTicketRef.current += 1;
       usageRefreshRunningRef.current = false;
     };

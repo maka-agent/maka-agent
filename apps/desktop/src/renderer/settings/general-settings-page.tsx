@@ -251,13 +251,11 @@ function NetworkProxySection(props: {
   const proxyPendingSaveCountRef = useRef(0);
   const proxySaveTicketRef = useRef(0);
   const proxyTestRunningRef = useRef(false);
-  const networkPageMountedRef = useRef(false);
+  const networkPageMountedRef = useMountedRef();
   const toast = useToast();
 
   useEffect(() => {
-    networkPageMountedRef.current = true;
     return () => {
-      networkPageMountedRef.current = false;
       proxySaveTicketRef.current += 1;
       proxyTestRunningRef.current = false;
     };

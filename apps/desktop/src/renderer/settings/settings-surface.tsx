@@ -11,7 +11,7 @@ import type {
   UsageStats,
 } from '@maka/core';
 import { createDefaultSettings } from '@maka/core/settings';
-import { Button, OverlayScrollArea, useToast } from '@maka/ui';
+import { Button, OverlayScrollArea, useMountedRef, useToast } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
 import { safeLocalStorageSet } from '../browser-storage';
 import { AccountSettingsPage } from './account-settings-page';
@@ -102,16 +102,14 @@ export function SettingsSurface(props: {
   const [settings, setSettings] = useState<AppSettings>(() => createDefaultSettings());
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const settingsModalMountedRef = useRef(false);
+  const settingsModalMountedRef = useMountedRef();
   const settingsReloadTicketRef = useRef(0);
   const settingsUpdateTicketRef = useRef(0);
   const usageReloadTicketRef = useRef(0);
   const toast = useToast();
 
   useEffect(() => {
-    settingsModalMountedRef.current = true;
     return () => {
-      settingsModalMountedRef.current = false;
       settingsReloadTicketRef.current += 1;
       settingsUpdateTicketRef.current += 1;
       usageReloadTicketRef.current += 1;
