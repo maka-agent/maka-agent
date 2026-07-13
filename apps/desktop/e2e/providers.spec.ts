@@ -26,7 +26,8 @@ test('adds Vercel AI Gateway with its exact identity, endpoint, model id, and sh
   await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
   await page.getByRole('button', { name: '添加服务商' }).click();
 
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
+  // Vercel AI Gateway belongs to the user-facing aggregator catalog group.
+  await page.getByRole('tab', { name: '聚合服务', exact: true }).click();
   await page.getByPlaceholder('搜索服务商').fill('Vercel AI Gateway');
   const catalogMark = page.locator('.providerCatalogRow[data-provider="vercel"] .providerLogo .providerAssetMask');
   await expect(catalogMark).toBeVisible();
