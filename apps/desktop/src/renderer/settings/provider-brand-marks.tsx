@@ -28,6 +28,7 @@ import mistralBrandMark from '../assets/provider-brands/mistral.svg';
 import togetherBrandMark from '../assets/provider-brands/together.svg';
 import nvidiaMarkUrl from '../assets/provider-brands/nvidia.svg';
 import stepfunBrandMark from '../assets/provider-brands/stepfun.svg';
+import vercelBrandMark from '../assets/provider-brands/vercel.svg';
 import volcengineBrandMark from '../assets/provider-brands/volcengine.svg';
 import xaiMarkUrl from '../assets/provider-brands/xai.svg';
 
@@ -126,6 +127,14 @@ function XAI(): ReactElement {
 // - path: packages/static-svg/icons/volcengine.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: f29d0bdc284b33d8664ef221add7fbf06a5b370ef92767fa33f6020c914d3d33
+
+// Vercel mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: 32f4083f7a20b67ecdc7b29c0af031ada5a29c52
+// - path: packages/static-svg/icons/vercel.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 4874d52d8b2ce7c309cbd10c424fee123b2c9483e76d76ad0dca41794483eb24
 
 function ProviderAssetMask({ src }: { src: string }): ReactElement {
   const mask = `url("${src}")`;
@@ -281,6 +290,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <ProviderAssetMask src={fireworksMarkUrl} />;
     case 'siliconflow':
       return <SiliconCloud />;
+    case 'vercel':
+      return <ProviderAssetMask src={vercelBrandMark} />;
     case 'anthropic':
     case 'claude-subscription':
       return <Claude />;

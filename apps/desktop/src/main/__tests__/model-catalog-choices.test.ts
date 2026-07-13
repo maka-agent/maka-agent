@@ -261,6 +261,7 @@ describe('model catalog picker helpers', () => {
 
     assert.equal(buildCatalogRecommendedDefaultModel('deepseek'), 'deepseek-v4-flash');
     assert.equal(buildCatalogRecommendedDefaultModel('siliconflow'), 'moonshotai/Kimi-K2.6');
+    assert.equal(buildCatalogRecommendedDefaultModel('vercel'), 'anthropic/claude-opus-4.8');
     assert.equal(buildCatalogRecommendedDefaultModel('openai-compatible'), '');
   });
 

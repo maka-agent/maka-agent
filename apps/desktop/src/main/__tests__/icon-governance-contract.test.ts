@@ -35,6 +35,7 @@ const MINIMAX_BRAND_ASSET_FILE = resolve(
   'apps/desktop/src/renderer/assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg',
 );
 const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/xai.svg');
+const VERCEL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/vercel.svg');
 const CEREBRAS_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cerebras.svg');
 const MISTRAL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/mistral.svg');
 const COHERE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cohere.svg');
@@ -272,6 +273,36 @@ describe('icon + typography governance contract', () => {
       notices,
       /apps\/desktop\/src\/renderer\/assets\/provider-brands\/deepinfra\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/deepinfra\.svg[\s\S]*2a20be86e90b3c2085d5b3213f52c75e4f0041b239d6140475f5809863d45392/,
     );
+  });
+
+  it('vendors and routes the byte-exact Vercel SVG through the shared provider logo seam', async () => {
+    const [marks, asset, notices, catalog, providersPanel, onboardingHero] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(VERCEL_BRAND_MARK_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+      readFile(PROVIDER_CATALOG_FILE, 'utf8'),
+      readFile(PROVIDERS_PANEL_FILE, 'utf8'),
+      readFile(ONBOARDING_HERO_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      '4874d52d8b2ce7c309cbd10c424fee123b2c9483e76d76ad0dca41794483eb24',
+      'Vercel SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 vercel.svg',
+    );
+    assert.match(
+      marks,
+      /Vercel mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*32f4083f7a20b67ecdc7b29c0af031ada5a29c52[\s\S]*packages\/static-svg\/icons\/vercel\.svg[\s\S]*license: MIT[\s\S]*4874d52d8b2ce7c309cbd10c424fee123b2c9483e76d76ad0dca41794483eb24/,
+    );
+    assert.match(marks, /import vercelBrandMark from '\.\.\/assets\/provider-brands\/vercel\.svg';/);
+    assert.match(marks, /case 'vercel':\s*return <ProviderAssetMask src=\{vercelBrandMark\} \/>/);
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/vercel\.svg[\s\S]*32f4083f7a20b67ecdc7b29c0af031ada5a29c52[\s\S]*packages\/static-svg\/icons\/vercel\.svg[\s\S]*4874d52d8b2ce7c309cbd10c424fee123b2c9483e76d76ad0dca41794483eb24/,
+    );
+    assert.match(catalog, /<ProviderLogo type=\{props\.type\} \/>/);
+    assert.match(providersPanel, /<ProviderLogo type=\{props\.providerType\} compact \/>/);
+    assert.match(onboardingHero, /<ProviderLogo type=\{type\} compact \/>/);
   });
 
   it('vendors and routes the byte-exact Fireworks SVG through the shared mask and notice seams', async () => {
