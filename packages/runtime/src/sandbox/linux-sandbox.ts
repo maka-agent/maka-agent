@@ -204,16 +204,23 @@ export function buildBubblewrapArgv(input: BuildBubblewrapArgvInput): readonly s
   }
 
   const programDirectory = absoluteProgramDirectory(command.program);
+  const profileCoverage = [
+    ...DEFAULT_READ_ONLY_HOST_PATHS,
+    ...roots.readableRoots,
+    ...roots.writableRoots,
+  ];
   const extraProgramDirectories = programDirectory
-    && !isCoveredByAnyRoot(programDirectory, [
-      ...DEFAULT_READ_ONLY_HOST_PATHS,
-      ...roots.readableRoots,
-      ...roots.writableRoots,
-    ])
+    && !isCoveredByAnyRoot(programDirectory, profileCoverage)
     ? [programDirectory]
     : [];
+  const extraRuntimeRoots = removeNestedRoots((command.pathContext.minimalRoots ?? []).filter((root) => (
+    posix.isAbsolute(root)
+    && posix.normalize(root) !== '/'
+    && !isCoveredByAnyRoot(root, profileCoverage)
+  )));
   const mountRoots = uniqueRoots([
     ...extraProgramDirectories,
+    ...extraRuntimeRoots,
     ...roots.tempRoots,
     ...roots.readableRoots,
     ...roots.writableRoots,
@@ -224,6 +231,9 @@ export function buildBubblewrapArgv(input: BuildBubblewrapArgvInput): readonly s
 
   for (const directory of extraProgramDirectories) {
     argv.push('--ro-bind', directory, directory);
+  }
+  for (const directory of extraRuntimeRoots) {
+    argv.push('--ro-bind-try', directory, directory);
   }
   for (const root of roots.tempRoots) argv.push('--tmpfs', root);
   for (const root of roots.readableRoots) argv.push('--ro-bind', root, root);
@@ -396,6 +406,25 @@ function absoluteProgramDirectory(program: string): string | undefined {
   return posix.isAbsolute(program) ? posix.dirname(program) : undefined;
 }
 
+export function linuxExecutableRoots(input: {
+  execPath: string;
+  path?: string;
+}): readonly string[] {
+  const roots: string[] = [];
+  if (posix.isAbsolute(input.execPath)) {
+    const executableDirectory = posix.dirname(posix.normalize(input.execPath));
+    roots.push(posix.basename(executableDirectory) === 'bin'
+      ? posix.dirname(executableDirectory)
+      : executableDirectory);
+  }
+  for (const entry of input.path?.split(':') ?? []) {
+    if (posix.isAbsolute(entry) && posix.normalize(entry) !== '/') {
+      roots.push(posix.normalize(entry));
+    }
+  }
+  return removeNestedRoots(roots);
+}
+
 function isCoveredByAnyRoot(path: string, roots: readonly string[]): boolean {
   return roots.some((root) => {
     const relative = posix.relative(root, path);
@@ -405,6 +434,13 @@ function isCoveredByAnyRoot(path: string, roots: readonly string[]): boolean {
 
 function removeCoveredRoots(roots: readonly string[], covering: readonly string[]): readonly string[] {
   return roots.filter((root) => !covering.includes(root));
+}
+
+function removeNestedRoots(roots: readonly string[]): readonly string[] {
+  const unique = [...new Set(roots.map((root) => posix.normalize(root)))];
+  return unique.filter((root) => !unique.some((candidate) => (
+    candidate !== root && isCoveredByAnyRoot(root, [candidate])
+  )));
 }
 
 function requiredParentDirectories(roots: readonly string[]): readonly string[] {

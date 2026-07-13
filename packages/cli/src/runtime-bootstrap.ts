@@ -12,6 +12,7 @@ import {
   ShellRunProcessManager,
   buildAutomationTool,
   buildBuiltinTools,
+  createBuiltinSandboxManager,
   buildDefaultContextBudgetPolicy,
   buildSkillAgentTool,
   buildGoalTools,
@@ -131,11 +132,13 @@ export async function createMakaCliRuntimeContext(
       }
     },
   });
+  const sandboxManager = createBuiltinSandboxManager();
   const tools = buildBuiltinTools({
     shellRuns,
     runtimeResources: shellRuns,
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
+    ...(sandboxManager ? { sandboxManager } : {}),
   });
   const automationManager = new AutomationManager({
     generateId: () => randomUUID(),

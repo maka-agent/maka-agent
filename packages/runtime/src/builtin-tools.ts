@@ -6,7 +6,12 @@
 // Bash / Write / Edit go through PermissionEngine.
 
 import { z } from 'zod';
+import { tmpdir } from 'node:os';
 import { isAbsolute } from 'node:path';
+import {
+  compilePermissionProfile,
+  type PermissionProfile,
+} from '@maka/core';
 import { computeEditedSource } from './edit-replace.js';
 import {
   buildManagedBashTool,
@@ -34,6 +39,10 @@ import {
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export type { MakaTool, MakaToolContext };
 import { withFileWriteLock } from './file-write-lock.js';
+import type { SandboxManager } from './sandbox/sandbox-manager.js';
+import { linuxExecutableRoots } from './sandbox/linux-sandbox.js';
+import type { SandboxPlatform } from './sandbox/types.js';
+import type { ChildFdInput } from './child-fd-input.js';
 
 // Generous wall-clock cap for the ripgrep-backed Grep tool. A search should be
 // near-instant; this only bounds a pathological hang now that the stream
@@ -48,6 +57,10 @@ export interface BuildBuiltinToolsOptions {
   executor?: WorkspaceExecutor;
   /** Shell that runs Bash commands. Defaults to the process-wide detected shell. */
   shell?: ShellPlan;
+  permissionProfile?: PermissionProfile;
+  sandboxManager?: SandboxManager;
+  /** Test/embedding override. Production callers use the current process platform. */
+  sandboxPlatform?: SandboxPlatform;
 }
 
 export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaTool[] {
@@ -70,9 +83,32 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       ])
     : fileReadParameters;
   const shell = options.shell ?? defaultShellPlan();
+  const sandboxPlatform = options.sandboxPlatform ?? process.platform;
   const bashTools = options.shellRuns
-    ? [buildManagedBashTool(options.shellRuns, { executionFacts, shell })]
-    : [buildExecutorBashTool(executor, shell)];
+    ? [buildManagedBashTool(options.shellRuns, {
+        executionFacts,
+        shell,
+        ...(options.sandboxManager ? {
+          sandbox: sandboxAvailabilityResolver(
+            options.sandboxManager,
+            options.permissionProfile,
+            sandboxPlatform,
+          ),
+          transformCommand: ({ command, pty, ctx }) => sandboxCommand(
+            options.sandboxManager!,
+            options.permissionProfile,
+            sandboxPlatform,
+            command,
+            pty,
+            ctx,
+          ),
+        } : {}),
+      })]
+    : [buildExecutorBashTool(executor, shell, {
+        ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+        ...(options.sandboxManager ? { sandboxManager: options.sandboxManager } : {}),
+        sandboxPlatform,
+      })];
   const backgroundTools = [
     ...(options.backgroundTasks ? [buildStopBackgroundTaskTool(options.backgroundTasks)] : []),
     ...(options.ptyControls ? [buildWriteStdinTool(options.ptyControls)] : []),
@@ -270,7 +306,17 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   ];
 }
 
-function buildExecutorBashTool(executor: WorkspaceExecutor, shell: ShellPlan): MakaTool {
+interface ExecutorBashSandboxOptions {
+  permissionProfile?: PermissionProfile;
+  sandboxManager?: SandboxManager;
+  sandboxPlatform: SandboxPlatform;
+}
+
+function buildExecutorBashTool(
+  executor: WorkspaceExecutor,
+  shell: ShellPlan,
+  sandboxOptions: ExecutorBashSandboxOptions,
+): MakaTool {
   return {
     name: 'Bash',
     activityKind: 'command',
@@ -282,11 +328,32 @@ function buildExecutorBashTool(executor: WorkspaceExecutor, shell: ShellPlan): M
     }),
     permissionRequired: true,
     executionFacts: executor.facts,
-    impl: async ({ command, timeout_ms }, { cwd, abortSignal, emitOutput }) => {
+    ...(sandboxOptions.sandboxManager ? {
+      sandbox: sandboxAvailabilityResolver(
+        sandboxOptions.sandboxManager,
+        sandboxOptions.permissionProfile,
+        sandboxOptions.sandboxPlatform,
+      ),
+    } : {}),
+    impl: async ({ command, timeout_ms }, ctx) => {
+      const { cwd, abortSignal, emitOutput } = ctx;
       const timeout = timeout_ms ?? 120_000;
+      const transformed = sandboxOptions.sandboxManager
+        ? sandboxCommand(
+            sandboxOptions.sandboxManager,
+            sandboxOptions.permissionProfile,
+            sandboxOptions.sandboxPlatform,
+            command,
+            false,
+            ctx,
+          )
+        : undefined;
       const result = await executor.exec({
         command,
-        cwd,
+        cwd: transformed?.cwd ?? cwd,
+        ...(transformed ? { argv: transformed.argv } : {}),
+        ...(transformed?.env ? { env: transformed.env } : {}),
+        ...(transformed?.fdInputs ? { fdInputs: transformed.fdInputs } : {}),
         timeoutMs: timeout,
         ...(abortSignal ? { abortSignal } : {}),
         emitOutput,
@@ -300,6 +367,91 @@ function buildExecutorBashTool(executor: WorkspaceExecutor, shell: ShellPlan): M
       return shapeTerminalResult({ cwd, command, result });
     },
   };
+}
+
+function sandboxAvailabilityResolver(
+  manager: SandboxManager,
+  explicitProfile: PermissionProfile | undefined,
+  platform: SandboxPlatform,
+): NonNullable<MakaTool['sandbox']> {
+  return ({ permissionMode, cwd, args }) => {
+    if (isPtyBashArgs(args)) return { platformSandboxAvailable: false };
+    const effective = effectivePermissionProfile(explicitProfile, permissionMode, cwd);
+    return {
+      platformSandboxAvailable: manager.canEnforce({
+        profile: effective.profile,
+        platform,
+      }),
+    };
+  };
+}
+
+function sandboxCommand(
+  manager: SandboxManager,
+  explicitProfile: PermissionProfile | undefined,
+  platform: SandboxPlatform,
+  command: string,
+  pty: boolean,
+  ctx: MakaToolContext,
+): {
+  argv: readonly string[];
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+  fdInputs?: readonly ChildFdInput[];
+} | undefined {
+  if (pty) return undefined;
+  const effective = effectivePermissionProfile(
+    explicitProfile,
+    ctx.permissionMode ?? 'ask',
+    ctx.cwd,
+  );
+  if (!manager.canEnforce({ profile: effective.profile, platform })) return undefined;
+
+  const env = { ...process.env };
+  const result = manager.transform({
+    platform,
+    command: {
+      program: '/bin/sh',
+      args: ['-lc', command],
+      cwd: ctx.cwd,
+      env,
+      profile: effective.profile,
+      pathContext: {
+        workspaceRoots: effective.workspaceRoots,
+        tmpdir: tmpdir(),
+        slashTmp: '/tmp',
+        ...(platform === 'linux' ? {
+          minimalRoots: linuxExecutableRoots({
+            execPath: process.execPath,
+            path: env.PATH,
+          }),
+        } : {}),
+      },
+    },
+  });
+  if (!result.ok) {
+    throw new Error(result.message ?? `Sandbox transform failed: ${result.reason}`);
+  }
+  return {
+    argv: result.exec.argv,
+    cwd: result.exec.cwd,
+    ...(result.exec.env ? { env: { ...result.exec.env } } : {}),
+    ...(result.exec.fdInputs ? { fdInputs: result.exec.fdInputs } : {}),
+  };
+}
+
+function effectivePermissionProfile(
+  explicitProfile: PermissionProfile | undefined,
+  permissionMode: NonNullable<MakaToolContext['permissionMode']>,
+  cwd: string,
+): { profile: PermissionProfile; workspaceRoots: readonly string[] } {
+  if (explicitProfile) return { profile: explicitProfile, workspaceRoots: [cwd] };
+  const compiled = compilePermissionProfile({ mode: permissionMode, cwd });
+  return { profile: compiled.profile, workspaceRoots: compiled.workspaceRoots };
+}
+
+function isPtyBashArgs(args: unknown): boolean {
+  return typeof args === 'object' && args !== null && (args as { pty?: unknown }).pty === true;
 }
 
 function terminalError(

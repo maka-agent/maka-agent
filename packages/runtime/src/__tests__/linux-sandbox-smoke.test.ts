@@ -1,12 +1,14 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createWorkspaceWritePermissionProfile } from '@maka/core/permission-profile';
-import { LinuxBubblewrapBackend } from '../sandbox/linux-sandbox.js';
+import { LinuxBubblewrapBackend, linuxExecutableRoots } from '../sandbox/linux-sandbox.js';
 import { detectLinuxSandboxCapability } from '../sandbox/linux-capability.js';
+import { SandboxManager } from '../sandbox/sandbox-manager.js';
 import { runProcessWithBoundedTail } from '../shell-exec.js';
+import { buildBuiltinTools } from '../builtin-tools.js';
 
 const capability = detectLinuxSandboxCapability();
 const requireLinuxSandboxSmoke = process.env.MAKA_REQUIRE_LINUX_SANDBOX_SMOKE === '1';
@@ -80,21 +82,30 @@ describe('Linux sandbox smoke', () => {
     await assert.rejects(() => readFile(join(workspace, 'packages', 'pkg', '.git', 'config'), 'utf8'));
   });
 
-  test('network-restricted applies the seccomp socket filter', { skip: skipReason }, async () => {
+  test('shell-launched Node uses runtime roots and the seccomp socket filter', { skip: skipReason }, async () => {
     if (!capability.available) return;
     const workspace = await mkdtemp(join(tmpdir(), 'maka-linux-sandbox-network-'));
     const backend = new LinuxBubblewrapBackend({ capability });
     const request = backend.transform({
       platform: 'linux',
       command: {
-        program: process.execPath,
+        program: '/bin/sh',
         args: [
-          '-e',
-          'const net=require("node:net");const s=net.connect(9,"127.0.0.1");s.on("error",e=>{process.stdout.write(e.code||"");process.exit(e.code==="EPERM"?0:2)})',
+          '-lc',
+          `node -e ${shellQuote('const net=require("node:net");const s=net.connect(9,"127.0.0.1");s.on("error",e=>{process.stdout.write(e.code||"");process.exit(e.code==="EPERM"?0:2)})')}`,
         ],
         cwd: workspace,
+        env: { ...process.env },
         profile: createWorkspaceWritePermissionProfile(),
-        pathContext: { workspaceRoots: [workspace], tmpdir: tmpdir(), slashTmp: '/tmp' },
+        pathContext: {
+          workspaceRoots: [workspace],
+          tmpdir: tmpdir(),
+          slashTmp: '/tmp',
+          minimalRoots: linuxExecutableRoots({
+            execPath: process.execPath,
+            path: process.env.PATH,
+          }),
+        },
       },
     });
     assert.equal(request.ok, true);
@@ -108,6 +119,47 @@ describe('Linux sandbox smoke', () => {
 
     assert.equal(result.exitCode, 0, result.stderr);
     assert.equal(result.stdout, 'EPERM');
+  });
+
+  test('builtin Bash executes a tool from a nonstandard host PATH inside bubblewrap', { skip: skipReason }, async () => {
+    if (!capability.available) return;
+    const workspace = await mkdtemp(join(tmpdir(), 'maka-linux-sandbox-builtin-'));
+    const toolRoot = await mkdtemp(join(homedir(), '.maka-linux-sandbox-tool-'));
+    const toolBin = join(toolRoot, 'bin');
+    const toolPath = join(toolBin, 'maka-path-probe');
+    await mkdir(toolBin);
+    await writeFile(toolPath, '#!/bin/sh\nprintf custom-tool-ok\n');
+    await chmod(toolPath, 0o755);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${toolBin}:${previousPath ?? ''}`;
+
+    try {
+      const manager = new SandboxManager([new LinuxBubblewrapBackend({ capability })]);
+      const bash = buildBuiltinTools({
+        permissionProfile: createWorkspaceWritePermissionProfile(),
+        sandboxManager: manager,
+        sandboxPlatform: 'linux',
+      }).find((candidate) => candidate.name === 'Bash');
+      if (!bash) throw new Error('Bash tool missing');
+
+      const result = await bash.impl({ command: 'maka-path-probe' }, {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        toolCallId: 'tool-1',
+        cwd: workspace,
+        permissionMode: 'execute',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      }) as { output: { mode: string; stdout: string; stderr: string } };
+
+      assert.equal(result.output.mode, 'pipes');
+      assert.equal(result.output.stdout, 'custom-tool-ok');
+      assert.equal(result.output.stderr, '');
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      await rm(toolRoot, { recursive: true, force: true });
+    }
   });
 });
 

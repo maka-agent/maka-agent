@@ -59,6 +59,26 @@ describe('ShellRunProcessManager', () => {
     assert.ok(result.output.stdout.includes('exit $LASTEXITCODE'));
   });
 
+  test('runs explicit argv and supplies inherited fd payloads on the pipe path', async () => {
+    const manager = await createTestManager();
+    const result = await manager.runForegroundBash(shellInput({
+      cwd: await workspace(),
+      command: 'sandbox display command',
+      argv: [
+        process.execPath,
+        '-e',
+        'process.stdout.write(require("node:fs").readFileSync(3, "utf8"))',
+      ],
+      fdInputs: [{ fd: 3, data: Buffer.from('seccomp-payload') }],
+    }));
+
+    assert.equal(result.kind, 'terminal');
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output.mode, 'pipes');
+    if (result.output.mode !== 'pipes') throw new Error('expected pipes output');
+    assert.equal(result.output.stdout, 'seccomp-payload');
+  });
+
   test('keeps foreground execution bounded and rejects PTY promotion', async () => {
     const cwd = await workspace();
     const store = createShellRunStore(await workspace());
@@ -1546,6 +1566,9 @@ async function createTestManager(
 function shellInput(input: {
   cwd: string;
   command: string;
+  argv?: readonly string[];
+  env?: NodeJS.ProcessEnv;
+  fdInputs?: readonly { fd: number; data: Uint8Array }[];
   pty?: boolean;
   timeoutMs?: number;
   abortSignal?: AbortSignal;
@@ -1559,6 +1582,9 @@ function shellInput(input: {
     sourceToolCallId: 'tool-1',
     cwd: input.cwd,
     command: input.command,
+    ...(input.argv !== undefined ? { argv: input.argv } : {}),
+    ...(input.env !== undefined ? { env: input.env } : {}),
+    ...(input.fdInputs !== undefined ? { fdInputs: input.fdInputs } : {}),
     ...(input.pty !== undefined ? { pty: input.pty } : {}),
     ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
     ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),

@@ -505,6 +505,9 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
   ): Promise<LiveShellRun> {
     const sessionEpoch = this.sessionTerminationEpoch(input.sessionId);
     this.assertStartAllowed(input.sessionId, sessionEpoch);
+    if (mode === 'pty' && (input.argv || input.fdInputs)) {
+      throw new Error('PTY Bash does not support transformed argv or inherited fd inputs');
+    }
     const slotReservation = this.reserveSlot(mode);
     try {
       const shellRunId = this.input.newId();
@@ -536,10 +539,18 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       else pending.push(callback);
     };
     const collector = new PipeTailCollector(this.maxRetainedChars);
-    const plan = buildShellSpawnPlan(input.shell ?? defaultShellPlan(), input.command);
+    const plan = input.argv
+      ? {
+          file: requireProgram(input.argv),
+          args: [...input.argv.slice(1)],
+          useShellOption: false,
+        }
+      : buildShellSpawnPlan(input.shell ?? defaultShellPlan(), input.command);
     const driver = new PipeProcessDriver({
       plan,
       cwd: input.cwd,
+      ...(input.env ? { env: input.env } : {}),
+      ...(input.fdInputs ? { fdInputs: input.fdInputs } : {}),
       onData: (stream, data) => dispatch((target) => this.onPipeData(target, stream, data)),
       onExit: (exit) => dispatch((target) => this.onDriverExit(target, { mode: 'pipes', value: exit })),
       onFailure: (error) => dispatch((target) => this.handleIntegrityFailure(target, error)),
@@ -614,7 +625,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
         file: plan.file,
         args: plan.args,
         cwd: input.cwd,
-        env: process.env,
+        env: input.env ?? process.env,
         cols: PTY_INITIAL_COLS,
         rows: PTY_INITIAL_ROWS,
         onData: (data) => dispatch((target) => target.collector.accept(data)),
@@ -1425,6 +1436,12 @@ function normalizeBackgroundTimeoutMs(value: number | undefined): number | undef
     throw new Error(`Background Bash timeout must be between 1 and ${MAX_SHELL_RUN_TIMEOUT_MS}ms`);
   }
   return value;
+}
+
+function requireProgram(argv: readonly string[]): string {
+  const program = argv[0];
+  if (!program) throw new Error('Transformed Bash argv must include a program');
+  return program;
 }
 
 function normalizeForegroundTimeoutMs(value: number): number {

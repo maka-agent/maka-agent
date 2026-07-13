@@ -73,6 +73,7 @@ import {
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
+  createBuiltinSandboxManager,
   buildChildAgentTools,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
@@ -527,6 +528,7 @@ const shellRuns = new ShellRunProcessManager({
     safeSendToRenderer('shell-runs:update', update);
   },
 });
+const sandboxManager = createBuiltinSandboxManager();
 // Unified tool availability (issue #37). Deferred capability groups (Rive,
 // Office, browser, agent orchestration) are withheld from the
 // per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
@@ -561,6 +563,7 @@ const builtinTools: MakaTool[] = [
     runtimeResources: shellRuns,
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
+    ...(sandboxManager ? { sandboxManager } : {}),
   }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
@@ -589,7 +592,9 @@ const builtinTools: MakaTool[] = [
 // Child agents stay file-only for local reads; parent runtime refs such as
 // maka://runtime/background-tasks/<id> are not part of their tool surface.
 const childAgentTools = buildChildAgentTools([
-  ...buildBuiltinTools().filter((tool: MakaTool) => tool.name !== 'Edit'),
+  ...buildBuiltinTools({
+    ...(sandboxManager ? { sandboxManager } : {}),
+  }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   webSearchTool,
 ]);
 let lookupPricing = buildPricingLookup();

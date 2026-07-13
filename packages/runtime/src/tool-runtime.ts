@@ -59,7 +59,7 @@ export interface MakaTool<P = any, R = unknown> {
   /** Optional trusted platform sandbox availability for this tool. */
   sandbox?: {
     platformSandboxAvailable: boolean;
-  } | ((context: { permissionMode: PermissionMode; cwd: string }) => {
+  } | ((context: { permissionMode: PermissionMode; cwd: string; args: P }) => {
     platformSandboxAvailable: boolean;
   });
   /** Real tool implementation. Called only after permission allows. */
@@ -357,7 +357,11 @@ export class ToolRuntime {
         ...(this.input.permissionRules !== undefined ? { permissionRules: this.input.permissionRules } : {}),
         ...(tool.sandbox !== undefined ? {
           sandbox: typeof tool.sandbox === 'function'
-            ? tool.sandbox({ permissionMode: this.input.header.permissionMode, cwd: this.input.header.cwd })
+            ? tool.sandbox({
+                permissionMode: this.input.header.permissionMode,
+                cwd: this.input.header.cwd,
+                args,
+              })
             : tool.sandbox,
         } : {}),
         mode: this.input.header.permissionMode,

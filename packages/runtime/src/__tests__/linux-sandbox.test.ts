@@ -16,6 +16,7 @@ import {
   buildBubblewrapArgv,
   buildNetworkSeccompFilter,
   discoverNestedProtectedMetadataPaths,
+  linuxExecutableRoots,
 } from '../sandbox/linux-sandbox.js';
 import { detectLinuxSandboxCapability } from '../sandbox/linux-capability.js';
 import {
@@ -155,6 +156,36 @@ describe('buildBubblewrapArgv', () => {
     assert.ok(hasPair(argv, '--dir', '/opt'));
     assert.ok(hasPair(argv, '--dir', '/opt/hostedtoolcache/node/22.23.1/x64'));
     assert.ok(hasTriple(argv, '--ro-bind', programDirectory, programDirectory));
+  });
+
+  it('mounts runtime roots needed by a shell-launched executable', () => {
+    const request = workspaceRequest(createWorkspaceWritePermissionProfile());
+    const runtimeRoot = '/opt/hostedtoolcache/node/22.23.1/x64';
+    const argv = buildBubblewrapArgv({
+      bwrapPath: '/usr/bin/bwrap',
+      command: {
+        ...request.command,
+        pathContext: {
+          ...request.command.pathContext,
+          minimalRoots: [runtimeRoot],
+        },
+      },
+    });
+
+    assert.ok(hasPair(argv, '--dir', '/opt'));
+    assert.ok(hasTriple(argv, '--ro-bind-try', runtimeRoot, runtimeRoot));
+  });
+});
+
+describe('linuxExecutableRoots', () => {
+  it('keeps the Node installation root and absolute PATH entries without nested duplicates', () => {
+    assert.deepEqual(linuxExecutableRoots({
+      execPath: '/opt/hostedtoolcache/node/22.23.1/x64/bin/node',
+      path: '/opt/hostedtoolcache/node/22.23.1/x64/bin:/home/runner/.local/bin:relative-bin',
+    }), [
+      '/opt/hostedtoolcache/node/22.23.1/x64',
+      '/home/runner/.local/bin',
+    ]);
   });
 });
 

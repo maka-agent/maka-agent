@@ -25,6 +25,11 @@ import {
   terminateChildProcessTree,
 } from './process-tree-terminator.js';
 import { OUTPUT_RECOVERY_HINT } from './tool-output.js';
+import {
+  buildSpawnStdio,
+  writeChildFdInputs,
+  type ChildFdInput,
+} from './child-fd-input.js';
 
 // Per-stream cap on the output RETAINED for the result (~1MB). This only bounds
 // what is kept to return. The tool layer (truncateToolOutput) trims this further
@@ -78,6 +83,8 @@ export interface BoundedShellOptions {
   emitOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
   /** Shell to run the command with. Defaults to the process-wide detected shell. */
   shell?: ShellPlan;
+  /** Binary payloads exposed to the child on inherited file descriptors. */
+  fdInputs?: readonly ChildFdInput[];
 }
 
 export interface BoundedShellResult {
@@ -109,16 +116,34 @@ export function runShellWithBoundedTail(
   command: string,
   options: BoundedShellOptions,
 ): Promise<BoundedShellResult> {
+  const plan = buildShellSpawnPlan(options.shell ?? defaultShellPlan(), command);
+  return runSpawnedProcessWithBoundedTail(plan.file, plan.args, plan.useShellOption, options);
+}
+
+/** Run an argv command directly, without a second shell parsing pass. */
+export function runProcessWithBoundedTail(
+  program: string,
+  args: readonly string[],
+  options: BoundedShellOptions,
+): Promise<BoundedShellResult> {
+  return runSpawnedProcessWithBoundedTail(program, args, false, options);
+}
+
+function runSpawnedProcessWithBoundedTail(
+  program: string,
+  args: readonly string[],
+  useShellOption: boolean,
+  options: BoundedShellOptions,
+): Promise<BoundedShellResult> {
   const cap = options.maxRetainedChars ?? BASH_MAX_RETAINED_CHARS;
   const liveCap = options.maxLiveEmitChars ?? BASH_MAX_LIVE_EMIT_CHARS;
   const graceMs = options.killGraceMs ?? DEFAULT_PROCESS_TERMINATION_GRACE_MS;
-  const plan = buildShellSpawnPlan(options.shell ?? defaultShellPlan(), command);
   return new Promise<BoundedShellResult>((resolvePromise, reject) => {
-    const child = spawn(plan.file, plan.args, {
+    const child = spawn(program, [...args], {
       cwd: options.cwd,
       env: options.env,
-      shell: plan.useShellOption,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: useShellOption,
+      stdio: buildSpawnStdio(options.fdInputs),
       // POSIX: make the shell its own process-group leader (setsid). Termination
       // signals the group and removes descendants visible outside it at each
       // process-table snapshot.
@@ -163,6 +188,14 @@ export function runShellWithBoundedTail(
     if (options.abortSignal) {
       if (options.abortSignal.aborted) abort();
       else options.abortSignal.addEventListener('abort', abort, { once: true });
+    }
+    try {
+      writeChildFdInputs(child, options.fdInputs);
+    } catch (error) {
+      settled = true;
+      cleanup();
+      void terminateChildProcessTree(child, 'SIGKILL');
+      reject(error);
     }
 
     function append(stream: 'stdout' | 'stderr', chunk: string): void {

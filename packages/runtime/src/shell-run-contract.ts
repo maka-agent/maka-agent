@@ -1,6 +1,7 @@
 import { isShellRunId, type ShellRunStore, type ShellRunUpdate, type ToolResultContent } from '@maka/core';
 
 import type { ShellPlan } from './shell-detect.js';
+import type { ChildFdInput } from './child-fd-input.js';
 
 export const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 export const MAX_FOREGROUND_BASH_TIMEOUT_MS = 10 * 60 * 1_000;
@@ -43,6 +44,11 @@ export interface ShellRunBashInput {
   sourceToolCallId: string;
   cwd: string;
   command: string;
+  /** Final executable argv. When present, bypasses host-shell parsing. */
+  argv?: readonly string[];
+  env?: NodeJS.ProcessEnv;
+  /** Binary payloads exposed to pipe-mode children on inherited descriptors. */
+  fdInputs?: readonly ChildFdInput[];
   pty?: boolean;
   timeoutMs?: number;
   abortSignal?: AbortSignal;

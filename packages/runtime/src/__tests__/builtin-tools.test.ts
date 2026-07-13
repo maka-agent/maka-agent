@@ -4,8 +4,11 @@ import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { createWorkspaceWritePermissionProfile } from '@maka/core/permission-profile';
 import { expect } from '../test-helpers.js';
 import { buildBuiltinTools } from '../builtin-tools.js';
+import { SandboxManager } from '../sandbox/sandbox-manager.js';
+import { LinuxBubblewrapBackend } from '../sandbox/linux-sandbox.js';
 import type { ShellRunLauncher } from '../shell-tools.js';
 import type {
   BackgroundTaskStopper,
@@ -208,6 +211,123 @@ describe('builtin Bash streaming output', () => {
     expect((calls[0] as { timeoutMs?: number }).timeoutMs).toBe(2_000);
     expect((calls[0] as { sourceRunId?: string }).sourceRunId).toBe('run-1');
     expect((calls[0] as { pty?: boolean }).pty).toBe(true);
+  });
+
+  test('wraps managed pipe Bash with bubblewrap argv and seccomp fd input', async () => {
+    const calls: any[] = [];
+    const shellRuns = {
+      async runForegroundBash(input: any) {
+        calls.push(input);
+        return {
+          kind: 'terminal', cwd: input.cwd, cmd: input.command, status: 'completed', exitCode: 0,
+          output: {
+            mode: 'pipes', stdout: '', stderr: '',
+            stdoutTruncated: false, stderrTruncated: false, redacted: false,
+          },
+        } as const;
+      },
+      async runBackgroundBash() { throw new Error('not used'); },
+    };
+    const bash = buildBuiltinTools({
+      shellRuns,
+      permissionProfile: createWorkspaceWritePermissionProfile(),
+      sandboxManager: availableLinuxManager(),
+      sandboxPlatform: 'linux',
+    }).find((candidate) => candidate.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    await bash.impl({ command: 'node --version' }, {
+      sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1', cwd: '/workspace',
+      permissionMode: 'execute', abortSignal: new AbortController().signal, emitOutput: () => {},
+    });
+
+    expect(calls[0]?.argv?.[0]).toBe('/usr/bin/bwrap');
+    expect(calls[0]?.argv?.slice(-3)).toEqual(['/bin/sh', '-lc', 'node --version']);
+    expect(calls[0]?.fdInputs?.[0]?.fd).toBe(3);
+    expect(typeof bash.sandbox).toBe('function');
+    if (typeof bash.sandbox !== 'function') throw new Error('dynamic sandbox metadata missing');
+    expect(bash.sandbox({
+      permissionMode: 'execute',
+      cwd: '/workspace',
+      args: { command: 'node --version' },
+    })).toEqual({ platformSandboxAvailable: true });
+  });
+
+  test('does not claim sandbox enforcement for PTY Bash and leaves it on the approved host path', async () => {
+    const calls: any[] = [];
+    const shellRuns = {
+      async runForegroundBash() { throw new Error('not used'); },
+      async runBackgroundBash(input: any) {
+        calls.push(input);
+        return {
+          kind: 'shell_run', ref: 'maka://runtime/background-tasks/shell-run-1',
+          mode: 'pty', status: 'running', cwd: input.cwd, cmd: input.command,
+          startedAt: 1, updatedAt: 1, revision: 1,
+        } as const;
+      },
+    };
+    const bash = buildBuiltinTools({
+      shellRuns,
+      permissionProfile: createWorkspaceWritePermissionProfile(),
+      sandboxManager: availableLinuxManager(),
+      sandboxPlatform: 'linux',
+    }).find((candidate) => candidate.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    await bash.impl({ command: 'bash', run_in_background: true, pty: true }, {
+      sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1', cwd: '/workspace',
+      permissionMode: 'execute', abortSignal: new AbortController().signal, emitOutput: () => {},
+    });
+
+    expect(calls[0]?.argv).toBe(undefined);
+    expect(calls[0]?.fdInputs).toBe(undefined);
+    expect(Boolean(calls[0]?.shell)).toBe(true);
+    expect(typeof bash.sandbox).toBe('function');
+    if (typeof bash.sandbox !== 'function') throw new Error('dynamic sandbox metadata missing');
+    expect(bash.sandbox({
+      permissionMode: 'execute',
+      cwd: '/workspace',
+      args: { command: 'bash', run_in_background: true, pty: true },
+    })).toEqual({ platformSandboxAvailable: false });
+  });
+
+  test('reports unavailable bubblewrap and keeps approved Bash on the host path', async () => {
+    const calls: any[] = [];
+    const shellRuns = {
+      async runForegroundBash(input: any) {
+        calls.push(input);
+        return {
+          kind: 'terminal', cwd: input.cwd, cmd: input.command, status: 'completed', exitCode: 0,
+          output: {
+            mode: 'pipes', stdout: 'host', stderr: '',
+            stdoutTruncated: false, stderrTruncated: false, redacted: false,
+          },
+        } as const;
+      },
+      async runBackgroundBash() { throw new Error('not used'); },
+    };
+    const bash = buildBuiltinTools({
+      shellRuns,
+      permissionProfile: createWorkspaceWritePermissionProfile(),
+      sandboxManager: unavailableLinuxManager(),
+      sandboxPlatform: 'linux',
+    }).find((candidate) => candidate.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    await bash.impl({ command: 'echo host' }, {
+      sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1', cwd: '/workspace',
+      permissionMode: 'execute', abortSignal: new AbortController().signal, emitOutput: () => {},
+    });
+
+    expect(calls[0]?.argv).toBe(undefined);
+    expect(Boolean(calls[0]?.shell)).toBe(true);
+    expect(typeof bash.sandbox).toBe('function');
+    if (typeof bash.sandbox !== 'function') throw new Error('dynamic sandbox metadata missing');
+    expect(bash.sandbox({
+      permissionMode: 'execute',
+      cwd: '/workspace',
+      args: { command: 'echo host' },
+    })).toEqual({ platformSandboxAvailable: false });
   });
 
   test('Read treats runtime background task refs as whole resources', async () => {
@@ -1032,4 +1152,20 @@ function fakeExecutor(overrides: Partial<WorkspaceExecutor>): WorkspaceExecutor 
     grepFiles: async () => ({ matches: [] }),
   };
   return Object.assign(base, overrides);
+}
+
+function availableLinuxManager(): SandboxManager {
+  return new SandboxManager([
+    new LinuxBubblewrapBackend({
+      capability: { available: true, bwrapPath: '/usr/bin/bwrap' },
+    }),
+  ]);
+}
+
+function unavailableLinuxManager(): SandboxManager {
+  return new SandboxManager([
+    new LinuxBubblewrapBackend({
+      capability: { available: false, reason: 'missing-bwrap', bwrapPath: '/usr/bin/bwrap' },
+    }),
+  ]);
 }
