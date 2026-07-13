@@ -39,6 +39,31 @@ describe('ModelCatalogEntry', () => {
     });
   });
 
+  it('uses the official StepFun Step Plan Global snapshot without inventing live model discovery', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'stepfun-ai-step-plan',
+        providerType: 'stepfun-ai-step-plan',
+        defaultModel: 'step-3.7-flash',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), [
+      'step-3.7-flash',
+      'step-3.5-flash-2603',
+      'step-3.5-flash',
+    ]);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 256_000);
+    assert.equal(entries[0]?.maxOutputTokens, 256_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
   it('uses the checked-in StepFun Global snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

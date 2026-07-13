@@ -2,7 +2,7 @@
 // Do not edit by hand; put access-path-specific facts in model-metadata.ts.
 import type { ModelMetadata } from './model-metadata.js';
 
-export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "cohere" | "deepinfra" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "stepfun-ai" | "togetherai" | "tencent-coding-plan" | "tencent-token-plan" | "tencent-tokenhub" | "vercel" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
+export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "cohere" | "deepinfra" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "stepfun-ai" | "stepfun-ai-step-plan" | "togetherai" | "tencent-coding-plan" | "tencent-token-plan" | "tencent-tokenhub" | "vercel" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
   "anthropic": {
     "claude-fable-5": {"displayName":"Claude Fable 5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-haiku-4-5": {"displayName":"Claude Haiku 4.5 (latest)","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":200000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
@@ -432,6 +432,11 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "c
     "stepaudio-2.5-asr": {"displayName":"StepAudio 2.5 ASR","lifecycle":"active","docsUrl":"https://platform.stepfun.ai/docs/en/overview/concept","contextWindow":0,"maxOutputTokens":0,"capabilities":{"vision":false,"reasoning":false,"functionCalling":false}},
     "stepaudio-2.5-tts": {"displayName":"StepAudio 2.5 TTS","lifecycle":"active","docsUrl":"https://platform.stepfun.ai/docs/en/overview/concept","contextWindow":0,"maxOutputTokens":0,"capabilities":{"vision":false,"reasoning":false,"functionCalling":false}},
   },
+  "stepfun-ai-step-plan": {
+    "step-3.5-flash": {"displayName":"Step 3.5 Flash","lifecycle":"active","docsUrl":"https://platform.stepfun.ai/docs/en/step-plan/integrations/reasoning-api","contextWindow":256000,"maxOutputTokens":256000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "step-3.5-flash-2603": {"displayName":"Step 3.5 Flash 2603","lifecycle":"active","docsUrl":"https://platform.stepfun.ai/docs/en/step-plan/integrations/reasoning-api","contextWindow":256000,"maxOutputTokens":256000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "step-3.7-flash": {"displayName":"Step 3.7 Flash","lifecycle":"active","docsUrl":"https://platform.stepfun.ai/docs/en/step-plan/integrations/reasoning-api","contextWindow":256000,"maxOutputTokens":256000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+  },
   "togetherai": {
     "deepcogito/cogito-v2-1-671b": {"displayName":"Cogito v2.1 671B","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":163840,"maxOutputTokens":163840,"capabilities":{"vision":false,"reasoning":true,"functionCalling":false}},
     "deepseek-ai/DeepSeek-R1": {"displayName":"DeepSeek-R1","lifecycle":"deprecated","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":163839,"maxOutputTokens":163839,"capabilities":{"vision":false,"reasoning":true,"functionCalling":false}},
@@ -816,7 +821,7 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "c
   },
 };
 
-export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "cohere" | "deepinfra" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "stepfun-ai" | "togetherai" | "tencent-coding-plan" | "tencent-token-plan" | "tencent-tokenhub" | "vercel" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
+export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "cohere" | "deepinfra" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "stepfun-ai" | "stepfun-ai-step-plan" | "togetherai" | "tencent-coding-plan" | "tencent-token-plan" | "tencent-tokenhub" | "vercel" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
   "anthropic": {"id":"anthropic","name":"Anthropic","doc":"https://docs.anthropic.com/en/docs/about-claude/models"},
   "cerebras": {"id":"cerebras","name":"Cerebras","doc":"https://inference-docs.cerebras.ai/models/overview"},
   "cohere": {"id":"cohere","name":"Cohere","doc":"https://docs.cohere.com/docs/models"},
@@ -834,6 +839,7 @@ export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras
   "siliconflow": {"id":"siliconflow","name":"SiliconFlow","api":"https://api.siliconflow.com/v1","doc":"https://cloud.siliconflow.com/models"},
   "stepfun": {"id":"stepfun","name":"StepFun (China)","api":"https://api.stepfun.com/v1","doc":"https://platform.stepfun.com/docs/zh/overview/concept"},
   "stepfun-ai": {"id":"stepfun-ai","name":"StepFun (Global)","api":"https://api.stepfun.ai/v1","doc":"https://platform.stepfun.ai/docs/en/overview/concept"},
+  "stepfun-ai-step-plan": {"id":"stepfun-ai-step-plan","name":"StepFun Step Plan (Global)","api":"https://api.stepfun.ai/step_plan/v1","doc":"https://platform.stepfun.ai/docs/en/step-plan/integrations/reasoning-api"},
   "togetherai": {"id":"togetherai","name":"Together AI","doc":"https://docs.together.ai/docs/serverless-models"},
   "tencent-coding-plan": {"id":"tencent-coding-plan","name":"Tencent Coding Plan (China)","api":"https://api.lkeap.cloud.tencent.com/coding/v3","doc":"https://cloud.tencent.com/document/product/1772/128947"},
   "tencent-token-plan": {"id":"tencent-token-plan","name":"Tencent Token Plan","api":"https://api.lkeap.cloud.tencent.com/plan/v3","doc":"https://cloud.tencent.com/document/product/1823/130060"},

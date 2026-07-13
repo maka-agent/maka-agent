@@ -196,6 +196,23 @@ for (const id of stepfunGlobalModelIds) {
     throw new Error(`models.dev StepFun Global snapshot is missing documented tool-capable model ${id}`);
   }
 }
+const stepfunGlobalStepPlan = GENERATED_MODELS_DEV_PROVIDER_FACTS['stepfun-ai-step-plan'];
+if (stepfunGlobalStepPlan.id !== 'stepfun-ai-step-plan') {
+  throw new Error('models.dev StepFun Global Step Plan provider facts are missing stable id stepfun-ai-step-plan');
+}
+if (!stepfunGlobalStepPlan.api) {
+  throw new Error('models.dev StepFun Global Step Plan provider facts are missing api');
+}
+const stepfunGlobalStepPlanModelIds = [
+  'step-3.7-flash',
+  'step-3.5-flash-2603',
+  'step-3.5-flash',
+] as const;
+for (const id of stepfunGlobalStepPlanModelIds) {
+  if (!GENERATED_MODELS_DEV_METADATA['stepfun-ai-step-plan'][id]?.capabilities?.functionCalling) {
+    throw new Error(`models.dev StepFun Global Step Plan snapshot is missing documented tool-capable model ${id}`);
+  }
+}
 
 const together = GENERATED_MODELS_DEV_PROVIDER_FACTS.togetherai;
 if (together.id !== 'togetherai') {
@@ -725,6 +742,25 @@ const providerRegistry = {
     modelsDevId: stepfun.id,
     readyOrder: 28,
     catalogOrder: 28,
+  },
+  'stepfun-ai-step-plan': {
+    label: stepfunGlobalStepPlan.name,
+    description: 'StepFun Global subscription access for interactive coding and agent tools.',
+    baseUrl: stepfunGlobalStepPlan.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [...stepfunGlobalStepPlanModelIds],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'overseas',
+    catalogGroup: 'plans',
+    catalogBadge: 'Plan',
+    signupUrl: 'https://platform.stepfun.ai/interface-key',
+    modelsDevId: stepfunGlobalStepPlan.id,
+    readyOrder: 32,
+    catalogOrder: 32,
   },
   'stepfun-ai': {
     label: stepfunGlobal.name,

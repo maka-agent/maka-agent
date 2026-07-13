@@ -52,6 +52,7 @@ describe('provider compatibility contract', () => {
       'tencent-tokenhub',
       'stepfun',
       'stepfun-step-plan',
+      'stepfun-ai-step-plan',
       'stepfun-ai',
       'volcengine-ark',
       'deepinfra',
@@ -96,6 +97,7 @@ describe('provider compatibility contract', () => {
       'deepinfra',
       'cohere',
       'vercel',
+      'stepfun-ai-step-plan',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -130,6 +132,7 @@ describe('provider compatibility contract', () => {
       'deepinfra',
       'cohere',
       'vercel',
+      'stepfun-ai-step-plan',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -528,6 +531,28 @@ describe('provider compatibility contract', () => {
       'step-3.5-flash-2603',
       'step-3.5-flash',
       'step-router-v1',
+    ]);
+  });
+
+  it('owns StepFun Step Plan Global behavior under the stable stepfun-ai-step-plan id', () => {
+    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['stepfun-ai-step-plan'];
+
+    assert.ok(plan, 'StepFun Step Plan Global must have its own persisted provider id');
+    assert.equal(plan.label, 'StepFun Step Plan (Global)');
+    assert.equal(plan.baseUrl, 'https://api.stepfun.ai/step_plan/v1');
+    assert.equal(plan.authKind, 'api_key');
+    assert.equal(plan.protocol, 'openai');
+    assert.deepEqual(plan.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(plan.modelDiscovery, { kind: 'fallback' });
+    assert.equal(plan.category, 'overseas');
+    assert.equal(plan.catalogGroup, 'plans');
+    assert.equal(plan.catalogBadge, 'Plan');
+    assert.equal(plan.signupUrl, 'https://platform.stepfun.ai/interface-key');
+    assert.equal(plan.modelsDevId, 'stepfun-ai-step-plan');
+    assert.deepEqual(plan.fallbackModels, [
+      'step-3.7-flash',
+      'step-3.5-flash-2603',
+      'step-3.5-flash',
     ]);
   });
 
