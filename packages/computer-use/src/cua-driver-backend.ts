@@ -80,9 +80,20 @@ import {
 // crisp PNGs (simple screens) pass through untouched.
 const COMPRESS_FRAME_THRESHOLD = 1.5 * 1024 * 1024;
 const CUA_DRIVER_FRAME_MAX_BYTES = 8 * 1024 * 1024;
+const MAX_OBSERVATIONS_PER_SESSION = 16;
 
 function exceedsCuaDriverFrameCap(byteLength: number): boolean {
   return byteLength > CUA_DRIVER_FRAME_MAX_BYTES;
+}
+
+type CuaDriverCaptureFailure = CuRunResult & {
+  outcome: Extract<CuRunResult['outcome'], { ok: false }>;
+};
+
+class CuaDriverCaptureError extends Error {
+  constructor(readonly result: CuaDriverCaptureFailure) {
+    super(result.outcome.message);
+  }
 }
 
 export interface CuaDriverBackendOptions {
@@ -303,6 +314,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     displays?: ComputerUseDisplayIdentity[];
   }
   const observations = new Map<string, StoredObservation>();
+  const observationIdsBySession = new Map<string, string[]>();
   let operationQueue = Promise.resolve();
   let disposed = false;
 
@@ -341,6 +353,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const structural = [
       ...new Set([...elements].map((element) => JSON.stringify({
         role: element.role,
+        label: element.label,
+        value: element.value,
         frame: element.frame,
         depth: element.depth,
       }))),
@@ -350,11 +364,75 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       .digest('hex');
   }
 
+  function storeObservation(
+    observationId: string,
+    observation: StoredObservation,
+  ): void {
+    const sessionId = observation.context.sessionId;
+    const ids = observationIdsBySession.get(sessionId) ?? [];
+    while (ids.length >= MAX_OBSERVATIONS_PER_SESSION) {
+      observations.delete(ids.shift()!);
+    }
+    ids.push(observationId);
+    observationIdsBySession.set(sessionId, ids);
+    observations.set(observationId, observation);
+  }
+
+  function deleteObservation(observationId: string): void {
+    const observation = observations.get(observationId);
+    if (!observation) return;
+    observations.delete(observationId);
+    const sessionId = observation.context.sessionId;
+    const ids = observationIdsBySession.get(sessionId);
+    if (!ids) return;
+    const index = ids.indexOf(observationId);
+    if (index >= 0) ids.splice(index, 1);
+    if (ids.length === 0) observationIdsBySession.delete(sessionId);
+  }
+
+  function normalizeScreenshot(
+    image: { data?: string; mimeType?: string } | undefined,
+    widthPx: number,
+    heightPx: number,
+    label: string,
+  ): CuScreenshot | CuaDriverCaptureFailure {
+    if (!image?.data) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'capture_failed',
+          message: `${label} returned no image`,
+        },
+      };
+    }
+    let base64 = image.data;
+    let mimeType: 'image/png' | 'image/jpeg' =
+      image.mimeType === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+    let byteLength = Buffer.from(base64, 'base64').byteLength;
+    if (opts.compressFrame && byteLength > COMPRESS_FRAME_THRESHOLD) {
+      const compressed = opts.compressFrame(base64, mimeType);
+      base64 = compressed.base64;
+      mimeType = compressed.mimeType;
+      byteLength = Buffer.from(base64, 'base64').byteLength;
+    }
+    if (exceedsCuaDriverFrameCap(byteLength)) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'sensitivity_blocked',
+          message: `${label} ${byteLength}B exceeds cap`,
+        },
+      };
+    }
+    return { base64, mimeType, widthPx, heightPx };
+  }
+
   function clearLocalSession(sessionId: string): void {
     targetsBySession.delete(sessionId);
-    for (const [id, observation] of observations) {
-      if (observation.context.sessionId === sessionId) observations.delete(id);
+    for (const id of observationIdsBySession.get(sessionId) ?? []) {
+      observations.delete(id);
     }
+    observationIdsBySession.delete(sessionId);
     sessionGenerations.set(
       sessionId,
       (sessionGenerations.get(sessionId) ?? 0) + 1,
@@ -852,7 +930,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const axContentFingerprint = opts.resolveContentFingerprint
       ? opts.resolveContentFingerprint([...elements.values()])
       : contentFingerprint(elements.values());
-    observations.set(observationId, {
+    storeObservation(observationId, {
       context: { sessionId: context.sessionId, turnId: context.turnId },
       appId,
       window,
@@ -866,14 +944,18 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const image = includeScreenshot
       ? state?.content?.find((content) => content.type === 'image' && typeof content.data === 'string')
       : undefined;
-    const screenshot = image?.data
-      ? {
-          base64: image.data,
-          mimeType: image.mimeType === 'image/png' ? 'image/png' as const : 'image/jpeg' as const,
-          widthPx: Number(structured.screenshot_width) || 0,
-          heightPx: Number(structured.screenshot_height) || 0,
-        }
+    const normalizedScreenshot = includeScreenshot
+      ? normalizeScreenshot(
+          image,
+          Number(structured.screenshot_width) || 0,
+          Number(structured.screenshot_height) || 0,
+          'window frame',
+        )
       : undefined;
+    if (normalizedScreenshot && 'outcome' in normalizedScreenshot) {
+      throw new CuaDriverCaptureError(normalizedScreenshot);
+    }
+    const screenshot = normalizedScreenshot;
     return {
       observationId,
       appId,
@@ -919,8 +1001,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     if (!identity) return false;
     if (element.role !== identity.role) return false;
     const label = identity.label?.trim();
-    if (label) return element.label === identity.label;
-    return !!original
+    return (!label || element.label === identity.label)
+      && !!original
       && element.depth === original.depth
       && element.frame.x === original.frame.x
       && element.frame.y === original.frame.y
@@ -1354,7 +1436,23 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         },
       };
     }
-    const matches = fresh.filter(
+    const identityMatches = fresh.filter((candidate) =>
+      candidate.role === identity.role
+      && (!identity.label?.trim() || candidate.label === identity.label)
+      && (
+        identity.value === undefined
+        || candidate.value === identity.value
+      ));
+    if (identityMatches.length > 1) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'stale_frame',
+          message: 'semantic element identity is ambiguous in the fresh observation',
+        },
+      };
+    }
+    const matches = identityMatches.filter(
       (candidate) => elementMatchesIdentity(candidate, identity, original),
     );
     if (matches.length === 1) return matches[0]!;
@@ -1362,9 +1460,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       outcome: {
         ok: false,
         error: 'stale_frame',
-        message: matches.length === 0
-          ? 'semantic element is missing from the fresh observation'
-          : 'semantic element identity is ambiguous in the fresh observation',
+        message: 'semantic element is missing from the fresh observation',
       },
     };
   }
@@ -1372,7 +1468,14 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   function targetForContext(context: CuRunContext): KeyboardTarget | undefined {
     const state = targetsBySession.get(context.sessionId);
     if (!state) return undefined;
-    if (state.turnId !== context.turnId) {
+    const boundTarget = context.boundAction?.target;
+    if (
+      state.turnId !== context.turnId
+      || (boundTarget && (
+        boundTarget.pid !== state.target.window.pid
+        || boundTarget.windowId !== state.target.window.windowId
+      ))
+    ) {
       targetsBySession.delete(context.sessionId);
       return undefined;
     }
@@ -1710,7 +1813,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         }
       : {
           ok: false,
-          error: 'capture_failed',
+          error: 'outcome_unknown',
           message: `semantic pointer action did not verify (${result.reason ?? result.kind ?? action.type})`,
           evidence: { path: 'cdp', effect: 'unverifiable' },
         };
@@ -1780,7 +1883,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       try {
         return await withOperationQueue(signal, async () => {
         const observation = observations.get(action.observationId);
-        observations.delete(action.observationId);
+        deleteObservation(action.observationId);
         if (!observation) {
           return { outcome: { ok: false, error: 'stale_frame', message: 'observation is missing or already consumed' } };
         }
@@ -1817,6 +1920,15 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             ...(fresh.screenshot ? { screenshot: fresh.screenshot } : {}),
           };
         }
+        if (action.type === 'select_text' || action.type === 'secondary_action') {
+          return {
+            outcome: {
+              ok: false,
+              error: 'unsupported_action',
+              message: `semantic action '${action.type}' is not exposed by the pinned cua-driver registry`,
+            },
+          };
+        }
         const refetched = await refetchSemanticElement(observation, action, signal);
         if ('outcome' in refetched) return refetched;
         const visibilityFailure = await validateSemanticElementVisibility(
@@ -1837,18 +1949,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           ? await actionClient.callTool('click', args, signal)
           : action.type === 'set_value'
             ? await actionClient.callTool('set_value', { ...args, value: action.value }, signal)
-            : action.type === 'select_text'
-              ? await actionClient.callTool('select_text', {
-                  ...args,
-                  text: action.text,
-                  selection_type: 'text',
-                }, signal)
-              : action.type === 'secondary_action'
-                ? await actionClient.callTool('perform_secondary_action', {
-                    ...args,
-                    action: action.action,
-                  }, signal)
-                : undefined;
+            : undefined;
         if (!result) {
           return { outcome: { ok: false, error: 'unsupported_action', message: `semantic action '${action.type}' is not supported by cua-driver` } };
         }
@@ -1867,6 +1968,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         };
         }, context.sessionId);
       } catch (error) {
+        if (error instanceof CuaDriverCaptureError) return error.result;
         const failure = lifecycleFailure(error);
         if (failure) return failure;
         throw error;
@@ -1906,33 +2008,19 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         case 'screenshot': {
           const r = await captureClient.callTool('get_desktop_state', {}, signal);
           const img = r?.content?.find((c) => c.type === 'image');
-          if (!img?.data) return { outcome: { ok: false, error: 'capture_failed', message: 'no image returned' } };
-          let base64 = img.data;
-          let mimeType: 'image/png' | 'image/jpeg' = img.mimeType === 'image/jpeg' ? 'image/jpeg' : 'image/png';
-          let byteLength = Buffer.from(base64, 'base64').byteLength;
-          // Compress large frames (native res, coords unchanged) so a Retina
-          // full-display PNG doesn't balloon past the cap / the provider's limit.
-          if (opts.compressFrame && byteLength > COMPRESS_FRAME_THRESHOLD) {
-            const c = opts.compressFrame(base64, mimeType);
-            base64 = c.base64;
-            mimeType = c.mimeType;
-            byteLength = Buffer.from(base64, 'base64').byteLength;
-          }
-          if (exceedsCuaDriverFrameCap(byteLength)) {
-            return { outcome: { ok: false, error: 'sensitivity_blocked', message: `frame ${byteLength}B exceeds cap` } };
-          }
           const sc = r?.structuredContent ?? {};
           // Remember the device frame width so getScale() can derive the true
           // device/logical ratio (see getScale — scale_factor is unreliable).
           if (typeof sc.screenshot_width === 'number' && sc.screenshot_width > 0) {
             lastFrameWidthPx = sc.screenshot_width;
           }
-          const screenshot: CuScreenshot = {
-            base64,
-            mimeType,
-            widthPx: typeof sc.screenshot_width === 'number' ? sc.screenshot_width : 0,
-            heightPx: typeof sc.screenshot_height === 'number' ? sc.screenshot_height : 0,
-          };
+          const screenshot = normalizeScreenshot(
+            img,
+            typeof sc.screenshot_width === 'number' ? sc.screenshot_width : 0,
+            typeof sc.screenshot_height === 'number' ? sc.screenshot_height : 0,
+            'frame',
+          );
+          if ('outcome' in screenshot) return screenshot;
           return { outcome: { ok: true, tier: 'coordinate-background' }, screenshot };
         }
         case 'left_click':
@@ -2413,6 +2501,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             try {
               return { outcome: await fillEditableTarget(target, action.text, signal) };
             } catch (error) {
+              const failure = lifecycleFailure(error);
+              if (failure) return failure;
               return {
                 outcome: {
                   ok: false,
@@ -2484,6 +2574,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       disposed = true;
       targetsBySession.clear();
       observations.clear();
+      observationIdsBySession.clear();
       sessionGenerations.clear();
       const errors: unknown[] = [];
       for (const client of [actionClient, captureClient]) {

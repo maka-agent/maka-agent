@@ -208,6 +208,13 @@ function handle(msg) {
         };
         const refetchedElements = WINDOW_STATE_CALLS === 2 && REFETCH_MODE === 'replacement'
           ? [{ ...baseElement, element_index: 9, element_token: 'snapshot:9' }]
+          : WINDOW_STATE_CALLS === 2 && REFETCH_MODE === 'moved'
+            ? [{
+                ...baseElement,
+                element_index: 9,
+                element_token: 'snapshot:9',
+                frame: { ...snapshotFrame, x: snapshotFrame.x + 40 },
+              }]
           : WINDOW_STATE_CALLS === 2 && REFETCH_MODE === 'missing'
             ? []
             : WINDOW_STATE_CALLS === 2 && REFETCH_MODE === 'ambiguous'
@@ -222,7 +229,11 @@ function handle(msg) {
                 ]
               : [baseElement];
         setTimeout(() => reply(id, {
-            content: [{ type: 'image', data: PNG, mimeType: 'image/png' }],
+            content: [{
+              type: 'image',
+              data: BIG_IMG || PNG,
+              mimeType: 'image/png',
+            }],
             structuredContent: {
               screenshot_width: 1200,
               screenshot_height: 800,
@@ -446,7 +457,7 @@ function makeBackend(opts: {
   resolvePageDocumentFingerprint?: CuaDriverBackendOptions['resolvePageDocumentFingerprint'];
   resolveContentFingerprint?: CuaDriverBackendOptions['resolveContentFingerprint'];
   semanticPointerResult?: Record<string, unknown>;
-  refetchMode?: 'replacement' | 'missing' | 'ambiguous';
+  refetchMode?: 'replacement' | 'moved' | 'missing' | 'ambiguous';
   resolveDisplays?: CuaDriverBackendOptions['resolveDisplays'];
   physicalInputRecentlyActive?: CuaDriverBackendOptions['physicalInputRecentlyActive'];
   onTrace?: CuaDriverBackendOptions['onTrace'];
@@ -796,6 +807,30 @@ describe('cua-driver backend', () => {
     assert.equal(click?.element_token, 'snapshot:9');
   });
 
+  it('rejects a same-label replacement that moved before semantic dispatch', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      axLabel: 'Continue',
+      refetchMode: 'moved',
+    });
+    const signal = new AbortController().signal;
+    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
+    const observation = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, signal, context);
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: observation.observationId,
+      elementId: '7',
+      elementIdentity: observation.elements[0]!.identity,
+    }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'stale_frame');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+  });
+
   it('refetches an unlabeled element by unique structural identity', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
@@ -872,11 +907,10 @@ describe('cua-driver backend', () => {
     }]);
   });
 
-  it('runs select_text, secondary action, and press_key with full fresh observations', async () => {
+  it('fails closed for semantic actions absent from the pinned driver registry', async () => {
     for (const action of [
       { type: 'select_text', text: 'target' },
       { type: 'secondary_action', action: 'Increment' },
-      { type: 'press_key', key: 'Tab' },
     ] as const) {
       const { backend, logPath } = makeBackend({ axRole: 'AXTextField' });
       const context = {
@@ -888,13 +922,7 @@ describe('cua-driver backend', () => {
         app: 'Fixture Window',
         includeScreenshot: true,
       }, new AbortController().signal, context);
-      const semanticAction: CuSemanticAction = action.type === 'press_key'
-        ? {
-            type: 'press_key',
-            observationId: observation.observationId,
-            key: action.key,
-          }
-        : action.type === 'select_text'
+      const semanticAction: CuSemanticAction = action.type === 'select_text'
           ? {
               type: 'select_text',
               observationId: observation.observationId,
@@ -914,14 +942,32 @@ describe('cua-driver backend', () => {
         boundAction: boundElementAction(observation, '7'),
       });
 
-      assert.equal(result.outcome.ok, true);
-      assert.ok(result.observation?.observationId);
-      assert.ok(result.screenshot);
-      const tool = action.type === 'secondary_action'
-        ? 'perform_secondary_action'
-        : action.type;
-      assert.equal(toolCalls(await readRecords(logPath), tool).length, 1);
+      assert.equal(result.outcome.ok, false);
+      if (!result.outcome.ok) assert.equal(result.outcome.error, 'unsupported_action');
+      assert.equal(toolCalls(await readRecords(logPath), 'select_text').length, 0);
+      assert.equal(toolCalls(await readRecords(logPath), 'perform_secondary_action').length, 0);
     }
+  });
+
+  it('evicts old unconsumed observations within a long-lived session', async () => {
+    const { backend } = makeBackend({ axRole: 'AXButton' });
+    const signal = new AbortController().signal;
+    const context = { sessionId: 'long-session', turnId: 't1', toolCallId: 'observe' };
+    const observations: CuObservation[] = [];
+    for (let index = 0; index < 17; index += 1) {
+      observations.push(await backend.observeApp!({
+        app: 'Fixture Window',
+        includeScreenshot: false,
+      }, signal, { ...context, toolCallId: `observe-${index}` }));
+    }
+
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: observations[0]!.observationId,
+      elementId: '7',
+    }, signal, { ...context, toolCallId: 'old-action' });
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'stale_frame');
   });
 
   it('window_id disambiguates multiple visible windows from the same app', async () => {
@@ -974,6 +1020,25 @@ describe('cua-driver backend', () => {
     const smallRes = await small.backend.run({ type: 'screenshot' } as CuAction, new AbortController().signal);
     assert.equal(calls, 1, 'compressFrame NOT called for a small frame');
     assert.equal(smallRes.screenshot!.mimeType, 'image/png');
+  });
+
+  it('applies the same compression policy to window observations', async () => {
+    let calls = 0;
+    const { backend } = makeBackend({
+      bigImage: true,
+      compressFrame: () => {
+        calls += 1;
+        return { base64: 'anVzdGpwZWc=', mimeType: 'image/jpeg' };
+      },
+    });
+    const observation = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, new AbortController().signal, DEFAULT_RUN_CONTEXT);
+
+    assert.equal(calls, 1);
+    assert.equal(observation.screenshot?.mimeType, 'image/jpeg');
+    assert.equal(observation.screenshot?.base64, 'anVzdGpwZWc=');
   });
 
   it('click on an app window with no AX element → same-snapshot pixel path, NEVER scope:desktop', async () => {
