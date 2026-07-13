@@ -24,6 +24,7 @@ import {
   buildSubagentSpawnTool,
   buildSubagentToolGroup,
 } from '../subagent-tools.js';
+import { TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT } from './sandbox-diagnostics-fixture.js';
 
 // End-to-end through the live AiSdkBackend: the availability config drives the
 // per-step prepareStep activation, the durable seed reconstructs prior-turn
@@ -75,6 +76,7 @@ function backend(model: MockLanguageModelV3, implCalls: string[], opts: BackendO
     modelId: 'mock-model-id',
     permissionEngine: new PermissionEngine({ newId: () => 'perm', now: () => 1 }),
     modelFactory: () => model,
+    sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
     tools: tools(implCalls),
     ...(resolved ? { toolAvailability: resolved } : {}),
     ...(opts.recordLlmCall ? { recordLlmCall: opts.recordLlmCall } : {}),
@@ -99,6 +101,7 @@ function agentBackend(
     modelId: 'mock-model-id',
     permissionEngine: new PermissionEngine({ newId: () => 'perm', now: () => 1 }),
     modelFactory: () => model,
+    sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
     tools: [
       buildSubagentSpawnTool(),
       ...buildSubagentProjectionTools(),

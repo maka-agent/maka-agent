@@ -20,6 +20,7 @@ import {
   PiAgentBackend,
   SessionManager,
   buildProviderOptions,
+  buildSandboxDiagnosticsSnapshot,
   createExternalSandboxCapabilities,
   getAIModel,
   getBuiltinPricing,
@@ -645,8 +646,18 @@ export function buildAiSdkCellBackendRegistration(input: {
       throw new Error('Harbor ai-sdk backend requires an explicit external sandbox profile and isolated tool executor');
     }
     const externalProfile = context.permissionProfile;
-    registry.register('ai-sdk', (ctx) =>
-      new AiSdkBackend({
+    registry.register('ai-sdk', (ctx) => {
+      const sandboxCapabilities = createExternalSandboxCapabilities(externalProfile.name ?? 'external');
+      const externalCwd = context.realBackendIsolation?.workspaceDir ?? context.workspaceDir;
+      const sandboxDiagnosticsSnapshot = buildSandboxDiagnosticsSnapshot({
+        context: {
+          cwd: externalCwd,
+          workspaceRoots: [externalCwd],
+          profile: externalProfile,
+        },
+        capabilities: sandboxCapabilities,
+      });
+      return new AiSdkBackend({
         sessionId: ctx.sessionId,
         header: { ...ctx.header, model: input.model },
         appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
@@ -663,7 +674,8 @@ export function buildAiSdkCellBackendRegistration(input: {
             ? { taskLedgerExperiment: { store: taskLedgerExperimentStore } }
             : {}),
         }),
-        sandboxCapabilities: createExternalSandboxCapabilities(externalProfile.name ?? 'external'),
+        sandboxCapabilities,
+        sandboxDiagnosticsSnapshot,
         toolAvailability: buildIsolatedHeadlessToolAvailability(),
         providerOptions: buildProviderOptions(connection, input.model, ctx.header.thinkingLevel),
         systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),
@@ -683,8 +695,8 @@ export function buildAiSdkCellBackendRegistration(input: {
         recordRunTrace: ctx.recordRunTrace,
         recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
         recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
-      }),
-    );
+      });
+    });
   };
 }
 

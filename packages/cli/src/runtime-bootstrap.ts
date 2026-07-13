@@ -8,6 +8,7 @@ import {
   SessionManager,
   ShellRunProcessManager,
   buildPermissionAwareBuiltinTools,
+  buildSandboxDiagnosticsSnapshot,
   createDefaultSandboxManager,
   createSessionSandboxContextProvider,
   probeActiveSandboxCapabilities,
@@ -140,6 +141,10 @@ export async function createMakaCliRuntimeContext(
       context: sessionToolAssembly.sandboxContext,
       getFilesystemWorkerLaunchSpec: filesystemWorkerLaunchSpecProvider,
     });
+    const sandboxDiagnosticsSnapshot = buildSandboxDiagnosticsSnapshot({
+      context: sessionToolAssembly.sandboxContext,
+      capabilities: sandboxCapabilities,
+    });
     return new AiSdkBackend({
       sessionId: ctx.sessionId,
       header: { ...ctx.header, model: ready.model },
@@ -151,6 +156,7 @@ export async function createMakaCliRuntimeContext(
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools: sessionToolAssembly.tools,
       sandboxCapabilities,
+      sandboxDiagnosticsSnapshot,
       providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
       contextBudget: buildManualCompactLookupPolicy(
         buildDefaultContextBudgetPolicy(ready.connection, { name: 'cli-default-history-budget' }),

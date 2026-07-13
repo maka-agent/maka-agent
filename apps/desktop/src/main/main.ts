@@ -72,6 +72,7 @@ import {
   PermissionEngine,
   SessionManager,
   buildPermissionAwareBuiltinTools,
+  buildSandboxDiagnosticsSnapshot,
   createDefaultSandboxManager,
   createSessionSandboxContextProvider,
   createPermissionAwareChildToolFactory,
@@ -494,11 +495,16 @@ async function buildSessionToolAssembly(
     context: permissionAware.sandboxContext,
     getFilesystemWorkerLaunchSpec: filesystemWorkerLaunchSpecProvider,
   });
+  const sandboxDiagnosticsSnapshot = buildSandboxDiagnosticsSnapshot({
+    context: permissionAware.sandboxContext,
+    capabilities: sandboxCapabilities,
+  });
   return {
     tools: toolsOverride
       ? [...toolsOverride]
       : [...permissionAware.tools, ...sharedRuntimeTools],
     sandboxCapabilities,
+    sandboxDiagnosticsSnapshot,
   };
 }
 const buildDesktopChildTools = createPermissionAwareChildToolFactory({
@@ -697,6 +703,7 @@ backends.register('ai-sdk', async (ctx) => {
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
     tools: sessionToolAssembly.tools,
     sandboxCapabilities: sessionToolAssembly.sandboxCapabilities,
+    sandboxDiagnosticsSnapshot: sessionToolAssembly.sandboxDiagnosticsSnapshot,
     toolAvailability,
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),

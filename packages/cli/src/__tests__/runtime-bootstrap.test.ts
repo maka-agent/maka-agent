@@ -182,6 +182,10 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(backendInput.contextBudget?.historyCompact?.enabled, true);
         assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'lookup');
         assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, 1);
+        assert.equal(backendInput.sandboxDiagnosticsSnapshot.profile.name, 'danger-full-access');
+        assert.equal(backendInput.sandboxDiagnosticsSnapshot.profile.fileSystem, 'unrestricted');
+        assert.equal(backendInput.sandboxDiagnosticsSnapshot.capabilities.command.status, 'not_required');
+        assert.equal(backendInput.sandboxDiagnosticsSnapshot.capabilities.filesystem.status, 'not_required');
       });
     });
   });

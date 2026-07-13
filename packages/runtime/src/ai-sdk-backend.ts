@@ -87,6 +87,14 @@ import {
 } from './tool-runtime.js';
 import type { ActiveSandboxCapabilities } from './sandbox/active-capabilities.js';
 import {
+  toSandboxRunTraceProjection,
+  type SandboxDiagnosticsSnapshot,
+} from './sandbox/diagnostics.js';
+import {
+  buildSandboxAuthorityPromptFragment,
+  renderSandboxTurnTailPrompt,
+} from './system-prompt/sandbox-authority-prompt.js';
+import {
   ModelAdapter,
   normalizeAiSdkUsage,
   rawFinishReasonString,
@@ -409,6 +417,8 @@ export interface AiSdkBackendInput {
   tools: MakaTool[];
   /** Session-scoped sandbox capability snapshot used by the permission gate. */
   sandboxCapabilities?: ActiveSandboxCapabilities;
+  /** Required diagnostics projection built from the same sandbox context and capabilities as the tools. */
+  sandboxDiagnosticsSnapshot: SandboxDiagnosticsSnapshot;
   /**
    * Optional unified tool-availability config (issue #37). With `economy: true`,
    * only core + ungrouped tools are advertised each turn; each group's tools are
@@ -541,6 +551,9 @@ export class AiSdkBackend implements AgentBackend {
   private priorRequestShape: RequestShapeDiagnostic | undefined;
 
   constructor(input: AiSdkBackendInput) {
+    if (!input.sandboxDiagnosticsSnapshot) {
+      throw new Error('AiSdkBackend requires a sandbox diagnostics snapshot.');
+    }
     this.input = input;
     this.sessionId = input.sessionId;
     this.newId = input.newId ?? (() => crypto.randomUUID());
@@ -705,6 +718,9 @@ export class AiSdkBackend implements AgentBackend {
     });
     this.currentRunTrace = trace;
     trace.turnStarted();
+    trace.sandboxContextResolved(
+      toSandboxRunTraceProjection(this.input.sandboxDiagnosticsSnapshot),
+    );
 
     // --- Resolve model (API key already attached at construct time) ---
     let model: unknown;
@@ -790,6 +806,7 @@ export class AiSdkBackend implements AgentBackend {
         const turnTailPrompt = joinPromptFragments([
           await this.resolveTurnTailPrompt(),
           await this.resolveShellRunContextSummary(),
+          renderSandboxTurnTailPrompt(this.input.sandboxDiagnosticsSnapshot),
         ]);
         const currentUserContent = await this.buildCurrentUserContent(input.text, input.attachments);
         const messages = [
@@ -2313,14 +2330,20 @@ export class AiSdkBackend implements AgentBackend {
   }
 
   private async resolveSystemPrompt(): Promise<string | undefined> {
+    let suppliedPrompt: string | undefined;
     if (typeof this.input.systemPrompt === 'function') {
-      return await this.input.systemPrompt({
+      suppliedPrompt = await this.input.systemPrompt({
         sessionId: this.sessionId,
         cwd: this.input.header.cwd,
         workspaceRoot: this.input.header.workspaceRoot,
       });
+    } else {
+      suppliedPrompt = this.input.systemPrompt;
     }
-    return this.input.systemPrompt;
+    return joinPromptFragments([
+      suppliedPrompt,
+      buildSandboxAuthorityPromptFragment(),
+    ]);
   }
 
   private async resolveTurnTailPrompt(): Promise<string | undefined> {
@@ -2716,4 +2739,3 @@ function mergeCountsInto(target: Record<string, number>, source: Record<string, 
     target[key] = (target[key] ?? 0) + value;
   }
 }
-

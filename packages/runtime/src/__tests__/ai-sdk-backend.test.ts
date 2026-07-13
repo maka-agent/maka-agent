@@ -48,6 +48,8 @@ import { memoryArtifactStore } from './memory-artifact-store.js';
 import { buildRuntimeEventModelReplayPlan } from '../model-history.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
 import type { SemanticCompactBlock } from '../semantic-compact.js';
+import { TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT } from './sandbox-diagnostics-fixture.js';
+import { SANDBOX_AUTHORITY_PROMPT_FRAGMENT } from '../system-prompt/sandbox-authority-prompt.js';
 
 describe('AiSdkBackend model history', () => {
   test('prefers RuntimeEvent prior messages and appends current user once', async () => {
@@ -61,6 +63,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -98,6 +101,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -145,6 +149,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -212,6 +217,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -277,6 +283,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -322,6 +329,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -367,6 +375,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -420,6 +429,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -491,6 +501,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -621,6 +632,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -691,6 +703,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -776,6 +789,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -853,6 +867,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -987,6 +1002,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -1106,6 +1122,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -1221,6 +1238,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -1340,6 +1358,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -1464,6 +1483,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => completionModel(),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -1551,6 +1571,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => completionModel(),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -1619,6 +1640,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => completionModel(),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -1650,6 +1672,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => completionModel(),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -1705,6 +1728,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => completionModel(),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -1752,6 +1776,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => textCompletionModel('NEXT_OK'),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -1816,6 +1841,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => textCompletionModel('NEXT_OK'),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -1876,6 +1902,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => textCompletionModel('NEXT_OK'),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -1956,6 +1983,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -2013,6 +2041,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -2114,6 +2143,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -2209,6 +2239,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -2316,6 +2347,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -2377,6 +2409,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -2419,6 +2452,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -2462,6 +2496,7 @@ describe('AiSdkBackend model history', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -2510,6 +2545,7 @@ describe('AiSdkBackend error surfaces', () => {
       modelFactory: () => {
         throw new Error('401 Authorization: Bearer sk-live-secret-token-value');
       },
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -2549,6 +2585,7 @@ describe('AiSdkBackend error surfaces', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -2587,6 +2624,7 @@ describe('AiSdkBackend error surfaces', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -2653,6 +2691,7 @@ describe('AiSdkBackend error surfaces', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -2696,6 +2735,7 @@ describe('AiSdkBackend stop', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine,
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -2814,6 +2854,7 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [testTool('Read', z.object({ path: z.string() }))],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -2910,6 +2951,7 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [{
         name: 'Read',
         description: 'Read description',
@@ -2994,6 +3036,7 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [{
         name: 'Read',
         description: 'Read description',
@@ -3087,6 +3130,7 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => completionModel(),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -3169,6 +3213,7 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [{
         name: 'Read',
         description: 'Read description',
@@ -3291,6 +3336,7 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [{
         name: 'Read',
         description: 'Read description',
@@ -3374,6 +3420,7 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [{
         name: 'Read',
         description: 'Read description',
@@ -3486,6 +3533,7 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -3815,6 +3863,7 @@ describe('AiSdkBackend request-shape diagnostics', () => {
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
       // No toolAvailability ⇒ full surface: every tool visible, no connector.
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [
         testTool('Read', z.object({ path: z.string() })),
         testTool('WebFetch', z.object({ url: z.string() })),
@@ -3854,6 +3903,7 @@ describe('AiSdkBackend request-shape diagnostics', () => {
         models.push(model);
         return model;
       },
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -3887,6 +3937,55 @@ describe('AiSdkBackend request-shape diagnostics', () => {
     assert.match(JSON.stringify(compactPrompt(models[1]!)), /2026-05-30/);
     assert.equal(JSON.stringify(modelCallSettings(models[0]!)).includes('2026-05-29'), false);
     assert.equal(JSON.stringify(modelCallSettings(models[1]!)).includes('2026-05-30'), false);
+  });
+
+  test('keeps stable sandbox rules in system prompt and dynamic state in turn tail', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      systemPrompt: 'existing durable prompt',
+      turnTailPrompt: 'existing volatile context',
+    });
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'hello', context: [] }));
+
+    const rawPrompt = JSON.stringify(model.doStreamCalls[0]?.prompt);
+    assert.match(rawPrompt, /existing durable prompt/);
+    assert.match(rawPrompt, /Runtime-provided permission and sandbox constraints are authoritative/);
+    assert.match(rawPrompt, /existing volatile context/);
+    assert.match(rawPrompt, /<sandbox_context>/);
+    assert.match(rawPrompt, /Working directory: \/workspace/);
+    const systemMessage = model.doStreamCalls[0]?.prompt.find((message) => message.role === 'system');
+    assert.equal(JSON.stringify(systemMessage).includes('/workspace'), false);
+  });
+
+  test('rejects backend construction without a diagnostics snapshot', () => {
+    assert.throws(
+      () => new AiSdkBackend({
+        sessionId: 'session-1',
+        header: header(),
+        appendMessage: async () => {},
+        connection: connection(),
+        apiKey: 'sk-test',
+        modelId: 'mock-model-id',
+        permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+        modelFactory: () => completionModel(),
+        sandboxDiagnosticsSnapshot: undefined as never,
+        tools: [],
+      }),
+      /requires a sandbox diagnostics snapshot/,
+    );
   });
 });
 
@@ -4061,6 +4160,7 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [testTool('Read', z.object({ path: z.string() }))],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -4150,6 +4250,7 @@ describe('AiSdkBackend RunTrace', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -4164,16 +4265,25 @@ describe('AiSdkBackend RunTrace', () => {
 
     assert.deepEqual(
       trace.map((event) => event.type),
-      ['turn_started', 'model_resolved', 'model_stream_started', 'usage_recorded', 'model_stream_completed'],
+      [
+        'turn_started',
+        'sandbox_context_resolved',
+        'model_resolved',
+        'model_stream_started',
+        'usage_recorded',
+        'model_stream_completed',
+      ],
     );
     assert.deepEqual(
       trace.map((event) => event.phase),
-      ['turn', 'model', 'model', 'usage', 'model'],
+      ['turn', 'sandbox', 'model', 'model', 'usage', 'model'],
     );
     assert.equal(trace[0]?.sessionId, 'session-1');
     assert.equal(trace[0]?.turnId, 'turn-1');
     assert.equal(trace.find((event) => event.type === 'usage_recorded')?.data?.inputTokens, 4);
     assert.equal(trace.find((event) => event.type === 'usage_recorded')?.data?.reasoningTokens, 1);
+    const sandboxTrace = trace.find((event) => event.type === 'sandbox_context_resolved');
+    assert.equal(JSON.stringify(sandboxTrace).includes('/workspace'), false);
     assert.deepEqual(
       events.map((event) => event.type).filter((type) => type === 'text_delta' || type === 'token_usage' || type === 'complete'),
       ['text_delta', 'token_usage', 'complete'],
@@ -4222,6 +4332,7 @@ describe('AiSdkBackend RunTrace', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -4254,6 +4365,7 @@ describe('AiSdkBackend RunTrace', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine,
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -4321,6 +4433,79 @@ describe('AiSdkBackend RunTrace', () => {
     assert.equal(trace.find((event) => event.type === 'tool_failed')?.data?.errorClass, 'Permission');
   });
 
+  test('adds safe sandbox metadata to actual tool failures', async () => {
+    const trace: RunTraceEvent[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header('execute'),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: idGenerator(), now: () => 1 }),
+      modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    (backend as unknown as {
+      currentRunTrace: { emit(phase: string, type: string, message: string, data?: Record<string, unknown>): void };
+    }).currentRunTrace = {
+      emit: (phase, type, message, data) => trace.push({
+        id: `trace-${trace.length + 1}`,
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        ts: trace.length + 1,
+        phase: phase as RunTraceEvent['phase'],
+        type: type as RunTraceEvent['type'],
+        message,
+        ...(data ? { data } : {}),
+      }),
+    };
+    const sandboxFailure = Object.assign(new Error('raw /workspace/private command'), {
+      code: 'SANDBOX_LAUNCH_FAILED',
+      domain: 'command',
+      stage: 'launch',
+      reason: 'backend_unavailable',
+      backend: 'macos-seatbelt',
+      recoverable: false,
+      profileName: 'workspace-write',
+      requestId: 'request-1',
+    });
+    const tool: MakaTool = {
+      name: 'FailingSandboxTool',
+      description: 'test tool',
+      parameters: {},
+      permissionRequired: false,
+      impl: async () => { throw sandboxFailure; },
+    };
+    const execute = (backend as unknown as {
+      wrapToolExecute(
+        tool: MakaTool,
+        turnId: string,
+        queue: { push(event: SessionEvent): void },
+      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
+    }).wrapToolExecute(tool, 'turn-1', { push() {} });
+
+    await execute({}, {
+      toolCallId: 'tool-1',
+      abortSignal: new AbortController().signal,
+    });
+
+    const failed = trace.find((event) => event.type === 'tool_failed');
+    assert.deepEqual(failed?.data?.sandbox, {
+      domain: 'command',
+      stage: 'launch',
+      reason: 'backend_unavailable',
+      recoverable: false,
+      backend: 'macos-seatbelt',
+      profileName: 'workspace-write',
+      requestId: 'request-1',
+    });
+    assert.equal(JSON.stringify(failed).includes('/workspace/private'), false);
+  });
+
   test('records abort trace when stop is requested', async () => {
     const trace: RunTraceEvent[] = [];
     const permissionEngine = new PermissionEngine({ newId: () => 'permission-id', now: () => 1 });
@@ -4349,6 +4534,7 @@ describe('AiSdkBackend RunTrace', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine,
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -4401,6 +4587,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -4481,6 +4668,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine,
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -4565,6 +4753,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine,
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -4658,6 +4847,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -4717,6 +4907,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -4785,6 +4976,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -4834,6 +5026,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -4894,6 +5087,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -4965,6 +5159,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -5029,6 +5224,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -5112,6 +5308,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -5193,6 +5390,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       modelId: 'claude-sonnet-4-5-20250929',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => ({}),
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: () => 1,
@@ -5299,6 +5497,7 @@ describe('AiSdkBackend loop-gate turn wiring', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -5359,6 +5558,7 @@ describe('AiSdkBackend thinking persistence', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -5455,6 +5655,7 @@ describe('AiSdkBackend thinking persistence', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -5552,6 +5753,7 @@ describe('AiSdkBackend thinking persistence', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => firstModel,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -5585,6 +5787,7 @@ describe('AiSdkBackend thinking persistence', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => secondModel,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -5636,6 +5839,7 @@ describe('AiSdkBackend thinking persistence', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => secondModel,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -5689,6 +5893,7 @@ describe('AiSdkBackend thinking persistence', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => firstModel,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -5733,6 +5938,7 @@ describe('AiSdkBackend thinking persistence', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => secondModel,
+      sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
@@ -5771,6 +5977,7 @@ async function runArchiveGatedReplay(input: {
     modelId: 'mock-model-id',
     permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
     modelFactory: () => model,
+    sandboxDiagnosticsSnapshot: TEST_SANDBOX_DIAGNOSTICS_SNAPSHOT,
     tools: [],
     newId: idGenerator(),
     now: monotonicClock(),
@@ -6025,10 +6232,43 @@ function synthesisBlock(input: {
 }
 
 function compactPrompt(model: MockLanguageModelV3): unknown {
-  return model.doStreamCalls[0]?.prompt.map((message) => ({
-    role: message.role,
-    content: message.content,
-  }));
+  return model.doStreamCalls[0]?.prompt
+    .map((message) => ({
+      role: message.role,
+      content: stripSandboxPromptForLegacyAssertion(message.content),
+    }))
+    .filter((message) => !(message.role === 'system' && message.content === ''));
+}
+
+function stripSandboxPromptForLegacyAssertion(content: unknown): unknown {
+  if (typeof content === 'string') return stripSandboxPromptText(content);
+  if (!Array.isArray(content)) return content;
+  return content
+    .map((part) => {
+      if (!part || typeof part !== 'object' || !('text' in part) || typeof part.text !== 'string') {
+        return part;
+      }
+      return { ...part, text: stripSandboxPromptText(part.text) };
+    })
+    .filter((part) => (
+      !part
+      || typeof part !== 'object'
+      || !('type' in part)
+      || part.type !== 'text'
+      || !('text' in part)
+      || part.text !== ''
+    ));
+}
+
+function stripSandboxPromptText(value: string): string {
+  if (value === SANDBOX_AUTHORITY_PROMPT_FRAGMENT) return '';
+  const dynamicMarker = '\n\nMaka runtime sandbox context (authoritative; enforced by the runtime):';
+  const dynamicIndex = value.indexOf(dynamicMarker);
+  const withoutDynamic = dynamicIndex >= 0 ? value.slice(0, dynamicIndex) : value;
+  const stableSuffix = `\n\n${SANDBOX_AUTHORITY_PROMPT_FRAGMENT}`;
+  return withoutDynamic.endsWith(stableSuffix)
+    ? withoutDynamic.slice(0, -stableSuffix.length)
+    : withoutDynamic;
 }
 
 function activeFullCompactBlockFixture(): ActiveFullCompactBlock {
