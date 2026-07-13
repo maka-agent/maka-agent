@@ -19,7 +19,7 @@ export function deriveBotStatusPersistenceUpdate(
     return lastError ? { lastError } : undefined;
   }
 
-  if (current.readiness === 'operational' && previous?.readiness === 'degraded') {
+  if (current.readiness === 'operational') {
     return { lastError: undefined };
   }
 

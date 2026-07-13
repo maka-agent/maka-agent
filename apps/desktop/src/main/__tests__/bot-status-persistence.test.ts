@@ -42,4 +42,14 @@ describe('Bot status persistence', () => {
       { lastError: undefined },
     );
   });
+
+  it('clears a persisted error when operational state is re-established after restart', () => {
+    assert.deepEqual(
+      deriveBotStatusPersistenceUpdate(
+        status('credentials_valid'),
+        status('operational'),
+      ),
+      { lastError: undefined },
+    );
+  });
 });
