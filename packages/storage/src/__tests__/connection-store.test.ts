@@ -345,6 +345,23 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the Cohere provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'cohere',
+        name: 'Cohere',
+        providerType: 'cohere',
+        defaultModel: 'command-a-plus-05-2026',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'cohere');
+      assert.equal(persisted.connections[0]?.defaultModel, 'command-a-plus-05-2026');
+    });
+  });
+
   test('keeps provider create defaults independent from catalog recommendation refreshes', async () => {
     await withConnectionStore(async (store) => {
       const openai = await store.create({

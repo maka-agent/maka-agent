@@ -146,6 +146,10 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
   'claude-subscription': CLAUDE_SUBSCRIPTION_MODEL_METADATA,
   openai: OPENAI_MODEL_OVERRIDES,
   google: GOOGLE_MODEL_OVERRIDES,
+  cohere: {
+    'command-a-plus-05-2026': { thinkingOptions: { toggle: true, offBehavior: 'cohere-thinking-disabled' } },
+    'command-a-reasoning-08-2025': { thinkingOptions: { toggle: true, offBehavior: 'cohere-thinking-disabled' } },
+  },
   'gemini-cli': GOOGLE_MODEL_OVERRIDES,
   'codex-subscription': OPENAI_OAUTH_MODEL_METADATA,
   siliconflow: SILICONFLOW_MODEL_OVERRIDES,

@@ -27,6 +27,13 @@ type RawFireworksModel = {
   supportsTools?: boolean;
 };
 
+type RawCohereModel = {
+  name?: string;
+  is_deprecated?: boolean;
+  endpoints?: string[];
+  context_length?: number;
+};
+
 type FireworksModelDiscovery = Extract<
   (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]['modelDiscovery'],
   { kind: 'fireworks' }
@@ -62,6 +69,9 @@ async function fetchProviderModelsStrict(
   }
   if (discovery.kind === 'fireworks') {
     return fetchFireworksModels(baseUrl, apiKey, discovery);
+  }
+  if (discovery.kind === 'cohere') {
+    return fetchCohereModels(baseUrl, apiKey);
   }
 
   switch (definition.protocol) {
@@ -105,7 +115,37 @@ async function fetchProviderModelsStrict(
         return id ? [{ id }] : [];
       });
     }
+    case 'cohere':
+      throw new Error('Cohere requires native model discovery');
   }
+}
+
+async function fetchCohereModels(baseUrl: string, apiKey: string): Promise<ModelInfo[]> {
+  const root = stripTrailing(baseUrl).replace(/\/v2$/, '');
+  const models: ModelInfo[] = [];
+  let pageToken: string | undefined;
+  do {
+    const query = new URLSearchParams({ endpoint: 'chat', page_size: '1000' });
+    if (pageToken) query.set('page_token', pageToken);
+    const response = await proxiedFetch(`${root}/v1/models?${query.toString()}`, {
+      headers: { authorization: `Bearer ${apiKey}` },
+      timeoutMs: MODEL_FETCH_TIMEOUT_MS,
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json() as {
+      models?: RawCohereModel[];
+      next_page_token?: string;
+    };
+    models.push(...(data.models ?? []).flatMap((model) => {
+      if (!model.name || model.is_deprecated === true || !model.endpoints?.includes('chat')) return [];
+      return [{
+        id: model.name,
+        ...(typeof model.context_length === 'number' ? { contextWindow: model.context_length } : {}),
+      }];
+    }));
+    pageToken = data.next_page_token || undefined;
+  } while (pageToken);
+  return models;
 }
 
 function filterDiscoveredModels(

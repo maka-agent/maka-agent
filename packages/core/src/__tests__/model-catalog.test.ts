@@ -149,6 +149,29 @@ describe('ModelCatalogEntry', () => {
     assert.ok(!entries.some((entry) => entry.id === 'mistral-embed'));
   });
 
+  it('uses Cohere tool-capable snapshot models until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'cohere',
+        providerType: 'cohere',
+        defaultModel: 'command-a-plus-05-2026',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'command-a-plus-05-2026');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 128_000);
+    assert.equal(entries[0]?.maxOutputTokens, 64_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'command-a-reasoning-08-2025'));
+    assert.ok(!entries.some((entry) => entry.id === 'c4ai-aya-expanse-32b'));
+  });
+
   it('uses the checked-in Together AI snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

@@ -44,6 +44,7 @@ describe('provider compatibility contract', () => {
       'xai',
       'cerebras',
       'mistral',
+      'cohere',
       'togetherai',
       'fireworks-ai',
       'nvidia',
@@ -92,6 +93,7 @@ describe('provider compatibility contract', () => {
       'tencent-token-plan',
       'stepfun-step-plan',
       'deepinfra',
+      'cohere',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -124,6 +126,7 @@ describe('provider compatibility contract', () => {
       'tencent-token-plan',
       'stepfun-step-plan',
       'deepinfra',
+      'cohere',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -287,6 +290,24 @@ describe('provider compatibility contract', () => {
     assert.equal(deepinfra.fallbackModels[0], 'moonshotai/Kimi-K2.7-Code');
     assert.ok(deepinfra.fallbackModels.includes('moonshotai/Kimi-K2.6'));
     assert.ok(!deepinfra.fallbackModels.includes('BAAI/bge-m3'));
+  });
+
+  it('owns Cohere native API behavior under the stable cohere id', () => {
+    const cohere = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).cohere;
+
+    assert.ok(cohere, 'Cohere must be available through the shared provider registry');
+    assert.equal(cohere.label, 'Cohere');
+    assert.equal(cohere.baseUrl, 'https://api.cohere.com/v2');
+    assert.equal(cohere.authKind, 'api_key');
+    assert.equal(cohere.protocol, 'cohere');
+    assert.deepEqual(cohere.runtimeAdapter, { kind: 'cohere' });
+    assert.deepEqual(cohere.modelDiscovery, { kind: 'cohere' });
+    assert.equal(cohere.category, 'overseas');
+    assert.equal(cohere.catalogGroup, 'api');
+    assert.equal(cohere.modelsDevId, 'cohere');
+    assert.equal(cohere.fallbackModels[0], 'command-a-plus-05-2026');
+    assert.ok(cohere.fallbackModels.includes('command-a-reasoning-08-2025'));
+    assert.ok(!cohere.fallbackModels.includes('c4ai-aya-expanse-32b'));
   });
 
   it('owns the complete Together AI provider contract under the stable togetherai id', () => {

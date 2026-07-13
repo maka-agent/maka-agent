@@ -39,6 +39,14 @@ test('Mistral keeps provider-scoped credential environment names', () => {
   });
 });
 
+test('Cohere keeps its official provider-scoped credential environment names', () => {
+  assert.deepEqual(providerCredentialEnv('cohere'), {
+    apiKeys: ['COHERE_API_KEY'],
+    apiKeyFile: 'COHERE_API_KEY_FILE',
+    baseUrls: ['COHERE_BASE_URL'],
+  });
+});
+
 test('Together AI keeps its official provider-scoped credential environment names', () => {
   assert.deepEqual(providerCredentialEnv('togetherai'), {
     apiKeys: ['TOGETHER_API_KEY'],

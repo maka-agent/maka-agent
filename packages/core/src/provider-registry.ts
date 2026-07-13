@@ -13,6 +13,7 @@ export type ProviderRuntimeAdapter =
   | { kind: 'openai' }
   | { kind: 'codex-subscription' }
   | { kind: 'google' }
+  | { kind: 'cohere' }
   | {
       kind: 'openai-compatible';
       name: 'provider' | 'connection';
@@ -37,7 +38,8 @@ export type ProviderModelDiscovery =
       query: Readonly<Record<string, string>>;
     }
   | { kind: 'fallback' }
-  | { kind: 'ollama' };
+  | { kind: 'ollama' }
+  | { kind: 'cohere' };
 
 export interface ProviderDefaults {
   label: string;
@@ -47,7 +49,7 @@ export interface ProviderDefaults {
   backendKind: BackendKind;
   fallbackModels: string[];
   status: 'ready' | 'phase3-experimental';
-  protocol: 'anthropic' | 'openai' | 'google';
+  protocol: 'anthropic' | 'openai' | 'google' | 'cohere';
   runtimeAdapter: ProviderRuntimeAdapter;
   modelDiscovery: ProviderModelDiscovery;
   category: ProviderCategory;
@@ -85,6 +87,9 @@ const nvidiaModelIds = toolCallingModelIds('NVIDIA', GENERATED_MODELS_DEV_METADA
 const mistral = GENERATED_MODELS_DEV_PROVIDER_FACTS.mistral;
 if (mistral.id !== 'mistral') throw new Error('models.dev Mistral provider facts are missing stable id mistral');
 const mistralModelIds = toolCallingModelIds('Mistral', GENERATED_MODELS_DEV_METADATA.mistral, ['mistral-large-latest']);
+const cohere = GENERATED_MODELS_DEV_PROVIDER_FACTS.cohere;
+if (cohere.id !== 'cohere') throw new Error('models.dev Cohere provider facts are missing stable id cohere');
+const cohereModelIds = toolCallingModelIds('Cohere', GENERATED_MODELS_DEV_METADATA.cohere, ['command-a-plus-05-2026']);
 const fireworks = GENERATED_MODELS_DEV_PROVIDER_FACTS['fireworks-ai'];
 if (fireworks.id !== 'fireworks-ai') {
   throw new Error('models.dev Fireworks AI provider facts are missing stable id fireworks-ai');
@@ -554,6 +559,25 @@ const providerRegistry = {
     modelsDevId: mistral.id,
     readyOrder: 12,
     catalogOrder: 14,
+  },
+  cohere: {
+    label: cohere.name,
+    description: 'Cohere native Chat API for reasoning, vision, and tool-use models.',
+    baseUrl: 'https://api.cohere.com/v2',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: cohereModelIds,
+    status: 'ready',
+    protocol: 'cohere',
+    runtimeAdapter: { kind: 'cohere' },
+    modelDiscovery: { kind: 'cohere' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://dashboard.cohere.com/api-keys',
+    modelsDevId: cohere.id,
+    readyOrder: 30,
+    catalogOrder: 30,
   },
   togetherai: {
     label: together.name,

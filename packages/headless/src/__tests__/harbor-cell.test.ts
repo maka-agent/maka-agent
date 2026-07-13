@@ -2521,6 +2521,32 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves Cohere only from Cohere credential env without rewriting the model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'cohere',
+      model: 'command-a-plus-05-2026',
+      env: {
+        COHERE_API_KEY: 'cohere-key',
+        COHERE_BASE_URL: 'https://api.cohere.com/v2',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'cohere-key');
+    assert.equal(resolved.connection.providerType, 'cohere');
+    assert.equal(resolved.connection.defaultModel, 'command-a-plus-05-2026');
+    assert.equal(resolved.connection.baseUrl, 'https://api.cohere.com/v2');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'cohere',
+      model: 'command-a-plus-05-2026',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves Together AI only from Together credential env without rewriting the model id', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'togetherai',

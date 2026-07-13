@@ -110,6 +110,17 @@ describe('thinkingOptionsForModel', () => {
     assert.deepEqual(thinkingOptionsForModel('deepseek', 'deepseek-v4-flash'), { efforts: ['high', 'max'], toggle: true });
   });
 
+  test('Cohere reasoning models expose only the native disabled override', () => {
+    assert.deepEqual(thinkingOptionsForModel('cohere', 'command-a-plus-05-2026'), {
+      toggle: true,
+      offBehavior: 'cohere-thinking-disabled',
+    });
+    assert.deepEqual(thinkingOptionsForModel('cohere', 'command-a-reasoning-08-2025'), {
+      toggle: true,
+      offBehavior: 'cohere-thinking-disabled',
+    });
+  });
+
   test('claude-subscription inherits anthropic thinking options (displayMetadataOnly preserves them)', () => {
     assert.deepEqual(thinkingOptionsForModel('claude-subscription', 'claude-opus-4-8'), { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] });
     assert.deepEqual(thinkingOptionsForModel('claude-subscription', 'claude-haiku-4-5'), { toggle: true, offBehavior: 'anthropic-thinking-disabled' });
@@ -146,6 +157,12 @@ describe('thinkingVariantsForModel', () => {
   test('deepseek-v4-flash exposes high/max only because openai-compatible has no off wire; deepseek-chat none', () => {
     assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-v4-flash')], ['high', 'max']);
     assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-chat')], []);
+  });
+
+  test('Cohere exposes off for native thinking models and no invented effort levels', () => {
+    assert.deepEqual([...thinkingVariantsForModel('cohere', 'command-a-plus-05-2026')], ['off']);
+    assert.deepEqual([...thinkingVariantsForModel('cohere', 'command-a-reasoning-08-2025')], ['off']);
+    assert.deepEqual([...thinkingVariantsForModel('cohere', 'command-a-03-2025')], []);
   });
 
   test('Tencent Token Plan HY 3 models expose the documented low/medium/high efforts', () => {

@@ -21,6 +21,7 @@ const PROVIDER_CREDENTIAL_ENV = {
   xai: env('XAI', ['XAI_BASE_URL']),
   cerebras: env('CEREBRAS', ['CEREBRAS_BASE_URL']),
   mistral: env('MISTRAL', ['MISTRAL_BASE_URL']),
+  cohere: env('COHERE', ['COHERE_BASE_URL']),
   togetherai: env('TOGETHER', ['TOGETHER_BASE_URL']),
   deepinfra: env('DEEPINFRA', ['DEEPINFRA_BASE_URL']),
   'fireworks-ai': env('FIREWORKS', ['FIREWORKS_BASE_URL']),

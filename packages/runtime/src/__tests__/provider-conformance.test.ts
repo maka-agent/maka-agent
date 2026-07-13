@@ -1004,6 +1004,135 @@ describe('models.dev provider conformance', () => {
     });
   }
 
+  test('Cohere paginates account models and completes its native V2 tool-call loop', async () => {
+    const modelId = 'command-a-plus-05-2026';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const modelListUrls: string[] = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer cohere-test-key');
+      if (request.method === 'GET' && request.url?.startsWith('/v1/models?')) {
+        modelListUrls.push(request.url);
+        const url = new URL(request.url, 'http://localhost');
+        assert.equal(url.searchParams.get('endpoint'), 'chat');
+        assert.equal(url.searchParams.get('page_size'), '1000');
+        if (!url.searchParams.has('page_token')) {
+          respondJson(response, 200, {
+            models: [
+              { name: modelId, is_deprecated: false, endpoints: ['chat'], context_length: 128_000 },
+              { name: 'retired-command', is_deprecated: true, endpoints: ['chat'], context_length: 4_000 },
+            ],
+            next_page_token: 'page-2',
+          });
+          return;
+        }
+        assert.equal(url.searchParams.get('page_token'), 'page-2');
+        respondJson(response, 200, {
+          models: [{
+            name: 'command-a-reasoning-08-2025',
+            is_deprecated: false,
+            endpoints: ['chat'],
+            context_length: 256_000,
+          }],
+          next_page_token: '',
+        });
+        return;
+      }
+
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v2/chat');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          generation_id: 'cohere-tool-turn',
+          finish_reason: 'TOOL_CALL',
+          message: {
+            role: 'assistant',
+            content: [],
+            tool_plan: 'Call echo.',
+            tool_calls: [{
+              id: 'call_echo',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            }],
+          },
+          usage: {
+            billed_units: { input_tokens: 8, output_tokens: 4 },
+            tokens: { input_tokens: 8, output_tokens: 4 },
+          },
+        });
+        return;
+      }
+
+      respondJson(response, 200, {
+        generation_id: 'cohere-final-turn',
+        finish_reason: 'COMPLETE',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Echoed hello.' }],
+        },
+        usage: {
+          billed_units: { input_tokens: 12, output_tokens: 3 },
+          tokens: { input_tokens: 12, output_tokens: 3 },
+        },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'cohere',
+      name: 'Cohere',
+      providerType: 'cohere',
+      baseUrl: `${server.url}/v2`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'cohere-test-key');
+    assert.deepEqual(models, [
+      { id: modelId, contextWindow: 128_000 },
+      { id: 'command-a-reasoning-08-2025', contextWindow: 256_000 },
+    ]);
+    assert.equal(modelListUrls.length, 2);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'cohere-test-key', modelId: models[0]!.id }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    const secondMessages = requestBodies[1]?.messages as Array<Record<string, unknown>>;
+    assert.deepEqual(secondMessages.find(({ role }) => role === 'assistant'), {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'call_echo',
+        type: 'function',
+        function: { name: 'echo', arguments: '{"text":"hello"}' },
+      }],
+    });
+    assert.deepEqual(secondMessages.find(({ role }) => role === 'tool'), {
+      role: 'tool',
+      content: '{"echoed":"hello"}',
+      tool_call_id: 'call_echo',
+    });
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
   test('Mistral discovers exact account model ids and completes its documented tool-call loop', async () => {
     const requestBodies: Array<Record<string, unknown>> = [];
     let modelListRequests = 0;

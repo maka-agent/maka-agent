@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepinfra', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'stepfun-ai', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'xai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'stepfun-ai', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -118,6 +118,36 @@ test('sync-model-metadata vendors Cerebras provider facts and exact model ids', 
   assert.match(generated, /"cerebras": \{/);
   assert.match(generated, /"cerebras": \{"id":"cerebras","name":"Cerebras"/);
   assert.match(generated, /"gpt-oss-120b": \{"displayName":"GPT OSS 120B"/);
+});
+
+test('sync-model-metadata vendors Cohere provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.cohere = {
+    ...catalog.cohere,
+    name: 'Cohere',
+    api: undefined,
+    doc: 'https://docs.cohere.com/docs/models',
+    models: {
+      'command-a-plus-05-2026': {
+        id: 'command-a-plus-05-2026', name: 'Command A Plus', reasoning: true, tool_call: true,
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        limit: { context: 128_000, output: 64_000 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"cohere": \{/);
+  assert.match(generated, /"cohere": \{"id":"cohere","name":"Cohere","doc":"https:\/\/docs\.cohere\.com\/docs\/models"\}/);
+  assert.match(generated, /"command-a-plus-05-2026": \{"displayName":"Command A Plus"/);
 });
 
 test('sync-model-metadata vendors Mistral provider facts and exact model ids', async () => {

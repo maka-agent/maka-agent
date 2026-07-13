@@ -432,6 +432,29 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'mistral-small-2603');
   });
 
+  test('resolves a Cohere API-key connection without rewriting its exact model id', async () => {
+    const connection = makeConnection({
+      slug: 'cohere',
+      name: 'Cohere',
+      providerType: 'cohere',
+      defaultModel: 'command-a-plus-05-2026',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'cohere',
+        get: async (slug) => slug === 'cohere' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'cohere-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'cohere');
+    assert.equal(target.apiKey, 'cohere-test-key');
+    assert.equal(target.model, 'command-a-plus-05-2026');
+  });
+
   test('resolves a SiliconFlow registry connection without rewriting its model id', async () => {
     const connection = makeConnection({
       slug: 'siliconflow',

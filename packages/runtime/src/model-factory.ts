@@ -1,4 +1,5 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
+import { createCohere } from '@ai-sdk/cohere';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
@@ -66,6 +67,9 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         baseURL: googleV1BetaBaseUrl(baseURL),
       }).chat(modelId);
 
+    case 'cohere':
+      return createCohere({ apiKey, baseURL, fetch })(modelId);
+
     case 'openai-compatible': {
       if (adapter.requireBaseUrl && !baseURL) {
         throw new Error(`${connection.providerType} connection ${connection.slug} requires a base URL`);
@@ -117,6 +121,12 @@ export function buildProviderOptions(
       };
     case 'openai':
       return { openai: level ? { reasoningEffort: level === 'off' ? 'none' : level } : {} };
+    case 'cohere':
+      return {
+        cohere: level === 'off' && thinkingOptions?.offBehavior === 'cohere-thinking-disabled'
+          ? { thinking: { type: 'disabled' as const } }
+          : {},
+      };
     case 'volcengine-ark':
       return {
         [openaiCompatibleNamespace(connection.providerType)]: {

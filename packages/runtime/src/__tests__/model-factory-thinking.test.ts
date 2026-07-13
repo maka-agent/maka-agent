@@ -101,6 +101,16 @@ describe('buildProviderOptions: thinking level', () => {
     });
   });
 
+  test('Cohere sends its native disabled thinking object without inventing effort levels', () => {
+    const modelId = 'command-a-plus-05-2026';
+    assert.deepEqual([...thinkingVariantsForModel('cohere', modelId)], ['off']);
+    assert.deepEqual(buildProviderOptions(conn('cohere'), modelId), { cohere: {} });
+    assert.deepEqual(buildProviderOptions(conn('cohere'), modelId, 'off'), {
+      cohere: { thinking: { type: 'disabled' } },
+    });
+    assert.deepEqual(buildProviderOptions(conn('cohere'), modelId, 'high'), { cohere: {} });
+  });
+
   test('Tencent Token Plan sends its documented reasoning effort under the stable provider namespace', () => {
     assert.deepEqual([...thinkingVariantsForModel('tencent-token-plan', 'hy3')], ['low', 'medium', 'high']);
     assert.deepEqual(
@@ -156,6 +166,7 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
     { providerType: 'deepinfra', model: 'moonshotai/Kimi-K2.7-Code' },
     { providerType: 'zai-coding-plan', model: 'glm-5.2', slug: 'zai-coding-plan' },
     { providerType: 'volcengine-ark', model: 'doubao-seed-2-0-pro-260215' },
+    { providerType: 'cohere', model: 'command-a-plus-05-2026' },
   ];
   for (const { providerType, model, slug } of cases) {
     test(`every effort level for ${providerType}/${model} maps to a non-empty fragment`, () => {

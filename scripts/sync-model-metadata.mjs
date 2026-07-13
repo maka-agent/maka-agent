@@ -5,6 +5,7 @@ const DEFAULT_OUTPUT = 'packages/core/src/model-metadata.generated.ts';
 const PROVIDERS = {
   anthropic: 'anthropic',
   cerebras: 'cerebras',
+  cohere: 'cohere',
   deepinfra: 'deepinfra',
   deepseek: 'deepseek',
   'fireworks-ai': 'fireworks-ai',

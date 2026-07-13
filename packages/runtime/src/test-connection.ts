@@ -36,6 +36,8 @@ export async function testConnection(
         return await probeOpenAI(connection, baseUrl, secret, testModel, t0);
       case 'google':
         return await probeGoogle(baseUrl, secret, testModel, t0);
+      case 'cohere':
+        return await probeCohere(baseUrl, secret, testModel, t0);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -46,6 +48,29 @@ export async function testConnection(
       latencyMs: Date.now() - t0,
     };
   }
+}
+
+async function probeCohere(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  t0: number,
+): Promise<ConnectionTestResult> {
+  const r = await proxiedFetch(`${stripTrailing(baseUrl)}/chat`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 16,
+      messages: [{ role: 'user', content: 'Hi' }],
+    }),
+    timeoutMs: CONNECTION_TEST_TIMEOUT_MS,
+  });
+  if (!r.ok) return httpFailure(r, t0);
+  return { ok: true, latencyMs: Date.now() - t0, modelTested: model };
 }
 
 async function probeAnthropic(

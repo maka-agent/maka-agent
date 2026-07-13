@@ -43,6 +43,7 @@ export function isThinkingLevel(value: unknown): value is ThinkingLevel {
  */
 export type ThinkingOffBehavior =
   | 'anthropic-thinking-disabled'
+  | 'cohere-thinking-disabled'
   | 'google-thinking-budget-zero'
   | 'volcengine-thinking-disabled';
 

@@ -2,7 +2,7 @@
 // Do not edit by hand; put access-path-specific facts in model-metadata.ts.
 import type { ModelMetadata } from './model-metadata.js';
 
-export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepinfra" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "stepfun-ai" | "togetherai" | "tencent-coding-plan" | "tencent-token-plan" | "tencent-tokenhub" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
+export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "cohere" | "deepinfra" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "stepfun-ai" | "togetherai" | "tencent-coding-plan" | "tencent-token-plan" | "tencent-tokenhub" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
   "anthropic": {
     "claude-fable-5": {"displayName":"Claude Fable 5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-haiku-4-5": {"displayName":"Claude Haiku 4.5 (latest)","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":200000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
@@ -23,6 +23,22 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
     "gemma-4-31b": {"displayName":"Gemma 4 31B IT","lifecycle":"active","docsUrl":"https://inference-docs.cerebras.ai/models/overview","contextWindow":131072,"maxOutputTokens":40960,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "gpt-oss-120b": {"displayName":"GPT OSS 120B","lifecycle":"active","docsUrl":"https://inference-docs.cerebras.ai/models/overview","contextWindow":131072,"maxOutputTokens":40960,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
     "zai-glm-4.7": {"displayName":"Z.AI GLM-4.7","lifecycle":"active","docsUrl":"https://inference-docs.cerebras.ai/models/overview","contextWindow":131072,"maxOutputTokens":40960,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+  },
+  "cohere": {
+    "c4ai-aya-expanse-32b": {"displayName":"Aya Expanse 32B","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":128000,"maxOutputTokens":4000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":false}},
+    "c4ai-aya-expanse-8b": {"displayName":"Aya Expanse 8B","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":8000,"maxOutputTokens":4000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":false}},
+    "c4ai-aya-vision-32b": {"displayName":"Aya Vision 32B","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":16000,"maxOutputTokens":4000,"capabilities":{"vision":true,"reasoning":false,"functionCalling":false}},
+    "c4ai-aya-vision-8b": {"displayName":"Aya Vision 8B","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":16000,"maxOutputTokens":4000,"capabilities":{"vision":true,"reasoning":false,"functionCalling":false}},
+    "command-a-03-2025": {"displayName":"Command A","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":256000,"maxOutputTokens":8000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "command-a-plus-05-2026": {"displayName":"Command A Plus","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":128000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "command-a-reasoning-08-2025": {"displayName":"Command A Reasoning","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":256000,"maxOutputTokens":32000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "command-a-translate-08-2025": {"displayName":"Command A Translate","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":8000,"maxOutputTokens":8000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "command-a-vision-07-2025": {"displayName":"Command A Vision","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":128000,"maxOutputTokens":8000,"capabilities":{"vision":true,"reasoning":false,"functionCalling":false}},
+    "command-r-08-2024": {"displayName":"Command R","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":128000,"maxOutputTokens":4000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "command-r-plus-08-2024": {"displayName":"Command R+","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":128000,"maxOutputTokens":4000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "command-r7b-12-2024": {"displayName":"Command R7B","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":128000,"maxOutputTokens":4000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "command-r7b-arabic-02-2025": {"displayName":"Command R7B Arabic","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":128000,"maxOutputTokens":4000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "north-mini-code-1-0": {"displayName":"North Mini Code","lifecycle":"active","docsUrl":"https://docs.cohere.com/docs/models","contextWindow":256000,"maxOutputTokens":64000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
   },
   "deepinfra": {
     "deepseek-ai/DeepSeek-R1-0528": {"displayName":"DeepSeek-R1-0528","lifecycle":"active","docsUrl":"https://deepinfra.com/models","contextWindow":163840,"maxOutputTokens":64000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
@@ -488,9 +504,10 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
   },
 };
 
-export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepinfra" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "stepfun-ai" | "togetherai" | "tencent-coding-plan" | "tencent-token-plan" | "tencent-tokenhub" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
+export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "cohere" | "deepinfra" | "deepseek" | "fireworks-ai" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "nvidia" | "openai" | "siliconflow" | "stepfun" | "stepfun-ai" | "togetherai" | "tencent-coding-plan" | "tencent-token-plan" | "tencent-tokenhub" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
   "anthropic": {"id":"anthropic","name":"Anthropic","doc":"https://docs.anthropic.com/en/docs/about-claude/models"},
   "cerebras": {"id":"cerebras","name":"Cerebras","doc":"https://inference-docs.cerebras.ai/models/overview"},
+  "cohere": {"id":"cohere","name":"Cohere","doc":"https://docs.cohere.com/docs/models"},
   "deepinfra": {"id":"deepinfra","name":"Deep Infra","doc":"https://deepinfra.com/models"},
   "deepseek": {"id":"deepseek","name":"DeepSeek","api":"https://api.deepseek.com","doc":"https://api-docs.deepseek.com/quick_start/pricing"},
   "fireworks-ai": {"id":"fireworks-ai","name":"Fireworks AI","api":"https://api.fireworks.ai/inference/v1/","doc":"https://fireworks.ai/docs/"},
