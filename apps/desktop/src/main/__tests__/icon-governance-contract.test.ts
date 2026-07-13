@@ -38,6 +38,10 @@ const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets
 const DESKTOP_PACKAGE_FILE = resolve(REPO_ROOT, 'apps/desktop/package.json');
 const THIRD_PARTY_NOTICES_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/public/THIRD_PARTY_LICENSES.txt');
 const ONBOARDING_HERO_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/OnboardingHero.tsx');
+const LM_STUDIO_BRAND_ASSET_FILE = resolve(
+  REPO_ROOT,
+  'apps/desktop/src/renderer/assets/provider-brands/lmstudio.svg',
+);
 
 // Fixed brand assets, not generic UI icons — their vendored SVGs keep
 // their own stroke weight and are exempt from the call-site stroke sweep.
@@ -188,7 +192,7 @@ describe('icon + typography governance contract', () => {
     );
     assert.match(
       marks,
-      /Real xAI\/Grok mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*32f4083f7a20b67ecdc7b29c0af031ada5a29c52[\s\S]*packages\/static-svg\/icons\/xai\.svg[\s\S]*license: MIT[\s\S]*function XAI\(\)[\s\S]*url\("\$\{xaiMarkUrl\}"\)[\s\S]*className="xaiProviderMark"[\s\S]*maskImage: mask/,
+      /Real xAI\/Grok mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*32f4083f7a20b67ecdc7b29c0af031ada5a29c52[\s\S]*packages\/static-svg\/icons\/xai\.svg[\s\S]*license: MIT[\s\S]*function XAI\(\)[\s\S]*<ProviderAssetMask src=\{xaiMarkUrl\} \/>/,
       'xAI must render the traceable upstream SVG asset as a currentColor mask instead of a generic or hand-drawn mark',
     );
     assert.match(marks, /case 'xai':\s*return <XAI \/>/, 'the stable xai provider id must resolve to the upstream mark');
@@ -224,6 +228,7 @@ describe('icon + typography governance contract', () => {
     assert.ok(
       notices.includes(
         '`apps/desktop/src/renderer/settings/provider-brand-marks.tsx` `Ollama` path\n' +
+          '    - Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`\n' +
           '    - Upstream path: `packages/static-svg/icons/ollama.svg`\n' +
           '    - SHA-256: `fe847dff4bb6ae25ebec9a7def819ec2583023552b2e88a572c481aad2d32433`',
       ),
@@ -253,6 +258,11 @@ describe('icon + typography governance contract', () => {
       notices,
       /apps\/desktop\/src\/renderer\/assets\/provider-brands\/xai\.svg[\s\S]*packages\/static-svg\/icons\/xai\.svg[\s\S]*89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451/,
     );
+    assert.match(notices, /e4302041fbb3039608d25f9f618bd462783b875e/);
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/lmstudio\.svg[\s\S]*packages\/static-svg\/icons\/lmstudio\.svg[\s\S]*4a575e8382b52ce742ac5d21d361a7d2a08cea7c12390ee1bbb755ef7d3cc25b/,
+    );
     assert.match(notices, /MIT License[\s\S]*Copyright \(c\) 2023 LobeHub[\s\S]*Permission is hereby granted/);
     assert.match(notices, /THE SOFTWARE IS PROVIDED "AS IS"/);
     assert.match(
@@ -260,5 +270,26 @@ describe('icon + typography governance contract', () => {
       /"build:renderer": "vite build && node \.\.\/\.\.\/scripts\/check-third-party-notices\.mjs"/,
       'renderer builds must verify that the public notice was copied byte-for-byte into dist-renderer',
     );
+  });
+
+  it('vendors and renders the byte-exact Lobe Icons LM Studio SVG', async () => {
+    const componentSrc = await readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8');
+    const asset = await readFile(LM_STUDIO_BRAND_ASSET_FILE);
+
+    assert.equal(asset.at(-1), 0x0a, 'vendored text assets keep the repository POSIX newline');
+    assert.equal(
+      createHash('sha256').update(asset.subarray(0, -1)).digest('hex'),
+      '4a575e8382b52ce742ac5d21d361a7d2a08cea7c12390ee1bbb755ef7d3cc25b',
+      'LM Studio SVG payload must remain byte-identical to @lobehub/icons-static-svg@1.91.0',
+    );
+    assert.match(componentSrc, /https:\/\/github\.com\/lobehub\/lobe-icons/);
+    assert.match(componentSrc, /@lobehub\/icons-static-svg@1\.91\.0/);
+    assert.match(componentSrc, /e4302041fbb3039608d25f9f618bd462783b875e/);
+    assert.match(componentSrc, /packages\/static-svg\/icons\/lmstudio\.svg/);
+    assert.match(componentSrc, /MIT/);
+    assert.match(componentSrc, /4a575e8382b52ce742ac5d21d361a7d2a08cea7c12390ee1bbb755ef7d3cc25b/);
+    assert.match(componentSrc, /import lmStudioBrandMark from '\.\.\/assets\/provider-brands\/lmstudio\.svg';/);
+    assert.match(componentSrc, /function ProviderAssetMask\([\s\S]*className="providerAssetMask"[\s\S]*WebkitMaskImage: mask/);
+    assert.match(componentSrc, /case 'lm-studio':\s*return <ProviderAssetMask src=\{lmStudioBrandMark\} \/>/);
   });
 });

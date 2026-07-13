@@ -225,13 +225,13 @@
    not inherit `currentColor`. */
 .providerLogo svg,
 .providerLogo img,
-.providerLogo .xaiProviderMark {
+.providerLogo .providerAssetMask {
   width: 64%;
   height: 64%;
   display: block;
 }
 
-.xaiProviderMark {
+.providerAssetMask {
   background: currentColor;
   mask-position: center;
   mask-repeat: no-repeat;

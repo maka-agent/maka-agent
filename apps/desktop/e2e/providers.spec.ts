@@ -53,7 +53,7 @@ test('adds xAI with its exact snapshot model and API-key credential field', asyn
 
   await page.getByRole('tab', { name: 'API', exact: true }).click();
   await page.getByPlaceholder('搜索服务商').fill('xAI');
-  const catalogMark = page.locator('.providerCatalogRow[data-provider="xai"] .providerLogo .xaiProviderMark');
+  const catalogMark = page.locator('.providerCatalogRow[data-provider="xai"] .providerLogo .providerAssetMask');
   await expect(catalogMark).toBeVisible();
   expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
   await page.getByRole('button', { name: /添加模型供应商：xAI/ }).click();
@@ -61,7 +61,7 @@ test('adds xAI with its exact snapshot model and API-key credential field', asyn
   await page.getByRole('button', { name: '保存供应商' }).click();
 
   await expect(page.getByRole('heading', { name: 'xAI', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="xai"] .xaiProviderMark');
+  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="xai"] .providerAssetMask');
   await expect(detailMark).toBeVisible();
   expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
   await expect(page.getByText('grok-4.5', { exact: true }).first()).toBeVisible();
@@ -75,6 +75,36 @@ function maskRenderContract(element: Element): { usesAssetMask: boolean; follows
     followsForeground: style.backgroundColor === style.color,
   };
 }
+
+test('adds LM Studio as a no-auth local runtime with the shared official mark', async ({ window: page }) => {
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
+  await page.getByRole('button', { name: '添加服务商' }).click();
+
+  await page.getByRole('tab', { name: '本地' }).click();
+  await page.getByPlaceholder('搜索服务商').fill('LM Studio');
+  const catalogMark = page.locator(
+    '.providerCatalogRow[data-provider="lm-studio"] .providerLogo .providerAssetMask',
+  );
+  await expect(catalogMark).toBeVisible();
+  expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+  await page.getByRole('button', { name: /添加模型供应商：LM Studio/ }).click();
+
+  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('lm-studio');
+  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('http://localhost:1234/v1');
+  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('');
+  await expect(page.getByLabel(/LM Studio 模型密钥/)).toHaveCount(0);
+  await page.getByRole('button', { name: '保存供应商' }).click();
+
+  await expect(page.getByRole('heading', { name: 'LM Studio', exact: true }).first()).toBeVisible();
+  const detailMark = page.locator(
+    '.providerSubpageHeader .providerLogo[data-provider="lm-studio"] .providerAssetMask',
+  );
+  await expect(detailMark).toBeVisible();
+  expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+  await expect(page.getByLabel(/LM Studio 模型密钥/)).toHaveCount(0);
+});
 
 test('restores keyboard focus across provider child pages', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
