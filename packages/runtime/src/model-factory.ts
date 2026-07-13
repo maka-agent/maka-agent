@@ -80,9 +80,32 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         apiKey,
         baseURL,
         ...(adapter.passFetch ? { fetch } : {}),
+        ...(adapter.replayAssistantReasoningAs
+          ? { transformRequestBody: replayAssistantReasoning(adapter.replayAssistantReasoningAs) }
+          : {}),
       }).chatModel(modelId);
     }
   }
+}
+
+function replayAssistantReasoning(field: 'reasoning') {
+  return (body: Record<string, unknown>): Record<string, unknown> => {
+    if (!Array.isArray(body.messages)) return body;
+    let changed = false;
+    const messages = body.messages.map((value) => {
+      if (!isRecord(value) || value.role !== 'assistant' || typeof value.reasoning_content !== 'string') {
+        return value;
+      }
+      const { reasoning_content: reasoningContent, ...message } = value;
+      changed = true;
+      return { ...message, [field]: reasoningContent };
+    });
+    return changed ? { ...body, messages } : body;
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function buildProviderOptions(
@@ -162,6 +185,16 @@ export function buildProviderOptions(
               : {}),
         },
       };
+    case 'cloudflare-workers-ai':
+      return level
+        ? {
+            [openaiCompatibleNamespace(connection.providerType)]: level === 'off'
+              ? thinkingOptions?.offBehavior === 'cloudflare-chat-template-thinking-false'
+                ? { chat_template_kwargs: { thinking: false } }
+                : {}
+              : { reasoningEffort: level },
+          }
+        : {};
     // DeepInfra documents `none` as its real off wire. Other compatible
     // providers below expose only their confirmed non-off effort values.
     case 'deepinfra':

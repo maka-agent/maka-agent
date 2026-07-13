@@ -19,6 +19,7 @@ export type ProviderRuntimeAdapter =
       name: 'provider' | 'connection';
       passFetch?: boolean;
       requireBaseUrl?: boolean;
+      replayAssistantReasoningAs?: 'reasoning';
     }
   | { kind: 'unavailable' };
 
@@ -844,7 +845,12 @@ const providerRegistry = {
     fallbackModels: cloudflareWorkersAiModelIds,
     status: 'ready',
     protocol: 'openai',
-    runtimeAdapter: { kind: 'openai-compatible', name: 'provider', requireBaseUrl: true },
+    runtimeAdapter: {
+      kind: 'openai-compatible',
+      name: 'provider',
+      requireBaseUrl: true,
+      replayAssistantReasoningAs: 'reasoning',
+    },
     modelDiscovery: { kind: 'fallback' },
     category: 'overseas',
     catalogGroup: 'api',

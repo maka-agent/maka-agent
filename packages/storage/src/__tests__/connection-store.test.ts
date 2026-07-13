@@ -335,6 +335,27 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the Cloudflare Workers AI id, account-scoped base URL, and exact model id', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const baseUrl = 'https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1';
+      const modelId = '@cf/moonshotai/kimi-k2.6';
+      await store.create({
+        slug: 'cloudflare-workers-ai',
+        name: 'Cloudflare Workers AI',
+        providerType: 'cloudflare-workers-ai',
+        baseUrl,
+        defaultModel: modelId,
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; baseUrl: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'cloudflare-workers-ai');
+      assert.equal(persisted.connections[0]?.baseUrl, baseUrl);
+      assert.equal(persisted.connections[0]?.defaultModel, modelId);
+    });
+  });
+
   test('persists the NVIDIA provider id and exact default model', async () => {
     await withConnectionStore(async (store, dir) => {
       const modelId = 'nvidia/nemotron-3-super-120b-a12b';

@@ -22,6 +22,19 @@ describe('ProviderAuth contract', () => {
     expect(contract.actionAvailability.fetch_models).toBe('available');
   });
 
+  test('Cloudflare Workers AI uses API-token auth with honest snapshot model discovery', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'cloudflare-workers-ai',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('cloudflare-workers-ai');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
   test('Volcengine Ark Coding Plan uses an isolated API key and hides unsupported refresh', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'volcengine-coding-plan',

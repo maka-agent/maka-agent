@@ -74,6 +74,23 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-chat', 'high'), {});
   });
 
+  test('Cloudflare Workers AI sends Kimi K2.6 reasoning effort and its real thinking-off wire', () => {
+    const modelId = '@cf/moonshotai/kimi-k2.6';
+    assert.deepEqual(
+      [...thinkingVariantsForModel('cloudflare-workers-ai', modelId)],
+      ['off', 'low', 'medium', 'high'],
+    );
+    assert.deepEqual(buildProviderOptions(conn('cloudflare-workers-ai'), modelId), {});
+    assert.deepEqual(
+      buildProviderOptions(conn('cloudflare-workers-ai'), modelId, 'high'),
+      { 'cloudflare-workers-ai': { reasoningEffort: 'high' } },
+    );
+    assert.deepEqual(
+      buildProviderOptions(conn('cloudflare-workers-ai'), modelId, 'off'),
+      { 'cloudflare-workers-ai': { chat_template_kwargs: { thinking: false } } },
+    );
+  });
+
   test('StepFun Step Plan sends only officially supported reasoning effort levels', () => {
     assert.deepEqual(
       buildProviderOptions(conn('stepfun-step-plan'), 'step-3.7-flash', 'medium'),
@@ -188,6 +205,7 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
     { providerType: 'deepseek', model: 'deepseek-v4-flash' },
     { providerType: 'deepinfra', model: 'moonshotai/Kimi-K2.7-Code' },
     { providerType: 'vercel', model: 'xai/grok-4.3' },
+    { providerType: 'cloudflare-workers-ai', model: '@cf/moonshotai/kimi-k2.6' },
     { providerType: 'zai-coding-plan', model: 'glm-5.2', slug: 'zai-coding-plan' },
     { providerType: 'volcengine-ark', model: 'doubao-seed-2-0-pro-260215' },
     { providerType: 'cohere', model: 'command-a-plus-05-2026' },
@@ -215,7 +233,10 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
 
   function hasRealOffWire(opts: Record<string, unknown>): boolean {
     const serialized = JSON.stringify(opts);
-    return serialized.includes('"reasoningEffort":"none"') || serialized.includes('"type":"disabled"') || serialized.includes('"thinkingBudget":0');
+    return serialized.includes('"reasoningEffort":"none"')
+      || serialized.includes('"type":"disabled"')
+      || serialized.includes('"thinkingBudget":0')
+      || serialized.includes('"thinking":false');
   }
 });
 

@@ -356,6 +356,7 @@ describe('provider compatibility contract', () => {
       kind: 'openai-compatible',
       name: 'provider',
       requireBaseUrl: true,
+      replayAssistantReasoningAs: 'reasoning',
     });
     assert.deepEqual(cloudflare.modelDiscovery, { kind: 'fallback' });
     assert.equal(cloudflare.category, 'overseas');
