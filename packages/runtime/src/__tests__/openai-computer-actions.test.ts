@@ -1,8 +1,24 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { convertOpenAIComputerAction } from '../openai-computer-actions.js';
+import {
+  convertOpenAIComputerAction,
+  isOpenAIComputerActionSafeByDefault,
+} from '../openai-computer-actions.js';
 
 describe('convertOpenAIComputerAction', () => {
+  test('defaults to observation-only actions under the physical-input safety policy', () => {
+    assert.equal(isOpenAIComputerActionSafeByDefault({ type: 'screenshot' }), true);
+    assert.equal(isOpenAIComputerActionSafeByDefault({ type: 'wait' }), true);
+    assert.equal(isOpenAIComputerActionSafeByDefault({ type: 'move', x: 1, y: 2 }), true);
+    assert.equal(isOpenAIComputerActionSafeByDefault({
+      type: 'click', button: 'left', x: 1, y: 2,
+    }), false);
+    assert.equal(isOpenAIComputerActionSafeByDefault({ type: 'type', text: 'x' }), false);
+    assert.equal(isOpenAIComputerActionSafeByDefault({
+      type: 'keypress', keys: ['ENTER'],
+    }), false);
+  });
+
   test('converts lossless pointer, keyboard, type, wait, and screenshot actions', () => {
     assert.deepEqual(convertOpenAIComputerAction({
       type: 'click', button: 'right', x: 10, y: 20,

@@ -85,6 +85,12 @@ export {
   createOpenAIComputerInitialRequest,
   decodeOpenAIComputerResponse,
 } from './openai-computer-codec.js';
+export { OPENAI_COMPUTER_INSTRUCTIONS } from './openai-computer-policy.js';
+export {
+  createOpenAIStrictObjectSchema,
+  projectOpenAIStrictFunctionArgs,
+} from './openai-strict-function.js';
+export type { OpenAIStrictFunctionProjection } from './openai-strict-function.js';
 export type {
   OpenAIComputerCall,
   OpenAIComputerDialect,

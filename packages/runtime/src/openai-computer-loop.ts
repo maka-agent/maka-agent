@@ -1,6 +1,8 @@
 import type { CuAction } from '@maka/core';
 import {
   convertOpenAIComputerAction,
+  isOpenAIComputerActionSafeByDefault,
+  type OpenAIComputerAction,
   type OpenAIComputerActionConversion,
 } from './openai-computer-actions.js';
 import {
@@ -64,6 +66,10 @@ export async function runOpenAIComputerLoop(input: {
     call: OpenAIComputerCall,
     signal: AbortSignal,
   ) => Promise<boolean>;
+  allowAction?: (
+    action: OpenAIComputerAction,
+    context: { turn: number; actionIndex: number; call: OpenAIComputerCall },
+  ) => boolean | Promise<boolean>;
 }): Promise<OpenAIComputerLoopResult> {
   const signal = input.signal ?? new AbortController().signal;
   const maxTurns = input.maxTurns ?? 64;
@@ -75,6 +81,16 @@ export async function runOpenAIComputerLoop(input: {
       await input.transport.create(request, signal),
       input.dialect,
     );
+    if (response.status === 'failed' || response.error) {
+      throw new Error(
+        `openai_computer_response_failed: ${
+          response.error?.code ?? response.error?.type ?? response.status
+        }: ${response.error?.message ?? 'request failed'}`,
+      );
+    }
+    if (response.status === 'incomplete') {
+      throw new Error('openai_computer_response_incomplete');
+    }
     if (response.calls.length === 0) {
       return { status: 'completed', response, turns };
     }
@@ -104,7 +120,27 @@ export async function runOpenAIComputerLoop(input: {
 
     const converted: CuAction[][] = [];
     for (let actionIndex = 0; actionIndex < call.actions.length; actionIndex += 1) {
-      const conversion = convertOpenAIComputerAction(call.actions[actionIndex]);
+      const action = call.actions[actionIndex];
+      const allowed = input.allowAction
+        ? await input.allowAction(action, { turn: turns, actionIndex, call })
+        : isOpenAIComputerActionSafeByDefault(action);
+      if (!allowed) {
+        return {
+          status: 'unsupported_action',
+          response,
+          call,
+          actionIndex,
+          failure: {
+            ok: false,
+            code: 'unsupported_action_policy',
+            message:
+              `OpenAI computer action '${action.type}' is disabled by the current `
+              + 'physical-input safety policy',
+          },
+          turns,
+        };
+      }
+      const conversion = convertOpenAIComputerAction(action);
       if (!conversion.ok) {
         return {
           status: 'unsupported_action',

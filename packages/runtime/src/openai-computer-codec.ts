@@ -3,6 +3,7 @@ import {
   openAIComputerActionSchema,
   type OpenAIComputerAction,
 } from './openai-computer-actions.js';
+import { OPENAI_COMPUTER_INSTRUCTIONS } from './openai-computer-policy.js';
 
 export type OpenAIComputerDialect = 'ga' | 'preview';
 
@@ -22,7 +23,10 @@ export interface OpenAIComputerCall {
 
 export interface OpenAIComputerResponse {
   id: string;
+  status: 'completed' | 'failed' | 'incomplete' | 'in_progress';
+  error?: { type?: string; code?: string; message: string } | null;
   calls: OpenAIComputerCall[];
+  text: string;
   raw: unknown;
 }
 
@@ -44,10 +48,12 @@ export type OpenAIComputerInputItem = {
 
 export interface OpenAIComputerRequest {
   model: string;
+  instructions: string;
   tools: Array<Record<string, unknown>>;
   input: string | OpenAIComputerInputItem[];
   previous_response_id?: string;
   truncation?: 'auto';
+  parallel_tool_calls: false;
 }
 
 const safetyCheckSchema = z.object({
@@ -60,13 +66,13 @@ const commonCallFields = {
   type: z.literal('computer_call'),
   id: z.string().min(1),
   call_id: z.string().min(1),
-  pending_safety_checks: z.array(safetyCheckSchema),
+  pending_safety_checks: z.array(safetyCheckSchema).optional().default([]),
   status: z.enum(['in_progress', 'completed', 'incomplete']),
 };
 
 const gaCallSchema = z.object({
   ...commonCallFields,
-  actions: z.array(openAIComputerActionSchema),
+  actions: z.array(openAIComputerActionSchema).min(1),
 }).strict();
 
 const previewCallSchema = z.object({
@@ -92,6 +98,15 @@ export function decodeOpenAIComputerResponse(
   if (!Array.isArray(response.output)) {
     throw new Error('invalid_openai_computer_response: output must be an array');
   }
+  const status = z.enum(['completed', 'failed', 'incomplete', 'in_progress'])
+    .parse(response.status ?? 'completed');
+  const error = response.error == null
+    ? null
+    : z.object({
+        type: z.string().optional(),
+        code: z.string().optional(),
+        message: z.string(),
+      }).passthrough().parse(response.error);
 
   const calls = response.output
     .filter((item) => asRecord(item, 'output_item').type === 'computer_call')
@@ -116,7 +131,20 @@ export function decodeOpenAIComputerResponse(
       };
     });
 
-  return { id: response.id, calls, raw: value };
+  const text = response.output
+    .flatMap((item) => {
+      const outputItem = asRecord(item, 'output_item');
+      if (outputItem.type !== 'message' || !Array.isArray(outputItem.content)) return [];
+      return outputItem.content.flatMap((part) => {
+        const contentPart = asRecord(part, 'message_content');
+        return contentPart.type === 'output_text' && typeof contentPart.text === 'string'
+          ? [contentPart.text]
+          : [];
+      });
+    })
+    .join('');
+
+  return { id: response.id, status, error, calls, text, raw: value };
 }
 
 export function createOpenAIComputerInitialRequest(input: {
@@ -128,8 +156,10 @@ export function createOpenAIComputerInitialRequest(input: {
   if (input.dialect === 'ga') {
     return {
       model: input.model,
+      instructions: OPENAI_COMPUTER_INSTRUCTIONS,
       tools: [{ type: 'computer' }],
       input: input.prompt,
+      parallel_tool_calls: false,
     };
   }
   if (!input.display) {
@@ -137,6 +167,7 @@ export function createOpenAIComputerInitialRequest(input: {
   }
   return {
     model: input.model,
+    instructions: OPENAI_COMPUTER_INSTRUCTIONS,
     tools: [{
       type: 'computer_use_preview',
       display_width: input.display.widthPx,
@@ -145,6 +176,7 @@ export function createOpenAIComputerInitialRequest(input: {
     }],
     input: input.prompt,
     truncation: 'auto',
+    parallel_tool_calls: false,
   };
 }
 

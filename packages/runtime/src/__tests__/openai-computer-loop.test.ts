@@ -43,6 +43,7 @@ describe('runOpenAIComputerLoop', () => {
       },
       executor: { async execute(action) { executed.push(action); } },
       screenshot: { async capture() { return { base64: 'AA==', mimeType: 'image/png' }; } },
+      allowAction: async () => true,
     });
 
     assert.equal(result.status, 'completed');
@@ -96,6 +97,7 @@ describe('runOpenAIComputerLoop', () => {
       },
       executor: { async execute() { executions += 1; } },
       screenshot: { async capture() { throw new Error('must not capture'); } },
+      allowAction: async () => true,
     });
     assert.equal(result.status, 'unsupported_action');
     if (result.status === 'unsupported_action') {
@@ -103,6 +105,84 @@ describe('runOpenAIComputerLoop', () => {
       assert.equal(result.failure.code, 'unsupported_scroll_delta');
     }
     assert.equal(executions, 0);
+  });
+
+  test('rejects a mixed batch before execution when it contains compatibility input', async () => {
+    let executions = 0;
+    const result = await runOpenAIComputerLoop({
+      dialect: 'ga',
+      model: 'gpt',
+      prompt: 'go',
+      transport: {
+        async create() {
+          return {
+            id: 'resp_1',
+            output: [call({
+              actions: [
+                { type: 'screenshot' },
+                { type: 'click', button: 'left', x: 1, y: 2 },
+              ],
+            })],
+          };
+        },
+      },
+      executor: { async execute() { executions += 1; } },
+      screenshot: { async capture() { throw new Error('must not capture'); } },
+    });
+    assert.equal(result.status, 'unsupported_action');
+    if (result.status === 'unsupported_action') {
+      assert.equal(result.actionIndex, 1);
+      assert.equal(result.failure.code, 'unsupported_action_policy');
+    }
+    assert.equal(executions, 0);
+  });
+
+  test('an explicit scenario policy can opt into a converted action', async () => {
+    const executed: CuAction[] = [];
+    const responses = [
+      {
+        id: 'resp_1',
+        output: [call({
+          actions: [{ type: 'click', button: 'left', x: 1, y: 2 }],
+        })],
+      },
+      { id: 'resp_2', output: [] },
+    ];
+    const result = await runOpenAIComputerLoop({
+      dialect: 'ga',
+      model: 'gpt',
+      prompt: 'go',
+      transport: { async create() { return responses.shift(); } },
+      executor: { async execute(action) { executed.push(action); } },
+      screenshot: { async capture() { return { base64: 'AA==', mimeType: 'image/png' }; } },
+      allowAction: async () => true,
+    });
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(executed, [{
+      type: 'left_click',
+      coordinate: { x: 1, y: 2 },
+    }]);
+  });
+
+  test('does not treat failed or incomplete responses as completion', async () => {
+    for (const response of [
+      {
+        id: 'failed',
+        status: 'failed',
+        error: { type: 'server_error', code: 'capacity', message: 'No capacity' },
+        output: [],
+      },
+      { id: 'incomplete', status: 'incomplete', error: null, output: [] },
+    ]) {
+      await assert.rejects(() => runOpenAIComputerLoop({
+        dialect: 'ga',
+        model: 'gpt',
+        prompt: 'go',
+        transport: { async create() { return response; } },
+        executor: { async execute() {} },
+        screenshot: { async capture() { return { base64: 'AA==', mimeType: 'image/png' }; } },
+      }), /openai_computer_response_(failed|incomplete)/);
+    }
   });
 
   test('executes an acknowledged safety batch and echoes acknowledgements', async () => {

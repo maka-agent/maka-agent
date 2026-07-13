@@ -68,11 +68,20 @@ export type OpenAIComputerActionConversion =
         | 'unsupported_drag_path'
         | 'unsupported_keypress_chord'
         | 'unsupported_modifier_keys'
-        | 'unsupported_scroll_delta';
+        | 'unsupported_scroll_delta'
+        | 'unsupported_action_policy';
       message: string;
     };
 
 const point = (x: number, y: number): CuPoint => ({ x, y });
+
+export function isOpenAIComputerActionSafeByDefault(
+  action: OpenAIComputerAction,
+): boolean {
+  return action.type === 'screenshot'
+    || action.type === 'wait'
+    || action.type === 'move';
+}
 
 function unsupportedModifiers(action: OpenAIComputerAction): OpenAIComputerActionConversion | undefined {
   if (action.type !== 'keypress' && 'keys' in action && action.keys && action.keys.length > 0) {
