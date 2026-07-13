@@ -7,6 +7,23 @@ import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { createConnectionStore } from '../connection-store.js';
 
 describe('FileConnectionStore', () => {
+  test('persists the Volcengine Coding Plan id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'volcengine-coding-plan',
+        name: 'Volcengine Ark Coding Plan (China)',
+        providerType: 'volcengine-coding-plan',
+        defaultModel: 'kimi-k2.7-code',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'volcengine-coding-plan');
+      assert.equal(persisted.connections[0]?.defaultModel, 'kimi-k2.7-code');
+    });
+  });
+
   test('persists the Ollama provider and exact cloud alias in discovery and selection state', async () => {
     await withConnectionStore(async (store, dir) => {
       const localModelId = 'qwen3.5';

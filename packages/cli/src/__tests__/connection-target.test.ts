@@ -4,6 +4,29 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 import { listReadyModelChoices, resolveDefaultSessionTarget } from '../connection-target.js';
 
 describe('default session target resolver', () => {
+  test('resolves Volcengine Coding Plan credentials without rewriting the selected model id', async () => {
+    const connection = makeConnection({
+      slug: 'volcengine-coding-plan',
+      name: 'Volcengine Ark Coding Plan (China)',
+      providerType: 'volcengine-coding-plan',
+      defaultModel: 'kimi-k2.7-code',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'volcengine-coding-plan',
+        get: async (slug) => slug === 'volcengine-coding-plan' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'volcengine-coding-plan-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'volcengine-coding-plan');
+    assert.equal(target.apiKey, 'volcengine-coding-plan-test-key');
+    assert.equal(target.model, 'kimi-k2.7-code');
+  });
+
   test('resolves Volcengine Ark credentials without rewriting the snapshot model id', async () => {
     const modelId = 'doubao-seed-2-0-pro-260215';
     const connection = makeConnection({
