@@ -48,6 +48,19 @@ describe('ProviderAuth contract', () => {
     expect(contract.actionAvailability.fetch_models).toBe('available');
   });
 
+  test('Volcengine Ark China uses the shared API-key credential and snapshot-model flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'volcengine-ark',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('volcengine-ark');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
   test('Together AI uses the shared API-key credential flow under its stable provider id', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'togetherai',
