@@ -178,6 +178,23 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the StepFun Step Plan Global provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'stepfun-ai-step-plan',
+        name: 'StepFun Step Plan (Global)',
+        providerType: 'stepfun-ai-step-plan',
+        defaultModel: 'step-3.5-flash-2603',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'stepfun-ai-step-plan');
+      assert.equal(persisted.connections[0]?.defaultModel, 'step-3.5-flash-2603');
+    });
+  });
+
   test('persists the StepFun Global provider id and exact default model', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

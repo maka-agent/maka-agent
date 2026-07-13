@@ -127,6 +127,14 @@ test('StepFun Step Plan China uses an independent credential namespace', () => {
   });
 });
 
+test('StepFun Step Plan Global uses an independent credential namespace', () => {
+  assert.deepEqual(providerCredentialEnv('stepfun-ai-step-plan'), {
+    apiKeys: ['STEPFUN_AI_STEP_PLAN_API_KEY'],
+    apiKeyFile: 'STEPFUN_AI_STEP_PLAN_API_KEY_FILE',
+    baseUrls: ['STEPFUN_AI_STEP_PLAN_BASE_URL'],
+  });
+});
+
 test('StepFun Global keeps direct API credentials separate from China and plan identities', () => {
   assert.deepEqual(providerCredentialEnv('stepfun-ai'), {
     apiKeys: ['STEPFUN_AI_API_KEY'],

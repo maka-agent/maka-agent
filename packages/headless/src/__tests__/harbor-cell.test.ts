@@ -2438,6 +2438,40 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves StepFun Step Plan Global only from its independent credential env', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun-ai-step-plan',
+      model: 'step-3.5-flash-2603',
+      env: {
+        STEPFUN_AI_STEP_PLAN_API_KEY: 'stepfun-global-step-plan-key',
+        STEPFUN_AI_STEP_PLAN_BASE_URL: 'https://api.stepfun.ai/step_plan/v1',
+        STEPFUN_AI_API_KEY: 'global-direct-key-must-not-cross',
+        STEPFUN_STEP_PLAN_API_KEY: 'china-plan-key-must-not-cross',
+        STEPFUN_API_KEY: 'china-direct-key-must-not-cross',
+        OPENAI_API_KEY: 'openai-key-must-not-cross',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'stepfun-global-step-plan-key');
+    assert.equal(resolved.connection.providerType, 'stepfun-ai-step-plan');
+    assert.equal(resolved.connection.defaultModel, 'step-3.5-flash-2603');
+    assert.equal(resolved.connection.baseUrl, 'https://api.stepfun.ai/step_plan/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun-ai-step-plan',
+      model: 'step-3.5-flash-2603',
+      env: {
+        STEPFUN_AI_API_KEY: 'global-direct-key-must-not-cross',
+        STEPFUN_STEP_PLAN_API_KEY: 'china-plan-key-must-not-cross',
+        STEPFUN_API_KEY: 'china-direct-key-must-not-cross',
+        OPENAI_API_KEY: 'openai-key-must-not-cross',
+      },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves StepFun Global only from its independent direct API credential env', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'stepfun-ai',
