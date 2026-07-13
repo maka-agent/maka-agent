@@ -121,6 +121,9 @@ const HANG_ONCE_MARKER = process.env.CUA_MOCK_HANG_ONCE_MARKER || '';
 const DELAY_TOOL = process.env.CUA_MOCK_DELAY_TOOL || '';
 const DELAY_MS = Number(process.env.CUA_MOCK_DELAY_MS || 0);
 const ERR_TOOL = process.env.CUA_MOCK_RPCERR_TOOL || '';
+const ERR_AFTER_TOOL = process.env.CUA_MOCK_RPCERR_AFTER_TOOL || '';
+const ERR_AFTER_COUNT = Number(process.env.CUA_MOCK_RPCERR_AFTER_COUNT || 0);
+const TOOL_CALL_COUNTS = new Map();
 const EMPTY_AX = process.env.CUA_MOCK_EMPTY_AX === '1';
 const AX_ROLE = process.env.CUA_MOCK_AX_ROLE || 'AXTextArea';
 const AX_LABEL = process.env.CUA_MOCK_AX_LABEL || '';
@@ -164,6 +167,8 @@ function handle(msg) {
   }
   if (method === 'tools/call') {
     const name = params.name;
+    const toolCallCount = (TOOL_CALL_COUNTS.get(name) || 0) + 1;
+    TOOL_CALL_COUNTS.set(name, toolCallCount);
     if (name === HANG_TOOL) { return; } // never respond → exercises abort/kill/handshake-timeout
     if (name === HANG_ONCE_TOOL && HANG_ONCE_MARKER) {
       try {
@@ -173,6 +178,10 @@ function handle(msg) {
       } catch (e) {}
     }
     if (name === ERR_TOOL) { send({ jsonrpc: '2.0', id: id, error: { code: -32000, message: 'mock rpc error' } }); return; }
+    if (name === ERR_AFTER_TOOL && toolCallCount >= ERR_AFTER_COUNT) {
+      send({ jsonrpc: '2.0', id: id, error: { code: -32000, message: 'mock rpc error' } });
+      return;
+    }
     const sendToolReply = (result) => {
       if (name === DELAY_TOOL && DELAY_MS > 0) {
         setTimeout(() => reply(id, result), DELAY_MS);
@@ -446,6 +455,8 @@ function makeBackend(opts: {
   delayTool?: string;
   delayMs?: number;
   rpcErrTool?: string;
+  rpcErrAfterTool?: string;
+  rpcErrAfterCount?: number;
   handshakeTimeoutMs?: number;
   bigImage?: boolean;
   emptyAx?: boolean;
@@ -479,6 +490,8 @@ function makeBackend(opts: {
   process.env.CUA_MOCK_DELAY_TOOL = opts.delayTool ?? '';
   process.env.CUA_MOCK_DELAY_MS = String(opts.delayMs ?? 0);
   process.env.CUA_MOCK_RPCERR_TOOL = opts.rpcErrTool ?? '';
+  process.env.CUA_MOCK_RPCERR_AFTER_TOOL = opts.rpcErrAfterTool ?? '';
+  process.env.CUA_MOCK_RPCERR_AFTER_COUNT = String(opts.rpcErrAfterCount ?? 0);
   process.env.CUA_MOCK_BIG_IMAGE = opts.bigImage ? '1' : '';
   process.env.CUA_MOCK_EMPTY_AX = opts.emptyAx ? '1' : '';
   process.env.CUA_MOCK_AX_ROLE = opts.axRole ?? 'AXTextArea';
@@ -2308,6 +2321,71 @@ describe('cua-driver backend', () => {
     assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 1);
   });
 
+  it('native AX text readback request failure preserves outcome_unknown', async () => {
+    const { backend, logPath } = makeBackend({
+      rpcErrAfterTool: 'get_window_state',
+      rpcErrAfterCount: 3,
+    });
+    const signal = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const result = await backend.run(
+      { type: 'type', text: 'expected' } as CuAction,
+      signal,
+    );
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) {
+      assert.equal(result.outcome.error, 'outcome_unknown');
+      assert.equal(result.outcome.evidence?.path, 'ax');
+    }
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 1);
+  });
+
+  it('CDP text inspection request failure preserves outcome_unknown', async () => {
+    const { backend, logPath } = makeBackend({
+      processKind: 'electron',
+      pageTarget: testPageTarget(),
+      emptyAx: true,
+      semanticPointerResult: {
+        supported: true,
+        ok: true,
+        kind: 'left_click',
+        editable: true,
+        tagName: 'textarea',
+        clickEvents: 1,
+      },
+      rpcErrAfterTool: 'page',
+      rpcErrAfterCount: 5,
+    });
+    const signal = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const result = await backend.run(
+      { type: 'type', text: 'expected' } as CuAction,
+      signal,
+    );
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) {
+      assert.equal(result.outcome.error, 'outcome_unknown');
+      assert.equal(result.outcome.evidence?.path, 'cdp');
+    }
+    assert.equal(
+      businessPageCalls(await readRecords(logPath))
+        .filter((call) => call.action === 'insert_text').length,
+      1,
+    );
+  });
+
   it('semantic dispatch followed by oversized fresh capture returns outcome_unknown', async () => {
     let compressions = 0;
     const { backend, logPath } = makeBackend({
@@ -2349,6 +2427,42 @@ describe('cua-driver backend', () => {
     if (!result.outcome.ok) {
       assert.equal(result.outcome.error, 'outcome_unknown');
       assert.match(result.outcome.message, /delivered/);
+    }
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 1);
+  });
+
+  it('semantic dispatch followed by fresh observation request failure returns outcome_unknown', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      rpcErrAfterTool: 'get_window_state',
+      rpcErrAfterCount: 3,
+    });
+    const signal = new AbortController().signal;
+    const context = {
+      sessionId: 'verification-request-failure',
+      turnId: 'turn-1',
+      toolCallId: 'observe',
+    };
+    const observed = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, signal, context);
+
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: observed.observationId,
+      elementId: '7',
+      elementIdentity: observed.elements[0]!.identity,
+    }, signal, {
+      ...context,
+      toolCallId: 'click',
+      boundAction: boundElementAction(observed, '7'),
+    });
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) {
+      assert.equal(result.outcome.error, 'outcome_unknown');
+      assert.equal(result.outcome.evidence?.path, 'ax');
     }
     assert.equal(toolCalls(await readRecords(logPath), 'click').length, 1);
   });

@@ -15,10 +15,11 @@
 //
 // KEYBOARD IS TARGET-BOUND, VERIFIED, AND NEVER FRONTMOST. A successful left
 // click establishes ownership only for the same Maka session + turn. `type` is
-// allowed only for a native, AX-addressable empty field: Maka writes AXValue and
-// confirms the value in a fresh snapshot. Electron/unknown processes, non-empty
-// fields, and every `key` action fail before any key event is posted. Scroll,
-// drag, failed clicks, another session, and another turn never establish ownership.
+// allowed for a native AX-addressable empty field, or for a uniquely targeted
+// Electron page field through CDP Input.insertText. Both paths require fresh
+// readback; unknown processes, non-empty fields, and every `key` action fail
+// before key delivery. Scroll, drag, failed clicks, another session, and
+// another turn never establish ownership.
 import { execFile } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -425,6 +426,21 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       };
     }
     return { base64, mimeType, widthPx, heightPx };
+  }
+
+  function deliveredVerificationFailure(
+    actionType: string,
+    path: 'ax' | 'cdp',
+  ): CuRunResult {
+    return {
+      outcome: {
+        ok: false,
+        error: 'outcome_unknown',
+        message:
+          `${actionType} was delivered but post-dispatch verification failed`,
+        evidence: { path, effect: 'unverifiable' },
+      },
+    };
   }
 
   function clearLocalSession(sessionId: string): void {
@@ -1543,7 +1559,15 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       signal,
     );
     if (setResult?.isError) return normalizeCuaDriverOutcome(setResult);
-    const after = await snapshotTarget(target.window, signal);
+    let after: TargetSnapshot;
+    try {
+      after = await snapshotTarget(target.window, signal);
+    } catch {
+      return deliveredVerificationFailure(
+        'AXValue write',
+        'ax',
+      ).outcome;
+    }
     const verified = editableElementAtScreenPoint(
       after.elements,
       target.window.screenPoint,
@@ -1650,8 +1674,23 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       signal,
     );
     if (result?.isError) return normalizeCuaDriverOutcome(result);
-    const inspected = await executePageScript(CUA_INSPECT_PREPARED_ELEMENT_SCRIPT);
-    if (inspected.response?.isError) return normalizeCuaDriverOutcome(inspected.response);
+    let inspected: Awaited<ReturnType<typeof executePageScript>>;
+    try {
+      inspected = await executePageScript(
+        CUA_INSPECT_PREPARED_ELEMENT_SCRIPT,
+      );
+    } catch {
+      return deliveredVerificationFailure(
+        'CDP Input.insertText',
+        'cdp',
+      ).outcome;
+    }
+    if (inspected.response?.isError) {
+      return deliveredVerificationFailure(
+        'CDP Input.insertText',
+        'cdp',
+      ).outcome;
+    }
     const after = inspected.element;
     return after?.editable === true && after.value === text
       ? {
@@ -1916,20 +1955,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           let fresh: CuObservation;
           try {
             fresh = await observeResolvedWindow(validated, true, signal, context);
-          } catch (error) {
-            if (error instanceof CuaDriverCaptureError) {
-              return {
-                outcome: {
-                  ok: false,
-                  error: 'outcome_unknown',
-                  message:
-                    `press_key was delivered but the fresh observation failed: `
-                    + error.result.outcome.message,
-                  evidence: { path: 'ax', effect: 'unverifiable' },
-                },
-              };
-            }
-            throw error;
+          } catch {
+            return deliveredVerificationFailure('press_key', 'ax');
           }
           return {
             outcome,
@@ -1989,20 +2016,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             signal,
             context,
           );
-        } catch (error) {
-          if (error instanceof CuaDriverCaptureError) {
-            return {
-              outcome: {
-                ok: false,
-                error: 'outcome_unknown',
-                message:
-                  `${action.type} was delivered but the fresh observation failed: `
-                  + error.result.outcome.message,
-                evidence: { path: 'ax', effect: 'unverifiable' },
-              },
-            };
-          }
-          throw error;
+        } catch {
+          return deliveredVerificationFailure(action.type, 'ax');
         }
         return {
           outcome,
