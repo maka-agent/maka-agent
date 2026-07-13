@@ -44,6 +44,23 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the Together AI provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'together',
+        name: 'Together AI',
+        providerType: 'togetherai',
+        defaultModel: 'MiniMaxAI/MiniMax-M3',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'togetherai');
+      assert.equal(persisted.connections[0]?.defaultModel, 'MiniMaxAI/MiniMax-M3');
+    });
+  });
+
   test('persists the MiniMax Coding Plan provider id and exact default model', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

@@ -41,6 +41,7 @@ describe('provider compatibility contract', () => {
       'xai',
       'cerebras',
       'mistral',
+      'togetherai',
       'ollama',
       'lm-studio',
       'openai-compatible',
@@ -66,6 +67,7 @@ describe('provider compatibility contract', () => {
       'kimi-coding-plan',
       'openai-compatible',
       'minimax-coding-plan',
+      'togetherai',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -82,6 +84,7 @@ describe('provider compatibility contract', () => {
       'xai',
       'cerebras',
       'mistral',
+      'togetherai',
       'ollama',
       'lm-studio',
       'openai-compatible',
@@ -183,6 +186,23 @@ describe('provider compatibility contract', () => {
     assert.equal(mistral.fallbackModels[0], 'mistral-large-latest');
     assert.ok(mistral.fallbackModels.includes('mistral-small-latest'));
     assert.ok(!mistral.fallbackModels.includes('mistral-embed'));
+  });
+
+  it('owns the complete Together AI provider contract under the stable togetherai id', () => {
+    const together = PROVIDER_REGISTRY.togetherai;
+
+    assert.equal(together.label, 'Together AI');
+    assert.equal(together.baseUrl, 'https://api.together.ai/v1');
+    assert.equal(together.authKind, 'api_key');
+    assert.equal(together.protocol, 'openai');
+    assert.deepEqual(together.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(together.modelDiscovery, { kind: 'protocol' });
+    assert.equal(together.modelsDevId, 'togetherai');
+    assert.equal(together.fallbackModels[0], 'MiniMaxAI/MiniMax-M3');
+    assert.ok(together.fallbackModels.includes('meta-llama/Llama-3.3-70B-Instruct-Turbo'));
+    assert.ok(together.fallbackModels.includes('Qwen/Qwen3.5-9B'));
+    assert.equal(together.catalogGroup, 'api');
+    assert.equal(together.signupUrl, 'https://api.together.ai/settings/projects/~current/api-keys');
   });
 });
 

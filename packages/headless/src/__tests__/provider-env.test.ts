@@ -38,3 +38,11 @@ test('Mistral keeps provider-scoped credential environment names', () => {
     baseUrls: ['MISTRAL_BASE_URL'],
   });
 });
+
+test('Together AI keeps its official provider-scoped credential environment names', () => {
+  assert.deepEqual(providerCredentialEnv('togetherai'), {
+    apiKeys: ['TOGETHER_API_KEY'],
+    apiKeyFile: 'TOGETHER_API_KEY_FILE',
+    baseUrls: ['TOGETHER_BASE_URL'],
+  });
+});

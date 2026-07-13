@@ -2305,6 +2305,32 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves Together AI only from Together credential env without rewriting the model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'togetherai',
+      model: 'MiniMaxAI/MiniMax-M3',
+      env: {
+        TOGETHER_API_KEY: 'together-key',
+        TOGETHER_BASE_URL: 'https://api.together.ai/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'together-key');
+    assert.equal(resolved.connection.providerType, 'togetherai');
+    assert.equal(resolved.connection.defaultModel, 'MiniMaxAI/MiniMax-M3');
+    assert.equal(resolved.connection.baseUrl, 'https://api.together.ai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'togetherai',
+      model: 'MiniMaxAI/MiniMax-M3',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves ai-sdk api key from a *_API_KEY_FILE without exposing the secret on argv', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-cell-key-'));
     try {

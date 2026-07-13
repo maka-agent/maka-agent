@@ -9,6 +9,19 @@ import {
 import type { LlmConnection } from '../llm-connections.js';
 
 describe('ProviderAuth contract', () => {
+  test('Together AI uses the shared API-key credential flow under its stable provider id', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'togetherai',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('togetherai');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
   test('MiniMax Coding Plan uses the shared API-key credential flow under its own provider id', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'minimax-coding-plan',

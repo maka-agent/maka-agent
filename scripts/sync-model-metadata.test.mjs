@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'openai', 'siliconflow', 'xai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'openai', 'siliconflow', 'togetherai', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -148,6 +148,36 @@ test('sync-model-metadata vendors Mistral provider facts and exact model ids', a
   assert.match(generated, /"mistral": \{/);
   assert.match(generated, /"mistral": \{"id":"mistral","name":"Mistral","doc":"https:\/\/docs\.mistral\.ai\/getting-started\/models\/"\}/);
   assert.match(generated, /"mistral-large-latest": \{"displayName":"Mistral Large"/);
+});
+
+test('sync-model-metadata vendors Together AI provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.togetherai = {
+    ...catalog.togetherai,
+    name: 'Together AI',
+    api: undefined,
+    doc: 'https://docs.together.ai/docs/serverless-models',
+    models: {
+      'openai/gpt-oss-20b': {
+        id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B', reasoning: true, tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 131_072, output: 131_072 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"togetherai": \{/);
+  assert.match(generated, /"togetherai": \{"id":"togetherai","name":"Together AI","doc":"https:\/\/docs\.together\.ai\/docs\/serverless-models"\}/);
+  assert.match(generated, /"openai\/gpt-oss-20b": \{"displayName":"GPT OSS 20B"/);
 });
 
 test('sync-model-metadata rejects incomplete upstream model data', async () => {

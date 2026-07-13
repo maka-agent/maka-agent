@@ -2,7 +2,7 @@
 // Do not edit by hand; put access-path-specific facts in model-metadata.ts.
 import type { ModelMetadata } from './model-metadata.js';
 
-export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "openai" | "siliconflow" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
+export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "openai" | "siliconflow" | "togetherai" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
   "anthropic": {
     "claude-fable-5": {"displayName":"Claude Fable 5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-haiku-4-5": {"displayName":"Claude Haiku 4.5 (latest)","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":200000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
@@ -250,6 +250,40 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
     "zai-org/GLM-5.2": {"displayName":"GLM-5.2","lifecycle":"active","docsUrl":"https://cloud.siliconflow.com/models","contextWindow":1049000,"maxOutputTokens":262000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
     "zai-org/GLM-5V-Turbo": {"displayName":"zai-org/GLM-5V-Turbo","lifecycle":"active","docsUrl":"https://cloud.siliconflow.com/models","contextWindow":200000,"maxOutputTokens":131072,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
   },
+  "togetherai": {
+    "deepcogito/cogito-v2-1-671b": {"displayName":"Cogito v2.1 671B","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":163840,"maxOutputTokens":163840,"capabilities":{"vision":false,"reasoning":true,"functionCalling":false}},
+    "deepseek-ai/DeepSeek-R1": {"displayName":"DeepSeek-R1","lifecycle":"deprecated","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":163839,"maxOutputTokens":163839,"capabilities":{"vision":false,"reasoning":true,"functionCalling":false}},
+    "deepseek-ai/DeepSeek-V3": {"displayName":"DeepSeek-V3","lifecycle":"deprecated","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":131072,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "deepseek-ai/DeepSeek-V3-1": {"displayName":"DeepSeek V3.1","lifecycle":"deprecated","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":131072,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "deepseek-ai/DeepSeek-V4-Pro": {"displayName":"DeepSeek V4 Pro","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":512000,"maxOutputTokens":384000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "essentialai/Rnj-1-Instruct": {"displayName":"Rnj-1 Instruct","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":32768,"maxOutputTokens":32768,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "google/gemma-3n-E4B-it": {"displayName":"Gemma 3N E4B Instruct","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":32768,"maxOutputTokens":32768,"capabilities":{"vision":false,"reasoning":false,"functionCalling":false}},
+    "google/gemma-4-31B-it": {"displayName":"Gemma 4 31B Instruct","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":262144,"maxOutputTokens":131072,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "LiquidAI/LFM2-24B-A2B": {"displayName":"LFM2-24B-A2B","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":32768,"maxOutputTokens":32768,"capabilities":{"vision":false,"reasoning":false,"functionCalling":false}},
+    "meta-llama/Llama-3.3-70B-Instruct-Turbo": {"displayName":"Llama 3.3 70B","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":131072,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "meta-llama/Meta-Llama-3-8B-Instruct-Lite": {"displayName":"Meta Llama 3 8B Instruct Lite","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":8192,"maxOutputTokens":8192,"capabilities":{"vision":false,"reasoning":false,"functionCalling":false}},
+    "MiniMaxAI/MiniMax-M2.5": {"displayName":"MiniMax-M2.5","lifecycle":"deprecated","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":204800,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "MiniMaxAI/MiniMax-M2.7": {"displayName":"MiniMax-M2.7","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":202752,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "MiniMaxAI/MiniMax-M3": {"displayName":"MiniMax-M3","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":524288,"maxOutputTokens":250000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "moonshotai/Kimi-K2.5": {"displayName":"Kimi K2.5","lifecycle":"deprecated","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":262144,"maxOutputTokens":262144,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "moonshotai/Kimi-K2.6": {"displayName":"Kimi K2.6","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":262144,"maxOutputTokens":131000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "moonshotai/Kimi-K2.7-Code": {"displayName":"Kimi K2.7 Code","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":262144,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "nvidia/nemotron-3-ultra-550b-a55b": {"displayName":"Nemotron 3 Ultra 550B A55B","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":512300,"maxOutputTokens":512300,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "openai/gpt-oss-120b": {"displayName":"GPT OSS 120B","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":131072,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "openai/gpt-oss-20b": {"displayName":"GPT OSS 20B","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":131072,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "pearl-ai/gemma-4-31b-it": {"displayName":"Pearl AI Gemma 4 31B Instruct","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":32000,"maxOutputTokens":32000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":false}},
+    "Qwen/Qwen2.5-7B-Instruct-Turbo": {"displayName":"Qwen 2.5 7B Instruct Turbo","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":32768,"maxOutputTokens":32768,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "Qwen/Qwen3-235B-A22B-Instruct-2507-tput": {"displayName":"Qwen3 235B A22B Instruct 2507 FP8","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":262144,"maxOutputTokens":262144,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8": {"displayName":"Qwen3 Coder 480B A35B Instruct","lifecycle":"deprecated","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":262144,"maxOutputTokens":262144,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "Qwen/Qwen3-Coder-Next-FP8": {"displayName":"Qwen3 Coder Next FP8","lifecycle":"deprecated","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":262144,"maxOutputTokens":262144,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "Qwen/Qwen3.5-397B-A17B": {"displayName":"Qwen3.5 397B A17B","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":262144,"maxOutputTokens":130000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "Qwen/Qwen3.5-9B": {"displayName":"Qwen3.5 9B","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":262144,"maxOutputTokens":65536,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "Qwen/Qwen3.6-Plus": {"displayName":"Qwen3.6 Plus","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":1000000,"maxOutputTokens":500000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "Qwen/Qwen3.7-Max": {"displayName":"Qwen3.7 Max","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":1000000,"maxOutputTokens":500000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
+    "zai-org/GLM-5": {"displayName":"GLM-5","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":202752,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "zai-org/GLM-5.1": {"displayName":"GLM-5.1","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":202752,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "zai-org/GLM-5.2": {"displayName":"GLM-5.2","lifecycle":"active","docsUrl":"https://docs.together.ai/docs/serverless-models","contextWindow":262144,"maxOutputTokens":164000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+  },
   "xai": {
     "grok-4.20-0309-non-reasoning": {"displayName":"Grok 4.20 (Non-Reasoning)","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":1000000,"maxOutputTokens":30000,"capabilities":{"vision":true,"reasoning":false,"functionCalling":true}},
     "grok-4.20-0309-reasoning": {"displayName":"Grok 4.20 (Reasoning)","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":1000000,"maxOutputTokens":30000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
@@ -271,7 +305,7 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "d
   },
 };
 
-export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "openai" | "siliconflow" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
+export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "mistral" | "moonshot" | "openai" | "siliconflow" | "togetherai" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
   "anthropic": {"id":"anthropic","name":"Anthropic","doc":"https://docs.anthropic.com/en/docs/about-claude/models"},
   "cerebras": {"id":"cerebras","name":"Cerebras","doc":"https://inference-docs.cerebras.ai/models/overview"},
   "deepseek": {"id":"deepseek","name":"DeepSeek","api":"https://api.deepseek.com","doc":"https://api-docs.deepseek.com/quick_start/pricing"},
@@ -283,6 +317,7 @@ export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras
   "moonshot": {"id":"moonshotai-cn","name":"Moonshot AI (China)","api":"https://api.moonshot.cn/v1","doc":"https://platform.moonshot.cn/docs/api/chat"},
   "openai": {"id":"openai","name":"OpenAI","doc":"https://platform.openai.com/docs/models"},
   "siliconflow": {"id":"siliconflow","name":"SiliconFlow","api":"https://api.siliconflow.com/v1","doc":"https://cloud.siliconflow.com/models"},
+  "togetherai": {"id":"togetherai","name":"Together AI","doc":"https://docs.together.ai/docs/serverless-models"},
   "xai": {"id":"xai","name":"xAI","doc":"https://docs.x.ai/docs/models"},
   "zai-coding-plan": {"id":"zai-coding-plan","name":"Z.AI Coding Plan","api":"https://api.z.ai/api/coding/paas/v4","doc":"https://docs.z.ai/devpack/overview"},
 };

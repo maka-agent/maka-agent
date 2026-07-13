@@ -55,6 +55,29 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'gpt-oss-120b');
   });
 
+  test('resolves a Together AI API-key connection without rewriting its exact model id', async () => {
+    const connection = makeConnection({
+      slug: 'together',
+      name: 'Together AI',
+      providerType: 'togetherai',
+      defaultModel: 'MiniMaxAI/MiniMax-M3',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'together',
+        get: async (slug) => slug === 'together' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'together-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'togetherai');
+    assert.equal(target.apiKey, 'together-test-key');
+    assert.equal(target.model, 'MiniMaxAI/MiniMax-M3');
+  });
+
   test('resolves MiniMax Coding Plan credentials without rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'minimax-plan',

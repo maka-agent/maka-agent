@@ -28,6 +28,27 @@ describe('ModelCatalogEntry', () => {
     assert.ok(!entries.some((entry) => entry.id === 'mistral-embed'));
   });
 
+  it('uses the checked-in Together AI snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'together',
+        providerType: 'togetherai',
+        defaultModel: 'MiniMaxAI/MiniMax-M3',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'MiniMaxAI/MiniMax-M3');
+    assert.equal(entries[0]?.displayName, 'MiniMax-M3');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'Qwen/Qwen3.5-9B'));
+  });
+
   it('uses the checked-in xAI snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

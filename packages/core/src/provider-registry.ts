@@ -74,6 +74,16 @@ const mistral = GENERATED_MODELS_DEV_PROVIDER_FACTS.mistral;
 if (mistral.id !== 'mistral') throw new Error('models.dev Mistral provider facts are missing stable id mistral');
 const mistralModelIds = toolCallingModelIds('Mistral', GENERATED_MODELS_DEV_METADATA.mistral, ['mistral-large-latest']);
 
+const together = GENERATED_MODELS_DEV_PROVIDER_FACTS.togetherai;
+if (together.id !== 'togetherai') {
+  throw new Error('models.dev Together AI provider facts are missing stable id togetherai');
+}
+const togetherModelIds = toolCallingModelIds(
+  'Together AI',
+  GENERATED_MODELS_DEV_METADATA.togetherai,
+  ['MiniMaxAI/MiniMax-M3'],
+);
+
 function toolCallingModelIds(
   providerLabel: string,
   models: Readonly<Record<string, { capabilities?: { functionCalling?: boolean } }>>,
@@ -362,6 +372,25 @@ const providerRegistry = {
     readyOrder: 12,
     catalogOrder: 14,
   },
+  togetherai: {
+    label: together.name,
+    description: 'Hosted open models for chat, reasoning, vision, and tool use.',
+    baseUrl: 'https://api.together.ai/v1',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: togetherModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://api.together.ai/settings/projects/~current/api-keys',
+    modelsDevId: together.id,
+    readyOrder: 18,
+    catalogOrder: 15,
+  },
   ollama: {
     label: 'Ollama',
     description: 'Local models from Ollama on localhost.',
@@ -377,7 +406,7 @@ const providerRegistry = {
     catalogGroup: 'local',
     catalogBadge: 'Local',
     readyOrder: 13,
-    catalogOrder: 15,
+    catalogOrder: 16,
     recommendedOrder: 7,
   },
   'lm-studio': {
@@ -395,7 +424,7 @@ const providerRegistry = {
     catalogGroup: 'local',
     catalogBadge: 'Local',
     readyOrder: 14,
-    catalogOrder: 16,
+    catalogOrder: 17,
   },
   'openai-compatible': {
     label: 'OpenAI-compatible (custom)',
@@ -412,7 +441,7 @@ const providerRegistry = {
     catalogGroup: 'aggregators',
     catalogBadge: 'Custom',
     readyOrder: 16,
-    catalogOrder: 17,
+    catalogOrder: 18,
   },
   'claude-subscription': {
     label: 'Claude Subscription (Pro / Max OAuth)',

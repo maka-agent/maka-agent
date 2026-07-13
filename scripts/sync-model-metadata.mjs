@@ -14,6 +14,7 @@ const PROVIDERS = {
   moonshot: 'moonshotai-cn',
   openai: 'openai',
   siliconflow: 'siliconflow',
+  togetherai: 'togetherai',
   xai: 'xai',
   'zai-coding-plan': 'zai-coding-plan',
 };
