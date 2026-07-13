@@ -49,7 +49,7 @@ import { configWithEconomyTaskPolicy, resolveEconomyTaskMode } from './economy-t
 import type { HeadlessBackendContext, IsolatedToolExecutor, RealBackendIsolation } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES, validateRealBackendIsolation } from './isolation.js';
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
-import { providerCredentialEnv } from './provider-env.js';
+import { providerCredentialEnv, requireProviderCredentialEnv } from './provider-env.js';
 import { backendNeedsIsolation } from './runner.js';
 import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools, type BuildIsolatedHeadlessToolsOptions } from './tools.js';
 import {
@@ -116,6 +116,10 @@ export interface RunHarborCellResult {
 }
 
 export type RunHarborCellEnv = Record<string, string | undefined>;
+
+export function providerApiKeyEnvName(provider: string): string {
+  return requireProviderCredentialEnv(provider).apiKeys[0]!;
+}
 
 export const HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT = 'Continue the same benchmark task from the current workspace state. Do not restart. If the task is complete, provide the final response.';
 const HARBOR_CELL_DEFAULT_MAX_STEPS_PER_TURN = 50;

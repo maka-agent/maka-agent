@@ -10,6 +10,7 @@ import {
   buildHarborCellTaskLedgerExperimentPolicy,
   harborCellMaxStepsFromEnv,
   normalizeHarborCellContextEnv,
+  providerApiKeyEnvName,
   runHarborCell,
 } from '#harbor-cell';
 
@@ -88,7 +89,7 @@ function economyTaskModeFromEnv(value) {
 }
 
 export async function backendEnv(env, provider) {
-  const keyEnvName = env.MAKA_HOST_API_KEY_ENV_NAME || defaultKeyEnvName(provider);
+  const keyEnvName = env.MAKA_HOST_API_KEY_ENV_NAME || providerApiKeyEnvName(provider);
   const apiKey = await hostApiKey(env);
   const contextEnv = normalizeHarborCellContextEnv(env);
   const result = {
@@ -150,27 +151,6 @@ function providerFromModel(rawModel) {
 function stripProvider(rawModel, provider) {
   const prefix = `${provider}/`;
   return rawModel.startsWith(prefix) ? rawModel.slice(prefix.length) : rawModel;
-}
-
-function defaultKeyEnvName(provider) {
-  switch (provider) {
-    case 'deepseek':
-      return 'DEEPSEEK_API_KEY';
-    case 'moonshot':
-      return 'MOONSHOT_API_KEY';
-    case 'google':
-      return 'GOOGLE_API_KEY';
-    case 'anthropic':
-    case 'kimi-coding-plan':
-    case 'claude-subscription':
-      return 'ANTHROPIC_API_KEY';
-    case 'zai-coding-plan':
-      return 'ZAI_API_KEY';
-    case 'openai':
-    case 'openai-compatible':
-    default:
-      return 'OPENAI_API_KEY';
-  }
 }
 
 function requiredEnv(env, name) {
