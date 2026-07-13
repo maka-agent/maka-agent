@@ -23,6 +23,7 @@ describe('runHarnessAbComparison', () => {
       const tasks = ['a', 'b', 'c'].map((id) => ({ id, path: `/tasks/${id}` }));
       const common = {
         runId: 'glm-harness-ab',
+        runRoot: dir,
         resultsJsonlPath: resultsPath,
         systemPromptPath: promptPath,
         resumeFingerprint: 'sha256:manifest',
@@ -45,9 +46,45 @@ describe('runHarnessAbComparison', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test('rejects a concurrent writer for the same run root', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-lock-'));
+    try {
+      const promptPath = join(dir, 'empty-system-prompt.txt');
+      await writeFile(promptPath, '', 'utf8');
+      let release!: () => void;
+      let started!: () => void;
+      const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+      const releasePromise = new Promise<void>((resolve) => { release = resolve; });
+      const calls: string[] = [];
+      const input = {
+        runId: 'glm-harness-ab',
+        runRoot: dir,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        systemPromptPath: promptPath,
+        resumeFingerprint: 'sha256:manifest',
+        evaluationTasks: [{ id: 'a', path: '/tasks/a' }],
+        arms: [
+          harnessArm('maka', calls, async () => {
+            started();
+            await releasePromise;
+          }),
+          harnessArm('opencode', calls),
+        ] as const,
+      };
+
+      const active = runHarnessAbComparison(input);
+      await startedPromise;
+      await assert.rejects(runHarnessAbComparison(input), /A\/B run is already active/);
+      release();
+      await active;
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
-function harnessArm(id: 'maka' | 'opencode', calls: string[]) {
+function harnessArm(id: 'maka' | 'opencode', calls: string[], beforeRun?: () => Promise<void>) {
   const config = {
     id: `harness-${id}`,
     backend: 'ai-sdk' as const,
@@ -55,6 +92,7 @@ function harnessArm(id: 'maka' | 'opencode', calls: string[]) {
     model: 'glm-5.2',
   };
   const harborRunner: HarborTaskRunner = async ({ task, systemPrompt }) => {
+    await beforeRun?.();
     calls.push(`${task.id}:${id}`);
     const promptHash = hashHarborSystemPrompt(systemPrompt);
     const cell: HarborCellOutput = {

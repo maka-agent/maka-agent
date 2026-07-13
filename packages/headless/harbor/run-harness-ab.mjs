@@ -168,6 +168,7 @@ async function main() {
   });
   const summary = await runHarnessAbComparison({
     runId,
+    runRoot,
     resultsJsonlPath: join(controllerDir, 'results.jsonl'),
     systemPromptPath,
     resumeFingerprint: manifest.fingerprint,

@@ -1,5 +1,6 @@
 import { buildRunManifestFingerprint } from './ab-manifest.js';
 import { runAbComparison } from './ab-run.js';
+import { withAbRunLock } from './ab-run-lock.js';
 import type { AbComparisonSummary } from './ab-types.js';
 import type { Config } from './contracts.js';
 import {
@@ -18,6 +19,7 @@ export interface HarnessAbRuntimeArm {
 
 export interface RunHarnessAbComparisonInput {
   runId: string;
+  runRoot: string;
   resultsJsonlPath: string;
   systemPromptPath: string;
   resumeFingerprint: string;
@@ -28,6 +30,12 @@ export interface RunHarnessAbComparisonInput {
 }
 
 export async function runHarnessAbComparison(
+  input: RunHarnessAbComparisonInput,
+): Promise<AbComparisonSummary> {
+  return withAbRunLock(input.runRoot, () => runHarnessAbComparisonUnlocked(input));
+}
+
+async function runHarnessAbComparisonUnlocked(
   input: RunHarnessAbComparisonInput,
 ): Promise<AbComparisonSummary> {
   return runAbComparison({
