@@ -65,6 +65,7 @@ export function selectComputerUseBackend(deps?: {
     mimeType: string,
   ) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
   physicalInputRecentlyActive?: () => boolean | Promise<boolean>;
+  onTrace?: CuaDriverBackendOptions['onTrace'];
   overlay?: CuOverlayHook;
   createBackend?: (
     options: CuaDriverBackendOptions,
@@ -91,6 +92,7 @@ export function selectComputerUseBackend(deps?: {
       ...(deps?.physicalInputRecentlyActive
         ? { physicalInputRecentlyActive: deps.physicalInputRecentlyActive }
         : {}),
+      ...(deps?.onTrace ? { onTrace: deps.onTrace } : {}),
       onSessionInvalidated: ({ sessionId }) => {
         tools?.sessionEvents.reobserveRequired(sessionId);
       },

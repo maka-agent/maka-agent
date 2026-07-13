@@ -94,7 +94,7 @@ export const CU_E2E_SCENARIOS = Object.freeze([
     id: 'l1-single-click',
     level: 'L1',
     prompt:
-      'In the window titled "Maka CUA L1 Single Click Fixture", click the blue "Increment once" button exactly once. Do not click the red button. Verify the blue count is 1, then stop.',
+      'First observe the window "Maka CUA L1 Single Click Fixture". Then use click_element on the observed "Increment once" button exactly once. Do not use coordinate clicks and do not click the red button.',
     fixtureSetup: {
       layout: 'single',
       windows: [
@@ -113,9 +113,10 @@ export const CU_E2E_SCENARIOS = Object.freeze([
       invariant('target', 'dangerClicks', 0, 'the red control must remain untouched'),
       invariant('target', 'primaryOverClicks', 0, 'the primary control must not be clicked twice'),
     ],
-    allowedActions: ['observe', 'click_element', 'screenshot', 'left_click', 'wait'],
-    minimumActionCounts: { observe: 1 },
-    maxTotalActions: 8,
+    allowedActions: ['observe', 'click_element'],
+    minimumActionCounts: { observe: 1, click_element: 1 },
+    maxTotalActions: 3,
+    maxActionCounts: { observe: 2, click_element: 1 },
     contractChecks: [
       'observation-window-frame-binding',
       'fresh-post-action-observation',
@@ -123,7 +124,7 @@ export const CU_E2E_SCENARIOS = Object.freeze([
       'ax-diff-secondary-oracle',
       'immediately-preceding-local-screenshot',
     ],
-    realRunEnabled: false,
+    realRunEnabled: true,
     requiresExecutionCapabilities: ['window-frame-binding'],
   },
   {

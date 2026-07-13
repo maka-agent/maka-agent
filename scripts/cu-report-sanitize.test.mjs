@@ -22,6 +22,8 @@ test('CU reports keep metrics while dropping typed text, coordinates, URL secret
     traces: [{
       type: 'dispatch',
       actionType: 'type',
+      expectedPid: 42,
+      winnerPid: 84,
       title: secret,
       raw: { secret },
       durationMs: 4,
@@ -38,6 +40,8 @@ test('CU reports keep metrics while dropping typed text, coordinates, URL secret
   assert.deepEqual(report.traces, [{
     type: 'dispatch',
     actionType: 'type',
+    expectedPid: 42,
+    winnerPid: 84,
     durationMs: 4,
   }]);
   assert.doesNotMatch(serialized, new RegExp(secret));

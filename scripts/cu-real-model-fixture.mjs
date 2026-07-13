@@ -13,6 +13,14 @@ let fixture;
 
 app.whenReady().then(async () => {
   fixture = await createCuE2eFixture({ BrowserWindow, screen, scenario });
+  for (let index = 0; index < 4; index += 1) {
+    for (const windowSpec of scenario.fixtureSetup.windows) {
+      const window = fixture.getWindow(windowSpec.id);
+      window.showInactive();
+      window.moveTop();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
   process.stdout.write(`CU_FIXTURE_READY ${process.pid}\n`);
 });
 

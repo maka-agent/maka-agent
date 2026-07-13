@@ -8,6 +8,11 @@ const SAFE_TRACE_KEYS = new Set([
   'ok',
   'durationMs',
   'at',
+  'expectedPid',
+  'expectedWindowId',
+  'winnerPid',
+  'winnerWindowId',
+  'winnerZIndex',
 ]);
 
 function safeUrlOrigin(value) {

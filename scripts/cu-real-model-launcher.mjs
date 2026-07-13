@@ -211,6 +211,7 @@ function safeFailureMetadata(message) {
 async function run() {
   const userData = await mkdtemp(join(tmpdir(), 'maka-cu-real-model-'));
   const workspace = join(userData, 'workspaces', 'default');
+  const tracePath = join(userData, 'computer-use-trace.jsonl');
   const fixturePort = await reservePort();
   const electronBinary = join(repoRoot, 'node_modules', '.bin', 'electron');
   let fixture;
@@ -246,6 +247,7 @@ async function run() {
           allowedActions: scenario.allowedActions,
           maxTotalActions: scenario.maxTotalActions,
         }),
+        MAKA_CU_REAL_MODEL_TRACE: tracePath,
       },
       timeout: 30_000,
     });
@@ -330,6 +332,12 @@ async function run() {
     const evaluation = evaluateCuE2eScenarioState(scenario, fixtureState);
     const events = runResult.events.map(safeEvent).filter(Boolean);
     const actions = actionRecords(runResult.events);
+    const driverTraces = await readFile(tracePath, 'utf8')
+      .then((text) => text.split('\n').filter(Boolean).map((line) => JSON.parse(line)))
+      .catch((error) => {
+        if (error?.code === 'ENOENT') return [];
+        throw error;
+      });
     const runStore = createAgentRunStore(workspace);
     const runHeaders = await runStore.listSessionRuns(runResult.sessionId);
     const runHeader = runHeaders.find((entry) =>
@@ -386,6 +394,7 @@ async function run() {
           ? 'fail'
           : 'inconclusive',
       traces: events.map(sanitizeCuTrace).filter(Boolean),
+      driverTraces: driverTraces.map(sanitizeCuTrace).filter(Boolean),
     };
     await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, {
       flag: 'wx',

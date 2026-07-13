@@ -61,8 +61,8 @@ test('every scenario carries prompt, fixture, expected state, forbidden effects,
 
 test('layer action budgets increase deliberately', () => {
   assert.deepEqual(getCuE2eScenario('l0-observe-only').allowedActions, ['observe']);
-  assert.ok(getCuE2eScenario('l1-single-click').allowedActions.includes('left_click'));
   assert.ok(getCuE2eScenario('l1-single-click').allowedActions.includes('click_element'));
+  assert.ok(!getCuE2eScenario('l1-single-click').allowedActions.includes('left_click'));
 
   const multi = getCuE2eScenario('l2-multi-control');
   assert.ok(multi.allowedActions.includes('scroll'));

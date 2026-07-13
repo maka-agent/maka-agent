@@ -70,3 +70,21 @@ Codex subscription boundary and keeping function calls/results inline.
 
 The next run should perform one AX semantic mutation after executor hardening is
 merged.
+
+That L1 run has now completed:
+
+- scenario: `l1-single-click`;
+- provider/model: OpenAI `gpt-5.4`;
+- actions: two observations and one `click_element`;
+- no coordinate or compatibility input action was allowed;
+- semantic click latency: 1445 ms;
+- total run latency: 26023 ms;
+- fixture oracle: primary click count 1, danger click count 0, over-click count
+  0;
+- terminal status: `complete / end_turn`;
+- result: pass.
+
+The run initially failed closed when the user's foreground ChatGPT window
+occluded the synthetic target. The fixture host now settles and raises its
+layer-0 window with `showInactive()` and `moveTop()` before declaring readiness,
+without focusing it or using an always-on-top overlay layer.

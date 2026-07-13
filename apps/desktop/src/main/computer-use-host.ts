@@ -10,6 +10,7 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CuaDriverRoleSnapshot } from '@maka/computer-use';
+import type { CuaDriverBackendOptions } from '@maka/computer-use';
 import {
   selectComputerUseBackend,
   type SelectedComputerUseBackend,
@@ -44,6 +45,7 @@ export function createComputerUseHost(input: {
     mimeType: string,
   ) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
   physicalInputRecentlyActive?: () => boolean | Promise<boolean>;
+  onTrace?: CuaDriverBackendOptions['onTrace'];
   overlay?: CuOverlayHook;
 }): ComputerUseHostState {
   const manifestPath = input.manifestPath ?? (input.isPackaged
@@ -101,6 +103,7 @@ export function createComputerUseHost(input: {
         ...(input.physicalInputRecentlyActive
           ? { physicalInputRecentlyActive: input.physicalInputRecentlyActive }
           : {}),
+        ...(input.onTrace ? { onTrace: input.onTrace } : {}),
         ...(input.overlay ? { overlay: input.overlay } : {}),
       }),
       binaryPath,

@@ -576,6 +576,20 @@ const computerUseHost = createComputerUseHost({
     }
   },
   physicalInputRecentlyActive: () => powerMonitor.getSystemIdleTime() < 1,
+  ...(isComputerUseRealModelE2e
+    ? {
+        onTrace: (event) => {
+          const tracePath = process.env.MAKA_CU_REAL_MODEL_TRACE;
+          if (!tracePath) return;
+          void import('node:fs/promises').then(({ appendFile }) =>
+            appendFile(tracePath, `${JSON.stringify(event)}\n`, {
+              encoding: 'utf8',
+              mode: 0o600,
+            }),
+          ).catch(() => {});
+        },
+      }
+    : {}),
   overlay: createComputerUseOverlayHook(computerUseOverlay),
 });
 const computerUse = computerUseHost.selected;
