@@ -246,7 +246,8 @@ describe('icon + typography governance contract', () => {
   });
 
   it('vendors the unmodified upstream Cerebras mark with traceable provenance', async () => {
-    const [notices, cerebrasMark] = await Promise.all([
+    const [marks, notices, cerebrasMark] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
       readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
       readFile(CEREBRAS_BRAND_MARK_FILE),
     ]);
@@ -261,6 +262,12 @@ describe('icon + typography governance contract', () => {
       /Repository: https:\/\/github\.com\/lobehub\/lobe-icons[\s\S]*@lobehub\/icons-static-svg` version `1\.91\.0`[\s\S]*apps\/desktop\/src\/renderer\/assets\/provider-brands\/cerebras\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cerebras\.svg[\s\S]*05af9593eca3fefdb30c5ad042040f008beea2b27e0a6b7315c319492f7a44ff/,
       'Cerebras provenance must identify the exact package release, upstream revision, path, and license',
     );
+    assert.match(
+      marks,
+      /import cerebrasMarkUrl from '\.\.\/assets\/provider-brands\/cerebras\.svg';[\s\S]*case 'cerebras':\s*return <ProviderAssetMask src=\{cerebrasMarkUrl\} \/>/,
+      'the stable Cerebras provider id must consume the sole shared asset-mask seam',
+    );
+    assert.doesNotMatch(marks, /ProviderMaskMark|providerMaskMark/);
   });
 
   it('ships the Lobe Icons MIT notice beside vendored provider assets', async () => {
