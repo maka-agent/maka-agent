@@ -369,11 +369,11 @@ describe('turn footer copy feedback contract', () => {
     const clipboardPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'clipboard-feedback.ts');
     const hookBlock = await readFile(clipboardPath, 'utf8');
 
-    assert.match(hookBlock, /const copyMountedRef = useRef\(true\)/, 'Shared copy feedback must track mounted state.');
+    assert.match(hookBlock, /const copyMountedRef = useMountedRef\(\)/, 'Shared copy feedback must track mounted state via the shared useMountedRef hook.');
     assert.match(
       hookBlock,
-      /useEffect\(\(\) => \{\s*copyMountedRef\.current = true;\s*return \(\) => \{\s*copyMountedRef\.current = false;\s*clearResetTimer\(\);\s*\};\s*\}, \[\]\)/,
-      'Shared copy feedback must restore mounted state during StrictMode effect replay, then cancel timers and mark itself unmounted during cleanup.',
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*clearResetTimer\(\);\s*\};\s*\}, \[\]\)/,
+      'Shared copy feedback cleanup must cancel timers; the shared useMountedRef hook owns StrictMode-safe mount state.',
     );
     assert.match(
       hookBlock,
@@ -407,8 +407,8 @@ describe('turn footer copy feedback contract', () => {
     assert.match(footerBlock, /copyResetTimerRef/, 'Turn footer copy feedback should reset without leaking timers.');
     assert.match(
       footerBlock,
-      /useEffect\(\(\) => \{\s*copyMountedRef\.current = true;\s*return \(\) => \{\s*copyMountedRef\.current = false;\s*clearCopyResetTimer\(\);\s*\};\s*\}, \[\]\)/,
-      'Turn footer copy feedback must restore mounted state during StrictMode effect replay, then clear timers on cleanup.',
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*clearCopyResetTimer\(\);\s*\};\s*\}, \[\]\)/,
+      'Turn footer copy feedback cleanup must clear timers; the shared useMountedRef hook owns StrictMode-safe mount state.',
     );
     assert.match(
       footerBlock,

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import type { PermissionRequestEvent, PermissionResponse } from '@maka/core';
 import { derivePermissionRequestHealth, formatPermissionRequestWait, readWriteStdinInputPreview } from '@maka/core';
 import { AlertOctagon, AlertTriangle, FileEdit, GitMerge, Globe, HelpCircle, ShieldAlert, Terminal, Wifi } from './icons.js';
@@ -44,15 +45,8 @@ export function PermissionDialog(props: {
   const [responsePending, setResponsePending] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const responsePendingRef = useRef(false);
-  const permissionMountedRef = useRef(true);
+  const permissionMountedRef = useMountedRef();
   const activePermissionRequestIdRef = useRef(props.request.requestId);
-
-  useEffect(() => {
-    permissionMountedRef.current = true;
-    return () => {
-      permissionMountedRef.current = false;
-    };
-  }, []);
 
   useEffect(() => {
     activePermissionRequestIdRef.current = props.request.requestId;

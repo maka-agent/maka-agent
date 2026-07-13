@@ -373,10 +373,10 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   it('closing the modal invalidates already-started search requests before they set state', async () => {
     const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
 
-    assert.match(searchModal, /const searchMountedRef = useRef\(true\)/, 'SearchModal must track whether the conditionally mounted dialog is still alive.');
+    assert.match(searchModal, /const searchMountedRef = useMountedRef\(\)/, 'SearchModal must track whether the conditionally mounted dialog is still alive.');
     assert.match(
       searchModal,
-      /useEffect\(\(\) => \{\s*searchMountedRef\.current = true;\s*return \(\) => \{\s*searchMountedRef\.current = false;\s*ticketRef\.current \+= 1;\s*\};\s*\}, \[\]\)/,
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*ticketRef\.current \+= 1;\s*\};\s*\}, \[\]\)/,
       'SearchModal unmount cleanup must invalidate in-flight searches, including requests that already passed the debounce timer.',
     );
     assert.match(

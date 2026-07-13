@@ -30,6 +30,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import { redactSecrets } from './redact.js';
 
 export type ClipboardCopyPhase = 'pending' | 'copied' | 'failed';
@@ -37,7 +38,7 @@ export type ClipboardCopyPhase = 'pending' | 'copied' | 'failed';
 export function useClipboardCopyFeedback(resetDelay = 1400, options: { redact?: boolean } = {}) {
   const [copyState, setCopyState] = useState<{ key: string; phase: ClipboardCopyPhase } | null>(null);
   const pendingCopyRef = useRef<string | null>(null);
-  const copyMountedRef = useRef(true);
+  const copyMountedRef = useMountedRef();
   const resetTimerRef = useRef<number | null>(null);
 
   function clearResetTimer() {
@@ -47,9 +48,7 @@ export function useClipboardCopyFeedback(resetDelay = 1400, options: { redact?: 
   }
 
   useEffect(() => {
-    copyMountedRef.current = true;
     return () => {
-      copyMountedRef.current = false;
       clearResetTimer();
     };
   }, []);

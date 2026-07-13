@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import { CalendarDays } from './icons.js';
 import { SettingsSelect } from './primitives/settings-select.js';
 import type {
@@ -90,7 +91,7 @@ export function DailyReviewPanel(props: {
   const [archiveReloadToken, setArchiveReloadToken] = useState(0);
   const modelOptions = useMemo(() => props.bridge.modelOptions ?? EMPTY_MODEL_OPTIONS, [props.bridge.modelOptions]);
   const [selectedModelKey, setSelectedModelKey] = useState<string>(modelOptions[0]?.[0] ?? '');
-  const dailyReviewMountedRef = useRef(true);
+  const dailyReviewMountedRef = useMountedRef();
   const summaryScopeKeyRef = useRef<string | null>(null);
   const pendingDailyReviewActionRef = useRef<string | null>(null);
   const archiveLoadRequestRef = useRef(0);
@@ -106,9 +107,7 @@ export function DailyReviewPanel(props: {
   const canLoadArchives = Boolean(props.bridge.listArchives && props.bridge.getArchive);
 
   useEffect(() => {
-    dailyReviewMountedRef.current = true;
     return () => {
-      dailyReviewMountedRef.current = false;
       pendingDailyReviewActionRef.current = null;
       archiveLoadRequestRef.current += 1;
     };

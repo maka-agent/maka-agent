@@ -17,12 +17,12 @@ describe('permission dialog response guard', () => {
 
     assert.match(dialog, /const \[responsePending, setResponsePending\] = useState\(false\);/);
     assert.match(dialog, /const responsePendingRef = useRef\(false\);/);
-    assert.match(dialog, /const permissionMountedRef = useRef\(true\);/);
+    assert.match(dialog, /const permissionMountedRef = useMountedRef\(\);/);
     assert.match(dialog, /const activePermissionRequestIdRef = useRef\(props\.request\.requestId\);/);
     assert.match(
       dialog,
-      /useEffect\(\(\) => \{\s*permissionMountedRef\.current = true;\s*return \(\) => \{\s*permissionMountedRef\.current = false;\s*\};\s*\}, \[\]\)/,
-      'permission response settlement must not update state after the dialog unmounts',
+      /if \(permissionMountedRef\.current\) setResponsePending\(false\);/,
+      'permission response settlement must not update state after the dialog unmounts; mount state is owned by the shared useMountedRef hook',
     );
     assert.match(
       dialog,

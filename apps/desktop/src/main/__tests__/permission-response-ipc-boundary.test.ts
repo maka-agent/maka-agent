@@ -220,7 +220,7 @@ describe('permission response IPC boundary', () => {
     const components = await readFile(componentsPath, 'utf8');
     const submit = components.match(/async function submit\(decision:[\s\S]*?\n  \}/);
     assert.ok(submit, 'PermissionDialog submit() must be async');
-    assert.match(components, /const permissionMountedRef = useRef\(true\);/);
+    assert.match(components, /const permissionMountedRef = useMountedRef\(\);/);
     assert.match(components, /const activePermissionRequestIdRef = useRef\(props\.request\.requestId\);/);
     assert.match(components, /activePermissionRequestIdRef\.current = props\.request\.requestId;/);
     assert.match(submit[0], /const requestId = props\.request\.requestId;/);

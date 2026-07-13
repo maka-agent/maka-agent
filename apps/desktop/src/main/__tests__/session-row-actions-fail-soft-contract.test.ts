@@ -79,7 +79,7 @@ describe('session row actions fail soft', () => {
     assert.match(ui, /onToggleFlag\(sessionId: string, next: boolean\): void \| Promise<void>;/);
     assert.match(ui, /onDelete\(sessionId: string\): void \| Promise<void>;/);
     assert.match(ui, /const \[pendingAction,\s*setPendingAction\] = useState<SessionRowActionId \| null>\(null\);/);
-    assert.match(ui, /const rowMountedRef = useRef\(true\);/);
+    assert.match(ui, /const rowMountedRef = useMountedRef\(\);/);
     assert.match(ui, /const pendingActionRef = useRef<SessionRowActionId \| null>\(null\);/);
     assert.match(
       ui,
@@ -87,7 +87,7 @@ describe('session row actions fail soft', () => {
     );
     assert.match(
       ui,
-      /useEffect\(\(\) => \{\s*rowMountedRef\.current = true;[\s\S]*?return \(\) => \{\s*rowMountedRef\.current = false;\s*pendingActionRef\.current = null;\s*\};\s*\}, \[\]\)/,
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*pendingActionRef\.current = null;\s*\};\s*\}, \[\]\)/,
       'SessionRow must release pending ownership when archive/delete/filter changes unmount the row',
     );
     assert.match(

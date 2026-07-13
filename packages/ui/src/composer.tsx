@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import { ArrowUp, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import { type UiLocale, detectUiLocale } from './locale-helpers.js';
@@ -228,7 +229,7 @@ export const Composer = forwardRef<
   const [hasDraftText, setHasDraftText] = useState(false);
   const draftStoreRef = useRef<Map<string, string>>(new Map());
   const activeDraftKeyRef = useRef<string | undefined>(props.draftKey);
-  const composerMountedRef = useRef(true);
+  const composerMountedRef = useMountedRef();
   const sendPendingRef = useRef(false);
   const compositionActiveRef = useRef(false);
   const importActionOwnerRef = useRef<ChatInputActionOwner<ComposerImportActionId> | null>(null);
@@ -248,9 +249,7 @@ export const Composer = forwardRef<
   const buttonCopy = COMPOSER_BUTTON_COPY_BY_LOCALE[locale];
 
   useEffect(() => {
-    composerMountedRef.current = true;
     return () => {
-      composerMountedRef.current = false;
       sendPendingRef.current = false;
       importActionOwnerRef.current?.reset();
     };
