@@ -163,7 +163,7 @@ embed environment variables, credentials, or hidden harness configuration.
 
 ## GLM-5.2 harness comparison
 
-`harbor/run-harness-ab.mjs` compares Maka and OpenCode 1.17.18 on the same Terminal-Bench 2.1 tasks with GLM-5.2 Max. The task root must contain exactly 89 unique tasks from one dataset revision; a Harbor export with one task directory per id is accepted directly. The first 40 tasks are a fixed prefix of the full seeded order.
+`harbor/run-harness-ab.mjs` compares Maka and OpenCode 1.17.18 on the same Terminal-Bench 2.1 tasks with GLM-5.2 Max. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official revision; a matching Harbor export with one task directory per id is accepted directly. The first 40 tasks are a fixed prefix of the full seeded order.
 
 Validate the manifest without reading a key or starting Harbor:
 
@@ -176,7 +176,7 @@ MAKA_HARNESS_AB_DRY_RUN=1 \
 node packages/headless/harbor/run-harness-ab.mjs
 ```
 
-For a live run, remove `MAKA_HARNESS_AB_DRY_RUN` and set `MAKA_HARNESS_AB_KEY_FILE` to a credential file outside git. Resume with the same output directory and run id; changing `MAKA_HARNESS_AB_LIMIT` from `40` to `89` runs only missing cells. The immutable manifest rejects other configuration changes.
+For a live run, remove `MAKA_HARNESS_AB_DRY_RUN` and set `MAKA_HARNESS_AB_KEY_FILE` to a credential file outside git. Maka reads it in its host-side cell; OpenCode receives only a short-lived host proxy capability, never the provider key or key-file path. Resume with the same output directory and run id; changing `MAKA_HARNESS_AB_LIMIT` from `40` to `89` runs only missing cells. The immutable manifest rejects other configuration changes.
 
 Outputs are `harness-ab-report.json`, `.csv`, and `.md`. They report Pass@1 and cache-aware API-equivalent cost separately; they do not claim fixed-plan spend or publish results.
 
