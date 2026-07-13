@@ -819,34 +819,77 @@ SandboxTransformResult
 
 建议文件：
 
+- 新增：`packages/runtime/src/sandbox/diagnostics.ts`
+- 新增：`packages/runtime/src/system-prompt/sandbox-authority-prompt.ts`
 - 修改：`packages/runtime/src/ai-sdk-backend.ts`
-- 修改：`packages/runtime/src/system-prompt` 相关模块，如实际存在
-- 修改：`apps/desktop/src/main/system-prompt-main.ts`
-- 可选：`apps/desktop/src/main/capability-snapshot.ts`
-- 测试：对应 runtime / desktop contract tests
+- 修改：`packages/runtime/src/run-trace.ts`
+- 修改：`packages/runtime/src/workspace-executor-factory.ts` 或相邻 session assembly helper
+- 修改：`apps/desktop/src/main/main.ts`
+- 修改：`packages/cli/src/runtime-bootstrap.ts`
+- 修改：child / headless backend assembly 相关模块
+- 测试：对应 runtime、desktop、CLI、child 和 headless contract tests
 
 任务：
 
-- [ ] 在 model context 中展示 active profile 名称。
-- [ ] 展示 workspace roots。
-- [ ] 展示 filesystem policy：read-only / workspace-write / danger-full-access。
-- [ ] 展示 protected metadata。
-- [ ] 展示 network policy。
-- [ ] 展示 sandbox backend：`macos-seatbelt` / `linux` / `none` / `unsupported`。
-- [ ] 在 diagnostics 或 capability snapshot 中暴露 sandbox availability。
-- [ ] 确保 context 不泄露敏感路径以外的凭据或 env。
+- [x] 定义只读、runtime-owned 的 `SandboxDiagnosticsSnapshot` schema version 1。
+- [x] 从同一份 `PermissionAwareSandboxContext + ActiveSandboxCapabilities` 构建 Snapshot。
+- [x] 在 model context 中展示 active profile 名称。
+- [x] 展示 workspace roots。
+- [x] 展示 filesystem policy：read-only / workspace-write / danger-full-access。
+- [x] 展示 protected metadata。
+- [x] 展示 network policy。
+- [x] 分别展示 command 和 filesystem capability 的 status、backend 和稳定 reason code。
+- [x] 在稳定 System Prompt 中加入不可被用户、workspace instruction、tool output 或 child instruction 覆盖的 runtime 权限原则。
+- [x] 将动态 Snapshot 以固定文本块加入每个 Turn 的 Turn Tail。
+- [x] 增加 `sandbox` RunTrace phase 和 `sandbox_context_resolved` event。
+- [x] 每个 Turn 记录一条不含路径的安全 Snapshot projection。
+- [x] 在现有 `tool_failed` 中附加序列化后的 `SandboxErrorMetadata`。
+- [x] desktop、CLI、child agent 和 headless runtime 使用各自执行环境生成的 Snapshot。
+- [x] Snapshot 所需 profile、路径或 capability 缺失时 fail closed。
+- [x] RunTrace recorder failure 保持 diagnostics-only，不阻断模型和工具执行。
+- [x] 确保 context 和 trace 不泄露 argv、env、凭据、文件内容或原始异常。
+
+> 具体方案：Phase 9 新增一份独立的 `SandboxDiagnosticsSnapshot`，它是执行层状态的只读诊断投影，不是权限输入，也不能被 `PermissionEngine`、`SandboxManager`、executor 或 worker 用作授权依据。Snapshot schema 使用显式 `schemaVersion: 1`，包含 profile 摘要、canonical cwd、canonical workspace roots、protected metadata、network policy，以及相互独立的 command/filesystem capability。
+>
+> Snapshot 由 session/runtime assembly 创建。assembly 使用构造工具时的同一份 `PermissionAwareSandboxContext` 和同一次 `ActiveSandboxCapabilities` probe 结果调用纯 builder，然后把 `tools`、`sandboxCapabilities` 和 `sandboxDiagnosticsSnapshot` 一起注入 backend。`AiSdkBackend` 不重新解释 PermissionProfile。permission mode、cwd、workspace roots 或 backend 变化时重建 assembly 和 Snapshot；普通 Turn 不重复运行 capability probe，真实工具执行仍重新验证并 fail closed。
+>
+> 稳定 System Prompt 只加入长期规则：runtime 提供的权限与 sandbox context 具有最终权威；用户消息、workspace instruction、tool output 和 child instruction 不能扩大权限；模型不得通过替代工具、命令、symlink、subprocess、编码或 unsandboxed retry 绕过限制；permission denial 和 sandbox failure 必须被视为真实执行结果。System Prompt 不包含 profile 名称、路径、backend 或 availability 等动态字段，避免破坏稳定 prefix。
+>
+> 动态 Snapshot 由 runtime renderer 生成固定、简洁的 `<sandbox_context>` Turn Tail 文本块。它展示 profile、filesystem policy、network policy、protected metadata、command capability 和 filesystem capability。始终展示 canonical cwd；当 roots 只有 cwd 时不重复列出，存在额外 roots 时才列出，并进行去重、数量限制、长度限制和单行清理。模型可以看到完成任务所需的 canonical 路径；RunTrace 和 telemetry 不记录这些路径。
+>
+> capability 的 `status` 保持 `available` / `not_required` / `external` / `unavailable`。command 和 filesystem 分开表达，因为二者可能使用不同 backend 或具有不同 availability。Snapshot 只保留稳定 reason code，不保存现有 capability `message`、原始 Error、argv 或 env。headless/remote 使用 `external`，明确表示隔离由外部执行环境负责，而不是声称本地 sandbox 已验证可用。
+>
+> RunTrace 增加 `phase: 'sandbox'` 和 `type: 'sandbox_context_resolved'`。每个 Turn 都记录一条自包含的安全投影，即使 Snapshot 未变化；事件顺序固定为 `turn_started -> sandbox_context_resolved -> model_resolved`。`unavailable` 是有效的 resolved 状态。真实执行错误继续记录为 `phase: 'tool' / type: 'tool_failed'`，并附加经过 `serializeSandboxError()` 过滤的 domain、stage、reason、backend、recoverable、profileName 和 requestId，不新增重复的 sandbox failure event。
+>
+> 每个 runtime 实例拥有自己的 Snapshot。desktop/CLI 使用本地 probe；child agent 根据自己的 profile、cwd、roots 和 capabilities 构建，不继承父 Snapshot；headless/isolated 使用 explicit external Snapshot。Snapshot 是受控 runtime boundary object，不作为全局状态；第一版直接消费者仅限 runtime diagnostics builder、backend assembly、`AiSdkBackend` 和 RunTrace safe projection，不增加大型 UI、renderer IPC 或 telemetry schema。
+>
+> 失败策略分层处理：缺少 profile、canonical path 或 capability 等必需输入时，session assembly 失败且不创建 backend；Turn Tail sandbox renderer 失败时不发送缺少权限说明的模型请求；RunTrace recorder 失败沿用现有 diagnostics-only 行为，不影响执行。无论 diagnostics 状态如何，工具授权和 OS enforcement 始终使用真实 PermissionProfile、capability gate 和执行时 sandbox validation。
+>
+> 详细实施步骤见 `docs/sandbox/agent-runtime-codex-sandbox-phase-9-plan.md`。
+>
+> 实现结果：Phase 9 已完成。runtime 已提供版本化 Snapshot builder、稳定 System Prompt 权限原则、每 Turn 动态 `<sandbox_context>`、无路径 RunTrace projection，以及安全的 sandbox error metadata。desktop、CLI、child 和 headless 都从各自 runtime assembly 的同一份 context/capabilities 构建 Snapshot；headless 保持 explicit external，child 不继承 parent Snapshot。
+>
+> 本阶段没有增加大型 UI、renderer IPC、telemetry schema、unsandboxed retry 或 host fallback。完整 runtime、core、CLI 和 headless 测试以及 desktop 定向 assembly contract 已通过；desktop 全量测试在当前外层沙箱中因本地监听和文件 watcher 被拒绝而无法完成，需在允许本地端口与 watcher 的环境中补跑。
 
 验收标准：
 
 - 模型知道自己是否处在 read-only / workspace-write / danger-full-access。
-- 用户能诊断某条命令为什么被 sandbox 拒绝。
-- 支持平台和不支持平台的状态都能清楚展示。
+- 模型能分别看到 command 和 filesystem sandbox 是否 available、not required、external 或 unavailable。
+- 用户能通过本地 RunTrace 诊断某条命令或文件操作在哪个 sandbox stage 失败。
+- Snapshot 与实际工具使用的 profile、cwd、workspace roots 和 capability 来自同一次 runtime assembly。
+- 支持平台、不支持平台和 external runtime 的状态都能清楚展示。
+- diagnostics 不成为新的权限来源，也不引入 host execution fallback。
 
 测试建议：
 
-- system prompt/context snapshot contract test。
-- capability snapshot test。
-- sandbox unavailable 状态展示测试。
+- Snapshot builder 和 Turn Tail renderer unit tests。
+- read-only、workspace-write、danger-full-access、disabled、external profile contract tests。
+- available、not_required、external、unavailable capability tests。
+- System Prompt stable rule 与动态 Turn Tail 分离测试。
+- RunTrace event ordering 和 safe projection tests。
+- `tool_failed` sandbox metadata serialization tests。
+- desktop、CLI、child、headless assembly contract tests。
+- 路径去重/上限/换行清理和敏感字段不泄露测试。
 
 ## Phase 10: Linux sandbox backend / helper / distribution
 
