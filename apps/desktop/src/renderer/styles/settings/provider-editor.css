@@ -565,16 +565,6 @@
   min-height: 500px;
 }
 
-.providersPanel.providerCatalogPage,
-.settingsSurface[data-modal="true"] .providersPanel.providerCatalogPage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-content: start;
-  gap: var(--space-5);
-  width: min(100%, 760px);
-  min-height: 500px;
-}
-
 .providerSubpageHeader {
   display: grid;
   gap: var(--space-4);

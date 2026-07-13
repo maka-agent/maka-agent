@@ -200,8 +200,12 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
 
   if (page.kind === 'catalog') {
     return (
-      <div className="providersPanel providersMarketPanel providerCatalogPage">
-        <ProviderCatalogHeader />
+      <div className="providersPanel providerChildPage">
+        <ProviderPageHeader
+          title="添加服务商"
+          description="搜索 Maka 支持的 API、模型计划、聚合服务与本地运行时。"
+          onBack={() => navigate({ kind: 'connections' })}
+        />
         <PrimitiveTabs
           className="catalogTabsRoot"
           value={catalogCategory}
@@ -405,17 +409,6 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
         </section>
       </section>
     </div>
-  );
-}
-
-function ProviderCatalogHeader() {
-  return (
-    <header className="providerRootHeader providerCatalogHeader">
-      <div>
-        <h3>添加服务商</h3>
-        <p>搜索 Maka 支持的 API、模型计划、聚合服务与本地运行时。</p>
-      </div>
-    </header>
   );
 }
 

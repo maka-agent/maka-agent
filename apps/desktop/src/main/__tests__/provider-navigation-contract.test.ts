@@ -27,7 +27,7 @@ describe('Settings model provider page hierarchy', () => {
     }
   });
 
-  test('catalog is a top-level pane with standard search chrome below its category tabs', async () => {
+  test('catalog is a reversible child pane with standard search chrome below its category tabs', async () => {
     const [source, css] = await Promise.all([
       readFile(PANEL, 'utf8'),
       readFile(PROVIDER_CSS, 'utf8'),
@@ -35,8 +35,8 @@ describe('Settings model provider page hierarchy', () => {
 
     assert.match(
       source,
-      /if \(page\.kind === 'catalog'\)[\s\S]*<ProviderCatalogHeader \/>/,
-      'the catalog must not render a child-page back action',
+      /if \(page\.kind === 'catalog'\)[\s\S]*<ProviderPageHeader[\s\S]*title="添加服务商"[\s\S]*onBack=\{\(\) => navigate\(\{ kind: 'connections' \}\)\}/,
+      'the catalog must provide a way back to model connections',
     );
     assert.match(
       source,
