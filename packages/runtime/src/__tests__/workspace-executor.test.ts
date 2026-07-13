@@ -420,6 +420,9 @@ describe('ProfileEnforcedWorkspaceExecutor file operations', () => {
 
     expect(err instanceof WorkspaceProfilePermissionError).toBe(true);
     expect((err as WorkspaceProfilePermissionError).code).toBe('WORKSPACE_PROFILE_PERMISSION_DENIED');
+    expect((err as WorkspaceProfilePermissionError).domain).toBe('filesystem');
+    expect((err as WorkspaceProfilePermissionError).stage).toBe('context');
+    expect((err as WorkspaceProfilePermissionError).recoverable).toBe(false);
     expect((err as WorkspaceProfilePermissionError).reason).toBe('missing_context');
     expect((err as WorkspaceProfilePermissionError).operation).toBe('read');
   });
@@ -441,6 +444,7 @@ describe('ProfileEnforcedWorkspaceExecutor file operations', () => {
     }));
 
     expect((missing as WorkspaceProfilePermissionError).reason).toBe('missing_workspace_roots');
+    expect((missing as WorkspaceProfilePermissionError).stage).toBe('validation');
     expect((missing as WorkspaceProfilePermissionError).operation).toBe('read');
     expect((empty as WorkspaceProfilePermissionError).reason).toBe('missing_workspace_roots');
     expect((empty as WorkspaceProfilePermissionError).operation).toBe('write');

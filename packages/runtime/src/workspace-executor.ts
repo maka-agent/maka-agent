@@ -334,17 +334,47 @@ export interface WorkspaceProfilePermissionErrorDetails {
 
 export class WorkspaceProfilePermissionError extends Error {
   readonly code = 'WORKSPACE_PROFILE_PERMISSION_DENIED';
+  readonly domain: SandboxErrorDomain = 'filesystem';
+  readonly stage: SandboxErrorStage;
   readonly operation: WorkspaceProfileOperation;
   readonly path: string;
   readonly reason: WorkspaceProfilePermissionErrorReason;
+  readonly recoverable = false;
   readonly profileName?: string;
 
   constructor(details: WorkspaceProfilePermissionErrorDetails) {
     super(details.message ?? defaultProfilePermissionErrorMessage(details));
     this.name = 'WorkspaceProfilePermissionError';
+    this.stage = profilePermissionErrorStage(details.reason);
     this.operation = details.operation;
     this.path = details.path;
     this.reason = details.reason;
+    this.profileName = details.profileName;
+  }
+}
+
+export interface WorkspaceFilePathValidationErrorDetails {
+  operation: WorkspaceProfileOperation;
+  path: string;
+  profileName?: string;
+  message?: string;
+}
+
+export class WorkspaceFilePathValidationError extends Error {
+  readonly code = 'SANDBOX_FILESYSTEM_PATH_DENIED';
+  readonly domain: SandboxErrorDomain = 'filesystem';
+  readonly stage: SandboxErrorStage = 'validation';
+  readonly reason = 'path_denied';
+  readonly recoverable = false;
+  readonly operation: WorkspaceProfileOperation;
+  readonly path: string;
+  readonly profileName?: string;
+
+  constructor(details: WorkspaceFilePathValidationErrorDetails) {
+    super(details.message ?? `Workspace ${details.operation} path was denied: ${details.path}`);
+    this.name = 'WorkspaceFilePathValidationError';
+    this.operation = details.operation;
+    this.path = details.path;
     this.profileName = details.profileName;
   }
 }
@@ -764,6 +794,10 @@ function defaultProfilePermissionErrorMessage(details: WorkspaceProfilePermissio
     return `Permission profile denied ${details.operation} access to path: ${details.path}`;
   }
   return `Permission profile denied write access to path: ${details.path}`;
+}
+
+function profilePermissionErrorStage(reason: WorkspaceProfilePermissionErrorReason): SandboxErrorStage {
+  return reason === 'missing_context' ? 'context' : 'validation';
 }
 
 function profileName(profile: PermissionProfile): string | undefined {

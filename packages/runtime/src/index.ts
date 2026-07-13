@@ -121,6 +121,7 @@ export {
   ProfileEnforcedWorkspaceExecutor,
   SandboxedCommandWorkspaceExecutor,
   WorkspaceCommandSandboxError,
+  WorkspaceFilePathValidationError,
   WorkspaceProfilePermissionError,
   createLocalWorkspaceExecutor,
 } from './workspace-executor.js';
@@ -162,6 +163,7 @@ export type {
   WorkspaceProfilePermissionErrorDetails,
   WorkspaceProfilePermissionErrorReason,
   WorkspaceFileOperations,
+  WorkspaceFilePathValidationErrorDetails,
   WorkspaceReadInput,
   WorkspaceReadResult,
   WorkspaceReadExecutor,

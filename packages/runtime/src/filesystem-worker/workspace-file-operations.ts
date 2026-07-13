@@ -8,6 +8,7 @@ import {
 
 import type { PermissionAwareSandboxContext } from '../sandbox/permission-aware-context.js';
 import {
+  WorkspaceFilePathValidationError,
   WorkspaceProfilePermissionError,
   type WorkspaceEditInput,
   type WorkspaceEditResult,
@@ -121,7 +122,15 @@ export class WorkerBackedWorkspaceFileOperations implements WorkspaceFileOperati
   }
 
   async writeLockKey(input: WorkspaceWriteLockKeyInput): Promise<WorkspaceWriteLockKeyResult> {
-    return { key: relativeCandidate(this.input.context.cwd, input.path, 'Write lock') };
+    return {
+      key: relativeCandidate({
+        cwd: this.input.context.cwd,
+        path: input.path,
+        label: 'Write lock',
+        operation: 'write',
+        profileName: this.input.context.profile.name,
+      }),
+    };
   }
 }
 
@@ -161,8 +170,9 @@ export class ProfileEnforcedFileOperations implements WorkspaceFileOperations {
     return await this.input.inner.grep(input);
   }
 
-  writeLockKey(input: WorkspaceWriteLockKeyInput): Promise<WorkspaceWriteLockKeyResult> {
-    return this.input.inner.writeLockKey(input);
+  async writeLockKey(input: WorkspaceWriteLockKeyInput): Promise<WorkspaceWriteLockKeyResult> {
+    this.assertCanWrite(input.path);
+    return await this.input.inner.writeLockKey(input);
   }
 
   private assertCanRead(path: string, operation: 'read' | 'search'): void {
@@ -186,7 +196,13 @@ export class ProfileEnforcedFileOperations implements WorkspaceFileOperations {
     const cwd = context.workspaceRoots[0]!;
     return {
       profile: context.profile,
-      candidate: relativeCandidate(cwd, path, operation),
+      candidate: relativeCandidate({
+        cwd,
+        path,
+        label: operation,
+        operation,
+        profileName: context.profile.name,
+      }),
       matchContext: {
         ...context.pathContext,
         workspaceRoots: context.workspaceRoots,
@@ -214,12 +230,30 @@ export class ProfileEnforcedFileOperations implements WorkspaceFileOperations {
   }
 }
 
-function relativeCandidate(cwd: string, path: string, label: string): string {
-  if (isAbsolute(path)) throw new Error(`${label} path must be relative to session cwd`);
-  const candidate = resolve(cwd, path);
-  const rel = relative(cwd, candidate);
+function relativeCandidate(input: {
+  cwd: string;
+  path: string;
+  label: string;
+  operation: 'read' | 'write' | 'search';
+  profileName?: string;
+}): string {
+  const candidate = resolve(input.cwd, input.path);
+  if (isAbsolute(input.path)) {
+    throw new WorkspaceFilePathValidationError({
+      operation: input.operation,
+      path: candidate,
+      profileName: input.profileName,
+      message: `${input.label} path must be relative to session cwd`,
+    });
+  }
+  const rel = relative(input.cwd, candidate);
   if (rel !== '' && (rel.startsWith('..') || isAbsolute(rel))) {
-    throw new Error(`${label} path must stay inside session cwd`);
+    throw new WorkspaceFilePathValidationError({
+      operation: input.operation,
+      path: candidate,
+      profileName: input.profileName,
+      message: `${input.label} path must stay inside session cwd`,
+    });
   }
   return candidate;
 }

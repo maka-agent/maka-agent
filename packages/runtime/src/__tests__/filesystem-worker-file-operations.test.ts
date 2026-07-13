@@ -10,8 +10,12 @@ import {
   ProfileEnforcedFileOperations,
   WorkerBackedWorkspaceFileOperations,
 } from '../filesystem-worker/workspace-file-operations.js';
+import { serializeSandboxError } from '../sandbox/errors.js';
 import type { PermissionAwareSandboxContext } from '../sandbox/permission-aware-context.js';
-import { WorkspaceProfilePermissionError } from '../workspace-executor.js';
+import {
+  WorkspaceFilePathValidationError,
+  WorkspaceProfilePermissionError,
+} from '../workspace-executor.js';
 
 describe('WorkerBackedWorkspaceFileOperations', () => {
   test('sends Edit as one compound worker operation', async () => {
@@ -63,7 +67,18 @@ describe('WorkerBackedWorkspaceFileOperations', () => {
     });
     await assert.rejects(
       operations.writeLockKey({ cwd: '/ignored', path: '../outside.txt' }),
-      /must stay inside session cwd/,
+      (error: unknown) => {
+        assert.ok(error instanceof WorkspaceFilePathValidationError);
+        assert.match(error.message, /must stay inside session cwd/);
+        assert.deepEqual(serializeSandboxError(error), {
+          domain: 'filesystem',
+          stage: 'validation',
+          reason: 'path_denied',
+          recoverable: false,
+          profileName: 'workspace-write',
+        });
+        return true;
+      },
     );
   });
 });
@@ -90,8 +105,18 @@ describe('ProfileEnforcedFileOperations', () => {
 
     await assert.rejects(
       operations.write({ cwd: '/ignored', path: 'file.txt', content: 'no' }),
-      (error: unknown) => error instanceof WorkspaceProfilePermissionError
-        && error.reason === 'write_denied',
+      (error: unknown) => {
+        assert.ok(error instanceof WorkspaceProfilePermissionError);
+        assert.equal(error.reason, 'write_denied');
+        assert.deepEqual(serializeSandboxError(error), {
+          domain: 'filesystem',
+          stage: 'validation',
+          reason: 'write_denied',
+          recoverable: false,
+          profileName: 'read-only',
+        });
+        return true;
+      },
     );
     assert.equal(calls, 0);
   });
@@ -115,12 +140,30 @@ describe('ProfileEnforcedFileOperations', () => {
       }),
     });
 
+    assert.deepEqual(await operations.writeLockKey({ cwd: '/ignored', path: 'file.txt' }), {
+      key: '/workspace/file.txt',
+    });
     await operations.write({ cwd: '/ignored', path: 'file.txt', content: 'ok' });
     assert.equal(calls.length, 1);
     await assert.rejects(
-      operations.write({ cwd: '/ignored', path: '.git/config', content: 'no' }),
-      (error: unknown) => error instanceof WorkspaceProfilePermissionError
-        && error.reason === 'write_denied',
+      operations.writeLockKey({ cwd: '/ignored', path: '.git/config' }),
+      (error: unknown) => {
+        assert.ok(error instanceof WorkspaceProfilePermissionError);
+        assert.equal(error.reason, 'write_denied');
+        assert.deepEqual(serializeSandboxError(error), {
+          domain: 'filesystem',
+          stage: 'validation',
+          reason: 'write_denied',
+          recoverable: false,
+          profileName: 'workspace-write',
+        });
+        return true;
+      },
+    );
+    await assert.rejects(
+      operations.writeLockKey({ cwd: '/ignored', path: '../outside.txt' }),
+      (error: unknown) => error instanceof WorkspaceFilePathValidationError
+        && error.reason === 'path_denied',
     );
     assert.equal(calls.length, 1);
   });
