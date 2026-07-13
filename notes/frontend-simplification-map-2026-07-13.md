@@ -40,10 +40,22 @@ dist/**/*.test.js). Real finds verified by hand before acting.
      defaultPermissionMode (L215-228)
   Preserve PR-FE-BUG-HUNT-0 stable identities; re-pin app-shell-effect-stability
   contracts per move. Target: app-shell.tsx < 900 lines, zero behavior change.
-- [ ] **C — CSS strata consolidation** — maka-tokens.css 1509 lines carries historical
-  strata (hue-80 era comments, reference-shell.css + theme-glass.css parallel token
-  systems: --color-bg-* vs --background families). Merge the glass/reference layers'
-  live tokens into maka-tokens, delete dead strata, one token README header.
+- [x] **C — SHIPPED (refactor/css-token-consolidation): CSS strata consolidation.**
+  Census (machine-generated, var() consumers across all CSS+TSX): reference-shell.css
+  23 defined → 16 dead (removed), 3 live color-aliases moved to maka-tokens
+  (--color-bg-container/--color-border-tertiary/--color-text-quaternary), 4 live
+  layout-locals kept in-file (--agents-layout-bg/--agents-content-area-bg/-gap,
+  --sidebar-width). theme-glass.css 2 token overrides (darwin --color-bg-container light+dark,
+  --color-text-quaternary) relocated to maka-tokens; glass-material + text/label RULES stay.
+  maka-tokens.css: added token-authority README (authoritative --background family vs
+  compatibility --color-* aliases, alias policy) + condensed the superseded hue-80 archaeology
+  (it named deleted tokens). Both themes migrated (light :root + .dark + darwin light/dark).
+  NO computed value changed — pure reorg; the shipped `--color-bg-container: var(--background)`
+  exception kept as-is. maka-tokens internal 0-consumer tokens are all governance-contract
+  scale members (z-index/control-height/spacing/radius/406) — re-pinned, NOT deleted.
+  Gates: desktop 2397/2397, ui 125/125, typecheck 0, check-dead-css clean, knip desktop+ui 0,
+  auditor exit 0. CDP light+dark captures (turn-narrative/module-skills/settings-general/first-run)
+  before/after — no visual diff.
 - [ ] **D — duplicate helper sweep (measured SMALL — the convergence campaign paid
   off)** — real dups found: formatBytes ×3 (artifact-preview-registry.ts:317,
   tool-activity/preview-utils.ts:14, voice formatVoiceBytes) → one shared util;

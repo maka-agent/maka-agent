@@ -15,6 +15,25 @@
      - Multi-layer soft shadows with very low opacity (0.06) instead of one heavy shadow.
      - System UI fonts with optical antialiasing.
      - 13px base font, 4px spacing unit → dense but readable.
+
+   ── Token authority (Round C consolidation) ────────────────────────────────
+   This file is the single source of truth for design tokens. Authority order
+   when two token names describe the same thing:
+     1. AUTHORITATIVE — the --background / --foreground family (+ --accent, the
+        status colors, and the derived --foreground-N / alpha / border / state
+        / spacing / radius / typography / elevation scales). New code consumes
+        these.
+     2. COMPATIBILITY ALIASES — the --color-bg-* / --color-text-* /
+        --color-border-* names (see "color-system compatibility aliases" in
+        :root). Kept only for existing consumers. Do NOT add new --color-*
+        aliases and do NOT point new components at them; use the --background
+        family instead.
+   Alias policy: an alias is defined as `var(--<authoritative-token>)` (or a
+   thin color-mix of one) and never holds an independent value, so themes and
+   palettes only ever retune the authoritative token. reference-shell.css and
+   styles/theme-glass.css now hold LAYOUT and GLASS-MATERIAL rules only — no
+   token definitions live there anymore (the darwin glass token overrides were
+   relocated here; see "DARWIN GLASS" below).
 ============================================================================ */
 
 /* =============================================================================
@@ -27,38 +46,14 @@
      oklch() gives perceptually uniform lightness, keeping subtle surface and
      status colors calibrated.
 
-     History: started as cool blue-gray (hue 265), then briefly moved
-     to warm cream (hue 80) to mirror a single-canvas reference design
-     where sidebar + main area share the same background and
-     separation comes from hairline borders + radius rather than a
-     darker shell behind lighter cards.
-
-     PR-DEFAULT-CANVAS-DEYELLOW-0 (@yuejing 2026-05-30, WAWQAQ msg
-     `bfee559d`): de-yellowed by shifting hue 80 → 250 (cool neutral).
-     The warm-cream tone read as visibly yellow against the chrome
-     accents and felt odd as a default. Same hue family as the azure
-     palette but with lower chroma so the default stays subtler.
-
-     PR-PARCHMENT-DEFAULT-0 (@yuejing 2026-06-20, WAWQAQ msg `00dcaf3a`
-     "/goal 像素级模仿 reference implementation"): nudged back toward reference implementation's
-     `light-parchment` baseline (warm off-white).
-
-     PR-GRAY-CARD-LIFT-0 (@yuejing 2026-06-20, WAWQAQ msg `a49dbd1e`
-     "整个的底板应该是灰色的, content surface 应该是白色的"):
-     WAWQAQ pivoted off the warm-parchment family to reference implementation's plain
-     `light` theme. There:
-       --color-bg-layout (shell canvas)  : #fdfdfd ≈ near-white
-       --color-bg-container (card)       : #ffffff pure white
-       --color-fill-tertiary (chip)      : #f9f9f9 light gray
-       --color-border-tertiary           : #e6e6e6
-       --color-text                      : #141414 near-black
-     The user's intent now reads as: the shell behind everything is a
-     near-white glass plate, the cards lift off it as pure white. We
-     translate to oklch with a tiny warm chroma so the sidebar reads
-     more like 参考实现's translucent macOS surface than a flat gray slab.
-
-     `--surface-canvas` is the shell-level background (what `.appFrame`
-     paints behind everything); `--background` is what cards paint. */
+     Current model (owner decision 2026-06-20, WAWQAQ msg `a49dbd1e`
+     "整个的底板应该是灰色的, content surface 应该是白色的"): a near-white glass
+     shell plate (--surface-canvas) with pure-white content cards (--background)
+     lifting off it — separation comes from the plate + radius + hairlines, not
+     a darker shell. Earlier warm-parchment / hue-80 "cream" experiments were
+     superseded (de-yellowed to a cool-neutral hue, then flattened to plain
+     white). --surface-canvas is what `.appFrame` paints behind everything;
+     --background is what cards paint. */
   --background: oklch(1.000 0 0);
   /* PR-UI-FRAME-4 (2026-06-22): pull back from the heavy gray plate.
      参考实现's sidebar is a light glass-like near-white gradient, with
@@ -211,6 +206,22 @@
   --chat-user-foreground: var(--foreground);
   --user-message-bubble: var(--chat-user-bg);
   --selection:     oklch(from var(--accent) l c h / 0.2);
+
+  /* === color-system compatibility aliases ===
+     Legacy `--color-*` names that predate the --background family, relocated
+     here from reference-shell.css (Round C). Kept as thin aliases for the few
+     consumers still on them: `--color-bg-container` backs the agents content
+     surface (reference-shell.css) + darwin glass card; `--color-border-tertiary`
+     the composer border (composer.css); `--color-text-quaternary` the darwin
+     sidebar label text (theme-glass.css). Authoritative source is the token
+     each aliases — see the token README at the top of this file. Do NOT add
+     new --color-* names.
+     `--color-bg-container` is the one shipped exception where the alias name is
+     the canonical handle for the content-card surface (resolves to
+     --background); it carries its darwin overrides in "DARWIN GLASS" below. */
+  --color-bg-container: var(--background);
+  --color-border-tertiary: color-mix(in srgb, var(--border) 92%, transparent);
+  --color-text-quaternary: var(--muted-foreground);
 
   /* === shadow opacity (subtle in light, stronger in dark) === */
   --shadow-border-opacity: 0.08;
@@ -647,6 +658,26 @@
   --brand-deep: var(--accent);
   --brand-deep-hover: oklch(from var(--accent) calc(l + 0.06) c h);
   --bot-brand-default: var(--accent);
+}
+
+/* =============================================================================
+   DARWIN GLASS — color-alias overrides for the macOS vibrancy shell
+   (relocated from styles/theme-glass.css, Round C). Unlayered + the
+   html[data-os="darwin"] selector on purpose: the override must outrank the
+   :root aliases above (0,1,1 > 0,1,0) and beat any @layer declaration. The
+   glass MATERIAL rules (backdrop-filter, transparency) stay in theme-glass.css.
+
+   Re-anchored on --background (not a warm/zinc literal) so hue/chroma follow
+   the active palette; card↔canvas separation is the canvas/vibrancy's job, so
+   the content card == the palette background.
+============================================================================= */
+html[data-os="darwin"] {
+  --color-bg-container: var(--background);
+  --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
+}
+html[data-os="darwin"].dark {
+  /* Dark glass lifts the card one lightness step off the darker shell. */
+  --color-bg-container: oklch(from var(--background) calc(l + 0.035) c h);
 }
 
 /* =============================================================================
