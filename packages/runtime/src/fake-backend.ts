@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { BackendKind, SessionEvent, SessionHeader, StoredMessage } from '@maka/core';
 import type { AgentBackend, BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
+import type { UserQuestionResponse } from '@maka/core/user-question';
 import type { SessionStore } from './session-manager.js';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -60,6 +61,8 @@ export class FakeBackend implements AgentBackend {
   }
 
   async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+
+  async respondToUserQuestion(_response: UserQuestionResponse): Promise<void> {}
 
   async dispose(): Promise<void> {}
 }

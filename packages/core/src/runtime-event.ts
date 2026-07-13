@@ -16,6 +16,7 @@
 
 import type { AttachmentRef } from './events.js';
 import type { PermissionRequest, PermissionResponse } from './permission.js';
+import type { UserQuestionRequest } from './user-question.js';
 import type {
   CacheMissInputSource,
   ContextBudgetDiagnostic,
@@ -217,6 +218,8 @@ export interface RuntimeEventActions {
   permissionRequest?: PermissionRequest;
   /** A resolved permission decision (allow/deny) for a prior request. */
   permissionDecision?: RuntimeEventPermissionDecision;
+  /** A bounded in-turn question raised by a tool call. */
+  userQuestionRequest?: UserQuestionRequest;
   /** Hand off the invocation to another agent (multi-agent transfer). */
   transferToAgent?: string;
   /** Marks the event that closes the invocation. */

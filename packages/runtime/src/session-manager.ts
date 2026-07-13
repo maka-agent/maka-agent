@@ -42,6 +42,7 @@ import type {
   SessionListFilter,
 } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
+import type { UserQuestionResponse } from '@maka/core/user-question';
 import type { PermissionMode } from '@maka/core/permission';
 import {
   DEEP_RESEARCH_SESSION_LABEL,
@@ -772,6 +773,10 @@ export class SessionManager {
     response: PermissionResponse,
   ): Promise<void> {
     await this.runtimeKernel.respondToPermission(sessionId, response);
+  }
+
+  async respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void> {
+    await this.runtimeKernel.respondToUserQuestion?.(sessionId, response);
   }
 
   // --------------------------------------------------------------------------

@@ -29,6 +29,7 @@ export type {
   ShellRunUpdate,
   PermissionRequestEvent,
   PermissionDecisionAckEvent,
+  UserQuestionRequestEvent,
   PlanSubmittedEvent,
   PlanStep,
   TokenUsageEvent,
@@ -40,6 +41,13 @@ export type {
   AttachmentIngestItem,
   CompleteStopReason,
 } from './events.js';
+export type {
+  UserQuestion,
+  UserQuestionOption,
+  UserQuestionRequest,
+  UserQuestionResponse,
+  UserQuestionResult,
+} from './user-question.js';
 export {
   failureClassFromCompleteStopReason,
   TOOL_ACTIVITY_KINDS,

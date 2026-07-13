@@ -8,6 +8,7 @@
  */
 
 import type { PermissionMode, PermissionRequest, PermissionResponse, ToolCategory } from './permission.js';
+import type { UserQuestionRequest } from './user-question.js';
 import type {
   PipeShellOutput,
   PtyShellOutput,
@@ -80,6 +81,7 @@ export type SessionEvent =
   | ToolResultEvent
   | PermissionRequestEvent
   | PermissionDecisionAckEvent
+  | UserQuestionRequestEvent
   | PlanSubmittedEvent
   | TokenUsageEvent
   | ErrorEvent
@@ -407,6 +409,10 @@ export interface PermissionRequestEvent extends BaseEvent {
   args: unknown;
   hint?: string;
   rememberForTurnAllowed?: boolean;
+}
+
+export interface UserQuestionRequestEvent extends BaseEvent, UserQuestionRequest {
+  type: 'user_question_request';
 }
 
 /**

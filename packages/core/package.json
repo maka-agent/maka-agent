@@ -19,6 +19,7 @@
     "./permission-profile": "./dist/permission-profile.js",
     "./permission-profile-compiler": "./dist/permission-profile-compiler.js",
     "./permission-request-health": "./dist/permission-request-health.js",
+    "./user-question": "./dist/user-question.js",
     "./connections": "./dist/connections.js",
     "./workspace": "./dist/workspace.js",
     "./artifacts": "./dist/artifacts.js",

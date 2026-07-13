@@ -21,6 +21,11 @@ import type {
   ToolPermissionRule,
 } from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
+import type {
+  UserQuestion,
+  UserQuestionResponse,
+  UserQuestionResult,
+} from '@maka/core/user-question';
 import { computerUseApprovalSummary } from '@maka/core';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
@@ -36,6 +41,7 @@ import { createToolOutputDeltaEmitter } from './tool-output-delta.js';
 import { truncateToolOutput } from './tool-output.js';
 import { stableHash } from './request-shape.js';
 import type { RunTraceLike } from './run-trace.js';
+import { TurnScopedAwaitRegistry } from './turn-scoped-await-registry.js';
 
 export type ToolModelOutputPart =
   | { type: 'text'; text: string }
@@ -103,6 +109,7 @@ export interface MakaToolContext {
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
+  askUserQuestion?: (questions: UserQuestion[]) => Promise<UserQuestionResult>;
 }
 
 export type AppendMessageFn = (m: ToolCallMessage | ToolResultMessage | PermissionDecisionMessage) => Promise<void>;
@@ -172,6 +179,10 @@ export interface ToolRuntimeInput {
 }
 
 export class ToolRuntime {
+  private readonly userQuestions = new TurnScopedAwaitRegistry<
+    UserQuestionResponse,
+    { toolUseId: string; questions: UserQuestion[] }
+  >();
   private activeSubagentToolCount = 0;
   /**
    * Tool-availability gating for the execute boundary. Set by the backend each
@@ -190,6 +201,39 @@ export class ToolRuntime {
   private failedToolCallStreak = 0;
 
   constructor(private readonly input: ToolRuntimeInput) {}
+
+  beginTurn(turnId: string): void {
+    this.resetTurnState();
+    this.userQuestions.beginTurn(turnId);
+  }
+
+  endTurn(turnId: string, reason: 'completed' | 'aborted' = 'completed'): void {
+    this.userQuestions.endTurn(
+      turnId,
+      (requestId) => new Error(`Turn ${turnId} ${reason} before user question ${requestId} was answered`),
+    );
+    this.resetTurnState();
+  }
+
+  respondToUserQuestion(turnId: string, response: UserQuestionResponse): boolean {
+    if (!response || typeof response.requestId !== 'string' || !Array.isArray(response.answers)) {
+      throw new Error('Invalid user question response');
+    }
+    const pending = this.userQuestions.entries(turnId)
+      .find(([requestId]) => requestId === response.requestId)?.[1];
+    if (!pending) return false;
+    if (
+      response.answers.length !== pending.questions.length
+      || response.answers.some((answer) => answer !== null && (typeof answer !== 'string' || answer.length === 0))
+    ) {
+      throw new Error('Invalid user question response');
+    }
+    return this.userQuestions.resolve(turnId, response.requestId, response) !== null;
+  }
+
+  pendingUserQuestionCount(turnId: string): number {
+    return this.userQuestions.pendingCount(turnId);
+  }
 
   wrapToolExecute(
     tool: MakaTool,
@@ -561,6 +605,7 @@ export class ToolRuntime {
           ...(this.input.listChildAgents ? { listChildAgents: this.input.listChildAgents } : {}),
           ...(this.input.readChildAgentOutput ? { readChildAgentOutput: this.input.readChildAgentOutput } : {}),
           ...(this.buildSpawnChildAgentContext(ctx.abortSignal)),
+          askUserQuestion: (questions) => this.askUserQuestion(turnId, toolUseId, questions, queue),
         });
         output.flush();
         const durationMs = this.input.now() - startedAt;
@@ -780,6 +825,32 @@ export class ToolRuntime {
         prompt: input.prompt,
         abortSignal,
       }) ?? Promise.reject(new Error('spawnChildAgent is unavailable')),
+    };
+  }
+
+  private async askUserQuestion(
+    turnId: string,
+    toolUseId: string,
+    questions: UserQuestion[],
+    queue: AsyncEventQueue<SessionEvent> | { push(event: SessionEvent): void },
+  ): Promise<UserQuestionResult> {
+    const requestId = this.input.newId();
+    const parked = this.userQuestions.park(turnId, requestId, { toolUseId, questions });
+    queue.push({
+      type: 'user_question_request',
+      id: this.input.newId(),
+      turnId,
+      ts: this.input.now(),
+      requestId,
+      toolUseId,
+      questions,
+    });
+    const response = await parked;
+    return {
+      answers: questions.map((question, index) => ({
+        question: question.question,
+        answer: response.answers[index] ?? null,
+      })),
     };
   }
 }

@@ -668,6 +668,38 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
     assert.deepEqual(a.actions?.stateDelta, { planId: 'p1', title: 'T', markdownPath: '/p.md' });
   });
 
+  test('user_question_request maps to one system-authored runtime action', () => {
+    const mapped = mapSessionEventToRuntimeEvent(
+      ev({
+        type: 'user_question_request',
+        requestId: 'question-1',
+        toolUseId: 'tool-1',
+        questions: [{
+          question: 'Choose an approach',
+          options: [
+            { label: 'Extend', description: 'Reuse the runtime seam' },
+            { label: 'Separate' },
+          ],
+        }],
+      }),
+      ctx,
+    );
+
+    assert.equal(mapped.role, 'system');
+    assert.equal(mapped.author, 'system');
+    assert.deepEqual(mapped.actions?.userQuestionRequest, {
+      requestId: 'question-1',
+      toolUseId: 'tool-1',
+      questions: [{
+        question: 'Choose an approach',
+        options: [
+          { label: 'Extend', description: 'Reuse the runtime seam' },
+          { label: 'Separate' },
+        ],
+      }],
+    });
+  });
+
   test('tool_result without a prior tool_start still maps (name falls back to empty)', () => {
     const a = mapSessionEventToRuntimeEvent(
       ev({ type: 'tool_result', toolUseId: 'orphan', isError: true, content: { kind: 'text', text: 'boom' } }),

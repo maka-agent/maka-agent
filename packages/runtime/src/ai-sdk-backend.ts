@@ -66,6 +66,7 @@ import type { AgentSpec } from '@maka/core/runtime-inputs';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { ToolPermissionRule } from '@maka/core/permission';
+import type { UserQuestionResponse } from '@maka/core/user-question';
 import type {
   LlmCallRecord,
   PricingConfig,
@@ -740,6 +741,7 @@ export class AiSdkBackend implements AgentBackend {
     this.currentTurnId = turnId;
     this.currentRunId = input.runId ?? null;
     this.input.permissionEngine.beginTurn(turnId);
+    this.toolRuntime.beginTurn(turnId);
     this.abortController = new AbortController();
 
     const queue = new AsyncEventQueue<SessionEvent>();
@@ -876,7 +878,6 @@ export class AiSdkBackend implements AgentBackend {
     // .return()-ing) the generator; resetting here makes each turn's state — the
     // loop-gate streak, subagent count, gating — depend only on this turn, not on
     // the previous turn's teardown.
-    this.toolRuntime.resetTurnState();
     if (plan.gating) {
       this.toolRuntime.setGating(plan.gating);
     }
@@ -1372,6 +1373,7 @@ export class AiSdkBackend implements AgentBackend {
     this.historyCompactAbortController?.abort();
     if (this.currentTurnId !== null) {
       this.input.permissionEngine.endTurn(this.currentTurnId, 'aborted');
+      this.toolRuntime.endTurn(this.currentTurnId, 'aborted');
     }
     this.currentRunTrace?.abortRequested(_reason);
   }
@@ -1381,6 +1383,11 @@ export class AiSdkBackend implements AgentBackend {
     this.input.permissionEngine.recordResponse(this.currentTurnId, decision);
     // PermissionDecisionMessage + ack event are written inside wrapToolExecute
     // after parked.resolve() returns, so no further work here.
+  }
+
+  async respondToUserQuestion(response: UserQuestionResponse): Promise<void> {
+    if (this.currentTurnId === null) return;
+    this.toolRuntime.respondToUserQuestion(this.currentTurnId, response);
   }
 
   async dispose(): Promise<void> {
@@ -2773,7 +2780,7 @@ export class AiSdkBackend implements AgentBackend {
     this.currentRunId = null;
     this.currentRunTrace = null;
     this.currentStepMessageId = null;
-    this.toolRuntime.resetTurnState();
+    this.toolRuntime.endTurn(turnId, this.aborted ? 'aborted' : 'completed');
     this.aborted = false;
   }
 }
