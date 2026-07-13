@@ -7,7 +7,7 @@ import { Markdown } from './markdown.js';
 import { formatAbsoluteTimestamp, formatClockTime, turnAbortMarkerLabel } from './chat-display-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
-import { DialogContent, DialogRoot } from './ui.js';
+import { Button as UiButton, DialogContent, DialogRoot } from './ui.js';
 import type { AttachmentRef } from '@maka/core';
 import type { TurnTimelineItem, TurnViewModel } from './materialize.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
@@ -182,8 +182,10 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
       <Tooltip>
         <TooltipTrigger
           render={
-            <BaseButton
+            <UiButton
               type="button"
+              variant="quiet"
+              size="icon-sm"
               className={markerVariants({ variant: 'footer-action' })}
               aria-label={baseLabel}
               aria-busy={copyPending ? 'true' : undefined}
@@ -306,9 +308,11 @@ export const TurnView = memo(function TurnView(props: {
       {forwardBadges.length > 0 && (
         <Marker variant="lineage-row" aria-label="本轮回答的来源">
           {forwardBadges.map((badge) => (
-            <BaseButton
+            <UiButton
               key={badge.id}
               type="button"
+              variant="quiet"
+              size="sm"
               className={markerVariants({ variant: 'lineage-badge' })}
               data-direction="forward"
               title={badge.tooltip ?? badge.label}
@@ -316,7 +320,7 @@ export const TurnView = memo(function TurnView(props: {
             >
               <GitBranch size={11} aria-hidden="true" />
               <span>{badge.label}</span>
-            </BaseButton>
+            </UiButton>
           ))}
         </Marker>
       )}
@@ -407,9 +411,11 @@ export const TurnView = memo(function TurnView(props: {
           {reverseBadges.length > 0 && (
             <Marker variant="lineage-row-reverse" aria-label="本轮回答的衍生">
               {reverseBadges.map((badge) => (
-                <BaseButton
+                <UiButton
                   key={badge.id}
                   type="button"
+                  variant="quiet"
+                  size="sm"
                   className={markerVariants({ variant: 'lineage-badge' })}
                   data-direction="reverse"
                   title={badge.tooltip ?? badge.label}
@@ -417,7 +423,7 @@ export const TurnView = memo(function TurnView(props: {
                 >
                   <GitBranch size={11} aria-hidden="true" />
                   <span>{badge.label}</span>
-                </BaseButton>
+                </UiButton>
               ))}
             </Marker>
           )}
@@ -580,8 +586,10 @@ function TurnFooterActions(props: {
           <Tooltip key={action.id}>
             <TooltipTrigger
               render={
-                <BaseButton
+                <UiButton
                   type="button"
+                  variant="quiet"
+                  size="icon-sm"
                   className={markerVariants({ variant: 'footer-action' })}
                   aria-label={action.label}
                   data-action={action.id}

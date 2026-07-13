@@ -1,7 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Bubble, Marker, markerVariants, Message, previewVariants, toolVariants } from '../primitives/chat.js';
-import { buttonVariants, cn } from '../ui.js';
+import { cn } from '../ui.js';
+
+const chatTurnSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'chat-turn.tsx'),
+  'utf8',
+);
 
 // The re-anchored renderer selectors key off the primitives' own `data-slot` /
 // `data-role` / `data-variant`, so a consumer must never be able to clobber
@@ -59,28 +67,21 @@ test('markerVariants leaves shared Button geometry and interaction states to the
   assert.ok(!/\b(?:h-|min-h-|px-|py-|text-xs|hover:bg-|focus-visible:)/.test(lineageBadge));
 });
 
-// Footer actions and lineage badges are Button consumers, so the shared
-// compact tier must remain the sole owner of their height, padding, type and
-// interaction states. Marker variants may add only their semantic tone/radius.
-test('footer-action merge keeps the governed compact Button geometry', () => {
-  const merged = cn(
-    buttonVariants({ variant: 'quiet', size: 'sm' }),
-    markerVariants({ variant: 'footer-action' }),
+// Footer actions and lineage badges are ordinary actions. Check the production
+// wiring rather than synthesizing a merge that a call site could forget to use.
+test('chat footer actions and lineage badges consume the governed Button tiers', () => {
+  assert.doesNotMatch(
+    chatTurnSource,
+    /<BaseButton\b[^>]*markerVariants\(\{ variant: '(?:footer-action|lineage-badge)' \}\)/,
   );
-  for (const governed of ['h-7', 'px-2', 'text-sm', 'gap-2']) {
-    assert.ok(merged.split(/\s+/).includes(governed), `Button utility "${governed}" must own footer geometry`);
-  }
-});
-
-test('lineage-badge merge keeps the governed compact Button geometry', () => {
-  const merged = cn(
-    buttonVariants({ variant: 'quiet', size: 'sm' }),
-    markerVariants({ variant: 'lineage-badge' }),
+  assert.match(
+    chatTurnSource,
+    /<UiButton\b[^>]*variant="quiet"[^>]*size="icon-sm"[^>]*markerVariants\(\{ variant: 'footer-action' \}\)/,
   );
-  for (const governed of ['h-7', 'px-2', 'text-sm', 'gap-2']) {
-    assert.ok(merged.split(/\s+/).includes(governed), `Button utility "${governed}" must own badge geometry`);
-  }
-  assert.match(merged, /rounded-\[var\(--radius-pill\)\]/);
+  assert.match(
+    chatTurnSource,
+    /<UiButton\b[^>]*variant="quiet"[^>]*size="sm"[^>]*markerVariants\(\{ variant: 'lineage-badge' \}\)/,
+  );
 });
 
 // PR3b — the tool-activity card shell. The full per-part shell is proven by the
