@@ -5,6 +5,17 @@ import Darwin
 setbuf(stdout, nil)
 
 let concurrentUserMode = CommandLine.arguments.contains("--concurrent-user")
+let snapshotMode = CommandLine.arguments.contains("--snapshot")
+let deniedFrontmostBundle: String? = {
+    guard let flagIndex = CommandLine.arguments.firstIndex(
+        of: "--deny-frontmost-bundle"
+    ),
+          CommandLine.arguments.indices.contains(flagIndex + 1)
+    else {
+        return nil
+    }
+    return CommandLine.arguments[flagIndex + 1]
+}()
 let mode = concurrentUserMode ? "concurrent_user" : "isolated"
 let fixturePID: pid_t? = {
     guard concurrentUserMode,
@@ -61,6 +72,9 @@ print(
     "READY\t\(mode)\t\(frontmostPID)\t\(initialPointer.x)\t\(initialPointer.y)"
         + "\t\(bundleIdentifier)\t\(bundlePath)"
 )
+if snapshotMode {
+    exit(0)
+}
 
 while true {
     autoreleasepool {
@@ -70,7 +84,16 @@ while true {
         }
         let currentPID =
             NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
+        let currentBundle =
+            NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let currentPointer = NSEvent.mouseLocation
+        if let deniedFrontmostBundle, currentBundle == deniedFrontmostBundle {
+            print(
+                "CHANGE\tdenied bundle became frontmost during E2E: "
+                    + deniedFrontmostBundle
+            )
+            exit(3)
+        }
         if concurrentUserMode && currentPID == fixturePID {
             print("CHANGE\tsynthetic fixture became frontmost during concurrent E2E")
             exit(3)
