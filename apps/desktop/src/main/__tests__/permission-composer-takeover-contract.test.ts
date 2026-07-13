@@ -93,8 +93,8 @@ describe('permission composer takeover', () => {
       /<div className="maka-permission-utility-actions">[\s\S]*?\{showDisclosure && <CollapsibleTrigger>完整参数<\/CollapsibleTrigger>\}[\s\S]*?permissionRemember[\s\S]*?<\/div>[\s\S]*?<div className="maka-permission-decision-actions" role="group" aria-label="权限操作">[\s\S]*?props\.onStop[\s\S]*?submit\('deny'\)[\s\S]*?submit\('allow'\)/,
       'all three request actions belong to one adjacent group; disclosure and grant scope remain utilities',
     );
-    assert.match(prompt, /variant="secondary"[\s\S]*?props\.onStop/);
-    assert.match(prompt, /ref=\{denyButtonRef\}[\s\S]*?variant="secondary"[\s\S]*?submit\('deny'\)/);
+    assert.match(prompt, /variant="ghost"[\s\S]*?props\.onStop/);
+    assert.match(prompt, /ref=\{denyButtonRef\}[\s\S]*?variant="ghost"[\s\S]*?submit\('deny'\)/);
     assert.match(prompt, /variant=\{isDestructive \? 'destructive' : 'default'\}[\s\S]*?submit\('allow'\)/);
     assert.equal(
       prompt.match(/size="md"/g)?.length,
