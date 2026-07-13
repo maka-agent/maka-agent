@@ -235,11 +235,14 @@ class MakaAgent(BaseInstalledAgent):
             )
             try:
                 stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self._cell_timeout_sec())
-            except asyncio.TimeoutError:
-                process.kill()
+            except BaseException as error:
+                if process.returncode is None:
+                    process.kill()
                 stdout, stderr = await process.communicate()
                 run_log_path.write_bytes(stdout + stderr)
-                raise RuntimeError(f"Maka host cell exceeded {self._cell_timeout_sec()}s")
+                if isinstance(error, asyncio.TimeoutError):
+                    raise RuntimeError(f"Maka host cell exceeded {self._cell_timeout_sec()}s") from error
+                raise
             run_log_path.write_bytes(stdout + stderr)
             if process.returncode != 0:
                 message = (stderr or stdout).decode("utf-8", errors="replace").strip()
