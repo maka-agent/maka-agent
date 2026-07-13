@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'tencent-coding-plan', 'tencent-tokenhub', 'togetherai', 'xai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'fireworks-ai', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'stepfun-ai', 'tencent-coding-plan', 'tencent-tokenhub', 'togetherai', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -346,6 +346,42 @@ test('sync-model-metadata vendors StepFun China direct provider facts and exact 
   const generated = await readFile(output, 'utf8');
   assert.match(generated, /"stepfun": \{/);
   assert.match(generated, /"stepfun": \{"id":"stepfun","name":"StepFun \(China\)","api":"https:\/\/api\.stepfun\.com\/v1"/);
+  assert.match(generated, /"step-3\.5-flash": \{"displayName":"Step 3\.5 Flash"/);
+  assert.match(generated, /"step-3\.7-flash": \{"displayName":"Step 3\.7 Flash"/);
+});
+
+test('sync-model-metadata vendors StepFun Global direct provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog['stepfun-ai'] = {
+    id: 'stepfun-ai',
+    name: 'StepFun (Global)',
+    api: 'https://api.stepfun.ai/v1',
+    doc: 'https://platform.stepfun.ai/docs/en/overview/concept',
+    models: {
+      'step-3.5-flash': {
+        id: 'step-3.5-flash', name: 'Step 3.5 Flash', reasoning: true, tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 256_000, output: 256_000 },
+      },
+      'step-3.7-flash': {
+        id: 'step-3.7-flash', name: 'Step 3.7 Flash', reasoning: true, tool_call: true,
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        limit: { context: 256_000, output: 256_000 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"stepfun-ai": \{/);
+  assert.match(generated, /"stepfun-ai": \{"id":"stepfun-ai","name":"StepFun \(Global\)","api":"https:\/\/api\.stepfun\.ai\/v1"/);
   assert.match(generated, /"step-3\.5-flash": \{"displayName":"Step 3\.5 Flash"/);
   assert.match(generated, /"step-3\.7-flash": \{"displayName":"Step 3\.7 Flash"/);
 });
