@@ -50,9 +50,9 @@ describe('harness A/B report', () => {
     assert.equal('score' in report, false);
 
     const csv = renderHarnessAbReportCsv(report);
-    assert.match(csv, /^run_status,stop_reason,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline\n/);
-    assert.match(csv, /completed,,effectiveness,pass_rate,maka,1,opencode,0.5,-0.5/);
-    assert.match(csv, /completed,,economy,total_tokens,maka,240,opencode,360,120/);
+    assert.match(csv, /^run_status,stop_reason,paired_expected,paired_evaluated,excluded_pairs,missing_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline\n/);
+    assert.match(csv, /completed,,2,2,0,0,effectiveness,pass_rate,maka,1,opencode,0.5,-0.5/);
+    assert.match(csv, /completed,,2,2,0,0,economy,total_tokens,maka,240,opencode,360,120/);
 
     const markdown = renderHarnessAbReportMarkdown(report);
     assert.match(markdown, /# Maka vs OpenCode — GLM-5\.2 Harness Comparison/);
@@ -74,6 +74,11 @@ describe('harness A/B report', () => {
 
     const report = buildHarnessAbReport(summary);
 
+    assert.equal(report.runStatus, 'incomplete');
+    assert.throws(
+      () => assertHarnessAbReportCompleted(report),
+      /harness A\/B incomplete: 1\/2 paired attempts evaluated \(1 excluded, 0 missing\)/,
+    );
     assert.deepEqual(report.effectiveness.baseline, {
       armId: 'maka',
       passed: 1,
@@ -132,8 +137,8 @@ describe('harness A/B report', () => {
 
     assert.equal(report.runStatus, 'stopped');
     assert.equal(report.stopReason, 'systemic_provider_failure');
-    assert.match(renderHarnessAbReportCsv(report), /^run_status,stop_reason,axis,metric,/);
-    assert.match(renderHarnessAbReportCsv(report), /stopped,systemic_provider_failure,effectiveness,pass_rate/);
+    assert.match(renderHarnessAbReportCsv(report), /^run_status,stop_reason,paired_expected,paired_evaluated,excluded_pairs,missing_pairs,axis,metric,/);
+    assert.match(renderHarnessAbReportCsv(report), /stopped,systemic_provider_failure,1,0,1,0,effectiveness,pass_rate/);
     assert.match(renderHarnessAbReportMarkdown(report), /Status: stopped \(systemic_provider_failure\)\./);
     assert.throws(
       () => assertHarnessAbReportCompleted(report),

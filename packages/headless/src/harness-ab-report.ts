@@ -23,7 +23,7 @@ export interface HarnessAbArmEconomy {
 export interface HarnessAbReport {
   schemaVersion: 'maka.harness_ab.report.v1';
   runId: string;
-  runStatus: 'completed' | 'stopped';
+  runStatus: 'completed' | 'incomplete' | 'stopped';
   stopReason?: NonNullable<AbComparisonSummary['stopReason']>;
   taskCount: number;
   completeness: {
@@ -51,10 +51,15 @@ export interface HarnessAbReport {
 }
 
 export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbReport {
+  const runStatus = summary.stopReason
+    ? 'stopped'
+    : summary.pairedAttempts.evaluatedPairs === summary.pairedAttempts.pairs
+      ? 'completed'
+      : 'incomplete';
   return {
     schemaVersion: 'maka.harness_ab.report.v1',
     runId: summary.runId,
-    runStatus: summary.stopReason ? 'stopped' : 'completed',
+    runStatus,
     ...(summary.stopReason ? { stopReason: summary.stopReason } : {}),
     taskCount: summary.taskCount,
     completeness: {
@@ -119,8 +124,16 @@ export function renderHarnessAbReportCsv(report: HarnessAbReport): string {
     ['economy', 'cost_per_pass_usd', baselineEconomy.armId, baselineEconomy.costPerPassUsd, candidateEconomy.armId, candidateEconomy.costPerPassUsd, nullableDelta(candidateEconomy.costPerPassUsd, baselineEconomy.costPerPassUsd)],
   ];
   return [
-    'run_status,stop_reason,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline',
-    ...rows.map((row) => [report.runStatus, report.stopReason ?? '', ...row].map(csvCell).join(',')),
+    'run_status,stop_reason,paired_expected,paired_evaluated,excluded_pairs,missing_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline',
+    ...rows.map((row) => [
+      report.runStatus,
+      report.stopReason ?? '',
+      report.completeness.expectedPerArm,
+      report.effectiveness.pairedEvaluated,
+      report.completeness.excludedPairs,
+      report.completeness.missingPairs,
+      ...row,
+    ].map(csvCell).join(',')),
   ].join('\n') + '\n';
 }
 
@@ -163,6 +176,11 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
 export function assertHarnessAbReportCompleted(report: HarnessAbReport): void {
   if (report.runStatus === 'stopped') {
     throw new Error(`harness A/B stopped: ${report.stopReason ?? 'unknown_reason'}`);
+  }
+  if (report.runStatus === 'incomplete') {
+    throw new Error(
+      `harness A/B incomplete: ${report.effectiveness.pairedEvaluated}/${report.completeness.expectedPerArm} paired attempts evaluated (${report.completeness.excludedPairs} excluded, ${report.completeness.missingPairs} missing)`,
+    );
   }
 }
 

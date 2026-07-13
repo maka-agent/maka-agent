@@ -209,7 +209,7 @@ async function main() {
   await writeFile(join(runRoot, 'harness-ab-report.csv'), renderHarnessAbReportCsv(report), 'utf8');
   await writeFile(join(runRoot, 'harness-ab-report.md'), renderHarnessAbReportMarkdown(report), 'utf8');
   assertHarnessAbReportCompleted(report);
-  console.log(`completed: ${limit}/${EXPECTED_TASKS} paired Pass@1 cells -> ${runRoot}`);
+  console.log(`completed: ${report.effectiveness.pairedEvaluated}/${report.completeness.expectedPerArm} paired Pass@1 cells -> ${runRoot}`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
