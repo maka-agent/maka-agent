@@ -85,6 +85,15 @@ describe('buildProviderOptions: thinking level', () => {
     });
   });
 
+  test('Tencent Token Plan sends its documented reasoning effort under the stable provider namespace', () => {
+    assert.deepEqual([...thinkingVariantsForModel('tencent-token-plan', 'hy3')], ['low', 'medium', 'high']);
+    assert.deepEqual(
+      buildProviderOptions(conn('tencent-token-plan'), 'hy3', 'high'),
+      { 'tencent-token-plan': { reasoningEffort: 'high' } },
+    );
+    assert.deepEqual(buildProviderOptions(conn('tencent-token-plan'), 'hy3', 'off'), {});
+  });
+
   test('a level the model does not support is dropped (defensive)', () => {
     assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: {} });
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'max'), { anthropic: {} });

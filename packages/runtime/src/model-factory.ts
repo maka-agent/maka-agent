@@ -148,6 +148,7 @@ export function buildProviderOptions(
     // (no thinking.disabled field), so it is a no-op override here.
     case 'deepseek':
     case 'moonshot':
+    case 'tencent-token-plan':
     case 'zai-coding-plan':
       return level && level !== 'off'
         ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level } }
