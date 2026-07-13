@@ -2253,6 +2253,32 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves Cerebras only from Cerebras credential env without rewriting the model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'cerebras',
+      model: 'gpt-oss-120b',
+      env: {
+        CEREBRAS_API_KEY: 'cerebras-key',
+        CEREBRAS_BASE_URL: 'https://api.cerebras.ai/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'cerebras-key');
+    assert.equal(resolved.connection.providerType, 'cerebras');
+    assert.equal(resolved.connection.defaultModel, 'gpt-oss-120b');
+    assert.equal(resolved.connection.baseUrl, 'https://api.cerebras.ai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'cerebras',
+      model: 'gpt-oss-120b',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves ai-sdk api key from a *_API_KEY_FILE without exposing the secret on argv', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-cell-key-'));
     try {
