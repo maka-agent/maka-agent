@@ -25,6 +25,9 @@ import type { ModelChoice } from './connection-target.js';
 import type { MakaSessionDriver, MakaSessionSwitchResult } from './session-driver.js';
 import {
   createMakaPiTranscriptState,
+  activePermissionRequest,
+  activeUserQuestionRequest,
+  completePendingInteraction,
   applyShellRunViewUpdateToTranscript,
   replaceTranscriptWithStoredMessages,
   submitCompactToTranscript,
@@ -51,6 +54,7 @@ import {
 import {
   MakaAutocompleteProvider,
   PickerOverlay,
+  UserQuestionTextOverlay,
   modelChoicePickerItems,
   modelPickerItems,
   permissionModePickerItems,
@@ -111,6 +115,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let busy = false;
   let closed = false;
   let permissionInFlight = false;
+  let userQuestionInFlight = false;
+  let userQuestionOverlay: OverlayHandle | undefined;
+  let userQuestionProgress: {
+    requestId: string;
+    index: number;
+    answers: Array<string | null>;
+  } | undefined;
   let turnRunning = false;
   let interruptRequested = false;
   let lastTurnEscapeAt = 0;
@@ -344,7 +355,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     decision: 'allow' | 'deny',
     rememberForTurn = false,
   ): boolean => {
-    const request = state.pendingPermission;
+    const request = activePermissionRequest(state);
     if (!request || permissionInFlight) return false;
     permissionInFlight = true;
     // Keep the prompt visible until the driver accepts the response. If it
@@ -359,14 +370,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         // The turn may have ended (error/abort/complete) and cleared the pending
         // prompt while this response was in flight; only record success if the
         // request is still the active one.
-        if (state.pendingPermission?.requestId !== request.requestId) return;
-        state.pendingPermission = undefined;
+        if (activePermissionRequest(state)?.requestId !== request.requestId) return;
+        completePendingInteraction(state, request.requestId);
         state.entries.push({
           kind: 'notice',
           level: 'info',
           text: `Permission ${decision}ed for ${request.toolName}`,
         });
         requestRender();
+        syncUserQuestionOverlay();
       })
       .catch((error) => {
         permissionInFlight = false;
@@ -419,7 +431,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         // A pending decision blocks the turn; ring an unfocused terminal once when
         // the prompt first appears (not on every render) so the user is not left
         // waiting on a prompt they cannot see.
-        if (state.pendingPermission) {
+        if (state.pendingInteraction) {
           if (!permissionAlerted) {
             permissionAlerted = true;
             attention.attentionNeeded();
@@ -428,6 +440,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           permissionAlerted = false;
         }
         shellRunElapsedTicker.sync();
+        syncUserQuestionOverlay();
         requestRender();
       },
     }).then((outcome) => {
@@ -554,6 +567,104 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     maxHeight: Math.max(1, terminal.rows - BOTTOM_PICKER_MARGIN_ROWS),
     margin: { bottom: BOTTOM_PICKER_MARGIN_ROWS },
   });
+
+  const closeUserQuestionOverlay = (): void => {
+    userQuestionOverlay?.hide();
+    userQuestionOverlay = undefined;
+  };
+
+  const finishUserQuestion = (requestId: string, answers: Array<string | null>): void => {
+    if (userQuestionInFlight) return;
+    const respond = input.driver.respondToUserQuestion;
+    if (!respond) {
+      reportError(new Error('User questions are unavailable on this driver.'));
+      return;
+    }
+    userQuestionInFlight = true;
+    closeUserQuestionOverlay();
+    void respond.call(input.driver, { requestId, answers })
+      .then(() => {
+        userQuestionInFlight = false;
+        if (activeUserQuestionRequest(state)?.requestId === requestId) {
+          completePendingInteraction(state, requestId);
+        }
+        userQuestionProgress = undefined;
+        syncUserQuestionOverlay();
+        requestRender();
+      })
+      .catch((error) => {
+        userQuestionInFlight = false;
+        reportError(error);
+        syncUserQuestionOverlay();
+      });
+  };
+
+  const showUserQuestion = (): void => {
+    const request = activeUserQuestionRequest(state);
+    const progress = userQuestionProgress;
+    if (!request || !progress || progress.requestId !== request.requestId) return;
+    const question = request.questions[progress.index];
+    if (!question) {
+      finishUserQuestion(request.requestId, progress.answers);
+      return;
+    }
+    closeUserQuestionOverlay();
+    const items: SelectItem[] = [
+      ...question.options.map((option, index) => ({
+        value: `option:${index}`,
+        label: option.label,
+        ...(option.description ? { description: option.description } : {}),
+      })),
+      { value: 'other', label: 'Other…', description: 'Type another answer.' },
+    ];
+    const list = new SelectList(items, 10, selectListTheme(), {
+      minPrimaryColumnWidth: 12,
+      maxPrimaryColumnWidth: 48,
+    });
+    const advance = (answer: string | null): void => {
+      progress.answers[progress.index] = answer;
+      progress.index += 1;
+      showUserQuestion();
+    };
+    list.onSelect = (item) => {
+      if (item.value === 'other') {
+        closeUserQuestionOverlay();
+        userQuestionOverlay = showBottomPicker(new UserQuestionTextOverlay(tui, {
+          title: question.question,
+          rightLabel: `${progress.index + 1} / ${request.questions.length}`,
+          onSubmit: advance,
+          onSkip: () => advance(null),
+        }));
+        return;
+      }
+      const optionIndex = Number(item.value.slice('option:'.length));
+      advance(question.options[optionIndex]?.label ?? null);
+    };
+    list.onCancel = () => advance(null);
+    userQuestionOverlay = showBottomPicker(new PickerOverlay(list, {
+      title: question.question,
+      rightLabel: `${progress.index + 1} / ${request.questions.length}`,
+      hint: '↑↓ move · Enter select · Esc unanswered',
+    }));
+  };
+
+  const syncUserQuestionOverlay = (): void => {
+    const request = activeUserQuestionRequest(state);
+    if (!request) {
+      closeUserQuestionOverlay();
+      userQuestionProgress = undefined;
+      return;
+    }
+    if (userQuestionInFlight) return;
+    if (userQuestionProgress?.requestId !== request.requestId) {
+      userQuestionProgress = {
+        requestId: request.requestId,
+        index: 0,
+        answers: Array.from({ length: request.questions.length }, () => null),
+      };
+      showUserQuestion();
+    }
+  };
 
   const showSelectPicker = (
     title: string,
@@ -979,6 +1090,16 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // press+release pair could count as a double Escape. We never act on
     // releases here; returning undefined lets the TUI apply its own filtering.
     if (isKeyRelease(data)) return undefined;
+    if (
+      activeUserQuestionRequest(state)
+      && turnRunning
+      && matchesKey(data, Key.ctrl('c'))
+      && !isKeyRepeat(data)
+    ) {
+      if (interruptRequested) handleProcessExit(0);
+      else requestTurnInterrupt();
+      return { consume: true };
+    }
     if (tui.hasOverlay()) return undefined;
     if (matchesKey(data, Key.ctrl('c')) && isKeyRepeat(data)) return { consume: true };
     if (!matchesKey(data, Key.ctrl('c'))) lastIdleCtrlCAt = 0;
@@ -998,14 +1119,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         return { consume: true };
       }
     }
-    if (state.pendingPermission) {
+    const pendingPermission = activePermissionRequest(state);
+    if (pendingPermission) {
       if (matchesKey(data, 'y') || matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
         respondToPendingPermission('allow', false);
         return { consume: true };
       }
       if (
         matchesKey(data, 'a')
-        && state.pendingPermission.rememberForTurnAllowed === true
+        && pendingPermission.rememberForTurnAllowed === true
       ) {
         respondToPendingPermission('allow', true);
         return { consume: true };

@@ -655,12 +655,33 @@ describe('Maka Pi TUI transcript', () => {
       permissionMode: 'ask',
     }, 100).map(stripAnsi);
 
-    assert.equal(state.pendingPermission?.requestId, 'permission-1');
+    assert.equal(state.pendingInteraction?.requestId, 'permission-1');
     assert.ok(visibleLines.some((line) => line.includes('Permission required')));
     assert.ok(visibleLines.some((line) => line.includes('Bash')));
     assert.ok(visibleLines.some((line) => line.includes('npm test')));
     assert.ok(visibleLines.some((line) => line.includes('y/Enter allow')));
     assert.ok(visibleLines.some((line) => line.includes('n/Esc deny')));
+  });
+
+  test('queues permission and user-question requests in arrival order', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'permission_request', requestId: 'permission-1', toolUseId: 'tool-1',
+      toolName: 'Bash', category: 'shell_unsafe', reason: 'shell_dangerous', args: {},
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'user_question_request', requestId: 'question-1', toolUseId: 'tool-2',
+      questions: [{ question: 'Choose', options: [{ label: 'A' }, { label: 'B' }] }],
+    }));
+
+    assert.equal(state.pendingInteraction?.requestId, 'permission-1');
+    assert.deepEqual(state.queuedInteractions.map((item) => item.requestId), ['question-1']);
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'permission_decision_ack', requestId: 'permission-1', toolUseId: 'tool-1', decision: 'allow',
+    }));
+    assert.equal(state.pendingInteraction?.requestId, 'question-1');
+    assert.deepEqual(state.queuedInteractions, []);
   });
 
   test('orders thinking entries by arrival, before text and around tools', () => {

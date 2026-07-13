@@ -1,6 +1,9 @@
 import {
   CombinedAutocompleteProvider,
+  Editor,
+  Key,
   SelectList,
+  matchesKey,
   truncateToWidth,
   visibleWidth,
   type AutocompleteItem,
@@ -8,11 +11,12 @@ import {
   type AutocompleteSuggestions,
   type Component,
   type SelectItem,
+  type TUI,
 } from '@earendil-works/pi-tui';
 import { PERMISSION_MODES, type PermissionMode } from '@maka/core/permission';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import type { ModelChoice } from './connection-target.js';
-import { ansi, stripAnsi } from './tui-ansi.js';
+import { ansi, editorTheme, stripAnsi } from './tui-ansi.js';
 
 export class MakaAutocompleteProvider implements AutocompleteProvider {
   private readonly fileProvider: CombinedAutocompleteProvider;
@@ -88,7 +92,7 @@ function slashCommandPrefix(lines: string[], cursorLine: number, cursorCol: numb
 export class PickerOverlay implements Component {
   constructor(
     private readonly list: SelectList,
-    private readonly input: { title: string; rightLabel: string },
+    private readonly input: { title: string; rightLabel: string; hint?: string },
   ) {}
 
   invalidate(): void {
@@ -103,9 +107,51 @@ export class PickerOverlay implements Component {
     const safeWidth = Math.max(1, width);
     return [
       padLine(`${this.input.title} ${ansi.accent(this.input.rightLabel)}`, safeWidth),
-      padLine(ansi.dim('enter select / esc close'), safeWidth),
+      padLine(ansi.dim(this.input.hint ?? 'enter select / esc close'), safeWidth),
       padLine('', safeWidth),
       ...this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth)),
+      padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
+    ];
+  }
+}
+
+export class UserQuestionTextOverlay implements Component {
+  private readonly editor: Editor;
+
+  constructor(
+    tui: TUI,
+    private readonly input: {
+      title: string;
+      rightLabel: string;
+      onSubmit(value: string): void;
+      onSkip(): void;
+    },
+  ) {
+    this.editor = new Editor(tui, editorTheme(), { paddingX: 1 });
+    this.editor.onSubmit = (value) => {
+      const answer = value.trim();
+      if (answer) this.input.onSubmit(answer);
+    };
+  }
+
+  invalidate(): void {
+    this.editor.invalidate();
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape)) {
+      this.input.onSkip();
+      return;
+    }
+    this.editor.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    return [
+      padLine(`${this.input.title} ${ansi.accent(this.input.rightLabel)}`, safeWidth),
+      padLine(ansi.dim('Type another answer · Enter submit · Esc unanswered'), safeWidth),
+      ...this.editor.render(safeWidth).map((line) => padLine(line, safeWidth)),
       padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
     ];
   }
