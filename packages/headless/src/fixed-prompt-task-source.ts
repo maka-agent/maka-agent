@@ -9,8 +9,8 @@ export function resolveFixedPromptRunRoot(outDir: string, runId: string, envName
   return join(outDir, runId);
 }
 
-/** Scan a Harbor task cache (`<root>/<hash>/<task-name>/task.toml`) into a
- * deterministic, id-sorted task list. */
+/** Scan a Harbor task cache (`<root>/<hash>/<task-name>/task.toml`) or exported
+ * dataset (`<root>/<task-name>/task.toml`) into a deterministic task list. */
 export async function discoverCachedHarborTasks(tasksRoot: string): Promise<FixedPromptTask[]> {
   const byId = new Map<string, FixedPromptTask>();
   let hashDirs;
@@ -22,6 +22,11 @@ export async function discoverCachedHarborTasks(tasksRoot: string): Promise<Fixe
   for (const hashDir of hashDirs) {
     if (!hashDir.isDirectory()) continue;
     const hashPath = join(tasksRoot, hashDir.name);
+    const exportedTaskToml = await readTaskToml(hashPath);
+    if (exportedTaskToml !== undefined) {
+      addDiscoveredTask(byId, hashDir.name, hashPath, exportedTaskToml);
+      continue;
+    }
     let inner;
     try {
       inner = await readdir(hashPath, { withFileTypes: true });
@@ -31,26 +36,39 @@ export async function discoverCachedHarborTasks(tasksRoot: string): Promise<Fixe
     for (const taskDir of inner) {
       if (!taskDir.isDirectory()) continue;
       const taskPath = join(hashPath, taskDir.name);
-      let taskToml: string;
-      try {
-        taskToml = await readFile(join(taskPath, 'task.toml'), 'utf8');
-      } catch {
-        continue;
-      }
-      // The controller keys events by task id, so two cached versions of the same
-      // task name would silently collide and pollute scoring. Fail loud instead.
-      const existing = byId.get(taskDir.name);
-      if (existing) {
-        throw new Error(`duplicate cached task id "${taskDir.name}": ${existing.path} and ${taskPath}`);
-      }
-      byId.set(taskDir.name, {
-        id: taskDir.name,
-        path: taskPath,
-        ...metadataField(parseTaskTomlMetadata(taskToml)),
-      });
+      const taskToml = await readTaskToml(taskPath);
+      if (taskToml === undefined) continue;
+      addDiscoveredTask(byId, taskDir.name, taskPath, taskToml);
     }
   }
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+async function readTaskToml(taskPath: string): Promise<string | undefined> {
+  try {
+    return await readFile(join(taskPath, 'task.toml'), 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+function addDiscoveredTask(
+  byId: Map<string, FixedPromptTask>,
+  taskId: string,
+  taskPath: string,
+  taskToml: string,
+): void {
+  // The controller keys events by task id, so two cached versions of the same
+  // task name would silently collide and pollute scoring. Fail loud instead.
+  const existing = byId.get(taskId);
+  if (existing) {
+    throw new Error(`duplicate cached task id "${taskId}": ${existing.path} and ${taskPath}`);
+  }
+  byId.set(taskId, {
+    id: taskId,
+    path: taskPath,
+    ...metadataField(parseTaskTomlMetadata(taskToml)),
+  });
 }
 
 function parseTaskTomlMetadata(text: string): FixedPromptTask['metadata'] {
