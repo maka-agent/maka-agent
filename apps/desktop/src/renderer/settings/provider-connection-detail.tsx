@@ -15,6 +15,7 @@ import {
   type ModelInfo,
   type ProviderType,
 } from '@maka/core';
+import { providerAuthRequiresSecret, providerAuthSupportsApiKey } from '@maka/core/llm-connections';
 import { formatRelativeTimestamp } from '@maka/core';
 import { Button, Chip, FieldDescription, FieldRoot, Input, Label, useMountedRef, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
@@ -117,11 +118,12 @@ export function ConnectionDetail(props: {
   const connectionDetailMountedRef = useMountedRef();
   const connectionDetailLifecycleRef = useRef(0);
   const toast = useToast();
-  const needsApiKey = defaults.authKind === 'api_key';
+  const supportsApiKey = providerAuthSupportsApiKey(connection.providerType);
   const needsOAuth = defaults.authKind === 'oauth_token';
   const oauthLoginService = needsOAuth ? oauthLoginServiceFor(connection.providerType) : null;
   const hasFixedOAuthBaseUrl = needsOAuth && Boolean(defaults.baseUrl);
-  const requiresCredential = defaults.authKind !== 'none';
+  const requiresCredential = providerAuthRequiresSecret(connection.providerType);
+  const probesCredential = supportsApiKey || needsOAuth;
   const credentialProbePending = requiresCredential && (hasSecret === 'loading' || hasSecret === 'error');
   const hasUsableCredential = !requiresCredential || hasSecret === true;
   const credentialTroubleshootingCopy = needsOAuth
@@ -153,7 +155,7 @@ export function ConnectionDetail(props: {
 
   useEffect(() => {
     const lifecycle = connectionDetailLifecycleRef.current;
-    if (defaults.authKind === 'none') {
+    if (!probesCredential) {
       if (isConnectionDetailCurrent(lifecycle)) setHasSecret(true);
       return;
     }
@@ -168,7 +170,7 @@ export function ConnectionDetail(props: {
         setHasSecret('error');
         toast.error('读取模型凭据状态失败', providerPanelActionErrorMessage(error));
       });
-  }, [props.bridge, connection.slug, defaults.authKind, toast]);
+  }, [props.bridge, connection.slug, probesCredential, toast]);
 
   useEffect(() => {
     const nextSnapshot = connectionDetailSnapshot(connection, defaults.baseUrl);
@@ -239,7 +241,7 @@ export function ConnectionDetail(props: {
       if (!isConnectionDetailCurrent(lifecycle)) return;
       const wroteNewKey = apiKey.length > 0;
       setApiKey('');
-      const nextHasSecret = requiresCredential ? await props.bridge.hasSecret(connection.slug) : true;
+      const nextHasSecret = probesCredential ? await props.bridge.hasSecret(connection.slug) : true;
       if (!isConnectionDetailCurrent(lifecycle)) return;
       setHasSecret(nextHasSecret);
       await props.onChanged();
@@ -249,12 +251,12 @@ export function ConnectionDetail(props: {
       // dropdown only contains the static fallback list (e.g. Z.ai → just
       // glm-4.7 / 4.6 / 4.5), which looks like Maka doesn't support newer
       // models. Auto-fetch on save closes that gap.
-      if (nextHasSecret && (wroteNewKey || (!needsApiKey && models.length === 0))) {
+      if ((!requiresCredential || nextHasSecret) && (wroteNewKey || models.length === 0)) {
         void refreshModels({ silent: true });
       }
     } catch (error) {
       if (!isConnectionDetailCurrent(lifecycle)) return;
-      if (saved && requiresCredential) {
+      if (saved && probesCredential) {
         setHasSecret('error');
       }
       toast.error(
@@ -441,7 +443,7 @@ export function ConnectionDetail(props: {
           aria-label={hasFixedOAuthBaseUrl ? '模型连接服务地址，OAuth 固定' : '模型连接服务地址'}
         />
       </FieldRoot>
-      {needsApiKey && (
+      {supportsApiKey && (
         <FieldRoot className="grid gap-1.5">
           <Label className="text-xs text-foreground-secondary">模型密钥</Label>
           {hasSecret === true && <FieldDescription>已设置，粘贴新值可替换</FieldDescription>}

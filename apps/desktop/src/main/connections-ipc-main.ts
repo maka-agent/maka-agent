@@ -8,7 +8,7 @@ import type {
   CreateConnectionInput,
   UpdateConnectionInput,
 } from '@maka/core';
-import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
+import { PROVIDER_DEFAULTS, providerAuthRequiresSecret } from '@maka/core/llm-connections';
 import { fetchProviderModels, testConnection } from '@maka/runtime';
 import { createConnectionStore } from '@maka/storage';
 import { createFileCredentialStore } from './credential-store.js';
@@ -198,7 +198,7 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
     const connection = await connectionStore.get(slug);
     if (!connection) return { ok: false, errorMessage: `找不到模型连接：${slug}` };
     const apiKey = await resolveConnectionSecret(slug);
-    if (PROVIDER_DEFAULTS[connection.providerType].authKind !== 'none' && !apiKey) {
+    if (providerAuthRequiresSecret(connection.providerType) && !apiKey) {
       return {
         ok: false,
         errorMessage: PROVIDER_DEFAULTS[connection.providerType].authKind === 'oauth_token'
@@ -217,7 +217,7 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
     const connection = await connectionStore.get(slug);
     if (!connection) throw new Error(`找不到模型连接：${slug}`);
     const apiKey = await resolveConnectionSecret(slug);
-    if (PROVIDER_DEFAULTS[connection.providerType].authKind !== 'none' && !apiKey) {
+    if (providerAuthRequiresSecret(connection.providerType) && !apiKey) {
       throw new Error(PROVIDER_DEFAULTS[connection.providerType].authKind === 'oauth_token'
         ? '这个 OAuth 模型连接还没有登录'
         : '这个模型连接还没有保存 API key');

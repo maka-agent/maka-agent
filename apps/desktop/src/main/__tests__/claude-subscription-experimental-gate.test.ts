@@ -449,9 +449,9 @@ describe('Claude OAuth model connection bridge', () => {
 
   it('ProvidersPanel treats OAuth model connections as login state, not editable API keys', async () => {
     const src = await readProviderSettingsCombinedSource();
-    assert.match(src, /const needsApiKey = defaults\.authKind === 'api_key'/, 'ConnectionDetail must distinguish API key providers');
+    assert.match(src, /const supportsApiKey = providerAuthSupportsApiKey\(connection\.providerType\)/, 'ConnectionDetail must distinguish API key providers');
     assert.match(src, /const needsOAuth = defaults\.authKind === 'oauth_token'/, 'ConnectionDetail must distinguish OAuth providers');
-    assert.match(src, /\{needsApiKey && \([\s\S]*<PasswordInput/, 'PasswordInput must only render for API-key connections');
+    assert.match(src, /\{supportsApiKey && \([\s\S]*<PasswordInput/, 'PasswordInput must only render for API-key connections');
     assert.match(src, /\{needsOAuth && \([\s\S]*OAuth 已登录[\s\S]*等待 OAuth 登录/, 'OAuth connections must render login-state copy instead of a token input');
   });
 });

@@ -714,6 +714,15 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
+  it('shows but does not require LocalAI optional credentials', async () => {
+    const src = await readProviderSettingsCombinedSource();
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+
+    assert.match(detail, /const supportsApiKey = providerAuthSupportsApiKey\(connection\.providerType\)/);
+    assert.match(detail, /const requiresCredential = providerAuthRequiresSecret\(connection\.providerType\)/);
+    assert.match(detail, /\{supportsApiKey && \([\s\S]*<PasswordInput/);
+  });
+
   it('provider detail async actions stop writing UI after the detail sheet is closed or switched', async () => {
     const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';

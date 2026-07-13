@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ConnectionTestResult, LlmConnection } from '@maka/core';
 import { deriveProviderAuthContractFromConnection, generalizedErrorMessageChinese } from '@maka/core';
-import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
+import { PROVIDER_DEFAULTS, providerAuthRequiresSecret } from '@maka/core/llm-connections';
 import { Button, Chip, RelativeTime, useMountedRef, useToast } from '@maka/ui';
 import {
   deriveAccountAuthActions,
@@ -223,7 +223,7 @@ function AccountConnectionRow(props: {
   canTest: boolean;
   onTest(): void;
 }) {
-  const requiresSecret = PROVIDER_DEFAULTS[props.connection.providerType].authKind !== 'none';
+  const requiresSecret = providerAuthRequiresSecret(props.connection.providerType);
   const secretProbePending = requiresSecret && (props.secretStatus === 'loading' || props.secretStatus === 'error');
   const hasSecretForKnownStatus = props.secretStatus === true;
   const status: ConnectionUiStatus = connectionUiStatusFromRecord(
