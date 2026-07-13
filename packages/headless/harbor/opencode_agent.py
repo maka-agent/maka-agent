@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shlex
 import time
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from harbor.agents.installed.base import NonZeroAgentExitCodeError, with_prompt_template
 from harbor.agents.installed.opencode import OpenCode
@@ -22,15 +20,7 @@ from trial_pricing import estimate_cost, pricing_from_env
 class MakaOpenCodeAgent(OpenCode):
     """Run Harbor's OpenCode agent while normalizing trial cost fields."""
 
-    _BRIDGED_ENV_KEYS = (
-        "OPENAI_API_KEY",
-        "OPENAI_BASE_URL",
-        "ZAI_API_KEY",
-        "ZAI_BASE_URL",
-        "XDG_DATA_HOME",
-        "XDG_CONFIG_HOME",
-        "XDG_STATE_HOME",
-    )
+    _ZAI_KEY_PATH = "/tmp/maka-opencode-zai-api-key"
 
     @staticmethod
     def name() -> str:
@@ -44,40 +34,19 @@ class MakaOpenCodeAgent(OpenCode):
         context: AgentContext,
     ) -> None:
         self._started_at_ms = int(time.time() * 1000)
-        with self._bridged_env():
+        try:
             await self._run_with_stop_sentinel(instruction, environment)
-        self._finished_at_ms = int(time.time() * 1000)
-        if messages := self._error_messages():
-            raise NonZeroAgentExitCodeError(
-                "OpenCode emitted error event(s): " + "; ".join(messages[:3])
-            )
+            if messages := self._error_messages():
+                raise NonZeroAgentExitCodeError(
+                    "OpenCode emitted error event(s): " + "; ".join(messages[:3])
+                )
+        finally:
+            self._finished_at_ms = int(time.time() * 1000)
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         super().populate_context_post_run(context)
         self._apply_cost_metadata(context)
         self._write_cell_output(context)
-
-    @contextmanager
-    def _bridged_env(self) -> Iterator[None]:
-        previous: dict[str, str | None] = {}
-        for key in self._BRIDGED_ENV_KEYS:
-            value = self._get_env(key)
-            if value is None and key.endswith("_API_KEY"):
-                key_file = self._get_env(f"{key}_FILE")
-                if key_file:
-                    value = Path(key_file).read_text(encoding="utf-8").strip()
-            if value is None:
-                continue
-            previous[key] = os.environ.get(key)
-            os.environ[key] = value
-        try:
-            yield
-        finally:
-            for key, old_value in previous.items():
-                if old_value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = old_value
 
     def _apply_cost_metadata(self, context: AgentContext) -> None:
         totals = self._token_totals(context)
@@ -116,6 +85,16 @@ class MakaOpenCodeAgent(OpenCode):
             raise ValueError("Model name must be in the format provider/model_name")
 
         provider, _ = self.model_name.split("/", 1)
+        if provider != "zai-coding-plan":
+            raise ValueError(f"Unsupported Maka OpenCode benchmark provider: {provider}")
+        key_file = self._get_env("ZAI_API_KEY_FILE")
+        if not key_file:
+            raise ValueError("zai-coding-plan requires ZAI_API_KEY_FILE")
+        await environment.upload_file(Path(key_file), self._ZAI_KEY_PATH)
+        await environment.exec(
+            command=f"chmod 0444 -- {shlex.quote(self._ZAI_KEY_PATH)}",
+            user=0,
+        )
         env = self._provider_env(provider)
         env["OPENCODE_FAKE_VCS"] = "git"
 
@@ -136,6 +115,7 @@ class MakaOpenCodeAgent(OpenCode):
         runner_path = self._stop_runner_path()
         grace_ms = self._stop_grace_ms()
         command = (
+            f"export ZAI_API_KEY=\"$(cat -- {shlex.quote(self._ZAI_KEY_PATH)})\"; "
             ". ~/.nvm/nvm.sh; "
             f"node {shlex.quote(runner_path)} "
             "--output /logs/agent/opencode.txt "
@@ -145,7 +125,13 @@ class MakaOpenCodeAgent(OpenCode):
             f"{cli_flags_arg}{variant_arg}--thinking --auto -- "
             f"{escaped_instruction}"
         )
-        await self.exec_as_agent(environment, command=command, env=env)
+        try:
+            await self.exec_as_agent(environment, command=command, env=env)
+        finally:
+            await environment.exec(
+                command=f"rm -f -- {shlex.quote(self._ZAI_KEY_PATH)}",
+                user=0,
+            )
 
     def _stop_runner_path(self) -> str:
         maka_repo = self._get_env("MAKA_REPO_ROOT") or "/opt/maka-agent"
@@ -168,50 +154,8 @@ class MakaOpenCodeAgent(OpenCode):
         return max(0, value)
 
     def _provider_env(self, provider: str) -> dict[str, str]:
-        keys: list[str] = []
-        if provider == "amazon-bedrock":
-            keys.extend(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"])
-        elif provider == "anthropic":
-            keys.append("ANTHROPIC_API_KEY")
-        elif provider == "azure":
-            keys.extend(["AZURE_RESOURCE_NAME", "AZURE_API_KEY"])
-        elif provider == "deepseek":
-            keys.append("DEEPSEEK_API_KEY")
-        elif provider == "github-copilot":
-            keys.append("GITHUB_TOKEN")
-        elif provider == "google":
-            keys.extend(
-                [
-                    "GEMINI_API_KEY",
-                    "GOOGLE_GENERATIVE_AI_API_KEY",
-                    "GOOGLE_APPLICATION_CREDENTIALS",
-                    "GOOGLE_CLOUD_PROJECT",
-                    "GOOGLE_CLOUD_LOCATION",
-                    "GOOGLE_GENAI_USE_VERTEXAI",
-                    "GOOGLE_API_KEY",
-                ]
-            )
-        elif provider == "groq":
-            keys.append("GROQ_API_KEY")
-        elif provider == "huggingface":
-            keys.append("HF_TOKEN")
-        elif provider == "llama":
-            keys.append("LLAMA_API_KEY")
-        elif provider == "mistral":
-            keys.append("MISTRAL_API_KEY")
-        elif provider == "openai":
-            keys.extend(["OPENAI_API_KEY", "OPENAI_BASE_URL"])
-        elif provider == "opencode":
-            keys.append("OPENCODE_API_KEY")
-        elif provider == "xai":
-            keys.append("XAI_API_KEY")
-        elif provider == "openrouter":
-            keys.append("OPENROUTER_API_KEY")
-        elif provider == "zai-coding-plan":
-            keys.extend(["ZAI_API_KEY", "ZAI_BASE_URL"])
-
         env: dict[str, str] = {}
-        for key in keys:
+        for key in ("ZAI_BASE_URL", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
             value = self._get_env(key)
             if value:
                 env[key] = value

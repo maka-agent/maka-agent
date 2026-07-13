@@ -1185,13 +1185,19 @@ try:
             "MAKA_TRIAL_PRICING_SOURCE": "xiaomi-env",
         }, prompt_template_path=template_path, model_name="zai-coding-plan/glm-5.2")
         context = AgentContext()
-        environment = types.SimpleNamespace(agent_commands=[])
+        environment = types.SimpleNamespace(agent_commands=[], root_commands=[], uploaded_files=[])
+        async def upload_file(source_path, target_path):
+            environment.uploaded_files.append((str(source_path), target_path))
+        environment.upload_file = upload_file
+        async def exec_root(command, **kwargs):
+            environment.root_commands.append((command, kwargs))
+        environment.exec = exec_root
         async def exec_as_agent(environment, command, env=None, **kwargs):
             environment.agent_commands.append((command, env or {}))
         agent.exec_as_agent = exec_as_agent
 
         asyncio.run(agent.run("hi", environment, context))
-        command, env = environment.agent_commands[-1]
+        command, env = next(item for item in environment.agent_commands if "opencode --model=" in item[0])
         assert "opencode-stop-runner.mjs" in command, command
         assert "--output /logs/agent/opencode.txt" in command, command
         assert "opencode --model=zai-coding-plan/glm-5.2 run --format=json" in command, command
@@ -1200,8 +1206,16 @@ try:
         assert "--dangerously-skip-permissions" not in command, command
         assert "--variant=max" in command, command
         assert "templated: hi" in command, command
-        assert env["ZAI_API_KEY"] == "test-zai-key", env
+        assert "ZAI_API_KEY" not in env, env
         assert env["ZAI_BASE_URL"] == "https://api.z.ai/api/coding/paas/v4", env
+        assert environment.uploaded_files == [(str(key_path), "/tmp/maka-opencode-zai-api-key")], environment.uploaded_files
+        assert 'cat -- /tmp/maka-opencode-zai-api-key' in command, command
+        assert "test-zai-key" not in command, command
+        assert "test-zai-key" not in json.dumps(env), env
+        assert environment.root_commands == [
+            ("chmod 0444 -- /tmp/maka-opencode-zai-api-key", {"user": 0}),
+            ("rm -f -- /tmp/maka-opencode-zai-api-key", {"user": 0}),
+        ], environment.root_commands
         assert os.environ.get("ZAI_API_KEY") is None
         assert os.environ.get("ZAI_BASE_URL") is None
 
