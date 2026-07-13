@@ -1292,6 +1292,52 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.doesNotMatch(nextTurn.text, /user_stopped/);
   });
 
+  test('clearSession fences a first invocation that is already queued', async () => {
+    let observeAppCalls = 0;
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+    };
+    backend.observeApp = async () => {
+      observeAppCalls += 1;
+      return observation();
+    };
+    const tools = buildComputerUseTools({ backend });
+    const tool = tools[0];
+
+    const pending = tool.impl({
+      action: 'observe',
+      app: 'Fixture',
+    } as never, ctx());
+    tools.clearSession('s1');
+
+    const result = await pending as { text: string };
+    assert.match(result.text, /user_stopped/);
+    assert.equal(observeAppCalls, 0);
+  });
+
+  test('clearSession blocks host-reading actions in the same turn', async () => {
+    let preflightCalls = 0;
+    const backend = fakeBackend();
+    backend.preflight = async () => {
+      preflightCalls += 1;
+      return { accessibility: true, screenRecording: true };
+    };
+    const tools = buildComputerUseTools({ backend });
+    const tool = tools[0];
+    tools.clearSession('s1');
+
+    for (const input of [
+      { action: 'list_apps' },
+      { action: 'screenshot', app: 'Fixture' },
+      { action: 'cursor_position' },
+      { action: 'wait', duration: 0.001 },
+    ] as const) {
+      const result = await tool.impl(input as never, ctx()) as { text: string };
+      assert.match(result.text, /user_stopped/);
+    }
+    assert.equal(preflightCalls, 0);
+  });
+
   test('S17: surfaces the typed backend failure code without leaking raw driver text', async () => {
     const backend = fakeBackend({ result: { outcome: { ok: false, error: 'capture_failed', message: 'AXPress err -25202', completedSubSteps: 0 } } });
     const r = await callComputer(backend, { action: 'wait' });

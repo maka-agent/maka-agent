@@ -82,6 +82,7 @@ export class CuaSessionState {
   }
 
   physicalUserIntervened(): CuaSessionSnapshot {
+    if (this.isTerminal()) return this.snapshot();
     return this.transition('intervention_debounce');
   }
 
@@ -92,10 +93,12 @@ export class CuaSessionState {
   }
 
   reobserveRequired(): CuaSessionSnapshot {
+    if (this.isTerminal()) return this.snapshot();
     return this.transition('reobserve_required');
   }
 
   screenLocked(): CuaSessionSnapshot {
+    if (this.isTerminal()) return this.snapshot();
     return this.transition('screen_locked');
   }
 
@@ -106,10 +109,12 @@ export class CuaSessionState {
   }
 
   blockedUrlDetected(): CuaSessionSnapshot {
+    if (this.status === 'user_stopped') return this.snapshot();
     return this.transition('blocked_url');
   }
 
   userStopped(): CuaSessionSnapshot {
+    if (this.status === 'user_stopped') return this.snapshot();
     return this.transition('user_stopped');
   }
 
@@ -126,6 +131,10 @@ export class CuaSessionState {
     return this.status === 'unobserved'
       || this.status === 'active'
       || this.status === 'reobserve_required';
+  }
+
+  private isTerminal(): boolean {
+    return this.status === 'blocked_url' || this.status === 'user_stopped';
   }
 
   private transition(status: CuaSessionStatus): CuaSessionSnapshot {

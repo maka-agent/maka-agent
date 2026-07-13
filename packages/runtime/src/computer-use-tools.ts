@@ -1081,7 +1081,14 @@ export function buildComputerUseTools(deps: {
       const invocationGeneration = presentationGenerations.get(sessionId) ?? 0;
       return withInvocationQueue(sessionId, abortSignal, async () => {
         const state = sessionState(sessionId, turnId);
-        const observationLease = input.action === 'observe'
+        const requiresObservationLease = (
+          input.action === 'observe'
+          || input.action === 'screenshot'
+          || input.action === 'list_apps'
+          || input.action === 'cursor_position'
+          || input.action === 'wait'
+        );
+        const observationLease = requiresObservationLease
           ? state.beforeObservation()
           : undefined;
         if (observationLease && !observationLease.ok) {
@@ -1546,7 +1553,7 @@ export function buildComputerUseTools(deps: {
     );
     for (const wake of presentationQueueWaiters.get(sessionId) ?? []) wake();
     for (const wake of presentationWaiters.get(sessionId) ?? []) wake();
-    sessionStates.get(sessionId)?.state.userStopped();
+    sessionState(sessionId).userStopped();
     invalidateObservation(sessionId);
     observations.delete(sessionId);
     deps.backend.clearSession?.(sessionId);

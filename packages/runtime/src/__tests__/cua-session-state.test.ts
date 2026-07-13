@@ -129,6 +129,29 @@ describe('CuaSessionState', () => {
     });
   });
 
+  test('terminal states absorb later lifecycle events', () => {
+    const blocked = new CuaSessionState('blocked');
+    blocked.blockedUrlDetected();
+    blocked.screenLocked();
+    blocked.reobserveRequired();
+    blocked.physicalUserIntervened();
+    assert.deepEqual(blocked.snapshot(), {
+      status: 'blocked_url',
+      generation: 1,
+    });
+
+    const stopped = new CuaSessionState('stopped');
+    stopped.userStopped();
+    stopped.blockedUrlDetected();
+    stopped.screenLocked();
+    stopped.reobserveRequired();
+    stopped.physicalUserIntervened();
+    assert.deepEqual(stopped.snapshot(), {
+      status: 'user_stopped',
+      generation: 1,
+    });
+  });
+
   test('dynamic content changes neither synthesize intervention nor fence a lease', () => {
     const state = new CuaSessionState('session-1');
     state.freshObservationSucceeded();
