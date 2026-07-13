@@ -854,7 +854,9 @@ describe('buildHarborJobConfig', () => {
     const agent = (config.agents as Array<Record<string, unknown>>)[0]!;
     const env = agent.env as Record<string, string>;
 
-    assert.equal(agent.name, 'opencode');
+    // Harbor resolves built-in names before import_path, so setting both would
+    // silently bypass MakaOpenCodeAgent and its host-side auth proxy.
+    assert.equal(agent.name, undefined);
     assert.equal(agent.import_path, 'opencode_agent:MakaOpenCodeAgent');
     assert.equal(agent.model_name, 'zai-coding-plan/glm-5.2');
     assert.deepEqual(agent.kwargs, { version: '1.17.18' });

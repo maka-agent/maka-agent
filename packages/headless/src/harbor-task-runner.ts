@@ -439,7 +439,7 @@ export function buildHarborJobConfig(
     metrics: [{ type: 'mean', kwargs: {} }],
     agents: [
       {
-        name: adapter,
+        ...(adapter === 'maka' ? { name: adapter } : {}),
         import_path: adapter === 'opencode' ? 'opencode_agent:MakaOpenCodeAgent' : 'maka_agent:MakaAgent',
         model_name: agentModel,
         kwargs: adapter === 'maka'
