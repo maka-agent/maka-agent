@@ -1840,6 +1840,34 @@ describe('runHarborCell', () => {
     });
   });
 
+  test('env entrypoint carries max reasoning effort into config and execution identity', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const seenContexts: HeadlessBackendContext[] = [];
+      const result = await runHarborCellFromEnv({
+        MAKA_BACKEND: 'fake',
+        MAKA_INSTRUCTION: 'solve with max effort',
+        MAKA_MODEL: 'glm-5.2',
+        MAKA_LLM_CONNECTION_SLUG: 'zai-coding-plan',
+        MAKA_REASONING_EFFORT: 'max',
+        MAKA_WORKDIR: workspaceDir,
+        MAKA_OUTPUT_DIR: outputDir,
+        MAKA_STORAGE_ROOT: storageRoot,
+      }, {
+        registerBackends: (registry, context) => {
+          seenContexts.push(context);
+          registry.register('fake', (ctx) => new CellReportingBackend({
+            sessionId: ctx.sessionId,
+            header: ctx.header,
+            store: ctx.store,
+          }));
+        },
+      });
+
+      assert.equal(seenContexts[0]?.config.thinkingLevel, 'max');
+      assert.equal(result.output.executionIdentity?.reasoningEffort, 'max');
+    });
+  });
+
   test('env entrypoint registers the Pi CLI transport by default for pi-agent', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const piCommand = join(outputDir, 'fake-pi.mjs');

@@ -1071,6 +1071,7 @@ with tempfile.TemporaryDirectory() as tmp:
 function pythonOpenCodeAdapterSmokeScript(root: string): string {
   return String.raw`
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -1161,21 +1162,27 @@ context_mod.AgentContext = AgentContext
 sys.path.insert(0, str(root / "packages" / "headless" / "harbor"))
 from opencode_agent import MakaOpenCodeAgent
 
-old_key = os.environ.pop("OPENAI_API_KEY", None)
-old_base = os.environ.pop("OPENAI_BASE_URL", None)
+old_key = os.environ.pop("ZAI_API_KEY", None)
+old_base = os.environ.pop("ZAI_BASE_URL", None)
 try:
     with tempfile.TemporaryDirectory() as tmp:
         template_path = Path(tmp) / "prompt.j2"
         template_path.write_text("templated: {{ instruction }}", encoding="utf-8")
+        key_path = Path(tmp) / "zai-key"
+        key_path.write_text("test-zai-key\n", encoding="utf-8")
         agent = MakaOpenCodeAgent(Path(tmp), extra_env={
-            "OPENAI_API_KEY": "test-key",
-            "OPENAI_BASE_URL": "https://api.xiaomimimo.com/v1",
+            "ZAI_API_KEY_FILE": str(key_path),
+            "ZAI_BASE_URL": "https://api.z.ai/api/coding/paas/v4",
+            "MAKA_LLM_CONNECTION_SLUG": "zai-coding-plan",
+            "MAKA_SYSTEM_PROMPT": "",
+            "MAKA_REASONING_EFFORT": "max",
+            "MAKA_OPENCODE_VARIANT": "max",
             "MAKA_TRIAL_INPUT_USD_PER_1M": "2",
             "MAKA_TRIAL_OUTPUT_USD_PER_1M": "10",
             "MAKA_TRIAL_CACHE_READ_USD_PER_1M": "0.5",
             "MAKA_TRIAL_CACHE_WRITE_USD_PER_1M": "3",
             "MAKA_TRIAL_PRICING_SOURCE": "xiaomi-env",
-        }, prompt_template_path=template_path)
+        }, prompt_template_path=template_path, model_name="zai-coding-plan/glm-5.2")
         context = AgentContext()
         environment = types.SimpleNamespace(agent_commands=[])
         async def exec_as_agent(environment, command, env=None, **kwargs):
@@ -1186,12 +1193,13 @@ try:
         command, env = environment.agent_commands[-1]
         assert "opencode-stop-runner.mjs" in command, command
         assert "--output /logs/agent/opencode.txt" in command, command
-        assert "opencode --model=openai/mimo-v2.5-pro run --format=json" in command, command
+        assert "opencode --model=zai-coding-plan/glm-5.2 run --format=json" in command, command
+        assert "--variant=max" in command, command
         assert "templated: hi" in command, command
-        assert env["OPENAI_API_KEY"] == "test-key", env
-        assert env["OPENAI_BASE_URL"] == "https://api.xiaomimimo.com/v1", env
-        assert os.environ.get("OPENAI_API_KEY") is None
-        assert os.environ.get("OPENAI_BASE_URL") is None
+        assert env["ZAI_API_KEY"] == "test-zai-key", env
+        assert env["ZAI_BASE_URL"] == "https://api.z.ai/api/coding/paas/v4", env
+        assert os.environ.get("ZAI_API_KEY") is None
+        assert os.environ.get("ZAI_BASE_URL") is None
 
         agent.populate_context_post_run(context)
         expected = (60 / 1_000_000 * 2) + (20 / 1_000_000 * 10) + (40 / 1_000_000 * 0.5)
@@ -1204,12 +1212,17 @@ try:
         assert context.metadata["opencode_estimated_cost_usd"] == context.cost_usd, context.metadata
         assert context.metadata["opencode_reported_cost_usd"] == 0.99, context.metadata
         assert context.metadata["opencode_pricing_source"] == "xiaomi-env", context.metadata
+        cell = json.loads((Path(tmp) / "maka-cell-output.json").read_text(encoding="utf-8"))
+        assert cell["executionIdentity"]["model"] == "glm-5.2", cell
+        assert cell["executionIdentity"]["reasoningEffort"] == "max", cell
+        assert cell["tokenSummary"]["cachedInput"] == 40, cell
+        assert "test-zai-key" not in json.dumps(cell), cell
         print("opencode_estimated_cost_usd", context.cost_usd)
 finally:
     if old_key is not None:
-        os.environ["OPENAI_API_KEY"] = old_key
+        os.environ["ZAI_API_KEY"] = old_key
     if old_base is not None:
-        os.environ["OPENAI_BASE_URL"] = old_base
+        os.environ["ZAI_BASE_URL"] = old_base
 `;
 }
 

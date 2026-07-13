@@ -812,6 +812,7 @@ function classifyExecutionIdentityFailure(
     if (
       identity.llmConnectionSlug !== expectedConfig.llmConnectionSlug
       || identity.model !== expectedModel
+      || identity.reasoningEffort !== expectedConfig.thinkingLevel
       || identity.systemPromptHash !== expectedPromptHash
       || (expectedPricingProfile !== undefined && identity.pricingProfile !== expectedPricingProfile)
     ) {

@@ -49,12 +49,17 @@ export interface HarborTaskPricing {
 export interface HarborTaskRunnerOptions {
   /** Host path to the maka repo, mounted read-only at /opt/maka-agent. */
   makaRepoPath: string;
+  /** Harbor adapter under test (default: Maka). */
+  agent?: 'maka' | 'opencode';
+  /** Version passed to Harbor's installed-agent adapter (used to pin OpenCode). */
+  agentVersion?: string;
   /** Base directory under which each task gets an isolated per-task job dir. */
   jobsDir: string;
   /** MAKA_MODEL, e.g. "deepseek/deepseek-v4-flash". */
   model: string;
   /** MAKA_PROVIDER, e.g. "deepseek". */
   provider?: string;
+  reasoningEffort?: 'high' | 'max';
   /** Host path to an API key file. The key stays in the Harbor control process;
    * the task container receives no provider key env, key-file path, or secret mount. */
   apiKeyFile?: string;
@@ -109,12 +114,16 @@ const PROVIDER_SECRET_ENV: Record<string, { key: string; file: string; baseUrl: 
   moonshot: { key: 'MOONSHOT_API_KEY', file: 'MOONSHOT_API_KEY_FILE', baseUrl: 'MOONSHOT_BASE_URL' },
   google: { key: 'GOOGLE_API_KEY', file: 'GOOGLE_API_KEY_FILE', baseUrl: 'GOOGLE_BASE_URL' },
   anthropic: { key: 'ANTHROPIC_API_KEY', file: 'ANTHROPIC_API_KEY_FILE', baseUrl: 'ANTHROPIC_BASE_URL' },
+  'zai-coding-plan': { key: 'ZAI_API_KEY', file: 'ZAI_API_KEY_FILE', baseUrl: 'ZAI_BASE_URL' },
 };
 
 const EXPERIMENT_IDENTITY_ENV_KEYS = new Set([
   'MAKA_BACKEND',
   'MAKA_MODEL',
   'MAKA_PROVIDER',
+  'MAKA_LLM_CONNECTION_SLUG',
+  'MAKA_REASONING_EFFORT',
+  'MAKA_OPENCODE_VARIANT',
   'MAKA_SYSTEM_PROMPT',
   'MAKA_TRIAL_INPUT_USD_PER_1M',
   'MAKA_TRIAL_OUTPUT_USD_PER_1M',
@@ -126,7 +135,7 @@ const EXPERIMENT_IDENTITY_ENV_KEYS = new Set([
 export function createHarborTaskRunner(options: HarborTaskRunnerOptions): HarborTaskRunner {
   const runHarbor = options.runHarbor ?? defaultHarborProcessRunner;
   const harborBin = options.harborBin ?? 'harbor';
-  // The bare `maka_agent:MakaAgent` import path resolves only when the adapter
+  // The bare local adapter import paths resolve only when the adapter
   // directory is on harbor's PYTHONPATH; harbor is a uv-installed tool, so its cwd
   // is not enough. Prepend it (keeping any inherited PYTHONPATH).
   const harborAdapterDir = join(options.makaRepoPath, 'packages', 'headless', 'harbor');
@@ -366,18 +375,25 @@ export function buildHarborJobConfig(
   assertNoProviderSecretsInAgentEnv(attemptAgentEnv);
   assertNoExperimentIdentityOverrides(attemptAgentEnv);
   const provider = options.provider ?? 'deepseek';
-  const model = modelIdForProvider(options.model, provider);
+  const makaModel = modelIdForProvider(options.model, provider);
+  const adapter = options.agent ?? 'maka';
+  const agentModel = adapter === 'opencode' ? modelForOpenCode(options.model, provider) : makaModel;
   const mounts: Array<Record<string, unknown>> = [
     { type: 'bind', source: options.makaRepoPath, target: CONTAINER_MAKA_REPO, read_only: true },
   ];
 
   const agentEnv: Record<string, string> = {
     MAKA_BACKEND: 'ai-sdk',
-    MAKA_MODEL: model,
+    MAKA_MODEL: makaModel,
     MAKA_PROVIDER: provider,
+    MAKA_LLM_CONNECTION_SLUG: provider,
     // Verbatim — the controller hashes exactly these bytes and verifies the round-trip.
     MAKA_SYSTEM_PROMPT: input.systemPrompt,
   };
+  if (options.reasoningEffort) {
+    agentEnv.MAKA_REASONING_EFFORT = options.reasoningEffort;
+    if (adapter === 'opencode') agentEnv.MAKA_OPENCODE_VARIANT = options.reasoningEffort;
+  }
 
   if (options.pricing) {
     agentEnv.MAKA_TRIAL_INPUT_USD_PER_1M = String(options.pricing.inputUsdPer1M);
@@ -413,10 +429,14 @@ export function buildHarborJobConfig(
     metrics: [{ type: 'mean', kwargs: {} }],
     agents: [
       {
-        name: 'maka',
-        import_path: 'maka_agent:MakaAgent',
-        model_name: model,
-        kwargs: { backend: 'ai-sdk' },
+        name: adapter,
+        import_path: adapter === 'opencode' ? 'opencode_agent:MakaOpenCodeAgent' : 'maka_agent:MakaAgent',
+        model_name: agentModel,
+        kwargs: adapter === 'maka'
+          ? { backend: 'ai-sdk' }
+          : options.agentVersion
+            ? { version: options.agentVersion }
+            : {},
         env: agentEnv,
         ...(cellTimeoutSec !== undefined ? { max_timeout_sec: cellTimeoutSec } : {}),
       },
@@ -444,6 +464,13 @@ function hostSideProviderEnv(options: HarborTaskRunnerOptions): Record<string, s
   const provider = options.provider ?? 'deepseek';
   const providerEnv = providerSecretEnv(provider);
   const baseUrl = options.agentEnv?.[providerEnv.baseUrl] ?? options.agentEnv?.MAKA_BASE_URL ?? options.agentEnv?.OPENAI_BASE_URL;
+  if (options.agent === 'opencode') {
+    const rawKeyEnvName = normalizeRawKeyEnvName(options.apiKeyEnvName ?? providerEnv.key);
+    return {
+      [`${rawKeyEnvName}_FILE`]: options.apiKeyFile,
+      ...(baseUrl ? { [providerEnv.baseUrl]: baseUrl } : {}),
+    };
+  }
   return {
     MAKA_HOST_REPO_ROOT: options.makaRepoPath,
     MAKA_HOST_API_KEY_FILE: options.apiKeyFile,
@@ -657,6 +684,10 @@ function isBudgetExhaustedError(error: unknown): error is FixedPromptBudgetExhau
 export function modelIdForProvider(model: string, provider: string): string {
   const prefix = `${provider}/`;
   return model.startsWith(prefix) ? model.slice(prefix.length) : model;
+}
+
+function modelForOpenCode(model: string, provider: string): string {
+  return model.includes('/') ? model : `${provider}/${model}`;
 }
 
 function sanitize(value: string): string {

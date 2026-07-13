@@ -224,6 +224,34 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
+  test('keeps the OpenCode key file in Harbor process env and out of the job config', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      const captured: { config?: Record<string, unknown> } = {};
+      let harborEnv: Record<string, string> | undefined;
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        agent: 'opencode',
+        agentVersion: '1.17.18',
+        model: 'zai-coding-plan/glm-5.2',
+        provider: 'zai-coding-plan',
+        reasoningEffort: 'max',
+        apiKeyFile: keyFile,
+        agentEnv: { ZAI_BASE_URL: 'https://api.z.ai/api/coding/paas/v4' },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(harborEnv?.ZAI_API_KEY_FILE, keyFile);
+      assert.equal(harborEnv?.ZAI_BASE_URL, 'https://api.z.ai/api/coding/paas/v4');
+      assert.doesNotMatch(JSON.stringify(captured.config), /ZAI_API_KEY|deepseek-key|sk-secret/);
+    });
+  });
+
   test('rejects provider secrets in agentEnv even when host-side key file is configured', async () => {
     await withRun(async ({ jobsDir, repo, keyFile }) => {
       const runner = createHarborTaskRunner({
@@ -536,6 +564,32 @@ describe('createHarborTaskRunner', () => {
 });
 
 describe('buildHarborJobConfig', () => {
+  test('pins the OpenCode adapter and max model variant without serializing credentials', () => {
+    const config = buildHarborJobConfig(runInput(), {
+      makaRepoPath: '/repo',
+      jobsDir: '/jobs/x',
+      jobName: 'trial',
+      agent: 'opencode',
+      model: 'zai-coding-plan/glm-5.2',
+      provider: 'zai-coding-plan',
+      reasoningEffort: 'max',
+      agentVersion: '1.17.18',
+      pricing: { inputUsdPer1M: 1.4, cacheReadUsdPer1M: 0.26, outputUsdPer1M: 4.4 },
+    });
+    const agent = (config.agents as Array<Record<string, unknown>>)[0]!;
+    const env = agent.env as Record<string, string>;
+
+    assert.equal(agent.name, 'opencode');
+    assert.equal(agent.import_path, 'opencode_agent:MakaOpenCodeAgent');
+    assert.equal(agent.model_name, 'zai-coding-plan/glm-5.2');
+    assert.deepEqual(agent.kwargs, { version: '1.17.18' });
+    assert.equal(env.MAKA_OPENCODE_VARIANT, 'max');
+    assert.equal(env.MAKA_LLM_CONNECTION_SLUG, 'zai-coding-plan');
+    assert.equal(env.MAKA_REASONING_EFFORT, 'max');
+    assert.equal(env.ZAI_API_KEY, undefined);
+    assert.equal(env.ZAI_API_KEY_FILE, undefined);
+  });
+
   test('rejects experiment identity overrides in extra agent env', () => {
     assert.throws(
       () => buildHarborJobConfig(runInput(), {

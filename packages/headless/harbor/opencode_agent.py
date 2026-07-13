@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shlex
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -22,6 +25,8 @@ class MakaOpenCodeAgent(OpenCode):
     _BRIDGED_ENV_KEYS = (
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
+        "ZAI_API_KEY",
+        "ZAI_BASE_URL",
         "XDG_DATA_HOME",
         "XDG_CONFIG_HOME",
         "XDG_STATE_HOME",
@@ -38,8 +43,10 @@ class MakaOpenCodeAgent(OpenCode):
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
+        self._started_at_ms = int(time.time() * 1000)
         with self._bridged_env():
             await self._run_with_stop_sentinel(instruction, environment)
+        self._finished_at_ms = int(time.time() * 1000)
         if messages := self._error_messages():
             raise NonZeroAgentExitCodeError(
                 "OpenCode emitted error event(s): " + "; ".join(messages[:3])
@@ -48,12 +55,17 @@ class MakaOpenCodeAgent(OpenCode):
     def populate_context_post_run(self, context: AgentContext) -> None:
         super().populate_context_post_run(context)
         self._apply_cost_metadata(context)
+        self._write_cell_output(context)
 
     @contextmanager
     def _bridged_env(self) -> Iterator[None]:
         previous: dict[str, str | None] = {}
         for key in self._BRIDGED_ENV_KEYS:
             value = self._get_env(key)
+            if value is None and key.endswith("_API_KEY"):
+                key_file = self._get_env(f"{key}_FILE")
+                if key_file:
+                    value = Path(key_file).read_text(encoding="utf-8").strip()
             if value is None:
                 continue
             previous[key] = os.environ.get(key)
@@ -117,6 +129,10 @@ class MakaOpenCodeAgent(OpenCode):
 
         cli_flags = self.build_cli_flags()
         cli_flags_arg = (cli_flags + " ") if cli_flags else ""
+        variant = self._get_env("MAKA_OPENCODE_VARIANT")
+        if variant not in (None, "high", "max"):
+            raise ValueError(f"Unsupported OpenCode variant: {variant}")
+        variant_arg = f"--variant={shlex.quote(variant)} " if variant else ""
         runner_path = self._stop_runner_path()
         grace_ms = self._stop_grace_ms()
         command = (
@@ -126,7 +142,7 @@ class MakaOpenCodeAgent(OpenCode):
             f"--grace-ms {grace_ms} "
             "-- "
             f"opencode --model={shlex.quote(self.model_name)} run --format=json "
-            f"{cli_flags_arg}--thinking --dangerously-skip-permissions -- "
+            f"{cli_flags_arg}{variant_arg}--thinking --dangerously-skip-permissions -- "
             f"{escaped_instruction}"
         )
         await self.exec_as_agent(environment, command=command, env=env)
@@ -191,6 +207,8 @@ class MakaOpenCodeAgent(OpenCode):
             keys.append("XAI_API_KEY")
         elif provider == "openrouter":
             keys.append("OPENROUTER_API_KEY")
+        elif provider == "zai-coding-plan":
+            keys.extend(["ZAI_API_KEY", "ZAI_BASE_URL"])
 
         env: dict[str, str] = {}
         for key in keys:
@@ -214,6 +232,7 @@ class MakaOpenCodeAgent(OpenCode):
             "cache_read": cache_read,
             "cache_write": 0,
             "cache_miss": cache_miss,
+            "reasoning": 0,
         }
 
     def _token_totals_from_stdout(self) -> dict[str, int] | None:
@@ -227,6 +246,7 @@ class MakaOpenCodeAgent(OpenCode):
         output_tokens = 0
         cache_read = 0
         cache_write = 0
+        reasoning = 0
         saw_tokens = False
         for event in events:
             if event.get("type") != "step_finish":
@@ -240,6 +260,7 @@ class MakaOpenCodeAgent(OpenCode):
             saw_tokens = True
             step_input = _int_value(tokens.get("input"))
             step_output = _int_value(tokens.get("output"))
+            step_reasoning = _int_value(tokens.get("reasoning"))
             cache = tokens.get("cache")
             step_cache_read = (
                 _int_value(cache.get("read")) if isinstance(cache, dict) else 0
@@ -251,6 +272,7 @@ class MakaOpenCodeAgent(OpenCode):
             output_tokens += step_output
             cache_read += step_cache_read
             cache_write += step_cache_write
+            reasoning += step_reasoning
 
         if not saw_tokens:
             return None
@@ -261,7 +283,87 @@ class MakaOpenCodeAgent(OpenCode):
             "cache_read": cache_read,
             "cache_write": cache_write,
             "cache_miss": max(0, input_tokens - cache_read - cache_write),
+            "reasoning": reasoning,
         }
+
+    def _write_cell_output(self, context: AgentContext) -> None:
+        totals = self._token_totals(context)
+        started_at = getattr(self, "_started_at_ms", int(time.time() * 1000))
+        finished_at = getattr(self, "_finished_at_ms", started_at)
+        provider, model = self.model_name.split("/", 1)
+        system_prompt = self._get_env("MAKA_SYSTEM_PROMPT") or ""
+        prompt_hash = "sha256:" + hashlib.sha256(
+            json.dumps(system_prompt, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        pricing_profile = self._get_env("MAKA_TRIAL_PRICING_SOURCE") or "unconfigured"
+        reasoning_effort = self._get_env("MAKA_REASONING_EFFORT")
+        execution_identity = {
+            "llmConnectionSlug": self._get_env("MAKA_LLM_CONNECTION_SLUG") or provider,
+            "model": model,
+            **({"reasoningEffort": reasoning_effort} if reasoning_effort else {}),
+            "systemPromptHash": prompt_hash,
+            "pricingProfile": pricing_profile,
+        }
+        events = self._parse_stdout() if hasattr(self, "_parse_stdout") else []
+        tool_call_counts: dict[str, int] = {}
+        for event in events or []:
+            part = event.get("part")
+            if not isinstance(part, dict) or part.get("type") not in ("tool", "tool-invocation"):
+                continue
+            tool_name = part.get("tool")
+            if tool_name:
+                name = str(tool_name)
+                tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
+        tool_names = sorted(tool_call_counts)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        runtime_events_path = self.logs_dir / "runtime-events.jsonl"
+        source_events_path = self.logs_dir / "opencode.txt"
+        runtime_events_path.write_text(
+            source_events_path.read_text(encoding="utf-8") if source_events_path.exists() else "",
+            encoding="utf-8",
+        )
+        output = {
+            "schemaVersion": 1,
+            "status": "completed",
+            "runtimeEventsPath": "/logs/agent/runtime-events.jsonl",
+            "promptHash": prompt_hash,
+            "executionIdentity": execution_identity,
+            "tokenSummary": {
+                "input": totals["input"],
+                "cachedInput": totals["cache_read"],
+                "cacheHitInput": totals["cache_read"],
+                "cacheMissInput": totals["cache_miss"],
+                "cacheWriteInput": totals["cache_write"],
+                "cacheMissInputSource": "explicit",
+                "output": totals["output"],
+                "reasoning": totals["reasoning"],
+                "total": totals["input"] + totals["output"],
+                "costUsd": float(context.cost_usd or 0),
+                "pricingSource": "runtime",
+            },
+            "toolSummary": {
+                "providerVisibleToolCount": 0,
+                "actualToolCalls": sum(tool_call_counts.values()),
+                "actualToolNames": tool_names,
+                "actualToolCallCounts": tool_call_counts,
+            },
+            "steps": sum(1 for event in events or [] if event.get("type") == "step_finish"),
+            "durationMs": max(0, finished_at - started_at),
+            "startedAt": started_at,
+            "finishedAt": finished_at,
+            "runtimeRefs": {
+                "invocationId": "opencode",
+                "sessionId": "opencode",
+                "runId": "opencode",
+                "turnId": "opencode",
+            },
+        }
+        (self.logs_dir / "maka-cell-output.json").write_text(
+            json.dumps(output, indent=2) + "\n", encoding="utf-8"
+        )
+        (self.logs_dir / "maka-cell-execution-identity.json").write_text(
+            json.dumps(execution_identity, indent=2) + "\n", encoding="utf-8"
+        )
 
 def _int_value(value: Any) -> int:
     return (
