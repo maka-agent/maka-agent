@@ -40,6 +40,7 @@ describe('provider compatibility contract', () => {
       'siliconflow',
       'xai',
       'ollama',
+      'lm-studio',
       'openai-compatible',
       'claude-subscription',
       'codex-subscription',
@@ -57,6 +58,7 @@ describe('provider compatibility contract', () => {
       'siliconflow',
       'xai',
       'ollama',
+      'lm-studio',
       'kimi-coding-plan',
       'openai-compatible',
       'minimax-coding-plan',
@@ -75,6 +77,7 @@ describe('provider compatibility contract', () => {
       'google',
       'xai',
       'ollama',
+      'lm-studio',
       'openai-compatible',
     ]);
   });
@@ -93,6 +96,7 @@ describe('provider compatibility contract', () => {
     assert.equal(PROVIDER_REGISTRY['kimi-coding-plan'].catalogGroup, 'plans');
     assert.equal(PROVIDER_REGISTRY.siliconflow.catalogGroup, 'aggregators');
     assert.equal(PROVIDER_REGISTRY.ollama.catalogGroup, 'local');
+    assert.equal(PROVIDER_REGISTRY['lm-studio'].catalogGroup, 'local');
     assert.equal(PROVIDER_REGISTRY.siliconflow.runtimeAdapter.kind, 'openai-compatible');
     assert.equal(PROVIDER_REGISTRY.siliconflow.modelDiscovery.kind, 'protocol');
     assert.deepEqual(PROVIDER_REGISTRY.siliconflow.modelDiscovery.query, { sub_type: 'chat' });
@@ -295,6 +299,26 @@ describe('validateConnectionBaseUrl (PR-UI-IPC-1, @kenji msg 35260e29)', () => {
 });
 
 describe('provider URL defaults', () => {
+  it('defines LM Studio as an independent no-auth local provider', () => {
+    const providers = PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]>>;
+    const lmStudio = providers['lm-studio'];
+
+    assert.ok(lmStudio, 'LM Studio must have its own persisted provider id');
+    assert.equal(lmStudio.label, 'LM Studio');
+    assert.equal(lmStudio.baseUrl, 'http://localhost:1234/v1');
+    assert.equal(lmStudio.authKind, 'none');
+    assert.equal(lmStudio.protocol, 'openai');
+    assert.deepEqual(lmStudio.runtimeAdapter, {
+      kind: 'openai-compatible',
+      name: 'provider',
+      apiKeyFallback: 'lm-studio',
+    });
+    assert.deepEqual(lmStudio.modelDiscovery, { kind: 'protocol' });
+    assert.deepEqual(lmStudio.fallbackModels, []);
+    assert.equal(lmStudio.category, 'local');
+    assert.equal(lmStudio.catalogGroup, 'local');
+  });
+
   it('exposes SiliconFlow with models.dev provider facts and exact model ids', () => {
     const siliconflow = (PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]>>).siliconflow;
 

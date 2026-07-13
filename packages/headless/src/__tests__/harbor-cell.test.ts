@@ -2186,6 +2186,23 @@ setTimeout(() => {
     assert.equal(deepseek.connection.baseUrl, 'https://fallback.example/v1');
   });
 
+  test('resolves LM Studio headless configuration without credentials', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'lm-studio',
+      model: 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF',
+      env: {},
+      ts: 123,
+    });
+
+    assert.equal(resolved.apiKey, '');
+    assert.equal(resolved.connection.providerType, 'lm-studio');
+    assert.equal(resolved.connection.baseUrl, 'http://localhost:1234/v1');
+    assert.equal(
+      resolved.connection.defaultModel,
+      'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF',
+    );
+  });
+
   test('resolves SiliconFlow only from SiliconFlow credential env', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'siliconflow',

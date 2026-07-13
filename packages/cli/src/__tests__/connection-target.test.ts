@@ -4,6 +4,34 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 import { listReadyModelChoices, resolveDefaultSessionTarget } from '../connection-target.js';
 
 describe('default session target resolver', () => {
+  test('resolves LM Studio without reading a credential or rewriting the selected model id', async () => {
+    const connection = makeConnection({
+      slug: 'lm-studio',
+      name: 'LM Studio',
+      providerType: 'lm-studio',
+      defaultModel: 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF',
+    });
+    let credentialReads = 0;
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'lm-studio',
+        get: async (slug) => slug === 'lm-studio' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async () => {
+          credentialReads += 1;
+          return null;
+        },
+      },
+    });
+
+    assert.equal(credentialReads, 0);
+    assert.equal(target.connection.providerType, 'lm-studio');
+    assert.equal(target.apiKey, '');
+    assert.equal(target.model, 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF');
+  });
+
   test('resolves MiniMax Coding Plan credentials without rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'minimax-plan',
