@@ -91,7 +91,7 @@ import { AppShellTopbarActions, AppShellWorkspaceTopActions } from './app-shell-
 import { AppShellOverlays } from './app-shell-overlays';
 import { createAppShellDailyReviewBridge } from './app-shell-daily-review-bridge';
 import { createAppShellPlanActions } from './app-shell-plan-actions';
-import { createAppShellProjectActions, type RendererAppInfo } from './app-shell-project-actions';
+import { useAppShellProjectContext } from './use-project-context';
 import { createAppShellSkillActions } from './app-shell-skill-actions';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
 import { createAppShellVisualSmokeActions } from './app-shell-visual-smoke';
@@ -238,17 +238,6 @@ export function AppShell({
   const [pendingNewChatModel, setPendingNewChatModel] = useState<{ llmConnectionSlug: string; model: string } | null>(
     persistedComposerDefaults?.model ?? null,
   );
-  const [appInfo, setAppInfo] = useState<RendererAppInfo | null>(
-    persistedComposerDefaults?.projectPath
-      ? { projectPath: persistedComposerDefaults.projectPath, projectGit: { isGitRepo: false } }
-      : null,
-  );
-  const [branchList, setBranchList] = useState<{ branches: string[]; current?: string } | null>(null);
-  const [branchPending, setBranchPending] = useState(false);
-  const [recentProjectPaths, setRecentProjectPaths] = useState<string[]>(
-    persistedComposerDefaults?.recentProjectPaths ?? [],
-  );
-  const [projectPickerPending, setProjectPickerPending] = useState(false);
   const [helpOpen, closeHelp, openHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
   // Search modal state. Sidebar `搜索` opens the real thread-search
@@ -275,8 +264,6 @@ export function AppShell({
   }
   const composerRef = useRef<ComposerHandle>(null);
   const rendererMountedRef = useRef(true);
-  const projectPickerPendingRef = useRef(false);
-  const projectPickerRequestRef = useRef(0);
   // Active autonomous goal for the current session drives the header
   // kill-switch pill (visible indicator + one-click clear).
   const activeGoal = useSessionGoal(activeId);
@@ -860,6 +847,13 @@ export function AppShell({
   });
 
   const {
+    appInfo,
+    branchList,
+    branchPending,
+    recentProjectPaths,
+    projectPickerPending,
+    projectPickerPendingRef,
+    projectPickerRequestRef,
     refreshAppInfo,
     selectProjectDirectory,
     selectRecentProjectDirectory,
@@ -868,16 +862,9 @@ export function AppShell({
     openSkillsFolder,
     listGitBranches,
     checkoutGitBranch,
-  } = createAppShellProjectActions({
-    projectPickerPendingRef,
-    projectPickerRequestRef,
+  } = useAppShellProjectContext({
+    persistedComposerDefaults,
     rendererMountedRef,
-    setAppInfo,
-    setProjectPickerPending,
-    setBranchPending,
-    setBranchList,
-    setRecentProjectPaths,
-    recentProjectPaths,
     toastApi,
   });
 
