@@ -9,6 +9,7 @@
  */
 
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 import { Button as UiButton } from './ui.js';
 import { ModelPicker } from './model-picker.js';
@@ -135,7 +136,7 @@ export function ChatModelSwitcher(props: {
 }) {
   const [localPending, setLocalPending] = useState(false);
   const pendingRef = useRef(false);
-  const modelSwitcherMountedRef = useRef(true);
+  const modelSwitcherMountedRef = useMountedRef();
   const pendingModelChangeRef = useRef<{ sessionId: string; token: number } | null>(null);
   const pendingModelChangeTokenRef = useRef(0);
   const currentModel = props.activeModel ?? props.activeSession.model;
@@ -153,9 +154,7 @@ export function ChatModelSwitcher(props: {
     : props.disabledReason ?? `${currentSessionModelTitle}。设置里的默认模型只影响新建会话；这里会更新当前会话。`;
 
   useEffect(() => {
-    modelSwitcherMountedRef.current = true;
     return () => {
-      modelSwitcherMountedRef.current = false;
       pendingModelChangeRef.current = null;
       pendingModelChangeTokenRef.current += 1;
       pendingRef.current = false;

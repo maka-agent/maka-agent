@@ -17,14 +17,14 @@ describe('tool and permission args redaction', () => {
     assert.match(rendered, /command/);
   });
 
-  it('routes ToolActivity args through quiet formatters and PermissionDialog through formatRedactedJson', async () => {
+  it('routes ToolActivity args through quiet formatters and only additional PermissionPrompt args through formatRedactedJson', async () => {
     const [toolSource, permissionSource, quietSource] = await Promise.all([
       readFile(join(process.cwd(), '../../packages/ui/src/tool-activity.tsx'), 'utf8'),
       readFile(join(process.cwd(), '../../packages/ui/src/permission-dialog.tsx'), 'utf8'),
       readFile(join(process.cwd(), '../../packages/ui/src/tool-activity/builtin-preview.ts'), 'utf8'),
     ]);
     const toolActivity = toolSource.match(/export function ToolActivity[\s\S]*?function ToolOutputStream/)?.[0] ?? '';
-    const permissionDialog = permissionSource.match(/export function PermissionDialog[\s\S]*?function renderPermissionSummary/)?.[0] ?? '';
+    const permissionPrompt = permissionSource.match(/export function PermissionPrompt[\s\S]*?function renderPermissionSummary/)?.[0] ?? '';
 
     // Quiet panel: never stringify args; use formatToolInvocationLine / formatQuietJsonValue.
     assert.match(toolActivity, /formatToolInvocationLine\(item\)/);
@@ -33,8 +33,12 @@ describe('tool and permission args redaction', () => {
     assert.doesNotMatch(toolActivity, /formatRedactedJson\(item\.args\)/);
     assert.match(quietSource, /redactSecrets\(key\)/);
     assert.match(quietSource, /push\(redactSecrets\(line\)\)|lines\.push\(redactSecrets\(line\)\)/);
-    assert.match(permissionDialog, /\{formatRedactedJson\([\s\S]*?props\.request\.additionalPermissions[\s\S]*?props\.request\.args,[\s\S]*?\)\}/);
-    assert.doesNotMatch(permissionDialog, /JSON\.stringify\(props\.request\.(?:args|additionalPermissions)/);
+    // Permission prompt redacts only args that its summary and details have not already shown.
+    assert.match(permissionPrompt, /\{formatRedactedJson\(additionalArgs\)\}/);
+    assert.doesNotMatch(permissionPrompt, /JSON\.stringify\(props\.request\.args/);
+    assert.match(permissionSource, /request\.kind === 'additional_permissions'[\s\S]*additionalPermissions: request\.additionalPermissions/);
+    assert.match(permissionSource, /request\.kind === 'sandbox_escalation'[\s\S]*command: request\.command/);
+    assert.doesNotMatch(permissionSource, /JSON\.stringify\(request\.(?:args|additionalPermissions)/);
   });
 
   it('redacts and caps model-authored tool intents before rendering', async () => {
@@ -54,16 +58,16 @@ describe('tool and permission args redaction', () => {
 
   it('redacts permission summary previews before rendering command, path, or file content', async () => {
     const source = await readFile(join(process.cwd(), '../../packages/ui/src/permission-dialog.tsx'), 'utf8');
-    const summary = source.match(/function renderPermissionSummary[\s\S]*?function permissionValuePreview/)?.[0] ?? '';
+    const presentation = source.match(/function renderPermissionSummary[\s\S]*?function permissionValuePreview/)?.[0] ?? '';
 
-    assert.match(summary, /\{redactSecrets\(command\)\}/);
-    assert.match(summary, /\{redactSecrets\(path\)\}/);
-    assert.match(summary, /const preview = permissionTextPreview\(content, 600\);/);
-    assert.match(summary, /\{permissionTextPreview\(oldString, 400\)\}/);
-    assert.match(summary, /\{permissionTextPreview\(newString, 400\)\}/);
-    assert.doesNotMatch(summary, /\{command\}<\/pre>/);
-    assert.doesNotMatch(summary, /\{path\}<\/code>/);
-    assert.doesNotMatch(summary, /oldString\.slice/);
-    assert.doesNotMatch(summary, /newString\.slice/);
+    assert.match(presentation, /\{redactSecrets\(command\)\}/);
+    assert.match(presentation, /\{redactSecrets\(path\)\}/);
+    assert.match(presentation, /\{permissionTextPreview\(content, 600\)\}/);
+    assert.match(presentation, /prefixPermissionDiff\(permissionTextPreview\(oldString, 400\), '-'\)/);
+    assert.match(presentation, /prefixPermissionDiff\(permissionTextPreview\(newString, 400\), '\+'\)/);
+    assert.doesNotMatch(presentation, /\{command\}<\/pre>/);
+    assert.doesNotMatch(presentation, /\{path\}<\/code>/);
+    assert.doesNotMatch(presentation, /oldString\.slice/);
+    assert.doesNotMatch(presentation, /newString\.slice/);
   });
 });

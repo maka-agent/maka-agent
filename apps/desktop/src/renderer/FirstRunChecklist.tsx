@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, BookOpen, CalendarDays, Check, Clock, FileText, Mic, RefreshCcw, Search, Sparkles, User } from '@maka/ui/icons';
 import { generalizedErrorMessageChinese, type AppSettings, type PlanReminder, type SettingsSection } from '@maka/core';
-import { Alert, AlertAction, AlertDescription, Button, useToast } from '@maka/ui';
+import { Alert, AlertAction, AlertDescription, Button, useMountedRef, useToast } from '@maka/ui';
 
 interface ChecklistItem {
   id: string;
@@ -55,15 +55,13 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
   const [workspaceInstructionCount, setWorkspaceInstructionCount] = useState<number | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusRefreshPending, setStatusRefreshPending] = useState(false);
-  const checklistMountedRef = useRef(true);
+  const checklistMountedRef = useMountedRef();
   const failureToastShownRef = useRef(false);
   const statusRefreshPendingRef = useRef(false);
   const toast = useToast();
 
   useEffect(() => {
-    checklistMountedRef.current = true;
     return () => {
-      checklistMountedRef.current = false;
       statusRefreshPendingRef.current = false;
     };
   }, []);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { after, describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core';
-import { generateText, tool } from 'ai';
+import { generateText, stepCountIs, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { getAIModel } from '../model-factory.js';
@@ -14,6 +14,192 @@ after(async () => {
 });
 
 describe('models.dev provider conformance', () => {
+  test('LM Studio preserves an exact model id through discovery and a two-stage tool-call loop', async () => {
+    const modelId = 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, undefined);
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        respondJson(response, 200, { data: [{ id: modelId }] });
+        return;
+      }
+
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-lm-studio-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [{
+                id: 'call_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+
+      respondJson(response, 200, {
+        id: 'chatcmpl-lm-studio-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echo returned hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 14, completion_tokens: 5, total_tokens: 19 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'lm-studio',
+      name: 'LM Studio',
+      providerType: 'lm-studio',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, '');
+    assert.deepEqual(models, [{ id: modelId }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: '', modelId: models[0]!.id }),
+      prompt: 'Call echo with hello, then report the result.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    const secondMessages = requestBodies[1]?.messages as Array<{ role: string; content: unknown }>;
+    assert.equal(secondMessages.some((message) => message.role === 'tool'), true);
+    assert.equal(JSON.stringify(secondMessages).includes('hello'), true);
+    assert.equal(result.text, 'Echo returned hello.');
+  });
+
+  test('Cerebras discovers exact account model ids and completes its documented two-stage tool-call loop', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer cerebras-test-key');
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        respondJson(response, 200, { data: [{ id: 'gpt-oss-120b' }] });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      const messages = body.messages as Array<{ role: string }>;
+      if (messages.some(({ role }) => role === 'tool')) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-cerebras-final',
+          object: 'chat.completion',
+          created: 2,
+          model: 'gpt-oss-120b',
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+        });
+        return;
+      }
+      respondJson(response, 200, {
+        id: 'chatcmpl-cerebras-tool',
+        object: 'chat.completion',
+        created: 1,
+        model: 'gpt-oss-120b',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_echo',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'cerebras',
+      name: 'Cerebras',
+      providerType: 'cerebras',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: 'gpt-oss-120b',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'cerebras-test-key');
+    assert.deepEqual(models, [{ id: 'gpt-oss-120b' }]);
+
+    const result = await generateText({
+      model: getAIModel({
+        connection,
+        apiKey: 'cerebras-test-key',
+        modelId: models[0]!.id,
+      }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), ['gpt-oss-120b', 'gpt-oss-120b']);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
+    );
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolCalls[0]?.input, { text: 'hello' });
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
   test('SiliconFlow discovers exact model ids and completes an OpenAI-compatible tool-call turn', async () => {
     let requestBody: Record<string, unknown> | undefined;
     const server = await startJsonServer(async (request, response) => {
@@ -149,6 +335,188 @@ describe('models.dev provider conformance', () => {
     );
     assert.equal(result.toolCalls[0]?.toolName, 'echo');
     assert.deepEqual(result.toolCalls[0]?.input, { text: 'hello' });
+  });
+
+  test('xAI discovers exact account model ids and completes an OpenAI-compatible tool-call loop', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer xai-test-key');
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        respondJson(response, 200, {
+          object: 'list',
+          data: [{ id: 'grok-4.5', object: 'model', owned_by: 'xai' }],
+        });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      requestBodies.push(JSON.parse(await readBody(request)) as Record<string, unknown>);
+      if (requestBodies.length === 2) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-xai-final',
+          object: 'chat.completion',
+          created: 2,
+          model: 'grok-4.5',
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+        });
+        return;
+      }
+      respondJson(response, 200, {
+        id: 'chatcmpl-xai',
+        object: 'chat.completion',
+        created: 1,
+        model: 'grok-4.5',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_echo',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'xai',
+      name: 'xAI',
+      providerType: 'xai',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: 'grok-4.5',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'xai-test-key');
+    assert.deepEqual(models, [{ id: 'grok-4.5' }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'xai-test-key', modelId: 'grok-4.5' }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), ['grok-4.5', 'grok-4.5']);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
+    );
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolCalls[0]?.input, { text: 'hello' });
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
+  test('Ollama discovers an exact local model id and completes a no-secret tool-call loop', async () => {
+    const modelId = 'hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      if (request.method === 'GET' && request.url === '/api/tags') {
+        assert.equal(request.headers.authorization, undefined);
+        respondJson(response, 200, { models: [{ name: modelId, model: modelId }] });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      assert.equal(request.headers.authorization, 'Bearer ollama');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-ollama-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [{
+                id: 'call_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+      respondJson(response, 200, {
+        id: 'chatcmpl-ollama-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'ollama-local',
+      name: 'Ollama',
+      providerType: 'ollama',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    assert.deepEqual(await fetchProviderModels(connection, ''), [{ id: modelId }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: '', modelId }),
+      prompt: 'Call echo with hello, then report the result.',
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ text }),
+        }),
+      },
+      stopWhen: stepCountIs(2),
+    });
+
+    assert.equal(result.text, 'Echoed hello.');
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    const secondMessages = requestBodies[1]?.messages as Array<{ role: string; content: string }>;
+    const toolMessage = secondMessages.find((message) => message.role === 'tool');
+    assert.ok(toolMessage);
+    assert.deepEqual(JSON.parse(toolMessage.content), { text: 'hello' });
   });
 });
 

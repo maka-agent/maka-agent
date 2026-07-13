@@ -158,10 +158,10 @@ describe('Bot settings UI contract', () => {
     const refreshBlock = pageBlock.match(/async function refreshBotStatuses\(\)[\s\S]*?async function disconnectWechatLogin/)?.[0] ?? '';
     const disconnectBlock = pageBlock.match(/async function disconnectWechatLogin\(\)[\s\S]*?const support =/)?.[0] ?? '';
 
-    assert.match(pageBlock, /const botPageMountedRef = useRef\(false\)/);
+    assert.match(pageBlock, /const botPageMountedRef = useMountedRef\(\)/);
     assert.match(
       pageBlock,
-      /useEffect\(\(\) => \{[\s\S]*botPageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*botPageMountedRef\.current = false;[\s\S]*pendingBotActionRef\.current = null;/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*pendingBotActionRef\.current = null;/,
       'Bot settings page cleanup must release owned async actions when Settings closes',
     );
     assert.match(
@@ -249,11 +249,11 @@ describe('Bot settings UI contract', () => {
     assert.match(settings, /const fetchingQrRef = useRef\(false\)/, 'Direct WeChat scan-login refresh must keep a synchronous pending guard');
     assert.match(settings, /const scanLoginPollingRef = useRef\(false\)/, 'Direct WeChat scan-login status polling must keep a synchronous in-flight guard');
     assert.match(settings, /const scanLoginConfirmingRef = useRef\(false\)/, 'Direct WeChat scan-login confirmation must keep a synchronous owner guard');
-    assert.match(settings, /const scanLoginMountedRef = useRef\(false\)/, 'Direct WeChat scan-login modal must track mounted ownership');
+    assert.match(settings, /const scanLoginMountedRef = useMountedRef\(\)/, 'Direct WeChat scan-login modal must track mounted ownership');
     assert.match(settings, /const scanLoginFetchTicketRef = useRef\(0\)/, 'Direct WeChat scan-login modal must invalidate stale QR fetches across remounts');
     assert.match(
       settings,
-      /useEffect\(\(\) => \{[\s\S]*scanLoginMountedRef\.current = true;[\s\S]*void fetchQr\(\);[\s\S]*return \(\) => \{[\s\S]*scanLoginMountedRef\.current = false;[\s\S]*scanLoginFetchTicketRef\.current \+= 1;[\s\S]*fetchingQrRef\.current = false;[\s\S]*scanLoginPollingRef\.current = false;[\s\S]*scanLoginConfirmingRef\.current = false;/,
+      /useEffect\(\(\) => \{[\s\S]*void fetchQr\(\);[\s\S]*return \(\) => \{[\s\S]*scanLoginFetchTicketRef\.current \+= 1;[\s\S]*fetchingQrRef\.current = false;[\s\S]*scanLoginPollingRef\.current = false;[\s\S]*scanLoginConfirmingRef\.current = false;/,
       'Direct WeChat scan-login modal must release QR, poll, and confirmation ownership when closed',
     );
     assert.match(settings, /if \(fetchingQrRef\.current\) return;[\s\S]*fetchingQrRef\.current = true;[\s\S]*const ticket = \+\+scanLoginFetchTicketRef\.current;[\s\S]*setStatus\('fetching'\)/, 'Direct WeChat scan-login QR fetch must block rapid duplicate refreshes before React rerenders');

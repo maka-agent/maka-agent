@@ -165,6 +165,21 @@ describe('ProviderAuth contract', () => {
     expect(contract.copy.detail).toContain('本地服务');
   });
 
+  test('LM Studio uses the shared no-auth configuration flow under its own provider id', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'lm-studio',
+      hasSecret: false,
+    });
+
+    expect(contract.providerType).toBe('lm-studio');
+    expect(contract.setupMode).toBe('none');
+    expect(contract.requiresSecret).toBe(false);
+    expect(contract.sendMayUseWithoutSecret).toBe(true);
+    expect(contract.actionAvailability.save_secret).toBe('hidden');
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
   test('disabled providers hide actions regardless of stored credential state', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'openai',

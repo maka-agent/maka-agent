@@ -232,12 +232,12 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     assert.ok(page, 'Web search settings page block must exist');
     assert.match(
       page![0],
-      /const webSearchMountedRef = useRef\(true\)/,
+      /const webSearchMountedRef = useMountedRef\(\)/,
       'Web search Settings needs a mounted ref because test/query/save promises can settle after the section unmounts',
     );
     assert.match(
       page![0],
-      /useEffect\(\(\) => \{[\s\S]*webSearchMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*webSearchMountedRef\.current = false;[\s\S]*pendingWebSearchEnabledRef\.current = false;[\s\S]*pendingCredentialActionRef\.current = null;[\s\S]*testingRef\.current = false;[\s\S]*liveQueryRunningRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*pendingWebSearchEnabledRef\.current = false;[\s\S]*pendingCredentialActionRef\.current = null;[\s\S]*testingRef\.current = false;[\s\S]*liveQueryRunningRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
       'Unmount must mark the page inactive and release synchronous pending owners',
     );
     assert.match(

@@ -2,7 +2,7 @@
 // Do not edit by hand; put access-path-specific facts in model-metadata.ts.
 import type { ModelMetadata } from './model-metadata.js';
 
-export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "moonshot" | "openai" | "siliconflow" | "zai-coding-plan", Record<string, ModelMetadata>> = {
+export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "moonshot" | "openai" | "siliconflow" | "xai" | "zai-coding-plan", Record<string, ModelMetadata>> = {
   "anthropic": {
     "claude-fable-5": {"displayName":"Claude Fable 5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-haiku-4-5": {"displayName":"Claude Haiku 4.5 (latest)","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":200000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
@@ -18,6 +18,11 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "deepseek" | "g
     "claude-sonnet-4-5-20250929": {"displayName":"Claude Sonnet 4.5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":64000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-sonnet-4-6": {"displayName":"Claude Sonnet 4.6","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
     "claude-sonnet-5": {"displayName":"Claude Sonnet 5","lifecycle":"active","docsUrl":"https://docs.anthropic.com/en/docs/about-claude/models","contextWindow":1000000,"maxOutputTokens":128000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+  },
+  "cerebras": {
+    "gemma-4-31b": {"displayName":"Gemma 4 31B IT","lifecycle":"active","docsUrl":"https://inference-docs.cerebras.ai/models/overview","contextWindow":131072,"maxOutputTokens":40960,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "gpt-oss-120b": {"displayName":"GPT OSS 120B","lifecycle":"active","docsUrl":"https://inference-docs.cerebras.ai/models/overview","contextWindow":131072,"maxOutputTokens":40960,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
+    "zai-glm-4.7": {"displayName":"Z.AI GLM-4.7","lifecycle":"active","docsUrl":"https://inference-docs.cerebras.ai/models/overview","contextWindow":131072,"maxOutputTokens":40960,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
   },
   "deepseek": {
     "deepseek-chat": {"displayName":"DeepSeek Chat","lifecycle":"active","docsUrl":"https://api-docs.deepseek.com/quick_start/pricing","contextWindow":1000000,"maxOutputTokens":384000,"capabilities":{"vision":false,"reasoning":false,"functionCalling":true}},
@@ -213,6 +218,17 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "deepseek" | "g
     "zai-org/GLM-5.2": {"displayName":"GLM-5.2","lifecycle":"active","docsUrl":"https://cloud.siliconflow.com/models","contextWindow":1049000,"maxOutputTokens":262000,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
     "zai-org/GLM-5V-Turbo": {"displayName":"zai-org/GLM-5V-Turbo","lifecycle":"active","docsUrl":"https://cloud.siliconflow.com/models","contextWindow":200000,"maxOutputTokens":131072,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
   },
+  "xai": {
+    "grok-4.20-0309-non-reasoning": {"displayName":"Grok 4.20 (Non-Reasoning)","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":1000000,"maxOutputTokens":30000,"capabilities":{"vision":true,"reasoning":false,"functionCalling":true}},
+    "grok-4.20-0309-reasoning": {"displayName":"Grok 4.20 (Reasoning)","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":1000000,"maxOutputTokens":30000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "grok-4.20-multi-agent-0309": {"displayName":"Grok 4.20 Multi-Agent","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":1000000,"maxOutputTokens":30000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":false}},
+    "grok-4.3": {"displayName":"Grok 4.3","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":1000000,"maxOutputTokens":30000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "grok-4.5": {"displayName":"Grok 4.5","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":500000,"maxOutputTokens":500000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "grok-build-0.1": {"displayName":"Grok Build 0.1","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":256000,"maxOutputTokens":256000,"capabilities":{"vision":true,"reasoning":true,"functionCalling":true}},
+    "grok-imagine-image": {"displayName":"Grok Imagine Image","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":8000,"maxOutputTokens":0,"capabilities":{"vision":true,"reasoning":false,"functionCalling":false}},
+    "grok-imagine-image-quality": {"displayName":"Grok Imagine Image Quality","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":8000,"maxOutputTokens":0,"capabilities":{"vision":true,"reasoning":false,"functionCalling":false}},
+    "grok-imagine-video": {"displayName":"Grok Imagine Video","lifecycle":"active","docsUrl":"https://docs.x.ai/docs/models","contextWindow":1024,"maxOutputTokens":0,"capabilities":{"vision":true,"reasoning":false,"functionCalling":false}},
+  },
   "zai-coding-plan": {
     "glm-4.5-air": {"displayName":"GLM-4.5-Air","lifecycle":"active","docsUrl":"https://docs.z.ai/devpack/overview","contextWindow":131072,"maxOutputTokens":98304,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
     "glm-4.7": {"displayName":"GLM-4.7","lifecycle":"active","docsUrl":"https://docs.z.ai/devpack/overview","contextWindow":204800,"maxOutputTokens":131072,"capabilities":{"vision":false,"reasoning":true,"functionCalling":true}},
@@ -223,8 +239,9 @@ export const GENERATED_MODELS_DEV_METADATA: Record<"anthropic" | "deepseek" | "g
   },
 };
 
-export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "moonshot" | "openai" | "siliconflow" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
+export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "cerebras" | "deepseek" | "google" | "gemini-cli" | "MiniMax" | "MiniMax-cn" | "moonshot" | "openai" | "siliconflow" | "xai" | "zai-coding-plan", { id: string; name: string; api?: string; doc: string }> = {
   "anthropic": {"id":"anthropic","name":"Anthropic","doc":"https://docs.anthropic.com/en/docs/about-claude/models"},
+  "cerebras": {"id":"cerebras","name":"Cerebras","doc":"https://inference-docs.cerebras.ai/models/overview"},
   "deepseek": {"id":"deepseek","name":"DeepSeek","api":"https://api.deepseek.com","doc":"https://api-docs.deepseek.com/quick_start/pricing"},
   "google": {"id":"google","name":"Google","doc":"https://ai.google.dev/gemini-api/docs/models"},
   "gemini-cli": {"id":"google","name":"Google","doc":"https://ai.google.dev/gemini-api/docs/models"},
@@ -233,5 +250,6 @@ export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<"anthropic" | "deepseek
   "moonshot": {"id":"moonshotai-cn","name":"Moonshot AI (China)","api":"https://api.moonshot.cn/v1","doc":"https://platform.moonshot.cn/docs/api/chat"},
   "openai": {"id":"openai","name":"OpenAI","doc":"https://platform.openai.com/docs/models"},
   "siliconflow": {"id":"siliconflow","name":"SiliconFlow","api":"https://api.siliconflow.com/v1","doc":"https://cloud.siliconflow.com/models"},
+  "xai": {"id":"xai","name":"xAI","doc":"https://docs.x.ai/docs/models"},
   "zai-coding-plan": {"id":"zai-coding-plan","name":"Z.AI Coding Plan","api":"https://api.z.ai/api/coding/paas/v4","doc":"https://docs.z.ai/devpack/overview"},
 };

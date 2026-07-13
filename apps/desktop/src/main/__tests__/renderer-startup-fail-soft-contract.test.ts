@@ -116,11 +116,11 @@ describe('renderer startup fail-soft contract', () => {
     const reloadSettingsBlock = modalBlock.match(/async function reloadSettings\(\)[\s\S]*?async function updateSettings/)?.[0] ?? '';
     const reloadUsageBlock = modalBlock.match(/async function reloadUsage[\s\S]*?useEffect\(\(\) => \{[\s\S]*?void reloadSettings/)?.[0] ?? '';
 
-    assert.match(modalBlock, /const settingsModalMountedRef = useRef\(false\);/);
+    assert.match(modalBlock, /const settingsModalMountedRef = useMountedRef\(\);/);
     assert.match(modalBlock, /const settingsReloadTicketRef = useRef\(0\);/);
     assert.match(
       modalBlock,
-      /useEffect\(\(\) => \{[\s\S]*settingsModalMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*settingsModalMountedRef\.current = false;[\s\S]*settingsReloadTicketRef\.current \+= 1;[\s\S]*settingsUpdateTicketRef\.current \+= 1;[\s\S]*usageReloadTicketRef\.current \+= 1;[\s\S]*\};[\s\S]*\}, \[\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*settingsReloadTicketRef\.current \+= 1;[\s\S]*settingsUpdateTicketRef\.current \+= 1;[\s\S]*usageReloadTicketRef\.current \+= 1;[\s\S]*\};[\s\S]*\}, \[\]\);/,
       'Settings root async work must be invalidated on close and StrictMode effect cleanup',
     );
     assert.match(reloadSettingsBlock, /try \{[\s\S]*window\.maka\.settings\.get\(\)/);

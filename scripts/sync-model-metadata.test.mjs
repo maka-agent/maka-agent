@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'deepseek', 'google', 'minimax', 'minimax-cn', 'moonshotai-cn', 'openai', 'siliconflow', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'google', 'minimax', 'minimax-cn', 'moonshotai-cn', 'openai', 'siliconflow', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -61,6 +61,63 @@ test('sync-model-metadata maps models.dev modalities into Maka metadata', async 
   assert.match(generated, /"unknown-modality-model".*"capabilities":\{"reasoning":false,"functionCalling":false\}/);
   assert.match(generated, /export const GENERATED_MODELS_DEV_METADATA/);
   assert.match(generated, /export const GENERATED_MODELS_DEV_PROVIDER_FACTS/);
+});
+
+test('sync-model-metadata vendors xAI provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.xai = {
+    ...catalog.xai,
+    name: 'xAI',
+    models: {
+      'grok-4.5': {
+        id: 'grok-4.5', name: 'Grok 4.5', reasoning: true, tool_call: true,
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        limit: { context: 500_000, output: 500_000 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"xai": \{/);
+  assert.match(generated, /"xai": \{"id":"xai","name":"xAI"/);
+  assert.match(generated, /"grok-4\.5": \{"displayName":"Grok 4\.5"/);
+});
+
+test('sync-model-metadata vendors Cerebras provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.cerebras = {
+    ...catalog.cerebras,
+    name: 'Cerebras',
+    doc: 'https://inference-docs.cerebras.ai/models/overview',
+    models: {
+      'gpt-oss-120b': {
+        id: 'gpt-oss-120b', name: 'GPT OSS 120B', reasoning: true, tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 131_072, output: 40_960 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"cerebras": \{/);
+  assert.match(generated, /"cerebras": \{"id":"cerebras","name":"Cerebras"/);
+  assert.match(generated, /"gpt-oss-120b": \{"displayName":"GPT OSS 120B"/);
 });
 
 test('sync-model-metadata rejects incomplete upstream model data', async () => {

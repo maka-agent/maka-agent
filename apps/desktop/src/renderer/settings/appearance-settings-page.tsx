@@ -7,7 +7,7 @@ import type {
   ThemePreference,
   UpdateAppSettingsResult,
 } from '@maka/core';
-import { ChoiceCard, ChoiceCardGroup, Input, SettingsSegmented as Segmented, Textarea, useToast } from '@maka/ui';
+import { ChoiceCard, ChoiceCardGroup, Input, SettingsSegmented as Segmented, Textarea, useMountedRef, useToast } from '@maka/ui';
 import { applyUiLocale, type UiLocalePreference } from '../theme';
 import { settingsActionErrorMessage } from './settings-error-copy';
 
@@ -64,7 +64,7 @@ export function PersonalizationSettingsPage(props: {
   const [assistantTone, setAssistantTone] = useState(value.assistantTone);
   const [uiLocale, setUiLocale] = useState<UiLocalePreference>(value.uiLocale);
   const toast = useToast();
-  const personalizationMountedRef = useRef(false);
+  const personalizationMountedRef = useMountedRef();
   // Last-write-wins persist queue, mirrored on NetworkProxySection below:
   // a monotonic ticket disambiguates overlapping in-flight saves so a stale
   // response can't clobber a newer one, and a pending-count keeps the sync
@@ -75,9 +75,7 @@ export function PersonalizationSettingsPage(props: {
   const toneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    personalizationMountedRef.current = true;
     return () => {
-      personalizationMountedRef.current = false;
       // Invalidate any in-flight save's late UI write, and drop the pending
       // debounced flush so it can't fire after the panel closes.
       persistTicketRef.current += 1;
@@ -330,13 +328,11 @@ function ThemeSettingsPage(props: {
   onThemePaletteChange(palette: ThemePalette): void;
 }) {
   const toast = useToast();
-  const themePageMountedRef = useRef(false);
+  const themePageMountedRef = useMountedRef();
   const themePersistTicketRef = useRef(0);
 
   useEffect(() => {
-    themePageMountedRef.current = true;
     return () => {
-      themePageMountedRef.current = false;
       themePersistTicketRef.current += 1;
     };
   }, []);

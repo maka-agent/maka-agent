@@ -212,7 +212,11 @@ class MakaAgent(BaseInstalledAgent):
         return value if value > 0 else self._DEFAULT_CELL_TIMEOUT_SEC
 
     def _host_side_llm_enabled(self) -> bool:
-        return bool(self._get_env("MAKA_HOST_API_KEY_FILE") or self._get_env("MAKA_HOST_API_KEY"))
+        return bool(
+            self._get_env("MAKA_HOST_API_KEY_FILE")
+            or self._get_env("MAKA_HOST_API_KEY")
+            or self._get_env("MAKA_HOST_NO_AUTH") == "true"
+        )
 
     def _harbor_backend(self) -> str:
         backend = self._resolved_flags.get("backend", "") or self._get_env("MAKA_BACKEND") or "ai-sdk"
@@ -276,7 +280,7 @@ class MakaAgent(BaseInstalledAgent):
         economy_task_env = self._get_env("MAKA_ECONOMY_TASK_MODE")
         economy_task_mode = True if economy_task_flag is True else economy_task_env == "true"
         if backend == "ai-sdk" and not self._host_side_llm_enabled():
-            raise RuntimeError("backend=ai-sdk requires MAKA_HOST_API_KEY or MAKA_HOST_API_KEY_FILE")
+            raise RuntimeError("backend=ai-sdk requires host-side provider configuration")
         env = {
             "MAKA_BACKEND": backend,
             "MAKA_MODEL": model,

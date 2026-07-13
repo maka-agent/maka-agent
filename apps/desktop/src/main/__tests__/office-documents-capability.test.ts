@@ -57,10 +57,10 @@ describe('Office document capability contract', () => {
     assert.doesNotMatch(settings, /<div className="settingsCapabilityGuidanceActions" aria-label="Office 文档安装辅助">/);
     assert.match(settings, /copyingOfficeCliInstallRef\.current/, 'OfficeCLI install copy action must have a ref-backed double-click guard');
     assert.match(settings, /if \(copyingOfficeCliInstallRef\.current\) return;/);
-    assert.match(settings, /const capabilityRowMountedRef = useRef\(false\);/);
+    assert.match(settings, /const capabilityRowMountedRef = useMountedRef\(\);/);
     assert.match(
       settings,
-      /useEffect\(\(\) => \{[\s\S]*capabilityRowMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*capabilityRowMountedRef\.current = false;[\s\S]*copyingOfficeCliInstallRef\.current = false;/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*copyingOfficeCliInstallRef\.current = false;/,
       'OfficeCLI install copy action must release ownership when its capability row unmounts',
     );
     assert.match(settings, /disabled=\{copyingOfficeCliInstall\}/);
@@ -180,14 +180,16 @@ describe('Office document capability contract', () => {
     assert.match(previewSource, /TOOL_OUTPUT_COMMAND_CLASS/, 'officecli args must use the shared command surface');
   });
 
-  it('summarizes Office document edits in the permission dialog before raw args', async () => {
+  it('keeps Office document edits compact until the user expands the change', async () => {
     const components = await readFile(PERMISSION_DIALOG, 'utf8');
     const summaryBlock = components.match(/function renderPermissionSummary[\s\S]*?function permissionValuePreview/)?.[0] ?? '';
 
     assert.match(summaryBlock, /case 'OfficeDocumentEdit'/, 'OfficeDocumentEdit permission requests need a dedicated summary branch');
-    assert.match(summaryBlock, /即将编辑 Office 文档/, 'Permission dialog must say that an Office document is being edited');
-    assert.match(summaryBlock, /操作 <strong>\{redactSecrets\(operation\)\}<\/strong>/, 'Permission dialog must show create/add/set/remove');
-    assert.match(summaryBlock, /目标 <code>\{redactSecrets\(target\)\}<\/code>/, 'Permission dialog must show the selector target when present');
+    assert.match(components, /request\.toolName === 'OfficeDocumentEdit'\) return '允许编辑 Office 文档？'/);
+    assert.doesNotMatch(summaryBlock, /即将编辑 Office 文档/, 'the exact title must not be repeated in the compact summary');
+    assert.match(summaryBlock, /return <p className="maka-permission-path"><code>\{redactSecrets\(path\)\}<\/code><\/p>/);
+    assert.match(summaryBlock, /operation && `操作=\$\{redactSecrets\(operation\)\}`/, 'the expanded change must retain the operation');
+    assert.match(summaryBlock, /target && `目标=\$\{redactSecrets\(target\)\}`/, 'the expanded change must retain the selector target');
     assert.match(summaryBlock, /permissionValuePreview\(value\)/, 'Permission dialog must summarize bounded props without dumping raw JSON first');
     assert.match(summaryBlock, /另有 \${hiddenProps} 个属性/, 'Permission dialog must cap long prop lists');
     assert.match(components, /function permissionValuePreview/, 'Permission prop rendering should use a bounded helper');

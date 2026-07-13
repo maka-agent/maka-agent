@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import type { SessionSummary } from '@maka/core';
 import { formatCompactTimestamp } from '@maka/core';
 import {
@@ -482,7 +483,7 @@ const SessionRow = memo(function SessionRow(props: {
   const [actionsVisible, setActionsVisible] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<SessionRowActionId | null>(null);
-  const rowMountedRef = useRef(true);
+  const rowMountedRef = useMountedRef();
   const pendingActionRef = useRef<SessionRowActionId | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // PR-FE-BUG-HUNT-11: Escape on the rename input has to suppress the
@@ -495,9 +496,7 @@ const SessionRow = memo(function SessionRow(props: {
   const actionTriggerVisible = actionsVisible || menuOpen;
 
   useEffect(() => {
-    rowMountedRef.current = true;
     return () => {
-      rowMountedRef.current = false;
       pendingActionRef.current = null;
     };
   }, []);

@@ -120,11 +120,11 @@ describe('Daily Review copy feedback contract', () => {
     assert.ok(gateBlock, 'runDailyReviewAction gate not found in DailyReviewPanel');
 
     assert.match(panelBlock, /const \[pendingDailyReviewAction, setPendingDailyReviewAction\] = useState<string \| null>\(null\)/);
-    assert.match(panelBlock, /const dailyReviewMountedRef = useRef\(true\)/);
+    assert.match(panelBlock, /const dailyReviewMountedRef = useMountedRef\(\)/);
     assert.match(panelBlock, /const pendingDailyReviewActionRef = useRef<string \| null>\(null\)/);
     assert.match(
       panelBlock,
-      /useEffect\(\(\) => \{\s*dailyReviewMountedRef\.current = true;[\s\S]*?return \(\) => \{\s*dailyReviewMountedRef\.current = false;\s*pendingDailyReviewActionRef\.current = null;\s*(?:archiveLoadRequestRef\.current \+= 1;\s*)?\};\s*\}, \[\]\)/,
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*pendingDailyReviewActionRef\.current = null;\s*(?:archiveLoadRequestRef\.current \+= 1;\s*)?\};\s*\}, \[\]\)/,
       'Daily Review export pending ownership must be released when the main panel unmounts or StrictMode replays cleanup',
     );
     assert.match(panelBlock, /const dailyReviewActionBusy = pendingDailyReviewAction !== null/);
@@ -194,7 +194,7 @@ describe('Daily Review copy feedback contract', () => {
     assert.match(panelBlock, /const archiveLoadRequestRef = useRef\(0\)/);
     assert.match(
       panelBlock,
-      /return \(\) => \{\s*dailyReviewMountedRef\.current = false;\s*pendingDailyReviewActionRef\.current = null;\s*archiveLoadRequestRef\.current \+= 1;\s*\};/,
+      /return \(\) => \{\s*pendingDailyReviewActionRef\.current = null;\s*archiveLoadRequestRef\.current \+= 1;\s*\};/,
       'Daily Review archive loads must be invalidated when the panel unmounts',
     );
     assert.match(

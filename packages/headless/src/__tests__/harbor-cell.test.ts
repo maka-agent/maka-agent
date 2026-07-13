@@ -2204,6 +2204,23 @@ setTimeout(() => {
     assert.equal(deepseek.connection.baseUrl, 'https://fallback.example/v1');
   });
 
+  test('resolves LM Studio headless configuration without credentials', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'lm-studio',
+      model: 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF',
+      env: {},
+      ts: 123,
+    });
+
+    assert.equal(resolved.apiKey, '');
+    assert.equal(resolved.connection.providerType, 'lm-studio');
+    assert.equal(resolved.connection.baseUrl, 'http://localhost:1234/v1');
+    assert.equal(
+      resolved.connection.defaultModel,
+      'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF',
+    );
+  });
+
   test('resolves SiliconFlow only from SiliconFlow credential env', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'siliconflow',
@@ -2222,6 +2239,58 @@ setTimeout(() => {
     const missing = resolveHarborCellAiSdkEnv({
       provider: 'siliconflow',
       model: 'moonshotai/Kimi-K2.6',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves xAI only from xAI credential env without rewriting the model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'xai',
+      model: 'grok-4.5',
+      env: {
+        XAI_API_KEY: 'xai-key',
+        XAI_BASE_URL: 'https://api.x.ai/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'xai-key');
+    assert.equal(resolved.connection.providerType, 'xai');
+    assert.equal(resolved.connection.defaultModel, 'grok-4.5');
+    assert.equal(resolved.connection.baseUrl, 'https://api.x.ai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'xai',
+      model: 'grok-4.5',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves Cerebras only from Cerebras credential env without rewriting the model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'cerebras',
+      model: 'gpt-oss-120b',
+      env: {
+        CEREBRAS_API_KEY: 'cerebras-key',
+        CEREBRAS_BASE_URL: 'https://api.cerebras.ai/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'cerebras-key');
+    assert.equal(resolved.connection.providerType, 'cerebras');
+    assert.equal(resolved.connection.defaultModel, 'gpt-oss-120b');
+    assert.equal(resolved.connection.baseUrl, 'https://api.cerebras.ai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'cerebras',
+      model: 'gpt-oss-120b',
       env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
       ts: 1,
     });

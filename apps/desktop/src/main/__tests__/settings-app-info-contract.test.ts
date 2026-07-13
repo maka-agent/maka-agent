@@ -72,10 +72,10 @@ describe('Settings app-info loading contract', () => {
 
     assert.match(dataBlock, /const \[pendingDataAction, setPendingDataAction\] = useState<string \| null>\(null\)/);
     assert.match(dataBlock, /const pendingDataActionRef = useRef<string \| null>\(null\)/);
-    assert.match(dataBlock, /const dataPageMountedRef = useRef\(false\)/);
+    assert.match(dataBlock, /const dataPageMountedRef = useMountedRef\(\)/);
     assert.match(
       dataBlock,
-      /useEffect\(\(\) => \{[\s\S]*dataPageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*dataPageMountedRef\.current = false;[\s\S]*pendingDataActionRef\.current = null;[\s\S]*\};[\s\S]*\}, \[toast\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*pendingDataActionRef\.current = null;[\s\S]*\};[\s\S]*\}, \[toast\]\);/,
       'Data page actions must be invalidated when the page unmounts',
     );
     assert.match(
@@ -154,10 +154,10 @@ describe('Settings app-info loading contract', () => {
 
     assert.match(aboutBlock, /const \[copyingEnvSummary, setCopyingEnvSummary\] = useState\(false\)/);
     assert.match(aboutBlock, /const copyingEnvSummaryRef = useRef\(false\)/);
-    assert.match(aboutBlock, /const aboutPageMountedRef = useRef\(false\)/);
+    assert.match(aboutBlock, /const aboutPageMountedRef = useMountedRef\(\)/);
     assert.match(
       aboutBlock,
-      /useEffect\(\(\) => \{[\s\S]*aboutPageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*aboutPageMountedRef\.current = false;[\s\S]*copyingEnvSummaryRef\.current = false;[\s\S]*\};[\s\S]*\}, \[toast\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*copyingEnvSummaryRef\.current = false;[\s\S]*\};[\s\S]*\}, \[toast\]\);/,
       'About page copy actions must be invalidated when the page unmounts',
     );
     assert.match(

@@ -50,36 +50,39 @@ export interface ProviderDefaults {
 
 const siliconflow = GENERATED_MODELS_DEV_PROVIDER_FACTS.siliconflow;
 if (!siliconflow.api) throw new Error('models.dev SiliconFlow provider facts are missing api');
-const SILICONFLOW_RECOMMENDED_MODEL_IDS = ['moonshotai/Kimi-K2.6'];
-const MINIMAX_PLAN_RECOMMENDED_MODEL_IDS = ['MiniMax-M3'];
+const siliconflowModelIds = toolCallingModelIds(
+  'SiliconFlow',
+  GENERATED_MODELS_DEV_METADATA.siliconflow,
+  ['moonshotai/Kimi-K2.6'],
+);
+const minimaxPlanModelIds = toolCallingModelIds('MiniMax', GENERATED_MODELS_DEV_METADATA.MiniMax, ['MiniMax-M3']);
 
-const minimaxPlanModelEntries = Object.entries(GENERATED_MODELS_DEV_METADATA.MiniMax);
-const minimaxPlanModelsById = new Map(minimaxPlanModelEntries);
-const minimaxPlanModelIds = [
-  ...MINIMAX_PLAN_RECOMMENDED_MODEL_IDS.map((id) => {
-    const model = minimaxPlanModelsById.get(id);
-    if (!model) throw new Error(`models.dev MiniMax snapshot is missing recommended plan model ${id}`);
-    return [id, model] as const;
-  }),
-  ...minimaxPlanModelEntries.filter(([id]) => !MINIMAX_PLAN_RECOMMENDED_MODEL_IDS.includes(id)),
-]
-  .filter(([, model]) => model.capabilities?.functionCalling)
-  .map(([id]) => id);
+const xai = GENERATED_MODELS_DEV_PROVIDER_FACTS.xai;
+if (xai.id !== 'xai') throw new Error('models.dev xAI provider facts are missing stable id xai');
+const xaiModelIds = toolCallingModelIds('xAI', GENERATED_MODELS_DEV_METADATA.xai, ['grok-4.5']);
+const cerebras = GENERATED_MODELS_DEV_PROVIDER_FACTS.cerebras;
+if (cerebras.id !== 'cerebras') throw new Error('models.dev Cerebras provider facts are missing stable id cerebras');
 
-const siliconflowModelEntries = Object.entries(GENERATED_MODELS_DEV_METADATA.siliconflow);
-const siliconflowModelsById = new Map(siliconflowModelEntries);
-const orderedSiliconflowModels = [
-  ...SILICONFLOW_RECOMMENDED_MODEL_IDS.map((id) => {
-    const model = siliconflowModelsById.get(id);
-    if (!model) throw new Error(`models.dev SiliconFlow snapshot is missing recommended model ${id}`);
-    return [id, model] as const;
-  }),
-  ...siliconflowModelEntries.filter(([id]) => !SILICONFLOW_RECOMMENDED_MODEL_IDS.includes(id)),
-];
+const cerebrasModelIds = toolCallingModelIds('Cerebras', GENERATED_MODELS_DEV_METADATA.cerebras, ['gpt-oss-120b']);
 
-const siliconflowModelIds = orderedSiliconflowModels
-  .filter(([, model]) => model.capabilities?.functionCalling)
-  .map(([id]) => id);
+function toolCallingModelIds(
+  providerLabel: string,
+  models: Readonly<Record<string, { capabilities?: { functionCalling?: boolean } }>>,
+  recommendedIds: readonly string[],
+): string[] {
+  const entries = Object.entries(models);
+  const modelsById = new Map(entries);
+  return [
+    ...recommendedIds.map((id) => {
+      const model = modelsById.get(id);
+      if (!model) throw new Error(`models.dev ${providerLabel} snapshot is missing recommended model ${id}`);
+      return [id, model] as const;
+    }),
+    ...entries.filter(([id]) => !recommendedIds.includes(id)),
+  ]
+    .filter(([, model]) => model.capabilities?.functionCalling)
+    .map(([id]) => id);
+}
 
 const providerRegistry = {
   anthropic: {
@@ -121,7 +124,7 @@ const providerRegistry = {
     catalogGroup: 'plans',
     catalogBadge: 'Coding',
     signupUrl: 'https://www.kimi.com/code/console',
-    readyOrder: 11,
+    readyOrder: 14,
     catalogOrder: 1,
     recommendedOrder: 5,
   },
@@ -141,7 +144,7 @@ const providerRegistry = {
     catalogBadge: 'Coding',
     signupUrl: 'https://platform.minimax.io/subscribe/coding-plan',
     modelsDevId: GENERATED_MODELS_DEV_PROVIDER_FACTS.MiniMax.id,
-    readyOrder: 13,
+    readyOrder: 16,
     catalogOrder: 2,
   },
   openai: {
@@ -293,6 +296,44 @@ const providerRegistry = {
     catalogOrder: 8,
     recommendedOrder: 1,
   },
+  xai: {
+    label: xai.name,
+    description: 'Grok models for chat, reasoning, vision, and tool use.',
+    baseUrl: 'https://api.x.ai/v1',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: xaiModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://console.x.ai/',
+    modelsDevId: xai.id,
+    readyOrder: 10,
+    catalogOrder: 12,
+  },
+  cerebras: {
+    label: cerebras.name,
+    description: 'Fast hosted open-model inference with reasoning and tool use.',
+    baseUrl: 'https://api.cerebras.ai/v1',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: cerebrasModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://cloud.cerebras.ai/',
+    modelsDevId: cerebras.id,
+    readyOrder: 11,
+    catalogOrder: 13,
+  },
   ollama: {
     label: 'Ollama',
     description: 'Local models from Ollama on localhost.',
@@ -307,9 +348,26 @@ const providerRegistry = {
     category: 'local',
     catalogGroup: 'local',
     catalogBadge: 'Local',
-    readyOrder: 10,
-    catalogOrder: 12,
+    readyOrder: 12,
+    catalogOrder: 14,
     recommendedOrder: 7,
+  },
+  'lm-studio': {
+    label: 'LM Studio',
+    description: 'Local models served by LM Studio on localhost.',
+    baseUrl: 'http://localhost:1234/v1',
+    authKind: 'none',
+    backendKind: 'ai-sdk',
+    fallbackModels: [],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'local',
+    catalogGroup: 'local',
+    catalogBadge: 'Local',
+    readyOrder: 13,
+    catalogOrder: 15,
   },
   'openai-compatible': {
     label: 'OpenAI-compatible (custom)',
@@ -325,8 +383,8 @@ const providerRegistry = {
     category: 'custom',
     catalogGroup: 'aggregators',
     catalogBadge: 'Custom',
-    readyOrder: 12,
-    catalogOrder: 14,
+    readyOrder: 15,
+    catalogOrder: 16,
   },
   'claude-subscription': {
     label: 'Claude Subscription (Pro / Max OAuth)',

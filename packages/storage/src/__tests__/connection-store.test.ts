@@ -7,6 +7,43 @@ import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { createConnectionStore } from '../connection-store.js';
 
 describe('FileConnectionStore', () => {
+  test('persists the LM Studio provider id and exact local model id', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'lm-studio',
+        name: 'LM Studio',
+        providerType: 'lm-studio',
+        defaultModel: 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'lm-studio');
+      assert.equal(
+        persisted.connections[0]?.defaultModel,
+        'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF',
+      );
+    });
+  });
+
+  test('persists the Cerebras provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'cerebras',
+        name: 'Cerebras',
+        providerType: 'cerebras',
+        defaultModel: 'gpt-oss-120b',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'cerebras');
+      assert.equal(persisted.connections[0]?.defaultModel, 'gpt-oss-120b');
+    });
+  });
+
   test('persists the MiniMax Coding Plan provider id and exact default model', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

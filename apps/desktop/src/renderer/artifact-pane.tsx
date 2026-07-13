@@ -73,6 +73,7 @@ import {
   TooltipContent,
   TooltipTrigger,
   formatBytes,
+  useMountedRef,
   useToast,
 } from '@maka/ui';
 import { ArtifactPreview } from './artifact-preview';
@@ -94,7 +95,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   const [pendingArtifactListRetry, setPendingArtifactListRetry] = useState(false);
   const [pendingArtifactAction, setPendingArtifactAction] = useState<string | null>(null);
   const artifactListRequestSeqRef = useRef(0);
-  const artifactPaneMountedRef = useRef(true);
+  const artifactPaneMountedRef = useMountedRef();
   const artifactPaneSessionIdRef = useRef<string | undefined>(sessionId);
   const recordsSessionIdRef = useRef<string | undefined>(undefined);
   const pendingArtifactListRetryRef = useRef(false);
@@ -105,9 +106,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   // ---- live data ---------------------------------------------------------
 
   useEffect(() => {
-    artifactPaneMountedRef.current = true;
     return () => {
-      artifactPaneMountedRef.current = false;
       artifactListRequestSeqRef.current += 1;
       pendingArtifactListRetryRef.current = false;
       pendingArtifactActionRef.current = null;

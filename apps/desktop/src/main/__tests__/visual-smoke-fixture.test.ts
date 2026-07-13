@@ -307,7 +307,10 @@ describe('visual smoke fixture mode', () => {
     assert.equal(liveTurns?.['visual-smoke-streaming']?.steps[0]?.tools[0]?.status, 'running');
     assert.equal(liveTurns?.['visual-smoke-permission']?.turnId, 'turn-permission');
     assert.equal(liveTurns?.['visual-smoke-permission']?.steps[0]?.tools[0]?.status, 'waiting_permission');
-    assert.ok(state?.permissionBySession?.['visual-smoke-permission']);
+    const permission = state?.permissionBySession?.['visual-smoke-permission'];
+    assert.ok(permission);
+    assert.equal((permission.args as { command?: unknown }).command, 'rm -rf ./dist');
+    assert.equal(Object.hasOwn(permission.args as object, 'cmd'), false, 'fixture must match the current Bash input schema');
   });
 
   it('fixture source does not seed visible placeholder chat copy', async () => {

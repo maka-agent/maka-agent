@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Volume2 } from '@maka/ui/icons';
 import type { VoicePermissionStatus } from '@maka/core';
 import { defaultVoiceCaptureCaps, validateVoiceCaptureRequest } from '@maka/core';
-import { Button, PageHeader, formatBytes, useToast } from '@maka/ui';
+import { Button, PageHeader, formatBytes, useMountedRef, useToast } from '@maka/ui';
 
 type VoiceSmokeState =
   | { status: 'idle'; message: string }
@@ -19,16 +19,14 @@ export function VoiceModelsSettingsPage() {
   });
   const [isBusy, setIsBusy] = useState(false);
   const captureSmokeBusyRef = useRef(false);
-  const voicePageMountedRef = useRef(false);
+  const voicePageMountedRef = useMountedRef();
   const activeVoiceCaptureStreamRef = useRef<MediaStream | null>(null);
   const toast = useToast();
   const caps = defaultVoiceCaptureCaps();
   const smokeStatusId = useId();
 
   useEffect(() => {
-    voicePageMountedRef.current = true;
     return () => {
-      voicePageMountedRef.current = false;
       activeVoiceCaptureStreamRef.current?.getTracks().forEach((track) => track.stop());
       activeVoiceCaptureStreamRef.current = null;
       captureSmokeBusyRef.current = false;

@@ -3,6 +3,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { PROVIDER_DEFAULTS } from '@maka/core';
 import {
   buildAiSdkCellBackendRegistration,
   buildHarborCellContextBudgetPolicySnapshot,
@@ -94,13 +95,14 @@ function economyTaskModeFromEnv(value) {
 }
 
 export async function backendEnv(env, provider) {
-  const keyEnvName = env.MAKA_HOST_API_KEY_ENV_NAME || providerApiKeyEnvName(provider);
-  const apiKey = await hostApiKey(env);
   const contextEnv = normalizeHarborCellContextEnv(env);
   const result = {
     MAKA_LLM_CONNECTION_SLUG: env.MAKA_LLM_CONNECTION_SLUG || provider,
-    [keyEnvName]: apiKey,
   };
+  if (PROVIDER_DEFAULTS[provider].authKind !== 'none') {
+    const keyEnvName = env.MAKA_HOST_API_KEY_ENV_NAME || providerApiKeyEnvName(provider);
+    result[keyEnvName] = await hostApiKey(env);
+  }
   if (env.MAKA_HOST_BASE_URL) result.MAKA_BASE_URL = env.MAKA_HOST_BASE_URL;
   for (const key of HOST_BACKEND_ENV_KEYS) {
     if (env[key] !== undefined) result[key] = env[key];

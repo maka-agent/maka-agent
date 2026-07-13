@@ -104,7 +104,7 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     const gateBlock = readyBlock.match(/const runImportAction = useCallback[\s\S]*?const importActionBusy/)?.[0] ?? '';
 
     assert.match(readyBlock, /const \[pendingImportAction, setPendingImportAction\] = useState<string \| null>\(null\)/);
-    assert.match(readyBlock, /const readyHeroMountedRef = useRef\(true\)/);
+    assert.match(readyBlock, /const readyHeroMountedRef = useMountedRef\(\)/);
     assert.match(readyBlock, /const importActionOwnerRef = useRef<ChatInputActionOwner<string> \| null>\(null\)/);
     assert.match(readyBlock, /importActionOwnerRef\.current = createChatInputActionOwner/);
     assert.match(readyBlock, /const importActionBusy = pendingImportAction !== null/);
@@ -181,11 +181,11 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(refreshBlock, /workspaceInstructions\.getState\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*setWorkspaceInstructionCount\(null\);[\s\S]*handleProbeFailure\(error\)/);
     assert.doesNotMatch(refreshBlock, /catch[\s\S]*setSettings\(null\)|catch[\s\S]*setPlanReminders\(\[\]\)|catch[\s\S]*setWorkspaceInstructionCount\(0\)/);
     assert.match(source, /const \[statusRefreshPending, setStatusRefreshPending\] = useState\(false\)/);
-    assert.match(source, /const checklistMountedRef = useRef\(true\)/);
+    assert.match(source, /const checklistMountedRef = useMountedRef\(\)/);
     assert.match(source, /const statusRefreshPendingRef = useRef\(false\)/);
     assert.match(
       source,
-      /useEffect\(\(\) => \{[\s\S]*checklistMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*checklistMountedRef\.current = false;[\s\S]*statusRefreshPendingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*statusRefreshPendingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
       'first-run checklist must restore mounted state during StrictMode replay and release refresh ownership on unmount',
     );
     assert.match(source, /const isChecklistUnmounted = useCallback\(\(\) => !checklistMountedRef\.current, \[\]\)/);
