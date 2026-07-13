@@ -600,7 +600,6 @@ export const Composer = forwardRef<
               <UiButton
                 variant="quiet"
                 size="icon-sm"
-                className="maka-composer-tool-button maka-composer-context-plus"
                 type="button"
                 disabled={props.disabled || importActionBusy}
                 onClick={() => void runImportAction('pick', props.onPickAttachments)}
@@ -704,7 +703,7 @@ export const Composer = forwardRef<
             {props.streaming ? (
               <UiButton
                 variant="default"
-                size="sm"
+                size="md"
                 type="button"
                 disabled={props.stopPending}
                 onClick={() => {
@@ -718,9 +717,8 @@ export const Composer = forwardRef<
               </UiButton>
             ) : (
               <UiButton
-                className="maka-composer-send-button"
                 variant="default"
-                size="icon-sm"
+                size="icon"
                 type="submit"
                 disabled={sendDisabled}
                 aria-label={buttonCopy.sendLabel}
@@ -738,12 +736,9 @@ export const Composer = forwardRef<
         const wp = props.workspacePicker!;
         return (
         <div className="maka-composer-workspace-row">
-          {/* PR-COMPOSER-WORKSPACE-PICKER-PRIMITIVE-0 (round 9/30):
-              the workspace picker badge was a raw `<button>`.
-              Routed through UiButton variant="quiet"; custom class
-              still owns the picker's inline-flex shape (icon +
-              label + chevron) and the bespoke 3px accent
-              focus-visible ring. */}
+          {/* The workspace and branch pickers are standard compact menu
+              triggers. Shared Button owns their visual and interaction states;
+              local classes only constrain layout and label truncation. */}
           <Menu>
             <MenuTrigger
               render={({ onClick: menuToggleClick, ...triggerRest }) => (
@@ -754,6 +749,7 @@ export const Composer = forwardRef<
                   }}
                   type="button"
                   variant="quiet"
+                  size="sm"
                   className="maka-composer-workspace-picker"
                   disabled={wp.pending === true}
                   aria-busy={wp.pending === true ? 'true' : undefined}
@@ -810,6 +806,7 @@ export const Composer = forwardRef<
                       }}
                       type="button"
                       variant="quiet"
+                      size="sm"
                       className="maka-composer-branch-picker"
                       disabled={triggerDisabled}
                       aria-busy={triggerDisabled ? 'true' : undefined}

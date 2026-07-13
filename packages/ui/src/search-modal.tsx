@@ -293,7 +293,6 @@ export function SearchModal(props: {
                   variant="quiet"
                   size="icon-sm"
                   type="button"
-                  className="maka-search-modal-clear"
                   aria-label="清空搜索"
                   onClick={clearSearchQuery}
                 >

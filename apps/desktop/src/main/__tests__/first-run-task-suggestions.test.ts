@@ -206,8 +206,9 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(source, /部分状态暂时没刷新成功，已避免把未知状态计成未完成/);
     assert.match(source, /role="alert"/);
     assert.match(styles, /\.maka-first-run-checklist-error\s*\{/);
-    assert.match(styles, /\.maka-first-run-checklist-error-action\s*\{/);
-    assert.match(styles, /\.maka-first-run-checklist-error-action:disabled\s*\{/);
+    assert.match(source, /variant="secondary"\s+size="sm"[\s\S]*refreshChecklistStatus/);
+    assert.doesNotMatch(source, /className="maka-first-run-checklist-error-action"/);
+    assert.doesNotMatch(styles, /\.maka-first-run-checklist-error-action/);
   });
 
   it('starts the shipped plan reminder form from the first-run checklist', async () => {

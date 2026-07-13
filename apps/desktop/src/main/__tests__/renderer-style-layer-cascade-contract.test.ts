@@ -96,26 +96,22 @@ describe('renderer style layer cascade contract', () => {
     assert.match(styles, new RegExp(`${controls}:disabled\\s*\\{[^}]*opacity:\\s*var\\(--opacity-disabled\\);`));
   });
 
-  it('keeps .settingsHealthRefresh out of any @layer so it can override secondary Button utilities', async () => {
-    const styles = await readAllRendererCss();
-    const layers = enclosingLayerCount(styles, '.settingsHealthRefresh {');
-    assert.notEqual(layers, -1, '.settingsHealthRefresh { rule not found in renderer CSS');
-    assert.equal(
-      layers,
-      0,
-      '.settingsHealthRefresh must stay unlayered because it overrides the shared secondary Button utility stack (background/border/padding/color).',
-    );
-  });
+  it('keeps settings utility actions on governed Button variants instead of unlayered reskins', async () => {
+    const [styles, permission, health, password] = await Promise.all([
+      readAllRendererCss(),
+      readFile('src/renderer/settings/permission-center-page.tsx', 'utf8'),
+      readFile('src/renderer/settings/health-center-page.tsx', 'utf8'),
+      readFile('src/renderer/settings/password-input.tsx', 'utf8'),
+    ]);
 
-  it('keeps .settingsPermissionRefresh out of any @layer so it can override secondary Button utilities', async () => {
-    const styles = await readAllRendererCss();
-    const layers = enclosingLayerCount(styles, '.settingsPermissionRefresh {');
-    assert.notEqual(layers, -1, '.settingsPermissionRefresh { rule not found in renderer CSS');
-    assert.equal(
-      layers,
-      0,
-      '.settingsPermissionRefresh must stay unlayered because it overrides the shared secondary Button utility stack (background/border/padding/color).',
-    );
+    assert.match(permission, /<Button\s+type="button"\s+variant="secondary"\s+size="sm"[\s\S]*?>\s*重新检测/);
+    assert.match(health, /<Button\s+type="button"\s+variant="secondary"\s+size="sm"[\s\S]*?>\s*刷新/);
+    assert.equal(password.match(/variant="quiet"\s+size="icon-sm"/g)?.length, 2);
+
+    for (const legacyClass of ['settingsPermissionRefresh', 'settingsHealthRefresh', 'settingsPasswordToggle']) {
+      assert.doesNotMatch(`${permission}\n${health}\n${password}`, new RegExp(`className="${legacyClass}"`));
+      assert.doesNotMatch(styles, new RegExp(`\\.${legacyClass}(?:\\s|:|\\{|\\[)`));
+    }
   });
 
   /**

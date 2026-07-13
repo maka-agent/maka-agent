@@ -209,8 +209,8 @@ export function PermissionCenterPage() {
             </small>
             <Button
               type="button"
-              className="settingsPermissionRefresh"
               variant="secondary"
+              size="sm"
               onClick={() => setRefreshTick((tick) => tick + 1)}
             >
               重新检测

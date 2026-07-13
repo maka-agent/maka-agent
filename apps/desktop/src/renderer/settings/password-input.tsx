@@ -86,7 +86,6 @@ export function PasswordInput(props: {
         {props.value && !props.disabled && (
           <Button
             type="button"
-            className="settingsPasswordToggle"
             variant="quiet"
             size="icon-sm"
             disabled={copying}
@@ -100,7 +99,6 @@ export function PasswordInput(props: {
         )}
         <Button
           type="button"
-          className="settingsPasswordToggle"
           variant="quiet"
           size="icon-sm"
           onClick={() => setVisible((current) => !current)}

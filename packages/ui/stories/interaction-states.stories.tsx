@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import type { SessionSummary } from '@maka/core';
+import { SessionListPanel } from '../src/session-list-panel.js';
 import { Button } from '../src/ui.js';
 
 const meta = {
@@ -11,6 +13,36 @@ type Story = StoryObj<typeof meta>;
 
 const VARIANTS = ['default', 'secondary', 'ghost', 'quiet', 'destructive'] as const;
 const NEUTRAL_VARIANTS = ['secondary', 'ghost', 'quiet'] as const;
+const noop = () => undefined;
+
+const COMPOSITE_ROW_SESSIONS: SessionSummary[] = [
+  {
+    id: 'interaction-active',
+    name: '整理中文 compact controls',
+    isFlagged: false,
+    isArchived: false,
+    labels: [],
+    hasUnread: false,
+    status: 'active',
+    backend: 'fake',
+    llmConnectionSlug: 'fixture',
+    model: 'fixture-model',
+    permissionMode: 'ask',
+  },
+  {
+    id: 'interaction-default',
+    name: 'Review English interaction states',
+    isFlagged: false,
+    isArchived: false,
+    labels: [],
+    hasUnread: true,
+    status: 'active',
+    backend: 'fake',
+    llmConnectionSlug: 'fixture',
+    model: 'fixture-model',
+    permissionMode: 'ask',
+  },
+];
 
 function StoryFrame(props: { children: React.ReactNode; description: string; title: string }) {
   return (
@@ -55,18 +87,27 @@ export const ListRowStates: Story = {
   render: () => (
     <StoryFrame
       title="复合行 / Composite rows"
-      description="行级控件使用自己的语义 seam；这里用真实 quiet Button 检查键盘与禁用行为。"
+      description="真实侧栏导航与会话行保留自己的布局、选中态和 focus-within seam。"
     >
-      <div style={{ display: 'grid', gap: 8, maxWidth: 420 }}>
-        <Button variant="quiet" style={{ justifyContent: 'flex-start' }}>默认行 / Default row</Button>
-        <Button variant="quiet" data-state-target="hover" style={{ justifyContent: 'flex-start' }}>悬停目标 / Hover target</Button>
-        <Button variant="quiet" data-state-target="focus" style={{ justifyContent: 'flex-start' }}>焦点目标 / Focus target</Button>
-        <Button variant="quiet" disabled data-state-target="disabled" style={{ justifyContent: 'flex-start' }}>已禁用 / Disabled</Button>
+      <div style={{ height: 440, overflow: 'hidden', width: 260 }}>
+        <SessionListPanel
+          selection={{ section: 'skills' }}
+          sessions={COMPOSITE_ROW_SESSIONS}
+          activeId="interaction-active"
+          onSelectSession={noop}
+          onSelect={noop}
+          onOpenSettings={noop}
+          onNew={noop}
+        />
       </div>
     </StoryFrame>
   ),
   play: async ({ canvasElement }) => {
-    canvasElement.querySelector<HTMLButtonElement>('[data-state-target="focus"]')?.focus();
+    const hoverTarget = canvasElement.querySelector<HTMLButtonElement>('.maka-nav-row:not([data-active="true"])');
+    hoverTarget?.setAttribute('data-state-target', 'hover');
+    const focusTarget = canvasElement.querySelector<HTMLButtonElement>('.maka-list-row[data-active="true"] .maka-list-row-main');
+    focusTarget?.setAttribute('data-state-target', 'focus');
+    focusTarget?.focus();
   },
 };
 

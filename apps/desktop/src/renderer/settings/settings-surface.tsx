@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ArrowLeft } from '@maka/ui/icons';
+import { Button as BaseButton } from '@base-ui/react/button';
 import type {
   AppSettings,
   LlmConnection,
@@ -11,7 +12,7 @@ import type {
   UsageStats,
 } from '@maka/core';
 import { createDefaultSettings } from '@maka/core/settings';
-import { Button, OverlayScrollArea, useMountedRef, useToast } from '@maka/ui';
+import { OverlayScrollArea, useMountedRef, useToast } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
 import { safeLocalStorageSet } from '../browser-storage';
 import { AccountSettingsPage } from './account-settings-page';
@@ -187,22 +188,21 @@ export function SettingsSurface(props: {
           {/* PR-SETTINGS-NO-PANE-BORDER-0 (WAWQAQ msg `8effe691`):
               reference sidebar has just `← 返回应用` then straight
               into the nav — no big "设置" brand label. Match it. */}
-          <Button
+          <BaseButton
             className="settingsBackButton"
-            variant="quiet"
             type="button"
             aria-label="返回应用"
             onClick={props.onClose}
           >
             <ArrowLeft size={16} aria-hidden="true" />
             <span>返回应用</span>
-          </Button>
+          </BaseButton>
           <nav aria-label="设置分组">
             {groupedNav().map(({ group, items }) => (
               <div key={group} className="settingsNavGroup" role="group" aria-label={group}>
                 <div className="settingsNavGroupLabel">{group}</div>
                 {items.map((item) => (
-                  <Button
+                  <BaseButton
                     key={item.id}
                     className="settingsNavItem"
                     data-active={section === item.id}
@@ -221,7 +221,7 @@ export function SettingsSurface(props: {
                         {item.badge}
                       </span>
                     )}
-                  </Button>
+                  </BaseButton>
                 ))}
               </div>
             ))}

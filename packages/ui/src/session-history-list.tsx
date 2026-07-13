@@ -271,10 +271,9 @@ function SessionListGroups(props: {
             {group.collapsible ? (
               /* PR-LIST-GROUP-TOGGLE-PRIMITIVE-0 (round 10/30):
                  disclosure-pattern toggle (aria-expanded +
-                 aria-controls). Routed through UiButton so the
-                 collapsible group header shares the same
-                 focus-visible + `:active` contract as every
-                 other interactive surface in the session list. */
+                 aria-controls). Base UI supplies the button semantics while
+                 this row seam owns layout and the shared focus-visible +
+                 `:active` contract for the session list. */
               <BaseButton
                 type="button"
                 className="maka-list-group-label maka-list-group-toggle"

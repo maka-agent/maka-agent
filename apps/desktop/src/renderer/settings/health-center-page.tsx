@@ -137,8 +137,8 @@ export function HealthCenterPage() {
             </small>
             <Button
               type="button"
-              className="settingsHealthRefresh"
               variant="secondary"
+              size="sm"
               onClick={() => setRefreshTick((tick) => tick + 1)}
             >
               刷新

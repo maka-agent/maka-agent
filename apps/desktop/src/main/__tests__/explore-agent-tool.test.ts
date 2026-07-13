@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildExploreAgentTool, runReadOnlyExplore } from '../explore-agent-tool.js';
 
+const repoRoot = join(process.cwd(), '..', '..');
+
 describe('ExploreAgent read-only worker', () => {
   it('exposes a permission-gated subagent tool', () => {
     const tool = buildExploreAgentTool();
@@ -554,6 +556,9 @@ describe('ExploreAgent read-only worker', () => {
       'ExploreAgent copy actions should keep the governed previewVariants agent-copy part on shared UiButton controls',
     );
     assert.doesNotMatch(previewBlock, /\bmaka-explore-agent-copy\b/);
+    const chatPrimitive = await readFile(join(repoRoot, 'packages/ui/src/primitives/chat.tsx'), 'utf8');
+    const agentCopyVariant = chatPrimitive.match(/"agent-copy":\s*[\s\S]*?data-\[copy-error=true\][^,]+/)?.[0] ?? '';
+    assert.doesNotMatch(agentCopyVariant, /\b(?:gap-|min-h-|px-|py-|text-xs)\b/);
     assert.doesNotMatch(previewBlock, /data-size="sm"/);
     assert.match(previewBlock, /复制中…/);
     assert.match(previewBlock, /复制失败/);

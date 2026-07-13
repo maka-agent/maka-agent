@@ -595,7 +595,7 @@ const previewVariants = cva("", {
         "flex items-center justify-between gap-2 min-w-0 [&>strong]:min-w-0 [&>strong]:text-xs [&>strong]:text-[color:var(--foreground)]",
       // `.maka-explore-agent-copy` (UiButton) + the copied / shared copy-state tints.
       "agent-copy":
-        "[flex:0_0_auto] gap-1 min-h-6 px-2 py-0.5 text-xs"
+        "[flex:0_0_auto]"
         + " data-[copied=true]:text-[color:var(--link)] data-[copied=true]:[border-color:oklch(from_var(--link)_l_c_h_/_0.35)]"
         + " data-[pending=true]:cursor-progress"
         + " data-[copy-error=true]:text-[color:var(--destructive)] data-[copy-error=true]:[border-color:oklch(from_var(--destructive)_l_c_h_/_0.35)]",

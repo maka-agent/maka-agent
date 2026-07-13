@@ -153,7 +153,6 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
           <TooltipTrigger
             render={<Button variant="quiet" size="icon-sm" />}
             type="button"
-            className="maka-browser-navbtn"
             aria-label="浏览器后退"
             disabled={!state.canGoBack}
             onClick={() => void window.maka.browser.back(sessionId)}
@@ -166,7 +165,6 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
           <TooltipTrigger
             render={<Button variant="quiet" size="icon-sm" />}
             type="button"
-            className="maka-browser-navbtn"
             aria-label="浏览器前进"
             disabled={!state.canGoForward}
             onClick={() => void window.maka.browser.forward(sessionId)}
@@ -179,7 +177,6 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
           <TooltipTrigger
             render={<Button variant="quiet" size="icon-sm" />}
             type="button"
-            className="maka-browser-navbtn"
             aria-label={state.loading ? '停止加载页面' : '刷新页面'}
             disabled={!state.hasPage && !state.loading}
             onClick={() =>
@@ -216,7 +213,6 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
           <TooltipTrigger
             render={<Button variant="quiet" size="icon-sm" />}
             type="button"
-            className="maka-browser-navbtn"
             aria-label="关闭浏览器页面"
             onClick={() => void window.maka.browser.close(sessionId)}
           >

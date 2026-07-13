@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Button as BaseButton } from '@base-ui/react/button';
 import type { BotChannelSettings } from '@maka/core';
 import type { WechatBridgeQrCodeResult } from '@maka/runtime';
 import { Button, DialogContent, DialogHeader, DialogRoot, Input, useMountedRef } from '@maka/ui';
@@ -36,16 +37,14 @@ export function BotWeChatFields(props: {
         />
       </label>
       <div className="settingsBotAdvanced">
-        <Button
+        <BaseButton
           type="button"
-          variant="quiet"
-          size="sm"
           className="settingsBotAdvancedToggle"
           aria-expanded={advancedOpen}
           onClick={() => setAdvancedOpen((current) => !current)}
         >
           {advancedOpen ? '收起高级设置' : '高级设置（公众号 / 本机 bridge 地址）'}
-        </Button>
+        </BaseButton>
         {advancedOpen && (
           <div className="settingsBotAdvancedBody">
             <label className="settingsField">

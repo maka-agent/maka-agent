@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Button as BaseButton } from '@base-ui/react/button';
 import {
   canPickDefaultModel,
   canSaveDefaultModelChange,
@@ -747,15 +748,14 @@ function ModelTable(props: {
       )}
 
       {defaultHidden && (
-        <Button
+        <BaseButton
           type="button"
-          variant="ghost"
           className="modelTableDefaultHint"
           onClick={() => setQuery('')}
           title="清空搜索"
         >
           当前默认 <code>{props.defaultModel}</code> 不在搜索结果中 · 点这里清空搜索
-        </Button>
+        </BaseButton>
       )}
 
       {props.modelChoices.length === 0 ? (
@@ -782,10 +782,9 @@ function ModelTable(props: {
             const canPickDefault = canPickDefaultModel(model);
             return (
               <li key={model.id} role="none">
-                <Button
+                <BaseButton
                   type="button"
                   className="modelTableRow"
-                  variant="ghost"
                   role="radio"
                   aria-checked={isDefault}
                   aria-disabled={!canPickDefault || props.disabled ? true : undefined}
@@ -809,7 +808,7 @@ function ModelTable(props: {
                   </span>
                   <ModelCapabilityChips model={model} />
                   {isDefault && <span className="modelTableDefaultBadge">默认</span>}
-                </Button>
+                </BaseButton>
               </li>
             );
           })}

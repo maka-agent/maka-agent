@@ -45,7 +45,7 @@ describe('Plan Reminder panel async action contract', () => {
     );
     assert.match(panelBlock, /const submitDisabled = !canCreate \|\| submitPending;/);
     assert.match(panelBlock, /<form className="maka-plan-form" onSubmit=\{submit\} aria-busy=\{submitPending \? 'true' : undefined\}>/);
-    assert.match(panelBlock, /<UiButton className="maka-plan-submit" type="submit" disabled=\{submitDisabled\}>/);
+    assert.match(panelBlock, /<UiButton type="submit" disabled=\{submitDisabled\}>/);
 
     assert.match(
       refreshBlock,

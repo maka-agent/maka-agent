@@ -757,6 +757,8 @@ function ReadyEmptyHero(props: {
         <Button
           type="button"
           className="maka-onboarding-quickchat-submit"
+          variant="default"
+          size="icon"
           onClick={submit}
           disabled={quickChatBusy}
           aria-busy={quickChatBusy ? 'true' : undefined}
@@ -780,7 +782,6 @@ function ReadyEmptyHero(props: {
                     type="button"
                     variant="secondary"
                     size="sm"
-                    className="maka-first-run-task-suggestion"
                     onClick={() => prefillSuggestion(suggestion.prompt, suggestion.mode)}
                     disabled={quickChatBusy}
                   >

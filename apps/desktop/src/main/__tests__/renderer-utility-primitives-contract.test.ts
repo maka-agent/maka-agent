@@ -101,17 +101,14 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/artifact-pane.tsx'), 'utf8');
 
     assert.match(source, /import \{[^}]*\bButton\b[^}]*\bToolbar\b[^}]*\bToolbarGroup\b[^}]*\bToolbarSeparator\b[^}]*\buseToast\b[^}]*\} from '@maka\/ui';/);
-    assert.doesNotMatch(source, /<button\b/, 'ArtifactPane controls must use shared Button');
+    assert.match(source, /import \{ Button as BaseButton \} from '@base-ui\/react\/button';/);
+    assert.doesNotMatch(source, /<button\b/, 'ArtifactPane controls must use shared Button or the semantic Base UI row seam');
     assert.doesNotMatch(source, /role="toolbar"/, 'ArtifactPane toolbar semantics must come from shared primitive Toolbar');
     assert.match(source, /<Toolbar className="maka-artifact-toolbar" aria-label="生成文件操作">/);
     assert.match(source, /<ToolbarSeparator className="maka-artifact-toolbar-separator" orientation="vertical" \/>/);
-    for (const className of [
-      'maka-artifact-pane-collapse',
-      'maka-artifact-error-retry',
-      'maka-artifact-row',
-    ]) {
-      assert.match(source, new RegExp(`<Button[\\s\\S]*className="${className}`));
-    }
+    assert.match(source, /render=\{<Button variant="quiet" size="icon-sm" \/>\}/);
+    assert.match(source, /<Button\s+variant="secondary"\s+size="sm"[\s\S]*retryArtifactListRefresh/);
+    assert.match(source, /<BaseButton[\s\S]*className="maka-artifact-row"/);
   });
 
   it('keeps command palette search and rows on shared primitives', async () => {
@@ -185,8 +182,9 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.match(source, /import \{[^}]*\bButton\b[^}]*\} from '.\/ui\.js';/);
     assert.doesNotMatch(source, /<button\b/, 'ToastProvider controls must use shared Button');
     assert.doesNotMatch(source, /className="maka-button/, 'Confirm dialog actions must not keep legacy maka-button styling');
-    assert.match(source, /<Button[\s\S]*className="maka-toast-action"/);
-    assert.match(source, /<Button[\s\S]*className="maka-toast-close"/);
+    assert.match(source, /render=\{<Button type="button" variant="secondary" size="sm" \/>\}/);
+    assert.match(source, /render=\{<Button type="button" variant="quiet" size="icon-sm" \/>\}/);
+    assert.doesNotMatch(source, /className="maka-toast-(?:action|close)"/);
     assert.match(source, /<Button[\s\S]*variant=\{destructive \? 'destructive' : 'default'\}/);
   });
 
@@ -247,8 +245,11 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     const skills = consumers[3];
     assert.match(skills, /variant="secondary"\s+size="icon-sm"\s+onClick=\{\(\) => props\.onInstallManagedSkill/);
     assert.match(skills, /variant="secondary"\s+size="icon-sm"\s+className="maka-skill-library-open-button"/);
+    assert.match(skills, /variant="secondary"\s+size="sm"\s+onClick=\{\(\) => void reviewManagedSkillUpdate/);
     assert.doesNotMatch(skills, /className="maka-skill-filter-pill"/);
     assert.doesNotMatch(skills, /className="maka-skill-market-install-button"/);
+    assert.doesNotMatch(skills, /className="maka-skill-market-install"/);
+    assert.doesNotMatch(skillsCss, /\.maka-skill-market-install\b/);
 
     const artifactPane = consumers[5];
     assert.doesNotMatch(artifactPane, /className="[^"]*maka-artifact-toolbar-button/);
@@ -261,8 +262,81 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.doesNotMatch(providers, /<Button className="enabledEmptyChip enabledEmptyAction"/);
 
     const wechat = consumers[7];
+    assert.match(wechat, /import \{ Button as BaseButton \} from '@base-ui\/react\/button';/);
+    assert.match(wechat, /<BaseButton[\s\S]*className="settingsBotAdvancedToggle"/);
+    assert.doesNotMatch(wechat, /<Button[\s\S]*className="settingsBotAdvancedToggle"/);
     assert.doesNotMatch(wechat, /className="settingsWechatQrSecondary"/);
     assert.equal(wechat.match(/<Button type="button" variant="secondary" size="sm" disabled=\{loading\} onClick=\{reloadQrCode\}>/g)?.length, 3);
     assert.doesNotMatch(rendererCss, /\.settingsWechatQrSecondary\b/);
+
+    const providerDetail = await readFile(join(process.cwd(), 'src/renderer/settings/provider-connection-detail.tsx'), 'utf8');
+    assert.match(providerDetail, /<BaseButton\s+type="button"\s+className="modelTableRow"/);
+    assert.doesNotMatch(providerDetail, /<Button\b[^>]*className="modelTableRow"/);
+  });
+
+  it('keeps representative shared Button consumers on governed variants and sizes', async () => {
+    const [artifact, onboarding, checklist, composer, search, shell, browser, plan, story, rendererCss] = await Promise.all([
+      readFile(join(process.cwd(), 'src/renderer/artifact-pane.tsx'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/OnboardingHero.tsx'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8'),
+      readFile(join(repoRoot, 'packages/ui/src/composer.tsx'), 'utf8'),
+      readFile(join(repoRoot, 'packages/ui/src/search-modal.tsx'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/app-shell-chrome-actions.tsx'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/browser-panel.tsx'), 'utf8'),
+      readFile(join(repoRoot, 'packages/ui/src/plan-reminder-panel.tsx'), 'utf8'),
+      readFile(join(repoRoot, 'packages/ui/stories/interaction-states.stories.tsx'), 'utf8'),
+      readRendererContractCss(),
+    ]);
+
+    for (const className of [
+      'maka-artifact-pane-collapse',
+      'maka-artifact-error-retry',
+      'maka-first-run-task-suggestion',
+      'maka-first-run-checklist-error-action',
+      'maka-composer-tool-button',
+      'maka-composer-context-plus',
+      'maka-composer-send-button',
+      'maka-search-modal-clear',
+      'maka-shell-topbar-button',
+      'maka-workspace-icon-action',
+      'maka-browser-navbtn',
+    ]) {
+      assert.doesNotMatch(
+        `${artifact}\n${onboarding}\n${checklist}\n${composer}\n${search}\n${shell}\n${browser}`,
+        new RegExp(`<(?:Button|UiButton)[^>]*className="[^"]*\\b${className}\\b`),
+        `${className} must not reskin a shared Button`,
+      );
+    }
+
+    assert.match(onboarding, /variant="secondary"\s+size="sm"\s+onClick=\{\(\) => prefillSuggestion/);
+    assert.match(checklist, /import \{ Button as BaseButton \} from '@base-ui\/react\/button';/);
+    assert.match(checklist, /<BaseButton[^>]*onClick=\{item\.onClick\}/);
+    assert.match(composer, /variant="quiet"\s+size="icon-sm"[\s\S]*aria-label=\{pendingImportAction/);
+    assert.match(composer, /variant="default"\s+size="icon"[\s\S]*aria-label=\{buttonCopy\.sendLabel\}/);
+    assert.match(plan, /variant="secondary"\s+size="sm"[\s\S]*onClick=\{\(\) => applyRunAtPreset/);
+
+    assert.match(story, /import \{ SessionListPanel \} from '\.\.\/src\/session-list-panel\.js';/);
+    const listRowStory = story.match(/export const ListRowStates[\s\S]*?export const NeutralButtonStates/)?.[0] ?? '';
+    assert.match(listRowStory, /<SessionListPanel/);
+    assert.doesNotMatch(listRowStory, /<Button\b/, 'composite-row story must render the product seam instead of a parallel Button demo');
+    assert.match(listRowStory, /querySelector<HTMLButtonElement>\('\.maka-nav-row:not\(\[data-active="true"\]\)'\)/);
+    assert.match(listRowStory, /setAttribute\('data-state-target', 'hover'\)/);
+    assert.match(listRowStory, /querySelector<HTMLButtonElement>\('\.maka-list-row\[data-active="true"\] \.maka-list-row-main'\)/);
+    assert.match(listRowStory, /setAttribute\('data-state-target', 'focus'\)/);
+    assert.match(listRowStory, /focusTarget\?\.focus\(\)/);
+
+    for (const selector of [
+      'maka-artifact-pane-collapse',
+      'maka-artifact-error-retry',
+      'maka-first-run-task-suggestion',
+      'maka-first-run-checklist-error-action',
+      'maka-composer-tool-button',
+      'maka-composer-context-plus',
+      'maka-composer-send-button',
+      'maka-search-modal-clear',
+      'maka-browser-navbtn',
+    ]) {
+      assert.doesNotMatch(rendererCss, new RegExp(`\\.${selector}(?:\\s|:|\\[|\\{)`));
+    }
   });
 });

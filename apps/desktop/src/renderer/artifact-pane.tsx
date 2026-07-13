@@ -389,7 +389,6 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
           <TooltipTrigger
             render={<Button variant="quiet" size="icon-sm" />}
             type="button"
-            className="maka-artifact-pane-collapse"
             onClick={() => setCollapsed((current) => !current)}
             // @kenji a11y gate #3: aria-expanded reflects the actual visible
             // content state (true when pane shows list + preview + toolbar,
@@ -420,7 +419,6 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               <AlertDescription>{activeListError}</AlertDescription>
               <AlertAction>
                 <Button
-                  className="maka-artifact-error-retry"
                   variant="secondary"
                   size="sm"
                   type="button"

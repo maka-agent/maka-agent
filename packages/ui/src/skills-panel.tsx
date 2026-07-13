@@ -505,8 +505,8 @@ function SkillLibraryPanel(props: {
                   {reviewableManagedUpdate && props.onPreviewManagedSkillUpdate && (
                     <UiButton
                       type="button"
-                      variant="ghost"
-                      className="maka-skill-market-install"
+                      variant="secondary"
+                      size="sm"
                       onClick={() => void reviewManagedSkillUpdate(skill)}
                       disabled={props.actionBusy || reviewingSkillId !== null}
                     >
@@ -768,7 +768,6 @@ export function SkillsModuleMain(props: {
               re-skinned by CSS into a hardcoded black-gradient pill (theme-leak
               literals + off-family radius). */}
           <UiButton
-            className="maka-skill-add-button"
             variant="default"
             type="button"
             onClick={() => void runSkillAction('create', props.onCreateSkillTemplate)}

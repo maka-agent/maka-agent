@@ -132,44 +132,6 @@
   flex: 0 0 auto;
 }
 
-.maka-composer-tool-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--foreground-secondary);
-  transition:
-    background-color var(--duration-base) var(--ease-out-strong),
-    color var(--duration-base) var(--ease-out-strong),
-    transform var(--duration-emphasized) var(--ease-out-strong);
-}
-
-.maka-composer-context-plus {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-pill);
-  background: transparent;
-}
-
-.maka-composer-tool-button:hover:not(:disabled) {
-  color: var(--foreground);
-  background: var(--state-hover-bg);
-  transform: scale(var(--scale-hover));
-}
-
-.maka-composer-tool-button:active:not(:disabled) {
-  background: var(--state-selected-bg);
-}
-
-.maka-composer-tool-button:disabled {
-  opacity: var(--opacity-disabled);
-  cursor: not-allowed;
-}
-
 
 /* ============================================================================
    Composer container + input field — single source
@@ -299,31 +261,6 @@
    + inner sheen + drop shadow (the "machined hardware" look read heavy next
    to the calm parchment container). Flat --action with darken on hover/press
    keeps it the clear primary CTA without the weight. */
-.maka-composer-send-button {
-  width: var(--h-control-lg);
-  height: var(--h-control-lg);
-  border-radius: var(--radius-pill);
-  background: var(--action);
-  color: var(--action-foreground);
-  transition: background var(--duration-base) var(--ease-out-strong);
-}
-
-.maka-composer-send-button:hover:not(:disabled) {
-  background: oklch(from var(--action) calc(l - 0.08) c h);
-  color: var(--action-foreground);
-}
-
-.maka-composer-send-button:active:not(:disabled) {
-  background: oklch(from var(--action) calc(l - 0.14) c h);
-}
-
-.maka-composer-send-button:disabled {
-  background: oklch(from var(--foreground) 0.72 0 h / 0.18);
-  color: oklch(1 0 0);
-  opacity: var(--opacity-disabled);
-  cursor: not-allowed;
-}
-
 .maka-composer-workspace-row {
   /* PR-PARCHMENT-HOME-2: must share the new composer card measure
      (620px) so the "选择工作目录 ▾" pill stays aligned with the card
@@ -338,33 +275,8 @@
 
 .maka-composer-workspace-picker {
   -webkit-app-region: no-drag;
-  appearance: none;
   min-width: 0;
-  min-height: var(--h-control-sm);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-1-5);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--muted-foreground);
-  font: inherit;
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-tight);
   text-align: left;
-  transition: color var(--duration-quick) var(--ease-out-strong);
-}
-
-.maka-composer-workspace-picker:hover {
-  color: var(--foreground-secondary);
-  background: var(--state-hover-bg);
-}
-
-.maka-composer-workspace-picker:focus-visible {
-  outline: none;
-  border-radius: var(--radius-control);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
 .maka-composer-workspace-picker svg {
@@ -375,40 +287,14 @@
   min-width: 0;
   max-width: 180px;
   overflow: hidden;
-  color: var(--muted-foreground);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .maka-composer-branch-picker {
   -webkit-app-region: no-drag;
-  appearance: none;
   min-width: 0;
-  min-height: var(--h-control-sm);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-1-5);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--muted-foreground);
-  font: inherit;
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-tight);
   text-align: left;
-  transition: color var(--duration-quick) var(--ease-out-strong);
-}
-
-.maka-composer-branch-picker:hover {
-  color: var(--foreground-secondary);
-  background: var(--state-hover-bg);
-}
-
-.maka-composer-branch-picker:focus-visible {
-  outline: none;
-  border-radius: var(--radius-control);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
 .maka-composer-branch-picker svg {
@@ -419,7 +305,6 @@
   min-width: 0;
   max-width: 140px;
   overflow: hidden;
-  color: var(--muted-foreground);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
