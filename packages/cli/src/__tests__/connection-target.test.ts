@@ -166,6 +166,29 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'glm-5');
   });
 
+  test('resolves Tencent Token Plan credentials without rewriting the selected model id', async () => {
+    const connection = makeConnection({
+      slug: 'tencent-token-plan',
+      name: 'Tencent Token Plan',
+      providerType: 'tencent-token-plan',
+      defaultModel: 'deepseek-v4-pro-202606',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'tencent-token-plan',
+        get: async (slug) => slug === 'tencent-token-plan' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'tencent-token-plan-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'tencent-token-plan');
+    assert.equal(target.apiKey, 'tencent-token-plan-test-key');
+    assert.equal(target.model, 'deepseek-v4-pro-202606');
+  });
+
   test('resolves LM Studio without reading a credential or rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'lm-studio',

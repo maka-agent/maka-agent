@@ -162,6 +162,23 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the Tencent Token Plan provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'tencent-token-plan',
+        name: 'Tencent Token Plan',
+        providerType: 'tencent-token-plan',
+        defaultModel: 'deepseek-v4-pro-202606',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'tencent-token-plan');
+      assert.equal(persisted.connections[0]?.defaultModel, 'deepseek-v4-pro-202606');
+    });
+  });
+
   test('persists the LM Studio provider id and exact local model id', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

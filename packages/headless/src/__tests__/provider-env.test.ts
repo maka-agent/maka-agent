@@ -87,6 +87,14 @@ test('Volcengine Coding Plan is unavailable to non-interactive headless credenti
   );
 });
 
+test('Tencent Token Plan is unavailable to non-interactive headless credential loading', () => {
+  assert.equal(providerCredentialEnv('tencent-token-plan'), undefined);
+  assert.throws(
+    () => requireProviderCredentialEnv('tencent-token-plan'),
+    /provider does not support API key files: tencent-token-plan/,
+  );
+});
+
 test('StepFun China keeps direct API credentials separate from global and plan identities', () => {
   assert.deepEqual(providerCredentialEnv('stepfun'), {
     apiKeys: ['STEPFUN_API_KEY'],
