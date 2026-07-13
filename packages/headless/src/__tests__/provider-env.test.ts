@@ -86,3 +86,11 @@ test('StepFun China keeps direct API credentials separate from global and plan i
     baseUrls: ['STEPFUN_BASE_URL'],
   });
 });
+
+test('StepFun Global keeps direct API credentials separate from China and plan identities', () => {
+  assert.deepEqual(providerCredentialEnv('stepfun-ai'), {
+    apiKeys: ['STEPFUN_AI_API_KEY'],
+    apiKeyFile: 'STEPFUN_AI_API_KEY_FILE',
+    baseUrls: ['STEPFUN_AI_BASE_URL'],
+  });
+});

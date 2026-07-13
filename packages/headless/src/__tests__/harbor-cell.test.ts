@@ -2332,6 +2332,36 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves StepFun Global only from its independent direct API credential env', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun-ai',
+      model: 'step-3.7-flash',
+      env: {
+        STEPFUN_AI_API_KEY: 'stepfun-global-key',
+        STEPFUN_AI_BASE_URL: 'https://api.stepfun.ai/v1',
+        STEPFUN_API_KEY: 'china-key-must-not-cross',
+        OPENAI_API_KEY: 'openai-key-must-not-cross',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'stepfun-global-key');
+    assert.equal(resolved.connection.providerType, 'stepfun-ai');
+    assert.equal(resolved.connection.defaultModel, 'step-3.7-flash');
+    assert.equal(resolved.connection.baseUrl, 'https://api.stepfun.ai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun-ai',
+      model: 'step-3.7-flash',
+      env: {
+        STEPFUN_API_KEY: 'china-key-must-not-cross',
+        OPENAI_API_KEY: 'openai-key-must-not-cross',
+      },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves Cerebras only from Cerebras credential env without rewriting the model id', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'cerebras',

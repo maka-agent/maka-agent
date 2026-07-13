@@ -50,6 +50,29 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'step-3.7-flash');
   });
 
+  test('resolves StepFun Global credentials without rewriting the selected model id', async () => {
+    const connection = makeConnection({
+      slug: 'stepfun-ai',
+      name: 'StepFun (Global)',
+      providerType: 'stepfun-ai',
+      defaultModel: 'step-3.7-flash',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'stepfun-ai',
+        get: async (slug) => slug === 'stepfun-ai' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'stepfun-global-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'stepfun-ai');
+    assert.equal(target.apiKey, 'stepfun-global-test-key');
+    assert.equal(target.model, 'step-3.7-flash');
+  });
+
   test('resolves Tencent TokenHub credentials without rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'tencent-tokenhub',
