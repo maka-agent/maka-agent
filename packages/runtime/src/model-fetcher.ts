@@ -11,6 +11,13 @@ import { claudeSubscriptionHeaders } from './subscription-auth.js';
 
 const MODEL_FETCH_TIMEOUT_MS = 10_000;
 
+type RawProviderModel = {
+  id?: string;
+  supports_image_in?: boolean;
+  supports_reasoning?: boolean;
+  context_length?: number;
+};
+
 export async function fetchProviderModels(
   connection: LlmConnection,
   apiKey: string,
@@ -45,8 +52,8 @@ async function fetchProviderModelsStrict(
         timeoutMs: MODEL_FETCH_TIMEOUT_MS,
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json() as { data?: Array<{ id?: string }> };
-      return (data.data ?? []).flatMap((model) => model.id ? [{ id: model.id }] : []);
+      const data = await r.json() as { data?: RawProviderModel[] };
+      return (data.data ?? []).map(toModelInfo).filter((model): model is ModelInfo => model !== null);
     }
     case 'openai': {
       const r = await proxiedFetch(`${stripTrailing(baseUrl)}/models`, {
@@ -57,8 +64,8 @@ async function fetchProviderModelsStrict(
         timeoutMs: MODEL_FETCH_TIMEOUT_MS,
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json() as { data?: Array<{ id?: string }> };
-      return (data.data ?? []).flatMap((model) => model.id ? [{ id: model.id }] : []);
+      const data = await r.json() as { data?: RawProviderModel[] };
+      return (data.data ?? []).map(toModelInfo).filter((model): model is ModelInfo => model !== null);
     }
     case 'google': {
       const r = await proxiedFetch(
@@ -73,6 +80,18 @@ async function fetchProviderModelsStrict(
       });
     }
   }
+}
+
+function toModelInfo(model: RawProviderModel): ModelInfo | null {
+  if (!model.id) return null;
+  const capabilities: NonNullable<ModelInfo['capabilities']> = {};
+  if (typeof model.supports_image_in === 'boolean') capabilities.vision = model.supports_image_in;
+  if (typeof model.supports_reasoning === 'boolean') capabilities.reasoning = model.supports_reasoning;
+  return {
+    id: model.id,
+    ...(typeof model.context_length === 'number' ? { contextWindow: model.context_length } : {}),
+    ...(Object.keys(capabilities).length ? { capabilities } : {}),
+  };
 }
 
 function anthropicModelHeaders(connection: LlmConnection, apiKey: string): Record<string, string> {

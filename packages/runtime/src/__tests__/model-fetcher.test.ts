@@ -53,6 +53,42 @@ describe('fetchProviderModels', () => {
     assert.deepEqual(models, [{ id: 'glm-live' }]);
   });
 
+  test('provider model capability fields are preserved when present', async () => {
+    const server = await startJsonServer((_request, response) => {
+      respondJson(response, 200, {
+        data: [
+          {
+            id: 'kimi-k2.7',
+            supports_image_in: true,
+            supports_reasoning: true,
+            context_length: 262_144,
+          },
+          { id: 'moonshot-v1-8k', supports_image_in: false },
+        ],
+      });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'moonshot',
+      name: 'Moonshot',
+      providerType: 'moonshot',
+      baseUrl: server.url,
+      defaultModel: 'kimi-k2.7',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'moonshot-secret');
+
+    assert.deepEqual(models, [
+      {
+        id: 'kimi-k2.7',
+        contextWindow: 262_144,
+        capabilities: { vision: true, reasoning: true },
+      },
+      { id: 'moonshot-v1-8k', capabilities: { vision: false } },
+    ]);
+  });
+
   test('provider fetch failures throw generalized errors instead of returning fallback models', async () => {
     const server = await startJsonServer((_request, response) => {
       respondJson(response, 401, {
