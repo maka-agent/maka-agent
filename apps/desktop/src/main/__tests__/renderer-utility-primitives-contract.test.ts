@@ -206,4 +206,14 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.doesNotMatch(source, /<UiButton[\s\S]*className="maka-prompt-chip/);
     assert.doesNotMatch(source, /maka-prompt-chip h-auto/);
   });
+
+  it('expresses clear-input-history semantics through the destructive Button variant', async () => {
+    const source = await readFile(join(process.cwd(), 'src/renderer/settings/data-settings-page.tsx'), 'utf8');
+
+    assert.match(
+      source,
+      /<Button\s+type="button"\s+variant="destructive"\s+onClick=\{\(\) => void clearInputHistory\(\)\}/,
+    );
+    assert.doesNotMatch(source, /className="[^"]*destructive[^"]*"/);
+  });
 });
