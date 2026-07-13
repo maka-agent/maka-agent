@@ -1195,6 +1195,7 @@ try:
         assert "opencode-stop-runner.mjs" in command, command
         assert "--output /logs/agent/opencode.txt" in command, command
         assert "opencode --model=zai-coding-plan/glm-5.2 run --format=json" in command, command
+        assert "--pure" in command, command
         assert "--variant=max" in command, command
         assert "templated: hi" in command, command
         assert env["ZAI_API_KEY"] == "test-zai-key", env

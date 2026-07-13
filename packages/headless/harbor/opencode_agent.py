@@ -141,7 +141,7 @@ class MakaOpenCodeAgent(OpenCode):
             "--output /logs/agent/opencode.txt "
             f"--grace-ms {grace_ms} "
             "-- "
-            f"opencode --model={shlex.quote(self.model_name)} run --format=json "
+            f"opencode --model={shlex.quote(self.model_name)} run --format=json --pure "
             f"{cli_flags_arg}{variant_arg}--thinking --dangerously-skip-permissions -- "
             f"{escaped_instruction}"
         )

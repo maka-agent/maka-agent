@@ -109,6 +109,7 @@ async function main() {
           adapter: 'opencode_agent:MakaOpenCodeAgent',
           externalSystemPrompt: 'empty',
           variant: REASONING_EFFORT,
+          pure: true,
           permissions: 'dangerously-skip',
         },
       },
