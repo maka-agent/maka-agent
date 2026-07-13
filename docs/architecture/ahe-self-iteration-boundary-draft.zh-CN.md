@@ -3,7 +3,7 @@ doc_id: architecture.ahe-self-iteration-boundary
 title: "第六章：Self-Iteration Happens Outside the Runtime——Maka 的 AHE 演化边界"
 language: zh-CN
 source_language: zh-CN
-counterpart: ./ahe-self-iteration-boundary-draft.en.md
+counterpart: ./ahe-self-iteration-boundary-draft.md
 implementation_status: mixed-current-and-target
 document_status: draft
 translation_status: synced

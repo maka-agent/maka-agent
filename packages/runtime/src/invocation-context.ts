@@ -1,7 +1,7 @@
 /**
  * InvocationContext — Runtime v2 invocation/run spine.
  *
- * Architecture: docs/architecture/runtime-core-architecture-draft.en.md
+ * Architecture: docs/architecture/runtime-core-architecture-draft.md
  *
  * Phase 2 scope: types + injectable providers. RuntimeRunner consumes these
  * to build a testable invocation shell and can also be handed production ids

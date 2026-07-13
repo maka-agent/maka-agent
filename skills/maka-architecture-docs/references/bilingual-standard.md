@@ -62,7 +62,7 @@ doc_id: architecture.example
 title: "Reader-oriented title"
 language: zh-CN
 source_language: zh-CN
-counterpart: ./example.en.md
+counterpart: ./example.md
 implementation_status: current
 document_status: draft
 translation_status: synced

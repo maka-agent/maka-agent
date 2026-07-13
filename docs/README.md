@@ -24,15 +24,14 @@ This page is the authority map for Maka documentation. Code and contract tests r
 ### Runtime and Headless
 
 - [Session task ledger lifecycle](./session-task-ledger-lifecycle.md)
-- [AHE target protocol](./ahe-target-protocol.md)
-- [AHE evidence export](./ahe-evidence-export.md)
+- [AHE target protocol and evidence export](./ahe-target-protocol.md)
 - [Skill catalog policy](./skill-catalog-policy.md)
 - [Backend architecture chapters](./architecture/)
 
 ### Frontend and validation
 
 - [Product design](../DESIGN.md)
-- [Frontend CSS governance](./frontend-css-governance.md)
+- [Frontend CSS governance](./frontend-css-governance.md) ([中文](./frontend-css-governance.zh-CN.md))
 
 ### Security and privacy
 

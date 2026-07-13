@@ -2,7 +2,7 @@
  * RuntimeEvent adapters — narrow bridges between the legacy StoredMessage
  * JSONL format and the canonical RuntimeEvent fact model.
  *
- * Architecture: docs/architecture/runtime-core-architecture-draft.en.md
+ * Architecture: docs/architecture/runtime-core-architecture-draft.md
  *
  * Phase 1 scope: pure, synchronous, allocation-only adapters. They do NOT
  * touch storage, do NOT mutate their inputs, and do NOT invent fields the

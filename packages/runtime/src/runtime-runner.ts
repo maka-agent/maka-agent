@@ -1,7 +1,7 @@
 /**
  * RuntimeRunner — Runtime v2 invocation shell.
  *
- * Architecture: docs/architecture/runtime-core-architecture-draft.en.md
+ * Architecture: docs/architecture/runtime-core-architecture-draft.md
  *
  * RuntimeRunner is the invocation shell. It remains decoupled from
  * SessionManager / SessionStore so it can be exercised with fake services,

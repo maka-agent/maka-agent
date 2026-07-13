@@ -1,7 +1,7 @@
 /**
  * AiSdkFlow — the default long-term AgentFlow implementation.
  *
- * Architecture: docs/architecture/runtime-core-architecture-draft.en.md
+ * Architecture: docs/architecture/runtime-core-architecture-draft.md
  *
  * Design intent (preserved by this node):
  *   - The AI SDK remains Maka's first-class long-term flow engine. This

@@ -1,7 +1,7 @@
 /**
  * AgentFlow — the runtime v2 model/tool loop seam.
  *
- * Architecture: docs/architecture/runtime-core-architecture-draft.en.md
+ * Architecture: docs/architecture/runtime-core-architecture-draft.md
  *
  * Layering (from the architecture doc):
  *

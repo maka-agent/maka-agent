@@ -3,7 +3,7 @@ doc_id: architecture.durable-task-loop-headless
 title: "第四章：The Durable Task Loop——Inside Maka Headless"
 language: zh-CN
 source_language: zh-CN
-counterpart: ./durable-task-loop-headless-draft.en.md
+counterpart: ./durable-task-loop-headless-draft.md
 implementation_status: mixed-current-and-target
 document_status: draft
 translation_status: synced

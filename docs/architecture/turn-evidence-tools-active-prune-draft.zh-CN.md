@@ -3,7 +3,7 @@ doc_id: architecture.turn-evidence-tools-active-prune
 title: "第二章：Evidence Before Compression——Tool 如何留下 Turn 级证据"
 language: zh-CN
 source_language: zh-CN
-counterpart: ./turn-evidence-tools-active-prune-draft.en.md
+counterpart: ./turn-evidence-tools-active-prune-draft.md
 implementation_status: mixed-current-and-target
 document_status: draft
 translation_status: synced

@@ -34,6 +34,27 @@ snapshot and candidate iteration:
 All refs are opaque file/blob/url refs. The protocol does not require AHE
 Python, NexAU, E2B, ADB, tmux, or Rive code in Maka runtime.
 
+## Evidence Export
+
+After recording Headless task runs, export a source-backed evidence snapshot with:
+
+```sh
+maka eval ahe export <taskRunId...> \
+  --store <out>/runs \
+  --repo <maka-repo-root> \
+  --out <evidence-dir> \
+  [--run-id <id>] \
+  [--source-label <label>] \
+  [--harbor-trial-dir <dir>] \
+  [--include-events]
+```
+
+The command validates the component map, reads existing `TaskRunProjection` rows, and writes the target snapshot, harness results, trace index, and per-run trace exports. It does not run AHE, apply patches, or change the Desktop runtime.
+
+`--harbor-trial-dir` imports official verifier/scorer evidence for exactly one task run. Without it, a single-run export also detects the standard Harbor trial layout relative to the task-run store. Local checks remain non-authoritative evidence.
+
+Programmatic callers use `buildMakaAheTargetSnapshot`, `makaAheEvidenceFromTaskRunProjections`, `writeMakaAheEvidenceExport`, and `validateMakaAheSourceRefs` from `@maka/headless/ahe-evidence-export`.
+
 ## Current Component Map
 
 The first target component map is intentionally current-state only:

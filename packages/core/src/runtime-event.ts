@@ -8,7 +8,7 @@
  * projections that should be written from -- or explicitly linked to -- these
  * events.
  *
- * Architecture: docs/architecture/runtime-core-architecture-draft.en.md
+ * Architecture: docs/architecture/runtime-core-architecture-draft.md
  *
  * Phase 1 scope: types + small pure helpers only. No storage, runner,
  * projection, or ledger logic lives here. Those arrive in later nodes.

@@ -3,7 +3,7 @@ doc_id: architecture.runtime-core
 title: "第一章：Log Is the Runtime——Maka 如何回放 Agent 的状态空间"
 language: zh-CN
 source_language: zh-CN
-counterpart: ./runtime-core-architecture-draft.en.md
+counterpart: ./runtime-core-architecture-draft.md
 implementation_status: current
 document_status: draft
 translation_status: synced

@@ -53,12 +53,12 @@ Relevant chapter: 6.
 
 | Chapter | Core question | Implementation status | Read |
 |---|---|---|---|
-| 1. Log Is the Runtime | How does Maka preserve and replay the state space of an Agent Run? | Current | [English](./docs/architecture/runtime-core-architecture-draft.en.md) · [中文](./docs/architecture/runtime-core-architecture-draft.zh-CN.md) |
-| 2. Evidence Before Compression | How can a large Tool Result leave Turn-level evidence without exhausting active context? | Current + Target | [English](./docs/architecture/turn-evidence-tools-active-prune-draft.en.md) · [中文](./docs/architecture/turn-evidence-tools-active-prune-draft.zh-CN.md) |
-| 3. Compaction Is a Projection | How can the LLM forget old context without losing historical facts? | Current | [English](./docs/architecture/llm-compaction-events-log-projection-draft.en.md) · [中文](./docs/architecture/llm-compaction-events-log-projection-draft.zh-CN.md) |
-| 4. The Durable Task Loop | How does Maka continue a task that outlives a Turn, Run, or process? | Current + Target | [English](./docs/architecture/durable-task-loop-headless-draft.en.md) · [中文](./docs/architecture/durable-task-loop-headless-draft.zh-CN.md) |
-| 5. Self-Check Is Not Self-Trust | How can an Agent inspect and repair its work without turning self-report into authority? | Current + Target | [English](./docs/architecture/self-check-bounded-feedback-loop-draft.en.md) · [中文](./docs/architecture/self-check-bounded-feedback-loop-draft.zh-CN.md) |
-| 6. Self-Iteration Happens Outside the Runtime | How does Maka turn run experience into falsifiable and reversible system improvement? | Current + Target | [English](./docs/architecture/ahe-self-iteration-boundary-draft.en.md) · [中文](./docs/architecture/ahe-self-iteration-boundary-draft.zh-CN.md) |
+| 1. Log Is the Runtime | How does Maka preserve and replay the state space of an Agent Run? | Current | [English](./docs/architecture/runtime-core-architecture-draft.md) · [中文](./docs/architecture/runtime-core-architecture-draft.zh-CN.md) |
+| 2. Evidence Before Compression | How can a large Tool Result leave Turn-level evidence without exhausting active context? | Current + Target | [English](./docs/architecture/turn-evidence-tools-active-prune-draft.md) · [中文](./docs/architecture/turn-evidence-tools-active-prune-draft.zh-CN.md) |
+| 3. Compaction Is a Projection | How can the LLM forget old context without losing historical facts? | Current | [English](./docs/architecture/llm-compaction-events-log-projection-draft.md) · [中文](./docs/architecture/llm-compaction-events-log-projection-draft.zh-CN.md) |
+| 4. The Durable Task Loop | How does Maka continue a task that outlives a Turn, Run, or process? | Current + Target | [English](./docs/architecture/durable-task-loop-headless-draft.md) · [中文](./docs/architecture/durable-task-loop-headless-draft.zh-CN.md) |
+| 5. Self-Check Is Not Self-Trust | How can an Agent inspect and repair its work without turning self-report into authority? | Current + Target | [English](./docs/architecture/self-check-bounded-feedback-loop-draft.md) · [中文](./docs/architecture/self-check-bounded-feedback-loop-draft.zh-CN.md) |
+| 6. Self-Iteration Happens Outside the Runtime | How does Maka turn run experience into falsifiable and reversible system improvement? | Current + Target | [English](./docs/architecture/ahe-self-iteration-boundary-draft.md) · [中文](./docs/architecture/ahe-self-iteration-boundary-draft.zh-CN.md) |
 
 **Current + Target** means the article covers verified implementation and visibly labeled target direction. It does not mean Target sections are implemented. The `implementation_status` and `last_verified` fields in each article's front matter are the more precise status source.
 
@@ -104,7 +104,7 @@ Those documents provide historical design context and implementation notes. The 
 
 ## Documentation layout
 
-`docs/architecture/` currently remains flat. One mechanism owns one stable slug with separate `.zh-CN.md` and `.en.md` counterparts. While the collection is still easy to scan, avoiding another `chapters/` level keeps links and counterpart paths shallow.
+`docs/architecture/` remains flat. One mechanism owns one stable slug: the default `.md` file is English and `.zh-CN.md` is its Chinese counterpart. While the collection is still easy to scan, avoiding another `chapters/` level keeps links shallow.
 
 Maintenance rules:
 
