@@ -11,6 +11,7 @@ import {
   harborCellMaxStepsFromEnv,
   normalizeHarborCellContextEnv,
   providerApiKeyEnvName,
+  reasoningEffortFromEnv,
   runHarborCell,
 } from '#harbor-cell';
 
@@ -25,6 +26,7 @@ const HOST_BACKEND_ENV_KEYS = [
   ...TRIAL_PRICING_ENV,
   'MAKA_OUTPUT_DIR',
   'MAKA_STORAGE_ROOT',
+  'MAKA_REASONING_EFFORT',
 ];
 export async function main(options = {}) {
   const env = process.env;
@@ -38,6 +40,7 @@ export async function main(options = {}) {
   const economyTaskMode = economyTaskModeFromEnv(env.MAKA_ECONOMY_TASK_MODE);
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(env);
   const maxSteps = harborCellMaxStepsFromEnv(env);
+  const reasoningEffort = reasoningEffortFromEnv(env.MAKA_REASONING_EFFORT);
   const now = Date.now;
   const newId = randomId;
 
@@ -47,6 +50,7 @@ export async function main(options = {}) {
       backend: 'ai-sdk',
       llmConnectionSlug: env.MAKA_LLM_CONNECTION_SLUG || provider,
       model,
+      ...(reasoningEffort ? { thinkingLevel: reasoningEffort } : {}),
       ...(env.MAKA_SYSTEM_PROMPT !== undefined ? { systemPrompt: env.MAKA_SYSTEM_PROMPT } : {}),
       ...(economyTaskMode !== undefined ? { economyTaskMode } : {}),
     },
@@ -54,6 +58,7 @@ export async function main(options = {}) {
     cwd: env.MAKA_WORKDIR || process.cwd(),
     outputDir,
     storageRoot,
+    pricingProfile: env.MAKA_TRIAL_PRICING_SOURCE || 'unconfigured',
     ...(contextBudgetPolicy ? { contextBudgetPolicy } : {}),
     ...(continuationPolicy ? { continuationPolicy } : {}),
     ...(taskLedgerExperimentPolicy ? { taskToolSummaryEnabled: true } : {}),

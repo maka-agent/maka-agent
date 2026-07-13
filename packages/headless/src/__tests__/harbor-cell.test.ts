@@ -938,6 +938,33 @@ describe('runHarborCell', () => {
     });
   });
 
+  test('host-side Harbor cell attests the configured pricing profile', async () => {
+    const { main } = await import(new URL('../../harbor/run-host-cell.mjs', import.meta.url).href) as {
+      main: (options?: { registerBackends?: (registry: BackendRegistry, context: HeadlessBackendContext) => void }) => Promise<void>;
+    };
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const previousEnv = { ...process.env };
+      try {
+        process.env.MAKA_PROVIDER = 'openai';
+        process.env.MAKA_MODEL = 'openai/gpt-4o-mini';
+        process.env.MAKA_HOST_API_KEY = 'test-key';
+        process.env.MAKA_HARBOR_TOOL_EXECUTOR_URL = 'http://127.0.0.1:1';
+        process.env.MAKA_HARBOR_TOOL_EXECUTOR_TOKEN = 'token';
+        process.env.MAKA_INSTRUCTION = 'Finish the task.';
+        process.env.MAKA_WORKDIR = workspaceDir;
+        process.env.MAKA_OUTPUT_DIR = outputDir;
+        process.env.MAKA_STORAGE_ROOT = storageRoot;
+        process.env.MAKA_TRIAL_PRICING_SOURCE = 'frozen-pricing-profile';
+        await main({ registerBackends: registerCellBackend });
+      } finally {
+        process.env = previousEnv;
+      }
+
+      const output = JSON.parse(await readFile(join(outputDir, 'maka-cell-output.json'), 'utf8'));
+      assert.equal(output.executionIdentity.pricingProfile, 'frozen-pricing-profile');
+    });
+  });
+
   test('host-side Harbor cell config treats MAKA_ECONOMY_TASK_MODE=false as explicit disable', async () => {
     const { main } = await import(new URL('../../harbor/run-host-cell.mjs', import.meta.url).href) as {
       main: (options?: { registerBackends?: (registry: BackendRegistry, context: HeadlessBackendContext) => void }) => Promise<void>;
@@ -1837,6 +1864,34 @@ describe('runHarborCell', () => {
       assert.equal(seenContexts[0]?.config.backend, 'fake');
       assert.equal(seenContexts[0]?.config.llmConnectionSlug, 'fake');
       assert.equal(seenContexts[0]?.config.model, 'fake');
+    });
+  });
+
+  test('env entrypoint carries max reasoning effort into config and execution identity', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const seenContexts: HeadlessBackendContext[] = [];
+      const result = await runHarborCellFromEnv({
+        MAKA_BACKEND: 'fake',
+        MAKA_INSTRUCTION: 'solve with max effort',
+        MAKA_MODEL: 'glm-5.2',
+        MAKA_LLM_CONNECTION_SLUG: 'zai-coding-plan',
+        MAKA_REASONING_EFFORT: 'max',
+        MAKA_WORKDIR: workspaceDir,
+        MAKA_OUTPUT_DIR: outputDir,
+        MAKA_STORAGE_ROOT: storageRoot,
+      }, {
+        registerBackends: (registry, context) => {
+          seenContexts.push(context);
+          registry.register('fake', (ctx) => new CellReportingBackend({
+            sessionId: ctx.sessionId,
+            header: ctx.header,
+            store: ctx.store,
+          }));
+        },
+      });
+
+      assert.equal(seenContexts[0]?.config.thinkingLevel, 'max');
+      assert.equal(result.output.executionIdentity?.reasoningEffort, 'max');
     });
   });
 

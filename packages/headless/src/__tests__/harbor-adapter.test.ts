@@ -76,6 +76,7 @@ describe('Harbor adapter contract', () => {
       'packages/headless/harbor/maka_agent.py',
       'packages/headless/harbor/run-cell.mjs',
       'packages/headless/harbor/run-host-cell.mjs',
+      'packages/headless/harbor/run-harness-ab.mjs',
       'packages/headless/harbor/run-prompt-ab.mjs',
       'packages/headless/harbor/run-prompt-control.mjs',
       'packages/headless/harbor/run-prompt-optimization.mjs',
@@ -1040,6 +1041,44 @@ with tempfile.TemporaryDirectory() as tmp:
         })
         host_process_environment = types.SimpleNamespace(root_commands=[], agent_commands=[])
         asyncio.run(host_process_agent._run_host_cell(host_process_environment, Path(tmp) / "instruction.txt"))
+
+        class CancelledHostProcess:
+            def __init__(self):
+                self.returncode = None
+                self.started = None
+                self.terminated = None
+                self.killed = False
+
+            async def communicate(self):
+                self.started.set()
+                await self.terminated.wait()
+                return (b"", b"")
+
+            def kill(self):
+                self.killed = True
+                self.returncode = -9
+                self.terminated.set()
+
+        cancelled_process = CancelledHostProcess()
+        async def fake_cancelled_subprocess_exec(*args, **kwargs):
+            return cancelled_process
+
+        async def cancel_host_cell():
+            cancelled_process.started = asyncio.Event()
+            cancelled_process.terminated = asyncio.Event()
+            asyncio.create_subprocess_exec = fake_cancelled_subprocess_exec
+            task = asyncio.create_task(host_process_agent._run_host_cell(host_process_environment, Path(tmp) / "instruction.txt"))
+            await cancelled_process.started.wait()
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            else:
+                raise AssertionError("expected host cell cancellation")
+            assert cancelled_process.killed, "cancelled host child was not killed"
+
+        asyncio.run(cancel_host_cell())
     finally:
         maka_agent_mod._ToolExecutorServer = original_tool_executor
         asyncio.create_subprocess_exec = original_create_subprocess_exec
@@ -1090,6 +1129,7 @@ with tempfile.TemporaryDirectory() as tmp:
 function pythonOpenCodeAdapterSmokeScript(root: string): string {
   return String.raw`
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -1180,38 +1220,73 @@ context_mod.AgentContext = AgentContext
 sys.path.insert(0, str(root / "packages" / "headless" / "harbor"))
 from opencode_agent import MakaOpenCodeAgent
 
-old_key = os.environ.pop("OPENAI_API_KEY", None)
-old_base = os.environ.pop("OPENAI_BASE_URL", None)
+old_key = os.environ.pop("ZAI_API_KEY", None)
+old_base = os.environ.pop("ZAI_BASE_URL", None)
 try:
     with tempfile.TemporaryDirectory() as tmp:
         template_path = Path(tmp) / "prompt.j2"
         template_path.write_text("templated: {{ instruction }}", encoding="utf-8")
+        key_path = Path(tmp) / "zai-key"
+        key_path.write_text("test-zai-key\n", encoding="utf-8")
         agent = MakaOpenCodeAgent(Path(tmp), extra_env={
-            "OPENAI_API_KEY": "test-key",
-            "OPENAI_BASE_URL": "https://api.xiaomimimo.com/v1",
+            "MAKA_OPENCODE_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_OPENCODE_PROVIDER_PROXY_TOKEN": "ephemeral-proxy-token",
+            "MAKA_LLM_CONNECTION_SLUG": "zai-coding-plan",
+            "MAKA_SYSTEM_PROMPT": "",
+            "MAKA_REASONING_EFFORT": "max",
+            "MAKA_OPENCODE_VARIANT": "max",
             "MAKA_TRIAL_INPUT_USD_PER_1M": "2",
             "MAKA_TRIAL_OUTPUT_USD_PER_1M": "10",
             "MAKA_TRIAL_CACHE_READ_USD_PER_1M": "0.5",
             "MAKA_TRIAL_CACHE_WRITE_USD_PER_1M": "3",
             "MAKA_TRIAL_PRICING_SOURCE": "xiaomi-env",
-        }, prompt_template_path=template_path)
+        }, prompt_template_path=template_path, model_name="zai-coding-plan/glm-5.2")
         context = AgentContext()
-        environment = types.SimpleNamespace(agent_commands=[])
+        environment = types.SimpleNamespace(agent_commands=[], root_commands=[], uploaded_files=[])
+        async def upload_file(source_path, target_path):
+            environment.uploaded_files.append((str(source_path), target_path))
+        environment.upload_file = upload_file
+        async def exec_root(command, **kwargs):
+            environment.root_commands.append((command, kwargs))
+        environment.exec = exec_root
         async def exec_as_agent(environment, command, env=None, **kwargs):
             environment.agent_commands.append((command, env or {}))
         agent.exec_as_agent = exec_as_agent
 
         asyncio.run(agent.run("hi", environment, context))
-        command, env = environment.agent_commands[-1]
+        command, env = next(item for item in environment.agent_commands if "opencode --model=" in item[0])
         assert "opencode-stop-runner.mjs" in command, command
         assert "--output /logs/agent/opencode.txt" in command, command
-        assert "opencode --model=openai/mimo-v2.5-pro run --format=json" in command, command
+        assert "opencode --model=zai-coding-plan/glm-5.2 run --format=json" in command, command
+        assert "--pure" in command, command
+        assert "--auto" in command, command
+        assert "--dangerously-skip-permissions" not in command, command
+        assert "--variant=max" in command, command
         assert "templated: hi" in command, command
-        assert env["OPENAI_API_KEY"] == "test-key", env
-        assert env["OPENAI_BASE_URL"] == "https://api.xiaomimimo.com/v1", env
-        assert os.environ.get("OPENAI_API_KEY") is None
-        assert os.environ.get("OPENAI_BASE_URL") is None
+        assert env["ZAI_API_KEY"] == "ephemeral-proxy-token", env
+        assert env["ZAI_BASE_URL"] == "http://host.docker.internal:43210", env
+        assert environment.uploaded_files == [], environment.uploaded_files
+        assert 'cat --' not in command, command
+        assert "test-zai-key" not in command, command
+        assert "test-zai-key" not in json.dumps(env), env
+        assert environment.root_commands == [], environment.root_commands
+        assert os.environ.get("ZAI_API_KEY") is None
+        assert os.environ.get("ZAI_BASE_URL") is None
 
+        agent._parse_stdout = lambda: [
+            {
+                "type": "step_finish",
+                "part": {
+                    "tokens": {
+                        "input": 60,
+                        "output": 20,
+                        "reasoning": 5,
+                        "cache": {"read": 40, "write": 0},
+                    }
+                },
+            },
+            {"type": "tool", "part": {"type": "tool", "tool": "bash"}},
+        ]
         agent.populate_context_post_run(context)
         expected = (60 / 1_000_000 * 2) + (20 / 1_000_000 * 10) + (40 / 1_000_000 * 0.5)
         assert abs(context.cost_usd - expected) < 1e-12, context.cost_usd
@@ -1223,12 +1298,49 @@ try:
         assert context.metadata["opencode_estimated_cost_usd"] == context.cost_usd, context.metadata
         assert context.metadata["opencode_reported_cost_usd"] == 0.99, context.metadata
         assert context.metadata["opencode_pricing_source"] == "xiaomi-env", context.metadata
+        cell = json.loads((Path(tmp) / "maka-cell-output.json").read_text(encoding="utf-8"))
+        assert cell["executionIdentity"]["model"] == "glm-5.2", cell
+        assert cell["executionIdentity"]["reasoningEffort"] == "max", cell
+        assert cell["tokenSummary"]["cachedInput"] == 40, cell
+        assert cell["tokenSummary"]["reasoning"] == 5, cell
+        assert cell["toolSummary"]["actualToolCallCounts"] == {"bash": 1}, cell
+        assert "test-zai-key" not in json.dumps(cell), cell
+
+        failing_agent = MakaOpenCodeAgent(Path(tmp), extra_env={
+            "MAKA_OPENCODE_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_OPENCODE_PROVIDER_PROXY_TOKEN": "ephemeral-proxy-token",
+            "MAKA_LLM_CONNECTION_SLUG": "zai-coding-plan",
+            "MAKA_SYSTEM_PROMPT": "",
+            "MAKA_REASONING_EFFORT": "max",
+            "MAKA_TRIAL_PRICING_SOURCE": "xiaomi-env",
+        }, model_name="zai-coding-plan/glm-5.2")
+        failing_environment = types.SimpleNamespace(root_commands=[], uploaded_files=[])
+        async def failing_upload(source_path, target_path):
+            failing_environment.uploaded_files.append((str(source_path), target_path))
+        failing_environment.upload_file = failing_upload
+        async def failing_root_exec(command, **kwargs):
+            failing_environment.root_commands.append((command, kwargs))
+        failing_environment.exec = failing_root_exec
+        async def failing_exec_as_agent(environment, command, env=None, **kwargs):
+            raise NonZeroAgentExitCodeError("401 unauthorized")
+        failing_agent.exec_as_agent = failing_exec_as_agent
+        try:
+            asyncio.run(failing_agent.run("hi", failing_environment, AgentContext()))
+        except NonZeroAgentExitCodeError:
+            pass
+        else:
+            raise AssertionError("expected OpenCode failure")
+        failing_agent.populate_context_post_run(AgentContext())
+        failed_cell = json.loads((Path(tmp) / "maka-cell-output.json").read_text(encoding="utf-8"))
+        assert failed_cell["status"] == "failed", failed_cell
+        assert failed_cell["errorClass"] == "auth", failed_cell
+        assert failed_cell["finishedAt"] >= failed_cell["startedAt"], failed_cell
         print("opencode_estimated_cost_usd", context.cost_usd)
 finally:
     if old_key is not None:
-        os.environ["OPENAI_API_KEY"] = old_key
+        os.environ["ZAI_API_KEY"] = old_key
     if old_base is not None:
-        os.environ["OPENAI_BASE_URL"] = old_base
+        os.environ["ZAI_BASE_URL"] = old_base
 `;
 }
 

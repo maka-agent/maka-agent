@@ -13,6 +13,7 @@ import type {
   RuntimeEvent,
 } from '@maka/core';
 import { PROVIDER_DEFAULTS } from '@maka/core';
+import { isThinkingLevel } from '@maka/core';
 import {
   AiSdkBackend,
   BackendRegistry,
@@ -308,6 +309,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   const executionIdentity = {
     llmConnectionSlug: config.llmConnectionSlug,
     model: config.model,
+    ...(config.thinkingLevel ? { reasoningEffort: config.thinkingLevel } : {}),
     systemPromptHash: hashHarborSystemPrompt(config.systemPrompt ?? ''),
     pricingProfile: input.pricingProfile ?? 'unconfigured',
   };
@@ -337,6 +339,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     backend: input.config.backend,
     llmConnectionSlug: config.llmConnectionSlug,
     model: config.model,
+    ...(config.thinkingLevel ? { thinkingLevel: config.thinkingLevel } : {}),
     permissionMode: 'execute',
     name: `harbor-cell:${input.config.id}`,
   });
@@ -421,9 +424,11 @@ export async function runHarborCellFromEnv(
   const economyTaskMode = economyTaskModeFromEnv(resolvedEnv.MAKA_ECONOMY_TASK_MODE);
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(resolvedEnv);
   const maxSteps = harborCellMaxStepsFromEnv(resolvedEnv);
+  const reasoningEffort = reasoningEffortFromEnv(resolvedEnv.MAKA_REASONING_EFFORT);
   const baseConfig = {
     id: resolvedEnv.MAKA_CONFIG_ID ?? 'harbor-cell',
     backend,
+    ...(reasoningEffort ? { thinkingLevel: reasoningEffort } : {}),
     ...(resolvedEnv.MAKA_SYSTEM_PROMPT !== undefined ? { systemPrompt: resolvedEnv.MAKA_SYSTEM_PROMPT } : {}),
     ...(economyTaskMode !== undefined ? { economyTaskMode } : {}),
   };
@@ -513,6 +518,12 @@ export async function runHarborCellFromEnv(
     ...(options.now ? { now: options.now } : {}),
     ...(options.newId ? { newId: options.newId } : {}),
   });
+}
+
+export function reasoningEffortFromEnv(value: string | undefined): import('@maka/core').ThinkingLevel | undefined {
+  if (value === undefined) return undefined;
+  if (!isThinkingLevel(value)) throw new Error(`unsupported MAKA_REASONING_EFFORT: ${value}`);
+  return value;
 }
 
 function economyTaskModeFromEnv(value: string | undefined): boolean | undefined {

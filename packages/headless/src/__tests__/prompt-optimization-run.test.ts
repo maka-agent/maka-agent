@@ -186,6 +186,22 @@ describe('extractRewardHackVerifierPatterns', () => {
 });
 
 describe('discoverCachedHarborTasks', () => {
+  test('discovers an exported dataset root with one task directory per id', async () => {
+    await withDir(async (dir) => {
+      for (const id of ['zebra', 'alpha']) {
+        const taskDir = join(dir, id);
+        await mkdir(taskDir, { recursive: true });
+        await writeFile(join(taskDir, 'task.toml'), '[agent]\ntimeout_sec = 900\n', 'utf8');
+      }
+
+      const tasks = await discoverCachedHarborTasks(dir);
+
+      assert.deepEqual(tasks.map((task) => task.id), ['alpha', 'zebra']);
+      assert.equal(tasks[0]?.path, join(dir, 'alpha'));
+      assert.equal(tasks[0]?.metadata?.agentTimeoutSec, 900);
+    });
+  });
+
   test('discovers <hash>/<task-name>/task.toml as id-sorted tasks', async () => {
     await withDir(async (dir) => {
       await makeCachedTask(dir, 'hashB', 'zebra');

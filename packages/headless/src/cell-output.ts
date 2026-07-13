@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { RuntimeEvent } from '@maka/core';
+import type { ThinkingLevel } from '@maka/core';
 import type { ContextBudgetPolicy, InvocationResult } from '@maka/runtime';
 
 export const HARBOR_CELL_OUTPUT_SCHEMA_VERSION = 1;
@@ -59,6 +60,7 @@ export interface HarborCellRuntimeRefs {
 export interface HarborCellExecutionIdentity {
   llmConnectionSlug: string;
   model: string;
+  reasoningEffort?: ThinkingLevel;
   systemPromptHash: string;
   pricingProfile: string;
 }
@@ -213,9 +215,19 @@ export function validateHarborCellExecutionIdentity(value: unknown): HarborCellE
   return {
     llmConnectionSlug: requireString(value.llmConnectionSlug, 'executionIdentity.llmConnectionSlug'),
     model: requireString(value.model, 'executionIdentity.model'),
+    ...('reasoningEffort' in value
+      ? { reasoningEffort: requireThinkingLevel(value.reasoningEffort, 'executionIdentity.reasoningEffort') }
+      : {}),
     systemPromptHash: requireString(value.systemPromptHash, 'executionIdentity.systemPromptHash'),
     pricingProfile: requireString(value.pricingProfile, 'executionIdentity.pricingProfile'),
   };
+}
+
+function requireThinkingLevel(value: unknown, path: string): ThinkingLevel {
+  const levels: readonly string[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+  const parsed = requireString(value, path);
+  if (!levels.includes(parsed)) throw new Error(`${path} must be a supported reasoning effort`);
+  return parsed as ThinkingLevel;
 }
 
 export function summarizeCellTaskTools(events: readonly RuntimeEvent[]): HarborCellTaskToolSummary {
