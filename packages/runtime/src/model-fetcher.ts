@@ -66,8 +66,11 @@ async function fetchProviderModelsStrict(
         timeoutMs: MODEL_FETCH_TIMEOUT_MS,
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json() as { data?: RawProviderModel[] };
-      return (data.data ?? []).map(toModelInfo).filter((model): model is ModelInfo => model !== null);
+      const data = await r.json() as { data?: RawProviderModel[] } | RawProviderModel[];
+      const models = discovery.responseShape === 'array-or-data'
+        ? (Array.isArray(data) ? data : data.data ?? [])
+        : (Array.isArray(data) ? [] : data.data ?? []);
+      return models.map(toModelInfo).filter((model): model is ModelInfo => model !== null);
     }
     case 'google': {
       const r = await proxiedFetch(

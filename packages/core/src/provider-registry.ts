@@ -23,7 +23,12 @@ export type ProviderRuntimeAdapter =
   | { kind: 'unavailable' };
 
 export type ProviderModelDiscovery =
-  | { kind: 'protocol'; auth?: 'claude-subscription'; query?: Readonly<Record<string, string>> }
+  | {
+      kind: 'protocol';
+      auth?: 'claude-subscription';
+      query?: Readonly<Record<string, string>>;
+      responseShape?: 'array-or-data';
+    }
   | { kind: 'fallback' }
   | { kind: 'ollama' };
 
@@ -64,6 +69,10 @@ const cerebras = GENERATED_MODELS_DEV_PROVIDER_FACTS.cerebras;
 if (cerebras.id !== 'cerebras') throw new Error('models.dev Cerebras provider facts are missing stable id cerebras');
 
 const cerebrasModelIds = toolCallingModelIds('Cerebras', GENERATED_MODELS_DEV_METADATA.cerebras, ['gpt-oss-120b']);
+
+const mistral = GENERATED_MODELS_DEV_PROVIDER_FACTS.mistral;
+if (mistral.id !== 'mistral') throw new Error('models.dev Mistral provider facts are missing stable id mistral');
+const mistralModelIds = toolCallingModelIds('Mistral', GENERATED_MODELS_DEV_METADATA.mistral, ['mistral-large-latest']);
 
 function toolCallingModelIds(
   providerLabel: string,
@@ -124,7 +133,7 @@ const providerRegistry = {
     catalogGroup: 'plans',
     catalogBadge: 'Coding',
     signupUrl: 'https://www.kimi.com/code/console',
-    readyOrder: 14,
+    readyOrder: 15,
     catalogOrder: 1,
     recommendedOrder: 5,
   },
@@ -144,7 +153,7 @@ const providerRegistry = {
     catalogBadge: 'Coding',
     signupUrl: 'https://platform.minimax.io/subscribe/coding-plan',
     modelsDevId: GENERATED_MODELS_DEV_PROVIDER_FACTS.MiniMax.id,
-    readyOrder: 16,
+    readyOrder: 17,
     catalogOrder: 2,
   },
   openai: {
@@ -334,6 +343,25 @@ const providerRegistry = {
     readyOrder: 11,
     catalogOrder: 13,
   },
+  mistral: {
+    label: mistral.name,
+    description: 'Mistral chat, coding, vision, reasoning, and tool-use models.',
+    baseUrl: 'https://api.mistral.ai/v1',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: mistralModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol', responseShape: 'array-or-data' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://console.mistral.ai/api-keys/',
+    modelsDevId: mistral.id,
+    readyOrder: 12,
+    catalogOrder: 14,
+  },
   ollama: {
     label: 'Ollama',
     description: 'Local models from Ollama on localhost.',
@@ -348,8 +376,8 @@ const providerRegistry = {
     category: 'local',
     catalogGroup: 'local',
     catalogBadge: 'Local',
-    readyOrder: 12,
-    catalogOrder: 14,
+    readyOrder: 13,
+    catalogOrder: 15,
     recommendedOrder: 7,
   },
   'lm-studio': {
@@ -366,8 +394,8 @@ const providerRegistry = {
     category: 'local',
     catalogGroup: 'local',
     catalogBadge: 'Local',
-    readyOrder: 13,
-    catalogOrder: 15,
+    readyOrder: 14,
+    catalogOrder: 16,
   },
   'openai-compatible': {
     label: 'OpenAI-compatible (custom)',
@@ -383,8 +411,8 @@ const providerRegistry = {
     category: 'custom',
     catalogGroup: 'aggregators',
     catalogBadge: 'Custom',
-    readyOrder: 15,
-    catalogOrder: 16,
+    readyOrder: 16,
+    catalogOrder: 17,
   },
   'claude-subscription': {
     label: 'Claude Subscription (Pro / Max OAuth)',

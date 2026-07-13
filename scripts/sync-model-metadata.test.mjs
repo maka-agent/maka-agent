@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'google', 'minimax', 'minimax-cn', 'moonshotai-cn', 'openai', 'siliconflow', 'xai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'deepseek', 'google', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'openai', 'siliconflow', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -118,6 +118,36 @@ test('sync-model-metadata vendors Cerebras provider facts and exact model ids', 
   assert.match(generated, /"cerebras": \{/);
   assert.match(generated, /"cerebras": \{"id":"cerebras","name":"Cerebras"/);
   assert.match(generated, /"gpt-oss-120b": \{"displayName":"GPT OSS 120B"/);
+});
+
+test('sync-model-metadata vendors Mistral provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.mistral = {
+    ...catalog.mistral,
+    name: 'Mistral',
+    api: undefined,
+    doc: 'https://docs.mistral.ai/getting-started/models/',
+    models: {
+      'mistral-large-latest': {
+        id: 'mistral-large-latest', name: 'Mistral Large', reasoning: false, tool_call: true,
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        limit: { context: 128_000, output: 128_000 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"mistral": \{/);
+  assert.match(generated, /"mistral": \{"id":"mistral","name":"Mistral","doc":"https:\/\/docs\.mistral\.ai\/getting-started\/models\/"\}/);
+  assert.match(generated, /"mistral-large-latest": \{"displayName":"Mistral Large"/);
 });
 
 test('sync-model-metadata rejects incomplete upstream model data', async () => {

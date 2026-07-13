@@ -30,3 +30,11 @@ test('Cerebras credentials stay provider-scoped and support key files', () => {
     baseUrls: ['CEREBRAS_BASE_URL'],
   });
 });
+
+test('Mistral keeps provider-scoped credential environment names', () => {
+  assert.deepEqual(providerCredentialEnv('mistral'), {
+    apiKeys: ['MISTRAL_API_KEY'],
+    apiKeyFile: 'MISTRAL_API_KEY_FILE',
+    baseUrls: ['MISTRAL_BASE_URL'],
+  });
+});

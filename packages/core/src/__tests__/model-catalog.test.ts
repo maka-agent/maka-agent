@@ -9,6 +9,25 @@ import { isConnectionReady } from '../connection-readiness.js';
 import type { LlmConnection, ModelInfo, ProviderType } from '../llm-connections.js';
 
 describe('ModelCatalogEntry', () => {
+  it('uses the checked-in Mistral snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'mistral',
+        providerType: 'mistral',
+        defaultModel: 'mistral-large-latest',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'mistral-large-latest');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      functionCalling: true,
+    });
+    assert.ok(!entries.some((entry) => entry.id === 'mistral-embed'));
+  });
+
   it('uses the checked-in xAI snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

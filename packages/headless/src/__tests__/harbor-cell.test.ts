@@ -2279,6 +2279,32 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves Mistral only from Mistral credential env without rewriting the model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'mistral',
+      model: 'mistral-large-latest',
+      env: {
+        MISTRAL_API_KEY: 'mistral-key',
+        MISTRAL_BASE_URL: 'https://api.mistral.ai/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'mistral-key');
+    assert.equal(resolved.connection.providerType, 'mistral');
+    assert.equal(resolved.connection.defaultModel, 'mistral-large-latest');
+    assert.equal(resolved.connection.baseUrl, 'https://api.mistral.ai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'mistral',
+      model: 'mistral-large-latest',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves ai-sdk api key from a *_API_KEY_FILE without exposing the secret on argv', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-cell-key-'));
     try {

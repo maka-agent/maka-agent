@@ -518,6 +518,106 @@ describe('models.dev provider conformance', () => {
     assert.ok(toolMessage);
     assert.deepEqual(JSON.parse(toolMessage.content), { text: 'hello' });
   });
+
+  test('Mistral discovers exact account model ids and completes its documented tool-call loop', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    let modelListRequests = 0;
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer mistral-test-key');
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        modelListRequests += 1;
+        const model = {
+            id: 'mistral-large-latest',
+            object: 'model',
+            owned_by: 'mistralai',
+            capabilities: { completion_chat: true, function_calling: true },
+        };
+        respondJson(response, 200, modelListRequests === 1 ? [model] : { object: 'list', data: [model] });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      requestBodies.push(JSON.parse(await readBody(request)) as Record<string, unknown>);
+      if (requestBodies.length === 2) {
+        respondJson(response, 200, {
+          id: 'cmpl-mistral-final',
+          object: 'chat.completion',
+          created: 2,
+          model: 'mistral-large-latest',
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+        });
+        return;
+      }
+      respondJson(response, 200, {
+        id: 'cmpl-mistral-tool',
+        object: 'chat.completion',
+        created: 1,
+        model: 'mistral-large-latest',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'D681PevKs',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'mistral',
+      name: 'Mistral',
+      providerType: 'mistral',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: 'mistral-large-latest',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'mistral-test-key');
+    assert.deepEqual(models, [{ id: 'mistral-large-latest' }]);
+    const wrappedModels = await fetchProviderModels(connection, 'mistral-test-key');
+    assert.deepEqual(wrappedModels, [{ id: 'mistral-large-latest' }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'mistral-test-key', modelId: 'mistral-large-latest' }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), ['mistral-large-latest', 'mistral-large-latest']);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'D681PevKs' },
+    );
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolCalls[0]?.input, { text: 'hello' });
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
+  });
 });
 
 async function startJsonServer(

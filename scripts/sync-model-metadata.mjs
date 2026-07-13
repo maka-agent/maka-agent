@@ -10,6 +10,7 @@ const PROVIDERS = {
   'gemini-cli': 'google',
   MiniMax: 'minimax',
   'MiniMax-cn': 'minimax-cn',
+  mistral: 'mistral',
   moonshot: 'moonshotai-cn',
   openai: 'openai',
   siliconflow: 'siliconflow',
