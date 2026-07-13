@@ -1051,6 +1051,122 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.text, 'Echoed hello.');
   });
 
+  test('Hugging Face discovers tool-capable routed models and preserves its two-stage OpenAI wire', async () => {
+    const discoveredModelId = 'openai/gpt-oss-120b';
+    const modelId = `${discoveredModelId}:preferred`;
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer hf-test-token');
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        respondJson(response, 200, {
+          object: 'list',
+          data: [
+            {
+              id: discoveredModelId,
+              object: 'model',
+              owned_by: 'openai',
+              providers: [{ provider: 'together', status: 'live', supports_tools: true }],
+            },
+            {
+              id: 'sentence-transformers/all-MiniLM-L6-v2',
+              object: 'model',
+              owned_by: 'sentence-transformers',
+              providers: [{ provider: 'hf-inference', status: 'live', supports_tools: false }],
+            },
+          ],
+        });
+        return;
+      }
+
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-hf-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'I should call echo and use its result.',
+              tool_calls: [{
+                id: 'call_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+
+      respondJson(response, 200, {
+        id: 'chatcmpl-hf-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 14, completion_tokens: 5, total_tokens: 19 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'huggingface',
+      name: 'Hugging Face',
+      providerType: 'huggingface',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'hf-test-token');
+    assert.deepEqual(models, [{ id: discoveredModelId, capabilities: { functionCalling: true } }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'hf-test-token', modelId }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    const secondMessages = requestBodies[1]?.messages as Array<{
+      role: string;
+      content: unknown;
+      reasoning_content?: string;
+    }>;
+    assert.equal(
+      secondMessages.find(({ role }) => role === 'assistant')?.reasoning_content,
+      'I should call echo and use its result.',
+    );
+    assert.deepEqual(
+      secondMessages.find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
+    );
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
   test('Fireworks discovers exact serverless model paths and completes a two-stage tool-call loop', async () => {
     const modelId = 'accounts/fireworks/models/kimi-k2p6';
     const requestBodies: Array<Record<string, unknown>> = [];

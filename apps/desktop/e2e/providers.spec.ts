@@ -449,6 +449,35 @@ test('adds Cohere with its exact snapshot model, API-key field, and shared offic
   await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
 });
 
+test('adds Hugging Face with its exact routed model, token field, and shared official mark', async ({ window: page }) => {
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
+  await page.getByRole('button', { name: '添加服务商' }).click();
+
+  await page.getByPlaceholder('搜索服务商').fill('Hugging Face');
+  const catalogMark = page.locator(
+    '.providerCatalogRow[data-provider="huggingface"] .providerLogo .providerAssetMask',
+  );
+  await expect(catalogMark).toBeVisible();
+  expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+  await page.getByRole('button', { name: /添加模型供应商：Hugging Face/ }).click();
+
+  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('huggingface');
+  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://router.huggingface.co/v1');
+  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('openai/gpt-oss-120b');
+  await page.getByRole('button', { name: '保存供应商' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Hugging Face', exact: true }).first()).toBeVisible();
+  const detailMark = page.locator(
+    '.providerSubpageHeader .providerLogo[data-provider="huggingface"] .providerAssetMask',
+  );
+  await expect(detailMark).toBeVisible();
+  expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+  await expect(page.getByText('openai/gpt-oss-120b', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+});
+
 test('adds Tencent TokenHub with its exact snapshot model, API-key field, and shared official mark', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();

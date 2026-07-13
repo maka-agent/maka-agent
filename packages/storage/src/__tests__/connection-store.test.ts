@@ -425,6 +425,24 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the Hugging Face provider id and exact routing suffix', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const modelId = 'openai/gpt-oss-120b:preferred';
+      await store.create({
+        slug: 'huggingface',
+        name: 'Hugging Face',
+        providerType: 'huggingface',
+        defaultModel: modelId,
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'huggingface');
+      assert.equal(persisted.connections[0]?.defaultModel, modelId);
+    });
+  });
+
   test('keeps provider create defaults independent from catalog recommendation refreshes', async () => {
     await withConnectionStore(async (store) => {
       const openai = await store.create({

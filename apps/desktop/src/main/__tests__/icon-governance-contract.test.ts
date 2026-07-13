@@ -39,6 +39,7 @@ const VERCEL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/ass
 const CEREBRAS_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cerebras.svg');
 const MISTRAL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/mistral.svg');
 const COHERE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cohere.svg');
+const HUGGINGFACE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/huggingface.svg');
 const TOGETHER_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/together.svg');
 const DEEPINFRA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/deepinfra.svg');
 const CLOUDFLARE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cloudflare.svg');
@@ -330,6 +331,32 @@ describe('icon + typography governance contract', () => {
     assert.match(
       notices,
       /apps\/desktop\/src\/renderer\/assets\/provider-brands\/cloudflare\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cloudflare\.svg[\s\S]*78f8973dad59f8af7c4042ef6be451d809a4e14bdb2151a75a76b4e0811fd22f/,
+    );
+  });
+
+  it('vendors and routes the byte-exact Lobe Icons Hugging Face SVG through the shared mask seam', async () => {
+    const [marks, asset, notices] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(HUGGINGFACE_BRAND_MARK_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      'de7f2c60f974b75b385116ef0dc6a9fa62f2fd7bf58156b5623301a5436b91c4',
+      'Hugging Face SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 huggingface.svg',
+    );
+    assert.match(marks, /https:\/\/github\.com\/lobehub\/lobe-icons/);
+    assert.match(marks, /@lobehub\/icons-static-svg@1\.91\.0/);
+    assert.match(marks, /e4302041fbb3039608d25f9f618bd462783b875e/);
+    assert.match(marks, /packages\/static-svg\/icons\/huggingface\.svg/);
+    assert.match(marks, /license: MIT/);
+    assert.match(marks, /de7f2c60f974b75b385116ef0dc6a9fa62f2fd7bf58156b5623301a5436b91c4/);
+    assert.match(marks, /import huggingfaceBrandMark from '\.\.\/assets\/provider-brands\/huggingface\.svg';/);
+    assert.match(marks, /case 'huggingface':\s*return <ProviderAssetMask src=\{huggingfaceBrandMark\} \/>/);
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/huggingface\.svg[\s\S]*packages\/static-svg\/icons\/huggingface\.svg[\s\S]*de7f2c60f974b75b385116ef0dc6a9fa62f2fd7bf58156b5623301a5436b91c4/,
     );
   });
 

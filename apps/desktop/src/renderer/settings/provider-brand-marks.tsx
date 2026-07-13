@@ -20,6 +20,7 @@ import cohereBrandMark from '../assets/provider-brands/cohere.svg';
 import cloudflareMarkUrl from '../assets/provider-brands/cloudflare.svg';
 import deepinfraBrandMark from '../assets/provider-brands/deepinfra.svg';
 import fireworksMarkUrl from '../assets/provider-brands/fireworks.svg';
+import huggingfaceBrandMark from '../assets/provider-brands/huggingface.svg';
 import hunyuanBrandMark from '../assets/provider-brands/hunyuan.svg';
 import tencentCloudBrandMark from '../assets/provider-brands/tencentcloud.svg';
 import lmStudioBrandMark from '../assets/provider-brands/lmstudio.svg';
@@ -104,6 +105,14 @@ function XAI(): ReactElement {
 // - path: packages/static-svg/icons/cohere.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: 72851dd36d6ab017f535202744765eead8f99cfb5ced77e1840bfdb70db7a85c
+
+// Hugging Face mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/huggingface.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: de7f2c60f974b75b385116ef0dc6a9fa62f2fd7bf58156b5623301a5436b91c4
 
 // Hunyuan mark vendored byte-for-byte from Lobe Icons:
 // - repository: https://github.com/lobehub/lobe-icons
@@ -334,6 +343,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <ProviderAssetMask src={mistralBrandMark} />;
     case 'cohere':
       return <ProviderAssetMask src={cohereBrandMark} />;
+    case 'huggingface':
+      return <ProviderAssetMask src={huggingfaceBrandMark} />;
     case 'tencent-tokenhub':
       return <ProviderAssetMask src={hunyuanBrandMark} />;
     case 'tencent-coding-plan':

@@ -507,6 +507,30 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'command-a-plus-05-2026');
   });
 
+  test('resolves a Hugging Face token without rewriting its exact routing suffix', async () => {
+    const modelId = 'openai/gpt-oss-120b:preferred';
+    const connection = makeConnection({
+      slug: 'huggingface',
+      name: 'Hugging Face',
+      providerType: 'huggingface',
+      defaultModel: modelId,
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'huggingface',
+        get: async (slug) => slug === 'huggingface' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'hf-test-token' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'huggingface');
+    assert.equal(target.apiKey, 'hf-test-token');
+    assert.equal(target.model, modelId);
+  });
+
   test('resolves a SiliconFlow registry connection without rewriting its model id', async () => {
     const connection = makeConnection({
       slug: 'siliconflow',

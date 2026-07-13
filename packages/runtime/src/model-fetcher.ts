@@ -22,6 +22,10 @@ type RawProviderModel = {
   context_length?: number;
   context_window?: number;
   max_tokens?: number;
+  providers?: Array<{
+    status?: string;
+    supports_tools?: boolean;
+  }>;
 };
 
 type RawFireworksModel = {
@@ -161,9 +165,12 @@ async function fetchCohereModels(baseUrl: string, apiKey: string): Promise<Model
 
 function filterDiscoveredModels(
   models: ModelInfo[],
-  filter: 'fallback-models' | 'language-models' | undefined,
+  filter: 'fallback-models' | 'language-models' | 'tool-capable' | undefined,
   fallbackModels: readonly string[],
 ): ModelInfo[] {
+  if (filter === 'tool-capable') {
+    return models.filter((model) => model.capabilities?.functionCalling === true);
+  }
   if (filter !== 'fallback-models') return models;
   const supported = new Set(fallbackModels);
   return models.filter((model) => supported.has(model.id));
@@ -255,6 +262,11 @@ function toModelInfo(model: RawProviderModel): ModelInfo | null {
   if (model.tags?.includes('vision')) capabilities.vision = true;
   if (model.tags?.includes('reasoning')) capabilities.reasoning = true;
   if (model.tags?.includes('tool-use')) capabilities.functionCalling = true;
+  if (model.providers) {
+    capabilities.functionCalling = model.providers.some((provider) => (
+      provider.status === 'live' && provider.supports_tools === true
+    ));
+  }
   return {
     id: model.id,
     ...(model.name ? { displayName: model.name } : {}),

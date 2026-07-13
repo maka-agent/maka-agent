@@ -12,6 +12,7 @@ const PROVIDERS = {
   'fireworks-ai': 'fireworks-ai',
   google: 'google',
   'gemini-cli': 'google',
+  huggingface: 'huggingface',
   MiniMax: 'minimax',
   'MiniMax-cn': 'minimax-cn',
   mistral: 'mistral',

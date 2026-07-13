@@ -30,7 +30,7 @@ export type ProviderModelDiscovery =
       path?: string;
       query?: Readonly<Record<string, string>>;
       responseShape?: 'array-or-data';
-      filter?: 'fallback-models' | 'language-models';
+      filter?: 'fallback-models' | 'language-models' | 'tool-capable';
     }
   | {
       kind: 'fireworks';
@@ -92,6 +92,16 @@ const mistralModelIds = toolCallingModelIds('Mistral', GENERATED_MODELS_DEV_META
 const cohere = GENERATED_MODELS_DEV_PROVIDER_FACTS.cohere;
 if (cohere.id !== 'cohere') throw new Error('models.dev Cohere provider facts are missing stable id cohere');
 const cohereModelIds = toolCallingModelIds('Cohere', GENERATED_MODELS_DEV_METADATA.cohere, ['command-a-plus-05-2026']);
+const huggingface = GENERATED_MODELS_DEV_PROVIDER_FACTS.huggingface;
+if (huggingface.id !== 'huggingface') {
+  throw new Error('models.dev Hugging Face provider facts are missing stable id huggingface');
+}
+if (!huggingface.api) throw new Error('models.dev Hugging Face provider facts are missing api');
+const huggingfaceModelIds = toolCallingModelIds(
+  'Hugging Face',
+  GENERATED_MODELS_DEV_METADATA.huggingface,
+  ['openai/gpt-oss-120b', 'meta-llama/Llama-3.3-70B-Instruct'],
+);
 const fireworks = GENERATED_MODELS_DEV_PROVIDER_FACTS['fireworks-ai'];
 if (fireworks.id !== 'fireworks-ai') {
   throw new Error('models.dev Fireworks AI provider facts are missing stable id fireworks-ai');
@@ -640,6 +650,25 @@ const providerRegistry = {
     modelsDevId: cohere.id,
     readyOrder: 30,
     catalogOrder: 30,
+  },
+  huggingface: {
+    label: huggingface.name,
+    description: 'Inference Providers router for chat, reasoning, and tool use across hosted models.',
+    baseUrl: huggingface.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: huggingfaceModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol', filter: 'tool-capable' },
+    category: 'overseas',
+    catalogGroup: 'aggregators',
+    catalogBadge: 'Router',
+    signupUrl: 'https://huggingface.co/settings/tokens',
+    modelsDevId: huggingface.id,
+    readyOrder: 34,
+    catalogOrder: 34,
   },
   togetherai: {
     label: together.name,

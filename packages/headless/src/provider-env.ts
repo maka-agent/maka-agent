@@ -24,6 +24,11 @@ const PROVIDER_CREDENTIAL_ENV = {
   cerebras: env('CEREBRAS', ['CEREBRAS_BASE_URL']),
   mistral: env('MISTRAL', ['MISTRAL_BASE_URL']),
   cohere: env('COHERE', ['COHERE_BASE_URL']),
+  huggingface: {
+    apiKeys: ['HF_TOKEN'],
+    apiKeyFile: 'HF_TOKEN_FILE',
+    baseUrls: ['HUGGINGFACE_BASE_URL'],
+  },
   togetherai: env('TOGETHER', ['TOGETHER_BASE_URL']),
   deepinfra: env('DEEPINFRA', ['DEEPINFRA_BASE_URL']),
   'cloudflare-workers-ai': env(

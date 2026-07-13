@@ -46,6 +46,7 @@ describe('provider compatibility contract', () => {
       'cerebras',
       'mistral',
       'cohere',
+      'huggingface',
       'togetherai',
       'fireworks-ai',
       'nvidia',
@@ -100,6 +101,7 @@ describe('provider compatibility contract', () => {
       'vercel',
       'stepfun-ai-step-plan',
       'cloudflare-workers-ai',
+      'huggingface',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -136,6 +138,7 @@ describe('provider compatibility contract', () => {
       'vercel',
       'stepfun-ai-step-plan',
       'cloudflare-workers-ai',
+      'huggingface',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -365,6 +368,24 @@ describe('provider compatibility contract', () => {
     assert.equal(cloudflare.fallbackModels[0], '@cf/moonshotai/kimi-k2.6');
     assert.ok(cloudflare.fallbackModels.includes('@cf/moonshotai/kimi-k2.7-code'));
     assert.ok(cloudflare.fallbackModels.every((id) => id.startsWith('@cf/')));
+  });
+
+  it('owns Hugging Face Inference Providers behavior under the stable huggingface id', () => {
+    const huggingface = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).huggingface;
+
+    assert.ok(huggingface, 'Hugging Face Inference Providers must be available through the shared provider registry');
+    assert.equal(huggingface.label, 'Hugging Face');
+    assert.equal(huggingface.baseUrl, 'https://router.huggingface.co/v1');
+    assert.equal(huggingface.authKind, 'api_key');
+    assert.equal(huggingface.protocol, 'openai');
+    assert.deepEqual(huggingface.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(huggingface.modelDiscovery, { kind: 'protocol', filter: 'tool-capable' });
+    assert.equal(huggingface.category, 'overseas');
+    assert.equal(huggingface.catalogGroup, 'aggregators');
+    assert.equal(huggingface.modelsDevId, 'huggingface');
+    assert.equal(huggingface.fallbackModels[0], 'openai/gpt-oss-120b');
+    assert.ok(huggingface.fallbackModels.includes('meta-llama/Llama-3.3-70B-Instruct'));
+    assert.ok(!huggingface.fallbackModels.includes('sentence-transformers/all-MiniLM-L6-v2'));
   });
 
   it('owns the complete Together AI provider contract under the stable togetherai id', () => {

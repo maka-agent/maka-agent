@@ -2607,6 +2607,33 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves Hugging Face only from HF_TOKEN without rewriting its routing suffix', () => {
+    const modelId = 'openai/gpt-oss-120b:preferred';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'huggingface',
+      model: modelId,
+      env: {
+        HF_TOKEN: 'hf-token',
+        HUGGINGFACE_BASE_URL: 'https://router.huggingface.co/v1',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'hf-token');
+    assert.equal(resolved.connection.providerType, 'huggingface');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(resolved.connection.baseUrl, 'https://router.huggingface.co/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'huggingface',
+      model: modelId,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves Together AI only from Together credential env without rewriting the model id', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'togetherai',

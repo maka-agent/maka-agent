@@ -197,6 +197,29 @@ describe('ModelCatalogEntry', () => {
     assert.ok(!entries.some((entry) => entry.id === 'c4ai-aya-expanse-32b'));
   });
 
+  it('uses Hugging Face tool-capable snapshot models until router discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'huggingface',
+        providerType: 'huggingface',
+        defaultModel: 'openai/gpt-oss-120b',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'openai/gpt-oss-120b');
+    assert.equal(entries[0]?.displayName, 'GPT OSS 120B');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 131_072);
+    assert.equal(entries[0]?.maxOutputTokens, 32_768);
+    assert.deepEqual(entries[0]?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'meta-llama/Llama-3.3-70B-Instruct'));
+    assert.ok(!entries.some((entry) => entry.id === 'sentence-transformers/all-MiniLM-L6-v2'));
+  });
+
   it('uses the checked-in Together AI snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

@@ -51,6 +51,14 @@ test('Cohere keeps its official provider-scoped credential environment names', (
   });
 });
 
+test('Hugging Face uses its official HF_TOKEN without accepting another provider key', () => {
+  assert.deepEqual(providerCredentialEnv('huggingface'), {
+    apiKeys: ['HF_TOKEN'],
+    apiKeyFile: 'HF_TOKEN_FILE',
+    baseUrls: ['HUGGINGFACE_BASE_URL'],
+  });
+});
+
 test('Together AI keeps its official provider-scoped credential environment names', () => {
   assert.deepEqual(providerCredentialEnv('togetherai'), {
     apiKeys: ['TOGETHER_API_KEY'],
