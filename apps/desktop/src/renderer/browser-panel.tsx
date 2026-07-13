@@ -27,6 +27,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
+  useMountedRef,
   useToast,
 } from '@maka/ui';
 
@@ -60,17 +61,10 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
   // did-navigate state push.
   const [address, setAddress] = useState('');
   const editingRef = useRef(false);
-  const browserPanelMountedRef = useRef(false);
+  const browserPanelMountedRef = useMountedRef();
   const browserPanelSessionIdRef = useRef(sessionId);
 
   browserPanelSessionIdRef.current = sessionId;
-
-  useEffect(() => {
-    browserPanelMountedRef.current = true;
-    return () => {
-      browserPanelMountedRef.current = false;
-    };
-  }, []);
 
   const isBrowserPanelSessionCurrent = useCallback((ownerSessionId: string): boolean => {
     return browserPanelMountedRef.current && browserPanelSessionIdRef.current === ownerSessionId;
