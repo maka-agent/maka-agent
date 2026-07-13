@@ -61,8 +61,8 @@ describe('tool and permission args redaction', () => {
     assert.match(presentation, /\{redactSecrets\(command\)\}/);
     assert.match(presentation, /\{redactSecrets\(path\)\}/);
     assert.match(presentation, /\{permissionTextPreview\(content, 600\)\}/);
-    assert.match(presentation, /\{permissionTextPreview\(oldString, 400\)\}/);
-    assert.match(presentation, /\{permissionTextPreview\(newString, 400\)\}/);
+    assert.match(presentation, /prefixPermissionDiff\(permissionTextPreview\(oldString, 400\), '-'\)/);
+    assert.match(presentation, /prefixPermissionDiff\(permissionTextPreview\(newString, 400\), '\+'\)/);
     assert.doesNotMatch(presentation, /\{command\}<\/pre>/);
     assert.doesNotMatch(presentation, /\{path\}<\/code>/);
     assert.doesNotMatch(presentation, /oldString\.slice/);

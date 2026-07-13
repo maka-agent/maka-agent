@@ -99,6 +99,8 @@ export function PermissionPrompt(props: {
   const details = renderPermissionDetails(props.request);
   const additionalArgs = permissionAdditionalArgs(props.request);
   const showDisclosure = details !== undefined || additionalArgs !== undefined;
+  const disclosureLabel = permissionDisclosureLabel(props.request, additionalArgs);
+  const prompt = permissionPrompt(props.request, preset);
   const isDestructive = preset.tone === 'destructive';
   const context = props.request.hint ?? (isDestructive
     ? '此操作无法恢复，请确认上面的内容。'
@@ -116,7 +118,7 @@ export function PermissionPrompt(props: {
       <div className="maka-permission-prompt-inner agents-parchment-paper-surface">
         <header className="maka-permission-header">
           <div className="maka-permission-title-row">
-            <h2 className="maka-permission-title" id="permissionTitle">{preset.prompt}</h2>
+            <h2 className="maka-permission-title" id="permissionTitle">{prompt}</h2>
             {health.status !== 'fresh' && (
               <span className="maka-permission-age" data-status={health.status}>
                 已等待 {waitLabel}
@@ -144,7 +146,7 @@ export function PermissionPrompt(props: {
           )}
           <footer className="permissionActions">
             <div className="maka-permission-utility-actions">
-              {showDisclosure && <CollapsibleTrigger>完整参数</CollapsibleTrigger>}
+              {showDisclosure && <CollapsibleTrigger>{disclosureLabel}</CollapsibleTrigger>}
               <label className="permissionRemember">
                 <Checkbox
                   checked={rememberForTurn}
@@ -265,10 +267,9 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
       const content = typeof args.content === 'string' ? args.content : '';
       if (!path) return undefined;
       const bytes = new TextEncoder().encode(content).length;
-      const lines = content.split('\n').length;
+      const lines = countTextLines(content);
       return (
         <>
-          <p className="maka-permission-line">即将写入文件：</p>
           <p className="maka-permission-path"><code>{redactSecrets(path)}</code></p>
           <p className="maka-permission-meta">
             <strong>{bytes}</strong> 字节 · <strong>{lines}</strong> 行
@@ -279,32 +280,23 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
     case 'Edit': {
       const path = typeof args.path === 'string' ? args.path : undefined;
       if (!path) return undefined;
+      const oldString = typeof args.old_string === 'string' ? args.old_string : '';
+      const newString = typeof args.new_string === 'string' ? args.new_string : '';
+      const oldLines = countTextLines(oldString);
+      const newLines = countTextLines(newString);
       return (
         <>
-          <p className="maka-permission-line">即将修改文件：</p>
           <p className="maka-permission-path"><code>{redactSecrets(path)}</code></p>
+          <p className="maka-permission-meta">
+            删除 <strong>{oldLines}</strong> 行 · 写入 <strong>{newLines}</strong> 行
+          </p>
         </>
       );
     }
     case 'OfficeDocumentEdit': {
       const path = typeof args.path === 'string' ? args.path : undefined;
-      const operation = typeof args.operation === 'string' ? args.operation : undefined;
-      if (!path || !operation) return undefined;
-      const target = typeof args.target === 'string' ? args.target : undefined;
-      const elementType = typeof args.elementType === 'string' ? args.elementType : undefined;
-      const index = typeof args.index === 'number' ? args.index : undefined;
-      return (
-        <>
-          <p className="maka-permission-line">即将编辑 Office 文档：</p>
-          <p className="maka-permission-path"><code>{redactSecrets(path)}</code></p>
-          <p className="maka-permission-meta">
-            操作 <strong>{redactSecrets(operation)}</strong>
-            {target && <> · 目标 <code>{redactSecrets(target)}</code></>}
-            {elementType && <> · 元素 <code>{redactSecrets(elementType)}</code></>}
-            {index !== undefined && <> · 位置 <strong>{index}</strong></>}
-          </p>
-        </>
-      );
+      if (!path) return undefined;
+      return <p className="maka-permission-path"><code>{redactSecrets(path)}</code></p>;
     }
     default:
       return undefined;
@@ -333,27 +325,36 @@ function renderPermissionDetails(request: PermissionRequestEvent): ReactNode | u
       const newString = typeof args.new_string === 'string' ? args.new_string : '';
       return (
         <div className="maka-permission-diff">
-          <div>
-            <span className="maka-permission-diff-tag" data-side="old">删除</span>
-            <pre className="maka-code">{permissionTextPreview(oldString, 400)}</pre>
-          </div>
-          <div>
-            <span className="maka-permission-diff-tag" data-side="new">写入</span>
-            <pre className="maka-code">{permissionTextPreview(newString, 400)}</pre>
-          </div>
+          <pre className="maka-permission-diff-lines" data-side="old">
+            {prefixPermissionDiff(permissionTextPreview(oldString, 400), '-')}
+          </pre>
+          <pre className="maka-permission-diff-lines" data-side="new">
+            {prefixPermissionDiff(permissionTextPreview(newString, 400), '+')}
+          </pre>
         </div>
       );
     }
     case 'OfficeDocumentEdit': {
+      const operation = typeof args.operation === 'string' ? args.operation : undefined;
+      const target = typeof args.target === 'string' ? args.target : undefined;
+      const elementType = typeof args.elementType === 'string' ? args.elementType : undefined;
+      const index = typeof args.index === 'number' ? args.index : undefined;
       const propsArg = args.props && typeof args.props === 'object' && !Array.isArray(args.props)
         ? args.props as Record<string, unknown>
         : {};
       const propEntries = Object.entries(propsArg).slice(0, 6);
-      if (propEntries.length === 0) return undefined;
       const hiddenProps = Math.max(0, Object.keys(propsArg).length - propEntries.length);
+      const lines = [
+        operation && `操作=${redactSecrets(operation)}`,
+        target && `目标=${redactSecrets(target)}`,
+        elementType && `元素=${redactSecrets(elementType)}`,
+        index !== undefined && `位置=${index}`,
+        ...propEntries.map(([key, value]) => `${redactSecrets(key)}=${permissionValuePreview(value)}`),
+      ].filter((line): line is string => Boolean(line));
+      if (lines.length === 0) return undefined;
       return (
         <pre className="maka-code maka-permission-preview">
-          {propEntries.map(([key, value]) => `${redactSecrets(key)}=${permissionValuePreview(value)}`).join('\n')}
+          {lines.join('\n')}
           {hiddenProps > 0 && `\n… 另有 ${hiddenProps} 个属性`}
         </pre>
       );
@@ -383,6 +384,40 @@ function permissionAdditionalArgs(request: PermissionRequestEvent): Record<strin
 function permissionTextPreview(value: string, maxChars: number): string {
   const safe = redactSecrets(value);
   return safe.length > maxChars ? `${safe.slice(0, maxChars)}…` : safe;
+}
+
+function countTextLines(value: string): number {
+  if (!value) return 0;
+  const lines = value.split(/\r?\n/);
+  return lines.at(-1) === '' ? lines.length - 1 : lines.length;
+}
+
+function prefixPermissionDiff(value: string, prefix: '-' | '+'): string {
+  return value.split('\n').map((line) => `${prefix} ${line}`).join('\n');
+}
+
+function permissionPrompt(request: PermissionRequestEvent, preset: ReasonPreset): string {
+  if (request.toolName === 'Edit') return '允许修改文件？';
+  if (request.toolName === 'OfficeDocumentEdit') return '允许编辑 Office 文档？';
+  return preset.prompt;
+}
+
+function permissionDisclosureLabel(
+  request: PermissionRequestEvent,
+  additionalArgs: Record<string, unknown> | undefined,
+): string {
+  switch (request.toolName) {
+    case 'Edit':
+      return '查看变更';
+    case 'Write':
+      return '查看内容';
+    case 'WriteStdin':
+      return '查看输入';
+    case 'OfficeDocumentEdit':
+      return '查看变更';
+    default:
+      return additionalArgs ? '完整参数' : '查看详情';
+  }
 }
 
 function permissionValuePreview(value: unknown): string {

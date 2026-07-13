@@ -145,7 +145,7 @@ export const FileEditExpanded: Story = {
   play: async ({ canvasElement }) => {
     await wait(0);
     const disclosure = Array.from(canvasElement.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => (button.textContent ?? '').includes('完整参数'));
+      .find((button) => (button.textContent ?? '').includes('查看变更'));
     disclosure?.click();
   },
 };

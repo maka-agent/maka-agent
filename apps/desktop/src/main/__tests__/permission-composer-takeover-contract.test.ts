@@ -90,7 +90,7 @@ describe('permission composer takeover', () => {
     assert.match(prompt, /className="maka-permission-context"/);
     assert.match(
       prompt,
-      /<div className="maka-permission-utility-actions">[\s\S]*?\{showDisclosure && <CollapsibleTrigger>完整参数<\/CollapsibleTrigger>\}[\s\S]*?permissionRemember[\s\S]*?<\/div>[\s\S]*?<div className="maka-permission-decision-actions" role="group" aria-label="权限操作">[\s\S]*?props\.onStop[\s\S]*?submit\('deny'\)[\s\S]*?submit\('allow'\)/,
+      /<div className="maka-permission-utility-actions">[\s\S]*?\{showDisclosure && <CollapsibleTrigger>\{disclosureLabel\}<\/CollapsibleTrigger>\}[\s\S]*?permissionRemember[\s\S]*?<\/div>[\s\S]*?<div className="maka-permission-decision-actions" role="group" aria-label="权限操作">[\s\S]*?props\.onStop[\s\S]*?submit\('deny'\)[\s\S]*?submit\('allow'\)/,
       'all three request actions belong to one adjacent group; disclosure and grant scope remain utilities',
     );
     assert.match(prompt, /variant="ghost"[\s\S]*?props\.onStop/);
@@ -127,7 +127,8 @@ describe('permission composer takeover', () => {
 
     assert.match(prompt, /const showDisclosure = details !== undefined \|\| additionalArgs !== undefined;/);
     assert.match(prompt, /\{showDisclosure && \([\s\S]*?<CollapsiblePanel>/);
-    assert.match(prompt, /\{showDisclosure && <CollapsibleTrigger>完整参数<\/CollapsibleTrigger>\}/);
+    assert.match(prompt, /const disclosureLabel = permissionDisclosureLabel\(props\.request, additionalArgs\);/);
+    assert.match(prompt, /\{showDisclosure && <CollapsibleTrigger>\{disclosureLabel\}<\/CollapsibleTrigger>\}/);
     assert.doesNotMatch(prompt, /formatRedactedJson\(props\.request\.args\)/, 'the disclosure must not repeat every summarized arg');
     assert.match(summary, /const commandSummary = cwd[\s\S]*?在 \$\{redactSecrets\(cwd\)\}/);
     assert.match(additionalArgs, /case 'Bash':[\s\S]*?command: _command, cwd: _cwd[\s\S]*?return Object\.keys\(additional\)\.length > 0/);
@@ -144,10 +145,10 @@ describe('permission composer takeover', () => {
     assert.match(surface, /border:\s*var\(--border-width-hairline\) solid var\(--border\)/);
     assert.match(surface, /border-radius:\s*var\(--radius-surface\)/);
     assert.match(surface, /display:\s*grid/);
-    assert.match(detailPanel, /max-height:\s*min\(60vh, 520px\)/);
+    assert.match(detailPanel, /max-height:\s*min\(32vh, 220px\)/);
     assert.match(detailPanel, /overflow:\s*auto/);
-    assert.match(rawCode, /max-height:\s*min\(36vh, 280px\)/);
-    assert.match(rawCode, /overflow:\s*auto/);
+    assert.match(rawCode, /max-height:\s*none/);
+    assert.match(rawCode, /overflow:\s*visible/);
     assert.equal(dangerNote, '', 'the repeated destructive warning style must be removed');
     assert.match(ruleBody(css, '.maka-permission-context'), /font-size:\s*var\(--font-size-ui\)/);
     const disclosure = ruleBody(css, '.maka-permission-raw [data-slot="collapsible-trigger"]');
@@ -178,13 +179,19 @@ describe('permission composer takeover', () => {
       /function renderPermissionDetails[\s\S]*?function permissionTextPreview/,
     )?.[0] ?? '';
 
-    assert.match(
-      prompt,
-      /<Collapsible className="maka-permission-raw">[\s\S]*?\{showDisclosure && \([\s\S]*?<CollapsiblePanel>[\s\S]*?\{details[\s\S]*?formatRedactedJson\(additionalArgs\)[\s\S]*?<footer className="permissionActions">[\s\S]*?\{showDisclosure && <CollapsibleTrigger>完整参数<\/CollapsibleTrigger>\}/,
-      'expanded details grow above the footer while the trigger shares the compact control row',
-    );
+    assert.match(prompt, /<Collapsible className="maka-permission-raw">[\s\S]*?<CollapsiblePanel>[\s\S]*?<footer className="permissionActions">/);
+    assert.match(prompt, /<CollapsibleTrigger>\{disclosureLabel\}<\/CollapsibleTrigger>/);
+    assert.match(prompt, /const prompt = permissionPrompt\(props\.request, preset\);/);
+    assert.match(prompt, /id="permissionTitle">\{prompt\}<\/h2>/);
+    assert.match(summary, /case 'Edit':[\s\S]*?countTextLines\(oldString\)[\s\S]*?删除[\s\S]*?写入/);
+    assert.doesNotMatch(summary, /即将修改文件/);
+    assert.doesNotMatch(summary, /即将写入文件/);
+    assert.doesNotMatch(summary, /即将编辑 Office 文档/);
+    assert.doesNotMatch(summary, /case 'OfficeDocumentEdit':[\s\S]*?操作 <strong>/);
+    assert.match(details, /case 'OfficeDocumentEdit':[\s\S]*?operation[\s\S]*?target[\s\S]*?propEntries/);
     assert.doesNotMatch(summary, /maka-permission-diff/, 'diffs do not belong in the compact summary');
     assert.match(details, /maka-permission-diff/, 'diffs remain inspectable in expanded details');
+    assert.doesNotMatch(details, /maka-permission-diff-tag/, 'expanded edits use one unified diff instead of stacked labeled cards');
     assert.doesNotMatch(summary, /maka-permission-preview/, 'long content previews do not belong in the compact summary');
     assert.match(details, /maka-permission-preview/, 'long content previews remain inspectable in expanded details');
   });
