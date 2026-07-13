@@ -32,9 +32,9 @@ import {
   DEEP_RESEARCH_STARTER_PROMPTS,
   DEEP_RESEARCH_WORKFLOW_STEPS,
 } from '@maka/core';
+import { Button as BaseButton } from '@base-ui/react/button';
 
 import { detectUiLocale, type UiLocale } from './locale-helpers.js';
-import { Button as UiButton } from './ui.js';
 
 export type DayPeriod = 'morning' | 'noon' | 'afternoon' | 'evening';
 
@@ -230,15 +230,14 @@ export function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: strin
         <ul className="maka-prompt-suggestions" aria-label="深度研究起手式">
           {DEEP_RESEARCH_STARTER_PROMPTS.map((suggestion) => (
             <li key={suggestion.label}>
-              <UiButton
+              <BaseButton
                 type="button"
-                className="maka-prompt-chip h-auto"
-                variant="quiet"
+                className="maka-prompt-chip"
                 onClick={() => props.onPromptSuggestion?.(suggestion.prompt)}
               >
                 <span className="maka-prompt-chip-label">{suggestion.label}</span>
                 <span className="maka-prompt-chip-hint">{suggestion.prompt.slice(0, 60)}…</span>
-              </UiButton>
+              </BaseButton>
             </li>
           ))}
         </ul>

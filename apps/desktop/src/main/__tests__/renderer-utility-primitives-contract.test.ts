@@ -197,4 +197,13 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.doesNotMatch(spinner, /aria-label="Loading"/);
     assert.match(spinner, /aria-label="加载中"/);
   });
+
+  it('keeps multiline prompt suggestions on their semantic Base UI row seam', async () => {
+    const source = await readFile(join(repoRoot, 'packages/ui/src/chat-empty-hero.tsx'), 'utf8');
+
+    assert.match(source, /import \{ Button as BaseButton \} from '@base-ui\/react\/button';/);
+    assert.match(source, /<BaseButton[\s\S]*className="maka-prompt-chip"/);
+    assert.doesNotMatch(source, /<UiButton[\s\S]*className="maka-prompt-chip/);
+    assert.doesNotMatch(source, /maka-prompt-chip h-auto/);
+  });
 });
