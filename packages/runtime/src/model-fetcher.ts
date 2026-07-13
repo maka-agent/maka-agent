@@ -119,25 +119,46 @@ async function fetchFireworksModels(
     'content-type': 'application/json',
     authorization: `Bearer ${apiKey}`,
   };
-  const accountsResponse = await proxiedFetch(
-    `${root}${discovery.accountsPath}?pageSize=200`,
-    { headers, timeoutMs: MODEL_FETCH_TIMEOUT_MS },
+  const fetchPages = async <T>(
+    path: string,
+    query: Readonly<Record<string, string>>,
+    itemKey: 'accounts' | 'models',
+  ): Promise<T[]> => {
+    const items: T[] = [];
+    let pageToken: string | undefined;
+    do {
+      const search = new URLSearchParams(query);
+      if (pageToken) search.set('pageToken', pageToken);
+      const response = await proxiedFetch(
+        `${root}${path}?${search.toString()}`,
+        { headers, timeoutMs: MODEL_FETCH_TIMEOUT_MS },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as {
+        accounts?: T[];
+        models?: T[];
+        nextPageToken?: string;
+      };
+      items.push(...(data[itemKey] ?? []));
+      pageToken = data.nextPageToken || undefined;
+    } while (pageToken);
+    return items;
+  };
+
+  const accounts = await fetchPages<{ name?: string }>(
+    discovery.accountsPath,
+    { pageSize: '200' },
+    'accounts',
   );
-  if (!accountsResponse.ok) throw new Error(`HTTP ${accountsResponse.status}`);
-  const accountsData = await accountsResponse.json() as { accounts?: Array<{ name?: string }> };
   const accountNames = [
-    ...(accountsData.accounts ?? []).flatMap((account) => (
+    ...accounts.flatMap((account) => (
       account.name && /^accounts\/[^/]+$/.test(account.name) ? [account.name] : []
     )),
     discovery.publicAccount,
   ].filter((name, index, names) => names.indexOf(name) === index);
-  const modelLists = await Promise.all(accountNames.map(async (accountName) => {
-    const url = `${root}/v1/${accountName}/models?${new URLSearchParams(discovery.query).toString()}`;
-    const response = await proxiedFetch(url, { headers, timeoutMs: MODEL_FETCH_TIMEOUT_MS });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json() as { models?: RawFireworksModel[] };
-    return data.models ?? [];
-  }));
+  const modelLists = await Promise.all(accountNames.map((accountName) => (
+    fetchPages<RawFireworksModel>(`/v1/${accountName}/models`, discovery.query, 'models')
+  )));
 
   return modelLists.flat().flatMap((model) => {
     if (!model.name) return [];

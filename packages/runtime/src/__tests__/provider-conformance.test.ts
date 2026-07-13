@@ -529,7 +529,14 @@ describe('models.dev provider conformance', () => {
     const server = await startJsonServer(async (request, response) => {
       assert.equal(request.headers.authorization, 'Bearer fireworks-test-key');
       if (request.method === 'GET' && request.url === '/v1/accounts?pageSize=200') {
-        respondJson(response, 200, { accounts: [{ name: 'accounts/acme' }] });
+        respondJson(response, 200, {
+          accounts: [{ name: 'accounts/acme' }],
+          nextPageToken: 'accounts-next',
+        });
+        return;
+      }
+      if (request.method === 'GET' && request.url === '/v1/accounts?pageSize=200&pageToken=accounts-next') {
+        respondJson(response, 200, { accounts: [{ name: 'accounts/team' }] });
         return;
       }
       if (
@@ -540,6 +547,35 @@ describe('models.dev provider conformance', () => {
           models: [{
             name: 'accounts/acme/models/custom-agent',
             displayName: 'Custom Agent',
+            supportsTools: true,
+            supportsServerless: true,
+          }],
+          nextPageToken: 'models-next',
+        });
+        return;
+      }
+      if (
+        request.method === 'GET'
+        && request.url === '/v1/accounts/acme/models?filter=supports_serverless%3Dtrue&pageSize=200&pageToken=models-next'
+      ) {
+        respondJson(response, 200, {
+          models: [{
+            name: 'accounts/acme/models/custom-agent-v2',
+            displayName: 'Custom Agent V2',
+            supportsTools: true,
+            supportsServerless: true,
+          }],
+        });
+        return;
+      }
+      if (
+        request.method === 'GET'
+        && request.url === '/v1/accounts/team/models?filter=supports_serverless%3Dtrue&pageSize=200'
+      ) {
+        respondJson(response, 200, {
+          models: [{
+            name: 'accounts/team/models/team-agent',
+            displayName: 'Team Agent',
             supportsTools: true,
             supportsServerless: true,
           }],
@@ -619,6 +655,16 @@ describe('models.dev provider conformance', () => {
       {
         id: 'accounts/acme/models/custom-agent',
         displayName: 'Custom Agent',
+        capabilities: { functionCalling: true },
+      },
+      {
+        id: 'accounts/acme/models/custom-agent-v2',
+        displayName: 'Custom Agent V2',
+        capabilities: { functionCalling: true },
+      },
+      {
+        id: 'accounts/team/models/team-agent',
+        displayName: 'Team Agent',
         capabilities: { functionCalling: true },
       },
       {
