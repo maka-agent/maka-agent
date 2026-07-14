@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import type {
   BackendKind,
   LlmConnection,
+  ModelInfo,
   PricingConfig,
   ProviderType,
   RuntimeEvent,
@@ -21,6 +22,7 @@ import {
   PiAgentBackend,
   SessionManager,
   buildProviderOptions,
+  buildSubscriptionModelFetch,
   defaultShellPlan,
   getAIModel,
   getBuiltinPricing,
@@ -677,8 +679,13 @@ export function buildAiSdkCellBackendRegistration(input: {
     if (!context.toolExecutor) {
       throw new Error('Harbor ai-sdk backend requires an isolated tool executor');
     }
-    registry.register('ai-sdk', (ctx) =>
-      new AiSdkBackend({
+    registry.register('ai-sdk', (ctx) => {
+      const subscriptionFetch = buildSubscriptionModelFetch({
+        connection,
+        sessionId: ctx.sessionId,
+        modelId: input.model,
+      });
+      return new AiSdkBackend({
         sessionId: ctx.sessionId,
         header: { ...ctx.header, model: input.model },
         appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
@@ -686,7 +693,10 @@ export function buildAiSdkCellBackendRegistration(input: {
         apiKey,
         modelId: input.model,
         permissionEngine,
-        modelFactory: getAIModel,
+        modelFactory: (modelInput) => getAIModel({
+          ...modelInput,
+          ...(subscriptionFetch ? { fetch: subscriptionFetch } : {}),
+        }),
         tools: buildHarborCellAiSdkTools(context.toolExecutor!, {
           ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
           ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
@@ -714,8 +724,8 @@ export function buildAiSdkCellBackendRegistration(input: {
         recordRunTrace: ctx.recordRunTrace,
         recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
         recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
-      }),
-    );
+      });
+    });
   };
 }
 
@@ -1561,16 +1571,26 @@ function connectionFromEnv(
   ts: number,
 ): LlmConnection {
   const defaults = PROVIDER_DEFAULTS[provider];
+  const githubApiProtocol = modelApiProtocolFromEnv(env.MAKA_MODEL_API_PROTOCOL);
+  if (provider === 'github-copilot' && !githubApiProtocol) {
+    throw new Error('GitHub Copilot requires an account-discovered model protocol');
+  }
   return {
     slug: env.MAKA_LLM_CONNECTION_SLUG ?? provider,
     name: defaults.label,
     providerType: provider,
     baseUrl: env.MAKA_BASE_URL ?? providerBaseUrlFromEnv(provider, env) ?? defaults.baseUrl,
     defaultModel: model,
+    ...(provider === 'github-copilot' ? { models: [{ id: model, apiProtocol: githubApiProtocol }] } : {}),
     enabled: true,
     createdAt: ts,
     updatedAt: ts,
   };
+}
+
+function modelApiProtocolFromEnv(value: string | undefined): ModelInfo['apiProtocol'] {
+  if (value === 'openai-chat' || value === 'openai-responses' || value === 'anthropic-messages') return value;
+  return undefined;
 }
 
 function apiKeyFromEnv(provider: ProviderType, env: RunHarborCellEnv, connectionSlug: string): string {

@@ -110,7 +110,6 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     if (!tokens) return existing;
     const defaults = PROVIDER_DEFAULTS['github-copilot'];
     const baseUrl = tokens.base_url ?? defaults.baseUrl;
-    const fallbackModels = defaults.fallbackModels.map((id) => ({ id }));
     const now = Date.now();
     const discoveryConnection: LlmConnection = {
       slug: GITHUB_COPILOT_CONNECTION_SLUG,
@@ -122,16 +121,17 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    let models = existing?.models?.length ? existing.models : fallbackModels;
-    let modelSource = existing?.modelSource ?? 'fallback';
-    let modelsFetchedAt = existing?.modelsFetchedAt;
+    let models: Awaited<ReturnType<typeof fetchProviderModels>>;
     try {
       models = await (deps.fetchModels ?? fetchProviderModels)(discoveryConnection, tokens.access_token);
-      modelSource = 'fetched';
-      modelsFetchedAt = now;
     } catch {
-      // Account connection remains usable with the models.dev snapshot; a
-      // manual refresh can retry account discovery without losing the login.
+      if (!existing) return null;
+      return deps.connectionStore.update(existing.slug, {
+        enabled: false,
+        lastTestStatus: 'error',
+        lastTestAt: new Date(now).toISOString(),
+        lastTestMessage: 'GitHub Copilot 无法读取当前账号可用模型，请重新验证登录。',
+      });
     }
     const enabledIds = models.map((model) => model.id);
     const defaultModel = enabledIds.includes(existing?.defaultModel ?? '')
@@ -141,8 +141,8 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       ...discoveryConnection,
       defaultModel,
       models,
-      modelSource,
-      ...(modelsFetchedAt !== undefined ? { modelsFetchedAt } : {}),
+      modelSource: 'fetched',
+      modelsFetchedAt: now,
       lastTestStatus: 'verified',
       lastTestAt: new Date(now).toISOString(),
       lastTestMessage: 'GitHub Copilot 登录已导入。',

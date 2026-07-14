@@ -756,7 +756,7 @@ describe('default session target resolver', () => {
       },
       credentialStore: {
         getSecret: async () => JSON.stringify({
-          access_token: 'short-lived-copilot-token',
+          access_token: 'github-account-token',
           refresh_token: 'github-account-token',
           expires_at: Date.now() + 10 * 60_000,
           base_url: 'https://api.business.githubcopilot.com',
@@ -764,7 +764,7 @@ describe('default session target resolver', () => {
       },
     });
 
-    assert.equal(target.apiKey, 'short-lived-copilot-token');
+    assert.equal(target.apiKey, 'github-account-token');
     assert.equal(target.connection.baseUrl, 'https://api.business.githubcopilot.com');
   });
 

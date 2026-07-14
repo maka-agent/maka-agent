@@ -4,7 +4,7 @@ import { writeFile } from 'node:fs/promises';
 import { basename, delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
 import { PROVIDER_DEFAULTS, providerAuthRequiresSecret, type ProviderType } from '@maka/core/llm-connections';
-import { exchangeGitHubCopilotToken, isSupportedGitHubCopilotAccountToken } from '@maka/runtime';
+import { fetchGitHubCopilotModels, isSupportedGitHubCopilotAccountToken } from '@maka/runtime';
 import {
   validateHarborCellExecutionIdentity,
   validateHarborCellOutput,
@@ -87,8 +87,8 @@ export interface HarborTaskRunnerOptions {
   harborTimeoutMs?: number;
   /** Injectable Harbor process runner (default: execFile the harbor binary). */
   runHarbor?: HarborProcessRunner;
-  /** Injectable only for deterministic GitHub Copilot account-token exchange tests. */
-  copilotExchangeFetch?: typeof fetch;
+  /** Injectable only for deterministic GitHub Copilot account-discovery tests. */
+  copilotFetch?: typeof fetch;
   now?: () => number;
 }
 
@@ -470,21 +470,29 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
   close?: () => Promise<void>;
 } | null> {
   const provider = options.provider ?? 'deepseek';
+  if (options.agent === 'opencode' && provider === 'github-copilot') {
+    throw new Error('GitHub Copilot Harbor runs use the Maka host agent; the OpenCode Harbor adapter does not support this provider');
+  }
   const githubToken = provider === 'github-copilot'
     ? options.apiKeyFile
       ? (await readFile(options.apiKeyFile, 'utf8')).trim()
       : githubCopilotAccountTokenFromEnv(provider, options.agentEnv)
     : undefined;
   if (!options.apiKeyFile && !githubToken && providerRequiresSecret(provider)) return null;
-  const copilotCredential = githubToken
-    ? await resolveGitHubCopilotHostCredential(githubToken, options.copilotExchangeFetch)
-    : undefined;
   const providerEnv = providerCredentialEnv(provider);
   const [primaryBaseUrl] = providerEnv?.baseUrls ?? [];
-  const baseUrl = copilotCredential?.baseUrl
-    ?? (primaryBaseUrl ? options.agentEnv?.[primaryBaseUrl] : undefined)
+  const configuredBaseUrl = (primaryBaseUrl ? options.agentEnv?.[primaryBaseUrl] : undefined)
     ?? options.agentEnv?.MAKA_BASE_URL
     ?? providerBaseUrlFromEnv(provider, options.agentEnv ?? {});
+  const copilotCredential = githubToken
+    ? await resolveGitHubCopilotHostCredential(
+        githubToken,
+        modelIdForProvider(options.model, provider),
+        configuredBaseUrl ?? PROVIDER_DEFAULTS['github-copilot'].baseUrl,
+        options.copilotFetch,
+      )
+    : undefined;
+  const baseUrl = copilotCredential?.baseUrl ?? configuredBaseUrl;
   if (options.agent === 'opencode') {
     const apiKeyFile = options.apiKeyFile;
     if (!apiKeyFile) return null;
@@ -517,20 +525,24 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
       ...(apiKeyEnvName ? { MAKA_HOST_API_KEY_ENV_NAME: apiKeyEnvName } : {}),
       ...(!options.apiKeyFile && !copilotCredential ? { MAKA_HOST_NO_AUTH: 'true' } : {}),
       ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
+      ...(copilotCredential ? { MAKA_HOST_MODEL_API_PROTOCOL: copilotCredential.apiProtocol } : {}),
     },
   };
 }
 
 async function resolveGitHubCopilotHostCredential(
   githubToken: string,
+  modelId: string,
+  baseUrl: string,
   fetchFn?: typeof fetch,
-): Promise<{ accessToken: string; baseUrl: string }> {
+): Promise<{ accessToken: string; baseUrl: string; apiProtocol: 'openai-chat' | 'openai-responses' | 'anthropic-messages' }> {
   if (!isSupportedGitHubCopilotAccountToken(githubToken)) {
     throw new Error('GitHub Copilot requires a GitHub OAuth, GitHub App user, or fine-grained account token; classic PATs are not accepted');
   }
-  const tokens = await exchangeGitHubCopilotToken({ githubToken, fetchFn });
-  if (!tokens.base_url) throw new Error('GitHub Copilot token exchange returned no account endpoint');
-  return { accessToken: tokens.access_token, baseUrl: tokens.base_url };
+  const models = await fetchGitHubCopilotModels(baseUrl, githubToken, fetchFn);
+  const model = models.find(({ id }) => id === modelId);
+  if (!model?.apiProtocol) throw new Error(`GitHub Copilot account does not expose model ${modelId}`);
+  return { accessToken: githubToken, baseUrl, apiProtocol: model.apiProtocol };
 }
 
 function githubCopilotAccountTokenFromEnv(

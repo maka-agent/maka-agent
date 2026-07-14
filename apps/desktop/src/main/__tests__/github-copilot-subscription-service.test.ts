@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { GitHubCopilotSubscriptionService } from '../oauth/github-copilot-subscription-service.js';
 
@@ -16,12 +19,10 @@ describe('GitHubCopilotSubscriptionService', () => {
           setSecret: async (_slug, _kind, value) => { stored = value; },
           deleteSecret: async () => { stored = null; },
         },
-        fetchFn: async (_url, init) => {
+        fetchFn: async (url, init) => {
+          assert.equal(String(url), 'https://api.githubcopilot.com/models');
           authorization = new Headers(init?.headers).get('authorization') ?? '';
-          return Response.json({
-            token: 'tid=test;proxy-ep=proxy.individual.githubcopilot.com;sig=short-lived',
-            expires_at: 456,
-          });
+          return copilotModelsResponse();
         },
       });
 
@@ -36,7 +37,7 @@ describe('GitHubCopilotSubscriptionService', () => {
 
   test('imports a supported existing gh login into the shared OAuth credential lifecycle', async () => {
     let stored: string | null = null;
-    let exchangeAuthorization = '';
+    let requestAuthorization = '';
     const service = new GitHubCopilotSubscriptionService({
       credentialStore: {
         getSecret: async () => stored,
@@ -44,23 +45,21 @@ describe('GitHubCopilotSubscriptionService', () => {
         deleteSecret: async () => { stored = null; },
       },
       resolveGitHubToken: async () => 'gho_existing_login\n',
-      fetchFn: async (_url, init) => {
-        exchangeAuthorization = new Headers(init?.headers).get('authorization') ?? '';
-        return Response.json({
-          token: 'tid=test;proxy-ep=proxy.business.githubcopilot.com;sig=short-lived',
-          expires_at: 456,
-        });
+      fetchFn: async (url, init) => {
+        assert.equal(String(url), 'https://api.githubcopilot.com/models');
+        requestAuthorization = new Headers(init?.headers).get('authorization') ?? '';
+        return copilotModelsResponse();
       },
     });
 
     assert.deepEqual(await service.connectExistingLogin(), { ok: true });
-    assert.equal(exchangeAuthorization, 'Bearer gho_existing_login');
+    assert.equal(requestAuthorization, 'Bearer gho_existing_login');
     assert.deepEqual(JSON.parse(stored ?? ''), {
-      access_token: 'tid=test;proxy-ep=proxy.business.githubcopilot.com;sig=short-lived',
+      access_token: 'gho_existing_login',
       refresh_token: 'gho_existing_login',
-      expires_at: 456_000,
+      expires_at: Number.MAX_SAFE_INTEGER,
       token_type: 'Bearer',
-      base_url: 'https://api.business.githubcopilot.com',
+      base_url: 'https://api.githubcopilot.com',
     });
     assert.deepEqual(await service.getAccountState(), {
       provider: 'github-copilot',
@@ -68,13 +67,13 @@ describe('GitHubCopilotSubscriptionService', () => {
     });
   });
 
-  test('rejects classic PATs before any Copilot exchange request', async () => {
-    let exchanged = false;
+  test('rejects classic PATs before any Copilot request', async () => {
+    let requested = false;
     const service = new GitHubCopilotSubscriptionService({
       credentialStore: memoryCredentialStore(),
       resolveGitHubToken: async () => 'ghp_classic_pat',
       fetchFn: async () => {
-        exchanged = true;
+        requested = true;
         return Response.json({});
       },
     });
@@ -86,7 +85,7 @@ describe('GitHubCopilotSubscriptionService', () => {
       assert.match(result.message, /不支持 classic PAT/);
       assert.equal(result.message.includes('ghp_classic_pat'), false);
     }
-    assert.equal(exchanged, false);
+    assert.equal(requested, false);
   });
 
   test('explains subscription or Copilot Requests policy rejection without exposing provider details', async () => {
@@ -97,7 +96,7 @@ describe('GitHubCopilotSubscriptionService', () => {
         deleteSecret: async () => {},
       },
       resolveGitHubToken: async () => 'gho_without_copilot_permission',
-      fetchFn: async () => new Response(null, { status: 404 }),
+      fetchFn: async () => new Response(null, { status: 403 }),
     });
 
     const result = await service.connectExistingLogin();
@@ -108,9 +107,9 @@ describe('GitHubCopilotSubscriptionService', () => {
 
   test('refreshes and logs out through the same store without exposing either token in state', async () => {
     let stored: string | null = JSON.stringify({
-      access_token: 'expired-token',
+      access_token: 'github_pat_supported',
       refresh_token: 'github_pat_supported',
-      expires_at: 1,
+      expires_at: Number.MAX_SAFE_INTEGER,
       base_url: 'https://api.githubcopilot.com',
     });
     const service = new GitHubCopilotSubscriptionService({
@@ -120,10 +119,7 @@ describe('GitHubCopilotSubscriptionService', () => {
         deleteSecret: async () => { stored = null; },
       },
       now: () => 10_000,
-      fetchFn: async () => Response.json({
-        token: 'tid=test;proxy-ep=proxy.individual.githubcopilot.com;sig=refreshed',
-        expires_at: 456,
-      }),
+      fetchFn: async () => copilotModelsResponse(),
     });
 
     assert.deepEqual(await service.refreshTokens(), { ok: true });
@@ -137,7 +133,45 @@ describe('GitHubCopilotSubscriptionService', () => {
       runtimeState: 'not_logged_in',
     });
   });
+
+  test('fails a persisted connection closed instead of inventing a model wire after discovery failure', () => {
+    const source = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'src', 'main', 'oauth-model-connections-main.ts'),
+      'utf8',
+    );
+    const syncBody = source.slice(
+      source.indexOf('async function syncGitHubCopilotConnection'),
+      source.indexOf('async function syncCodexSubscriptionConnection'),
+    );
+    const failureBody = syncBody.slice(syncBody.indexOf('} catch {'), syncBody.indexOf('const enabledIds'));
+    assert.match(syncBody, /catch \{[\s\S]*if \(!existing\) return null;[\s\S]*enabled: false,[\s\S]*lastTestStatus: 'error'/);
+    assert.doesNotMatch(failureBody, /fallbackModels|models\.dev|connectionStore\.save/);
+  });
 });
+
+function copilotModelsResponse(): Response {
+  return Response.json({
+    data: [{
+      id: 'gpt-5.4',
+      model_picker_enabled: true,
+      supported_endpoints: ['/responses'],
+      policy: { state: 'enabled' },
+      capabilities: {
+        limits: { max_prompt_tokens: 128_000, max_output_tokens: 16_000 },
+        supports: { tool_calls: true },
+      },
+    }],
+  });
+}
+
+function createGitHubCopilotAccountRecord(token: string) {
+  return {
+    access_token: token,
+    refresh_token: token,
+    expires_at: Number.MAX_SAFE_INTEGER,
+    base_url: 'https://api.githubcopilot.com',
+  };
+}
 
 function memoryCredentialStore() {
   return {

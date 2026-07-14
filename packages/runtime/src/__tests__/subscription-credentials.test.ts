@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import {
-  exchangeGitHubCopilotToken,
+  createGitHubCopilotAccountTokens,
   parseOAuthSubscriptionTokens,
   resolveOAuthSubscriptionTokens,
 } from '../subscription-credentials.js';
@@ -22,54 +22,23 @@ describe('GitHub Copilot subscription credentials', () => {
     });
   });
 
-  test('exchanges an existing GitHub login without putting it in the URL or body', async () => {
-    let requestedUrl = '';
-    let requestedInit: RequestInit | undefined;
-    const tokens = await exchangeGitHubCopilotToken({
-      githubToken: 'github-account-token',
-      fetchFn: async (url, init) => {
-        requestedUrl = String(url);
-        requestedInit = init;
-        return Response.json({
-          token: 'tid=test;proxy-ep=proxy.business.githubcopilot.com;sig=short-lived',
-          expires_at: 456,
-        });
-      },
-    });
+  test('stores one direct Copilot-capable GitHub token in the shared OAuth record', () => {
+    const tokens = createGitHubCopilotAccountTokens('github-account-token');
 
-    assert.equal(requestedUrl, 'https://api.github.com/copilot_internal/v2/token');
-    assert.equal(requestedInit?.method, 'GET');
-    const headers = new Headers(requestedInit?.headers);
-    assert.equal(headers.get('authorization'), 'Bearer github-account-token');
-    assert.equal(headers.get('user-agent'), 'GitHubCopilotChat/0.35.0');
-    assert.equal(headers.get('editor-version'), 'vscode/1.107.0');
-    assert.equal(headers.get('editor-plugin-version'), 'copilot-chat/0.35.0');
-    assert.equal(headers.get('copilot-integration-id'), 'vscode-chat');
-    assert.equal(requestedInit?.body, undefined);
     assert.deepEqual(tokens, {
-      access_token: 'tid=test;proxy-ep=proxy.business.githubcopilot.com;sig=short-lived',
+      access_token: 'github-account-token',
       refresh_token: 'github-account-token',
-      expires_at: 456_000,
+      expires_at: Number.MAX_SAFE_INTEGER,
       token_type: 'Bearer',
-      base_url: 'https://api.business.githubcopilot.com',
+      base_url: 'https://api.githubcopilot.com',
     });
   });
 
-  test('rejects an account endpoint outside GitHub-owned Copilot hosts', async () => {
-    await assert.rejects(exchangeGitHubCopilotToken({
-      githubToken: 'github-account-token',
-      fetchFn: async () => Response.json({
-        token: 'tid=test;proxy-ep=proxy.copilot-token.example.com;sig=short-lived',
-        expires_at: 456,
-      }),
-    }), /untrusted GitHub Copilot API endpoint/);
-  });
-
-  test('refreshes through the same OAuth credential lifecycle and preserves the GitHub account token', async () => {
-    let stored = JSON.stringify({
-      access_token: 'expired-copilot-token',
+  test('resolves the durable direct token without calling the retired exchange endpoint', async () => {
+    const stored = JSON.stringify({
+      access_token: 'github-account-token',
       refresh_token: 'github-account-token',
-      expires_at: 1_000,
+      expires_at: Number.MAX_SAFE_INTEGER,
       base_url: 'https://api.githubcopilot.com',
     });
     const tokens = await resolveOAuthSubscriptionTokens({
@@ -77,18 +46,14 @@ describe('GitHub Copilot subscription credentials', () => {
       slug: 'github-copilot',
       credentialStore: {
         getSecret: async () => stored,
-        setSecret: async (_slug, _kind, value) => { stored = value; },
+        setSecret: async () => assert.fail('durable GitHub tokens do not refresh through a token exchange'),
       },
       now: () => 10_000,
-      fetchFn: async () => Response.json({
-        token: 'tid=test;proxy-ep=proxy.individual.githubcopilot.com;sig=fresh',
-        expires_at: 456,
-      }),
+      fetchFn: async () => assert.fail('the retired token exchange must not be called'),
     });
 
-    assert.equal(tokens?.access_token, 'tid=test;proxy-ep=proxy.individual.githubcopilot.com;sig=fresh');
+    assert.equal(tokens?.access_token, 'github-account-token');
     assert.equal(tokens?.refresh_token, 'github-account-token');
-    assert.equal(tokens?.base_url, 'https://api.individual.githubcopilot.com');
-    assert.deepEqual(JSON.parse(stored), tokens);
+    assert.equal(tokens?.base_url, 'https://api.githubcopilot.com');
   });
 });

@@ -413,7 +413,7 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
           {loggedIn && (
             <>
               <Button type="button" variant="secondary" onClick={() => void runAction('refresh')} disabled={pendingAction !== null}>
-                {pendingAction === 'refresh' ? '刷新中…' : '刷新凭据'}
+                {pendingAction === 'refresh' ? '验证中…' : '重新验证'}
               </Button>
               <Button type="button" variant="ghost" onClick={() => void runAction('logout')} disabled={pendingAction !== null}>
                 {pendingAction === 'logout' ? '移除中…' : '移除本地登录'}

@@ -205,7 +205,7 @@ describe('getAIModel: models.dev registry providers', () => {
           ...conn('github-copilot'),
           models: [{ id: modelId, apiProtocol }],
         },
-        apiKey: 'short-lived-copilot-token',
+        apiKey: 'github-account-token',
         modelId,
         fetch: async () => Response.json({}),
       });

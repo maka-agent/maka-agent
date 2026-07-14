@@ -170,15 +170,19 @@ async function fetchProviderModelsStrict(
   }
 }
 
-async function fetchGitHubCopilotModels(baseUrl: string, accessToken: string): Promise<ModelInfo[]> {
-  const response = await proxiedFetch(`${stripTrailing(baseUrl)}/models`, {
+export async function fetchGitHubCopilotModels(
+  baseUrl: string,
+  accessToken: string,
+  fetchFn?: typeof fetch,
+): Promise<ModelInfo[]> {
+  const response = await (fetchFn ?? proxiedFetch)(`${stripTrailing(baseUrl)}/models`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       ...GITHUB_COPILOT_COMPAT_HEADERS,
       'Openai-Intent': 'conversation-edits',
       'X-GitHub-Api-Version': GITHUB_COPILOT_API_VERSION,
     },
-    timeoutMs: MODEL_FETCH_TIMEOUT_MS,
+    ...(fetchFn ? { signal: AbortSignal.timeout(MODEL_FETCH_TIMEOUT_MS) } : { timeoutMs: MODEL_FETCH_TIMEOUT_MS }),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const payload = await response.json() as { data?: RawGitHubCopilotModel[] };

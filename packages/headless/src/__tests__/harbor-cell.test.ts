@@ -4,7 +4,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import type { BackendKind, SessionEvent, SessionHeader } from '@maka/core';
+import type { BackendKind, LlmConnection, SessionEvent, SessionHeader } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import {
   BackendRegistry,
@@ -1039,6 +1039,54 @@ describe('runHarborCell', () => {
       assert.equal(backendInput.tools.find((tool) => tool.name === 'Bash')?.permissionRequired, false);
       assert.equal(backendInput.tools.find((tool) => tool.name === 'Write')?.permissionRequired, false);
       assert.match(backendInput.systemPrompt ?? '', /Prefer Read, Glob, and Grep/);
+    });
+  });
+
+  test('Harbor ai-sdk backend uses the discovered GitHub Copilot wire', async () => {
+    await withDirs(async ({ workspaceDir }) => {
+      const registry = new BackendRegistry();
+      const toolExecutor = fakeToolExecutor();
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'github-copilot',
+        model: 'gpt-5.4',
+        env: {
+          COPILOT_GITHUB_TOKEN: 'github_pat_account_token',
+          MAKA_MODEL_API_PROTOCOL: 'openai-responses',
+        },
+        now: () => 123,
+        newId: () => 'id',
+      });
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'github-copilot',
+          model: 'gpt-5.4',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+
+      const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const backendInput = (backend as unknown as {
+        input: {
+          connection: LlmConnection;
+          apiKey: string;
+          modelId: string;
+          modelFactory: (input: { connection: LlmConnection; apiKey: string; modelId: string }) => {
+            provider: string;
+          };
+        };
+      }).input;
+      const model = backendInput.modelFactory({
+        connection: backendInput.connection,
+        apiKey: backendInput.apiKey,
+        modelId: backendInput.modelId,
+      });
+
+      assert.equal(model.provider, 'openai.responses');
     });
   });
 
@@ -2184,6 +2232,27 @@ setTimeout(() => {
     });
     assert.equal(deepseek.apiKey, 'fallback-key');
     assert.equal(deepseek.connection.baseUrl, 'https://fallback.example/v1');
+  });
+
+  test('requires and preserves the account-discovered GitHub Copilot model protocol', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'github-copilot',
+      model: 'gpt-5.4',
+      env: {
+        COPILOT_GITHUB_TOKEN: 'github_pat_copilot_requests',
+        MAKA_MODEL_API_PROTOCOL: 'openai-responses',
+      },
+      ts: 123,
+    });
+
+    assert.equal(resolved.apiKey, 'github_pat_copilot_requests');
+    assert.deepEqual(resolved.connection.models, [{ id: 'gpt-5.4', apiProtocol: 'openai-responses' }]);
+    assert.throws(() => resolveHarborCellAiSdkEnv({
+      provider: 'github-copilot',
+      model: 'gpt-5.4',
+      env: { COPILOT_GITHUB_TOKEN: 'github_pat_copilot_requests' },
+      ts: 123,
+    }), /account-discovered model protocol/);
   });
 
   test('resolves LM Studio headless configuration without credentials', () => {

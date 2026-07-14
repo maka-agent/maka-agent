@@ -117,15 +117,11 @@ async function refreshOAuthSubscriptionTokens(input: {
     case 'codex-subscription':
       return refreshCodexSubscriptionTokens(input.tokens, input.now, input.fetchFn);
     case 'github-copilot':
-      return exchangeGitHubCopilotToken({
-        githubToken: input.tokens.refresh_token,
-        fetchFn: input.fetchFn,
-      });
+      return input.tokens;
   }
 }
 
-const GITHUB_COPILOT_TOKEN_ENDPOINT = 'https://api.github.com/copilot_internal/v2/token';
-const GITHUB_COPILOT_DEFAULT_API_ENDPOINT = 'https://api.individual.githubcopilot.com';
+export const GITHUB_COPILOT_DEFAULT_API_ENDPOINT = 'https://api.githubcopilot.com';
 export const GITHUB_COPILOT_API_VERSION = '2026-06-01';
 export const GITHUB_COPILOT_COMPAT_HEADERS = {
   'User-Agent': 'GitHubCopilotChat/0.35.0',
@@ -134,70 +130,20 @@ export const GITHUB_COPILOT_COMPAT_HEADERS = {
   'Copilot-Integration-Id': 'vscode-chat',
 } as const;
 
-export async function exchangeGitHubCopilotToken(input: {
-  githubToken: string;
-  fetchFn?: typeof fetch;
-}): Promise<OAuthSubscriptionTokens> {
-  const response = await (input.fetchFn ?? fetch)(GITHUB_COPILOT_TOKEN_ENDPOINT, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${input.githubToken}`,
-      Accept: 'application/json',
-      ...GITHUB_COPILOT_COMPAT_HEADERS,
-    },
-  });
-  if (!response.ok) throw new Error(`GitHub Copilot token exchange failed (${response.status}).`);
-  const payload = await response.json() as {
-    token?: unknown;
-    expires_at?: unknown;
-  };
-  if (typeof payload.token !== 'string' || payload.token.length === 0) {
-    throw new Error('GitHub Copilot token exchange returned no access token.');
-  }
-  if (typeof payload.expires_at !== 'number' || !Number.isFinite(payload.expires_at)) {
-    throw new Error('GitHub Copilot token exchange returned an invalid expiry.');
-  }
-  const baseUrl = gitHubCopilotApiEndpointFromToken(payload.token)
-    ?? GITHUB_COPILOT_DEFAULT_API_ENDPOINT;
-  if (!isTrustedGitHubCopilotApiEndpoint(baseUrl)) {
-    throw new Error('GitHub Copilot token exchange returned an untrusted GitHub Copilot API endpoint.');
-  }
+export function createGitHubCopilotAccountTokens(githubToken: string): OAuthSubscriptionTokens {
   return {
-    access_token: payload.token,
-    refresh_token: input.githubToken,
-    expires_at: payload.expires_at * 1000,
+    access_token: githubToken,
+    refresh_token: githubToken,
+    expires_at: Number.MAX_SAFE_INTEGER,
     token_type: 'Bearer',
-    base_url: baseUrl,
+    base_url: GITHUB_COPILOT_DEFAULT_API_ENDPOINT,
   };
-}
-
-function gitHubCopilotApiEndpointFromToken(token: string): string | null {
-  const proxyEndpoint = token.match(/(?:^|;)proxy-ep=([^;]+)/)?.[1];
-  if (!proxyEndpoint) return null;
-  const apiHost = proxyEndpoint.replace(/^proxy\./, 'api.');
-  const endpoint = `https://${apiHost}`;
-  if (!isTrustedGitHubCopilotApiEndpoint(endpoint)) {
-    throw new Error('GitHub Copilot token exchange returned an untrusted GitHub Copilot API endpoint.');
-  }
-  return endpoint;
 }
 
 export function isSupportedGitHubCopilotAccountToken(token: string): boolean {
   return token.startsWith('gho_') || token.startsWith('ghu_') || token.startsWith('github_pat_');
 }
 
-function isTrustedGitHubCopilotApiEndpoint(value: string): boolean {
-  try {
-    const endpoint = new URL(value);
-    if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password) return false;
-    const host = endpoint.hostname.toLowerCase();
-    return host === 'api.githubcopilot.com'
-      || host.endsWith('.githubcopilot.com')
-      || host.endsWith('.ghe.com');
-  } catch {
-    return false;
-  }
-}
 
 async function refreshClaudeSubscriptionTokens(
   tokens: OAuthSubscriptionTokens,

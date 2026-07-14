@@ -3,7 +3,9 @@ import { promisify } from 'node:util';
 
 import type { SubscriptionActionResult } from '@maka/core';
 import {
-  exchangeGitHubCopilotToken,
+  createGitHubCopilotAccountTokens,
+  fetchGitHubCopilotModels,
+  GITHUB_COPILOT_DEFAULT_API_ENDPOINT,
   isSupportedGitHubCopilotAccountToken,
   parseOAuthSubscriptionTokens,
   resolveOAuthSubscriptionTokens,
@@ -62,7 +64,9 @@ export class GitHubCopilotSubscriptionService {
           message: '当前 GitHub 凭据类型不受支持；请使用兼容 OAuth 登录或 fine-grained PAT。',
         };
       }
-      const tokens = await exchangeGitHubCopilotToken({ githubToken, fetchFn: this.fetchFn });
+      const tokens = createGitHubCopilotAccountTokens(githubToken);
+      const models = await fetchGitHubCopilotModels(tokens.base_url!, tokens.access_token, this.fetchFn);
+      if (models.length === 0) throw new Error('GitHub Copilot account returned no usable models.');
       await this.saveTokens(tokens);
       this.lastRefreshError = null;
       return { ok: true };
@@ -100,11 +104,13 @@ export class GitHubCopilotSubscriptionService {
     if (!current) return { ok: false, reason: 'refresh_failed', message: '当前未导入 GitHub Copilot 登录。' };
     this.refreshing = true;
     try {
-      const next = await exchangeGitHubCopilotToken({
-        githubToken: current.refresh_token,
-        fetchFn: this.fetchFn,
-      });
-      await this.saveTokens(next);
+      const models = await fetchGitHubCopilotModels(
+        current.base_url ?? GITHUB_COPILOT_DEFAULT_API_ENDPOINT,
+        current.access_token,
+        this.fetchFn,
+      );
+      if (models.length === 0) throw new Error('GitHub Copilot account returned no usable models.');
+      await this.saveTokens(current);
       this.lastRefreshError = null;
       return { ok: true };
     } catch {

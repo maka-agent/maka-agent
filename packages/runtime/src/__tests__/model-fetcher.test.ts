@@ -440,7 +440,7 @@ describe('fetchProviderModels', () => {
     const server = await startJsonServer((request, response) => {
       assert.equal(request.method, 'GET');
       assert.equal(request.url, '/models');
-      assert.equal(request.headers.authorization, 'Bearer short-lived-copilot-token');
+      assert.equal(request.headers.authorization, 'Bearer github-account-token');
       assert.equal(request.headers['user-agent'], 'GitHubCopilotChat/0.35.0');
       assert.equal(request.headers['editor-version'], 'vscode/1.107.0');
       assert.equal(request.headers['editor-plugin-version'], 'copilot-chat/0.35.0');
@@ -468,7 +468,7 @@ describe('fetchProviderModels', () => {
       enabled: true,
       createdAt: 1,
       updatedAt: 1,
-    }, 'short-lived-copilot-token');
+    }, 'github-account-token');
 
     assert.deepEqual(models, [
       {

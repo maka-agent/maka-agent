@@ -26,7 +26,7 @@ describe('models.dev provider conformance', () => {
       enabled: true,
       createdAt: 1,
       updatedAt: 1,
-    }, 'short-lived-copilot-token');
+    }, 'github-account-token');
 
     assert.deepEqual(result, { ok: true, latencyMs: result.latencyMs, modelTested: 'gpt-5.4' });
   });
@@ -36,7 +36,7 @@ describe('models.dev provider conformance', () => {
     const requestBodies: Array<Record<string, unknown>> = [];
     const initiators: string[] = [];
     const server = await startJsonServer(async (request, response) => {
-      assert.equal(request.headers.authorization, 'Bearer short-lived-copilot-token');
+      assert.equal(request.headers.authorization, 'Bearer github-account-token');
       if (request.method === 'GET' && request.url === '/models') {
         respondJson(response, 200, {
           data: [{
@@ -105,7 +105,7 @@ describe('models.dev provider conformance', () => {
       createdAt: 1,
       updatedAt: 1,
     };
-    const models = await fetchProviderModels(connection, 'short-lived-copilot-token');
+    const models = await fetchProviderModels(connection, 'github-account-token');
     connection.models = models;
     const modelFetch = buildSubscriptionModelFetch({
       connection,
@@ -118,7 +118,7 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({
         connection,
-        apiKey: 'short-lived-copilot-token',
+        apiKey: 'github-account-token',
         modelId,
         fetch: modelFetch,
       }),

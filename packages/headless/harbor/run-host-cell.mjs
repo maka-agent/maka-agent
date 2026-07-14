@@ -105,6 +105,7 @@ export async function backendEnv(env, provider) {
     result[keyEnvName] = await hostApiKey(env);
   }
   if (env.MAKA_HOST_BASE_URL) result.MAKA_BASE_URL = env.MAKA_HOST_BASE_URL;
+  if (env.MAKA_HOST_MODEL_API_PROTOCOL) result.MAKA_MODEL_API_PROTOCOL = env.MAKA_HOST_MODEL_API_PROTOCOL;
   for (const key of HOST_BACKEND_ENV_KEYS) {
     if (env[key] !== undefined) result[key] = env[key];
   }
