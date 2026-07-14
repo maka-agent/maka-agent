@@ -379,6 +379,7 @@ export type {
   AdditionalFileSystemPermission,
   AdditionalPermissionAccess,
   AdditionalPermissionProfile,
+  AdditionalPermissionRiskSummary,
   AdditionalPermissionScope,
   AdditionalPermissionValidationFailureReason,
   AdditionalPermissionValidationResult,

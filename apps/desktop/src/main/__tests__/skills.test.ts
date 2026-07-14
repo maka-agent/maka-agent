@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
@@ -11,6 +11,7 @@ import {
   buildSkillAgentTool,
   buildSkillsPromptFragment,
   createStarterSkill,
+  deleteSkill,
   ensureBundledOfficeSkills,
   getSkillGovernanceDetails,
   installManagedSkill,
@@ -310,6 +311,7 @@ ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
       const result = await createStarterSkill(workspaceRoot);
       assert.equal(result.ok, true);
       if (!result.ok) return;
+      assert.equal(result.created, true);
       assert.equal(result.skill.id, 'starter-skill');
       assert.equal(result.skill.name, '示例技能');
       assert.equal(result.skill.path, join(workspaceRoot, 'skills', 'starter-skill'));
@@ -337,20 +339,24 @@ ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
       assert.equal(skills[0].sourceType, 'workspace');
       assert.equal(skills[0].validationStatus, 'missing_lock');
 
-      // Repeated creates mint DISTINGUISHABLE names (the id ordinal flows
-      // into the display name + front-matter) — three clicks used to
-      // produce three identical 「示例技能」 rows.
+      // Idempotent seeding: a repeat create REUSES the existing starter-skill
+      // (created:false) instead of minting a duplicate — three clicks used to
+      // produce three indistinguishable 「示例技能」 rows. No new dir appears.
       const second = await createStarterSkill(workspaceRoot);
       assert.equal(second.ok, true);
       if (second.ok) {
-        assert.equal(second.skill.id, 'starter-skill-2');
-        assert.equal(second.skill.name, '示例技能 2');
-        assert.match(await readFile(second.filePath, 'utf8'), /name: 示例技能 2/);
+        assert.equal(second.created, false);
+        assert.equal(second.skill.id, 'starter-skill');
+        assert.equal(second.filePath, join(workspaceRoot, 'skills', 'starter-skill', 'SKILL.md'));
       }
+      const dirs = (await readdir(join(workspaceRoot, 'skills'), { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
+      assert.deepEqual(dirs, ['starter-skill']);
     });
   });
 
-  it('creates the next starter skill without overwriting an existing one', async () => {
+  it('reuses an existing starter skill instead of minting a duplicate', async () => {
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(workspaceRoot, 'starter-skill', `---
 name: Existing
@@ -360,8 +366,44 @@ name: Existing
       const result = await createStarterSkill(workspaceRoot);
       assert.equal(result.ok, true);
       if (!result.ok) return;
-      assert.equal(result.skill.id, 'starter-skill-2');
+      // The existing starter-skill/SKILL.md is reused verbatim; no starter-skill-2
+      // is created and the user's content is left untouched.
+      assert.equal(result.created, false);
+      assert.equal(result.skill.id, 'starter-skill');
       assert.match(await readFile(join(workspaceRoot, 'skills', 'starter-skill', 'SKILL.md'), 'utf8'), /# Existing/);
+      await assert.rejects(lstat(join(workspaceRoot, 'skills', 'starter-skill-2')), { code: 'ENOENT' });
+    });
+  });
+
+  it('deletes an installed skill directory', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'starter-skill', `---
+name: 示例技能
+---
+# 示例技能`);
+      assert.equal((await listInstalledSkills(workspaceRoot)).length, 1);
+
+      assert.deepEqual(await deleteSkill(workspaceRoot, 'starter-skill'), { ok: true });
+      assert.equal((await listInstalledSkills(workspaceRoot)).length, 0);
+      await assert.rejects(lstat(join(workspaceRoot, 'skills', 'starter-skill')), { code: 'ENOENT' });
+
+      // Deleting an absent skill is a clean not_found, not a throw.
+      assert.deepEqual(await deleteSkill(workspaceRoot, 'starter-skill'), { ok: false, reason: 'not_found' });
+    });
+  });
+
+  it('refuses to delete through a symlinked skill directory', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const outside = await mkdtemp(join(tmpdir(), 'maka-skill-delete-outside-'));
+      try {
+        await mkdir(join(workspaceRoot, 'skills'), { recursive: true });
+        await symlink(outside, join(workspaceRoot, 'skills', 'outside'));
+        assert.deepEqual(await deleteSkill(workspaceRoot, 'outside'), { ok: false, reason: 'blocked_path' });
+        // The symlink target survives — deletion never followed the link.
+        await lstat(outside);
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
     });
   });
 
@@ -1118,8 +1160,11 @@ name: Writer
     assert.match(ui, /'创建中…'/);
     assert.match(ui, /'刷新中…'/);
     assert.match(ui, />\s*打开目录\s*</);
-    assert.match(ui, /title: '文档处理流'/);
-    assert.match(ui, /title: '演示资料流'/);
+    // The inert 技能示例 example cards were removed — 添加 seeds a real,
+    // editable starter skill instead. No decorative example rows may return.
+    assert.doesNotMatch(ui, /title: '文档处理流'/);
+    assert.doesNotMatch(ui, /title: '演示资料流'/);
+    assert.doesNotMatch(ui, /SKILL_EXAMPLE_CARDS/);
     assert.doesNotMatch(ui, /重启 Maka 后会出现在这里/);
     assert.match(renderer, /async function refreshSkills\(options: \{ shouldShowError\?: \(\) => boolean \} = \{\}\)/);
     assert.match(renderer, /async function createSkillTemplate\(\)/);
@@ -1130,12 +1175,15 @@ name: Writer
     assert.match(renderer, /onPreviewManagedSkillUpdate=\{\(skillId\) => previewManagedSkillUpdate\(skillId\)\}/);
     assert.match(renderer, /onUpdateManagedSkill=\{\(skillId, options\) => updateManagedSkill\(skillId, options\)\}/);
     assert.match(renderer, /onSetSkillEnabled=\{\(skillId, enabled\) => setSkillEnabled\(skillId, enabled\)\}/);
+    assert.match(renderer, /onDeleteSkill=\{\(skillId\) => deleteSkill\(skillId\)\}/);
     assert.match(preload, /createStarter\(\)/);
+    assert.match(preload, /delete\(id: string\)/);
     assert.match(preload, /open\(id: string, target: 'file' \| 'directory' = 'file'\)/);
     assert.match(preload, /previewUpdate\(skillId: string\)/);
     assert.match(preload, /updateManaged\(skillId: string, options\?: \{ force\?: boolean; expectedCurrentSha256\?: string; expectedSourceSha256\?: string \}\)/);
     assert.match(preload, /setEnabled\(skillId: string, enabled: boolean\)/);
     assert.match(main, /ipcMain\.handle\('skills:createStarter'/);
+    assert.match(main, /ipcMain\.handle\('skills:delete'/);
     assert.match(main, /ipcMain\.handle\('skills:open'/);
     assert.match(main, /ipcMain\.handle\('skills:details'/);
     assert.match(main, /ipcMain\.handle\('skills:previewUpdate'/);
@@ -1178,6 +1226,7 @@ name: Writer
     assert.match(skillsModuleMain, /onClick=\{\(\) => void runSkillAction\('folder', props\.onOpenSkillsFolder\)\}/);
     assert.match(skillsModuleMain, /onCreateSkillTemplate=\{props\.onCreateSkillTemplate \? \(\) => runSkillAction\('create', props\.onCreateSkillTemplate\) : undefined\}/);
     assert.match(skillsModuleMain, /onOpenSkill=\{props\.onOpenSkill \? \(skillId\) => runSkillAction\(`open:\$\{skillId\}`, \(\) => props\.onOpenSkill\?\.\(skillId\)\) : undefined\}/);
+    assert.match(skillsModuleMain, /onDeleteSkill=\{props\.onDeleteSkill \? \(skillId\) => runSkillAction\(`delete:\$\{skillId\}`, \(\) => props\.onDeleteSkill\?\.\(skillId\)\) : undefined\}/);
 
     assert.match(skillPanel, /actionBusy\?: boolean/);
     assert.match(skillPanel, /createPending\?: boolean/);
@@ -1185,12 +1234,14 @@ name: Writer
     assert.match(skillPanel, /managedSkillSources\?: ManagedSkillSourceEntry\[]/);
     assert.match(skillPanel, /installingSourceId\?: string \| null/);
     assert.match(skillPanel, /updatingSkillId\?: string \| null/);
-    assert.match(skillPanel, /const templates = \(/);
     assert.doesNotMatch(skillPanel, /maka-skill-workbench-rail/);
     assert.doesNotMatch(skillPanel, /maka-skill-workbench-summary/);
-    assert.match(skillPanel, /<section className="maka-skill-examples" aria-label="技能示例">/);
-    assert.match(skillPanel, /<ul className="maka-skill-example-grid" aria-label="技能模板示例">/);
-    assert.match(skillPanel, /className="maka-skill-template-row"/);
+    // 技能示例 removed: no inert example section/grid/rows may render under the
+    // installed list. 添加 seeds a real starter skill; there are no decorations.
+    assert.doesNotMatch(skillPanel, /const templates = \(/);
+    assert.doesNotMatch(skillPanel, /maka-skill-examples/);
+    assert.doesNotMatch(skillPanel, /maka-skill-example-grid/);
+    assert.doesNotMatch(skillPanel, /maka-skill-template-row/);
     assert.match(skillPanel, /<section className="maka-skill-installed" aria-label={label}>/);
     assert.match(skillPanel, /<div className="maka-skill-library" aria-busy=\{props\.actionBusy \? 'true' : undefined\}>/);
     assert.match(skillPanel, /<ul className="maka-skill-library-list" aria-label="技能列表">/);
@@ -1240,6 +1291,16 @@ name: Writer
     assert.match(skillPanel, /onUpdateManagedSkill\?\(skillId: string, options\?: \{ force\?: boolean; expectedCurrentSha256\?: string; expectedSourceSha256\?: string \}\): boolean \| Promise<boolean>/);
     assert.match(skillPanel, /onSetSkillEnabled\?\(skillId: string, enabled: boolean\): void \| Promise<void>/);
     assert.match(skillPanel, /<Switch[\s\S]*checked=\{skill\.enabled\}[\s\S]*onCheckedChange=\{\(next\) => props\.onSetSkillEnabled\?\.\(skill\.id, next === true\)\}/);
+    // Per-row delete: destructive two-step confirm (no dialog precedent here).
+    // First click arms 确认删除; a second within the window fires onDeleteSkill.
+    // aria-label names the skill and reflects the armed state (keyboard-safe).
+    assert.match(skillPanel, /onDeleteSkill\?\(skillId: string\): void \| Promise<void>/);
+    assert.match(skillPanel, /className="maka-skill-library-delete-button"/);
+    assert.match(skillPanel, /function requestDeleteSkill\(skill: SkillEntry\)/);
+    assert.match(skillPanel, /setConfirmingDeleteSkillId\(skill\.id\)[\s\S]*setTimeout\([\s\S]*setConfirmingDeleteSkillId\(null\)/, 'armed delete state must auto-revert so a stray first click cannot linger');
+    assert.match(skillPanel, /void props\.onDeleteSkill\(skill\.id\)/);
+    assert.match(skillPanel, /aria-label=\{confirmingDelete \? `确认删除 \$\{skill\.name\}` : `删除 \$\{skill\.name\}`\}/);
+    assert.match(skillPanel, /confirmingDelete \? '确认删除' : '删除'/);
     assert.match(skillPanel, /<div[\s\S]*className="maka-skill-library-row"[\s\S]*<\/div>/, 'Skill row body must be information, not the open-file control');
     assert.match(skillPanel, /className="maka-skill-library-open-button"[\s\S]*aria-label=\{`打开 \$\{skill\.name\} 的 SKILL\.md`\}/);
     assert.match(skillPanel, /<\/UiButton>\s*<Switch/, 'per-skill enable switch must sit next to the explicit open-file icon button');
@@ -1302,6 +1363,9 @@ name: Writer
     assert.doesNotMatch(createBlock, /await refreshSkills\(\);\s*toastApi\.success/, 'create success feedback must not be unconditional after refresh');
     assert.match(createBlock, /if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法创建示例技能'/);
     assert.match(createBlock, /if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法打开示例技能'/);
+    // Idempotent seeding: created:false reuses the existing 示例技能 and says so
+    // rather than claiming a fresh create; created:true keeps the create copy.
+    assert.match(createBlock, /if \(result\.created\) \{[\s\S]*'已创建示例技能'[\s\S]*\} else \{[\s\S]*'已打开现有示例技能', '示例技能已存在，直接打开了 SKILL\.md（不会重复创建）。'/);
     assert.match(openBlock, /if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法打开 Skill'/);
     assert.doesNotMatch(openBlock, /if \(!result\.ok\) \{\s*toastApi\.error\('无法打开 Skill'/, 'open Skill structured failures must not toast unconditionally after leaving Skills');
     assert.doesNotMatch(openBlock, /catch \(error\) \{\s*toastApi\.error\('无法打开 Skill'/, 'open Skill thrown failures must not toast unconditionally after leaving Skills');

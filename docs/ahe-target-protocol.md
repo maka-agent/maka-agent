@@ -15,9 +15,9 @@ AHE should treat these files as the initial file protocol for a Maka target
 snapshot and candidate iteration:
 
 - `target-snapshot.json`: a `MakaAheTargetSnapshot` with
-  `protocolVersion: "maka.ahe-target.v1"`, the source label, snapshot id, git
-  identity when available, and the component map from
-  `MAKA_AHE_CURRENT_COMPONENTS`.
+  `protocolVersion: "maka.ahe-target.v2"`, the source label, content-addressed
+  snapshot id, SHA-256 source manifest, optional Git metadata, and the
+  component map from `MAKA_AHE_CURRENT_COMPONENTS`.
 - `harness-results.json`: a `MakaAheHarnessResults` object containing per-task
   `MakaAheRunResult` rows. `official_pass` and `official_fail` are valid only
   when `scoreAuthority` is `official_verifier` or `official_scorer`.
@@ -51,9 +51,17 @@ maka eval ahe export <taskRunId...> \
 
 The command validates the component map, reads existing `TaskRunProjection` rows, and writes the target snapshot, harness results, trace index, and per-run trace exports. It does not run AHE, apply patches, or change the Desktop runtime.
 
+The v2 snapshot identity is derived from the exact bytes of every registered
+source ref plus the canonical component topology. `createdAt`, `sourceLabel`,
+and optional Git metadata do not affect the id: the same managed target bytes
+produce the same id, while any managed source change produces a new id. Source
+refs must resolve to regular files inside the repository; symbolic-link escapes
+are rejected. Readers can still validate legacy v1 snapshots, but v1 has no
+content-binding claim and is never reinterpreted as v2.
+
 `--harbor-trial-dir` imports official verifier/scorer evidence for exactly one task run. Without it, a single-run export also detects the standard Harbor trial layout relative to the task-run store. Local checks remain non-authoritative evidence.
 
-Programmatic callers use `buildMakaAheTargetSnapshot`, `makaAheEvidenceFromTaskRunProjections`, `writeMakaAheEvidenceExport`, and `validateMakaAheSourceRefs` from `@maka/headless/ahe-evidence-export`.
+Programmatic callers use `buildMakaAheTargetSnapshot`, `makaAheEvidenceFromTaskRunProjections`, `writeMakaAheEvidenceExport`, and `validateMakaAheSourceRefs` from `@maka/headless/ahe-evidence-export`. Snapshot readers should use `validateMakaAheTargetSnapshot` from `@maka/headless/ahe-target-protocol` before trusting the document's internal content binding.
 
 ## Current Component Map
 

@@ -1,6 +1,14 @@
-export const MAKA_AHE_TARGET_PROTOCOL_VERSION = 'maka.ahe-target.v1' as const;
+import { createHash } from 'node:crypto';
 
-export const MAKA_AHE_TARGET_SOURCE_LABEL = 'ahe-target-protocol-20260701' as const;
+export const MAKA_AHE_TARGET_PROTOCOL_VERSION_V1 = 'maka.ahe-target.v1' as const;
+export const MAKA_AHE_TARGET_PROTOCOL_VERSION = 'maka.ahe-target.v2' as const;
+
+export const MAKA_AHE_SUPPORTED_TARGET_PROTOCOL_VERSIONS = [
+  MAKA_AHE_TARGET_PROTOCOL_VERSION_V1,
+  MAKA_AHE_TARGET_PROTOCOL_VERSION,
+] as const;
+
+export const MAKA_AHE_TARGET_SOURCE_LABEL = 'ahe-target-protocol-20260714' as const;
 
 export const MAKA_AHE_COMPONENT_CATEGORIES = [
   'system_prompt',
@@ -56,7 +64,9 @@ const FORBIDDEN_PATCH_PATH_PARTS = [
   '/dist/',
 ] as const;
 
-export type MakaAheTargetProtocolVersion = typeof MAKA_AHE_TARGET_PROTOCOL_VERSION;
+export type MakaAheTargetProtocolVersion = typeof MAKA_AHE_SUPPORTED_TARGET_PROTOCOL_VERSIONS[number];
+export type MakaAheCurrentTargetProtocolVersion = typeof MAKA_AHE_TARGET_PROTOCOL_VERSION;
+export type MakaAheLegacyTargetProtocolVersion = typeof MAKA_AHE_TARGET_PROTOCOL_VERSION_V1;
 export type MakaAheTargetSourceLabel = typeof MAKA_AHE_TARGET_SOURCE_LABEL;
 export type MakaAheComponentCategory = typeof MAKA_AHE_COMPONENT_CATEGORIES[number];
 export type MakaAheResultStatus = typeof MAKA_AHE_RESULT_STATUSES[number];
@@ -78,22 +88,50 @@ export interface MakaAheTargetComponent {
   editable: boolean;
 }
 
+export interface MakaAheGitIdentity {
+  repository: string;
+  ref?: string;
+  commit?: string;
+  dirty?: boolean;
+}
+
 export interface MakaAheSnapshotIdentity {
-  protocolVersion: MakaAheTargetProtocolVersion;
+  protocolVersion: MakaAheCurrentTargetProtocolVersion;
   sourceLabel: MakaAheTargetSourceLabel | string;
   snapshotId: string;
   createdAt: string;
-  git?: {
-    repository: string;
-    ref?: string;
-    commit?: string;
-    dirty?: boolean;
-  };
+  git?: MakaAheGitIdentity;
+}
+
+export interface MakaAheSourceManifestEntry {
+  componentId: string;
+  path: string;
+  exportName?: string;
+  digest: string;
+  sizeBytes: number;
+}
+
+export interface MakaAheSourceManifest {
+  algorithm: 'sha256';
+  digest: string;
+  entries: readonly MakaAheSourceManifestEntry[];
 }
 
 export interface MakaAheTargetSnapshot extends MakaAheSnapshotIdentity {
   components: readonly MakaAheTargetComponent[];
+  sourceManifest: MakaAheSourceManifest;
 }
+
+export interface MakaAheLegacyTargetSnapshot {
+  protocolVersion: MakaAheLegacyTargetProtocolVersion;
+  sourceLabel: MakaAheTargetSourceLabel | string;
+  snapshotId: string;
+  createdAt: string;
+  git?: MakaAheGitIdentity;
+  components: readonly MakaAheTargetComponent[];
+}
+
+export type MakaAheTargetSnapshotDocument = MakaAheTargetSnapshot | MakaAheLegacyTargetSnapshot;
 
 export interface MakaAheArtifactRef {
   kind: 'file' | 'directory' | 'url' | 'blob' | 'other';
@@ -339,6 +377,66 @@ export function validateMakaAheTargetComponents(
   return errors.length === 0 ? { ok: true, value: value as readonly MakaAheTargetComponent[] } : { ok: false, errors };
 }
 
+export function validateMakaAheTargetSnapshot(
+  value: unknown,
+): MakaAheValidationResult<MakaAheTargetSnapshotDocument> {
+  const errors: MakaAheValidationIssue[] = [];
+  if (!isRecord(value)) {
+    return invalid('snapshot', 'expected an object');
+  }
+
+  if (!isOneOf(value.protocolVersion, MAKA_AHE_SUPPORTED_TARGET_PROTOCOL_VERSIONS)) {
+    errors.push({
+      path: 'protocolVersion',
+      message: `expected one of ${MAKA_AHE_SUPPORTED_TARGET_PROTOCOL_VERSIONS.map((version) => `"${version}"`).join(', ')}`,
+    });
+  }
+  requireNonEmptyString(value.sourceLabel, 'sourceLabel', errors);
+  requireNonEmptyString(value.snapshotId, 'snapshotId', errors);
+  requireNonEmptyString(value.createdAt, 'createdAt', errors);
+  validateGitIdentity(value.git, errors);
+  const componentResult = validateMakaAheTargetComponents(value.components);
+  if (!componentResult.ok) errors.push(...componentResult.errors);
+
+  if (value.protocolVersion === MAKA_AHE_TARGET_PROTOCOL_VERSION) {
+    validateSourceManifest(value.sourceManifest, value.components, errors);
+    if (componentResult.ok && isSourceManifest(value.sourceManifest)) {
+      const expectedId = makaAheTargetSnapshotId(componentResult.value, value.sourceManifest);
+      if (value.snapshotId !== expectedId) {
+        errors.push({ path: 'snapshotId', message: `does not match content-addressed target identity "${expectedId}"` });
+      }
+    }
+  } else if (value.protocolVersion === MAKA_AHE_TARGET_PROTOCOL_VERSION_V1 && typeof value.sourceManifest !== 'undefined') {
+    errors.push({ path: 'sourceManifest', message: 'legacy v1 snapshots are not content-addressed' });
+  }
+
+  return errors.length === 0
+    ? { ok: true, value: value as unknown as MakaAheTargetSnapshotDocument }
+    : { ok: false, errors };
+}
+
+export function makaAheSourceManifestDigest(entries: readonly MakaAheSourceManifestEntry[]): string {
+  return contentHash({
+    algorithm: 'sha256',
+    entries: canonicalSourceManifestEntries(entries),
+  });
+}
+
+export function makaAheTargetSnapshotId(
+  components: readonly MakaAheTargetComponent[],
+  sourceManifest: Pick<MakaAheSourceManifest, 'algorithm' | 'digest'>,
+): string {
+  const digest = contentHash({
+    protocolVersion: MAKA_AHE_TARGET_PROTOCOL_VERSION,
+    components: canonicalTargetComponents(components),
+    sourceManifest: {
+      algorithm: sourceManifest.algorithm,
+      digest: sourceManifest.digest,
+    },
+  });
+  return `maka-ahe-${digest.replace(/^sha256:/, '')}`;
+}
+
 export function validateMakaAheChangeManifest(
   value: unknown,
   components: readonly MakaAheTargetComponent[] = MAKA_AHE_CURRENT_COMPONENTS,
@@ -417,6 +515,7 @@ function validateSourceRefs(value: unknown, path: string, errors: MakaAheValidat
     errors.push({ path, message: 'expected at least one source ref' });
     return;
   }
+  const identities = new Set<string>();
   value.forEach((sourceRef, index) => {
     const sourcePath = `${path}[${index}]`;
     if (!isRecord(sourceRef)) {
@@ -424,7 +523,100 @@ function validateSourceRefs(value: unknown, path: string, errors: MakaAheValidat
       return;
     }
     requireNonEmptyString(sourceRef.path, `${sourcePath}.path`, errors);
+    if (typeof sourceRef.exportName !== 'undefined' && !readString(sourceRef.exportName)) {
+      errors.push({ path: `${sourcePath}.exportName`, message: 'expected a non-empty string when present' });
+    }
+    if (typeof sourceRef.description !== 'undefined' && !readString(sourceRef.description)) {
+      errors.push({ path: `${sourcePath}.description`, message: 'expected a non-empty string when present' });
+    }
+    if (readString(sourceRef.path)) {
+      const identity = `${sourceRef.path}\u0000${readString(sourceRef.exportName) ?? ''}`;
+      if (identities.has(identity)) {
+        errors.push({ path: sourcePath, message: 'duplicate source ref path/exportName identity' });
+      }
+      identities.add(identity);
+    }
   });
+}
+
+function validateSourceManifest(
+  value: unknown,
+  components: unknown,
+  errors: MakaAheValidationIssue[],
+): void {
+  if (!isRecord(value)) {
+    errors.push({ path: 'sourceManifest', message: 'expected an object for v2 snapshots' });
+    return;
+  }
+  if (value.algorithm !== 'sha256') {
+    errors.push({ path: 'sourceManifest.algorithm', message: 'expected "sha256"' });
+  }
+  requireSha256(value.digest, 'sourceManifest.digest', errors);
+  if (!Array.isArray(value.entries) || value.entries.length === 0) {
+    errors.push({ path: 'sourceManifest.entries', message: 'expected at least one source manifest entry' });
+    return;
+  }
+
+  const identities = new Set<string>();
+  value.entries.forEach((entry, index) => {
+    const path = `sourceManifest.entries[${index}]`;
+    if (!isRecord(entry)) {
+      errors.push({ path, message: 'expected an object' });
+      return;
+    }
+    requireNonEmptyString(entry.componentId, `${path}.componentId`, errors);
+    requireNonEmptyString(entry.path, `${path}.path`, errors);
+    if (typeof entry.exportName !== 'undefined' && !readString(entry.exportName)) {
+      errors.push({ path: `${path}.exportName`, message: 'expected a non-empty string when present' });
+    }
+    requireSha256(entry.digest, `${path}.digest`, errors);
+    if (typeof entry.sizeBytes !== 'number' || !Number.isSafeInteger(entry.sizeBytes) || entry.sizeBytes < 0) {
+      errors.push({ path: `${path}.sizeBytes`, message: 'expected a non-negative safe integer' });
+    }
+    const identity = sourceManifestEntryIdentity(entry);
+    if (identity && identities.has(identity)) {
+      errors.push({ path, message: 'duplicate componentId/path/exportName identity' });
+    }
+    if (identity) identities.add(identity);
+  });
+
+  if (isSourceManifest(value)) {
+    const expectedDigest = makaAheSourceManifestDigest(value.entries);
+    if (value.digest !== expectedDigest) {
+      errors.push({ path: 'sourceManifest.digest', message: `does not match manifest entries "${expectedDigest}"` });
+    }
+  }
+
+  if (Array.isArray(components)) {
+    const expected = components.flatMap((component) => {
+      if (!isRecord(component) || !readString(component.id) || !Array.isArray(component.sourceRefs)) return [];
+      return component.sourceRefs.flatMap((sourceRef) => {
+        if (!isRecord(sourceRef) || !readString(sourceRef.path)) return [];
+        return [`${component.id}\u0000${sourceRef.path}\u0000${readString(sourceRef.exportName) ?? ''}`];
+      });
+    }).sort();
+    const actual = [...identities].sort();
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      errors.push({ path: 'sourceManifest.entries', message: 'entries must exactly cover component source refs' });
+    }
+  }
+}
+
+function validateGitIdentity(value: unknown, errors: MakaAheValidationIssue[]): void {
+  if (typeof value === 'undefined') return;
+  if (!isRecord(value)) {
+    errors.push({ path: 'git', message: 'expected an object when present' });
+    return;
+  }
+  requireNonEmptyString(value.repository, 'git.repository', errors);
+  for (const field of ['ref', 'commit'] as const) {
+    if (typeof value[field] !== 'undefined' && !readString(value[field])) {
+      errors.push({ path: `git.${field}`, message: 'expected a non-empty string when present' });
+    }
+  }
+  if (typeof value.dirty !== 'undefined' && typeof value.dirty !== 'boolean') {
+    errors.push({ path: 'git.dirty', message: 'expected a boolean when present' });
+  }
 }
 
 function validateEvidenceCases(
@@ -535,8 +727,17 @@ function validateStringArray(
 }
 
 function requireProtocol(value: unknown, path: string, errors: MakaAheValidationIssue[]): void {
-  if (value !== MAKA_AHE_TARGET_PROTOCOL_VERSION) {
-    errors.push({ path, message: `expected "${MAKA_AHE_TARGET_PROTOCOL_VERSION}"` });
+  if (!isOneOf(value, MAKA_AHE_SUPPORTED_TARGET_PROTOCOL_VERSIONS)) {
+    errors.push({
+      path,
+      message: `expected one of ${MAKA_AHE_SUPPORTED_TARGET_PROTOCOL_VERSIONS.map((version) => `"${version}"`).join(', ')}`,
+    });
+  }
+}
+
+function requireSha256(value: unknown, path: string, errors: MakaAheValidationIssue[]): void {
+  if (typeof value !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value)) {
+    errors.push({ path, message: 'expected a sha256:<64 lowercase hex characters> digest' });
   }
 }
 
@@ -560,6 +761,68 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isOneOf<T extends readonly string[]>(value: unknown, allowed: T): value is T[number] {
   return typeof value === 'string' && allowed.includes(value);
+}
+
+function isSourceManifest(value: unknown): value is MakaAheSourceManifest {
+  return isRecord(value)
+    && value.algorithm === 'sha256'
+    && typeof value.digest === 'string'
+    && Array.isArray(value.entries)
+    && value.entries.every((entry) => isRecord(entry)
+      && typeof entry.componentId === 'string'
+      && typeof entry.path === 'string'
+      && (typeof entry.exportName === 'undefined' || typeof entry.exportName === 'string')
+      && typeof entry.digest === 'string'
+      && typeof entry.sizeBytes === 'number');
+}
+
+function sourceManifestEntryIdentity(value: Record<string, unknown>): string | undefined {
+  const componentId = readString(value.componentId);
+  const path = readString(value.path);
+  if (!componentId || !path) return undefined;
+  return `${componentId}\u0000${path}\u0000${readString(value.exportName) ?? ''}`;
+}
+
+function canonicalSourceManifestEntries(
+  entries: readonly MakaAheSourceManifestEntry[],
+): Array<Record<string, unknown>> {
+  return [...entries]
+    .sort((a, b) => a.componentId.localeCompare(b.componentId)
+      || a.path.localeCompare(b.path)
+      || (a.exportName ?? '').localeCompare(b.exportName ?? ''))
+    .map((entry) => ({
+      componentId: entry.componentId,
+      path: entry.path,
+      ...(entry.exportName ? { exportName: entry.exportName } : {}),
+      digest: entry.digest,
+      sizeBytes: entry.sizeBytes,
+    }));
+}
+
+function canonicalTargetComponents(
+  components: readonly MakaAheTargetComponent[],
+): Array<Record<string, unknown>> {
+  return [...components]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((component) => ({
+      id: component.id,
+      category: component.category,
+      label: component.label,
+      description: component.description,
+      editable: component.editable,
+      sourceRefs: [...component.sourceRefs]
+        .sort((a, b) => a.path.localeCompare(b.path)
+          || (a.exportName ?? '').localeCompare(b.exportName ?? ''))
+        .map((sourceRef) => ({
+          path: sourceRef.path,
+          ...(sourceRef.exportName ? { exportName: sourceRef.exportName } : {}),
+          ...(sourceRef.description ? { description: sourceRef.description } : {}),
+        })),
+    }));
+}
+
+function contentHash(value: unknown): string {
+  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
 }
 
 function invalid(path: string, message: string): MakaAheValidationResult<never> {

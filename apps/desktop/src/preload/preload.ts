@@ -1017,10 +1017,16 @@ contextBridge.exposeInMainWorld('maka', {
       return ipcRenderer.invoke('skills:setEnabled', skillId, enabled);
     },
     createStarter(): Promise<
-      | { ok: true; skill: SkillEntry; filePath: string }
+      | { ok: true; created: boolean; skill: SkillEntry; filePath: string }
       | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }
     > {
       return ipcRenderer.invoke('skills:createStarter');
+    },
+    delete(id: string): Promise<
+      | { ok: true }
+      | { ok: false; reason: 'not_found' | 'blocked_path' | 'delete_failed' }
+    > {
+      return ipcRenderer.invoke('skills:delete', id);
     },
     open(id: string, target: 'file' | 'directory' = 'file'): Promise<
       | { ok: true; target: 'file' | 'directory' }

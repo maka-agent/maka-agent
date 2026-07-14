@@ -4,9 +4,13 @@ import assert from 'node:assert/strict';
 import {
   MAKA_AHE_CURRENT_COMPONENTS,
   MAKA_AHE_TARGET_PROTOCOL_VERSION,
+  MAKA_AHE_TARGET_PROTOCOL_VERSION_V1,
+  makaAheSourceManifestDigest,
+  makaAheTargetSnapshotId,
   validateMakaAheChangeManifest,
   validateMakaAheRunResult,
   validateMakaAheTargetComponents,
+  validateMakaAheTargetSnapshot,
 } from '../ahe-target-protocol.js';
 import {
   INVALID_MAKA_AHE_CHANGE_MANIFEST,
@@ -19,6 +23,59 @@ describe('AHE target protocol', () => {
     const result = validateMakaAheTargetComponents(MAKA_AHE_CURRENT_COMPONENTS);
 
     assert.equal(result.ok, true);
+  });
+
+  it('validates content-addressed v2 snapshots and detects manifest tampering', () => {
+    const components = [MAKA_AHE_CURRENT_COMPONENTS[0]!];
+    const entries = components[0]!.sourceRefs.map((sourceRef) => ({
+      componentId: components[0]!.id,
+      path: sourceRef.path,
+      ...(sourceRef.exportName ? { exportName: sourceRef.exportName } : {}),
+      digest: `sha256:${'a'.repeat(64)}`,
+      sizeBytes: 42,
+    }));
+    const sourceManifest = {
+      algorithm: 'sha256' as const,
+      digest: makaAheSourceManifestDigest(entries),
+      entries,
+    };
+    const snapshot = {
+      protocolVersion: MAKA_AHE_TARGET_PROTOCOL_VERSION,
+      sourceLabel: 'test',
+      snapshotId: makaAheTargetSnapshotId(components, sourceManifest),
+      createdAt: '2026-07-14T00:00:00.000Z',
+      components,
+      sourceManifest,
+    };
+
+    assert.equal(validateMakaAheTargetSnapshot(snapshot).ok, true);
+    const tampered = validateMakaAheTargetSnapshot({
+      ...snapshot,
+      sourceManifest: {
+        ...sourceManifest,
+        entries: [{ ...entries[0]!, digest: `sha256:${'b'.repeat(64)}` }, ...entries.slice(1)],
+      },
+    });
+    assert.equal(tampered.ok, false);
+    if (!tampered.ok) {
+      assert(tampered.errors.some((error) => error.path === 'sourceManifest.digest'));
+    }
+  });
+
+  it('reads legacy v1 snapshots without claiming content binding', () => {
+    const result = validateMakaAheTargetSnapshot({
+      protocolVersion: MAKA_AHE_TARGET_PROTOCOL_VERSION_V1,
+      sourceLabel: 'legacy-exporter',
+      snapshotId: 'maka-ahe-legacy-id',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      components: [MAKA_AHE_CURRENT_COMPONENTS[0]],
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.value.protocolVersion, 'maka.ahe-target.v1');
+      assert.equal('sourceManifest' in result.value, false);
+    }
   });
 
   it('rejects invalid component maps', () => {

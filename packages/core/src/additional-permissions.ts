@@ -32,6 +32,12 @@ export interface AdditionalPermissionProfile {
   };
 }
 
+export interface AdditionalPermissionRiskSummary {
+  readonly outsideWorkspace: boolean;
+  readonly protectedMetadata: boolean;
+  readonly networkEnabled: boolean;
+}
+
 export type AdditionalPermissionValidationFailureReason =
   | 'invalid_profile'
   | 'empty_profile'
