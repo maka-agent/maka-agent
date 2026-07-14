@@ -36,11 +36,15 @@ export const chipVariants = cva(
         success: "bg-success/12 text-success",
         warning: "bg-warning/18 text-warning-foreground font-bold",
         destructive: "bg-destructive/15 text-destructive font-bold",
-        // Brand-accent marker for "default connection" style flags. Visual
-        // values reproduce the retired .enabledDefaultTag (nav-active text on
-        // a nav-active /14 wash) so the 默认 marker reads as brand accent, not
-        // a status tone.
-        accent: "bg-nav-active/14 text-nav-active font-semibold",
+        // Brand-accent marker for "default connection" style flags — the
+        // nav-active /14 wash carries the brand tone, not a status tone.
+        // Text is foreground-secondary, NOT raw nav-active: the
+        // design-system-governance-406 contract records raw --nav-active
+        // text at 2.66:1 on white (fails WCAG AA 4.5:1); the readable-accent
+        // precedent (permission-mode chip) keeps the tone on the background
+        // and uses --foreground-secondary (~8:1 light / ~7.5:1 dark) for
+        // the label.
+        accent: "bg-nav-active/14 text-[var(--foreground-secondary)] font-semibold",
       },
     },
   },

@@ -95,6 +95,16 @@ test('chip converge (#520 PR9)', async () => {
   assert.match(chipSrc, /bg-warning\/18/, 'Chip warning variant must keep /18 alpha');
   assert.match(chipSrc, /bg-destructive\/15/, 'Chip destructive variant must keep /15 alpha (not solid red)');
 
+  // 8b. Chip accent variant (default-connection marker) — brand tone on the
+  // background only. Raw --nav-active text is 2.66:1 on white (fails WCAG AA;
+  // see design-system-governance-406 permission-mode chip contract), so the
+  // label must use --foreground-secondary like the readable-accent precedent.
+  assert.match(
+    chipSrc,
+    /accent: "bg-nav-active\/14 text-\[var\(--foreground-secondary\)\]/,
+    'Chip accent variant must keep the nav-active /14 wash with foreground-secondary text (never raw nav-active text)',
+  );
+
   // 9. Badge primitive stays pill — dual-track Badge (pill) + Chip (squared) preserved
   const badgeSrc = read('packages/ui/src/primitives/badge.tsx');
   assert.match(badgeSrc, /rounded-\[var\(--radius-pill\)\]/, 'Badge stays pill (dual-track with Chip)');
