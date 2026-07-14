@@ -136,8 +136,8 @@ describe('Harbor cell output contract', () => {
     });
   });
 
-  test('rejects a real-provider cell when token usage is unavailable', () => {
-    assert.throws(() => buildHarborCellOutput({
+  test('persists a real-provider failure when token usage is unavailable', () => {
+    const output = buildHarborCellOutput({
       invocation: {
         invocationId: 'inv-missing-usage',
         runId: 'run-missing-usage',
@@ -156,7 +156,11 @@ describe('Harbor cell output contract', () => {
         systemPromptHash: 'sha256:prompt-a',
         pricingProfile: 'zai-public',
       },
-    }), /token usage is unavailable/);
+    });
+
+    assert.equal(output.status, 'failed');
+    assert.equal(output.errorClass, 'network');
+    assert.equal(output.tokenSummary.total, 0);
   });
 
   test('keeps output when runtime emits more than one prompt hash', () => {

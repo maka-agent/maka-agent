@@ -175,7 +175,7 @@ export interface FixedPromptTaskPlumbingFailedEvent {
   passed: false;
   scored: false;
   eligible: false;
-  errorClass: 'zero_cost_with_tokens' | 'prompt_hash_mismatch' | 'missing_prompt_hash' | 'missing_execution_identity' | 'execution_identity_mismatch';
+  errorClass: 'missing_token_usage' | 'zero_cost_with_tokens' | 'prompt_hash_mismatch' | 'missing_prompt_hash' | 'missing_execution_identity' | 'execution_identity_mismatch';
   error: string;
   promptHash?: string;
   expectedPromptHash?: string;
@@ -811,6 +811,12 @@ function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash
     return {
       errorClass: 'prompt_hash_mismatch',
       error: `Harbor cell prompt hash ${output.cell.promptHash} did not match ${expectedPromptHash}`,
+    };
+  }
+  if (output.cell.executionIdentity && output.cell.tokenSummary.total <= 0) {
+    return {
+      errorClass: 'missing_token_usage',
+      error: 'Harbor cell did not report token usage for the attested real-provider execution',
     };
   }
   if (output.cell.tokenSummary.total > 0 && output.cell.tokenSummary.costUsd === 0) {

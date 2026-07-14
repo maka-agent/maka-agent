@@ -125,9 +125,6 @@ export function buildHarborCellOutput(input: {
 }): HarborCellOutput {
   const { invocation } = input;
   const tokenSummary = summarizeCellTokens(invocation.events);
-  if (input.executionIdentity && tokenSummary.total <= 0) {
-    throw new Error('Harbor cell token usage is unavailable');
-  }
   return {
     schemaVersion: HARBOR_CELL_OUTPUT_SCHEMA_VERSION,
     status: invocation.status,
