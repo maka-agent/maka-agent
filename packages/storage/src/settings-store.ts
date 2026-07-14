@@ -1,4 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import type {
   AppSettings,
@@ -267,7 +268,7 @@ class FileSettingsStore implements SettingsStore {
 
   private async write(settings: AppSettings): Promise<void> {
     await mkdir(dirname(this.settingsPath), { recursive: true });
-    const tempPath = `${this.settingsPath}.${process.pid}.${Date.now()}.tmp`;
+    const tempPath = `${this.settingsPath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
     await writeFile(tempPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
     await rename(tempPath, this.settingsPath);
   }

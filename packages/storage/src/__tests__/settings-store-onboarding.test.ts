@@ -206,6 +206,23 @@ describe('SettingsStore.clearOnboardingMilestone', () => {
 });
 
 describe('SettingsStore.get file recovery', () => {
+  it('initializes a missing settings file safely under concurrent reads', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-concurrent-defaults-'));
+    const originalNow = Date.now;
+    Date.now = () => 1_784_039_216_124;
+    try {
+      const store = createSettingsStore(workspaceRoot);
+
+      const [first, second] = await Promise.all([store.get(), store.get()]);
+
+      assert.deepEqual(second, first);
+      assert.match(await readFile(join(workspaceRoot, 'settings.json'), 'utf8'), /"schemaVersion": 1/);
+    } finally {
+      Date.now = originalNow;
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('creates defaults only when settings.json is missing', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-defaults-'));
     try {
