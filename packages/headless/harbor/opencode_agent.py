@@ -342,7 +342,7 @@ class MakaOpenCodeAgent(OpenCode):
             encoding="utf-8",
         )
         output = {
-            "schemaVersion": 2,
+            "schemaVersion": 1,
             "status": "failed" if hasattr(self, "_failure_class") else "completed",
             **({"errorClass": self._failure_class} if hasattr(self, "_failure_class") else {}),
             "runtimeEventsPath": "/logs/agent/runtime-events.jsonl",
@@ -356,7 +356,6 @@ class MakaOpenCodeAgent(OpenCode):
                 "actualToolCallCounts": tool_call_counts,
             },
             "steps": sum(1 for event in events or [] if event.get("type") == "step_finish"),
-            "stepsKind": "model_steps",
             "durationMs": max(0, finished_at - started_at),
             "startedAt": started_at,
             "finishedAt": finished_at,

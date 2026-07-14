@@ -325,8 +325,6 @@ export async function runPromptOptimizationRun(
     rewardHackVerifierPatternsByTaskId: input.rewardHackVerifierPatternsByTaskId,
     ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
     ...(input.costCeilingUsd !== undefined ? { costCeilingUsd: input.costCeilingUsd } : {}),
-    requireExecutionIdentity: true,
-    expectedPricingProfile: input.pricing.source ?? 'unconfigured',
     ...(input.maxInfraFailureRate !== undefined ? { maxInfraFailureRate: input.maxInfraFailureRate } : {}),
     ...(input.maxConcurrency !== undefined ? { maxConcurrency: input.maxConcurrency } : {}),
     ...(input.minStableHeldInTasks !== undefined ? { minStableHeldInTasks: input.minStableHeldInTasks } : {}),

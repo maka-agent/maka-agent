@@ -76,40 +76,6 @@ describe('runPromptAbComparison', () => {
     });
   });
 
-  test('rejects schema v2 arms that omit real-provider identity and usage', async () => {
-    await withDir(async (dir) => {
-      const baselinePromptPath = join(dir, 'baseline.md');
-      const candidatePromptPath = join(dir, 'candidate.md');
-      await writeFile(baselinePromptPath, 'A prompt\n', 'utf8');
-      await writeFile(candidatePromptPath, 'B prompt\n', 'utf8');
-
-      const result = await runPromptAbComparison({
-        runId: 'ab-run',
-        config,
-        baselinePromptPath,
-        candidatePromptPath,
-        resultsJsonlPath: join(dir, 'results.jsonl'),
-        evaluationTasks: [{ id: 't1', path: '/tasks/t1' }],
-        reps: 2,
-        harborRunner: async ({ task, systemPrompt }) => {
-          const output = harborOutput({
-            taskId: task.id,
-            promptHash: hashSystemPrompt(systemPrompt),
-          });
-          const { executionIdentity: _identity, tokenSummary: _usage, ...cell } = output.cell;
-          return { ...output, cell: { ...cell, schemaVersion: 2, stepsKind: 'model_steps' } };
-        },
-        now: () => 100,
-        newId: idFactory(),
-      });
-
-      assert.equal(result.decision, 'invalid');
-      assert.equal(result.reason, 'plumbing_failure_observed');
-      assert.equal(result.baseline.plumbingFailed, 2);
-      assert.equal(result.candidate.plumbingFailed, 2);
-    });
-  });
-
   test('passes resume fingerprints through to each A/B arm', async () => {
     await withDir(async (dir) => {
       const baselinePromptPath = join(dir, 'baseline.md');

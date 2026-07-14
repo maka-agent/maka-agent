@@ -85,7 +85,6 @@ export interface CompactSummaryResult {
   usage?: NormalizedAiSdkUsage;
   finishReason?: string;
   providerRequestId?: string;
-  costUsd?: number;
 }
 
 export interface ModelAdapterStreamInput {
@@ -95,8 +94,6 @@ export interface ModelAdapterStreamInput {
   activeTools: string[];
   system?: string;
   abortSignal: AbortSignal;
-  /** Per-request hard cap; already reconciled with any backend-level cap. */
-  maxSteps?: number;
   repairToolCall: (input: {
     toolCall: RepairableAiSdkToolCall;
     error: unknown;
@@ -168,9 +165,9 @@ export class ModelAdapter {
       providerOptions: this.input.providerOptions,
       // streamText defaults to one step when stopWhen is omitted. Its exported
       // non-stopping condition is required for an unbounded tool loop.
-      stopWhen: input.maxSteps === undefined
+      stopWhen: this.input.maxSteps === undefined
         ? isLoopFinished()
-        : stepCountIs(input.maxSteps),
+        : stepCountIs(this.input.maxSteps),
       abortSignal: input.abortSignal,
     });
   }
@@ -493,9 +490,19 @@ export function normalizeAiSdkUsage(
     finiteToken(usage.totalTokens)
     ?? finiteToken(usage.raw?.total_tokens)
     ?? finiteToken(usage.total_tokens);
-  if (reportedInputTokens === undefined || reportedOutputTokens === undefined) return undefined;
-  const inputTokens = reportedInputTokens;
-  const outputTokens = reportedOutputTokens;
+  if (
+    reportedInputTokens === undefined
+    && reportedOutputTokens === undefined
+    && reportedCacheHitInputTokens === undefined
+    && reportedCacheWriteInputTokens === undefined
+    && explicitCacheMissInputTokens === undefined
+    && reportedReasoningTokens === undefined
+    && reportedTotalTokens === undefined
+  ) {
+    return undefined;
+  }
+  const inputTokens = reportedInputTokens ?? 0;
+  const outputTokens = reportedOutputTokens ?? 0;
   const cacheHitInputTokens = reportedCacheHitInputTokens ?? 0;
   const cacheWriteInputTokens = reportedCacheWriteInputTokens ?? 0;
   const cacheMissInputTokens =
@@ -548,16 +555,16 @@ function finiteTokenBreakdownSum(
 ): number | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const parts = keys.map((key) => finiteToken(value[key]));
-  return parts.some((part) => part === undefined)
+  return parts.every((part) => part === undefined)
     ? undefined
-    : parts.reduce<number>((sum, part) => sum + part!, 0);
+    : parts.reduce<number>((sum, part) => sum + (part ?? 0), 0);
 }
 
 function finiteTokenSum(values: readonly unknown[]): number | undefined {
   const tokens = values.map(finiteToken);
-  return tokens.some((token) => token === undefined)
+  return tokens.every((token) => token === undefined)
     ? undefined
-    : tokens.reduce<number>((sum, token) => sum + token!, 0);
+    : tokens.reduce<number>((sum, token) => sum + (token ?? 0), 0);
 }
 
 function rawUsageFields(usage: AiSdkUsageLike): AiSdkRawUsageFields | undefined {

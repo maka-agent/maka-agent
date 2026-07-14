@@ -448,8 +448,6 @@ export interface TokenUsageEvent extends BaseEvent {
   type: 'token_usage';
   input: number;
   output: number;
-  /** False when any provider step in this request omitted usage. */
-  usageAvailable?: boolean;
   cacheHitInput?: number;
   cacheMissInput?: number;
   cacheWriteInput?: number;

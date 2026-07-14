@@ -107,37 +107,4 @@ describe('recordLlmCall', () => {
 
     assert.equal(inserted[0]?.costUsd, 0.123);
   });
-
-  test('does not price a call whose provider usage is unavailable', async () => {
-    const inserted: PersistedLlmCallRecord[] = [];
-
-    recordLlmCall(
-      {
-        repo: {
-          insertLlmCall: (record) => { inserted.push(record); },
-          insertToolInvocation: () => {},
-        },
-        lookupPricing: () => {
-          throw new Error('pricing must not run without provider usage');
-        },
-      },
-      {
-        turnId: 'turn-unmetered',
-        providerId: 'zai',
-        modelId: 'glm-5.2',
-        inputTokens: 0,
-        outputTokens: 0,
-        latencyMs: 9,
-        status: 'error',
-        startedAt: 100,
-        usageAvailable: false,
-      } as Parameters<typeof recordLlmCall>[1] & { usageAvailable: boolean },
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    assert.equal(inserted.length, 1);
-    assert.equal((inserted[0] as PersistedLlmCallRecord & { usageAvailable?: boolean }).usageAvailable, false);
-    assert.equal(inserted[0]?.costUsd, 0);
-  });
 });

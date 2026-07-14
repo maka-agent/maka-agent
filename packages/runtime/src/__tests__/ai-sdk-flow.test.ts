@@ -236,7 +236,6 @@ describe('AiSdkFlow seam', () => {
       sessionId: 'session-1',
       turnId: 'turn-1',
       text: 'hi',
-      maxRuntimeSteps: 7,
       attachments: [attachment],
       context: history,
       runtimeContext,
@@ -249,7 +248,6 @@ describe('AiSdkFlow seam', () => {
     assert.deepEqual(backend.sendInputs[0], {
       runId: 'rt-2',
       turnId: 'turn-1',
-      maxRuntimeSteps: 7,
       text: 'hi',
       attachments: [attachment],
       context: history,

@@ -266,11 +266,6 @@ describe('fixed prompt controller', () => {
       const originalWal = await readFile(resultsJsonlPath, 'utf8');
       const projectedWal = await readFixedPromptWal(resultsJsonlPath);
       assert.equal(projectedWal[0]?.type, 'task_budget_exhausted');
-      assert.equal(projectedWal[0]?.schemaVersion, 2);
-      assert.equal(
-        projectedWal[0]?.type === 'task_budget_exhausted' ? projectedWal[0].stepsKind : undefined,
-        'runtime_events',
-      );
       let calls = 0;
 
       const result = await runFixedPromptController({
@@ -1223,136 +1218,6 @@ describe('fixed prompt controller', () => {
     });
   });
 
-  test('stops scheduling when real-provider cost cannot be observed', async () => {
-    await withDir(async (dir) => {
-      const systemPromptPath = join(dir, 'system_prompt.md');
-      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
-      const calls: string[] = [];
-      const result = await runFixedPromptController({
-        runId: 'run-1',
-        roundId: 'round-1',
-        config,
-        systemPromptPath,
-        resultsJsonlPath: join(dir, 'results.jsonl'),
-        tasks: [
-          { id: 'task-a', path: '/bench/task-a' },
-          { id: 'task-b', path: '/bench/task-b' },
-        ],
-        maxConcurrency: 1,
-        costCeilingUsd: 1,
-        harborRunner: async ({ task }) => {
-          calls.push(task.id);
-          return harborOutput({
-            taskId: task.id,
-            omitTokenSummary: true,
-            executionIdentity: {
-              llmConnectionSlug: 'fake',
-              model: 'fake-model',
-              systemPromptHash: hashSystemPrompt('fixed prompt\n'),
-              pricingProfile: 'test-profile',
-            },
-          });
-        },
-        now: () => 100,
-        newId: idFactory(),
-      });
-
-      assert.deepEqual(calls, ['task-a']);
-      assert.equal(result.stopReason, 'cost_observation_unavailable');
-    });
-  });
-
-  test('stops scheduling when the only cost evidence is not final and trustworthy', async () => {
-    await withDir(async (dir) => {
-      const systemPromptPath = join(dir, 'system_prompt.md');
-      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
-      const checkpoint = tokenSummary({ input: 100, output: 20, reasoning: 0, total: 120, costUsd: 0.42 });
-      const scenarios = [
-        {
-          name: 'missing identity and usage',
-          requireExecutionIdentity: true,
-          run: async (taskId: string) => harborOutput({ taskId, omitTokenSummary: true }),
-        },
-        {
-          name: 'zero cost with tokens',
-          run: async (taskId: string) => harborOutput({
-            taskId,
-            tokenSummary: tokenSummary({ input: 10, output: 2, reasoning: 0, total: 12, costUsd: 0 }),
-          }),
-        },
-        {
-          name: 'provider failure without final usage',
-          run: async (taskId: string) => harborOutput({ taskId, status: 'failed', errorClass: 'network' }),
-        },
-        {
-          name: 'timeout checkpoint lower bound',
-          run: async () => {
-            throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, { tokenSummary: checkpoint });
-          },
-        },
-      ];
-
-      for (const [index, scenario] of scenarios.entries()) {
-        const calls: string[] = [];
-        const result = await runFixedPromptController({
-          runId: `run-${index}`,
-          roundId: `round-${index}`,
-          config,
-          systemPromptPath,
-          resultsJsonlPath: join(dir, `results-${index}.jsonl`),
-          tasks: [
-            { id: 'task-a', path: '/bench/task-a' },
-            { id: 'task-b', path: '/bench/task-b' },
-          ],
-          maxConcurrency: 1,
-          costCeilingUsd: 1,
-          ...('requireExecutionIdentity' in scenario ? { requireExecutionIdentity: scenario.requireExecutionIdentity } : {}),
-          harborRunner: async ({ task }) => {
-            calls.push(task.id);
-            return scenario.run(task.id);
-          },
-          now: () => 100,
-          newId: idFactory(),
-        });
-
-        assert.deepEqual(calls, ['task-a'], scenario.name);
-        assert.equal(result.stopReason, 'cost_observation_unavailable', scenario.name);
-      }
-    });
-  });
-
-  test('drains the active wave but does not refill after cost becomes unknown', async () => {
-    await withDir(async (dir) => {
-      const systemPromptPath = join(dir, 'system_prompt.md');
-      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
-      const calls: string[] = [];
-      const result = await runFixedPromptController({
-        runId: 'run-1', roundId: 'round-1', config, systemPromptPath,
-        resultsJsonlPath: join(dir, 'results.jsonl'),
-        tasks: ['a', 'b', 'c'].map((id) => ({ id: `task-${id}`, path: `/bench/task-${id}` })),
-        maxConcurrency: 2,
-        costCeilingUsd: 1,
-        harborRunner: async ({ task }) => {
-          calls.push(task.id);
-          await delay(1);
-          return harborOutput({
-            taskId: task.id,
-            omitTokenSummary: true,
-            executionIdentity: {
-              llmConnectionSlug: 'fake', model: 'fake-model',
-              systemPromptHash: hashSystemPrompt('fixed prompt\n'), pricingProfile: 'test-profile',
-            },
-          });
-        },
-        now: () => 100,
-        newId: idFactory(),
-      });
-
-      assert.deepEqual(calls, ['task-a', 'task-b']);
-      assert.equal(result.stopReason, 'cost_observation_unavailable');
-    });
-  });
-
   test('checks the cost ceiling between rolling concurrency waves', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -1568,8 +1433,6 @@ describe('fixed prompt controller', () => {
         semanticCompactCallCacheReadInputTokens: 0,
         semanticCompactCallCacheWriteInputTokens: 0,
         semanticCompactCallTotalTokens: 0,
-        semanticCompactCallCostUsd: 0,
-        semanticCompactUsageUnavailableCalls: 0,
       };
       const contextBudgetPolicy = {
         enabled: true as const,
@@ -1915,7 +1778,7 @@ describe('fixed prompt controller', () => {
     });
   });
 
-  test('rejects a failed real-provider execution when usage is unavailable', async () => {
+  test('preserves the original cell failure when usage is unavailable', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       const resultsTsvPath = join(dir, 'results.tsv');
@@ -1947,9 +1810,9 @@ describe('fixed prompt controller', () => {
         newId: idFactory(),
       });
 
-      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
-      assert.equal(result.events[0]?.eligible, false);
-      assert.equal(result.events[0]?.errorClass, 'missing_token_usage');
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.eligible, true);
+      assert.equal(result.events[0]?.errorClass, 'tool_step_cap_reached');
       assert.equal('tokenSummary' in result.events[0]!, false);
       const [, row] = (await readFile(resultsTsvPath, 'utf8')).trimEnd().split('\n');
       assert.equal(row?.split('\t')[7], '');

@@ -1,5 +1,4 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import type {
   AppSettings,
@@ -106,10 +105,6 @@ class FileSettingsStore implements SettingsStore {
   }
 
   async get(): Promise<AppSettings> {
-    return this.withQueue(() => this.readOrInitialize());
-  }
-
-  private async readOrInitialize(): Promise<AppSettings> {
     try {
       const text = await readFile(this.settingsPath, 'utf8');
       return normalizeSettings(JSON.parse(text));
@@ -124,7 +119,7 @@ class FileSettingsStore implements SettingsStore {
   async update(patch: UpdateAppSettingsInput): Promise<AppSettings> {
     let next: AppSettings | undefined;
     await this.withQueue(async () => {
-      const current = await this.readOrInitialize();
+      const current = await this.get();
       next = mergeSettings(current, patch);
       await this.write(next);
     });
@@ -146,7 +141,7 @@ class FileSettingsStore implements SettingsStore {
         : { id, skippedAt: timestamp };
     let result: OnboardingMilestone[] | undefined;
     await this.withQueue(async () => {
-      const current = await this.readOrInitialize();
+      const current = await this.get();
       // Append the new entry; sanitize() applies last-valid-entry-wins
       // dedup with stable first-seen position. ID validity is enforced
       // by the sanitizer (closed enum).
@@ -170,7 +165,7 @@ class FileSettingsStore implements SettingsStore {
   async clearOnboardingMilestone(id: OnboardingMilestoneId): Promise<OnboardingMilestone[]> {
     let result: OnboardingMilestone[] | undefined;
     await this.withQueue(async () => {
-      const current = await this.readOrInitialize();
+      const current = await this.get();
       const knownId = sanitizeOnboardingMilestones([{ id }]).some((entry) => entry.id === id);
       if (!knownId) {
         throw new Error(`invalid onboarding milestone id: ${String(id)}`);
@@ -272,14 +267,14 @@ class FileSettingsStore implements SettingsStore {
 
   private async write(settings: AppSettings): Promise<void> {
     await mkdir(dirname(this.settingsPath), { recursive: true });
-    const tempPath = `${this.settingsPath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+    const tempPath = `${this.settingsPath}.${process.pid}.${Date.now()}.tmp`;
     await writeFile(tempPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
     await rename(tempPath, this.settingsPath);
   }
 
-  private withQueue<T>(operation: () => Promise<T>): Promise<T> {
+  private withQueue(operation: () => Promise<void>): Promise<void> {
     const next = this.queue.then(operation, operation);
-    this.queue = next.then(() => {}, () => {});
+    this.queue = next.catch(() => {});
     return next;
   }
 }

@@ -262,7 +262,7 @@ export interface AbComparisonSummary {
   taskLevel: AbTaskLevelSummary;
   pairedAttempts: AbAttemptPairSummary;
   investigationRefs: AbInvestigationRefs;
-  stopReason?: 'observed_cost_stop_reached' | 'cost_observation_unavailable' | 'systemic_provider_failure';
+  stopReason?: 'observed_cost_stop_reached' | 'systemic_provider_failure';
 }
 
 export interface AbRunManifestInput {

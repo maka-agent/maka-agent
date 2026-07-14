@@ -172,8 +172,6 @@ export type RuntimeEventContentKind = typeof RUNTIME_EVENT_CONTENT_KINDS[number]
 export interface RuntimeEventTokenUsage {
   input: number;
   output: number;
-  /** False when any provider step in this request omitted usage. */
-  usageAvailable?: boolean;
   cacheHitInput?: number;
   cacheMissInput?: number;
   cacheWriteInput?: number;

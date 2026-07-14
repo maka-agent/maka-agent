@@ -126,7 +126,6 @@ class StepCapThenCompleteBackend implements AgentBackend {
   readonly sessionId: string;
   readonly prompts: string[] = [];
   readonly cwds: string[] = [];
-  readonly maxRuntimeSteps: Array<number | undefined> = [];
 
   constructor(protected readonly ctx: { sessionId: string; header: SessionHeader }) {
     this.sessionId = ctx.sessionId;
@@ -136,7 +135,6 @@ class StepCapThenCompleteBackend implements AgentBackend {
     const ts = Date.now();
     this.prompts.push(input.text);
     this.cwds.push(this.ctx.header.cwd);
-    this.maxRuntimeSteps.push(input.maxRuntimeSteps);
     if (this.prompts.length === 1) {
       yield {
         type: 'token_usage',
@@ -249,7 +247,6 @@ class NoisyStepCapThenCompleteBackend extends StepCapThenCompleteBackend {
 
     this.prompts.push(input.text);
     this.cwds.push(this.ctx.header.cwd);
-    this.maxRuntimeSteps.push(input.maxRuntimeSteps);
     for (let index = 0; index < 60; index += 1) {
       yield {
         type: 'token_usage',
@@ -385,11 +382,6 @@ describe('runHarborCell', () => {
   test('does not turn unknown checkpoint cost into zero', async () => {
     await withDirs(async ({ outputDir }) => {
       await writeHarborCellUsageCheckpoint(outputDir, {
-        inputTokens: 10, outputTokens: 2, cacheHitInputTokens: 0,
-        cacheMissInputTokens: 10, cacheMissInputSource: 'explicit',
-        cacheWriteInputTokens: 0, reasoningTokens: 0, totalTokens: 12, costUsd: 0.01,
-      });
-      await writeHarborCellUsageCheckpoint(outputDir, {
         inputTokens: 100,
         outputTokens: 5,
         cacheHitInputTokens: 20,
@@ -399,22 +391,6 @@ describe('runHarborCell', () => {
         reasoningTokens: 1,
         totalTokens: 105,
       });
-
-      await assert.rejects(
-        readFile(join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8'),
-        (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
-      );
-    });
-  });
-
-  test('removes a previously metered checkpoint when later usage becomes unavailable', async () => {
-    await withDirs(async ({ outputDir }) => {
-      await writeHarborCellUsageCheckpoint(outputDir, {
-        inputTokens: 10, outputTokens: 2, cacheHitInputTokens: 0,
-        cacheMissInputTokens: 10, cacheMissInputSource: 'explicit',
-        cacheWriteInputTokens: 0, reasoningTokens: 0, totalTokens: 12, costUsd: 0.01,
-      });
-      await writeHarborCellUsageCheckpoint(outputDir, undefined);
 
       await assert.rejects(
         readFile(join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8'),
@@ -555,7 +531,6 @@ describe('runHarborCell', () => {
         'solve the benchmark task',
         'Continue neutrally from current workspace.',
       ]);
-      assert.deepEqual(seen.backend?.maxRuntimeSteps, [150, 100]);
       assert.deepEqual(seen.backend?.cwds, [workspaceDir, workspaceDir]);
       assert.equal(await readFile(join(workspaceDir, 'continued-proof.txt'), 'utf8'), 'Continue neutrally from current workspace.');
       assert.deepEqual(result.output.continuationSummary, {
@@ -710,7 +685,6 @@ describe('runHarborCell', () => {
         'solve the benchmark task',
         'Continue neutrally from current workspace.',
       ]);
-      assert.deepEqual(seen.backend?.maxRuntimeSteps, [51, 1]);
       assert.deepEqual(result.output.continuationSummary, {
         enabled: true,
         maxTurns: 3,

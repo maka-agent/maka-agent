@@ -87,7 +87,7 @@ describe('prompt candidate loop', () => {
       const events = (await readFile(resultsJsonlPath, 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line));
       assert.deepEqual(events, [
         {
-          schemaVersion: 2,
+          schemaVersion: 1,
           type: 'prompt_candidate_committed',
           id: 'id-1',
           ts: 100,

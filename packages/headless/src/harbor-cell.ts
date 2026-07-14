@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { exec as nodeExec } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -377,16 +377,10 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   let attemptedTurnId: string | undefined;
   try {
     for (let turnIndex = 0; turnIndex < continuationPolicy.maxTurns; turnIndex += 1) {
-      const remainingRuntimeSteps = continuationPolicy.maxTotalRuntimeSteps - totalRuntimeSteps(invocations);
-      if (remainingRuntimeSteps <= 0) break;
       const turnId = newId();
       attemptedTurnId = turnId;
       invocation = undefined;
-      for await (const event of manager.sendMessage(session.id, {
-        turnId,
-        text: nextText,
-        maxRuntimeSteps: remainingRuntimeSteps,
-      })) {
+      for await (const event of manager.sendMessage(session.id, { turnId, text: nextText })) {
         if ((event as { type?: string }).type === 'permission_request') {
           const { requestId } = event as { requestId: string };
           await manager.respondToPermission(session.id, { requestId, decision: 'deny', rememberForTurn: true });
@@ -675,7 +669,7 @@ export function buildAiSdkCellBackendRegistration(input: {
   now: () => number;
   newId: () => string;
   maxSteps?: number;
-  recordUsageCheckpoint?: (usage: HarborCellUsageCheckpoint | undefined) => void | Promise<void>;
+  recordUsageCheckpoint?: (usage: HarborCellUsageCheckpoint) => void | Promise<void>;
 }): NonNullable<RunHarborCellInput['registerBackends']> {
   const { connection, apiKey } = resolveHarborCellAiSdkEnv({
     provider: input.provider,
@@ -753,17 +747,9 @@ export const buildHarborAiSdkBackendRegistration = buildAiSdkCellBackendRegistra
 
 export async function writeHarborCellUsageCheckpoint(
   outputDir: string,
-  usage: HarborCellUsageCheckpoint | undefined,
+  usage: HarborCellUsageCheckpoint,
 ): Promise<void> {
-  const path = join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME);
-  if (usage === undefined) {
-    await rm(path, { force: true });
-    return;
-  }
-  if (usage.costUsd === undefined) {
-    await rm(path, { force: true });
-    return;
-  }
+  if (usage.costUsd === undefined) return;
   const tokenSummary: HarborCellOutput['tokenSummary'] = {
     input: usage.inputTokens,
     output: usage.outputTokens,
@@ -778,6 +764,7 @@ export async function writeHarborCellUsageCheckpoint(
     pricingSource: 'runtime',
   };
   await mkdir(outputDir, { recursive: true });
+  const path = join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME);
   const pendingPath = `${path}.${process.pid}.tmp`;
   await writeFile(pendingPath, `${JSON.stringify(tokenSummary, null, 2)}\n`, 'utf8');
   await rename(pendingPath, path);

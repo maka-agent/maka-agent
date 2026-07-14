@@ -462,7 +462,7 @@ export interface AiSdkBackendInput {
   recordToolInvocation?: ToolTelemetryRecorder;
   /** Durable session-lifetime cumulative usage checkpoint after each completed provider step. */
   recordUsageCheckpoint?: (
-    usage: (NormalizedAiSdkUsage & { costUsd?: number }) | undefined,
+    usage: NormalizedAiSdkUsage & { costUsd?: number },
   ) => void | Promise<void>;
   /** Optional pricing lookup shared with telemetry; defaults to builtin public pricing. */
   lookupPricing?: (modelKey: string) => PricingConfig | null;
@@ -564,7 +564,6 @@ export class AiSdkBackend implements AgentBackend {
   private currentRunTrace: RunTrace | null = null;
   private priorRequestShape: RequestShapeDiagnostic | undefined;
   private cumulativeUsageCheckpoint: NormalizedAiSdkUsage | undefined;
-  private cumulativeUsageCheckpointAvailable = true;
   /**
    * Id of the assistant step currently streaming. Read by ToolRuntime via
    * `getCurrentStepId` so each tool call's `tool_start` carries the step it
@@ -744,7 +743,6 @@ export class AiSdkBackend implements AgentBackend {
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     this.aborted = false;
     const turnId = input.turnId;
-    const maxSteps = minDefinedPositiveInt(this.maxSteps, input.maxRuntimeSteps);
     this.currentTurnId = turnId;
     this.currentRunId = input.runId ?? null;
     this.input.permissionEngine.beginTurn(turnId);
@@ -820,7 +818,6 @@ export class AiSdkBackend implements AgentBackend {
     };
     let tokenUsage: NormalizedAiSdkUsage | undefined;
     let tokenUsageCostUsd: number | undefined;
-    let providerUsageComplete = true;
     let streamStatus: LlmCallRecord['status'] = 'success';
     let streamErrorClass: string | undefined;
     let rawFinishReason: string | undefined;
@@ -1068,7 +1065,6 @@ export class AiSdkBackend implements AgentBackend {
           },
           system: systemPrompt,
           abortSignal: this.abortController!.signal,
-          ...(maxSteps !== undefined ? { maxSteps } : {}),
           ...(prepareStep ? { prepareStep } : {}),
         });
 
@@ -1087,16 +1083,10 @@ export class AiSdkBackend implements AgentBackend {
             const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
             if (stepUsage) {
               this.cumulativeUsageCheckpoint = mergeNormalizedUsage(this.cumulativeUsageCheckpoint, stepUsage);
-              if (this.cumulativeUsageCheckpointAvailable) {
-                await this.input.recordUsageCheckpoint?.({
-                  ...this.cumulativeUsageCheckpoint,
-                  costUsd: this.computeTokenUsageCostUsd(this.cumulativeUsageCheckpoint),
-                });
-              }
-            } else {
-              providerUsageComplete = false;
-              this.cumulativeUsageCheckpointAvailable = false;
-              await this.input.recordUsageCheckpoint?.(undefined);
+              await this.input.recordUsageCheckpoint?.({
+                ...this.cumulativeUsageCheckpoint,
+                costUsd: this.computeTokenUsageCostUsd(this.cumulativeUsageCheckpoint),
+              });
             }
           }
           if (chunk.type === 'finish' || isStepFinishChunk) {
@@ -1146,7 +1136,7 @@ export class AiSdkBackend implements AgentBackend {
         // With an explicit maxSteps, `finishReason === 'tool-calls'` means the
         // model wanted another tool step but the configured budget stopped it.
         const finishReason = await result.finishReason.catch(() => 'stop');
-        const stepLimit = maxSteps;
+        const stepLimit = this.maxSteps;
         const stepLimitReached = stepLimit !== undefined && finishReason === 'tool-calls';
         rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReason);
         if (stepLimitReached && runtimeSteps < stepLimit) {
@@ -1187,7 +1177,6 @@ export class AiSdkBackend implements AgentBackend {
               ts: this.now(),
               input: tokenUsage.inputTokens,
               output: tokenUsage.outputTokens,
-              usageAvailable: providerUsageComplete,
               cacheHitInput: tokenUsage.cacheHitInputTokens,
               cacheMissInput: tokenUsage.cacheMissInputTokens,
               cacheMissInputSource: tokenUsage.cacheMissInputSource,
@@ -1240,7 +1229,6 @@ export class AiSdkBackend implements AgentBackend {
               ts: this.now(),
               input: tokenUsage.inputTokens,
               output: tokenUsage.outputTokens,
-              usageAvailable: providerUsageComplete,
               cacheHitInput: tokenUsage.cacheHitInputTokens,
               cacheMissInput: tokenUsage.cacheMissInputTokens,
               cacheMissInputSource: tokenUsage.cacheMissInputSource,
@@ -1265,29 +1253,10 @@ export class AiSdkBackend implements AgentBackend {
           // best-effort; ai-sdk usage promise may reject on abort
         }
 
-        if (!tokenUsage) {
-          providerUsageComplete = false;
-          const unavailableUsage = {
-            type: 'token_usage' as const,
-            id: this.newId(),
-            turnId,
-            ts: this.now(),
-            input: 0,
-            output: 0,
-            total: 0,
-            usageAvailable: false,
-            ...(runtimeSteps > 0 ? { runtimeSteps } : {}),
-          };
-          await this.input.appendMessage(unavailableUsage).catch(() => {});
-          queue.push({ ...unavailableUsage, id: this.newId() } satisfies TokenUsageEvent);
-          this.cumulativeUsageCheckpointAvailable = false;
-          await this.input.recordUsageCheckpoint?.(undefined);
-        }
-
         // Nothing may await between this check and terminal emission: Stop must
         // win even when it arrives during post-stream usage persistence.
         if (this.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
-        const stopReason = maxSteps !== undefined && finishReason === 'tool-calls'
+        const stopReason = this.maxSteps !== undefined && finishReason === 'tool-calls'
           ? 'step_limit'
           : this.mapFinishReason(finishReason);
         trace.modelStreamCompleted(stopReason);
@@ -1299,8 +1268,6 @@ export class AiSdkBackend implements AgentBackend {
           stopReason,
         } satisfies CompleteEvent);
       } catch (err) {
-        this.cumulativeUsageCheckpointAvailable = false;
-        await Promise.resolve(this.input.recordUsageCheckpoint?.(undefined)).catch(() => {});
         streamStatus = this.aborted ? 'aborted' : 'error';
         streamErrorClass = this.modelAdapter.classifyError(watchdogTimeoutError ?? err);
         // Flush the in-flight step's partial text/thinking before the terminal
@@ -1345,26 +1312,25 @@ export class AiSdkBackend implements AgentBackend {
           activeToolResultPruneDiagnosticPatch,
           activeCompactDiagnosticPatch,
         );
-        this.input.recordLlmCall?.({
+        if (tokenUsage) this.input.recordLlmCall?.({
           sessionId: this.sessionId,
           turnId,
           connectionSlug: this.input.connection.slug,
           providerId: this.input.connection.providerType,
           modelId: this.input.modelId,
-          usageAvailable: providerUsageComplete && tokenUsage !== undefined,
-          inputTokens: tokenUsage?.inputTokens ?? 0,
-          outputTokens: tokenUsage?.outputTokens ?? 0,
-          cacheHitInputTokens: tokenUsage?.cacheHitInputTokens ?? 0,
-          cacheMissInputTokens: tokenUsage?.cacheMissInputTokens ?? 0,
-          ...(tokenUsage?.cacheMissInputSource !== undefined
+          inputTokens: tokenUsage.inputTokens,
+          outputTokens: tokenUsage.outputTokens,
+          cacheHitInputTokens: tokenUsage.cacheHitInputTokens,
+          cacheMissInputTokens: tokenUsage.cacheMissInputTokens,
+          ...(tokenUsage.cacheMissInputSource !== undefined
             ? { cacheMissInputSource: tokenUsage.cacheMissInputSource }
             : {}),
-          cachedInputTokens: tokenUsage?.cachedInputTokens ?? 0,
-          cacheWriteInputTokens: tokenUsage?.cacheWriteInputTokens ?? 0,
-          reasoningTokens: tokenUsage?.reasoningTokens ?? 0,
-          ...(tokenUsage !== undefined ? { totalTokens: tokenUsage.totalTokens } : {}),
-          ...(tokenUsage?.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
-          ...(tokenUsage?.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
+          cachedInputTokens: tokenUsage.cachedInputTokens,
+          cacheWriteInputTokens: tokenUsage.cacheWriteInputTokens,
+          reasoningTokens: tokenUsage.reasoningTokens,
+          totalTokens: tokenUsage.totalTokens,
+          ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
+          ...(tokenUsage.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
           latencyMs: Math.max(0, this.now() - startedAt),
           status: streamStatus,
           ...(streamErrorClass ? { errorClass: streamErrorClass } : {}),
@@ -1459,10 +1425,10 @@ export class AiSdkBackend implements AgentBackend {
     return this.modelAdapter.makeErrorEvent(turnId, err);
   }
 
-  private computeTokenUsageCostUsd(usage: NormalizedAiSdkUsage, modelId = this.input.modelId): number | undefined {
+  private computeTokenUsageCostUsd(usage: NormalizedAiSdkUsage): number | undefined {
     try {
       const pricing = (this.input.lookupPricing ?? getBuiltinPricing)(
-        `${this.input.connection.providerType}:${modelId}`,
+        `${this.input.connection.providerType}:${this.input.modelId}`,
       );
       if (pricing === null) return undefined;
       return computeCost(
@@ -1891,9 +1857,6 @@ export class AiSdkBackend implements AgentBackend {
               maxOutputTokens: request.maxOutputTokens,
               abortSignal: request.abortSignal,
             });
-            const costUsd = result.usage
-              ? this.computeTokenUsageCostUsd(result.usage, summarizerModelId)
-              : undefined;
             this.recordSemanticCompactSummaryCall({
               callId,
               turnId,
@@ -1904,10 +1867,7 @@ export class AiSdkBackend implements AgentBackend {
               finishReason: result.finishReason,
               status: 'success',
             });
-            return {
-              ...result,
-              ...(costUsd !== undefined ? { costUsd } : {}),
-            };
+            return result;
           } catch (error) {
             this.recordSemanticCompactSummaryCall({
               callId,
@@ -1997,7 +1957,7 @@ export class AiSdkBackend implements AgentBackend {
     status: LlmCallRecord['status'];
     errorClass?: string;
   }): void {
-    const costUsd = input.usage ? this.computeTokenUsageCostUsd(input.usage, input.modelId) : undefined;
+    const costUsd = input.usage ? this.computeTokenUsageCostUsd(input.usage) : 0;
     this.input.recordLlmCall?.({
       sessionId: this.sessionId,
       turnId: input.turnId,
@@ -2006,7 +1966,6 @@ export class AiSdkBackend implements AgentBackend {
       connectionSlug: this.input.connection.slug,
       providerId: this.input.connection.providerType,
       modelId: input.modelId,
-      usageAvailable: input.usage !== undefined,
       inputTokens: input.usage?.inputTokens ?? 0,
       outputTokens: input.usage?.outputTokens ?? 0,
       cacheHitInputTokens: input.usage?.cacheHitInputTokens ?? 0,
@@ -3019,15 +2978,6 @@ function buildHistoryCompactCheckpointFailOpenContext(
 
 function incrementRecord(counts: Record<string, number>, key: string): void {
   counts[key] = (counts[key] ?? 0) + 1;
-}
-
-function minDefinedPositiveInt(left: number | undefined, right: number | undefined): number | undefined {
-  if (right !== undefined && (!Number.isInteger(right) || right < 1)) {
-    throw new Error('maxRuntimeSteps must be a positive integer when provided');
-  }
-  if (left === undefined) return right;
-  if (right === undefined) return left;
-  return Math.min(left, right);
 }
 
 function mergeCountsInto(target: Record<string, number>, source: Record<string, number> | undefined): void {

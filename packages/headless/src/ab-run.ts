@@ -7,7 +7,6 @@ import type {
   FixedPromptTask,
   FixedPromptTaskWalEvent,
 } from './fixed-prompt-controller.js';
-import { hasUnknownRealProviderCost } from './fixed-prompt-controller.js';
 import { assertFinitePositive, assertPositiveInt } from './numeric-guards.js';
 import { summarizeAbComparison } from './ab-summary.js';
 
@@ -58,11 +57,6 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
     observedCostUsd += eventCostUsd(result.baseline) + eventCostUsd(result.candidate);
     if (isSystemicProviderFailure(result.baseline) || isSystemicProviderFailure(result.candidate)) {
       stopReason = 'systemic_provider_failure';
-    } else if (
-      input.observedCostStopUsd !== undefined
-      && (hasUnknownRealProviderCost(result.baseline) || hasUnknownRealProviderCost(result.candidate))
-    ) {
-      stopReason = 'cost_observation_unavailable';
     } else if (input.observedCostStopUsd !== undefined && observedCostUsd >= input.observedCostStopUsd) {
       stopReason = 'observed_cost_stop_reached';
     }

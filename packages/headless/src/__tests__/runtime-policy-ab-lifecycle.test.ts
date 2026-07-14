@@ -215,7 +215,7 @@ test('pilot without candidate activation does not launch full execution', async 
   });
 });
 
-test('pilot with unobservable provider cost does not launch full execution', async () => {
+test('pilot candidate pass against an attested baseline timeout can launch full execution', async () => {
   await withDir(async (dir) => {
     const promptPath = join(dir, 'prompt.md');
     await writeFile(promptPath, 'shared prompt\n', 'utf8');
@@ -252,11 +252,10 @@ test('pilot with unobservable provider cost does not launch full execution', asy
       },
     });
 
-    assert.equal(state.status, 'pilot_not_cleared');
-    assert.equal(state.reason, 'cost_observation_unavailable');
+    assert.equal(state.status, 'full_completed');
     assert.equal(state.pilot?.baseline.budgetExhausted, 1);
     assert.equal(state.pilot?.candidate.passed, 1);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 6);
   });
 });
 

@@ -105,8 +105,6 @@ export interface LlmCallRecord {
   connectionSlug?: string;
   providerId: string;
   modelId: string;
-  /** False when the provider returned no trustworthy token usage for this call. */
-  usageAvailable?: boolean;
   inputTokens: number;
   outputTokens: number;
   cacheHitInputTokens?: number;
@@ -228,10 +226,7 @@ export interface CompactionDecisionDiagnostic {
   compactCallOutputTokens?: number;
   compactCallCacheReadInputTokens?: number;
   compactCallCacheWriteInputTokens?: number;
-  compactCallReasoningTokens?: number;
   compactCallTotalTokens?: number;
-  compactCallUsageAvailable?: boolean;
-  compactCallCostUsd?: number;
   reason?: string;
   failOpenReason?: string;
   skippedReasonCounts?: Record<string, number>;

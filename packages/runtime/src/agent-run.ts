@@ -366,9 +366,6 @@ export class AgentRun {
       backend: this.active.backend,
       backendInput: {
         turnId: this.turnId,
-        ...(this.input.userInput.maxRuntimeSteps !== undefined
-          ? { maxRuntimeSteps: this.input.userInput.maxRuntimeSteps }
-          : {}),
         text: this.input.userInput.text,
         ...(this.input.userInput.attachments ? { attachments: this.input.userInput.attachments } : {}),
         context: projectionContext,

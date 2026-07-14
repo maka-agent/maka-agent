@@ -7,7 +7,6 @@ import {
   validateHarborCellOutput,
   type HarborCellOutput,
 } from '../cell-output.js';
-import { tokenSummary } from './helpers/cell-output-fixtures.js';
 
 describe('Harbor cell output contract', () => {
   test('summarizes runtime outcome, prompt hash, token cost, and event path', () => {
@@ -76,7 +75,7 @@ describe('Harbor cell output contract', () => {
 
     assert.deepEqual(validateHarborCellOutput(output), output);
     assert.deepEqual(output, {
-      schemaVersion: 2,
+      schemaVersion: 1,
       status: 'completed',
       runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
       promptHash: 'sha256:prompt-a',
@@ -100,7 +99,6 @@ describe('Harbor cell output contract', () => {
         actualToolCallCounts: { Bash: 1, Read: 1 },
       },
       steps: 2,
-      stepsKind: 'model_steps',
       durationMs: 150,
       startedAt: 100,
       finishedAt: 250,
@@ -111,22 +109,6 @@ describe('Harbor cell output contract', () => {
         turnId: 'turn-1',
       },
     });
-  });
-
-  test('reads legacy v1 output without confusing event counts with model steps', () => {
-    const current = buildHarborCellOutput({
-      invocation: invocationFixture(),
-      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
-    });
-    const { stepsKind: _stepsKind, ...withoutStepsKind } = current;
-    const legacy = validateHarborCellOutput({
-      ...withoutStepsKind,
-      schemaVersion: 1,
-      tokenSummary: tokenSummary({ input: 1, output: 1, reasoning: 0, total: 2, costUsd: 0.01 }),
-    });
-
-    assert.equal(legacy.schemaVersion, 1);
-    assert.equal(legacy.stepsKind, 'runtime_events');
   });
 
   test('preserves the actual execution identity reported by the cell', () => {
@@ -182,118 +164,6 @@ describe('Harbor cell output contract', () => {
     assert.deepEqual(validateHarborCellOutput(output), output);
   });
 
-  test('does not publish partial cell economics when any request usage is unavailable', () => {
-    const output = buildHarborCellOutput({
-      invocation: {
-        ...invocationFixture(),
-        events: [
-          runtimeEvent({
-            id: 'known',
-            actions: { tokenUsage: { input: 10, output: 2, total: 12, costUsd: 0.01 } },
-          }),
-          runtimeEvent({
-            id: 'unknown',
-            actions: { tokenUsage: { input: 3, output: 1, total: 4, costUsd: 0.002, usageAvailable: false } },
-          }),
-        ],
-      },
-      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
-    });
-
-    assert.equal('tokenSummary' in output, false);
-  });
-
-  test('includes semantic compact auxiliary usage exactly once in cell economics', () => {
-    const output = buildHarborCellOutput({
-      invocation: {
-        ...invocationFixture(),
-        events: [runtimeEvent({
-          id: 'usage-with-semantic-compact',
-          actions: { tokenUsage: {
-            input: 10,
-            output: 2,
-            total: 12,
-            costUsd: 0.01,
-            contextBudget: {
-              enabled: true,
-              estimatedTokensBefore: 100,
-              estimatedTokensAfter: 60,
-              keptTurns: 1,
-              droppedTurns: 1,
-              keptEvents: 2,
-              droppedEvents: 2,
-              compactionDecisions: [{
-                stage: 'activeStep',
-                sourceKind: 'providerMessages',
-                decision: 'replaced',
-                boundaryKind: 'semanticCompact',
-                compactCallUsageAvailable: true,
-                compactCallInputTokens: 31,
-                compactCallOutputTokens: 11,
-                compactCallCacheReadInputTokens: 7,
-                compactCallCacheWriteInputTokens: 2,
-                compactCallReasoningTokens: 5,
-                compactCallTotalTokens: 42,
-                compactCallCostUsd: 0.004,
-              }],
-            },
-          } },
-        })],
-      },
-      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
-    });
-
-    assert.deepEqual(output.tokenSummary, {
-      input: 41,
-      output: 13,
-      cachedInput: 7,
-      cacheHitInput: 7,
-      cacheMissInput: 32,
-      cacheWriteInput: 2,
-      cacheMissInputSource: 'derived',
-      reasoning: 5,
-      total: 54,
-      costUsd: 0.014,
-      pricingSource: 'runtime',
-    });
-  });
-
-  test('does not publish cell economics when semantic compact usage is unavailable', () => {
-    const output = buildHarborCellOutput({
-      invocation: {
-        ...invocationFixture(),
-        events: [runtimeEvent({
-          id: 'usage-with-unmetered-semantic-compact',
-          actions: { tokenUsage: {
-            input: 10,
-            output: 2,
-            total: 12,
-            costUsd: 0.01,
-            contextBudget: {
-              enabled: true,
-              estimatedTokensBefore: 100,
-              estimatedTokensAfter: 100,
-              keptTurns: 1,
-              droppedTurns: 0,
-              keptEvents: 2,
-              droppedEvents: 0,
-              compactionDecisions: [{
-                stage: 'activeStep',
-                sourceKind: 'providerMessages',
-                decision: 'failedOpen',
-                boundaryKind: 'semanticCompact',
-                compactCallUsageAvailable: false,
-              }],
-            },
-          } },
-        })],
-      },
-      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
-    });
-
-    assert.equal('tokenSummary' in output, false);
-  });
-
   test('keeps output when runtime emits more than one prompt hash', () => {
     const output = buildHarborCellOutput({
       invocation: {
@@ -332,11 +202,11 @@ describe('Harbor cell output contract', () => {
         events: [
           runtimeEvent({
             id: 'usage-1',
-            actions: { tokenUsage: { input: 10, output: 5, reasoning: 2, costUsd: 0 } },
+            actions: { tokenUsage: { input: 10, output: 5, reasoning: 2 } },
           }),
           runtimeEvent({
             id: 'usage-2',
-            actions: { tokenUsage: { input: 3, output: 7, costUsd: 0 } },
+            actions: { tokenUsage: { input: 3, output: 7 } },
           }),
         ],
         startedAt: 100,
@@ -487,8 +357,6 @@ describe('Harbor cell output contract', () => {
                     compactCallCacheReadInputTokens: 7,
                     compactCallCacheWriteInputTokens: 2,
                     compactCallTotalTokens: 42,
-                    compactCallUsageAvailable: true,
-                    compactCallCostUsd: 0.004,
                   }],
                 },
               },
@@ -546,8 +414,6 @@ describe('Harbor cell output contract', () => {
       semanticCompactCallCacheReadInputTokens: 7,
       semanticCompactCallCacheWriteInputTokens: 2,
       semanticCompactCallTotalTokens: 42,
-      semanticCompactCallCostUsd: 0.004,
-      semanticCompactUsageUnavailableCalls: 0,
     });
     assert.deepEqual(validateHarborCellOutput(output), output);
   });

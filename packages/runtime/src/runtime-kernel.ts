@@ -353,9 +353,6 @@ export class RuntimeKernel implements RuntimeKernelLike {
       runId: run.runId,
       turnId: run.turnId,
       text: input.text,
-      ...(begin.backendInput.maxRuntimeSteps !== undefined
-        ? { maxRuntimeSteps: begin.backendInput.maxRuntimeSteps }
-        : {}),
       ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
       context: begin.backendInput.context,
       ...(begin.backendInput.runtimeContext !== undefined ? { runtimeContext: begin.backendInput.runtimeContext } : {}),

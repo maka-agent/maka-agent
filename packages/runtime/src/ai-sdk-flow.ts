@@ -316,7 +316,6 @@ export function mapSessionEventToRuntimeEvent(
           tokenUsage: {
             input: event.input,
             output: event.output,
-            ...(event.usageAvailable !== undefined ? { usageAvailable: event.usageAvailable } : {}),
             ...(event.cacheHitInput !== undefined ? { cacheHitInput: event.cacheHitInput } : {}),
             ...(event.cacheMissInput !== undefined ? { cacheMissInput: event.cacheMissInput } : {}),
             ...(event.cacheMissInputSource !== undefined
@@ -512,7 +511,6 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
       for await (const sessionEvent of this.backend.send({
         runId: ctx.runId,
         turnId: ctx.turnId,
-        ...(input.maxRuntimeSteps !== undefined ? { maxRuntimeSteps: input.maxRuntimeSteps } : {}),
         text: input.text,
         ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
         context: input.context,
