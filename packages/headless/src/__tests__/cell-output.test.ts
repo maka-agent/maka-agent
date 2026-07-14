@@ -7,6 +7,7 @@ import {
   validateHarborCellOutput,
   type HarborCellOutput,
 } from '../cell-output.js';
+import { tokenSummary } from './helpers/cell-output-fixtures.js';
 
 describe('Harbor cell output contract', () => {
   test('summarizes runtime outcome, prompt hash, token cost, and event path', () => {
@@ -75,7 +76,7 @@ describe('Harbor cell output contract', () => {
 
     assert.deepEqual(validateHarborCellOutput(output), output);
     assert.deepEqual(output, {
-      schemaVersion: 1,
+      schemaVersion: 2,
       status: 'completed',
       runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
       promptHash: 'sha256:prompt-a',
@@ -99,6 +100,7 @@ describe('Harbor cell output contract', () => {
         actualToolCallCounts: { Bash: 1, Read: 1 },
       },
       steps: 2,
+      stepsKind: 'model_steps',
       durationMs: 150,
       startedAt: 100,
       finishedAt: 250,
@@ -109,6 +111,22 @@ describe('Harbor cell output contract', () => {
         turnId: 'turn-1',
       },
     });
+  });
+
+  test('reads legacy v1 output without confusing event counts with model steps', () => {
+    const current = buildHarborCellOutput({
+      invocation: invocationFixture(),
+      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+    });
+    const { stepsKind: _stepsKind, ...withoutStepsKind } = current;
+    const legacy = validateHarborCellOutput({
+      ...withoutStepsKind,
+      schemaVersion: 1,
+      tokenSummary: tokenSummary({ input: 1, output: 1, reasoning: 0, total: 2, costUsd: 0.01 }),
+    });
+
+    assert.equal(legacy.schemaVersion, 1);
+    assert.equal(legacy.stepsKind, 'runtime_events');
   });
 
   test('preserves the actual execution identity reported by the cell', () => {

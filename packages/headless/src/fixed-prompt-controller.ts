@@ -11,11 +11,13 @@ import {
   type HarborCellOutput,
   type HarborCellTaskToolSummary,
   type HarborCellTokenSummary,
+  type HarborCellStepsKind,
 } from './cell-output.js';
 import type { Config } from './contracts.js';
 import { assertFinitePositive, assertPositiveInt, assertRatio } from './numeric-guards.js';
 
-export const FIXED_PROMPT_WAL_SCHEMA_VERSION = 1;
+export const FIXED_PROMPT_WAL_SCHEMA_VERSION = 2;
+export type FixedPromptWalSchemaVersion = 1 | typeof FIXED_PROMPT_WAL_SCHEMA_VERSION;
 export const BUDGET_EXHAUSTED_RUNTIME_UNAVAILABLE_REASON = 'budget_exhausted_before_cell_output';
 const LEGACY_TIMEOUT_MISSING_EXECUTION_IDENTITY_ERROR = 'Timed-out Harbor attempt did not produce execution identity attestation';
 type UnscoredCellFailureClass = 'infra_failed' | 'setup_failed' | 'verification_error';
@@ -83,7 +85,7 @@ export interface ReadHarborTaskRunOutputInput {
 }
 
 export interface FixedPromptTaskCompletedEvent {
-  schemaVersion: typeof FIXED_PROMPT_WAL_SCHEMA_VERSION;
+  schemaVersion: FixedPromptWalSchemaVersion;
   type: 'task_completed';
   id: string;
   ts: number;
@@ -104,6 +106,7 @@ export interface FixedPromptTaskCompletedEvent {
   continuationSummary?: HarborCellContinuationSummary;
   taskToolSummary?: HarborCellTaskToolSummary;
   steps: number;
+  stepsKind?: HarborCellStepsKind;
   durationMs: number;
   runtimeEventsPath: string;
   traceEventsPath?: string;
@@ -114,7 +117,7 @@ export interface FixedPromptTaskCompletedEvent {
 }
 
 export interface FixedPromptTaskInfraFailedEvent {
-  schemaVersion: typeof FIXED_PROMPT_WAL_SCHEMA_VERSION;
+  schemaVersion: FixedPromptWalSchemaVersion;
   type: 'task_infra_failed';
   id: string;
   ts: number;
@@ -131,7 +134,7 @@ export interface FixedPromptTaskInfraFailedEvent {
 }
 
 export interface FixedPromptTaskBudgetExhaustedEvent {
-  schemaVersion: typeof FIXED_PROMPT_WAL_SCHEMA_VERSION;
+  schemaVersion: FixedPromptWalSchemaVersion;
   type: 'task_budget_exhausted';
   id: string;
   ts: number;
@@ -159,11 +162,12 @@ export interface FixedPromptTaskBudgetExhaustedEvent {
   continuationSummary?: HarborCellContinuationSummary;
   taskToolSummary?: HarborCellTaskToolSummary;
   steps?: number;
+  stepsKind?: HarborCellStepsKind;
   durationMs?: number;
 }
 
 export interface FixedPromptTaskPlumbingFailedEvent {
-  schemaVersion: typeof FIXED_PROMPT_WAL_SCHEMA_VERSION;
+  schemaVersion: FixedPromptWalSchemaVersion;
   type: 'task_plumbing_failed';
   id: string;
   ts: number;
@@ -186,6 +190,7 @@ export interface FixedPromptTaskPlumbingFailedEvent {
   continuationSummary?: HarborCellContinuationSummary;
   taskToolSummary?: HarborCellTaskToolSummary;
   steps?: number;
+  stepsKind?: HarborCellStepsKind;
   durationMs?: number;
   runtimeEventsPath?: string;
   traceEventsPath?: string;
@@ -195,7 +200,7 @@ export interface FixedPromptTaskPlumbingFailedEvent {
 }
 
 export interface PromptCandidateCommittedEvent {
-  schemaVersion: typeof FIXED_PROMPT_WAL_SCHEMA_VERSION;
+  schemaVersion: FixedPromptWalSchemaVersion;
   type: 'prompt_candidate_committed';
   id: string;
   ts: number;
@@ -235,7 +240,7 @@ export type PromptCandidateRewardHackScan =
   | { decision: 'quarantine'; reason: string; matchedPatterns?: readonly string[] };
 
 export interface PromptCandidateDecisionEvent {
-  schemaVersion: typeof FIXED_PROMPT_WAL_SCHEMA_VERSION;
+  schemaVersion: FixedPromptWalSchemaVersion;
   type: 'prompt_candidate_decided';
   id: string;
   ts: number;
@@ -261,7 +266,7 @@ export type RsiRiskTaskOutcome = 'safe' | 'regressed' | 'unscored' | 'missing';
 export type RsiRootCauseSignalMatch = 'matched' | 'contradicted' | 'unknown';
 
 export interface RsiControllerAttributionEvent {
-  schemaVersion: typeof FIXED_PROMPT_WAL_SCHEMA_VERSION;
+  schemaVersion: FixedPromptWalSchemaVersion;
   type: 'rsi_controller_attribution';
   id: string;
   ts: number;
@@ -474,7 +479,41 @@ export async function readFixedPromptWal(path: string): Promise<FixedPromptWalEv
       throw error;
     }
   }
-  return events.map(projectLegacyTimeoutOutcome);
+  return events.map(normalizeFixedPromptWalEvent).map(projectLegacyTimeoutOutcome);
+}
+
+function normalizeFixedPromptWalEvent(event: FixedPromptWalEvent): FixedPromptWalEvent {
+  const candidate = event as unknown as FixedPromptWalEvent & {
+    schemaVersion: number;
+    stepsKind?: HarborCellStepsKind;
+  };
+  if (candidate.schemaVersion === FIXED_PROMPT_WAL_SCHEMA_VERSION) {
+    if (
+      isTaskEvent(candidate)
+      && 'steps' in candidate
+      && candidate.steps !== undefined
+      && candidate.stepsKind !== 'model_steps'
+      && candidate.stepsKind !== 'runtime_events'
+    ) {
+      throw new Error('stepsKind is required for fixed-prompt WAL schemaVersion 2 task events with steps');
+    }
+    return candidate;
+  }
+  if (candidate.schemaVersion !== 1) {
+    throw new Error(`unsupported fixed-prompt WAL schemaVersion: ${candidate.schemaVersion}`);
+  }
+  if (candidate.type === 'task_completed' && candidate.tokenSummary === undefined) {
+    throw new Error('tokenSummary is required for task_completed WAL schemaVersion 1');
+  }
+  return {
+    ...candidate,
+    schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
+    ...(
+      isTaskEvent(candidate) && 'steps' in candidate && candidate.steps !== undefined
+        ? { stepsKind: 'runtime_events' as const }
+        : {}
+    ),
+  } as FixedPromptWalEvent;
 }
 
 export async function readHarborTaskRunOutput(
@@ -728,6 +767,7 @@ function taskCompletedEvent(input: {
     ...(output.cell.continuationSummary ? { continuationSummary: output.cell.continuationSummary } : {}),
     ...(output.cell.taskToolSummary ? { taskToolSummary: output.cell.taskToolSummary } : {}),
     steps: output.cell.steps,
+    stepsKind: output.cell.stepsKind ?? (output.cell.schemaVersion === 1 ? 'runtime_events' : 'model_steps'),
     durationMs: output.cell.durationMs,
     runtimeEventsPath: output.cell.runtimeEventsPath,
     ...(output.cell.traceEventsPath ? { traceEventsPath: output.cell.traceEventsPath } : {}),
@@ -786,6 +826,7 @@ function taskPlumbingFailedEvent(input: {
       ? { taskToolSummary: input.output.cell.taskToolSummary }
       : {}),
     steps: input.output.cell.steps,
+    stepsKind: input.output.cell.stepsKind ?? (input.output.cell.schemaVersion === 1 ? 'runtime_events' : 'model_steps'),
     durationMs: input.output.cell.durationMs,
     runtimeEventsPath: input.output.cell.runtimeEventsPath,
     ...(input.output.cell.traceEventsPath ? { traceEventsPath: input.output.cell.traceEventsPath } : {}),
@@ -1013,7 +1054,11 @@ function taskBudgetExhaustedEvent(input: {
     ...(cellOutput?.contextBudgetSummary ? { contextBudgetSummary: cellOutput.contextBudgetSummary } : {}),
     ...(cellOutput?.continuationSummary ? { continuationSummary: cellOutput.continuationSummary } : {}),
     ...(cellOutput?.taskToolSummary ? { taskToolSummary: cellOutput.taskToolSummary } : {}),
-    ...(cellOutput ? { steps: cellOutput.steps, durationMs: cellOutput.durationMs } : {}),
+    ...(cellOutput ? {
+      steps: cellOutput.steps,
+      stepsKind: cellOutput.stepsKind ?? (cellOutput.schemaVersion === 1 ? 'runtime_events' : 'model_steps'),
+      durationMs: cellOutput.durationMs,
+    } : {}),
   };
 }
 
@@ -1052,6 +1097,7 @@ function projectLegacyTimeoutOutcome(event: FixedPromptWalEvent): FixedPromptWal
     ...(event.continuationSummary ? { continuationSummary: event.continuationSummary } : {}),
     ...(event.taskToolSummary ? { taskToolSummary: event.taskToolSummary } : {}),
     ...(event.steps !== undefined ? { steps: event.steps } : {}),
+    ...(event.stepsKind !== undefined ? { stepsKind: event.stepsKind } : {}),
     ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
   };
 }

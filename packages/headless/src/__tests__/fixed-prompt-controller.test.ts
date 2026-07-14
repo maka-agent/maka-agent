@@ -266,6 +266,11 @@ describe('fixed prompt controller', () => {
       const originalWal = await readFile(resultsJsonlPath, 'utf8');
       const projectedWal = await readFixedPromptWal(resultsJsonlPath);
       assert.equal(projectedWal[0]?.type, 'task_budget_exhausted');
+      assert.equal(projectedWal[0]?.schemaVersion, 2);
+      assert.equal(
+        projectedWal[0]?.type === 'task_budget_exhausted' ? projectedWal[0].stepsKind : undefined,
+        'runtime_events',
+      );
       let calls = 0;
 
       const result = await runFixedPromptController({

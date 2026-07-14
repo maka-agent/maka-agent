@@ -3,7 +3,9 @@ import type { RuntimeEvent } from '@maka/core';
 import type { ThinkingLevel } from '@maka/core';
 import type { ContextBudgetPolicy, InvocationResult } from '@maka/runtime';
 
-export const HARBOR_CELL_OUTPUT_SCHEMA_VERSION = 1;
+export const HARBOR_CELL_OUTPUT_SCHEMA_VERSION = 2;
+export const HARBOR_CELL_OUTPUT_LEGACY_SCHEMA_VERSION = 1;
+export type HarborCellStepsKind = 'runtime_events' | 'model_steps';
 
 export interface HarborCellTokenSummary {
   input: number;
@@ -96,7 +98,7 @@ export interface HarborCellTaskToolSummary {
 }
 
 export interface HarborCellOutput {
-  schemaVersion: typeof HARBOR_CELL_OUTPUT_SCHEMA_VERSION;
+  schemaVersion: typeof HARBOR_CELL_OUTPUT_SCHEMA_VERSION | typeof HARBOR_CELL_OUTPUT_LEGACY_SCHEMA_VERSION;
   status: InvocationResult['status'];
   errorClass?: string;
   runtimeEventsPath: string;
@@ -109,6 +111,8 @@ export interface HarborCellOutput {
   toolSummary: HarborCellToolSummary;
   taskToolSummary?: HarborCellTaskToolSummary;
   steps: number;
+  /** v1 is normalized to runtime_events; v2 writers always emit model_steps. */
+  stepsKind?: HarborCellStepsKind;
   durationMs: number;
   startedAt: number;
   finishedAt: number;
@@ -139,6 +143,7 @@ export function buildHarborCellOutput(input: {
     toolSummary: summarizeCellTools(invocation.events),
     ...taskToolSummaryField(invocation.events, input.taskToolSummaryEnabled ?? false),
     steps: countRuntimeSteps(invocation.events),
+    stepsKind: 'model_steps',
     durationMs: invocation.finishedAt - invocation.startedAt,
     startedAt: invocation.startedAt,
     finishedAt: invocation.finishedAt,
@@ -180,7 +185,10 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
     throw new Error('Harbor cell output must be a JSON object');
   }
   const schemaVersion = requireNumber(value.schemaVersion, 'schemaVersion');
-  if (value.schemaVersion !== HARBOR_CELL_OUTPUT_SCHEMA_VERSION) {
+  if (
+    value.schemaVersion !== HARBOR_CELL_OUTPUT_SCHEMA_VERSION
+    && value.schemaVersion !== HARBOR_CELL_OUTPUT_LEGACY_SCHEMA_VERSION
+  ) {
     throw new Error(`unsupported Harbor cell output schemaVersion: ${value.schemaVersion}`);
   }
   const status = requireStringUnion(value.status, 'status', ['completed', 'failed'] as const);
@@ -193,6 +201,9 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
   const tokenSummary = 'tokenSummary' in value
     ? validateHarborCellTokenSummary(value.tokenSummary)
     : undefined;
+  if (schemaVersion === HARBOR_CELL_OUTPUT_LEGACY_SCHEMA_VERSION && tokenSummary === undefined) {
+    throw new Error('tokenSummary is required for Harbor cell output schemaVersion 1');
+  }
   const contextBudgetPolicy = 'contextBudgetPolicy' in value
     ? validateContextBudgetPolicySnapshot(value.contextBudgetPolicy)
     : undefined;
@@ -207,12 +218,15 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
     ? validateTaskToolSummary(value.taskToolSummary)
     : undefined;
   const steps = requireNumber(value.steps, 'steps');
+  const stepsKind = schemaVersion === HARBOR_CELL_OUTPUT_LEGACY_SCHEMA_VERSION
+    ? 'runtime_events'
+    : requireStringUnion(value.stepsKind, 'stepsKind', ['model_steps'] as const);
   const durationMs = requireNumber(value.durationMs, 'durationMs');
   const startedAt = requireNumber(value.startedAt, 'startedAt');
   const finishedAt = requireNumber(value.finishedAt, 'finishedAt');
   const runtimeRefs = validateRuntimeRefs(value.runtimeRefs);
   const output: HarborCellOutput = {
-    schemaVersion: schemaVersion as typeof HARBOR_CELL_OUTPUT_SCHEMA_VERSION,
+    schemaVersion: schemaVersion as HarborCellOutput['schemaVersion'],
     status,
     ...(errorClass !== undefined ? { errorClass } : {}),
     runtimeEventsPath,
@@ -225,6 +239,7 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
     toolSummary,
     ...(taskToolSummary !== undefined ? { taskToolSummary } : {}),
     steps,
+    stepsKind,
     durationMs,
     startedAt,
     finishedAt,
