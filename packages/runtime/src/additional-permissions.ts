@@ -18,7 +18,7 @@ import {
   type PermissionProfile,
   type PermissionProfileMatchContext,
 } from '@maka/core/permission-profile';
-import type { PermissionMode } from '@maka/core/permission';
+import type { PermissionMode, ToolCategory } from '@maka/core/permission';
 
 import { hashAdditionalPermissionProfile } from './additional-permission-hash.js';
 import { stableHash } from './request-shape.js';
@@ -35,6 +35,7 @@ export type AdditionalPermissionErrorReason =
   | 'additional_permission_aborted'
   | 'grant_expired'
   | 'grant_already_consumed'
+  | 'grant_unavailable'
   | 'grant_intent_mismatch'
   | 'grant_path_changed';
 
@@ -91,10 +92,26 @@ export interface AdditionalPermissionGrant {
   readonly expiresAt: number;
 }
 
+export interface ToolExecutionPermissionContext {
+  readonly additionalGrant?: AdditionalPermissionGrant;
+}
+
 export type AdditionalPermissionPlanResult =
   | { kind: 'not_required' }
   | { kind: 'request'; proposal: AdditionalPermissionProposal }
   | { kind: 'block'; reason: AdditionalPermissionErrorReason; message: string };
+
+/** Immutable invocation metadata supplied to a trusted tool permission planner. */
+export interface AdditionalPermissionPlannerContext {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly toolUseId: string;
+  readonly toolName: string;
+  readonly category: ToolCategory;
+  readonly cwd: string;
+  readonly mode: PermissionMode;
+  readonly args: unknown;
+}
 
 export interface AdditionalPermissionPlanningContext {
   readonly profile: PermissionProfile;

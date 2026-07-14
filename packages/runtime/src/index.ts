@@ -41,9 +41,11 @@ export type {
   AdditionalPermissionErrorReason,
   AdditionalPermissionGrant,
   AdditionalPermissionPlanResult,
+  AdditionalPermissionPlannerContext,
   AdditionalPermissionPlanningContext,
   AdditionalPermissionProposal,
   NormalizedAdditionalPermissionPath,
+  ToolExecutionPermissionContext,
 } from './additional-permissions.js';
 export { hashAdditionalPermissionProfile } from './additional-permission-hash.js';
 

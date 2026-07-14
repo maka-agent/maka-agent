@@ -20,6 +20,7 @@ import type {
   ToolExecutionFacts,
   ToolPermissionRule,
 } from '@maka/core/permission';
+import { classifyToolUse } from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type {
   UserQuestion,
@@ -42,6 +43,13 @@ import { truncateToolOutput } from './tool-output.js';
 import { stableHash } from './request-shape.js';
 import type { RunTraceLike } from './run-trace.js';
 import { TurnScopedAwaitRegistry } from './turn-scoped-await-registry.js';
+import {
+  AdditionalPermissionError,
+  revalidateAdditionalPermissionProposal,
+  type AdditionalPermissionPlannerContext,
+  type AdditionalPermissionPlanResult,
+  type ToolExecutionPermissionContext,
+} from './additional-permissions.js';
 
 export type ToolModelOutputPart =
   | { type: 'text'; text: string }
@@ -83,6 +91,11 @@ export interface MakaTool<P = any, R = unknown> {
   } | ((context: { permissionMode: PermissionMode; cwd: string; args: P }) => {
     platformSandboxAvailable: boolean;
   });
+  /** Trusted runtime planner for one-call permission expansion. */
+  planAdditionalPermissions?: (
+    args: P,
+    context: AdditionalPermissionPlannerContext,
+  ) => Promise<AdditionalPermissionPlanResult> | AdditionalPermissionPlanResult;
   /** Real tool implementation. Called only after permission allows. */
   impl: (args: P, ctx: MakaToolContext) => Promise<R> | R;
   /** Optional provider-visible content mapping, used for screenshot image parts. */
@@ -103,6 +116,8 @@ export interface MakaToolContext {
   toolCallId: string;
   abortSignal: AbortSignal;
   emitOutput: (stream: ToolOutputStream, chunk: string) => void;
+  /** One-call grants already approved and consumed by ToolRuntime. */
+  permissionContext?: ToolExecutionPermissionContext;
   spawnChildAgent?: (input: {
     spec: AgentSpec;
     prompt: string;
@@ -447,13 +462,69 @@ export class ToolRuntime {
       return this.errorReturn(reason);
     }
 
-    if (tool.permissionRequired !== false || (this.input.permissionRules?.length ?? 0) > 0) {
+    let additionalPlan: AdditionalPermissionPlanResult = { kind: 'not_required' };
+    if (tool.planAdditionalPermissions) {
+      try {
+        const plannerContext: AdditionalPermissionPlannerContext = Object.freeze({
+          sessionId: this.input.sessionId,
+          turnId,
+          toolUseId,
+          toolName: tool.name,
+          category: classifyToolUse({
+            toolName: tool.name,
+            args: executionArgs,
+            ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
+          }),
+          cwd: this.input.header.cwd,
+          mode: this.input.header.permissionMode,
+          args: executionArgs,
+        });
+        const planned = await tool.planAdditionalPermissions(
+          executionArgs as never,
+          plannerContext,
+        );
+        if (!isAdditionalPermissionPlanResult(planned)) {
+          throw new AdditionalPermissionError({
+            stage: 'planning',
+            reason: 'invalid_additional_permissions',
+            message: 'Additional permission planner returned an invalid result.',
+          });
+        }
+        additionalPlan = planned;
+      } catch (error) {
+        additionalPlan = {
+          kind: 'block',
+          reason: 'invalid_additional_permissions',
+          message: formatSyntheticToolErrorText(error),
+        };
+      }
+      if (additionalPlan.kind === 'block') {
+        const reason = formatSyntheticToolErrorText(additionalPlan.message);
+        trace?.emit('permission', 'permission_failed', 'Additional permission planning failed', {
+          toolUseId,
+          toolName: tool.name,
+          requestKind: 'additional_permissions',
+          reason: additionalPlan.reason,
+        });
+        await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
+        this.recordLoopGateOutcome(callSignature, true);
+        return this.errorReturn(reason);
+      }
+    }
+
+    if (
+      tool.permissionRequired !== false
+      || (this.input.permissionRules?.length ?? 0) > 0
+      || additionalPlan.kind === 'request'
+    ) {
       const verdict = this.input.permissionEngine.evaluate({
         sessionId: this.input.sessionId,
         turnId,
         toolUseId,
         toolName: tool.name,
-        args: structuredClone(permissionArgs),
+        args: structuredClone(
+          additionalPlan.kind === 'request' ? executionArgs : permissionArgs,
+        ),
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         permissionRequired: tool.permissionRequired !== false,
@@ -468,6 +539,10 @@ export class ToolRuntime {
             : tool.sandbox,
         } : {}),
         mode: this.input.header.permissionMode,
+        cwd: this.input.header.cwd,
+        ...(additionalPlan.kind === 'request'
+          ? { additionalPermissionProposal: additionalPlan.proposal }
+          : {}),
       });
 
       if (verdict.kind === 'block') {
@@ -507,6 +582,7 @@ export class ToolRuntime {
           toolUseId,
           toolName: tool.name,
           category: verdict.event.category,
+          requestKind: verdict.event.kind ?? 'tool_permission',
         });
         let response: PermissionDecision;
         try {
@@ -518,7 +594,8 @@ export class ToolRuntime {
             requestId: verdict.event.requestId,
             toolUseId,
             toolName: tool.name,
-            reason,
+            requestKind: verdict.event.kind ?? 'tool_permission',
+            reason: err instanceof AdditionalPermissionError ? err.reason : reason,
           });
           await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
           trace?.emit('tool', 'tool_failed', 'Tool execution failed before implementation', {
@@ -557,6 +634,7 @@ export class ToolRuntime {
           toolUseId,
           toolName: tool.name,
           decision: response.decision,
+          requestKind: verdict.event.kind ?? 'tool_permission',
           ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
         });
 
@@ -592,6 +670,45 @@ export class ToolRuntime {
       await this.writeSyntheticToolResult(toolUseId, turnId, SUBAGENT_TOOL_LIMIT_MESSAGE, queue);
       this.recordLoopGateOutcome(callSignature, true);
       return this.errorReturn(SUBAGENT_TOOL_LIMIT_MESSAGE);
+    }
+
+    let permissionContext: ToolExecutionPermissionContext | undefined;
+    if (additionalPlan.kind === 'request') {
+      try {
+        await revalidateAdditionalPermissionProposal({
+          proposal: additionalPlan.proposal,
+          cwd: this.input.header.cwd,
+        });
+        const additionalGrant = this.input.permissionEngine.consumeAdditionalPermissionGrant({
+          sessionId: this.input.sessionId,
+          turnId,
+          toolUseId,
+          toolName: tool.name,
+          intentHash: additionalPlan.proposal.intentHash,
+        });
+        if (!additionalGrant) {
+          throw new AdditionalPermissionError({
+            stage: 'consume',
+            reason: 'grant_unavailable',
+            message: 'Approved additional permission grant was unavailable.',
+          });
+        }
+        permissionContext = Object.freeze({ additionalGrant });
+      } catch (error) {
+        const reason = formatSyntheticToolErrorText(error);
+        trace?.emit('permission', 'permission_failed', 'Additional permission could not be applied', {
+          toolUseId,
+          toolName: tool.name,
+          requestKind: 'additional_permissions',
+          reason: error instanceof AdditionalPermissionError
+            ? error.reason
+            : 'invalid_additional_permissions',
+        });
+        await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
+        this.recordLoopGateOutcome(callSignature, true);
+        this.releaseSubagentSlot(tool);
+        return this.errorReturn(reason);
+      }
     }
     const startedAt = this.input.now();
     const output = createToolOutputDeltaEmitter({
@@ -629,6 +746,7 @@ export class ToolRuntime {
           toolCallId: toolUseId,
           abortSignal: ctx.abortSignal,
           emitOutput: output.emit,
+          ...(permissionContext ? { permissionContext } : {}),
           ...(this.input.listChildAgents ? { listChildAgents: this.input.listChildAgents } : {}),
           ...(this.input.readChildAgentOutput ? { readChildAgentOutput: this.input.readChildAgentOutput } : {}),
           ...(this.buildSpawnChildAgentContext(ctx.abortSignal)),
@@ -1140,6 +1258,20 @@ function describeToolIntent(tool: MakaTool, args: unknown): string | undefined {
   if (normalized.length === 0) return undefined;
   const capped = normalized.length <= 180 ? normalized : `${normalized.slice(0, 179)}…`;
   return `只读探索：${capped}`;
+}
+
+function isAdditionalPermissionPlanResult(
+  value: unknown,
+): value is AdditionalPermissionPlanResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const result = value as Record<string, unknown>;
+  if (result.kind === 'not_required') return true;
+  if (result.kind === 'request') {
+    return Boolean(result.proposal && typeof result.proposal === 'object');
+  }
+  return result.kind === 'block'
+    && typeof result.reason === 'string'
+    && typeof result.message === 'string';
 }
 
 function byteLength(value: unknown): number {
