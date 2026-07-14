@@ -7,9 +7,9 @@ import type {
   OnboardingMilestoneId,
   SettingsTestResult,
   UpdateAppSettingsInput,
-  UsageRange,
   UsageStats,
 } from '@maka/core';
+import type { UsageQuery } from '@maka/core/usage-stats/types';
 import {
   createDefaultSettings,
   mergeSettings,
@@ -72,7 +72,7 @@ export interface SettingsStore {
   get(): Promise<AppSettings>;
   update(patch: UpdateAppSettingsInput): Promise<AppSettings>;
   testNetworkProxy(): Promise<SettingsTestResult>;
-  usageStats(range?: UsageRange): Promise<UsageStats>;
+  usageStats(range?: UsageQuery['range']): Promise<UsageStats>;
   /**
    * PR110b: upsert a single onboarding milestone. Caller passes the
    * desired terminal status; the store stamps `Date.now()` so the
@@ -214,8 +214,8 @@ class FileSettingsStore implements SettingsStore {
     };
   }
 
-  async usageStats(range: UsageRange = '24h'): Promise<UsageStats> {
-    const since = rangeToSince(range);
+  async usageStats(range: UsageQuery['range'] = '24h'): Promise<UsageStats> {
+    const bounds = resolveUsageBounds(range);
     const sessions = await readStoredSessions(join(this.workspaceRoot, 'sessions'));
     await this.telemetryRepo.load();
     const query = { range };
@@ -253,7 +253,7 @@ class FileSettingsStore implements SettingsStore {
       );
       return messages
         .filter((message): message is UsageTokenMessage => message.type === 'token_usage')
-        .filter((message) => !since || message.ts >= since)
+        .filter((message) => message.ts >= bounds.from && message.ts <= bounds.to)
         .filter((message) => !telemetryMainTurns.has(`${header.id}\0${message.turnId}`))
         .map((message) => ({
           id: message.id,
@@ -277,8 +277,8 @@ class FileSettingsStore implements SettingsStore {
     const modelLogs = [...telemetryModelLogs, ...legacyModelLogs];
     const meteredLegacyLogs = legacyModelLogs.filter((row) => row.usageAvailable !== false);
 
-    const toolRows = sessions.flatMap(({ messages }) => toolStatsFromMessages(messages, since));
-    const toolLogs = sessions.flatMap(({ header, messages }) => toolLogRowsFromMessages(header, messages, since));
+    const toolRows = sessions.flatMap(({ messages }) => toolStatsFromMessages(messages, bounds));
+    const toolLogs = sessions.flatMap(({ header, messages }) => toolLogRowsFromMessages(header, messages, bounds));
     const logs = [...modelLogs, ...toolLogs].sort((a, b) => b.ts - a.ts);
     return {
       summary: {
@@ -448,13 +448,14 @@ function isOptionalFiniteNumber(value: unknown): value is number | undefined {
   return value === undefined || isFiniteNumber(value);
 }
 
-function rangeToSince(range: UsageRange): number | null {
+function resolveUsageBounds(range: UsageQuery['range']): { from: number; to: number } {
+  if (typeof range === 'object') return range;
   const now = Date.now();
   switch (range) {
-    case '24h': return now - 24 * 60 * 60 * 1000;
-    case '7d': return now - 7 * 24 * 60 * 60 * 1000;
-    case '30d': return now - 30 * 24 * 60 * 60 * 1000;
-    case 'all': return null;
+    case '24h': return { from: now - 24 * 60 * 60 * 1000, to: now };
+    case '7d': return { from: now - 7 * 24 * 60 * 60 * 1000, to: now };
+    case '30d': return { from: now - 30 * 24 * 60 * 60 * 1000, to: now };
+    case 'all': return { from: 0, to: now };
   }
 }
 
@@ -475,7 +476,10 @@ function aggregateBy(logs: UsageStats['logs'], key: 'provider' | 'model') {
     .sort((a, b) => b.requests - a.requests) as never;
 }
 
-function toolStatsFromMessages(messages: UsageMessage[], since: number | null): UsageStats['byTool'] {
+function toolStatsFromMessages(
+  messages: UsageMessage[],
+  bounds: { from: number; to: number },
+): UsageStats['byTool'] {
   const calls = messages.filter((message): message is UsageToolCallMessage => message.type === 'tool_call');
   const results = new Map(
     messages
@@ -484,7 +488,7 @@ function toolStatsFromMessages(messages: UsageMessage[], since: number | null): 
   );
   const rows = new Map<string, { calls: number; success: number; errors: number; totalDuration: number; durationCount: number }>();
   for (const call of calls) {
-    if (since && call.ts < since) continue;
+    if (call.ts < bounds.from || call.ts > bounds.to) continue;
     const result = results.get(call.id);
     const current = rows.get(call.toolName) ?? { calls: 0, success: 0, errors: 0, totalDuration: 0, durationCount: 0 };
     current.calls += 1;
@@ -508,7 +512,7 @@ function toolStatsFromMessages(messages: UsageMessage[], since: number | null): 
 function toolLogRowsFromMessages(
   header: UsageSessionHeader,
   messages: UsageMessage[],
-  since: number | null,
+  bounds: { from: number; to: number },
 ): UsageStats['logs'] {
   const calls = messages.filter((message): message is UsageToolCallMessage => message.type === 'tool_call');
   const results = new Map(
@@ -517,7 +521,7 @@ function toolLogRowsFromMessages(
       .map((message) => [message.toolUseId, message]),
   );
   return calls
-    .filter((call) => !since || call.ts >= since)
+    .filter((call) => call.ts >= bounds.from && call.ts <= bounds.to)
     .map((call) => {
       const result = results.get(call.id);
       const ts = result?.ts ?? call.ts;

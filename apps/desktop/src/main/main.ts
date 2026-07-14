@@ -965,6 +965,7 @@ const runtime = new SessionManager({
 const dailyReview = createDailyReviewMainService({
   archiveStore: dailyReviewArchiveStore,
   connectionStore,
+  settingsStore,
   telemetryRepo,
   listSessions: () => runtime.listSessions(),
   resolveConnectionSecret,

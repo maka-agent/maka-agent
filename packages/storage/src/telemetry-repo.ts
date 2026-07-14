@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import type {
   PricingConfig,
@@ -39,6 +40,11 @@ interface TelemetryFile {
   pricingOverrides: PricingConfig[];
 }
 
+type TelemetryMutation = (file: TelemetryFile) => TelemetryFile;
+
+const TELEMETRY_LOCK_TIMEOUT_MS = 5_000;
+const TELEMETRY_LOCK_POLL_MS = 10;
+
 export interface TelemetryRepo {
   insertLlmCall(record: PersistedLlmCallRecord): void;
   insertToolInvocation(record: PersistedToolInvocationRecord): void;
@@ -59,34 +65,32 @@ export function createTelemetryRepo(workspaceRoot: string): TelemetryRepo {
 class FileTelemetryRepo implements TelemetryRepo {
   private readonly path: string;
   private file: TelemetryFile = emptyFile();
-  private loaded = false;
   private queue: Promise<void> = Promise.resolve();
+  private mutationVersion = 0;
 
   constructor(workspaceRoot: string) {
     this.path = join(workspaceRoot, 'telemetry.json');
   }
 
   async load(): Promise<void> {
-    if (this.loaded) return;
-    try {
-      const text = await readFile(this.path, 'utf8');
-      this.file = normalizeFile(JSON.parse(text));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      this.file = emptyFile();
-      await this.write();
-    }
-    this.loaded = true;
+    await this.queue;
+    this.file = await readOrCreateTelemetryFile(this.path);
   }
 
   insertLlmCall(record: PersistedLlmCallRecord): void {
     this.file.usageRecords = upsertById(this.file.usageRecords, record);
-    void this.enqueueWrite();
+    void this.enqueueMutation((file) => ({
+      ...file,
+      usageRecords: upsertById(file.usageRecords, record),
+    }));
   }
 
   insertToolInvocation(record: PersistedToolInvocationRecord): void {
     this.file.toolInvocations = upsertById(this.file.toolInvocations, record);
-    void this.enqueueWrite();
+    void this.enqueueMutation((file) => ({
+      ...file,
+      toolInvocations: upsertById(file.toolInvocations, record),
+    }));
   }
 
   summary(query: UsageQuery): UsageSummaryV2 {
@@ -192,12 +196,21 @@ class FileTelemetryRepo implements TelemetryRepo {
       ...this.file.pricingOverrides.filter((item) => item.modelKey !== pricing.modelKey),
       pricing,
     ].sort((a, b) => a.modelKey.localeCompare(b.modelKey));
-    await this.enqueueWrite();
+    await this.enqueueMutation((file) => ({
+      ...file,
+      pricingOverrides: [
+        ...file.pricingOverrides.filter((item) => item.modelKey !== pricing.modelKey),
+        pricing,
+      ].sort((a, b) => a.modelKey.localeCompare(b.modelKey)),
+    }));
   }
 
   async deletePricing(modelKey: string): Promise<void> {
     this.file.pricingOverrides = this.file.pricingOverrides.filter((item) => item.modelKey !== modelKey);
-    await this.enqueueWrite();
+    await this.enqueueMutation((file) => ({
+      ...file,
+      pricingOverrides: file.pricingOverrides.filter((item) => item.modelKey !== modelKey),
+    }));
   }
 
   private filteredUsageRows(query: UsageQuery, from: number, to: number): PersistedLlmCallRecord[] {
@@ -220,17 +233,84 @@ class FileTelemetryRepo implements TelemetryRepo {
     });
   }
 
-  private enqueueWrite(): Promise<void> {
-    const next = this.queue.then(() => this.write(), () => this.write());
+  private enqueueMutation(mutation: TelemetryMutation): Promise<void> {
+    const version = ++this.mutationVersion;
+    const commit = () => this.commitMutation(mutation, version);
+    const next = this.queue.then(commit, commit);
     this.queue = next.catch(() => {});
     return next;
   }
 
-  private async write(): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true });
-    const tempPath = `${this.path}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tempPath, JSON.stringify(this.file, null, 2) + '\n', 'utf8');
-    await rename(tempPath, this.path);
+  private async commitMutation(mutation: TelemetryMutation, version: number): Promise<void> {
+    const committed = await withTelemetryFileLock(this.path, async () => {
+      const current = await readTelemetryFile(this.path) ?? emptyFile();
+      const next = mutation(current);
+      await writeTelemetryFile(this.path, next);
+      return next;
+    });
+    if (version === this.mutationVersion) {
+      this.file = committed;
+      return;
+    }
+    this.file = {
+      usageRecords: mergeById(committed.usageRecords, this.file.usageRecords),
+      toolInvocations: mergeById(committed.toolInvocations, this.file.toolInvocations),
+      pricingOverrides: this.file.pricingOverrides,
+    };
+  }
+}
+
+async function readOrCreateTelemetryFile(path: string): Promise<TelemetryFile> {
+  const existing = await readTelemetryFile(path);
+  if (existing) return existing;
+  return withTelemetryFileLock(path, async () => {
+    const raced = await readTelemetryFile(path);
+    if (raced) return raced;
+    const empty = emptyFile();
+    await writeTelemetryFile(path, empty);
+    return empty;
+  });
+}
+
+async function readTelemetryFile(path: string): Promise<TelemetryFile | undefined> {
+  try {
+    return normalizeFile(JSON.parse(await readFile(path, 'utf8')));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+}
+
+async function writeTelemetryFile(path: string, file: TelemetryFile): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const tempPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+  await writeFile(tempPath, JSON.stringify(file, null, 2) + '\n', 'utf8');
+  await rename(tempPath, path);
+}
+
+async function withTelemetryFileLock<T>(path: string, action: () => Promise<T>): Promise<T> {
+  await mkdir(dirname(path), { recursive: true });
+  const lockPath = `${path}.lock`;
+  const deadline = Date.now() + TELEMETRY_LOCK_TIMEOUT_MS;
+  for (;;) {
+    try {
+      await mkdir(lockPath);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `telemetry.json is locked by another process (${lockPath}); `
+          + 'if no Maka process is using it, remove that directory and retry',
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, TELEMETRY_LOCK_POLL_MS));
+    }
+  }
+  try {
+    return await action();
+  } finally {
+    await rm(lockPath, { recursive: true, force: true });
   }
 }
 
@@ -304,6 +384,10 @@ function normalizeLlmCallRecord(input: unknown): PersistedLlmCallRecord {
 
 function upsertById<T extends { id: string }>(rows: T[], row: T): T[] {
   return [...rows.filter((current) => current.id !== row.id), row];
+}
+
+function mergeById<T extends { id: string }>(base: T[], overlay: T[]): T[] {
+  return overlay.reduce(upsertById, base);
 }
 
 export function resolveRange(range: UsageQuery['range']): { from: number; to: number } {

@@ -17,16 +17,18 @@ import type {
   DailyReviewSummary,
   DailyReviewTrigger,
   SessionSummary,
+  UsageSummaryV2,
 } from '@maka/core';
 import { providerAuthRequiresSecret, type LlmConnection } from '@maka/core/llm-connections';
 import { buildProviderOptions, getAIModel } from '@maka/runtime';
-import type { createConnectionStore, createTelemetryRepo } from '@maka/storage';
+import type { createConnectionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
 import type { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 
 const DAILY_REVIEW_ARCHIVE_LIMIT = 180;
 
 type ConnectionStore = ReturnType<typeof createConnectionStore>;
 type DailyReviewArchiveStore = ReturnType<typeof createDailyReviewArchiveStore>;
+type SettingsStore = ReturnType<typeof createSettingsStore>;
 type TelemetryRepo = ReturnType<typeof createTelemetryRepo>;
 
 export interface DailyReviewMainService {
@@ -44,6 +46,7 @@ export interface DailyReviewMainService {
 interface DailyReviewMainServiceDeps {
   archiveStore: DailyReviewArchiveStore;
   connectionStore: ConnectionStore;
+  settingsStore: SettingsStore;
   telemetryRepo: TelemetryRepo;
   listSessions(): Promise<readonly SessionSummary[]>;
   resolveConnectionSecret(slug: string): Promise<string | null>;
@@ -72,18 +75,43 @@ export function createDailyReviewMainService(deps: DailyReviewMainServiceDeps): 
         : localDayBoundsAt(Date.now(), offset - (span - 1));
     const range = { fromMs: startDay.fromMs, toMs: endDay.toMs };
     const usageQuery = dailyUsageQuery(range);
-    const [usageSummary, toolBuckets, modelBuckets, sessions] = await Promise.all([
-      Promise.resolve(deps.telemetryRepo.summary(usageQuery)),
+    await deps.telemetryRepo.load();
+    const [settingsUsage, toolBuckets, sessions] = await Promise.all([
+      deps.settingsStore.usageStats(usageQuery.range),
       Promise.resolve(deps.telemetryRepo.buckets(usageQuery, 'tool')),
-      Promise.resolve(deps.telemetryRepo.buckets(usageQuery, 'model')),
       Promise.resolve(deps.listSessions()),
     ]);
+    const modelLogs = settingsUsage.logs.filter((log) => log.kind === 'model');
+    const usageSummary: UsageSummaryV2 = {
+      range: { from: range.fromMs, to: range.toMs },
+      totalRequests: settingsUsage.summary.totalRequests,
+      usageUnavailableRequests: settingsUsage.summary.usageUnavailableRequests ?? 0,
+      totalCostUsd: settingsUsage.summary.totalCostUsd,
+      totalTokens: {
+        input: settingsUsage.summary.inputTokens,
+        output: settingsUsage.summary.outputTokens,
+        cacheMiss: settingsUsage.summary.cacheMiss,
+        cacheRead: settingsUsage.summary.cacheRead,
+        cacheWrite: settingsUsage.summary.cacheCreation,
+        reasoning: settingsUsage.summary.reasoning,
+        total: settingsUsage.summary.totalTokens,
+      },
+      cacheHitRequests: modelLogs.filter((log) => log.usageAvailable !== false && (log.cacheRead ?? 0) > 0).length,
+      cacheCreateRequests: modelLogs.filter((log) => log.usageAvailable !== false && (log.cacheCreation ?? 0) > 0).length,
+      errorRequests: modelLogs.filter((log) => log.status === 'error').length,
+    };
     return buildDailyReviewSummary({
       day: range,
       usageSummary,
       sessions: pickDailyReviewSessions(sessions, range, DAILY_REVIEW_LIST_LIMIT),
       topTools: pickDailyReviewTopEntries(toolBuckets, DAILY_REVIEW_LIST_LIMIT),
-      topModels: pickDailyReviewTopEntries(modelBuckets, DAILY_REVIEW_LIST_LIMIT),
+      topModels: settingsUsage.byModel.slice(0, DAILY_REVIEW_LIST_LIMIT).map((row) => ({
+        key: row.model,
+        label: row.model,
+        requests: row.requests,
+        totalTokens: row.tokens,
+        costUsd: row.costUsd,
+      })),
     });
   }
 

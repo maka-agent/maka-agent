@@ -39,6 +39,31 @@ describe('FileTelemetryRepo', () => {
     });
   });
 
+  test('merges writes from stale repo instances sharing one workspace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-telemetry-shared-'));
+    try {
+      const desktop = createTelemetryRepo(root);
+      const cli = createTelemetryRepo(root);
+      await Promise.all([desktop.load(), cli.load()]);
+
+      desktop.insertLlmCall(llmRecord({ id: 'desktop-before-cli' }));
+      await desktop.load();
+      cli.insertLlmCall(llmRecord({ id: 'cli-record' }));
+      await cli.load();
+      desktop.insertLlmCall(llmRecord({ id: 'desktop-after-cli' }));
+      await desktop.load();
+
+      await cli.load();
+      assert.deepEqual(
+        cli.logs({ range: 'all' }).rows.map((row) => row.id).sort(),
+        ['cli-record', 'desktop-after-cli', 'desktop-before-cli'],
+      );
+    } finally {
+      await flushWrites();
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
   test('keeps unavailable usage out of economics without hiding request health', async () => {
     await withRepo(async (repo) => {
       await repo.load();
