@@ -1081,6 +1081,98 @@ describe('AiSdkBackend model history', () => {
     assert.equal(usage?.contextBudget?.retrievedArchiveToolResults, undefined);
   });
 
+  test('A/B: synthesis cache cuts replay tokens vs hydrating the archived payload', async () => {
+    // Deterministic economic-mechanism benchmark for #578. The same replay is
+    // projected twice against a fake model: the baseline re-hydrates the full
+    // archived tool result; the arm injects the compact synthesis block instead.
+    // The prompt the model actually receives is ground truth, so its size delta
+    // is the synthesis cache's replay-token saving — no live model or network,
+    // so the number is reproducible in CI. (Live Terminal-Bench runs can't drive
+    // this: their single-long-turn shape never archives-then-retrieves a turn, so
+    // the write path stays source_missing — see docs/economic-mechanisms-benchmark.md.)
+    const CHARS_PER_TOKEN = 1; // 1:1 so prompt chars are directly the token estimate
+    const archivedResult = { body: 'RAW_SYNTHESIS_ARCHIVE_PAYLOAD '.repeat(80).trim() };
+    const serialized = JSON.stringify(archivedResult);
+    const block = synthesisBlock({
+      queryKey: 'key-alpha',
+      turnId: 'turn-alpha',
+      runtimeEventId: 'rt-result-alpha',
+      toolCallId: 'tool-alpha',
+      artifactId: 'artifact-rt-result-alpha',
+      bodySha256: sha256(serialized),
+      originalEstimatedTokens: serialized.length,
+      originalBytes: utf8Bytes(serialized),
+    });
+
+    async function projectReplayPromptChars(useSynthesisCache: boolean): Promise<string> {
+      const model = completionModel();
+      const archivedBodies = new Map<string, string>();
+      const backend = new AiSdkBackend({
+        sessionId: 'session-1',
+        header: header(),
+        appendMessage: async () => {},
+        connection: connection(),
+        apiKey: 'sk-test',
+        modelId: 'mock-model-id',
+        permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+        modelFactory: () => model,
+        tools: [],
+        newId: idGenerator(),
+        now: monotonicClock(),
+        contextBudget: {
+          name: 'synthesis-cache-benchmark',
+          maxHistoryTurns: 1,
+          minRecentTurns: 0,
+          staleToolResultPrune: { enabled: true, maxResultEstimatedTokens: 1, minRecentTurnsFull: 0 },
+          archiveRetrieval: { enabled: true, mode: 'history_search_gated', maxResults: 1, maxEstimatedTokens: 8192, maxBytes: 8192 },
+          historySearch: { enabled: true, maxResults: 1, around: 1, maxEstimatedTokens: 8192 },
+          ...(useSynthesisCache
+            ? { synthesisCache: { enabled: true, mode: 'read_write', blocks: [block] } }
+            : {}),
+          charsPerToken: CHARS_PER_TOKEN,
+        },
+        archiveToolResult: async (event) => {
+          archivedBodies.set(event.runtimeEventId, event.serializedResult);
+          return { artifactId: `artifact-${event.runtimeEventId}` };
+        },
+        readToolResultArchive: async (event) => {
+          const body = archivedBodies.get(event.runtimeEventId);
+          return body ? { ok: true, serializedResult: body } : { ok: false, reason: 'not_found' };
+        },
+        writeSynthesisCache: async () => ({ blocks: [] }),
+      });
+      for await (const _event of backend.send({
+        turnId: 'turn-current',
+        text: 'Recover key-alpha',
+        context: [],
+        runtimeContext: [
+          runtimeEvent({ id: 'rt-call-alpha', turnId: 'turn-alpha', role: 'model', author: 'agent', content: { kind: 'function_call', id: 'tool-alpha', name: 'Read', args: { path: 'key-alpha.txt' } } }),
+          runtimeEvent({ id: 'rt-result-alpha', turnId: 'turn-alpha', role: 'tool', author: 'tool', content: { kind: 'function_response', id: 'tool-alpha', name: 'Read', result: archivedResult, isError: false } }),
+          runtimeTextEvent({ id: 'rt-new', turnId: 'turn-new', role: 'user', author: 'user', text: 'newer retained context' }),
+        ],
+      })) {
+        // drain the stream so the request is issued to the mock model
+      }
+      return JSON.stringify(compactPrompt(model));
+    }
+
+    const baseline = await projectReplayPromptChars(false);
+    const arm = await projectReplayPromptChars(true);
+    const baselineTokens = Math.ceil(baseline.length / CHARS_PER_TOKEN);
+    const armTokens = Math.ceil(arm.length / CHARS_PER_TOKEN);
+    const savedTokens = baselineTokens - armTokens;
+    const savedPct = (savedTokens / baselineTokens) * 100;
+
+    // Ground-truth: baseline hydrates the raw payload; the arm swaps in the block.
+    assert.ok(baseline.includes('RAW_SYNTHESIS_ARCHIVE_PAYLOAD'), 'baseline should hydrate the archived payload');
+    assert.ok(arm.includes('maka_synthesis_cache_block'), 'arm should inject the synthesis block');
+    assert.equal(arm.includes('RAW_SYNTHESIS_ARCHIVE_PAYLOAD'), false, 'arm must not hydrate the raw payload');
+    assert.ok(armTokens < baselineTokens, 'synthesis cache must reduce replay tokens');
+    assert.ok(savedPct > 40, `expected >40% replay-token saving, got ${savedPct.toFixed(1)}%`);
+
+    console.log(`[synthesis-cache A/B] replay prompt tokens (charsPerToken=${CHARS_PER_TOKEN}): baseline=${baselineTokens} arm=${armTokens} saved=${savedTokens} (${savedPct.toFixed(1)}%)`);
+  });
+
   test('loads synthesis blocks before archive retrieval', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
