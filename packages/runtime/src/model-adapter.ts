@@ -436,11 +436,13 @@ export function normalizeAiSdkUsage(
   if (!usage) return undefined;
   const reportedInputTokens =
     finiteTokenFromValueOrBreakdown(usage.inputTokens, 'total')
+    ?? finiteTokenBreakdownSum(usage.inputTokens, ['noCache', 'cacheRead', 'cacheWrite'])
     ?? finiteToken(usage.promptTokens)
     ?? finiteToken(usage.raw?.prompt_tokens)
     ?? finiteToken(usage.prompt_tokens);
   const reportedOutputTokens =
     finiteTokenFromValueOrBreakdown(usage.outputTokens, 'total')
+    ?? finiteTokenBreakdownSum(usage.outputTokens, ['text', 'reasoning'])
     ?? finiteToken(usage.completionTokens)
     ?? finiteToken(usage.raw?.completion_tokens)
     ?? finiteToken(usage.completion_tokens);
@@ -535,6 +537,17 @@ function finiteTokenFromValueOrBreakdown(
   key: keyof TokenCountBreakdown,
 ): number | undefined {
   return finiteToken(value) ?? finiteTokenFromBreakdown(value, key);
+}
+
+function finiteTokenBreakdownSum(
+  value: number | TokenCountBreakdown | undefined,
+  keys: readonly (keyof TokenCountBreakdown)[],
+): number | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const parts = keys.map((key) => finiteToken(value[key]));
+  return parts.every((part) => part === undefined)
+    ? undefined
+    : parts.reduce<number>((sum, part) => sum + (part ?? 0), 0);
 }
 
 function rawUsageFields(usage: AiSdkUsageLike): AiSdkRawUsageFields | undefined {

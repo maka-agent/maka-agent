@@ -1312,25 +1312,25 @@ export class AiSdkBackend implements AgentBackend {
           activeToolResultPruneDiagnosticPatch,
           activeCompactDiagnosticPatch,
         );
-        this.input.recordLlmCall?.({
+        if (tokenUsage) this.input.recordLlmCall?.({
           sessionId: this.sessionId,
           turnId,
           connectionSlug: this.input.connection.slug,
           providerId: this.input.connection.providerType,
           modelId: this.input.modelId,
-          inputTokens: tokenUsage?.inputTokens ?? 0,
-          outputTokens: tokenUsage?.outputTokens ?? 0,
-          cacheHitInputTokens: tokenUsage?.cacheHitInputTokens ?? 0,
-          cacheMissInputTokens: tokenUsage?.cacheMissInputTokens ?? 0,
-          ...(tokenUsage?.cacheMissInputSource !== undefined
+          inputTokens: tokenUsage.inputTokens,
+          outputTokens: tokenUsage.outputTokens,
+          cacheHitInputTokens: tokenUsage.cacheHitInputTokens,
+          cacheMissInputTokens: tokenUsage.cacheMissInputTokens,
+          ...(tokenUsage.cacheMissInputSource !== undefined
             ? { cacheMissInputSource: tokenUsage.cacheMissInputSource }
             : {}),
-          cachedInputTokens: tokenUsage?.cachedInputTokens ?? 0,
-          cacheWriteInputTokens: tokenUsage?.cacheWriteInputTokens ?? 0,
-          reasoningTokens: tokenUsage?.reasoningTokens ?? 0,
-          totalTokens: tokenUsage?.totalTokens,
-          ...(tokenUsage?.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
-          ...(tokenUsage?.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
+          cachedInputTokens: tokenUsage.cachedInputTokens,
+          cacheWriteInputTokens: tokenUsage.cacheWriteInputTokens,
+          reasoningTokens: tokenUsage.reasoningTokens,
+          totalTokens: tokenUsage.totalTokens,
+          ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
+          ...(tokenUsage.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
           latencyMs: Math.max(0, this.now() - startedAt),
           status: streamStatus,
           ...(streamErrorClass ? { errorClass: streamErrorClass } : {}),

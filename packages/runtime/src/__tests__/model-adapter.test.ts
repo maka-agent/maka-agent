@@ -245,6 +245,35 @@ describe('ModelAdapter stream and error normalization', () => {
     }), undefined);
   });
 
+  test('derives totals from detail-only AI SDK usage', () => {
+    assert.deepEqual(
+      normalizeAiSdkUsage({
+        inputTokens: {
+          total: undefined,
+          noCache: 10,
+          cacheRead: 5,
+          cacheWrite: 2,
+        },
+        outputTokens: {
+          total: undefined,
+          text: 4,
+          reasoning: 3,
+        },
+      }),
+      {
+        inputTokens: 17,
+        outputTokens: 7,
+        cacheHitInputTokens: 5,
+        cacheMissInputTokens: 10,
+        cacheMissInputSource: 'explicit',
+        cachedInputTokens: 5,
+        cacheWriteInputTokens: 2,
+        reasoningTokens: 3,
+        totalTokens: 24,
+      },
+    );
+  });
+
   test('preserves DeepSeek and OpenAI-compatible raw usage fields', () => {
     assert.deepEqual(
       normalizeAiSdkUsage(

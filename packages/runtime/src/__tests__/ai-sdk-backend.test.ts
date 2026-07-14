@@ -3806,6 +3806,47 @@ describe('AiSdkBackend usage telemetry', () => {
     ]);
   });
 
+  test('does not record fabricated zero telemetry when provider usage is unavailable', async () => {
+    const llmRecords: LlmCallRecord[] = [];
+    const model = new MockLanguageModelV3({
+      doStream: {
+        stream: simulateReadableStream({
+          chunks: [
+            { type: 'stream-start', warnings: [] },
+            {
+              type: 'finish',
+              finishReason: { unified: 'stop', raw: 'stop' },
+              usage: {
+                inputTokens: { total: undefined, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+                outputTokens: { total: undefined, text: undefined, reasoning: undefined },
+              } as never,
+            },
+          ],
+          initialDelayInMs: null,
+          chunkDelayInMs: null,
+        }),
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordLlmCall: (record) => { llmRecords.push(record); },
+    });
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
+
+    assert.deepEqual(llmRecords, []);
+  });
+
   test('keeps checkpoint cost unknown when model pricing is unavailable', async () => {
     const usageCheckpoints: Array<{ costUsd?: number }> = [];
     const model = new MockLanguageModelV3({
