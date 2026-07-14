@@ -47,6 +47,29 @@ test('adds Vercel AI Gateway with its exact identity, endpoint, model id, and sh
   await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
 });
 
+test('adds Ollama Cloud as an independent remote provider with the shared Ollama mark', async ({ window: page }) => {
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
+  await page.getByRole('button', { name: '添加服务商' }).click();
+
+  await page.getByRole('tab', { name: 'API', exact: true }).click();
+  await page.getByPlaceholder('搜索服务商').fill('Ollama Cloud');
+  const catalogMark = page.locator('.providerCatalogRow[data-provider="ollama-cloud"] .providerLogo svg');
+  await expect(catalogMark).toBeVisible();
+  await page.getByRole('button', { name: /添加模型供应商：Ollama Cloud/ }).click();
+
+  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('ollama-cloud');
+  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://ollama.com/v1');
+  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('qwen3.5:397b');
+  await page.getByRole('button', { name: '保存供应商' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Ollama Cloud', exact: true }).first()).toBeVisible();
+  await expect(page.locator('.providerSubpageHeader .providerLogo[data-provider="ollama-cloud"] svg')).toBeVisible();
+  await expect(page.getByText('qwen3.5:397b', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+});
+
 test('adds Cerebras with its exact snapshot model and API-key credential field', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();

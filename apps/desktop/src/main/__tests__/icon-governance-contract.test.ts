@@ -414,7 +414,11 @@ describe('icon + typography governance contract', () => {
       ),
       'the shared Lobe Icons notice must inventory the vendored Ollama asset',
     );
-    assert.match(marks, /case 'ollama':\s*return <Ollama \/>/);
+    assert.match(
+      marks,
+      /case 'ollama':\s*case 'ollama-cloud':\s*return <Ollama \/>/,
+      'local Ollama and the independent Ollama Cloud identity must reuse the same upstream monochrome mark',
+    );
     assert.match(catalog, /<ProviderLogo type=\{props\.type\} \/>/);
     assert.match(
       providersPanel,

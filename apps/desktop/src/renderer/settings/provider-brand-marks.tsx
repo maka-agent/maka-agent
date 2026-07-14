@@ -334,6 +334,7 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
     case 'MiniMax-cn':
       return <MiniMaxMark />;
     case 'ollama':
+    case 'ollama-cloud':
       return <Ollama />;
     case 'lm-studio':
       return <ProviderAssetMask src={lmStudioBrandMark} />;
