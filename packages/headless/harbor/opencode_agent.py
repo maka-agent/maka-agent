@@ -230,7 +230,7 @@ class MakaOpenCodeAgent(OpenCode):
             step_cache_write = (
                 _int_value(cache.get("write")) if isinstance(cache, dict) else 0
             )
-            input_tokens += step_input + step_cache_read
+            input_tokens += step_input + step_cache_read + step_cache_write
             output_tokens += step_output
             cache_read += step_cache_read
             cache_write += step_cache_write
