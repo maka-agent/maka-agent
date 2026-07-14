@@ -187,7 +187,7 @@ export function mapSessionEventToRuntimeEvent(
           kind: 'function_call',
           id: event.toolUseId,
           name: event.toolName,
-          args: event.args,
+          args: structuredClone(event.args),
         },
         refs: {
           toolCallId: event.toolUseId,
@@ -256,7 +256,7 @@ export function mapSessionEventToRuntimeEvent(
             toolName: event.toolName,
             category: event.category,
             reason: event.reason,
-            args: event.args,
+            args: structuredClone(event.args),
             ...(event.hint !== undefined ? { hint: event.hint } : {}),
           },
         },

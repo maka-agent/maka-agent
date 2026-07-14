@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import type {
   BackendKind,
   PermissionDecisionMessage,
@@ -79,7 +81,7 @@ export class PiAgentBackend implements AgentBackend {
   private stopped = false;
   private currentTurnId: string | null = null;
   private outputSeqByTool = new Map<string, number>();
-  private writtenToolCalls = new Set<string>();
+  private toolCallsByUseId = new Map<string, { toolName: string; args: unknown }>();
   private suppressedToolUseIds = new Set<string>();
 
   constructor(input: PiAgentBackendInput) {
@@ -102,7 +104,7 @@ export class PiAgentBackend implements AgentBackend {
     this.stopped = false;
     this.currentTurnId = turnId;
     this.outputSeqByTool = new Map();
-    this.writtenToolCalls = new Set();
+    this.toolCallsByUseId = new Map();
     this.suppressedToolUseIds = new Set();
     this.input.permissionEngine.beginTurn(turnId);
 
@@ -189,12 +191,24 @@ export class PiAgentBackend implements AgentBackend {
             break;
           }
           case 'tool_start': {
-            if (this.suppressedToolUseIds.has(frame.toolUseId)) break;
-            await persistAssistant();
+            const frameArgs = structuredClone(frame.args);
+            const suppressed = this.suppressedToolUseIds.has(frame.toolUseId);
+            if (!suppressed) await persistAssistant();
+            const canonicalArgs = await this.ensureToolCall(
+              turnId,
+              frame.toolUseId,
+              frame.toolName,
+              frameArgs,
+              {
+                ...(frame.displayName ? { displayName: frame.displayName } : {}),
+                ...(frame.intent ? { intent: frame.intent } : {}),
+                stepId: messageId,
+              },
+            );
+            if (suppressed) break;
             stepHasTools = true;
             activeToolUseIds.add(frame.toolUseId);
-            const projectedArgs = projectPiToolArgs(frame.toolName, frame.args);
-            await this.ensureToolCall(turnId, frame.toolUseId, frame.toolName, projectedArgs, frame.displayName, frame.intent, messageId);
+            const projectedArgs = projectPiToolArgs(frame.toolName, canonicalArgs);
             yield {
               type: 'tool_start',
               id: this.newId(),
@@ -310,7 +324,7 @@ export class PiAgentBackend implements AgentBackend {
       this.input.permissionEngine.endTurn(turnId, this.stopped ? 'aborted' : 'completed');
       this.currentTurnId = null;
       this.outputSeqByTool.clear();
-      this.writtenToolCalls.clear();
+      this.toolCallsByUseId.clear();
       this.suppressedToolUseIds.clear();
       this.stopped = false;
     }
@@ -340,18 +354,20 @@ export class PiAgentBackend implements AgentBackend {
     turnId: string,
     frame: Extract<PiAgentFrame, { type: 'permission_request' }>,
   ): AsyncIterable<SessionEvent> {
-    const projectedArgs = projectPiToolArgs(
+    const frameArgs = structuredClone(frame.args);
+    const canonicalArgs = await this.ensureToolCall(
+      turnId,
+      frame.toolUseId,
       frame.toolName,
-      frame.args,
-      frame.categoryHint,
+      frameArgs,
+      frame.categoryHint ? { categoryHint: frame.categoryHint } : {},
     );
-    await this.ensureToolCall(turnId, frame.toolUseId, frame.toolName, projectedArgs);
     const verdict = this.input.permissionEngine.evaluate({
       sessionId: this.sessionId,
       turnId,
       toolUseId: frame.toolUseId,
       toolName: frame.toolName,
-      args: frame.args,
+      args: structuredClone(canonicalArgs),
       ...(frame.categoryHint ? { categoryHint: frame.categoryHint } : {}),
       mode: this.input.header.permissionMode,
       ...(frame.hint ? { hint: redactBoundedText(frame.hint, 240) } : {}),
@@ -416,23 +432,34 @@ export class PiAgentBackend implements AgentBackend {
     toolUseId: string,
     toolName: string,
     args: unknown,
-    displayName?: string,
-    intent?: string,
-    stepId?: string,
-  ): Promise<void> {
-    if (this.writtenToolCalls.has(toolUseId)) return;
-    this.writtenToolCalls.add(toolUseId);
+    metadata: {
+      categoryHint?: ToolCategory;
+      displayName?: string;
+      intent?: string;
+      stepId?: string;
+    } = {},
+  ): Promise<unknown> {
+    const existing = this.toolCallsByUseId.get(toolUseId);
+    if (existing) {
+      if (existing.toolName !== toolName || !isDeepStrictEqual(existing.args, args)) {
+        throw new Error(`Pi tool call ${toolUseId} changed after its first frame`);
+      }
+      return structuredClone(existing.args);
+    }
+    const snapshot = structuredClone(args);
+    this.toolCallsByUseId.set(toolUseId, { toolName, args: snapshot });
     await this.input.appendMessage({
       type: 'tool_call',
       id: toolUseId,
       turnId,
       ts: this.now(),
       toolName,
-      ...(displayName ? { displayName } : {}),
-      ...(intent ? { intent: redactBoundedText(intent, 240) } : {}),
-      args: redactUnknown(args),
-      ...(stepId ? { stepId } : {}),
+      ...(metadata.displayName ? { displayName: metadata.displayName } : {}),
+      ...(metadata.intent ? { intent: redactBoundedText(metadata.intent, 240) } : {}),
+      args: projectPiToolArgs(toolName, snapshot, metadata.categoryHint),
+      ...(metadata.stepId ? { stepId: metadata.stepId } : {}),
     } satisfies ToolCallMessage);
+    return structuredClone(snapshot);
   }
 
   private async appendAssistant(turnId: string, messageId: string, text: string): Promise<void> {
@@ -513,9 +540,10 @@ function projectPiToolArgs(
   args: unknown,
   categoryHint?: ToolCategory,
 ): unknown {
-  return categoryHint === 'computer_use' || toolName === 'maka_computer'
+  const projected = categoryHint === 'computer_use' || toolName === 'maka_computer'
     ? computerUseApprovalSummary(args)
     : redactUnknown(args);
+  return structuredClone(projected);
 }
 
 export function normalizePiAgentFrame(frame: unknown): PiAgentFrame | null {

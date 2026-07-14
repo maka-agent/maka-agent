@@ -72,7 +72,7 @@ export interface MakaTool<P = any, R = unknown> {
   categoryHint?: ToolCategory;
   /** Optional trusted facts about the executor that runs this tool. */
   executionFacts?: ToolExecutionFacts;
-  /** Optional permission/persistence projection derived from frozen execution args. */
+  /** Optional permission/persistence projection derived from isolated execution args. */
   permissionArgs?: (
     args: P,
     context: Pick<MakaToolContext, 'sessionId' | 'turnId' | 'toolCallId'>,
@@ -326,14 +326,14 @@ export class ToolRuntime {
     const executionArgs = snapshotToolArgs(args);
     const toolUseId = ctx.toolCallId;
     const permissionArgs = tool.permissionArgs
-      ? snapshotToolArgs(tool.permissionArgs(executionArgs as never, {
+      ? snapshotToolArgs(tool.permissionArgs(structuredClone(executionArgs) as never, {
           sessionId: this.input.sessionId,
           turnId,
           toolCallId: toolUseId,
         }))
       : executionArgs;
     const persistedArgs = tool.categoryHint === 'computer_use'
-      ? computerUseApprovalSummary(permissionArgs)
+      ? snapshotToolArgs(computerUseApprovalSummary(permissionArgs))
       : permissionArgs;
     const now = this.input.now();
     const toolIntent = describeToolIntent(tool, persistedArgs);
@@ -349,7 +349,7 @@ export class ToolRuntime {
       ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
-      args: persistedArgs,
+      args: structuredClone(persistedArgs),
       // Persist the same step id the tool_start event carries so the UI
       // timeline and post-restart backfill can pair this call with its step.
       ...(stepId !== undefined ? { stepId } : {}),
@@ -363,7 +363,7 @@ export class ToolRuntime {
       toolUseId,
       toolName: tool.name,
       ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
-      args: persistedArgs,
+      args: structuredClone(persistedArgs),
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
       ...(stepId !== undefined ? { stepId } : {}),
@@ -451,7 +451,7 @@ export class ToolRuntime {
         turnId,
         toolUseId,
         toolName: tool.name,
-        args: permissionArgs,
+        args: structuredClone(permissionArgs),
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         permissionRequired: tool.permissionRequired !== false,
@@ -461,7 +461,7 @@ export class ToolRuntime {
             ? tool.sandbox({
               permissionMode: this.input.header.permissionMode,
               cwd: this.input.header.cwd,
-              args: executionArgs,
+              args: structuredClone(executionArgs),
             })
             : tool.sandbox,
         } : {}),
@@ -618,7 +618,7 @@ export class ToolRuntime {
       pauseTarget?.pause();
       try {
         const runId = this.input.getCurrentRunId?.();
-        const result = await tool.impl(executionArgs as never, {
+        const result = await tool.impl(structuredClone(executionArgs) as never, {
           sessionId: this.input.sessionId,
           turnId,
           ...(runId ? { runId } : {}),
@@ -689,7 +689,7 @@ export class ToolRuntime {
             toolUseId,
             toolName: tool.name,
             cwd: this.input.header.cwd,
-            args: persistedArgs,
+            args: structuredClone(persistedArgs),
             result,
           },
           this.input.recordToolArtifacts,

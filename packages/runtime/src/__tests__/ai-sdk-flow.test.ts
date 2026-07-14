@@ -658,6 +658,51 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
     assert.equal(event.actions?.stateDelta?.activityKind, 'command');
   });
 
+  test('owns independent args across SessionEvent to RuntimeEvent mappings', () => {
+    const cases = [
+      {
+        event: (args: unknown) => ev({
+          type: 'tool_start',
+          toolUseId: 'tu-owned',
+          toolName: 'Write',
+          args,
+        }),
+        mappedArgs: (event: RuntimeEvent) => event.content?.kind === 'function_call'
+          ? event.content.args
+          : undefined,
+      },
+      {
+        event: (args: unknown) => ev({
+          type: 'permission_request',
+          requestId: 'permission-owned',
+          toolUseId: 'tu-owned',
+          toolName: 'Write',
+          category: 'file_write',
+          reason: 'file_write',
+          args,
+        }),
+        mappedArgs: (event: RuntimeEvent) => event.actions?.permissionRequest?.args,
+      },
+    ];
+
+    for (const scenario of cases) {
+      const sourceArgs = { content: 'approved', layout: { cols: 120 } };
+      const sourceEvent = scenario.event(sourceArgs);
+      const mappedArgs = scenario.mappedArgs(mapSessionEventToRuntimeEvent(
+        sourceEvent,
+        ctx,
+        createSessionEventMapMemory(),
+      )) as typeof sourceArgs;
+
+      assert.notStrictEqual(mappedArgs, sourceArgs);
+      assert.notStrictEqual(mappedArgs.layout, sourceArgs.layout);
+      sourceArgs.layout.cols = 80;
+      assert.equal(mappedArgs.layout.cols, 120);
+      mappedArgs.content = 'runtime';
+      assert.equal(sourceArgs.content, 'approved');
+    }
+  });
+
   test('plan_submitted maps to an agent-authored state delta', () => {
     const a = mapSessionEventToRuntimeEvent(
       ev({ type: 'plan_submitted', planId: 'p1', title: 'T', markdownPath: '/p.md' }),
