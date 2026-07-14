@@ -2345,7 +2345,7 @@ describe('AiSdkBackend model history', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async (message) => {
+      appendMessage: async (message: StoredMessage) => {
         appended.push(message.type);
       },
       connection: connection(),
@@ -3668,6 +3668,7 @@ describe('AiSdkBackend usage telemetry', () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
     const llmRecords: LlmCallRecord[] = [];
+    const usageCheckpoints: Array<{ inputTokens: number; outputTokens: number }> = [];
     let streamCalls = 0;
     const model = new MockLanguageModelV3({
       doStream: async () => {
@@ -3734,7 +3735,7 @@ describe('AiSdkBackend usage telemetry', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async (message) => {
+      appendMessage: async (message: StoredMessage) => {
         messages.push(message);
       },
       connection: connection(),
@@ -3745,10 +3746,13 @@ describe('AiSdkBackend usage telemetry', () => {
       tools: [testTool('Read', z.object({ path: z.string() }))],
       newId: idGenerator(),
       now: monotonicClock(),
-      recordLlmCall: (record) => {
+      recordLlmCall: (record: LlmCallRecord) => {
         llmRecords.push(record);
       },
-    });
+      recordUsageCheckpoint: async (usage: { inputTokens: number; outputTokens: number }) => {
+        usageCheckpoints.push(usage);
+      },
+    } as never);
 
     for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
       events.push(event);
@@ -3794,6 +3798,10 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(llmRecords[0]?.reasoningTokens, 2);
     assert.equal(llmRecords[0]?.totalTokens, 312);
     assert.equal(llmRecords[0]?.rawFinishReason, 'stop');
+    assert.deepEqual(usageCheckpoints.map(({ inputTokens, outputTokens }) => ({ inputTokens, outputTokens })), [
+      { inputTokens: 100, outputTokens: 5 },
+      { inputTokens: 300, outputTokens: 12 },
+    ]);
   });
 
   test('records active tool-result prune diagnostics in usage telemetry', async () => {

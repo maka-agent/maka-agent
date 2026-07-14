@@ -31,9 +31,11 @@ import {
   HARBOR_CELL_CONTEXT_ENV_KEYS,
   HARBOR_CELL_OUTPUT_FILENAME,
   HARBOR_CELL_RUNTIME_EVENTS_FILENAME,
+  HARBOR_CELL_USAGE_CHECKPOINT_FILENAME,
   resolveHarborCellAiSdkEnv,
   runHarborCellFromEnv,
   runHarborCell,
+  writeHarborCellUsageCheckpoint,
 } from '../harbor-cell.js';
 
 const config: Config = {
@@ -300,6 +302,50 @@ function registerStepCapTwiceThenCompleteBackend(seen: { backend?: StepCapTwiceT
 }
 
 describe('runHarborCell', () => {
+  test('atomically replaces the cumulative completed-step usage checkpoint', async () => {
+    await withDirs(async ({ outputDir }) => {
+      const first = {
+        inputTokens: 100,
+        outputTokens: 5,
+        cacheHitInputTokens: 20,
+        cacheMissInputTokens: 80,
+        cacheMissInputSource: 'explicit' as const,
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 1,
+        totalTokens: 105,
+        costUsd: 0.001,
+      };
+      await writeHarborCellUsageCheckpoint(outputDir, first);
+      await writeHarborCellUsageCheckpoint(outputDir, {
+        ...first,
+        inputTokens: 300,
+        outputTokens: 12,
+        cacheHitInputTokens: 100,
+        cacheMissInputTokens: 200,
+        reasoningTokens: 2,
+        totalTokens: 312,
+        costUsd: 0.003,
+      });
+
+      assert.deepEqual(
+        JSON.parse(await readFile(join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8')),
+        {
+          input: 300,
+          output: 12,
+          cachedInput: 100,
+          cacheHitInput: 100,
+          cacheMissInput: 200,
+          cacheWriteInput: 0,
+          cacheMissInputSource: 'explicit',
+          reasoning: 2,
+          total: 312,
+          costUsd: 0.003,
+          pricingSource: 'runtime',
+        },
+      );
+    });
+  });
+
   test('runs in the provided workspace and writes the shared cell artifacts', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const result = await runHarborCell({

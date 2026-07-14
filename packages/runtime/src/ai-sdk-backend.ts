@@ -460,6 +460,10 @@ export interface AiSdkBackendInput {
   /** Optional fire-and-forget telemetry hooks. Tool implementations remain unaware. */
   recordLlmCall?: LlmTelemetryRecorder;
   recordToolInvocation?: ToolTelemetryRecorder;
+  /** Durable cumulative usage checkpoint after each completed provider step. */
+  recordUsageCheckpoint?: (
+    usage: NormalizedAiSdkUsage & { costUsd?: number },
+  ) => void | Promise<void>;
   /** Optional pricing lookup shared with telemetry; defaults to builtin public pricing. */
   lookupPricing?: (modelKey: string) => PricingConfig | null;
   spawnChildAgent?: (input: {
@@ -813,6 +817,7 @@ export class AiSdkBackend implements AgentBackend {
     };
     let tokenUsage: NormalizedAiSdkUsage | undefined;
     let tokenUsageCostUsd: number | undefined;
+    let completedStepUsage: NormalizedAiSdkUsage | undefined;
     let streamStatus: LlmCallRecord['status'] = 'success';
     let streamErrorClass: string | undefined;
     let rawFinishReason: string | undefined;
@@ -1075,6 +1080,14 @@ export class AiSdkBackend implements AgentBackend {
           const isStepFinishChunk = chunk.type === 'finish-step' || chunk.type === 'step-finish';
           if (isStepFinishChunk) {
             runtimeSteps += 1;
+            const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
+            if (stepUsage) {
+              completedStepUsage = mergeNormalizedUsage(completedStepUsage, stepUsage);
+              await this.input.recordUsageCheckpoint?.({
+                ...completedStepUsage,
+                costUsd: this.computeTokenUsageCostUsd(completedStepUsage),
+              });
+            }
           }
           if (chunk.type === 'finish' || isStepFinishChunk) {
             rawFinishReason = rawFinishReasonString(chunk.finishReason) ?? rawFinishReason;
@@ -2863,6 +2876,30 @@ function mergeActiveToolResultPruneDiagnosticPatches(
     ...sumOptionalCounts('activePrunedToolResults', left, right),
     ...sumOptionalCounts('activeArchiveFailures', left, right),
     ...sumOptionalCounts('activeEstimatedTokensSaved', left, right),
+  };
+}
+
+function mergeNormalizedUsage(
+  current: NormalizedAiSdkUsage | undefined,
+  next: NormalizedAiSdkUsage,
+): NormalizedAiSdkUsage {
+  if (!current) return next;
+  const cacheMissInputSource = current.cacheMissInputSource === 'explicit'
+    || next.cacheMissInputSource === 'explicit'
+    ? 'explicit'
+    : 'derived';
+  const cacheHitInputTokens = current.cacheHitInputTokens + next.cacheHitInputTokens;
+  return {
+    inputTokens: current.inputTokens + next.inputTokens,
+    outputTokens: current.outputTokens + next.outputTokens,
+    cacheHitInputTokens,
+    cacheMissInputTokens: current.cacheMissInputTokens + next.cacheMissInputTokens,
+    cacheMissInputSource,
+    cacheWriteInputTokens: current.cacheWriteInputTokens + next.cacheWriteInputTokens,
+    reasoningTokens: current.reasoningTokens + next.reasoningTokens,
+    totalTokens: current.totalTokens + next.totalTokens,
+    ...(next.rawFinishReason !== undefined ? { rawFinishReason: next.rawFinishReason } : {}),
+    cachedInputTokens: cacheHitInputTokens,
   };
 }
 

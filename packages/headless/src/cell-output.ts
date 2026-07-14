@@ -169,7 +169,7 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
   const executionIdentity = 'executionIdentity' in value
     ? validateHarborCellExecutionIdentity(value.executionIdentity)
     : undefined;
-  const tokenSummary = validateTokenSummary(value.tokenSummary);
+  const tokenSummary = validateHarborCellTokenSummary(value.tokenSummary);
   const contextBudgetPolicy = 'contextBudgetPolicy' in value
     ? validateContextBudgetPolicySnapshot(value.contextBudgetPolicy)
     : undefined;
@@ -438,7 +438,7 @@ function taskToolSummaryField(
   return enabled || taskToolSummary.todoWriteCalls > 0 ? { taskToolSummary } : {};
 }
 
-function validateTokenSummary(value: unknown): HarborCellTokenSummary {
+export function validateHarborCellTokenSummary(value: unknown): HarborCellTokenSummary {
   if (!isRecord(value)) throw new Error('tokenSummary must be a JSON object');
   return {
     input: requireNumber(value.input, 'tokenSummary.input'),
