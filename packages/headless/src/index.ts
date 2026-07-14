@@ -88,6 +88,7 @@ export type {
 export {
   MODEL_CALIBRATION_CASE_COUNTS,
   MODEL_CALIBRATION_SCHEMA_VERSION,
+  buildModelCalibrationConfigId,
   buildModelCalibrationDecision,
   buildModelCalibrationEnvironment,
   qualifyModelCalibrationResults,

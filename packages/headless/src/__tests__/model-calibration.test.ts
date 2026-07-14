@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
   MODEL_CALIBRATION_CASE_COUNTS,
+  buildModelCalibrationConfigId,
   buildModelCalibrationDecision,
   buildModelCalibrationEnvironment,
   qualifyModelCalibrationResults,
@@ -9,6 +10,7 @@ import {
   type ModelCalibrationCaseResult,
   type ModelCalibrationConfigReport,
 } from '../model-calibration.js';
+import { buildRunManifestFingerprint } from '../ab-manifest.js';
 
 describe('model calibration result contract', () => {
   test('freezes adapter-discovered model ids without provider-specific fields', () => {
@@ -68,14 +70,16 @@ describe('model calibration result contract', () => {
     assert.equal(qualifyModelCalibrationResults(results).curator.qualified, false);
   });
 
-  test('requires two distinct main-qualified models, not two levels of one model', () => {
+  test('requires two distinct main-qualified configs and counts two levels of one model', () => {
     const environment = calibrationEnvironment();
     let decision = buildModelCalibrationDecision(environment, [
       report('model-a', 'low'),
       report('model-a', 'medium'),
     ]);
-    assert.equal(decision.status, 'BLOCKED');
+    assert.equal(decision.status, 'QUALIFIED');
+    assert.equal(decision.requiredMainQualifiedConfigs, 2);
     assert.deepEqual(decision.mainQualifiedModelIds, ['model-a']);
+    assert.equal(decision.mainQualifiedConfigIds.length, 2);
 
     decision = buildModelCalibrationDecision(environment, [
       report('model-a', 'low'),
@@ -83,6 +87,29 @@ describe('model calibration result contract', () => {
     ]);
     assert.equal(decision.status, 'QUALIFIED');
     assert.deepEqual(decision.mainQualifiedModelIds, ['model-a', 'model-b']);
+  });
+
+  test('rejects duplicate reports for one model and thinking level', () => {
+    assert.throws(
+      () => buildModelCalibrationDecision(calibrationEnvironment(), [
+        report('model-a', 'low'),
+        report('model-a', 'low'),
+      ]),
+      /duplicate model calibration config/,
+    );
+  });
+
+  test('uses a v2 config fingerprint namespace distinct from the legacy v1 payload', () => {
+    const current = report('model-a', 'low');
+    const legacyId = buildRunManifestFingerprint({
+      kind: 'maka.model_calibration.config.v1',
+      connectionSlug: current.connectionSlug,
+      modelId: current.modelId,
+      thinkingLevel: current.thinkingLevel,
+    });
+    const currentId = buildModelCalibrationConfigId(current);
+    assert.notEqual(currentId, legacyId);
+    assert.equal(currentId, buildModelCalibrationConfigId({ ...current }));
   });
 
   test('recomputes qualification from case evidence and rejects a forged pass flag', () => {
@@ -142,6 +169,13 @@ describe('model calibration result contract', () => {
       () => buildModelCalibrationDecision(forged, [report('model-a', 'low')]),
       /environment fingerprint does not match/,
     );
+    assert.throws(
+      () => buildModelCalibrationDecision({
+        ...environment,
+        schemaVersion: 'maka.model_calibration.v1' as typeof environment.schemaVersion,
+      }, [report('model-a', 'low')]),
+      /unsupported model calibration schemaVersion/,
+    );
   });
 });
 
@@ -162,7 +196,7 @@ function passingResults(): ModelCalibrationCaseResult[] {
   ));
 }
 
-function report(modelId: string, thinkingLevel: 'low' | 'medium'): ModelCalibrationConfigReport {
+function report(modelId: string, thinkingLevel: 'low' | 'medium' | 'high'): ModelCalibrationConfigReport {
   const results = passingResults();
   return {
     environmentId: calibrationEnvironment().environmentId,

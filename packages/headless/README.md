@@ -129,9 +129,15 @@ capability probes, `MAKA_THINKING_LEVEL_MODE=probe`.
 Model execution and discovery stay owned by `@maka/runtime`:
 `fetchProviderModels`, `getAIModel`, `buildProviderOptions`, `AiSdkBackend`, and
 `ModelAdapter`. Headless only defines the provider-neutral 5/5/5/3/2 result
-contract and Main/Curator qualification thresholds. Callers run the cases
-through the normal isolated runtime, then pass normalized evidence to
+contract and Main/Curator qualification thresholds. Qualification counts unique
+model-plus-thinking-level configs, so one selected model can be calibrated at
+low, medium, and high without pretending those configs are different models.
+Callers run the cases through the normal isolated runtime, then pass normalized evidence to
 `qualifyModelCalibrationResults` and `buildModelCalibrationDecision`.
+
+The single-model config identity is `maka.model_calibration.config.v2` and the
+environment/decision contract is `maka.model_calibration.v2`. The earlier
+pre-release v1 multi-model identity is not silently reinterpreted as v2.
 
 In explicit `probe` mode, a reasoning level for an `openai-compatible`
 connection is sent under that connection's AI SDK namespace. Normal runtime
@@ -181,9 +187,13 @@ and version rather than updating the pinned hash in place.
 
 `buildCurrentMakaMemoryBaseline` combines the existing model calibration,
 benchmark manifest, WAL, Harbor importer, and offline scorer contracts. A frozen
-baseline retains six capability probes, three formal calibration reports,
-clean-subject run manifests, explicit known gaps, model/effort configuration,
-dataset hashes, strategy hashes, and repetitions.
+baseline retains one selected model with low/medium/high capability probes and
+three matching formal calibration reports, clean-subject run manifests,
+explicit known gaps, model/effort configuration, dataset hashes, strategy
+hashes, and repetitions. Capability evidence includes runtime status, exact
+usage, reasoning tokens, latency, fallback state, and provider HTTP status when
+the existing adapter exposes it. The three token-sanity runs are also pinned to
+the official Harbor task checksum, not only its display name.
 
 `auditCurrentMakaMemoryBaseline` reads the manifest-declared attempts,
 transcripts, exact token rows, and Harbor verifier artifacts without contacting
@@ -191,6 +201,8 @@ a model. Incomplete, tampered, or non-authoritative evidence produces an
 `invalid` snapshot and remains available for audit. Baseline descriptors and
 snapshots use the existing create-only redacted artifact writer, so a repeated
 run must use a new baseline id/path and cannot overwrite frozen evidence.
+Current descriptors use `maka.memory_benchmark.current_baseline.v2`; the
+pre-release six-model v1 descriptor remains a separate historical contract.
 
 Tasks may also use typed benchmark verifiers. Terminal-Bench is the first
 carrier, but it is an adapter hook rather than a runtime architecture:

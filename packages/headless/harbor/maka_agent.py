@@ -286,6 +286,11 @@ class MakaAgent(BaseInstalledAgent):
         if provider:
             env["MAKA_PROVIDER"] = provider
         for key in (
+            # Preserve the selected connection and explicit reasoning probe
+            # identity when the LLM runs in the host process.
+            "MAKA_LLM_CONNECTION_SLUG",
+            "MAKA_THINKING_LEVEL",
+            "MAKA_THINKING_LEVEL_MODE",
             # Forward trial pricing so the in-container cell prices unknown models
             # (e.g. deepseek-v4-flash) the same way trial_pricing.py prices the trial;
             # otherwise the cell emits costUsd=0 and the controller flags every task.

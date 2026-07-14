@@ -33,11 +33,13 @@ const commit = 'a'.repeat(40);
 const writeOptions = { format: MEMORY_BENCHMARK_FORMAT_V1 } as const;
 
 describe('Current Maka memory baseline', () => {
-  test('freezes six probes, three formal calibrations, run identities, and known gaps', () => {
+  test('freezes one model with low/medium/high probes and calibrations, run identities, and known gaps', () => {
     const baseline = buildCurrentMakaMemoryBaseline(baselineInput());
-    assert.equal(baseline.capabilityProbes.length, 6);
+    assert.equal(baseline.modelEnvironment.modelIds.length, 1);
+    assert.equal(baseline.capabilityProbes.length, 3);
     assert.equal(baseline.calibrationReports.length, 3);
     assert.equal(baseline.calibrationDecision.status, 'QUALIFIED');
+    assert.equal(baseline.calibrationDecision.requiredMainQualifiedConfigs, 2);
     assert.equal(baseline.runs.length, 3);
     assert.equal(baseline.knownGaps.length, 1);
     assert.match(baseline.fingerprint, /^sha256:[a-f0-9]{64}$/);
@@ -46,7 +48,7 @@ describe('Current Maka memory baseline', () => {
 
     assert.throws(
       () => buildCurrentMakaMemoryBaseline({ ...baselineInput(), capabilityProbes: baselineInput().capabilityProbes.slice(1) }),
-      /exactly six capability probes/,
+      /exactly three capability probes/,
     );
     assert.throws(
       () => buildCurrentMakaMemoryBaseline({ ...baselineInput(), calibrationReports: baselineInput().calibrationReports.slice(1) }),
@@ -83,6 +85,32 @@ describe('Current Maka memory baseline', () => {
     );
   });
 
+  test('blocks unsupported configs and rejects forged supported probe metadata', () => {
+    const unsupported = baselineInput();
+    unsupported.capabilityProbes[0] = {
+      ...unsupported.capabilityProbes[0]!,
+      status: 'unsupported',
+      requestAccepted: false,
+      runtimeStatus: 'rejected',
+      usageParsed: false,
+    };
+    assert.equal(buildCurrentMakaMemoryBaseline(unsupported).calibrationDecision.status, 'BLOCKED');
+
+    const forged = baselineInput();
+    forged.capabilityProbes[0] = { ...forged.capabilityProbes[0]!, requestAccepted: false };
+    assert.throws(
+      () => buildCurrentMakaMemoryBaseline(forged),
+      /supported capability probe lacks accepted usage evidence/,
+    );
+
+    const badHttp = baselineInput();
+    badHttp.capabilityProbes[0] = { ...badHttp.capabilityProbes[0]!, providerHttpStatus: 500 };
+    assert.throws(
+      () => buildCurrentMakaMemoryBaseline(badHttp),
+      /supported capability probe lacks accepted usage evidence/,
+    );
+  });
+
   test('reloads and rescans sealed artifacts offline, retaining invalid attempts for audit', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-current-memory-baseline-'));
     try {
@@ -114,7 +142,7 @@ describe('Current Maka memory baseline', () => {
       const degradedBaseline = buildCurrentMakaMemoryBaseline(degradedInput);
       await writeFile(join(dir, degradedInput.calibrationReports[2]!.evidencePath), degradedEvidence, 'utf8');
       const degradedSnapshot = await auditCurrentMakaMemoryBaseline(dir, degradedBaseline);
-      assert.equal(degradedBaseline.calibrationDecision.status, 'QUALIFIED', 'two qualified models still satisfy MC-0 calibration');
+      assert.equal(degradedBaseline.calibrationDecision.status, 'QUALIFIED', 'two qualified configs still satisfy MC-0 calibration');
       assert.equal(degradedSnapshot.verdict, 'invalid', 'all three primary baseline configs must qualify');
       await writeFile(
         join(dir, degradedInput.calibrationReports[2]!.evidencePath),
@@ -135,6 +163,7 @@ describe('Current Maka memory baseline', () => {
           `second-run-${index + 1}`,
           run.manifest.environment.modelId,
           reusedSecondInput.modelEnvironment.environmentId,
+          benchmarkThinkingLevel(run.manifest.environment.reasoningEffort),
         ));
         return { runDirectory: `runs/second-run-${index + 1}`, manifest, latencyArtifact: latencyArtifact(manifest) };
       });
@@ -189,15 +218,53 @@ describe('Current Maka memory baseline', () => {
     }
   });
 
+  test('rejects sealed Harbor evidence from a different task checksum', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-current-memory-baseline-task-checksum-'));
+    try {
+      const baseline = buildCurrentMakaMemoryBaseline(baselineInput());
+      await writeBaselineEvidence(dir, baseline);
+      for (const [index, run] of baseline.runs.entries()) {
+        await writePassingAttempt(
+          dir,
+          run.runDirectory,
+          run.manifest,
+          index === 0 ? '0'.repeat(64) : undefined,
+        );
+      }
+      const snapshot = await auditCurrentMakaMemoryBaseline(dir, baseline);
+      assert.equal(snapshot.verdict, 'invalid');
+      assert.equal(snapshot.evidenceInvalidRefs.includes(`${baseline.runs[0]!.runDirectory}/attempts.jsonl`), true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('rejects run configuration drift and does not follow a symlinked run root', async () => {
     const input = baselineInput();
+    const nonSanityManifest = buildMemoryBenchmarkManifest({
+      ...manifestInput('non-sanity-run', 'model-1', input.modelEnvironment.environmentId, 'low'),
+      dataset: {
+        id: 'terminal-bench-sample@2.0/log-summary-date-ranges',
+        hash: `sha256:${'d'.repeat(64)}`,
+        taskIds: ['log-summary-date-ranges'],
+      },
+    });
+    assert.throws(
+      () => buildCurrentMakaMemoryBaseline({
+        ...input,
+        runs: input.runs.map((run, index) => index === 0
+          ? { runDirectory: 'runs/non-sanity', manifest: nonSanityManifest, latencyArtifact: latencyArtifact(nonSanityManifest) }
+          : run),
+      }),
+      /official log-summary-date-ranges task/,
+    );
     const driftedManifest = buildMemoryBenchmarkManifest({
-      ...manifestInput('drifted-run', 'model-1', input.modelEnvironment.environmentId),
+      ...manifestInput('drifted-run', 'model-1', input.modelEnvironment.environmentId, 'default'),
       environment: {
         gatewayId: input.modelEnvironment.environmentId,
         provider: 'openai-compatible',
         modelId: 'model-1',
-        reasoningEffort: 'low',
+        reasoningEffort: 'default',
       },
     });
     assert.throws(
@@ -211,8 +278,9 @@ describe('Current Maka memory baseline', () => {
     );
     const extraManifest = buildMemoryBenchmarkManifest(manifestInput(
       'uncalibrated-extra',
-      'model-4',
+      'model-1',
       input.modelEnvironment.environmentId,
+      'default',
     ));
     assert.throws(
       () => buildCurrentMakaMemoryBaseline({
@@ -301,6 +369,7 @@ describe('Current Maka memory baseline', () => {
       const mismatchedEvidence = capabilityEvidence(
         input.modelEnvironment.environmentId,
         capabilityProbes[0]!.modelId,
+        capabilityProbes[0]!.thinkingLevel,
         'unsupported',
       );
       const mismatchBaseline = buildCurrentMakaMemoryBaseline({
@@ -322,14 +391,14 @@ describe('Current Maka memory baseline', () => {
 function baselineInput() {
   const environment = buildModelCalibrationEnvironment({
     connection: { slug: 'operator-gateway', providerType: 'openai-compatible', baseUrl: 'https://gateway.example/v1' },
-    modelIds: ['model-1', 'model-2', 'model-3', 'model-4', 'model-5', 'model-6'],
+    modelIds: ['model-1'],
   });
-  const calibrationReports = ['model-1', 'model-2', 'model-3'].map((modelId) => {
-    const report = calibrationReport(environment.environmentId, modelId);
+  const calibrationReports = (['low', 'medium', 'high'] as const).map((thinkingLevel) => {
+    const report = calibrationReport(environment.environmentId, 'model-1', thinkingLevel);
     const evidence = calibrationEvidence(report);
     return {
       report,
-      evidencePath: `calibration/${modelId}.json`,
+      evidencePath: `calibration/model-1-${thinkingLevel}.json`,
       evidenceDigest: hashMemoryBenchmarkArtifact(evidence),
     };
   });
@@ -338,6 +407,7 @@ function baselineInput() {
       `run-${index + 1}`,
       calibration.report.modelId,
       environment.environmentId,
+      benchmarkThinkingLevel(calibration.report.thinkingLevel),
     ));
     return { runDirectory: `runs/run-${index + 1}`, manifest, latencyArtifact: latencyArtifact(manifest) };
   });
@@ -345,12 +415,26 @@ function baselineInput() {
     baselineId: 'current-maka-2026-07-12-01',
     subjectCommit: commit,
     modelEnvironment: environment,
-    capabilityProbes: environment.modelIds.map((modelId) => ({
+    capabilityProbes: (['low', 'medium', 'high'] as const).map((thinkingLevel) => ({
       environmentId: environment.environmentId,
-      modelId,
-      status: 'supported' as const,
-      evidencePath: `capability/${modelId}.json`,
-      evidenceDigest: hashMemoryBenchmarkArtifact(capabilityEvidence(environment.environmentId, modelId, 'supported')),
+      modelId: 'model-1',
+      thinkingLevel,
+      status: 'supported' as 'supported' | 'unsupported' | 'failed',
+      requestAccepted: true,
+      runtimeStatus: 'completed' as 'completed' | 'rejected' | 'failed',
+      providerHttpStatus: undefined as number | undefined,
+      usageParsed: true,
+      usage: { inputTokens: 2, outputTokens: 1, reasoningTokens: 0, totalTokens: 3 },
+      fallbackDetected: false,
+      latencyMs: 10,
+      reasoningTokens: 0,
+      evidencePath: `capability/model-1-${thinkingLevel}.json`,
+      evidenceDigest: hashMemoryBenchmarkArtifact(capabilityEvidence(
+        environment.environmentId,
+        'model-1',
+        thinkingLevel,
+        'supported',
+      )),
     })),
     calibrationReports,
     runs,
@@ -362,23 +446,40 @@ function baselineInput() {
   };
 }
 
-function manifestInput(runId: string, modelId: string, gatewayId = 'foreign-environment') {
+function manifestInput(
+  runId: string,
+  modelId: string,
+  gatewayId = 'foreign-environment',
+  reasoningEffort: 'default' | 'low' | 'medium' | 'high' = 'medium',
+) {
   return {
     runId,
     subject: { commit, dirty: false },
-    environment: { gatewayId, provider: 'openai-compatible', modelId, reasoningEffort: 'medium' as const },
+    environment: { gatewayId, provider: 'openai-compatible', modelId, reasoningEffort },
     strategy: { id: 'current-maka', configHash: `sha256:${'b'.repeat(64)}` },
-    dataset: { id: 'smoke-v1', hash: `sha256:${'c'.repeat(64)}`, taskIds: ['smoke-01'] },
+    dataset: {
+      id: 'terminal-bench-sample@2.0/log-summary-date-ranges',
+      hash: 'sha256:bc214b360dec9e692f03f6a63599d880a7619569a00293f4c1a68c248767476e',
+      taskIds: ['log-summary-date-ranges'],
+    },
     repetitions: 1,
     artifactPaths: { attemptsJsonl: 'attempts.jsonl', tokenCsv: 'tokens.csv', verifierDirectory: 'verifiers', transcriptDirectory: 'transcripts' },
     redactionPolicyVersion: 'v1',
   };
 }
 
-async function writePassingAttempt(root: string, runDirectory: string, manifest: MemoryBenchmarkManifest): Promise<void> {
+async function writePassingAttempt(
+  root: string,
+  runDirectory: string,
+  manifest: MemoryBenchmarkManifest,
+  taskChecksum = 'bc214b360dec9e692f03f6a63599d880a7619569a00293f4c1a68c248767476e',
+): Promise<void> {
   const runRoot = join(root, runDirectory);
   const planned = planMemoryBenchmarkResume(manifest, []).pendingAttempts[0]!;
-  const verifier = `${JSON.stringify({ verifier_result: { rewards: { reward: 1 } } })}\n`;
+  const verifier = `${JSON.stringify({
+    task_checksum: taskChecksum,
+    verifier_result: { rewards: { reward: 1 } },
+  })}\n`;
   const transcript = '{"role":"assistant","content":"fixture"}\n';
   const tokenRow = `${planned.attemptId},2,1,0,3`;
   await mkdir(join(runRoot, 'verifiers'), { recursive: true });
@@ -406,7 +507,13 @@ async function writeBaselineEvidence(root: string, baseline: ReturnType<typeof b
   await mkdir(join(root, 'reports'), { recursive: true });
   await Promise.all(baseline.capabilityProbes.map((probe) => writeFile(
     join(root, probe.evidencePath),
-    capabilityEvidence(probe.environmentId, probe.modelId, probe.status),
+    capabilityEvidence(
+      probe.environmentId,
+      probe.modelId,
+      benchmarkThinkingLevel(probe.thinkingLevel),
+      probe.status,
+      probe,
+    ),
     'utf8',
   )));
   await Promise.all(baseline.calibrationReports.map((calibration) => writeFile(
@@ -419,21 +526,55 @@ async function writeBaselineEvidence(root: string, baseline: ReturnType<typeof b
 
 function calibrationEvidence(report: ModelCalibrationConfigReport): string {
   return `${JSON.stringify({
-    schemaVersion: 'maka.model_calibration.evidence.v1',
+    schemaVersion: 'maka.model_calibration.evidence.v2',
     source: 'headless_calibration_run',
     importedBy: 'host_post_exit',
     report,
   })}\n`;
 }
 
-function capabilityEvidence(environmentId: string, modelId: string, status: 'supported' | 'unsupported' | 'failed'): string {
+function capabilityEvidence(
+  environmentId: string,
+  modelId: string,
+  thinkingLevel: 'default' | 'low' | 'medium' | 'high',
+  status: 'supported' | 'unsupported' | 'failed',
+  protocol: {
+    requestAccepted: boolean;
+    runtimeStatus: 'completed' | 'rejected' | 'failed';
+    errorClass?: string;
+    usageParsed: boolean;
+    usage: { inputTokens: number; outputTokens: number; reasoningTokens: number; totalTokens: number };
+    fallbackDetected: boolean;
+    latencyMs: number;
+    reasoningTokens: number;
+    providerHttpStatus?: number;
+  } = {
+    requestAccepted: true,
+    runtimeStatus: 'completed',
+    usageParsed: true,
+    usage: { inputTokens: 2, outputTokens: 1, reasoningTokens: 0, totalTokens: 3 },
+    fallbackDetected: false,
+    latencyMs: 10,
+    reasoningTokens: 0,
+  },
+): string {
   return `${JSON.stringify({
-    schemaVersion: 'maka.model_capability_probe.evidence.v1',
+    schemaVersion: 'maka.model_capability_probe.evidence.v2',
     source: 'runtime_capability_probe',
     importedBy: 'host_post_exit',
     environmentId,
     modelId,
+    thinkingLevel,
     status,
+    requestAccepted: protocol.requestAccepted,
+    runtimeStatus: protocol.runtimeStatus,
+    ...(protocol.errorClass !== undefined ? { errorClass: protocol.errorClass } : {}),
+    usageParsed: protocol.usageParsed,
+    usage: protocol.usage,
+    fallbackDetected: protocol.fallbackDetected,
+    latencyMs: protocol.latencyMs,
+    reasoningTokens: protocol.reasoningTokens,
+    ...(protocol.providerHttpStatus !== undefined ? { providerHttpStatus: protocol.providerHttpStatus } : {}),
   })}\n`;
 }
 
@@ -451,13 +592,17 @@ function latencyContent(attemptId: string): string {
   }, null, 2)}\n`;
 }
 
-function calibrationReport(environmentId: string, modelId: string): ModelCalibrationConfigReport {
+function calibrationReport(
+  environmentId: string,
+  modelId: string,
+  thinkingLevel: 'low' | 'medium' | 'high',
+): ModelCalibrationConfigReport {
   const results = calibrationResults();
   return {
     environmentId,
     connectionSlug: 'operator-gateway',
     modelId,
-    thinkingLevel: 'medium',
+    thinkingLevel,
     results,
     qualification: qualifyModelCalibrationResults(results),
   };
@@ -483,4 +628,11 @@ function calibrationResults(): ModelCalibrationCaseResult[] {
     latencyMs: 10,
     usage: { inputTokens: 2, outputTokens: 1, reasoningTokens: 0, totalTokens: 3 },
   })));
+}
+
+function benchmarkThinkingLevel(
+  value: ModelCalibrationConfigReport['thinkingLevel'],
+): 'default' | 'low' | 'medium' | 'high' {
+  if (value === 'default' || value === 'low' || value === 'medium' || value === 'high') return value;
+  throw new Error(`unexpected benchmark thinking level: ${value}`);
 }

@@ -16,18 +16,33 @@ import {
   type MemoryBenchmarkScore,
 } from './memory-benchmark-manifest.js';
 import {
+  buildModelCalibrationConfigId,
   buildModelCalibrationDecision,
   type ModelCalibrationConfigReport,
   type ModelCalibrationDecision,
   type ModelCalibrationEnvironment,
+  type ModelCalibrationTokenUsage,
 } from './model-calibration.js';
 
-export const MEMORY_BASELINE_SCHEMA_VERSION = 'maka.memory_benchmark.current_baseline.v1' as const;
+export const MEMORY_BASELINE_SCHEMA_VERSION = 'maka.memory_benchmark.current_baseline.v2' as const;
+const CURRENT_MAKA_TOKEN_SANITY_DATASET = 'terminal-bench-sample@2.0/log-summary-date-ranges';
+const CURRENT_MAKA_TOKEN_SANITY_TASK = 'log-summary-date-ranges';
+const CURRENT_MAKA_TOKEN_SANITY_HASH = 'sha256:bc214b360dec9e692f03f6a63599d880a7619569a00293f4c1a68c248767476e';
 
 export interface MemoryBaselineCapabilityProbe {
   readonly environmentId: string;
   readonly modelId: string;
+  readonly thinkingLevel: ModelCalibrationConfigReport['thinkingLevel'];
   readonly status: 'supported' | 'unsupported' | 'failed';
+  readonly requestAccepted: boolean;
+  readonly runtimeStatus: 'completed' | 'rejected' | 'failed';
+  readonly errorClass?: string;
+  readonly usageParsed: boolean;
+  readonly usage: ModelCalibrationTokenUsage;
+  readonly fallbackDetected: boolean;
+  readonly latencyMs: number;
+  readonly reasoningTokens: number;
+  readonly providerHttpStatus?: number;
   readonly evidencePath: string;
   readonly evidenceDigest: string;
 }
@@ -85,7 +100,7 @@ export interface MemoryBaselineRunAudit {
 }
 
 export interface CurrentMakaMemoryBaselineSnapshot {
-  readonly schemaVersion: 'maka.memory_benchmark.current_baseline_snapshot.v1';
+  readonly schemaVersion: 'maka.memory_benchmark.current_baseline_snapshot.v2';
   readonly baselineFingerprint: string;
   readonly verdict: 'valid' | 'invalid';
   readonly calibrationDecision: ModelCalibrationDecision;
@@ -96,7 +111,10 @@ export interface CurrentMakaMemoryBaselineSnapshot {
 
 export function buildCurrentMakaMemoryBaseline(input: CurrentMakaMemoryBaselineInput): CurrentMakaMemoryBaseline {
   validateBaselineInput(input);
-  const calibrationDecision = buildModelCalibrationDecision(input.modelEnvironment, input.calibrationReports.map((entry) => entry.report));
+  const modelDecision = buildModelCalibrationDecision(input.modelEnvironment, input.calibrationReports.map((entry) => entry.report));
+  const calibrationDecision: ModelCalibrationDecision = input.capabilityProbes.every((probe) => probe.status === 'supported')
+    ? modelDecision
+    : { ...modelDecision, status: 'BLOCKED' };
   const body = {
     schemaVersion: MEMORY_BASELINE_SCHEMA_VERSION,
     baselineId: input.baselineId,
@@ -161,12 +179,22 @@ export async function auditCurrentMakaMemoryBaseline(
       assertMemoryBenchmarkArtifactRedacted(raw);
       const evidence = JSON.parse(raw) as unknown;
       if (!isRecord(evidence)
-        || evidence.schemaVersion !== 'maka.model_capability_probe.evidence.v1'
+        || evidence.schemaVersion !== 'maka.model_capability_probe.evidence.v2'
         || evidence.source !== 'runtime_capability_probe'
         || evidence.importedBy !== 'host_post_exit'
         || evidence.environmentId !== probe.environmentId
         || evidence.modelId !== probe.modelId
-        || evidence.status !== probe.status) {
+        || evidence.thinkingLevel !== probe.thinkingLevel
+        || evidence.status !== probe.status
+        || evidence.requestAccepted !== probe.requestAccepted
+        || evidence.runtimeStatus !== probe.runtimeStatus
+        || evidence.errorClass !== probe.errorClass
+        || evidence.usageParsed !== probe.usageParsed
+        || JSON.stringify(evidence.usage) !== JSON.stringify(probe.usage)
+        || evidence.fallbackDetected !== probe.fallbackDetected
+        || evidence.latencyMs !== probe.latencyMs
+        || evidence.reasoningTokens !== probe.reasoningTokens
+        || evidence.providerHttpStatus !== probe.providerHttpStatus) {
         throw new Error('capability probe evidence does not match its recorded result');
       }
     } catch {
@@ -183,7 +211,7 @@ export async function auditCurrentMakaMemoryBaseline(
       assertMemoryBenchmarkArtifactRedacted(content.toString('utf8'));
       const evidence = JSON.parse(content.toString('utf8')) as unknown;
       if (!isRecord(evidence)
-        || evidence.schemaVersion !== 'maka.model_calibration.evidence.v1'
+        || evidence.schemaVersion !== 'maka.model_calibration.evidence.v2'
         || evidence.source !== 'headless_calibration_run'
         || evidence.importedBy !== 'host_post_exit'
         || JSON.stringify(evidence.report) !== JSON.stringify(calibration.report)) {
@@ -207,6 +235,7 @@ export async function auditCurrentMakaMemoryBaseline(
     try {
       await assertContainedRunRoot(baselineRoot, runRoot);
       attempts = await readMemoryBenchmarkAttempts(runRoot, run.manifest, baselineRoot);
+      await verifyHarborTaskChecksums(runRoot, run.manifest, attempts, baselineRoot);
       resume = planMemoryBenchmarkResume(run.manifest, attempts);
       score = await recomputeMemoryBenchmarkScore(runRoot, run.manifest, attempts, baselineRoot);
     } catch {
@@ -233,9 +262,10 @@ export async function auditCurrentMakaMemoryBaseline(
     });
   }
   return deepFreeze({
-    schemaVersion: 'maka.memory_benchmark.current_baseline_snapshot.v1',
+    schemaVersion: 'maka.memory_benchmark.current_baseline_snapshot.v2',
     baselineFingerprint: baseline.fingerprint,
     verdict: baseline.calibrationDecision.status === 'QUALIFIED'
+      && baseline.capabilityProbes.every((probe) => probe.status === 'supported')
       && baseline.calibrationReports.every((calibration) => calibration.report.qualification.main.qualified)
       && evidenceInvalidRefs.length === 0
       && runs.every((run) => run.resume.pendingAttempts.length === 0 && run.score.verdict === 'valid' && run.latency !== null)
@@ -246,6 +276,29 @@ export async function auditCurrentMakaMemoryBaseline(
     knownGaps: structuredClone(baseline.knownGaps),
     evidenceInvalidRefs: evidenceInvalidRefs.sort(),
   });
+}
+
+async function verifyHarborTaskChecksums(
+  runRoot: string,
+  manifest: MemoryBenchmarkManifest,
+  attempts: readonly MemoryBenchmarkAttemptArtifact[],
+  containmentRoot: string,
+): Promise<void> {
+  for (const attempt of attempts) {
+    const content = await readVerifiedMemoryBenchmarkArtifact(
+      runRoot,
+      attempt.artifacts.verifier,
+      attempt.artifactDigests.verifier,
+      containmentRoot,
+    );
+    const verifier = JSON.parse(content.toString('utf8')) as unknown;
+    if (!isRecord(verifier)
+      || typeof verifier.task_checksum !== 'string'
+      || !/^[a-f0-9]{64}$/.test(verifier.task_checksum)
+      || `sha256:${verifier.task_checksum}` !== manifest.dataset.hash) {
+      throw new Error(`baseline Harbor task checksum does not match manifest for ${attempt.attemptId}`);
+    }
+  }
 }
 
 export async function writeCurrentMakaMemoryBaseline(
@@ -267,29 +320,62 @@ export async function writeCurrentMakaMemoryBaselineSnapshot(
 function validateBaselineInput(input: CurrentMakaMemoryBaselineInput): void {
   nonEmpty(input.baselineId, 'baselineId');
   if (!/^[a-f0-9]{40,64}$/.test(input.subjectCommit)) throw new Error('subjectCommit must be a lowercase git commit id');
-  if (input.capabilityProbes.length !== 6) throw new Error('current Maka baseline requires exactly six capability probes');
-  if (input.modelEnvironment.modelIds.length !== 6) throw new Error('current Maka baseline environment must contain exactly six models');
+  if (input.capabilityProbes.length !== 3) throw new Error('current Maka baseline requires exactly three capability probes');
+  if (input.modelEnvironment.modelIds.length !== 1) throw new Error('current Maka baseline environment must contain exactly one model');
   if (input.calibrationReports.length !== 3) throw new Error('current Maka baseline requires exactly three formal calibration reports');
   if (input.runs.length === 0) throw new Error('current Maka baseline requires at least one benchmark run');
   if (input.knownGaps.length === 0) throw new Error('current Maka baseline requires an explicit known-gaps record');
 
-  unique(input.capabilityProbes.map((probe) => probe.modelId), 'duplicate capability probe modelId');
-  unique(input.calibrationReports.map((entry) => entry.report.modelId), 'duplicate formal calibration modelId');
+  unique(input.capabilityProbes.map((probe) => buildModelCalibrationConfigId({
+    environmentId: probe.environmentId,
+    connectionSlug: input.modelEnvironment.connectionSlug,
+    modelId: probe.modelId,
+    thinkingLevel: probe.thinkingLevel,
+  })), 'duplicate capability probe config');
+  unique(input.calibrationReports.map((entry) => buildModelCalibrationConfigId(entry.report)), 'duplicate formal calibration config');
   unique(input.runs.map((run) => run.manifest.fingerprint), 'duplicate baseline run manifest');
   unique(input.knownGaps.map((gap) => gap.id), 'duplicate known gap id');
-  if (!sameStringSet(input.capabilityProbes.map((probe) => probe.modelId), input.modelEnvironment.modelIds)) {
-    throw new Error('capability probes must cover every model in the frozen environment');
+  const baselineModelId = input.modelEnvironment.modelIds[0]!;
+  const requiredThinkingLevels = ['low', 'medium', 'high'];
+  if (input.capabilityProbes.some((probe) => probe.modelId !== baselineModelId)) {
+    throw new Error('capability probes must use the single model in the frozen environment');
+  }
+  if (input.calibrationReports.some((entry) => entry.report.modelId !== baselineModelId)) {
+    throw new Error('formal calibration reports must use the single model in the frozen environment');
+  }
+  if (!sameStringSet(input.capabilityProbes.map((probe) => probe.thinkingLevel), requiredThinkingLevels)) {
+    throw new Error('capability probes must cover low, medium, and high thinking levels');
+  }
+  if (!sameStringSet(input.calibrationReports.map((entry) => entry.report.thinkingLevel), requiredThinkingLevels)) {
+    throw new Error('formal calibration reports must cover low, medium, and high thinking levels');
+  }
+  const probeConfigIds = input.capabilityProbes.map((probe) => buildModelCalibrationConfigId({
+    environmentId: probe.environmentId,
+    connectionSlug: input.modelEnvironment.connectionSlug,
+    modelId: probe.modelId,
+    thinkingLevel: probe.thinkingLevel,
+  }));
+  const reportConfigIds = input.calibrationReports.map((entry) => buildModelCalibrationConfigId(entry.report));
+  if (!sameStringSet(probeConfigIds, reportConfigIds)) {
+    throw new Error('capability probes and formal calibration reports must cover the same configs');
   }
   for (const calibration of input.calibrationReports) {
     relativePath(calibration.evidencePath, 'formal calibration evidencePath');
     sha256(calibration.evidenceDigest, 'formal calibration evidenceDigest');
     const report = calibration.report;
-    if (!['default', 'low', 'medium', 'high'].includes(report.thinkingLevel)) {
+    if (!['low', 'medium', 'high'].includes(report.thinkingLevel)) {
       throw new Error(`formal calibration thinking level is not benchmark-compatible: ${report.modelId}`);
     }
     if (!input.runs.some((run) => run.manifest.environment.modelId === report.modelId
       && run.manifest.environment.reasoningEffort === report.thinkingLevel)) {
       throw new Error('baseline runs must cover every formally calibrated model and effort');
+    }
+    if (!input.runs.some((run) => run.manifest.environment.modelId === report.modelId
+      && run.manifest.environment.reasoningEffort === report.thinkingLevel
+      && run.manifest.dataset.id === CURRENT_MAKA_TOKEN_SANITY_DATASET
+      && run.manifest.dataset.hash === CURRENT_MAKA_TOKEN_SANITY_HASH
+      && sameStringSet(run.manifest.dataset.taskIds, [CURRENT_MAKA_TOKEN_SANITY_TASK]))) {
+      throw new Error('baseline token sanity runs must cover low, medium, and high with the official log-summary-date-ranges task');
     }
   }
 
@@ -297,6 +383,51 @@ function validateBaselineInput(input: CurrentMakaMemoryBaselineInput): void {
     if (!['supported', 'unsupported', 'failed'].includes(probe.status)) throw new Error(`invalid capability probe status: ${probe.modelId}`);
     if (probe.environmentId !== input.modelEnvironment.environmentId) throw new Error(`capability probe belongs to another environment: ${probe.modelId}`);
     if (!input.modelEnvironment.modelIds.includes(probe.modelId)) throw new Error(`capability probe model is outside the frozen environment: ${probe.modelId}`);
+    if (!['low', 'medium', 'high'].includes(probe.thinkingLevel)) {
+      throw new Error(`capability probe thinking level is not benchmark-compatible: ${probe.modelId}`);
+    }
+    if (typeof probe.requestAccepted !== 'boolean'
+      || typeof probe.usageParsed !== 'boolean'
+      || typeof probe.fallbackDetected !== 'boolean') {
+      throw new Error(`capability probe protocol flags are invalid: ${probe.modelId}:${probe.thinkingLevel}`);
+    }
+    if (!Number.isFinite(probe.latencyMs) || probe.latencyMs < 0) {
+      throw new Error(`capability probe latency is invalid: ${probe.modelId}:${probe.thinkingLevel}`);
+    }
+    if (!Number.isSafeInteger(probe.reasoningTokens) || probe.reasoningTokens < 0) {
+      throw new Error(`capability probe reasoning tokens are invalid: ${probe.modelId}:${probe.thinkingLevel}`);
+    }
+    if (!['completed', 'rejected', 'failed'].includes(probe.runtimeStatus)) {
+      throw new Error(`capability probe runtime status is invalid: ${probe.modelId}:${probe.thinkingLevel}`);
+    }
+    if (probe.errorClass !== undefined && probe.errorClass.trim().length === 0) {
+      throw new Error(`capability probe error class is invalid: ${probe.modelId}:${probe.thinkingLevel}`);
+    }
+    const usageValues = [
+      probe.usage?.inputTokens,
+      probe.usage?.outputTokens,
+      probe.usage?.reasoningTokens,
+      probe.usage?.totalTokens,
+    ];
+    if (!usageValues.every((value) => Number.isSafeInteger(value) && Number(value) >= 0)
+      || probe.usage.totalTokens < probe.usage.inputTokens + probe.usage.outputTokens
+      || probe.usage.reasoningTokens !== probe.reasoningTokens) {
+      throw new Error(`capability probe usage is invalid: ${probe.modelId}:${probe.thinkingLevel}`);
+    }
+    if (probe.providerHttpStatus !== undefined
+      && (!Number.isSafeInteger(probe.providerHttpStatus) || probe.providerHttpStatus < 100 || probe.providerHttpStatus > 599)) {
+      throw new Error(`capability probe provider HTTP status is invalid: ${probe.modelId}:${probe.thinkingLevel}`);
+    }
+    if (probe.status === 'supported'
+      && (!probe.requestAccepted
+        || probe.runtimeStatus !== 'completed'
+        || probe.errorClass !== undefined
+        || !probe.usageParsed
+        || probe.fallbackDetected
+        || (probe.providerHttpStatus !== undefined
+          && (probe.providerHttpStatus < 200 || probe.providerHttpStatus > 299)))) {
+      throw new Error(`supported capability probe lacks accepted usage evidence or detected a fallback: ${probe.modelId}:${probe.thinkingLevel}`);
+    }
     relativePath(probe.evidencePath, 'capability probe evidencePath');
     sha256(probe.evidenceDigest, 'capability probe evidenceDigest');
   }

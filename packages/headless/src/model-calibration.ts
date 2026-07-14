@@ -1,7 +1,7 @@
 import { effectiveBaseUrl, type LlmConnection, type ThinkingLevel } from '@maka/core';
 import { buildRunManifestFingerprint } from './ab-manifest.js';
 
-export const MODEL_CALIBRATION_SCHEMA_VERSION = 'maka.model_calibration.v1' as const;
+export const MODEL_CALIBRATION_SCHEMA_VERSION = 'maka.model_calibration.v2' as const;
 
 export type ModelCalibrationCaseKind =
   | 'structured_json'
@@ -127,24 +127,40 @@ export interface ModelCalibrationConfigReport {
 export interface ModelCalibrationDecision {
   schemaVersion: typeof MODEL_CALIBRATION_SCHEMA_VERSION;
   status: 'QUALIFIED' | 'BLOCKED';
-  requiredMainQualifiedModels: number;
+  requiredMainQualifiedConfigs: number;
   mainQualifiedModelIds: string[];
   mainQualifiedConfigIds: string[];
   curatorQualifiedConfigIds: string[];
 }
 
+export function buildModelCalibrationConfigId(
+  config: Pick<ModelCalibrationConfigReport, 'environmentId' | 'connectionSlug' | 'modelId' | 'thinkingLevel'>,
+): string {
+  return buildRunManifestFingerprint({
+    kind: 'maka.model_calibration.config.v2',
+    environmentId: nonEmpty(config.environmentId, 'config.environmentId'),
+    connectionSlug: nonEmpty(config.connectionSlug, 'config.connectionSlug'),
+    modelId: nonEmpty(config.modelId, 'config.modelId'),
+    thinkingLevel: config.thinkingLevel,
+  });
+}
+
 export function buildModelCalibrationDecision(
   environment: ModelCalibrationEnvironment,
   reports: readonly ModelCalibrationConfigReport[],
-  requiredMainQualifiedModels = 2,
+  requiredMainQualifiedConfigs = 2,
 ): ModelCalibrationDecision {
-  if (!Number.isSafeInteger(requiredMainQualifiedModels) || requiredMainQualifiedModels < 1) {
-    throw new Error('requiredMainQualifiedModels must be a positive integer');
+  if (!Number.isSafeInteger(requiredMainQualifiedConfigs) || requiredMainQualifiedConfigs < 1) {
+    throw new Error('requiredMainQualifiedConfigs must be a positive integer');
+  }
+  if (environment.schemaVersion !== MODEL_CALIBRATION_SCHEMA_VERSION) {
+    throw new Error(`unsupported model calibration schemaVersion: ${environment.schemaVersion}`);
   }
   const recomputedEnvironmentId = modelCalibrationEnvironmentId(environment);
   if (environment.environmentId !== recomputedEnvironmentId) {
     throw new Error('model calibration environment fingerprint does not match its contents');
   }
+  const reportConfigIds = new Set<string>();
   for (const report of reports) {
     nonEmpty(report.environmentId, 'report.environmentId');
     nonEmpty(report.connectionSlug, 'report.connectionSlug');
@@ -158,30 +174,28 @@ export function buildModelCalibrationDecision(
     if (!environment.modelIds.includes(report.modelId)) {
       throw new Error(`model calibration report uses a model outside the frozen environment: ${report.modelId}`);
     }
+    const configId = buildModelCalibrationConfigId(report);
+    if (reportConfigIds.has(configId)) {
+      throw new Error(`duplicate model calibration config: ${report.modelId}:${report.thinkingLevel}`);
+    }
+    reportConfigIds.add(configId);
     const recomputed = qualifyModelCalibrationResults(report.results);
     if (!modelCalibrationQualificationEquals(recomputed, report.qualification)) {
       throw new Error(`model calibration qualification does not match case evidence: ${report.modelId}:${report.thinkingLevel}`);
     }
   }
-  const configId = (report: ModelCalibrationConfigReport): string => (
-    buildRunManifestFingerprint({
-      kind: 'maka.model_calibration.config.v1',
-      connectionSlug: report.connectionSlug,
-      modelId: report.modelId,
-      thinkingLevel: report.thinkingLevel,
-    })
-  );
   const main = reports.filter((report) => report.qualification.main.qualified);
   const mainQualifiedModelIds = [...new Set(main.map((report) => report.modelId))].sort();
+  const mainQualifiedConfigIds = main.map(buildModelCalibrationConfigId).sort();
   return {
     schemaVersion: MODEL_CALIBRATION_SCHEMA_VERSION,
-    status: mainQualifiedModelIds.length >= requiredMainQualifiedModels ? 'QUALIFIED' : 'BLOCKED',
-    requiredMainQualifiedModels,
+    status: mainQualifiedConfigIds.length >= requiredMainQualifiedConfigs ? 'QUALIFIED' : 'BLOCKED',
+    requiredMainQualifiedConfigs,
     mainQualifiedModelIds,
-    mainQualifiedConfigIds: main.map(configId).sort(),
+    mainQualifiedConfigIds,
     curatorQualifiedConfigIds: reports
       .filter((report) => report.qualification.curator.qualified)
-      .map(configId)
+      .map(buildModelCalibrationConfigId)
       .sort(),
   };
 }
