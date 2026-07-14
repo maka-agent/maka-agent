@@ -105,6 +105,11 @@ export function buildHistoryCompactCheckpoint(
   if (input.coveredRuntimeEvents.some((event) => event.sessionId !== input.sessionId)) {
     throw new Error('History compact checkpoint source events must belong to one session');
   }
+  // A partial streaming snapshot is later replaced or deleted in the durable
+  // ledger, so a digest over it can never replay: coverage must be immutable.
+  if (input.coveredRuntimeEvents.some((event) => event.partial === true)) {
+    throw new Error('History compact checkpoint coverage must not include partial events');
+  }
   const summary = input.summary.trim();
   if (summary.length === 0) {
     throw new Error('History compact checkpoint requires a non-empty summary');
@@ -121,6 +126,12 @@ export function buildHistoryCompactCheckpoint(
     const anchored = input.coveredRuntimeEvents.find((event) => event.id === input.headAnchor!.runtimeEventId);
     if (!anchored) {
       throw new Error('Mid-turn history compact checkpoint head anchor must be a covered RuntimeEvent');
+    }
+    // The anchor is re-rendered verbatim as the compacted turn's user message;
+    // an anchor that is not that turn's user event would silently rewrite the
+    // conversation, so the protocol fails closed at build time.
+    if (anchored.turnId !== input.headAnchor.turnId || anchored.role !== 'user') {
+      throw new Error('Mid-turn history compact checkpoint head anchor must be the covered turn\'s user event');
     }
     headAnchor = { runtimeEventId: input.headAnchor.runtimeEventId, turnId: input.headAnchor.turnId };
   }
@@ -310,6 +321,17 @@ export function matchHistoryCompactCheckpointPrefix(
     )
   ) {
     return { coveredEventCount: 0, coveredRuntimeEvents: [], successorRuntimeEvents: [], reason: 'coverage_miss' };
+  }
+  // A mid_turn checkpoint's replay re-renders the head anchor verbatim, so a
+  // corrupted anchor reference must fail the match closed here — otherwise the
+  // projection would silently drop the compacted turn's user message.
+  if (checkpoint.phase === 'mid_turn') {
+    const anchor = coveredRuntimeEvents.find(
+      (event) => event.id === checkpoint.headAnchor!.runtimeEventId,
+    );
+    if (!anchor || anchor.turnId !== checkpoint.headAnchor!.turnId || anchor.role !== 'user') {
+      return { coveredEventCount: 0, coveredRuntimeEvents: [], successorRuntimeEvents: [], reason: 'coverage_miss' };
+    }
   }
   if (historyCompactSourceDigest(coveredRuntimeEvents) !== checkpoint.coverage.sourceDigest) {
     return { coveredEventCount: 0, coveredRuntimeEvents: [], successorRuntimeEvents: [], reason: 'source_hash_mismatch' };

@@ -672,28 +672,15 @@ export function applyRuntimeEventHistoryCompact(
   }
 
   const compactableEvents = events.filter(isHistoryCompactContentEvent);
-  const estimatedTokensBefore = estimateRuntimeEventsTokens(compactableEvents, charsPerToken);
-  const highWaterRatio = finiteRatio(compactPolicy.highWaterRatio, 0.8);
-  const highWaterThreshold = Math.max(1, Math.floor(maxTokens * highWaterRatio));
-  if (estimatedTokensBefore <= highWaterThreshold) {
-    increment(skippedReasonCounts, 'below_high_water');
-    return {
-      events: [...events],
-      blocks: [],
-      diagnosticPatch: {
-        ...basePatch,
-        historyCompactSkipped: 1,
-        historyCompactSkippedReasonCounts: skippedReasonCounts,
-        ...historyCompactSkippedDecisionPatch(skippedReasonCounts),
-      },
-    };
-  }
 
   // A mid_turn checkpoint's coverage reaches into the compacted turn's own
   // completed steps, so it can extend past what tail selection would retain
   // and must not require multiple prior turns. Match it against the full
-  // content projection before the turn-granular guards; replay is the
-  // deterministic [block, verbatim head anchor, uncovered tail].
+  // content projection BEFORE every size-based guard — including the
+  // below-high-water skip: replaying an accepted mid_turn checkpoint is a
+  // correctness invariant (the covered raw span must never be re-injected),
+  // not a capacity optimization, so a small raw projection does not bypass
+  // it. Replay is the deterministic [block, verbatim head anchor, tail].
   const midTurnCheckpoint = compactPolicy.checkpoint?.phase === 'mid_turn' ? compactPolicy.checkpoint : undefined;
   if (midTurnCheckpoint) {
     const match = matchHistoryCompactCheckpointPrefix(midTurnCheckpoint, compactableEvents);
@@ -743,6 +730,23 @@ export function applyRuntimeEventHistoryCompact(
         };
       }
     }
+  }
+
+  const estimatedTokensBefore = estimateRuntimeEventsTokens(compactableEvents, charsPerToken);
+  const highWaterRatio = finiteRatio(compactPolicy.highWaterRatio, 0.8);
+  const highWaterThreshold = Math.max(1, Math.floor(maxTokens * highWaterRatio));
+  if (estimatedTokensBefore <= highWaterThreshold) {
+    increment(skippedReasonCounts, 'below_high_water');
+    return {
+      events: [...events],
+      blocks: [],
+      diagnosticPatch: {
+        ...basePatch,
+        historyCompactSkipped: 1,
+        historyCompactSkippedReasonCounts: skippedReasonCounts,
+        ...historyCompactSkippedDecisionPatch(skippedReasonCounts),
+      },
+    };
   }
 
   const turnGroups = groupEventsByTurn(compactableEvents, charsPerToken);

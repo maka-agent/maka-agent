@@ -74,6 +74,19 @@ describe('mid-turn safe boundary selection', () => {
     assert.deepEqual(boundary, { ok: true, coveredCount: 3 });
   });
 
+  test('retreats before a partial in the middle of the prefix, not just at the cut', () => {
+    const events = [
+      user('anchor', 'turn-1'),
+      { ...model('m-partial', 'turn-1'), partial: true },
+      model('m-final', 'turn-1'),
+    ];
+    // With no reserved tail the largest cut ends on the immutable m-final, but
+    // the prefix would still span the partial snapshot — coverage must stop
+    // strictly before the first partial.
+    const boundary = selectMidTurnSafeBoundary(events, { reserveTailEvents: 0 });
+    assert.deepEqual(boundary, { ok: true, coveredCount: 1 });
+  });
+
   test('reports no safe completed span when the whole pool is one atomic pair', () => {
     const events = [
       call('c1', 'call-1', 'turn-1'),
@@ -151,13 +164,13 @@ describe('plan mid-turn capacity compaction', () => {
     assert.equal(match.reason, undefined);
     assert.equal(match.coveredEventCount, result.coveredRuntimeEvents.length);
 
+    // Normal thresholds: even though the raw ledger is far below the default
+    // high water, the accepted mid_turn checkpoint replays — recovery never
+    // re-injects the replaced raw span.
     const replay = applyRuntimeEventHistoryCompact(events, {
       maxHistoryEstimatedTokens: 1_000_000,
       charsPerToken: 4,
-      historyCompact: {
-        enabled: true, mode: 'read_write', checkpoint: result.checkpoint,
-        highWaterRatio: 0.000001, tailEstimatedTokens: 1,
-      },
+      historyCompact: { enabled: true, mode: 'read_write', checkpoint: result.checkpoint },
     });
     assert.equal(replay.checkpoint?.checkpointId, result.checkpoint.checkpointId);
     const replayIds = replay.events.map((event) => event.id);
@@ -192,6 +205,31 @@ describe('plan mid-turn capacity compaction', () => {
       reserveTailEvents: 1,
     }));
     assert.deepEqual(outcome, { decision: 'exhausted', detail: 'no_safe_completed_span' });
+  });
+
+  test('exhausts when folding cannot bring the FULL next request under the window', async () => {
+    // The foldable span is a handful of tokens while the estimate carries a
+    // huge fixed overhead (system prompt, tool schemas): comparing only the
+    // replacement events to the window would wrongly report compacted here.
+    const outcome = await planMidTurnCapacityCompaction(planInput({
+      estimatedNextRequestTokens: 10_000,
+      contextWindow: 1_000,
+      reserveTokens: 100,
+    }));
+    assert.deepEqual(outcome, { decision: 'exhausted', detail: 'head_anchor_exceeds_capacity' });
+  });
+
+  test('fails open under the window when the replacement projection would exceed it', async () => {
+    // Raw request (500) fits the window (1000) comfortably; a giant summary
+    // block would push the replaced request past the window, so the plan must
+    // keep the raw projection instead of replacing it with a worse one.
+    const outcome = await planMidTurnCapacityCompaction(planInput({
+      estimatedNextRequestTokens: 500,
+      contextWindow: 1_000,
+      reserveTokens: 900,
+      summarize: () => 'S'.repeat(8_000),
+    }));
+    assert.deepEqual(outcome, { decision: 'fail_open', reason: 'replacement_exceeds_window' });
   });
 
   test('rolls forward from a matching previous checkpoint (only the new span is summarized)', async () => {

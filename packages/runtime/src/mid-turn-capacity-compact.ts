@@ -90,10 +90,16 @@ export function selectMidTurnSafeBoundary(
   options: MidTurnBoundaryOptions = {},
 ): MidTurnBoundary {
   const reserveTail = Math.max(0, Math.floor(options.reserveTailEvents ?? 0));
-  const maxCut = events.length - reserveTail;
+  // A partial anywhere in the covered prefix (not just at the cut) poisons the
+  // digest — its snapshot is later replaced or deleted — so the boundary
+  // retreats to strictly before the first partial in the pool.
+  const firstPartialIndex = events.findIndex((event) => event.partial === true);
+  const maxCut = Math.min(
+    events.length - reserveTail,
+    firstPartialIndex === -1 ? events.length : firstPartialIndex,
+  );
   const pairSpans = toolPairSpans(events);
   for (let cut = maxCut; cut >= 1; cut -= 1) {
-    if (events[cut - 1]?.partial === true) continue;
     if (straddlesToolPair(pairSpans, cut)) continue;
     return { ok: true, coveredCount: cut };
   }
@@ -187,7 +193,10 @@ export type PlanMidTurnCapacityCompactionResult =
       estimatedTokensAfter: number;
     };
 
-export type MidTurnFailReason = 'no_safe_completed_span' | 'summarizer_failed';
+export type MidTurnFailReason =
+  | 'no_safe_completed_span'
+  | 'summarizer_failed'
+  | 'replacement_exceeds_window';
 
 /**
  * Decide, deterministically, how a long active turn compacts before the next
@@ -283,14 +292,21 @@ export async function planMidTurnCapacityCompaction(
     charsPerToken,
   );
 
-  // Even the minimal projection (block + verbatim head anchor + reserved tail)
-  // can exceed the window when the head anchor alone is too large. That is not
-  // recoverable by more folding, so surface it as an explicit outcome.
-  if (
-    overWindow
-    && estimateRuntimeEventsTokens(replacementEvents, charsPerToken) > input.contextWindow
-  ) {
-    return { decision: 'exhausted', detail: 'head_anchor_exceeds_capacity' };
+  // Re-estimate the FULL next request after folding, keeping the fixed
+  // overhead (system prompt, tool schemas, current user content) that the
+  // usage-anchored estimate carries: subtract only the covered span's share
+  // and add back the [block, verbatim head anchor, tail] projection. Folding
+  // cannot reduce the request below this number, so when it still exceeds the
+  // window the turn is not rescuable by compaction: over the window that is
+  // the explicit exhausted outcome (the irreducible remainder — head anchor,
+  // reserved tail, and fixed overhead — exceeds capacity); under the window
+  // the raw request still fits, so a replacement projection that would grow
+  // past the window fails open instead of replacing.
+  const estimatedNextRequestAfter =
+    Math.max(0, input.estimatedNextRequestTokens - estimatedTokensBefore)
+    + estimateRuntimeEventsTokens(replacementEvents, charsPerToken);
+  if (estimatedNextRequestAfter > input.contextWindow) {
+    return failOrExhaust('replacement_exceeds_window', 'head_anchor_exceeds_capacity');
   }
 
   return {

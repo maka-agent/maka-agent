@@ -63,6 +63,72 @@ describe('mid-turn history compact checkpoint', () => {
     }), /must be a covered RuntimeEvent/);
   });
 
+  test('rejects a head anchor that is not the covered turn\'s user event', () => {
+    const events = [textEvent('a', 'turn-1', 'user'), textEvent('b', 'turn-1', 'model')];
+    // Anchor turnId disagrees with the covered event.
+    assert.throws(() => buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
+      headAnchor: { runtimeEventId: 'a', turnId: 'turn-9' },
+    }), /must be the covered turn's user event/);
+    // Anchor references a model event, not the turn's user message.
+    assert.throws(() => buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
+      headAnchor: { runtimeEventId: 'b', turnId: 'turn-1' },
+    }), /must be the covered turn's user event/);
+  });
+
+  test('rejects coverage that includes a partial streaming snapshot', () => {
+    const events = [
+      textEvent('a', 'turn-1', 'user'),
+      { ...textEvent('b-partial', 'turn-1', 'model'), partial: true },
+      textEvent('c', 'turn-1', 'model'),
+    ];
+    assert.throws(() => buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
+      headAnchor: { runtimeEventId: 'a', turnId: 'turn-1' },
+    }), /must not include partial events/);
+  });
+
+  test('fails the prefix match closed when the head anchor reference is corrupted', () => {
+    const events = [
+      textEvent('anchor', 'turn-1', 'user'),
+      textEvent('step-model', 'turn-1', 'model'),
+      textEvent('tail', 'turn-1', 'model'),
+    ];
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: events.slice(0, 2),
+      summary: 'mid turn summary',
+      phase: 'mid_turn',
+      headAnchor: { runtimeEventId: 'anchor', turnId: 'turn-1' },
+    });
+
+    // Anchor id pointing outside the coverage: the replay would silently drop
+    // the turn's user message, so the match must fail closed instead.
+    const missingAnchor = {
+      ...checkpoint,
+      headAnchor: { runtimeEventId: 'tail', turnId: 'turn-1' },
+    };
+    assert.equal(matchHistoryCompactCheckpointPrefix(missingAnchor, events).reason, 'coverage_miss');
+
+    // Anchor resolving to a covered non-user event fails the same way.
+    const modelAnchor = {
+      ...checkpoint,
+      headAnchor: { runtimeEventId: 'step-model', turnId: 'turn-1' },
+    };
+    assert.equal(matchHistoryCompactCheckpointPrefix(modelAnchor, events).reason, 'coverage_miss');
+
+    // Anchor turnId disagreeing with the covered event fails too.
+    const wrongTurnAnchor = {
+      ...checkpoint,
+      headAnchor: { runtimeEventId: 'anchor', turnId: 'turn-9' },
+    };
+    assert.equal(matchHistoryCompactCheckpointPrefix(wrongTurnAnchor, events).reason, 'coverage_miss');
+
+    // The intact checkpoint still matches.
+    assert.equal(matchHistoryCompactCheckpointPrefix(checkpoint, events).reason, undefined);
+  });
+
   test('keeps pre_turn checkpoint ids stable when phase is absent or explicit', () => {
     const events = [textEvent('a', 'turn-0', 'user'), textEvent('b', 'turn-0', 'model')];
     const implicit = buildHistoryCompactCheckpoint({
@@ -97,13 +163,13 @@ describe('mid-turn history compact checkpoint', () => {
       headAnchor: { runtimeEventId: 'anchor', turnId: 'turn-1' },
     });
 
+    // Normal thresholds: the raw projection is far below the default high
+    // water, and the accepted mid_turn checkpoint must STILL replay — the
+    // covered raw span may never be re-injected on recovery.
     const replay = applyRuntimeEventHistoryCompact(events, {
       maxHistoryEstimatedTokens: 1_000,
       charsPerToken: 1,
-      historyCompact: {
-        enabled: true, mode: 'read_write', checkpoint,
-        highWaterRatio: 0.000001, tailEstimatedTokens: 1,
-      },
+      historyCompact: { enabled: true, mode: 'read_write', checkpoint },
     });
 
     assert.equal(replay.checkpoint?.checkpointId, checkpoint.checkpointId);
