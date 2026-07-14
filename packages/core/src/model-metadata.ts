@@ -134,23 +134,29 @@ const VOLCENGINE_CODING_PLAN_MODEL_METADATA: Record<string, ModelMetadata> = {
 };
 
 /**
- * Thinking-capable Ollama Cloud models that use the standard OpenAI-compatible
- * `reasoning_effort` wire (none/low/medium/high/max). GPT-OSS is excluded — it
- * only accepts low/medium/high and is declared separately in the ollama-cloud
- * override below. Deprecated models are filtered out — Ollama publishes concrete
- * retirement dates and deprecated models are already gone from the API.
- * The model list is derived from the generated models.dev snapshot so new
- * reasoning models are picked up automatically on the next sync.
+ * Thinking-capable Ollama Cloud models, derived from the generated models.dev
+ * snapshot so new reasoning models are picked up automatically on the next sync.
+ * The endpoint globally accepts `reasoning_effort` (none/low/medium/high/max),
+ * but GPT-OSS only accepts low/medium/high and cannot be fully disabled.
+ * Deprecated models are filtered — Ollama publishes concrete retirement dates.
  */
 const OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS: ThinkingOptions = {
   efforts: ['none', 'low', 'medium', 'high', 'max'],
   toggle: true,
 };
 
-const ollamaCloudStandardThinkingModels: Record<string, ModelMetadata> = Object.fromEntries(
+const OLLAMA_CLOUD_GPT_OSS_THINKING_OPTIONS: ThinkingOptions = {
+  efforts: ['low', 'medium', 'high'],
+};
+
+const ollamaCloudThinkingModels: Record<string, ModelMetadata> = Object.fromEntries(
   Object.entries(GENERATED_MODELS_DEV_METADATA['ollama-cloud'])
-    .filter(([id, m]) => m.capabilities?.reasoning && m.lifecycle !== 'deprecated' && !id.startsWith('gpt-oss'))
-    .map(([id]) => [id, { thinkingOptions: OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS }]),
+    .filter(([id, m]) => m.capabilities?.reasoning && m.lifecycle !== 'deprecated')
+    .map(([id]) => [id, {
+      thinkingOptions: id.startsWith('gpt-oss')
+        ? OLLAMA_CLOUD_GPT_OSS_THINKING_OPTIONS
+        : OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS,
+    }]),
 );
 
 // Facts that models.dev cannot express: provider wire controls and
@@ -250,11 +256,7 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
   // low/medium/high and its trace cannot be fully disabled. See:
   //   https://docs.ollama.com/api/openai-compatibility  (reasoning_effort field)
   //   https://docs.ollama.com/capabilities/thinking      (per-model think levels)
-  'ollama-cloud': {
-    ...ollamaCloudStandardThinkingModels,
-    'gpt-oss:120b': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
-    'gpt-oss:20b': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
-  },
+  'ollama-cloud': ollamaCloudThinkingModels,
   deepseek: {
     'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
   },
