@@ -11,10 +11,12 @@ import type React from "react";
 // squared counterpart to the pill Badge primitive:
 //   - Badge = emphasis marker (pill, radius-pill) — health/permission center
 //   - Chip  = status label (squared, radius-control) — settings rows
-// Variants mirror StatusTone so settings callers pass the tone straight
-// through with no mapping function. Visual values reproduce the retired
-// .settingsConnectionBadge oklch alphas (success /12, info /14, warning /18,
-// destructive /15) and the .settingsBadge neutral (foreground-5) base.
+// The status variants mirror StatusTone so settings callers pass the tone
+// straight through with no mapping function; `accent` is a separate
+// brand-accent marker (default-connection flags) outside the status scale.
+// Visual values reproduce the retired .settingsConnectionBadge oklch alphas
+// (success /12, info /14, warning /18, destructive /15) and the .settingsBadge
+// neutral (foreground-5) base.
 export const chipVariants = cva(
   "inline-flex items-center whitespace-nowrap rounded-[var(--radius-control)] text-xs outline-none [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
@@ -34,6 +36,11 @@ export const chipVariants = cva(
         success: "bg-success/12 text-success",
         warning: "bg-warning/18 text-warning-foreground font-bold",
         destructive: "bg-destructive/15 text-destructive font-bold",
+        // Brand-accent marker for "default connection" style flags. Visual
+        // values reproduce the retired .enabledDefaultTag (nav-active text on
+        // a nav-active /14 wash) so the 默认 marker reads as brand accent, not
+        // a status tone.
+        accent: "bg-nav-active/14 text-nav-active font-semibold",
       },
     },
   },
