@@ -1781,6 +1781,7 @@ describe('fixed prompt controller', () => {
   test('preserves the original cell failure when usage is unavailable', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
 
       const result = await runFixedPromptController({
@@ -1789,7 +1790,7 @@ describe('fixed prompt controller', () => {
         config,
         systemPromptPath,
         resultsJsonlPath: join(dir, 'results.jsonl'),
-        resultsTsvPath: join(dir, 'results.tsv'),
+        resultsTsvPath,
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
@@ -1813,6 +1814,9 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.eligible, true);
       assert.equal(result.events[0]?.errorClass, 'tool_step_cap_reached');
       assert.equal('tokenSummary' in result.events[0]!, false);
+      const [, row] = (await readFile(resultsTsvPath, 'utf8')).trimEnd().split('\n');
+      assert.equal(row?.split('\t')[7], '');
+      assert.equal(row?.split('\t')[8], '');
     });
   });
 

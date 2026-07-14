@@ -520,18 +520,21 @@ export async function writeFixedPromptResultsTsv(
     'cost_usd',
     'runtime_events_path',
   ];
-  const rows = events.map((event) => [
-    event.taskId,
-    event.status,
-    String(event.passed),
-    String(event.scored),
-    String(event.eligible),
-    event.errorClass ?? '',
-    'promptHash' in event ? event.promptHash ?? '' : '',
-    String(eventTokenSummary(event)?.total ?? 0),
-    String(eventTokenSummary(event)?.costUsd ?? 0),
-    'runtimeEventsPath' in event ? event.runtimeEventsPath ?? '' : '',
-  ]);
+  const rows = events.map((event) => {
+    const tokenSummary = eventTokenSummary(event);
+    return [
+      event.taskId,
+      event.status,
+      String(event.passed),
+      String(event.scored),
+      String(event.eligible),
+      event.errorClass ?? '',
+      'promptHash' in event ? event.promptHash ?? '' : '',
+      tokenSummary ? String(tokenSummary.total) : '',
+      tokenSummary ? String(tokenSummary.costUsd) : '',
+      'runtimeEventsPath' in event ? event.runtimeEventsPath ?? '' : '',
+    ];
+  });
   const body = [header, ...rows].map((row) => row.map(tsvCell).join('\t')).join('\n');
   await writeFile(path, `${body}\n`, 'utf8');
 }
