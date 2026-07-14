@@ -196,6 +196,11 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
       },
     },
   },
+  'ollama-cloud': {
+    'qwen3.5:397b': {
+      thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
+    },
+  },
   deepseek: {
     'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
   },

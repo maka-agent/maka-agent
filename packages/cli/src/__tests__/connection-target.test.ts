@@ -362,6 +362,32 @@ describe('default session target resolver', () => {
     assert.equal(target.model, modelId);
   });
 
+  test('resolves Ollama Cloud credentials without crossing into local Ollama state', async () => {
+    const modelId = 'qwen3.5:397b';
+    const connection = makeConnection({
+      slug: 'ollama-cloud',
+      name: 'Ollama Cloud',
+      providerType: 'ollama-cloud',
+      defaultModel: modelId,
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'ollama-cloud',
+        get: async (slug) => slug === 'ollama-cloud' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (slug, kind) => slug === 'ollama-cloud' && kind === 'api_key'
+          ? 'ollama-cloud-test-key'
+          : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'ollama-cloud');
+    assert.equal(target.apiKey, 'ollama-cloud-test-key');
+    assert.equal(target.model, modelId);
+  });
+
   test('resolves Cloudflare Workers AI credentials without rewriting account scope or model id', async () => {
     const modelId = '@cf/moonshotai/kimi-k2.6';
     const baseUrl = 'https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1';

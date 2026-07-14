@@ -18,6 +18,7 @@ const PROVIDERS = {
   mistral: 'mistral',
   moonshot: 'moonshotai-cn',
   nvidia: 'nvidia',
+  'ollama-cloud': 'ollama-cloud',
   openai: 'openai',
   siliconflow: 'siliconflow',
   stepfun: 'stepfun',

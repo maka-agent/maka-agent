@@ -335,6 +335,34 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists Ollama Cloud independently from local Ollama with exact model ids', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'ollama-cloud',
+        name: 'Ollama Cloud',
+        providerType: 'ollama-cloud',
+        defaultModel: 'qwen3.5:397b',
+      });
+      await store.create({
+        slug: 'ollama-local',
+        name: 'Ollama',
+        providerType: 'ollama',
+        defaultModel: 'qwen3.5:cloud',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.deepEqual(
+        persisted.connections.map(({ providerType, defaultModel }) => ({ providerType, defaultModel })),
+        [
+          { providerType: 'ollama-cloud', defaultModel: 'qwen3.5:397b' },
+          { providerType: 'ollama', defaultModel: 'qwen3.5:cloud' },
+        ],
+      );
+    });
+  });
+
   test('persists the Cloudflare Workers AI id, account-scoped base URL, and exact model id', async () => {
     await withConnectionStore(async (store, dir) => {
       const baseUrl = 'https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1';

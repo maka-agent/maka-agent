@@ -102,6 +102,20 @@ const huggingfaceModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA.huggingface,
   ['openai/gpt-oss-120b', 'meta-llama/Llama-3.3-70B-Instruct'],
 );
+const ollamaCloud = GENERATED_MODELS_DEV_PROVIDER_FACTS['ollama-cloud'];
+if (ollamaCloud.id !== 'ollama-cloud') {
+  throw new Error('models.dev Ollama Cloud provider facts are missing stable id ollama-cloud');
+}
+if (!ollamaCloud.api) throw new Error('models.dev Ollama Cloud provider facts are missing api');
+const ollamaCloudActiveMetadata = Object.fromEntries(
+  Object.entries(GENERATED_MODELS_DEV_METADATA['ollama-cloud'])
+    .filter(([, model]) => model.lifecycle !== 'deprecated'),
+);
+const ollamaCloudModelIds = toolCallingModelIds(
+  'Ollama Cloud',
+  ollamaCloudActiveMetadata,
+  ['qwen3.5:397b', 'gpt-oss:120b'],
+);
 const fireworks = GENERATED_MODELS_DEV_PROVIDER_FACTS['fireworks-ai'];
 if (fireworks.id !== 'fireworks-ai') {
   throw new Error('models.dev Fireworks AI provider facts are missing stable id fireworks-ai');
@@ -888,6 +902,29 @@ const providerRegistry = {
     modelsDevId: cloudflareWorkersAi.id,
     readyOrder: 33,
     catalogOrder: 33,
+  },
+  'ollama-cloud': {
+    label: ollamaCloud.name,
+    description: 'Ollama-hosted cloud models over the official remote API.',
+    baseUrl: ollamaCloud.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: ollamaCloudModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: {
+      kind: 'openai-compatible',
+      name: 'provider',
+      replayAssistantReasoningAs: 'reasoning',
+    },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://ollama.com/settings/keys',
+    modelsDevId: ollamaCloud.id,
+    readyOrder: 35,
+    catalogOrder: 35,
   },
   ollama: {
     label: 'Ollama',

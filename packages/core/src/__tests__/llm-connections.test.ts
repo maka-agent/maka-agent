@@ -58,6 +58,7 @@ describe('provider compatibility contract', () => {
       'volcengine-ark',
       'deepinfra',
       'cloudflare-workers-ai',
+      'ollama-cloud',
       'ollama',
       'lm-studio',
       'localai',
@@ -102,6 +103,7 @@ describe('provider compatibility contract', () => {
       'stepfun-ai-step-plan',
       'cloudflare-workers-ai',
       'huggingface',
+      'ollama-cloud',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -139,6 +141,7 @@ describe('provider compatibility contract', () => {
       'stepfun-ai-step-plan',
       'cloudflare-workers-ai',
       'huggingface',
+      'ollama-cloud',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -386,6 +389,32 @@ describe('provider compatibility contract', () => {
     assert.equal(huggingface.fallbackModels[0], 'openai/gpt-oss-120b');
     assert.ok(huggingface.fallbackModels.includes('meta-llama/Llama-3.3-70B-Instruct'));
     assert.ok(!huggingface.fallbackModels.includes('sentence-transformers/all-MiniLM-L6-v2'));
+  });
+
+  it('owns Ollama Cloud direct API separately from the local Ollama daemon', () => {
+    const providers = PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>;
+    const cloud = providers['ollama-cloud'];
+
+    assert.ok(cloud, 'Ollama Cloud must be available through the shared provider registry');
+    assert.equal(cloud.label, 'Ollama Cloud');
+    assert.equal(cloud.baseUrl, 'https://ollama.com/v1');
+    assert.equal(cloud.authKind, 'api_key');
+    assert.equal(cloud.protocol, 'openai');
+    assert.deepEqual(cloud.runtimeAdapter, {
+      kind: 'openai-compatible',
+      name: 'provider',
+      replayAssistantReasoningAs: 'reasoning',
+    });
+    assert.deepEqual(cloud.modelDiscovery, { kind: 'protocol' });
+    assert.equal(cloud.category, 'overseas');
+    assert.equal(cloud.catalogGroup, 'api');
+    assert.equal(cloud.modelsDevId, 'ollama-cloud');
+    assert.equal(cloud.fallbackModels[0], 'qwen3.5:397b');
+    assert.ok(!cloud.fallbackModels.includes('cogito-2.1:671b'), 'deprecated snapshot models must not be fallback choices');
+    assert.notEqual(cloud, providers.ollama);
+    assert.equal(providers.ollama?.baseUrl, 'http://localhost:11434/v1');
+    assert.equal(providers.ollama?.authKind, 'none');
+    assert.deepEqual(providers.ollama?.modelDiscovery, { kind: 'ollama' });
   });
 
   it('owns the complete Together AI provider contract under the stable togetherai id', () => {

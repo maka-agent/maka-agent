@@ -75,6 +75,14 @@ test('DeepInfra keeps its official provider-scoped credential environment names'
   });
 });
 
+test('Ollama Cloud keeps its official provider-scoped credential environment names', () => {
+  assert.deepEqual(providerCredentialEnv('ollama-cloud'), {
+    apiKeys: ['OLLAMA_API_KEY'],
+    apiKeyFile: 'OLLAMA_API_KEY_FILE',
+    baseUrls: [],
+  });
+});
+
 test('Cloudflare Workers AI separates account scope from API token credentials', () => {
   assert.deepEqual(providerCredentialEnv('cloudflare-workers-ai'), {
     apiKeys: ['CLOUDFLARE_API_KEY'],

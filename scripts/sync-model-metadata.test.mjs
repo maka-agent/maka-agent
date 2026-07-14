@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'google', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'openai', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'zai-coding-plan'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'google', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'zai-coding-plan'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -89,6 +89,36 @@ test('sync-model-metadata vendors xAI provider facts and exact model ids', async
   assert.match(generated, /"xai": \{/);
   assert.match(generated, /"xai": \{"id":"xai","name":"xAI"/);
   assert.match(generated, /"grok-4\.5": \{"displayName":"Grok 4\.5"/);
+});
+
+test('sync-model-metadata vendors Ollama Cloud provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog['ollama-cloud'] = {
+    ...catalog['ollama-cloud'],
+    name: 'Ollama Cloud',
+    api: 'https://ollama.com/v1',
+    doc: 'https://docs.ollama.com/cloud',
+    models: {
+      'qwen3.5:397b': {
+        id: 'qwen3.5:397b', name: 'Qwen 3.5 397B', reasoning: true, tool_call: true,
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        limit: { context: 262_144, output: 65_536 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"ollama-cloud": \{/);
+  assert.match(generated, /"ollama-cloud": \{"id":"ollama-cloud","name":"Ollama Cloud","api":"https:\/\/ollama\.com\/v1"/);
+  assert.match(generated, /"qwen3\.5:397b": \{"displayName":"Qwen 3\.5 397B"/);
 });
 
 test('sync-model-metadata vendors the stable Vercel AI Gateway id and exact creator/model ids', async () => {

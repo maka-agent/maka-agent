@@ -135,6 +135,115 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.text, 'Echoed hello.');
   });
 
+  test('Ollama Cloud authenticates discovery and preserves exact ids and reasoning through a tool loop', async () => {
+    const modelId = 'qwen3.5:397b';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer ollama-cloud-test-key');
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        respondJson(response, 200, {
+          object: 'list',
+          data: [{ id: modelId }, { id: 'gpt-oss:120b' }],
+        });
+        return;
+      }
+
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-ollama-cloud-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning: 'I should call echo with the requested text.',
+              tool_calls: [{
+                id: 'call_ollama_cloud_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+
+      respondJson(response, 200, {
+        id: 'chatcmpl-ollama-cloud-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'ollama-cloud',
+      name: 'Ollama Cloud',
+      providerType: 'ollama-cloud',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    assert.deepEqual(await fetchProviderModels(connection, 'ollama-cloud-test-key'), [
+      { id: modelId },
+      { id: 'gpt-oss:120b' },
+    ]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'ollama-cloud-test-key', modelId }),
+      prompt: 'Call echo with hello.',
+      providerOptions: buildProviderOptions(connection, modelId, 'high'),
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.equal(requestBodies[0]?.reasoning_effort, 'high');
+    assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      {
+        role: 'assistant',
+        content: null,
+        reasoning: 'I should call echo with the requested text.',
+        tool_calls: [{
+          id: 'call_ollama_cloud_echo',
+          type: 'function',
+          function: { name: 'echo', arguments: '{"text":"hello"}' },
+        }],
+      },
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_ollama_cloud_echo' },
+    );
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
   test('LocalAI preserves a configured llama.cpp Qwen3 alias and reasoning through a two-stage tool-call loop', async () => {
     const modelId = 'localai/Qwen3-8B-Instruct-GGUF:Q4_K_M';
     const requestBodies: Array<Record<string, unknown>> = [];

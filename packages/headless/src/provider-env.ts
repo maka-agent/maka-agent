@@ -39,6 +39,7 @@ const PROVIDER_CREDENTIAL_ENV = {
   ),
   'fireworks-ai': env('FIREWORKS', ['FIREWORKS_BASE_URL']),
   nvidia: env('NVIDIA', ['NVIDIA_BASE_URL']),
+  'ollama-cloud': env('OLLAMA'),
   'tencent-tokenhub': env('TENCENT_TOKENHUB', ['TENCENT_TOKENHUB_BASE_URL']),
   stepfun: env('STEPFUN', ['STEPFUN_BASE_URL']),
   'stepfun-step-plan': env('STEPFUN_STEP_PLAN', ['STEPFUN_STEP_PLAN_BASE_URL']),

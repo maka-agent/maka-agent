@@ -263,6 +263,27 @@ describe('ModelCatalogEntry', () => {
     assert.ok(!entries.some((entry) => entry.id === 'BAAI/bge-m3'));
   });
 
+  it('uses the checked-in Ollama Cloud snapshot with exact model ids until discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'ollama-cloud',
+        providerType: 'ollama-cloud',
+        defaultModel: 'qwen3.5:397b',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'qwen3.5:397b');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 262_144);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'gpt-oss:120b'));
+  });
+
   it('uses the checked-in Fireworks snapshot until live discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

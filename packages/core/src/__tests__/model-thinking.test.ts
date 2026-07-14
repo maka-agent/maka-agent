@@ -149,6 +149,17 @@ describe('thinkingOptionsForModel', () => {
     );
   });
 
+  test('Ollama Cloud exposes the documented OpenAI-compatible reasoning effort values', () => {
+    assert.deepEqual(
+      thinkingOptionsForModel('ollama-cloud', 'qwen3.5:397b'),
+      { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
+    );
+    assert.deepEqual(
+      [...thinkingVariantsForModel('ollama-cloud', 'qwen3.5:397b')],
+      ['off', 'low', 'medium', 'high'],
+    );
+  });
+
   test('claude-subscription inherits anthropic thinking options (displayMetadataOnly preserves them)', () => {
     assert.deepEqual(thinkingOptionsForModel('claude-subscription', 'claude-opus-4-8'), { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] });
     assert.deepEqual(thinkingOptionsForModel('claude-subscription', 'claude-haiku-4-5'), { toggle: true, offBehavior: 'anthropic-thinking-disabled' });

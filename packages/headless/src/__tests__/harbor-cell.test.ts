@@ -2276,6 +2276,31 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves Ollama Cloud only from OLLAMA_API_KEY and preserves the exact model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'ollama-cloud',
+      model: 'qwen3.5:397b',
+      env: {
+        OLLAMA_API_KEY: 'ollama-cloud-key',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'ollama-cloud-key');
+    assert.equal(resolved.connection.providerType, 'ollama-cloud');
+    assert.equal(resolved.connection.defaultModel, 'qwen3.5:397b');
+    assert.equal(resolved.connection.baseUrl, 'https://ollama.com/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'ollama-cloud',
+      model: 'qwen3.5:397b',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves xAI only from xAI credential env without rewriting the model id', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'xai',

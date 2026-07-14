@@ -95,6 +95,43 @@ describe('model catalog picker helpers', () => {
     });
   });
 
+  it('keeps the remote Ollama Cloud connection distinct from local cloud aliases', async () => {
+    const { buildCatalogChatModelChoices, pickCatalogDefaultChatModel } = await importModelCatalogChoices();
+    const remote = connection({
+      slug: 'ollama-cloud',
+      providerType: 'ollama-cloud',
+      defaultModel: 'qwen3.5:397b',
+      models: [{ id: 'qwen3.5:397b' }, { id: 'gpt-oss:120b' }],
+      modelSource: 'fetched',
+      modelsFetchedAt: 1_800_000_000_000,
+    });
+    const local = connection({
+      slug: 'ollama-local',
+      providerType: 'ollama',
+      defaultModel: 'qwen3.5:cloud',
+      models: [{ id: 'qwen3.5:cloud' }],
+      modelSource: 'fetched',
+      modelsFetchedAt: 1_800_000_000_000,
+    });
+
+    assert.deepEqual(
+      buildCatalogChatModelChoices([remote, local]).map(({ connectionSlug, providerType, model }) => ({
+        connectionSlug,
+        providerType,
+        model,
+      })),
+      [
+        { connectionSlug: 'ollama-cloud', providerType: 'ollama-cloud', model: 'qwen3.5:397b' },
+        { connectionSlug: 'ollama-cloud', providerType: 'ollama-cloud', model: 'gpt-oss:120b' },
+        { connectionSlug: 'ollama-local', providerType: 'ollama', model: 'qwen3.5:cloud' },
+      ],
+    );
+    assert.deepEqual(pickCatalogDefaultChatModel(remote), {
+      llmConnectionSlug: 'ollama-cloud',
+      model: 'qwen3.5:397b',
+    });
+  });
+
   it('keeps Chat choices on send-wired providers and filters unsupported Codex ChatGPT models', async () => {
     const { buildCatalogChatModelChoices } = await importModelCatalogChoices();
 

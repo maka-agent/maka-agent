@@ -163,8 +163,9 @@ export function buildProviderOptions(
         },
       };
     case 'vercel':
+    case 'ollama-cloud':
       return level
-        ? { vercel: { reasoningEffort: level === 'off' ? 'none' : level } }
+        ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level === 'off' ? 'none' : level } }
         : {};
     case 'google':
       return {

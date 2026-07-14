@@ -9,6 +9,24 @@ import {
 import type { LlmConnection } from '../llm-connections.js';
 
 describe('ProviderAuth contract', () => {
+  test('Ollama Cloud requires its own API key and exposes remote model discovery', () => {
+    const missing = deriveProviderAuthContract({
+      providerType: 'ollama-cloud',
+      hasSecret: false,
+    });
+    const configured = deriveProviderAuthContract({
+      providerType: 'ollama-cloud',
+      hasSecret: true,
+    });
+
+    expect(missing.setupMode).toBe('api_key');
+    expect(missing.requiresSecret).toBe(true);
+    expect(missing.sendMayUseWithoutSecret).toBe(false);
+    expect(missing.actionAvailability.fetch_models).toBe('hidden');
+    expect(configured.actionAvailability.test_credentials).toBe('available');
+    expect(configured.actionAvailability.fetch_models).toBe('available');
+  });
+
   test('DeepInfra uses the shared API-key credential and model-discovery flow', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'deepinfra',
