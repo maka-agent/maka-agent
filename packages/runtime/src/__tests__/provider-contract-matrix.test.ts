@@ -10,8 +10,8 @@
  *                      reasoning-replay), driven entirely by the derived cell.
  *   - `override`       the cell is asserted to have a named entry in
  *                      {@link OVERRIDE_REGISTRY}, each pointing at the
- *                      hand-written test in `provider-conformance.test.ts` that
- *                      owns the provider-specific contract.
+ *                      hand-written test (in `provider-conformance.test.ts` by
+ *                      default) that owns the provider-specific contract.
  *   - `not-applicable` the machine-readable reason is asserted, and any reverse
  *                      assertion (e.g. fallback discovery must not call /models)
  *                      is executed.
@@ -58,26 +58,33 @@ after(async () => {
 /** A named override binding a plan cell to a hand-written conformance test. */
 interface OverrideBinding {
   /**
-   * Exact test title as it appears verbatim in the `provider-conformance.test.ts`
-   * source (for parametric tests, the literal template text including any
-   * `${...}` placeholder). The binding test below asserts this string still
-   * exists in the source, so deleting or renaming the hand-written test breaks
-   * the matrix instead of leaving a silent gap.
+   * Exact test title as it appears verbatim in the bound test source (for
+   * parametric tests, the literal template text including any `${...}`
+   * placeholder). The binding test below asserts the source still contains an
+   * enabled `test(` call opening with this title, so deleting, renaming, or
+   * skipping the hand-written test breaks the matrix instead of leaving a
+   * silent gap.
    */
   test: string;
+  /**
+   * Source file (sibling of this suite) that owns the bound test.
+   * Defaults to {@link DEFAULT_OVERRIDE_TEST_FILE}.
+   */
+  file?: string;
   /** Human-readable statement of the provider-specific contract the override owns. */
   contract: string;
 }
+
+const DEFAULT_OVERRIDE_TEST_FILE = 'provider-conformance.test.ts';
 
 const GITHUB_COPILOT_OVERRIDE_TEST =
   'GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire';
 
 /**
  * Named overrides. Each key is a plan `overrideKey` (`${providerType}:${dimension}`)
- * and each value binds the hand-written test in `provider-conformance.test.ts`
- * that owns the provider-specific contract the plan cannot generate. A missing
- * key here surfaces as a contract gap; a stale `test` title fails the source
- * binding test.
+ * and each value binds the hand-written test that owns the provider-specific
+ * contract the plan cannot generate. A missing key here surfaces as a contract
+ * gap; a stale or disabled `test` title fails the source binding test.
  */
 const OVERRIDE_REGISTRY: Readonly<Record<string, OverrideBinding>> = {
   'cohere:discovery': {
@@ -94,7 +101,8 @@ const OVERRIDE_REGISTRY: Readonly<Record<string, OverrideBinding>> = {
     contract: 'Ollama native /api/tags discovery',
   },
   'github-copilot:discovery': {
-    test: GITHUB_COPILOT_OVERRIDE_TEST,
+    test: 'GitHub Copilot discovers only account-enabled tool models and preserves each exact endpoint wire',
+    file: 'model-fetcher.test.ts',
     contract: 'GitHub Copilot subscription /models discovery (picker + endpoint gating)',
   },
   'github-copilot:exact-model-id': {
@@ -120,16 +128,26 @@ const OVERRIDE_REGISTRY: Readonly<Record<string, OverrideBinding>> = {
  * from `src/` (sibling `.ts`). Test titles survive compilation verbatim, so read
  * whichever sibling exists, resolved relative to this test file.
  */
-function readProviderConformanceSource(): string {
+function readOverrideTestSource(file: string): string {
   const errors: string[] = [];
-  for (const candidate of ['./provider-conformance.test.ts', './provider-conformance.test.js']) {
+  for (const candidate of [`./${file}`, `./${file.replace(/\.ts$/, '.js')}`]) {
     try {
       return readFileSync(fileURLToPath(new URL(candidate, import.meta.url)), 'utf8');
     } catch (error) {
       errors.push(`${candidate}: ${(error as Error).message}`);
     }
   }
-  throw new Error(`provider-conformance test source not found next to the matrix suite:\n${errors.join('\n')}`);
+  throw new Error(`override test source "${file}" not found next to the matrix suite:\n${errors.join('\n')}`);
+}
+
+/**
+ * True when the source contains an *enabled* `test(` call opening with the
+ * bound title — `test('title`, `test("title`, or `` test(`title `` (the
+ * backtick form covers parametric template-literal titles). `test.skip(` /
+ * `test.todo(` never match because their call prefix differs.
+ */
+function hasEnabledTestCall(source: string, title: string): boolean {
+  return ["'", '"', '`'].some((quote) => source.includes(`test(${quote}${title}`));
 }
 
 const KNOWN_WIRES: ReadonlySet<ProviderContractWire> = new Set([
@@ -178,13 +196,23 @@ describe('provider conformance matrix — gap report', () => {
     }
   });
 
-  test('every registered override title exists verbatim in provider-conformance.test.ts', () => {
-    const source = readProviderConformanceSource();
+  test('every registered override title is an enabled test call in its bound source file', () => {
+    const sources = new Map<string, string>();
     for (const [key, binding] of Object.entries(OVERRIDE_REGISTRY)) {
-      assert.ok(
-        source.includes(binding.test),
-        `override "${key}" is bound to a test title that no longer exists in provider-conformance.test.ts: `
-        + `"${binding.test}" — update the binding or restore the hand-written test`,
+      const file = binding.file ?? DEFAULT_OVERRIDE_TEST_FILE;
+      let source = sources.get(file);
+      if (source === undefined) {
+        source = readOverrideTestSource(file);
+        sources.set(file, source);
+      }
+      if (hasEnabledTestCall(source, binding.test)) continue;
+      assert.fail(
+        source.includes(binding.test)
+          ? `override "${key}": the bound title exists in ${file} but is not an enabled test call `
+            + `(is it test.skip/test.todo, or referenced outside a test(...)?): "${binding.test}" `
+            + '— re-enable the hand-written test or update the binding'
+          : `override "${key}" is bound to a test title that no longer exists in ${file}: `
+            + `"${binding.test}" — update the binding or restore the hand-written test`,
       );
     }
   });

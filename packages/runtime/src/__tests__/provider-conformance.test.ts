@@ -169,6 +169,31 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies[0]?.model, modelId);
     assert.equal(result.steps[0]?.reasoningText, 'I should use the echo tool.');
     assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    // Turn two must carry the exact model id, replay the assistant tool-call
+    // turn (original tool_calls id + reasoning_content verbatim), and link the
+    // tool result back through tool_call_id.
+    assert.equal(requestBodies[1]?.model, modelId);
+    const secondMessages = requestBodies[1]?.messages as Array<Record<string, unknown>>;
+    const assistant = secondMessages.find((message) => message.role === 'assistant');
+    assert.ok(assistant, 'turn two must replay the assistant tool-call turn');
+    assert.deepEqual(
+      (assistant.tool_calls as Array<{ id: string }>).map(({ id }) => id),
+      ['call-copilot-echo'],
+      'turn two must replay the original tool_calls id',
+    );
+    assert.equal(
+      assistant.reasoning_content,
+      'I should use the echo tool.',
+      'turn two must replay the first-turn reasoning verbatim as reasoning_content',
+    );
+    const toolMessage = secondMessages.find((message) => message.role === 'tool');
+    assert.ok(toolMessage, 'turn two must carry a tool message with the echo result');
+    assert.equal(toolMessage.tool_call_id, 'call-copilot-echo');
+    const toolMessageContent = JSON.stringify(toolMessage.content);
+    assert.ok(
+      toolMessageContent.includes('echoed') && toolMessageContent.includes('hello'),
+      `turn two tool message must carry the echo output, got ${toolMessageContent}`,
+    );
     assert.equal(result.text, 'Echoed hello.');
   });
 
