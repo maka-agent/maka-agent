@@ -68,6 +68,10 @@ interface MidTurnFixtureOptions {
   bigToolGroup?: boolean;
   /** The first step emits assistant text before its tool call (finding B). */
   assistantTextInFirstStep?: boolean;
+  /** Override the first step's reported usage; 'missing' = empty usage object. */
+  firstStepUsage?: { input: number; output: number } | 'missing';
+  /** Volatile per-request turn tail (cwd/task state) appended to the user message. */
+  volatileTurnTail?: boolean;
 }
 
 /**
@@ -94,13 +98,20 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 },
     outputTokens: { total: output, text: output, reasoning: 0 },
   });
+  const firstStepUsage = (): ReturnType<typeof usage> => {
+    // A usage object the SDK accepts but whose token counts are absent — the
+    // adapter's normalization coalesces these to 0 (the finding-1 shape).
+    if (options.firstStepUsage === 'missing') return { inputTokens: {}, outputTokens: {} } as ReturnType<typeof usage>;
+    if (options.firstStepUsage) return usage(options.firstStepUsage.input, options.firstStepUsage.output);
+    return usage(100, 20);
+  };
   const toolCallChunks = (id: string, name: string, args: object): LanguageModelV3StreamPart[] => [
     { type: 'stream-start', warnings: [] },
     { type: 'tool-call', toolCallId: id, toolName: name, input: JSON.stringify(args) },
     {
       type: 'finish',
       finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-      usage: usage(id === 'tool-1' ? 100 : 150, id === 'tool-1' ? 20 : 30),
+      usage: id === 'tool-1' ? firstStepUsage() : usage(150, 30),
     },
   ];
   const doneChunks = (): LanguageModelV3StreamPart[] => [
@@ -217,6 +228,9 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     ],
     ...(options.bigToolGroup
       ? { toolAvailability: { economy: true, groups: [{ id: 'big', toolNames: ['Big'] }] } }
+      : {}),
+    ...(options.volatileTurnTail
+      ? { turnTailPrompt: 'VOLATILE_TAIL_SENTINEL cwd=/tmp/maka task=keep-going' }
       : {}),
     contextBudget: {
       name: 'mid-turn-test',
@@ -438,9 +452,18 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
   });
 
   test('ends the turn with head_anchor_exceeds_capacity when even the minimal projection cannot fit', async () => {
-    // Priors leave a safe span and the summary succeeds, but the minimal
-    // [block, anchor, open pair] projection still exceeds the tiny window.
-    const fixture = buildFixture({ contextWindow: 120, reserveTokens: 100 });
+    // Big priors leave a safe span, the summary succeeds, and the fold
+    // GENUINELY shrinks the payload — but the last request's real input
+    // (1400 tokens) is so large that even the [block, anchor, open pair]
+    // projection stays over the 150-token window: the irreducible remainder
+    // exceeds capacity. (A non-shrinking fold is a different failure —
+    // summarizer_failed via replacement_not_smaller.)
+    const fixture = buildFixture({
+      contextWindow: 150,
+      reserveTokens: 100,
+      bigPriors: true,
+      firstStepUsage: { input: 1_400, output: 20 },
+    });
     await runFixtureTurn(fixture, consumer);
 
     const complete = fixture.events.find((event) => event.type === 'complete');
@@ -448,6 +471,8 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     if (complete?.type !== 'complete') return;
     assert.equal(complete.stopReason, 'context_budget_exhausted');
     assert.equal(complete.contextBudgetExhaustedDetail, 'head_anchor_exceeds_capacity');
+    // The fold itself was valid and durable; it just could not rescue.
+    assert.equal(fixture.recorded.length, 1);
   });
 
   test('fails open under the window when the summarizer fails, with a diagnostic', async () => {
@@ -686,6 +711,106 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
       (decision) => decision.phase === 'mid_turn' && decision.decision === 'failedOpen',
     );
     assert.equal(failedOpen?.failOpenReason, 'replacement_not_smaller');
+    // Review round-4 finding 3: a checkpoint whose replacement was REJECTED
+    // must never be persisted — replay applies the session's latest checkpoint
+    // before any high-water check, so a persisted runaway block would poison
+    // every later projection even though this step correctly refused it.
+    assert.equal(fixture.recorded.length, 0);
+    // The recorder was never reached, so the diagnostics claim no write.
+    const usageEvent = fixture.events.find((event) => event.type === 'token_usage') as
+      | { contextBudget?: ContextBudgetDiagnostic }
+      | undefined;
+    assert.equal(usageEvent?.contextBudget?.historyCompactWritesAttempted, undefined);
+  });
+
+  test('the usage baseline is the last request\'s INPUT tokens — output is not double-counted (review finding 1)', async () => {
+    // Review round-4 finding 1 repro shape: a step with heavy output. The
+    // signed payload delta already carries the freshly generated assistant
+    // output and tool results, so a baseline of input+output counts the
+    // output twice (~500 real tokens estimated as ~900) and terminates a
+    // turn that actually fits the window.
+    const fixture = buildFixture({
+      contextWindow: 500,
+      reserveTokens: 100,
+      withoutPriorTurns: true,
+      finalAtSecondCall: true,
+      firstStepUsage: { input: 300, output: 380 },
+    });
+    await runFixtureTurn(fixture, consumer);
+
+    // input(300) + payload delta (~hundred tokens) fits the 500 window; the
+    // double-counting baseline (680 + delta) would have exhausted it.
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
+    assert.equal(fixture.model.doStreamCalls.length, 2);
+  });
+
+  test('a usage object without usable input tokens falls back to cold start, never to zero (review finding 1)', async () => {
+    // Reverse direction: the adapter normalizes missing token fields to 0. A
+    // zero baseline plus a small delta estimates a huge request as tiny and
+    // lets it stream over the window; an unusable usage sample must instead
+    // fall back to the whole-payload cold-start estimate, which triggers the
+    // fold here (big priors leave a safe span, so compaction rescues).
+    const fixture = buildFixture({
+      contextWindow: 1_000,
+      reserveTokens: 100,
+      bigPriors: true,
+      finalAtSecondCall: true,
+      firstStepUsage: 'missing',
+    });
+    await runFixtureTurn(fixture, consumer);
+
+    assert.equal(fixture.recorded.length, 1);
+    const secondPrompt = promptJson(fixture, 1);
+    assert.match(secondPrompt, /maka_history_compact_checkpoint/);
+    assert.equal(secondPrompt.includes('PRIOR_FACT'), false);
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
+  });
+
+  test('the volatile turn tail survives a capacity replacement (review finding 2)', async () => {
+    // The initial provider user message decorates the durable anchor text
+    // with a volatile turn tail (cwd, shell context, task state). The
+    // replacement projection is materialized from the ledger, where the
+    // anchor holds only the raw user text — the rendering must go through
+    // the same decoration owner or compaction silently drops that context
+    // (and even counts the drop as shrinkage).
+    const fixture = buildFixture({ volatileTurnTail: true });
+    await runFixtureTurn(fixture, consumer);
+
+    assert.equal(fixture.recorded.length, 1);
+    const thirdPrompt = promptJson(fixture, 2);
+    assert.match(thirdPrompt, /maka_history_compact_checkpoint/);
+    assert.equal(thirdPrompt.includes(ANCHOR_TEXT), true);
+    assert.equal(thirdPrompt.includes('VOLATILE_TAIL_SENTINEL'), true);
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
+  });
+
+  test('an over-window runaway summary terminates as summarizer_failed, not head_anchor_exceeds_capacity (review finding 4)', async () => {
+    // A non-shrinking replacement proves the summarizer's output is unusable,
+    // not that the irreducible remainder (anchor + tail + overhead) exceeds
+    // capacity — the terminal detail must say so; the diagnostic reason keeps
+    // the precise replacement_not_smaller cause.
+    const fixture = buildFixture({
+      contextWindow: 150,
+      reserveTokens: 100,
+      summarize: () => 'GIANT_SUMMARY_'.repeat(600),
+    });
+    await runFixtureTurn(fixture, consumer);
+
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type, 'complete');
+    if (complete?.type !== 'complete') return;
+    assert.equal(complete.stopReason, 'context_budget_exhausted');
+    assert.equal(complete.contextBudgetExhaustedDetail, 'summarizer_failed');
+    const lastCall = fixture.llmCalls.at(-1);
+    const exhaustedDecision = (lastCall?.contextBudget?.compactionDecisions ?? []).find(
+      (decision) => decision.phase === 'mid_turn' && decision.reason === 'context_budget_exhausted',
+    );
+    assert.equal(exhaustedDecision?.skippedReasonCounts?.replacement_not_smaller, 1);
+    // The rejected checkpoint was never persisted.
+    assert.equal(fixture.recorded.length, 0);
   });
 
   test('a completed step\'s assistant text is never dropped from the replacement (review finding B)', async () => {

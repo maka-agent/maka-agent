@@ -324,8 +324,16 @@ class MidTurnCapacityCompactState {
    * same-turn tool-schema expansion all move the delta the same way.
    */
   lastRequestPayloadChars: number | undefined;
-  /** input+output tokens reported by the last finished step, when available. */
-  lastStepUsageTokens: number | undefined;
+  /**
+   * The last request's REAL input size: the inputTokens the provider reported
+   * for the last finished step. Never input+output — the signed payload delta
+   * already carries the step's freshly generated output (assistant text/tool
+   * calls) and its tool results, so an output-inclusive baseline would count
+   * them twice. Undefined when the last step's usage is missing or unusable
+   * (no positive input count); estimates then fall back to the whole-payload
+   * cold-start path — an unusable sample is unknown, never zero.
+   */
+  lastRequestInputTokens: number | undefined;
   /** Latest durable checkpoint (loaded or written) for roll-forward summaries. */
   previousCheckpoint: HistoryCompactCheckpoint | undefined;
   /** Set when the turn must end with a context_budget_exhausted outcome. */
@@ -1227,6 +1235,7 @@ export class AiSdkBackend implements AgentBackend {
           queue,
           providerTools,
           () => currentRepairToolNames(),
+          turnTailPrompt,
           onMidTurnDiagnosticPatch,
         );
         const activeToolResultPruneHook = this.buildActiveToolResultPrunePrepareStep(turnId, (patch) => {
@@ -2254,6 +2263,7 @@ export class AiSdkBackend implements AgentBackend {
     queue: AsyncEventQueue<SessionEvent>,
     providerTools: readonly MakaTool[],
     fallbackActiveTools: () => readonly string[],
+    turnTailPrompt: string | undefined,
     onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void,
   ): PrepareStepFunctionLike | undefined {
     if (!state) return undefined;
@@ -2282,10 +2292,17 @@ export class AiSdkBackend implements AgentBackend {
       // Real usage for the last finished step, read synchronously from the
       // SDK's own step results (the same numbers the finish-step chunk
       // carries) — no coupling to how far the stream consumer has advanced.
-      const lastStepUsage = normalizeAiSdkUsage(options.steps.at(-1)?.usage);
-      if (lastStepUsage) {
-        state.lastStepUsageTokens = lastStepUsage.inputTokens + lastStepUsage.outputTokens;
-      }
+      // Baseline = the last request's INPUT tokens only (see the state field
+      // doc: the payload delta already carries the step's output). The
+      // adapter normalizes missing token fields to 0, which is fine for
+      // telemetry but a lie for estimation — a non-positive input count means
+      // the sample is unusable, so clear the baseline and let the estimate
+      // fall back to the whole-payload cold start instead of "0 + delta".
+      const lastStepInputTokens = normalizeAiSdkUsage(options.steps.at(-1)?.usage)?.inputTokens;
+      state.lastRequestInputTokens =
+        lastStepInputTokens !== undefined && Number.isFinite(lastStepInputTokens) && lastStepInputTokens > 0
+          ? lastStepInputTokens
+          : undefined;
 
       // A skipped trigger is never silent: every failure-driven skip records a
       // failedOpen decision. Recorder counters are attached ONLY on the tiers
@@ -2324,7 +2341,7 @@ export class AiSdkBackend implements AgentBackend {
         return failOpen(diagnosticReason, recorderCounters);
       };
 
-      // Trigger estimate: last step's real usage plus a SIGNED char/4 delta of
+      // Trigger estimate: the last request's input tokens plus a SIGNED char/4 delta of
       // this step's payload (projected messages + active tool schemas) against
       // the previous request's measured payload. Measured synchronously from
       // the SDK's own projection — no ledger dependency — so a same-turn
@@ -2338,7 +2355,7 @@ export class AiSdkBackend implements AgentBackend {
       const forcedEstimate = state.forcedTriggerEstimate;
       state.forcedTriggerEstimate = undefined;
       const estimate = forcedEstimate ?? estimateNextRequestTokens({
-        ...(state.lastStepUsageTokens !== undefined ? { priorUsageTokens: state.lastStepUsageTokens } : {}),
+        ...(state.lastRequestInputTokens !== undefined ? { priorUsageTokens: state.lastRequestInputTokens } : {}),
         appendedChars: payloadChars - (state.lastRequestPayloadChars ?? payloadChars),
         charsPerToken,
         coldStartChars: payloadChars,
@@ -2436,12 +2453,65 @@ export class AiSdkBackend implements AgentBackend {
       if (plan.decision === 'skip') return keepProjection();
       if (plan.decision === 'fail_open') return shapeFailure(plan.reason, plan.reason);
 
-      // Durably persist the checkpoint BEFORE replacing the projection — the
-      // same order as the pre_turn path — so a recovery re-projection never
-      // re-injects the replaced raw span. A persistence failure keeps raw
-      // messages and records write_failed in the durable diagnostics; if the
-      // final payload is then over the window, the verdict owner maps this
-      // failure to the terminal summarizer_failed detail.
+      // Lifecycle order is validate → persist → apply. Replay applies the
+      // session's latest checkpoint BEFORE any high-water check, so a
+      // checkpoint whose replacement cannot materialize or does not shrink
+      // the real payload must never be persisted — it would poison every
+      // later projection even though this step correctly refused it.
+      // Persistence still precedes application, so the crash-window property
+      // (never apply an unpersisted fold) is unchanged, and the recorder
+      // counters stay truthful: validation failures never reached the
+      // recorder, so they attach no write counters.
+      const replayPlan = buildRuntimeEventModelReplayPlan(plan.replacementEvents, {
+        toolActivityTurnIds: collectToolActivityTurnIds(orderedEvents),
+      });
+      if (
+        replayPlan.items.length === 0
+        || hasBlockingReplayDiagnostics(replayPlan)
+        || (replayPlan.hasProviderNativeSemantics && !this.canReplayProviderNative(replayPlan))
+      ) {
+        return shapeFailure('no_safe_completed_span', 'replacement_unmaterializable');
+      }
+      // The head anchor must render exactly like the raw projection's current
+      // user message: the initial request decorates it with the volatile turn
+      // tail (cwd, shell context, task state — see send()), which is not part
+      // of the durable anchor bytes. Reuse the same decoration owner
+      // (appendTurnTailPrompt) on the anchor's replay item so a replacement
+      // never silently drops that context — and never counts the drop as
+      // shrinkage in the guard below.
+      const replayItemsWithAnchorTail = replayPlan.items.map((item) =>
+        item.kind === 'text' && item.role === 'user' && item.eventId === state.headAnchor.id
+          ? { ...item, content: this.appendTurnTailPrompt(item.content, turnTailPrompt) as string }
+          : item,
+      );
+      const replacementMessages = await this.materializeRuntimeReplayPlan({
+        ...replayPlan,
+        items: replayItemsWithAnchorTail,
+      });
+      // Apply the shape only when it actually shrinks the request: a
+      // materialized replacement that is not smaller than the current payload
+      // (e.g. a runaway summary block) would hand the verdict owner a WORSE
+      // request than the raw projection it just refused to improve. A
+      // non-shrinking fold proves the summarizer's OUTPUT is unusable — not
+      // that the irreducible remainder exceeds capacity — so over the window
+      // the owner reports it as summarizer_failed, with the precise
+      // replacement_not_smaller diagnostic reason.
+      const replacedPayloadChars = midTurnRequestPayloadChars(
+        replacementMessages,
+        providerTools,
+        activeToolsForStep,
+      );
+      if (replacedPayloadChars >= payloadChars) {
+        return shapeFailure('summarizer_failed', 'replacement_not_smaller');
+      }
+
+      // The replacement is valid: durably persist the checkpoint BEFORE
+      // applying the projection — the same order as the pre_turn path — so a
+      // recovery re-projection never re-injects the replaced raw span. A
+      // persistence failure keeps raw messages and records write_failed in
+      // the durable diagnostics; if the final payload is then over the
+      // window, the verdict owner maps this failure to the terminal
+      // summarizer_failed detail.
       const writeFailedCounters: Partial<ContextBudgetDiagnostic> = {
         historyCompactWritesAttempted: 1,
         historyCompactWriteFailures: 1,
@@ -2452,40 +2522,6 @@ export class AiSdkBackend implements AgentBackend {
         return shapeFailure('summarizer_failed', 'write_failed', writeFailedCounters);
       }
       state.previousCheckpoint = plan.checkpoint;
-      const writeSucceededCounters: Partial<ContextBudgetDiagnostic> = {
-        historyCompactWritesAttempted: 1,
-        historyCompactBlocksWritten: 1,
-        historyCompactWrittenBlockIds: [plan.checkpoint.checkpointId],
-      };
-
-      const replayPlan = buildRuntimeEventModelReplayPlan(plan.replacementEvents, {
-        toolActivityTurnIds: collectToolActivityTurnIds(orderedEvents),
-      });
-      if (
-        replayPlan.items.length === 0
-        || hasBlockingReplayDiagnostics(replayPlan)
-        || (replayPlan.hasProviderNativeSemantics && !this.canReplayProviderNative(replayPlan))
-      ) {
-        // The checkpoint IS durable (the write succeeded and the next replay
-        // uses it); only this step's in-flight replacement is skipped.
-        return shapeFailure('no_safe_completed_span', 'replacement_unmaterializable', writeSucceededCounters);
-      }
-      const replacementMessages = await this.materializeRuntimeReplayPlan(replayPlan);
-      // Apply the shape only when it actually shrinks the request: a
-      // materialized replacement that is not smaller than the current payload
-      // (e.g. a runaway summary block) would hand the verdict owner a WORSE
-      // request than the raw projection it just refused to improve. The
-      // checkpoint stays durable either way; only this step's in-flight
-      // replacement is skipped. Over the window this is the
-      // irreducible-remainder outcome — folding cannot rescue the step.
-      const replacedPayloadChars = midTurnRequestPayloadChars(
-        replacementMessages,
-        providerTools,
-        activeToolsForStep,
-      );
-      if (replacedPayloadChars >= payloadChars) {
-        return shapeFailure('head_anchor_exceeds_capacity', 'replacement_not_smaller', writeSucceededCounters);
-      }
       acceptedProjection = {
         sourceSignatures: incomingMessages.map(modelMessageSignature),
         projectedMessages: replacementMessages,
@@ -2531,9 +2567,12 @@ export class AiSdkBackend implements AgentBackend {
    * semantic/active-full compaction have all run — and issues the one
    * safety-critical verdict:
    *
-   *  - estimate = last step's real usage + signed char/4 delta against the
-   *    previous request's measured payload (recorded here on every step,
-   *    including step 0's baseline);
+   *  - estimate = the last request's real INPUT tokens + signed char/4 delta
+   *    against the previous request's measured payload (recorded here on
+   *    every step, including step 0's baseline); the delta already carries
+   *    the step's fresh output, so an output-inclusive baseline would count
+   *    it twice, and an unusable usage sample falls back to the whole-payload
+   *    cold start rather than a zero baseline;
    *  - over the window with no capacity attempt this step (the approximate
    *    trigger missed, e.g. growth the trigger under-weighted), force ONE
    *    capacity re-entry — the verdict must not terminate a turn a shaper can
@@ -2566,7 +2605,7 @@ export class AiSdkBackend implements AgentBackend {
       let payloadChars = finalPayloadChars();
       if (options.stepNumber >= 1 && !state.exhaustedDetail) {
         const estimateFinal = (): number => estimateNextRequestTokens({
-          ...(state.lastStepUsageTokens !== undefined ? { priorUsageTokens: state.lastStepUsageTokens } : {}),
+          ...(state.lastRequestInputTokens !== undefined ? { priorUsageTokens: state.lastRequestInputTokens } : {}),
           appendedChars: payloadChars - (state.lastRequestPayloadChars ?? payloadChars),
           charsPerToken,
           coldStartChars: payloadChars,
