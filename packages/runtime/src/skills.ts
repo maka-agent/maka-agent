@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { lstat, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative } from 'node:path';
+import { parseDocument } from 'yaml';
 import { z } from 'zod';
 import type { MakaTool } from './tool-runtime.js';
 
@@ -23,6 +24,71 @@ import type { MakaTool } from './tool-runtime.js';
 // ── Types ─────────────────────────────────────────────────────────────────
 
 export type SkillRuntimeStatus = 'enabled' | 'disabled' | 'state_error';
+
+/** Parsed, runtime-relevant metadata from one SKILL.md frontmatter block. */
+export interface SkillManifest {
+  name?: string;
+  description?: string;
+  allowedTools: string[];
+  requiredTools: string[];
+  requiredCapabilities: string[];
+  license?: string;
+  compatibility?: string;
+  metadata: Record<string, string>;
+  /** Maka's bundled-catalog extension. It is not model-facing runtime authority. */
+  category?: string;
+}
+
+export type SkillValidationSeverity = 'warning' | 'error';
+
+export type SkillValidationCode =
+  | 'missing_frontmatter'
+  | 'malformed_frontmatter'
+  | 'missing_name'
+  | 'invalid_name'
+  | 'name_too_long'
+  | 'missing_description'
+  | 'invalid_description'
+  | 'description_too_long'
+  | 'invalid_allowed_tools'
+  | 'invalid_required_tools'
+  | 'invalid_required_capabilities'
+  | 'invalid_license'
+  | 'invalid_compatibility'
+  | 'compatibility_too_long'
+  | 'invalid_metadata'
+  | 'invalid_category'
+  | 'unsupported_field'
+  | 'body_too_large'
+  | 'duplicate_id'
+  | 'duplicate_name';
+
+/** One deterministic, user-inspectable metadata validation finding. */
+export interface SkillValidationIssue {
+  code: SkillValidationCode;
+  severity: SkillValidationSeverity;
+  message: string;
+  field?: string;
+}
+
+export interface SkillMetadataValidationResult {
+  manifest: SkillManifest;
+  body: string;
+  issues: SkillValidationIssue[];
+  valid: boolean;
+}
+
+/** Diagnostics for one discovered skill directory, including rejected skills. */
+export interface SkillScanDiagnostic {
+  id: string;
+  path: string;
+  issues: SkillValidationIssue[];
+}
+
+export interface SkillScanResult {
+  skills: ScannedSkill[];
+  diagnostics: SkillScanDiagnostic[];
+}
 
 /**
  * Runtime-facing skill definition. Stable public shape produced by scanning
@@ -194,27 +260,62 @@ const SKILLS_PROMPT_CHARS_PER_TOKEN = 4;
  * break alphabetically. Dedup and truncation preserve this order so
  * project-level skills are never crowded out by user-level ones.
  */
-export async function scanSkills(source: SkillSource): Promise<ScannedSkill[]> {
+export async function scanSkillsWithDiagnostics(source: SkillSource): Promise<SkillScanResult> {
   const { entries, stateRoot } = normalizeSkillSource(source);
   const runtimeState = await readSkillRuntimeState(stateRoot);
-  const seen = new Set<string>();  // lowercased ids
+  const seenIds = new Map<string, ScannedSkill>();
+  const seenNames = new Map<string, ScannedSkill>();
   const out: ScannedSkill[] = [];
+  const diagnostics = new Map<string, SkillScanDiagnostic>();
   for (const { dir, containmentRoot } of entries) {
     const found = await scanSkillDir(dir, containmentRoot, runtimeState);
-    for (const skill of found) {
-      if (seen.has(skill.id.toLowerCase())) continue;
-      seen.add(skill.id.toLowerCase());
+    for (const diagnostic of found.diagnostics) {
+      appendSkillDiagnostic(diagnostics, diagnostic.id, diagnostic.path, diagnostic.issues);
+    }
+    for (const skill of found.skills) {
+      const normalizedId = skill.id.toLowerCase();
+      const retainedId = seenIds.get(normalizedId);
+      if (retainedId) {
+        appendSkillDiagnostic(diagnostics, skill.id, skill.path, [{
+          code: 'duplicate_id',
+          severity: 'warning',
+          field: 'id',
+          message: `Skill id "${skill.id}" is shadowed by a higher-precedence discovered skill.`,
+        }]);
+        continue;
+      }
+      seenIds.set(normalizedId, skill);
+
+      const normalizedName = skill.name.toLowerCase();
+      const retainedName = seenNames.get(normalizedName);
+      if (retainedName) {
+        const duplicateNameIssue: SkillValidationIssue = {
+          code: 'duplicate_name',
+          severity: 'warning',
+          field: 'name',
+          message: `Skill display name "${skill.name}" is also used by another discovered skill. Load by id to avoid ambiguity.`,
+        };
+        appendSkillDiagnostic(diagnostics, retainedName.id, retainedName.path, [duplicateNameIssue]);
+        appendSkillDiagnostic(diagnostics, skill.id, skill.path, [duplicateNameIssue]);
+      } else {
+        seenNames.set(normalizedName, skill);
+      }
       out.push(skill);
     }
   }
-  return out;
+  return { skills: out, diagnostics: [...diagnostics.values()] };
+}
+
+/** Backward-compatible scan API. Use scanSkillsWithDiagnostics for inspection. */
+export async function scanSkills(source: SkillSource): Promise<ScannedSkill[]> {
+  return (await scanSkillsWithDiagnostics(source)).skills;
 }
 
 /**
  * Scan `{workspaceRoot}/skills/` for directories that contain a SKILL.md.
  * Parse the YAML front matter for `name`, `description`, and `allowed-tools`,
- * and read per-workspace enablement state. Errors per skill fall through
- * silently so one malformed folder can't blank the listing.
+ * and read per-workspace enablement state. Invalid skills are excluded from
+ * this compatibility result; use the diagnostics variant to inspect them.
  *
  * This is the original single-root entry point; desktop governance uses it.
  * New call sites should prefer {@link scanSkills} with a multi-path source.
@@ -223,31 +324,41 @@ export async function scanWorkspaceSkills(root: string): Promise<ScannedSkill[]>
   return scanSkills(root);
 }
 
+/** Single-workspace convenience wrapper that preserves validation diagnostics. */
+export async function scanWorkspaceSkillsWithDiagnostics(root: string): Promise<SkillScanResult> {
+  return scanSkillsWithDiagnostics(root);
+}
+
 /**
  * Scan a single skill directory. Each immediate subdirectory containing a
- * `SKILL.md` is parsed. Per-skill errors are swallowed so one malformed
- * folder can't blank the listing.
+ * `SKILL.md` is parsed. Metadata validation errors exclude only the malformed
+ * skill and are returned as structured diagnostics.
  *
  * The directory itself must be a real directory (not a symlink) and its
  * realpath must be contained within the realpath of its parent directory.
  * This prevents ancestor-level symlinks (e.g. `repo/.agents -> /outside`)
  * from escaping the expected boundary.
  */
-async function scanSkillDir(dir: string, containmentRoot: string, runtimeState: SkillRuntimeStateReadResult): Promise<ScannedSkill[]> {
+async function scanSkillDir(
+  dir: string,
+  containmentRoot: string,
+  runtimeState: SkillRuntimeStateReadResult,
+): Promise<SkillScanResult> {
   let entries: import('node:fs').Dirent[];
   try {
     const dirStat = await lstat(dir);
-    if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) return [];
+    if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) return { skills: [], diagnostics: [] };
     // Verify the resolved directory has not escaped its containment root via
     // an ancestor symlink (e.g. `repo/.agents -> /outside`).
     const [rootReal, dirReal] = await Promise.all([realpath(containmentRoot), realpath(dir)]);
-    if (!isContainedPath(rootReal, dirReal)) return [];
+    if (!isContainedPath(rootReal, dirReal)) return { skills: [], diagnostics: [] };
     entries = await readdir(dir, { withFileTypes: true });
   } catch {
-    return [];
+    return { skills: [], diagnostics: [] };
   }
 
   const out: ScannedSkill[] = [];
+  const diagnostics: SkillScanDiagnostic[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const skillPath = join(dir, entry.name);
@@ -257,7 +368,12 @@ async function scanSkillDir(dir: string, containmentRoot: string, runtimeState: 
       if (!read.ok) continue;
       const bytes = read.bytes;
       const text = bytes.toString('utf8');
-      const { name, description, allowedTools, requiredTools, requiredCapabilities } = parseSkillFrontMatter(text);
+      const validation = validateSkillMetadata(text);
+      if (validation.issues.length > 0) {
+        diagnostics.push({ id: entry.name, path: skillPath, issues: validation.issues });
+      }
+      if (!validation.valid) continue;
+      const { name, description, allowedTools, requiredTools, requiredCapabilities } = validation.manifest;
       const runtimeStatus: SkillRuntimeStatus = runtimeState.ok
         ? runtimeState.states.get(entry.name) === false ? 'disabled' : 'enabled'
         : 'state_error';
@@ -269,7 +385,7 @@ async function scanSkillDir(dir: string, containmentRoot: string, runtimeState: 
         declaredTools: allowedTools,
         requiredTools,
         requiredCapabilities,
-        content: stripFrontMatter(text).trim(),
+        content: validation.body,
         contentSha256: `sha256:${sha256Buffer(bytes)}`,
         discoveryRoot: containmentRoot,
         enabled: runtimeStatus === 'enabled',
@@ -280,7 +396,7 @@ async function scanSkillDir(dir: string, containmentRoot: string, runtimeState: 
     }
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
-  return out;
+  return { skills: out, diagnostics };
 }
 
 /**
@@ -461,6 +577,173 @@ export function buildSkillAgentTool(source: SkillSource, host?: HostCapabilities
   };
 }
 
+const SUPPORTED_SKILL_FIELDS = new Set([
+  'name',
+  'description',
+  'allowed-tools',
+  'required-tools',
+  'required-capabilities',
+  'license',
+  'compatibility',
+  'metadata',
+  // Maka's bundled catalog owns this display-only extension.
+  'category',
+]);
+
+/**
+ * Parse and validate one SKILL.md without trusting metadata as permission.
+ *
+ * Required discovery metadata and safety-relevant Maka extensions fail
+ * closed. Cosmetic/spec-compatibility findings remain warnings so Maka can
+ * load useful skills authored for other clients while exposing the drift.
+ */
+export function validateSkillMetadata(text: string): SkillMetadataValidationResult {
+  const manifest = emptySkillManifest();
+  const issues: SkillValidationIssue[] = [];
+  const extracted = extractSkillDocument(text);
+  if (!extracted.ok) {
+    issues.push({
+      code: extracted.reason,
+      severity: 'error',
+      field: 'frontmatter',
+      message: extracted.reason === 'missing_frontmatter'
+        ? 'SKILL.md must start with a YAML frontmatter block.'
+        : 'SKILL.md frontmatter is missing its closing delimiter.',
+    });
+    return { manifest, body: extracted.body, issues, valid: false };
+  }
+
+  let rawManifest: unknown;
+  try {
+    const document = parseDocument(extracted.frontmatter, {
+      merge: false,
+      strict: true,
+      uniqueKeys: true,
+    });
+    if (document.errors.length > 0 || document.warnings.length > 0) throw new Error('invalid yaml');
+    rawManifest = document.toJS({ maxAliasCount: 0 });
+  } catch {
+    issues.push({
+      code: 'malformed_frontmatter',
+      severity: 'error',
+      field: 'frontmatter',
+      message: 'SKILL.md frontmatter is not valid YAML.',
+    });
+    return { manifest, body: extracted.body, issues, valid: false };
+  }
+
+  if (!isRecord(rawManifest)) {
+    issues.push({
+      code: 'malformed_frontmatter',
+      severity: 'error',
+      field: 'frontmatter',
+      message: 'SKILL.md frontmatter must be a YAML mapping.',
+    });
+    return { manifest, body: extracted.body, issues, valid: false };
+  }
+
+  for (const field of Object.keys(rawManifest).sort()) {
+    if (!SUPPORTED_SKILL_FIELDS.has(field)) {
+      issues.push({
+        code: 'unsupported_field',
+        severity: 'warning',
+        field,
+        message: `Unsupported SKILL.md frontmatter field "${field}" is ignored.`,
+      });
+    }
+  }
+
+  manifest.name = readRequiredSkillString(
+    rawManifest.name,
+    'name',
+    'missing_name',
+    'invalid_name',
+    issues,
+  );
+  if (manifest.name && Array.from(manifest.name).length > 64) {
+    issues.push({
+      code: 'name_too_long',
+      severity: 'warning',
+      field: 'name',
+      message: 'Skill name exceeds the Agent Skills 64-character recommendation.',
+    });
+  }
+
+  manifest.description = readRequiredSkillString(
+    rawManifest.description,
+    'description',
+    'missing_description',
+    'invalid_description',
+    issues,
+  );
+  if (manifest.description && Array.from(manifest.description).length > 1_024) {
+    issues.push({
+      code: 'description_too_long',
+      severity: 'warning',
+      field: 'description',
+      message: 'Skill description exceeds the Agent Skills 1024-character recommendation.',
+    });
+  }
+
+  manifest.allowedTools = readSkillStringList(
+    rawManifest['allowed-tools'],
+    'allowed-tools',
+    'invalid_allowed_tools',
+    'warning',
+    issues,
+  );
+  manifest.requiredTools = readSkillStringList(
+    rawManifest['required-tools'],
+    'required-tools',
+    'invalid_required_tools',
+    'error',
+    issues,
+  );
+  manifest.requiredCapabilities = readSkillStringList(
+    rawManifest['required-capabilities'],
+    'required-capabilities',
+    'invalid_required_capabilities',
+    'error',
+    issues,
+  );
+
+  manifest.license = readOptionalSkillString(rawManifest.license, 'license', 'invalid_license', issues);
+  manifest.compatibility = readOptionalSkillString(
+    rawManifest.compatibility,
+    'compatibility',
+    'invalid_compatibility',
+    issues,
+  );
+  if (manifest.compatibility && Array.from(manifest.compatibility).length > 500) {
+    issues.push({
+      code: 'compatibility_too_long',
+      severity: 'warning',
+      field: 'compatibility',
+      message: 'Skill compatibility exceeds the Agent Skills 500-character recommendation.',
+    });
+  }
+
+  manifest.metadata = readSkillMetadataMap(rawManifest.metadata, issues);
+  manifest.category = readOptionalSkillString(rawManifest.category, 'category', 'invalid_category', issues);
+
+  if (Array.from(extracted.body).length > MAX_SKILL_TOOL_BODY_CHARS) {
+    issues.push({
+      code: 'body_too_large',
+      severity: 'warning',
+      field: 'body',
+      message: `Skill instructions exceed ${MAX_SKILL_TOOL_BODY_CHARS} characters and will be truncated when loaded.`,
+    });
+  }
+
+  return {
+    manifest,
+    body: extracted.body,
+    issues,
+    valid: !issues.some((issue) => issue.severity === 'error'),
+  };
+}
+
+/** Compatibility parser retained for existing Desktop and Runtime callers. */
 export function parseSkillFrontMatter(text: string): {
   name?: string;
   description?: string;
@@ -468,65 +751,14 @@ export function parseSkillFrontMatter(text: string): {
   requiredTools: string[];
   requiredCapabilities: string[];
 } {
-  const empty = { allowedTools: [], requiredTools: [], requiredCapabilities: [] };
-  if (!text.startsWith('---')) return empty;
-  const close = text.indexOf('\n---', 3);
-  if (close < 0) return empty;
-  const block = text.slice(3, close);
-  const lines = block.split(/\r?\n/);
-  const result: {
-    name?: string;
-    description?: string;
-    allowedTools: string[];
-    requiredTools: string[];
-    requiredCapabilities: string[];
-  } = { allowedTools: [], requiredTools: [], requiredCapabilities: [] };
-  // `allowed-tools`, `required-tools`, and `required-capabilities` all share the
-  // same inline `[A, B, C]` / bare-line list forms.
-  type ListKey = 'allowed-tools' | 'required-tools' | 'required-capabilities';
-  const listField: Record<ListKey, 'allowedTools' | 'requiredTools' | 'requiredCapabilities'> = {
-    'allowed-tools': 'allowedTools',
-    'required-tools': 'requiredTools',
-    'required-capabilities': 'requiredCapabilities',
+  const { manifest } = validateSkillMetadata(text);
+  return {
+    ...(manifest.name ? { name: manifest.name } : {}),
+    ...(manifest.description ? { description: manifest.description } : {}),
+    allowedTools: manifest.allowedTools,
+    requiredTools: manifest.requiredTools,
+    requiredCapabilities: manifest.requiredCapabilities,
   };
-  let key: 'name' | 'description' | ListKey | null = null;
-  for (const raw of lines) {
-    const match = raw.match(/^(name|description|allowed-tools|required-tools|required-capabilities):\s*(.*)$/);
-    if (match) {
-      key = match[1] as 'name' | 'description' | ListKey;
-      const value = rawValue(match[2]);
-      if (key === 'name' || key === 'description') {
-        if (value) result[key] = value;
-      } else {
-        const field = listField[key];
-        // Accept either inline `[A, B, C]` or a bare-line list that follows.
-        if (value.startsWith('[') && value.endsWith(']')) {
-          result[field] = value
-            .slice(1, -1)
-            .split(',')
-            .map((token) => rawValue(token))
-            .filter(Boolean);
-        }
-      }
-      continue;
-    }
-    if (key === 'allowed-tools' || key === 'required-tools' || key === 'required-capabilities') {
-      const item = raw.trim().match(/^-\s+(.+)$/);
-      if (item) {
-        result[listField[key]].push(rawValue(item[1]));
-        continue;
-      }
-    }
-    if (key === 'name' || key === 'description') {
-      if (/^\s+/.test(raw)) {
-        const continuation = raw.trim();
-        if (continuation && !continuation.startsWith('#')) {
-          result[key] = `${result[key] ?? ''} ${continuation}`.trim();
-        }
-      }
-    }
-  }
-  return result;
 }
 
 // ── Per-workspace enablement state ───────────────────────────────────────
@@ -673,24 +905,194 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 
 // ── Internal helpers ─────────────────────────────────────────────────────
 
+function emptySkillManifest(): SkillManifest {
+  return {
+    allowedTools: [],
+    requiredTools: [],
+    requiredCapabilities: [],
+    metadata: {},
+  };
+}
+
+function extractSkillDocument(text: string):
+  | { ok: true; frontmatter: string; body: string }
+  | { ok: false; reason: 'missing_frontmatter' | 'malformed_frontmatter'; body: string } {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  if (!/^---[\t ]*$/.test(lines[0] ?? '')) {
+    return { ok: false, reason: 'missing_frontmatter', body: text.trim() };
+  }
+  const close = lines.findIndex((line, index) => index > 0 && /^---[\t ]*$/.test(line));
+  if (close < 0) {
+    return { ok: false, reason: 'malformed_frontmatter', body: '' };
+  }
+  return {
+    ok: true,
+    frontmatter: lines.slice(1, close).join('\n'),
+    body: lines.slice(close + 1).join('\n').trim(),
+  };
+}
+
+function readRequiredSkillString(
+  value: unknown,
+  field: 'name' | 'description',
+  missingCode: 'missing_name' | 'missing_description',
+  invalidCode: 'invalid_name' | 'invalid_description',
+  issues: SkillValidationIssue[],
+): string | undefined {
+  if (value === undefined || value === null || value === '') {
+    issues.push({
+      code: missingCode,
+      severity: 'error',
+      field,
+      message: `Skill ${field} is required and must not be empty.`,
+    });
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    issues.push({
+      code: invalidCode,
+      severity: 'error',
+      field,
+      message: `Skill ${field} must be a string.`,
+    });
+    return undefined;
+  }
+  const cleaned = cleanPromptText(value).trim();
+  if (!cleaned) {
+    issues.push({
+      code: missingCode,
+      severity: 'error',
+      field,
+      message: `Skill ${field} is required and must not be empty.`,
+    });
+    return undefined;
+  }
+  return cleaned;
+}
+
+function readOptionalSkillString(
+  value: unknown,
+  field: 'license' | 'compatibility' | 'category',
+  code: 'invalid_license' | 'invalid_compatibility' | 'invalid_category',
+  issues: SkillValidationIssue[],
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string' || !cleanPromptText(value).trim()) {
+    issues.push({
+      code,
+      severity: 'warning',
+      field,
+      message: `Optional skill field ${field} must be a non-empty string when provided.`,
+    });
+    return undefined;
+  }
+  return cleanPromptText(value).trim();
+}
+
+function readSkillStringList(
+  value: unknown,
+  field: 'allowed-tools' | 'required-tools' | 'required-capabilities',
+  code: 'invalid_allowed_tools' | 'invalid_required_tools' | 'invalid_required_capabilities',
+  severity: SkillValidationSeverity,
+  issues: SkillValidationIssue[],
+): string[] {
+  if (value === undefined || value === null || value === '') return [];
+  const candidates = typeof value === 'string'
+    ? value.trim().split(/\s+/)
+    : Array.isArray(value)
+      ? value
+      : null;
+  if (!candidates) {
+    issues.push({
+      code,
+      severity,
+      field,
+      message: `Skill field ${field} must be a space-separated string or a string list.`,
+    });
+    return [];
+  }
+
+  const normalized: string[] = [];
+  let invalid = false;
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') {
+      invalid = true;
+      continue;
+    }
+    const token = cleanPromptText(candidate).trim();
+    if (!token || /\s/.test(token)) {
+      invalid = true;
+      continue;
+    }
+    if (!normalized.includes(token)) normalized.push(token);
+  }
+  if (invalid) {
+    issues.push({
+      code,
+      severity,
+      field,
+      message: `Skill field ${field} contains a non-string, empty, or whitespace-bearing entry.`,
+    });
+  }
+  return normalized;
+}
+
+function readSkillMetadataMap(value: unknown, issues: SkillValidationIssue[]): Record<string, string> {
+  if (value === undefined || value === null) return {};
+  if (!isRecord(value)) {
+    issues.push({
+      code: 'invalid_metadata',
+      severity: 'warning',
+      field: 'metadata',
+      message: 'Skill metadata must be a mapping of string keys to string values.',
+    });
+    return {};
+  }
+  const metadata: Record<string, string> = {};
+  for (const key of Object.keys(value).sort()) {
+    const entry = value[key];
+    if (typeof entry !== 'string') {
+      issues.push({
+        code: 'invalid_metadata',
+        severity: 'warning',
+        field: `metadata.${key}`,
+        message: `Skill metadata value for "${key}" must be a string and was ignored.`,
+      });
+      continue;
+    }
+    metadata[key] = cleanPromptText(entry).trim();
+  }
+  return metadata;
+}
+
+function appendSkillDiagnostic(
+  diagnostics: Map<string, SkillScanDiagnostic>,
+  id: string,
+  path: string,
+  issues: SkillValidationIssue[],
+): void {
+  if (issues.length === 0) return;
+  const existing = diagnostics.get(path);
+  if (!existing) {
+    diagnostics.set(path, { id, path, issues: [...issues] });
+    return;
+  }
+  for (const issue of issues) {
+    if (!existing.issues.some((candidate) =>
+      candidate.code === issue.code
+      && candidate.field === issue.field
+      && candidate.message === issue.message)) {
+      existing.issues.push(issue);
+    }
+  }
+}
+
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
 function sha256Buffer(buffer: Buffer): string {
   return createHash('sha256').update(buffer).digest('hex');
-}
-
-function stripFrontMatter(text: string): string {
-  if (!text.startsWith('---')) return text;
-  const close = text.indexOf('\n---', 3);
-  if (close < 0) return text;
-  const after = close + '\n---'.length;
-  return text.slice(text[after] === '\r' && text[after + 1] === '\n' ? after + 2 : after + 1);
-}
-
-function rawValue(value: string): string {
-  return value.trim().replace(/^['"]|['"]$/g, '');
 }
 
 function cleanPromptText(text: string): string {

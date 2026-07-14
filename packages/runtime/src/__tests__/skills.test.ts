@@ -18,7 +18,9 @@ import {
   resolveSkillsPromptCharBudget,
   resolveSkillDiscoveryPaths,
   scanSkills,
+  scanSkillsWithDiagnostics,
   scanWorkspaceSkills,
+  validateSkillMetadata,
   writeSkillRuntimeState,
   type HostCapabilities,
   type ScannedSkill,
@@ -26,6 +28,184 @@ import {
 import type { MakaToolContext } from '../tool-runtime.js';
 
 describe('runtime skills', () => {
+  it('validates typed SKILL.md metadata and accepts spec and Maka list forms', () => {
+    const result = validateSkillMetadata(`---
+name: writer
+description: Draft polished prose when the user asks for writing help.
+license: Apache-2.0
+compatibility: Requires a local workspace.
+metadata:
+  author: maka
+allowed-tools: Read Bash(git:*)
+required-tools: [Write]
+required-capabilities:
+  - workspace
+---
+# Writer
+Use concise prose.`);
+
+    assert.equal(result.valid, true);
+    assert.deepEqual(result.issues, []);
+    assert.deepEqual(result.manifest, {
+      name: 'writer',
+      description: 'Draft polished prose when the user asks for writing help.',
+      allowedTools: ['Read', 'Bash(git:*)'],
+      requiredTools: ['Write'],
+      requiredCapabilities: ['workspace'],
+      license: 'Apache-2.0',
+      compatibility: 'Requires a local workspace.',
+      metadata: { author: 'maka' },
+      category: undefined,
+    });
+    assert.equal(result.body, '# Writer\nUse concise prose.');
+  });
+
+  it('reports malformed and missing required metadata as structured errors', () => {
+    const missingFrontmatter = validateSkillMetadata('# No metadata');
+    assert.equal(missingFrontmatter.valid, false);
+    assert.deepEqual(missingFrontmatter.issues.map((issue) => issue.code), ['missing_frontmatter']);
+
+    const malformed = validateSkillMetadata(`---
+name: broken
+description: value: is not quoted
+---
+body`);
+    assert.equal(malformed.valid, false);
+    assert.deepEqual(malformed.issues.map((issue) => issue.code), ['malformed_frontmatter']);
+
+    const missingRequired = validateSkillMetadata(`---
+name: ''
+required-tools:
+  nested: invalid
+required-capabilities: [workspace, 7]
+---
+body`);
+    assert.equal(missingRequired.valid, false);
+    assert.deepEqual(
+      missingRequired.issues.map((issue) => issue.code),
+      ['missing_name', 'missing_description', 'invalid_required_tools', 'invalid_required_capabilities'],
+    );
+  });
+
+  it('keeps compatible skills loadable while reporting non-blocking metadata warnings', () => {
+    const result = validateSkillMetadata(`---
+name: ${'N'.repeat(65)}
+description: ${'D'.repeat(1025)}
+allowed-tools: [Read, Bad Tool, 7]
+compatibility: ${'C'.repeat(501)}
+metadata:
+  author: maka
+  revision: 3
+category: 7
+future-field: enabled
+---
+${'x'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1)}`);
+
+    assert.equal(result.valid, true);
+    assert.deepEqual(result.manifest.allowedTools, ['Read']);
+    assert.deepEqual(result.manifest.metadata, { author: 'maka' });
+    assert.deepEqual(
+      result.issues.map((issue) => issue.code),
+      [
+        'unsupported_field',
+        'name_too_long',
+        'description_too_long',
+        'invalid_allowed_tools',
+        'compatibility_too_long',
+        'invalid_metadata',
+        'invalid_category',
+        'body_too_large',
+      ],
+    );
+    assert.ok(result.issues.every((issue) => issue.severity === 'warning'));
+  });
+
+  it('excludes invalid skills from the model catalog and preserves their diagnostics', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'valid', `---
+name: Valid
+description: A valid skill.
+---
+# Valid`);
+      await writeSkill(workspaceRoot, 'missing-description', `---
+name: Missing Description
+---
+# Missing`);
+      await writeSkill(workspaceRoot, 'malformed', `---
+name: Malformed
+description: value: is not quoted
+---
+# Malformed`);
+
+      const scanned = await scanSkillsWithDiagnostics(workspaceRoot);
+      assert.deepEqual(scanned.skills.map((skill) => skill.id), ['valid']);
+      assert.deepEqual(
+        scanned.diagnostics.map((diagnostic) => ({
+          id: diagnostic.id,
+          codes: diagnostic.issues.map((issue) => issue.code),
+        })),
+        [
+          { id: 'malformed', codes: ['malformed_frontmatter'] },
+          { id: 'missing-description', codes: ['missing_description'] },
+        ],
+      );
+
+      const prompt = await buildSkillsPromptFragment(workspaceRoot);
+      assert.ok(prompt);
+      assert.match(prompt, /id="valid"/);
+      assert.doesNotMatch(prompt, /missing-description|malformed/);
+
+      const missing = await loadSkillInstructions(workspaceRoot, 'missing-description');
+      assert.equal(missing.ok, false);
+      if (missing.ok) return;
+      assert.equal(missing.reason, 'not_found');
+      assert.deepEqual(missing.availableSkills.map((skill) => skill.id), ['valid']);
+    });
+  });
+
+  it('reports deterministic duplicate id and display-name diagnostics', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const projectRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-skill-duplicates-'));
+      try {
+        await mkdir(join(projectRoot, '.agents', 'skills', 'shared'), { recursive: true });
+        await writeFile(join(projectRoot, '.agents', 'skills', 'shared', 'SKILL.md'), `---
+name: Shared Name
+description: Higher precedence.
+---
+# Shared`, 'utf8');
+        await writeSkill(workspaceRoot, 'shared', `---
+name: Shadowed
+description: Lower precedence duplicate id.
+---
+# Shadowed`);
+        await writeSkill(workspaceRoot, 'other', `---
+name: Shared Name
+description: Duplicate display name.
+---
+# Other`);
+
+        const scanned = await scanSkillsWithDiagnostics({
+          dirs: [join(projectRoot, '.agents', 'skills'), join(workspaceRoot, 'skills')],
+          stateRoot: workspaceRoot,
+        });
+        assert.deepEqual(scanned.skills.map((skill) => skill.id), ['shared', 'other']);
+        assert.deepEqual(
+          scanned.diagnostics.map((diagnostic) => ({
+            id: diagnostic.id,
+            codes: diagnostic.issues.map((issue) => issue.code),
+          })),
+          [
+            { id: 'shared', codes: ['duplicate_id'] },
+            { id: 'shared', codes: ['duplicate_name'] },
+            { id: 'other', codes: ['duplicate_name'] },
+          ],
+        );
+      } finally {
+        await rm(projectRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('scales the prompt catalog budget from model context with bounded fallback', () => {
     assert.equal(resolveSkillsPromptCharBudget(), MAX_SKILLS_PROMPT_CHARS);
     assert.equal(resolveSkillsPromptCharBudget({ contextWindow: Number.NaN }), MAX_SKILLS_PROMPT_CHARS);
@@ -301,6 +481,7 @@ Make every slide carry one idea.`);
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(workspaceRoot, 'huge', `---
 name: Huge
+description: Exercise bounded instruction loading.
 ---
 # Huge
 ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
@@ -316,7 +497,11 @@ ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
       assert.equal(miss.ok, false);
       if (miss.ok) return;
       assert.equal(miss.reason, 'not_found');
-      assert.deepEqual(miss.availableSkills, [{ id: 'huge', name: 'Huge', description: '' }]);
+      assert.deepEqual(miss.availableSkills, [{
+        id: 'huge',
+        name: 'Huge',
+        description: 'Exercise bounded instruction loading.',
+      }]);
     });
   });
 

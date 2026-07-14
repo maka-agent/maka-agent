@@ -68,6 +68,7 @@
     "qrcode": "^1.5.4",
     "socks": "^2.8.9",
     "undici": "^6.25.0",
+    "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

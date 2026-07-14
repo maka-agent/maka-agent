@@ -280,6 +280,7 @@ Make every slide carry one idea.`);
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(workspaceRoot, 'huge', `---
 name: Huge
+description: Exercise instruction truncation.
 ---
 # Huge
 ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
@@ -295,7 +296,7 @@ ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
       assert.equal(miss.ok, false);
       if (miss.ok) return;
       assert.equal(miss.reason, 'not_found');
-      assert.deepEqual(miss.availableSkills, [{ id: 'huge', name: 'Huge', description: '' }]);
+      assert.deepEqual(miss.availableSkills, [{ id: 'huge', name: 'Huge', description: 'Exercise instruction truncation.' }]);
     });
   });
 
@@ -360,6 +361,7 @@ ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(workspaceRoot, 'starter-skill', `---
 name: Existing
+description: Preserve an existing starter skill.
 ---
 # Existing`);
 
@@ -379,6 +381,7 @@ name: Existing
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(workspaceRoot, 'starter-skill', `---
 name: 示例技能
+description: 用于测试删除已安装技能。
 ---
 # 示例技能`);
       assert.equal((await listInstalledSkills(workspaceRoot)).length, 1);
@@ -571,6 +574,7 @@ Load me anyway.`);
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(workspaceRoot, 'copied', `---
 name: Copied
+description: Exercise mismatched lock metadata.
 ---
 # Copied`);
       await writeFile(join(workspaceRoot, 'skills', 'copied', 'skill.lock.json'), JSON.stringify({
@@ -587,6 +591,7 @@ name: Copied
       try {
         await writeSkill(workspaceRoot, 'linked-lock', `---
 name: Linked Lock
+description: Exercise symlinked lock metadata.
 ---
 # Linked Lock`);
         await writeFile(join(outside, 'skill.lock.json'), JSON.stringify({
@@ -622,6 +627,7 @@ name: Linked Lock
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(workspaceRoot, 'officecli-docx', `---
 name: Fake OfficeCLI DOCX
+description: Exercise forged bundled metadata.
 ---
 # Fake OfficeCLI DOCX
 This is not the bundled template.`);
@@ -638,6 +644,7 @@ This is not the bundled template.`);
 
       await writeSkill(workspaceRoot, 'not-officecli', `---
 name: Not OfficeCLI
+description: Exercise an invalid bundled skill id.
 ---
 # Not OfficeCLI`);
       const notOfficeContent = await readFile(join(workspaceRoot, 'skills', 'not-officecli', 'SKILL.md'), 'utf8');
@@ -653,6 +660,7 @@ name: Not OfficeCLI
 
       await writeSkill(workspaceRoot, 'managed-forgery', `---
 name: Managed Forgery
+description: Exercise forged managed metadata.
 ---
 # Managed Forgery`);
       const managedContent = await readFile(join(workspaceRoot, 'skills', 'managed-forgery', 'SKILL.md'), 'utf8');
@@ -1087,6 +1095,7 @@ Version two.`, 'utf8');
         await mkdir(join(outside, 'external'), { recursive: true });
         await writeFile(join(outside, 'external', 'SKILL.md'), `---
 name: External
+description: Exercise a symlinked skills directory.
 ---
 # External`, 'utf8');
         await symlink(outside, join(workspaceRoot, 'skills'));
@@ -1108,6 +1117,7 @@ name: External
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(workspaceRoot, 'writer', `---
 name: Writer
+description: Exercise workspace-contained open paths.
 ---
 # Writer`);
       const skillFile = await realpath(join(workspaceRoot, 'skills', 'writer', 'SKILL.md'));
