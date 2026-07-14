@@ -689,6 +689,62 @@ export function applyRuntimeEventHistoryCompact(
     };
   }
 
+  // A mid_turn checkpoint's coverage reaches into the compacted turn's own
+  // completed steps, so it can extend past what tail selection would retain
+  // and must not require multiple prior turns. Match it against the full
+  // content projection before the turn-granular guards; replay is the
+  // deterministic [block, verbatim head anchor, uncovered tail].
+  const midTurnCheckpoint = compactPolicy.checkpoint?.phase === 'mid_turn' ? compactPolicy.checkpoint : undefined;
+  if (midTurnCheckpoint) {
+    const match = matchHistoryCompactCheckpointPrefix(midTurnCheckpoint, compactableEvents);
+    if (match.reason) {
+      increment(skippedReasonCounts, match.reason);
+    } else {
+      const headAnchor = midTurnHeadAnchorEvent(midTurnCheckpoint, match.coveredRuntimeEvents);
+      const replayTail = headAnchor
+        ? [headAnchor, ...match.successorRuntimeEvents]
+        : [...match.successorRuntimeEvents];
+      const fit = evaluateHistoryCompactCheckpointReplay(midTurnCheckpoint, replayTail, policy!, {
+        charsPerToken,
+        maxHistoryEstimatedTokens: maxTokens,
+      });
+      if (!fit.fits) {
+        increment(skippedReasonCounts, fit.reason);
+      } else {
+        return {
+          events: [historyCompactCheckpointToRuntimeEvent(midTurnCheckpoint), ...replayTail],
+          blocks: [],
+          checkpoint: midTurnCheckpoint,
+          diagnosticPatch: {
+            ...basePatch,
+            historyCompactBlocksAvailable: 1,
+            historyCompactBlocksSelected: 1,
+            historyCompactBlockIds: [midTurnCheckpoint.checkpointId],
+            historyCompactedTurns: midTurnCheckpoint.coverage.turnCount,
+            historyCompactedEvents: midTurnCheckpoint.coverage.eventCount,
+            historyCompactedEstimatedTokensBefore: estimateRuntimeEventsTokens(match.coveredRuntimeEvents, charsPerToken),
+            historyCompactedEstimatedTokensAfter: fit.checkpointTokens,
+            historyCompactCoverageHashes: [midTurnCheckpoint.coverage.sourceDigest],
+            highWaterName: midTurnCheckpoint.highWaterName,
+            highWaterSeq: midTurnCheckpoint.highWaterSeq,
+            highWaterReason: 'history_compact',
+            ...compactionDecisionDiagnosticPatch({
+              stage: 'priorReplay',
+              sourceKind: 'runtimeEvents',
+              decision: 'replaced',
+              phase: 'mid_turn',
+              boundaryKind: 'historyCompact',
+              boundaryIds: [midTurnCheckpoint.checkpointId],
+              coverage: { bodySha256: [midTurnCheckpoint.coverage.sourceDigest] },
+              estimatedTokensBefore: estimateRuntimeEventsTokens(match.coveredRuntimeEvents, charsPerToken),
+              estimatedTokensAfter: fit.checkpointTokens,
+            }),
+          },
+        };
+      }
+    }
+  }
+
   const turnGroups = groupEventsByTurn(compactableEvents, charsPerToken);
   if (turnGroups.length <= 1) {
     increment(skippedReasonCounts, 'insufficient_turns');
@@ -743,19 +799,14 @@ export function applyRuntimeEventHistoryCompact(
     };
   }
 
-  const checkpoint = compactPolicy.checkpoint;
+  // mid_turn checkpoints were handled above against the full content projection.
+  const checkpoint = compactPolicy.checkpoint?.phase === 'mid_turn' ? undefined : compactPolicy.checkpoint;
   if (checkpoint) {
     const match = matchHistoryCompactCheckpointPrefix(checkpoint, foldedEvents);
     if (match.reason) {
       increment(skippedReasonCounts, match.reason);
     } else {
-      // A mid_turn checkpoint folded its head anchor (the current turn's user
-      // message); re-render it verbatim right after the block so replay is
-      // deterministically `[block, head anchor, tail]` and the fit accounts for it.
-      const headAnchor = midTurnHeadAnchorEvent(checkpoint, match.coveredRuntimeEvents);
-      const replayTail = headAnchor
-        ? [headAnchor, ...match.successorRuntimeEvents, ...retainedEvents]
-        : [...match.successorRuntimeEvents, ...retainedEvents];
+      const replayTail = [...match.successorRuntimeEvents, ...retainedEvents];
       const fit = evaluateHistoryCompactCheckpointReplay(checkpoint, replayTail, policy!, {
         charsPerToken,
         maxHistoryEstimatedTokens: maxTokens,
@@ -2146,7 +2197,8 @@ function turnKey(event: RuntimeEvent): string {
   return event.turnId || '<unknown-turn>';
 }
 
-function isHistoryCompactContentEvent(event: RuntimeEvent): boolean {
+/** True when the event carries model-visible content the compact projection counts. */
+export function isHistoryCompactContentEvent(event: RuntimeEvent): boolean {
   return estimateRuntimeEventChars(event) > 0;
 }
 
