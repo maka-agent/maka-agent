@@ -16,6 +16,21 @@ after(async () => {
 });
 
 describe('models.dev provider conformance', () => {
+  test('GitHub Copilot connection probe accepts a resolved account token without a synthetic model request', async () => {
+    const result = await testConnection({
+      slug: 'github-copilot',
+      name: 'GitHub Copilot',
+      providerType: 'github-copilot',
+      baseUrl: 'http://127.0.0.1:1',
+      defaultModel: 'gpt-5.4',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'short-lived-copilot-token');
+
+    assert.deepEqual(result, { ok: true, latencyMs: result.latencyMs, modelTested: 'gpt-5.4' });
+  });
+
   test('GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire', async () => {
     const modelId = 'gemini-3.1-pro-preview';
     const requestBodies: Array<Record<string, unknown>> = [];

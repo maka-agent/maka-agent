@@ -40,6 +40,8 @@ export async function testConnection(
       case 'codex-subscription':
       case 'openai-compatible':
         return await probeOpenAI(connection, baseUrl, secret, testModel, t0);
+      case 'github-copilot':
+        return { ok: true, latencyMs: Date.now() - t0, modelTested: testModel };
       case 'google':
         return await probeGoogle(baseUrl, secret, testModel, t0, adapter.normalizeBaseUrl !== false);
       case 'cohere':
