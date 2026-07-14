@@ -61,9 +61,9 @@ interface OverrideBinding {
    * Exact test title as it appears verbatim in the bound test source (for
    * parametric tests, the literal template text including any `${...}`
    * placeholder). The binding test below asserts the source still contains an
-   * enabled `test(` call opening with this title, so deleting, renaming, or
-   * skipping the hand-written test breaks the matrix instead of leaving a
-   * silent gap.
+   * enabled `test(` call whose complete quoted title equals this text, so
+   * deleting, renaming (even by suffix), or skipping the hand-written test
+   * breaks the matrix instead of leaving a silent gap.
    */
   test: string;
   /**
@@ -141,13 +141,18 @@ function readOverrideTestSource(file: string): string {
 }
 
 /**
- * True when the source contains an *enabled* `test(` call opening with the
- * bound title — `test('title`, `test("title`, or `` test(`title `` (the
- * backtick form covers parametric template-literal titles). `test.skip(` /
- * `test.todo(` never match because their call prefix differs.
+ * True when the source contains an *enabled* `test(` call whose complete quoted
+ * title equals the bound title — `test('title'`, `test("title"`, or
+ * `` test(`title` `` (the backtick form covers parametric template-literal
+ * titles, whose bound text includes the `${...}` placeholder verbatim).
+ * Requiring the closing quote means renaming the test — even by appending a
+ * suffix — breaks the binding. `test.skip(` / `test.todo(` never match because
+ * their call prefix differs. Known residual: this is a textual check, so a
+ * fully commented-out `test(...)` line still matches; the Phase 8 executable
+ * override binding removes that class.
  */
 function hasEnabledTestCall(source: string, title: string): boolean {
-  return ["'", '"', '`'].some((quote) => source.includes(`test(${quote}${title}`));
+  return ["'", '"', '`'].some((quote) => source.includes(`test(${quote}${title}${quote}`));
 }
 
 const KNOWN_WIRES: ReadonlySet<ProviderContractWire> = new Set([
