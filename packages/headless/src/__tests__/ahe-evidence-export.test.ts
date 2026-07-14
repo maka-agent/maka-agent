@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -34,10 +34,47 @@ describe('AHE evidence export', () => {
         createdAt: '2026-07-02T00:00:00.000Z',
       });
 
-      assert.equal(first.protocolVersion, 'maka.ahe-target.v1');
+      assert.equal(first.protocolVersion, 'maka.ahe-target.v2');
       assert.equal(first.sourceLabel, MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL);
       assert.equal(first.snapshotId, second.snapshotId);
+      assert.match(first.snapshotId, /^maka-ahe-[a-f0-9]{64}$/);
+      assert.match(first.sourceManifest.digest, /^sha256:[a-f0-9]{64}$/);
+      assert.equal(first.sourceManifest.entries[0]?.sizeBytes, 28);
       assert.equal(first.components[0]?.sourceRefs[0]?.path, 'src/prompt.ts');
+
+      await writeFile(join(dir, 'src', 'prompt.ts'), 'export const prompt = "changed";\n', 'utf8');
+      const changed = await buildMakaAheTargetSnapshot({ repoRoot: dir, components });
+      assert.notEqual(changed.snapshotId, first.snapshotId);
+      assert.notEqual(changed.sourceManifest.entries[0]?.digest, first.sourceManifest.entries[0]?.digest);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('makes target identity independent of source-ref order and Git metadata', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-ahe-ordered-snapshot-'));
+    try {
+      await mkdir(join(dir, 'src'), { recursive: true });
+      await writeFile(join(dir, 'src', 'a.ts'), 'export const a = 1;\n', 'utf8');
+      await writeFile(join(dir, 'src', 'b.ts'), 'export const b = 2;\n', 'utf8');
+      const component: MakaAheTargetComponent = {
+        ...fixtureComponents('src/a.ts')[0]!,
+        sourceRefs: [{ path: 'src/a.ts' }, { path: 'src/b.ts' }],
+      };
+      const first = await buildMakaAheTargetSnapshot({
+        repoRoot: dir,
+        components: [component],
+        git: { repository: 'maka', commit: 'first', dirty: false },
+      });
+      const reordered = await buildMakaAheTargetSnapshot({
+        repoRoot: dir,
+        components: [{ ...component, sourceRefs: [...component.sourceRefs].reverse() }],
+        sourceLabel: 'a-different-exporter',
+        git: { repository: 'maka', commit: 'second', dirty: true },
+      });
+
+      assert.equal(reordered.snapshotId, first.snapshotId);
+      assert.deepEqual(reordered.sourceManifest.entries.map((entry) => entry.path), ['src/a.ts', 'src/b.ts']);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -59,6 +96,24 @@ describe('AHE evidence export', () => {
       );
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects source refs that escape the repo through symbolic links or resolve to directories', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-ahe-symlink-snapshot-'));
+    const outside = await mkdtemp(join(tmpdir(), 'maka-ahe-outside-'));
+    try {
+      await writeFile(join(outside, 'secret.ts'), 'export const secret = true;\n', 'utf8');
+      await symlink(join(outside, 'secret.ts'), join(dir, 'escaped.ts'));
+      await mkdir(join(dir, 'directory.ts'));
+
+      const escaped = await validateMakaAheSourceRefs(dir, fixtureComponents('escaped.ts'));
+      assert.match(escaped[0]?.message ?? '', /symbolic link/);
+      const directory = await validateMakaAheSourceRefs(dir, fixtureComponents('directory.ts'));
+      assert.match(directory[0]?.message ?? '', /regular file/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
     }
   });
 

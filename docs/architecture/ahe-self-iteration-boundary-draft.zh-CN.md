@@ -125,9 +125,9 @@ Target Snapshot
 
 ### Snapshot identity 当前保证了什么
 
-`buildMakaAheTargetSnapshot` 会验证 source refs 存在、位于 repo root 内，并生成稳定 `snapshotId`。当调用方提供 Git repository/ref/commit/dirty identity 时，这些信息也进入 snapshot identity。
+`buildMakaAheTargetSnapshot` 现在输出 `maka.ahe-target.v2`。它会验证每个 source ref 都解析到仓库内的普通文件，拒绝通过符号链接逃逸，并为每个源码记录 SHA-256 digest 与字节数。manifest 自身也会被哈希，`snapshotId` 再把这个 manifest 与规范化后的 component topology 绑定起来。
 
-需要准确理解当前边界：source file 的内容本身目前不会逐文件进入 `snapshotId` hash；如果调用方没有提供 Git identity，只改变 source 内容并不一定改变 snapshot id。因而生产级外循环应始终携带不可歧义的 commit identity。内容级 fingerprint 属于后续可加强方向，不是当前协议保证。
+这里的身份规则刻意描述“受管 target”，而不是某一次导出动作：相同源码字节和 component topology 会得到相同 `snapshotId`；任何已登记源码发生变化，id 都会变化。`createdAt`、`sourceLabel` 以及可选的 Git repository/ref/commit/dirty 信息仍然是有用的 provenance，但不会改变内容身份。旧 v1 snapshot 仍可作为 legacy 文档读取，却不会被升级或冒充为 content-bound evidence。
 
 ## Evidence Export：把运行结果转换为保守证据
 
@@ -363,7 +363,7 @@ Infra、excluded、unscored 和 missing cells 应保持独立。一个完整 kee
 
 ### Current：已经可以依赖的事实
 
-- AHE target protocol 使用版本号 `maka.ahe-target.v1`；
+- 新 AHE target export 使用内容寻址的 `maka.ahe-target.v2`，reader 同时保留显式的 legacy v1 兼容；
 - current component map 是 source-backed 的，并区分 editable 与 evidence-only；
 - evidence export 是只读操作，消费 TaskRun projection；
 - 结果按 authority 和 accounting status 保守分桶；
