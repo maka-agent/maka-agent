@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createDailyReviewMainService } from '../daily-review-main.js';
 
-test('Daily Review uses the Settings usage authority including legacy fallback', async () => {
+test('Daily Review uses the Settings usage authority without treating aborted as error', async () => {
   const service = createDailyReviewMainService({
     archiveStore: {},
     connectionStore: {},
@@ -29,7 +29,7 @@ test('Daily Review uses the Settings usage authority including legacy fallback',
           id: 'legacy-usage', ts: Date.now(), kind: 'model', sessionId: 'session-1',
           turnId: 'turn-1', provider: 'legacy-provider', model: 'legacy-model',
           inputTokens: 10, outputTokens: 5, cacheRead: 2, costUsd: 0.02,
-          status: 'success',
+          status: 'aborted',
         }],
         byProvider: [{ provider: 'legacy-provider', requests: 1, tokens: 15, costUsd: 0.02 }],
         byModel: [{ model: 'legacy-model', requests: 1, tokens: 15, costUsd: 0.02 }],
@@ -47,5 +47,6 @@ test('Daily Review uses the Settings usage authority including legacy fallback',
   assert.equal(summary.totals.requestCount, 1);
   assert.equal(summary.totals.totalTokens, 15);
   assert.equal(summary.totals.costUsd, 0.02);
+  assert.equal(summary.totals.errorCount, 0);
   assert.equal(summary.topModels[0]?.key, 'legacy-model');
 });

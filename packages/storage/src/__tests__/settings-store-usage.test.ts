@@ -63,7 +63,8 @@ describe('SettingsStore.usageStats request logs', () => {
         callKind: 'semantic_compact',
         inputTokens: 30,
         outputTokens: 5,
-        totalTokens: 35,
+        reasoningTokens: 2,
+        totalTokens: 40,
         costUsd: 0.02,
       }));
 
@@ -71,8 +72,9 @@ describe('SettingsStore.usageStats request logs', () => {
 
       assert.equal(stats.summary.totalRequests, 2);
       assert.equal(stats.summary.usageUnavailableRequests, 1);
-      assert.equal(stats.summary.totalTokens, 35);
+      assert.equal(stats.summary.totalTokens, 40);
       assert.equal(stats.summary.totalCostUsd, 0.02);
+      assert.equal(stats.byModel[0]?.tokens, 40);
       assert.deepEqual(stats.logs.map((row) => row.id).sort(), ['compact', 'provider-error']);
     } finally {
       await flushTelemetryWrites();

@@ -139,7 +139,7 @@ export interface BotChatSettings {
 }
 
 export type UsageRange = '24h' | '7d' | '30d' | 'all';
-export type UsageStatus = 'all' | 'success' | 'error';
+export type UsageStatus = 'all' | 'success' | 'error' | 'aborted';
 export type UsageTab = 'requests' | 'providers' | 'models' | 'tools' | 'pricing';
 
 export interface UsageSettings {
@@ -333,13 +333,14 @@ export interface UsageRequestLog {
   toolName?: string;
   inputTokens: number;
   outputTokens: number;
+  totalTokens?: number;
   cacheMiss?: number;
   cacheRead?: number;
   cacheCreation?: number;
   reasoning?: number;
   costUsd?: number;
   latencyMs?: number;
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'aborted';
   usageAvailable?: boolean;
 }
 

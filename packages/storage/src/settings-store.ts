@@ -36,6 +36,7 @@ type UsageTokenMessage = {
   ts: number;
   input: number;
   output: number;
+  total?: number;
   usageAvailable?: boolean;
   cacheMissInput?: number;
   cacheRead?: number;
@@ -236,6 +237,7 @@ class FileSettingsStore implements SettingsStore {
       model: row.modelId,
       inputTokens: row.inputTokens,
       outputTokens: row.outputTokens,
+      totalTokens: row.totalTokens,
       usageAvailable: row.usageAvailable !== false,
       cacheMiss: row.cacheMissTokens,
       cacheRead: row.cacheReadTokens,
@@ -243,7 +245,7 @@ class FileSettingsStore implements SettingsStore {
       reasoning: row.reasoningTokens,
       costUsd: row.costUsd,
       latencyMs: row.latencyMs,
-      status: row.status === 'success' ? 'success' as const : 'error' as const,
+      status: row.status,
     }));
     const legacyModelLogs = sessions.flatMap(({ header, messages }) => {
       const assistantByTurn = new Map(
@@ -265,6 +267,7 @@ class FileSettingsStore implements SettingsStore {
           model: assistantByTurn.get(message.turnId) ?? header.model,
           inputTokens: message.input,
           outputTokens: message.output,
+          totalTokens: message.total ?? message.input + message.output,
           usageAvailable: message.usageAvailable !== false,
           cacheMiss: message.cacheMissInput,
           cacheRead: message.cacheRead,
@@ -383,6 +386,7 @@ function normalizeUsageMessage(value: unknown): UsageMessage | null {
       if (!isFiniteNumber(value.ts)) return null;
       if (!isFiniteNumber(value.input)) return null;
       if (!isFiniteNumber(value.output)) return null;
+      if (!isOptionalFiniteNumber(value.total)) return null;
       if (value.usageAvailable !== undefined && typeof value.usageAvailable !== 'boolean') return null;
       if (!isOptionalFiniteNumber(value.cacheMissInput)) return null;
       if (!isOptionalFiniteNumber(value.cacheRead)) return null;
@@ -396,6 +400,7 @@ function normalizeUsageMessage(value: unknown): UsageMessage | null {
         ts: value.ts,
         input: value.input,
         output: value.output,
+        total: value.total,
         usageAvailable: value.usageAvailable,
         cacheMissInput: value.cacheMissInput,
         cacheRead: value.cacheRead,
@@ -466,7 +471,7 @@ function aggregateBy(logs: UsageStats['logs'], key: 'provider' | 'model') {
     const current = rows.get(id) ?? { requests: 0, tokens: 0, costUsd: 0 };
     current.requests += 1;
     if (log.usageAvailable !== false) {
-      current.tokens += log.inputTokens + log.outputTokens;
+      current.tokens += log.totalTokens ?? log.inputTokens + log.outputTokens;
       current.costUsd += log.costUsd ?? 0;
     }
     rows.set(id, current);
