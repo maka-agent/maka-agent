@@ -343,6 +343,7 @@ export {
   parseOAuthSubscriptionTokens,
   resolveOAuthSubscriptionAccessToken,
   resolveOAuthSubscriptionTokens,
+  exchangeGitHubCopilotToken,
   serializeOAuthSubscriptionTokens,
 } from './subscription-credentials.js';
 export type {

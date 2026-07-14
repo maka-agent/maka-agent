@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'google', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'opencode', 'opencode-go', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'zai-coding-plan', 'zenmux'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'github-copilot', 'google', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'opencode', 'opencode-go', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'zai-coding-plan', 'zenmux'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -205,6 +205,37 @@ test('sync-model-metadata vendors ZenMux provider facts and exact creator/model 
     generated,
     /GENERATED_MODELS_DEV_MODEL_PROVIDER_OVERRIDES[\s\S]*"zenmux": \{"anthropic\/claude-sonnet-4\.6":\{"npm":"@ai-sdk\/anthropic","api":"https:\/\/zenmux\.ai\/api\/anthropic\/v1"\}\}/,
   );
+});
+
+test('sync-model-metadata keeps GitHub Copilot separate from GitHub Models', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog['github-copilot'] = {
+    ...catalog['github-copilot'],
+    name: 'GitHub Copilot',
+    api: 'https://api.githubcopilot.com',
+    doc: 'https://docs.github.com/en/copilot',
+    models: {
+      'gpt-5.4': {
+        id: 'gpt-5.4', name: 'GPT-5.4', reasoning: true, tool_call: true,
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        limit: { context: 400_000, output: 128_000 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"github-copilot": \{/);
+  assert.match(generated, /"github-copilot": \{"id":"github-copilot","name":"GitHub Copilot","api":"https:\/\/api\.githubcopilot\.com"/);
+  assert.match(generated, /"gpt-5\.4": \{"displayName":"GPT-5\.4"/);
+  assert.doesNotMatch(generated, /models\.github\.ai\/inference/);
 });
 
 test('sync-model-metadata vendors the stable Vercel AI Gateway id and exact creator/model ids', async () => {

@@ -66,6 +66,7 @@ describe('provider compatibility contract', () => {
       'lm-studio',
       'localai',
       'openai-compatible',
+      'github-copilot',
       'claude-subscription',
       'codex-subscription',
       'gemini-cli',
@@ -206,6 +207,23 @@ describe('provider compatibility contract', () => {
     assert.ok(zen.fallbackModels.includes('gpt-5.5'));
     assert.ok(go.fallbackModels.includes('minimax-m3'));
     assert.notDeepEqual(zen.fallbackModels, go.fallbackModels);
+  });
+
+  it('owns GitHub Copilot as an account subscription, never as GitHub Models inference', () => {
+    const provider = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['github-copilot'];
+
+    assert.ok(provider);
+    assert.equal(provider.label, 'GitHub Copilot');
+    assert.equal(provider.baseUrl, 'https://api.githubcopilot.com');
+    assert.equal(provider.authKind, 'oauth_token');
+    assert.equal(provider.protocol, 'openai');
+    assert.deepEqual(provider.runtimeAdapter, { kind: 'github-copilot' });
+    assert.deepEqual(provider.modelDiscovery, { kind: 'protocol', auth: 'github-copilot' });
+    assert.equal(provider.category, 'oauth');
+    assert.equal(provider.catalogGroup, undefined);
+    assert.equal(provider.modelsDevId, 'github-copilot');
+    assert.equal(provider.fallbackModels[0], 'gpt-5.4');
+    assert.ok(!provider.baseUrl.includes('models.github.ai'));
   });
 
   it('owns Volcengine Ark Coding Plan as a fallback-only interactive coding access path', () => {

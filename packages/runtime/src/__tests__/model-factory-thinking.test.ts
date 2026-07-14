@@ -193,6 +193,18 @@ describe('getAIModel: models.dev registry providers', () => {
       assert.equal(model.modelId, modelId);
     }
   });
+
+  test('routes GitHub Copilot through its compatibility adapter without rewriting exact model ids', () => {
+    const model = getAIModel({
+      connection: conn('github-copilot'),
+      apiKey: 'short-lived-copilot-token',
+      modelId: 'claude-sonnet-4.6',
+      fetch: async () => Response.json({}),
+    });
+
+    assert.equal(model.provider, 'github-copilot.chat');
+    assert.equal(model.modelId, 'claude-sonnet-4.6');
+  });
 });
 
 describe('buildProviderOptions: openai-compatible namespace', () => {

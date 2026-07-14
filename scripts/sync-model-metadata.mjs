@@ -10,6 +10,7 @@ const PROVIDERS = {
   deepinfra: 'deepinfra',
   deepseek: 'deepseek',
   'fireworks-ai': 'fireworks-ai',
+  'github-copilot': 'github-copilot',
   google: 'google',
   'gemini-cli': 'google',
   huggingface: 'huggingface',

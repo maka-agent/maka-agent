@@ -14,6 +14,7 @@ export type ProviderRuntimeAdapter =
   | { kind: 'openai' }
   | { kind: 'codex-subscription' }
   | { kind: 'google'; normalizeBaseUrl?: boolean }
+  | { kind: 'github-copilot' }
   | { kind: 'cohere' }
   | {
       kind: 'openai-compatible';
@@ -28,7 +29,7 @@ export type ProviderRuntimeAdapter =
 export type ProviderModelDiscovery =
   | {
       kind: 'protocol';
-      auth?: 'claude-subscription' | 'none';
+      auth?: 'claude-subscription' | 'github-copilot' | 'none';
       path?: string;
       query?: Readonly<Record<string, string>>;
       responseShape?: 'array-or-data';
@@ -324,6 +325,18 @@ const opencodeGoModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA['opencode-go'],
   ['minimax-m3'],
 ).filter((id) => GENERATED_MODELS_DEV_METADATA['opencode-go'][id]?.lifecycle !== 'deprecated');
+const githubCopilot = GENERATED_MODELS_DEV_PROVIDER_FACTS['github-copilot'];
+if (githubCopilot.id !== 'github-copilot') {
+  throw new Error('models.dev GitHub Copilot provider facts are missing stable id github-copilot');
+}
+if (githubCopilot.api !== 'https://api.githubcopilot.com') {
+  throw new Error('models.dev GitHub Copilot provider facts are missing the Copilot subscription API');
+}
+const githubCopilotModelIds = toolCallingModelIds(
+  'GitHub Copilot',
+  GENERATED_MODELS_DEV_METADATA['github-copilot'],
+  ['gpt-5.4'],
+);
 
 function toolCallingModelIds(
   providerLabel: string,
@@ -1098,6 +1111,22 @@ const providerRegistry = {
     catalogBadge: 'Custom',
     readyOrder: 16,
     catalogOrder: 18,
+  },
+  'github-copilot': {
+    label: githubCopilot.name,
+    description: 'GitHub Copilot subscription access using an existing supported GitHub login.',
+    baseUrl: githubCopilot.api,
+    authKind: 'oauth_token',
+    backendKind: 'ai-sdk',
+    fallbackModels: githubCopilotModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'github-copilot' },
+    modelDiscovery: { kind: 'protocol', auth: 'github-copilot' },
+    category: 'oauth',
+    catalogBadge: 'Account',
+    signupUrl: 'https://github.com/features/copilot/plans',
+    modelsDevId: githubCopilot.id,
   },
   'claude-subscription': {
     label: 'Claude Subscription (Pro / Max OAuth)',

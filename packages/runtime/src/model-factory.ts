@@ -55,6 +55,14 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         headers: codexSubscriptionHeaders(apiKey),
       }).responses(modelId);
 
+    case 'github-copilot':
+      return createOpenAICompatible({
+        name: 'github-copilot',
+        apiKey,
+        baseURL,
+        fetch,
+      }).chatModel(modelId);
+
     case 'unavailable':
       throw new Error(`${connection.providerType} is experimental and not wired yet`);
 

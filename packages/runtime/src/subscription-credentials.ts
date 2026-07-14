@@ -1,7 +1,7 @@
 import type { ProviderType } from '@maka/core/llm-connections';
 import { TOKEN_REFRESH_SKEW_MS } from '@maka/core';
 
-export type OAuthSubscriptionProvider = Extract<ProviderType, 'claude-subscription' | 'codex-subscription'>;
+export type OAuthSubscriptionProvider = Extract<ProviderType, 'claude-subscription' | 'codex-subscription' | 'github-copilot'>;
 
 export interface OAuthSubscriptionTokens {
   access_token: string;
@@ -12,10 +12,13 @@ export interface OAuthSubscriptionTokens {
   account_uuid?: string;
   id_token?: string;
   account_id?: string;
+  base_url?: string;
 }
 
 export function isOAuthSubscriptionProvider(providerType: ProviderType): providerType is OAuthSubscriptionProvider {
-  return providerType === 'claude-subscription' || providerType === 'codex-subscription';
+  return providerType === 'claude-subscription'
+    || providerType === 'codex-subscription'
+    || providerType === 'github-copilot';
 }
 
 export function parseOAuthSubscriptionTokens(raw: string): OAuthSubscriptionTokens | null {
@@ -35,6 +38,7 @@ export function parseOAuthSubscriptionTokens(raw: string): OAuthSubscriptionToke
       ...(typeof record.account_uuid === 'string' ? { account_uuid: record.account_uuid } : {}),
       ...(typeof record.id_token === 'string' ? { id_token: record.id_token } : {}),
       ...(typeof record.account_id === 'string' ? { account_id: record.account_id } : {}),
+      ...(typeof record.base_url === 'string' ? { base_url: record.base_url } : {}),
     };
   } catch {
     return null;
@@ -107,9 +111,71 @@ async function refreshOAuthSubscriptionTokens(input: {
   now: () => number;
   fetchFn: typeof fetch;
 }): Promise<OAuthSubscriptionTokens> {
-  return input.providerType === 'claude-subscription'
-    ? refreshClaudeSubscriptionTokens(input.tokens, input.now, input.fetchFn)
-    : refreshCodexSubscriptionTokens(input.tokens, input.now, input.fetchFn);
+  switch (input.providerType) {
+    case 'claude-subscription':
+      return refreshClaudeSubscriptionTokens(input.tokens, input.now, input.fetchFn);
+    case 'codex-subscription':
+      return refreshCodexSubscriptionTokens(input.tokens, input.now, input.fetchFn);
+    case 'github-copilot':
+      return exchangeGitHubCopilotToken({
+        githubToken: input.tokens.refresh_token,
+        fetchFn: input.fetchFn,
+      });
+  }
+}
+
+const GITHUB_COPILOT_TOKEN_ENDPOINT = 'https://api.github.com/copilot_internal/v2/token';
+const GITHUB_COPILOT_DEFAULT_API_ENDPOINT = 'https://api.githubcopilot.com';
+
+export async function exchangeGitHubCopilotToken(input: {
+  githubToken: string;
+  fetchFn?: typeof fetch;
+}): Promise<OAuthSubscriptionTokens> {
+  const response = await (input.fetchFn ?? fetch)(GITHUB_COPILOT_TOKEN_ENDPOINT, {
+    method: 'GET',
+    headers: {
+      Authorization: `token ${input.githubToken}`,
+      Accept: 'application/json',
+    },
+  });
+  if (!response.ok) throw new Error(`GitHub Copilot token exchange failed (${response.status}).`);
+  const payload = await response.json() as {
+    token?: unknown;
+    expires_at?: unknown;
+    endpoints?: { api?: unknown };
+  };
+  if (typeof payload.token !== 'string' || payload.token.length === 0) {
+    throw new Error('GitHub Copilot token exchange returned no access token.');
+  }
+  if (typeof payload.expires_at !== 'number' || !Number.isFinite(payload.expires_at)) {
+    throw new Error('GitHub Copilot token exchange returned an invalid expiry.');
+  }
+  const baseUrl = typeof payload.endpoints?.api === 'string'
+    ? payload.endpoints.api
+    : GITHUB_COPILOT_DEFAULT_API_ENDPOINT;
+  if (!isTrustedGitHubCopilotApiEndpoint(baseUrl)) {
+    throw new Error('GitHub Copilot token exchange returned an untrusted GitHub Copilot API endpoint.');
+  }
+  return {
+    access_token: payload.token,
+    refresh_token: input.githubToken,
+    expires_at: payload.expires_at * 1000,
+    token_type: 'Bearer',
+    base_url: baseUrl,
+  };
+}
+
+function isTrustedGitHubCopilotApiEndpoint(value: string): boolean {
+  try {
+    const endpoint = new URL(value);
+    if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password) return false;
+    const host = endpoint.hostname.toLowerCase();
+    return host === 'api.githubcopilot.com'
+      || host.endsWith('.githubcopilot.com')
+      || host.endsWith('.ghe.com');
+  } catch {
+    return false;
+  }
 }
 
 async function refreshClaudeSubscriptionTokens(
