@@ -319,7 +319,7 @@ test('adds OpenRouter with its exact snapshot model and upstream color mark', as
   await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
   await page.getByRole('button', { name: '添加服务商' }).click();
 
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
+  await page.getByRole('tab', { name: '聚合服务', exact: true }).click();
   await page.getByPlaceholder('搜索服务商').fill('OpenRouter');
   const catalogMark = page.locator('.providerCatalogRow[data-provider="openrouter"] .providerLogo img');
   await expect(catalogMark).toBeVisible();

@@ -110,22 +110,25 @@ export const CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS = new Set([
 export const PROVIDER_DEFAULTS = PROVIDER_REGISTRY;
 
 export function providerAuthRequiresSecret(providerType: ProviderType): boolean {
-  const authKind = PROVIDER_DEFAULTS[providerType].authKind;
+  const authKind = PROVIDER_DEFAULTS[providerType]?.authKind;
   return authKind === 'api_key' || authKind === 'oauth_token';
 }
 
 export function providerAuthSupportsApiKey(providerType: ProviderType): boolean {
-  const authKind = PROVIDER_DEFAULTS[providerType].authKind;
+  const authKind = PROVIDER_DEFAULTS[providerType]?.authKind;
   return authKind === 'api_key' || authKind === 'optional_api_key';
 }
 
 export function backendKindOf(c: Pick<LlmConnection, 'providerType'>): BackendKind {
-  return PROVIDER_DEFAULTS[c.providerType].backendKind;
+  // Unknown providerType (legacy seed, or a connection persisted on a branch
+  // that registers a provider this build doesn't know) → treat as non-real,
+  // matching `isFakeBackend` in connection-readiness.ts.
+  return PROVIDER_DEFAULTS[c.providerType]?.backendKind ?? 'fake';
 }
 
 export function effectiveBaseUrl(c: Pick<LlmConnection, 'providerType' | 'baseUrl'>): string {
   if (c.baseUrl && c.baseUrl.trim()) return c.baseUrl.trim();
-  return PROVIDER_DEFAULTS[c.providerType].baseUrl;
+  return PROVIDER_DEFAULTS[c.providerType]?.baseUrl ?? '';
 }
 
 /**
@@ -146,7 +149,7 @@ export function persistedBaseUrl(
 ): string | undefined {
   const trimmed = baseUrl?.trim();
   if (!trimmed) return undefined;
-  if (trimmed === PROVIDER_DEFAULTS[providerType].baseUrl) return undefined;
+  if (trimmed === PROVIDER_DEFAULTS[providerType]?.baseUrl) return undefined;
   return trimmed;
 }
 

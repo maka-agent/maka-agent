@@ -1111,3 +1111,20 @@ describe('ModelCatalogEntry', () => {
     );
   });
 });
+
+describe('buildConnectionModelCatalogEntries unknown-providerType fallback', () => {
+  // A connection persisted on another branch may carry a providerType this
+  // build's PROVIDER_REGISTRY doesn't know (e.g. 'groq'). Catalog building
+  // must return no entries instead of crashing on `defaults.fallbackModels`.
+  // Mirrors `isFakeBackend` in connection-readiness.ts.
+  it('returns [] for an unregistered providerType', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'groq',
+        providerType: 'branch-only-provider' as ProviderType,
+        defaultModel: 'llama-3.1-8b-instant',
+      },
+    });
+    assert.deepEqual(entries, []);
+  });
+});

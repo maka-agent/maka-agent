@@ -52,10 +52,13 @@ export function providerDisplay(type: ProviderType): { name: string; description
     case 'gemini-cli':
       return { name: 'Gemini CLI', description: 'Google 账号登录暂未接入聊天发送。' };
     default: {
+      // Unknown providerType (a connection persisted on a branch that
+      // registers a provider this build doesn't know) → fall back to the
+      // raw type string instead of crashing. Mirrors `isFakeBackend`.
       return {
-        name: definition.label,
-        description: definition.description,
-        ...(definition.catalogBadge ? { badge: definition.catalogBadge } : {}),
+        name: definition?.label ?? type,
+        description: definition?.description ?? '该 provider 在当前版本未注册。',
+        ...(definition?.catalogBadge ? { badge: definition.catalogBadge } : {}),
       };
     }
   }

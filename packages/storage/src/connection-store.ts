@@ -60,6 +60,9 @@ class FileConnectionStore implements ConnectionStore {
         throw new Error(`Connection slug already exists: ${input.slug}`);
       }
       const defaults = PROVIDER_DEFAULTS[input.providerType];
+      if (!defaults) {
+        throw new Error(`Unknown provider type "${input.providerType}"`);
+      }
       const now = Date.now();
       const baseUrl = persistedBaseUrl(input.providerType, input.baseUrl);
       const next: LlmConnection = {

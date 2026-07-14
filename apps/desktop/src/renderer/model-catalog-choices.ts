@@ -162,7 +162,11 @@ function dailyReviewModelDisplayLabel(
 
 function isModelConsumerConnection(connection: Pick<LlmConnection, 'enabled' | 'providerType'>): boolean {
   const defaults = PROVIDER_DEFAULTS[connection.providerType];
-  if (!connection.enabled || defaults.backendKind !== 'ai-sdk') return false;
+  // Unknown providerType (legacy seed, or a connection persisted on a branch
+  // that registers a provider this build doesn't know) → not a model consumer.
+  // Mirrors `isFakeBackend` in connection-readiness.ts; without this guard the
+  // `.backendKind` read below throws on load for an orphan connection.
+  if (!connection.enabled || !defaults || defaults.backendKind !== 'ai-sdk') return false;
   if (
     defaults.authKind === 'oauth_token' &&
     connection.providerType !== 'claude-subscription' &&

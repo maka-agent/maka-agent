@@ -81,13 +81,64 @@ function connectionTestFailureFallback(result: ConnectionTestResult, troubleshoo
   return `检查 ${troubleshootingCopy} 后重试。`;
 }
 
-export function ConnectionDetail(props: {
+interface ConnectionDetailProps {
   bridge: ConnectionsBridge;
   connection: LlmConnection;
   isDefault: boolean;
   onChanged(): Promise<void>;
   onDeleted(): Promise<void>;
-}) {
+}
+
+export function ConnectionDetail(props: ConnectionDetailProps) {
+  const defaults = PROVIDER_DEFAULTS[props.connection.providerType];
+  // Unknown providerType (a connection persisted on a branch that registers a
+  // provider this build doesn't know) → render a non-actionable fallback so
+  // opening the orphan connection doesn't crash on `.authKind`/`.baseUrl`.
+  // Mirrors `isFakeBackend` in @maka/core/connection-readiness.ts.
+  if (!defaults) return <UnknownConnectionDetail props={props} />;
+  return <ConnectionDetailInner {...props} />;
+}
+
+function UnknownConnectionDetail({ props }: { props: ConnectionDetailProps }) {
+  const { connection } = props;
+  const toast = useToast();
+  const mounted = useMountedRef();
+  const [deleting, setDeleting] = useState(false);
+  async function remove() {
+    if (deleting) return;
+    const ok = await toast.confirm({
+      title: `删除供应商 ${connection.name || connection.slug}？`,
+      description: '删除后，支持该 provider 的其他版本也无法恢复这条连接及其凭据。',
+      confirmLabel: '删除',
+      cancelLabel: '取消',
+      destructive: true,
+    });
+    if (!mounted.current || !ok) return;
+    setDeleting(true);
+    try {
+      await props.bridge.delete(connection.slug);
+      if (!mounted.current) return;
+      await props.onDeleted();
+    } catch (error) {
+      if (!mounted.current) return;
+      toast.error('删除模型连接失败', generalizedErrorMessageChinese(error));
+    } finally {
+      if (mounted.current) setDeleting(false);
+    }
+  }
+  return (
+    <div className="providerConnectionDetail">
+      <p>
+        该连接使用的 provider「{connection.providerType}」在当前版本未注册。配置和凭据会保留，切回支持它的版本即可继续使用。
+      </p>
+      <Button variant="destructive" type="button" onClick={remove} disabled={deleting}>
+        {deleting ? '删除中…' : '不再需要，删除连接'}
+      </Button>
+    </div>
+  );
+}
+
+function ConnectionDetailInner(props: ConnectionDetailProps) {
   const { connection } = props;
   const defaults = PROVIDER_DEFAULTS[connection.providerType];
   const display = providerDisplay(connection.providerType);

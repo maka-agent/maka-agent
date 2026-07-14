@@ -17,12 +17,15 @@ export async function testConnection(
   model?: string,
 ): Promise<ConnectionTestResult> {
   const t0 = Date.now();
-  const auth = PROVIDER_DEFAULTS[connection.providerType].authKind;
+  const defaults = PROVIDER_DEFAULTS[connection.providerType];
+  // Unknown providerType → can't pick an auth path or fallback model. Return a
+  // clear failure rather than crashing. Mirrors `isFakeBackend`.
+  if (!defaults) {
+    return { ok: false, errorMessage: `Unknown provider type "${connection.providerType}"` };
+  }
+  const auth = defaults.authKind;
   const secret = auth === 'none' ? '' : apiKey;
-  const testModel =
-    model ||
-    connection.defaultModel ||
-    PROVIDER_DEFAULTS[connection.providerType].fallbackModels[0];
+  const testModel = model || connection.defaultModel || defaults.fallbackModels[0];
 
   if (!testModel) {
     return { ok: false, errorMessage: 'No model to test' };
