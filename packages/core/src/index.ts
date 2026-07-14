@@ -348,6 +348,7 @@ export type {
   PermissionProfileName,
   FileSystemAccessMode,
   FileSystemProtectedMetadataPolicy,
+  FileSystemPathMatch,
   FileSystemSandboxEntry,
   FileSystemSandboxKind,
   FileSystemSandboxPolicy,
@@ -358,6 +359,7 @@ export type {
 } from './permission-profile.js';
 export {
   FILE_SYSTEM_ACCESS_MODES,
+  FILE_SYSTEM_PATH_MATCHES,
   FILE_SYSTEM_SANDBOX_KINDS,
   FILE_SYSTEM_SPECIAL_PATHS,
   NETWORK_SANDBOX_KINDS,
@@ -371,6 +373,30 @@ export {
   isDeniedPath,
   isProtectedMetadataPath,
 } from './permission-profile.js';
+
+// additional-permissions.ts
+export type {
+  AdditionalFileSystemPermission,
+  AdditionalPermissionAccess,
+  AdditionalPermissionProfile,
+  AdditionalPermissionScope,
+  AdditionalPermissionValidationFailureReason,
+  AdditionalPermissionValidationResult,
+} from './additional-permissions.js';
+export {
+  ADDITIONAL_PERMISSION_ACCESS_MODES,
+  ADDITIONAL_PERMISSION_SCOPES,
+  MAX_ADDITIONAL_FILESYSTEM_ENTRIES,
+  MAX_ADDITIONAL_PERMISSION_PATH_CHARS,
+  MAX_ADDITIONAL_PERMISSION_SERIALIZED_BYTES,
+  additionalPermissionAllowsPath,
+  additionalPermissionMatchesPath,
+  additionalPermissionRequiredForPath,
+  applyAdditionalPermissionProfile,
+  compactAdditionalFileSystemPermissions,
+  serializeAdditionalPermissionProfile,
+  validateAdditionalPermissionProfile,
+} from './additional-permissions.js';
 
 // permission-profile-compiler.ts
 export type {

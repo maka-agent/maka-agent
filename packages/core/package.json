@@ -18,6 +18,7 @@
     "./session-event-health": "./dist/session-event-health.js",
     "./permission": "./dist/permission.js",
     "./permission-profile": "./dist/permission-profile.js",
+    "./additional-permissions": "./dist/additional-permissions.js",
     "./permission-profile-compiler": "./dist/permission-profile-compiler.js",
     "./permission-request-health": "./dist/permission-request-health.js",
     "./user-question": "./dist/user-question.js",
