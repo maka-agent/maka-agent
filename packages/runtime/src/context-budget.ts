@@ -729,8 +729,7 @@ export function applyRuntimeEventHistoryCompact(
     if (match.reason) {
       increment(skippedReasonCounts, match.reason);
     } else {
-      const uncoveredFoldedEvents = foldedEvents.slice(match.coveredEventCount);
-      const replayTail = [...uncoveredFoldedEvents, ...retainedEvents];
+      const replayTail = [...match.successorRuntimeEvents, ...retainedEvents];
       const fit = evaluateHistoryCompactCheckpointReplay(checkpoint, replayTail, policy!, {
         charsPerToken,
         maxHistoryEstimatedTokens: maxTokens,

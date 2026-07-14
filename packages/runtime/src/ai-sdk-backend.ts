@@ -2247,7 +2247,7 @@ export class AiSdkBackend implements AgentBackend {
       : undefined;
     const previousCheckpoint = checkpointMatch && !checkpointMatch.reason ? loadedCheckpoint : undefined;
     const newlyFoldedRuntimeEvents = previousCheckpoint
-      ? foldedRuntimeEvents.slice(checkpointMatch!.coveredEventCount)
+      ? checkpointMatch!.successorRuntimeEvents
       : foldedRuntimeEvents;
     const retainedRuntimeEvents = input.priorRuntimeContext.filter((event) =>
       !foldedIds.has(event.id) && !event.id.startsWith('history-compact:')
