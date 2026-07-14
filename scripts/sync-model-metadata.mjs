@@ -20,6 +20,8 @@ const PROVIDERS = {
   nvidia: 'nvidia',
   'ollama-cloud': 'ollama-cloud',
   openai: 'openai',
+  opencode: 'opencode',
+  'opencode-go': 'opencode-go',
   siliconflow: 'siliconflow',
   stepfun: 'stepfun',
   'stepfun-ai': 'stepfun-ai',

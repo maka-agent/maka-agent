@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'google', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'zai-coding-plan', 'zenmux'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'google', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'opencode', 'opencode-go', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'zai-coding-plan', 'zenmux'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -61,6 +61,52 @@ test('sync-model-metadata maps models.dev modalities into Maka metadata', async 
   assert.match(generated, /"unknown-modality-model".*"capabilities":\{"reasoning":false,"functionCalling":false\}/);
   assert.match(generated, /export const GENERATED_MODELS_DEV_METADATA/);
   assert.match(generated, /export const GENERATED_MODELS_DEV_PROVIDER_FACTS/);
+});
+
+test('sync-model-metadata preserves OpenCode provider ids and per-model protocol overrides', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.opencode = {
+    ...catalog.opencode,
+    name: 'OpenCode Zen',
+    api: 'https://opencode.ai/zen/v1',
+    npm: '@ai-sdk/openai-compatible',
+    models: {
+      'gpt-5.5': {
+        id: 'gpt-5.5', name: 'GPT 5.5', reasoning: true, tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 400_000, output: 128_000 },
+        provider: { npm: '@ai-sdk/openai' },
+      },
+    },
+  };
+  catalog['opencode-go'] = {
+    ...catalog['opencode-go'],
+    name: 'OpenCode Go',
+    api: 'https://opencode.ai/zen/go/v1',
+    npm: '@ai-sdk/openai-compatible',
+    models: {
+      'minimax-m3': {
+        id: 'minimax-m3', name: 'MiniMax M3', reasoning: true, tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 204_800, output: 131_072 },
+        provider: { npm: '@ai-sdk/anthropic' },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"opencode": \{"id":"opencode","name":"OpenCode Zen","api":"https:\/\/opencode\.ai\/zen\/v1"/);
+  assert.match(generated, /"opencode-go": \{"id":"opencode-go","name":"OpenCode Go","api":"https:\/\/opencode\.ai\/zen\/go\/v1"/);
+  assert.match(generated, /"opencode": \{"gpt-5\.5":\{"npm":"@ai-sdk\/openai"\}\}/);
+  assert.match(generated, /"opencode-go": \{"minimax-m3":\{"npm":"@ai-sdk\/anthropic"\}\}/);
 });
 
 test('sync-model-metadata vendors xAI provider facts and exact model ids', async () => {
