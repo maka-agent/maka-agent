@@ -22,6 +22,9 @@ from harbor.utils.trajectory_utils import format_trajectory_json
 from trial_pricing import estimate_cost, pricing_from_env
 
 
+_COMMAND_SCOPE_ENV = "MAKA_HARBOR_COMMAND_SCOPE"
+
+
 _HOST_NODE_ENV_ALLOWLIST = {
     "PATH",
     "TMPDIR",
@@ -438,6 +441,7 @@ class _ToolExecutorServer:
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self.token = secrets.token_urlsafe(32)
+        self.command_scope = secrets.token_urlsafe(24)
         self.url = ""
 
     async def __aenter__(self) -> "_ToolExecutorServer":
@@ -452,6 +456,7 @@ class _ToolExecutorServer:
                 return
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self._server.daemon_threads = True
         host, port = self._server.server_address
         self.url = f"http://{host}:{port}"
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
@@ -459,11 +464,22 @@ class _ToolExecutorServer:
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
-        if self._server is not None:
-            self._server.shutdown()
-            self._server.server_close()
-        if self._thread is not None:
-            self._thread.join(timeout=5)
+        try:
+            await self._cleanup_scoped_processes(signal="TERM")
+            await asyncio.sleep(0.2)
+            await self._cleanup_scoped_processes(signal="KILL")
+        finally:
+            if self._server is not None:
+                self._server.shutdown()
+                self._server.server_close()
+            if self._thread is not None:
+                self._thread.join(timeout=5)
+
+    async def _cleanup_scoped_processes(self, signal: str) -> None:
+        await self._agent.exec_as_agent(
+            self._environment,
+            command=_scoped_process_cleanup_command(self.command_scope, signal),
+        )
 
     def _handle_post(self, handler: BaseHTTPRequestHandler) -> None:
         if handler.path != "/exec":
@@ -485,7 +501,7 @@ class _ToolExecutorServer:
             future = asyncio.run_coroutine_threadsafe(
                 self._agent.exec_as_agent(
                     self._environment,
-                    command=command,
+                    command=_scoped_command(command, self.command_scope),
                     cwd=cwd if isinstance(cwd, str) and cwd else None,
                     timeout_sec=timeout_sec,
                 ),
@@ -499,6 +515,24 @@ class _ToolExecutorServer:
             })
         except Exception as exc:  # noqa: BLE001 - RPC boundary returns tool failure text.
             _write_http(handler, 500, {"error": str(exc)})
+
+
+def _scoped_command(command: str, scope: str) -> str:
+    return f"env {_COMMAND_SCOPE_ENV}={shlex.quote(scope)} bash -lc {shlex.quote(command)}"
+
+
+def _scoped_process_cleanup_command(scope: str, signal: str) -> str:
+    if signal not in ("TERM", "KILL"):
+        raise ValueError(f"unsupported cleanup signal: {signal}")
+    marker = shlex.quote(f"{_COMMAND_SCOPE_ENV}={scope}")
+    return (
+        "for env_file in /proc/[0-9]*/environ; do "
+        "[ -r \"$env_file\" ] || continue; "
+        f"if tr '\\000' '\\n' < \"$env_file\" | grep -Fqx -- {marker}; then "
+        "pid=${env_file#/proc/}; pid=${pid%/environ}; "
+        f"kill -{signal} \"$pid\" 2>/dev/null || true; "
+        "fi; done"
+    )
 
 
 def _write_http(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:
