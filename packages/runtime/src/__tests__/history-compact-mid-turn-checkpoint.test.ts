@@ -1,0 +1,134 @@
+import assert from 'node:assert/strict';
+import { describe, test } from 'node:test';
+import type { RuntimeEvent } from '@maka/core/runtime-event';
+import {
+  buildHistoryCompactCheckpoint,
+  matchHistoryCompactCheckpointPrefix,
+  midTurnHeadAnchorEvent,
+  projectHistoryCompactCheckpointReplay,
+  validateHistoryCompactCheckpointShape,
+} from '../history-compact-checkpoint.js';
+import { applyRuntimeEventHistoryCompact } from '../context-budget.js';
+
+describe('mid-turn history compact checkpoint', () => {
+  test('builds a mid_turn checkpoint that re-renders the covered head anchor verbatim', () => {
+    // [prior turn user, prior turn model, head anchor user, current step model]
+    const events = [
+      textEvent('prior-user', 'turn-0', 'user'),
+      textEvent('prior-model', 'turn-0', 'model'),
+      textEvent('anchor', 'turn-1', 'user'),
+      textEvent('step-model', 'turn-1', 'model'),
+    ];
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: events,
+      summary: 'Prior work plus the current turn opening.',
+      phase: 'mid_turn',
+      headAnchor: { runtimeEventId: 'anchor', turnId: 'turn-1' },
+      now: 1_800_000_010_000,
+    });
+
+    assert.equal(checkpoint.phase, 'mid_turn');
+    assert.deepEqual(checkpoint.headAnchor, { runtimeEventId: 'anchor', turnId: 'turn-1' });
+    assert.equal(validateHistoryCompactCheckpointShape(checkpoint, 'session-1'), true);
+    // Coverage remains a contiguous prefix whose digest matches the raw events.
+    const match = matchHistoryCompactCheckpointPrefix(checkpoint, [...events, textEvent('tail', 'turn-1', 'model')]);
+    assert.equal(match.coveredEventCount, 4);
+    assert.deepEqual(match.successorRuntimeEvents.map((event) => event.id), ['tail']);
+
+    const anchor = midTurnHeadAnchorEvent(checkpoint, match.coveredRuntimeEvents);
+    assert.equal(anchor?.id, 'anchor');
+    const projected = projectHistoryCompactCheckpointReplay(
+      checkpoint,
+      match.coveredRuntimeEvents,
+      match.successorRuntimeEvents,
+    );
+    assert.deepEqual(projected.map((event) => event.id), [
+      `history-compact:${checkpoint.checkpointId}`,
+      'anchor',
+      'tail',
+    ]);
+    // Head anchor is byte-identical to the covered raw event.
+    assert.deepEqual(projected[1], events[2]);
+  });
+
+  test('rejects a mid_turn checkpoint without a covered head anchor', () => {
+    const events = [textEvent('a', 'turn-1', 'user'), textEvent('b', 'turn-1', 'model')];
+    assert.throws(() => buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
+    }), /requires a head anchor/);
+    assert.throws(() => buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
+      headAnchor: { runtimeEventId: 'missing', turnId: 'turn-1' },
+    }), /must be a covered RuntimeEvent/);
+  });
+
+  test('keeps pre_turn checkpoint ids stable when phase is absent or explicit', () => {
+    const events = [textEvent('a', 'turn-0', 'user'), textEvent('b', 'turn-0', 'model')];
+    const implicit = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'same', now: 5,
+    });
+    const explicit = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'same', phase: 'pre_turn', now: 5,
+    });
+    assert.equal(implicit.phase, undefined);
+    assert.equal(explicit.checkpointId, implicit.checkpointId);
+    // A mid_turn checkpoint over the same coverage is a distinct id.
+    const mid = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'same', now: 5,
+      phase: 'mid_turn', headAnchor: { runtimeEventId: 'a', turnId: 'turn-0' },
+    });
+    assert.notEqual(mid.checkpointId, implicit.checkpointId);
+  });
+
+  test('replays a mid_turn checkpoint as [block, verbatim head anchor, uncovered tail]', () => {
+    const events = [
+      textEvent('prior-user', 'turn-0', 'user'),
+      textEvent('prior-model', 'turn-0', 'model'),
+      textEvent('anchor', 'turn-1', 'user'),
+      textEvent('step-model', 'turn-1', 'model'),
+      textEvent('step-tool', 'turn-1', 'model'),
+    ];
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: events.slice(0, 4),
+      summary: 'mid turn summary',
+      phase: 'mid_turn',
+      headAnchor: { runtimeEventId: 'anchor', turnId: 'turn-1' },
+    });
+
+    const replay = applyRuntimeEventHistoryCompact(events, {
+      maxHistoryEstimatedTokens: 1_000,
+      charsPerToken: 1,
+      historyCompact: {
+        enabled: true, mode: 'read_write', checkpoint,
+        highWaterRatio: 0.000001, tailEstimatedTokens: 1,
+      },
+    });
+
+    assert.equal(replay.checkpoint?.checkpointId, checkpoint.checkpointId);
+    assert.deepEqual(replay.events.map((event) => event.id), [
+      `history-compact:${checkpoint.checkpointId}`,
+      'anchor',
+      'step-tool',
+    ]);
+    // The head anchor renders verbatim and is not duplicated in the tail.
+    const anchorCount = replay.events.filter((event) => event.id === 'anchor').length;
+    assert.equal(anchorCount, 1);
+  });
+});
+
+function textEvent(id: string, turnId: string, role: 'user' | 'model'): RuntimeEvent {
+  return {
+    id,
+    sessionId: 'session-1',
+    runId: 'run-1',
+    turnId,
+    invocationId: 'run-1',
+    ts: 1_800_000_000_000,
+    partial: false,
+    role,
+    author: role === 'user' ? 'user' : 'agent',
+    content: { kind: 'text', text: `payload-${id}` },
+  };
+}

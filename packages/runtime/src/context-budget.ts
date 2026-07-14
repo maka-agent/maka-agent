@@ -17,6 +17,7 @@ import type { CompactionDecisionKind } from './compaction-boundary.js';
 import {
   historyCompactCheckpointToRuntimeEvent,
   matchHistoryCompactCheckpointPrefix,
+  midTurnHeadAnchorEvent,
   renderHistoryCompactCheckpoint,
   type HistoryCompactCheckpoint,
 } from './history-compact-checkpoint.js';
@@ -729,7 +730,13 @@ export function applyRuntimeEventHistoryCompact(
     if (match.reason) {
       increment(skippedReasonCounts, match.reason);
     } else {
-      const replayTail = [...match.successorRuntimeEvents, ...retainedEvents];
+      // A mid_turn checkpoint folded its head anchor (the current turn's user
+      // message); re-render it verbatim right after the block so replay is
+      // deterministically `[block, head anchor, tail]` and the fit accounts for it.
+      const headAnchor = midTurnHeadAnchorEvent(checkpoint, match.coveredRuntimeEvents);
+      const replayTail = headAnchor
+        ? [headAnchor, ...match.successorRuntimeEvents, ...retainedEvents]
+        : [...match.successorRuntimeEvents, ...retainedEvents];
       const fit = evaluateHistoryCompactCheckpointReplay(checkpoint, replayTail, policy!, {
         charsPerToken,
         maxHistoryEstimatedTokens: maxTokens,
