@@ -548,16 +548,16 @@ function finiteTokenBreakdownSum(
 ): number | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const parts = keys.map((key) => finiteToken(value[key]));
-  return parts.every((part) => part === undefined)
+  return parts.some((part) => part === undefined)
     ? undefined
-    : parts.reduce<number>((sum, part) => sum + (part ?? 0), 0);
+    : parts.reduce<number>((sum, part) => sum + part!, 0);
 }
 
 function finiteTokenSum(values: readonly unknown[]): number | undefined {
   const tokens = values.map(finiteToken);
-  return tokens.every((token) => token === undefined)
+  return tokens.some((token) => token === undefined)
     ? undefined
-    : tokens.reduce<number>((sum, token) => sum + (token ?? 0), 0);
+    : tokens.reduce<number>((sum, token) => sum + token!, 0);
 }
 
 function rawUsageFields(usage: AiSdkUsageLike): AiSdkRawUsageFields | undefined {

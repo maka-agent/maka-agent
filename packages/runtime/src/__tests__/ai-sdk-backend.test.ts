@@ -2342,6 +2342,7 @@ describe('AiSdkBackend model history', () => {
       },
     });
     const appended: string[] = [];
+    const usageCheckpoints: unknown[] = [];
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
@@ -2356,6 +2357,7 @@ describe('AiSdkBackend model history', () => {
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
+      recordUsageCheckpoint: (usage) => { usageCheckpoints.push(usage); },
     });
     const events: SessionEvent[] = [];
     const sendPromise = (async () => {
@@ -2371,6 +2373,7 @@ describe('AiSdkBackend model history', () => {
     // No partial assistant turn or usage should be persisted after a stop.
     assert.equal(appended.includes('assistant'), false);
     assert.equal(appended.includes('token_usage'), false);
+    assert.deepEqual(usageCheckpoints, [undefined]);
     // The turn must close as a user_stop, not a false end_turn success.
     assert.equal(events.some((event) => event.type === 'abort' && event.reason === 'user_stop'), true);
     const completes = events.filter((event) => event.type === 'complete');
@@ -2443,6 +2446,7 @@ describe('AiSdkBackend model history', () => {
       },
     });
     const assistants: AssistantMessage[] = [];
+    const usageCheckpoints: unknown[] = [];
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
@@ -2457,6 +2461,7 @@ describe('AiSdkBackend model history', () => {
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
+      recordUsageCheckpoint: (usage) => { usageCheckpoints.push(usage); },
     });
 
     const events: SessionEvent[] = [];
@@ -2468,6 +2473,7 @@ describe('AiSdkBackend model history', () => {
     // The streamed partial persists as this step's AssistantMessage.
     assert.equal(assistants.length, 1);
     assert.equal(assistants[0]!.text, 'partial answer');
+    assert.deepEqual(usageCheckpoints, [undefined]);
     // And the turn still closes as an error, not a false success.
     assert.equal(events.some((event) => event.type === 'error'), true);
     const completes = events.filter((event) => event.type === 'complete');

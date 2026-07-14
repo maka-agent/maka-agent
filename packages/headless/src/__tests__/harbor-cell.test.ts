@@ -385,6 +385,11 @@ describe('runHarborCell', () => {
   test('does not turn unknown checkpoint cost into zero', async () => {
     await withDirs(async ({ outputDir }) => {
       await writeHarborCellUsageCheckpoint(outputDir, {
+        inputTokens: 10, outputTokens: 2, cacheHitInputTokens: 0,
+        cacheMissInputTokens: 10, cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 0, reasoningTokens: 0, totalTokens: 12, costUsd: 0.01,
+      });
+      await writeHarborCellUsageCheckpoint(outputDir, {
         inputTokens: 100,
         outputTokens: 5,
         cacheHitInputTokens: 20,

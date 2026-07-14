@@ -760,7 +760,10 @@ export async function writeHarborCellUsageCheckpoint(
     await rm(path, { force: true });
     return;
   }
-  if (usage.costUsd === undefined) return;
+  if (usage.costUsd === undefined) {
+    await rm(path, { force: true });
+    return;
+  }
   const tokenSummary: HarborCellOutput['tokenSummary'] = {
     input: usage.inputTokens,
     output: usage.outputTokens,

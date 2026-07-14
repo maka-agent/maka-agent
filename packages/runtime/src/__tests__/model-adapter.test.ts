@@ -314,6 +314,13 @@ describe('ModelAdapter stream and error normalization', () => {
     });
   });
 
+  test('rejects incomplete detail-only billing roots', () => {
+    assert.equal(normalizeAiSdkUsage({
+      inputTokens: { cacheRead: 100 },
+      outputTokens: { text: 10 },
+    }), undefined);
+  });
+
   test('preserves DeepSeek and OpenAI-compatible raw usage fields', () => {
     assert.deepEqual(
       normalizeAiSdkUsage(

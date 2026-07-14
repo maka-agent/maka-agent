@@ -1299,6 +1299,8 @@ export class AiSdkBackend implements AgentBackend {
           stopReason,
         } satisfies CompleteEvent);
       } catch (err) {
+        this.cumulativeUsageCheckpointAvailable = false;
+        await Promise.resolve(this.input.recordUsageCheckpoint?.(undefined)).catch(() => {});
         streamStatus = this.aborted ? 'aborted' : 'error';
         streamErrorClass = this.modelAdapter.classifyError(watchdogTimeoutError ?? err);
         // Flush the in-flight step's partial text/thinking before the terminal
