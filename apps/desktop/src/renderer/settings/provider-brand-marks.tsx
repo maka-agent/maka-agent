@@ -35,6 +35,8 @@ import stepfunBrandMark from '../assets/provider-brands/stepfun.svg';
 import vercelBrandMark from '../assets/provider-brands/vercel.svg';
 import volcengineBrandMark from '../assets/provider-brands/volcengine.svg';
 import xaiMarkUrl from '../assets/provider-brands/xai.svg';
+import xiaomiMiMoMarkUrl from '../assets/provider-brands/xiaomimimo.svg';
+import zaiMarkUrl from '../assets/provider-brands/zai.svg';
 import zenmuxBrandMark from '../assets/provider-brands/zenmux.svg';
 
 // ZenMux mark vendored byte-for-byte from Lobe Icons:
@@ -62,6 +64,17 @@ import zenmuxBrandMark from '../assets/provider-brands/zenmux.svg';
 // - license: MIT (repository LICENSE)
 function XAI(): ReactElement {
   return <ProviderAssetMask src={xaiMarkUrl} />;
+}
+
+// Xiaomi MiMo and Z.AI marks vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - paths: packages/static-svg/icons/xiaomimimo.svg and packages/static-svg/icons/zai.svg
+// - SHA-256: b04ad7dad52af2212c4567daf0ee6856f2c4625c92c680a27f9880295d558b71
+//               e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1
+// - license: MIT (repository LICENSE)
+function XiaomiMiMo(): ReactElement {
+  return <ProviderAssetMask src={xiaomiMiMoMarkUrl} />;
 }
 
 // Real Together AI mark vendored byte-for-byte from Lobe Icons:
@@ -280,11 +293,7 @@ function Moonshot(): ReactElement {
 // three slanted strokes — NOT the legacy 智谱 molecule mark, so we vendor
 // the Z.ai mark. Monochrome upstream (no color variant); uses currentColor.
 function ZAI(): ReactElement {
-  return (
-    <svg viewBox="0 0 24 24" role="img" fill="currentColor" fillRule="evenodd" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12.105 2L9.927 4.953H.653L2.83 2h9.276zM23.254 19.048L21.078 22h-9.242l2.174-2.952h9.244zM24 2L9.264 22H0L14.736 2H24z" />
-    </svg>
-  );
+  return <ProviderAssetMask src={zaiMarkUrl} />;
 }
 
 // Vendored byte-for-byte from MiniMax's official brand package:
@@ -360,6 +369,9 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
     case 'moonshot':
     case 'kimi-coding-plan':
       return <Moonshot />;
+    case 'xiaomi':
+      return <XiaomiMiMo />;
+    case 'zai':
     case 'zai-coding-plan':
       return <ZAI />;
     case 'minimax-coding-plan':

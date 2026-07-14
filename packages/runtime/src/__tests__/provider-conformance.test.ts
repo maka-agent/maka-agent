@@ -3025,6 +3025,98 @@ describe('models.dev provider conformance', () => {
     assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
     assert.equal(result.text, 'Echoed hello.');
   });
+
+  for (const provider of [
+    { type: 'xiaomi', label: 'Xiaomi', modelId: 'mimo-v2.5', basePath: '/v1', apiKey: 'xiaomi-test-key' },
+    { type: 'zai', label: 'Z.AI', modelId: 'glm-5.2', basePath: '/api/paas/v4', apiKey: 'zai-test-key' },
+  ] as const) {
+    test(`${provider.label} discovers exact account model ids and completes a tool-call loop`, async () => {
+      const requestBodies: Array<Record<string, unknown>> = [];
+      const server = await startJsonServer(async (request, response) => {
+        assert.equal(request.headers.authorization, `Bearer ${provider.apiKey}`);
+        if (request.method === 'GET' && request.url === `${provider.basePath}/models`) {
+          respondJson(response, 200, {
+            object: 'list',
+            data: [{ id: provider.modelId, object: 'model', owned_by: provider.type }],
+          });
+          return;
+        }
+
+        assert.equal(request.method, 'POST');
+        assert.equal(request.url, `${provider.basePath}/chat/completions`);
+        requestBodies.push(JSON.parse(await readBody(request)) as Record<string, unknown>);
+        if (requestBodies.length === 1) {
+          respondJson(response, 200, {
+            id: `chatcmpl-${provider.type}-tool`,
+            object: 'chat.completion',
+            created: 1,
+            model: provider.modelId,
+            choices: [{
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [{
+                  id: 'call_echo',
+                  type: 'function',
+                  function: { name: 'echo', arguments: '{"text":"hello"}' },
+                }],
+              },
+              finish_reason: 'tool_calls',
+            }],
+            usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+          });
+          return;
+        }
+
+        respondJson(response, 200, {
+          id: `chatcmpl-${provider.type}-final`,
+          object: 'chat.completion',
+          created: 2,
+          model: provider.modelId,
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+        });
+      });
+      const connection: LlmConnection = {
+        slug: provider.type,
+        name: provider.label,
+        providerType: provider.type,
+        baseUrl: `${server.url}${provider.basePath}`,
+        defaultModel: provider.modelId,
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      };
+
+      assert.deepEqual(await fetchProviderModels(connection, provider.apiKey), [{ id: provider.modelId }]);
+
+      const result = await generateText({
+        model: getAIModel({ connection, apiKey: provider.apiKey, modelId: provider.modelId }),
+        prompt: 'Call echo with hello.',
+        stopWhen: stepCountIs(2),
+        tools: {
+          echo: tool({
+            description: 'Echo text',
+            inputSchema: z.object({ text: z.string() }),
+            execute: async ({ text }) => ({ echoed: text }),
+          }),
+        },
+      });
+
+      assert.deepEqual(requestBodies.map((body) => body.model), [provider.modelId, provider.modelId]);
+      assert.deepEqual(
+        (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+        { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
+      );
+      assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+      assert.equal(result.text, 'Echoed hello.');
+    });
+  }
 });
 
 async function assertOllamaModelContract(

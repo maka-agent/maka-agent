@@ -2399,6 +2399,37 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  for (const provider of [
+    { type: 'xiaomi', modelId: 'mimo-v2.5', keyName: 'XIAOMI_API_KEY', baseName: 'XIAOMI_BASE_URL', baseUrl: 'https://api.xiaomimimo.com/v1' },
+    { type: 'zai', modelId: 'glm-5.2', keyName: 'ZAI_API_KEY', baseName: 'ZAI_BASE_URL', baseUrl: 'https://api.z.ai/api/paas/v4' },
+  ] as const) {
+    test(`resolves ${provider.type} only from provider-scoped env without rewriting the model id`, () => {
+      const resolved = resolveHarborCellAiSdkEnv({
+        provider: provider.type,
+        model: provider.modelId,
+        env: {
+          [provider.keyName]: `${provider.type}-key`,
+          [provider.baseName]: provider.baseUrl,
+          OPENAI_API_KEY: 'must-not-win',
+        },
+        ts: 1,
+      });
+
+      assert.equal(resolved.apiKey, `${provider.type}-key`);
+      assert.equal(resolved.connection.providerType, provider.type);
+      assert.equal(resolved.connection.defaultModel, provider.modelId);
+      assert.equal(resolved.connection.baseUrl, provider.baseUrl);
+
+      const missing = resolveHarborCellAiSdkEnv({
+        provider: provider.type,
+        model: provider.modelId,
+        env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+        ts: 1,
+      });
+      assert.equal(missing.apiKey, '');
+    });
+  }
+
   test('resolves Tencent TokenHub only from its direct API credential env', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'tencent-tokenhub',

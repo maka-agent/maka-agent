@@ -371,6 +371,28 @@ describe('ModelCatalogEntry', () => {
     assert.ok(entries.some((entry) => entry.id === 'openai/gpt-oss-120b'));
   });
 
+  for (const provider of [
+    { type: 'xiaomi', modelId: 'mimo-v2.5', vision: true },
+    { type: 'zai', modelId: 'glm-5.2', vision: undefined },
+  ] as const) {
+    it(`uses the checked-in ${provider.type} snapshot until account discovery succeeds`, () => {
+      const entries = buildConnectionModelCatalogEntries({
+        connection: {
+          slug: provider.type,
+          providerType: provider.type,
+          defaultModel: provider.modelId,
+        },
+      });
+
+      assert.equal(entries[0]?.id, provider.modelId);
+      assert.equal(entries[0]?.source, 'static_catalog');
+      assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+      assert.equal(entries[0]?.capabilities.vision, provider.vision);
+      assert.equal(entries[0]?.capabilities.reasoning, true);
+      assert.equal(entries[0]?.capabilities.functionCalling, true);
+    });
+  }
+
   it('uses models.dev fallback metadata for a SiliconFlow connection before live discovery', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

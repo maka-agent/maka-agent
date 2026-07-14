@@ -33,6 +33,8 @@ const PROVIDERS = {
   'tencent-tokenhub': 'tencent-tokenhub',
   vercel: 'vercel',
   xai: 'xai',
+  xiaomi: 'xiaomi',
+  zai: 'zai',
   'zai-coding-plan': 'zai-coding-plan',
   zenmux: 'zenmux',
 };

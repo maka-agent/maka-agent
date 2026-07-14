@@ -580,6 +580,34 @@ describe('default session target resolver', () => {
     assert.equal(target.model, modelId);
   });
 
+  for (const provider of [
+    { type: 'xiaomi', label: 'Xiaomi', modelId: 'mimo-v2.5' },
+    { type: 'zai', label: 'Z.AI', modelId: 'glm-5.2' },
+  ] as const) {
+    test(`resolves ${provider.label} credentials without rewriting its exact model id`, async () => {
+      const connection = makeConnection({
+        slug: provider.type,
+        name: provider.label,
+        providerType: provider.type,
+        defaultModel: provider.modelId,
+      });
+
+      const target = await resolveDefaultSessionTarget({
+        connectionStore: {
+          getDefault: async () => provider.type,
+          get: async (slug) => slug === provider.type ? connection : null,
+        },
+        credentialStore: {
+          getSecret: async (_slug, kind) => kind === 'api_key' ? `${provider.type}-test-key` : null,
+        },
+      });
+
+      assert.equal(target.connection.providerType, provider.type);
+      assert.equal(target.apiKey, `${provider.type}-test-key`);
+      assert.equal(target.model, provider.modelId);
+    });
+  }
+
   test('resolves a SiliconFlow registry connection without rewriting its model id', async () => {
     const connection = makeConnection({
       slug: 'siliconflow',

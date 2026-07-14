@@ -23,6 +23,8 @@ const PROVIDER_CREDENTIAL_ENV = {
   siliconflow: env('SILICONFLOW', ['SILICONFLOW_BASE_URL']),
   vercel: env('AI_GATEWAY', ['AI_GATEWAY_BASE_URL']),
   xai: env('XAI', ['XAI_BASE_URL']),
+  zai: env('ZAI', ['ZAI_BASE_URL']),
+  xiaomi: env('XIAOMI', ['XIAOMI_BASE_URL']),
   cerebras: env('CEREBRAS', ['CEREBRAS_BASE_URL']),
   mistral: env('MISTRAL', ['MISTRAL_BASE_URL']),
   cohere: env('COHERE', ['COHERE_BASE_URL']),

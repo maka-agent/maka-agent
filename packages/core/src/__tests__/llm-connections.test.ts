@@ -43,6 +43,8 @@ describe('provider compatibility contract', () => {
       'siliconflow',
       'vercel',
       'xai',
+      'zai',
+      'xiaomi',
       'cerebras',
       'mistral',
       'cohere',
@@ -82,6 +84,8 @@ describe('provider compatibility contract', () => {
       'MiniMax-cn',
       'siliconflow',
       'xai',
+      'zai',
+      'xiaomi',
       'cerebras',
       'mistral',
       'ollama',
@@ -125,6 +129,8 @@ describe('provider compatibility contract', () => {
       'openai',
       'google',
       'xai',
+      'zai',
+      'xiaomi',
       'cerebras',
       'mistral',
       'togetherai',
@@ -295,6 +301,43 @@ describe('provider compatibility contract', () => {
       readyOrder: 10,
       catalogOrder: 12,
     });
+  });
+
+  for (const provider of [
+    {
+      type: 'zai',
+      label: 'Z.AI',
+      baseUrl: 'https://api.z.ai/api/paas/v4',
+      modelId: 'glm-5.2',
+      signupUrl: 'https://z.ai/manage-apikey/apikey-list',
+    },
+    {
+      type: 'xiaomi',
+      label: 'Xiaomi',
+      baseUrl: 'https://api.xiaomimimo.com/v1',
+      modelId: 'mimo-v2.5',
+      signupUrl: 'https://platform.xiaomimimo.com/',
+    },
+  ] as const) {
+    it(`owns the ${provider.label} direct API contract under the stable ${provider.type} id`, () => {
+      const defaults = PROVIDER_REGISTRY[provider.type];
+      assert.equal(defaults.label, provider.label);
+      assert.equal(defaults.baseUrl, provider.baseUrl);
+      assert.equal(defaults.fallbackModels[0], provider.modelId);
+      assert.equal(defaults.authKind, 'api_key');
+      assert.equal(defaults.protocol, 'openai');
+      assert.deepEqual(defaults.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+      assert.deepEqual(defaults.modelDiscovery, { kind: 'protocol' });
+      assert.equal(defaults.category, 'domestic');
+      assert.equal(defaults.catalogGroup, 'api');
+      assert.equal(defaults.catalogBadge, 'API');
+      assert.equal(defaults.signupUrl, provider.signupUrl);
+      assert.equal(defaults.modelsDevId, provider.type);
+    });
+  }
+
+  it('keeps the Z.AI direct API distinct from the existing coding plan', () => {
+    assert.notEqual(PROVIDER_REGISTRY.zai.baseUrl, PROVIDER_REGISTRY['zai-coding-plan'].baseUrl);
   });
 
   it('owns Vercel AI Gateway under the stable models.dev id with public language-model discovery', () => {

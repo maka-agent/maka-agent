@@ -35,6 +35,8 @@ const MINIMAX_BRAND_ASSET_FILE = resolve(
   'apps/desktop/src/renderer/assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg',
 );
 const XAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/xai.svg');
+const XIAOMI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/xiaomimimo.svg');
+const ZAI_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/zai.svg');
 const VERCEL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/vercel.svg');
 const CEREBRAS_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cerebras.svg');
 const MISTRAL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/mistral.svg');
@@ -406,6 +408,31 @@ describe('icon + typography governance contract', () => {
     assert.match(marks, /GitHub Copilot mark vendored byte-for-byte from the official Primer Octicons repository:[\s\S]*2ed936e7759451e80ae38b8147cbe2c89de6cc7a[\s\S]*icons\/copilot-24\.svg[\s\S]*eeafb3c2f333e04ccf7d031ae215f7adafaed4c6352556b0bf79496e048bcdd7/);
     assert.match(marks, /case 'github-copilot':\s*return <ProviderAssetMask src=\{githubCopilotBrandMark\} \/>/);
     assert.match(notices, /GitHub Copilot brand mark[\s\S]*2ed936e7759451e80ae38b8147cbe2c89de6cc7a[\s\S]*eeafb3c2f333e04ccf7d031ae215f7adafaed4c6352556b0bf79496e048bcdd7[\s\S]*does not grant rights to GitHub logos/);
+  });
+
+  it('vendors and routes byte-exact Xiaomi MiMo and Z.AI provider marks', async () => {
+    const [marks, xiaomiMark, zaiMark] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(XIAOMI_BRAND_MARK_FILE),
+      readFile(ZAI_BRAND_MARK_FILE),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(xiaomiMark).digest('hex'),
+      'b04ad7dad52af2212c4567daf0ee6856f2c4625c92c680a27f9880295d558b71',
+      'Xiaomi MiMo must remain byte-identical to @lobehub/icons-static-svg@1.91.0 xiaomimimo.svg',
+    );
+    assert.equal(
+      createHash('sha256').update(zaiMark).digest('hex'),
+      'e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1',
+      'Z.AI must remain byte-identical to @lobehub/icons-static-svg@1.91.0 zai.svg',
+    );
+    assert.match(
+      marks,
+      /Xiaomi MiMo and Z\.AI marks vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*packages\/static-svg\/icons\/xiaomimimo\.svg[\s\S]*packages\/static-svg\/icons\/zai\.svg[\s\S]*license: MIT/,
+    );
+    assert.match(marks, /case 'xiaomi':\s*return <XiaomiMiMo \/>/);
+    assert.match(marks, /case 'zai':\s*case 'zai-coding-plan':\s*return <ZAI \/>/);
   });
 
   it('keeps the verified Ollama mark and routes it through catalog, detail, and first-run surfaces', async () => {
