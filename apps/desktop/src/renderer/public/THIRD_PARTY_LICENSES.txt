@@ -13,6 +13,12 @@ This file records notices for third-party source assets vendored into the Maka d
     - Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`
     - Upstream path: `packages/static-svg/icons/xai.svg`
     - SHA-256: `89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451`
+  - `apps/desktop/src/renderer/assets/provider-brands/xiaomimimo.svg`
+    - Upstream path: `packages/static-svg/icons/xiaomimimo.svg`
+    - SHA-256: `b04ad7dad52af2212c4567daf0ee6856f2c4625c92c680a27f9880295d558b71`
+  - `apps/desktop/src/renderer/assets/provider-brands/zai.svg`
+    - Upstream path: `packages/static-svg/icons/zai.svg`
+    - SHA-256: `e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1`
   - `apps/desktop/src/renderer/assets/provider-brands/together.svg`
     - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
     - Upstream path: `packages/static-svg/icons/together-color.svg`

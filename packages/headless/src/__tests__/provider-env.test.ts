@@ -35,6 +35,22 @@ test('xAI keeps provider-scoped credential environment names', () => {
   });
 });
 
+test('Xiaomi direct API keeps provider-scoped credential environment names', () => {
+  assert.deepEqual(providerCredentialEnv('xiaomi'), {
+    apiKeys: ['XIAOMI_API_KEY'],
+    apiKeyFile: 'XIAOMI_API_KEY_FILE',
+    baseUrls: ['XIAOMI_BASE_URL'],
+  });
+});
+
+test('Z.AI direct API uses its own credential namespace', () => {
+  assert.deepEqual(providerCredentialEnv('zai'), {
+    apiKeys: ['ZAI_API_KEY'],
+    apiKeyFile: 'ZAI_API_KEY_FILE',
+    baseUrls: ['ZAI_BASE_URL'],
+  });
+});
+
 test('Cerebras credentials stay provider-scoped and support key files', () => {
   assert.deepEqual(providerCredentialEnv('cerebras'), {
     apiKeys: ['CEREBRAS_API_KEY'],

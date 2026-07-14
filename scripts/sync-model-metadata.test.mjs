@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'github-copilot', 'google', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'opencode', 'opencode-go', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'zai-coding-plan', 'zenmux'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'github-copilot', 'google', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'opencode', 'opencode-go', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'xiaomi', 'zai', 'zai-coding-plan', 'zenmux'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -135,6 +135,67 @@ test('sync-model-metadata vendors xAI provider facts and exact model ids', async
   assert.match(generated, /"xai": \{/);
   assert.match(generated, /"xai": \{"id":"xai","name":"xAI"/);
   assert.match(generated, /"grok-4\.5": \{"displayName":"Grok 4\.5"/);
+});
+
+test('sync-model-metadata vendors Xiaomi provider facts and exact MiMo model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.xiaomi = {
+    id: 'xiaomi',
+    name: 'Xiaomi',
+    api: 'https://api.xiaomimimo.com/v1',
+    doc: 'https://platform.xiaomimimo.com/#/docs',
+    models: {
+      'mimo-v2.5': {
+        id: 'mimo-v2.5', name: 'MiMo-V2.5', reasoning: true, tool_call: true,
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        limit: { context: 1_048_576, output: 131_072 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"xiaomi": \{/);
+  assert.match(generated, /"xiaomi": \{"id":"xiaomi","name":"Xiaomi","api":"https:\/\/api\.xiaomimimo\.com\/v1"/);
+  assert.match(generated, /"mimo-v2\.5": \{"displayName":"MiMo-V2\.5"/);
+});
+
+test('sync-model-metadata keeps Z.AI direct API separate from its coding plan', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.zai = {
+    id: 'zai',
+    name: 'Z.AI',
+    api: 'https://api.z.ai/api/paas/v4',
+    doc: 'https://docs.z.ai/guides/overview/pricing',
+    models: {
+      'glm-5.2': {
+        id: 'glm-5.2', name: 'GLM-5.2', reasoning: true, tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 1_000_000, output: 131_072 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"zai": \{/);
+  assert.match(generated, /"zai": \{"id":"zai","name":"Z\.AI","api":"https:\/\/api\.z\.ai\/api\/paas\/v4"/);
+  assert.match(generated, /"glm-5\.2": \{"displayName":"GLM-5\.2"/);
+  assert.doesNotMatch(generated, /"zai": \{"id":"zai"[^\n]*api\.z\.ai\/api\/coding\/paas\/v4/);
 });
 
 test('sync-model-metadata vendors Ollama Cloud provider facts and exact model ids', async () => {

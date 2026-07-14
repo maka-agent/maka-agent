@@ -79,6 +79,16 @@ const minimaxPlanModelIds = toolCallingModelIds('MiniMax', GENERATED_MODELS_DEV_
 const xai = GENERATED_MODELS_DEV_PROVIDER_FACTS.xai;
 if (xai.id !== 'xai') throw new Error('models.dev xAI provider facts are missing stable id xai');
 const xaiModelIds = toolCallingModelIds('xAI', GENERATED_MODELS_DEV_METADATA.xai, ['grok-4.5']);
+const xiaomi = GENERATED_MODELS_DEV_PROVIDER_FACTS.xiaomi;
+if (xiaomi.id !== 'xiaomi' || !xiaomi.api) {
+  throw new Error('models.dev Xiaomi provider facts are missing stable id xiaomi or api');
+}
+const xiaomiModelIds = toolCallingModelIds('Xiaomi', GENERATED_MODELS_DEV_METADATA.xiaomi, ['mimo-v2.5']);
+const zai = GENERATED_MODELS_DEV_PROVIDER_FACTS.zai;
+if (zai.id !== 'zai' || !zai.api) {
+  throw new Error('models.dev Z.AI provider facts are missing stable id zai or api');
+}
+const zaiModelIds = toolCallingModelIds('Z.AI', GENERATED_MODELS_DEV_METADATA.zai, ['glm-5.2']);
 const cerebras = GENERATED_MODELS_DEV_PROVIDER_FACTS.cerebras;
 if (cerebras.id !== 'cerebras') throw new Error('models.dev Cerebras provider facts are missing stable id cerebras');
 const cerebrasModelIds = toolCallingModelIds('Cerebras', GENERATED_MODELS_DEV_METADATA.cerebras, ['gpt-oss-120b']);
@@ -662,6 +672,44 @@ const providerRegistry = {
     modelsDevId: xai.id,
     readyOrder: 10,
     catalogOrder: 12,
+  },
+  zai: {
+    label: zai.name,
+    description: 'GLM models for reasoning, vision, coding, and tool use.',
+    baseUrl: zai.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: zaiModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'domestic',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://z.ai/manage-apikey/apikey-list',
+    modelsDevId: zai.id,
+    readyOrder: 10.1,
+    catalogOrder: 12.1,
+  },
+  xiaomi: {
+    label: xiaomi.name,
+    description: 'MiMo models for multimodal reasoning, coding, and tool use.',
+    baseUrl: xiaomi.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: xiaomiModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'domestic',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://platform.xiaomimimo.com/',
+    modelsDevId: xiaomi.id,
+    readyOrder: 10.2,
+    catalogOrder: 12.2,
   },
   cerebras: {
     label: cerebras.name,

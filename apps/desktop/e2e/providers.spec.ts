@@ -353,6 +353,40 @@ test('adds Fireworks AI with its exact snapshot model and shared upstream mark',
   await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
 });
 
+for (const provider of [
+  { type: 'xiaomi', label: 'Xiaomi', modelId: 'mimo-v2.5', baseUrl: 'https://api.xiaomimimo.com/v1' },
+  { type: 'zai', label: 'Z.AI', modelId: 'glm-5.2', baseUrl: 'https://api.z.ai/api/paas/v4' },
+] as const) {
+  test(`adds ${provider.label} with its exact snapshot model and shared asset mark`, async ({ window: page }) => {
+    await page.getByRole('button', { name: '展开侧边栏' }).click();
+    await page.getByRole('button', { name: '设置' }).click();
+    await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
+    await page.getByRole('button', { name: '添加服务商' }).click();
+
+    await page.getByRole('tab', { name: 'API', exact: true }).click();
+    await page.getByPlaceholder('搜索服务商').fill(provider.label);
+    const catalogMark = page.locator(
+      `.providerCatalogRow[data-provider="${provider.type}"] .providerLogo .providerAssetMask`,
+    );
+    await expect(catalogMark).toBeVisible();
+    expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+    await page.getByRole('button', { name: new RegExp(`添加模型供应商：${provider.label}`) }).click();
+
+    await expect(page.getByLabel('模型供应商服务地址')).toHaveValue(provider.baseUrl);
+    await expect(page.getByLabel('模型供应商默认模型')).toHaveValue(provider.modelId);
+    await page.getByRole('button', { name: '保存供应商' }).click();
+
+    await expect(page.getByRole('heading', { name: provider.label, exact: true }).first()).toBeVisible();
+    const detailMark = page.locator(
+      `.providerSubpageHeader .providerLogo[data-provider="${provider.type}"] .providerAssetMask`,
+    );
+    await expect(detailMark).toBeVisible();
+    expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+    await expect(page.getByText(provider.modelId, { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+  });
+}
+
 function maskRenderContract(element: Element): { usesAssetMask: boolean; followsForeground: boolean } {
   const style = getComputedStyle(element);
   return {
