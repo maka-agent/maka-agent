@@ -29,6 +29,7 @@ import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertic
 import mistralBrandMark from '../assets/provider-brands/mistral.svg';
 import togetherBrandMark from '../assets/provider-brands/together.svg';
 import nvidiaMarkUrl from '../assets/provider-brands/nvidia.svg';
+import opencodeBrandMark from '../assets/provider-brands/opencode.svg';
 import stepfunBrandMark from '../assets/provider-brands/stepfun.svg';
 import vercelBrandMark from '../assets/provider-brands/vercel.svg';
 import volcengineBrandMark from '../assets/provider-brands/volcengine.svg';
@@ -163,6 +164,14 @@ function XAI(): ReactElement {
 // - path: packages/static-svg/icons/vercel.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: 4874d52d8b2ce7c309cbd10c424fee123b2c9483e76d76ad0dca41794483eb24
+
+// OpenCode mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/opencode.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 7cfa6e9d6726f7c9fa26c7d9aef0dfec52d20a137380454340f30f12ccbfd302
 
 function ProviderAssetMask({ src }: { src: string }): ReactElement {
   const mask = `url("${src}")`;
@@ -322,6 +331,9 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <SiliconCloud />;
     case 'vercel':
       return <ProviderAssetMask src={vercelBrandMark} />;
+    case 'opencode':
+    case 'opencode-go':
+      return <ProviderAssetMask src={opencodeBrandMark} />;
     case 'anthropic':
     case 'claude-subscription':
       return <Claude />;

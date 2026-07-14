@@ -82,6 +82,12 @@ This file records notices for third-party source assets vendored into the Maka d
     - Upstream path: `packages/static-svg/icons/zenmux.svg`
     - Variant: monochrome (no color variant exists in this release)
     - SHA-256: `1f9fab4e48601ca583e44ff06f22040a8b40f8952bc6bd67e67b065bef00b4b5`
+  - `apps/desktop/src/renderer/assets/provider-brands/opencode.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/opencode.svg`
+    - SHA-256: `7cfa6e9d6726f7c9fa26c7d9aef0dfec52d20a137380454340f30f12ccbfd302`
+
+The OpenCode name and logo remain trademarks of their owner and are used here only to identify the provider. The MIT license above covers the vendored Lobe Icons SVG source, not any trademark rights.
 
 MIT License
 

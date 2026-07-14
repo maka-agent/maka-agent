@@ -64,6 +64,10 @@ const LOCALAI_BRAND_ASSET_FILE = resolve(
   REPO_ROOT,
   'apps/desktop/src/renderer/assets/provider-brands/localai.svg',
 );
+const OPENCODE_BRAND_ASSET_FILE = resolve(
+  REPO_ROOT,
+  'apps/desktop/src/renderer/assets/provider-brands/opencode.svg',
+);
 
 // Fixed brand assets, not generic UI icons — their vendored SVGs keep
 // their own stroke weight and are exempt from the call-site stroke sweep.
@@ -737,6 +741,31 @@ describe('icon + typography governance contract', () => {
     );
   });
 
+  it('vendors one byte-exact upstream OpenCode mark for both plans', async () => {
+    const [componentSrc, asset, notices] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(OPENCODE_BRAND_ASSET_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      '7cfa6e9d6726f7c9fa26c7d9aef0dfec52d20a137380454340f30f12ccbfd302',
+      'OpenCode SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 opencode.svg',
+    );
+    assert.match(componentSrc, /import opencodeBrandMark from '\.\.\/assets\/provider-brands\/opencode\.svg';/);
+    assert.match(
+      componentSrc,
+      /case 'opencode':\s*case 'opencode-go':\s*return <ProviderAssetMask src=\{opencodeBrandMark\} \/>/,
+      'Zen and Go must share the single upstream monochrome mark through the governed currentColor seam',
+    );
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/opencode\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/opencode\.svg[\s\S]*7cfa6e9d6726f7c9fa26c7d9aef0dfec52d20a137380454340f30f12ccbfd302/,
+    );
+    assert.match(notices, /OpenCode name and logo remain trademarks of their owner/);
+  });
+
   it('preserves every governed color-capable asset while keeping monochrome assets theme-aware', async () => {
     const componentSrc = await readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8');
     const colorAssetBindings = [
@@ -765,7 +794,7 @@ describe('icon + typography governance contract', () => {
       );
     }
 
-    for (const binding of ['xaiMarkUrl', 'vercelBrandMark', 'lmStudioBrandMark']) {
+    for (const binding of ['xaiMarkUrl', 'vercelBrandMark', 'lmStudioBrandMark', 'opencodeBrandMark']) {
       assert.match(
         componentSrc,
         new RegExp(`<ProviderAssetMask src=\\{${binding}\\} \\/>`),
