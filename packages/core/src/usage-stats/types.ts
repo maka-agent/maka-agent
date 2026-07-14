@@ -213,6 +213,8 @@ export interface CompactionDecisionDiagnostic {
   stage: CompactionStageDiagnostic;
   sourceKind: CompactionSourceDiagnosticKind;
   decision: CompactionDecisionDiagnosticKind;
+  /** Compaction phase; absent on legacy data = pre_turn. */
+  phase?: 'pre_turn' | 'mid_turn';
   boundaryKind?: string;
   boundaryIds?: string[];
   coveredTurns?: number;
