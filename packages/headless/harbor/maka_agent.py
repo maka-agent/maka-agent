@@ -475,7 +475,9 @@ class _ToolExecutorServer:
             await self._stop_server()
         except BaseException as error:
             stop_error = error
-        cleanup_error = await self._cleanup_all_scoped_processes()
+        cleanup_error = None
+        if exc_type is not None or stop_error is not None:
+            cleanup_error = await self._cleanup_all_scoped_processes()
         if stop_error is not None:
             raise stop_error
         if cleanup_error is not None:
