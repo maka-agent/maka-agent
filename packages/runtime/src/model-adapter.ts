@@ -85,6 +85,7 @@ export interface CompactSummaryResult {
   usage?: NormalizedAiSdkUsage;
   finishReason?: string;
   providerRequestId?: string;
+  costUsd?: number;
 }
 
 export interface ModelAdapterStreamInput {

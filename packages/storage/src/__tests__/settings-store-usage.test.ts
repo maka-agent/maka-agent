@@ -39,6 +39,31 @@ async function seedSession(workspaceRoot: string, header: SessionHeader, message
 }
 
 describe('SettingsStore.usageStats request logs', () => {
+  it('counts unmetered requests without adding partial token or cost totals', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-unavailable-'));
+    try {
+      await seedSession(workspaceRoot, makeHeader(), [
+        { type: 'token_usage', id: 'known', turnId: 'turn-1', ts: 10, input: 10, output: 2, costUsd: 0.01 },
+        {
+          type: 'token_usage', id: 'unknown', turnId: 'turn-2', ts: 20,
+          input: 0, output: 0, usageAvailable: false,
+        },
+      ]);
+
+      const stats = await createSettingsStore(workspaceRoot).usageStats('all');
+
+      assert.equal(stats.summary.totalRequests, 2);
+      assert.equal(stats.summary.usageUnavailableRequests, 1);
+      assert.equal(stats.summary.totalTokens, 12);
+      assert.equal(stats.summary.totalCostUsd, 0.01);
+      assert.equal(stats.logs.find((row) => row.id === 'unknown')?.usageAvailable, false);
+      assert.equal(stats.byProvider[0]?.requests, 2);
+      assert.equal(stats.byProvider[0]?.tokens, 12);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('includes tool invocation rows without inflating model usage totals', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-'));
     try {

@@ -1509,6 +1509,8 @@ describe('fixed prompt controller', () => {
         semanticCompactCallCacheReadInputTokens: 0,
         semanticCompactCallCacheWriteInputTokens: 0,
         semanticCompactCallTotalTokens: 0,
+        semanticCompactCallCostUsd: 0,
+        semanticCompactUsageUnavailableCalls: 0,
       };
       const contextBudgetPolicy = {
         enabled: true as const,

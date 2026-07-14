@@ -586,6 +586,11 @@ export function DailyReviewPanel(props: {
               />
             )}
           </section>
+          {(visibleSummary.totals.usageUnavailableRequests ?? 0) > 0 && (
+            <p className="maka-daily-review-summary-warning" role="status">
+              部分统计：{visibleSummary.totals.usageUnavailableRequests} 次请求缺少 provider usage，Token 和费用仅包含已计量请求。
+            </p>
+          )}
 
           {visibleSummary.sessions.length > 0 && (
             <section className="maka-daily-review-section" aria-label="活跃对话">

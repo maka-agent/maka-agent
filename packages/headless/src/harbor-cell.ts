@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { exec as nodeExec } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -675,7 +675,7 @@ export function buildAiSdkCellBackendRegistration(input: {
   now: () => number;
   newId: () => string;
   maxSteps?: number;
-  recordUsageCheckpoint?: (usage: HarborCellUsageCheckpoint) => void | Promise<void>;
+  recordUsageCheckpoint?: (usage: HarborCellUsageCheckpoint | undefined) => void | Promise<void>;
 }): NonNullable<RunHarborCellInput['registerBackends']> {
   const { connection, apiKey } = resolveHarborCellAiSdkEnv({
     provider: input.provider,
@@ -753,8 +753,13 @@ export const buildHarborAiSdkBackendRegistration = buildAiSdkCellBackendRegistra
 
 export async function writeHarborCellUsageCheckpoint(
   outputDir: string,
-  usage: HarborCellUsageCheckpoint,
+  usage: HarborCellUsageCheckpoint | undefined,
 ): Promise<void> {
+  const path = join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME);
+  if (usage === undefined) {
+    await rm(path, { force: true });
+    return;
+  }
   if (usage.costUsd === undefined) return;
   const tokenSummary: HarborCellOutput['tokenSummary'] = {
     input: usage.inputTokens,
@@ -770,7 +775,6 @@ export async function writeHarborCellUsageCheckpoint(
     pricingSource: 'runtime',
   };
   await mkdir(outputDir, { recursive: true });
-  const path = join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME);
   const pendingPath = `${path}.${process.pid}.tmp`;
   await writeFile(pendingPath, `${JSON.stringify(tokenSummary, null, 2)}\n`, 'utf8');
   await rename(pendingPath, path);

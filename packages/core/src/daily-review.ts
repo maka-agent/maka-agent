@@ -70,6 +70,7 @@ export interface DailyReviewTotals {
   readonly totalTokens: number;
   readonly costUsd: number;
   readonly errorCount: number;
+  readonly usageUnavailableRequests?: number;
 }
 
 export interface DailyReviewSummary {
@@ -173,6 +174,7 @@ export function buildDailyReviewSummary(input: {
       totalTokens: input.usageSummary.totalTokens.total,
       costUsd: input.usageSummary.totalCostUsd,
       errorCount: input.usageSummary.errorRequests,
+      usageUnavailableRequests: input.usageSummary.usageUnavailableRequests ?? 0,
     },
     sessions: input.sessions,
     topTools: input.topTools,

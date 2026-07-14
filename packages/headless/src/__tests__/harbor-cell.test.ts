@@ -402,6 +402,22 @@ describe('runHarborCell', () => {
     });
   });
 
+  test('removes a previously metered checkpoint when later usage becomes unavailable', async () => {
+    await withDirs(async ({ outputDir }) => {
+      await writeHarborCellUsageCheckpoint(outputDir, {
+        inputTokens: 10, outputTokens: 2, cacheHitInputTokens: 0,
+        cacheMissInputTokens: 10, cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 0, reasoningTokens: 0, totalTokens: 12, costUsd: 0.01,
+      });
+      await writeHarborCellUsageCheckpoint(outputDir, undefined);
+
+      await assert.rejects(
+        readFile(join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8'),
+        (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
+      );
+    });
+  });
+
   test('runs in the provided workspace and writes the shared cell artifacts', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const result = await runHarborCell({

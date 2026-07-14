@@ -142,11 +142,13 @@ export interface SemanticCompactBlock {
   estimatedTokensSavedSigned: number;
   estimatedNetTokensSavedSigned?: number;
   compactCallUsage?: {
+    usageAvailable?: boolean;
     inputTokens?: number;
     outputTokens?: number;
     cacheReadInputTokens?: number;
     cacheWriteInputTokens?: number;
     totalTokens?: number;
+    costUsd?: number;
   };
   finishReason?: string;
   providerRequestId?: string;
@@ -285,11 +287,15 @@ export async function rewriteSemanticCompactInMessages(
       abortSignal: input.abortSignal,
     }, policy.timeoutMs);
   } catch {
+    const compactCallUsage = { usageAvailable: false };
+    recordCompactCall(input.controllerState, compactCallUsage);
     recordInvalidSummary(input.controllerState, policy, 'summarizer_failed', input.stepNumber);
-    return rejected(messages, index, 'summarizer_failed');
+    return rejected(messages, index, 'summarizer_failed', compactCallUsage);
   }
 
-  const compactCallUsage = summary.usage ? compactUsage(summary.usage) : undefined;
+  const compactCallUsage = summary.usage
+    ? compactUsage(summary.usage, summary.costUsd)
+    : { usageAvailable: false };
   recordCompactCall(input.controllerState, compactCallUsage);
   const parsedSummary = parseSemanticCompactSummary(summary.text);
   if (!parsedSummary.ok) warningReasons.push(parsedSummary.reason);
@@ -310,7 +316,7 @@ export async function rewriteSemanticCompactInMessages(
     structuredSummary,
     summaryText,
     stateCards,
-    usage: summary.usage,
+    compactCallUsage,
     finishReason: summary.finishReason,
     providerRequestId: summary.providerRequestId,
     requestShapeHashBefore,
@@ -578,7 +584,7 @@ function buildSemanticCompactBlock(input: {
   structuredSummary: SemanticCompactStructuredSummary;
   summaryText: string;
   stateCards: readonly SemanticCompactStateCard[];
-  usage?: NormalizedAiSdkUsage;
+  compactCallUsage: NonNullable<SemanticCompactBlock['compactCallUsage']>;
   finishReason?: string;
   providerRequestId?: string;
   requestShapeHashBefore?: string;
@@ -648,7 +654,7 @@ function buildSemanticCompactBlock(input: {
     preActiveContextEstimatedTokens: input.index.estimatedTokens,
     postReplacementEstimatedTokens: input.index.estimatedTokens,
     estimatedTokensSavedSigned: 0,
-    ...(input.usage ? { compactCallUsage: compactUsage(input.usage) } : {}),
+    compactCallUsage: input.compactCallUsage,
     ...(input.finishReason ? { finishReason: input.finishReason } : {}),
     ...(input.providerRequestId ? { providerRequestId: input.providerRequestId } : {}),
     acceptance: { decision: 'rejected', reason: 'pending_acceptance' },
@@ -1048,13 +1054,18 @@ function unchanged(messages: ModelMessage[], reason: string): SemanticCompactRew
   };
 }
 
-function compactUsage(usage: NormalizedAiSdkUsage): NonNullable<SemanticCompactBlock['compactCallUsage']> {
+function compactUsage(
+  usage: NormalizedAiSdkUsage,
+  costUsd?: number,
+): NonNullable<SemanticCompactBlock['compactCallUsage']> {
   return {
+    usageAvailable: true,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
     cacheReadInputTokens: usage.cacheHitInputTokens,
     cacheWriteInputTokens: usage.cacheWriteInputTokens,
     totalTokens: usage.totalTokens,
+    ...(costUsd !== undefined ? { costUsd } : {}),
   };
 }
 

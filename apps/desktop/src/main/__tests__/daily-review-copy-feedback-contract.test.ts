@@ -14,6 +14,14 @@ function blockBetween(source: string, start: string, end: string): string {
 }
 
 describe('Daily Review copy feedback contract', () => {
+  it('warns when provider usage makes the totals partial', async () => {
+    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/daily-review-panel.tsx'), 'utf8');
+    const panelBlock = extractFunctionBlock(ui, 'DailyReviewPanel');
+
+    assert.match(panelBlock, /visibleSummary\.totals\.usageUnavailableRequests/);
+    assert.match(panelBlock, /部分统计/);
+  });
+
   it('lets the app shell own clipboard success and failure feedback', async () => {
     const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/daily-review-panel.tsx'), 'utf8');
     const modulePages = await readFile(resolve(REPO_ROOT, 'packages/ui/src/module-pages.tsx'), 'utf8');

@@ -108,6 +108,16 @@ describe('Settings usage dashboard contract', () => {
     );
   });
 
+  it('marks partial provider usage in both summary and request rows', async () => {
+    const src = await readSettingsCombinedSource();
+    const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/)?.[0] ?? '';
+    const usageTable = src.match(/function UsageTable\([\s\S]*?function usageRequestKindLabel/)?.[0] ?? '';
+
+    assert.match(usagePage, /usageUnavailableRequests/);
+    assert.match(usagePage, /部分统计/);
+    assert.match(usageTable, /row\.usageAvailable === false \? '—'/);
+  });
+
   it('names every usage stats table for assistive technology', async () => {
     const src = await readSettingsCombinedSource();
     const usageTable = src.match(/function UsageTable\([\s\S]*?function usageRequestKindLabel/)?.[0] ?? '';
@@ -322,7 +332,10 @@ describe('Settings usage dashboard contract', () => {
     assert.match(usageTable![0], /usageRequestKindLabel\(row\.kind\)/);
     assert.match(usageTable![0], /usageRequestTarget\(row\)/);
     assert.match(usageTable![0], /usageRequestSessionCell\(row, props\.onOpenSession\)/);
-    assert.match(usageTable![0], /row\.kind === 'model' \? `\$\$\{\(row\.costUsd \?\? 0\)\.toFixed\(2\)\}` : '-'/);
+    assert.match(
+      usageTable![0],
+      /row\.kind === 'model' \? row\.usageAvailable === false \? '—' : `\$\$\{\(row\.costUsd \?\? 0\)\.toFixed\(2\)\}` : '-'/,
+    );
     assert.match(src, /case 'model': return '模型'/);
     assert.match(src, /case 'tool': return '工具'/);
     assert.match(src, /return row\.kind === 'tool' \? row\.toolName \?\? row\.model : row\.model/);

@@ -48,6 +48,8 @@ export interface HarborCellContextBudgetSummary {
   semanticCompactCallCacheReadInputTokens: number;
   semanticCompactCallCacheWriteInputTokens: number;
   semanticCompactCallTotalTokens: number;
+  semanticCompactCallCostUsd: number;
+  semanticCompactUsageUnavailableCalls: number;
 }
 
 export type HarborCellContextBudgetPolicySnapshot = ({ enabled: false } | ({ enabled: true } & ContextBudgetPolicy));
@@ -328,6 +330,7 @@ export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCell
   for (const event of events) {
     const usage = event.actions?.tokenUsage;
     if (!usage) continue;
+    if (usage.usageAvailable === false || usage.costUsd === undefined) return undefined;
     sawUsage = true;
     summary.input += usage.input ?? 0;
     summary.output += usage.output ?? 0;
@@ -351,6 +354,26 @@ export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCell
     summary.reasoning += usage.reasoning ?? 0;
     summary.total += usage.total ?? (usage.input ?? 0) + (usage.output ?? 0) + (usage.reasoning ?? 0);
     summary.costUsd += usage.costUsd ?? 0;
+    for (const decision of usage.contextBudget?.compactionDecisions ?? []) {
+      if (decision.boundaryKind !== 'semanticCompact') continue;
+      if (
+        decision.compactCallUsageAvailable === false
+        || decision.compactCallCostUsd === undefined
+      ) return undefined;
+      summary.input += decision.compactCallInputTokens ?? 0;
+      summary.output += decision.compactCallOutputTokens ?? 0;
+      summary.cacheHitInput += decision.compactCallCacheReadInputTokens ?? 0;
+      summary.cachedInput += decision.compactCallCacheReadInputTokens ?? 0;
+      summary.cacheWriteInput += decision.compactCallCacheWriteInputTokens ?? 0;
+      summary.cacheMissInput += Math.max(
+        0,
+        (decision.compactCallInputTokens ?? 0)
+          - (decision.compactCallCacheReadInputTokens ?? 0)
+          - (decision.compactCallCacheWriteInputTokens ?? 0),
+      );
+      summary.total += decision.compactCallTotalTokens ?? 0;
+      summary.costUsd += decision.compactCallCostUsd;
+    }
   }
   if (!sawUsage) return undefined;
   if (sawExplicitCacheMiss) {
@@ -417,6 +440,8 @@ export function summarizeCellContextBudget(
     semanticCompactCallCacheReadInputTokens: 0,
     semanticCompactCallCacheWriteInputTokens: 0,
     semanticCompactCallTotalTokens: 0,
+    semanticCompactCallCostUsd: 0,
+    semanticCompactUsageUnavailableCalls: 0,
   };
 
   for (const event of events) {
@@ -450,6 +475,10 @@ export function summarizeCellContextBudget(
       summary.semanticCompactCallCacheReadInputTokens += decision.compactCallCacheReadInputTokens ?? 0;
       summary.semanticCompactCallCacheWriteInputTokens += decision.compactCallCacheWriteInputTokens ?? 0;
       summary.semanticCompactCallTotalTokens += decision.compactCallTotalTokens ?? 0;
+      summary.semanticCompactCallCostUsd += decision.compactCallCostUsd ?? 0;
+      if (decision.compactCallUsageAvailable === false) {
+        summary.semanticCompactUsageUnavailableCalls += 1;
+      }
     }
   }
 
@@ -592,6 +621,14 @@ function validateContextBudgetSummary(value: unknown): HarborCellContextBudgetSu
     semanticCompactCallTotalTokens: optionalNumber(
       value.semanticCompactCallTotalTokens,
       'contextBudgetSummary.semanticCompactCallTotalTokens',
+    ) ?? 0,
+    semanticCompactCallCostUsd: optionalNumber(
+      value.semanticCompactCallCostUsd,
+      'contextBudgetSummary.semanticCompactCallCostUsd',
+    ) ?? 0,
+    semanticCompactUsageUnavailableCalls: optionalNumber(
+      value.semanticCompactUsageUnavailableCalls,
+      'contextBudgetSummary.semanticCompactUsageUnavailableCalls',
     ) ?? 0,
   };
 }

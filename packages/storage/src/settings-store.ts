@@ -35,6 +35,7 @@ type UsageTokenMessage = {
   ts: number;
   input: number;
   output: number;
+  usageAvailable?: boolean;
   cacheMissInput?: number;
   cacheRead?: number;
   cacheCreation?: number;
@@ -231,6 +232,7 @@ class FileSettingsStore implements SettingsStore {
           model: assistantByTurn.get(message.turnId) ?? header.model,
           inputTokens: message.input,
           outputTokens: message.output,
+          usageAvailable: message.usageAvailable !== false,
           cacheMiss: message.cacheMissInput,
           cacheRead: message.cacheRead,
           cacheCreation: message.cacheCreation,
@@ -243,16 +245,17 @@ class FileSettingsStore implements SettingsStore {
     const toolRows = sessions.flatMap(({ messages }) => toolStatsFromMessages(messages, since));
     const toolLogs = sessions.flatMap(({ header, messages }) => toolLogRowsFromMessages(header, messages, since));
     const logs = [...modelLogs, ...toolLogs].sort((a, b) => b.ts - a.ts);
-    const totalInput = sum(modelLogs.map((log) => log.inputTokens));
-    const totalOutput = sum(modelLogs.map((log) => log.outputTokens));
-    const cacheMiss = sum(modelLogs.map((log) => log.cacheMiss ?? 0));
-    const cacheRead = sum(modelLogs.map((log) => log.cacheRead ?? 0));
-    const cacheCreation = sum(modelLogs.map((log) => log.cacheCreation ?? 0));
-    const reasoning = sum(modelLogs.map((log) => log.reasoning ?? 0));
+    const meteredModelLogs = modelLogs.filter((log) => log.usageAvailable !== false);
+    const totalInput = sum(meteredModelLogs.map((log) => log.inputTokens));
+    const totalOutput = sum(meteredModelLogs.map((log) => log.outputTokens));
+    const cacheMiss = sum(meteredModelLogs.map((log) => log.cacheMiss ?? 0));
+    const cacheRead = sum(meteredModelLogs.map((log) => log.cacheRead ?? 0));
+    const cacheCreation = sum(meteredModelLogs.map((log) => log.cacheCreation ?? 0));
+    const reasoning = sum(meteredModelLogs.map((log) => log.reasoning ?? 0));
     return {
       summary: {
         totalRequests: modelLogs.length,
-        totalCostUsd: sum(modelLogs.map((log) => log.costUsd ?? 0)),
+        totalCostUsd: sum(meteredModelLogs.map((log) => log.costUsd ?? 0)),
         totalTokens: totalInput + totalOutput,
         inputTokens: totalInput,
         outputTokens: totalOutput,
@@ -261,6 +264,7 @@ class FileSettingsStore implements SettingsStore {
         cacheRead,
         cacheCreation,
         reasoning,
+        usageUnavailableRequests: modelLogs.length - meteredModelLogs.length,
       },
       logs,
       byProvider: aggregateBy(modelLogs, 'provider'),
@@ -352,6 +356,7 @@ function normalizeUsageMessage(value: unknown): UsageMessage | null {
       if (!isOptionalFiniteNumber(value.cacheCreation)) return null;
       if (!isOptionalFiniteNumber(value.reasoning)) return null;
       if (!isOptionalFiniteNumber(value.costUsd)) return null;
+      if (value.usageAvailable !== undefined && typeof value.usageAvailable !== 'boolean') return null;
       return {
         type: 'token_usage',
         id: value.id,
@@ -359,6 +364,7 @@ function normalizeUsageMessage(value: unknown): UsageMessage | null {
         ts: value.ts,
         input: value.input,
         output: value.output,
+        usageAvailable: value.usageAvailable,
         cacheMissInput: value.cacheMissInput,
         cacheRead: value.cacheRead,
         cacheCreation: value.cacheCreation,
@@ -426,8 +432,10 @@ function aggregateBy(logs: UsageStats['logs'], key: 'provider' | 'model') {
     const id = log[key];
     const current = rows.get(id) ?? { requests: 0, tokens: 0, costUsd: 0 };
     current.requests += 1;
-    current.tokens += log.inputTokens + log.outputTokens;
-    current.costUsd += log.costUsd ?? 0;
+    if (log.usageAvailable !== false) {
+      current.tokens += log.inputTokens + log.outputTokens;
+      current.costUsd += log.costUsd ?? 0;
+    }
     rows.set(id, current);
   }
   return [...rows.entries()]

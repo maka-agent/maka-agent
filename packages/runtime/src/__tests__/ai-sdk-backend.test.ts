@@ -3830,6 +3830,7 @@ describe('AiSdkBackend usage telemetry', () => {
 
   test('records request health without treating unavailable provider usage as zero', async () => {
     const llmRecords: LlmCallRecord[] = [];
+    const messages: StoredMessage[] = [];
     const model = new MockLanguageModelV3({
       doStream: {
         stream: simulateReadableStream({
@@ -3852,7 +3853,7 @@ describe('AiSdkBackend usage telemetry', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async () => {},
+      appendMessage: async (message) => { messages.push(message); },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -3864,12 +3865,74 @@ describe('AiSdkBackend usage telemetry', () => {
       recordLlmCall: (record) => { llmRecords.push(record); },
     });
 
-    await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
+    const events = await collect(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
 
     assert.equal(llmRecords.length, 1);
     assert.equal((llmRecords[0] as LlmCallRecord & { usageAvailable?: boolean }).usageAvailable, false);
     assert.equal(llmRecords[0]?.status, 'success');
     assert.ok((llmRecords[0]?.latencyMs ?? -1) >= 0);
+    const usageMessage = messages.find((message) => message.type === 'token_usage');
+    const usageEvent = events.find((event) => event.type === 'token_usage');
+    assert.equal(usageMessage?.type === 'token_usage' ? usageMessage.usageAvailable : undefined, false);
+    assert.equal(usageEvent?.type === 'token_usage' ? usageEvent.usageAvailable : undefined, false);
+  });
+
+  test('marks a multi-step request unavailable when any provider step omits usage', async () => {
+    const llmRecords: LlmCallRecord[] = [];
+    const checkpoints: Array<{ inputTokens: number } | undefined> = [];
+    let streamCalls = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        streamCalls += 1;
+        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+          ? [
+              { type: 'stream-start', warnings: [] },
+              { type: 'tool-call', toolCallId: 'tool-1', toolName: 'Read', input: JSON.stringify({ path: 'notes.md' }) },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: {
+                  inputTokens: { total: undefined, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+                  outputTokens: { total: undefined, text: undefined, reasoning: undefined },
+                } as never,
+              },
+            ]
+          : [
+              { type: 'stream-start', warnings: [] },
+              { type: 'text-start', id: 'text-1' },
+              { type: 'text-delta', id: 'text-1', delta: 'done' },
+              { type: 'text-end', id: 'text-1' },
+              {
+                type: 'finish',
+                finishReason: { unified: 'stop', raw: 'stop' },
+                usage: {
+                  inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+                  outputTokens: { total: 2, text: 2, reasoning: 0 },
+                },
+              },
+            ];
+        return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {},
+      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      newId: idGenerator(), now: monotonicClock(),
+      recordLlmCall: (record) => { llmRecords.push(record); },
+      recordUsageCheckpoint: (usage) => { checkpoints.push(usage); },
+    });
+
+    const events = await collect(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
+    const usageEvent = events.find((event) => event.type === 'token_usage');
+    await drain(backend.send({ turnId: 'turn-2', text: 'continue', context: [] }));
+
+    assert.equal(streamCalls, 3);
+    assert.equal(usageEvent?.type === 'token_usage' ? usageEvent.usageAvailable : undefined, false);
+    assert.equal(llmRecords[0]?.usageAvailable, false);
+    assert.deepEqual(checkpoints, [undefined]);
   });
 
   test('keeps checkpoint cost unknown when model pricing is unavailable', async () => {
@@ -4281,6 +4344,12 @@ describe('AiSdkBackend usage telemetry', () => {
       },
       newId: idGenerator(),
       now: monotonicClock(),
+      lookupPricing: (modelKey) => ({
+        modelKey,
+        inputUsdPer1M: 1,
+        outputUsdPer1M: 1,
+        cacheReadUsdPer1M: 1,
+      }),
       recordLlmCall: (record) => {
         llmRecords.push(record);
       },
@@ -4311,6 +4380,7 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(semanticRecord.outputTokens, 13);
     assert.equal(semanticRecord.cacheHitInputTokens, 2);
     assert.equal(semanticRecord.totalTokens, 34);
+    assert.equal(semanticRecord.costUsd, 0.000034);
 
     const usageEvent = events.find((event) => event.type === 'token_usage') as
       | (Extract<SessionEvent, { type: 'token_usage' }> & { contextBudget?: Record<string, unknown> })
@@ -4320,6 +4390,8 @@ describe('AiSdkBackend usage telemetry', () => {
       decision.boundaryKind === 'semanticCompact'
         && decision.decision === 'replaced'
         && decision.compactCallTotalTokens === 34
+        && decision.compactCallUsageAvailable === true
+        && decision.compactCallCostUsd === 0.000034
     ), true);
   });
 
@@ -7641,6 +7713,12 @@ async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
   for await (const _ of iterable) {
     // consume
   }
+}
+
+async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
+  const values: T[] = [];
+  for await (const value of iterable) values.push(value);
+  return values;
 }
 
 function makeGate(): { promise: Promise<void>; release: () => void } {

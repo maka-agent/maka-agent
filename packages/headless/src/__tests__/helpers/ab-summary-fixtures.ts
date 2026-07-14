@@ -99,6 +99,8 @@ export function contextBudgetSummary(
     semanticCompactCallCacheReadInputTokens: 0,
     semanticCompactCallCacheWriteInputTokens: 0,
     semanticCompactCallTotalTokens: 0,
+    semanticCompactCallCostUsd: 0,
+    semanticCompactUsageUnavailableCalls: 0,
     ...input,
   };
 }

@@ -70,11 +70,13 @@ export interface CompactionDecision {
   estimatedTokensAfter?: number;
   estimatedTokensSaved?: number;
   compactCallUsage?: {
+    usageAvailable?: boolean;
     inputTokens?: number;
     outputTokens?: number;
     cacheReadInputTokens?: number;
     cacheWriteInputTokens?: number;
     totalTokens?: number;
+    costUsd?: number;
   };
   reason?: string;
   failOpenReason?: string;
@@ -194,6 +196,12 @@ export function compactionDecisionToDiagnostic(
       : {}),
     ...(decision.compactCallUsage?.totalTokens !== undefined
       ? { compactCallTotalTokens: decision.compactCallUsage.totalTokens }
+      : {}),
+    ...(decision.compactCallUsage?.usageAvailable !== undefined
+      ? { compactCallUsageAvailable: decision.compactCallUsage.usageAvailable }
+      : {}),
+    ...(decision.compactCallUsage?.costUsd !== undefined
+      ? { compactCallCostUsd: decision.compactCallUsage.costUsd }
       : {}),
     ...(decision.reason ? { reason: decision.reason } : {}),
     ...(decision.failOpenReason ? { failOpenReason: decision.failOpenReason } : {}),

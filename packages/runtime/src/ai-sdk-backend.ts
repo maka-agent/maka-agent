@@ -462,7 +462,7 @@ export interface AiSdkBackendInput {
   recordToolInvocation?: ToolTelemetryRecorder;
   /** Durable session-lifetime cumulative usage checkpoint after each completed provider step. */
   recordUsageCheckpoint?: (
-    usage: NormalizedAiSdkUsage & { costUsd?: number },
+    usage: (NormalizedAiSdkUsage & { costUsd?: number }) | undefined,
   ) => void | Promise<void>;
   /** Optional pricing lookup shared with telemetry; defaults to builtin public pricing. */
   lookupPricing?: (modelKey: string) => PricingConfig | null;
@@ -564,6 +564,7 @@ export class AiSdkBackend implements AgentBackend {
   private currentRunTrace: RunTrace | null = null;
   private priorRequestShape: RequestShapeDiagnostic | undefined;
   private cumulativeUsageCheckpoint: NormalizedAiSdkUsage | undefined;
+  private cumulativeUsageCheckpointAvailable = true;
   /**
    * Id of the assistant step currently streaming. Read by ToolRuntime via
    * `getCurrentStepId` so each tool call's `tool_start` carries the step it
@@ -819,6 +820,7 @@ export class AiSdkBackend implements AgentBackend {
     };
     let tokenUsage: NormalizedAiSdkUsage | undefined;
     let tokenUsageCostUsd: number | undefined;
+    let providerUsageComplete = true;
     let streamStatus: LlmCallRecord['status'] = 'success';
     let streamErrorClass: string | undefined;
     let rawFinishReason: string | undefined;
@@ -1085,10 +1087,16 @@ export class AiSdkBackend implements AgentBackend {
             const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
             if (stepUsage) {
               this.cumulativeUsageCheckpoint = mergeNormalizedUsage(this.cumulativeUsageCheckpoint, stepUsage);
-              await this.input.recordUsageCheckpoint?.({
-                ...this.cumulativeUsageCheckpoint,
-                costUsd: this.computeTokenUsageCostUsd(this.cumulativeUsageCheckpoint),
-              });
+              if (this.cumulativeUsageCheckpointAvailable) {
+                await this.input.recordUsageCheckpoint?.({
+                  ...this.cumulativeUsageCheckpoint,
+                  costUsd: this.computeTokenUsageCostUsd(this.cumulativeUsageCheckpoint),
+                });
+              }
+            } else {
+              providerUsageComplete = false;
+              this.cumulativeUsageCheckpointAvailable = false;
+              await this.input.recordUsageCheckpoint?.(undefined);
             }
           }
           if (chunk.type === 'finish' || isStepFinishChunk) {
@@ -1179,6 +1187,7 @@ export class AiSdkBackend implements AgentBackend {
               ts: this.now(),
               input: tokenUsage.inputTokens,
               output: tokenUsage.outputTokens,
+              usageAvailable: providerUsageComplete,
               cacheHitInput: tokenUsage.cacheHitInputTokens,
               cacheMissInput: tokenUsage.cacheMissInputTokens,
               cacheMissInputSource: tokenUsage.cacheMissInputSource,
@@ -1231,6 +1240,7 @@ export class AiSdkBackend implements AgentBackend {
               ts: this.now(),
               input: tokenUsage.inputTokens,
               output: tokenUsage.outputTokens,
+              usageAvailable: providerUsageComplete,
               cacheHitInput: tokenUsage.cacheHitInputTokens,
               cacheMissInput: tokenUsage.cacheMissInputTokens,
               cacheMissInputSource: tokenUsage.cacheMissInputSource,
@@ -1253,6 +1263,25 @@ export class AiSdkBackend implements AgentBackend {
           }
         } catch {
           // best-effort; ai-sdk usage promise may reject on abort
+        }
+
+        if (!tokenUsage) {
+          providerUsageComplete = false;
+          const unavailableUsage = {
+            type: 'token_usage' as const,
+            id: this.newId(),
+            turnId,
+            ts: this.now(),
+            input: 0,
+            output: 0,
+            total: 0,
+            usageAvailable: false,
+            ...(runtimeSteps > 0 ? { runtimeSteps } : {}),
+          };
+          await this.input.appendMessage(unavailableUsage).catch(() => {});
+          queue.push({ ...unavailableUsage, id: this.newId() } satisfies TokenUsageEvent);
+          this.cumulativeUsageCheckpointAvailable = false;
+          await this.input.recordUsageCheckpoint?.(undefined);
         }
 
         // Nothing may await between this check and terminal emission: Stop must
@@ -1320,7 +1349,7 @@ export class AiSdkBackend implements AgentBackend {
           connectionSlug: this.input.connection.slug,
           providerId: this.input.connection.providerType,
           modelId: this.input.modelId,
-          usageAvailable: tokenUsage !== undefined,
+          usageAvailable: providerUsageComplete && tokenUsage !== undefined,
           inputTokens: tokenUsage?.inputTokens ?? 0,
           outputTokens: tokenUsage?.outputTokens ?? 0,
           cacheHitInputTokens: tokenUsage?.cacheHitInputTokens ?? 0,
@@ -1428,10 +1457,10 @@ export class AiSdkBackend implements AgentBackend {
     return this.modelAdapter.makeErrorEvent(turnId, err);
   }
 
-  private computeTokenUsageCostUsd(usage: NormalizedAiSdkUsage): number | undefined {
+  private computeTokenUsageCostUsd(usage: NormalizedAiSdkUsage, modelId = this.input.modelId): number | undefined {
     try {
       const pricing = (this.input.lookupPricing ?? getBuiltinPricing)(
-        `${this.input.connection.providerType}:${this.input.modelId}`,
+        `${this.input.connection.providerType}:${modelId}`,
       );
       if (pricing === null) return undefined;
       return computeCost(
@@ -1860,6 +1889,9 @@ export class AiSdkBackend implements AgentBackend {
               maxOutputTokens: request.maxOutputTokens,
               abortSignal: request.abortSignal,
             });
+            const costUsd = result.usage
+              ? this.computeTokenUsageCostUsd(result.usage, summarizerModelId)
+              : undefined;
             this.recordSemanticCompactSummaryCall({
               callId,
               turnId,
@@ -1870,7 +1902,10 @@ export class AiSdkBackend implements AgentBackend {
               finishReason: result.finishReason,
               status: 'success',
             });
-            return result;
+            return {
+              ...result,
+              ...(costUsd !== undefined ? { costUsd } : {}),
+            };
           } catch (error) {
             this.recordSemanticCompactSummaryCall({
               callId,
@@ -1960,7 +1995,7 @@ export class AiSdkBackend implements AgentBackend {
     status: LlmCallRecord['status'];
     errorClass?: string;
   }): void {
-    const costUsd = input.usage ? this.computeTokenUsageCostUsd(input.usage) : undefined;
+    const costUsd = input.usage ? this.computeTokenUsageCostUsd(input.usage, input.modelId) : undefined;
     this.input.recordLlmCall?.({
       sessionId: this.sessionId,
       turnId: input.turnId,

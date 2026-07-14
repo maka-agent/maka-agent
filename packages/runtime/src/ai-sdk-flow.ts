@@ -316,6 +316,7 @@ export function mapSessionEventToRuntimeEvent(
           tokenUsage: {
             input: event.input,
             output: event.output,
+            ...(event.usageAvailable !== undefined ? { usageAvailable: event.usageAvailable } : {}),
             ...(event.cacheHitInput !== undefined ? { cacheHitInput: event.cacheHitInput } : {}),
             ...(event.cacheMissInput !== undefined ? { cacheMissInput: event.cacheMissInput } : {}),
             ...(event.cacheMissInputSource !== undefined
