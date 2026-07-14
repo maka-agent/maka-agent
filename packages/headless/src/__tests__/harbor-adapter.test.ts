@@ -812,48 +812,59 @@ class DelayedToolAgent:
     def __init__(self):
         self.started = asyncio.Event()
         self.spawned = []
+        self.cancelled = False
 
     def _cell_timeout_sec(self):
         return 1
 
     async def exec_as_agent(self, environment, command, **kwargs):
         if "/proc/[0-9]*/environ" in command:
+            if "kill -KILL" in command:
+                for process in self.spawned:
+                    if process.returncode is None:
+                        process.kill()
+                        await process.wait()
             return types.SimpleNamespace(stdout="", stderr="", exit_code=0)
         self.started.set()
-        await asyncio.sleep(0.5)
+        try:
+            await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            self.cancelled = True
+            await asyncio.sleep(0.5)
         process = await asyncio.create_subprocess_exec("sleep", "30")
         self.spawned.append(process)
+        await process.wait()
         return types.SimpleNamespace(stdout="", stderr="", exit_code=0)
 
-async def assert_teardown_cancels_delayed_tool_start():
+async def assert_abnormal_teardown_drains_delayed_tool_start():
     agent = DelayedToolAgent()
     request_thread = None
-    async with maka_agent_mod._ToolExecutorServer(agent, object()) as server:
-        def send_request():
-            request = urllib.request.Request(
-                server.url + "/exec",
-                data=json.dumps({"command": "sleep 30 &"}).encode("utf-8"),
-                headers={"authorization": "Bearer " + server.token, "content-type": "application/json"},
-                method="POST",
-            )
-            try:
-                urllib.request.urlopen(request, timeout=2).read()
-            except Exception:
-                pass
+    try:
+        async with maka_agent_mod._ToolExecutorServer(agent, object()) as server:
+            def send_request():
+                request = urllib.request.Request(
+                    server.url + "/exec",
+                    data=json.dumps({"command": "sleep 30 &"}).encode("utf-8"),
+                    headers={"authorization": "Bearer " + server.token, "content-type": "application/json"},
+                    method="POST",
+                )
+                try:
+                    urllib.request.urlopen(request, timeout=3).read()
+                except Exception:
+                    pass
 
-        request_thread = threading.Thread(target=send_request, daemon=True)
-        request_thread.start()
-        await asyncio.wait_for(agent.started.wait(), timeout=1)
+            request_thread = threading.Thread(target=send_request, daemon=True)
+            request_thread.start()
+            await asyncio.wait_for(agent.started.wait(), timeout=1)
+            raise ValueError("cell failed")
+    except ValueError:
+        pass
 
-    await asyncio.sleep(0.7)
     request_thread.join(timeout=1)
-    spawned = list(agent.spawned)
-    for process in spawned:
-        process.kill()
-        await process.wait()
-    assert not spawned, "tool command started after executor teardown"
+    assert not agent.cancelled, "executor cancelled the Harbor Docker execution instead of draining it"
+    assert all(process.returncode is not None for process in agent.spawned), "tool command survived executor teardown"
 
-asyncio.run(assert_teardown_cancels_delayed_tool_start())
+asyncio.run(assert_abnormal_teardown_drains_delayed_tool_start())
 
 class FailingTermCleanupAgent:
     def __init__(self):

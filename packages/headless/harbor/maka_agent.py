@@ -471,34 +471,60 @@ class _ToolExecutorServer:
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         stop_error: BaseException | None = None
+        cleanup_error: BaseException | None = None
         try:
-            await self._stop_server()
+            cleanup_error = await self._stop_server(
+                reclaim_scoped_processes=exc_type is not None
+            )
         except BaseException as error:
             stop_error = error
-        cleanup_error = None
-        if exc_type is not None or stop_error is not None:
+        if stop_error is not None and exc_type is None:
             cleanup_error = await self._cleanup_all_scoped_processes()
         if stop_error is not None:
             raise stop_error
         if cleanup_error is not None:
             raise cleanup_error
 
-    async def _stop_server(self) -> None:
+    async def _stop_server(
+        self, *, reclaim_scoped_processes: bool
+    ) -> BaseException | None:
         with self._futures_lock:
             self._accepting_requests = False
             futures = list(self._futures)
-        for future in futures:
-            future.cancel()
-        if futures:
-            await asyncio.gather(
-                *(asyncio.wrap_future(future) for future in futures),
-                return_exceptions=True,
-            )
+        cleanup_error = (
+            await self._drain_futures_with_cleanup(futures)
+            if reclaim_scoped_processes
+            else await self._drain_futures(futures)
+        )
         if self._server is not None:
             await asyncio.to_thread(self._server.shutdown)
             await asyncio.to_thread(self._server.server_close)
         if self._thread is not None:
             await asyncio.to_thread(self._thread.join, 5)
+        return cleanup_error
+
+    async def _drain_futures(
+        self, futures: list[concurrent.futures.Future[Any]]
+    ) -> None:
+        if futures:
+            await asyncio.gather(
+                *(asyncio.wrap_future(future) for future in futures),
+                return_exceptions=True,
+            )
+
+    async def _drain_futures_with_cleanup(
+        self, futures: list[concurrent.futures.Future[Any]]
+    ) -> BaseException | None:
+        while any(not future.done() for future in futures):
+            cleanup_error = await self._cleanup_all_scoped_processes()
+            if cleanup_error is not None:
+                for future in futures:
+                    future.cancel()
+                await self._drain_futures(futures)
+                return cleanup_error
+            await asyncio.sleep(0.2)
+        await self._drain_futures(futures)
+        return await self._cleanup_all_scoped_processes()
 
     async def _cleanup_all_scoped_processes(self) -> BaseException | None:
         first_error: BaseException | None = None
