@@ -107,11 +107,11 @@ export function PermissionPrompt(props: {
   return (
     <section
       role="region"
-      className="maka-permission-prompt composer"
+      className="maka-composer-interaction maka-permission-prompt composer"
       aria-labelledby="permissionTitle"
       data-tone={preset.tone}
     >
-      <div className="maka-permission-prompt-inner agents-parchment-paper-surface">
+      <div className="maka-composer-interaction-inner maka-permission-prompt-inner agents-parchment-paper-surface">
         <header className="maka-permission-header">
           <div className="maka-permission-title-row">
             <h2 className="maka-permission-title" id="permissionTitle">{prompt}</h2>

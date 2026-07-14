@@ -18,6 +18,8 @@ export * from './materialize.js';
 export * from './live-turn-projection.js';
 export * from './model-picker.js';
 export * from './interaction-queue.js';
+export * from './user-question-prompt.js';
+export * from './user-question-prompt-state.js';
 export * from './redact.js';
 export * from './overlay-scroll-area.js';
 export * from './smooth-stream.js';

@@ -225,6 +225,26 @@ describe('permission response IPC boundary', () => {
     );
   });
 
+  it('renderer responds to a user question for its source session and dequeues only after success', async () => {
+    const renderer = await readRendererShellSource('app-shell-chat-actions.ts');
+    const respond = renderer.match(/async function respondToUserQuestion\([\s\S]*?\n  \}/)?.[0] ?? '';
+
+    assert.match(respond, /const sessionId = activeIdRef\.current;/);
+    assert.match(respond, /await window\.maka\.sessions\.respondToUserQuestion\(sessionId, response\);/);
+    assert.match(
+      respond,
+      /setInteractionBySession\(\(current\) => dequeueInteractionByRequestId\(current, sessionId, response\.requestId\)\);/,
+    );
+    assert.match(respond, /catch \(error\)[\s\S]*activeIdRef\.current === sessionId/);
+  });
+
+  it('renderer lets either interaction type take over the mounted composer slot', async () => {
+    const shell = await readRendererShellSource('app-shell.tsx');
+    assert.match(shell, /activeQuestion = activeInteraction\?\.type === 'user_question_request'/);
+    assert.match(shell, /<UserQuestionPrompt[\s\S]*request=\{activeQuestion\}/);
+    assert.match(shell, /hidden=\{[^}]*Boolean\(activeInteraction\)[^}]*\}/);
+  });
+
   it('renderer clears the permission prompt when a session completes (PR-PERMISSION-UI-CLEANUP-0)', async () => {
     // Without this, a session that finishes for a reason other than
     // permission_handoff would leave a stranded permission entry in

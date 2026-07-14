@@ -23,8 +23,8 @@ describe('permission composer takeover', () => {
     );
     assert.match(
       composerBlock,
-      /hidden=\{[^}]*Boolean\(activePermission\)[^}]*\}/,
-      'AppShell must tell Composer when the permission surface owns its slot',
+      /hidden=\{[^}]*Boolean\(activeInteraction\)[^}]*\}/,
+      'AppShell must tell Composer when an interaction surface owns its slot',
     );
     assert.doesNotMatch(
       await readFile(join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'composer.tsx'), 'utf8'),
@@ -38,7 +38,7 @@ describe('permission composer takeover', () => {
     );
     assert.doesNotMatch(
       composerBlock,
-      /disabled=\{Boolean\(activePermission\)\}/,
+      /disabled=\{Boolean\(activeInteraction\)\}/,
       'permission takeover replaces the composer instead of leaving a disabled composer behind it',
     );
     assert.doesNotMatch(
@@ -59,7 +59,7 @@ describe('permission composer takeover', () => {
     )?.[0] ?? '';
 
     assert.doesNotMatch(prompt, /AlertDialog(Root|Content)/, 'the takeover must not enter the modal top layer');
-    assert.match(prompt, /<section[\s\S]*?role="region"[\s\S]*?className="maka-permission-prompt composer"/);
+    assert.match(prompt, /<section[\s\S]*?role="region"[\s\S]*?className="maka-composer-interaction maka-permission-prompt composer"/);
     assert.match(prompt, /onStop\(\): void \| Promise<void>/);
     assert.match(prompt, /disabled=\{props\.stopPending\}/);
     assert.match(prompt, /props\.stopPending \? '停止中…' : '停止'/);
@@ -146,7 +146,7 @@ describe('permission composer takeover', () => {
 
   it('uses the chat measure, compact composer geometry, and capped detail scrolling', async () => {
     const css = await readFile(join(rendererRoot, 'styles', 'permission-dialog.css'), 'utf8');
-    const surface = ruleBody(css, '.maka-permission-prompt-inner');
+    const surface = ruleBody(css, '.maka-composer-interaction-inner');
     const summarySurface = ruleBody(css, '.maka-permission-summary');
     const summaryCode = ruleBody(css, '.maka-permission-summary .maka-code');
     const summaryPath = ruleBody(css, '.maka-permission-summary .maka-permission-path code');
@@ -189,6 +189,15 @@ describe('permission composer takeover', () => {
     assert.doesNotMatch(css, /\.maka-permission-decision-actions \.maka-button(?::hover|:active)?\s*\{/, 'Button primitive owns interaction states');
     assert.doesNotMatch(css, /\.maka-permission-icon\b/, 'removed title decoration must not leave dead CSS');
     assert.doesNotMatch(css, /\.permissionDialog\b/, 'the old modal geometry must be removed');
+  });
+
+  it('keeps all question actions inside the narrow composer container', async () => {
+    const css = await readFile(join(rendererRoot, 'styles', 'permission-dialog.css'), 'utf8');
+    const questionActions = ruleBody(css, '.permissionActions.maka-question-actions');
+
+    assert.match(questionActions, /display:\s*grid/);
+    assert.match(questionActions, /grid-template-columns:\s*auto auto minmax\(0, 1fr\) auto/);
+    assert.match(css, /@container \(max-width: 460px\)[\s\S]*?\.permissionActions\.maka-question-actions\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
   });
 
   it('keeps long previews and diffs inside the capped disclosure', async () => {
