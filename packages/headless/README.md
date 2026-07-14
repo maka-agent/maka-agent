@@ -182,6 +182,40 @@ For an unattended run, invoke `node packages/headless/harbor/run-harness-ab-deta
 
 Outputs are `harness-ab-report.json`, `.csv`, and `.md`. They report Pass@1 and cache-aware API-equivalent cost separately; they do not claim fixed-plan spend or publish results.
 
+## Attention semantic-compaction A/B
+
+`harbor/run-runtime-policy-ab.mjs` includes a checked-in attention-first comparison over
+`polyglot-rust-c`, `sqlite-db-truncate`, `reshard-c4-data`, `sanitize-git-repo`, and
+`build-cython-ext`. The baseline disables semantic compaction; the candidate uses a
+16K provider context, 50% high-water mark, 4K completed-middle-span hysteresis, a
+4096-token generation budget, and a 768 estimated-token accepted projection budget.
+The full phase runs three repetitions per task and arm (30 cells) after a one-repetition
+operational pilot. Both arms keep the same model, prompt, tools, task budgets, and code
+fingerprint.
+
+Validate the exact executable manifest without reading a credential:
+
+```sh
+MAKA_RUNTIME_AB_OUT_DIR=/path/to/out \
+MAKA_RUNTIME_AB_TASKS_ROOT=/path/to/frozen-five-task-export \
+MAKA_RUNTIME_AB_SPEC_PATH=packages/headless/harbor/runtime-policy-ab-specs/attention-semantic-compact.json \
+MAKA_RUNTIME_AB_PROFILE_PATH=packages/headless/harbor/runtime-policy-ab-profiles/glm-5.2.json \
+MAKA_RUNTIME_AB_RUN_ID=attention-semantic-compact-glm-5.2 \
+MAKA_RUNTIME_AB_DRY_RUN=1 \
+node packages/headless/harbor/run-runtime-policy-ab.mjs
+```
+
+For a live run, remove `MAKA_RUNTIME_AB_DRY_RUN` and point
+`MAKA_RUNTIME_AB_KEY_FILE` at a Z.ai credential file outside git. The lifecycle refuses
+to advance past the pilot if either arm has an infrastructure/protocol failure, if the
+candidate never activates compaction, or if coverage is incomplete. The final report's
+primary decision uses official verifier Pass@1 with the checked-in 10 percentage-point
+non-inferiority margin; token, cache, cost, latency, and compaction activation data remain
+secondary diagnostics.
+Use a frozen exported task root with exactly one version of each selected task; a mixed
+Harbor cache containing two versions of a selected task is rejected instead of choosing
+one silently.
+
 ## Exit code
 
 `maka eval run` exits non-zero on an **infrastructure** failure (invalid

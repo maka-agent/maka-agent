@@ -690,6 +690,15 @@ function validateSemanticCompactSnapshot(value: unknown): NonNullable<ContextBud
     ...(optionalNumber(value.minRecentToolPairs, 'contextBudgetPolicy.semanticCompact.minRecentToolPairs') !== undefined
       ? { minRecentToolPairs: optionalNumber(value.minRecentToolPairs, 'contextBudgetPolicy.semanticCompact.minRecentToolPairs') }
       : {}),
+    ...(optionalNumber(value.minSafePrefixEstimatedTokens, 'contextBudgetPolicy.semanticCompact.minSafePrefixEstimatedTokens') !== undefined
+      ? { minSafePrefixEstimatedTokens: optionalNumber(value.minSafePrefixEstimatedTokens, 'contextBudgetPolicy.semanticCompact.minSafePrefixEstimatedTokens') }
+      : {}),
+    ...(optionalNumber(value.minNewPrefixEstimatedTokens, 'contextBudgetPolicy.semanticCompact.minNewPrefixEstimatedTokens') !== undefined
+      ? { minNewPrefixEstimatedTokens: optionalNumber(value.minNewPrefixEstimatedTokens, 'contextBudgetPolicy.semanticCompact.minNewPrefixEstimatedTokens') }
+      : {}),
+    ...(optionalNumber(value.maxAcceptedProjectionEstimatedTokens, 'contextBudgetPolicy.semanticCompact.maxAcceptedProjectionEstimatedTokens') !== undefined
+      ? { maxAcceptedProjectionEstimatedTokens: optionalNumber(value.maxAcceptedProjectionEstimatedTokens, 'contextBudgetPolicy.semanticCompact.maxAcceptedProjectionEstimatedTokens') }
+      : {}),
     ...(optionalNumber(value.maxSummaryEstimatedTokens, 'contextBudgetPolicy.semanticCompact.maxSummaryEstimatedTokens') !== undefined
       ? { maxSummaryEstimatedTokens: optionalNumber(value.maxSummaryEstimatedTokens, 'contextBudgetPolicy.semanticCompact.maxSummaryEstimatedTokens') }
       : {}),

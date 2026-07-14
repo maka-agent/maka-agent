@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { ModelMessage } from 'ai';
+import { buildActiveCompactionHeadAnchor } from '../active-full-compact.js';
 
 import {
   renderSemanticCompactBlock,
   rewriteSemanticCompactInMessages,
+  semanticCompactBlockToCompactionBoundary,
   type SemanticCompactSummaryRequest,
 } from '../semantic-compact.js';
 
 describe('semantic compact', () => {
-  test('replaces an older span with a no-tools LLM summary and preserves recent tool pairs', async () => {
+  test('replaces all completed episodes after the exact current-user anchor', async () => {
     let requestSeen: SemanticCompactSummaryRequest | undefined;
     const messages = semanticFixtureMessages();
 
@@ -23,9 +25,8 @@ describe('semantic compact', () => {
         enabled: true,
         maxActiveEstimatedTokens: 1,
         highWaterRatio: 0.1,
-        minRecentMessages: 1,
-        minRecentToolPairs: 1,
-        maxSummaryEstimatedTokens: 1024,
+        minSafePrefixEstimatedTokens: 1,
+        maxAcceptedProjectionEstimatedTokens: 2048,
         minSavingsTokens: 1,
         minSavingsRatio: 0,
       },
@@ -35,7 +36,7 @@ describe('semantic compact', () => {
         assert.equal('tools' in request, false);
         assert.equal('toolChoice' in request, false);
         assert.equal('prepareStep' in request, false);
-        assert.doesNotMatch(JSON.stringify(request.messages), /recent-result/);
+        assert.match(JSON.stringify(request.messages), /recent-result/);
         assert.match(JSON.stringify(request.messages), /Return ONLY a valid JSON object/);
         assert.doesNotMatch(JSON.stringify(request.messages), /source_manifest/);
         return {
@@ -66,16 +67,13 @@ describe('semantic compact', () => {
     assert.equal(result.block?.kind, 'maka.semantic_compact_block');
     assert.equal(result.block?.acceptance.decision, 'accepted');
     assert.ok((result.block?.estimatedTokensSavedSigned ?? 0) > 0);
-    assert.deepEqual(result.block?.preservedTail.toolCallIds, ['tool-recent']);
+    assert.deepEqual(result.block?.preservedTail.toolCallIds, []);
     assert.equal(result.messages.some((message) =>
       message.role === 'user' && JSON.stringify(message.content).includes('maka_semantic_compact_block')
     ), true);
     assert.equal(result.messages.some((message) =>
-      message.role === 'assistant' && JSON.stringify(message.content).includes('tool-recent')
-    ), true);
-    assert.equal(result.messages.some((message) =>
       message.role === 'tool' && JSON.stringify(message.content).includes('recent-result')
-    ), true);
+    ), false);
 
     const decisions = result.diagnosticPatch.compactionDecisions ?? [];
     assert.equal(decisions[0]?.boundaryKind, 'semanticCompact');
@@ -99,9 +97,8 @@ describe('semantic compact', () => {
         enabled: true,
         maxActiveEstimatedTokens: 1,
         highWaterRatio: 0.1,
-        minRecentMessages: 1,
-        minRecentToolPairs: 1,
-        maxSummaryEstimatedTokens: 512,
+        minSafePrefixEstimatedTokens: 1,
+        maxAcceptedProjectionEstimatedTokens: 2048,
         minSavingsTokens: 50_000,
         minSavingsRatio: 0,
       },
@@ -139,7 +136,7 @@ describe('semantic compact', () => {
     assert.equal(decision?.compactCallTotalTokens, 11);
   });
 
-  test('accepts summaries that newly surface private verifier material with a warning', async () => {
+  test('rejects summaries that newly surface private verifier material', async () => {
     const result = await rewriteSemanticCompactInMessages({
       sessionId: 'session-1',
       turnId: 'turn-1',
@@ -150,8 +147,8 @@ describe('semantic compact', () => {
         enabled: true,
         maxActiveEstimatedTokens: 1,
         highWaterRatio: 0.1,
-        minRecentMessages: 1,
-        maxSummaryEstimatedTokens: 512,
+        minSafePrefixEstimatedTokens: 1,
+        maxAcceptedProjectionEstimatedTokens: 2048,
         minSavingsTokens: 1,
         minSavingsRatio: 0,
       },
@@ -174,17 +171,14 @@ describe('semantic compact', () => {
       }),
     });
 
-    assert.equal(result.decision, 'replaced');
-    assert.equal(result.block?.acceptance.decision, 'accepted');
-    assert.equal(result.block?.acceptance.reason, 'private_verifier_surface');
+    assert.equal(result.decision, 'unchanged');
+    assert.equal(result.reason, 'private_verifier_surface');
     assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.reason, 'private_verifier_surface');
-    assert.deepEqual(result.diagnosticPatch.compactionDecisions?.[0]?.skippedReasonCounts, {
-      private_verifier_surface: 1,
-    });
+    assert.equal(result.block, undefined);
     assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.compactCallTotalTokens, 7);
   });
 
-  test('falls back to raw summary text when JSON summaries do not satisfy the schema contract', async () => {
+  test('falls back to bounded complete summary text when JSON does not satisfy the schema contract', async () => {
     const baseInput = {
       sessionId: 'session-1',
       turnId: 'turn-1',
@@ -195,8 +189,8 @@ describe('semantic compact', () => {
         enabled: true,
         maxActiveEstimatedTokens: 1,
         highWaterRatio: 0.1,
-        minRecentMessages: 1,
-        maxSummaryEstimatedTokens: 512,
+        minSafePrefixEstimatedTokens: 1,
+        maxAcceptedProjectionEstimatedTokens: 2048,
         minSavingsTokens: 1,
         minSavingsRatio: 0,
       },
@@ -225,7 +219,25 @@ describe('semantic compact', () => {
       missingNextAction.diagnosticPatch.compactionDecisions?.[0]?.reason,
       'summary_missing_next_action',
     );
-    assert.match(renderSemanticCompactBlock(missingNextAction.block!), /raw_semantic_summary_fallback/);
+    assert.match(renderSemanticCompactBlock(missingNextAction.block!), /bounded text fallback|continuation_notes/);
+  });
+
+  test('rejects an unbounded non-structured fallback without a complete sentence or line', async () => {
+    const messages = semanticFixtureMessages();
+    const result = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-fallback-boundary',
+      turnId: 'turn-fallback-boundary',
+      messages,
+      headAnchor: buildActiveCompactionHeadAnchor(messages, 0, 1),
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: { ...attentionTestPolicy(), maxAcceptedProjectionEstimatedTokens: 128 },
+      summarizer: () => ({ text: 'unbounded '.repeat(2_000) }),
+    });
+
+    assert.equal(result.decision, 'unchanged');
+    assert.equal(result.reason, 'fallback_projection_empty');
+    assert.deepEqual(result.messages, messages);
   });
 
   test('does not reject valid summaries just because they exceed the soft summary target', async () => {
@@ -239,8 +251,9 @@ describe('semantic compact', () => {
         enabled: true,
         maxActiveEstimatedTokens: 1,
         highWaterRatio: 0.1,
-        minRecentMessages: 1,
+        minSafePrefixEstimatedTokens: 1,
         maxSummaryEstimatedTokens: 1,
+        maxAcceptedProjectionEstimatedTokens: 2048,
         minSavingsTokens: 1,
         minSavingsRatio: 0,
       },
@@ -269,8 +282,8 @@ describe('semantic compact', () => {
         enabled: true,
         maxActiveEstimatedTokens: 1,
         highWaterRatio: 0.1,
-        minRecentMessages: 1,
-        maxSummaryEstimatedTokens: 512,
+        minSafePrefixEstimatedTokens: 1,
+        maxAcceptedProjectionEstimatedTokens: 2048,
         minSavingsTokens: 1,
         minNetSavingsTokens: 1,
         compactCallTokenCostWeight: 1,
@@ -315,8 +328,8 @@ describe('semantic compact', () => {
       enabled: true,
       maxActiveEstimatedTokens: 1,
       highWaterRatio: 0.1,
-      minRecentMessages: 1,
-      maxSummaryEstimatedTokens: 512,
+      minSafePrefixEstimatedTokens: 1,
+      maxAcceptedProjectionEstimatedTokens: 2048,
       minSavingsTokens: 1,
       minSavingsRatio: 0,
       maxConsecutiveInvalidSummaries: 1,
@@ -388,8 +401,8 @@ describe('semantic compact', () => {
       enabled: true,
       maxActiveEstimatedTokens: 1,
       highWaterRatio: 0.1,
-      minRecentMessages: 1,
-      maxSummaryEstimatedTokens: 512,
+      minSafePrefixEstimatedTokens: 1,
+      maxAcceptedProjectionEstimatedTokens: 2048,
       minSavingsTokens: 1,
       minSavingsRatio: 0,
       maxConsecutiveInvalidSummaries: 1,
@@ -441,8 +454,8 @@ describe('semantic compact', () => {
         enabled: true,
         maxActiveEstimatedTokens: 1,
         highWaterRatio: 0.1,
-        minRecentMessages: 1,
-        maxSummaryEstimatedTokens: 512,
+        minSafePrefixEstimatedTokens: 1,
+        maxAcceptedProjectionEstimatedTokens: 2048,
         minSavingsTokens: 1,
         minSavingsRatio: 0,
       },
@@ -460,7 +473,250 @@ describe('semantic compact', () => {
     assert.match(rendered, /restoration_state_cards|coverage:/);
     assert.doesNotMatch(rendered, /providerSourceIds=/);
   });
+
+  test('preserves prior replay and the exact multimodal current-user head anchor', async () => {
+    const messages = [
+      { role: 'user', content: 'prior user' },
+      { role: 'assistant', content: 'prior answer' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Fix the current task exactly.' },
+          { type: 'image', image: 'data:image/png;base64,AAAA' },
+        ],
+        providerOptions: { test: { stable: true } },
+      },
+      { role: 'assistant', content: [{ type: 'reasoning', text: 'completed reasoning '.repeat(600) }] },
+    ] as unknown as ModelMessage[];
+    const headAnchor = buildActiveCompactionHeadAnchor(messages, 2, 1);
+    const result = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-anchor',
+      turnId: 'turn-anchor',
+      messages,
+      headAnchor,
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: attentionTestPolicy(),
+      summarizer: () => ({
+        text: semanticSummary({ objective: 'Fix the current task exactly.', nextAction: 'Continue.' }),
+      }),
+    });
+
+    assert.equal(result.decision, 'replaced');
+    assert.deepEqual(result.messages.slice(0, 3), messages.slice(0, 3));
+    assert.equal(result.block?.headAnchor?.messageSignature, headAnchor.messageSignature);
+    assert.equal(result.block?.headAnchor?.bodySha256, headAnchor.bodySha256);
+    assert.equal(result.block?.version, 2);
+    const boundary = semanticCompactBlockToCompactionBoundary(result.block!);
+    assert.equal(boundary.predecessorBoundaryId, undefined);
+    assert.deepEqual(boundary.preservedAnchor?.headProviderMessageSourceIds, result.block?.headAnchor?.sourceIds);
+    assert.equal(result.block?.coverage.providerMessageSourceIds.some((id) => id.startsWith('provider:2:')), false);
+  });
+
+  test('keeps an incomplete multi-tool episode in the exact tail', async () => {
+    const messages = [
+      { role: 'user', content: 'Current task' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: 'completed reasoning '.repeat(500) },
+          { type: 'tool-call', toolCallId: 'call-complete', toolName: 'Bash', input: { command: 'done' } },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [{ type: 'tool-result', toolCallId: 'call-complete', toolName: 'Bash', result: 'done' }],
+      },
+      { role: 'assistant', content: [{ type: 'reasoning', text: 'open episode reasoning' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool-call', toolCallId: 'call-a', toolName: 'Bash', input: { command: 'a' } },
+          { type: 'tool-call', toolCallId: 'call-b', toolName: 'Bash', input: { command: 'b' } },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [{ type: 'tool-result', toolCallId: 'call-a', toolName: 'Bash', result: 'done-a' }],
+      },
+    ] as unknown as ModelMessage[];
+    const result = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-tail',
+      turnId: 'turn-tail',
+      messages,
+      headAnchor: buildActiveCompactionHeadAnchor(messages, 0, 1),
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: attentionTestPolicy(),
+      summarizer: () => ({ text: semanticSummary({ objective: 'Current task', nextAction: 'Finish tools.' }) }),
+    });
+
+    assert.equal(result.decision, 'replaced');
+    assert.deepEqual(result.messages.slice(-3), messages.slice(-3));
+    assert.deepEqual(result.block?.preservedTail.toolCallIds, ['call-a', 'call-b']);
+    assert.doesNotMatch(renderSemanticCompactBlock(result.block!), /open episode reasoning/);
+  });
+
+  test('requires both total high water and a 4K completed safe span', async () => {
+    let calls = 0;
+    const messages = [
+      { role: 'user', content: 'large exact instruction '.repeat(500) },
+      { role: 'assistant', content: 'small completed step' },
+    ] as ModelMessage[];
+    const result = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-threshold',
+      turnId: 'turn-threshold',
+      messages,
+      headAnchor: buildActiveCompactionHeadAnchor(messages, 0, 1),
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: {
+        ...attentionTestPolicy(),
+        maxActiveEstimatedTokens: 16_000,
+        highWaterRatio: 0.5,
+        minSafePrefixEstimatedTokens: 4_096,
+      },
+      summarizer: () => {
+        calls += 1;
+        return { text: semanticSummary({ objective: 'unused', nextAction: 'unused' }) };
+      },
+    });
+
+    assert.equal(result.decision, 'unchanged');
+    assert.equal(result.reason, 'below_min_safe_prefix');
+    assert.equal(calls, 0);
+    assert.deepEqual(result.messages[0], messages[0]);
+  });
+
+  test('rolls predecessor plus newly completed raw history into one V2 successor', async () => {
+    const original = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Exact task instruction' },
+          { type: 'file', data: 'data:text/plain;base64,QQ==', mediaType: 'text/plain' },
+        ],
+        providerOptions: { test: { anchor: 'stable' } },
+      },
+      { role: 'assistant', content: 'first completed history '.repeat(500) },
+    ] as unknown as ModelMessage[];
+    const headAnchor = buildActiveCompactionHeadAnchor(original, 0, 1);
+    const first = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-roll',
+      turnId: 'turn-roll',
+      messages: original,
+      headAnchor,
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: attentionTestPolicy(),
+      summarizer: () => ({ text: semanticSummary({ objective: 'Exact task instruction', nextAction: 'Second step.' }) }),
+    });
+    assert.equal(first.decision, 'replaced');
+
+    const withNewHistory = [
+      ...first.messages,
+      { role: 'assistant', content: 'second completed history '.repeat(500) } as ModelMessage,
+    ];
+    const second = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-roll',
+      turnId: 'turn-roll',
+      messages: withNewHistory,
+      headAnchor,
+      predecessorBlock: first.block,
+      stepNumber: 3,
+      charsPerToken: 1,
+      policy: { ...attentionTestPolicy(), minNewPrefixEstimatedTokens: 1 },
+      summarizer: (request) => {
+        assert.match(JSON.stringify(request.messages), new RegExp(first.block!.blockId));
+        return { text: semanticSummary({ objective: 'Exact task instruction', nextAction: 'Finish.' }) };
+      },
+    });
+
+    assert.equal(second.decision, 'replaced');
+    assert.equal(second.block?.predecessorBlockId, first.block?.blockId);
+    assert.notEqual(second.block?.cumulativeCoverageDigest, first.block?.cumulativeCoverageDigest);
+    assert.equal(second.messages.filter((message) =>
+      JSON.stringify(message.content).includes('<maka_semantic_compact_block')
+    ).length, 1);
+    assert.deepEqual(second.messages[0], original[0]);
+  });
+
+  test('rejects empty and token-limit-truncated summarizer output', async () => {
+    const messages = semanticFixtureMessages();
+    const input = {
+      sessionId: 'session-reject',
+      turnId: 'turn-reject',
+      messages,
+      headAnchor: buildActiveCompactionHeadAnchor(messages, 0, 1),
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: attentionTestPolicy(),
+    } as const;
+    const empty = await rewriteSemanticCompactInMessages({ ...input, summarizer: () => ({ text: '' }) });
+    const truncated = await rewriteSemanticCompactInMessages({
+      ...input,
+      summarizer: () => ({ text: '{"current_objective":"partial', finishReason: 'max_tokens' }),
+    });
+    assert.equal(empty.decision, 'unchanged');
+    assert.equal(empty.reason, 'summary_missing');
+    assert.equal(truncated.decision, 'unchanged');
+    assert.equal(truncated.reason, 'summary_truncated');
+  });
+
+  test('bounds the complete provider-visible projection block', async () => {
+    const messages = semanticFixtureMessages();
+    const result = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-budget',
+      turnId: 'turn-budget',
+      messages,
+      headAnchor: buildActiveCompactionHeadAnchor(messages, 0, 4),
+      stepNumber: 2,
+      charsPerToken: 4,
+      policy: {
+        ...attentionTestPolicy(),
+        maxAcceptedProjectionEstimatedTokens: 768,
+      },
+      summarizer: () => ({
+        text: semanticSummary({
+          objective: 'Keep the objective focused. '.repeat(40),
+          nextAction: 'Continue with the next exact action. '.repeat(40),
+          commands: Array.from({ length: 8 }, (_, index) => `command-${index} ${'output '.repeat(80)}`),
+        }),
+      }),
+    });
+    assert.equal(result.decision, 'replaced');
+    assert.ok(Math.ceil(renderSemanticCompactBlock(result.block!).length / 4) <= 768);
+    assert.ok((result.block?.projection?.estimatedTokens ?? 769) <= 768);
+
+    const fallback = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-budget-fallback',
+      turnId: 'turn-budget-fallback',
+      messages,
+      headAnchor: buildActiveCompactionHeadAnchor(messages, 0, 4),
+      stepNumber: 2,
+      charsPerToken: 4,
+      policy: { ...attentionTestPolicy(), maxAcceptedProjectionEstimatedTokens: 768 },
+      summarizer: () => ({ text: 'The build is configured and the service is running. '.repeat(400) }),
+    });
+    assert.equal(fallback.decision, 'replaced');
+    assert.equal(fallback.block?.projection?.format, 'bounded_text_fallback');
+    assert.ok(Math.ceil(renderSemanticCompactBlock(fallback.block!).length / 4) <= 768);
+    assert.ok((fallback.block?.projection?.estimatedTokens ?? 769) <= 768);
+  });
 });
+
+function attentionTestPolicy() {
+  return {
+    enabled: true,
+    maxActiveEstimatedTokens: 1,
+    highWaterRatio: 0.1,
+    minSafePrefixEstimatedTokens: 1,
+    minNewPrefixEstimatedTokens: 1,
+    maxAcceptedProjectionEstimatedTokens: 2048,
+    minSavingsTokens: 1,
+    minSavingsRatio: 0,
+  } as const;
+}
 
 function semanticFixtureMessages(): ModelMessage[] {
   return [
@@ -482,7 +738,6 @@ function semanticFixtureMessages(): ModelMessage[] {
       role: 'tool',
       content: [{ type: 'tool-result', toolCallId: 'tool-recent', toolName: 'Bash', result: { body: 'recent-result service still running' } }],
     } as unknown as ModelMessage,
-    { role: 'user', content: 'Continue.' } as ModelMessage,
   ];
 }
 

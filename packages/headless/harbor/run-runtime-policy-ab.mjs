@@ -9,6 +9,7 @@ import { BENCHMARK_BASE_SYSTEM_PROMPT } from '@maka/headless';
 import { ensureAbRunManifest } from '#ab-manifest';
 import { discoverCachedHarborTasks, resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
 import { createHarborTaskRunner } from '#harbor-task-runner';
+import { providerCredentialEnv } from '#provider-env';
 import { runRuntimePolicyAbLifecycle } from '#runtime-policy-ab-lifecycle';
 import { parseRuntimePolicyAbExecutionProfile } from '#runtime-policy-ab-profile';
 import { buildRuntimePolicyAbRunManifest, renderRuntimePolicyAbComparisonMarkdown } from '#runtime-policy-ab-run';
@@ -39,7 +40,8 @@ async function main() {
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_RUNTIME_AB_RUN_ID');
   const spec = parseRuntimePolicyAbSpec(JSON.parse(await readFile(specPath, 'utf8')));
   const executionProfile = parseRuntimePolicyAbExecutionProfile(JSON.parse(await readFile(profilePath, 'utf8')));
-  const allTasks = await discoverCachedHarborTasks(tasksRoot);
+  const selectedTaskIds = new Set([...spec.pilotTaskIds, ...spec.evaluationTaskIds]);
+  const allTasks = await discoverCachedHarborTasks(tasksRoot, selectedTaskIds);
   const pilotTasks = selectTasks(allTasks, spec.pilotTaskIds, 'pilotTaskIds');
   const evaluationTasks = selectTasks(allTasks, spec.evaluationTaskIds, 'evaluationTaskIds');
   const systemPrompt = `${BENCHMARK_BASE_SYSTEM_PROMPT}\n`;
@@ -83,6 +85,8 @@ async function main() {
     llmConnectionSlug: executionProfile.llmConnectionSlug,
     model: executionProfile.model,
   };
+  const [baseUrlEnvName] = providerCredentialEnv(executionProfile.provider)?.baseUrls ?? [];
+  if (!baseUrlEnvName) throw new Error(`runtime policy A/B provider ${executionProfile.provider} does not declare a base URL environment variable`);
   const harborRunner = createHarborTaskRunner({
     makaRepoPath,
     jobsDir,
@@ -91,7 +95,7 @@ async function main() {
     apiKeyFile: keyFile,
     pricing: executionProfile.pricing,
     agentEnv: {
-      DEEPSEEK_BASE_URL: executionProfile.baseUrl,
+      [baseUrlEnvName]: executionProfile.baseUrl,
       MAKA_CELL_TIMEOUT_SEC: String(executionProfile.taskBudgetSec),
     },
     harborTimeoutMs: executionProfile.harborTimeoutMs,

@@ -108,8 +108,10 @@ import {
 } from './active-tool-result-prune.js';
 import { toolResultOutput } from './ai-sdk-tool-output.js';
 import {
+  buildActiveCompactionHeadAnchor,
   rewriteActiveFullCompactInMessages,
   type ActiveFullCompactBlock,
+  type ActiveCompactionHeadAnchor,
 } from './active-full-compact.js';
 import {
   rewriteSemanticCompactInMessages,
@@ -233,6 +235,41 @@ export function composePrepareStep(
   };
 }
 
+type ActiveCompactionPrepareStepResult = PrepareStepResultLike & {
+  makaSemanticCompactStatus?: 'replaced' | 'projected';
+};
+
+function composeActiveCompactionPrepareStep(
+  attention: PrepareStepFunctionLike | undefined,
+  capacity: PrepareStepFunctionLike | undefined,
+): PrepareStepFunctionLike | undefined {
+  if (!attention) return capacity;
+  if (!capacity) return attention;
+  return async (options) => {
+    const attentionResult = await Promise.resolve(attention(options)) as ActiveCompactionPrepareStepResult | undefined;
+    if (attentionResult?.makaSemanticCompactStatus === 'replaced') {
+      const { makaSemanticCompactStatus: _status, ...providerResult } = attentionResult;
+      return providerResult;
+    }
+    const capacityResult = await Promise.resolve(capacity({
+      ...options,
+      messages: attentionResult?.messages ?? options.messages,
+      ...(attentionResult?.activeTools ? { activeTools: attentionResult.activeTools } : {}),
+    }));
+    if (!capacityResult) {
+      if (!attentionResult) return undefined;
+      const { makaSemanticCompactStatus: _status, ...providerResult } = attentionResult;
+      return providerResult;
+    }
+    return {
+      ...attentionResult,
+      ...capacityResult,
+      activeTools: capacityResult.activeTools ?? attentionResult?.activeTools,
+      messages: capacityResult.messages ?? attentionResult?.messages,
+    };
+  };
+}
+
 function activeToolResultArchiveKey(
   candidate: ActiveToolResultArchiveCandidate & { bodySha256: string },
 ): string {
@@ -254,6 +291,7 @@ function collectPrepareStepToolCallIds(steps: PrepareStepLike['steps']): Set<str
 interface ActiveFullCompactPrepareStepProjection {
   sourceSignatures: readonly string[];
   projectedMessages: readonly ModelMessage[];
+  semanticBlock?: SemanticCompactBlock;
 }
 
 function projectAcceptedActiveFullCompactMessages(
@@ -934,6 +972,11 @@ export class AiSdkBackend implements AgentBackend {
             content: this.appendTurnTailPrompt(currentUserContent, turnTailPrompt),
           } as ModelMessage,
         ];
+        const activeCompactionHeadAnchor = buildActiveCompactionHeadAnchor(
+          messages,
+          messages.length - 1,
+          this.input.contextBudget?.charsPerToken,
+        );
         // Diagnostics describe the provider-visible (active) tool subset. A group
         // loaded *this* turn expands that subset on later steps (via prepareStep),
         // so the durable cost record is refined against the final active set once
@@ -1026,27 +1069,32 @@ export class AiSdkBackend implements AgentBackend {
               patch,
             );
           }),
-          this.buildSemanticCompactPrepareStep(
-            turnId,
-            model,
-            input.runtimeContext,
-            (messagesForStep, activeToolsForStep) => stepRequestShapeHash(messagesForStep, activeToolsForStep),
-            (patch) => {
-              activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
-                activeCompactDiagnosticPatch,
-                patch,
-              );
-            },
-          ) ?? this.buildActiveFullCompactPrepareStep(
-            turnId,
-            input.runtimeContext,
-            (messagesForStep, activeToolsForStep) => stepRequestShapeHash(messagesForStep, activeToolsForStep),
-            (patch) => {
-              activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
-                activeCompactDiagnosticPatch,
-                patch,
-              );
-            },
+          composeActiveCompactionPrepareStep(
+            this.buildSemanticCompactPrepareStep(
+              turnId,
+              model,
+              input.runtimeContext,
+              activeCompactionHeadAnchor,
+              (messagesForStep, activeToolsForStep) => stepRequestShapeHash(messagesForStep, activeToolsForStep),
+              (patch) => {
+                activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
+                  activeCompactDiagnosticPatch,
+                  patch,
+                );
+              },
+            ),
+            this.buildActiveFullCompactPrepareStep(
+              turnId,
+              input.runtimeContext,
+              activeCompactionHeadAnchor,
+              (messagesForStep, activeToolsForStep) => stepRequestShapeHash(messagesForStep, activeToolsForStep),
+              (patch) => {
+                activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
+                  activeCompactDiagnosticPatch,
+                  patch,
+                );
+              },
+            ),
           ),
         );
 
@@ -1802,6 +1850,7 @@ export class AiSdkBackend implements AgentBackend {
     turnId: string,
     model: unknown,
     runtimeEvents: readonly RuntimeEvent[] | undefined,
+    headAnchor: ActiveCompactionHeadAnchor,
     requestShapeHashForMessages: (
       messages: readonly ModelMessage[],
       activeToolsForStep: readonly string[] | undefined,
@@ -1846,6 +1895,10 @@ export class AiSdkBackend implements AgentBackend {
         now: this.now(),
         charsPerToken: this.input.contextBudget?.charsPerToken,
         requestShapeHashForMessages: (messages) => requestShapeHashForMessages(messages, activeToolsForStep),
+        headAnchor,
+        ...(acceptedProjection?.semanticBlock
+          ? { predecessorBlock: acceptedProjection.semanticBlock }
+          : {}),
         abortSignal: this.abortController?.signal,
         summarizer: async (request) => {
           const startedAt = this.now();
@@ -1893,16 +1946,26 @@ export class AiSdkBackend implements AgentBackend {
         acceptedProjection = {
           sourceSignatures: incomingMessages.map(modelMessageSignature),
           projectedMessages: rewritten.messages,
+          ...(rewritten.block ? { semanticBlock: rewritten.block } : {}),
         };
-        return { messages: rewritten.messages };
+        return {
+          messages: rewritten.messages,
+          makaSemanticCompactStatus: 'replaced',
+        } as ActiveCompactionPrepareStepResult;
       }
-      return !dryRun && projectedMessages ? { messages: projectedMessages } : undefined;
+      return !dryRun && projectedMessages
+        ? {
+            messages: projectedMessages,
+            makaSemanticCompactStatus: 'projected',
+          } as ActiveCompactionPrepareStepResult
+        : undefined;
     };
   }
 
   private buildActiveFullCompactPrepareStep(
     turnId: string,
     runtimeEvents: readonly RuntimeEvent[] | undefined,
+    headAnchor: ActiveCompactionHeadAnchor,
     requestShapeHashForMessages: (
       messages: readonly ModelMessage[],
       activeToolsForStep: readonly string[] | undefined,
@@ -1931,6 +1994,7 @@ export class AiSdkBackend implements AgentBackend {
         now: this.now(),
         charsPerToken: this.input.contextBudget?.charsPerToken,
         requestShapeHashForMessages: (messages) => requestShapeHashForMessages(messages, activeToolsForStep),
+        headAnchor,
         dryRun,
         ...(dryRun ? { dryRunReason: policy.mode } : {}),
       });

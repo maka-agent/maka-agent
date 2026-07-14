@@ -8,6 +8,7 @@ import {
   activeFullCompactCoverageFromEntries,
   activeFullCompactDecisionDiagnosticPatch,
   buildDeterministicActiveFullCompactSummary,
+  buildActiveCompactionHeadAnchor,
   buildActiveFullCompactBlockFromSummary,
   buildActiveFullCompactSourceIndex,
   renderActiveFullCompactBlock,
@@ -778,6 +779,30 @@ describe('active full compact PR1 foundation', () => {
     assert.equal(index.activeCompactMessageIndexes?.[0], 0);
     assert.equal(selection.startMessageIndex > 0, true);
     assert.equal(selection.entries.some((entry) => entry.messageIndex === 0), false);
+  });
+
+  test('emergency compaction fails explicitly instead of rewriting an oversized user anchor', () => {
+    const messages = [
+      { role: 'user', content: 'exact oversized instruction '.repeat(100) },
+    ] as ModelMessage[];
+    const result = rewriteActiveFullCompactInMessages({
+      sessionId: 'session-anchor-capacity',
+      turnId: 'turn-anchor-capacity',
+      messages,
+      headAnchor: buildActiveCompactionHeadAnchor(messages, 0, 1),
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: {
+        enabled: true,
+        maxActiveEstimatedTokens: 100,
+        highWaterRatio: 0.5,
+      },
+    });
+
+    assert.equal(result.decision, 'failedOpen');
+    assert.deepEqual(result.messages, messages);
+    assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.reason, 'head_anchor_exceeds_capacity');
+    assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.failOpenReason, 'head_anchor_exceeds_capacity');
   });
 });
 

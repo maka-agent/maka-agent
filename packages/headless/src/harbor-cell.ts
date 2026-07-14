@@ -214,6 +214,9 @@ export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
   'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ESTIMATED_TOKENS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_TOOL_PAIRS',
+  'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAFE_PREFIX_ESTIMATED_TOKENS',
+  'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NEW_PREFIX_ESTIMATED_TOKENS',
+  'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACCEPTED_PROJECTION_ESTIMATED_TOKENS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_TOKENS',
@@ -962,10 +965,24 @@ export function buildHarborCellContextBudgetBackendOptions(
     const minStepNumber = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_STEP_NUMBER']);
     const minRecentMessages = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES']);
     const minRecentToolPairs = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_TOOL_PAIRS']);
+    const minSafePrefixEstimatedTokens = positiveIntEnv(
+      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAFE_PREFIX_ESTIMATED_TOKENS,
+      'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAFE_PREFIX_ESTIMATED_TOKENS',
+    );
+    const minNewPrefixEstimatedTokens = positiveIntEnv(
+      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NEW_PREFIX_ESTIMATED_TOKENS,
+      'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NEW_PREFIX_ESTIMATED_TOKENS',
+    );
     const maxSummaryEstimatedTokens = positiveIntEnv(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS ??
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS,
       'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS',
+    );
+    const maxAcceptedProjectionEstimatedTokens = positiveIntEnv(
+      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACCEPTED_PROJECTION_ESTIMATED_TOKENS ??
+      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS ??
+      env.MAKA_CONTEXT_SEMANTIC_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS,
+      'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACCEPTED_PROJECTION_ESTIMATED_TOKENS',
     );
     const minSavingsTokens = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_TOKENS']);
     const minNetSavingsTokens = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NET_SAVINGS_TOKENS']);
@@ -1002,6 +1019,9 @@ export function buildHarborCellContextBudgetBackendOptions(
       ...(maxActiveEstimatedTokens !== undefined ? { maxActiveEstimatedTokens } : {}),
       ...(minRecentMessages !== undefined ? { minRecentMessages } : {}),
       ...(minRecentToolPairs !== undefined ? { minRecentToolPairs } : {}),
+      ...(minSafePrefixEstimatedTokens !== undefined ? { minSafePrefixEstimatedTokens } : {}),
+      ...(minNewPrefixEstimatedTokens !== undefined ? { minNewPrefixEstimatedTokens } : {}),
+      ...(maxAcceptedProjectionEstimatedTokens !== undefined ? { maxAcceptedProjectionEstimatedTokens } : {}),
       ...(maxSummaryEstimatedTokens !== undefined ? { maxSummaryEstimatedTokens } : {}),
       ...(minSavingsTokens !== undefined ? { minSavingsTokens } : {}),
       ...(minSavingsRatio !== undefined ? { minSavingsRatio } : {}),
@@ -1210,6 +1230,15 @@ export function buildHarborCellContextBudgetPolicySnapshot(
               : {}),
             ...(contextBudget.semanticCompact.minRecentToolPairs !== undefined
               ? { minRecentToolPairs: contextBudget.semanticCompact.minRecentToolPairs }
+              : {}),
+            ...(contextBudget.semanticCompact.minSafePrefixEstimatedTokens !== undefined
+              ? { minSafePrefixEstimatedTokens: contextBudget.semanticCompact.minSafePrefixEstimatedTokens }
+              : {}),
+            ...(contextBudget.semanticCompact.minNewPrefixEstimatedTokens !== undefined
+              ? { minNewPrefixEstimatedTokens: contextBudget.semanticCompact.minNewPrefixEstimatedTokens }
+              : {}),
+            ...(contextBudget.semanticCompact.maxAcceptedProjectionEstimatedTokens !== undefined
+              ? { maxAcceptedProjectionEstimatedTokens: contextBudget.semanticCompact.maxAcceptedProjectionEstimatedTokens }
               : {}),
             ...(contextBudget.semanticCompact.maxSummaryEstimatedTokens !== undefined
               ? { maxSummaryEstimatedTokens: contextBudget.semanticCompact.maxSummaryEstimatedTokens }

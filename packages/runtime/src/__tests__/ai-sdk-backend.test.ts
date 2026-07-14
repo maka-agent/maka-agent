@@ -4182,6 +4182,7 @@ describe('AiSdkBackend usage telemetry', () => {
     const events: SessionEvent[] = [];
     const llmRecords: LlmCallRecord[] = [];
     const recordedBlocks: SemanticCompactBlock[] = [];
+    const recordedActiveFullBlocks: ActiveFullCompactBlock[] = [];
     const largeBody = 'SEMANTIC_COMPACT_RAW_TOOL_OUTPUT'.repeat(180);
     let streamCalls = 0;
     const model = new MockLanguageModelV3({
@@ -4264,6 +4265,14 @@ describe('AiSdkBackend usage telemetry', () => {
           minSavingsTokens: 1,
           minSavingsRatio: 0,
         },
+        activeFullCompact: {
+          enabled: true,
+          minStepNumber: 1,
+          maxActiveEstimatedTokens: 1,
+          highWaterRatio: 0.1,
+          minRecentMessages: 0,
+          maxSummaryEstimatedTokens: 1024,
+        },
       },
       newId: idGenerator(),
       now: monotonicClock(),
@@ -4272,6 +4281,9 @@ describe('AiSdkBackend usage telemetry', () => {
       },
       recordSemanticCompactBlock: (block) => {
         recordedBlocks.push(block);
+      },
+      recordActiveFullCompactBlock: (block) => {
+        recordedActiveFullBlocks.push(block);
       },
     });
 
@@ -4282,6 +4294,7 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(streamCalls, 2);
     assert.equal(model.doGenerateCalls.length, 1);
     assert.equal(recordedBlocks.length, 1);
+    assert.equal(recordedActiveFullBlocks.length, 0, 'one step must accept at most one compaction replacement');
     assert.equal(recordedBlocks[0]?.kind, 'maka.semantic_compact_block');
     const secondPrompt = JSON.stringify(model.doStreamCalls[1]?.prompt.map((message) => ({
       role: message.role,

@@ -1771,6 +1771,9 @@ describe('runHarborCell', () => {
       MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS: '4096',
       MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES: '3',
       MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_TOOL_PAIRS: '2',
+      MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAFE_PREFIX_ESTIMATED_TOKENS: '3072',
+      MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NEW_PREFIX_ESTIMATED_TOKENS: '2048',
+      MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACCEPTED_PROJECTION_ESTIMATED_TOKENS: '640',
       MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS: '512',
       MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_TOKENS: '128',
       MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_RATIO: '0.2',
@@ -1792,6 +1795,9 @@ describe('runHarborCell', () => {
     assert.equal(options.contextBudget?.semanticCompact?.maxActiveEstimatedTokens, 4096);
     assert.equal(options.contextBudget?.semanticCompact?.minRecentMessages, 3);
     assert.equal(options.contextBudget?.semanticCompact?.minRecentToolPairs, 2);
+    assert.equal(options.contextBudget?.semanticCompact?.minSafePrefixEstimatedTokens, 3072);
+    assert.equal(options.contextBudget?.semanticCompact?.minNewPrefixEstimatedTokens, 2048);
+    assert.equal(options.contextBudget?.semanticCompact?.maxAcceptedProjectionEstimatedTokens, 640);
     assert.equal(options.contextBudget?.semanticCompact?.maxSummaryEstimatedTokens, 512);
     assert.equal(options.contextBudget?.semanticCompact?.minSavingsTokens, 128);
     assert.equal(options.contextBudget?.semanticCompact?.minSavingsRatio, 0.2);

@@ -403,11 +403,13 @@ Maka 当前至少有三类上下文缩减：
 |---|---|---|---|---|
 | History LLM compaction | 旧 RuntimeEvent prefix | Turn 之间、构建 prior history 时 | V2 checkpoint 记录进 AgentRun event ledger | 本章主体 |
 | Active Tool Result Prune | 当前 Turn 的 provider-visible tool result | 同一 Turn 的下一 step 前 | raw result 先归档；placeholder 只改当前 messages | 第二章主体 |
-| `semanticCompact` | 当前 active-loop messages，加可用的 Turn RuntimeEvent refs | `prepareStep` | `SemanticCompactBlock` 是 best-effort diagnostic record；accepted messages 保存在当前 backend projection | 相邻机制，不等同于 V2 checkpoint |
+| `semanticCompact` | 当前 user head anchor 之后、open protocol tail 之前的 completed middle span，加可用的 Turn RuntimeEvent refs | `prepareStep` | V2 `SemanticCompactBlock` 是 best-effort diagnostic record；accepted messages 保存在当前 backend projection | Attention shaping，相邻机制，不等同于 V2 checkpoint |
 
 它们共享“不要修改 canonical source”的方向，但保证强度不同。
 
-尤其是当前 `semanticCompact`：它会用 LLM 对 active provider-message span 生成结构化 summary，校验 coverage 与 savings，并在后续 AI SDK steps 复用 accepted projection；但其 source index 可以依赖 invocation-local `ModelMessage`，block recorder 失败也不会撤销已经接受的 provider projection。因此它不是 V2 history checkpoint 那种“durable append 成功后才进入 replay”的同一协议。
+当前 `semanticCompact` 把原始 current-user message 当作不可改写的 head anchor。Runtime 只选择 anchor 之后由完整 assistant step 与完整 tool call/result pairs 组成的连续 completed span；第一个未完成 provider episode 及其后内容保持为 exact tail。LLM 决定这个 span 中哪些目标、约束、执行状态与下一步值得进入 bounded continuation projection。总 active context 与 completed span 必须同时越过阈值，rolling successor 也必须覆盖足够多的新 raw history。
+
+该机制主动用 prefix rewrite 换取模型注意力。Signed token savings、compact-call cost 与 cache miss 是诊断数据，不是 attention 模式的拒绝条件；source/head/protocol validation、非截断输出与完整 provider-visible projection budget 才是 hard acceptance gates。V2 block 记录 exact head identity、predecessor、new coverage 与 cumulative digest，但 recorder 仍是 best-effort：写入失败不会撤销 invocation-local accepted projection。因此它仍不是 V2 history checkpoint 那种“durable append 成功后才进入 replay”的同一协议。
 
 如果未来要把所有 LLM compaction 统一到“Events Log projection”模型，关键不是复用一个 summary prompt，而是让 active-loop source 也获得完整、稳定、可验证的 event coverage 与明确的 durability contract。这是架构方向，不应被描述成当前已经完成。
 

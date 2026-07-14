@@ -4,10 +4,12 @@ import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import {
   activeFullCompactCoverageFromEntries,
+  activeCompactionMessageSignature,
+  buildActiveCompactionHeadAnchor,
   buildActiveFullCompactBlockFromSummary,
   buildActiveFullCompactSourceIndex,
   buildDeterministicActiveFullCompactSummary,
-  selectActiveFullCompactCoveredSpan,
+  selectActiveCompactionSafeSpan,
   validateActiveFullCompactBlockForSourceIndex,
   type ActiveFullCompactArchiveRef,
   type ActiveFullCompactCoverage,
@@ -16,13 +18,19 @@ import {
   type ActiveFullCompactSourceIndex,
   type ActiveFullCompactSourceRef,
   type ActiveFullCompactValidationResult,
+  type ActiveCompactionHeadAnchor,
 } from './active-full-compact.js';
-import { compactionDecisionDiagnosticPatch } from './compaction-boundary.js';
+import {
+  compactionDecisionDiagnosticPatch,
+  type CompactionBoundary,
+} from './compaction-boundary.js';
 import { estimateTokens } from './context-budget.js';
 import type { CompactSummaryResult, NormalizedAiSdkUsage } from './model-adapter.js';
 
 const DEFAULT_CHARS_PER_TOKEN = 4;
 const DEFAULT_MAX_SUMMARY_TOKENS = 768;
+const DEFAULT_MIN_SAFE_PREFIX_TOKENS = 4096;
+const DEFAULT_MIN_NEW_PREFIX_TOKENS = 4096;
 const DEFAULT_MAX_COMPACT_CALL_TOKENS = 4096;
 const FALLBACK_RAW_SUMMARY_MAX_CHARS = 12_000;
 const DEFAULT_MIN_SAVINGS_TOKENS = 256;
@@ -47,6 +55,12 @@ export interface SemanticCompactPolicy {
   minRecentMessages?: number;
   minRecentToolPairs?: number;
   maxSummaryEstimatedTokens?: number;
+  /** Minimum completed active-turn span after the exact user anchor. Defaults to 4096. */
+  minSafePrefixEstimatedTokens?: number;
+  /** Minimum newly completed raw span required for a successor projection. Defaults to 4096. */
+  minNewPrefixEstimatedTokens?: number;
+  /** Hard provider-visible budget for the complete rendered projection block. Defaults to 768. */
+  maxAcceptedProjectionEstimatedTokens?: number;
   minSavingsTokens?: number;
   minSavingsRatio?: number;
   minNetSavingsTokens?: number;
@@ -105,7 +119,8 @@ export interface SemanticCompactStructuredSummary {
 
 export interface SemanticCompactBlock {
   kind: 'maka.semantic_compact_block';
-  version: 1;
+  /** V1 remains readable because all V2 lineage fields are additive. New blocks are always V2. */
+  version: 1 | 2;
   blockId: string;
   sessionId: string;
   turnId: string;
@@ -127,6 +142,22 @@ export interface SemanticCompactBlock {
     messageIndexes: number[];
     toolCallIds: string[];
     sourceIds: string[];
+  };
+  headAnchor?: {
+    messageIndex: number;
+    messageSignature: string;
+    bodySha256: string;
+    estimatedTokens: number;
+    sourceIds: string[];
+  };
+  predecessorBlockId?: string;
+  newCoverage?: ActiveFullCompactCoverage;
+  cumulativeCoverageDigest?: string;
+  projection?: {
+    format: 'structured' | 'bounded_text_fallback';
+    generationBudgetTokens: number;
+    acceptedBudgetTokens: number;
+    estimatedTokens: number;
   };
   summary: {
     promptVersion: string;
@@ -173,6 +204,9 @@ export interface SemanticCompactRewriteInput {
   charsPerToken?: number;
   requestShapeHashBefore?: string;
   requestShapeHashForMessages?: (messages: readonly ModelMessage[]) => string;
+  /** Captured from the exact current-turn user message before the first provider step. */
+  headAnchor?: ActiveCompactionHeadAnchor;
+  predecessorBlock?: SemanticCompactBlock;
   summarizer: SemanticCompactSummarizer;
   abortSignal?: AbortSignal;
 }
@@ -210,8 +244,32 @@ export async function rewriteSemanticCompactInMessages(
     stepNumber: input.stepNumber,
     charsPerToken,
   });
-  const selectionPolicy = policyForSemanticSelection(policy, messages);
-  const selection = selectActiveFullCompactCoveredSpan(index, selectionPolicy);
+  const headAnchor = resolveSemanticHeadAnchor(messages, input.headAnchor, charsPerToken);
+  if (!headAnchor) {
+    return {
+      messages,
+      decision: 'failedOpen',
+      reason: 'head_anchor_mismatch',
+      diagnosticPatch: semanticCompactDecisionDiagnosticPatch({
+        decision: 'failedOpen',
+        failOpenReason: 'head_anchor_mismatch',
+        estimatedTokensBefore: index.estimatedTokens,
+        estimatedTokensAfter: index.estimatedTokens,
+      }),
+    };
+  }
+  const predecessorMessageIndex = findSemanticProjectionMessageIndex(messages, headAnchor.messageIndex);
+  if (input.predecessorBlock && predecessorMessageIndex === undefined) {
+    return rejected(messages, index, 'predecessor_projection_missing');
+  }
+  const selectionPolicy = policyForSemanticSelection(policy, Boolean(input.predecessorBlock));
+  const selection = selectActiveCompactionSafeSpan({
+    index,
+    messages,
+    policy: selectionPolicy,
+    headAnchor,
+    ...(predecessorMessageIndex !== undefined ? { afterMessageIndex: predecessorMessageIndex } : {}),
+  });
   if (selection.decision !== 'selected') {
     const decision = selection.decision === 'failedOpen' ? 'failedOpen' : 'unchanged';
     return {
@@ -260,7 +318,25 @@ export async function rewriteSemanticCompactInMessages(
     archiveRequired: policy.archiveRequired,
     charsPerToken,
   });
-  const warningReasons: string[] = validation.valid ? [] : [...validation.reasons];
+  if (!validation.valid) {
+    return {
+      messages,
+      decision: 'failedOpen',
+      reason: validation.reasons[0] ?? 'source_validation_failed',
+      validation,
+      diagnosticPatch: semanticCompactDecisionDiagnosticPatch({
+        decision: 'failedOpen',
+        failOpenReason: validation.reasons[0] ?? 'source_validation_failed',
+        estimatedTokensBefore: index.estimatedTokens,
+        estimatedTokensAfter: index.estimatedTokens,
+        validationReasonCounts: validation.reasonCounts,
+      }),
+    };
+  }
+  const warningReasons: string[] = [];
+  if (policy.minRecentMessages !== undefined || policy.minRecentToolPairs !== undefined) {
+    warningReasons.push('deprecated_semantic_recency_policy_ignored');
+  }
 
   const stateCards = buildSemanticStateCards({
     selection,
@@ -277,6 +353,8 @@ export async function rewriteSemanticCompactInMessages(
         selection,
         messages,
         index,
+        headAnchor,
+        ...(predecessorMessageIndex !== undefined ? { predecessorMessageIndex } : {}),
         stateCards,
         policy,
         charsPerToken,
@@ -291,15 +369,42 @@ export async function rewriteSemanticCompactInMessages(
 
   const compactCallUsage = summary.usage ? compactUsage(summary.usage) : undefined;
   recordCompactCall(input.controllerState, compactCallUsage);
+  if (!summary.text.trim()) {
+    recordInvalidSummary(input.controllerState, policy, 'summary_missing', input.stepNumber);
+    return rejected(messages, index, 'summary_missing', compactCallUsage);
+  }
+  if (isTruncatedFinishReason(summary.finishReason)) {
+    recordInvalidSummary(input.controllerState, policy, 'summary_truncated', input.stepNumber);
+    return rejected(messages, index, 'summary_truncated', compactCallUsage);
+  }
   const parsedSummary = parseSemanticCompactSummary(summary.text);
   if (!parsedSummary.ok) warningReasons.push(parsedSummary.reason);
   recordValidSummary(input.controllerState);
   const structuredSummary = parsedSummary.ok
     ? parsedSummary.summary
-    : fallbackSemanticCompactSummary(summary.text, parsedSummary.reason);
+    : fallbackSemanticCompactSummary(
+        summary.text,
+        parsedSummary.reason,
+        Math.max(
+          80,
+          Math.floor(
+            (policy.maxAcceptedProjectionEstimatedTokens
+              ?? policy.maxSummaryEstimatedTokens
+              ?? DEFAULT_MAX_SUMMARY_TOKENS) * charsPerToken / 2,
+          ),
+        ),
+      );
+  if (!structuredSummary) {
+    recordInvalidSummary(input.controllerState, policy, 'fallback_projection_empty', input.stepNumber);
+    return rejected(messages, index, 'fallback_projection_empty', compactCallUsage);
+  }
   const summaryText = renderStructuredSemanticSummary(structuredSummary);
-  if (newPrivateVerifierSurface(`${summary.text}\n${summaryText}`, selectedSourceText(selection, messages))) {
-    warningReasons.push('private_verifier_surface');
+  if (newPrivateVerifierSurface(
+    `${summary.text}\n${summaryText}`,
+    selectedSourceText({ startMessageIndex: headAnchor.messageIndex, endMessageIndex: selection.endMessageIndex }, messages),
+  )) {
+    recordInvalidSummary(input.controllerState, policy, 'private_verifier_surface', input.stepNumber);
+    return rejected(messages, index, 'private_verifier_surface', compactCallUsage);
   }
 
   const requestShapeHashBefore = input.requestShapeHashBefore ?? input.requestShapeHashForMessages?.(messages);
@@ -307,6 +412,8 @@ export async function rewriteSemanticCompactInMessages(
     input,
     index,
     selection,
+    headAnchor,
+    predecessorBlock: input.predecessorBlock,
     structuredSummary,
     summaryText,
     stateCards,
@@ -315,16 +422,39 @@ export async function rewriteSemanticCompactInMessages(
     providerRequestId: summary.providerRequestId,
     requestShapeHashBefore,
     charsPerToken,
+    projectionFormat: parsedSummary.ok ? 'structured' : 'bounded_text_fallback',
   });
+  if (!fitSemanticCompactBlockToAcceptedBudget(
+    block,
+    structuredSummary,
+    policy.maxAcceptedProjectionEstimatedTokens
+      ?? policy.maxSummaryEstimatedTokens
+      ?? DEFAULT_MAX_SUMMARY_TOKENS,
+    charsPerToken,
+  )) {
+    recordInvalidSummary(input.controllerState, policy, 'projection_budget_exceeded', input.stepNumber);
+    return rejected(messages, index, 'projection_budget_exceeded', compactCallUsage);
+  }
   const replacementMessage = semanticCompactBlockToModelMessage(block);
+  const replacementStartMessageIndex = predecessorMessageIndex ?? selection.startMessageIndex;
+  const predecessorEstimatedTokens = predecessorMessageIndex === undefined
+    ? 0
+    : index.entries
+        .filter((entry) => entry.messageIndex === predecessorMessageIndex)
+        .reduce((total, entry) => total + entry.estimatedTokens, 0);
   const replacementMessages = [
-    ...messages.slice(0, selection.startMessageIndex),
+    ...messages.slice(0, replacementStartMessageIndex),
     replacementMessage,
     ...messages.slice(selection.endMessageIndex + 1),
   ];
   const requestShapeHashAfter = input.requestShapeHashForMessages?.(replacementMessages);
   if (requestShapeHashAfter) block.requestShapeHashAfter = requestShapeHashAfter;
-  block.postReplacementEstimatedTokens = estimatePostReplacementTokens(index, selection.estimatedTokens, renderSemanticCompactBlock(block), charsPerToken);
+  block.postReplacementEstimatedTokens = estimatePostReplacementTokens(
+    index,
+    selection.estimatedTokens + predecessorEstimatedTokens,
+    renderSemanticCompactBlock(block),
+    charsPerToken,
+  );
   block.estimatedTokensSavedSigned = index.estimatedTokens - block.postReplacementEstimatedTokens;
   block.estimatedNetTokensSavedSigned = estimateSemanticNetTokensSaved(block, policy);
 
@@ -333,6 +463,9 @@ export async function rewriteSemanticCompactInMessages(
   const uniqueWarningReasons = uniqueStrings(warningReasons);
   const warningReasonCounts = countStringReasons(uniqueWarningReasons);
   const primaryWarningReason = uniqueWarningReasons[0];
+  const preservedTailEstimatedTokens = index.entries
+    .filter((entry) => entry.messageIndex > selection.endMessageIndex)
+    .reduce((total, entry) => total + entry.estimatedTokens, 0);
 
   if (policy.mode === 'validate_only' || policy.mode === 'prepare_step_dry_run') {
     block.acceptance = { decision: 'dry_run', reason: policy.mode };
@@ -349,6 +482,10 @@ export async function rewriteSemanticCompactInMessages(
         estimatedTokensBefore: index.estimatedTokens,
         estimatedTokensAfter: block.postReplacementEstimatedTokens,
         estimatedTokensSaved: block.estimatedTokensSavedSigned,
+        candidateEstimatedTokens: selection.estimatedTokens,
+        preservedHeadEstimatedTokens: headAnchor.estimatedTokens,
+        preservedTailEstimatedTokens,
+        acceptedProjectionEstimatedTokens: block.projection?.estimatedTokens,
         compactCallUsage: block.compactCallUsage,
         reason: policy.mode,
         ...(primaryWarningReason ? { skippedReasonCounts: warningReasonCounts } : {}),
@@ -375,6 +512,10 @@ export async function rewriteSemanticCompactInMessages(
         estimatedTokensBefore: index.estimatedTokens,
         estimatedTokensAfter: block.postReplacementEstimatedTokens,
         estimatedTokensSaved: block.estimatedTokensSavedSigned,
+        candidateEstimatedTokens: selection.estimatedTokens,
+        preservedHeadEstimatedTokens: headAnchor.estimatedTokens,
+        preservedTailEstimatedTokens,
+        acceptedProjectionEstimatedTokens: block.projection?.estimatedTokens,
         compactCallUsage: block.compactCallUsage,
         ...(primaryWarningReason ? { reason: primaryWarningReason, skippedReasonCounts: warningReasonCounts } : {}),
         validationReasonCounts: validation.reasonCounts,
@@ -394,6 +535,44 @@ export function semanticCompactBlockToModelMessage(block: SemanticCompactBlock):
     role: 'user',
     content: renderSemanticCompactBlock(block),
   } as ModelMessage;
+}
+
+export function semanticCompactBlockToCompactionBoundary(
+  block: SemanticCompactBlock,
+): CompactionBoundary {
+  return {
+    kind: 'semanticCompact',
+    stage: 'activeStep',
+    schemaVersion: block.version,
+    boundaryId: block.blockId,
+    ...(block.predecessorBlockId ? { predecessorBoundaryId: block.predecessorBlockId } : {}),
+    ...(block.cumulativeCoverageDigest
+      ? { cumulativeCoverageDigest: block.cumulativeCoverageDigest }
+      : {}),
+    sessionId: block.sessionId,
+    createdAt: block.createdAt,
+    highWaterName: block.highWaterName,
+    highWaterSeq: block.highWaterSeq,
+    coverage: {
+      turnIds: block.coverage.turnIds,
+      runtimeEventIds: block.coverage.runtimeEventIds,
+      toolCallIds: block.coverage.toolCallIds,
+      contentKinds: block.coverage.contentKinds,
+      bodySha256: block.coverage.bodySha256,
+      providerMessageSourceIds: block.coverage.providerMessageSourceIds,
+    },
+    preservedAnchor: {
+      ...(block.headAnchor?.sourceIds.length
+        ? { headProviderMessageSourceIds: block.headAnchor.sourceIds }
+        : {}),
+      tailProviderMessageSourceIds: block.preservedTail.sourceIds,
+    },
+    sourceHashes: block.coverage.bodySha256,
+    renderedText: renderSemanticCompactBlock(block),
+    estimatedTokens: block.projection?.estimatedTokens,
+    validationStatus: block.acceptance.decision === 'rejected' ? 'invalid' : 'valid',
+    ...(block.acceptance.reason ? { validationReason: block.acceptance.reason } : {}),
+  };
 }
 
 export function renderSemanticCompactBlock(block: SemanticCompactBlock): string {
@@ -417,73 +596,28 @@ export function renderSemanticCompactBlock(block: SemanticCompactBlock): string 
 
 function policyForSemanticSelection(
   policy: SemanticCompactPolicy,
-  messages: readonly ModelMessage[],
-): ActiveFullCompactPolicy {
-  const minRecentMessages = Math.max(
-    Math.floor(policy.minRecentMessages ?? 1),
-    recentMessageCountForToolPairs(messages, Math.floor(policy.minRecentToolPairs ?? 0)),
-  );
+  successor: boolean,
+): ActiveFullCompactPolicy & { minSafePrefixEstimatedTokens: number } {
   return {
     enabled: true,
     minStepNumber: policy.minStepNumber,
     highWaterRatio: policy.highWaterRatio,
-    forceRatio: policy.forceRatio,
-    targetRatio: policy.targetRatio,
     maxActiveEstimatedTokens: policy.maxActiveEstimatedTokens,
-    minRecentMessages,
-    minRecentToolPairs: policy.minRecentToolPairs,
+    minSafePrefixEstimatedTokens: successor
+      ? policy.minNewPrefixEstimatedTokens ?? DEFAULT_MIN_NEW_PREFIX_TOKENS
+      : policy.minSafePrefixEstimatedTokens ?? DEFAULT_MIN_SAFE_PREFIX_TOKENS,
     maxSummaryEstimatedTokens: policy.maxSummaryEstimatedTokens,
     archiveRequired: policy.archiveRequired,
     highWaterName: policy.highWaterName,
   };
 }
 
-function recentMessageCountForToolPairs(messages: readonly ModelMessage[], minPairs: number): number {
-  if (minPairs <= 0) return 0;
-  const retained = new Set<number>();
-  const callsById = new Map<string, number>();
-  const resultsById = new Map<string, number>();
-  messages.forEach((message, index) => {
-    for (const id of messageToolCallIds(message)) callsById.set(id, index);
-    for (const id of messageToolResultIds(message)) resultsById.set(id, index);
-  });
-  let pairs = 0;
-  for (let index = messages.length - 1; index >= 0 && pairs < minPairs; index -= 1) {
-    for (const id of messageToolResultIds(messages[index]!)) {
-      const callIndex = callsById.get(id);
-      const resultIndex = resultsById.get(id);
-      if (callIndex === undefined || resultIndex === undefined) continue;
-      retained.add(callIndex);
-      retained.add(resultIndex);
-      pairs += 1;
-      if (pairs >= minPairs) break;
-    }
-  }
-  if (retained.size === 0) return 0;
-  return messages.length - Math.min(...retained);
-}
-
-function messageToolCallIds(message: ModelMessage): string[] {
-  const content = (message as { content?: unknown }).content;
-  const parts = Array.isArray(content) ? content : [];
-  return parts
-    .map((part) => isRecord(part) && part.type === 'tool-call' ? part.toolCallId ?? part.tool_call_id : undefined)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0);
-}
-
-function messageToolResultIds(message: ModelMessage): string[] {
-  if ((message as { role?: string }).role !== 'tool') return [];
-  const content = (message as { content?: unknown }).content;
-  const parts = Array.isArray(content) ? content : [];
-  return parts
-    .map((part) => isRecord(part) && part.type === 'tool-result' ? part.toolCallId ?? part.tool_call_id : undefined)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0);
-}
-
 function buildSummarizerMessages(input: {
-  selection: Extract<ReturnType<typeof selectActiveFullCompactCoveredSpan>, { decision: 'selected' }>;
+  selection: Extract<ReturnType<typeof selectActiveCompactionSafeSpan>, { decision: 'selected' }>;
   messages: readonly ModelMessage[];
   index: ActiveFullCompactSourceIndex;
+  headAnchor: ActiveCompactionHeadAnchor;
+  predecessorMessageIndex?: number;
   stateCards: readonly SemanticCompactStateCard[];
   policy: SemanticCompactPolicy;
   charsPerToken: number;
@@ -521,11 +655,15 @@ function buildSummarizerMessages(input: {
     'Do not invent command results, file contents, process state, credentials, verifier results, or hidden/private evaluation facts.',
     'Summarize continuity only. Durable source refs, hashes, and archive audit metadata are stored outside this provider-visible summary.',
     'Preserve objective, constraints, decisions, failed attempts, commands/results that matter, files/artifacts, active process/build state, public verification state, and exact next action.',
-    `Prefer concise JSON around ${input.policy.maxSummaryEstimatedTokens ?? DEFAULT_MAX_SUMMARY_TOKENS} estimated tokens when possible; complete valid JSON is more important than brevity.`,
+    `Prefer concise JSON around ${input.policy.maxAcceptedProjectionEstimatedTokens ?? input.policy.maxSummaryEstimatedTokens ?? DEFAULT_MAX_SUMMARY_TOKENS} estimated tokens when possible; complete valid JSON is more important than brevity.`,
     `context_boundary: ${JSON.stringify(contextBoundary)}`,
     `restoration_cards: ${JSON.stringify(restorationCards)}`,
   ].join('\n');
   return [
+    input.messages[input.headAnchor.messageIndex]!,
+    ...(input.predecessorMessageIndex !== undefined
+      ? [input.messages[input.predecessorMessageIndex]!]
+      : []),
     ...input.messages.slice(input.selection.startMessageIndex, input.selection.endMessageIndex + 1),
     { role: 'user', content: request } as ModelMessage,
   ];
@@ -541,7 +679,7 @@ function semanticCompactSystemPrompt(policy: SemanticCompactPolicy): string {
 }
 
 function buildSemanticStateCards(input: {
-  selection: Extract<ReturnType<typeof selectActiveFullCompactCoveredSpan>, { decision: 'selected' }>;
+  selection: Extract<ReturnType<typeof selectActiveCompactionSafeSpan>, { decision: 'selected' }>;
   messages: readonly ModelMessage[];
   runtimeEvents?: readonly RuntimeEvent[];
   policy: SemanticCompactPolicy;
@@ -574,7 +712,9 @@ function buildSemanticStateCards(input: {
 function buildSemanticCompactBlock(input: {
   input: SemanticCompactRewriteInput;
   index: ActiveFullCompactSourceIndex;
-  selection: Extract<ReturnType<typeof selectActiveFullCompactCoveredSpan>, { decision: 'selected' }>;
+  selection: Extract<ReturnType<typeof selectActiveCompactionSafeSpan>, { decision: 'selected' }>;
+  headAnchor: ActiveCompactionHeadAnchor;
+  predecessorBlock?: SemanticCompactBlock;
   structuredSummary: SemanticCompactStructuredSummary;
   summaryText: string;
   stateCards: readonly SemanticCompactStateCard[];
@@ -583,6 +723,7 @@ function buildSemanticCompactBlock(input: {
   providerRequestId?: string;
   requestShapeHashBefore?: string;
   charsPerToken: number;
+  projectionFormat: 'structured' | 'bounded_text_fallback';
 }): SemanticCompactBlock {
   const policy = input.input.policy!;
   const archiveRefs = uniqueArchiveRefs(input.selection.entries.map((entry) => entry.archiveRef).filter(isArchiveRef));
@@ -602,17 +743,26 @@ function buildSemanticCompactBlock(input: {
   }));
   const preservedTailIndexes = preservedTailMessageIndexes(input.index, input.selection);
   const preservedTailEntries = input.index.entries.filter((entry) => preservedTailIndexes.includes(entry.messageIndex));
+  const newCoverage = activeFullCompactCoverageFromEntries(input.selection.entries);
+  const coverage = input.predecessorBlock
+    ? mergeSemanticCoverage(input.predecessorBlock.coverage, newCoverage)
+    : newCoverage;
+  const cumulativeCoverageDigest = sha256(stableStringify({
+    predecessor: input.predecessorBlock?.cumulativeCoverageDigest ?? input.predecessorBlock?.blockId,
+    newCoverage,
+  }));
   const draft = {
     sessionId: input.input.sessionId,
     turnId: input.input.turnId,
-    coverage: activeFullCompactCoverageFromEntries(input.selection.entries),
+    coverage,
+    predecessorBlockId: input.predecessorBlock?.blockId,
     summaryText: input.structuredSummary.currentObjective,
     nextAction: input.structuredSummary.nextAction,
     highWaterSeq: input.input.stepNumber,
   };
   const block: SemanticCompactBlock = {
     kind: 'maka.semantic_compact_block',
-    version: 1,
+    version: 2,
     blockId: `semcompact-${sha256(stableStringify(draft)).slice(0, 32)}`,
     sessionId: input.input.sessionId,
     turnId: input.input.turnId,
@@ -629,7 +779,19 @@ function buildSemanticCompactBlock(input: {
         ? { thresholdTokens: Math.floor(policy.maxActiveEstimatedTokens * finiteRatio(policy.highWaterRatio, 0.8)) }
         : {}),
     },
-    coverage: activeFullCompactCoverageFromEntries(input.selection.entries),
+    coverage,
+    newCoverage,
+    cumulativeCoverageDigest,
+    headAnchor: {
+      messageIndex: input.headAnchor.messageIndex,
+      messageSignature: input.headAnchor.messageSignature,
+      bodySha256: input.headAnchor.bodySha256,
+      estimatedTokens: input.headAnchor.estimatedTokens,
+      sourceIds: uniqueSorted(input.index.entries
+        .filter((entry) => entry.messageIndex === input.headAnchor.messageIndex)
+        .map((entry) => entry.sourceId)),
+    },
+    ...(input.predecessorBlock ? { predecessorBlockId: input.predecessorBlock.blockId } : {}),
     sourceRefs,
     ...(archiveRefs.length > 0 ? { archiveRefs } : {}),
     preservedTail: {
@@ -642,6 +804,16 @@ function buildSemanticCompactBlock(input: {
       text: input.summaryText,
       limitations: ['LLM semantic compact summary is bounded by public provider-visible context and deterministic restoration cards.'],
       nextAction: input.structuredSummary.nextAction,
+    },
+    projection: {
+      format: input.projectionFormat,
+      generationBudgetTokens: Math.floor(policy.maxCompactCallTokens ?? DEFAULT_MAX_COMPACT_CALL_TOKENS),
+      acceptedBudgetTokens: Math.floor(
+        policy.maxAcceptedProjectionEstimatedTokens
+          ?? policy.maxSummaryEstimatedTokens
+          ?? DEFAULT_MAX_SUMMARY_TOKENS,
+      ),
+      estimatedTokens: 0,
     },
     ...(input.stateCards.length > 0 ? { stateCards: [...input.stateCards] } : {}),
     ...(input.requestShapeHashBefore ? { requestShapeHashBefore: input.requestShapeHashBefore } : {}),
@@ -659,6 +831,9 @@ function buildSemanticCompactBlock(input: {
     renderSemanticCompactBlock(block),
     input.charsPerToken,
   );
+  if (block.projection) {
+    block.projection.estimatedTokens = estimateTokens(renderSemanticCompactBlock(block).length, input.charsPerToken);
+  }
   block.estimatedTokensSavedSigned = input.index.estimatedTokens - block.postReplacementEstimatedTokens;
   return block;
 }
@@ -754,6 +929,10 @@ function semanticCompactDecisionDiagnosticPatch(input: {
   estimatedTokensBefore?: number;
   estimatedTokensAfter?: number;
   estimatedTokensSaved?: number;
+  candidateEstimatedTokens?: number;
+  preservedHeadEstimatedTokens?: number;
+  preservedTailEstimatedTokens?: number;
+  acceptedProjectionEstimatedTokens?: number;
   compactCallUsage?: SemanticCompactBlock['compactCallUsage'];
   reason?: string;
   failOpenReason?: string;
@@ -775,11 +954,24 @@ function semanticCompactDecisionDiagnosticPatch(input: {
           toolCallIds: input.coverage.toolCallIds,
           contentKinds: input.coverage.contentKinds,
           bodySha256: input.coverage.bodySha256,
+          providerMessageSourceIds: input.coverage.providerMessageSourceIds,
         },
       } : {}),
       ...(input.estimatedTokensBefore !== undefined ? { estimatedTokensBefore: input.estimatedTokensBefore } : {}),
       ...(input.estimatedTokensAfter !== undefined ? { estimatedTokensAfter: input.estimatedTokensAfter } : {}),
       ...(input.estimatedTokensSaved !== undefined ? { estimatedTokensSaved: input.estimatedTokensSaved } : {}),
+      ...(input.candidateEstimatedTokens !== undefined
+        ? { candidateEstimatedTokens: input.candidateEstimatedTokens }
+        : {}),
+      ...(input.preservedHeadEstimatedTokens !== undefined
+        ? { preservedHeadEstimatedTokens: input.preservedHeadEstimatedTokens }
+        : {}),
+      ...(input.preservedTailEstimatedTokens !== undefined
+        ? { preservedTailEstimatedTokens: input.preservedTailEstimatedTokens }
+        : {}),
+      ...(input.acceptedProjectionEstimatedTokens !== undefined
+        ? { acceptedProjectionEstimatedTokens: input.acceptedProjectionEstimatedTokens }
+        : {}),
       ...(input.compactCallUsage ? { compactCallUsage: input.compactCallUsage } : {}),
       ...(input.reason ? { reason: input.reason } : {}),
       ...(input.failOpenReason ? { failOpenReason: input.failOpenReason } : {}),
@@ -859,16 +1051,24 @@ function parseSemanticCompactSummary(text: string): {
   return { ok: false, reason: 'summary_invalid_json' };
 }
 
-function fallbackSemanticCompactSummary(rawText: string, reason: string): SemanticCompactStructuredSummary {
-  const fallbackText = boundedSingleLine(rawText, FALLBACK_RAW_SUMMARY_MAX_CHARS);
+function fallbackSemanticCompactSummary(
+  rawText: string,
+  reason: string,
+  maxChars = FALLBACK_RAW_SUMMARY_MAX_CHARS,
+): SemanticCompactStructuredSummary | undefined {
+  const fallbackText = boundedFallbackText(rawText, Math.min(FALLBACK_RAW_SUMMARY_MAX_CHARS, maxChars));
+  if (!fallbackText) return undefined;
   return {
     currentObjective: 'Continue the current task from the semantic compact fallback summary and preserved recent context.',
     userConstraints: [],
     importantFilesAndArtifacts: [],
-    commandsAndResults: fallbackText ? [`raw_semantic_summary_fallback: ${fallbackText}`] : [],
+    commandsAndResults: [],
     errorsAndFixes: [],
     failedHypotheses: [],
-    operationalState: [`Semantic compact summarizer output did not satisfy the requested structure (${reason}); using raw text fallback.`],
+    operationalState: [
+      `continuation_notes: ${fallbackText}`,
+      `Semantic compact summarizer output did not satisfy the requested structure (${reason}); using bounded text fallback.`,
+    ],
     publicVerificationState: 'No public verification state claimed by structured summary.',
     remainingWork: ['Continue from the preserved recent messages after this compact block.'],
     nextAction: 'Continue from the preserved recent context.',
@@ -897,6 +1097,153 @@ function renderSummaryList(label: string, values: readonly string[]): string[] {
   if (clean.length === 0) return [`${label}: none`];
   if (clean.length === 1) return [`${label}: ${clean[0]}`];
   return [`${label}:`, ...clean.map((value) => `- ${value}`)];
+}
+
+function resolveSemanticHeadAnchor(
+  messages: readonly ModelMessage[],
+  provided: ActiveCompactionHeadAnchor | undefined,
+  charsPerToken: number,
+): ActiveCompactionHeadAnchor | undefined {
+  if (provided) {
+    const message = messages[provided.messageIndex];
+    return message && activeCompactionMessageSignature(message) === provided.messageSignature
+      ? provided
+      : undefined;
+  }
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if ((message as { role?: unknown }).role !== 'user') continue;
+    if (messageContainsSemanticCompactBlock(message)) continue;
+    return buildActiveCompactionHeadAnchor(messages, index, charsPerToken);
+  }
+  return undefined;
+}
+
+function findSemanticProjectionMessageIndex(
+  messages: readonly ModelMessage[],
+  headAnchorMessageIndex: number,
+): number | undefined {
+  const candidateIndex = headAnchorMessageIndex + 1;
+  return messageContainsSemanticCompactBlock(messages[candidateIndex]) ? candidateIndex : undefined;
+}
+
+function messageContainsSemanticCompactBlock(message: ModelMessage | undefined): boolean {
+  if (!message) return false;
+  return stableStringify((message as { content?: unknown }).content).includes('<maka_semantic_compact_block');
+}
+
+function isTruncatedFinishReason(reason: string | undefined): boolean {
+  if (!reason) return false;
+  const normalized = reason.toLowerCase().replaceAll('_', '-');
+  return normalized === 'length' || normalized === 'max-tokens';
+}
+
+function fitSemanticCompactBlockToAcceptedBudget(
+  block: SemanticCompactBlock,
+  source: SemanticCompactStructuredSummary,
+  maxEstimatedTokens: number,
+  charsPerToken: number,
+): boolean {
+  const maxTokens = Math.max(1, Math.floor(maxEstimatedTokens));
+  const fitted: SemanticCompactStructuredSummary = {
+    ...source,
+    userConstraints: [...source.userConstraints],
+    importantFilesAndArtifacts: [...source.importantFilesAndArtifacts],
+    commandsAndResults: [...source.commandsAndResults],
+    errorsAndFixes: [...source.errorsAndFixes],
+    failedHypotheses: [...source.failedHypotheses],
+    operationalState: [...source.operationalState],
+    remainingWork: [...source.remainingWork],
+    archiveRefsToRereadIfNeeded: [...source.archiveRefsToRereadIfNeeded],
+  };
+  const update = () => {
+    block.summary.text = renderStructuredSemanticSummary(fitted);
+    block.summary.nextAction = fitted.nextAction;
+  };
+  const fits = () => estimateTokens(renderSemanticCompactBlock(block).length, charsPerToken) <= maxTokens;
+  const acceptFit = () => {
+    if (
+      block.projection?.format === 'bounded_text_fallback'
+      && !block.summary.text.includes('continuation_notes:')
+    ) return false;
+    return updateProjectionEstimate(block, charsPerToken);
+  };
+  update();
+  if (fits() && acceptFit()) return true;
+
+  delete block.stateCards;
+  if (fits() && acceptFit()) return true;
+
+  const lowerPriorityLists: Array<keyof Pick<
+    SemanticCompactStructuredSummary,
+    | 'archiveRefsToRereadIfNeeded'
+    | 'failedHypotheses'
+    | 'errorsAndFixes'
+    | 'commandsAndResults'
+    | 'importantFilesAndArtifacts'
+  >> = [
+    'archiveRefsToRereadIfNeeded',
+    'failedHypotheses',
+    'errorsAndFixes',
+    'commandsAndResults',
+    'importantFilesAndArtifacts',
+  ];
+  for (const key of lowerPriorityLists) {
+    fitted[key] = [];
+    update();
+    if (fits() && acceptFit()) return true;
+  }
+
+  fitted.publicVerificationState = '';
+  const boundedListKeys: Array<keyof Pick<
+    SemanticCompactStructuredSummary,
+    'userConstraints' | 'operationalState' | 'remainingWork'
+  >> = ['userConstraints', 'operationalState', 'remainingWork'];
+  for (const key of boundedListKeys) {
+    fitted[key] = fitted[key]
+      .slice(0, 4)
+      .map((value) => block.projection?.format === 'bounded_text_fallback'
+        ? boundedFallbackText(value, 240)
+        : boundedCompleteText(value, 240))
+      .filter(nonEmpty);
+  }
+  fitted.currentObjective = boundedCompleteText(fitted.currentObjective, 320);
+  fitted.nextAction = boundedCompleteText(fitted.nextAction, 320);
+  update();
+  if (fits() && acceptFit()) return true;
+
+  for (const key of boundedListKeys) {
+    while (fitted[key].length > 0) {
+      fitted[key] = fitted[key].slice(0, -1);
+      update();
+      if (fits() && acceptFit()) return true;
+    }
+  }
+  return false;
+}
+
+function updateProjectionEstimate(block: SemanticCompactBlock, charsPerToken: number): true {
+  if (block.projection) {
+    block.projection.estimatedTokens = estimateTokens(renderSemanticCompactBlock(block).length, charsPerToken);
+  }
+  return true;
+}
+
+function mergeSemanticCoverage(
+  previous: ActiveFullCompactCoverage,
+  next: ActiveFullCompactCoverage,
+): ActiveFullCompactCoverage {
+  return {
+    turnIds: uniqueSorted([...previous.turnIds, ...next.turnIds]),
+    runtimeEventIds: uniqueSorted([...previous.runtimeEventIds, ...next.runtimeEventIds]),
+    providerMessageSourceIds: uniqueSorted([
+      ...previous.providerMessageSourceIds,
+      ...next.providerMessageSourceIds,
+    ]),
+    toolCallIds: uniqueSorted([...previous.toolCallIds, ...next.toolCallIds]),
+    contentKinds: uniqueSorted([...previous.contentKinds, ...next.contentKinds]),
+    bodySha256: uniqueSorted([...previous.bodySha256, ...next.bodySha256]),
+  };
 }
 
 function extractJsonObjectText(raw: string): string | undefined {
@@ -1140,8 +1487,49 @@ function singleLine(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-function boundedSingleLine(value: string, maxChars: number): string {
+function boundedCompleteText(value: string, maxChars: number): string {
   const clean = singleLine(value);
   if (clean.length <= maxChars) return clean;
-  return `${clean.slice(0, Math.max(0, maxChars - 3))}...`;
+  const candidate = clean.slice(0, Math.max(0, maxChars));
+  const sentenceBoundary = Math.max(
+    candidate.lastIndexOf('. '),
+    candidate.lastIndexOf('! '),
+    candidate.lastIndexOf('? '),
+    candidate.lastIndexOf('; '),
+    candidate.lastIndexOf('。'),
+    candidate.lastIndexOf('！'),
+    candidate.lastIndexOf('？'),
+    candidate.lastIndexOf('；'),
+  );
+  if (sentenceBoundary >= Math.min(40, Math.floor(maxChars / 3))) {
+    return candidate.slice(0, sentenceBoundary + 1).trim();
+  }
+  const wordBoundary = candidate.lastIndexOf(' ');
+  return wordBoundary >= Math.min(20, Math.floor(maxChars / 4))
+    ? candidate.slice(0, wordBoundary).trim()
+    : '';
+}
+
+function boundedFallbackText(value: string, maxChars: number): string {
+  const clean = value.trim();
+  if (!clean) return '';
+  if (clean.length <= maxChars) return clean;
+  const candidate = clean.slice(0, Math.max(0, maxChars));
+  const lineBoundary = Math.max(candidate.lastIndexOf('\n'), candidate.lastIndexOf('\r'));
+  if (lineBoundary >= Math.min(20, Math.floor(maxChars / 4))) {
+    return candidate.slice(0, lineBoundary).trim();
+  }
+  const sentenceBoundary = Math.max(
+    candidate.lastIndexOf('. '),
+    candidate.lastIndexOf('! '),
+    candidate.lastIndexOf('? '),
+    candidate.lastIndexOf('; '),
+    candidate.lastIndexOf('。'),
+    candidate.lastIndexOf('！'),
+    candidate.lastIndexOf('？'),
+    candidate.lastIndexOf('；'),
+  );
+  return sentenceBoundary >= Math.min(40, Math.floor(maxChars / 3))
+    ? candidate.slice(0, sentenceBoundary + 1).trim()
+    : '';
 }

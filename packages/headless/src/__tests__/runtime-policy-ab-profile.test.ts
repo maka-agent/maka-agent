@@ -13,6 +13,16 @@ test('checked-in runtime A/B profile pins DeepSeek Flash identity, pricing, and 
   assert.equal(profile.maxConcurrentAttempts, 2);
 });
 
+test('checked-in attention A/B profile pins GLM 5.2 identity and public pricing', async () => {
+  const path = new URL('../../harbor/runtime-policy-ab-profiles/glm-5.2.json', import.meta.url);
+  const profile = parseRuntimePolicyAbExecutionProfile(JSON.parse(await readFile(path, 'utf8')));
+
+  assert.equal(profile.provider, 'zai-coding-plan');
+  assert.equal(profile.model, 'zai-coding-plan/glm-5.2');
+  assert.equal(profile.pricing.source, 'glm-5.2-public-2026-07-13');
+  assert.equal(profile.maxConcurrentAttempts, 2);
+});
+
 test('profile parser rejects the old ambiguous attempt concurrency', () => {
   assert.throws(
     () => parseRuntimePolicyAbExecutionProfile({

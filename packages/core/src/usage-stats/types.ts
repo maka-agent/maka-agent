@@ -218,10 +218,15 @@ export interface CompactionDecisionDiagnostic {
   coveredTurns?: number;
   coveredRuntimeEvents?: number;
   coveredToolCalls?: number;
+  coveredProviderMessages?: number;
   coverageHashes?: string[];
   estimatedTokensBefore?: number;
   estimatedTokensAfter?: number;
   estimatedTokensSaved?: number;
+  candidateEstimatedTokens?: number;
+  preservedHeadEstimatedTokens?: number;
+  preservedTailEstimatedTokens?: number;
+  acceptedProjectionEstimatedTokens?: number;
   compactCallInputTokens?: number;
   compactCallOutputTokens?: number;
   compactCallCacheReadInputTokens?: number;

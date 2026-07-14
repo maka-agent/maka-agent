@@ -243,6 +243,17 @@ describe('discoverCachedHarborTasks', () => {
       await assert.rejects(discoverCachedHarborTasks(dir), /duplicate cached task id "dup-task"/);
     });
   });
+
+  test('can restrict discovery before checking unrelated cache duplicates', async () => {
+    await withDir(async (dir) => {
+      await makeCachedTask(dir, 'hashA', 'selected-task');
+      await makeCachedTask(dir, 'hashB', 'unrelated-duplicate');
+      await makeCachedTask(dir, 'hashC', 'unrelated-duplicate');
+
+      const tasks = await discoverCachedHarborTasks(dir, new Set(['selected-task']));
+      assert.deepEqual(tasks.map((task) => task.id), ['selected-task']);
+    });
+  });
 });
 
 describe('resolveFixedPromptRunRoot', () => {

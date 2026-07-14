@@ -34,6 +34,28 @@ export interface ActiveFullCompactPolicy {
   highWaterName?: string;
 }
 
+/**
+ * Exact current-turn user message that active compaction must never rewrite.
+ * The index is captured before the first provider step, after prior replay has
+ * been materialized, so it is intentionally not assumed to be message zero.
+ */
+export interface ActiveCompactionHeadAnchor {
+  messageIndex: number;
+  messageSignature: string;
+  bodySha256: string;
+  estimatedTokens: number;
+}
+
+export interface ActiveCompactionSafeSpanPolicy {
+  enabled: boolean;
+  mode?: 'off' | string;
+  minStepNumber?: number;
+  highWaterRatio?: number;
+  maxActiveEstimatedTokens?: number;
+  minSafePrefixEstimatedTokens?: number;
+  archiveRequired?: boolean;
+}
+
 export interface ActiveFullCompactSourceIndexInput {
   sessionId: string;
   turnId: string;
@@ -123,6 +145,22 @@ export type ActiveFullCompactSelection =
       skippedReasonCounts: Readonly<Record<string, number>>;
     };
 
+export type ActiveCompactionSafeSpanSelection = ActiveFullCompactSelection | {
+  decision: 'unchanged' | 'failedOpen';
+  reason:
+    | ActiveFullCompactFailOpenReason
+    | 'disabled'
+    | 'below_min_step'
+    | 'below_high_water'
+    | 'below_min_safe_prefix'
+    | 'no_candidate'
+    | 'head_anchor_mismatch'
+    | 'head_anchor_exceeds_capacity'
+    | 'unexpected_user_after_head_anchor'
+    | 'no_safe_completed_span';
+  skippedReasonCounts: Readonly<Record<string, number>>;
+};
+
 export interface ActiveFullCompactSummary {
   schemaVersion: 1;
   text: string;
@@ -209,7 +247,30 @@ export type ActiveFullCompactFailOpenReason =
   | 'summary_missing'
   | 'summary_too_large'
   | 'max_block_tokens'
+  | 'head_anchor_exceeds_capacity'
   | 'provider_message_only_when_runtime_required';
+
+export function activeCompactionMessageSignature(message: ModelMessage): string {
+  return sha256(stableStringify(message));
+}
+
+export function buildActiveCompactionHeadAnchor(
+  messages: readonly ModelMessage[],
+  messageIndex: number,
+  charsPerToken = DEFAULT_CHARS_PER_TOKEN,
+): ActiveCompactionHeadAnchor {
+  const message = messages[messageIndex];
+  if (!message || (message as { role?: unknown }).role !== 'user') {
+    throw new Error(`active compaction head anchor must reference a user message at index ${messageIndex}`);
+  }
+  const body = stableStringify(message);
+  return {
+    messageIndex,
+    messageSignature: activeCompactionMessageSignature(message),
+    bodySha256: sha256(body),
+    estimatedTokens: estimateTokens(body.length, charsPerToken),
+  };
+}
 
 export interface ActiveFullCompactValidationResult {
   valid: boolean;
@@ -232,6 +293,7 @@ export interface ActiveFullCompactRewriteInput {
   charsPerToken?: number;
   requestShapeHashBefore?: string;
   requestShapeHashForMessages?: (messages: readonly ModelMessage[]) => string;
+  headAnchor?: ActiveCompactionHeadAnchor;
   dryRun?: boolean;
   dryRunReason?: string;
 }
@@ -241,7 +303,7 @@ export interface ActiveFullCompactRewriteResult {
   decision: ActiveFullCompactRewriteDecision;
   diagnosticPatch: Partial<ContextBudgetDiagnostic>;
   block?: ActiveFullCompactBlock;
-  selection?: ActiveFullCompactSelection;
+  selection?: ActiveFullCompactSelection | ActiveCompactionSafeSpanSelection;
   validation?: ActiveFullCompactValidationResult;
 }
 
@@ -407,6 +469,167 @@ export function selectActiveFullCompactCoveredSpan(
     coverage: activeFullCompactCoverageFromEntries(entries),
     estimatedTokens: estimateActiveFullCompactTokens(entries),
   };
+}
+
+/**
+ * Select the completed active-turn span after the exact current-user anchor.
+ * This deliberately makes no semantic relevance judgment. It only groups
+ * provider protocol episodes and stops before the first open/incomplete one.
+ */
+export function selectActiveCompactionSafeSpan(input: {
+  index: ActiveFullCompactSourceIndex;
+  messages: readonly ModelMessage[];
+  policy: ActiveCompactionSafeSpanPolicy | undefined;
+  headAnchor: ActiveCompactionHeadAnchor;
+  /** A prior semantic projection immediately after the anchor is context, not raw source. */
+  afterMessageIndex?: number;
+}): ActiveCompactionSafeSpanSelection {
+  const { index, messages, policy, headAnchor } = input;
+  if (policy?.enabled !== true || policy.mode === 'off') return safeSpanSkipped('unchanged', 'disabled');
+  const minStepNumber = Math.max(0, Math.floor(policy.minStepNumber ?? 1));
+  if ((index.stepNumber ?? 0) < minStepNumber) return safeSpanSkipped('unchanged', 'below_min_step');
+
+  const anchorMessage = messages[headAnchor.messageIndex];
+  if (
+    !anchorMessage
+    || (anchorMessage as { role?: unknown }).role !== 'user'
+    || activeCompactionMessageSignature(anchorMessage) !== headAnchor.messageSignature
+  ) {
+    return safeSpanSkipped('failedOpen', 'head_anchor_mismatch');
+  }
+
+  const highWaterRatio = finiteRatio(policy.highWaterRatio, 0.8);
+  const maxActiveEstimatedTokens = finitePositive(policy.maxActiveEstimatedTokens);
+  if (
+    maxActiveEstimatedTokens !== undefined
+    && index.estimatedTokens <= Math.floor(maxActiveEstimatedTokens * highWaterRatio)
+  ) {
+    return safeSpanSkipped('unchanged', 'below_high_water');
+  }
+
+  const firstCandidateMessageIndex = Math.max(
+    headAnchor.messageIndex + 1,
+    (input.afterMessageIndex ?? headAnchor.messageIndex) + 1,
+  );
+  let cursor = firstCandidateMessageIndex;
+  let completedEnd = firstCandidateMessageIndex - 1;
+  while (cursor < index.providerMessageCount) {
+    const messageEntries = entriesAtMessageIndex(index.entries, cursor);
+    const role = providerMessageRole(messages[cursor], messageEntries);
+    if (role === 'user' || role === 'system') {
+      return safeSpanSkipped('failedOpen', 'unexpected_user_after_head_anchor');
+    }
+    if (role === 'tool') {
+      return completedEnd >= firstCandidateMessageIndex
+        ? safeSpanSelected(index, firstCandidateMessageIndex, completedEnd, policy)
+        : safeSpanSkipped('failedOpen', 'no_safe_completed_span');
+    }
+    if (role !== 'assistant') {
+      return completedEnd >= firstCandidateMessageIndex
+        ? safeSpanSelected(index, firstCandidateMessageIndex, completedEnd, policy)
+        : safeSpanSkipped('failedOpen', 'no_safe_completed_span');
+    }
+
+    // One provider episode may materialize reasoning/text and tool calls as
+    // multiple consecutive assistant messages. Group all of them before
+    // deciding whether any part is completed and eligible.
+    let assistantEnd = cursor;
+    const assistantEntries = [...messageEntries];
+    while (assistantEnd + 1 < index.providerMessageCount) {
+      const nextEntries = entriesAtMessageIndex(index.entries, assistantEnd + 1);
+      if (providerMessageRole(messages[assistantEnd + 1], nextEntries) !== 'assistant') break;
+      assistantEnd += 1;
+      assistantEntries.push(...nextEntries);
+    }
+    const toolCallIds = uniqueSorted(assistantEntries
+      .filter((entry) => entry.contentKind === 'function_call')
+      .map((entry) => entry.toolCallId)
+      .filter(nonEmpty));
+    if (toolCallIds.length === 0) {
+      completedEnd = assistantEnd;
+      cursor = assistantEnd + 1;
+      continue;
+    }
+
+    const resultIds = new Set<string>();
+    let tailCursor = assistantEnd + 1;
+    while (tailCursor < index.providerMessageCount) {
+      const resultEntries = entriesAtMessageIndex(index.entries, tailCursor);
+      if (providerMessageRole(messages[tailCursor], resultEntries) !== 'tool') break;
+      for (const entry of resultEntries) {
+        if (
+          entry.toolCallId
+          && (entry.contentKind === 'function_response'
+            || entry.contentKind === 'tool_result'
+            || entry.contentKind === 'active_archive_placeholder')
+        ) resultIds.add(entry.toolCallId);
+      }
+      tailCursor += 1;
+    }
+    if (!toolCallIds.every((id) => resultIds.has(id))) break;
+    completedEnd = tailCursor - 1;
+    cursor = tailCursor;
+  }
+
+  if (completedEnd < firstCandidateMessageIndex) {
+    return safeSpanSkipped('unchanged', 'no_safe_completed_span');
+  }
+  return safeSpanSelected(index, firstCandidateMessageIndex, completedEnd, policy);
+}
+
+function safeSpanSelected(
+  index: ActiveFullCompactSourceIndex,
+  startMessageIndex: number,
+  endMessageIndex: number,
+  policy: ActiveCompactionSafeSpanPolicy,
+): ActiveCompactionSafeSpanSelection {
+  const entries = index.entries.filter((entry) =>
+    entry.messageIndex >= startMessageIndex && entry.messageIndex <= endMessageIndex
+  );
+  if (entries.length === 0) return safeSpanSkipped('unchanged', 'no_candidate');
+  if (entries.some((entry) => !nonEmpty(entry.sourceId) || !nonEmpty(entry.bodySha256))) {
+    return safeSpanSkipped('failedOpen', 'source_missing');
+  }
+  if (policy.archiveRequired === true && entries.some((entry) => !entry.runtimeEventId && !entry.archiveRef)) {
+    return safeSpanSkipped('failedOpen', 'provider_message_only_when_runtime_required');
+  }
+  if (toolPairSplit(entries, index.entries)) return safeSpanSkipped('failedOpen', 'tool_pair_split');
+  const estimatedTokens = estimateActiveFullCompactTokens(entries);
+  const minSafePrefixEstimatedTokens = Math.max(0, Math.floor(policy.minSafePrefixEstimatedTokens ?? 0));
+  if (estimatedTokens < minSafePrefixEstimatedTokens) {
+    return safeSpanSkipped('unchanged', 'below_min_safe_prefix');
+  }
+  return {
+    decision: 'selected',
+    startMessageIndex,
+    endMessageIndex,
+    entries,
+    coverage: activeFullCompactCoverageFromEntries(entries),
+    estimatedTokens,
+  };
+}
+
+function entriesAtMessageIndex(
+  entries: readonly ActiveFullCompactSourceEntry[],
+  messageIndex: number,
+): ActiveFullCompactSourceEntry[] {
+  return entries.filter((entry) => entry.messageIndex === messageIndex);
+}
+
+function providerMessageRole(
+  message: ModelMessage | undefined,
+  entries: readonly ActiveFullCompactSourceEntry[],
+): ActiveFullCompactProviderRole | undefined {
+  const role = (message as { role?: unknown } | undefined)?.role;
+  if (role === 'system' || role === 'user' || role === 'assistant' || role === 'tool') return role;
+  return entries[0]?.role;
+}
+
+function safeSpanSkipped(
+  decision: 'unchanged' | 'failedOpen',
+  reason: Extract<ActiveCompactionSafeSpanSelection, { decision: 'unchanged' | 'failedOpen' }>['reason'],
+): Extract<ActiveCompactionSafeSpanSelection, { decision: 'unchanged' | 'failedOpen' }> {
+  return { decision, reason, skippedReasonCounts: { [reason]: 1 } };
 }
 
 export function buildActiveFullCompactBlockFromSummary(
@@ -582,9 +805,43 @@ export function rewriteActiveFullCompactInMessages(
     stepNumber: input.stepNumber,
     charsPerToken: input.charsPerToken,
   });
-  const selection = selectActiveFullCompactCoveredSpan(index, input.policy);
+  const latestProjectionMessageIndex = Math.max(
+    latestActiveFullCompactMessageIndex(index),
+    latestSemanticCompactMessageIndex(messages),
+  );
+  const selection = input.headAnchor
+    ? selectActiveCompactionSafeSpan({
+        index,
+        messages,
+        policy: input.policy,
+        headAnchor: input.headAnchor,
+        ...(latestProjectionMessageIndex > input.headAnchor.messageIndex
+          ? { afterMessageIndex: latestProjectionMessageIndex }
+          : {}),
+      })
+    : selectActiveFullCompactCoveredSpan(index, input.policy);
 
   if (selection.decision !== 'selected') {
+    const maxActiveEstimatedTokens = finitePositive(input.policy?.maxActiveEstimatedTokens);
+    const headAnchorExceedsCapacity = input.headAnchor !== undefined
+      && maxActiveEstimatedTokens !== undefined
+      && input.headAnchor.estimatedTokens >= maxActiveEstimatedTokens;
+    if (headAnchorExceedsCapacity) {
+      const capacitySelection = safeSpanSkipped('failedOpen', 'head_anchor_exceeds_capacity');
+      return {
+        messages,
+        decision: 'failedOpen',
+        selection: capacitySelection,
+        diagnosticPatch: activeFullCompactDecisionDiagnosticPatch({
+          decision: 'failedOpen',
+          reason: 'head_anchor_exceeds_capacity',
+          failOpenReason: 'head_anchor_exceeds_capacity',
+          skippedReasonCounts: capacitySelection.skippedReasonCounts,
+          estimatedTokensBefore: index.estimatedTokens,
+          estimatedTokensAfter: index.estimatedTokens,
+        }),
+      };
+    }
     const decision = selection.decision === 'failedOpen' ? 'failedOpen' : 'unchanged';
     return {
       messages,
@@ -1023,6 +1280,7 @@ function isFailOpenReason(reason: string): reason is ActiveFullCompactFailOpenRe
     || reason === 'summary_missing'
     || reason === 'summary_too_large'
     || reason === 'max_block_tokens'
+    || reason === 'head_anchor_exceeds_capacity'
     || reason === 'provider_message_only_when_runtime_required';
 }
 
@@ -1054,6 +1312,15 @@ function selectedSpanContainsActiveFullCompactBlock(
 
 function latestActiveFullCompactMessageIndex(index: ActiveFullCompactSourceIndex): number {
   return Math.max(-1, ...(index.activeCompactMessageIndexes ?? []));
+}
+
+function latestSemanticCompactMessageIndex(messages: readonly ModelMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (stableStringify((messages[index] as { content?: unknown }).content).includes('<maka_semantic_compact_block')) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function messageContentContainsActiveFullCompactBlock(content: unknown): boolean {

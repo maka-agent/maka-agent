@@ -12,7 +12,10 @@ export function resolveFixedPromptRunRoot(outDir: string, runId: string, envName
 
 /** Scan a Harbor task cache (`<root>/<hash>/<task-name>/task.toml`) or exported
  * dataset (`<root>/<task-name>/task.toml`) into a deterministic task list. */
-export async function discoverCachedHarborTasks(tasksRoot: string): Promise<FixedPromptTask[]> {
+export async function discoverCachedHarborTasks(
+  tasksRoot: string,
+  taskIds?: ReadonlySet<string>,
+): Promise<FixedPromptTask[]> {
   const byId = new Map<string, FixedPromptTask>();
   let hashDirs;
   try {
@@ -25,6 +28,7 @@ export async function discoverCachedHarborTasks(tasksRoot: string): Promise<Fixe
     const hashPath = join(tasksRoot, hashDir.name);
     const exportedTaskToml = await readTaskToml(hashPath);
     if (exportedTaskToml !== undefined) {
+      if (taskIds && !taskIds.has(hashDir.name)) continue;
       addDiscoveredTask(byId, hashDir.name, hashPath, exportedTaskToml);
       continue;
     }
@@ -36,6 +40,7 @@ export async function discoverCachedHarborTasks(tasksRoot: string): Promise<Fixe
     }
     for (const taskDir of inner) {
       if (!taskDir.isDirectory()) continue;
+      if (taskIds && !taskIds.has(taskDir.name)) continue;
       const taskPath = join(hashPath, taskDir.name);
       const taskToml = await readTaskToml(taskPath);
       if (taskToml === undefined) continue;
