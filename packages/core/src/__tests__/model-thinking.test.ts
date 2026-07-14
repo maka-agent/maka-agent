@@ -149,15 +149,31 @@ describe('thinkingOptionsForModel', () => {
     );
   });
 
-  test('Ollama Cloud exposes the documented OpenAI-compatible reasoning effort values', () => {
+  test('Ollama Cloud reasoning models expose off/low/medium/high/max; GPT-OSS low/medium/high only', () => {
     assert.deepEqual(
       thinkingOptionsForModel('ollama-cloud', 'qwen3.5:397b'),
-      { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
+      { efforts: ['none', 'low', 'medium', 'high', 'max'], toggle: true },
     );
     assert.deepEqual(
       [...thinkingVariantsForModel('ollama-cloud', 'qwen3.5:397b')],
-      ['off', 'low', 'medium', 'high'],
+      ['off', 'low', 'medium', 'high', 'max'],
     );
+    // deepseek-v4-flash is another reasoning model using the standard wire
+    assert.deepEqual(
+      [...thinkingVariantsForModel('ollama-cloud', 'deepseek-v4-flash')],
+      ['off', 'low', 'medium', 'high', 'max'],
+    );
+    // GPT-OSS only accepts low/medium/high — no off, no max
+    assert.deepEqual(
+      thinkingOptionsForModel('ollama-cloud', 'gpt-oss:120b'),
+      { efforts: ['low', 'medium', 'high'] },
+    );
+    assert.deepEqual(
+      [...thinkingVariantsForModel('ollama-cloud', 'gpt-oss:120b')],
+      ['low', 'medium', 'high'],
+    );
+    // Non-reasoning models still yield nothing
+    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'devstral-2:123b')], []);
   });
 
   test('claude-subscription inherits anthropic thinking options (displayMetadataOnly preserves them)', () => {

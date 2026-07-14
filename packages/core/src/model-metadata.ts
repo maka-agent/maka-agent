@@ -133,6 +133,24 @@ const VOLCENGINE_CODING_PLAN_MODEL_METADATA: Record<string, ModelMetadata> = {
   'kimi-k2.7-code': planModel('Kimi-K2.7-Code', true, 256_000, 32_000),
 };
 
+/**
+ * Thinking-capable Ollama Cloud models that use the standard OpenAI-compatible
+ * `reasoning_effort` wire (none/low/medium/high/max). GPT-OSS is excluded — it
+ * only accepts low/medium/high and is declared separately in the ollama-cloud
+ * override below. The model list is derived from the generated models.dev
+ * snapshot so new reasoning models are picked up automatically on the next sync.
+ */
+const OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS: ThinkingOptions = {
+  efforts: ['none', 'low', 'medium', 'high', 'max'],
+  toggle: true,
+};
+
+const ollamaCloudStandardThinkingModels: Record<string, ModelMetadata> = Object.fromEntries(
+  Object.entries(GENERATED_MODELS_DEV_METADATA['ollama-cloud'])
+    .filter(([id, m]) => m.capabilities?.reasoning && !id.startsWith('gpt-oss'))
+    .map(([id]) => [id, { thinkingOptions: OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS }]),
+);
+
 // Facts that models.dev cannot express: provider wire controls and
 // access-path-specific aliases/limits. Standard model facts stay generated.
 const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMetadata>>> = {
@@ -225,10 +243,15 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
       },
     },
   },
+  // Ollama's OpenAI-compatible endpoint globally accepts reasoning_effort
+  // (none/low/medium/high/max). GPT-OSS is the exception: it only accepts
+  // low/medium/high and its trace cannot be fully disabled. See:
+  //   https://docs.ollama.com/api/openai-compatibility  (reasoning_effort field)
+  //   https://docs.ollama.com/capabilities/thinking      (per-model think levels)
   'ollama-cloud': {
-    'qwen3.5:397b': {
-      thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
-    },
+    ...ollamaCloudStandardThinkingModels,
+    'gpt-oss:120b': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+    'gpt-oss:20b': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
   },
   deepseek: {
     'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
