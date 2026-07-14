@@ -1,4 +1,13 @@
 import type { RuntimeEvent } from '@maka/core/runtime-event';
+import type { ContextBudgetExhaustedDetail } from '@maka/core/events';
+import { estimateRuntimeEventsTokens } from './context-budget.js';
+import {
+  buildHistoryCompactCheckpoint,
+  historyCompactCheckpointToRuntimeEvent,
+  matchHistoryCompactCheckpointPrefix,
+  projectHistoryCompactCheckpointReplay,
+  type HistoryCompactCheckpoint,
+} from './history-compact-checkpoint.js';
 
 /**
  * Mid-turn capacity compaction: the pure measurement + safe-boundary engine.
@@ -128,4 +137,169 @@ function estimateChars(chars: number | undefined, charsPerToken: number): number
   const value = Math.max(0, Math.floor(chars ?? 0));
   if (value === 0) return 0;
   return Math.ceil(value / charsPerToken);
+}
+
+// ============================================================================
+// Orchestration: engine + checkpoint protocol + injected summarizer → decision
+// ============================================================================
+
+export type MidTurnSummarizer = (input: {
+  coveredRuntimeEvents: readonly RuntimeEvent[];
+  newlyFoldedRuntimeEvents: readonly RuntimeEvent[];
+  previousCheckpoint?: HistoryCompactCheckpoint;
+}) => Promise<string | undefined> | string | undefined;
+
+export interface PlanMidTurnCapacityCompactionInput {
+  sessionId: string;
+  /**
+   * Full ordered content-event projection for the compaction pool:
+   * `[...prior turns, head anchor, ...current-turn completed steps]`.
+   */
+  orderedEvents: readonly RuntimeEvent[];
+  /** The current turn's user message; must be one of `orderedEvents`. */
+  headAnchor: { runtimeEventId: string; turnId: string };
+  /** Estimated size of the next provider request (see estimateNextRequestTokens). */
+  estimatedNextRequestTokens: number;
+  contextWindow: number;
+  reserveTokens: number;
+  reserveTailEvents?: number;
+  charsPerToken?: number;
+  now?: number;
+  highWaterName?: string;
+  highWaterSeq?: number;
+  maxSummaryEstimatedTokens?: number;
+  previousCheckpoint?: HistoryCompactCheckpoint;
+  summarize: MidTurnSummarizer;
+}
+
+export type PlanMidTurnCapacityCompactionResult =
+  | { decision: 'skip'; reason: 'below_high_water' | 'head_anchor_not_covered' }
+  | { decision: 'fail_open'; reason: MidTurnFailReason }
+  | { decision: 'exhausted'; detail: ContextBudgetExhaustedDetail }
+  | {
+      decision: 'compacted';
+      checkpoint: HistoryCompactCheckpoint;
+      /** Deterministic `[block, head anchor, tail]` replacement projection. */
+      replacementEvents: RuntimeEvent[];
+      coveredRuntimeEvents: RuntimeEvent[];
+      tailRuntimeEvents: RuntimeEvent[];
+      estimatedTokensBefore: number;
+      estimatedTokensAfter: number;
+    };
+
+export type MidTurnFailReason = 'no_safe_completed_span' | 'summarizer_failed';
+
+/**
+ * Decide, deterministically, how a long active turn compacts before the next
+ * provider request. Two failure tiers (design): below the high-water the turn
+ * still fits the window, so a compaction failure fails open (send as-is +
+ * diagnostic); once the estimate exceeds the window itself and compaction
+ * cannot help, the turn ends with an explicit `context_budget_exhausted`
+ * outcome instead of relying on a provider context-length error.
+ */
+export async function planMidTurnCapacityCompaction(
+  input: PlanMidTurnCapacityCompactionInput,
+): Promise<PlanMidTurnCapacityCompactionResult> {
+  const charsPerToken = Math.max(1, input.charsPerToken ?? 4);
+  const highWater = Math.max(1, input.contextWindow - Math.max(0, input.reserveTokens));
+  if (input.estimatedNextRequestTokens <= highWater) {
+    return { decision: 'skip', reason: 'below_high_water' };
+  }
+  const overWindow = input.estimatedNextRequestTokens > input.contextWindow;
+  const failOrExhaust = (
+    reason: MidTurnFailReason,
+    detail: ContextBudgetExhaustedDetail,
+  ): PlanMidTurnCapacityCompactionResult =>
+    overWindow ? { decision: 'exhausted', detail } : { decision: 'fail_open', reason };
+
+  const boundary = selectMidTurnSafeBoundary(input.orderedEvents, {
+    reserveTailEvents: input.reserveTailEvents ?? 1,
+  });
+  const headAnchorIndex = input.orderedEvents.findIndex(
+    (event) => event.id === input.headAnchor.runtimeEventId,
+  );
+  // Coverage must include the head anchor and at least one other event, since the
+  // anchor is re-rendered verbatim — folding only the anchor saves nothing.
+  if (
+    !boundary.ok
+    || headAnchorIndex < 0
+    || boundary.coveredCount <= headAnchorIndex
+    || boundary.coveredCount < 2
+  ) {
+    return failOrExhaust('no_safe_completed_span', 'no_safe_completed_span');
+  }
+
+  const coveredRuntimeEvents = input.orderedEvents.slice(0, boundary.coveredCount);
+  const tailRuntimeEvents = input.orderedEvents.slice(boundary.coveredCount);
+
+  // Roll forward from a previous checkpoint when it is an exact prefix of the
+  // covered events, so the summary only re-reads the newly folded span.
+  const checkpointMatch = input.previousCheckpoint
+    ? matchHistoryCompactCheckpointPrefix(input.previousCheckpoint, coveredRuntimeEvents)
+    : undefined;
+  const previousCheckpoint = checkpointMatch && !checkpointMatch.reason ? input.previousCheckpoint : undefined;
+  const newlyFoldedRuntimeEvents = previousCheckpoint
+    ? checkpointMatch!.successorRuntimeEvents
+    : coveredRuntimeEvents;
+
+  let summary: string | undefined;
+  try {
+    summary = (await Promise.resolve(input.summarize({
+      coveredRuntimeEvents,
+      newlyFoldedRuntimeEvents,
+      ...(previousCheckpoint ? { previousCheckpoint } : {}),
+    })))?.trim();
+  } catch {
+    summary = undefined;
+  }
+  if (!summary) {
+    return failOrExhaust('summarizer_failed', 'summarizer_failed');
+  }
+
+  const checkpoint = buildHistoryCompactCheckpoint({
+    sessionId: input.sessionId,
+    coveredRuntimeEvents,
+    summary,
+    phase: 'mid_turn',
+    headAnchor: input.headAnchor,
+    ...(input.highWaterName !== undefined ? { highWaterName: input.highWaterName } : {}),
+    ...(input.highWaterSeq !== undefined ? { highWaterSeq: input.highWaterSeq } : {}),
+    ...(input.maxSummaryEstimatedTokens !== undefined
+      ? { maxSummaryEstimatedTokens: input.maxSummaryEstimatedTokens }
+      : {}),
+    ...(previousCheckpoint ? { previousCheckpointId: previousCheckpoint.checkpointId } : {}),
+    charsPerToken,
+    ...(input.now !== undefined ? { now: input.now } : {}),
+  });
+
+  const replacementEvents = projectHistoryCompactCheckpointReplay(
+    checkpoint,
+    coveredRuntimeEvents,
+    tailRuntimeEvents,
+  );
+  const estimatedTokensBefore = estimateRuntimeEventsTokens(coveredRuntimeEvents, charsPerToken);
+  const estimatedTokensAfter = estimateRuntimeEventsTokens(
+    [historyCompactCheckpointToRuntimeEvent(checkpoint)],
+    charsPerToken,
+  );
+
+  // Even the minimal projection (block + verbatim head anchor + reserved tail)
+  // can exceed the window when the head anchor alone is too large. That is not
+  // recoverable by more folding, so surface it as an explicit outcome.
+  if (
+    overWindow
+    && estimateRuntimeEventsTokens(replacementEvents, charsPerToken) > input.contextWindow
+  ) {
+    return { decision: 'exhausted', detail: 'head_anchor_exceeds_capacity' };
+  }
+
+  return {
+    decision: 'compacted',
+    checkpoint,
+    replacementEvents,
+    coveredRuntimeEvents,
+    tailRuntimeEvents,
+    estimatedTokensBefore,
+    estimatedTokensAfter,
+  };
 }

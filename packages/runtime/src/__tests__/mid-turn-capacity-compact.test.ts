@@ -5,8 +5,12 @@ import {
   estimateNextRequestTokens,
   exceedsContextWindow,
   exceedsHighWater,
+  planMidTurnCapacityCompaction,
   selectMidTurnSafeBoundary,
+  type PlanMidTurnCapacityCompactionInput,
 } from '../mid-turn-capacity-compact.js';
+import { applyRuntimeEventHistoryCompact } from '../context-budget.js';
+import { matchHistoryCompactCheckpointPrefix } from '../history-compact-checkpoint.js';
 
 describe('mid-turn capacity trigger measurement', () => {
   test('anchors on real provider usage plus a tail char/4 delta', () => {
@@ -78,6 +82,142 @@ describe('mid-turn safe boundary selection', () => {
     // Reserving 1 tail forces maxCut=1, which straddles the only pair → no safe span.
     const boundary = selectMidTurnSafeBoundary(events, { reserveTailEvents: 1 });
     assert.deepEqual(boundary, { ok: false, reason: 'no_safe_completed_span' });
+  });
+});
+
+describe('plan mid-turn capacity compaction', () => {
+  // A long turn: two prior turns folded already conceptually, plus the current
+  // turn's head anchor and several completed steps.
+  function longTurnEvents(): RuntimeEvent[] {
+    return [
+      model('prior-0', 'turn-0'),
+      model('prior-1', 'turn-0'),
+      user('anchor', 'turn-1'),
+      call('call-a', 'ca', 'turn-1'),
+      result('res-a', 'ca', 'turn-1'),
+      call('call-b', 'cb', 'turn-1'),
+      result('res-b', 'cb', 'turn-1'),
+    ];
+  }
+  function planInput(over: Partial<PlanMidTurnCapacityCompactionInput> = {}): PlanMidTurnCapacityCompactionInput {
+    return {
+      sessionId: 'session-1',
+      orderedEvents: longTurnEvents(),
+      headAnchor: { runtimeEventId: 'anchor', turnId: 'turn-1' },
+      estimatedNextRequestTokens: 120_000,
+      contextWindow: 128_000,
+      reserveTokens: 16_384,
+      reserveTailEvents: 1,
+      charsPerToken: 4,
+      now: 1_800_000_010_000,
+      summarize: () => 'A faithful mid-turn summary.',
+      ...over,
+    };
+  }
+
+  test('skips below the high-water threshold', async () => {
+    const result = await planMidTurnCapacityCompaction(planInput({ estimatedNextRequestTokens: 100_000 }));
+    assert.deepEqual(result, { decision: 'skip', reason: 'below_high_water' });
+  });
+
+  test('compacts a safe prefix, keeps the head anchor verbatim, and continues with the tail', async () => {
+    const result = await planMidTurnCapacityCompaction(planInput());
+    assert.equal(result.decision, 'compacted');
+    if (result.decision !== 'compacted') return;
+    assert.equal(result.checkpoint.phase, 'mid_turn');
+    // Replacement is [block, verbatim head anchor, ...tail]; completed tool
+    // calls/results before the boundary are folded, not replayed raw.
+    const ids = result.replacementEvents.map((event) => event.id);
+    assert.equal(ids[0], `history-compact:${result.checkpoint.checkpointId}`);
+    assert.equal(ids[1], 'anchor');
+    // Head anchor byte-identical to the raw event.
+    assert.deepEqual(result.replacementEvents[1], longTurnEvents()[2]);
+    // No folded raw event re-appears in the replacement.
+    assert.equal(ids.includes('call-a'), false);
+    assert.equal(ids.includes('res-a'), false);
+    // The reserved tail (last event) is preserved verbatim.
+    assert.equal(ids.at(-1), 'res-b');
+  });
+
+  test('persisted checkpoint replay-validates against the same ledger prefix (recovery)', async () => {
+    const events = longTurnEvents();
+    const result = await planMidTurnCapacityCompaction(planInput({ orderedEvents: events }));
+    assert.equal(result.decision, 'compacted');
+    if (result.decision !== 'compacted') return;
+
+    // Re-projecting the ledger with the persisted checkpoint must match the exact
+    // covered prefix and not re-inject any raw covered event.
+    const match = matchHistoryCompactCheckpointPrefix(result.checkpoint, events);
+    assert.equal(match.reason, undefined);
+    assert.equal(match.coveredEventCount, result.coveredRuntimeEvents.length);
+
+    const replay = applyRuntimeEventHistoryCompact(events, {
+      maxHistoryEstimatedTokens: 1_000_000,
+      charsPerToken: 4,
+      historyCompact: {
+        enabled: true, mode: 'read_write', checkpoint: result.checkpoint,
+        highWaterRatio: 0.000001, tailEstimatedTokens: 1,
+      },
+    });
+    assert.equal(replay.checkpoint?.checkpointId, result.checkpoint.checkpointId);
+    const replayIds = replay.events.map((event) => event.id);
+    assert.equal(replayIds[0], `history-compact:${result.checkpoint.checkpointId}`);
+    assert.equal(replayIds.includes('anchor'), true);
+    assert.equal(replayIds.includes('call-a'), false);
+  });
+
+  test('fails open below the window when the summarizer fails', async () => {
+    const result = await planMidTurnCapacityCompaction(planInput({
+      estimatedNextRequestTokens: 120_000, // over high-water, under window
+      summarize: () => { throw new Error('summarizer down'); },
+    }));
+    assert.deepEqual(result, { decision: 'fail_open', reason: 'summarizer_failed' });
+  });
+
+  test('exhausts above the window when the summarizer fails', async () => {
+    const result = await planMidTurnCapacityCompaction(planInput({
+      estimatedNextRequestTokens: 130_000, // over the window itself
+      summarize: () => '',
+    }));
+    assert.deepEqual(result, { decision: 'exhausted', detail: 'summarizer_failed' });
+  });
+
+  test('exhausts with no_safe_completed_span when the pool has no safe cut past the anchor', async () => {
+    // Only the head anchor and one open call/result pair; reserving the tail
+    // leaves no safe completed span that also covers a step past the anchor.
+    const events = [user('anchor', 'turn-1'), call('c', 'c1', 'turn-1'), result('r', 'c1', 'turn-1')];
+    const outcome = await planMidTurnCapacityCompaction(planInput({
+      orderedEvents: events,
+      estimatedNextRequestTokens: 130_000,
+      reserveTailEvents: 1,
+    }));
+    assert.deepEqual(outcome, { decision: 'exhausted', detail: 'no_safe_completed_span' });
+  });
+
+  test('rolls forward from a matching previous checkpoint (only the new span is summarized)', async () => {
+    const events = longTurnEvents();
+    const first = await planMidTurnCapacityCompaction(planInput({
+      orderedEvents: events.slice(0, 5), // fold through res-a
+    }));
+    assert.equal(first.decision, 'compacted');
+    if (first.decision !== 'compacted') return;
+
+    let seenNewlyFolded: string[] = [];
+    const second = await planMidTurnCapacityCompaction(planInput({
+      orderedEvents: events,
+      previousCheckpoint: first.checkpoint,
+      summarize: ({ newlyFoldedRuntimeEvents, previousCheckpoint }) => {
+        seenNewlyFolded = newlyFoldedRuntimeEvents.map((event) => event.id);
+        assert.equal(previousCheckpoint?.checkpointId, first.checkpoint.checkpointId);
+        return 'rolled-forward summary';
+      },
+    }));
+    assert.equal(second.decision, 'compacted');
+    if (second.decision !== 'compacted') return;
+    // First folded through `anchor`; the second folds through `res-a`, so only
+    // the span after the previous checkpoint's coverage is re-summarized.
+    assert.deepEqual(seenNewlyFolded, ['call-a', 'res-a']);
+    assert.equal(second.checkpoint.previousCheckpointId, first.checkpoint.checkpointId);
   });
 });
 

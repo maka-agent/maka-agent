@@ -503,12 +503,17 @@ export {
   estimateNextRequestTokens,
   exceedsContextWindow,
   exceedsHighWater,
+  planMidTurnCapacityCompaction,
   selectMidTurnSafeBoundary,
 } from './mid-turn-capacity-compact.js';
 export type {
   EstimateNextRequestTokensInput,
   MidTurnBoundary,
   MidTurnBoundaryOptions,
+  MidTurnFailReason,
+  MidTurnSummarizer,
+  PlanMidTurnCapacityCompactionInput,
+  PlanMidTurnCapacityCompactionResult,
 } from './mid-turn-capacity-compact.js';
 export { cleanupLegacyHistoryCompactArtifacts } from './history-compact-cleanup.js';
 export type {
