@@ -2,7 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { zodSchema } from 'ai';
 import { z } from 'zod';
 import { SHELL_RUN_ID_MAX_CHARS } from '@maka/core';
@@ -483,6 +483,75 @@ describe('builtin Bash streaming output', () => {
       );
       assert.equal(ptyPlan.kind, 'block');
       if (ptyPlan.kind === 'block') assert.match(ptyPlan.message, /PTY/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('canonicalizes macOS Bash cwd and exposes the runtime executable roots', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-bash-runtime-roots-'));
+    try {
+      const workspace = join(root, 'workspace');
+      const workspaceAlias = join(root, 'workspace-alias');
+      await mkdir(workspace);
+      await symlink(workspace, workspaceAlias, 'dir');
+      const canonicalWorkspace = await realpath(workspace);
+      let input: Parameters<ShellRunLauncher['runForegroundBash']>[0] | undefined;
+      const shellRuns: ShellRunLauncher = {
+        async runForegroundBash(value) {
+          input = value;
+          return {
+            kind: 'terminal',
+            cwd: value.cwd,
+            cmd: value.command,
+            status: 'completed',
+            exitCode: 0,
+            output: {
+              mode: 'pipes',
+              stdout: '',
+              stderr: '',
+              stdoutTruncated: false,
+              stderrTruncated: false,
+              redacted: false,
+            },
+          };
+        },
+        async runBackgroundBash() {
+          throw new Error('not used');
+        },
+      };
+      const bash = buildBuiltinTools({
+        shellRuns,
+        permissionProfile: createWorkspaceWritePermissionProfile(),
+        sandboxManager: new SandboxManager([new MacosSeatbeltBackend()]),
+        sandboxPlatform: 'darwin',
+      }).find((candidate) => candidate.name === 'Bash');
+      if (!bash) throw new Error('Bash tool missing');
+
+      await bash.impl({ command: 'node --version' }, {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        toolCallId: 'tool-1',
+        cwd: workspaceAlias,
+        permissionMode: 'execute',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      });
+
+      assert.equal(input?.cwd, canonicalWorkspace);
+      const argv = input?.argv;
+      assert.ok(argv);
+      const executableDirectory = dirname(process.execPath);
+      const executableRoot = basename(executableDirectory) === 'bin'
+        ? dirname(executableDirectory)
+        : executableDirectory;
+      assert.ok(argv.includes(`-DEXECUTABLE_ROOT_0=${executableRoot}`));
+      if (process.execPath.startsWith('/opt/homebrew/')) {
+        assert.ok(argv.includes('-DEXECUTABLE_ROOT_1=/opt/homebrew'));
+      }
+      if (process.execPath.startsWith('/usr/local/')) {
+        assert.ok(argv.includes('-DEXECUTABLE_ROOT_1=/usr/local'));
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }

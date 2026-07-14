@@ -6,6 +6,7 @@
 // Bash / Write / Edit go through PermissionEngine.
 
 import { z } from 'zod';
+import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import {
@@ -603,10 +604,11 @@ function sandboxCommand(
   fdInputs?: readonly ChildFdInput[];
 } | undefined {
   if (pty) return undefined;
+  const cwd = canonicalExistingPath(ctx.cwd);
   const effective = effectivePermissionProfile(
     explicitProfile,
     ctx.permissionMode ?? 'ask',
-    ctx.cwd,
+    cwd,
   );
   if (!manager.canEnforce({ profile: effective.profile, platform })) return undefined;
 
@@ -617,13 +619,16 @@ function sandboxCommand(
     command: {
       program: '/bin/sh',
       args: ['-c', command],
-      cwd: ctx.cwd,
+      cwd,
       env,
       profile: effective.profile,
       pathContext: {
         workspaceRoots: effective.workspaceRoots,
         tmpdir: tmpdir(),
         slashTmp: '/tmp',
+        ...(platform === 'darwin' ? {
+          executableRoots: macosRuntimeExecutableRoots(process.execPath),
+        } : {}),
         ...(platform === 'linux' ? {
           minimalRoots: linuxExecutableRoots({
             execPath: process.execPath,
@@ -643,6 +648,22 @@ function sandboxCommand(
     ...(result.exec.env ? { env: { ...result.exec.env } } : {}),
     ...(result.exec.fdInputs ? { fdInputs: result.exec.fdInputs } : {}),
   };
+}
+
+function canonicalExistingPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+function macosRuntimeExecutableRoots(execPath: string): readonly string[] {
+  return [
+    ...linuxExecutableRoots({ execPath }),
+    ...(execPath.startsWith('/opt/homebrew/') ? ['/opt/homebrew'] : []),
+    ...(execPath.startsWith('/usr/local/') ? ['/usr/local'] : []),
+  ];
 }
 
 function effectivePermissionProfile(
