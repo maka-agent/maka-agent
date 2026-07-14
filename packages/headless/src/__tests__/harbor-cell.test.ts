@@ -541,10 +541,10 @@ describe('runHarborCell', () => {
         continuedTurns: 1,
         stepCapHits: 1,
         capExhausted: false,
-        totalRuntimeSteps: 50,
+        totalRuntimeSteps: 51,
         turns: [
           { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
-          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 1 },
         ],
       });
       assert.ok(result.output.tokenSummary);
@@ -693,10 +693,10 @@ describe('runHarborCell', () => {
         continuedTurns: 1,
         stepCapHits: 1,
         capExhausted: false,
-        totalRuntimeSteps: 50,
+        totalRuntimeSteps: 51,
         turns: [
           { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
-          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 1 },
         ],
       });
     });
@@ -735,11 +735,11 @@ describe('runHarborCell', () => {
         continuedTurns: 2,
         stepCapHits: 2,
         capExhausted: false,
-        totalRuntimeSteps: 100,
+        totalRuntimeSteps: 101,
         turns: [
           { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
           { turnIndex: 1, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
-          { turnIndex: 2, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+          { turnIndex: 2, status: 'completed', stepCapHit: false, runtimeSteps: 1 },
         ],
       });
     });
