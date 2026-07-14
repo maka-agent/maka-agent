@@ -2065,6 +2065,7 @@ async function ensureSessionCanSend(sessionId: string): Promise<void> {
     result = await ensureSessionCanSendOrRebind(sessionId, header, {
       readyConnectionDeps,
       getDefaultSlug: () => connectionStore.getDefault(),
+      listConnectionSlugs: async () => (await connectionStore.list()).map((connection) => connection.slug),
       updateSession: (_sessionId, patch) => runtime.updateSession(_sessionId, {
         ...patch,
         status: 'active',

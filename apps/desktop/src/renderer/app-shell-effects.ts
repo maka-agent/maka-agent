@@ -219,7 +219,7 @@ export function useAppShellBootstrapSubscriptions(options: {
     }
     if (event.reason === 'rebound') {
       const modelSuffix = event.modelId ? ` · ${event.modelId}` : '';
-      options.toastApi.info('已切换到默认模型', `原会话使用的连接已不可用${modelSuffix}`);
+      options.toastApi.info('已切换到可用模型', `原会话使用的连接已不可用${modelSuffix}`);
     }
     if (event.reason === 'deleted' && event.sessionId && event.sessionId === options.activeIdRef.current) {
       const deletedSessionId = event.sessionId;
