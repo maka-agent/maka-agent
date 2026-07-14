@@ -1,5 +1,4 @@
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import type { ContextBudgetExhaustedDetail } from '@maka/core/events';
 import { estimateRuntimeEventsTokens } from './context-budget.js';
 import {
   buildHistoryCompactCheckpoint,
@@ -15,38 +14,50 @@ import {
  * The runtime owns one active-turn context invariant — a long single turn must
  * compact a safe completed prefix before the next provider request crosses the
  * selected model's context window. This module is turn-agnostic and side-effect
- * free: it estimates the next request, decides whether the high-water or the
- * hard window is crossed, and selects the largest safe covered prefix. The
- * checkpoint protocol (history-compact-checkpoint.ts) then folds that prefix.
+ * free, and it only SHAPES: it selects the largest safe covered prefix and
+ * builds the checkpoint + replacement projection, failing open when it cannot.
+ * The safety-critical pass/terminate verdict is NOT issued here — the backend's
+ * final-request estimate owner measures the actual outgoing (messages, tools)
+ * payload after every shaping hook has run and decides `context_budget_exhausted`
+ * there, so the verdict is always about the request that really goes out.
  */
 
 export interface EstimateNextRequestTokensInput {
   /**
    * Real provider usage for the last completed step, summed as
    * `inputTokens + outputTokens`. Undefined on cold start (no step has reported
-   * usage yet), which falls back to a whole-projection char estimate.
+   * usage yet), which falls back to a whole-payload char estimate.
    */
   priorUsageTokens?: number;
-  /** Chars of content appended since the last usage sample (e.g. tool results). */
+  /**
+   * SIGNED char delta of the next request's payload versus the last measured
+   * request payload. Negative after compaction/pruning shrank the projection —
+   * the estimate must credit the shrink, or a compacted request would still be
+   * judged by the pre-compaction usage sample.
+   */
   appendedChars: number;
   /** Estimate conversion; defaults to 4 chars/token. */
   charsPerToken?: number;
-  /** Whole-projection chars, used only when `priorUsageTokens` is undefined. */
+  /** Whole-payload chars, used only when `priorUsageTokens` is undefined. */
   coldStartChars?: number;
 }
 
 /**
  * Estimate the token size of the next provider request. Anchors on the last
- * step's real usage plus a char/4 tail delta for content the provider has not
- * yet counted; cold-start (no usage) is a pure char/4 estimate of the whole
- * projection. This mirrors how surveyed peers avoid pure character guessing.
+ * step's real usage plus a signed char/4 payload delta for content the provider
+ * has not yet counted (or no longer carries); cold-start (no usage) is a pure
+ * char/4 estimate of the whole payload. This mirrors how surveyed peers avoid
+ * pure character guessing.
  */
 export function estimateNextRequestTokens(input: EstimateNextRequestTokensInput): number {
   const charsPerToken = Math.max(1, input.charsPerToken ?? 4);
   if (input.priorUsageTokens !== undefined && Number.isFinite(input.priorUsageTokens)) {
-    return Math.max(0, Math.floor(input.priorUsageTokens)) + estimateChars(input.appendedChars, charsPerToken);
+    return Math.max(
+      0,
+      Math.max(0, Math.floor(input.priorUsageTokens)) + estimateSignedChars(input.appendedChars, charsPerToken),
+    );
   }
-  return estimateChars(input.coldStartChars ?? input.appendedChars, charsPerToken);
+  return Math.max(0, estimateSignedChars(input.coldStartChars ?? input.appendedChars, charsPerToken));
 }
 
 /** Proactive threshold: the next request would cross `contextWindow - reserve`. */
@@ -150,10 +161,11 @@ function straddlesToolPair(spans: readonly ToolPairSpan[], cut: number): boolean
   return false;
 }
 
-function estimateChars(chars: number | undefined, charsPerToken: number): number {
-  const value = Math.max(0, Math.floor(chars ?? 0));
-  if (value === 0) return 0;
-  return Math.ceil(value / charsPerToken);
+function estimateSignedChars(chars: number | undefined, charsPerToken: number): number {
+  const value = Math.trunc(chars ?? 0);
+  if (!Number.isFinite(value) || value === 0) return 0;
+  const magnitude = Math.ceil(Math.abs(value) / charsPerToken);
+  return value > 0 ? magnitude : -magnitude;
 }
 
 // ============================================================================
@@ -190,9 +202,8 @@ export interface PlanMidTurnCapacityCompactionInput {
 }
 
 export type PlanMidTurnCapacityCompactionResult =
-  | { decision: 'skip'; reason: 'below_high_water' | 'head_anchor_not_covered' }
+  | { decision: 'skip'; reason: 'below_high_water' }
   | { decision: 'fail_open'; reason: MidTurnFailReason }
-  | { decision: 'exhausted'; detail: ContextBudgetExhaustedDetail }
   | {
       decision: 'compacted';
       checkpoint: HistoryCompactCheckpoint;
@@ -206,16 +217,16 @@ export type PlanMidTurnCapacityCompactionResult =
 
 export type MidTurnFailReason =
   | 'no_safe_completed_span'
-  | 'summarizer_failed'
-  | 'replacement_exceeds_window';
+  | 'summarizer_failed';
 
 /**
  * Decide, deterministically, how a long active turn compacts before the next
- * provider request. Two failure tiers (design): below the high-water the turn
- * still fits the window, so a compaction failure fails open (send as-is +
- * diagnostic); once the estimate exceeds the window itself and compaction
- * cannot help, the turn ends with an explicit `context_budget_exhausted`
- * outcome instead of relying on a provider context-length error.
+ * provider request. This plan is a pure shaper: when it cannot fold a safe
+ * completed prefix it FAILS OPEN (keep the raw projection + diagnostic) and
+ * never terminates the turn itself. The two failure tiers — fail open under
+ * the window, explicit `context_budget_exhausted` over it — are applied by the
+ * backend's final-request estimate owner, which re-measures the actual outgoing
+ * payload after all shaping (including this fold) has been applied.
  */
 export async function planMidTurnCapacityCompaction(
   input: PlanMidTurnCapacityCompactionInput,
@@ -225,12 +236,6 @@ export async function planMidTurnCapacityCompaction(
   if (input.estimatedNextRequestTokens <= highWater) {
     return { decision: 'skip', reason: 'below_high_water' };
   }
-  const overWindow = input.estimatedNextRequestTokens > input.contextWindow;
-  const failOrExhaust = (
-    reason: MidTurnFailReason,
-    detail: ContextBudgetExhaustedDetail,
-  ): PlanMidTurnCapacityCompactionResult =>
-    overWindow ? { decision: 'exhausted', detail } : { decision: 'fail_open', reason };
 
   const boundary = selectMidTurnSafeBoundary(input.orderedEvents, {
     reserveTailEvents: input.reserveTailEvents ?? 1,
@@ -246,7 +251,7 @@ export async function planMidTurnCapacityCompaction(
     || boundary.coveredCount <= headAnchorIndex
     || boundary.coveredCount < 2
   ) {
-    return failOrExhaust('no_safe_completed_span', 'no_safe_completed_span');
+    return { decision: 'fail_open', reason: 'no_safe_completed_span' };
   }
 
   const coveredRuntimeEvents = input.orderedEvents.slice(0, boundary.coveredCount);
@@ -273,7 +278,7 @@ export async function planMidTurnCapacityCompaction(
     summary = undefined;
   }
   if (!summary) {
-    return failOrExhaust('summarizer_failed', 'summarizer_failed');
+    return { decision: 'fail_open', reason: 'summarizer_failed' };
   }
 
   const checkpoint = buildHistoryCompactCheckpoint({
@@ -303,29 +308,13 @@ export async function planMidTurnCapacityCompaction(
     charsPerToken,
   );
 
-  // Re-estimate the FULL next request after folding, keeping the fixed
-  // overhead (system prompt, tool schemas, current user content) that the
-  // usage-anchored estimate carries. The estimate already includes the
-  // retained tail, so subtracting the covered span's share must add back only
-  // the covered span's SUBSTITUTE — the [block, verbatim head anchor] head of
-  // the replacement projection, never the tail again. Folding cannot reduce
-  // the request below this number, so when it still exceeds the window the
-  // turn is not rescuable by compaction: over the window that is the explicit
-  // exhausted outcome (the irreducible remainder — head anchor, reserved
-  // tail, and fixed overhead — exceeds capacity); under the window the raw
-  // request still fits, so a replacement projection that would grow past the
-  // window fails open instead of replacing.
-  const replacementHeadEvents = replacementEvents.slice(
-    0,
-    replacementEvents.length - tailRuntimeEvents.length,
-  );
-  const estimatedNextRequestAfter =
-    Math.max(0, input.estimatedNextRequestTokens - estimatedTokensBefore)
-    + estimateRuntimeEventsTokens(replacementHeadEvents, charsPerToken);
-  if (estimatedNextRequestAfter > input.contextWindow) {
-    return failOrExhaust('replacement_exceeds_window', 'head_anchor_exceeds_capacity');
-  }
-
+  // No post-fold verdict here: any re-estimate over the raw ledger span is
+  // wrong once the previous request was itself a compacted projection (the
+  // raw covered span was never in that request, so subtracting it
+  // over-credits the fold). The backend applies the shape only when the
+  // materialized replacement payload actually shrinks the request, and its
+  // final-request estimate owner measures the outgoing payload for the
+  // window verdict.
   return {
     decision: 'compacted',
     checkpoint,

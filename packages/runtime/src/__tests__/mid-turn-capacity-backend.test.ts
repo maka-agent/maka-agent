@@ -18,6 +18,9 @@ import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 
 const RAW_SPAN_ONE = 'RAW_SPAN_ONE_'.repeat(24);
 const RAW_SPAN_TWO = 'RAW_SPAN_TWO_'.repeat(160);
+/** Third-step result big enough that even the rolled-forward fold cannot fit. */
+const ROLLING_TAIL = 'ROLLING_TAIL_'.repeat(740);
+const HUGE_RESULT = 'HUGE_RESULT_'.repeat(670);
 const ANCHOR_TEXT = 'compact this very long turn but keep my exact words';
 
 interface MidTurnFixture {
@@ -53,6 +56,14 @@ interface MidTurnFixtureOptions {
   record?: (checkpoint: HistoryCompactCheckpoint) => void;
   /** Make the prior turns large so folding them rescues an over-window turn. */
   bigPriors?: boolean;
+  /** First tool result is huge (finding C: prune must be able to rescue it). */
+  hugeFirstResult?: boolean;
+  /** The model finishes on the second request instead of running three steps. */
+  finalAtSecondCall?: boolean;
+  /** Add a third tool step whose result outgrows even a rolled-forward fold (finding A). */
+  rollingOverflow?: boolean;
+  /** Economy tool availability with a huge-schema group behind load_tools (finding D). */
+  bigToolGroup?: boolean;
 }
 
 /**
@@ -78,15 +89,32 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 },
     outputTokens: { total: output, text: output, reasoning: 0 },
   });
-  const toolCallChunks = (id: string, path: string): LanguageModelV3StreamPart[] => [
+  const toolCallChunks = (id: string, name: string, args: object): LanguageModelV3StreamPart[] => [
     { type: 'stream-start', warnings: [] },
-    { type: 'tool-call', toolCallId: id, toolName: 'Read', input: JSON.stringify({ path }) },
+    { type: 'tool-call', toolCallId: id, toolName: name, input: JSON.stringify(args) },
     {
       type: 'finish',
       finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
       usage: usage(id === 'tool-1' ? 100 : 150, id === 'tool-1' ? 20 : 30),
     },
   ];
+  const doneChunks = (): LanguageModelV3StreamPart[] => [
+    { type: 'stream-start', warnings: [] },
+    { type: 'text-start', id: 'text-1' },
+    { type: 'text-delta', id: 'text-1', delta: 'done' },
+    { type: 'text-end', id: 'text-1' },
+    { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: usage(120, 10) },
+  ];
+  const chunksForCall = (call: number): LanguageModelV3StreamPart[] => {
+    if (options.bigToolGroup) {
+      return call === 1 ? toolCallChunks('tool-1', 'load_tools', { group: 'big' }) : doneChunks();
+    }
+    if (call === 1) return toolCallChunks('tool-1', 'Read', { path: 'one.md' });
+    if (options.finalAtSecondCall) return doneChunks();
+    if (call === 2) return toolCallChunks('tool-2', 'Read', { path: 'two.md' });
+    if (options.rollingOverflow && call === 3) return toolCallChunks('tool-3', 'Read', { path: 'three.md' });
+    return doneChunks();
+  };
   const model = new MockLanguageModelV3({
     doStream: async (streamOptions: { abortSignal?: AbortSignal }) => {
       // A real transport rejects immediately on an already-aborted signal; the
@@ -97,17 +125,7 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
       }
       const call = model.doStreamCalls.length;
       if (call === 3) recordedAtThirdRequest = recorded.length > 0;
-      const chunks: LanguageModelV3StreamPart[] = call === 1
-        ? toolCallChunks('tool-1', 'one.md')
-        : call === 2
-          ? toolCallChunks('tool-2', 'two.md')
-          : [
-              { type: 'stream-start', warnings: [] },
-              { type: 'text-start', id: 'text-1' },
-              { type: 'text-delta', id: 'text-1', delta: 'done' },
-              { type: 'text-end', id: 'text-1' },
-              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: usage(120, 10) },
-            ];
+      const chunks = chunksForCall(call);
       return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
     },
   });
@@ -157,16 +175,34 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     modelId: 'mock-model-id',
     permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
     modelFactory: () => model,
-    tools: [{
-      name: 'Read',
-      description: 'Read description',
-      parameters: z.object({ path: z.string() }),
-      permissionRequired: false,
-      impl: async (args: { path: string }) => {
-        toolExecutions.push(args.path);
-        return { body: args.path === 'one.md' ? RAW_SPAN_ONE : RAW_SPAN_TWO };
+    tools: [
+      {
+        name: 'Read',
+        description: 'Read description',
+        parameters: z.object({ path: z.string() }),
+        permissionRequired: false,
+        impl: async (args: { path: string }) => {
+          toolExecutions.push(args.path);
+          if (args.path === 'one.md') return { body: options.hugeFirstResult ? HUGE_RESULT : RAW_SPAN_ONE };
+          if (args.path === 'three.md') return { body: ROLLING_TAIL };
+          return { body: RAW_SPAN_TWO };
+        },
       },
-    }],
+      ...(options.bigToolGroup
+        ? [{
+            name: 'Big',
+            // A same-turn load_tools activation adds this schema to every later
+            // request; the trigger must count it (finding D).
+            description: `BIG_SCHEMA ${'D'.repeat(12_000)}`,
+            parameters: z.object({ q: z.string() }),
+            permissionRequired: false,
+            impl: async () => ({ ok: true }),
+          }]
+        : []),
+    ],
+    ...(options.bigToolGroup
+      ? { toolAvailability: { economy: true, groups: [{ id: 'big', toolNames: ['Big'] }] } }
+      : {}),
     contextBudget: {
       name: 'mid-turn-test',
       maxHistoryEstimatedTokens: 100_000,
@@ -532,6 +568,107 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(fixture.summarizerCalls, 1);
     // No semantic summary model call was ever made.
     assert.equal(fixture.events.some((event) => event.type === 'error'), false);
+  });
+
+  test('a rolling second compaction that still exceeds the window ends explicitly (review finding A)', async () => {
+    // Review round-3 finding A: the old post-fold re-estimate subtracted the
+    // RAW covered span from a usage estimate anchored to the ALREADY-compacted
+    // previous request, over-crediting the second fold and letting a
+    // still-over-window request stream. The final-payload owner measures the
+    // real replacement projection instead: the third step's huge result makes
+    // even [second block, anchor, tail] exceed the window, so the turn must
+    // end with the explicit outcome — never send the over-window request.
+    const fixture = buildFixture({ bigPriors: true, rollingOverflow: true });
+    await runFixtureTurn(fixture, consumer);
+
+    // The first fold happened and its projection was used (three requests ran).
+    assert.equal(fixture.recorded.length, 2);
+    assert.equal(fixture.recorded[0]?.phase, 'mid_turn');
+    // The second fold rolled forward from the first checkpoint...
+    assert.equal(fixture.recorded[1]?.previousCheckpointId, fixture.recorded[0]?.checkpointId);
+    // ...but its replacement still exceeds the window: explicit outcome.
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type, 'complete');
+    if (complete?.type !== 'complete') return;
+    assert.equal(complete.stopReason, 'context_budget_exhausted');
+    assert.equal(complete.contextBudgetExhaustedDetail, 'head_anchor_exceeds_capacity');
+    // The over-window fourth request never streamed.
+    assert.equal(fixture.events.some((event) => event.type === 'text_complete' && event.text === 'done'), false);
+  });
+
+  test('the verdict is issued after pruning — a prune-rescuable step is not exhausted (review finding C)', async () => {
+    // Review round-3 finding C repro: one huge tool result, no safe completed
+    // span for the capacity hook, but the active tool-result prune (which runs
+    // AFTER the capacity hook) archives the result down to a placeholder that
+    // fits the window. A verdict inside the capacity hook would have declared
+    // context_budget_exhausted before the rescue could run.
+    const fixture = buildFixture({
+      contextWindow: 500,
+      reserveTokens: 100,
+      withoutPriorTurns: true,
+      hugeFirstResult: true,
+      finalAtSecondCall: true,
+      activeToolResultPrune: true,
+    });
+    await runFixtureTurn(fixture, consumer);
+
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
+    assert.equal(fixture.model.doStreamCalls.length, 2);
+    // The second request carries the archive placeholder, not the raw body.
+    const secondPrompt = promptJson(fixture, 1);
+    assert.equal(secondPrompt.includes('HUGE_RESULT_'), false);
+    assert.match(secondPrompt, /artifact-archived-1/);
+    // The capacity hook's failure is a diagnostic, not a terminal outcome.
+    const failedOpen = compactionDecisions(fixture).find(
+      (decision) => decision.phase === 'mid_turn' && decision.decision === 'failedOpen',
+    );
+    assert.equal(failedOpen?.failOpenReason, 'no_safe_completed_span');
+  });
+
+  test('the trigger counts same-turn tool-schema growth from load_tools (review finding D)', async () => {
+    // Review round-3 finding D repro: the model activates a ~12.7k-char tool
+    // group mid-turn. The schema lands in every later request, so the payload
+    // estimate must count it: the next request cannot fit the 500-token window
+    // and the pool has no safe completed span, so the turn ends explicitly
+    // instead of streaming a ~3k-token request into a 500-token window.
+    const fixture = buildFixture({
+      contextWindow: 500,
+      reserveTokens: 100,
+      withoutPriorTurns: true,
+      bigToolGroup: true,
+    });
+    await runFixtureTurn(fixture, consumer);
+
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type, 'complete');
+    if (complete?.type !== 'complete') return;
+    assert.equal(complete.stopReason, 'context_budget_exhausted');
+    assert.equal(complete.contextBudgetExhaustedDetail, 'no_safe_completed_span');
+    // The over-window second request never streamed the expanded schema.
+    assert.equal(fixture.events.some((event) => event.type === 'text_complete' && event.text === 'done'), false);
+  });
+
+  test('a fold that cannot shrink the real payload is refused, not applied (runaway summary)', async () => {
+    // The summarizer returns a block far larger than the span it replaces.
+    // Applying it would hand the verdict owner a WORSE request than the raw
+    // projection; the hook measures the materialized payload and keeps the raw
+    // messages instead. The checkpoint write already succeeded and stays
+    // durable — only this step's in-flight replacement is skipped.
+    const fixture = buildFixture({ summarize: () => 'GIANT_SUMMARY_'.repeat(600) });
+    await runFixtureTurn(fixture, consumer);
+
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
+    // The raw span stayed; the giant block was never sent.
+    const thirdPrompt = promptJson(fixture, 2);
+    assert.equal(thirdPrompt.includes('RAW_SPAN_ONE_'), true);
+    assert.equal(thirdPrompt.includes('GIANT_SUMMARY_'), false);
+    const failedOpen = compactionDecisions(fixture).find(
+      (decision) => decision.phase === 'mid_turn' && decision.decision === 'failedOpen',
+    );
+    assert.equal(failedOpen?.failOpenReason, 'replacement_not_smaller');
   });
 
 }

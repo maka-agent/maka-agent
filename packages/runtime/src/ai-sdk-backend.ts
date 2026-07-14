@@ -221,6 +221,12 @@ export const INVALID_TOOL_NAME = 'invalid';
  * already-compacted messages. On a step where the capacity hook replaced the
  * request, semantic/active-full compaction yields (see send()) so two
  * summarizers never run for one step.
+ *
+ * Every hook here only SHAPES the projection. The pass/terminate capacity
+ * verdict is issued once, after the whole pipeline, by the final-request
+ * estimate owner (buildMidTurnFinalRequestVerdict) over the actual outgoing
+ * (messages, tools) payload — never by an individual hook over an intermediate
+ * projection that a later hook could still rescue.
  */
 export function composePrepareStep(
   toolAvailability: PrepareStepFunctionLike | undefined,
@@ -309,8 +315,15 @@ function projectAcceptedActiveFullCompactMessages(
  * cursor state between steps.
  */
 class MidTurnCapacityCompactState {
-  /** Durable function_response chars counted at the previous prepared request. */
-  responseCharsAtLastRequest = 0;
+  /**
+   * Chars of the final (messages + active tool schema) payload of the LAST
+   * prepared request, recorded by the final-request estimate owner at the end
+   * of every prepareStep pipeline run. All capacity estimates are signed
+   * deltas against this number, so they are anchored to the request the
+   * provider actually saw — a compacted projection, a pruned tail, or a
+   * same-turn tool-schema expansion all move the delta the same way.
+   */
+  lastRequestPayloadChars: number | undefined;
   /** input+output tokens reported by the last finished step, when available. */
   lastStepUsageTokens: number | undefined;
   /** Latest durable checkpoint (loaded or written) for roll-forward summaries. */
@@ -323,12 +336,52 @@ class MidTurnCapacityCompactState {
    * summarizers or double-projects.
    */
   replacedStepNumber: number | undefined;
+  /**
+   * finish-step boundaries the event pump has flushed into the session-event
+   * queue. The capacity hook's durability wait needs it: only after the pump
+   * has flushed step N's boundary are that step's thinking/text completion
+   * events enqueued at all.
+   */
+  flushedSteps = 0;
+  /**
+   * Set by the final-request estimate owner to force one capacity re-entry on
+   * the current step, bypassing the (deliberately approximate) high-water
+   * trigger. Consumed by the capacity hook on its next invocation.
+   */
+  forcedTriggerEstimate: number | undefined;
+  /**
+   * The capacity hook's most recent shaping failure. The owner reads it (for
+   * the same step only) to pick the terminal detail and diagnostic reason
+   * when the final payload is over the window, and to avoid re-entering a
+   * shaper that already attempted and failed this step.
+   */
+  lastShapeFailure: {
+    stepNumber: number;
+    detail: ContextBudgetExhaustedDetail;
+    diagnosticReason: string;
+  } | undefined;
 
   constructor(
     readonly headAnchor: RuntimeEvent,
     readonly priorContentEvents: readonly RuntimeEvent[],
     readonly contextWindow: number,
   ) {}
+}
+
+/**
+ * Char measure of the provider-visible request payload: the (projected)
+ * messages plus the serialized schemas of the active tool subset. The capacity
+ * trigger and the final-request estimate owner both measure with this ONE
+ * function, so their deltas against `lastRequestPayloadChars` are
+ * commensurable and same-turn tool-schema growth (a `load_tools` activation)
+ * is counted like any other payload growth.
+ */
+function midTurnRequestPayloadChars(
+  messages: readonly ModelMessage[],
+  providerTools: readonly MakaTool[],
+  activeTools: readonly string[],
+): number {
+  return JSON.stringify(messages).length + toolSchemaCharsForDiagnostics(providerTools, activeTools);
 }
 
 /**
@@ -1163,22 +1216,44 @@ export class AiSdkBackend implements AgentBackend {
               return activeCompactHook(options);
             }
           : activeCompactHook;
-        const prepareStep = composePrepareStep(
+        const onMidTurnDiagnosticPatch = (patch: Partial<ContextBudgetDiagnostic>): void => {
+          activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
+            activeCompactDiagnosticPatch,
+            patch,
+          );
+        };
+        const midTurnCapacityHook = this.buildMidTurnCapacityCompactPrepareStep(
+          turnId,
+          midTurnState,
+          providerTools,
+          () => currentRepairToolNames(),
+          onMidTurnDiagnosticPatch,
+        );
+        const activeToolResultPruneHook = this.buildActiveToolResultPrunePrepareStep(turnId, (patch) => {
+          activeToolResultPruneDiagnosticPatch = mergeActiveToolResultPruneDiagnosticPatches(
+            activeToolResultPruneDiagnosticPatch,
+            patch,
+          );
+        });
+        const shapedPrepareStep = composePrepareStep(
           plan.prepareStep,
-          this.buildMidTurnCapacityCompactPrepareStep(turnId, midTurnState, (patch) => {
-            activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
-              activeCompactDiagnosticPatch,
-              patch,
-            );
-          }),
-          this.buildActiveToolResultPrunePrepareStep(turnId, (patch) => {
-            activeToolResultPruneDiagnosticPatch = mergeActiveToolResultPruneDiagnosticPatches(
-              activeToolResultPruneDiagnosticPatch,
-              patch,
-            );
-          }),
+          midTurnCapacityHook,
+          activeToolResultPruneHook,
           activeCompactAfterMidTurn,
         );
+        // The verdict owner wraps the WHOLE shaping pipeline: hooks shape, one
+        // owner measures the final payload and decides pass/terminate.
+        const prepareStep = midTurnState && midTurnCapacityHook && shapedPrepareStep
+          ? this.buildMidTurnFinalRequestVerdict({
+              shaped: shapedPrepareStep,
+              reentry: composePrepareStep(undefined, midTurnCapacityHook, activeToolResultPruneHook)!,
+              state: midTurnState,
+              providerTools,
+              fallbackActiveTools: () => currentRepairToolNames(),
+              charsPerToken: this.input.contextBudget?.charsPerToken ?? 4,
+              onDiagnosticPatch: onMidTurnDiagnosticPatch,
+            })
+          : shapedPrepareStep;
 
         const result = await this.modelAdapter.startStream({
           model,
@@ -2147,17 +2222,27 @@ export class AiSdkBackend implements AgentBackend {
   }
 
   /**
-   * prepareStep hook for the mid-turn capacity invariant: between steps of one
-   * turn, measure the next provider request (last step's real usage + a char/4
-   * tail delta) against `contextWindow - reserve`; over the high-water, fold a
-   * safe completed prefix into a durable mid_turn checkpoint and continue the
-   * same turn on `[compact block, verbatim head anchor, preserved tail]`.
-   * Failure tiers: under the window fail open (send as-is + diagnostic); over
-   * the window end the turn with the explicit context_budget_exhausted outcome.
+   * prepareStep SHAPING hook for the mid-turn capacity invariant: between
+   * steps of one turn, estimate the next provider request (last step's real
+   * usage + a signed char/4 payload delta, tool schemas included) against
+   * `contextWindow - reserve`; over the high-water, fold a safe completed
+   * prefix into a durable mid_turn checkpoint and continue the same turn on
+   * `[compact block, verbatim head anchor, preserved tail]`.
+   *
+   * This hook never terminates the turn: every failure fails open with a
+   * diagnostic and records itself for the final-request estimate owner, which
+   * re-measures the payload after ALL shaping (including active tool-result
+   * pruning, which runs later and can still rescue the step) and issues the
+   * context_budget_exhausted verdict only when the request that would really
+   * go out exceeds the window. The trigger threshold here is deliberately
+   * approximate — a missed or spurious trigger is recoverable; the verdict is
+   * not, so it does not live here.
    */
   private buildMidTurnCapacityCompactPrepareStep(
     turnId: string,
     state: MidTurnCapacityCompactState | undefined,
+    providerTools: readonly MakaTool[],
+    fallbackActiveTools: () => readonly string[],
     onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void,
   ): PrepareStepFunctionLike | undefined {
     if (!state) return undefined;
@@ -2215,6 +2300,41 @@ export class AiSdkBackend implements AgentBackend {
         });
         return keepProjection();
       };
+      // A shaping failure additionally records itself for the final-request
+      // estimate owner: when the final payload is still over the window, the
+      // owner turns this step's failure into the terminal detail instead of
+      // re-entering a shaper that already attempted and failed.
+      const shapeFailure = (
+        detail: ContextBudgetExhaustedDetail,
+        diagnosticReason: string,
+        recorderCounters: Partial<ContextBudgetDiagnostic> = {},
+      ): PrepareStepResultLike | undefined => {
+        state.lastShapeFailure = { stepNumber: options.stepNumber, detail, diagnosticReason };
+        return failOpen(diagnosticReason, recorderCounters);
+      };
+
+      // Trigger estimate: last step's real usage plus a SIGNED char/4 delta of
+      // this step's payload (projected messages + active tool schemas) against
+      // the previous request's measured payload. Measured synchronously from
+      // the SDK's own projection — no ledger dependency — so a same-turn
+      // `load_tools` schema expansion or a large tool result both count. This
+      // position measures BEFORE later shapers (prune) run, so it can
+      // over-trigger; that is the recoverable direction, and the verdict owner
+      // re-measures the post-shaping payload.
+      const measuredMessages = projectedMessages ?? incomingMessages;
+      const activeToolsForStep = options.activeTools ?? fallbackActiveTools();
+      const payloadChars = midTurnRequestPayloadChars(measuredMessages, providerTools, activeToolsForStep);
+      const forcedEstimate = state.forcedTriggerEstimate;
+      state.forcedTriggerEstimate = undefined;
+      const estimate = forcedEstimate ?? estimateNextRequestTokens({
+        ...(state.lastStepUsageTokens !== undefined ? { priorUsageTokens: state.lastStepUsageTokens } : {}),
+        appendedChars: payloadChars - (state.lastRequestPayloadChars ?? payloadChars),
+        charsPerToken,
+        coldStartChars: payloadChars,
+      });
+      if (forcedEstimate === undefined && !exceedsHighWater(estimate, state.contextWindow, reserveTokens)) {
+        return keepProjection();
+      }
 
       // Coverage pool = the durable run ledger, read through the injected
       // seam. Covered events are persisted by construction (no crash window
@@ -2222,11 +2342,9 @@ export class AiSdkBackend implements AgentBackend {
       // recovery re-projection replays.
       //
       // Durable watermark: the SDK's step results are the source of truth for
-      // which tool calls have already completed, and the last usage sample
-      // measured a request that contained all of them. Measuring a ledger
-      // snapshot that lags those events would under-count the tail delta once
-      // (an over-window request would go out) and then re-count the same
-      // events as a fresh delta at the next boundary — so the trigger waits,
+      // which tool calls have already completed. A replacement projection
+      // built from a lagging ledger silently DROPS the missing events — the
+      // projection replaces the whole message list — so the trigger waits,
       // condition-driven, until the ledger holds the FINAL call/response pair
       // for every completed tool call. Each iteration re-reads through the
       // seam (which re-awaits the run's serialized write queue and re-checks
@@ -2236,12 +2354,12 @@ export class AiSdkBackend implements AgentBackend {
       const abortSignal = this.abortController?.signal;
       let currentTurnEvents: RuntimeEvent[];
       for (;;) {
-        if (abortSignal?.aborted) return failOpen('ledger_wait_aborted');
+        if (abortSignal?.aborted) return shapeFailure('no_safe_completed_span', 'ledger_wait_aborted');
         let turnLedger: RuntimeEvent[];
         try {
           turnLedger = await loadTurnRuntimeEvents(turnId);
         } catch {
-          return failOpen('ledger_read_failed');
+          return shapeFailure('no_safe_completed_span', 'ledger_read_failed');
         }
         currentTurnEvents = turnLedger
           .filter((event) => event.turnId === turnId)
@@ -2249,7 +2367,7 @@ export class AiSdkBackend implements AgentBackend {
         // The head anchor is persisted before backend.send() is invoked, so
         // its absence is a wiring error, not replication lag — fail open now.
         if (!currentTurnEvents.some((event) => event.id === state.headAnchor.id)) {
-          return failOpen('head_anchor_not_durable');
+          return shapeFailure('no_safe_completed_span', 'head_anchor_not_durable');
         }
         if (midTurnDurableWatermarkSatisfied(currentTurnEvents, requiredCallIds)) break;
         // Yield one scheduling turn so the event consumer can flush, then
@@ -2257,20 +2375,6 @@ export class AiSdkBackend implements AgentBackend {
         await new Promise((resolve) => setImmediate(resolve));
       }
       const orderedEvents = [...state.priorContentEvents, ...currentTurnEvents];
-
-      const totalResponseChars = currentTurnEvents
-        .filter((event) => event.partial !== true && event.content?.kind === 'function_response')
-        // charsPerToken=1 turns the token estimator into a char counter.
-        .reduce((total, event) => total + estimateRuntimeEventsTokens([event], 1), 0);
-      const appendedChars = Math.max(0, totalResponseChars - state.responseCharsAtLastRequest);
-      state.responseCharsAtLastRequest = totalResponseChars;
-      const estimate = estimateNextRequestTokens({
-        ...(state.lastStepUsageTokens !== undefined ? { priorUsageTokens: state.lastStepUsageTokens } : {}),
-        appendedChars,
-        charsPerToken,
-        coldStartChars: estimateRuntimeEventsTokens(orderedEvents, 1),
-      });
-      if (!exceedsHighWater(estimate, state.contextWindow, reserveTokens)) return keepProjection();
 
       const plan = await planMidTurnCapacityCompaction({
         sessionId: this.sessionId,
@@ -2312,43 +2416,15 @@ export class AiSdkBackend implements AgentBackend {
         },
       });
 
-      // The terminal detail is the typed outcome enum; the diagnostic reason
-      // records WHAT failed (e.g. a checkpoint write) even when the enum has
-      // no dedicated member for it, and recorder counters are attached only
-      // when the recorder actually ran.
-      const exhaust = (
-        detail: ContextBudgetExhaustedDetail,
-        diagnosticReason: string = detail,
-        recorderCounters: Partial<ContextBudgetDiagnostic> = {},
-      ): undefined => {
-        state.exhaustedDetail = detail;
-        onDiagnosticPatch({
-          historyCompactEnabled: true,
-          historyCompactMode: 'read_write',
-          ...recorderCounters,
-          ...compactionDecisionDiagnosticPatch({
-            stage: 'activeStep',
-            sourceKind: 'runtimeEvents',
-            decision: 'unchanged',
-            phase: 'mid_turn',
-            boundaryKind: 'historyCompact',
-            reason: 'context_budget_exhausted',
-            skippedReasonCounts: { [diagnosticReason]: 1 },
-          }),
-        });
-        this.abortController?.abort(new Error(`mid-turn context budget exhausted: ${detail}`));
-        return undefined;
-      };
-
       if (plan.decision === 'skip') return keepProjection();
-      if (plan.decision === 'fail_open') return failOpen(plan.reason);
-      if (plan.decision === 'exhausted') return exhaust(plan.detail);
+      if (plan.decision === 'fail_open') return shapeFailure(plan.reason, plan.reason);
 
       // Durably persist the checkpoint BEFORE replacing the projection — the
       // same order as the pre_turn path — so a recovery re-projection never
       // re-injects the replaced raw span. A persistence failure keeps raw
-      // messages: fail open under the window, explicit outcome over it — and
-      // in both tiers the durable diagnostics record write_failed.
+      // messages and records write_failed in the durable diagnostics; if the
+      // final payload is then over the window, the verdict owner maps this
+      // failure to the terminal summarizer_failed detail.
       const writeFailedCounters: Partial<ContextBudgetDiagnostic> = {
         historyCompactWritesAttempted: 1,
         historyCompactWriteFailures: 1,
@@ -2356,9 +2432,7 @@ export class AiSdkBackend implements AgentBackend {
       try {
         await Promise.resolve(recorder(plan.checkpoint, turnId));
       } catch {
-        return estimate > state.contextWindow
-          ? exhaust('summarizer_failed', 'write_failed', writeFailedCounters)
-          : failOpen('write_failed', writeFailedCounters);
+        return shapeFailure('summarizer_failed', 'write_failed', writeFailedCounters);
       }
       state.previousCheckpoint = plan.checkpoint;
       const writeSucceededCounters: Partial<ContextBudgetDiagnostic> = {
@@ -2377,11 +2451,24 @@ export class AiSdkBackend implements AgentBackend {
       ) {
         // The checkpoint IS durable (the write succeeded and the next replay
         // uses it); only this step's in-flight replacement is skipped.
-        return estimate > state.contextWindow
-          ? exhaust('no_safe_completed_span', 'replacement_unmaterializable', writeSucceededCounters)
-          : failOpen('replacement_unmaterializable', writeSucceededCounters);
+        return shapeFailure('no_safe_completed_span', 'replacement_unmaterializable', writeSucceededCounters);
       }
       const replacementMessages = await this.materializeRuntimeReplayPlan(replayPlan);
+      // Apply the shape only when it actually shrinks the request: a
+      // materialized replacement that is not smaller than the current payload
+      // (e.g. a runaway summary block) would hand the verdict owner a WORSE
+      // request than the raw projection it just refused to improve. The
+      // checkpoint stays durable either way; only this step's in-flight
+      // replacement is skipped. Over the window this is the
+      // irreducible-remainder outcome — folding cannot rescue the step.
+      const replacedPayloadChars = midTurnRequestPayloadChars(
+        replacementMessages,
+        providerTools,
+        activeToolsForStep,
+      );
+      if (replacedPayloadChars >= payloadChars) {
+        return shapeFailure('head_anchor_exceeds_capacity', 'replacement_not_smaller', writeSucceededCounters);
+      }
       acceptedProjection = {
         sourceSignatures: incomingMessages.map(modelMessageSignature),
         projectedMessages: replacementMessages,
@@ -2416,6 +2503,116 @@ export class AiSdkBackend implements AgentBackend {
         }),
       });
       return { messages: replacementMessages };
+    };
+  }
+
+  /**
+   * The single end-of-pipeline estimate owner for the mid-turn capacity
+   * invariant. Every prepareStep hook only shapes; this wrapper measures the
+   * FINAL outgoing (messages, tools) payload — the bytes the provider will
+   * actually see, after capacity compaction, active tool-result pruning, and
+   * semantic/active-full compaction have all run — and issues the one
+   * safety-critical verdict:
+   *
+   *  - estimate = last step's real usage + signed char/4 delta against the
+   *    previous request's measured payload (recorded here on every step,
+   *    including step 0's baseline);
+   *  - over the window with no capacity attempt this step (the approximate
+   *    trigger missed, e.g. growth the trigger under-weighted), force ONE
+   *    capacity re-entry — the verdict must not terminate a turn a shaper can
+   *    still rescue, and one bounded re-entry preserves termination;
+   *  - still over the window → context_budget_exhausted, with the terminal
+   *    detail taken from this step's capacity outcome: a replacement that
+   *    remains too large is head_anchor_exceeds_capacity (the irreducible
+   *    remainder exceeds capacity); a recorded shaping failure keeps its own
+   *    detail and diagnostic reason.
+   *
+   * Step 0 is shaped by the pre_turn path and only records the baseline here.
+   */
+  private buildMidTurnFinalRequestVerdict(input: {
+    shaped: PrepareStepFunctionLike;
+    reentry: PrepareStepFunctionLike;
+    state: MidTurnCapacityCompactState;
+    providerTools: readonly MakaTool[];
+    fallbackActiveTools: () => readonly string[];
+    charsPerToken: number;
+    onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void;
+  }): PrepareStepFunctionLike {
+    const { shaped, reentry, state, providerTools, fallbackActiveTools, charsPerToken, onDiagnosticPatch } = input;
+    return async (options) => {
+      let result = await Promise.resolve(shaped(options));
+      const finalPayloadChars = (): number => midTurnRequestPayloadChars(
+        result?.messages ?? options.messages,
+        providerTools,
+        result?.activeTools ?? options.activeTools ?? fallbackActiveTools(),
+      );
+      let payloadChars = finalPayloadChars();
+      if (options.stepNumber >= 1 && !state.exhaustedDetail) {
+        const estimateFinal = (): number => estimateNextRequestTokens({
+          ...(state.lastStepUsageTokens !== undefined ? { priorUsageTokens: state.lastStepUsageTokens } : {}),
+          appendedChars: payloadChars - (state.lastRequestPayloadChars ?? payloadChars),
+          charsPerToken,
+          coldStartChars: payloadChars,
+        });
+        let estimate = estimateFinal();
+        const capacityAttemptedThisStep = state.replacedStepNumber === options.stepNumber
+          || state.lastShapeFailure?.stepNumber === options.stepNumber;
+        if (estimate > state.contextWindow && !capacityAttemptedThisStep) {
+          // One bounded capacity re-entry: the trigger threshold is
+          // approximate on purpose (recoverable), so a miss must become a
+          // rescue attempt before it can become a terminal verdict. Re-run
+          // only the capacity + prune shapers over the already-shaped
+          // projection; a second attempt after a same-step failure is
+          // pointless (the failure was not a trigger miss) and would double
+          // recorder counters and summarizer calls.
+          state.forcedTriggerEstimate = estimate;
+          const reshaped = await Promise.resolve(reentry({
+            ...options,
+            messages: result?.messages ?? options.messages,
+            ...(result?.activeTools ? { activeTools: result.activeTools } : {}),
+          }));
+          state.forcedTriggerEstimate = undefined;
+          if (reshaped) {
+            result = {
+              ...(result ?? {}),
+              ...reshaped,
+              activeTools: reshaped.activeTools ?? result?.activeTools,
+            };
+          }
+          payloadChars = finalPayloadChars();
+          estimate = estimateFinal();
+        }
+        if (estimate > state.contextWindow) {
+          const failure = state.lastShapeFailure?.stepNumber === options.stepNumber
+            ? state.lastShapeFailure
+            : undefined;
+          const replacedThisStep = state.replacedStepNumber === options.stepNumber;
+          const detail: ContextBudgetExhaustedDetail = replacedThisStep
+            ? 'head_anchor_exceeds_capacity'
+            : failure?.detail ?? 'no_safe_completed_span';
+          const diagnosticReason = replacedThisStep
+            ? 'head_anchor_exceeds_capacity'
+            : failure?.diagnosticReason ?? 'no_safe_completed_span';
+          state.exhaustedDetail = detail;
+          onDiagnosticPatch({
+            historyCompactEnabled: true,
+            historyCompactMode: 'read_write',
+            ...compactionDecisionDiagnosticPatch({
+              stage: 'activeStep',
+              sourceKind: 'runtimeEvents',
+              decision: 'unchanged',
+              phase: 'mid_turn',
+              boundaryKind: 'historyCompact',
+              reason: 'context_budget_exhausted',
+              skippedReasonCounts: { [diagnosticReason]: 1 },
+            }),
+          });
+          this.abortController?.abort(new Error(`mid-turn context budget exhausted: ${detail}`));
+          return result;
+        }
+      }
+      state.lastRequestPayloadChars = payloadChars;
+      return result;
     };
   }
 

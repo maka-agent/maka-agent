@@ -57,6 +57,13 @@ export interface PrepareStepLike {
   stepNumber: number;
   model: unknown;
   messages: ModelMessage[];
+  /**
+   * Active tool subset for this step. The SDK does not pass it; the composed
+   * prepareStep pipeline threads an earlier hook's `activeTools` result through
+   * so later hooks (and the final-request estimate owner) can measure the
+   * provider-visible tool schema for the step.
+   */
+  activeTools?: readonly string[];
   experimental_context: unknown;
 }
 

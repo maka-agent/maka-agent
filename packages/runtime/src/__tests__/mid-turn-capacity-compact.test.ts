@@ -21,6 +21,22 @@ describe('mid-turn capacity trigger measurement', () => {
     );
   });
 
+  test('credits a SIGNED negative payload delta after a compaction shrank the projection', () => {
+    // The last usage sample measured the PRE-compaction request; the payload
+    // delta is negative after the fold, so the estimate must shrink with it —
+    // clamping the delta at zero would judge the compacted request by the
+    // pre-compaction usage and wrongly exhaust a rescued turn.
+    assert.equal(
+      estimateNextRequestTokens({ priorUsageTokens: 700, appendedChars: -1_200, charsPerToken: 4 }),
+      400,
+    );
+    // The estimate never goes below zero even when the shrink exceeds usage.
+    assert.equal(
+      estimateNextRequestTokens({ priorUsageTokens: 100, appendedChars: -4_000, charsPerToken: 4 }),
+      0,
+    );
+  });
+
   test('falls back to whole-projection char/4 on cold start (no usage)', () => {
     assert.equal(
       estimateNextRequestTokens({ appendedChars: 40, charsPerToken: 4, coldStartChars: 800 }),
@@ -199,15 +215,17 @@ describe('plan mid-turn capacity compaction', () => {
     assert.deepEqual(result, { decision: 'fail_open', reason: 'summarizer_failed' });
   });
 
-  test('exhausts above the window when the summarizer fails', async () => {
+  test('fails open (never terminates) above the window when the summarizer fails', async () => {
+    // The engine is a pure shaper: the over-window pass/terminate verdict is
+    // issued by the backend's final-request estimate owner, never here.
     const result = await planMidTurnCapacityCompaction(planInput({
       estimatedNextRequestTokens: 130_000, // over the window itself
       summarize: () => '',
     }));
-    assert.deepEqual(result, { decision: 'exhausted', detail: 'summarizer_failed' });
+    assert.deepEqual(result, { decision: 'fail_open', reason: 'summarizer_failed' });
   });
 
-  test('exhausts with no_safe_completed_span when the pool has no safe cut past the anchor', async () => {
+  test('fails open with no_safe_completed_span when the pool has no safe cut past the anchor', async () => {
     // Only the head anchor and one open call/result pair; reserving the tail
     // leaves no safe completed span that also covers a step past the anchor.
     const events = [user('anchor', 'turn-1'), call('c', 'c1', 'turn-1'), result('r', 'c1', 'turn-1')];
@@ -216,61 +234,29 @@ describe('plan mid-turn capacity compaction', () => {
       estimatedNextRequestTokens: 130_000,
       reserveTailEvents: 1,
     }));
-    assert.deepEqual(outcome, { decision: 'exhausted', detail: 'no_safe_completed_span' });
+    assert.deepEqual(outcome, { decision: 'fail_open', reason: 'no_safe_completed_span' });
   });
 
-  test('exhausts when folding cannot bring the FULL next request under the window', async () => {
-    // The foldable span is a handful of tokens while the estimate carries a
-    // huge fixed overhead (system prompt, tool schemas): comparing only the
-    // replacement events to the window would wrongly report compacted here.
+  test('still shapes when the estimate exceeds the window — no post-fold window verdict here', async () => {
+    // Review round-3 finding A: a post-fold re-estimate that subtracts the
+    // RAW covered span is wrong on a rolling (second) compaction — the
+    // previous request was already `[block, anchor, tail]` and never carried
+    // that raw prefix, so the subtraction over-credits the fold and passes a
+    // still-over-window request. The engine therefore makes NO window claim
+    // after folding: it returns the shape and the backend owner re-measures
+    // the actual replacement payload.
     const outcome = await planMidTurnCapacityCompaction(planInput({
       estimatedNextRequestTokens: 10_000,
       contextWindow: 1_000,
       reserveTokens: 100,
     }));
-    assert.deepEqual(outcome, { decision: 'exhausted', detail: 'head_anchor_exceeds_capacity' });
-  });
-
-  test('does not double-count the retained tail when re-estimating after folding', async () => {
-    // Codex repro shape: a large covered span, a sizeable retained tail, and
-    // an over-window estimate that folding DOES rescue. Adding back the whole
-    // [block, anchor, tail] would re-count the tail (already inside the
-    // usage-anchored estimate) and misreport head_anchor_exceeds_capacity;
-    // the correct formula adds back only the covered span's substitute
-    // [block, anchor].
-    const events = [
-      model('prior-big', 'turn-0', 'P'.repeat(1_900)),   // ~475 tokens, folded
-      user('anchor', 'turn-1'),
-      call('call-a', 'ca', 'turn-1'),
-      result('res-a', 'ca', 'turn-1', 'R'.repeat(760)),  // ~190-token retained tail…
-      call('call-b', 'cb', 'turn-1'),
-      result('res-b', 'cb', 'turn-1', 'R'.repeat(760)),  // …and again
-    ];
-    const outcome = await planMidTurnCapacityCompaction(planInput({
-      orderedEvents: events,
-      estimatedNextRequestTokens: 700,
-      contextWindow: 500,
-      reserveTokens: 100,
-      reserveTailEvents: 4, // keep both call/result pairs verbatim
-    }));
-    // covered ≈ [prior-big, anchor] ≈ 480+; substitute [block, anchor] ≈ 110;
-    // after-fold ≈ 700 − 480 + 110 ≈ 330 ≤ 500 → compacted. The double-count
-    // formula reported ≈ 330 + tail(≈400) > 500 → false exhausted.
     assert.equal(outcome.decision, 'compacted');
   });
 
-  test('fails open under the window when the replacement projection would exceed it', async () => {
-    // Raw request (500) fits the window (1000) comfortably; a giant summary
-    // block would push the replaced request past the window, so the plan must
-    // keep the raw projection instead of replacing it with a worse one.
-    const outcome = await planMidTurnCapacityCompaction(planInput({
-      estimatedNextRequestTokens: 500,
-      contextWindow: 1_000,
-      reserveTokens: 900,
-      summarize: () => 'S'.repeat(8_000),
-    }));
-    assert.deepEqual(outcome, { decision: 'fail_open', reason: 'replacement_exceeds_window' });
-  });
+  // Note: a fold whose materialized replacement does not SHRINK the request
+  // (e.g. a runaway summary block) is refused at the backend hook, which
+  // measures the real payload bytes — see the mid-turn backend suite. The
+  // engine works on runtime-event char estimates and makes no such claim.
 
   test('rolls forward from a matching previous checkpoint (only the new span is summarized)', async () => {
     const events = longTurnEvents();
