@@ -99,6 +99,7 @@ describe('runtime event backfill', () => {
         input: 10,
         output: 5,
         total: 15,
+        usageAvailable: false,
       },
       {
         type: 'turn_state',
@@ -152,7 +153,7 @@ describe('runtime event backfill', () => {
     expect(result.events[4]?.actions?.stateDelta?.durationMs).toBe(42);
     expect(result.events[5]?.actions?.permissionDecision).toEqual({ requestId: 'perm-1', decision: 'allow', rememberForTurn: true });
     expect(result.events[5]?.refs).toEqual({ storedMessageId: 'perm-1', toolCallId: 'tool-1' });
-    expect(result.events[6]?.actions?.tokenUsage).toEqual({ input: 10, output: 5, total: 15 });
+    expect(result.events[6]?.actions?.tokenUsage).toEqual({ input: 10, output: 5, total: 15, usageAvailable: false });
     expect(result.events[7]?.status).toBe('completed');
     expect(result.events[7]?.actions?.endInvocation).toBe(true);
     expect(result.events[7]?.refs).toEqual({ storedMessageId: 'legacy-state' });

@@ -75,6 +75,7 @@ export interface CompactionDecision {
     outputTokens?: number;
     cacheReadInputTokens?: number;
     cacheWriteInputTokens?: number;
+    reasoningTokens?: number;
     totalTokens?: number;
     costUsd?: number;
   };
@@ -193,6 +194,9 @@ export function compactionDecisionToDiagnostic(
       : {}),
     ...(decision.compactCallUsage?.cacheWriteInputTokens !== undefined
       ? { compactCallCacheWriteInputTokens: decision.compactCallUsage.cacheWriteInputTokens }
+      : {}),
+    ...(decision.compactCallUsage?.reasoningTokens !== undefined
+      ? { compactCallReasoningTokens: decision.compactCallUsage.reasoningTokens }
       : {}),
     ...(decision.compactCallUsage?.totalTokens !== undefined
       ? { compactCallTotalTokens: decision.compactCallUsage.totalTokens }

@@ -234,6 +234,7 @@ export interface CompactionDecisionDiagnostic {
   compactCallOutputTokens?: number;
   compactCallCacheReadInputTokens?: number;
   compactCallCacheWriteInputTokens?: number;
+  compactCallReasoningTokens?: number;
   compactCallTotalTokens?: number;
   compactCallUsageAvailable?: boolean;
   compactCallCostUsd?: number;

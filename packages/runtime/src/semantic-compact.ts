@@ -147,6 +147,7 @@ export interface SemanticCompactBlock {
     outputTokens?: number;
     cacheReadInputTokens?: number;
     cacheWriteInputTokens?: number;
+    reasoningTokens?: number;
     totalTokens?: number;
     costUsd?: number;
   };
@@ -1064,6 +1065,7 @@ function compactUsage(
     outputTokens: usage.outputTokens,
     cacheReadInputTokens: usage.cacheHitInputTokens,
     cacheWriteInputTokens: usage.cacheWriteInputTokens,
+    reasoningTokens: usage.reasoningTokens,
     totalTokens: usage.totalTokens,
     ...(costUsd !== undefined ? { costUsd } : {}),
   };

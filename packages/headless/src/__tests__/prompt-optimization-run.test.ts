@@ -687,6 +687,12 @@ function fakeRunHarborRunner(
         status: 'completed',
         runtimeEventsPath,
         promptHash: hashSystemPrompt(systemPrompt),
+        executionIdentity: {
+          llmConnectionSlug: 'deepseek',
+          model: 'deepseek-v4-flash',
+          systemPromptHash: hashSystemPrompt(systemPrompt),
+          pricingProfile: 'test',
+        },
         tokenSummary: tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }),
         toolSummary: {
           providerVisibleToolCount: 1,

@@ -134,6 +134,8 @@ export interface PromptOptimizationLoopInput {
   maxConcurrency?: number;
   /** Stable run-identity fingerprint for WAL resume safety. */
   resumeFingerprint?: string;
+  requireExecutionIdentity?: boolean;
+  expectedPricingProfile?: string;
 
   now?: () => number;
   newId?: () => string;
@@ -253,6 +255,8 @@ export async function runPromptOptimizationLoop(
     ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
     ...(input.maxConcurrency !== undefined ? { maxConcurrency: input.maxConcurrency } : {}),
     ...(input.costCeilingUsd !== undefined ? { costCeilingUsd: input.costCeilingUsd } : {}),
+    ...(input.requireExecutionIdentity !== undefined ? { requireExecutionIdentity: input.requireExecutionIdentity } : {}),
+    ...(input.expectedPricingProfile !== undefined ? { expectedPricingProfile: input.expectedPricingProfile } : {}),
     now,
     newId,
   });
@@ -532,6 +536,10 @@ export async function runPromptOptimizationLoop(
       latestHeldInFeedbackEvents = existingHeldInEvents;
       nextHeldInDigests = await digestsFor(existingHeldInEvents);
       nextPromptAttribution = projectRsiPromptAttribution(existingDecisionRound.attribution);
+      if (costObservationUnavailable) {
+        stopReason = 'cost_observation_unavailable';
+        break;
+      }
       continue;
     }
 

@@ -394,6 +394,7 @@ function tokenUsageFromMessage(message: TokenUsageMessage): NonNullable<RuntimeE
     ...(message.cacheRead !== undefined ? { cacheRead: message.cacheRead } : {}),
     ...(message.cacheCreation !== undefined ? { cacheCreation: message.cacheCreation } : {}),
     ...(message.costUsd !== undefined ? { costUsd: message.costUsd } : {}),
+    ...(message.usageAvailable !== undefined ? { usageAvailable: message.usageAvailable } : {}),
     ...(message.systemPromptHash !== undefined ? { systemPromptHash: message.systemPromptHash } : {}),
     ...(message.prefixHash !== undefined ? { prefixHash: message.prefixHash } : {}),
     ...(message.prefixChangeReason !== undefined ? { prefixChangeReason: message.prefixChangeReason } : {}),

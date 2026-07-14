@@ -365,6 +365,7 @@ export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCell
       summary.cacheHitInput += decision.compactCallCacheReadInputTokens ?? 0;
       summary.cachedInput += decision.compactCallCacheReadInputTokens ?? 0;
       summary.cacheWriteInput += decision.compactCallCacheWriteInputTokens ?? 0;
+      summary.reasoning += decision.compactCallReasoningTokens ?? 0;
       summary.cacheMissInput += Math.max(
         0,
         (decision.compactCallInputTokens ?? 0)
