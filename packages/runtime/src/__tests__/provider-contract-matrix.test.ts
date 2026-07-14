@@ -25,16 +25,20 @@
  */
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { after, describe, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import type { LlmConnection } from '@maka/core';
 import {
   PROVIDER_CONTRACT_MATRIX_PLAN,
   listProviderContractCells,
+  type ProviderContractDiscoveryPlan,
   type ProviderContractRow,
   type ProviderContractGeneratedCell,
   type ProviderContractWire,
 } from '@maka/core';
+import { providerAuthSupportsApiKey } from '@maka/core/llm-connections';
 import { generateText, stepCountIs, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
@@ -52,30 +56,82 @@ after(async () => {
   await Promise.all(servers.map((server) => server.close()));
 });
 
+/** A named override binding a plan cell to a hand-written conformance test. */
+interface OverrideBinding {
+  /**
+   * Exact test title as it appears verbatim in the `provider-conformance.test.ts`
+   * source (for parametric tests, the literal template text including any
+   * `${...}` placeholder). The binding test below asserts this string still
+   * exists in the source, so deleting or renaming the hand-written test breaks
+   * the matrix instead of leaving a silent gap.
+   */
+  test: string;
+  /** Human-readable statement of the provider-specific contract the override owns. */
+  contract: string;
+}
+
+const GITHUB_COPILOT_OVERRIDE_TEST =
+  'GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire';
+
 /**
  * Named overrides. Each key is a plan `overrideKey` (`${providerType}:${dimension}`)
- * and each value points at the hand-written test in `provider-conformance.test.ts`
+ * and each value binds the hand-written test in `provider-conformance.test.ts`
  * that owns the provider-specific contract the plan cannot generate. A missing
- * key here surfaces as a contract gap.
+ * key here surfaces as a contract gap; a stale `test` title fails the source
+ * binding test.
  */
-const OVERRIDE_REGISTRY: Readonly<Record<string, string>> = {
-  'cohere:discovery':
-    'provider-conformance.test.ts — "Cohere paginates account models and completes its native V2 tool-call loop"',
-  'fireworks-ai:discovery':
-    'provider-conformance.test.ts — "Fireworks discovers exact serverless model paths and completes a two-stage tool-call loop"',
-  'ollama:discovery':
-    'provider-conformance.test.ts — "Ollama preserves an exact ... through local discovery and a no-secret tool-call loop"',
-  'github-copilot:discovery':
-    'provider-conformance.test.ts — "GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire"',
-  'github-copilot:exact-model-id':
-    'provider-conformance.test.ts — "GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire"',
-  'github-copilot:tool-loop':
-    'provider-conformance.test.ts — "GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire"',
-  'github-copilot:reasoning-replay':
-    'provider-conformance.test.ts — "GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire"',
-  'zenmux:reasoning-replay':
-    'provider-conformance.test.ts — "ZenMux replays signed reasoning details in the streamed runtime tool loop"',
+const OVERRIDE_REGISTRY: Readonly<Record<string, OverrideBinding>> = {
+  'cohere:discovery': {
+    test: 'Cohere paginates account models and completes its native V2 tool-call loop',
+    contract: 'Cohere native V2 paginated /v1/models discovery (endpoint=chat)',
+  },
+  'fireworks-ai:discovery': {
+    test: 'Fireworks discovers exact serverless model paths and completes a two-stage tool-call loop',
+    contract: 'Fireworks account pagination discovery over /v1/accounts + per-account /models',
+  },
+  'ollama:discovery': {
+    // eslint-disable-next-line no-template-curly-in-string -- literal source text of a parametric title
+    test: 'Ollama preserves an exact ${testCase.label} through local discovery and a no-secret tool-call loop',
+    contract: 'Ollama native /api/tags discovery',
+  },
+  'github-copilot:discovery': {
+    test: GITHUB_COPILOT_OVERRIDE_TEST,
+    contract: 'GitHub Copilot subscription /models discovery (picker + endpoint gating)',
+  },
+  'github-copilot:exact-model-id': {
+    test: GITHUB_COPILOT_OVERRIDE_TEST,
+    contract: 'GitHub Copilot preserves the exact account model id on its subscription wire',
+  },
+  'github-copilot:tool-loop': {
+    test: GITHUB_COPILOT_OVERRIDE_TEST,
+    contract: 'GitHub Copilot completes a two-stage tool loop on its subscription wire',
+  },
+  'github-copilot:reasoning-replay': {
+    test: GITHUB_COPILOT_OVERRIDE_TEST,
+    contract: 'GitHub Copilot replays reasoning on its provider-specific per-model wire',
+  },
+  'zenmux:reasoning-replay': {
+    test: 'ZenMux replays signed reasoning details in the streamed runtime tool loop',
+    contract: 'Signed reasoning_details are replayed byte-for-byte, beyond a plain field rename',
+  },
 };
+
+/**
+ * The suite runs compiled from `dist/` (sibling `.js`) but can also run straight
+ * from `src/` (sibling `.ts`). Test titles survive compilation verbatim, so read
+ * whichever sibling exists, resolved relative to this test file.
+ */
+function readProviderConformanceSource(): string {
+  const errors: string[] = [];
+  for (const candidate of ['./provider-conformance.test.ts', './provider-conformance.test.js']) {
+    try {
+      return readFileSync(fileURLToPath(new URL(candidate, import.meta.url)), 'utf8');
+    } catch (error) {
+      errors.push(`${candidate}: ${(error as Error).message}`);
+    }
+  }
+  throw new Error(`provider-conformance test source not found next to the matrix suite:\n${errors.join('\n')}`);
+}
 
 const KNOWN_WIRES: ReadonlySet<ProviderContractWire> = new Set([
   'openai-chat',
@@ -122,6 +178,17 @@ describe('provider conformance matrix — gap report', () => {
       assert.ok(overrideKeys.has(key), `override registry key "${key}" has no matching override cell`);
     }
   });
+
+  test('every registered override title exists verbatim in provider-conformance.test.ts', () => {
+    const source = readProviderConformanceSource();
+    for (const [key, binding] of Object.entries(OVERRIDE_REGISTRY)) {
+      assert.ok(
+        source.includes(binding.test),
+        `override "${key}" is bound to a test title that no longer exists in provider-conformance.test.ts: `
+        + `"${binding.test}" — update the binding or restore the hand-written test`,
+      );
+    }
+  });
 });
 
 describe('provider conformance matrix — override cells reference a named hand-written test', () => {
@@ -130,7 +197,8 @@ describe('provider conformance matrix — override cells reference a named hand-
     test(`${providerType} · ${dimension} · override → ${cell.overrideKey}`, () => {
       const reference = OVERRIDE_REGISTRY[cell.overrideKey];
       assert.ok(reference, `expected a named override for ${cell.overrideKey}`);
-      assert.ok(reference.length > 0);
+      assert.ok(reference.test.length > 0, `override for ${cell.overrideKey} must name its hand-written test title`);
+      assert.ok(reference.contract.length > 0, `override for ${cell.overrideKey} must describe its contract`);
     });
   }
 });
@@ -171,27 +239,125 @@ async function runGeneratedDiscovery(
   cell: ProviderContractGeneratedCell & { discovery: NonNullable<ProviderContractGeneratedCell['discovery']> },
 ): Promise<void> {
   const sample = row.sampleModelId;
-  const { protocol, filter } = cell.discovery;
-  let requestCount = 0;
-  const server = await startJsonServer((request, response) => {
-    requestCount += 1;
-    assert.equal(request.method, 'GET', `${row.providerType} discovery must GET the model list`);
-    respondJson(response, 200, discoveryPayload(protocol, sample, filter));
-  });
-  const connection = baseConnection(row, server.url);
-  const models = await fetchProviderModels(connection, API_KEY);
-  assert.ok(requestCount >= 1, `${row.providerType} discovery must request the model list`);
-  assert.deepEqual(
-    models.map((model) => model.id),
-    [sample],
-    `${row.providerType} discovery should return exactly the scripted exact id`,
+  const discovery = cell.discovery;
+  // `array-or-data` (mistral) means the same endpoint may answer either
+  // `{data:[...]}` or a bare array; both fixtures must parse to the exact id.
+  const payloadShapes: ReadonlyArray<'data-object' | 'bare-array'> =
+    discovery.responseShape === 'array-or-data' ? ['data-object', 'bare-array'] : ['data-object'];
+  for (const shape of payloadShapes) {
+    const where = `${row.providerType} discovery (${shape} payload)`;
+    // Handler assertion failures are recorded and rethrown after the fetch so
+    // the test fails with the request-contract message instead of a generic
+    // "failed to fetch models" wrapper.
+    const handlerErrors: unknown[] = [];
+    let requestCount = 0;
+    const server = await startJsonServer((request, response) => {
+      requestCount += 1;
+      try {
+        assertDiscoveryRequest(row, discovery, request);
+      } catch (error) {
+        handlerErrors.push(error);
+      }
+      respondJson(response, 200, discoveryPayload(discovery.protocol, sample, discovery.filter, shape));
+    });
+    const connection = baseConnection(row, server.url);
+    const models = await fetchProviderModels(connection, API_KEY);
+    if (handlerErrors.length > 0) throw handlerErrors[0];
+    assert.ok(requestCount >= 1, `${where} must request the model list`);
+    assert.deepEqual(
+      models.map((model) => model.id),
+      [sample],
+      `${where} should return exactly the scripted exact id`,
+    );
+  }
+}
+
+/**
+ * Assert the discovery request against the full derived cell — path, query, and
+ * auth — mirroring `model-fetcher.ts`'s real URL/header construction:
+ *
+ *   - openai:    `{baseUrl}{path ?? '/models'}?{query}` with a Bearer credential
+ *                when the cell declares provider auth *and* the provider's
+ *                authKind actually supports an API key (lm-studio declares
+ *                `authKind: 'none'`, so its wire carries no credential).
+ *   - anthropic: `{baseUrl}/v1/models` with the `x-api-key` credential header.
+ *   - google:    `{baseUrl}/v1beta/models?key={apiKey}` — the credential rides
+ *                the `key` query parameter, never a header.
+ */
+function assertDiscoveryRequest(
+  row: ProviderContractRow,
+  discovery: ProviderContractDiscoveryPlan,
+  request: IncomingMessage,
+): void {
+  const where = `${row.providerType} discovery`;
+  assert.equal(request.method, 'GET', `${where} must GET the model list`);
+  const url = new URL(request.url ?? '', 'http://contract.test');
+
+  // Path: the declared path, or the protocol's default models path.
+  assert.equal(
+    url.pathname,
+    expectedDiscoveryPathname(discovery),
+    `${where} must request the declared models path`,
   );
+
+  // Query: exactly the declared parameters (google adds its key-query credential).
+  const expectedQuery: Record<string, string> = { ...(discovery.query ?? {}) };
+  if (discovery.protocol === 'google' && discovery.auth !== 'none') expectedQuery.key = API_KEY;
+  assert.deepEqual(
+    Object.fromEntries(url.searchParams),
+    expectedQuery,
+    `${where} must send exactly the declared query parameters`,
+  );
+
+  // Auth: public cells must carry no credential; default cells must carry the
+  // protocol's credential exactly as model-fetcher constructs it.
+  const authorization = request.headers.authorization;
+  const xApiKey = request.headers['x-api-key'];
+  const xGoogApiKey = request.headers['x-goog-api-key'];
+  if (discovery.auth === 'none') {
+    assert.equal(authorization, undefined, `${where} is public: it must not send an Authorization header`);
+    assert.equal(xApiKey, undefined, `${where} is public: it must not send an x-api-key header`);
+    assert.equal(xGoogApiKey, undefined, `${where} is public: it must not send an x-goog-api-key header`);
+    return;
+  }
+  switch (discovery.protocol) {
+    case 'openai':
+      if (providerAuthSupportsApiKey(row.providerType)) {
+        assert.equal(authorization, `Bearer ${API_KEY}`, `${where} must send its Bearer credential`);
+      } else {
+        assert.equal(authorization, undefined, `${where} has no API-key auth: it must not send Authorization`);
+      }
+      break;
+    case 'anthropic':
+      assert.equal(xApiKey, API_KEY, `${where} must send its x-api-key credential`);
+      break;
+    case 'google':
+      // Credential is the `key` query parameter asserted above; no auth header.
+      assert.equal(authorization, undefined, `${where} must carry its credential in the key query, not a header`);
+      break;
+    case 'cohere':
+      assert.fail(`${where}: cohere discovery is never generated`);
+  }
+}
+
+function expectedDiscoveryPathname(discovery: ProviderContractDiscoveryPlan): string {
+  switch (discovery.protocol) {
+    case 'anthropic':
+      return '/v1/models';
+    case 'google':
+      return '/v1beta/models';
+    default: {
+      const path = discovery.path ?? '/models';
+      return path.startsWith('/') ? path : `/${path}`;
+    }
+  }
 }
 
 function discoveryPayload(
   protocol: string,
   sample: string,
   filter: string | undefined,
+  shape: 'data-object' | 'bare-array',
 ): unknown {
   if (protocol === 'anthropic') return { data: [{ id: sample }] };
   if (protocol === 'google') return { models: [{ name: `models/${sample}` }] };
@@ -223,6 +389,7 @@ function discoveryPayload(
       ],
     };
   }
+  if (shape === 'bare-array') return [{ id: sample }];
   return { object: 'list', data: [{ id: sample }] };
 }
 
@@ -366,6 +533,10 @@ async function runOpenAiChatWire(
 async function runAnthropicMessagesWire(row: ProviderContractRow): Promise<void> {
   const sample = row.sampleModelId;
   const requestBodies: Array<Record<string, unknown>> = [];
+  // Second-turn contract violations are asserted in the handler before the
+  // final response, recorded, and rethrown after the call so the test fails
+  // with the wire-contract message instead of a destroyed-socket error.
+  const handlerErrors: unknown[] = [];
   const server = await startJsonServer(async (request, response) => {
     assert.equal(request.method, 'POST');
     assert.ok(request.url?.endsWith('/messages'), `unexpected anthropic path ${request.url}`);
@@ -383,6 +554,30 @@ async function runAnthropicMessagesWire(row: ProviderContractRow): Promise<void>
         usage: { input_tokens: 8, output_tokens: 4 },
       });
       return;
+    }
+    // Turn two must replay the tool result, keyed to the first-turn tool_use id,
+    // before the wire answers with the final text.
+    try {
+      const toolResults = (body.messages as Array<{ role: string; content: unknown }>)
+        .flatMap((message) => (Array.isArray(message.content) ? message.content as Array<Record<string, unknown>> : []))
+        .filter((block) => block.type === 'tool_result');
+      assert.equal(
+        toolResults.length,
+        1,
+        `${row.providerType} · tool-loop: turn two must replay exactly one tool_result block`,
+      );
+      assert.equal(
+        toolResults[0]?.tool_use_id,
+        'toolu_echo',
+        `${row.providerType} · tool-loop: the tool_result must reference the first-turn tool_use id`,
+      );
+      const toolResultContent = JSON.stringify(toolResults[0]?.content);
+      assert.ok(
+        toolResultContent.includes('echoed') && toolResultContent.includes('hello'),
+        `${row.providerType} · tool-loop: the tool_result must carry the echo output, got ${toolResultContent}`,
+      );
+    } catch (error) {
+      handlerErrors.push(error);
     }
     respondJson(response, 200, {
       id: 'msg_final',
@@ -403,6 +598,7 @@ async function runAnthropicMessagesWire(row: ProviderContractRow): Promise<void>
     tools: { echo: echoTool },
   });
 
+  if (handlerErrors.length > 0) throw handlerErrors[0];
   assert.equal(requestBodies.length, 2, `${row.providerType} should make two messages requests`);
   assert.deepEqual(
     requestBodies.map((body) => body.model),
@@ -421,10 +617,12 @@ async function runAnthropicMessagesWire(row: ProviderContractRow): Promise<void>
 async function runGoogleGenerateWire(row: ProviderContractRow): Promise<void> {
   const sample = row.sampleModelId;
   const requestUrls: string[] = [];
+  // See runAnthropicMessagesWire for why second-turn violations are recorded.
+  const handlerErrors: unknown[] = [];
   const server = await startJsonServer(async (request, response) => {
     assert.equal(request.method, 'POST');
     requestUrls.push(request.url ?? '');
-    await readBody(request);
+    const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
     if (requestUrls.length === 1) {
       respondJson(response, 200, {
         candidates: [{
@@ -438,6 +636,31 @@ async function runGoogleGenerateWire(row: ProviderContractRow): Promise<void> {
         usageMetadata: { promptTokenCount: 8, candidatesTokenCount: 4, totalTokenCount: 12 },
       });
       return;
+    }
+    // Turn two must replay a functionResponse part for the first-turn `echo`
+    // functionCall before the wire answers with the final text.
+    try {
+      const functionResponses = (body.contents as Array<{ parts?: Array<Record<string, unknown>> }>)
+        .flatMap((content) => content.parts ?? [])
+        .map((part) => part.functionResponse as { name?: string; response?: unknown } | undefined)
+        .filter((part): part is { name?: string; response?: unknown } => part !== undefined);
+      assert.equal(
+        functionResponses.length,
+        1,
+        `${row.providerType} · tool-loop: turn two must replay exactly one functionResponse part`,
+      );
+      assert.equal(
+        functionResponses[0]?.name,
+        'echo',
+        `${row.providerType} · tool-loop: the functionResponse must correspond to the first-turn echo functionCall`,
+      );
+      const functionResponseJson = JSON.stringify(functionResponses[0]?.response);
+      assert.ok(
+        functionResponseJson.includes('echoed') && functionResponseJson.includes('hello'),
+        `${row.providerType} · tool-loop: the functionResponse must carry the echo output, got ${functionResponseJson}`,
+      );
+    } catch (error) {
+      handlerErrors.push(error);
     }
     respondJson(response, 200, {
       candidates: [{
@@ -456,6 +679,7 @@ async function runGoogleGenerateWire(row: ProviderContractRow): Promise<void> {
     tools: { echo: echoTool },
   });
 
+  if (handlerErrors.length > 0) throw handlerErrors[0];
   assert.ok(requestUrls.length >= 2, `${row.providerType} should make two generateContent requests`);
   assert.ok(
     requestUrls.every((url) => url.includes(`models/${sample}`)),
@@ -469,6 +693,8 @@ async function runGoogleGenerateWire(row: ProviderContractRow): Promise<void> {
 async function runCohereV2Wire(row: ProviderContractRow): Promise<void> {
   const sample = row.sampleModelId;
   const requestBodies: Array<Record<string, unknown>> = [];
+  // See runAnthropicMessagesWire for why second-turn violations are recorded.
+  const handlerErrors: unknown[] = [];
   const server = await startJsonServer(async (request, response) => {
     assert.equal(request.method, 'POST');
     assert.ok(request.url?.endsWith('/chat'), `unexpected cohere path ${request.url}`);
@@ -488,6 +714,29 @@ async function runCohereV2Wire(row: ProviderContractRow): Promise<void> {
       });
       return;
     }
+    // Turn two must replay the tool result message, keyed to the first-turn
+    // call id, before the wire answers with the final text.
+    try {
+      const toolMessages = (body.messages as Array<Record<string, unknown>>)
+        .filter((message) => message.role === 'tool');
+      assert.equal(
+        toolMessages.length,
+        1,
+        `${row.providerType} · tool-loop: turn two must replay exactly one tool message`,
+      );
+      assert.equal(
+        toolMessages[0]?.tool_call_id,
+        'call_echo',
+        `${row.providerType} · tool-loop: the tool message must reference the first-turn call id`,
+      );
+      const toolMessageContent = JSON.stringify(toolMessages[0]?.content);
+      assert.ok(
+        toolMessageContent.includes('echoed') && toolMessageContent.includes('hello'),
+        `${row.providerType} · tool-loop: the tool message must carry the echo output, got ${toolMessageContent}`,
+      );
+    } catch (error) {
+      handlerErrors.push(error);
+    }
     respondJson(response, 200, {
       generation_id: 'cohere-final-turn',
       finish_reason: 'COMPLETE',
@@ -503,6 +752,7 @@ async function runCohereV2Wire(row: ProviderContractRow): Promise<void> {
     tools: { echo: echoTool },
   });
 
+  if (handlerErrors.length > 0) throw handlerErrors[0];
   assert.equal(requestBodies.length, 2, `${row.providerType} should make two chat requests`);
   assert.deepEqual(
     requestBodies.map((body) => body.model),
