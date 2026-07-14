@@ -37,7 +37,14 @@ interface MidTurnFixture {
   ledgerReads: number;
   events: SessionEvent[];
   messages: unknown[];
-  llmCalls: Array<{ contextBudget?: ContextBudgetDiagnostic }>;
+  llmCalls: Array<{
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    status?: string;
+    errorClass?: string;
+    contextBudget?: ContextBudgetDiagnostic;
+  }>;
   /** JSON of each summarizer call's folded runtime events (coverage evidence). */
   summarizedSources: string[];
   persist: (event: SessionEvent) => void;
@@ -94,7 +101,14 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
   const toolExecutions: string[] = [];
   const events: SessionEvent[] = [];
   const messages: unknown[] = [];
-  const llmCalls: Array<{ contextBudget?: ContextBudgetDiagnostic }> = [];
+  const llmCalls: Array<{
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    status?: string;
+    errorClass?: string;
+    contextBudget?: ContextBudgetDiagnostic;
+  }> = [];
   const summarizedSources: string[] = [];
   let recordedAtThirdRequest = false;
   const fixture = { summarizerCalls: 0, ledgerReads: 0 };
@@ -104,7 +118,8 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
   });
   const firstStepUsage = (): ReturnType<typeof usage> => {
     // A usage object the SDK accepts but whose token counts are absent — the
-    // adapter's normalization coalesces these to 0 (the finding-1 shape).
+    // adapter's normalization fails closed (undefined) and the capacity hook's
+    // usability check must fall back to cold start (the finding-1 shape).
     if (options.firstStepUsage === 'missing') return { inputTokens: {}, outputTokens: {} } as ReturnType<typeof usage>;
     if (options.firstStepUsage) return usage(options.firstStepUsage.input, options.firstStepUsage.output);
     return usage(100, 20);
@@ -282,7 +297,7 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
       await flushMacrotask();
       return ledger.filter((event) => event.turnId === turnId);
     },
-    recordLlmCall: (record) => { llmCalls.push(record as { contextBudget?: ContextBudgetDiagnostic }); },
+    recordLlmCall: (record) => { llmCalls.push(record as (typeof llmCalls)[number]); },
     newId: idGenerator(),
     now: monotonicClock(),
   });
@@ -653,6 +668,30 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(complete.contextBudgetExhaustedDetail, 'head_anchor_exceeds_capacity');
     // The over-window fourth request never streamed.
     assert.equal(fixture.events.some((event) => event.type === 'text_complete' && event.text === 'done'), false);
+  });
+
+  test('an aborted multi-step send records the accumulated usage of the completed steps', async () => {
+    // The terminal LLM-call record is fail-closed on usage evidence (#972),
+    // and an aborted send never resolves the SDK's totalUsage promise. But
+    // every COMPLETED step reported real usage at its finish-step boundary,
+    // so the terminal record must carry that accumulated sum — the capacity
+    // verdict diagnostics ride this record and the completed steps' cost is
+    // real. Three steps stream (100/20 + 150/30 + 150/30) before the step-4
+    // verdict aborts the send.
+    const fixture = buildFixture({ bigPriors: true, rollingOverflow: true });
+    await runFixtureTurn(fixture, consumer);
+
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'context_budget_exhausted');
+    // Three requests streamed; the fourth doStream call rejects immediately on
+    // the already-aborted signal and never reports usage.
+    assert.equal(fixture.model.doStreamCalls.length, 4);
+    const lastCall = fixture.llmCalls.at(-1);
+    assert.equal(lastCall?.status, 'error');
+    assert.equal(lastCall?.errorClass, 'ContextBudgetExhausted');
+    assert.equal(lastCall?.inputTokens, 400);
+    assert.equal(lastCall?.outputTokens, 80);
+    assert.equal(lastCall?.totalTokens, 480);
   });
 
   test('the verdict is issued after pruning — a prune-rescuable step is not exhausted (review finding C)', async () => {

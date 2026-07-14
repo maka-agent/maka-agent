@@ -983,6 +983,11 @@ export class AiSdkBackend implements AgentBackend {
     };
     let tokenUsage: NormalizedAiSdkUsage | undefined;
     let tokenUsageCostUsd: number | undefined;
+    // Per-send sum of every COMPLETED step's usage, merged at each finish-step
+    // boundary. When the send aborts (mid-turn exhaust, user stop, stream
+    // error) the SDK's `totalUsage` promise never resolves, but this sum is
+    // real provider-reported evidence for the steps that did finish.
+    let completedStepUsage: NormalizedAiSdkUsage | undefined;
     let streamStatus: LlmCallRecord['status'] = 'success';
     let streamErrorClass: string | undefined;
     let rawFinishReason: string | undefined;
@@ -1309,6 +1314,7 @@ export class AiSdkBackend implements AgentBackend {
             runtimeSteps += 1;
             const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
             if (stepUsage) {
+              completedStepUsage = mergeNormalizedUsage(completedStepUsage, stepUsage);
               this.cumulativeUsageCheckpoint = mergeNormalizedUsage(this.cumulativeUsageCheckpoint, stepUsage);
               await this.input.recordUsageCheckpoint?.({
                 ...this.cumulativeUsageCheckpoint,
@@ -1570,6 +1576,17 @@ export class AiSdkBackend implements AgentBackend {
           activeToolResultPruneDiagnosticPatch,
           activeCompactDiagnosticPatch,
         );
+        // The terminal record is fail-closed on usage evidence: no evidence,
+        // no record. An aborted send has no `totalUsage`, but the completed
+        // steps' accumulated usage IS evidence — record it so the cost of the
+        // steps that ran and the diagnostics riding this record (the mid-turn
+        // capacity verdict is only ever issued after step 1) stay observable.
+        // If the send aborted before any finish-step, the sum is empty and the
+        // record is still skipped, preserving the no-fabrication invariant.
+        if (!tokenUsage && completedStepUsage) {
+          tokenUsage = completedStepUsage;
+          tokenUsageCostUsd = this.computeTokenUsageCostUsd(tokenUsage);
+        }
         if (tokenUsage) this.input.recordLlmCall?.({
           sessionId: this.sessionId,
           turnId,
