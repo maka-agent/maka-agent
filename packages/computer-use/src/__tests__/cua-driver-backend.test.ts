@@ -131,6 +131,7 @@ const SEMANTIC_OCCLUDED = process.env.CUA_MOCK_SEMANTIC_OCCLUDED === '1';
 const PAGE_EXEC_RESULT = process.env.CUA_MOCK_PAGE_EXEC_RESULT || '';
 const PAGE_READBACK_VALUE = process.env.CUA_MOCK_PAGE_READBACK_VALUE || '';
 const NATIVE_READBACK_VALUE = process.env.CUA_MOCK_NATIVE_READBACK_VALUE || '';
+const MALFORMED_AX_AFTER = Number(process.env.CUA_MOCK_MALFORMED_AX_AFTER || 0);
 const PAGE_DOCUMENT_MARKER = process.env.CUA_MOCK_PAGE_DOCUMENT_MARKER || 'document-a';
 let PAGE_FIELD_VALUE = process.env.CUA_MOCK_PAGE_FIELD_VALUE || '';
 let PAGE_INSERTED = false;
@@ -249,7 +250,9 @@ function handle(msg) {
             structuredContent: {
               screenshot_width: 1200,
               screenshot_height: 800,
-              elements: EMPTY_AX ? [] : refetchedElements,
+              elements: MALFORMED_AX_AFTER > 0 && WINDOW_STATE_CALLS >= MALFORMED_AX_AFTER
+                ? { malformed: true }
+                : EMPTY_AX ? [] : refetchedElements,
             },
           }), SNAPSHOT_DELAY_MS);
         return;
@@ -286,6 +289,9 @@ function handle(msg) {
         return;
       case 'get_screen_size':
         reply(id, { content: [], structuredContent: { width: 1512, height: 982, scale_factor: 2 } });
+        return;
+      case 'get_cursor_position':
+        reply(id, { content: [], structuredContent: { x: 321, y: 654 } });
         return;
       case 'list_windows':
         // Two layer-0 windows. Win 77 covers screen-points (100,100)-(700,500).
@@ -468,6 +474,7 @@ function makeBackend(opts: {
   pageFieldValue?: string;
   pageReadbackValue?: string;
   nativeReadbackValue?: string;
+  malformedAxAfter?: number;
   pageDocumentMarker?: string;
   resolvePageDocumentFingerprint?: CuaDriverBackendOptions['resolvePageDocumentFingerprint'];
   resolveContentFingerprint?: CuaDriverBackendOptions['resolveContentFingerprint'];
@@ -503,6 +510,7 @@ function makeBackend(opts: {
   process.env.CUA_MOCK_PAGE_FIELD_VALUE = opts.pageFieldValue ?? '';
   process.env.CUA_MOCK_PAGE_READBACK_VALUE = opts.pageReadbackValue ?? '';
   process.env.CUA_MOCK_NATIVE_READBACK_VALUE = opts.nativeReadbackValue ?? '';
+  process.env.CUA_MOCK_MALFORMED_AX_AFTER = String(opts.malformedAxAfter ?? 0);
   process.env.CUA_MOCK_PAGE_DOCUMENT_MARKER = opts.pageDocumentMarker ?? 'document-a';
   process.env.CUA_MOCK_SNAPSHOT_DELAY_MS = String(opts.snapshotDelayMs ?? 0);
   process.env.CUA_MOCK_REFETCH_MODE = opts.refetchMode ?? '';
@@ -1565,7 +1573,7 @@ describe('cua-driver backend', () => {
     });
   });
 
-  it('serializes fresh snapshot and action across the shared action client', async () => {
+  it('serializes same-window mutations across sessions', async () => {
     const { backend, logPath } = makeBackend({ snapshotDelayMs: 120 });
     const signal = new AbortController().signal;
     const first = backend.run(
@@ -1592,6 +1600,23 @@ describe('cua-driver backend', () => {
     assert.equal(clicks.length, 2);
     assert.ok(snapshots[0]!.index < clicks[0]!.index);
     assert.ok(clicks[0]!.index < snapshots[1]!.index, `trace=${trace.join(' -> ')}`);
+  });
+
+  it('returns the read-only cua-driver cursor position without pointer dispatch', async () => {
+    const { backend, logPath } = makeBackend();
+    const result = await backend.run(
+      { type: 'cursor_position' },
+      new AbortController().signal,
+      DEFAULT_RUN_CONTEXT,
+    );
+
+    assert.deepEqual(result, {
+      outcome: { ok: true, tier: 'coordinate-background' },
+      resolvedScreenPoint: { x: 321, y: 654 },
+    });
+    const records = await readRecords(logPath);
+    assert.equal(toolCalls(records, 'get_cursor_position').length, 1);
+    assert.equal(toolCalls(records, 'click').length, 0);
   });
 
   it('click on empty desktop (no window) fails closed — never warps', async () => {
@@ -2346,6 +2371,30 @@ describe('cua-driver backend', () => {
     assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 1);
   });
 
+  it('malformed native AX readback preserves outcome_unknown after delivery', async () => {
+    const { backend, logPath } = makeBackend({
+      malformedAxAfter: 3,
+    });
+    const signal = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const result = await backend.run(
+      { type: 'type', text: 'expected' } as CuAction,
+      signal,
+    );
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) {
+      assert.equal(result.outcome.error, 'outcome_unknown');
+      assert.equal(result.outcome.evidence?.path, 'ax');
+    }
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 1);
+  });
+
   it('CDP text inspection request failure preserves outcome_unknown', async () => {
     const { backend, logPath } = makeBackend({
       processKind: 'electron',
@@ -2581,7 +2630,7 @@ describe('cua-driver backend', () => {
     }]);
   });
 
-  it('shared service generation loss invalidates every session with retained ownership', async () => {
+  it('clearSession generation loss invalidates every session with retained ownership', async () => {
     const invalidated: string[] = [];
     const { backend, logPath } = makeBackend({
       hangOnceTool: 'click',
@@ -2614,7 +2663,7 @@ describe('cua-driver backend', () => {
       logPath,
       (record) => record.kind === 'blocked' && record.tool === 'click',
     );
-    controller.abort();
+    backend.clearSession('session-a');
     await pendingA;
 
     assert.deepEqual(
@@ -2632,20 +2681,130 @@ describe('cua-driver backend', () => {
     assert.equal(staleB?.outcome.ok, false);
   });
 
+  it('clearSession without generation loss preserves another session observation and keyboard target', async () => {
+    const invalidated: string[] = [];
+    const { backend, logPath } = makeBackend({
+      onSessionInvalidated: (event) => invalidated.push(event.sessionId),
+    });
+    const signal = new AbortController().signal;
+    const sessionB = {
+      sessionId: 'session-b',
+      turnId: 'turn-1',
+      toolCallId: 'observe-b',
+    };
+    const clickedB = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } },
+      signal,
+      { ...sessionB, toolCallId: 'click-b' },
+    );
+    assert.equal(clickedB.outcome.ok, true);
+    const observedB = await backend.observeApp?.({
+      app: 'Fixture',
+      windowId: 77,
+      includeScreenshot: true,
+    }, signal, sessionB);
+    assert.ok(observedB);
+
+    backend.clearSession('session-a');
+
+    assert.ok(!invalidated.includes('session-b'));
+    const reusedObservationB = await backend.runSemantic?.({
+      type: 'click_element',
+      observationId: observedB.observationId,
+      elementId: '7',
+      elementIdentity: observedB.elements[0]!.identity,
+    }, signal, {
+      ...sessionB,
+      toolCallId: 'reuse-observation-b',
+      boundAction: boundElementAction(observedB, '7'),
+    });
+    assert.equal(reusedObservationB?.outcome.ok, true);
+    const typedB = await backend.run(
+      { type: 'type', text: 'still-owned' },
+      signal,
+      { ...sessionB, toolCallId: 'type-b' },
+    );
+    assert.equal(typedB.outcome.ok, true);
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 1);
+  });
+
+  it('clearSession without generation loss does not invalidate another session mutation in flight', async () => {
+    const invalidated: string[] = [];
+    const { backend, logPath } = makeBackend({
+      delayTool: 'click',
+      delayMs: 100,
+      onSessionInvalidated: (event) => invalidated.push(event.sessionId),
+    });
+    const signal = new AbortController().signal;
+    const sessionB = {
+      sessionId: 'session-b',
+      turnId: 'turn-1',
+      toolCallId: 'observe-b',
+    };
+    const observedB = await backend.observeApp?.({
+      app: 'Fixture',
+      windowId: 77,
+      includeScreenshot: true,
+    }, signal, sessionB);
+    assert.ok(observedB);
+    const pendingB = backend.runSemantic!({
+      type: 'click_element',
+      observationId: observedB.observationId,
+      elementId: '7',
+      elementIdentity: observedB.elements[0]!.identity,
+    }, signal, {
+      ...sessionB,
+      toolCallId: 'click-b',
+      boundAction: boundElementAction(observedB, '7'),
+    });
+    await waitForRecord(
+      logPath,
+      (record) =>
+        record.kind === 'recv'
+        && record.method === 'tools/call'
+        && record.params?.name === 'click',
+    );
+    const generationsBeforeClear = backend.serviceState();
+
+    backend.clearSession('session-a');
+
+    const resultB = await pendingB;
+    assert.equal(resultB.outcome.ok, true);
+    assert.ok(!invalidated.includes('session-b'));
+    assert.deepEqual(backend.serviceState(), generationsBeforeClear);
+  });
+
   it('aborting a delivered action reports outcome_unknown without rejecting the queued session', async () => {
     const { backend, logPath } = makeBackend({ hangOnceTool: 'click' });
     const firstController = new AbortController();
     const first = backend.run(
       { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
       firstController.signal,
-      { sessionId: 'session-a', turnId: 'turn-1', toolCallId: 'first' },
+      {
+        sessionId: 'session-a',
+        turnId: 'turn-1',
+        toolCallId: 'first',
+        boundAction: boundCoordinateAction(),
+      },
     );
     await waitForRecord(logPath, (record) => record.kind === 'blocked' && record.tool === 'click');
 
     const second = backend.run(
       { type: 'left_click', coordinate: { x: 2000, y: 400 } } as CuAction,
       new AbortController().signal,
-      { sessionId: 'session-b', turnId: 'turn-1', toolCallId: 'second' },
+      {
+        sessionId: 'session-b',
+        turnId: 'turn-1',
+        toolCallId: 'second',
+        boundAction: boundCoordinateAction({
+          pid: 5002,
+          windowId: 92,
+          bounds: { x: 950, y: 150, width: 300, height: 200 },
+          sourceBoundsPx: { x: 0, y: 0, width: 1200, height: 800 },
+          coordinate: { x: 200, y: 200 },
+          zIndex: 9,
+        }),
+      },
     );
     firstController.abort();
     const firstResult = await first;
@@ -2658,7 +2817,11 @@ describe('cua-driver backend', () => {
     assert.equal(secondResult.outcome.ok, true);
 
     const records = await readRecords(logPath);
-    assert.equal(records.filter((record) => record.kind === 'start').length, 2);
+    assert.equal(
+      records.filter((record) => record.kind === 'start').length,
+      2,
+      'the queued second session starts on a fresh child after the shared request aborts',
+    );
     const clicks = toolCalls(records, 'click');
     assert.equal(clicks.length, 2);
     assert.equal(clicks.at(-1)?.pid, 5002);

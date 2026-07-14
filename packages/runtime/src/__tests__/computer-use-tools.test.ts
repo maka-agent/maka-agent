@@ -1387,6 +1387,43 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.equal(observeAppCalls, 0);
   });
 
+  test('clearSession fences a later turn that was queued before stop', async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    let observeAppCalls = 0;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+    };
+    backend.observeApp = async () => {
+      observeAppCalls += 1;
+      if (observeAppCalls === 1) {
+        entered();
+        await gate;
+      }
+      return observation();
+    };
+    const tools = buildComputerUseTools({ backend });
+    const [tool] = tools;
+    const first = tool.impl(
+      { action: 'observe', app: 'Fixture' } as never,
+      ctx(),
+    );
+    await started;
+    const second = tool.impl(
+      { action: 'observe', app: 'Fixture' } as never,
+      ctx(undefined, { turnId: 't2', toolCallId: 'observe-t2' }),
+    );
+    tools.clearSession('s1');
+    release();
+
+    const [firstResult, secondResult] = await Promise.all([first, second]) as Array<{ text: string }>;
+    assert.match(firstResult.text, /user_stopped/);
+    assert.match(secondResult.text, /user_stopped/);
+    assert.equal(observeAppCalls, 1);
+  });
+
   test('clearSession after a non-CU turn does not block the next turn observe', async () => {
     let observeAppCalls = 0;
     const backend = fakeBackend() as CuDispatchBackend & {
@@ -1491,6 +1528,94 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       assert.match(result.text, /user_stopped/, action);
       assert.doesNotMatch(result.text, /service_unavailable/, action);
     }
+  });
+
+  test('ordinary failed host reads preserve their typed backend error', async () => {
+    for (const action of ['cursor_position', 'wait'] as const) {
+      const backend = fakeBackend({
+        result: {
+          outcome: {
+            ok: false,
+            error: 'service_unavailable',
+            message: 'service is unavailable',
+          },
+        },
+      });
+      const [tool] = buildComputerUseTools({ backend });
+      const result = await tool.impl(
+        action === 'wait'
+          ? { action, duration: 0.001 } as never
+          : { action } as never,
+        ctx(),
+      ) as { text: string; error?: string };
+
+      assert.equal(result.error, 'service_unavailable', action);
+      assert.match(result.text, /service_unavailable/, action);
+      assert.doesNotMatch(result.text, /reobserve_required/, action);
+    }
+  });
+
+  test('cursor_position returns the resolved screen point to the model', async () => {
+    const backend = fakeBackend({
+      result: {
+        outcome: { ok: true, tier: 'coordinate-background', verified: true },
+        resolvedScreenPoint: { x: 10, y: 20 },
+      },
+    });
+    const [tool] = buildComputerUseTools({ backend });
+    const result = await tool.impl(
+      { action: 'cursor_position' } as never,
+      ctx(),
+    ) as { text: string };
+
+    assert.match(result.text, /screen_point=10,20/);
+  });
+
+  test('fresh observations inherit a separately returned screenshot', async () => {
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+    };
+    backend.observeApp = async () => observation();
+    backend.run = async () => ({
+      outcome: { ok: true, tier: 'ax', verified: true },
+      observation: observation({
+        observationId: 'backend-obs-2',
+        screenshot: undefined,
+      }),
+      screenshot: {
+        base64: 'AQ==',
+        mimeType: 'image/png',
+        widthPx: 120,
+        heightPx: 90,
+      },
+    });
+    const [tool] = buildComputerUseTools({ backend });
+    const observed = await tool.impl(
+      { action: 'observe', app: 'Fixture' } as never,
+      ctx(),
+    ) as { text: string };
+    const result = await tool.impl({
+      action: 'left_click',
+      observation_id: JSON.parse(observed.text).observation_id,
+      coordinate: [25, 30],
+    } as never, ctx()) as {
+      modelText?: string;
+      screenshot?: { base64: string; mimeType: string };
+    };
+
+    assert.deepEqual(result.screenshot, {
+      base64: 'AQ==',
+      mimeType: 'image/png',
+    });
+    const freshObservationId = JSON.parse(
+      (result.modelText ?? '').split('Fresh observation:\n')[1] ?? '{}',
+    ).observation_id as string;
+    const followUp = await tool.impl({
+      action: 'left_click',
+      observation_id: freshObservationId,
+      coordinate: [30, 35],
+    } as never, ctx()) as { text: string };
+    assert.match(followUp.text, /computer\.left_click ok/);
   });
 
   test('S17: surfaces the typed backend failure code without leaking raw driver text', async () => {

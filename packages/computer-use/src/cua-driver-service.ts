@@ -129,10 +129,12 @@ export class CuaDriverService {
     reason: CuaDriverReleaseEvent['reason'],
     sessionIds: readonly string[],
     outcomeUnknown: boolean,
+    generationReleased: boolean,
   ): void {
     this.opts.onRelease?.({
       role: this.opts.role,
       generation: this.generation,
+      generationReleased,
       reason,
       sessionIds: [...new Set(sessionIds)],
       outcomeUnknown,
@@ -191,7 +193,7 @@ export class CuaDriverService {
       }
     }
     this.state = 'unavailable';
-    this.emitRelease('restart_exhausted', [], false);
+    this.emitRelease('restart_exhausted', [], false, false);
     throw new CuaDriverLifecycleError(
       'service_unavailable',
       `cua-driver ${this.opts.role} restart budget exhausted: ${
@@ -410,7 +412,12 @@ export class CuaDriverService {
         ?? DEFAULT_RESTART_BACKOFF_MS;
       this.nextRestartAt = Date.now() + backoff;
     }
-    this.emitRelease(reason, sessionIds, potentiallyDelivered.length > 0);
+    this.emitRelease(
+      reason,
+      sessionIds,
+      potentiallyDelivered.length > 0,
+      true,
+    );
   }
 
   private notify(method: string, params?: unknown): void {
@@ -563,7 +570,7 @@ export class CuaDriverService {
       this.kill('session_cleared');
       return;
     }
-    this.emitRelease('session_cleared', [sessionId], false);
+    this.emitRelease('session_cleared', [sessionId], false, false);
   }
 
   private kill(reason: CuaDriverReleaseEvent['reason']): void {
@@ -584,7 +591,7 @@ export class CuaDriverService {
       // Disposal is best-effort; the sibling role still needs cleanup.
     }
     try {
-      this.emitRelease('disposed', [], false);
+      this.emitRelease('disposed', [], false, false);
     } catch {
       // Release observers must not interrupt process cleanup.
     }

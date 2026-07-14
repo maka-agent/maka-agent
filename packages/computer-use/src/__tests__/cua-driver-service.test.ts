@@ -242,7 +242,25 @@ describe('cua-driver service lifecycle', () => {
     assert.equal(instance.snapshot().state, 'idle');
     assert.ok(releases.some((event) =>
       event.reason === 'session_cleared'
+      && event.generationReleased
       && event.sessionIds.includes('session-clear')));
+  });
+
+  it('clearSession without a pending request keeps the child generation alive', async () => {
+    const releases: CuaDriverReleaseEvent[] = [];
+    const { instance } = service('', {
+      onRelease: (event) => releases.push(event),
+    });
+    await instance.callTool('ok', {});
+    const generation = instance.snapshot().generation;
+
+    instance.clearSession('session-idle');
+
+    assert.equal(instance.snapshot().generation, generation);
+    assert.ok(releases.some((event) =>
+      event.reason === 'session_cleared'
+      && !event.generationReleased
+      && event.sessionIds.includes('session-idle')));
   });
 
   it('exhausts a bounded restart budget and becomes unavailable', async () => {

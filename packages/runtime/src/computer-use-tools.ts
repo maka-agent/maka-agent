@@ -484,7 +484,10 @@ function summarize(action: CuAction, result: CuRunResult): string {
   }
   const verified = outcome.verified === undefined ? 'n/a' : String(outcome.verified);
   const shot = result.screenshot ? `; screenshot ${result.screenshot.widthPx}x${result.screenshot.heightPx}` : '';
-  return `computer.${action.type} ok via ${outcome.tier} (verified=${verified})${evidence}${shot}`
+  const point = action.type === 'cursor_position' && result.resolvedScreenPoint
+    ? `; screen_point=${result.resolvedScreenPoint.x},${result.resolvedScreenPoint.y}`
+    : '';
+  return `computer.${action.type} ok via ${outcome.tier} (verified=${verified})${evidence}${point}${shot}`
     + (
       outcome.verified === false
         ? ' — dispatch could not be confirmed; re-screenshot before retrying'
@@ -869,7 +872,7 @@ export function buildComputerUseTools(deps: {
   ): Promise<CuObservation | undefined> {
     const observationLease = state.beforeObservation();
     if (!observationLease.ok) return undefined;
-    const fresh = result.observation ?? (
+    const captured = result.observation ?? (
       deps.backend.captureObservation && record.appId && record.windowId
         ? await deps.backend.captureObservation({
             app: record.appId,
@@ -878,6 +881,9 @@ export function buildComputerUseTools(deps: {
           }, signal, context)
         : undefined
     );
+    const fresh = captured && result.screenshot && !captured.screenshot
+      ? { ...captured, screenshot: result.screenshot }
+      : captured;
     if (
       !fresh
       || !state.validateObservationLease(observationLease.lease).ok
@@ -1143,6 +1149,12 @@ export function buildComputerUseTools(deps: {
         ...input,
         app: record.appId,
         window_id: record.windowId,
+        ...(
+          'element_id' in input
+          && record.elements?.get(input.element_id)?.identity
+            ? { element_identity: record.elements.get(input.element_id)!.identity }
+            : {}
+        ),
       };
     },
     impl: async (args, {
@@ -1157,6 +1169,9 @@ export function buildComputerUseTools(deps: {
       const releasePendingInvocation = trackPendingInvocation(sessionId, turnId);
       try {
         return await withInvocationQueue(sessionId, abortSignal, async () => {
+        if ((presentationGenerations.get(sessionId) ?? 0) !== invocationGeneration) {
+          return sessionFailure('user_stopped');
+        }
         const state = sessionState(sessionId, turnId);
         const requiresObservationLease = (
           input.action === 'observe'
@@ -1559,7 +1574,6 @@ export function buildComputerUseTools(deps: {
             result = presentation.result
               ? preservePartialDelivery(presentation.result)
               : undefined;
-            if (result) applyTypedOutcomeState(state, result.outcome);
             if (observationLease?.ok) {
               const validated = state.validateObservationLease(
                 observationLease.lease,
@@ -1569,6 +1583,7 @@ export function buildComputerUseTools(deps: {
                 return sessionFailure(validated.reason);
               }
             }
+            if (result) applyTypedOutcomeState(state, result.outcome);
             if (result?.outcome.ok && actionLease) {
               const leaseFailure = validateActionLease(state, actionLease);
               if (leaseFailure) {

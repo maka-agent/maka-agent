@@ -368,13 +368,19 @@ export class ToolRuntime {
   ): Promise<unknown> {
     const executionArgs = snapshotToolArgs(args);
     const toolUseId = ctx.toolCallId;
-    const permissionArgs = tool.permissionArgs
-      ? snapshotToolArgs(tool.permissionArgs(structuredClone(executionArgs) as never, {
-          sessionId: this.input.sessionId,
-          turnId,
-          toolCallId: toolUseId,
-        }))
-      : executionArgs;
+    let permissionArgs = executionArgs;
+    let permissionArgsError: unknown;
+    try {
+      permissionArgs = tool.permissionArgs
+        ? snapshotToolArgs(tool.permissionArgs(structuredClone(executionArgs) as never, {
+            sessionId: this.input.sessionId,
+            turnId,
+            toolCallId: toolUseId,
+          }))
+        : executionArgs;
+    } catch (error) {
+      permissionArgsError = error;
+    }
     const persistedArgs = tool.categoryHint === 'computer_use'
       ? snapshotToolArgs(computerUseApprovalSummary(permissionArgs))
       : permissionArgs;
@@ -418,6 +424,41 @@ export class ToolRuntime {
       permissionRequired: tool.permissionRequired !== false,
       ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
     });
+    const callSignature = `${tool.name} ${loopGateArgsKey(executionArgs, toolUseId)}`;
+    const computerSemanticSignature = tool.categoryHint === 'computer_use'
+      ? computerUseSemanticSignature(permissionArgs)
+      : undefined;
+    if (permissionArgsError !== undefined) {
+      const msg = tool.categoryHint === 'computer_use'
+        ? 'Computer Use arguments failed validation'
+        : formatSyntheticToolErrorText(permissionArgsError);
+      await this.writeSyntheticToolResult(toolUseId, turnId, msg, queue);
+      this.input.recordToolInvocation?.({
+        sessionId: this.input.sessionId,
+        turnId,
+        toolCallId: toolUseId,
+        toolName: tool.name,
+        providerId: this.input.connection.providerType,
+        modelId: this.input.modelId,
+        durationMs: 0,
+        status: 'error',
+        errorClass: 'InvalidArguments',
+        argsSummary: tool.categoryHint === 'computer_use'
+          ? summarizePersistedArgs(persistedArgs)
+          : summarizeArgs(tool.name, executionArgs),
+        bytesIn: byteLength(persistedArgs),
+        bytesOut: byteLength(msg),
+        startedAt: now,
+      });
+      trace?.emit('tool', 'tool_failed', 'Tool arguments failed validation', {
+        toolUseId,
+        toolName: tool.name,
+        status: 'error',
+        errorClass: 'InvalidArguments',
+      });
+      this.recordLoopGateOutcome(callSignature, true);
+      return this.errorReturn(msg);
+    }
 
     // Loop-gate (#92): block this call up front — before the guards and the real
     // impl — if this exact call (tool + canonical args) has already FAILED
@@ -429,10 +470,6 @@ export class ToolRuntime {
     // so polling and iterate-then-retry are never gated. Recoverable: the model
     // is told to change its approach. The block itself records no outcome, so the
     // streak stays parked and every further identical repeat stays blocked.
-    const callSignature = `${tool.name} ${loopGateArgsKey(executionArgs, toolUseId)}`;
-    const computerSemanticSignature = tool.categoryHint === 'computer_use'
-      ? computerUseSemanticSignature(executionArgs)
-      : undefined;
     if (
       computerSemanticSignature
       && computerSemanticSignature === this.lastAmbiguousComputerSignature
@@ -449,6 +486,7 @@ export class ToolRuntime {
     }
     if (
       this.lastAmbiguousComputerSignature
+      && computerSemanticSignature
       && computerSemanticSignature !== this.lastAmbiguousComputerSignature
     ) {
       this.lastAmbiguousComputerSignature = undefined;
@@ -1076,9 +1114,11 @@ export class ToolRuntime {
         );
 
         attemptFailed = toolResultStatus !== 'success';
-        this.lastAmbiguousComputerSignature = isAmbiguousComputerFailure(result)
-          ? computerSemanticSignature
-          : undefined;
+        if (isAmbiguousComputerFailure(result)) {
+          this.lastAmbiguousComputerSignature = computerSemanticSignature;
+        } else if (computerSemanticSignature) {
+          this.lastAmbiguousComputerSignature = undefined;
+        }
         return result;
       } finally {
         pauseTarget?.resume();
@@ -1144,7 +1184,9 @@ export class ToolRuntime {
         });
         return this.errorReturn(terminalFailure.message);
       }
-      const msg = formatSyntheticToolErrorText(err);
+      const msg = tool.categoryHint === 'computer_use'
+        ? `Computer Use failed: ${classifyError(err)}`
+        : formatSyntheticToolErrorText(err);
       await this.writeSyntheticToolResult(toolUseId, turnId, msg, queue);
       this.input.recordToolInvocation?.({
         sessionId: this.input.sessionId,
@@ -1302,15 +1344,31 @@ function computerUseSemanticSignature(args: unknown): string | undefined {
     && record.action !== 'secondary_action'
   ) return undefined;
   try {
+    const elementIdentity = stableElementIdentity(record.element_identity);
     return stableHash({
       action: record.action,
-      element_id: record.element_id,
+      app: record.app,
+      window_id: record.window_id,
+      ...(elementIdentity === undefined
+        ? { element_id: record.element_id }
+        : { element_identity: elementIdentity }),
       value: record.value,
       text: record.text,
     });
   } catch {
     return undefined;
   }
+}
+
+function stableElementIdentity(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  return {
+    role: record.role,
+    label: record.label,
+    value: record.value,
+    frame: record.frame,
+  };
 }
 
 /**

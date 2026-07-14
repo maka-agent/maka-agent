@@ -204,8 +204,26 @@ function makeComputerFailureTool(
     parameters: z.object({}).passthrough(),
     permissionRequired: false,
     categoryHint: 'computer_use',
+    permissionArgs: (args) => {
+      const record = args as Record<string, unknown>;
+      return record.action === 'observe'
+        ? record
+        : {
+            ...record,
+            app: 'Fixture',
+            window_id: 7,
+            element_identity: {
+              token: `snapshot:${String(record.element_id ?? 'unknown')}`,
+              role: 'AXButton',
+              label: 'Duplicate',
+            },
+          };
+    },
     impl: (args) => {
       impl.push(JSON.stringify(args));
+      if ((args as { action?: string }).action === 'observe') {
+        return { text: 'observed' };
+      }
       return {
         text: 'maka_computer failed: stale_frame',
         error: 'stale_frame',
@@ -436,13 +454,17 @@ describe('loop-gate for repeated identical FAILING tool calls', () => {
     });
     assert.equal((first as { error?: string }).error, 'stale_frame');
 
+    await call(h, tool, {
+      action: 'observe',
+      app: 'Fixture',
+    });
     const second = await call(h, tool, {
       action: 'click_element',
       observation_id: 'obs-2',
-      element_id: 'duplicate',
+      element_id: 'renumbered-duplicate',
     });
     assert.deepEqual(second, { error: formatAmbiguousComputerLoopGateText() });
-    assert.equal(h.impl.length, 1, 'second ambiguous attempt never reaches the backend');
+    assert.equal(h.impl.length, 2, 'observe runs but the repeated mutation never reaches the backend');
   });
 
   test('repeated shell_run observations are not loop-gated by process status', async () => {

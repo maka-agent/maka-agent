@@ -112,6 +112,57 @@ test('Computer Use snapshots execution args and persists only the approval summa
   assert.doesNotMatch(invocations[0]!.argsSummary ?? '', /secret|123|456/);
 });
 
+test('Computer Use validation failures still persist a redacted call and result', async () => {
+  const messages: StoredMessage[] = [];
+  const events: SessionEvent[] = [];
+  const invocations: ToolInvocationRecord[] = [];
+  const runtime = new ToolRuntime({
+    sessionId: 'session-1',
+    header: header(),
+    connection: connection(),
+    modelId: 'mock-model',
+    appendMessage: async (message) => { messages.push(message); },
+    permissionEngine: new PermissionEngine({ newId: nextId(), now: () => 1 }),
+    newId: nextId(),
+    now: () => 1,
+    getPermissionPauseTarget: () => null,
+    recordToolInvocation: (record) => { invocations.push(record); },
+  });
+  const tool: MakaTool = {
+    name: 'maka_computer',
+    description: 'test',
+    parameters: {},
+    categoryHint: 'computer_use',
+    permissionRequired: false,
+    permissionArgs: () => {
+      throw new Error('AX label: Customer SSN 123-45-6789');
+    },
+    impl: async () => {
+      assert.fail('invalid arguments must not reach the implementation');
+    },
+  };
+
+  const result = await runtime.wrapToolExecute(tool, 'turn-1', {
+    push: (event) => events.push(event),
+  })({
+    action: 'type',
+    text: 'private text',
+    coordinate: [123, 456],
+  }, {
+    toolCallId: 'tool-invalid',
+    abortSignal: new AbortController().signal,
+  }) as { error?: string };
+
+  assert.equal(result.error, 'Computer Use arguments failed validation');
+  const serialized = JSON.stringify({ messages, events, invocations });
+  assert.doesNotMatch(serialized, /Customer SSN|123-45-6789|private text|123|456/);
+  assert.equal(messages.some((message) => message.type === 'tool_call'), true);
+  assert.equal(messages.some((message) => message.type === 'tool_result'), true);
+  assert.equal(events.some((event) => event.type === 'tool_start'), true);
+  assert.equal(events.some((event) => event.type === 'tool_result'), true);
+  assert.equal(invocations[0]?.errorClass, 'InvalidArguments');
+});
+
 function nextId(): () => string {
   let sequence = 0;
   return () => `id-${++sequence}`;

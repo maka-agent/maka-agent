@@ -25,6 +25,7 @@ export interface CuaDriverRoleSnapshot {
 export interface CuaDriverReleaseEvent {
   role: CuaDriverRole;
   generation: number;
+  generationReleased: boolean;
   reason:
     | 'child_exit'
     | 'request_timeout'
