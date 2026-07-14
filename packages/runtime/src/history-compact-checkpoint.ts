@@ -127,11 +127,20 @@ export function buildHistoryCompactCheckpoint(
     if (!anchored) {
       throw new Error('Mid-turn history compact checkpoint head anchor must be a covered RuntimeEvent');
     }
-    // The anchor is re-rendered verbatim as the compacted turn's user message;
-    // an anchor that is not that turn's user event would silently rewrite the
-    // conversation, so the protocol fails closed at build time.
-    if (anchored.turnId !== input.headAnchor.turnId || anchored.role !== 'user') {
-      throw new Error('Mid-turn history compact checkpoint head anchor must be the covered turn\'s user event');
+    // The anchor is re-rendered verbatim as the compacted turn's user message.
+    // The compacted turn is the one the coverage reaches into — the LAST
+    // covered event's turn — so the anchor must be that turn's user event. A
+    // self-consistent anchor resolving to some other covered user event (e.g.
+    // a prior turn's prompt) would silently drop the real current prompt from
+    // the replay, so the protocol fails closed at build time.
+    const lastCovered = input.coveredRuntimeEvents.at(-1)!;
+    if (
+      anchored.turnId !== input.headAnchor.turnId
+      || anchored.turnId !== lastCovered.turnId
+      || anchored.role !== 'user'
+      || anchored.author !== 'user'
+    ) {
+      throw new Error('Mid-turn history compact checkpoint head anchor must be the compacted turn\'s user event');
     }
     headAnchor = { runtimeEventId: input.headAnchor.runtimeEventId, turnId: input.headAnchor.turnId };
   }
@@ -325,11 +334,20 @@ export function matchHistoryCompactCheckpointPrefix(
   // A mid_turn checkpoint's replay re-renders the head anchor verbatim, so a
   // corrupted anchor reference must fail the match closed here — otherwise the
   // projection would silently drop the compacted turn's user message.
+  // The compacted turn is the coverage's `through` turn, so the anchor must be
+  // THAT turn's user event — not merely any self-consistent covered user event
+  // (e.g. a prior turn's prompt).
   if (checkpoint.phase === 'mid_turn') {
     const anchor = coveredRuntimeEvents.find(
       (event) => event.id === checkpoint.headAnchor!.runtimeEventId,
     );
-    if (!anchor || anchor.turnId !== checkpoint.headAnchor!.turnId || anchor.role !== 'user') {
+    if (
+      !anchor
+      || anchor.turnId !== checkpoint.headAnchor!.turnId
+      || anchor.turnId !== checkpoint.coverage.through.turnId
+      || anchor.role !== 'user'
+      || anchor.author !== 'user'
+    ) {
       return { coveredEventCount: 0, coveredRuntimeEvents: [], successorRuntimeEvents: [], reason: 'coverage_miss' };
     }
   }

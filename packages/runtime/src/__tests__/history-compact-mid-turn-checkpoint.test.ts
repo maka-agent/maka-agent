@@ -63,18 +63,48 @@ describe('mid-turn history compact checkpoint', () => {
     }), /must be a covered RuntimeEvent/);
   });
 
-  test('rejects a head anchor that is not the covered turn\'s user event', () => {
+  test('rejects a head anchor that is not the compacted turn\'s user event', () => {
     const events = [textEvent('a', 'turn-1', 'user'), textEvent('b', 'turn-1', 'model')];
     // Anchor turnId disagrees with the covered event.
     assert.throws(() => buildHistoryCompactCheckpoint({
       sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
       headAnchor: { runtimeEventId: 'a', turnId: 'turn-9' },
-    }), /must be the covered turn's user event/);
+    }), /must be the compacted turn's user event/);
     // Anchor references a model event, not the turn's user message.
     assert.throws(() => buildHistoryCompactCheckpoint({
       sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
       headAnchor: { runtimeEventId: 'b', turnId: 'turn-1' },
-    }), /must be the covered turn's user event/);
+    }), /must be the compacted turn's user event/);
+  });
+
+  test('rejects a head anchor pointing at another covered turn\'s user event', () => {
+    // A self-consistent anchor (role user, matching self-reported turnId) that
+    // resolves to a PRIOR turn's prompt would silently drop the real current
+    // prompt from the replay — the compacted turn is the last covered event's
+    // turn, and the anchor must belong to it.
+    const events = [
+      textEvent('prior-user', 'turn-0', 'user'),
+      textEvent('prior-model', 'turn-0', 'model'),
+      textEvent('anchor', 'turn-1', 'user'),
+      textEvent('step-model', 'turn-1', 'model'),
+    ];
+    assert.throws(() => buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
+      headAnchor: { runtimeEventId: 'prior-user', turnId: 'turn-0' },
+    }), /must be the compacted turn's user event/);
+
+    // Matcher: a persisted checkpoint whose anchor was tampered to the prior
+    // turn's user event must fail closed as coverage_miss.
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'mid turn summary',
+      phase: 'mid_turn', headAnchor: { runtimeEventId: 'anchor', turnId: 'turn-1' },
+    });
+    const priorUserAnchor = {
+      ...checkpoint,
+      headAnchor: { runtimeEventId: 'prior-user', turnId: 'turn-0' },
+    };
+    assert.equal(matchHistoryCompactCheckpointPrefix(priorUserAnchor, events).reason, 'coverage_miss');
+    assert.equal(matchHistoryCompactCheckpointPrefix(checkpoint, events).reason, undefined);
   });
 
   test('rejects coverage that includes a partial streaming snapshot', () => {
