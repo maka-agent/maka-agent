@@ -322,6 +322,7 @@ describe('AiSdkFlow seam', () => {
           category: 'shell_unsafe',
           reason: 'shell_dangerous',
           args: { cmd: 'rm -rf /' },
+          rememberForTurnAllowed: true,
           hint: 'destructive',
         }),
         ev({
@@ -342,6 +343,7 @@ describe('AiSdkFlow seam', () => {
     assert.equal(req.actions?.permissionRequest?.requestId, 'req-1');
     assert.equal(req.actions?.permissionRequest?.toolName, 'bash');
     assert.equal(req.actions?.permissionRequest?.hint, 'destructive');
+    assert.equal(req.actions?.permissionRequest?.rememberForTurnAllowed, true);
 
     const ack = out[1];
     assert.equal(ack.author, 'user', 'permission decision is authored by the user');
@@ -680,6 +682,7 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
           category: 'file_write',
           reason: 'file_write',
           args,
+          rememberForTurnAllowed: true,
         }),
         mappedArgs: (event: RuntimeEvent) => event.actions?.permissionRequest?.args,
       },

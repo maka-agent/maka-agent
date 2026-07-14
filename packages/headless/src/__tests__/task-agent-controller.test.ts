@@ -221,6 +221,7 @@ class PermissionRequestBackend implements AgentBackend {
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
       args: { command: this.command },
+      rememberForTurnAllowed: true,
     };
     yield { type: 'complete', id: 'permission-complete', turnId: input.turnId, ts, stopReason: 'permission_handoff' };
   }

@@ -120,7 +120,7 @@ describe('permission composer takeover', () => {
     assert.doesNotMatch(prompt, /oklch\(from_var\(--destructive\)|hover:bg-/, 'permission actions must use governed Button variants');
   });
 
-  it('only offers disclosure for information not already present in the summary', async () => {
+  it('keeps general disclosures focused on information not already present in the summary', async () => {
     const permissionSource = await readFile(
       join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'permission-dialog.tsx'),
       'utf8',
@@ -135,7 +135,6 @@ describe('permission composer takeover', () => {
       /function renderPermissionSummary[\s\S]*?function renderPermissionDetails/,
     )?.[0] ?? '';
 
-    assert.match(prompt, /const showDisclosure = details !== undefined \|\| additionalArgs !== undefined;/);
     assert.match(prompt, /\{showDisclosure && \([\s\S]*?<CollapsiblePanel>/);
     assert.match(prompt, /const disclosureLabel = permissionDisclosureLabel\(props\.request, additionalArgs\);/);
     assert.match(prompt, /\{showDisclosure && <CollapsibleTrigger>\{disclosureLabel\}<\/CollapsibleTrigger>\}/);
@@ -215,7 +214,6 @@ describe('permission composer takeover', () => {
       /function renderPermissionDetails[\s\S]*?function permissionTextPreview/,
     )?.[0] ?? '';
 
-    assert.match(prompt, /<Collapsible className="maka-permission-raw">[\s\S]*?<CollapsiblePanel>[\s\S]*?<footer className="permissionActions">/);
     assert.match(prompt, /<CollapsibleTrigger>\{disclosureLabel\}<\/CollapsibleTrigger>/);
     assert.match(prompt, /const prompt = permissionPrompt\(props\.request, preset\);/);
     assert.match(prompt, /id="permissionTitle">\{prompt\}<\/h2>/);
@@ -230,7 +228,6 @@ describe('permission composer takeover', () => {
     assert.doesNotMatch(summary, /maka-permission-diff/, 'diffs do not belong in the compact summary');
     assert.match(details, /maka-permission-diff/, 'diffs remain inspectable in expanded details');
     assert.doesNotMatch(details, /maka-permission-diff-tag/, 'expanded edits use one unified diff instead of stacked labeled cards');
-    assert.doesNotMatch(summary, /maka-permission-preview/, 'long content previews do not belong in the compact summary');
     assert.match(details, /maka-permission-preview/, 'long content previews remain inspectable in expanded details');
   });
 });

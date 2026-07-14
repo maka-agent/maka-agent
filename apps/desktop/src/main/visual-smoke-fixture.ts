@@ -2417,6 +2417,7 @@ function permissionRequest(now: number): PermissionRequestEvent {
     category: 'fs_destructive',
     reason: 'fs_destructive',
     args: { command: 'rm -rf ./dist', cwd: '/workspace/maka' },
+    rememberForTurnAllowed: true,
     hint: '这会删除构建产物目录；允许前请确认当前工作区。',
   };
 }

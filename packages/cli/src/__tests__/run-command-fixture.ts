@@ -74,6 +74,7 @@ const runtime: MakaRunRuntime = {
         category: 'web_read',
         reason: 'network',
         args: { query: 'example' },
+        rememberForTurnAllowed: true,
       };
       if (!permissionDenied) throw new Error('permission prompt was not denied');
       await notify(failedResult('permission_denied', 'permission request permission-1 was denied'));

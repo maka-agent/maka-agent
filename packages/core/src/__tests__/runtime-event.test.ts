@@ -172,6 +172,7 @@ describe('RuntimeEvent actions', () => {
         category: 'shell_unsafe',
         reason: 'shell_dangerous',
         args: { command: 'rm foo' },
+        rememberForTurnAllowed: true,
       },
       permissionDecision: { requestId: 'pr-1', decision: 'deny' },
     };

@@ -257,6 +257,7 @@ export function mapSessionEventToRuntimeEvent(
             category: event.category,
             reason: event.reason,
             args: structuredClone(event.args),
+            rememberForTurnAllowed: event.rememberForTurnAllowed,
             ...(event.hint !== undefined ? { hint: event.hint } : {}),
           },
         },

@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMountedRef } from './use-mounted-ref.js';
 import type { PermissionRequestEvent, PermissionResponse } from '@maka/core';
-import { derivePermissionRequestHealth, formatPermissionRequestWait, readWriteStdinInputPreview } from '@maka/core';
+import {
+  derivePermissionRequestHealth,
+  formatPermissionRequestWait,
+  formatWriteStdinPermissionInspection,
+  projectWriteStdinPermissionSummary,
+} from '@maka/core';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Button as UiButton, Checkbox } from './ui.js';
 import { redactSecrets } from './redact.js';
@@ -40,6 +45,7 @@ export function PermissionPrompt(props: {
   stopPending?: boolean;
 }) {
   const [rememberForTurn, setRememberForTurn] = useState(false);
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
   const [responsePending, setResponsePending] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const responsePendingRef = useRef(false);
@@ -50,6 +56,7 @@ export function PermissionPrompt(props: {
   useEffect(() => {
     activePermissionRequestIdRef.current = props.request.requestId;
     setRememberForTurn(false);
+    setExpandedRequestId(null);
     setResponsePending(false);
     responsePendingRef.current = false;
     setNow(Date.now());
@@ -79,7 +86,9 @@ export function PermissionPrompt(props: {
       await props.onRespond({
         requestId,
         decision,
-        rememberForTurn: decision === 'allow' ? rememberForTurn : false,
+        ...(props.request.rememberForTurnAllowed
+          ? { rememberForTurn: decision === 'allow' ? rememberForTurn : false }
+          : {}),
       });
     } finally {
       if (activePermissionRequestIdRef.current === requestId) {
@@ -89,11 +98,14 @@ export function PermissionPrompt(props: {
     }
   }
 
+  const fullArgsOpen = expandedRequestId === props.request.requestId;
   const preset = REASON_PRESETS[props.request.reason] ?? REASON_PRESETS.custom;
   const summary = renderPermissionSummary(props.request);
-  const details = renderPermissionDetails(props.request);
+  const details = renderPermissionDetails(props.request, fullArgsOpen);
   const additionalArgs = permissionAdditionalArgs(props.request);
-  const showDisclosure = details !== undefined || additionalArgs !== undefined;
+  const showDisclosure = props.request.toolName === 'WriteStdin'
+    || details !== undefined
+    || additionalArgs !== undefined;
   const disclosureLabel = permissionDisclosureLabel(props.request, additionalArgs);
   const prompt = permissionPrompt(props.request, preset);
   const isDestructive = preset.tone === 'destructive';
@@ -138,7 +150,11 @@ export function PermissionPrompt(props: {
             </p>
           )}
         </div>
-        <Collapsible className="maka-permission-raw">
+        <Collapsible
+          className="maka-permission-raw"
+          open={fullArgsOpen}
+          onOpenChange={(open) => setExpandedRequestId(open ? props.request.requestId : null)}
+        >
           {showDisclosure && (
             <CollapsiblePanel>
               {details && <div className="maka-permission-details">{details}</div>}
@@ -148,7 +164,7 @@ export function PermissionPrompt(props: {
           <footer className="permissionActions">
             <div className="maka-permission-utility-actions">
               {showDisclosure && <CollapsibleTrigger>{disclosureLabel}</CollapsibleTrigger>}
-              {props.request.rememberForTurnAllowed !== false && (
+              {props.request.rememberForTurnAllowed && (
                 <label className="permissionRemember">
                   <Checkbox
                     checked={rememberForTurn}
@@ -266,19 +282,32 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
       return <pre className="maka-code maka-permission-command">{commandSummary}</pre>;
     }
     case 'WriteStdin': {
-      const input = readWriteStdinInputPreview(args);
-      const size = args.size && typeof args.size === 'object' && !Array.isArray(args.size)
-        ? args.size as Record<string, unknown>
-        : undefined;
-      const cols = typeof size?.cols === 'number' ? size.cols : undefined;
-      const rows = typeof size?.rows === 'number' ? size.rows : undefined;
-      if (!input && (cols === undefined || rows === undefined)) return undefined;
+      const writeStdin = projectWriteStdinPermissionSummary(args);
+      if (!writeStdin.ref && !writeStdin.input && !writeStdin.size) return undefined;
       return (
         <>
           <p className="maka-permission-line">即将与后台终端交互</p>
-          {input && <p className="maka-permission-meta">输入 <strong>{input.bytes}</strong> 字节</p>}
-          {cols !== undefined && rows !== undefined && (
-            <p className="maka-permission-meta">目标尺寸 <strong>{cols}x{rows}</strong></p>
+          {writeStdin.ref && (
+            <p className="maka-permission-path">
+              <code>{writeStdin.ref.text}{writeStdin.ref.truncated ? '…' : ''}</code>
+            </p>
+          )}
+          {writeStdin.input && (
+            <>
+              <pre className="maka-code maka-permission-preview">
+                {writeStdin.input.text}{writeStdin.input.truncated ? '…' : ''}
+              </pre>
+              {writeStdin.input.truncated && (
+                <p className="maka-permission-meta">
+                  完整输入共 <strong>{writeStdin.input.bytes}</strong> 字节
+                </p>
+              )}
+            </>
+          )}
+          {writeStdin.size && (
+            <p className="maka-permission-meta">
+              目标尺寸 <strong>{writeStdin.size.cols}x{writeStdin.size.rows}</strong>
+            </p>
           )}
         </>
       );
@@ -331,15 +360,19 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
   }
 }
 
-function renderPermissionDetails(request: PermissionRequestEvent): ReactNode | undefined {
+function renderPermissionDetails(
+  request: PermissionRequestEvent,
+  writeStdinExpanded: boolean,
+): ReactNode | undefined {
   const args = (request.args ?? {}) as Record<string, unknown>;
   switch (request.toolName) {
     case 'WriteStdin': {
-      const input = readWriteStdinInputPreview(args);
-      if (!input) return undefined;
+      if (!writeStdinExpanded) return undefined;
+      const inspection = formatWriteStdinPermissionInspection(args);
+      if (!inspection) return undefined;
       return (
         <pre className="maka-code maka-permission-preview">
-          {input.text}{input.truncated ? '…' : ''}
+          {inspection}
         </pre>
       );
     }

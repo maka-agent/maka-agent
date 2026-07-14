@@ -20,7 +20,6 @@
  *   }
  */
 
-import { projectToolActivityArgs } from '@maka/core';
 import {
   classifyToolUse,
   matchToolPermissionRules,
@@ -216,10 +215,7 @@ export class PermissionEngine {
       toolName: pre.partialRequest.toolName,
       category: pre.partialRequest.category,
       reason: pre.partialRequest.reason,
-      args: projectToolActivityArgs(
-        pre.partialRequest.toolName,
-        pre.partialRequest.args,
-      ),
+      args: pre.partialRequest.args,
       rememberForTurnAllowed: pre.partialRequest.rememberForTurnAllowed,
       ...(input.hint !== undefined ? { hint: input.hint } : {}),
     };
@@ -228,7 +224,7 @@ export class PermissionEngine {
       toolUseId: input.toolUseId,
       category: pre.category,
       scopeKey: pre.scopeKey,
-      rememberForTurnAllowed: pre.partialRequest.rememberForTurnAllowed !== false,
+      rememberForTurnAllowed: pre.partialRequest.rememberForTurnAllowed,
     });
 
     return { kind: 'prompt', category: pre.category, event, parked };
@@ -262,6 +258,14 @@ export class PermissionEngine {
     if (
       response.decision === 'allow'
       && response.rememberForTurn
+      && !parked.rememberForTurnAllowed
+    ) {
+      throw new Error('This permission request cannot be remembered for the turn');
+    }
+
+    if (
+      response.decision === 'allow'
+      && response.rememberForTurn
       && parked.rememberForTurnAllowed
     ) {
       state.remembered.add(parked.scopeKey);
@@ -272,7 +276,11 @@ export class PermissionEngine {
       // UI queue drains without a second click. The current request was already
       // selected explicitly, so the snapshot must not auto-resolve it.
       for (const [otherId, other] of this.parked.entries(turnId)) {
-        if (otherId !== response.requestId && other.scopeKey === parked.scopeKey) {
+        if (
+          otherId !== response.requestId
+          && other.rememberForTurnAllowed
+          && other.scopeKey === parked.scopeKey
+        ) {
           this.parked.resolve(turnId, otherId, { requestId: otherId, decision: 'allow', rememberForTurn: true });
         }
       }

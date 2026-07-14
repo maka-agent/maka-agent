@@ -201,6 +201,7 @@ describe('single live-turn handoff', () => {
       type: 'permission_request', id: 'e1', turnId: 'turn-1', ts: 1,
       requestId: 'request-1', toolUseId: 'tool-1', toolName: 'Bash',
       category: 'shell_unsafe', reason: 'shell_dangerous', args: {},
+      rememberForTurnAllowed: true,
     });
     handlers.handleEvent('session-1', {
       type: 'complete', id: 'e2', turnId: 'turn-1', ts: 2, stopReason: 'permission_handoff',
