@@ -101,6 +101,12 @@ describe('provider contract matrix — discovery derivation', () => {
     assert.equal(vercel.state === 'generated' && vercel.discovery?.filter, 'language-models');
   });
 
+  it('derives auth none when the provider has no credential to send', () => {
+    const lmStudio = cellFor('lm-studio', 'discovery');
+    assert.equal(lmStudio.state, 'generated');
+    assert.equal(lmStudio.state === 'generated' && lmStudio.discovery?.auth, 'none');
+  });
+
   it('marks fireworks / cohere / ollama discovery as override', () => {
     for (const providerType of ['fireworks-ai', 'cohere', 'ollama'] as const) {
       const cell = cellFor(providerType, 'discovery');

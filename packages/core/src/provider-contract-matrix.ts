@@ -59,7 +59,8 @@ export const SUBSCRIPTION_WIRE_ADAPTER_KINDS: ReadonlySet<ProviderRuntimeAdapter
 /** Derived expectation for a generated `discovery` cell. */
 export interface ProviderContractDiscoveryPlan {
   protocol: ProviderDefaults['protocol'];
-  /** `none` when the model list is public; `default` when it carries provider auth. */
+  /** `none` when the request must carry no credential — a public model list, or a
+   * provider with no credential to send; `default` when it carries provider auth. */
   auth: 'default' | 'none';
   path?: string;
   query?: Readonly<Record<string, string>>;
@@ -213,7 +214,7 @@ function discoveryCell(providerType: ProviderType, def: ProviderDefaults): Provi
         dimension: 'discovery',
         discovery: {
           protocol: def.protocol,
-          auth: discovery.auth === 'none' ? 'none' : 'default',
+          auth: discovery.auth === 'none' || def.authKind === 'none' ? 'none' : 'default',
           ...(discovery.path !== undefined ? { path: discovery.path } : {}),
           ...(discovery.query !== undefined ? { query: discovery.query } : {}),
           ...(discovery.responseShape !== undefined ? { responseShape: discovery.responseShape } : {}),

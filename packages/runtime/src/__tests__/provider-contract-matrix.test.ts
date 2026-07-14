@@ -38,7 +38,6 @@ import {
   type ProviderContractGeneratedCell,
   type ProviderContractWire,
 } from '@maka/core';
-import { providerAuthSupportsApiKey } from '@maka/core/llm-connections';
 import { generateText, stepCountIs, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
@@ -322,11 +321,7 @@ function assertDiscoveryRequest(
   }
   switch (discovery.protocol) {
     case 'openai':
-      if (providerAuthSupportsApiKey(row.providerType)) {
-        assert.equal(authorization, `Bearer ${API_KEY}`, `${where} must send its Bearer credential`);
-      } else {
-        assert.equal(authorization, undefined, `${where} has no API-key auth: it must not send Authorization`);
-      }
+      assert.equal(authorization, `Bearer ${API_KEY}`, `${where} must send its Bearer credential`);
       break;
     case 'anthropic':
       assert.equal(xApiKey, API_KEY, `${where} must send its x-api-key credential`);
