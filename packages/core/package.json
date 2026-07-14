@@ -40,6 +40,7 @@
     "./incognito": "./dist/incognito.js",
     "./backend-types": "./dist/backend-types.js",
     "./llm-connections": "./dist/llm-connections.js",
+    "./provider-contract-matrix": "./dist/provider-contract-matrix.js",
     "./model-metadata": "./dist/model-metadata.js",
     "./model-thinking": "./dist/model-thinking.js",
     "./connection-readiness": "./dist/connection-readiness.js",
