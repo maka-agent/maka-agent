@@ -764,6 +764,31 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('passes the runtime terminal turn identity to the completion callback', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RuntimeTurnIdentityDriver();
+    const completedTurnIds: string[] = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+      onTurnComplete: (turnId) => { completedTurnIds.push(turnId); },
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => completedTurnIds.length === 1);
+
+    assert.deepEqual(completedTurnIds, ['runtime-turn-42']);
+
+    exitMaka(terminal);
+    await run;
+  });
+
   test('flows a transcript taller than the viewport into scrollback, untruncated and un-paged', async () => {
     const terminal = new FakeTerminal();
     const driver = new LongTranscriptDriver();
@@ -3619,6 +3644,19 @@ class SlashCommandDriver implements MakaSessionDriver {
   }
   getSessionId(): string {
     return this.sessionId;
+  }
+}
+
+class RuntimeTurnIdentityDriver extends SlashCommandDriver {
+  override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'runtime-turn-42',
+      ts: 1,
+      stopReason: 'end_turn',
+    };
   }
 }
 

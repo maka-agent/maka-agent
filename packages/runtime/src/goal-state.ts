@@ -39,44 +39,84 @@ export const TERMINAL_GOAL_STATUSES: ReadonlySet<GoalStatus> = new Set<GoalStatu
 ]);
 
 export interface GoalState {
-  id: string;
-  sessionId: string;
-  condition: string;
-  status: GoalStatus;
-  setAt: number;
-  iterations: number;
-  maxIterations: number;
+  readonly id: string;
+  readonly revision: number;
+  readonly sessionId: string;
+  readonly condition: string;
+  readonly status: GoalStatus;
+  readonly setAt: number;
+  readonly iterations: number;
+  readonly maxIterations: number;
   /** Consecutive turns with no progress (drives the block cap → stalled). */
-  consecutiveNoProgress: number;
+  readonly consecutiveNoProgress: number;
   /** Force-stop after this many consecutive no-progress turns (CC's 8). */
-  blockCap: number;
+  readonly blockCap: number;
   /** Optional token budget; goal → budget_limited when exceeded. */
-  tokenBudget?: number;
+  readonly tokenBudget?: number;
   /** Token count observed when the goal was set (baseline for spend). */
-  tokensAtStart: number;
+  readonly tokensAtStart: number;
   /** Latest observed token count (used to compute spend). */
-  tokensNow: number;
+  readonly tokensNow: number;
   /**
    * True until the first real token observation. The baseline captured at set
    * time can be stale/0 (the model calls GoalSet before any continuation has
-   * observed the session's token count), so the first recordTokens re-baselines
+   * observed the session's token count), so the first settlement re-baselines
    * to measure only tokens the goal itself spends.
    */
-  tokensBaselinePending: boolean;
-  lastReason?: string;
-  achievedAt?: number;
-  pausedAt?: number;
+  readonly tokensBaselinePending: boolean;
+  readonly lastReason?: string;
+  readonly achievedAt?: number;
+  readonly pausedAt?: number;
 }
+
+/** Immutable identity of the Goal snapshot an asynchronous operation observed. */
+export interface GoalCheckpoint {
+  readonly goalId: string;
+  readonly revision: number;
+}
+
+export function goalCheckpoint(goal: Pick<GoalState, 'id' | 'revision'>): GoalCheckpoint {
+  return Object.freeze({ goalId: goal.id, revision: goal.revision });
+}
+
+export type GoalCreateResult =
+  | { kind: 'created'; goal: GoalState }
+  | { kind: 'unfinished'; goal: GoalState };
+
+interface GoalTurnSettlementBase {
+  readonly checkpoint: GoalCheckpoint;
+  readonly turnId: string;
+  readonly reason: string;
+}
+
+export type GoalTurnSettlementInput =
+  | (GoalTurnSettlementBase & {
+      readonly verdict: 'achieved';
+    })
+  | (GoalTurnSettlementBase & {
+      readonly verdict: 'impossible';
+    })
+  | (GoalTurnSettlementBase & {
+      readonly verdict: 'continue';
+      /** Undefined is neutral: neither advances nor resets the no-progress streak. */
+      readonly madeProgress?: boolean;
+      readonly tokensNow?: number;
+    });
+
+export type GoalTurnSettlementResult =
+  | { kind: 'applied'; goal: GoalState }
+  | { kind: 'duplicate'; goal: GoalState }
+  | { kind: 'stale'; goal: GoalState }
+  | { kind: 'inactive'; goal: GoalState }
+  | { kind: 'not_found' };
 
 export interface GoalManagerDeps {
   generateId: () => string;
   now: () => number;
   /**
-   * Fired after every goal state transition (set / continue / pause / resume /
-   * terminal / clear / remove). Lets a host surface an autonomous loop to the
-   * UI — a token-burning goal must never run without a visible indicator and a
-   * clear affordance. `previous` is the status before the change (undefined on
-   * first set) so a host can detect entering/leaving the active state.
+   * Fired after every accepted goal state transition. Lets a host surface an
+   * autonomous loop to the UI — a token-burning goal must never run without a
+   * visible indicator and a clear affordance.
    */
   onChange?: (goal: GoalState, previous?: GoalStatus) => void;
 }
@@ -84,8 +124,19 @@ export interface GoalManagerDeps {
 export const DEFAULT_MAX_ITERATIONS = 50;
 export const DEFAULT_BLOCK_CAP = 8;
 
+interface GoalRecord {
+  state: GoalState;
+  /** Turn identity belongs to the session lifetime, not an individual Goal. */
+  readonly settledTurnIds: Set<string>;
+}
+
+type GoalStatePatch = Partial<Omit<
+  GoalState,
+  'id' | 'revision' | 'sessionId' | 'condition' | 'setAt'
+>>;
+
 export class GoalManager {
-  private goals = new Map<string, GoalState>();
+  private goals = new Map<string, GoalRecord>();
 
   constructor(private readonly deps: GoalManagerDeps) {}
 
@@ -93,20 +144,34 @@ export class GoalManager {
     this.deps.onChange?.(goal, previous);
   }
 
-  set(sessionId: string, condition: string, opts?: {
+  private commit(record: GoalRecord, patch: GoalStatePatch): GoalState {
+    const previous = record.state.status;
+    const committed = Object.freeze({
+      ...record.state,
+      ...patch,
+      revision: record.state.revision + 1,
+    });
+    record.state = committed;
+    this.emit(committed, previous);
+    return committed;
+  }
+
+  create(sessionId: string, condition: string, opts?: {
     maxIterations?: number;
     blockCap?: number;
     tokenBudget?: number;
     tokensAtStart?: number;
-  }): GoalState {
-    // Replacing an existing goal: settle the old one before overwriting.
-    const existing = this.goals.get(sessionId);
+  }): GoalCreateResult {
+    const record = this.goals.get(sessionId);
+    const existing = record?.state;
     if (existing && !TERMINAL_GOAL_STATUSES.has(existing.status)) {
-      existing.status = 'cleared';
+      return { kind: 'unfinished', goal: existing };
     }
+
     const start = opts?.tokensAtStart ?? 0;
-    const goal: GoalState = {
+    const goal: GoalState = Object.freeze({
       id: this.deps.generateId(),
+      revision: 0,
       sessionId,
       condition,
       status: 'active',
@@ -119,139 +184,143 @@ export class GoalManager {
       tokensAtStart: start,
       tokensNow: start,
       tokensBaselinePending: true,
-    };
-    this.goals.set(sessionId, goal);
+    });
+    if (record) {
+      record.state = goal;
+    } else {
+      this.goals.set(sessionId, { state: goal, settledTurnIds: new Set() });
+    }
     this.emit(goal);
-    return goal;
+    return { kind: 'created', goal };
   }
 
   get(sessionId: string): GoalState | undefined {
-    return this.goals.get(sessionId);
+    return this.goals.get(sessionId)?.state;
   }
 
   getActive(sessionId: string): GoalState | undefined {
-    const goal = this.goals.get(sessionId);
+    const goal = this.goals.get(sessionId)?.state;
     return goal?.status === 'active' ? goal : undefined;
   }
 
+  matchesActive(sessionId: string, checkpoint: GoalCheckpoint): boolean {
+    const goal = this.goals.get(sessionId)?.state;
+    return goal?.status === 'active'
+      && goal.id === checkpoint.goalId
+      && goal.revision === checkpoint.revision;
+  }
+
+  hasSettledTurn(sessionId: string, turnId: string): boolean {
+    return this.goals.get(sessionId)?.settledTurnIds.has(turnId) ?? false;
+  }
+
   tokensSpent(sessionId: string): number {
-    const goal = this.goals.get(sessionId);
+    const goal = this.goals.get(sessionId)?.state;
     if (!goal) return 0;
     return Math.max(0, goal.tokensNow - goal.tokensAtStart);
   }
 
-  incrementIteration(sessionId: string): GoalState | undefined {
-    const goal = this.goals.get(sessionId);
-    if (!goal || goal.status !== 'active') return undefined;
-    const previous = goal.status;
-    goal.iterations++;
-    if (goal.iterations >= goal.maxIterations) {
-      goal.status = 'max_iterations';
-      goal.lastReason = `Reached maximum iterations (${goal.maxIterations})`;
-    }
-    this.emit(goal, previous);
-    return goal;
-  }
+  settleTurn(sessionId: string, input: GoalTurnSettlementInput): GoalTurnSettlementResult {
+    const record = this.goals.get(sessionId);
+    if (!record) return { kind: 'not_found' };
+    const current = record.state;
+    if (record.settledTurnIds.has(input.turnId)) return { kind: 'duplicate', goal: current };
+    if (current.id !== input.checkpoint.goalId) return { kind: 'stale', goal: current };
+    if (current.revision !== input.checkpoint.revision) return { kind: 'stale', goal: current };
+    if (current.status !== 'active') return { kind: 'inactive', goal: current };
 
-  recordProgress(sessionId: string, madeProgress: boolean): GoalState | undefined {
-    const goal = this.goals.get(sessionId);
-    if (!goal || goal.status !== 'active') return undefined;
-    const previous = goal.status;
-    if (madeProgress) {
-      goal.consecutiveNoProgress = 0;
+    let patch: GoalStatePatch;
+    if (input.verdict === 'achieved') {
+      patch = {
+        status: 'achieved',
+        lastReason: input.reason,
+        achievedAt: this.deps.now(),
+      };
+    } else if (input.verdict === 'impossible') {
+      patch = { status: 'impossible', lastReason: input.reason };
     } else {
-      goal.consecutiveNoProgress++;
-      if (goal.consecutiveNoProgress >= goal.blockCap) {
-        goal.status = 'stalled';
-        goal.lastReason = `No progress for ${goal.blockCap} consecutive turns`;
+      let tokensAtStart = current.tokensAtStart;
+      let tokensNow = current.tokensNow;
+      let tokensBaselinePending = current.tokensBaselinePending;
+      let iterations = current.iterations;
+      let consecutiveNoProgress = current.consecutiveNoProgress;
+      let status: GoalStatus = current.status;
+      let lastReason = input.reason;
+
+      if (input.tokensNow !== undefined) {
+        if (tokensBaselinePending) {
+          tokensAtStart = input.tokensNow;
+          tokensNow = input.tokensNow;
+          tokensBaselinePending = false;
+        } else {
+          tokensNow = Math.max(tokensNow, input.tokensNow);
+          if (
+            current.tokenBudget !== undefined
+            && tokensNow - tokensAtStart >= current.tokenBudget
+          ) {
+            status = 'budget_limited';
+            lastReason = `Token budget exhausted (${current.tokenBudget} tokens)`;
+          }
+        }
       }
-    }
-    this.emit(goal, previous);
-    return goal;
-  }
 
-  recordTokens(sessionId: string, tokensNow: number): GoalState | undefined {
-    const goal = this.goals.get(sessionId);
-    if (!goal) return undefined;
-    const previous = goal.status;
-    // The first real observation establishes the baseline (see field doc).
-    if (goal.tokensBaselinePending) {
-      goal.tokensAtStart = tokensNow;
-      goal.tokensNow = tokensNow;
-      goal.tokensBaselinePending = false;
-      this.emit(goal, previous);
-      return goal;
-    }
-    // Token counts are monotonic; never let a stale/smaller read regress spend.
-    goal.tokensNow = Math.max(goal.tokensNow, tokensNow);
-    if (
-      goal.status === 'active' &&
-      goal.tokenBudget !== undefined &&
-      goal.tokensNow - goal.tokensAtStart >= goal.tokenBudget
-    ) {
-      goal.status = 'budget_limited';
-      goal.lastReason = `Token budget exhausted (${goal.tokenBudget} tokens)`;
-    }
-    this.emit(goal, previous);
-    return goal;
-  }
+      if (status === 'active') {
+        iterations++;
+        if (iterations >= current.maxIterations) {
+          status = 'max_iterations';
+          lastReason = `Reached maximum iterations (${current.maxIterations})`;
+        }
+      }
 
-  markAchieved(sessionId: string, reason: string): GoalState | undefined {
-    const goal = this.goals.get(sessionId);
-    if (!goal || goal.status !== 'active') return undefined;
-    const previous = goal.status;
-    goal.status = 'achieved';
-    goal.lastReason = reason;
-    goal.achievedAt = this.deps.now();
-    this.emit(goal, previous);
-    return goal;
-  }
+      if (status === 'active' && input.madeProgress !== undefined) {
+        if (input.madeProgress) {
+          consecutiveNoProgress = 0;
+        } else {
+          consecutiveNoProgress++;
+          if (consecutiveNoProgress >= current.blockCap) {
+            status = 'stalled';
+            lastReason = `No progress for ${current.blockCap} consecutive turns`;
+          }
+        }
+      }
 
-  markImpossible(sessionId: string, reason: string): GoalState | undefined {
-    const goal = this.goals.get(sessionId);
-    if (!goal || goal.status !== 'active') return undefined;
-    const previous = goal.status;
-    goal.status = 'impossible';
-    goal.lastReason = reason;
-    this.emit(goal, previous);
-    return goal;
+      patch = {
+        status,
+        iterations,
+        consecutiveNoProgress,
+        tokensAtStart,
+        tokensNow,
+        tokensBaselinePending,
+        lastReason,
+      };
+    }
+
+    record.settledTurnIds.add(input.turnId);
+    return { kind: 'applied', goal: this.commit(record, patch) };
   }
 
   pause(sessionId: string): GoalState | undefined {
-    const goal = this.goals.get(sessionId);
-    if (!goal || goal.status !== 'active') return undefined;
-    const previous = goal.status;
-    goal.status = 'paused';
-    goal.pausedAt = this.deps.now();
-    this.emit(goal, previous);
-    return goal;
+    const record = this.goals.get(sessionId);
+    if (!record || record.state.status !== 'active') return undefined;
+    return this.commit(record, { status: 'paused', pausedAt: this.deps.now() });
   }
 
   resume(sessionId: string): GoalState | undefined {
-    const goal = this.goals.get(sessionId);
-    if (!goal || goal.status !== 'paused') return undefined;
-    const previous = goal.status;
-    goal.status = 'active';
-    goal.pausedAt = undefined;
-    this.emit(goal, previous);
-    return goal;
+    const record = this.goals.get(sessionId);
+    if (!record || record.state.status !== 'paused') return undefined;
+    return this.commit(record, { status: 'active', pausedAt: undefined });
   }
 
   clear(sessionId: string): GoalState | undefined {
-    const goal = this.goals.get(sessionId);
-    if (!goal) return undefined;
-    const previous = goal.status;
-    if (!TERMINAL_GOAL_STATUSES.has(goal.status)) {
-      goal.status = 'cleared';
-    }
-    this.emit(goal, previous);
-    return goal;
+    const record = this.goals.get(sessionId);
+    if (!record || TERMINAL_GOAL_STATUSES.has(record.state.status)) return undefined;
+    return this.commit(record, { status: 'cleared' });
   }
 
   remove(sessionId: string): boolean {
-    const goal = this.goals.get(sessionId);
+    const record = this.goals.get(sessionId);
     const deleted = this.goals.delete(sessionId);
-    if (goal && deleted) this.emit(goal, goal.status);
+    if (record && deleted) this.emit(record.state, record.state.status);
     return deleted;
   }
 

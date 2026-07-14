@@ -491,7 +491,6 @@ const goalWiring = createMainGoalWiring({
       .map((task) => task.key);
   },
   recordTaskGateDecision: async (trace) => {
-    if (!trace.turnId) return;
     const runs = await runStore.listSessionRuns(trace.sessionId);
     const run = runs.find((candidate) => candidate.turnId === trace.turnId);
     if (!run) return;

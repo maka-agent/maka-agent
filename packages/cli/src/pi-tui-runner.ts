@@ -36,6 +36,7 @@ import {
   toggleAllToolExpansion,
   togglePendingPermissionDetails,
   type MakaPiTranscriptMetadata,
+  type TurnOutcome,
 } from './pi-transcript.js';
 import { editorTheme, selectListTheme } from './tui-ansi.js';
 import { MakaAutocompleteAboveEditorComponent } from './tui-autocomplete-layout.js';
@@ -95,7 +96,7 @@ export interface MakaPiTuiInput {
    * new turn rendered in the transcript — used for goal auto-continuation so
    * continuation turns are visible and chain correctly.
    */
-  onTurnComplete?: (injectTurn: (text: string) => void) => void;
+  onTurnComplete?: (turnId: string, injectTurn: (text: string) => void) => void;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -411,7 +412,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
 
     let permissionAlerted = false;
-    let turnOutcome = { aborted: false, errored: false };
+    let turnOutcome: TurnOutcome | undefined;
     void submitPromptToTranscript({
       state,
       driver: input.driver,
@@ -456,8 +457,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // or it ended in error. An autonomous loop MUST halt on the Stop
       // affordance and must not hammer a failing turn — mirrors the desktop
       // `turnAborted` guard.
-      if (!closed && !turnOutcome.aborted && !turnOutcome.errored) {
-        input.onTurnComplete?.((text) => runAgentTurn(text));
+      if (!closed && turnOutcome?.kind === 'completed') {
+        input.onTurnComplete?.(turnOutcome.turnId, (text) => runAgentTurn(text));
       }
     });
   }

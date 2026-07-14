@@ -230,12 +230,14 @@ export function togglePendingPermissionDetails(state: MakaPiTranscriptState): bo
   return true;
 }
 
-export interface TurnOutcome {
-  /** The turn was user-stopped or aborted (double-Escape → driver.stop()). */
-  aborted: boolean;
-  /** The turn ended in an error (stream `error` event or thrown failure). */
-  errored: boolean;
-}
+export type TurnOutcome =
+  | {
+      kind: 'completed';
+      /** Stable identity from the runtime's terminal event. */
+      turnId: string;
+    }
+  | { kind: 'aborted'; turnId?: string }
+  | { kind: 'errored'; turnId?: string };
 
 export async function submitPromptToTranscript(input: {
   state: MakaPiTranscriptState;
@@ -252,35 +254,34 @@ export async function submitPromptToTranscript(input: {
   appendUserPrompt(input.state, input.prompt);
   input.onChange?.();
 
-  // Surface how the turn ended so the host can gate goal auto-continuation: a
-  // user_stop/abort (the Stop affordance) or an errored turn must NOT trigger
-  // another autonomous turn — mirrors the desktop `turnAborted` guard.
-  let aborted = false;
-  let errored = false;
+  // A single terminal outcome gates goal auto-continuation. Error outranks
+  // abort, which outranks success if a malformed stream emits several terminal
+  // events; well-formed runtime streams emit exactly one.
+  let outcome: TurnOutcome | undefined;
   try {
     for await (const event of input.driver.sendPrompt(input.prompt)) {
-      applyMakaSessionEventToTranscript(input.state, event);
-      if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
-        aborted = true;
-      }
-      if (event.type === 'error') {
-        errored = true;
-        input.onError?.();
-      }
-      // A non-throwing error finish (e.g. content-filter) arrives as
-      // complete{stopReason:'error'} with no separate `error` event — treat it as
-      // errored too, so goal continuation never re-injects into a failed turn
-      // (self-sufficient, not reliant on the session-status backstop).
-      if (
-        event.type === 'complete'
-        && failureClassFromCompleteStopReason(event.stopReason) !== undefined
+      const failed = event.type === 'complete'
+        && failureClassFromCompleteStopReason(event.stopReason) !== undefined;
+      if (event.type === 'error' || failed) {
+        outcome = { kind: 'errored', turnId: event.turnId };
+      } else if (
+        outcome?.kind !== 'errored'
+        && (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop'))
       ) {
-        errored = true;
+        outcome = { kind: 'aborted', turnId: event.turnId };
+      } else if (outcome === undefined && event.type === 'complete') {
+        outcome = { kind: 'completed', turnId: event.turnId };
+      }
+
+      applyMakaSessionEventToTranscript(input.state, event);
+      if (event.type === 'error') {
+        input.onError?.();
       }
       input.onChange?.();
     }
+    if (!outcome) throw new Error('Session turn ended without a completion event');
+    return outcome;
   } catch (error) {
-    errored = true;
     clearPendingInteractions(input.state);
     input.state.entries.push({
       kind: 'notice',
@@ -289,8 +290,8 @@ export async function submitPromptToTranscript(input: {
     });
     input.onError?.();
     input.onChange?.();
+    return { kind: 'errored', ...(outcome?.turnId ? { turnId: outcome.turnId } : {}) };
   }
-  return { aborted, errored };
 }
 
 export async function submitCompactToTranscript(input: {

@@ -19,12 +19,18 @@
  */
 
 import { evaluateGoal, type GoalEvaluation, type GoalEvaluatorDeps } from './goal-evaluator.js';
-import type { GoalManager } from './goal-state.js';
+import {
+  goalCheckpoint,
+  type GoalManager,
+  type GoalTurnSettlementResult,
+} from './goal-state.js';
 
 export type GoalContinuationOutcome =
   | { kind: 'no_goal' }
   | { kind: 'cannot_continue' }
   | { kind: 'busy' }
+  | { kind: 'duplicate' }
+  | { kind: 'stale' }
   | { kind: 'achieved'; evaluation: GoalEvaluation }
   | { kind: 'impossible'; evaluation: GoalEvaluation }
   | { kind: 'stopped'; reason: string; status: string }
@@ -39,7 +45,7 @@ export type GoalTaskGateDecision =
 
 export interface GoalTaskGateTrace {
   sessionId: string;
-  turnId?: string;
+  turnId: string;
   goalId: string;
   decision: GoalTaskGateDecision;
   taskKeys: string[];
@@ -86,51 +92,65 @@ const taskGateReminderState = new WeakMap<GoalTaskGateDeps, Set<string>>();
 export async function handleGoalContinuation(
   deps: GoalContinuationDeps,
   sessionId: string,
-  completedTurnId?: string,
+  completedTurnId: string,
 ): Promise<GoalContinuationOutcome> {
   const goal = deps.goalManager.getActive(sessionId);
   if (!goal) return { kind: 'no_goal' };
+  if (deps.goalManager.hasSettledTurn(sessionId, completedTurnId)) {
+    return { kind: 'duplicate' };
+  }
+  const checkpoint = goalCheckpoint(goal);
 
   // Re-entrancy guard: only one continuation in flight per session.
   if (deps.inFlight?.has(sessionId)) return { kind: 'busy' };
   deps.inFlight?.add(sessionId);
   try {
     if (!(await deps.canContinue(sessionId))) return { kind: 'cannot_continue' };
+    if (!deps.goalManager.matchesActive(sessionId, checkpoint)) return { kind: 'stale' };
 
     // Evaluate FIRST — a genuine completion on the final permitted turn must be
     // detected before any cap short-circuits the loop.
     const context = await deps.getRecentContext(sessionId);
+    if (!deps.goalManager.matchesActive(sessionId, checkpoint)) return { kind: 'stale' };
     const evaluation = await evaluateGoal(deps.evaluator, goal.condition, context, sessionId);
-
-    if (evaluation.met) {
-      await recordTaskGateDecision(deps.taskGate, {
-        sessionId, turnId: completedTurnId, goalId: goal.id, decision: 'evaluator_terminal', taskKeys: [],
+    const settlementBase = {
+      checkpoint,
+      turnId: completedTurnId,
+      reason: evaluation.reason,
+    };
+    let settlement: GoalTurnSettlementResult;
+    if (evaluation.met || evaluation.impossible) {
+      settlement = deps.goalManager.settleTurn(sessionId, {
+        ...settlementBase,
+        verdict: evaluation.met ? 'achieved' : 'impossible',
       });
-      deps.goalManager.markAchieved(sessionId, evaluation.reason);
-      return { kind: 'achieved', evaluation };
-    }
-    if (evaluation.impossible) {
-      await recordTaskGateDecision(deps.taskGate, {
-        sessionId, turnId: completedTurnId, goalId: goal.id, decision: 'evaluator_terminal', taskKeys: [],
+    } else {
+      settlement = deps.goalManager.settleTurn(sessionId, {
+        ...settlementBase,
+        verdict: 'continue',
+        ...(!evaluation.evaluatorFailed && !evaluation.waiting
+          ? { madeProgress: evaluation.progress }
+          : {}),
+        ...(deps.getTokenCount ? { tokensNow: deps.getTokenCount(sessionId) } : {}),
       });
-      deps.goalManager.markImpossible(sessionId, evaluation.reason);
-      return { kind: 'impossible', evaluation };
     }
+    if (settlement.kind === 'duplicate') return { kind: 'duplicate' };
+    if (settlement.kind !== 'applied') return { kind: 'stale' };
 
-    // Enforce caps AFTER evaluation. Each may flip the goal terminal.
-    if (deps.getTokenCount) {
-      deps.goalManager.recordTokens(sessionId, deps.getTokenCount(sessionId));
+    const settled = settlement.goal;
+    if (settled.status === 'achieved' || settled.status === 'impossible') {
+      await recordTaskGateDecision(deps.taskGate, {
+        sessionId,
+        turnId: completedTurnId,
+        goalId: goal.id,
+        decision: 'evaluator_terminal',
+        taskKeys: [],
+      });
+      return settled.status === 'achieved'
+        ? { kind: 'achieved', evaluation }
+        : { kind: 'impossible', evaluation };
     }
-    deps.goalManager.incrementIteration(sessionId);
-    // Progress signal drives the stall cap. Skip it (neutral) when the evaluator
-    // failed (transient outage must not defeat stall detection) OR when the
-    // agent is legitimately waiting on an external event (a wait is not a stall).
-    if (!evaluation.evaluatorFailed && !evaluation.waiting) {
-      deps.goalManager.recordProgress(sessionId, evaluation.progress);
-    }
-
-    const settled = deps.goalManager.get(sessionId);
-    if (!settled || settled.status !== 'active') {
+    if (settled.status !== 'active') {
       const taskKeys = await listActionableTaskKeys(deps.taskGate, sessionId);
       await recordTaskGateDecision(deps.taskGate, {
         sessionId,
@@ -139,9 +159,10 @@ export async function handleGoalContinuation(
         decision: 'goal_stopped',
         taskKeys,
       });
-      return { kind: 'stopped', reason: settled?.lastReason ?? 'Goal settled', status: settled?.status ?? 'unknown' };
+      return { kind: 'stopped', reason: settled.lastReason ?? 'Goal settled', status: settled.status };
     }
 
+    const settledCheckpoint = goalCheckpoint(settled);
     const taskKeys = await listActionableTaskKeys(deps.taskGate, sessionId);
     const remindedGoalIds = deps.taskGate
       ? deps.taskGate.remindedGoalIds ?? reminderStateFor(deps.taskGate)
@@ -154,9 +175,10 @@ export async function handleGoalContinuation(
         : 'reminder_limit_reached';
     // Re-check idle immediately before injecting — the evaluator call may have
     // spanned seconds during which a user send started a new turn.
+    if (!deps.goalManager.matchesActive(sessionId, settledCheckpoint)) return { kind: 'stale' };
     if (!(await deps.canContinue(sessionId))) return { kind: 'cannot_continue' };
+    if (!deps.goalManager.matchesActive(sessionId, settledCheckpoint)) return { kind: 'stale' };
 
-    settled.lastReason = evaluation.reason;
     const waitNote = evaluation.waiting ? ' (waiting on an external event — re-check, do not spin uselessly)' : '';
     if (shouldRemind) remindedGoalIds.add(goal.id);
     deps.injectTurn(

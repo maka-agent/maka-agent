@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GoalManager } from '../goal-state.js';
+import { GoalManager, goalCheckpoint } from '../goal-state.js';
 import {
   buildGoalTools,
   GOAL_SET_TOOL_NAME,
@@ -65,6 +65,18 @@ describe('goal tools', () => {
     assert.equal(mgr.get(SESSION)?.tokensAtStart, 1234);
   });
 
+  test('GoalSet reports an unfinished Goal instead of replacing it', async () => {
+    const { mgr, tools } = makeTools();
+    const set = findTool(tools, GOAL_SET_TOOL_NAME);
+    await set.impl({ condition: 'first' }, ctx());
+    const first = mgr.get(SESSION);
+
+    const out = await set.impl({ condition: 'replacement' }, ctx()) as string;
+
+    assert.match(out, /unfinished goal/);
+    assert.strictEqual(mgr.get(SESSION), first);
+  });
+
   test('GoalPause / GoalResume lifecycle', async () => {
     const { mgr, tools } = makeTools();
     await findTool(tools, GOAL_SET_TOOL_NAME).impl({ condition: 'x' }, ctx());
@@ -102,8 +114,24 @@ describe('goal tools', () => {
   test('GoalStatus shows full lifecycle detail', async () => {
     const { mgr, tools } = makeTools();
     await findTool(tools, GOAL_SET_TOOL_NAME).impl({ condition: 'deploy', token_budget: 5000 }, ctx());
-    mgr.recordTokens(SESSION, 1000); // establishes baseline at 1000
-    mgr.recordTokens(SESSION, 2500); // spent 1500 since baseline
+    const first = mgr.getActive(SESSION)!;
+    mgr.settleTurn(SESSION, {
+      checkpoint: goalCheckpoint(first),
+      turnId: 'turn-1',
+      verdict: 'continue',
+      reason: 'continue',
+      madeProgress: true,
+      tokensNow: 1000,
+    });
+    const second = mgr.getActive(SESSION)!;
+    mgr.settleTurn(SESSION, {
+      checkpoint: goalCheckpoint(second),
+      turnId: 'turn-2',
+      verdict: 'continue',
+      reason: 'continue',
+      madeProgress: true,
+      tokensNow: 2500,
+    });
     const out = await findTool(tools, GOAL_STATUS_TOOL_NAME).impl({}, ctx()) as string;
     assert.ok(out.includes('deploy'));
     assert.ok(out.includes('Status: active'));

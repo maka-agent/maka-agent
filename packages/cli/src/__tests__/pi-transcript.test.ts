@@ -113,26 +113,41 @@ describe('Maka Pi TUI transcript', () => {
   // Goal kill-switch (B1): the turn outcome must distinguish a clean end from a
   // user-stop / abort / error so the runner can skip goal auto-continuation and
   // never re-inject after the user interrupts (or after a failing turn).
-  test('reports a clean turn as not aborted / not errored', async () => {
+  test('reports a clean turn with the terminal event identity', async () => {
     const state = createMakaPiTranscriptState();
     const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'end_turn' })]);
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
-    assert.deepEqual(outcome, { aborted: false, errored: false });
+    assert.deepEqual(outcome, { kind: 'completed', turnId: 'turn-1' });
+  });
+
+  test('treats EOF without a terminal event as an errored turn', async () => {
+    const state = createMakaPiTranscriptState();
+    const outcome = await submitPromptToTranscript({
+      state,
+      driver: new RecordingDriver([]),
+      prompt: 'hi',
+    });
+
+    assert.deepEqual(outcome, { kind: 'errored' });
+    assert.ok(state.entries.some(
+      (entry) => entry.kind === 'notice'
+        && entry.level === 'error'
+        && entry.text === 'Session turn ended without a completion event',
+    ));
   });
 
   test('reports a user_stop completion as aborted (Stop affordance)', async () => {
     const state = createMakaPiTranscriptState();
     const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'user_stop' })]);
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
-    assert.equal(outcome.aborted, true);
-    assert.equal(outcome.errored, false);
+    assert.deepEqual(outcome, { kind: 'aborted', turnId: 'turn-1' });
   });
 
   test('reports an abort event as aborted', async () => {
     const state = createMakaPiTranscriptState();
     const driver = new RecordingDriver([event({ type: 'abort', reason: 'user_stop' })]);
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
-    assert.equal(outcome.aborted, true);
+    assert.deepEqual(outcome, { kind: 'aborted', turnId: 'turn-1' });
   });
 
   test('reports a stream error event as errored', async () => {
@@ -140,7 +155,7 @@ describe('Maka Pi TUI transcript', () => {
     const driver = new RecordingDriver([event({ type: 'error', recoverable: false, message: 'boom' })]);
     let errorRaised = false;
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi', onError: () => { errorRaised = true; } });
-    assert.equal(outcome.errored, true);
+    assert.deepEqual(outcome, { kind: 'errored', turnId: 'turn-1' });
     assert.equal(errorRaised, true);
   });
 
@@ -148,8 +163,7 @@ describe('Maka Pi TUI transcript', () => {
     const state = createMakaPiTranscriptState();
     const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'error' })]);
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
-    assert.equal(outcome.errored, true);
-    assert.equal(outcome.aborted, false);
+    assert.deepEqual(outcome, { kind: 'errored', turnId: 'turn-1' });
   });
 
   test('shows a fixed system notice when the configured step limit is reached', () => {
@@ -184,7 +198,7 @@ describe('Maka Pi TUI transcript', () => {
 
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
 
-    assert.deepEqual(outcome, { aborted: false, errored: true });
+    assert.deepEqual(outcome, { kind: 'errored', turnId: 'turn-1' });
   });
 
   test('reports a thrown sendPrompt as errored', async () => {
@@ -199,8 +213,7 @@ describe('Maka Pi TUI transcript', () => {
       },
     };
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
-    assert.equal(outcome.errored, true);
-    assert.equal(outcome.aborted, false);
+    assert.equal(outcome.kind, 'errored');
     assert.equal(state.pendingInteraction, undefined);
     assert.deepEqual(state.queuedInteractions, []);
   });
