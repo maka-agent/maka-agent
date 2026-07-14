@@ -433,7 +433,7 @@ describe('Maka Pi TUI transcript', () => {
           operation: {
             kind: 'pty_control',
             failed: false,
-            input: { bytes: Buffer.byteLength(rawInput, 'utf8'), applied: true },
+            input: { bytes: Buffer.byteLength(rawInput, 'utf8'), queued: true },
             resize: { cols: 100, rows: 30, applied: true, changed: true },
           },
         }),
@@ -452,7 +452,7 @@ describe('Maka Pi TUI transcript', () => {
 
     assert.equal(toggleAllToolExpansion(state), true);
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /Sent: echo hello\\r/);
+    assert.match(rendered, /Queued: echo hello\\r/);
     assert.match(rendered, /Resized to 100x30/);
     assert.equal(rendered.split('UNIQUE-PTY-FRAME').length - 1, 1);
   });
