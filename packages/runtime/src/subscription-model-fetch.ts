@@ -1,6 +1,9 @@
 import { redactSecrets } from '@maka/core';
 import type { LlmConnection } from '@maka/core/llm-connections';
-import { GITHUB_COPILOT_COMPAT_HEADERS } from './subscription-credentials.js';
+import {
+  GITHUB_COPILOT_API_VERSION,
+  GITHUB_COPILOT_COMPAT_HEADERS,
+} from './subscription-credentials.js';
 
 export interface SubscriptionModelFetchInput {
   connection: LlmConnection;
@@ -35,6 +38,7 @@ function buildGitHubCopilotFetch(fetchFn: typeof fetch): typeof fetch {
       headers.set(name, value);
     }
     headers.set('Openai-Intent', 'conversation-edits');
+    headers.set('X-GitHub-Api-Version', GITHUB_COPILOT_API_VERSION);
     headers.set('x-initiator', githubCopilotInitiator(init?.body));
     if (githubCopilotBodyHasVision(init?.body)) headers.set('Copilot-Vision-Request', 'true');
     return fetchFn(url, { ...init, headers });

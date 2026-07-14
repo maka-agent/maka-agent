@@ -7,6 +7,7 @@ import { proxiedFetch } from './bots/proxied-fetch.js';
 import { anthropicV1Url, googleApiUrl } from './provider-urls.js';
 import { resolveModelRuntime } from './model-runtime.js';
 import { claudeSubscriptionHeaders } from './subscription-auth.js';
+import { fetchGitHubCopilotModels } from './model-fetcher.js';
 
 const CONNECTION_TEST_TIMEOUT_MS = 15_000;
 
@@ -41,7 +42,7 @@ export async function testConnection(
       case 'openai-compatible':
         return await probeOpenAI(connection, baseUrl, secret, testModel, t0);
       case 'github-copilot':
-        return { ok: true, latencyMs: Date.now() - t0, modelTested: testModel };
+        return await probeGitHubCopilot(baseUrl, secret, testModel, t0);
       case 'google':
         return await probeGoogle(baseUrl, secret, testModel, t0, adapter.normalizeBaseUrl !== false);
       case 'cohere':
@@ -58,6 +59,19 @@ export async function testConnection(
       latencyMs: Date.now() - t0,
     };
   }
+}
+
+async function probeGitHubCopilot(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  t0: number,
+): Promise<ConnectionTestResult> {
+  const models = await fetchGitHubCopilotModels(baseUrl, apiKey);
+  if (!models.some(({ id }) => id === model)) {
+    return { ok: false, errorMessage: 'Selected model is not available for this GitHub Copilot account' };
+  }
+  return { ok: true, latencyMs: Date.now() - t0, modelTested: model };
 }
 
 async function probeOpenAIResponses(

@@ -16,12 +16,26 @@ after(async () => {
 });
 
 describe('models.dev provider conformance', () => {
-  test('GitHub Copilot connection probe accepts a resolved account token without a synthetic model request', async () => {
+  test('GitHub Copilot connection probe validates the selected account model without inference', async () => {
+    const server = await startJsonServer((request, response) => {
+      assert.equal(request.method, 'GET');
+      assert.equal(request.url, '/models');
+      assert.equal(request.headers.authorization, 'Bearer github-account-token');
+      respondJson(response, 200, {
+        data: [{
+          id: 'gpt-5.4',
+          model_picker_enabled: true,
+          supported_endpoints: ['/responses'],
+          policy: { state: 'enabled' },
+          capabilities: { supports: { tool_calls: true } },
+        }],
+      });
+    });
     const result = await testConnection({
       slug: 'github-copilot',
       name: 'GitHub Copilot',
       providerType: 'github-copilot',
-      baseUrl: 'http://127.0.0.1:1',
+      baseUrl: server.url,
       defaultModel: 'gpt-5.4',
       enabled: true,
       createdAt: 1,
@@ -29,6 +43,22 @@ describe('models.dev provider conformance', () => {
     }, 'github-account-token');
 
     assert.deepEqual(result, { ok: true, latencyMs: result.latencyMs, modelTested: 'gpt-5.4' });
+  });
+
+  test('GitHub Copilot connection probe rejects an account that cannot discover models', async () => {
+    const server = await startJsonServer((_request, response) => respondJson(response, 403, {}));
+    const result = await testConnection({
+      slug: 'github-copilot',
+      name: 'GitHub Copilot',
+      providerType: 'github-copilot',
+      baseUrl: server.url,
+      defaultModel: 'gpt-5.4',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'github-account-token');
+
+    assert.equal(result.ok, false);
   });
 
   test('GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire', async () => {
@@ -56,6 +86,7 @@ describe('models.dev provider conformance', () => {
       assert.equal(request.method, 'POST');
       assert.equal(request.url, '/chat/completions');
       assert.equal(request.headers['openai-intent'], 'conversation-edits');
+      assert.equal(request.headers['x-github-api-version'], '2026-06-01');
       initiators.push(String(request.headers['x-initiator']));
       requestBodies.push(JSON.parse(await readBody(request)) as Record<string, unknown>);
       if (requestBodies.length === 1) {
