@@ -57,6 +57,7 @@ export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbRep
     ? 'stopped'
     : summary.pairedAttempts.missingPairIds.length === 0
         && summary.pairedAttempts.missingUsagePairIds.length === 0
+        && summary.pairedAttempts.excludedPairIds.length === 0
       ? 'completed'
       : 'incomplete';
   return {

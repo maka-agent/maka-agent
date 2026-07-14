@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { hashHarborSystemPrompt, type HarborCellOutput } from '../cell-output.js';
 import type { HarborTaskRunner } from '../fixed-prompt-controller.js';
+import { buildHarnessAbReport } from '../harness-ab-report.js';
 import { runHarnessAbComparison } from '../harness-ab-run.js';
+import { HarborInfraError } from '../harbor-task-runner.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 
 describe('runHarnessAbComparison', () => {
@@ -160,6 +162,35 @@ describe('runHarnessAbComparison', () => {
 
       await runHarnessAbComparison(input);
       assert.equal(failingAttempts, 1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps the report incomplete when OpenCode usage output is missing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-missing-usage-'));
+    try {
+      const promptPath = join(dir, 'empty-system-prompt.txt');
+      await writeFile(promptPath, '', 'utf8');
+      const calls: string[] = [];
+      const opencodeArm = harnessArm('opencode', calls);
+      opencodeArm.harborRunner = async () => {
+        throw new HarborInfraError('maka-cell-output.json tokenSummary must be a JSON object');
+      };
+
+      const summary = await runHarnessAbComparison({
+        runId: 'glm-harness-ab',
+        runRoot: dir,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        systemPromptPath: promptPath,
+        resumeFingerprint: 'sha256:manifest',
+        evaluationTasks: [{ id: 'a', path: '/tasks/a' }],
+        arms: [harnessArm('maka', calls), opencodeArm],
+      });
+      const report = buildHarnessAbReport(summary);
+
+      assert.equal(summary.pairedAttempts.excludedPairIds.length, 1);
+      assert.equal(report.runStatus, 'incomplete');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
