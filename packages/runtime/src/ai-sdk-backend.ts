@@ -316,9 +316,9 @@ function projectAcceptedActiveFullCompactMessages(
  */
 class MidTurnCapacityCompactState {
   /**
-   * Chars of the final (messages + active tool schema) payload of the LAST
-   * prepared request, recorded by the final-request estimate owner at the end
-   * of every prepareStep pipeline run. All capacity estimates are signed
+   * Chars of the final (system prompt + messages + active tool schema)
+   * payload of the LAST prepared request, recorded by the final-request
+   * estimate owner at the end of every prepareStep pipeline run. All capacity estimates are signed
    * deltas against this number, so they are anchored to the request the
    * provider actually saw — a compacted projection, a pruned tail, or a
    * same-turn tool-schema expansion all move the delta the same way.
@@ -2355,8 +2355,8 @@ export class AiSdkBackend implements AgentBackend {
       };
 
       // Trigger estimate: the last request's input tokens plus a SIGNED char/4 delta of
-      // this step's payload (projected messages + active tool schemas) against
-      // the previous request's measured payload. Measured synchronously from
+      // this step's payload (system prompt + projected messages + active tool
+      // schemas) against the previous request's measured payload. Measured synchronously from
       // the SDK's own projection — no ledger dependency — so a same-turn
       // `load_tools` schema expansion or a large tool result both count. This
       // position measures BEFORE later shapers (prune) run, so it can

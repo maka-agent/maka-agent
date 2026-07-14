@@ -712,8 +712,8 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     // The summarizer returns a block far larger than the span it replaces.
     // Applying it would hand the verdict owner a WORSE request than the raw
     // projection; the hook measures the materialized payload and keeps the raw
-    // messages instead. The checkpoint write already succeeded and stays
-    // durable — only this step's in-flight replacement is skipped.
+    // messages instead. Validation runs before the recorder, so the rejected
+    // checkpoint is never persisted (asserted below).
     const fixture = buildFixture({ summarize: () => 'GIANT_SUMMARY_'.repeat(600) });
     await runFixtureTurn(fixture, consumer);
 
