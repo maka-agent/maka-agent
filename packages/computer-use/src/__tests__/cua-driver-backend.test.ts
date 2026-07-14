@@ -29,6 +29,8 @@ import type { CuaResolvedPageTextTarget } from '../cua-driver-page-target.js';
 import {
   createCuaDriverBackend,
   type CuaDriverBackendOptions,
+  type CuaDriverStableNode,
+  type CuaDriverStableNodeAdapter,
   type CuaDriverTraceEvent,
 } from '../cua-driver-backend.js';
 
@@ -80,6 +82,7 @@ function boundCoordinateAction(input: {
   coordinate?: { x: number; y: number };
   zIndex?: number;
   page?: ComputerUsePageIdentity;
+  sourceElement?: CuaBoundAction['sourceElement'];
 } = {}): CuaBoundAction {
   const pid = input.pid ?? 4242;
   const windowId = input.windowId ?? 77;
@@ -106,6 +109,12 @@ function boundCoordinateAction(input: {
     sourceCoordinate: coordinate,
     windowCoordinate: coordinate,
     coordinateSpace: 'window-screenshot-local',
+    sourceElement: input.sourceElement ?? {
+      nodeIdentity: 'node:field',
+      role: 'AXTextArea',
+      value: '',
+      frame: { x: 250, y: 150, width: 200, height: 120 },
+    },
   };
 }
 
@@ -332,7 +341,9 @@ function handle(msg) {
         const pageText = pageAction === 'execute_javascript'
           ? pageJavascript.includes('performance.timeOrigin')
             ? PAGE_DOCUMENT_MARKER
-            : pageJavascript.includes('__makaComputerUseReadElement')
+            : pageJavascript.includes('const actionType =')
+              ? PAGE_EXEC_RESULT
+              : pageJavascript.includes('__makaComputerUseReadElement')
             ? JSON.stringify({
                 editable: true,
                 value: PAGE_INSERTED && PAGE_READBACK_VALUE
@@ -473,6 +484,9 @@ function makeBackend(opts: {
   resolveContentFingerprint?: CuaDriverBackendOptions['resolveContentFingerprint'];
   semanticPointerResult?: Record<string, unknown>;
   refetchMode?: 'replacement' | 'moved' | 'missing' | 'ambiguous';
+  stableNodeAdapter?: CuaDriverStableNodeAdapter;
+  omitStableNodeAdapter?: boolean;
+  stableNodeOverride?: Partial<CuaDriverStableNode>;
   resolveDisplays?: CuaDriverBackendOptions['resolveDisplays'];
   physicalInputRecentlyActive?: CuaDriverBackendOptions['physicalInputRecentlyActive'];
   onTrace?: CuaDriverBackendOptions['onTrace'];
@@ -519,6 +533,69 @@ function makeBackend(opts: {
       : {}),
     resolveContentFingerprint: opts.resolveContentFingerprint
       ?? (() => 'test-content-fingerprint'),
+    ...(!opts.omitStableNodeAdapter
+      ? {
+          stableNodeAdapter: opts.stableNodeAdapter ?? {
+            identifySnapshotElements: async ({ elements }) =>
+              elements.flatMap((candidate) =>
+                typeof candidate.element_index === 'number'
+                  ? [{
+                      elementIndex: candidate.element_index,
+                      nodeIdentity: 'node:field',
+                    }]
+                  : []),
+            focusedNode: async ({ windowId }) =>
+              opts.emptyAx
+                ? undefined
+                : {
+                    nodeIdentity: 'node:field',
+                    elementIndex: 7,
+                    elementToken: 'snapshot:7',
+                    role: opts.axRole ?? 'AXTextArea',
+                    ...(opts.axLabel ? { label: opts.axLabel } : {}),
+                    value: '',
+                    depth: 0,
+                    frame: windowId === 88
+                      ? { x: 100, y: 650, w: 800, h: 200 }
+                      : { x: 250, y: 150, w: 200, h: 120 },
+                    ...opts.stableNodeOverride,
+                  },
+            resolveNode: async ({ nodeIdentity }) => {
+              if (nodeIdentity !== 'node:field' || opts.refetchMode === 'missing') {
+                return undefined;
+              }
+              if (
+                opts.rpcErrAfterTool === 'get_window_state'
+                && toolCalls(await readRecords(logPath), 'set_value').length > 0
+              ) {
+                throw new Error('mock stable-node readback failed');
+              }
+              const setValue = toolCalls(await readRecords(logPath), 'set_value').at(-1)?.value;
+              const moved = opts.refetchMode === 'moved';
+              return {
+                nodeIdentity,
+                elementIndex: moved || opts.refetchMode === 'replacement' ? 9 : 7,
+                elementToken: moved || opts.refetchMode === 'replacement'
+                  ? 'snapshot:9'
+                  : 'snapshot:7',
+                role: opts.axRole ?? 'AXTextArea',
+                ...(opts.axLabel ? { label: opts.axLabel } : {}),
+                value: setValue === undefined
+                  ? ''
+                  : opts.nativeReadbackValue || String(setValue),
+                depth: 0,
+                frame: {
+                  x: 250 + (moved ? 40 : 0),
+                  y: 150,
+                  w: 200,
+                  h: 120,
+                },
+                ...opts.stableNodeOverride,
+              };
+            },
+          },
+        }
+      : {}),
     ...(opts.resolveDisplays ? { resolveDisplays: opts.resolveDisplays } : {}),
     ...(opts.physicalInputRecentlyActive
       ? { physicalInputRecentlyActive: opts.physicalInputRecentlyActive }
@@ -681,6 +758,7 @@ describe('cua-driver backend', () => {
       frame: { x: 250, y: 150, width: 200, height: 120 },
       identity: {
         token: 'snapshot:7',
+        nodeIdentity: 'node:field',
         role: 'AXButton',
         value: '',
       },
@@ -1174,6 +1252,53 @@ describe('cua-driver backend', () => {
     );
   });
 
+  it('rejects a coordinate action when the source actionable element changes meaning', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      axLabel: 'Confirm purchase',
+      stableNodeOverride: {
+        role: 'AXButton',
+        label: 'Confirm purchase',
+      },
+    });
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 400, y: 200 } },
+      new AbortController().signal,
+      {
+        ...DEFAULT_RUN_CONTEXT,
+        boundAction: boundCoordinateAction({
+          sourceElement: {
+            nodeIdentity: 'node:field',
+            role: 'AXButton',
+            label: 'Delete',
+            value: '',
+            frame: { x: 250, y: 150, width: 200, height: 120 },
+          },
+        }),
+      },
+    );
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'target_changed');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+  });
+
+  it('fails closed when an actionable coordinate has no stable node adapter', async () => {
+    const { backend, logPath } = makeBackend({ omitStableNodeAdapter: true });
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 400, y: 200 } },
+      new AbortController().signal,
+      {
+        ...DEFAULT_RUN_CONTEXT,
+        boundAction: boundCoordinateAction(),
+      },
+    );
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'target_changed');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+  });
+
   it('does not treat omitted no-screenshot dimensions as a layout change', async () => {
     const { backend, logPath } = makeBackend({ emptyAx: true });
     const result = await backend.run(
@@ -1198,7 +1323,14 @@ describe('cua-driver backend', () => {
       new AbortController().signal,
       {
         ...DEFAULT_RUN_CONTEXT,
-        boundAction: boundCoordinateAction(),
+        boundAction: boundCoordinateAction({
+          sourceElement: {
+            nodeIdentity: 'node:field',
+            role: 'AXButton',
+            value: '',
+            frame: { x: 250, y: 150, width: 200, height: 120 },
+          },
+        }),
       },
     );
 
@@ -1348,6 +1480,54 @@ describe('cua-driver backend', () => {
     assert.equal(toolCalls(records, 'click').length, 0);
   });
 
+  for (const actionType of ['middle_click', 'triple_click', 'scroll'] as const) {
+    it(`validates bound Electron page identity before ${actionType} pixel fallback`, async () => {
+      const { backend, logPath } = makeBackend({
+        processKind: 'electron',
+        pageTarget: testPageTarget(),
+      });
+      const action: CuAction = actionType === 'scroll'
+        ? {
+            type: 'scroll',
+            coordinate: { x: 400, y: 200 },
+            scrollDirection: 'down',
+            scrollAmount: 1,
+          }
+        : { type: actionType, coordinate: { x: 400, y: 200 } };
+      const result = await backend.run(action, new AbortController().signal, {
+        ...DEFAULT_RUN_CONTEXT,
+        boundAction: boundCoordinateAction(),
+      });
+
+      assert.equal(result.outcome.ok, false);
+      if (!result.outcome.ok) assert.equal(result.outcome.error, 'page_target_changed');
+      const records = await readRecords(logPath);
+      assert.equal(toolCalls(records, 'click').length, 0);
+      assert.equal(toolCalls(records, 'scroll').length, 0);
+    });
+  }
+
+  for (const actionType of ['left_click', 'middle_click', 'scroll'] as const) {
+    it(`refuses ${actionType} pixel fallback for an unknown process`, async () => {
+      const { backend, logPath } = makeBackend({ processKind: 'unknown' });
+      const action: CuAction = actionType === 'scroll'
+        ? {
+            type: 'scroll',
+            coordinate: { x: 600, y: 400 },
+            scrollDirection: 'down',
+            scrollAmount: 1,
+          }
+        : { type: actionType, coordinate: { x: 600, y: 400 } };
+      const result = await backend.run(action, new AbortController().signal);
+
+      assert.equal(result.outcome.ok, false);
+      if (!result.outcome.ok) assert.equal(result.outcome.error, 'unsupported_action');
+      const records = await readRecords(logPath);
+      assert.equal(toolCalls(records, 'click').length, 0);
+      assert.equal(toolCalls(records, 'scroll').length, 0);
+    });
+  }
+
   it('coordinate click stays on fresh same-snapshot pixels over an actionable control', async () => {
     const { backend, logPath } = makeBackend({ axRole: 'AXButton' });
     const res = await backend.run(
@@ -1437,6 +1617,7 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'input',
+        elementToken: 'element-1',
         focusChanged: true,
       },
       onTrace: (event) => traces.push(event),
@@ -1967,6 +2148,55 @@ describe('cua-driver backend', () => {
     assert.ok(!methodTrace(records).includes('tools/call:list_apps'), 'must never resolve a frontmost pid to type into');
   });
 
+  it('resolves the focused native node by stable identity after layout reflow', async () => {
+    const { backend, logPath } = makeBackend({ refetchMode: 'moved' });
+    const signal = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const typed = await backend.run(
+      { type: 'type', text: 'after reflow' } as CuAction,
+      signal,
+    );
+    assert.equal(typed.outcome.ok, true);
+    const call = toolCall(await readRecords(logPath), 'set_value');
+    assert.equal(call?.element_index, 9);
+    assert.equal(call?.element_token, 'snapshot:9');
+  });
+
+  it('updates native ownership after a verified write so retry is idempotent', async () => {
+    const { backend, logPath } = makeBackend();
+    const signal = new AbortController().signal;
+    await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+
+    const first = await backend.run({ type: 'type', text: 'once' } as CuAction, signal);
+    const retry = await backend.run({ type: 'type', text: 'once' } as CuAction, signal);
+
+    assert.equal(first.outcome.ok, true);
+    assert.equal(retry.outcome.ok, true);
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 1);
+  });
+
+  it('does not establish native keyboard ownership without the stable node adapter', async () => {
+    const { backend, logPath } = makeBackend({ omitStableNodeAdapter: true });
+    const signal = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const typed = await backend.run({ type: 'type', text: 'blocked' } as CuAction, signal);
+    assert.equal(typed.outcome.ok, false);
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 0);
+  });
+
   it('parallel click then type waits for the new click target instead of using the old window', async () => {
     const { backend, logPath } = makeBackend({ delayTool: 'click', delayMs: 120 });
     const sig = new AbortController().signal;
@@ -2068,6 +2298,7 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'textarea',
+        elementToken: 'element-1',
         clickEvents: 1,
       },
     });
@@ -2253,6 +2484,7 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'textarea',
+        elementToken: 'element-1',
         clickEvents: 1,
       },
     });
@@ -2278,6 +2510,7 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'textarea',
+        elementToken: 'element-1',
         clickEvents: 1,
       },
     });
@@ -2295,6 +2528,37 @@ describe('cua-driver backend', () => {
       'insert_text',
       'execute_javascript',
     ]);
+  });
+
+  it('invalidates an Electron element token immediately after document reload', async () => {
+    let fingerprintReads = 0;
+    const { backend, logPath } = makeBackend({
+      processKind: 'electron',
+      pageTarget: testPageTarget(),
+      emptyAx: true,
+      semanticPointerResult: {
+        supported: true,
+        ok: true,
+        kind: 'left_click',
+        editable: true,
+        tagName: 'textarea',
+        elementToken: 'element-1',
+        clickEvents: 1,
+      },
+      resolvePageDocumentFingerprint: async () =>
+        fingerprintReads++ === 0 ? 'document-a' : 'document-b',
+    });
+    const signal = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const typed = await backend.run({ type: 'type', text: 'must-not-land' } as CuAction, signal);
+    assert.equal(typed.outcome.ok, false);
+    if (!typed.outcome.ok) assert.equal(typed.outcome.error, 'page_target_changed');
+    assert.equal(businessPageCalls(await readRecords(logPath)).length, 1);
   });
 
   it('native AX text readback mismatch preserves outcome_unknown', async () => {
@@ -2357,10 +2621,11 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'textarea',
+        elementToken: 'element-1',
         clickEvents: 1,
       },
       rpcErrAfterTool: 'page',
-      rpcErrAfterCount: 5,
+      rpcErrAfterCount: 6,
     });
     const signal = new AbortController().signal;
     const click = await backend.run(

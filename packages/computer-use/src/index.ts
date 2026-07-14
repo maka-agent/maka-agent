@@ -2,7 +2,12 @@ export { selectComputerUseBackend } from './select-backend.js';
 export type { CuBackendId, SelectedComputerUseBackend } from './select-backend.js';
 
 export { createCuaDriverBackend } from './cua-driver-backend.js';
-export type { CuaDriverBackendOptions, CuaDriverTraceEvent } from './cua-driver-backend.js';
+export type {
+  CuaDriverBackendOptions,
+  CuaDriverStableNode,
+  CuaDriverStableNodeAdapter,
+  CuaDriverTraceEvent,
+} from './cua-driver-backend.js';
 export { normalizeCuaDriverOutcome } from './cua-driver-result.js';
 export type { JsonRpcToolResult } from './cua-driver-result.js';
 export {
@@ -27,13 +32,15 @@ export { resolveCuaPageTextTarget } from './cua-driver-page-target.js';
 export type {
   CuaCdpPageTarget,
   CuaFocusedPageElement,
+  CuaPageElementLeaseContext,
+  CuaPageElementTokenLease,
   CuaPageTargetResolverDeps,
   CuaResolvedPageTextTarget,
   CuaSemanticPointerAction,
   CuaSemanticPointerResult,
 } from './cua-driver-page-target.js';
 export {
-  CUA_INSPECT_PREPARED_ELEMENT_SCRIPT,
+  buildCuaInspectElementTokenScript,
   buildCuaPrepareElementAtScreenPointScript,
   buildCuaSemanticPointerActionScript,
   parseCuaFocusedPageElement,

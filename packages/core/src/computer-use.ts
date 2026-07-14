@@ -98,12 +98,21 @@ export interface ComputerUseWindowIdentity {
   page?: ComputerUsePageIdentity;
 }
 
+export interface ComputerUseElementTargetIdentity {
+  nodeIdentity?: string;
+  role: string;
+  label?: string;
+  value?: string;
+  frame: ComputerUseRect;
+}
+
 export interface ComputerUseObservationIdentity extends ComputerUseFrameIdentity {
   capturedAt: number;
   screenshotWidthPx?: number;
   screenshotHeightPx?: number;
   displays: ComputerUseDisplayIdentity[];
   target: ComputerUseWindowIdentity;
+  elements?: ComputerUseElementTargetIdentity[];
 }
 
 export interface ComputerUseBoundAction extends ComputerUseFrameIdentity {
@@ -116,6 +125,7 @@ export interface ComputerUseBoundAction extends ComputerUseFrameIdentity {
   windowCoordinate?: CuPoint;
   windowStartCoordinate?: CuPoint;
   coordinateSpace?: 'window-screenshot-local';
+  sourceElement?: ComputerUseElementTargetIdentity;
 }
 
 export const CU_SCROLL_DIRECTIONS = ['up', 'down', 'left', 'right'] as const;

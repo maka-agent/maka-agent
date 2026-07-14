@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type {
   ComputerUseBoundAction,
+  ComputerUseElementTargetIdentity,
   ComputerUseFrameIdentity,
   ComputerUseObservationIdentity,
   ComputerUseWindowIdentity,
@@ -20,6 +21,7 @@ export interface CuaObservationSnapshot {
   screenshotHeightPx?: number;
   displays: ComputerUseObservationIdentity['displays'];
   target: ComputerUseWindowIdentity;
+  elements?: ComputerUseElementTargetIdentity[];
 }
 
 export type CuaActionRejectionReason =
@@ -197,6 +199,7 @@ export function bindCuaActionToObservation(
   if ('coordinate' in action) {
     const end = bindWindowPoint(observation, action.coordinate);
     if (!end) return undefined;
+    const sourceElement = elementAtSourcePoint(observation, end);
     if (action.type === 'left_click_drag') {
       const start = bindWindowPoint(observation, action.startCoordinate);
       if (!start) return undefined;
@@ -207,6 +210,7 @@ export function bindCuaActionToObservation(
         windowStartCoordinate: start,
         windowCoordinate: end,
         coordinateSpace: 'window-screenshot-local',
+        ...(sourceElement ? { sourceElement } : {}),
       });
     }
     return finalizeBoundAction({
@@ -214,9 +218,52 @@ export function bindCuaActionToObservation(
       sourceCoordinate: end,
       windowCoordinate: end,
       coordinateSpace: 'window-screenshot-local',
+      ...(sourceElement ? { sourceElement } : {}),
     });
   }
   return base;
+}
+
+const ACTIONABLE_ROLES = new Set([
+  'AXButton',
+  'AXCheckBox',
+  'AXComboBox',
+  'AXDisclosureTriangle',
+  'AXLink',
+  'AXMenuBarItem',
+  'AXMenuButton',
+  'AXMenuItem',
+  'AXPopUpButton',
+  'AXRadioButton',
+  'AXScrollArea',
+  'AXSearchField',
+  'AXTab',
+  'AXTextArea',
+  'AXTextField',
+]);
+
+function elementAtSourcePoint(
+  observation: CuaObservation,
+  point: CuPoint,
+): ComputerUseElementTargetIdentity | undefined {
+  const bounds = observation.target.bounds;
+  const sourceBounds = observation.target.sourceBoundsPx;
+  if (!bounds || !sourceBounds || sourceBounds.width <= 0 || sourceBounds.height <= 0) {
+    return undefined;
+  }
+  const screenPoint = {
+    x: bounds.x + point.x / sourceBounds.width * bounds.width,
+    y: bounds.y + point.y / sourceBounds.height * bounds.height,
+  };
+  return observation.elements
+    ?.filter((element) =>
+      ACTIONABLE_ROLES.has(element.role)
+      && screenPoint.x >= element.frame.x
+      && screenPoint.x < element.frame.x + element.frame.width
+      && screenPoint.y >= element.frame.y
+      && screenPoint.y < element.frame.y + element.frame.height)
+    .sort((left, right) =>
+      left.frame.width * left.frame.height - right.frame.width * right.frame.height)[0];
 }
 
 function bindWindowPoint(
@@ -259,6 +306,7 @@ function fingerprintBoundAction(
     action.target.pid,
     action.target.windowId,
     action.elementId ?? null,
+    action.sourceElement ?? null,
     action.sourceStartCoordinate ?? null,
     action.sourceCoordinate ?? null,
   ]);

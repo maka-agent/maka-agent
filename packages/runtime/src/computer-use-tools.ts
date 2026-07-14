@@ -96,6 +96,7 @@ export interface CuObservedElement {
   frame?: { x: number; y: number; width: number; height: number };
   identity?: {
     token?: string;
+    nodeIdentity?: string;
     role: string;
     label?: string;
     value?: string;
@@ -717,6 +718,18 @@ export function buildComputerUseTools(deps: {
       ...(height !== undefined ? { screenshotHeightPx: height } : {}),
       displays,
       target,
+      elements: observation.elements.flatMap((element) =>
+        element.frame
+          ? [{
+              ...(element.identity?.nodeIdentity
+                ? { nodeIdentity: element.identity.nodeIdentity }
+                : {}),
+              role: element.role,
+              ...(element.label !== undefined ? { label: element.label } : {}),
+              ...(element.value !== undefined ? { value: element.value } : {}),
+              frame: element.frame,
+            }]
+          : []),
     };
   }
 

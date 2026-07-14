@@ -56,8 +56,7 @@ import {
   type CuaDriverJsonRpcResponse,
 } from './cua-driver-service.js';
 import {
-  CUA_INSPECT_PREPARED_ELEMENT_SCRIPT,
-  buildCuaPrepareElementAtScreenPointScript,
+  buildCuaInspectElementTokenScript,
   buildCuaSemanticPointerActionScript,
   parseCuaFocusedPageElement,
   parseCuaSemanticPointerResult,
@@ -65,6 +64,8 @@ import {
   type CuaSemanticPointerAction,
   type CuaSemanticPointerResult,
   type CuaResolvedPageTextTarget,
+  type CuaPageElementLeaseContext,
+  type CuaPageElementTokenLease,
 } from './cua-driver-page-target.js';
 import {
   editableElementAtScreenPoint,
@@ -140,6 +141,7 @@ export interface CuaDriverBackendOptions {
       ReturnType<typeof normalizeCuaSnapshotElement>
     >[],
   ) => string;
+  stableNodeAdapter?: CuaDriverStableNodeAdapter;
   resolveDisplays?: (input: {
     screenshotWidthPx: number;
     screenshotHeightPx: number;
@@ -166,6 +168,37 @@ export interface CuaDriverBackendOptions {
     reason: CuaDriverReleaseEvent['reason'];
     outcomeUnknown: boolean;
   }) => void;
+}
+
+export interface CuaDriverStableNode {
+  nodeIdentity: string;
+  elementIndex: number;
+  elementToken?: string;
+  role: string;
+  label?: string;
+  value?: string;
+  depth: number;
+  frame: { x: number; y: number; w: number; h: number };
+}
+
+export interface CuaDriverStableNodeAdapter {
+  identifySnapshotElements(input: {
+    pid: number;
+    windowId: number;
+    elements: readonly CuaSnapshotElement[];
+    signal: AbortSignal;
+  }): Promise<ReadonlyArray<{ elementIndex: number; nodeIdentity: string }>>;
+  focusedNode(input: {
+    pid: number;
+    windowId: number;
+    signal: AbortSignal;
+  }): Promise<CuaDriverStableNode | undefined>;
+  resolveNode(input: {
+    pid: number;
+    windowId: number;
+    nodeIdentity: string;
+    signal: AbortSignal;
+  }): Promise<CuaDriverStableNode | undefined>;
 }
 
 export type CuaDriverTraceEvent =
@@ -299,6 +332,9 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   interface KeyboardTarget {
     window: CuaResolvedWindow;
     editable: boolean;
+    nativeNode?: CuaDriverStableNode;
+    pageElement?: CuaPageElementTokenLease;
+    pageIdentity?: ComputerUsePageIdentity;
     pageTarget?: CuaResolvedPageTextTarget;
   }
   const targetsBySession = new Map<string, { turnId: string; target: KeyboardTarget }>();
@@ -316,6 +352,10 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   }
   const observations = new Map<string, StoredObservation>();
   const observationIdsBySession = new Map<string, string[]>();
+  const pageNavigationGenerations = new Map<string, {
+    documentFingerprint: string;
+    generation: number;
+  }>();
   let operationQueue = Promise.resolve();
   let disposed = false;
 
@@ -354,8 +394,6 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const structural = [
       ...new Set([...elements].map((element) => JSON.stringify({
         role: element.role,
-        label: element.label,
-        value: element.value,
         frame: element.frame,
         depth: element.depth,
       }))),
@@ -770,6 +808,23 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         && left.documentFingerprint === right.documentFingerprint;
   }
 
+  function pageNavigationGeneration(
+    window: CuaResolvedWindow,
+    page: ComputerUsePageIdentity,
+  ): number {
+    const key = `${window.pid}:${window.windowId}:${page.cdpPort}:${page.pageTargetId}`;
+    const documentFingerprint = page.documentFingerprint ?? '';
+    const current = pageNavigationGenerations.get(key);
+    if (!current) {
+      pageNavigationGenerations.set(key, { documentFingerprint, generation: 1 });
+      return 1;
+    }
+    if (current.documentFingerprint === documentFingerprint) return current.generation;
+    const generation = current.generation + 1;
+    pageNavigationGenerations.set(key, { documentFingerprint, generation });
+    return generation;
+  }
+
   async function resolvePageDocumentFingerprint(
     window: CuaResolvedWindow,
     target: CuaResolvedPageTextTarget,
@@ -928,8 +983,37 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const outcome = normalizeCuaDriverOutcome(state);
     if (!outcome.ok) throw new Error(outcome.message);
     const structured = state?.structuredContent ?? {};
+    const candidates = (structured.elements ?? []) as CuaSnapshotElement[];
+    const stableBindings = opts.stableNodeAdapter
+      ? await opts.stableNodeAdapter.identifySnapshotElements({
+          pid: window.pid,
+          windowId: window.windowId,
+          elements: candidates,
+          signal,
+        }).catch(() => [])
+      : [];
+    const stableIdentityCounts = new Map<string, number>();
+    const stableIndexCounts = new Map<number, number>();
+    for (const binding of stableBindings) {
+      stableIdentityCounts.set(
+        binding.nodeIdentity,
+        (stableIdentityCounts.get(binding.nodeIdentity) ?? 0) + 1,
+      );
+      stableIndexCounts.set(
+        binding.elementIndex,
+        (stableIndexCounts.get(binding.elementIndex) ?? 0) + 1,
+      );
+    }
+    const stableIdentityByIndex = new Map(
+      stableBindings.flatMap((binding) =>
+        binding.nodeIdentity.length > 0
+        && stableIdentityCounts.get(binding.nodeIdentity) === 1
+        && stableIndexCounts.get(binding.elementIndex) === 1
+          ? [[binding.elementIndex, binding.nodeIdentity] as const]
+          : []),
+    );
     const elements = new Map<string, NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>>();
-    for (const candidate of (structured.elements ?? []) as CuaSnapshotElement[]) {
+    for (const candidate of candidates) {
       const element = normalizeCuaSnapshotElement(candidate);
       if (!element) continue;
       const elementId = String(element.element_index);
@@ -1000,6 +1084,9 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         },
         identity: {
           ...(element.element_token ? { token: element.element_token } : {}),
+          ...(stableIdentityByIndex.get(element.element_index)
+            ? { nodeIdentity: stableIdentityByIndex.get(element.element_index) }
+            : {}),
           role: element.role,
           ...(element.label ? { label: element.label } : {}),
           ...(element.value !== undefined ? { value: element.value } : {}),
@@ -1258,6 +1345,50 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     };
   }
 
+  async function validateBoundSourceElement(
+    bound: CuaBoundAction,
+    window: CuaResolvedWindow,
+    signal: AbortSignal,
+  ): Promise<CuRunResult | undefined> {
+    const source = bound.sourceElement;
+    if (!source) return undefined;
+    if (!source.nodeIdentity || !opts.stableNodeAdapter) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'target_changed',
+          message: 'source actionable element has no stable driver node identity',
+        },
+      };
+    }
+    const current = await opts.stableNodeAdapter.resolveNode({
+      pid: window.pid,
+      windowId: window.windowId,
+      nodeIdentity: source.nodeIdentity,
+      signal,
+    }).catch(() => undefined);
+    if (
+      !current
+      || current.nodeIdentity !== source.nodeIdentity
+      || current.role !== source.role
+      || current.label !== source.label
+      || current.value !== source.value
+      || current.frame.x !== source.frame.x
+      || current.frame.y !== source.frame.y
+      || current.frame.w !== source.frame.width
+      || current.frame.h !== source.frame.height
+    ) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'target_changed',
+          message: 'source actionable element identity changed after observation',
+        },
+      };
+    }
+    return undefined;
+  }
+
   async function validateBoundCoordinate(
     bound: CuaBoundAction | undefined,
     signal: AbortSignal,
@@ -1297,12 +1428,14 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       'coordinate',
     );
     if ('outcome' in validated) return validated;
+    const sourceFailure = await validateBoundSourceElement(bound, validated, signal);
+    if (sourceFailure) return sourceFailure;
     const currentState = await actionClient.callTool('get_window_state', {
       pid: validated.pid,
       window_id: validated.windowId,
       include_screenshot: false,
-      max_elements: 0,
-      max_depth: 0,
+      max_elements: 500,
+      max_depth: 25,
     }, signal);
     const currentOutcome = normalizeCuaDriverOutcome(currentState);
     if (!currentOutcome.ok) return { outcome: currentOutcome };
@@ -1337,6 +1470,21 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           message: 'bound coordinate is outside its window screenshot space',
         },
       };
+    }
+    if (!bound.sourceElement) {
+      const currentElements = (currentStructured.elements ?? []) as CuaSnapshotElement[];
+      if (
+        editableElementAtScreenPoint(currentElements, point.screenPoint)
+        || elementAtScreenPoint(currentElements, point.screenPoint)
+      ) {
+        return {
+          outcome: {
+            ok: false,
+            error: 'target_changed',
+            message: 'bound coordinate is missing its source actionable element identity',
+          },
+        };
+      }
     }
     const windows = await listWindowRecords(signal);
     const winner = windows
@@ -1521,23 +1669,40 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         message: 'background text input requires an AX-addressable editable field',
       };
     }
-    const snapshot = await snapshotTarget(target.window, signal);
-    const element = editableElementAtScreenPoint(snapshot.elements, target.window.screenPoint);
-    if (!element) {
+    const nativeNode = target.nativeNode;
+    if (!nativeNode || !opts.stableNodeAdapter) {
       return {
         ok: false,
         error: 'unsupported_action',
-        message: 'editable field was not present in the fresh AX snapshot',
+        message: 'background text input requires a stable focused AX node identity',
       };
     }
-    if (element.value && element.value !== text) {
+    const current = await opts.stableNodeAdapter.resolveNode({
+      pid: target.window.pid,
+      windowId: target.window.windowId,
+      nodeIdentity: nativeNode.nodeIdentity,
+      signal,
+    }).catch(() => undefined);
+    if (
+      !current
+      || current.nodeIdentity !== nativeNode.nodeIdentity
+      || !isEditableRole(current.role)
+    ) {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message: 'focused AX node identity changed before text input',
+      };
+    }
+    if (current.value && current.value !== text) {
       return {
         ok: false,
         error: 'unsupported_action',
         message: 'background AX fill refuses to overwrite a non-empty field',
       };
     }
-    if (element.value === text) {
+    if (current.value === text) {
+      target.nativeNode = current;
       return {
         ok: true,
         tier: 'ax',
@@ -1552,26 +1717,30 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       {
         pid: target.window.pid,
         window_id: target.window.windowId,
-        element_index: element.element_index,
-        ...(element.element_token ? { element_token: element.element_token } : {}),
+        element_index: current.elementIndex,
+        ...(current.elementToken ? { element_token: current.elementToken } : {}),
         value: text,
       },
       signal,
     );
     if (setResult?.isError) return normalizeCuaDriverOutcome(setResult);
-    let after: TargetSnapshot;
+    let after: CuaDriverStableNode | undefined;
     try {
-      after = await snapshotTarget(target.window, signal);
+      after = await opts.stableNodeAdapter.resolveNode({
+        pid: target.window.pid,
+        windowId: target.window.windowId,
+        nodeIdentity: nativeNode.nodeIdentity,
+        signal,
+      });
     } catch {
       return deliveredVerificationFailure(
         'AXValue write',
         'ax',
       ).outcome;
     }
-    const verified = editableElementAtScreenPoint(
-      after.elements,
-      target.window.screenPoint,
-    )?.value === text;
+    const verified = after?.nodeIdentity === nativeNode.nodeIdentity
+      && after.value === text;
+    if (verified) target.nativeNode = after;
     return verified
       ? {
           ok: true,
@@ -1587,6 +1756,23 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         };
   }
 
+  function isEditableRole(role: string): boolean {
+    return role === 'AXComboBox'
+      || role === 'AXSearchField'
+      || role === 'AXTextArea'
+      || role === 'AXTextField';
+  }
+
+  function stableNodeContainsPoint(
+    node: CuaDriverStableNode,
+    point: { x: number; y: number },
+  ): boolean {
+    return point.x >= node.frame.x
+      && point.x < node.frame.x + node.frame.w
+      && point.y >= node.frame.y
+      && point.y < node.frame.y + node.frame.h;
+  }
+
   async function fillElectronPageTarget(
     target: KeyboardTarget,
     text: string,
@@ -1597,6 +1783,15 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         ok: false,
         error: 'unsupported_action',
         message: 'background Electron text requires a verified text-editable click target',
+      };
+    }
+    const pageElement = target.pageElement;
+    const observedPage = target.pageIdentity;
+    if (!pageElement || !observedPage) {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message: 'background Electron text requires a document-bound clicked element token',
       };
     }
     const pageTarget = target.pageTarget ?? await (
@@ -1611,6 +1806,25 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         ok: false,
         error: 'unsupported_action',
         message: 'Electron background text requires a unique, already-listening CDP page target',
+      };
+    }
+    const currentPage = await pageIdentity(target.window, pageTarget, signal);
+    if (!currentPage || !samePage(observedPage, currentPage)) {
+      return {
+        ok: false,
+        error: 'page_target_changed',
+        message: 'Electron document changed after editable ownership was established',
+      };
+    }
+    const navigationGeneration = pageNavigationGeneration(target.window, currentPage);
+    if (
+      pageElement.documentFingerprint !== currentPage.documentFingerprint
+      || pageElement.navigationGeneration !== navigationGeneration
+    ) {
+      return {
+        ok: false,
+        error: 'page_target_changed',
+        message: 'Electron element token expired after navigation or reload',
       };
     }
     const executePageScript = async (javascript: string) => {
@@ -1633,7 +1847,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       return { response, element: parseCuaFocusedPageElement(text) };
     };
     const prepared = await executePageScript(
-      buildCuaPrepareElementAtScreenPointScript(target.window.screenPoint),
+      buildCuaInspectElementTokenScript(pageElement),
     );
     if (prepared.response?.isError) return normalizeCuaDriverOutcome(prepared.response);
     const before = prepared.element;
@@ -1676,9 +1890,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     if (result?.isError) return normalizeCuaDriverOutcome(result);
     let inspected: Awaited<ReturnType<typeof executePageScript>>;
     try {
-      inspected = await executePageScript(
-        CUA_INSPECT_PREPARED_ELEMENT_SCRIPT,
-      );
+      inspected = await executePageScript(buildCuaInspectElementTokenScript(pageElement));
     } catch {
       return deliveredVerificationFailure(
         'CDP Input.insertText',
@@ -1712,15 +1924,38 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     window: CuaResolvedWindow,
     signal: AbortSignal,
     toolCallId: string,
+    context: CuRunContext,
     boundPage?: ComputerUsePageIdentity,
   ): Promise<{
     handled: boolean;
     outcome?: CuRunResult['outcome'];
     result?: CuaSemanticPointerResult;
     pageTarget?: CuaResolvedPageTextTarget;
+    pageIdentity?: ComputerUsePageIdentity;
+    pageElement?: CuaPageElementTokenLease;
   }> {
     const processKind = await (opts.classifyProcess ?? classifyMacProcess)(window.pid);
+    if (processKind === 'unknown') {
+      return {
+        handled: true,
+        outcome: {
+          ok: false,
+          error: 'unsupported_action',
+          message: 'target process type is unknown; pixel fallback is refused',
+        },
+      };
+    }
     if (processKind !== 'electron') return { handled: false };
+    if (context.boundAction?.target && !boundPage) {
+      return {
+        handled: true,
+        outcome: {
+          ok: false,
+          error: 'page_target_changed',
+          message: 'bound Electron action is missing observed page identity',
+        },
+      };
+    }
     const resolvePageTextTarget = opts.resolvePageTextTarget ?? ((input) =>
       resolveCuaPageTextTarget(input));
     const pageTarget = await resolvePageTextTarget({
@@ -1753,7 +1988,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       };
     }
     const currentPage = await pageIdentity(window, pageTarget, signal);
-    if (boundPage && !samePage(boundPage, currentPage)) {
+    if (!currentPage || (boundPage && !samePage(boundPage, currentPage))) {
       return {
         handled: true,
         outcome: {
@@ -1763,6 +1998,12 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         },
       };
     }
+    const leaseContext: CuaPageElementLeaseContext = {
+      sessionId: context.sessionId,
+      sessionGeneration: sessionGenerations.get(context.sessionId) ?? 0,
+      documentFingerprint: currentPage.documentFingerprint ?? '',
+      navigationGeneration: pageNavigationGeneration(window, currentPage),
+    };
 
     const intervention = await physicalInputFailure();
     if (intervention) return { handled: true, outcome: intervention.outcome };
@@ -1781,7 +2022,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         pid: window.pid,
         window_id: window.windowId,
         action: 'execute_javascript',
-        javascript: buildCuaSemanticPointerActionScript(action),
+        javascript: buildCuaSemanticPointerActionScript(action, leaseContext),
         cdp_port: pageTarget.port,
         target_url_contains: pageTarget.targetUrlContains,
       },
@@ -1863,7 +2104,64 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       tool: 'page',
       outcome: traceOutcome(outcome),
     });
-    return { handled: true, outcome, result, pageTarget };
+    return {
+      handled: true,
+      outcome,
+      result,
+      pageTarget,
+      pageIdentity: currentPage,
+      ...(result.elementToken
+        ? { pageElement: { ...leaseContext, elementToken: result.elementToken } }
+        : {}),
+    };
+  }
+
+  async function compatibilityPointerBoundary(
+    window: CuaResolvedWindow,
+    boundPage: ComputerUsePageIdentity | undefined,
+    requireBoundPage: boolean,
+    signal: AbortSignal,
+  ): Promise<CuRunResult | undefined> {
+    const processKind = await (opts.classifyProcess ?? classifyMacProcess)(window.pid);
+    if (processKind === 'unknown') {
+      return {
+        outcome: {
+          ok: false,
+          error: 'unsupported_action',
+          message: 'target process type is unknown; pixel fallback is refused',
+        },
+      };
+    }
+    if (processKind !== 'electron') return undefined;
+    if (requireBoundPage && !boundPage) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'page_target_changed',
+          message: 'bound Electron action is missing observed page identity',
+        },
+      };
+    }
+    const pageTarget = await (
+      opts.resolvePageTextTarget ?? ((input) => resolveCuaPageTextTarget(input))
+    )({
+      pid: window.pid,
+      ...(window.title ? { windowTitle: window.title } : {}),
+      signal,
+    });
+    const currentPage = pageTarget
+      ? await pageIdentity(window, pageTarget, signal)
+      : undefined;
+    if (!boundPage || !samePage(boundPage, currentPage)) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'page_target_changed',
+          message: 'Electron page identity changed before pixel fallback',
+        },
+      };
+    }
+    return undefined;
   }
 
   return {
@@ -2126,12 +2424,15 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               win,
               signal,
               context.toolCallId,
+              context,
               context.boundAction?.target?.page,
             );
             if (semantic.handled && semantic.outcome) {
               if (
                 semantic.outcome.ok
                 && action.type === 'left_click'
+                && semantic.pageElement
+                && semantic.pageIdentity
                 && (sessionGenerations.get(context.sessionId) ?? 0) === sessionGeneration
               ) {
                 targetsBySession.set(context.sessionId, {
@@ -2139,12 +2440,23 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
                   target: {
                     window: win,
                     editable: semantic.result?.editable === true,
+                    ...(semantic.pageElement ? { pageElement: semantic.pageElement } : {}),
+                    ...(semantic.pageIdentity ? { pageIdentity: semantic.pageIdentity } : {}),
                     ...(semantic.pageTarget ? { pageTarget: semantic.pageTarget } : {}),
                   },
                 });
               }
               return { outcome: semantic.outcome, resolvedScreenPoint: win.screenPoint };
             }
+          }
+          if (action.type === 'middle_click' || action.type === 'triple_click') {
+            const boundaryFailure = await compatibilityPointerBoundary(
+              win,
+              context.boundAction?.target?.page,
+              context.boundAction?.target !== undefined,
+              signal,
+            );
+            if (boundaryFailure) return boundaryFailure;
           }
           if (opts.allowCompatibilityInputDispatch !== true) {
             return compatibilityInputBlocked(action.type);
@@ -2245,21 +2557,34 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               && action.type === 'left_click'
               && (sessionGenerations.get(context.sessionId) ?? 0) === sessionGeneration
             ) {
-              targetsBySession.set(context.sessionId, {
-                turnId: context.turnId,
-                target: {
-                  window: win,
-                  editable: editableElement !== undefined,
-                },
-              });
+              const processKind = await (opts.classifyProcess ?? classifyMacProcess)(win.pid);
+              const focused = processKind === 'native' && opts.stableNodeAdapter
+                ? await opts.stableNodeAdapter.focusedNode({
+                    pid: win.pid,
+                    windowId: win.windowId,
+                    signal,
+                  }).catch(() => undefined)
+                : undefined;
+              if (
+                focused
+                && focused.nodeIdentity.length > 0
+                && isEditableRole(focused.role)
+                && stableNodeContainsPoint(focused, win.screenPoint)
+              ) {
+                targetsBySession.set(context.sessionId, {
+                  turnId: context.turnId,
+                  target: {
+                    window: win,
+                    editable: true,
+                    nativeNode: focused,
+                  },
+                });
+              }
             }
             return { outcome, resolvedScreenPoint: win.screenPoint };
           }
         }
         case 'scroll': {
-          if (opts.allowCompatibilityInputDispatch !== true) {
-            return compatibilityInputBlocked(action.type);
-          }
           // Scroll REQUIRES a pid and posts via scroll_wheel_at_xy → post_to_pid
           // (no cursor warp — the warp only exists in the empty-desktop click path).
           // Resolve the window under the point and scroll it window-locally; fail
@@ -2278,6 +2603,16 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
                 message: "no app window under the scroll point (empty desktop) — refusing 'scroll'. Scroll over an app window instead.",
               },
             };
+          }
+          const boundaryFailure = await compatibilityPointerBoundary(
+            win,
+            context.boundAction?.target?.page,
+            context.boundAction?.target !== undefined,
+            signal,
+          );
+          if (boundaryFailure) return boundaryFailure;
+          if (opts.allowCompatibilityInputDispatch !== true) {
+            return compatibilityInputBlocked(action.type);
           }
           {
             let snapshot: TargetSnapshot;
@@ -2373,6 +2708,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             from,
             signal,
             context.toolCallId,
+            context,
             context.boundAction?.target?.page,
           );
           if (semantic.handled && semantic.outcome) {
@@ -2634,6 +2970,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       observations.clear();
       observationIdsBySession.clear();
       sessionGenerations.clear();
+      pageNavigationGenerations.clear();
       const errors: unknown[] = [];
       for (const client of [actionClient, captureClient]) {
         try {
