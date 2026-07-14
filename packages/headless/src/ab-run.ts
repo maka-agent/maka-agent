@@ -10,6 +10,13 @@ import type {
 import { assertFinitePositive, assertPositiveInt } from './numeric-guards.js';
 import { summarizeAbComparison } from './ab-summary.js';
 
+interface ActivePairResult {
+  pairIndex: number;
+  rep: number;
+  baseline: FixedPromptTaskWalEvent;
+  candidate: FixedPromptTaskWalEvent;
+}
+
 export async function runAbComparison(input: RunAbComparisonInput): Promise<AbComparisonSummary> {
   assertUniqueArmRoundIdSuffixes(input.arms);
   const reps = input.reps ?? 3;
@@ -26,12 +33,7 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
   let nextPairIndex = 0;
   let observedCostUsd = 0;
   let stopReason: AbComparisonSummary['stopReason'];
-  const active = new Map<number, Promise<{
-    pairIndex: number;
-    rep: number;
-    baseline: FixedPromptTaskWalEvent;
-    candidate: FixedPromptTaskWalEvent;
-  }>>();
+  const active = new Map<number, Promise<ActivePairResult>>();
   const launchReadyPairs = () => {
     while (!stopReason && active.size < maxConcurrency && nextPairIndex < pairs.length) {
       const pairIndex = nextPairIndex;
@@ -42,7 +44,13 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
 
   launchReadyPairs();
   while (active.size > 0) {
-    const result = await Promise.race(active.values());
+    let result: ActivePairResult;
+    try {
+      result = await Promise.race(active.values());
+    } catch (error) {
+      await Promise.allSettled(active.values());
+      throw error;
+    }
     active.delete(result.pairIndex);
     baselineRuns[result.rep]!.push(result.baseline);
     candidateRuns[result.rep]!.push(result.candidate);
@@ -101,17 +109,37 @@ async function runComparisonPair(
     return { rep: pair.rep, baseline, candidate };
   }
   if ((pair.rep + pair.taskIndex) % 2 === 0) {
-    const [baseline, candidate] = await Promise.all([
+    const [baseline, candidate] = await drainParallelArmRuns([
       runComparisonTaskArm(input, input.arms[0], pair),
       runComparisonTaskArm(input, input.arms[1], pair),
     ]);
     return { rep: pair.rep, baseline, candidate };
   }
-  const [candidate, baseline] = await Promise.all([
+  const [candidate, baseline] = await drainParallelArmRuns([
     runComparisonTaskArm(input, input.arms[1], pair),
     runComparisonTaskArm(input, input.arms[0], pair),
   ]);
   return { rep: pair.rep, baseline, candidate };
+}
+
+async function drainParallelArmRuns(
+  runs: readonly [Promise<FixedPromptTaskWalEvent>, Promise<FixedPromptTaskWalEvent>],
+): Promise<[FixedPromptTaskWalEvent, FixedPromptTaskWalEvent]> {
+  let firstError: unknown;
+  let rejected = false;
+  const values = await Promise.all(runs.map(async (run) => {
+    try {
+      return await run;
+    } catch (error) {
+      if (!rejected) {
+        rejected = true;
+        firstError = error;
+      }
+      return undefined;
+    }
+  }));
+  if (rejected) throw firstError;
+  return values as [FixedPromptTaskWalEvent, FixedPromptTaskWalEvent];
 }
 
 async function runComparisonTaskArm(

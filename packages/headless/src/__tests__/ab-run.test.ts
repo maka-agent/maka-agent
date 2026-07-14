@@ -139,6 +139,48 @@ describe('runAbComparison', () => {
     ]);
   });
 
+  test('drains every started pair and arm before propagating a rejection', async () => {
+    const started: string[] = [];
+    const finished: string[] = [];
+    let allStarted!: () => void;
+    const allStartedPromise = new Promise<void>((resolve) => { allStarted = resolve; });
+    const run = runAbComparison({
+      runId: 'ab-run',
+      arms: [
+        { id: 'maka', kind: 'harness', fingerprint: sha256('maka') },
+        { id: 'opencode', kind: 'harness', fingerprint: sha256('opencode') },
+      ],
+      evaluationTasks: [
+        { id: 't1', path: '/tasks/t1' },
+        { id: 't2', path: '/tasks/t2' },
+        { id: 't3', path: '/tasks/t3' },
+      ],
+      reps: 1,
+      maxConcurrency: 2,
+      runArm: async ({ arm, task }) => {
+        const id = `${task.id}:${arm.id}`;
+        started.push(id);
+        if (started.length === 4) allStarted();
+        await allStartedPromise;
+        if (id === 't1:maka') throw new Error('arm failed');
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        finished.push(id);
+        return completed(task.id, true);
+      },
+    });
+
+    await assert.rejects(run, /arm failed/);
+    const finishedAtReject = [...finished];
+    await new Promise<void>((resolve) => setTimeout(resolve, 40));
+
+    assert.deepEqual(new Set(started), new Set([
+      't1:maka', 't1:opencode', 't2:maka', 't2:opencode',
+    ]));
+    assert.deepEqual(new Set(finishedAtReject), new Set([
+      't1:opencode', 't2:maka', 't2:opencode',
+    ]));
+  });
+
   test('stops scheduling new pairs after the observed cost threshold is reached', async () => {
     const calls: string[] = [];
     const result = await runAbComparison({
