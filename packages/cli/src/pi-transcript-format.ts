@@ -22,7 +22,7 @@ export function renderIndented(text: string, width: number, indent: number): str
 }
 
 export function fitLine(line: string, width: number): string {
-  return visibleWidth(line) > width ? truncateToWidth(line, width, '') : line;
+  return visibleWidth(line) > width ? truncateToWidth(line, width, '…') : line;
 }
 
 export function formatToolResultContent(content: ToolResultContent): string {
