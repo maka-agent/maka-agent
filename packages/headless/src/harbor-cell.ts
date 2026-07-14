@@ -751,6 +751,7 @@ export async function writeHarborCellUsageCheckpoint(
   outputDir: string,
   usage: HarborCellUsageCheckpoint,
 ): Promise<void> {
+  if (usage.costUsd === undefined) return;
   const tokenSummary: HarborCellOutput['tokenSummary'] = {
     input: usage.inputTokens,
     output: usage.outputTokens,
@@ -761,7 +762,7 @@ export async function writeHarborCellUsageCheckpoint(
     cacheMissInputSource: usage.cacheMissInputSource,
     reasoning: usage.reasoningTokens,
     total: usage.totalTokens,
-    costUsd: usage.costUsd ?? 0,
+    costUsd: usage.costUsd,
     pricingSource: 'runtime',
   };
   await mkdir(outputDir, { recursive: true });

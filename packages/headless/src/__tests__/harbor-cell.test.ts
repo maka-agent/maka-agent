@@ -346,6 +346,26 @@ describe('runHarborCell', () => {
     });
   });
 
+  test('does not turn unknown checkpoint cost into zero', async () => {
+    await withDirs(async ({ outputDir }) => {
+      await writeHarborCellUsageCheckpoint(outputDir, {
+        inputTokens: 100,
+        outputTokens: 5,
+        cacheHitInputTokens: 20,
+        cacheMissInputTokens: 80,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 1,
+        totalTokens: 105,
+      });
+
+      await assert.rejects(
+        readFile(join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8'),
+        (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
+      );
+    });
+  });
+
   test('runs in the provided workspace and writes the shared cell artifacts', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const result = await runHarborCell({
