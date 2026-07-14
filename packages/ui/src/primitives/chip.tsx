@@ -11,10 +11,12 @@ import type React from "react";
 // squared counterpart to the pill Badge primitive:
 //   - Badge = emphasis marker (pill, radius-pill) — health/permission center
 //   - Chip  = status label (squared, radius-control) — settings rows
-// Variants mirror StatusTone so settings callers pass the tone straight
-// through with no mapping function. Visual values reproduce the retired
-// .settingsConnectionBadge oklch alphas (success /12, info /14, warning /18,
-// destructive /15) and the .settingsBadge neutral (foreground-5) base.
+// The status variants mirror StatusTone so settings callers pass the tone
+// straight through with no mapping function; `accent` is a separate
+// brand-accent marker (default-connection flags) outside the status scale.
+// Visual values reproduce the retired .settingsConnectionBadge oklch alphas
+// (success /12, info /14, warning /18, destructive /15) and the .settingsBadge
+// neutral (foreground-5) base.
 export const chipVariants = cva(
   "inline-flex items-center whitespace-nowrap rounded-[var(--radius-control)] text-xs outline-none [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
@@ -34,6 +36,15 @@ export const chipVariants = cva(
         success: "bg-success/12 text-success",
         warning: "bg-warning/18 text-warning-foreground font-bold",
         destructive: "bg-destructive/15 text-destructive font-bold",
+        // Brand-accent marker for "default connection" style flags — the
+        // nav-active /14 wash carries the brand tone, not a status tone.
+        // Text is foreground-secondary, NOT raw nav-active: the
+        // design-system-governance-406 contract records raw --nav-active
+        // text at 2.66:1 on white (fails WCAG AA 4.5:1); the readable-accent
+        // precedent (permission-mode chip) keeps the tone on the background
+        // and uses --foreground-secondary (~8:1 light / ~7.5:1 dark) for
+        // the label.
+        accent: "bg-nav-active/14 text-[var(--foreground-secondary)] font-semibold",
       },
     },
   },

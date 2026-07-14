@@ -72,6 +72,12 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual([...thinkingVariantsForModel('groq', 'qwen/qwen3-32b')], []);
     assert.deepEqual([...thinkingVariantsForModel('groq', 'openai/gpt-oss-safeguard-20b')], []);
     assert.deepEqual([...thinkingVariantsForModel('groq', 'llama-3.3-70b-versatile')], []);
+    // OpenRouter accepts the same `reasoning_effort` shorthand (none disables).
+    assert.deepEqual([...thinkingVariantsForModel('openrouter', 'openai/gpt-5.6-sol')], ['off', 'low', 'medium', 'high', 'xhigh', 'max']);
+    assert.deepEqual(buildProviderOptions(conn('openrouter'), 'openai/gpt-5.6-sol', 'high'), { openrouter: { reasoningEffort: 'high' } });
+    assert.deepEqual(buildProviderOptions(conn('openrouter'), 'openai/gpt-5.6-sol', 'off'), { openrouter: { reasoningEffort: 'none' } });
+    // claude-sonnet-5 exposes no off switch (no `none` effort); only effort tiers.
+    assert.deepEqual([...thinkingVariantsForModel('openrouter', 'anthropic/claude-sonnet-5')], ['low', 'medium', 'high', 'xhigh', 'max']);
     assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-v4-flash')], ['high', 'max']);
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'high'), { deepseek: { reasoningEffort: 'high' } });
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'max'), { deepseek: { reasoningEffort: 'max' } });
@@ -168,6 +174,23 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual(buildProviderOptions(conn('vercel'), 'grok-4.3', 'high'), {});
   });
 
+  test('Ollama Cloud sends reasoningEffort under its namespace; standard models expose off, GPT-OSS does not', () => {
+    // qwen3.5:397b — standard reasoning model: off/low/medium/high/max
+    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'qwen3.5:397b')], ['off', 'low', 'medium', 'high', 'max']);
+    assert.deepEqual(buildProviderOptions(conn('ollama-cloud'), 'qwen3.5:397b', 'high'), {
+      'ollama-cloud': { reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('ollama-cloud'), 'qwen3.5:397b', 'off'), {
+      'ollama-cloud': { reasoningEffort: 'none' },
+    });
+    // gpt-oss:120b — only low/medium/high, no off
+    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'gpt-oss:120b')], ['low', 'medium', 'high']);
+    assert.deepEqual(buildProviderOptions(conn('ollama-cloud'), 'gpt-oss:120b', 'high'), {
+      'ollama-cloud': { reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('ollama-cloud'), 'gpt-oss:120b', 'off'), {});
+  });
+
   test('a level the model does not support is dropped (defensive)', () => {
     assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: { store: false } });
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'max'), { anthropic: {} });
@@ -250,7 +273,10 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
     { providerType: 'deepseek', model: 'deepseek-v4-flash' },
     { providerType: 'deepinfra', model: 'moonshotai/Kimi-K2.7-Code' },
     { providerType: 'groq', model: 'openai/gpt-oss-120b' },
+    { providerType: 'openrouter', model: 'openai/gpt-5.6-sol' },
     { providerType: 'vercel', model: 'xai/grok-4.3' },
+    { providerType: 'ollama-cloud', model: 'qwen3.5:397b' },
+    { providerType: 'ollama-cloud', model: 'gpt-oss:120b' },
     { providerType: 'cloudflare-workers-ai', model: '@cf/moonshotai/kimi-k2.6' },
     { providerType: 'zai-coding-plan', model: 'glm-5.2', slug: 'zai-coding-plan' },
     { providerType: 'volcengine-ark', model: 'doubao-seed-2-0-pro-260215' },

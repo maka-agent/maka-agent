@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'github-copilot', 'google', 'groq', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'opencode', 'opencode-go', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'xiaomi', 'zai', 'zai-coding-plan', 'zenmux'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'github-copilot', 'google', 'groq', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'opencode', 'opencode-go', 'openrouter', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'xiaomi', 'zai', 'zai-coding-plan', 'zenmux'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -508,6 +508,37 @@ test('sync-model-metadata vendors Groq provider facts and exact model ids', asyn
   assert.match(generated, /"groq": \{"id":"groq","name":"Groq","doc":"https:\/\/console\.groq\.com\/docs\/models"\}/);
   assert.match(generated, /"llama-3\.3-70b-versatile": \{"displayName":"Llama 3\.3 70B"/);
   assert.match(generated, /"reasoning":false,"functionCalling":true/);
+});
+
+test('sync-model-metadata vendors OpenRouter provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.openrouter = {
+    ...catalog.openrouter,
+    name: 'OpenRouter',
+    api: 'https://openrouter.ai/api/v1',
+    doc: 'https://openrouter.ai/models',
+    models: {
+      'anthropic/claude-sonnet-5': {
+        id: 'anthropic/claude-sonnet-5', name: 'Claude Sonnet 5', reasoning: true, tool_call: true,
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        limit: { context: 1_000_000, output: 128_000 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"openrouter": \{/);
+  assert.match(generated, /"openrouter": \{"id":"openrouter","name":"OpenRouter","api":"https:\/\/openrouter\.ai\/api\/v1","doc":"https:\/\/openrouter\.ai\/models"\}/);
+  assert.match(generated, /"anthropic\/claude-sonnet-5": \{"displayName":"Claude Sonnet 5"/);
+  assert.match(generated, /"reasoning":true,"functionCalling":true/);
 });
 
 test('sync-model-metadata vendors Cloudflare Workers AI identity and exact model ids', async () => {

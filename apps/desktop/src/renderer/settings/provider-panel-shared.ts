@@ -43,11 +43,17 @@ export function categoryLabel(category: ProviderCategory): string {
 }
 
 export function nextSlug(type: ProviderType, existing: string[]): string {
-  const base = type.replace(/[^a-z0-9-]/g, '-');
+  // Lowercase before sweeping: provider types are not all lowercase
+  // ('MiniMax', 'MiniMax-cn'), and replacing uppercase letters with '-'
+  // produced slugs like '-ini-ax' that validateSlug rejects.
+  const base = type.toLowerCase().replace(/[^a-z0-9-]/g, '-');
   if (!existing.includes(base)) return base;
-  for (let i = 2; i < 100; i += 1) {
+  // Unbounded increment: `existing` is finite, so some suffix is always free.
+  // (The previous bounded loop fell back to `${base}-${Date.now()}` after -99
+  // without checking `existing`, which could return an already-taken slug the
+  // save path then rejects.)
+  for (let i = 2; ; i += 1) {
     const candidate = `${base}-${i}`;
     if (!existing.includes(candidate)) return candidate;
   }
-  return `${base}-${Date.now()}`;
 }

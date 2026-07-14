@@ -80,6 +80,8 @@ import {
   buildBuiltinTools,
   buildAskUserQuestionTool,
   createBuiltinSandboxManager,
+  createFilesystemWorkerLaunchSpecProvider,
+  FilesystemWorkerClient,
   buildChildAgentTools,
   buildExpertDispatchToolForTeamId,
   buildSubagentProjectionTools,
@@ -594,6 +596,18 @@ const shellRuns = new ShellRunProcessManager({
   },
 });
 const sandboxManager = createBuiltinSandboxManager();
+const filesystemWorker = process.platform === 'darwin' && sandboxManager
+  ? new FilesystemWorkerClient({
+      sandboxManager,
+      getLaunchSpec: createFilesystemWorkerLaunchSpecProvider({
+        runtime: 'electron',
+        executable: process.execPath,
+        resourceLocation: app.isPackaged
+          ? { kind: 'desktop-packaged', resourcesPath: process.resourcesPath }
+          : { kind: 'runtime' },
+      }),
+    })
+  : undefined;
 // Unified tool availability (issue #37). Deferred capability groups (Rive,
 // Office, browser, agent orchestration) are withheld from the
 // per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
@@ -691,6 +705,11 @@ const builtinTools: MakaTool[] = [
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
     ...(sandboxManager ? { sandboxManager } : {}),
+    ...(filesystemWorker ? {
+      filesystemWorker,
+      enableBashAdditionalPermissions: true,
+      enableFileToolAdditionalPermissions: true,
+    } : {}),
   }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
@@ -721,6 +740,11 @@ const builtinTools: MakaTool[] = [
 const childAgentTools = buildChildAgentTools([
   ...buildBuiltinTools({
     ...(sandboxManager ? { sandboxManager } : {}),
+    ...(filesystemWorker ? {
+      filesystemWorker,
+      enableBashAdditionalPermissions: true,
+      enableFileToolAdditionalPermissions: true,
+    } : {}),
   }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   webSearchTool,
 ]);
@@ -2066,6 +2090,7 @@ async function ensureSessionCanSend(sessionId: string): Promise<void> {
     result = await ensureSessionCanSendOrRebind(sessionId, header, {
       readyConnectionDeps,
       getDefaultSlug: () => connectionStore.getDefault(),
+      listConnectionSlugs: async () => (await connectionStore.list()).map((connection) => connection.slug),
       updateSession: (_sessionId, patch) => runtime.updateSession(_sessionId, {
         ...patch,
         status: 'active',

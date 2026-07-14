@@ -31,6 +31,10 @@ This file records notices for third-party source assets vendored into the Maka d
     - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
     - Upstream path: `packages/static-svg/icons/groq.svg`
     - SHA-256: `078d5cf6e7a54905040c15ddacf5ea33c13042fe7739e820cedc2096e4406651`
+  - `apps/desktop/src/renderer/assets/provider-brands/openrouter.svg`
+    - Upstream commit: `df132de5a0cef315b9a2f155b1949e39f4b89bb5`
+    - Upstream path: `packages/static-svg/icons/openrouter-color.svg`
+    - SHA-256: `17bede1b89166f824ee06753dc526a3f5e18b769706deaab09d04a3a98de1a78`
   - `apps/desktop/src/renderer/assets/provider-brands/vercel.svg`
     - Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`
     - Upstream path: `packages/static-svg/icons/vercel.svg`

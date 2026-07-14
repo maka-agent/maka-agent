@@ -13,10 +13,12 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import {
+  connectionUiStatusFromRecord,
   deriveConnectionUiStatus,
   presentConnectionUiStatus,
   type ConnectionUiStatusInput,
 } from '../../renderer/connection-status.js';
+import type { LlmConnection, ProviderType } from '@maka/core';
 
 function base(input: Partial<ConnectionUiStatusInput> = {}): ConnectionUiStatusInput {
   return {
@@ -202,5 +204,67 @@ describe('presentConnectionUiStatus copy gates', () => {
     assert.equal(presentation.label, '连接出错');
     assert.match(presentation.detail, /服务商返回错误/);
     assert.doesNotMatch(`${presentation.label}\n${presentation.detail}`, /provider 不可用/);
+  });
+});
+
+describe('connectionUiStatusFromRecord unknown-provider fallback', () => {
+  // A connection persisted on another branch with a provider this
+  // build's PROVIDER_REGISTRY doesn't know) must not crash the settings row.
+  // It surfaces as `unsupported_provider` — the connection isn't usable on
+  // this build, but its saved configuration is not incomplete.
+  function connectionWith(providerType: string, overrides: Partial<LlmConnection> = {}): LlmConnection {
+    return {
+      slug: 'test',
+      name: 'test',
+      providerType: providerType as ProviderType,
+      defaultModel: 'some-model',
+      enabled: true,
+      createdAt: 0,
+      updatedAt: 0,
+      ...overrides,
+    };
+  }
+
+  it('returns unsupported_provider for an unregistered providerType instead of throwing', () => {
+    assert.equal(
+      connectionUiStatusFromRecord(connectionWith('branch-only-provider'), true),
+      'unsupported_provider',
+    );
+  });
+
+  it('returns unsupported_provider even when enabled with a model and a secret', () => {
+    // The connection may look fully configured, but its provider isn't
+    // registered on this build, so it must not read as verified/configured.
+    assert.equal(
+      connectionUiStatusFromRecord(
+        connectionWith('branch-only-provider', { defaultModel: 'branch-model', lastTestStatus: 'verified' }),
+        true,
+      ),
+      'unsupported_provider',
+    );
+  });
+
+  it('explains that the current version does not support the provider', () => {
+    const presentation = presentConnectionUiStatus('unsupported_provider');
+    assert.equal(presentation.label, '当前版本不支持');
+    assert.match(presentation.detail, /未在当前版本注册/);
+    assert.doesNotMatch(presentation.detail, /模型密钥|默认模型/);
+  });
+
+  it('keeps disabled as the highest-priority status', () => {
+    assert.equal(
+      connectionUiStatusFromRecord(connectionWith('branch-only-provider', { enabled: false }), true),
+      'disabled',
+    );
+  });
+
+  it('still derives the real status for a registered provider', () => {
+    assert.equal(
+      connectionUiStatusFromRecord(
+        connectionWith('anthropic', { defaultModel: 'claude-sonnet-4-5-20250929', lastTestStatus: 'verified' }),
+        true,
+      ),
+      'verified',
+    );
   });
 });

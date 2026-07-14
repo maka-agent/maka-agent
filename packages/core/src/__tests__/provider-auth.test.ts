@@ -53,6 +53,19 @@ describe('ProviderAuth contract', () => {
     expect(contract.actionAvailability.fetch_models).toBe('available');
   });
 
+  test('OpenRouter uses the shared API-key credential and model-discovery flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'openrouter',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('openrouter');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
   test('Cloudflare Workers AI uses API-token auth with honest snapshot model discovery', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'cloudflare-workers-ai',
@@ -487,5 +500,50 @@ describe('ProviderAuth contract', () => {
     });
 
     expect(Object.keys(contract.actionAvailability).sort()).toEqual([...PROVIDER_AUTH_ACTIONS].sort());
+  });
+});
+
+describe('ProviderAuth contract unknown-providerType fallback', () => {
+  // A connection persisted on another branch may carry a providerType this
+  // build's PROVIDER_REGISTRY doesn't know. The contract must
+  // surface a non-real, non-actionable state instead of crashing on
+  // `defaults.modelDiscovery` / `defaults.authKind`. Mirrors `isFakeBackend`.
+  test('enabled unknown provider → not_configured, no actions, no secret required', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'branch-only-provider' as never,
+      enabled: true,
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('branch-only-provider');
+    expect(contract.setupMode).toBe('none');
+    expect(contract.state).toBe('not_configured');
+    expect(contract.requiresSecret).toBe(false);
+    expect(contract.sendMayUseWithoutSecret).toBe(false);
+    expect(contract.validationStatus).toBe('not_required');
+    for (const action of PROVIDER_AUTH_ACTIONS) {
+      expect(contract.actionAvailability[action]).toBe('hidden');
+    }
+    expect(contract.copy.label).toContain('branch-only-provider');
+  });
+
+  test('disabled unknown provider → disabled state', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'branch-only-provider' as never,
+      enabled: false,
+      hasSecret: false,
+    });
+
+    expect(contract.state).toBe('disabled');
+  });
+
+  test('deriveProviderAuthContractFromConnection tolerates an unknown providerType', () => {
+    const contract = deriveProviderAuthContractFromConnection(
+      { providerType: 'branch-only-provider' as never, enabled: true, lastTestStatus: undefined } as never,
+      true,
+    );
+
+    expect(contract.state).toBe('not_configured');
+    expect(contract.setupMode).toBe('none');
   });
 });

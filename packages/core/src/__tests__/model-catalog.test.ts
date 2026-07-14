@@ -284,6 +284,27 @@ describe('ModelCatalogEntry', () => {
     assert.ok(!entries.some((entry) => entry.id === 'whisper-large-v3'));
   });
 
+  it('uses the checked-in OpenRouter snapshot until live discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'openrouter',
+        providerType: 'openrouter',
+        defaultModel: 'anthropic/claude-sonnet-5',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'anthropic/claude-sonnet-5');
+    assert.equal(entries[0]?.displayName, 'Claude Sonnet 5');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'openai/gpt-5.6-sol'));
+  });
+
   it('uses the checked-in Ollama Cloud snapshot with exact model ids until discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {
@@ -1088,5 +1109,22 @@ describe('ModelCatalogEntry', () => {
         ['gemini-2.5-pro', undefined],
       ],
     );
+  });
+});
+
+describe('buildConnectionModelCatalogEntries unknown-providerType fallback', () => {
+  // A connection persisted on another branch may carry a providerType this
+  // build's PROVIDER_REGISTRY doesn't know (e.g. 'groq'). Catalog building
+  // must return no entries instead of crashing on `defaults.fallbackModels`.
+  // Mirrors `isFakeBackend` in connection-readiness.ts.
+  it('returns [] for an unregistered providerType', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'groq',
+        providerType: 'branch-only-provider' as ProviderType,
+        defaultModel: 'llama-3.1-8b-instant',
+      },
+    });
+    assert.deepEqual(entries, []);
   });
 });

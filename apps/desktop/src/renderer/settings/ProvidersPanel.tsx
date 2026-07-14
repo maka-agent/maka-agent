@@ -10,15 +10,14 @@ import {
   type ProviderType,
 } from '@maka/core';
 import {
-  Button,
+  Button, Chip,
   InputGroup, InputGroupAddon, InputGroupInput,
   PrimitiveTabs, PrimitiveTabsList, PrimitiveTabsTrigger, PrimitiveTabsPanel,
-  PrimitiveAccordion, PrimitiveAccordionItem, PrimitiveAccordionHeader, PrimitiveAccordionTrigger, PrimitiveAccordionPanel,
-  Item, ItemContent, ItemTitle, ItemActions,
+  Item, ItemMedia, ItemContent, ItemTitle, ItemDescription, ItemActions,
   useMountedRef,
   useToast,
 } from '@maka/ui';
-import { chipStatusText, rollupForGroup } from './provider-connection-status';
+import { connectionChipStatus } from './provider-connection-status';
 import { AddProviderForm } from './provider-add-form';
 import { ProviderCatalogCard } from './provider-catalog';
 import { ConnectionDetail } from './provider-connection-detail';
@@ -128,53 +127,14 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
     [connections, page],
   );
 
-  const providerGroups = useMemo(() => {
-    const order: ProviderType[] = [];
-    const byType = new Map<ProviderType, LlmConnection[]>();
-    for (const connection of connections) {
-      const list = byType.get(connection.providerType);
-      if (list) list.push(connection);
-      else {
-        byType.set(connection.providerType, [connection]);
-        order.push(connection.providerType);
-      }
-    }
-    return order.map((type) => {
-      const groupConnections = byType.get(type) ?? [];
-      return {
-        type,
-        name: providerDisplay(type).name,
-        connections: groupConnections,
-        rollup: rollupForGroup(groupConnections),
-      };
-    });
-  }, [connections]);
-
-  const defaultOpenGroups = useMemo(
-    () => providerGroups
-      .filter((group) =>
-        group.rollup === 'err' ||
-        group.rollup === 'warn' ||
-        group.connections.some((connection) => connection.slug === defaultSlug))
-      .map((group) => group.type),
-    [providerGroups, defaultSlug],
-  );
-  const pendingFocus = pendingFocusRef.current;
-  const focusRestoreGroup = pendingFocus?.kind === 'connection'
-    ? connections.find((connection) => connection.slug === pendingFocus.slug)?.providerType
-    : undefined;
-  const initialOpenGroups = focusRestoreGroup && !defaultOpenGroups.includes(focusRestoreGroup)
-    ? [...defaultOpenGroups, focusRestoreGroup]
-    : defaultOpenGroups;
-
   function chipTitle(connection: LlmConnection): string {
-    return `${connection.name} · ${chipStatusText(connection)}`;
+    return `${connection.name} · ${connectionChipStatus(connection).label}`;
   }
 
   function chipAriaLabel(connection: LlmConnection): string {
     const provider = providerDisplay(connection.providerType).name;
     const defaultSuffix = connection.slug === defaultSlug ? '，默认连接' : '';
-    return `模型连接：${connection.name}，供应商：${provider}${defaultSuffix}，${chipStatusText(connection)}`;
+    return `模型连接：${connection.name}，供应商：${provider}${defaultSuffix}，${connectionChipStatus(connection).label}`;
   }
 
   const configuredByType = (type: ProviderType) =>
@@ -340,7 +300,7 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
         <div className="enabledStrip" aria-label="模型连接">
           <div className="enabledStripHeader">
             <h3>已配置</h3>
-            {connections.length > 0 && <span>{providerGroups.length} 个服务商 · {connections.length} 个连接</span>}
+            {connections.length > 0 && <span>{connections.length} 个连接</span>}
           </div>
           {loadError ? (
             <BaseButton className="enabledEmptyChip enabledEmptyAction" type="button" onClick={() => void reload()}>
@@ -353,65 +313,37 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
               <small>点击右上角“添加服务商”开始配置。</small>
             </div>
           ) : (
-            <PrimitiveAccordion className="enabledAccordion" multiple defaultValue={initialOpenGroups}>
-              {providerGroups.map((group) => {
-                const single = group.connections.length === 1;
-                const problem = group.rollup === 'err' || group.rollup === 'warn';
-                const rollupLabel = problem
-                  ? single
-                    ? chipStatusText(group.connections[0])
-                    : group.rollup === 'err' ? '有连接异常' : '需重新登录'
-                  : `${group.connections.length} 连接`;
+            <ul className="connectionList" role="list">
+              {connections.map((connection) => {
+                const status = connectionChipStatus(connection);
                 return (
-                  <PrimitiveAccordionItem key={group.type} value={group.type} className="enabledProvider">
-                    <PrimitiveAccordionHeader className="enabledProviderHead">
-                      <PrimitiveAccordionTrigger className="enabledProviderTrigger">
-                        <ProviderLogo type={group.type} compact />
-                        <span className="enabledProviderName">{group.name}</span>
-                        <span className="enabledProviderMeta">
-                          <span className={`enabledRollup is-${group.rollup}`}>
-                            <span className="enabledStatusDot" aria-hidden="true" />
-                            {rollupLabel}
-                          </span>
-                          <ChevronRight className="enabledChevron" size={15} aria-hidden="true" />
-                        </span>
-                      </PrimitiveAccordionTrigger>
-                    </PrimitiveAccordionHeader>
-                    <PrimitiveAccordionPanel className="enabledProviderPanel">
-                      <ul role="list">
-                        {group.connections.map((connection) => (
-                          <li key={connection.slug}>
-                            <Item
-                              className="enabledConnRow mx-2 py-2 pr-6 pl-10"
-                              selected={connection.slug === defaultSlug}
-                              data-test-status={connection.lastTestStatus ?? 'untested'}
-                              data-connection-slug={connection.slug}
-                              data-disabled={connection.enabled ? undefined : 'true'}
-                              aria-label={chipAriaLabel(connection)}
-                              title={chipTitle(connection)}
-                              render={<button type="button" onClick={() => navigate({ kind: 'detail', slug: connection.slug }, { kind: 'child-back' })} />}
-                            >
-                              <ItemContent>
-                                <ItemTitle className="enabledConnTitle">
-                                  {connection.name}
-                                  {connection.slug === defaultSlug && <span className="enabledDefaultTag">默认</span>}
-                                </ItemTitle>
-                              </ItemContent>
-                              <ItemActions>
-                                <span className={`enabledConnStatus is-${connection.lastTestStatus ?? 'untested'}`}>
-                                  <span className="enabledStatusDot" aria-hidden="true" />
-                                  {chipStatusText(connection)}
-                                </span>
-                              </ItemActions>
-                            </Item>
-                          </li>
-                        ))}
-                      </ul>
-                    </PrimitiveAccordionPanel>
-                  </PrimitiveAccordionItem>
+                  <li key={connection.slug}>
+                    <Item
+                      className="connectionRow"
+                      selected={connection.slug === defaultSlug}
+                      data-connection-slug={connection.slug}
+                      data-disabled={connection.enabled ? undefined : 'true'}
+                      aria-label={chipAriaLabel(connection)}
+                      title={chipTitle(connection)}
+                      render={<button type="button" onClick={() => navigate({ kind: 'detail', slug: connection.slug }, { kind: 'child-back' })} />}
+                    >
+                      <ItemMedia><ProviderLogo type={connection.providerType} compact /></ItemMedia>
+                      <ItemContent>
+                        <ItemTitle>
+                          {connection.name}
+                          {connection.slug === defaultSlug && <Chip size="sm" variant="accent">默认</Chip>}
+                        </ItemTitle>
+                        <ItemDescription>{providerDisplay(connection.providerType).name}</ItemDescription>
+                      </ItemContent>
+                      <ItemActions>
+                        <Chip dot size="sm" variant={status.tone}>{status.label}</Chip>
+                        <ChevronRight size={16} aria-hidden="true" />
+                      </ItemActions>
+                    </Item>
+                  </li>
                 );
               })}
-            </PrimitiveAccordion>
+            </ul>
           )}
         </div>
 

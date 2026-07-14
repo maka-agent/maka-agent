@@ -14,6 +14,8 @@ import {
   buildAskUserQuestionTool,
   buildBuiltinTools,
   createBuiltinSandboxManager,
+  createFilesystemWorkerLaunchSpecProvider,
+  FilesystemWorkerClient,
   buildDefaultContextBudgetPolicy,
   buildSkillAgentTool,
   buildGoalTools,
@@ -135,12 +137,26 @@ export async function createMakaCliRuntimeContext(
     },
   });
   const sandboxManager = createBuiltinSandboxManager();
+  const filesystemWorker = process.platform === 'darwin' && sandboxManager
+    ? new FilesystemWorkerClient({
+        sandboxManager,
+        getLaunchSpec: createFilesystemWorkerLaunchSpecProvider({
+          runtime: 'node',
+          resourceLocation: { kind: 'runtime' },
+        }),
+      })
+    : undefined;
   const tools = buildBuiltinTools({
     shellRuns,
     runtimeResources: shellRuns,
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
     ...(sandboxManager ? { sandboxManager } : {}),
+    ...(filesystemWorker ? {
+      filesystemWorker,
+      enableBashAdditionalPermissions: true,
+      enableFileToolAdditionalPermissions: true,
+    } : {}),
   });
   const automationManager = new AutomationManager({
     generateId: () => randomUUID(),

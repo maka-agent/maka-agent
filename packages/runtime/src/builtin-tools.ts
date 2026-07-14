@@ -6,6 +6,7 @@
 // Bash / Write / Edit go through PermissionEngine.
 
 import { z } from 'zod';
+import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute } from 'node:path';
 import {
@@ -46,10 +47,13 @@ import { linuxExecutableRoots } from './sandbox/linux-sandbox.js';
 import type { SandboxPlatform } from './sandbox/types.js';
 import type { ChildFdInput } from './child-fd-input.js';
 import {
+  normalizeAdditionalPermissionPath,
   planDeclaredBashAdditionalPermission,
+  planFileToolAdditionalPermission,
   type AdditionalPermissionPlannerContext,
   type AdditionalPermissionPlanResult,
 } from './additional-permissions.js';
+import type { FilesystemWorkerClient } from './filesystem-worker/client.js';
 
 // Generous wall-clock cap for the ripgrep-backed Grep tool. A search should be
 // near-instant; this only bounds a pathological hang now that the stream
@@ -68,6 +72,10 @@ export interface BuildBuiltinToolsOptions {
   sandboxManager?: SandboxManager;
   /** Enable only when the host consumes additional-permission approval events. */
   enableBashAdditionalPermissions?: boolean;
+  /** Sandboxed worker used for all local filesystem tools. */
+  filesystemWorker?: Pick<FilesystemWorkerClient, 'execute'>;
+  /** Enable inferred one-call path expansion for filesystem tools. */
+  enableFileToolAdditionalPermissions?: boolean;
   /** Test/embedding override. Production callers use the current process platform. */
   sandboxPlatform?: SandboxPlatform;
 }
@@ -76,13 +84,16 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   if (options.enableBashAdditionalPermissions && !options.sandboxManager) {
     throw new Error('Bash additional permissions require a sandbox manager.');
   }
+  if (options.enableFileToolAdditionalPermissions && !options.filesystemWorker) {
+    throw new Error('File tool additional permissions require a sandboxed filesystem worker.');
+  }
   const executor = options.executor ?? createLocalWorkspaceExecutor();
   const executionFacts = executor.facts;
   const readDescription = options.runtimeResources
-    ? 'Read a file from disk using path relative to session cwd, or read a whole runtime resource using ref.'
-    : 'Read a file from disk by path relative to session cwd.';
+    ? 'Read a file from disk, or read a whole runtime resource using ref.'
+    : 'Read a file from disk.';
   const fileReadParameters = z.object({
-    path: z.string().describe('A file path relative to the session cwd'),
+    path: z.string().describe('A file path; relative paths are resolved from the session cwd'),
     offset: z.number().int().nonnegative().describe('Zero-based file line offset').optional(),
     limit: z.number().int().positive().describe('Maximum file lines to read').optional(),
   }).strict();
@@ -102,6 +113,9 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   if (options.enableBashAdditionalPermissions && sandboxPlatform !== 'darwin') {
     throw new Error('Bash additional permissions are currently supported only on macOS.');
   }
+  if (options.enableFileToolAdditionalPermissions && sandboxPlatform !== 'darwin') {
+    throw new Error('File tool additional permissions are currently supported only on macOS.');
+  }
   const bashAdditionalPermissionPlanner = options.sandboxManager
     && options.enableBashAdditionalPermissions
     ? createBashAdditionalPermissionPlanner(
@@ -109,6 +123,9 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         options.permissionProfile,
         sandboxPlatform,
       )
+    : undefined;
+  const filePermissionPlanner = options.enableFileToolAdditionalPermissions
+    ? createFileToolAdditionalPermissionPlanner(options.permissionProfile)
     : undefined;
   const bashTools = options.shellRuns
     ? [buildManagedBashTool(options.shellRuns, {
@@ -155,7 +172,15 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       parameters: readParameters,
       permissionRequired: false,
       executionFacts,
-      impl: async (input, { cwd, sessionId, abortSignal }) => {
+      ...(filePermissionPlanner ? {
+        planAdditionalPermissions: filePermissionPlanner('Read', (args) => (
+          typeof args.path === 'string' && classifyRuntimeResourceRef(args.path) === 'file'
+            ? args.path
+            : undefined
+        )),
+      } : {}),
+      impl: async (input, ctx) => {
+        const { cwd, sessionId, abortSignal } = ctx;
         if ('ref' in input) {
           const { ref } = input;
           if (classifyRuntimeResourceRef(ref) !== 'runtime') {
@@ -170,6 +195,26 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         if (runtimeRef === 'unsupported') throw new Error(`Unsupported runtime resource ref: ${path}`);
         if (runtimeRef === 'runtime') {
           throw new Error('Runtime resources must be read with the ref parameter, not path');
+        }
+        if (options.filesystemWorker) {
+          const canonicalCwd = canonicalExistingPath(cwd);
+          const result = await options.filesystemWorker.execute({
+            operation: {
+              kind: 'read',
+              path,
+              ...(offset !== undefined ? { offset } : {}),
+              ...(limit !== undefined ? { limit } : {}),
+            },
+            cwd: canonicalCwd,
+            mode: ctx.permissionMode ?? 'ask',
+            ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+            ...(ctx.permissionContext?.additionalGrant
+              ? { additionalGrant: ctx.permissionContext.additionalGrant }
+              : {}),
+            ...(abortSignal ? { abortSignal } : {}),
+          });
+          if (result.kind !== 'read') throw new Error('Filesystem worker returned a mismatched Read result.');
+          return { content: result.content };
         }
         const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Read' });
         return await executor.readFile({
@@ -187,9 +232,30 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       parameters: z.object({ path: z.string(), content: z.string() }),
       permissionRequired: true,
       executionFacts,
-      impl: async ({ path, content }, { cwd }) => {
-        const { key } = await executor.writeLockKey({ cwd, path });
+      ...(filePermissionPlanner ? {
+        planAdditionalPermissions: filePermissionPlanner('Write', (args) => args.path),
+      } : {}),
+      impl: async ({ path, content }, ctx) => {
+        const { cwd } = ctx;
+        const canonicalCwd = options.filesystemWorker ? canonicalExistingPath(cwd) : cwd;
+        const key = options.filesystemWorker
+          ? await fileToolWriteLockKey(canonicalCwd, path)
+          : (await executor.writeLockKey({ cwd, path })).key;
         return await withFileWriteLock(key, async () => {
+          if (options.filesystemWorker) {
+            const result = await options.filesystemWorker.execute({
+              operation: { kind: 'write', path, content },
+              cwd: canonicalCwd,
+              mode: ctx.permissionMode ?? 'ask',
+              ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+              ...(ctx.permissionContext?.additionalGrant
+                ? { additionalGrant: ctx.permissionContext.additionalGrant }
+                : {}),
+              ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+            });
+            if (result.kind !== 'write') throw new Error('Filesystem worker returned a mismatched Write result.');
+            return { ok: result.ok, path: result.path, bytes: result.bytes };
+          }
           const { path: resolvedPath } = await executor.resolveWritablePath({ cwd, path, label: 'Write' });
           return await executor.writeFile({ cwd, path: resolvedPath, content });
         });
@@ -211,9 +277,42 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       }),
       permissionRequired: true,
       executionFacts,
-      impl: async ({ path, old_string, new_string }, { cwd }) => {
-        const { key } = await executor.writeLockKey({ cwd, path });
+      ...(filePermissionPlanner ? {
+        planAdditionalPermissions: filePermissionPlanner('Edit', (args) => args.path),
+      } : {}),
+      impl: async ({ path, old_string, new_string }, ctx) => {
+        const { cwd } = ctx;
+        const canonicalCwd = options.filesystemWorker ? canonicalExistingPath(cwd) : cwd;
+        const key = options.filesystemWorker
+          ? await fileToolWriteLockKey(canonicalCwd, path)
+          : (await executor.writeLockKey({ cwd, path })).key;
         return await withFileWriteLock(key, async () => {
+          if (options.filesystemWorker) {
+            const result = await options.filesystemWorker.execute({
+              operation: {
+                kind: 'edit',
+                path,
+                oldString: old_string,
+                newString: new_string,
+              },
+              cwd: canonicalCwd,
+              mode: ctx.permissionMode ?? 'ask',
+              ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+              ...(ctx.permissionContext?.additionalGrant
+                ? { additionalGrant: ctx.permissionContext.additionalGrant }
+                : {}),
+              ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+            });
+            if (result.kind !== 'edit') throw new Error('Filesystem worker returned a mismatched Edit result.');
+            return {
+              ok: result.ok,
+              path: result.path,
+              replacements: result.replacements,
+              matchedVia: result.matchedVia,
+              startLine: result.startLine,
+              endLine: result.endLine,
+            };
+          }
           const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Edit' });
           const { content: current } = await executor.readFile({ cwd, path: resolvedPath });
           const result = computeEditedSource(current, old_string, new_string, path);
@@ -246,9 +345,32 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       }),
       permissionRequired: true,
       executionFacts,
-      impl: async ({ path, sort_keys }, { cwd }) => {
-        const { key } = await executor.writeLockKey({ cwd, path });
+      ...(filePermissionPlanner ? {
+        planAdditionalPermissions: filePermissionPlanner('FormatJson', (args) => args.path),
+      } : {}),
+      impl: async ({ path, sort_keys }, ctx) => {
+        const { cwd } = ctx;
+        const canonicalCwd = options.filesystemWorker ? canonicalExistingPath(cwd) : cwd;
+        const key = options.filesystemWorker
+          ? await fileToolWriteLockKey(canonicalCwd, path)
+          : (await executor.writeLockKey({ cwd, path })).key;
         return await withFileWriteLock(key, async () => {
+          if (options.filesystemWorker) {
+            const result = await options.filesystemWorker.execute({
+              operation: { kind: 'format_json', path, sortKeys: sort_keys ?? false },
+              cwd: canonicalCwd,
+              mode: ctx.permissionMode ?? 'ask',
+              ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+              ...(ctx.permissionContext?.additionalGrant
+                ? { additionalGrant: ctx.permissionContext.additionalGrant }
+                : {}),
+              ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+            });
+            if (result.kind !== 'format_json') {
+              throw new Error('Filesystem worker returned a mismatched FormatJson result.');
+            }
+            return result;
+          }
           const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'FormatJson' });
           const { content: original } = await executor.readFile({ cwd, path: resolvedPath });
           const bytesBefore = Buffer.byteLength(original, 'utf8');
@@ -292,8 +414,27 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       }),
       permissionRequired: false,
       executionFacts,
-      impl: async ({ pattern, cwd: relCwd }, { cwd }) => {
+      ...(filePermissionPlanner ? {
+        planAdditionalPermissions: filePermissionPlanner('Glob', (args) => args.cwd ?? '.'),
+      } : {}),
+      impl: async ({ pattern, cwd: relCwd }, ctx) => {
+        const { cwd } = ctx;
         assertRelativeGlobPattern(pattern);
+        if (options.filesystemWorker) {
+          const canonicalCwd = canonicalExistingPath(cwd);
+          const result = await options.filesystemWorker.execute({
+            operation: { kind: 'glob', path: relCwd ?? '.', pattern, limit: 200 },
+            cwd: canonicalCwd,
+            mode: ctx.permissionMode ?? 'ask',
+            ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+            ...(ctx.permissionContext?.additionalGrant
+              ? { additionalGrant: ctx.permissionContext.additionalGrant }
+              : {}),
+            ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+          });
+          if (result.kind !== 'glob') throw new Error('Filesystem worker returned a mismatched Glob result.');
+          return { files: result.files };
+        }
         const { path: base } = await executor.resolveExistingPath({
           cwd,
           path: relCwd ?? '.',
@@ -313,7 +454,34 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       }),
       permissionRequired: false,
       executionFacts,
-      impl: async ({ pattern, path, glob }, { cwd, abortSignal }) => {
+      ...(filePermissionPlanner ? {
+        planAdditionalPermissions: filePermissionPlanner('Grep', (args) => args.path ?? '.'),
+      } : {}),
+      impl: async ({ pattern, path, glob }, ctx) => {
+        const { cwd, abortSignal } = ctx;
+        if (options.filesystemWorker) {
+          const canonicalCwd = canonicalExistingPath(cwd);
+          const result = await options.filesystemWorker.execute({
+            operation: {
+              kind: 'grep',
+              path: path ?? '.',
+              pattern,
+              ...(glob ? { glob } : {}),
+              maxCountPerFile: 50,
+              limit: 200,
+              timeoutMs: GREP_TIMEOUT_MS,
+            },
+            cwd: canonicalCwd,
+            mode: ctx.permissionMode ?? 'ask',
+            ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+            ...(ctx.permissionContext?.additionalGrant
+              ? { additionalGrant: ctx.permissionContext.additionalGrant }
+              : {}),
+            ...(abortSignal ? { abortSignal } : {}),
+          });
+          if (result.kind !== 'grep') throw new Error('Filesystem worker returned a mismatched Grep result.');
+          return { matches: result.matches };
+        }
         const { path: searchPath } = await executor.resolveExistingPath({
           cwd,
           path: path ?? '.',
@@ -449,10 +617,11 @@ function sandboxCommand(
   fdInputs?: readonly ChildFdInput[];
 } | undefined {
   if (pty) return undefined;
+  const cwd = canonicalExistingPath(ctx.cwd);
   const effective = effectivePermissionProfile(
     explicitProfile,
     ctx.permissionMode ?? 'ask',
-    ctx.cwd,
+    cwd,
   );
   if (!manager.canEnforce({ profile: effective.profile, platform })) return undefined;
 
@@ -463,13 +632,16 @@ function sandboxCommand(
     command: {
       program: '/bin/sh',
       args: ['-c', command],
-      cwd: ctx.cwd,
+      cwd,
       env,
       profile: effective.profile,
       pathContext: {
         workspaceRoots: effective.workspaceRoots,
         tmpdir: tmpdir(),
         slashTmp: '/tmp',
+        ...(platform === 'darwin' ? {
+          executableRoots: macosRuntimeExecutableRoots(process.execPath),
+        } : {}),
         ...(platform === 'linux' ? {
           minimalRoots: linuxExecutableRoots({
             execPath: process.execPath,
@@ -491,13 +663,30 @@ function sandboxCommand(
   };
 }
 
+function canonicalExistingPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+function macosRuntimeExecutableRoots(execPath: string): readonly string[] {
+  return [
+    ...linuxExecutableRoots({ execPath }),
+    ...(execPath.startsWith('/opt/homebrew/') ? ['/opt/homebrew'] : []),
+    ...(execPath.startsWith('/usr/local/') ? ['/usr/local'] : []),
+  ];
+}
+
 function effectivePermissionProfile(
   explicitProfile: PermissionProfile | undefined,
   permissionMode: NonNullable<MakaToolContext['permissionMode']>,
   cwd: string,
 ): { profile: PermissionProfile; workspaceRoots: readonly string[] } {
-  if (explicitProfile) return { profile: explicitProfile, workspaceRoots: [cwd] };
-  const compiled = compilePermissionProfile({ mode: permissionMode, cwd });
+  const canonicalCwd = canonicalExistingPath(cwd);
+  if (explicitProfile) return { profile: explicitProfile, workspaceRoots: [canonicalCwd] };
+  const compiled = compilePermissionProfile({ mode: permissionMode, cwd: canonicalCwd });
   return { profile: compiled.profile, workspaceRoots: compiled.workspaceRoots };
 }
 
@@ -518,8 +707,8 @@ function createBashAdditionalPermissionPlanner(
         profile: effective.profile,
         workspaceRoots: effective.workspaceRoots,
         pathContext: {
-          tmpdir: tmpdir(),
-          slashTmp: '/tmp',
+          tmpdir: canonicalExistingPath(tmpdir()),
+          slashTmp: canonicalExistingPath('/tmp'),
         },
       },
     });
@@ -545,6 +734,47 @@ function createBashAdditionalPermissionPlanner(
     }
     return plan;
   };
+}
+
+type FileToolAdditionalPermissionName = 'Read' | 'Write' | 'Edit' | 'FormatJson' | 'Glob' | 'Grep';
+type FileToolPathSelector = (args: Record<string, any>) => string | undefined;
+
+function createFileToolAdditionalPermissionPlanner(
+  explicitProfile: PermissionProfile | undefined,
+): (
+  toolName: FileToolAdditionalPermissionName,
+  selectPath: FileToolPathSelector,
+) => NonNullable<MakaTool['planAdditionalPermissions']> {
+  return (toolName, selectPath) => async (args, context) => {
+    const path = selectPath(args as Record<string, any>);
+    if (!path) return { kind: 'not_required' };
+    const effective = effectivePermissionProfile(explicitProfile, context.mode, context.cwd);
+    return await planFileToolAdditionalPermission({
+      toolName,
+      path,
+      cwd: context.cwd,
+      mode: context.mode,
+      args: context.args,
+      context: {
+        profile: effective.profile,
+        workspaceRoots: effective.workspaceRoots,
+        pathContext: {
+          tmpdir: canonicalExistingPath(tmpdir()),
+          slashTmp: canonicalExistingPath('/tmp'),
+        },
+      },
+    });
+  };
+}
+
+async function fileToolWriteLockKey(cwd: string, path: string): Promise<string> {
+  const target = await normalizeAdditionalPermissionPath({
+    path,
+    access: 'write',
+    scope: 'exact',
+    cwd,
+  });
+  return target.enforcementPath;
 }
 
 function isPtyBashArgs(args: unknown): boolean {

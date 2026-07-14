@@ -1,6 +1,30 @@
+// Provider add-flow E2E — representative journeys only.
+//
+// This suite deliberately keeps a handful of journeys, NOT one clone per
+// provider. The add flow (open settings → catalog → tab → search → open →
+// assert form defaults → save → assert detail + brand-mark render contract) is
+// identical across every catalog provider, so exercising it once proves the
+// mechanism. The per-provider *facts* it used to re-assert (label, base URL,
+// default model, catalog group, and that a real brand mark is registered) are
+// covered by registry-driven contract tests that auto-cover new providers with
+// zero manual updates:
+//   - packages/core/src/__tests__/provider-catalog-contract.test.ts
+//     (structural invariants over CATALOG_PROVIDER_TYPES)
+//   - apps/desktop/src/main/__tests__/icon-governance-contract.test.ts
+//     ("renders a registered brand mark for every catalog provider")
+//
+// Adding a provider: do NOT copy an add-flow test here. The contract tests
+// above cover its facts. Add an E2E only for a genuinely new *behavior* (a new
+// credential field, a derived endpoint, a gating rule), not a new data point.
+
 import { test, expect } from './fixtures';
 
-test('adds SiliconFlow from the provider catalog as an in-pane Settings flow', async ({ window: page }) => {
+// Canonical API-key add journey. Cerebras is the concrete stand-in only because
+// it is the strongest exercise of the color-asset render contract (a real
+// upstream <img> mark that must stay untouched in BOTH light and dark themes);
+// the assertions below validate the *flow and the colorAssetRenderContract
+// mechanism*, not Cerebras's data — that lives in the registry contract tests.
+test('adds a catalog provider through the canonical API-key journey (search, tab, colored mark, form defaults)', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();
   await expect(page.getByLabel('设置内容')).toBeVisible();
@@ -9,89 +33,19 @@ test('adds SiliconFlow from the provider catalog as an in-pane Settings flow', a
   await page.getByRole('button', { name: '添加服务商' }).click();
 
   await expect(page.getByPlaceholder('搜索服务商')).toBeVisible();
-  await page.getByPlaceholder('搜索服务商').fill('SiliconFlow');
-  await page.getByRole('button', { name: /添加模型供应商：SiliconFlow/ }).click();
-
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('moonshotai/Kimi-K2.6');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'SiliconFlow', exact: true }).first()).toBeVisible();
-  await expect(page.getByText('moonshotai/Kimi-K2.6', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.providerConfigOverlay')).toHaveCount(0);
-});
-
-test('adds Vercel AI Gateway with its exact identity, endpoint, model id, and shared mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  // Vercel AI Gateway belongs to the user-facing aggregator catalog group.
-  await page.getByRole('tab', { name: '聚合服务', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Vercel AI Gateway');
-  const catalogMark = page.locator('.providerCatalogRow[data-provider="vercel"] .providerLogo .providerAssetMask');
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
-  await page.getByRole('button', { name: /添加模型供应商：Vercel AI Gateway/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('vercel');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://ai-gateway.vercel.sh/v1');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('anthropic/claude-opus-4.8');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Vercel AI Gateway', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="vercel"] .providerAssetMask');
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
-  await expect(page.getByText('anthropic/claude-opus-4.8', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-test('adds Ollama Cloud as an independent remote provider with the shared Ollama mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Ollama Cloud');
-  const catalogMark = page.locator('.providerCatalogRow[data-provider="ollama-cloud"] .providerLogo svg');
-  await expect(catalogMark).toBeVisible();
-  await page.getByRole('button', { name: /添加模型供应商：Ollama Cloud/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('ollama-cloud');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://ollama.com/v1');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('qwen3.5:397b');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Ollama Cloud', exact: true }).first()).toBeVisible();
-  await expect(page.locator('.providerSubpageHeader .providerLogo[data-provider="ollama-cloud"] svg')).toBeVisible();
-  await expect(page.getByText('qwen3.5:397b', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-test('adds Cerebras with its exact snapshot model and API-key credential field', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
   await page.getByRole('tab', { name: 'API', exact: true }).click();
   await page.getByPlaceholder('搜索服务商').fill('Cerebras');
+
+  // A color brand asset renders as an untouched <img>: no currentColor mask, no
+  // CSS paint, no color filter — and stays invariant across the theme flip.
   const catalogMark = page.locator('.providerCatalogRow[data-provider="cerebras"] .providerLogo img');
   await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual({
-    usesAssetMask: false,
-    hasCssPaint: false,
-    hasColorFilter: false,
-  });
+  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
   await page.evaluate(() => document.documentElement.classList.add('dark'));
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual({
-    usesAssetMask: false,
-    hasCssPaint: false,
-    hasColorFilter: false,
-  });
+  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
+
   await page.getByRole('button', { name: /添加模型供应商：Cerebras/ }).click();
+  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('cerebras');
   await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.cerebras.ai/v1');
   await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('gpt-oss-120b');
   await page.getByRole('button', { name: '保存供应商' }).click();
@@ -99,221 +53,16 @@ test('adds Cerebras with its exact snapshot model and API-key credential field',
   await expect(page.getByRole('heading', { name: 'Cerebras', exact: true }).first()).toBeVisible();
   const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="cerebras"] img');
   await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual({
-    usesAssetMask: false,
-    hasCssPaint: false,
-    hasColorFilter: false,
-  });
+  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
   await expect(page.getByText('gpt-oss-120b', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
 });
 
-test('adds NVIDIA with its exact snapshot model and shared upstream mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('NVIDIA');
-  const catalogMark = page.locator('.providerCatalogRow[data-provider="nvidia"] .providerLogo img');
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：NVIDIA/ }).click();
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://integrate.api.nvidia.com/v1');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('nvidia/nemotron-3-super-120b-a12b');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'NVIDIA', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="nvidia"] img');
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('nvidia/nemotron-3-super-120b-a12b', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-test('adds MiniMax Coding Plan under its independent provider id with an exact snapshot model', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: '模型计划' }).click();
-  await page.getByPlaceholder('搜索服务商').fill('MiniMax Coding Plan');
-  await expect(
-    page.locator('.providerCatalogRow[data-provider="minimax-coding-plan"] .providerLogo img[src*="minimax-logo-only-vertical-color-bg-white-text-"]'),
-  ).toBeVisible();
-  await page.getByRole('button', { name: /添加模型供应商：MiniMax Coding Plan/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('minimax-coding-plan');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.minimax.io/anthropic');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('MiniMax-M3');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'MiniMax Coding Plan', exact: true }).first()).toBeVisible();
-  await expect(
-    page.locator('.providerSubpageHeader .providerLogo[data-provider="minimax-coding-plan"] img[src*="minimax-logo-only-vertical-color-bg-white-text-"]'),
-  ).toBeVisible();
-  await expect(page.getByText('MiniMax-M3', { exact: true }).first()).toBeVisible();
-});
-
-test('adds Tencent Coding Plan with its exact access path and shared Tencent Cloud mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: '模型计划' }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Tencent Coding Plan');
-  const catalogMark = page.locator(
-    '.providerCatalogRow[data-provider="tencent-coding-plan"] .providerLogo img',
-  );
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：Tencent Coding Plan/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('tencent-coding-plan');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.lkeap.cloud.tencent.com/coding/v3');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('tc-code-latest');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Tencent Coding Plan (China)', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator(
-    '.providerSubpageHeader .providerLogo[data-provider="tencent-coding-plan"] img',
-  );
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('tc-code-latest', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-test('adds Tencent Token Plan with its exact access path and shared Tencent Cloud mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: '模型计划' }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Tencent Token Plan');
-  const catalogMark = page.locator(
-    '.providerCatalogRow[data-provider="tencent-token-plan"] .providerLogo img',
-  );
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：Tencent Token Plan/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('tencent-token-plan');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.lkeap.cloud.tencent.com/plan/v3');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('tc-code-latest');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Tencent Token Plan', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator(
-    '.providerSubpageHeader .providerLogo[data-provider="tencent-token-plan"] img',
-  );
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('tc-code-latest', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-test('adds xAI with its exact snapshot model and API-key credential field', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('xAI');
-  const catalogMark = page.locator('.providerCatalogRow[data-provider="xai"] .providerLogo .providerAssetMask');
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
-  await page.getByRole('button', { name: /添加模型供应商：xAI/ }).click();
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('grok-4.5');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'xAI', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="xai"] .providerAssetMask');
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
-  await expect(page.getByText('grok-4.5', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-test('adds Together AI with its exact snapshot model and upstream color mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Together AI');
-  const catalogMark = page.locator('.providerCatalogRow[data-provider="togetherai"] .providerLogo img');
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：Together AI/ }).click();
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('MiniMaxAI/MiniMax-M3');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Together AI', exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="togetherai"] img');
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('MiniMaxAI/MiniMax-M3', { exact: true }).first()).toBeVisible();
-});
-
-test('adds DeepInfra with its exact snapshot model and upstream color mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Deep Infra');
-  const catalogMark = page.locator('.providerCatalogRow[data-provider="deepinfra"] .providerLogo img');
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：Deep Infra/ }).click();
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('deepinfra');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.deepinfra.com/v1/openai');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('moonshotai/Kimi-K2.7-Code');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Deep Infra', exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="deepinfra"] img');
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('moonshotai/Kimi-K2.7-Code', { exact: true }).first()).toBeVisible();
-});
-
-test('adds Groq with its exact snapshot model and upstream monochrome mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Groq');
-  const catalogMark = page.locator('.providerCatalogRow[data-provider="groq"] .providerLogo .providerAssetMask');
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
-  await page.getByRole('button', { name: /添加模型供应商：Groq/ }).click();
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('groq');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.groq.com/openai/v1');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('llama-3.3-70b-versatile');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Groq', exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="groq"] .providerAssetMask');
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
-  await expect(page.getByText('llama-3.3-70b-versatile', { exact: true }).first()).toBeVisible();
-});
-
-test('adds Cloudflare Workers AI with an account-scoped endpoint and exact model id', async ({ window: page }) => {
+// Distinct form behavior: an account-scoped provider has no fixed base URL —
+// the endpoint is derived from an account-id field, so the plain base-URL input
+// is absent until the account id is supplied. Kept because this form shape is
+// unique, not because Cloudflare's data differs from other providers.
+test('derives an account-scoped endpoint from the Cloudflare account-id field', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();
   await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
@@ -321,125 +70,27 @@ test('adds Cloudflare Workers AI with an account-scoped endpoint and exact model
 
   await page.getByRole('tab', { name: 'API', exact: true }).click();
   await page.getByPlaceholder('搜索服务商').fill('Cloudflare Workers AI');
-  const catalogMark = page.locator(
-    '.providerCatalogRow[data-provider="cloudflare-workers-ai"] .providerLogo img',
-  );
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
   await page.getByRole('button', { name: /添加模型供应商：Cloudflare Workers AI/ }).click();
 
   const accountId = 'account-123';
   const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`;
   await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('cloudflare-workers-ai');
+  // The plain base-URL input is replaced by the account-id field; the endpoint
+  // is derived, not typed.
   await expect(page.getByLabel('Cloudflare 账户 ID')).toHaveValue('');
   await expect(page.getByLabel('模型供应商服务地址')).toHaveCount(0);
   await page.getByLabel('Cloudflare 账户 ID').fill(accountId);
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('@cf/moonshotai/kimi-k2.6');
   await page.getByRole('button', { name: '保存供应商' }).click();
 
   await expect(page.getByRole('heading', { name: 'Cloudflare Workers AI', exact: true }).first()).toBeVisible();
   await expect(page.getByRole('textbox', { name: '服务地址', exact: true })).toHaveValue(baseUrl);
-  const detailMark = page.locator(
-    '.providerSubpageHeader .providerLogo[data-provider="cloudflare-workers-ai"] img',
-  );
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('@cf/moonshotai/kimi-k2.6', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
 });
 
-test('adds Fireworks AI with its exact snapshot model and shared upstream mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Fireworks AI');
-  const catalogMark = page.locator(
-    '.providerCatalogRow[data-provider="fireworks-ai"] .providerLogo img',
-  );
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：Fireworks AI/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('fireworks-ai');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.fireworks.ai/inference/v1/');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('accounts/fireworks/models/kimi-k2p6');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Fireworks AI', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator(
-    '.providerSubpageHeader .providerLogo[data-provider="fireworks-ai"] img',
-  );
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('accounts/fireworks/models/kimi-k2p6', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-for (const provider of [
-  { type: 'xiaomi', label: 'Xiaomi', modelId: 'mimo-v2.5', baseUrl: 'https://api.xiaomimimo.com/v1' },
-  { type: 'zai', label: 'Z.AI', modelId: 'glm-5.2', baseUrl: 'https://api.z.ai/api/paas/v4' },
-] as const) {
-  test(`adds ${provider.label} with its exact snapshot model and shared asset mark`, async ({ window: page }) => {
-    await page.getByRole('button', { name: '展开侧边栏' }).click();
-    await page.getByRole('button', { name: '设置' }).click();
-    await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-    await page.getByRole('button', { name: '添加服务商' }).click();
-
-    await page.getByRole('tab', { name: 'API', exact: true }).click();
-    await page.getByPlaceholder('搜索服务商').fill(provider.label);
-    const catalogMark = page.locator(
-      `.providerCatalogRow[data-provider="${provider.type}"] .providerLogo .providerAssetMask`,
-    );
-    await expect(catalogMark).toBeVisible();
-    expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
-    await page.getByRole('button', { name: new RegExp(`添加模型供应商：${provider.label}`) }).click();
-
-    await expect(page.getByLabel('模型供应商服务地址')).toHaveValue(provider.baseUrl);
-    await expect(page.getByLabel('模型供应商默认模型')).toHaveValue(provider.modelId);
-    await page.getByRole('button', { name: '保存供应商' }).click();
-
-    await expect(page.getByRole('heading', { name: provider.label, exact: true }).first()).toBeVisible();
-    const detailMark = page.locator(
-      `.providerSubpageHeader .providerLogo[data-provider="${provider.type}"] .providerAssetMask`,
-    );
-    await expect(detailMark).toBeVisible();
-    expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
-    await expect(page.getByText(provider.modelId, { exact: true }).first()).toBeVisible();
-    await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-  });
-}
-
-function maskRenderContract(element: Element): { usesAssetMask: boolean; followsForeground: boolean } {
-  const style = getComputedStyle(element);
-  return {
-    usesAssetMask: style.maskImage.startsWith('url('),
-    followsForeground: style.backgroundColor === style.color,
-  };
-}
-
-const COLOR_ASSET_RENDER_CONTRACT = {
-  usesAssetMask: false,
-  hasCssPaint: false,
-  hasColorFilter: false,
-};
-
-function colorAssetRenderContract(element: Element): {
-  usesAssetMask: boolean;
-  hasCssPaint: boolean;
-  hasColorFilter: boolean;
-} {
-  const style = getComputedStyle(element);
-  return {
-    usesAssetMask: style.maskImage !== 'none',
-    hasCssPaint: style.backgroundColor !== 'rgba(0, 0, 0, 0)',
-    hasColorFilter: style.filter !== 'none' || style.opacity !== '1',
-  };
-}
-
-test('adds LM Studio as a no-auth local runtime with the shared official mark', async ({ window: page }) => {
+// Distinct form behavior: a no-auth local runtime shows no API-key field at all
+// and ships no default model. Also the representative currentColor-mask render
+// contract (monochrome brand asset), the counterpart to the color-<img> path.
+test('adds a no-auth local runtime with no key field and a currentColor mask mark', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();
   await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
@@ -467,251 +118,6 @@ test('adds LM Studio as a no-auth local runtime with the shared official mark', 
   await expect(detailMark).toBeVisible();
   expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
   await expect(page.getByLabel(/LM Studio 模型密钥/)).toHaveCount(0);
-});
-
-test('adds LocalAI with its default endpoint, optional key, and official mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: '本地' }).click();
-  await page.getByPlaceholder('搜索服务商').fill('LocalAI');
-  const catalogMark = page.locator(
-    '.providerCatalogRow[data-provider="localai"] .providerLogo img',
-  );
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：LocalAI/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('localai');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('http://localhost:8080/v1');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('qwen3-8b');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'LocalAI', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator(
-    '.providerSubpageHeader .providerLogo[data-provider="localai"] img',
-  );
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-test('adds Mistral with its exact snapshot model, API-key field, and shared official mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Mistral');
-  const catalogMark = page.locator(
-    '.providerCatalogRow[data-provider="mistral"] .providerLogo img',
-  );
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：Mistral/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('mistral');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.mistral.ai/v1');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('mistral-large-latest');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Mistral', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator(
-    '.providerSubpageHeader .providerLogo[data-provider="mistral"] img',
-  );
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('mistral-large-latest', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-test('adds Cohere with its exact snapshot model, API-key field, and shared official mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Cohere');
-  const catalogMark = page.locator(
-    '.providerCatalogRow[data-provider="cohere"] .providerLogo img',
-  );
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：Cohere/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('cohere');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.cohere.com/v2');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('command-a-plus-05-2026');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Cohere', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator(
-    '.providerSubpageHeader .providerLogo[data-provider="cohere"] img',
-  );
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('command-a-plus-05-2026', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-test('adds Hugging Face with its exact routed model, token field, and shared official mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: '聚合服务', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Hugging Face');
-  const catalogMark = page.locator(
-    '.providerCatalogRow[data-provider="huggingface"] .providerLogo img',
-  );
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：Hugging Face/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('huggingface');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://router.huggingface.co/v1');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('openai/gpt-oss-120b');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Hugging Face', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator(
-    '.providerSubpageHeader .providerLogo[data-provider="huggingface"] img',
-  );
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('openai/gpt-oss-120b', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-test('adds Tencent TokenHub with its exact snapshot model, API-key field, and shared official mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Tencent');
-  const catalogMark = page.locator(
-    '.providerCatalogRow[data-provider="tencent-tokenhub"] .providerLogo img',
-  );
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：Tencent TokenHub/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('tencent-tokenhub');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://tokenhub.tencentmaas.com/v1');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('hy3');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Tencent TokenHub', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator(
-    '.providerSubpageHeader .providerLogo[data-provider="tencent-tokenhub"] img',
-  );
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('hy3', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-for (const stepfun of [
-  { label: 'StepFun (China)', providerType: 'stepfun', baseUrl: 'https://api.stepfun.com/v1', tab: 'API', model: 'step-3.7-flash' },
-  { label: 'StepFun Step Plan (China)', providerType: 'stepfun-step-plan', baseUrl: 'https://api.stepfun.com/step_plan/v1', tab: '模型计划', model: 'step-3.7-flash' },
-  { label: 'StepFun (Global)', providerType: 'stepfun-ai', baseUrl: 'https://api.stepfun.ai/v1', tab: 'API', model: 'step-3.7-flash' },
-  { label: 'StepFun Step Plan (Global)', providerType: 'stepfun-ai-step-plan', baseUrl: 'https://api.stepfun.ai/step_plan/v1', tab: '模型计划', model: 'step-3.7-flash' },
-] as const) test(`adds ${stepfun.label} with its exact snapshot model, API-key field, and shared official mark`, async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: stepfun.tab, exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('StepFun');
-  const catalogMark = page.locator(
-    `.providerCatalogRow[data-provider="${stepfun.providerType}"] .providerLogo img`,
-  );
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: `添加模型供应商：${stepfun.label}` }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue(stepfun.providerType);
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue(stepfun.baseUrl);
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue(stepfun.model);
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: stepfun.label, exact: true }).first()).toBeVisible();
-  const detailMark = page.locator(
-    `.providerSubpageHeader .providerLogo[data-provider="${stepfun.providerType}"] img`,
-  );
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText(stepfun.model, { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-test('adds Volcengine Ark China with its exact snapshot model, API-key field, and shared official mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: 'API', exact: true }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Volcengine');
-  const catalogMark = page.locator(
-    '.providerCatalogRow[data-provider="volcengine-ark"] .providerLogo img',
-  );
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：Volcengine Ark \(China\)/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('volcengine-ark');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://ark.cn-beijing.volces.com/api/v3');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('doubao-seed-2-0-pro-260215');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Volcengine Ark (China)', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator(
-    '.providerSubpageHeader .providerLogo[data-provider="volcengine-ark"] img',
-  );
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('doubao-seed-2-0-pro-260215', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-});
-
-test('adds Volcengine Ark Coding Plan under its independent access path and shared official mark', async ({ window: page }) => {
-  await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
-  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
-
-  await page.getByRole('tab', { name: '模型计划' }).click();
-  await page.getByPlaceholder('搜索服务商').fill('Volcengine');
-  const catalogMark = page.locator(
-    '.providerCatalogRow[data-provider="volcengine-coding-plan"] .providerLogo img',
-  );
-  await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await page.getByRole('button', { name: /添加模型供应商：Volcengine Ark Coding Plan \(China\)/ }).click();
-
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('volcengine-coding-plan');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://ark.cn-beijing.volces.com/api/coding/v3');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('ark-code-latest');
-  await page.getByRole('button', { name: '保存供应商' }).click();
-
-  await expect(page.getByRole('heading', { name: 'Volcengine Ark Coding Plan (China)', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator(
-    '.providerSubpageHeader .providerLogo[data-provider="volcengine-coding-plan"] img',
-  );
-  await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('ark-code-latest', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '刷新模型列表' })).toBeDisabled();
 });
 
 test('restores keyboard focus across provider child pages', async ({ window: page }) => {
@@ -745,3 +151,30 @@ test('restores keyboard focus across provider child pages', async ({ window: pag
   await page.keyboard.press('Enter');
   await expect(existingConnection).toBeFocused();
 });
+
+function maskRenderContract(element: Element): { usesAssetMask: boolean; followsForeground: boolean } {
+  const style = getComputedStyle(element);
+  return {
+    usesAssetMask: style.maskImage.startsWith('url('),
+    followsForeground: style.backgroundColor === style.color,
+  };
+}
+
+const COLOR_ASSET_RENDER_CONTRACT = {
+  usesAssetMask: false,
+  hasCssPaint: false,
+  hasColorFilter: false,
+};
+
+function colorAssetRenderContract(element: Element): {
+  usesAssetMask: boolean;
+  hasCssPaint: boolean;
+  hasColorFilter: boolean;
+} {
+  const style = getComputedStyle(element);
+  return {
+    usesAssetMask: style.maskImage !== 'none',
+    hasCssPaint: style.backgroundColor !== 'rgba(0, 0, 0, 0)',
+    hasColorFilter: style.filter !== 'none' || style.opacity !== '1',
+  };
+}

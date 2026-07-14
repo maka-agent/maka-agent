@@ -74,6 +74,25 @@ export function deriveProviderAuthContract(input: ProviderAuthContractInput): Pr
   const defaults = PROVIDER_DEFAULTS[input.providerType];
   const enabled = input.enabled ?? true;
   const hasSecret = Boolean(input.hasSecret);
+  // Unknown providerType (legacy seed, or a connection persisted on a branch
+  // that registers a provider this build doesn't know) → surface a non-real,
+  // non-actionable contract so the settings row renders instead of crashing.
+  // Mirrors `isFakeBackend` in connection-readiness.ts.
+  if (!defaults) {
+    return {
+      providerType: input.providerType,
+      setupMode: 'none',
+      state: enabled ? 'not_configured' : 'disabled',
+      validationStatus: 'not_required',
+      requiresSecret: false,
+      sendMayUseWithoutSecret: false,
+      actionAvailability: hiddenActions(),
+      copy: {
+        label: `${input.providerType} 未知或已迁移`,
+        detail: '该连接使用的 provider 在当前版本未注册；配置会保留，切回支持它的版本即可继续使用。',
+      },
+    };
+  }
   const supportsModelDiscovery = defaults.modelDiscovery.kind !== 'fallback';
   const actionAvailability = hiddenActions();
 
@@ -240,7 +259,7 @@ function setupModeForAuthKind(authKind: ConnectionAuth['kind']): ProviderAuthSet
 }
 
 function setupModeForProvider(providerType: ProviderType): ProviderAuthSetupMode {
-  const authKind = PROVIDER_DEFAULTS[providerType].authKind;
+  const authKind = PROVIDER_DEFAULTS[providerType]?.authKind;
   if (authKind === 'oauth_token' && WIRED_OAUTH_PROVIDERS.has(providerType)) return 'oauth';
   return setupModeForAuthKind(authKind);
 }

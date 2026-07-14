@@ -345,6 +345,9 @@ describe('chat readiness guard', () => {
         async getDefaultSlug() {
           return 'zai-coding-plan';
         },
+        async listConnectionSlugs() {
+          return [];
+        },
         async updateSession(_sessionId, patch) {
           updates.push(patch);
         },
@@ -396,6 +399,9 @@ describe('chat readiness guard', () => {
           async getDefaultSlug() {
             return 'zai-coding-plan';
           },
+          async listConnectionSlugs() {
+            return [];
+          },
           async updateSession(_sessionId, patch) {
             updates.push(patch);
           },
@@ -423,6 +429,9 @@ describe('chat readiness guard', () => {
           async getDefaultSlug() {
             return 'anthropic';
           },
+          async listConnectionSlugs() {
+            return [];
+          },
           async updateSession(_sessionId, patch) {
             updates.push(patch);
           },
@@ -447,10 +456,53 @@ describe('chat readiness guard', () => {
         async getDefaultSlug() {
           return 'anthropic';
         },
+        async listConnectionSlugs() {
+          return [];
+        },
         async updateSession(_sessionId, patch) {
           updates.push(patch);
         },
       },
+    );
+
+    assert.deepEqual(result, {
+      rebound: true,
+      connectionSlug: 'anthropic',
+      modelId: 'claude-3-5-sonnet-20241022',
+    });
+    assert.equal(updates.length, 1);
+  });
+
+  test('rebinds an unknown-provider session to the first existing ready connection', async () => {
+    const updates: unknown[] = [];
+    const rebindDeps = {
+      readyConnectionDeps: keyedDeps({
+        'branch-only-provider': {
+          connection: connection({
+            slug: 'branch-only-provider',
+            name: 'Branch-only provider',
+            providerType: 'branch-only-provider' as never,
+            defaultModel: 'branch-model',
+          }),
+          apiKey: 'gsk-test',
+        },
+        anthropic: { connection: connection(), apiKey: 'sk-test' },
+      }),
+      async getDefaultSlug() {
+        return 'branch-only-provider';
+      },
+      async listConnectionSlugs() {
+        return ['branch-only-provider', 'anthropic'];
+      },
+      async updateSession(_sessionId: string, patch: unknown) {
+        updates.push(patch);
+      },
+    };
+
+    const result = await ensureSessionCanSendOrRebind(
+      'session-unknown-provider',
+      header({ llmConnectionSlug: 'branch-only-provider', model: 'branch-model' }),
+      rebindDeps,
     );
 
     assert.deepEqual(result, {
@@ -471,6 +523,9 @@ describe('chat readiness guard', () => {
           readyConnectionDeps: keyedDeps({}),
           async getDefaultSlug() {
             return null;
+          },
+          async listConnectionSlugs() {
+            return ['missing'];
           },
           async updateSession() {
             throw new Error('must not update');

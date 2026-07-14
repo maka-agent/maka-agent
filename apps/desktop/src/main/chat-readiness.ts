@@ -31,6 +31,7 @@ export interface ReadyConnection {
 export interface SessionRebindDeps {
   readyConnectionDeps: ReadyConnectionDeps;
   getDefaultSlug(): Promise<string | null>;
+  listConnectionSlugs(): Promise<string[]>;
   updateSession(
     sessionId: string,
     patch: Pick<SessionHeader, 'backend' | 'llmConnectionSlug' | 'model' | 'connectionLocked'>,
@@ -197,12 +198,17 @@ export async function ensureSessionCanSendOrRebind(
       throw error;
     }
     const defaultSlug = await deps.getDefaultSlug();
-    let ready: ReadyConnection;
-    try {
-      ready = await requireReadyConnection(defaultSlug, deps.readyConnectionDeps);
-    } catch {
-      throw error;
+    const connectionSlugs = await deps.listConnectionSlugs().catch(() => []);
+    let ready: ReadyConnection | undefined;
+    for (const slug of new Set([defaultSlug, ...connectionSlugs])) {
+      try {
+        ready = await requireReadyConnection(slug, deps.readyConnectionDeps);
+        break;
+      } catch {
+        // Try the next persisted connection; the original error wins if none are ready.
+      }
     }
+    if (!ready) throw error;
     await deps.updateSession(sessionId, {
       backend: 'ai-sdk',
       llmConnectionSlug: ready.connection.slug,

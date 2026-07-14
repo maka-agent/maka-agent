@@ -239,7 +239,7 @@ export async function normalizeAdditionalPermissionProfile(input: {
 export async function normalizeAdditionalPermissionPath(input: {
   path: string;
   access: AdditionalPermissionAccess;
-  scope: AdditionalPermissionScope;
+  scope: AdditionalPermissionScope | 'auto';
   cwd: string;
 }): Promise<NormalizedAdditionalPermissionPath> {
   validateRawPath(input.path);
@@ -247,14 +247,17 @@ export async function normalizeAdditionalPermissionPath(input: {
   const displayPath = resolve(canonicalCwd, input.path);
   const enforcementPath = await realpathAllowMissing(displayPath);
   const targetType = await additionalPermissionTargetType(enforcementPath);
-  if (input.scope === 'subtree' && targetType !== 'directory') {
+  const scope = input.scope === 'auto'
+    ? targetType === 'directory' ? 'subtree' : 'exact'
+    : input.scope;
+  if (scope === 'subtree' && targetType !== 'directory') {
     throw invalidProfile('A subtree additional permission must target an existing directory.');
   }
   return {
     displayPath,
     enforcementPath,
     access: input.access,
-    scope: input.scope,
+    scope,
     targetType,
   };
 }
@@ -263,12 +266,35 @@ export async function revalidateAdditionalPermissionProposal(input: {
   proposal: AdditionalPermissionProposal;
   cwd: string;
 }): Promise<void> {
+  await revalidateApprovedAdditionalPermissions({
+    profile: input.proposal.profile,
+    normalizedPaths: input.proposal.normalizedPaths,
+    cwd: input.cwd,
+  });
+}
+
+export async function revalidateAdditionalPermissionGrant(input: {
+  grant: Pick<AdditionalPermissionGrant, 'profile' | 'normalizedPaths'>;
+  cwd: string;
+}): Promise<void> {
+  await revalidateApprovedAdditionalPermissions({
+    profile: input.grant.profile,
+    normalizedPaths: input.grant.normalizedPaths,
+    cwd: input.cwd,
+  });
+}
+
+async function revalidateApprovedAdditionalPermissions(input: {
+  profile: AdditionalPermissionProfile;
+  normalizedPaths: readonly NormalizedAdditionalPermissionPath[];
+  cwd: string;
+}): Promise<void> {
   const current = await normalizeAdditionalPermissionProfile({
     profile: {
-      ...(input.proposal.normalizedPaths.length > 0
+      ...(input.normalizedPaths.length > 0
         ? {
             fileSystem: {
-              entries: input.proposal.normalizedPaths.map((entry) => ({
+              entries: input.normalizedPaths.map((entry) => ({
                 path: entry.displayPath,
                 access: entry.access,
                 scope: entry.scope,
@@ -276,19 +302,19 @@ export async function revalidateAdditionalPermissionProposal(input: {
             },
           }
         : {}),
-      ...(input.proposal.profile.network ? { network: input.proposal.profile.network } : {}),
+      ...(input.profile.network ? { network: input.profile.network } : {}),
     },
     cwd: input.cwd,
   });
   if (
     serializeAdditionalPermissionProfile(current.profile)
-    !== serializeAdditionalPermissionProfile(input.proposal.profile)
+    !== serializeAdditionalPermissionProfile(input.profile)
   ) {
     throw pathChanged('An approved additional permission path changed before execution.');
   }
 
   const currentByKey = new Map(current.normalizedPaths.map((entry) => [permissionPathKey(entry), entry]));
-  if (input.proposal.normalizedPaths.some((approved) => (
+  if (input.normalizedPaths.some((approved) => (
     currentByKey.get(permissionPathKey(approved))?.targetType !== approved.targetType
   ))) {
     throw pathChanged('An approved additional permission target changed type before execution.');
@@ -308,14 +334,24 @@ export async function planFileToolAdditionalPermission(input: {
     || input.toolName === 'FormatJson'
     ? 'write'
     : 'read';
-  const scope: AdditionalPermissionScope = input.toolName === 'Glob' || input.toolName === 'Grep'
+  const scope: AdditionalPermissionScope | 'auto' = input.toolName === 'Glob'
     ? 'subtree'
-    : 'exact';
+    : input.toolName === 'Grep' ? 'auto' : 'exact';
 
   let normalized: Awaited<ReturnType<typeof normalizeAdditionalPermissionProfile>>;
   try {
+    const target = await normalizeAdditionalPermissionPath({
+      path: input.path,
+      access,
+      scope,
+      cwd: input.cwd,
+    });
     normalized = await normalizeAdditionalPermissionProfile({
-      profile: { fileSystem: { entries: [{ path: input.path, access, scope }] } },
+      profile: {
+        fileSystem: {
+          entries: [{ path: target.enforcementPath, access, scope: target.scope }],
+        },
+      },
       cwd: input.cwd,
     });
   } catch (error) {

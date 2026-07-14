@@ -19,9 +19,14 @@ import {
   PROVIDER_REGISTRY,
   READY_PROVIDER_TYPES,
   RECOMMENDED_PROVIDER_TYPES,
+  backendKindOf,
+  effectiveBaseUrl,
   normalizeConnectionBaseUrl,
   persistedBaseUrl,
+  providerAuthRequiresSecret,
+  providerAuthSupportsApiKey,
   validateConnectionBaseUrl,
+  type ProviderType,
 } from '../llm-connections.js';
 
 describe('provider compatibility contract', () => {
@@ -63,6 +68,7 @@ describe('provider compatibility contract', () => {
       'volcengine-ark',
       'deepinfra',
       'groq',
+      'openrouter',
       'cloudflare-workers-ai',
       'ollama-cloud',
       'ollama',
@@ -117,6 +123,7 @@ describe('provider compatibility contract', () => {
       'opencode',
       'opencode-go',
       'groq',
+      'openrouter',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -161,6 +168,7 @@ describe('provider compatibility contract', () => {
       'opencode',
       'opencode-go',
       'groq',
+      'openrouter',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -491,6 +499,27 @@ describe('provider compatibility contract', () => {
     // receives reasoning_effort (no thinkingOptions entry below).
     assert.ok(groq.fallbackModels.includes('openai/gpt-oss-safeguard-20b'));
     assert.ok(!groq.fallbackModels.includes('whisper-large-v3'));
+  });
+
+  it('owns OpenRouter direct API behavior under the stable openrouter id', () => {
+    const openrouter = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).openrouter;
+
+    assert.ok(openrouter, 'OpenRouter must be available through the shared provider registry');
+    assert.equal(openrouter.label, 'OpenRouter');
+    assert.equal(openrouter.baseUrl, 'https://openrouter.ai/api/v1');
+    assert.equal(openrouter.authKind, 'api_key');
+    assert.equal(openrouter.protocol, 'openai');
+    assert.deepEqual(openrouter.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(openrouter.modelDiscovery, {
+      kind: 'protocol',
+      filter: 'fallback-models',
+    });
+    assert.equal(openrouter.category, 'overseas');
+    assert.equal(openrouter.catalogGroup, 'aggregators');
+    assert.equal(openrouter.catalogBadge, '聚合');
+    assert.equal(openrouter.modelsDevId, 'openrouter');
+    assert.equal(openrouter.fallbackModels[0], 'anthropic/claude-sonnet-5');
+    assert.ok(openrouter.fallbackModels.includes('openai/gpt-5.6-sol'));
   });
 
   it('owns Cohere native API behavior under the stable cohere id', () => {
@@ -1337,5 +1366,39 @@ describe('normalizeConnectionBaseUrl (PR-UI-IPC-1 fixup v2, @kenji msg 8755ffb3 
       // guard is the contract.
       assert.ok(true);
     });
+  });
+});
+
+describe('unknown-providerType tolerance', () => {
+  // A connection persisted on another branch may carry a providerType this
+  // build's PROVIDER_REGISTRY doesn't know. These helpers must
+  // fall back safely instead of throwing — matching the `isFakeBackend`
+  // "unknown → non-real" convention in connection-readiness.ts.
+  const UNKNOWN = 'branch-only-provider' as ProviderType;
+
+  it('backendKindOf returns "fake" for an unregistered providerType', () => {
+    assert.equal(backendKindOf({ providerType: UNKNOWN }), 'fake');
+  });
+
+  it('effectiveBaseUrl returns the explicit baseUrl, else empty string', () => {
+    assert.equal(effectiveBaseUrl({ providerType: UNKNOWN, baseUrl: 'https://example.test/v1' }), 'https://example.test/v1');
+    assert.equal(effectiveBaseUrl({ providerType: UNKNOWN, baseUrl: undefined }), '');
+  });
+
+  it('persistedBaseUrl keeps a real override and drops empty for an unregistered providerType', () => {
+    assert.equal(persistedBaseUrl(UNKNOWN, 'https://example.test/v1'), 'https://example.test/v1');
+    assert.equal(persistedBaseUrl(UNKNOWN, '   '), undefined);
+    assert.equal(persistedBaseUrl(UNKNOWN, undefined), undefined);
+  });
+
+  it('providerAuthRequiresSecret / providerAuthSupportsApiKey return false for an unregistered providerType', () => {
+    assert.equal(providerAuthRequiresSecret(UNKNOWN), false);
+    assert.equal(providerAuthSupportsApiKey(UNKNOWN), false);
+  });
+
+  it('registered providers keep their real behavior', () => {
+    assert.equal(backendKindOf({ providerType: 'anthropic' }), 'ai-sdk');
+    assert.equal(providerAuthRequiresSecret('anthropic'), true);
+    assert.equal(providerAuthSupportsApiKey('ollama'), false);
   });
 });

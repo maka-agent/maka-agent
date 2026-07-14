@@ -428,6 +428,24 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the OpenRouter provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const modelId = 'anthropic/claude-sonnet-5';
+      await store.create({
+        slug: 'openrouter',
+        name: 'OpenRouter',
+        providerType: 'openrouter',
+        defaultModel: modelId,
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'openrouter');
+      assert.equal(persisted.connections[0]?.defaultModel, modelId);
+    });
+  });
+
   test('persists Ollama Cloud independently from local Ollama with exact model ids', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

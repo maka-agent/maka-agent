@@ -1570,25 +1570,25 @@ export class AiSdkBackend implements AgentBackend {
           activeToolResultPruneDiagnosticPatch,
           activeCompactDiagnosticPatch,
         );
-        this.input.recordLlmCall?.({
+        if (tokenUsage) this.input.recordLlmCall?.({
           sessionId: this.sessionId,
           turnId,
           connectionSlug: this.input.connection.slug,
           providerId: this.input.connection.providerType,
           modelId: this.input.modelId,
-          inputTokens: tokenUsage?.inputTokens ?? 0,
-          outputTokens: tokenUsage?.outputTokens ?? 0,
-          cacheHitInputTokens: tokenUsage?.cacheHitInputTokens ?? 0,
-          cacheMissInputTokens: tokenUsage?.cacheMissInputTokens ?? 0,
-          ...(tokenUsage?.cacheMissInputSource !== undefined
+          inputTokens: tokenUsage.inputTokens,
+          outputTokens: tokenUsage.outputTokens,
+          cacheHitInputTokens: tokenUsage.cacheHitInputTokens,
+          cacheMissInputTokens: tokenUsage.cacheMissInputTokens,
+          ...(tokenUsage.cacheMissInputSource !== undefined
             ? { cacheMissInputSource: tokenUsage.cacheMissInputSource }
             : {}),
-          cachedInputTokens: tokenUsage?.cachedInputTokens ?? 0,
-          cacheWriteInputTokens: tokenUsage?.cacheWriteInputTokens ?? 0,
-          reasoningTokens: tokenUsage?.reasoningTokens ?? 0,
-          totalTokens: tokenUsage?.totalTokens,
-          ...(tokenUsage?.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
-          ...(tokenUsage?.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
+          cachedInputTokens: tokenUsage.cachedInputTokens,
+          cacheWriteInputTokens: tokenUsage.cacheWriteInputTokens,
+          reasoningTokens: tokenUsage.reasoningTokens,
+          totalTokens: tokenUsage.totalTokens,
+          ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
+          ...(tokenUsage.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
           latencyMs: Math.max(0, this.now() - startedAt),
           status: streamStatus,
           ...(streamErrorClass ? { errorClass: streamErrorClass } : {}),
@@ -2733,7 +2733,8 @@ export class AiSdkBackend implements AgentBackend {
     status: LlmCallRecord['status'];
     errorClass?: string;
   }): void {
-    const costUsd = input.usage ? this.computeTokenUsageCostUsd(input.usage) : 0;
+    if (!input.usage) return;
+    const costUsd = this.computeTokenUsageCostUsd(input.usage);
     this.input.recordLlmCall?.({
       sessionId: this.sessionId,
       turnId: input.turnId,
@@ -2742,19 +2743,19 @@ export class AiSdkBackend implements AgentBackend {
       connectionSlug: this.input.connection.slug,
       providerId: this.input.connection.providerType,
       modelId: input.modelId,
-      inputTokens: input.usage?.inputTokens ?? 0,
-      outputTokens: input.usage?.outputTokens ?? 0,
-      cacheHitInputTokens: input.usage?.cacheHitInputTokens ?? 0,
-      cacheMissInputTokens: input.usage?.cacheMissInputTokens ?? 0,
-      ...(input.usage?.cacheMissInputSource !== undefined
+      inputTokens: input.usage.inputTokens,
+      outputTokens: input.usage.outputTokens,
+      cacheHitInputTokens: input.usage.cacheHitInputTokens,
+      cacheMissInputTokens: input.usage.cacheMissInputTokens,
+      ...(input.usage.cacheMissInputSource !== undefined
         ? { cacheMissInputSource: input.usage.cacheMissInputSource }
         : {}),
-      cachedInputTokens: input.usage?.cachedInputTokens ?? 0,
-      cacheWriteInputTokens: input.usage?.cacheWriteInputTokens ?? 0,
-      reasoningTokens: input.usage?.reasoningTokens ?? 0,
-      totalTokens: input.usage?.totalTokens,
+      cachedInputTokens: input.usage.cachedInputTokens,
+      cacheWriteInputTokens: input.usage.cacheWriteInputTokens,
+      reasoningTokens: input.usage.reasoningTokens,
+      totalTokens: input.usage.totalTokens,
       ...(input.finishReason !== undefined ? { rawFinishReason: input.finishReason } : {}),
-      ...(input.usage?.raw !== undefined ? { rawUsage: input.usage.raw } : {}),
+      ...(input.usage.raw !== undefined ? { rawUsage: input.usage.raw } : {}),
       latencyMs: input.latencyMs,
       status: input.status,
       ...(input.errorClass ? { errorClass: input.errorClass } : {}),

@@ -145,6 +145,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     thinkingLevels,
     sessionId: input.driver.getSessionId(),
     busy,
+    usage: state.usage,
   });
 
   const transcript = new MakaTranscriptComponent(state, metadata);
@@ -668,14 +669,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     rightLabel: string,
     items: SelectItem[],
     onSelect: (item: SelectItem) => void,
-    options: { minPrimaryColumnWidth: number; maxPrimaryColumnWidth: number; selectedIndex?: number },
+    options: { minPrimaryColumnWidth: number; maxPrimaryColumnWidth: number; selectedIndex?: number; hint?: string },
   ): void => {
     const list = new SelectList(items, 10, selectListTheme(), {
       minPrimaryColumnWidth: options.minPrimaryColumnWidth,
       maxPrimaryColumnWidth: options.maxPrimaryColumnWidth,
     });
     if (options.selectedIndex !== undefined) list.setSelectedIndex(options.selectedIndex);
-    const picker = new PickerOverlay(list, { title, rightLabel });
+    const picker = new PickerOverlay(list, { title, rightLabel, hint: options.hint });
     let overlay: OverlayHandle | undefined;
     list.onSelect = (item) => {
       overlay?.hide();
@@ -725,6 +726,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       label: session.name || session.id,
       description: `${shortSessionId(session.id)} ${session.model}`,
     }));
+    // Reserve enough columns for the description (short id + model) so long
+    // CJK names truncate instead of swallowing the disambiguation text.
+    // pi-tui's renderItem deducts 2 prefix + 2 gap + 2 safety = 6 columns
+    // beyond the primary column width, so reserve 30 to leave ~24 for the
+    // description (enough for "aaaa1111 claude-sonnet-4-5").
+    const maxNameWidth = Math.max(20, terminal.columns - 30);
     showSelectPicker(
       'Resume Session (Current Folder)',
       'Current Folder',
@@ -732,7 +739,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       (item) => {
         void runControl(() => switchSession(item.value));
       },
-      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 40 },
+      { minPrimaryColumnWidth: 20, maxPrimaryColumnWidth: maxNameWidth },
     );
   };
 
@@ -752,13 +759,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       label: target.label,
     }));
     showSelectPicker(
-      'Rewind — 回到选定轮次之前（丢弃该轮及之后，prompt 回填输入框）',
+      'Rewind',
       'Rewind',
       items,
       (item) => {
         void runControl(() => rewindToTurn(item.value));
       },
-      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 48 },
+      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 48, hint: '回到选定轮次之前（丢弃该轮及之后，prompt 回填输入框） · enter 选择 / esc 取消' },
     );
   };
 

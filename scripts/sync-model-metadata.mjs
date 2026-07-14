@@ -24,6 +24,7 @@ const PROVIDERS = {
   openai: 'openai',
   opencode: 'opencode',
   'opencode-go': 'opencode-go',
+  openrouter: 'openrouter',
   siliconflow: 'siliconflow',
   stepfun: 'stepfun',
   'stepfun-ai': 'stepfun-ai',

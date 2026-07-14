@@ -302,6 +302,15 @@ const groqModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA.groq,
   ['llama-3.3-70b-versatile'],
 );
+const openrouter = GENERATED_MODELS_DEV_PROVIDER_FACTS.openrouter;
+if (openrouter.id !== 'openrouter' || openrouter.api !== 'https://openrouter.ai/api/v1') {
+  throw new Error('models.dev OpenRouter provider facts are missing the stable id or API');
+}
+const openrouterModelIds = toolCallingModelIds(
+  'OpenRouter',
+  GENERATED_MODELS_DEV_METADATA.openrouter,
+  ['anthropic/claude-sonnet-5', 'openai/gpt-5.6-sol', 'x-ai/grok-4.5', 'deepseek/deepseek-v4-pro'],
+).filter((id) => GENERATED_MODELS_DEV_METADATA.openrouter[id]?.lifecycle !== 'deprecated');
 const vercel = GENERATED_MODELS_DEV_PROVIDER_FACTS.vercel;
 if (vercel.id !== 'vercel') {
   throw new Error('models.dev Vercel AI Gateway provider facts are missing stable id vercel');
@@ -1070,6 +1079,25 @@ const providerRegistry = {
     modelsDevId: groq.id,
     readyOrder: 39,
     catalogOrder: 39,
+  },
+  openrouter: {
+    label: openrouter.name,
+    description: 'One API key across all major model labs — an OpenAI-compatible aggregator.',
+    baseUrl: openrouter.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: openrouterModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol', filter: 'fallback-models' },
+    category: 'overseas',
+    catalogGroup: 'aggregators',
+    catalogBadge: '聚合',
+    signupUrl: 'https://openrouter.ai/settings/keys',
+    modelsDevId: openrouter.id,
+    readyOrder: 40,
+    catalogOrder: 40,
   },
   'cloudflare-workers-ai': {
     label: cloudflareWorkersAi.name,

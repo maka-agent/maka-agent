@@ -61,8 +61,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     for (const name of [
       'Button',
       'PrimitiveTabs', 'PrimitiveTabsList', 'PrimitiveTabsTrigger',
-      'PrimitiveAccordion', 'PrimitiveAccordionItem', 'PrimitiveAccordionTrigger', 'PrimitiveAccordionPanel',
-      'Item', 'ItemContent', 'ItemTitle', 'ItemActions',
+      'Item', 'ItemMedia', 'ItemContent', 'ItemTitle', 'ItemDescription', 'ItemActions',
       'Input', 'RelativeTime', 'Textarea', 'useToast',
     ]) {
       assert.ok(
@@ -354,7 +353,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       src,
-      /import \{[^}]*chipStatusText[^}]*\} from '\.\/provider-connection-status'/,
+      /import \{[^}]*connectionChipStatus[^}]*\} from '\.\/provider-connection-status'/,
       'status copy must come from the dedicated provider-connection-status helper (behaviour is covered by provider-connection-status.test.ts), not be parsed out of the chip title',
     );
     assert.match(

@@ -409,6 +409,30 @@ describe('default session target resolver', () => {
     assert.equal(target.model, modelId);
   });
 
+  test('resolves OpenRouter credentials without rewriting the exact model id', async () => {
+    const modelId = 'anthropic/claude-sonnet-5';
+    const connection = makeConnection({
+      slug: 'openrouter',
+      name: 'OpenRouter',
+      providerType: 'openrouter',
+      defaultModel: modelId,
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'openrouter',
+        get: async (slug) => slug === 'openrouter' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'openrouter-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'openrouter');
+    assert.equal(target.apiKey, 'openrouter-test-key');
+    assert.equal(target.model, modelId);
+  });
+
   test('resolves Ollama Cloud credentials without crossing into local Ollama state', async () => {
     const modelId = 'qwen3.5:397b';
     const connection = makeConnection({

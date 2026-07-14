@@ -244,6 +244,42 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('allows additional permissions once and ignores the turn-wide approval key', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionPromptDriver(['write outside'], async () => {}, true);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('u');
+    terminal.input('n');
+    terminal.input('\r');
+    await waitFor(() => driver.permissionRequests === 1);
+    await delay(20);
+    terminal.input('a');
+    await delay(20);
+    assert.equal(driver.permissionResponses.length, 0);
+    terminal.input('y');
+    await waitFor(() => driver.permissionResponses.length === 1);
+    assert.deepEqual(driver.permissionResponses, [{
+      requestId: 'permission-1',
+      decision: 'allow',
+    }]);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => { throw new Error('TUI did not close during test cleanup'); }),
+    ]);
+  });
+
   test('inspects exact WriteStdin input and allows it without turn memory', async () => {
     const terminal = new FakeTerminal();
     const hiddenSuffix = '\u001b[31mrm -rf /tmp/hidden-suffix\r';
@@ -408,7 +444,7 @@ describe('Maka Pi TUI runner', () => {
     assertBottomPickerPlacement(
       terminal,
       'Choose an approach',
-      'Maka claude-sonnet-4-5 claude-subscription ask /repo',
+      'Maka · ask · claude-sonnet-4-5 · claude-subscription · /repo',
     );
     assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('Ctrl+C stop'));
 
@@ -519,7 +555,7 @@ describe('Maka Pi TUI runner', () => {
         output: pipeOutput('done\n'),
       },
     });
-    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('done 4s'));
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('done 4000ms'));
 
     exitMaka(terminal);
     await run;
@@ -649,10 +685,10 @@ describe('Maka Pi TUI runner', () => {
       terminal,
     });
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka deepseek-v4-flash deepseek ask /repo'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka · ask · deepseek-v4-flash · deepseek · /repo'));
 
     const lines = plainTerminalOutput(terminal.output()).split(/\r?\n/);
-    const statusLineIndex = lines.findIndex((line) => line.includes('Maka deepseek-v4-flash deepseek ask /repo'));
+    const statusLineIndex = lines.findIndex((line) => line.includes('Maka · ask · deepseek-v4-flash · deepseek · /repo'));
     const editorBorderIndexes = lines
       .map((line, index) => (/^─+$/.test(line) ? index : -1))
       .filter((index) => index >= 0);
@@ -708,10 +744,10 @@ describe('Maka Pi TUI runner', () => {
       terminal,
     });
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka deepseek-v4-flash deepseek ask /repo'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka · ask · deepseek-v4-flash · deepseek · /repo'));
 
     const lines = plainTerminalOutput(terminal.output()).split(/\r?\n/);
-    const statusLineIndex = lines.findIndex((line) => line.includes('Maka deepseek-v4-flash deepseek ask /repo'));
+    const statusLineIndex = lines.findIndex((line) => line.includes('Maka · ask · deepseek-v4-flash · deepseek · /repo'));
     const editorBorderIndexes = lines
       .map((line, index) => (/^─+$/.test(line) ? index : -1))
       .filter((index) => index >= 0);
@@ -759,7 +795,7 @@ describe('Maka Pi TUI runner', () => {
     const screen = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
     assert.ok(screen.some((line) => line.includes('filler line 40')), 'the live tail should be on screen');
     assert.equal(screen.some((line) => line.includes('filler line 1')), false, 'the head should have scrolled off');
-    assert.equal(screen[terminal.rows - 1]?.includes('Maka deepseek-v4-flash deepseek ask /repo'), true);
+    assert.equal(screen[terminal.rows - 1]?.includes('Maka · ask · deepseek-v4-flash · deepseek · /repo'), true);
 
     exitMaka(terminal);
     await Promise.race([
@@ -783,7 +819,7 @@ describe('Maka Pi TUI runner', () => {
       terminal,
     });
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka deepseek-v4-flash deepseek ask /repo'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka · ask · deepseek-v4-flash · deepseek · /repo'));
 
     terminal.input('\x1b');
     await delay(30);
@@ -1008,7 +1044,7 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('/session'));
     const lines = plainTerminalOutput(terminal.output()).split(/\r?\n/);
     const suggestionIndex = lines.findIndex((line) => line.includes('/model'));
-    const statusLineIndex = lines.findIndex((line) => line.includes('Maka deepseek-v4-flash deepseek ask /repo'));
+    const statusLineIndex = lines.findIndex((line) => line.includes('Maka · ask · deepseek-v4-flash · deepseek · /repo'));
     const editorBorderIndexes = lines
       .map((line, index) => (/^─+$/.test(line) ? index : -1))
       .filter((index) => index >= 0);
@@ -1482,7 +1518,7 @@ describe('Maka Pi TUI runner', () => {
     assertBottomPickerPlacement(
       terminal,
       'Select Permission Mode',
-      'Maka claude-sonnet-4-5 claude-subscription ask /repo',
+      'Maka · ask · claude-sonnet-4-5 · claude-subscription · /repo',
     );
     terminal.input('\x1b[B');
     terminal.input('\r');
@@ -1554,7 +1590,7 @@ describe('Maka Pi TUI runner', () => {
     const titleLine = latestPlainLineContaining(terminal.output(), 'Select Model');
     assert.equal(titleLine.startsWith('Select Model'), true);
     assert.equal(visibleWidth(titleLine), terminal.columns);
-    assertBottomPickerPlacement(terminal, 'Select Model', 'Maka deepseek-v4-flash deepseek ask /repo');
+    assertBottomPickerPlacement(terminal, 'Select Model', 'Maka · ask · deepseek-v4-flash · deepseek · /repo');
     terminal.input('\x1b[B');
     terminal.input('\r');
     await waitFor(() => driver.models.length === 1);
@@ -1604,7 +1640,7 @@ describe('Maka Pi TUI runner', () => {
     assert.deepEqual(driver.models, ['glm-5.2']);
     assert.deepEqual(driver.modelConnections, ['zai']);
     // The status line now reflects both the new model and the new connection.
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka glm-5.2 zai ask /repo'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka · ask · glm-5.2 · zai · /repo'));
 
     exitMaka(terminal);
     await Promise.race([
@@ -1731,7 +1767,7 @@ describe('Maka Pi TUI runner', () => {
     assertBottomPickerPlacement(
       terminal,
       'Resume Session (Current Folder)',
-      'Maka claude-sonnet-4-5 claude-subscription ask /repo',
+      'Maka · ask · claude-sonnet-4-5 · claude-subscription · /repo',
     );
     terminal.input('\r');
     await waitFor(() => driver.sessionIds.length === 1);
@@ -1835,7 +1871,7 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('/session session-2');
     terminal.input('\r');
 
-    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('done 4s'));
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('done 4000ms'));
     assert.deepEqual(reads, ['session-2']);
 
     exitMaka(terminal);
@@ -2522,7 +2558,7 @@ describe('Maka Pi TUI runner', () => {
       terminal,
     });
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka claude-sonnet-4-5 claude-subscription ask /repo'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka · ask · claude-sonnet-4-5 · claude-subscription · /repo'));
 
     // A single Escape falls through to the editor: no picker yet.
     terminal.input('\x1b');
@@ -2559,7 +2595,7 @@ describe('Maka Pi TUI runner', () => {
       terminal,
     });
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka claude-sonnet-4-5 claude-subscription ask /repo'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka · ask · claude-sonnet-4-5 · claude-subscription · /repo'));
 
     // While a draft is present, Escape belongs to the editor (clear input), not
     // the rewind gesture. Two Escapes must not open the picker.
@@ -2594,7 +2630,7 @@ describe('Maka Pi TUI runner', () => {
       terminal,
     });
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka claude-sonnet-4-5 claude-subscription ask /repo'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka · ask · claude-sonnet-4-5 · claude-subscription · /repo'));
 
     // The editor stays neutral (empty) throughout, but a left-arrow between the
     // two Escapes breaks the gesture: the two Escapes must be consecutive.
@@ -3094,6 +3130,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
   constructor(
     requests: readonly (string | PermissionPromptRequest)[] = ['npm test'],
     private readonly beforePermissionAck: (index: number) => Promise<void> = async () => {},
+    private readonly additionalPermissions = false,
   ) {
     this.requests = requests.map((request) => typeof request === 'string'
       ? {
@@ -3113,7 +3150,30 @@ class PermissionPromptDriver implements MakaSessionDriver {
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     for (const [index, request] of this.requests.entries()) {
       this.permissionRequests += 1;
-      yield {
+      yield this.additionalPermissions ? {
+        type: 'permission_request',
+        kind: 'additional_permissions',
+        id: `event-permission-${index + 1}`,
+        turnId: 'turn-1',
+        ts: index + 1,
+        requestId: `permission-${index + 1}`,
+        toolUseId: `tool-${index + 1}`,
+        toolName: 'Write',
+        category: 'file_write',
+        reason: 'additional_permissions',
+        args: undefined,
+        cwd: '/repo',
+        justification: 'Write requires access to the requested path.',
+        intentHash: `sha256:${'1'.repeat(64)}`,
+        permissionsHash: `sha256:${'2'.repeat(64)}`,
+        additionalPermissions: {
+          fileSystem: { entries: [{ path: '/outside/file.txt', access: 'write', scope: 'exact' }] },
+        },
+        risk: { outsideWorkspace: true, protectedMetadata: false, networkEnabled: false },
+        alsoApprovesToolExecution: true,
+        availableDecisions: ['allow_once', 'deny'],
+        rememberForTurnAllowed: false,
+      } : {
         type: 'permission_request',
         kind: 'tool_permission',
         id: `event-permission-${index + 1}`,
