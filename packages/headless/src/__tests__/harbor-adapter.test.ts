@@ -785,6 +785,8 @@ sys.path.insert(0, str(root / "packages" / "headless" / "harbor"))
 import maka_agent as maka_agent_mod
 from maka_agent import MakaAgent
 import asyncio
+import threading
+import urllib.request
 
 scoped_command = maka_agent_mod._scoped_command("printf test", "cell-scope")
 assert "MAKA_HARBOR_COMMAND_SCOPE=cell-scope" in scoped_command, scoped_command
@@ -794,6 +796,78 @@ kill_cleanup = maka_agent_mod._scoped_process_cleanup_command("cell-scope", "KIL
 assert "/proc/[0-9]*/environ" in term_cleanup, term_cleanup
 assert "kill -TERM" in term_cleanup, term_cleanup
 assert "kill -KILL" in kill_cleanup, kill_cleanup
+
+class DelayedToolAgent:
+    def __init__(self):
+        self.started = asyncio.Event()
+        self.spawned = []
+
+    def _cell_timeout_sec(self):
+        return 1
+
+    async def exec_as_agent(self, environment, command, **kwargs):
+        if "/proc/[0-9]*/environ" in command:
+            return types.SimpleNamespace(stdout="", stderr="", exit_code=0)
+        self.started.set()
+        await asyncio.sleep(0.5)
+        process = await asyncio.create_subprocess_exec("sleep", "30")
+        self.spawned.append(process)
+        return types.SimpleNamespace(stdout="", stderr="", exit_code=0)
+
+async def assert_teardown_cancels_delayed_tool_start():
+    agent = DelayedToolAgent()
+    request_thread = None
+    async with maka_agent_mod._ToolExecutorServer(agent, object()) as server:
+        def send_request():
+            request = urllib.request.Request(
+                server.url + "/exec",
+                data=json.dumps({"command": "sleep 30 &"}).encode("utf-8"),
+                headers={"authorization": "Bearer " + server.token, "content-type": "application/json"},
+                method="POST",
+            )
+            try:
+                urllib.request.urlopen(request, timeout=2).read()
+            except Exception:
+                pass
+
+        request_thread = threading.Thread(target=send_request, daemon=True)
+        request_thread.start()
+        await asyncio.wait_for(agent.started.wait(), timeout=1)
+
+    await asyncio.sleep(0.7)
+    request_thread.join(timeout=1)
+    spawned = list(agent.spawned)
+    for process in spawned:
+        process.kill()
+        await process.wait()
+    assert not spawned, "tool command started after executor teardown"
+
+asyncio.run(assert_teardown_cancels_delayed_tool_start())
+
+class FailingTermCleanupAgent:
+    def __init__(self):
+        self.signals = []
+
+    async def exec_as_agent(self, environment, command, **kwargs):
+        if "kill -TERM" in command:
+            self.signals.append("TERM")
+            raise RuntimeError("TERM cleanup failed")
+        if "kill -KILL" in command:
+            self.signals.append("KILL")
+        return types.SimpleNamespace(stdout="", stderr="", exit_code=0)
+
+async def assert_kill_cleanup_runs_after_term_failure():
+    agent = FailingTermCleanupAgent()
+    try:
+        async with maka_agent_mod._ToolExecutorServer(agent, object()):
+            pass
+    except RuntimeError as error:
+        assert "TERM cleanup failed" in str(error), error
+    else:
+        raise AssertionError("expected TERM cleanup failure")
+    assert agent.signals == ["TERM", "KILL"], agent.signals
+
+asyncio.run(assert_kill_cleanup_runs_after_term_failure())
 
 with tempfile.TemporaryDirectory() as tmp:
     install_agent = MakaAgent(Path(tmp))

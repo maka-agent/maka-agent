@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import os
 import secrets
@@ -440,6 +441,9 @@ class _ToolExecutorServer:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._futures: set[concurrent.futures.Future[Any]] = set()
+        self._futures_lock = threading.Lock()
+        self._accepting_requests = False
         self.token = secrets.token_urlsafe(32)
         self.command_scope = secrets.token_urlsafe(24)
         self.url = ""
@@ -456,24 +460,56 @@ class _ToolExecutorServer:
                 return
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self._server.daemon_threads = True
         host, port = self._server.server_address
         self.url = f"http://{host}:{port}"
+        with self._futures_lock:
+            self._accepting_requests = True
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        stop_error: BaseException | None = None
+        try:
+            await self._stop_server()
+        except BaseException as error:
+            stop_error = error
+        cleanup_error = await self._cleanup_all_scoped_processes()
+        if stop_error is not None:
+            raise stop_error
+        if cleanup_error is not None:
+            raise cleanup_error
+
+    async def _stop_server(self) -> None:
+        with self._futures_lock:
+            self._accepting_requests = False
+            futures = list(self._futures)
+        for future in futures:
+            future.cancel()
+        if futures:
+            await asyncio.gather(
+                *(asyncio.wrap_future(future) for future in futures),
+                return_exceptions=True,
+            )
+        if self._server is not None:
+            await asyncio.to_thread(self._server.shutdown)
+            await asyncio.to_thread(self._server.server_close)
+        if self._thread is not None:
+            await asyncio.to_thread(self._thread.join, 5)
+
+    async def _cleanup_all_scoped_processes(self) -> BaseException | None:
+        first_error: BaseException | None = None
         try:
             await self._cleanup_scoped_processes(signal="TERM")
-            await asyncio.sleep(0.2)
+        except BaseException as error:
+            first_error = error
+        await asyncio.sleep(0.2)
+        try:
             await self._cleanup_scoped_processes(signal="KILL")
-        finally:
-            if self._server is not None:
-                self._server.shutdown()
-                self._server.server_close()
-            if self._thread is not None:
-                self._thread.join(timeout=5)
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+        return first_error
 
     async def _cleanup_scoped_processes(self, signal: str) -> None:
         await self._agent.exec_as_agent(
@@ -498,15 +534,20 @@ class _ToolExecutorServer:
             timeout_ms = payload.get("timeoutMs")
             timeout_sec = _timeout_sec(timeout_ms)
             assert self._loop is not None
-            future = asyncio.run_coroutine_threadsafe(
-                self._agent.exec_as_agent(
-                    self._environment,
-                    command=_scoped_command(command, self.command_scope),
-                    cwd=cwd if isinstance(cwd, str) and cwd else None,
-                    timeout_sec=timeout_sec,
-                ),
-                self._loop,
-            )
+            with self._futures_lock:
+                if not self._accepting_requests:
+                    raise RuntimeError("tool executor is shutting down")
+                future = asyncio.run_coroutine_threadsafe(
+                    self._agent.exec_as_agent(
+                        self._environment,
+                        command=_scoped_command(command, self.command_scope),
+                        cwd=cwd if isinstance(cwd, str) and cwd else None,
+                        timeout_sec=timeout_sec,
+                    ),
+                    self._loop,
+                )
+                self._futures.add(future)
+            future.add_done_callback(self._discard_future)
             result = future.result(timeout=(timeout_sec or self._agent._cell_timeout_sec()) + 30)
             _write_http(handler, 200, {
                 "exitCode": _exec_exit_code(result),
@@ -515,6 +556,10 @@ class _ToolExecutorServer:
             })
         except Exception as exc:  # noqa: BLE001 - RPC boundary returns tool failure text.
             _write_http(handler, 500, {"error": str(exc)})
+
+    def _discard_future(self, future: concurrent.futures.Future[Any]) -> None:
+        with self._futures_lock:
+            self._futures.discard(future)
 
 
 def _scoped_command(command: str, scope: str) -> str:
