@@ -3806,7 +3806,7 @@ describe('AiSdkBackend usage telemetry', () => {
     ]);
   });
 
-  test('does not record fabricated zero telemetry when provider usage is unavailable', async () => {
+  test('records request health without treating unavailable provider usage as zero', async () => {
     const llmRecords: LlmCallRecord[] = [];
     const model = new MockLanguageModelV3({
       doStream: {
@@ -3844,7 +3844,10 @@ describe('AiSdkBackend usage telemetry', () => {
 
     await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
 
-    assert.deepEqual(llmRecords, []);
+    assert.equal(llmRecords.length, 1);
+    assert.equal((llmRecords[0] as LlmCallRecord & { usageAvailable?: boolean }).usageAvailable, false);
+    assert.equal(llmRecords[0]?.status, 'success');
+    assert.ok((llmRecords[0]?.latencyMs ?? -1) >= 0);
   });
 
   test('keeps checkpoint cost unknown when model pricing is unavailable', async () => {
@@ -4124,6 +4127,46 @@ describe('AiSdkBackend usage telemetry', () => {
 
     assert.equal(recordedBlocks.length, 1);
     assert.equal(recordedBlocks[0]?.blockId, 'afcompact-sync-test');
+  });
+
+  test('semantic compact marks missing usage as unavailable', () => {
+    const llmRecords: LlmCallRecord[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordLlmCall: (record) => { llmRecords.push(record); },
+    });
+
+    (backend as unknown as {
+      recordSemanticCompactSummaryCall(input: {
+        callId: string;
+        turnId: string;
+        modelId: string;
+        startedAt: number;
+        latencyMs: number;
+        status: LlmCallRecord['status'];
+      }): void;
+    }).recordSemanticCompactSummaryCall({
+      callId: 'semantic-1',
+      turnId: 'turn-1',
+      modelId: 'mock-model-id',
+      startedAt: 1,
+      latencyMs: 2,
+      status: 'error',
+    });
+
+    assert.equal(llmRecords.length, 1);
+    assert.equal((llmRecords[0] as LlmCallRecord & { usageAvailable?: boolean }).usageAvailable, false);
+    assert.equal(llmRecords[0]?.status, 'error');
   });
 
   test('semantic compact records a separate no-tools summarizer LLM call', async () => {

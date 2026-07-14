@@ -1312,25 +1312,26 @@ export class AiSdkBackend implements AgentBackend {
           activeToolResultPruneDiagnosticPatch,
           activeCompactDiagnosticPatch,
         );
-        if (tokenUsage) this.input.recordLlmCall?.({
+        this.input.recordLlmCall?.({
           sessionId: this.sessionId,
           turnId,
           connectionSlug: this.input.connection.slug,
           providerId: this.input.connection.providerType,
           modelId: this.input.modelId,
-          inputTokens: tokenUsage.inputTokens,
-          outputTokens: tokenUsage.outputTokens,
-          cacheHitInputTokens: tokenUsage.cacheHitInputTokens,
-          cacheMissInputTokens: tokenUsage.cacheMissInputTokens,
-          ...(tokenUsage.cacheMissInputSource !== undefined
+          usageAvailable: tokenUsage !== undefined,
+          inputTokens: tokenUsage?.inputTokens ?? 0,
+          outputTokens: tokenUsage?.outputTokens ?? 0,
+          cacheHitInputTokens: tokenUsage?.cacheHitInputTokens ?? 0,
+          cacheMissInputTokens: tokenUsage?.cacheMissInputTokens ?? 0,
+          ...(tokenUsage?.cacheMissInputSource !== undefined
             ? { cacheMissInputSource: tokenUsage.cacheMissInputSource }
             : {}),
-          cachedInputTokens: tokenUsage.cachedInputTokens,
-          cacheWriteInputTokens: tokenUsage.cacheWriteInputTokens,
-          reasoningTokens: tokenUsage.reasoningTokens,
-          totalTokens: tokenUsage.totalTokens,
-          ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
-          ...(tokenUsage.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
+          cachedInputTokens: tokenUsage?.cachedInputTokens ?? 0,
+          cacheWriteInputTokens: tokenUsage?.cacheWriteInputTokens ?? 0,
+          reasoningTokens: tokenUsage?.reasoningTokens ?? 0,
+          ...(tokenUsage !== undefined ? { totalTokens: tokenUsage.totalTokens } : {}),
+          ...(tokenUsage?.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
+          ...(tokenUsage?.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
           latencyMs: Math.max(0, this.now() - startedAt),
           status: streamStatus,
           ...(streamErrorClass ? { errorClass: streamErrorClass } : {}),
@@ -1957,7 +1958,7 @@ export class AiSdkBackend implements AgentBackend {
     status: LlmCallRecord['status'];
     errorClass?: string;
   }): void {
-    const costUsd = input.usage ? this.computeTokenUsageCostUsd(input.usage) : 0;
+    const costUsd = input.usage ? this.computeTokenUsageCostUsd(input.usage) : undefined;
     this.input.recordLlmCall?.({
       sessionId: this.sessionId,
       turnId: input.turnId,
@@ -1966,6 +1967,7 @@ export class AiSdkBackend implements AgentBackend {
       connectionSlug: this.input.connection.slug,
       providerId: this.input.connection.providerType,
       modelId: input.modelId,
+      usageAvailable: input.usage !== undefined,
       inputTokens: input.usage?.inputTokens ?? 0,
       outputTokens: input.usage?.outputTokens ?? 0,
       cacheHitInputTokens: input.usage?.cacheHitInputTokens ?? 0,

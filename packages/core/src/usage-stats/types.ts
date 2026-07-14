@@ -19,6 +19,8 @@ export interface UsageQuery {
 export interface UsageSummaryV2 {
   range: { from: number; to: number };
   totalRequests: number;
+  /** Requests excluded from token and cost totals because provider usage was unavailable. */
+  usageUnavailableRequests?: number;
   totalCostUsd: number;
   totalTokens: {
     input: number;
@@ -38,6 +40,8 @@ export interface UsageBucket {
   key: string;
   label: string;
   requests: number;
+  /** Requests excluded from token and cost totals because provider usage was unavailable. */
+  usageUnavailableRequests?: number;
   inputTokens: number;
   outputTokens: number;
   cacheMissTokens: number;
@@ -59,6 +63,8 @@ export interface UsageLogRow {
   connectionSlug?: string;
   providerId: string;
   modelId: string;
+  /** Omitted on legacy rows; absence means usage was available. */
+  usageAvailable?: boolean;
   toolName?: string;
   inputTokens: number;
   outputTokens: number;
@@ -105,6 +111,8 @@ export interface LlmCallRecord {
   connectionSlug?: string;
   providerId: string;
   modelId: string;
+  /** False when the provider returned no trustworthy token usage for this call. */
+  usageAvailable?: boolean;
   inputTokens: number;
   outputTokens: number;
   cacheHitInputTokens?: number;

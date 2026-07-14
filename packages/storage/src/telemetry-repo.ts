@@ -92,16 +92,18 @@ class FileTelemetryRepo implements TelemetryRepo {
   summary(query: UsageQuery): UsageSummaryV2 {
     const { from, to } = resolveRange(query.range);
     const rows = this.filteredUsageRows(query, from, to);
-    const input = sum(rows.map((row) => row.inputTokens));
-    const output = sum(rows.map((row) => row.outputTokens));
-    const cacheMiss = sum(rows.map((row) => row.cacheMissInputTokens));
-    const cacheRead = sum(rows.map((row) => row.cacheHitInputTokens));
-    const cacheWrite = sum(rows.map((row) => row.cacheWriteInputTokens));
-    const reasoning = sum(rows.map((row) => row.reasoningTokens));
+    const meteredRows = rows.filter((row) => row.usageAvailable !== false);
+    const input = sum(meteredRows.map((row) => row.inputTokens));
+    const output = sum(meteredRows.map((row) => row.outputTokens));
+    const cacheMiss = sum(meteredRows.map((row) => row.cacheMissInputTokens));
+    const cacheRead = sum(meteredRows.map((row) => row.cacheHitInputTokens));
+    const cacheWrite = sum(meteredRows.map((row) => row.cacheWriteInputTokens));
+    const reasoning = sum(meteredRows.map((row) => row.reasoningTokens));
     return {
       range: { from, to },
       totalRequests: rows.length,
-      totalCostUsd: sum(rows.map((row) => row.costUsd)),
+      usageUnavailableRequests: rows.length - meteredRows.length,
+      totalCostUsd: sum(meteredRows.map((row) => row.costUsd)),
       totalTokens: {
         input,
         output,
@@ -109,10 +111,10 @@ class FileTelemetryRepo implements TelemetryRepo {
         cacheRead,
         cacheWrite,
         reasoning,
-        total: sum(rows.map((row) => row.totalTokens)),
+        total: sum(meteredRows.map((row) => row.totalTokens)),
       },
-      cacheHitRequests: rows.filter((row) => row.cacheHitInputTokens > 0).length,
-      cacheCreateRequests: rows.filter((row) => row.cacheWriteInputTokens > 0).length,
+      cacheHitRequests: meteredRows.filter((row) => row.cacheHitInputTokens > 0).length,
+      cacheCreateRequests: meteredRows.filter((row) => row.cacheWriteInputTokens > 0).length,
       errorRequests: rows.filter((row) => row.status === 'error').length,
     };
   }
@@ -145,6 +147,7 @@ class FileTelemetryRepo implements TelemetryRepo {
         ...(row.connectionSlug ? { connectionSlug: row.connectionSlug } : {}),
         providerId: row.providerId,
         modelId: row.modelId,
+        usageAvailable: row.usageAvailable !== false,
         inputTokens: row.inputTokens,
         outputTokens: row.outputTokens,
         cacheMissTokens: row.cacheMissInputTokens,
@@ -281,6 +284,7 @@ function normalizeLlmCallRecord(input: unknown): PersistedLlmCallRecord {
     id: typeof row.id === 'string' ? row.id : `usage_${row.turnId ?? row.ts ?? 'unknown'}`,
     providerId: typeof row.providerId === 'string' ? row.providerId : 'unknown',
     modelId: typeof row.modelId === 'string' ? row.modelId : 'unknown',
+    usageAvailable: row.usageAvailable !== false,
     inputTokens,
     outputTokens,
     cacheHitInputTokens,
@@ -325,18 +329,20 @@ function bucketKey(row: PersistedLlmCallRecord, groupBy: UsageGroupBy): string {
 
 function usageBucket(key: string, rows: PersistedLlmCallRecord[]): UsageBucket {
   const errorCount = rows.filter((row) => row.status === 'error').length;
+  const meteredRows = rows.filter((row) => row.usageAvailable !== false);
   return {
     key,
     label: key,
     requests: rows.length,
-    inputTokens: sum(rows.map((row) => row.inputTokens)),
-    outputTokens: sum(rows.map((row) => row.outputTokens)),
-    cacheMissTokens: sum(rows.map((row) => row.cacheMissInputTokens)),
-    cacheReadTokens: sum(rows.map((row) => row.cacheHitInputTokens)),
-    cacheWriteTokens: sum(rows.map((row) => row.cacheWriteInputTokens)),
-    reasoningTokens: sum(rows.map((row) => row.reasoningTokens)),
-    totalTokens: sum(rows.map((row) => row.totalTokens)),
-    costUsd: sum(rows.map((row) => row.costUsd)),
+    usageUnavailableRequests: rows.length - meteredRows.length,
+    inputTokens: sum(meteredRows.map((row) => row.inputTokens)),
+    outputTokens: sum(meteredRows.map((row) => row.outputTokens)),
+    cacheMissTokens: sum(meteredRows.map((row) => row.cacheMissInputTokens)),
+    cacheReadTokens: sum(meteredRows.map((row) => row.cacheHitInputTokens)),
+    cacheWriteTokens: sum(meteredRows.map((row) => row.cacheWriteInputTokens)),
+    reasoningTokens: sum(meteredRows.map((row) => row.reasoningTokens)),
+    totalTokens: sum(meteredRows.map((row) => row.totalTokens)),
+    costUsd: sum(meteredRows.map((row) => row.costUsd)),
     avgLatencyMs: rows.length ? Math.round(sum(rows.map((row) => row.latencyMs)) / rows.length) : 0,
     errorRate: rows.length ? errorCount / rows.length : 0,
   };
@@ -358,6 +364,7 @@ function toolBuckets(rows: PersistedToolInvocationRecord[]): UsageBucket[] {
         key,
         label: key,
         requests: groupRows.length,
+        usageUnavailableRequests: 0,
         inputTokens: inputBytes,
         outputTokens: outputBytes,
         cacheMissTokens: 0,

@@ -39,6 +39,55 @@ describe('FileTelemetryRepo', () => {
     });
   });
 
+  test('keeps unavailable usage out of economics without hiding request health', async () => {
+    await withRepo(async (repo) => {
+      await repo.load();
+      repo.insertLlmCall(llmRecord({
+        id: 'metered',
+        inputTokens: 10,
+        outputTokens: 20,
+        totalTokens: 30,
+        costUsd: 0.001,
+        latencyMs: 100,
+      }));
+      repo.insertLlmCall(llmRecord({
+        id: 'usage-unavailable',
+        usageAvailable: false,
+        inputTokens: 999,
+        outputTokens: 999,
+        totalTokens: 1998,
+        costUsd: 99,
+        latencyMs: 300,
+        status: 'error',
+      }));
+      await flushWrites();
+
+      const summary = repo.summary({ range: 'all' }) as ReturnType<typeof repo.summary> & {
+        usageUnavailableRequests?: number;
+      };
+      const bucket = repo.buckets({ range: 'all' }, 'provider')[0] as
+        | (ReturnType<typeof repo.buckets>[number] & { usageUnavailableRequests?: number })
+        | undefined;
+      const logs = repo.logs({ range: 'all' });
+      const unavailable = logs.rows.find((row) => row.id === 'usage-unavailable') as
+        | (typeof logs.rows[number] & { usageAvailable?: boolean })
+        | undefined;
+
+      assert.equal(summary.totalRequests, 2);
+      assert.equal(summary.usageUnavailableRequests, 1);
+      assert.equal(summary.totalTokens.total, 30);
+      assert.equal(summary.totalCostUsd, 0.001);
+      assert.equal(summary.errorRequests, 1);
+      assert.equal(bucket?.requests, 2);
+      assert.equal(bucket?.usageUnavailableRequests, 1);
+      assert.equal(bucket?.totalTokens, 30);
+      assert.equal(bucket?.costUsd, 0.001);
+      assert.equal(bucket?.avgLatencyMs, 200);
+      assert.equal(bucket?.errorRate, 0.5);
+      assert.equal(unavailable?.usageAvailable, false);
+    });
+  });
+
   test('carries the tool-availability diagnostic and tool-schema change reason through logs()', async () => {
     await withRepo(async (repo) => {
       await repo.load();

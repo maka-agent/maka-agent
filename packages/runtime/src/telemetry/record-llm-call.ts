@@ -12,26 +12,35 @@ export interface LlmRecorderDeps {
 export function recordLlmCall(deps: LlmRecorderDeps, record: LlmCallRecord): void {
   queueMicrotask(() => {
     try {
-      const cacheHitInputTokens = record.cacheHitInputTokens ?? record.cachedInputTokens ?? 0;
-      const cacheWriteInputTokens = record.cacheWriteInputTokens ?? 0;
+      const usageAvailable = record.usageAvailable !== false;
+      const inputTokens = usageAvailable ? record.inputTokens : 0;
+      const outputTokens = usageAvailable ? record.outputTokens : 0;
+      const cacheHitInputTokens = usageAvailable
+        ? record.cacheHitInputTokens ?? record.cachedInputTokens ?? 0
+        : 0;
+      const cacheWriteInputTokens = usageAvailable ? record.cacheWriteInputTokens ?? 0 : 0;
       const derivedCacheMissInputTokens = record.cacheMissInputTokens === undefined;
-      const cacheMissInputTokens =
-        record.cacheMissInputTokens
-        ?? Math.max(0, record.inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
-      const cacheMissInputSource = record.cacheMissInputSource ?? (derivedCacheMissInputTokens ? 'derived' : undefined);
+      const cacheMissInputTokens = usageAvailable
+        ? record.cacheMissInputTokens ?? Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens)
+        : 0;
+      const cacheMissInputSource = usageAvailable
+        ? record.cacheMissInputSource ?? (derivedCacheMissInputTokens ? 'derived' : undefined)
+        : undefined;
       const cachedInputTokens = cacheHitInputTokens;
-      const reasoningTokens = record.reasoningTokens ?? 0;
-      const totalTokens = record.totalTokens ?? record.inputTokens + record.outputTokens + reasoningTokens;
-      const costUsd = record.costUsd ?? computeCost(
-        {
-          inputTokens: record.inputTokens,
-          outputTokens: record.outputTokens,
-          cacheHitInputTokens,
-          cacheMissInputTokens,
-          cacheWriteInputTokens,
-        },
-        deps.lookupPricing(`${record.providerId}:${record.modelId}`),
-      ).totalCost;
+      const reasoningTokens = usageAvailable ? record.reasoningTokens ?? 0 : 0;
+      const totalTokens = usageAvailable ? record.totalTokens ?? inputTokens + outputTokens + reasoningTokens : 0;
+      const costUsd = usageAvailable
+        ? record.costUsd ?? computeCost(
+          {
+            inputTokens,
+            outputTokens,
+            cacheHitInputTokens,
+            cacheMissInputTokens,
+            cacheWriteInputTokens,
+          },
+          deps.lookupPricing(`${record.providerId}:${record.modelId}`),
+        ).totalCost
+        : 0;
       const ts = record.startedAt + record.latencyMs;
       const recordId = record.callId
         ? `usage_${record.callId}`
@@ -39,6 +48,9 @@ export function recordLlmCall(deps: LlmRecorderDeps, record: LlmCallRecord): voi
       deps.repo.insertLlmCall({
         ...record,
         id: recordId,
+        usageAvailable,
+        inputTokens,
+        outputTokens,
         cacheHitInputTokens,
         cacheMissInputTokens,
         ...(cacheMissInputSource !== undefined ? { cacheMissInputSource } : {}),

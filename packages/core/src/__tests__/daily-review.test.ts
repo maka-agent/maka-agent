@@ -131,6 +131,7 @@ describe('buildDailyReviewSummary', () => {
   const usageSummary: UsageSummaryV2 = {
     range: { from: day.fromMs, to: day.toMs },
     totalRequests: 42,
+    usageUnavailableRequests: 0,
     totalCostUsd: 1.23,
     totalTokens: {
       input: 100,
