@@ -11,6 +11,7 @@ import type {
   ModelDiscoveryResult,
   ModelInfo,
   PermissionResponse,
+  UserQuestionResponse,
   PermissionMode,
   SearchErrorReason,
   SearchRequest,
@@ -173,6 +174,9 @@ contextBridge.exposeInMainWorld('maka', {
     },
     respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
       return ipcRenderer.invoke('sessions:respondToPermission', sessionId, response);
+    },
+    respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void> {
+      return ipcRenderer.invoke('sessions:respondToUserQuestion', sessionId, response);
     },
     /**
      * PR-CMD-PALETTE-SAVE-CONVERSATION-FILE-0: write the renderer-formatted

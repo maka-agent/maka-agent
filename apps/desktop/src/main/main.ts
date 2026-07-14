@@ -51,6 +51,7 @@ import {
   normalizeRegenerateTurnInput,
   normalizeSessionSendCommand,
   normalizeStopSessionInput,
+  normalizeUserQuestionResponse,
 } from './permission-response-guard.js';
 import { turnFailureMessageFromSessionEvent } from './turn-stream-outcome.js';
 import { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
@@ -72,6 +73,7 @@ import {
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
+  buildAskUserQuestionTool,
   createBuiltinSandboxManager,
   buildChildAgentTools,
   buildSubagentProjectionTools,
@@ -631,6 +633,7 @@ const webSearchTool = buildWebSearchAgentTool({
   getPrivacyContext: getWorkspacePrivacyContext,
 });
 const builtinTools: MakaTool[] = [
+  buildAskUserQuestionTool(),
   ...buildBuiltinTools({
     shellRuns,
     runtimeResources: shellRuns,
@@ -1420,6 +1423,9 @@ function registerIpc(): void {
   });
   ipcMain.handle('sessions:respondToPermission', (_event, sessionId: string, response) =>
     runtime.respondToPermission(sessionId, normalizePermissionResponse(response)),
+  );
+  ipcMain.handle('sessions:respondToUserQuestion', (_event, sessionId: string, response) =>
+    runtime.respondToUserQuestion(sessionId, normalizeUserQuestionResponse(response)),
   );
   ipcMain.handle('sessions:send', async (event, sessionId: string, command: unknown) => {
     const sendCommand = normalizeSessionSendCommand(command);

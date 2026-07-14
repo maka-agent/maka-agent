@@ -14,9 +14,42 @@ import {
   normalizeRegenerateTurnInput,
   normalizeSessionSendCommand,
   normalizeStopSessionInput,
+  normalizeUserQuestionResponse,
 } from '../permission-response-guard.js';
 
 describe('permission response IPC boundary', () => {
+  it('normalizes bounded user-question answers without coercing nulls', () => {
+    assert.deepEqual(
+      normalizeUserQuestionResponse({ requestId: 'question-1', answers: ['Option A', null], extra: true }),
+      { requestId: 'question-1', answers: ['Option A', null] },
+    );
+    assert.throws(() => normalizeUserQuestionResponse({ requestId: '', answers: ['A'] }), /requestId/);
+    assert.throws(() => normalizeUserQuestionResponse({ requestId: 'q', answers: [] }), /answers/);
+    assert.throws(() => normalizeUserQuestionResponse({ requestId: 'q', answers: ['A', 'B', 'C', 'D'] }), /answers/);
+    assert.throws(() => normalizeUserQuestionResponse({ requestId: 'q', answers: [1] }), /answers/);
+  });
+
+  it('registers AskUserQuestion only on the Desktop root tool surface and routes its response', async () => {
+    const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
+    const main = await readFile(mainPath, 'utf8');
+    const rootTools = main.match(/const builtinTools: MakaTool\[\] = \[[\s\S]*?\n\];/)?.[0] ?? '';
+    const childTools = main.match(/const childAgentTools = buildChildAgentTools\([\s\S]*?\n\]\);/)?.[0] ?? '';
+    const handler = main.match(/ipcMain\.handle\('sessions:respondToUserQuestion'[\s\S]*?\n  \);/)?.[0] ?? '';
+
+    assert.match(rootTools, /buildAskUserQuestionTool\(\)/);
+    assert.doesNotMatch(childTools, /buildAskUserQuestionTool\(\)/);
+    assert.match(handler, /runtime\.respondToUserQuestion\(sessionId, normalizeUserQuestionResponse\(response\)\)/);
+  });
+
+  it('exposes the user-question response through preload and the renderer type boundary', async () => {
+    const preload = await readFile(fileURLToPath(new URL('../../../src/preload/preload.ts', import.meta.url)), 'utf8');
+    const globalTypes = await readFile(fileURLToPath(new URL('../../../src/global.d.ts', import.meta.url)), 'utf8');
+
+    assert.match(preload, /respondToUserQuestion\(sessionId: string, response: UserQuestionResponse\)/);
+    assert.match(preload, /ipcRenderer\.invoke\('sessions:respondToUserQuestion', sessionId, response\)/);
+    assert.match(globalTypes, /respondToUserQuestion\(sessionId: string, response: UserQuestionResponse\): Promise<void>/);
+  });
+
   it('normalizes valid allow / deny responses into the core shape', () => {
     assert.deepEqual(
       normalizePermissionResponse({

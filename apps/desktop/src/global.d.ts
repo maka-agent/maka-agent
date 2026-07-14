@@ -9,6 +9,7 @@ import type {
   ModelDiscoveryResult,
   ModelInfo,
   PermissionResponse,
+  UserQuestionResponse,
   PermissionMode,
   SearchErrorReason,
   SearchRequest,
@@ -140,6 +141,7 @@ declare global {
         regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void>;
         branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
         respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
+        respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void>;
         saveConversationToFile(input: {
           markdown: string;
           defaultName: string;
