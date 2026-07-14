@@ -63,6 +63,7 @@ describe('provider compatibility contract', () => {
       'volcengine-ark',
       'deepinfra',
       'groq',
+      'openrouter',
       'cloudflare-workers-ai',
       'ollama-cloud',
       'ollama',
@@ -117,6 +118,7 @@ describe('provider compatibility contract', () => {
       'opencode',
       'opencode-go',
       'groq',
+      'openrouter',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -161,6 +163,7 @@ describe('provider compatibility contract', () => {
       'opencode',
       'opencode-go',
       'groq',
+      'openrouter',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -491,6 +494,26 @@ describe('provider compatibility contract', () => {
     // receives reasoning_effort (no thinkingOptions entry below).
     assert.ok(groq.fallbackModels.includes('openai/gpt-oss-safeguard-20b'));
     assert.ok(!groq.fallbackModels.includes('whisper-large-v3'));
+  });
+
+  it('owns OpenRouter direct API behavior under the stable openrouter id', () => {
+    const openrouter = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).openrouter;
+
+    assert.ok(openrouter, 'OpenRouter must be available through the shared provider registry');
+    assert.equal(openrouter.label, 'OpenRouter');
+    assert.equal(openrouter.baseUrl, 'https://openrouter.ai/api/v1');
+    assert.equal(openrouter.authKind, 'api_key');
+    assert.equal(openrouter.protocol, 'openai');
+    assert.deepEqual(openrouter.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(openrouter.modelDiscovery, {
+      kind: 'protocol',
+      filter: 'fallback-models',
+    });
+    assert.equal(openrouter.category, 'overseas');
+    assert.equal(openrouter.catalogGroup, 'api');
+    assert.equal(openrouter.modelsDevId, 'openrouter');
+    assert.equal(openrouter.fallbackModels[0], 'anthropic/claude-sonnet-5');
+    assert.ok(openrouter.fallbackModels.includes('openai/gpt-5.6-sol'));
   });
 
   it('owns Cohere native API behavior under the stable cohere id', () => {

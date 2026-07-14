@@ -46,6 +46,7 @@ const ZENMUX_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/ass
 const TOGETHER_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/together.svg');
 const DEEPINFRA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/deepinfra.svg');
 const GROQ_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/groq.svg');
+const OPENROUTER_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/openrouter.svg');
 const CLOUDFLARE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cloudflare.svg');
 const FIREWORKS_BRAND_MARK_FILE = resolve(
   REPO_ROOT,
@@ -312,6 +313,32 @@ describe('icon + typography governance contract', () => {
     assert.match(
       notices,
       /apps\/desktop\/src\/renderer\/assets\/provider-brands\/groq\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/groq\.svg[\s\S]*078d5cf6e7a54905040c15ddacf5ea33c13042fe7739e820cedc2096e4406651/,
+    );
+  });
+
+  it('vendors and renders the byte-exact Lobe Icons OpenRouter color SVG', async () => {
+    const [marks, asset, notices] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(OPENROUTER_BRAND_MARK_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      '17bede1b89166f824ee06753dc526a3f5e18b769706deaab09d04a3a98de1a78',
+      'OpenRouter SVG must remain byte-identical to @lobehub/icons-static-svg@1.92.0 openrouter-color.svg',
+    );
+    assert.match(marks, /https:\/\/github\.com\/lobehub\/lobe-icons/);
+    assert.match(marks, /@lobehub\/icons-static-svg@1\.92\.0/);
+    assert.match(marks, /df132de5a0cef315b9a2f155b1949e39f4b89bb5/);
+    assert.match(marks, /packages\/static-svg\/icons\/openrouter-color\.svg/);
+    assert.match(marks, /license: MIT/);
+    assert.match(marks, /17bede1b89166f824ee06753dc526a3f5e18b769706deaab09d04a3a98de1a78/);
+    assert.match(marks, /import openrouterBrandMark from '\.\.\/assets\/provider-brands\/openrouter\.svg';/);
+    assert.match(marks, /case 'openrouter':\s*return <img src=\{openrouterBrandMark\} alt="" \/>/);
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/openrouter\.svg[\s\S]*df132de5a0cef315b9a2f155b1949e39f4b89bb5[\s\S]*packages\/static-svg\/icons\/openrouter-color\.svg[\s\S]*17bede1b89166f824ee06753dc526a3f5e18b769706deaab09d04a3a98de1a78/,
     );
   });
 
@@ -852,6 +879,7 @@ describe('icon + typography governance contract', () => {
       'localAiBrandMark',
       'mistralBrandMark',
       'nvidiaMarkUrl',
+      'openrouterBrandMark',
       'stepfunBrandMark',
       'tencentCloudBrandMark',
       'togetherBrandMark',

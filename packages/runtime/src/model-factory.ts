@@ -343,9 +343,10 @@ export function buildProviderOptions(
               : { reasoningEffort: level },
           }
         : {};
-    // DeepInfra documents `none` as its real off wire. Other compatible
-    // providers below expose only their confirmed non-off effort values.
+    // DeepInfra and OpenRouter document `none` as their real off wire. Other
+    // compatible providers below expose only their confirmed non-off effort values.
     case 'deepinfra':
+    case 'openrouter':
       return level
         ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level === 'off' ? 'none' : level } }
         : {};

@@ -284,6 +284,27 @@ describe('ModelCatalogEntry', () => {
     assert.ok(!entries.some((entry) => entry.id === 'whisper-large-v3'));
   });
 
+  it('uses the checked-in OpenRouter snapshot until live discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'openrouter',
+        providerType: 'openrouter',
+        defaultModel: 'anthropic/claude-sonnet-5',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'anthropic/claude-sonnet-5');
+    assert.equal(entries[0]?.displayName, 'Claude Sonnet 5');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'openai/gpt-5.6-sol'));
+  });
+
   it('uses the checked-in Ollama Cloud snapshot with exact model ids until discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

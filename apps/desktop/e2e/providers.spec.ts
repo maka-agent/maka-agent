@@ -313,6 +313,31 @@ test('adds Groq with its exact snapshot model and upstream monochrome mark', asy
   await expect(page.getByText('llama-3.3-70b-versatile', { exact: true }).first()).toBeVisible();
 });
 
+test('adds OpenRouter with its exact snapshot model and upstream color mark', async ({ window: page }) => {
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
+  await page.getByRole('button', { name: '添加服务商' }).click();
+
+  await page.getByRole('tab', { name: 'API', exact: true }).click();
+  await page.getByPlaceholder('搜索服务商').fill('OpenRouter');
+  const catalogMark = page.locator('.providerCatalogRow[data-provider="openrouter"] .providerLogo img');
+  await expect(catalogMark).toBeVisible();
+  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
+  await page.getByRole('button', { name: /添加模型供应商：OpenRouter/ }).click();
+  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('openrouter');
+  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://openrouter.ai/api/v1');
+  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('anthropic/claude-sonnet-5');
+  await page.getByRole('button', { name: '保存供应商' }).click();
+
+  await expect(page.getByRole('heading', { name: 'OpenRouter', exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="openrouter"] img');
+  await expect(detailMark).toBeVisible();
+  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
+  await expect(page.getByText('anthropic/claude-sonnet-5', { exact: true }).first()).toBeVisible();
+});
+
 test('adds Cloudflare Workers AI with an account-scoped endpoint and exact model id', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();

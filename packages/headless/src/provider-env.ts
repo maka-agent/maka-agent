@@ -37,6 +37,7 @@ const PROVIDER_CREDENTIAL_ENV = {
   togetherai: env('TOGETHER', ['TOGETHER_BASE_URL']),
   deepinfra: env('DEEPINFRA', ['DEEPINFRA_BASE_URL']),
   groq: env('GROQ', ['GROQ_BASE_URL']),
+  openrouter: env('OPENROUTER', ['OPENROUTER_BASE_URL']),
   'cloudflare-workers-ai': env(
     'CLOUDFLARE',
     ['CLOUDFLARE_WORKERS_AI_BASE_URL'],

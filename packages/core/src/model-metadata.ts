@@ -210,6 +210,12 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
     'openai/gpt-oss-120b': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
     'openai/gpt-oss-20b': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
   },
+  openrouter: {
+    'anthropic/claude-sonnet-5': { thinkingOptions: { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] } },
+    'openai/gpt-5.6-sol': { thinkingOptions: { efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'], toggle: true } },
+    'x-ai/grok-4.5': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+    'deepseek/deepseek-v4-pro': { thinkingOptions: { efforts: ['high', 'xhigh'], toggle: true } },
+  },
   'cloudflare-workers-ai': {
     '@cf/moonshotai/kimi-k2.6': {
       thinkingOptions: {

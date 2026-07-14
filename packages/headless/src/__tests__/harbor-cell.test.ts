@@ -2940,6 +2940,33 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves OpenRouter only from OpenRouter credential env without rewriting the model id', () => {
+    const modelId = 'anthropic/claude-sonnet-5';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'openrouter',
+      model: modelId,
+      env: {
+        OPENROUTER_API_KEY: 'openrouter-key',
+        OPENROUTER_BASE_URL: 'https://openrouter.ai/api/v1',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'openrouter-key');
+    assert.equal(resolved.connection.providerType, 'openrouter');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(resolved.connection.baseUrl, 'https://openrouter.ai/api/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'openrouter',
+      model: modelId,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves Cloudflare Workers AI from account id and token without rewriting the model id', () => {
     const modelId = '@cf/moonshotai/kimi-k2.6';
     const resolved = resolveHarborCellAiSdkEnv({

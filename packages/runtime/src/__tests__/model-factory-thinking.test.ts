@@ -72,6 +72,12 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual([...thinkingVariantsForModel('groq', 'qwen/qwen3-32b')], []);
     assert.deepEqual([...thinkingVariantsForModel('groq', 'openai/gpt-oss-safeguard-20b')], []);
     assert.deepEqual([...thinkingVariantsForModel('groq', 'llama-3.3-70b-versatile')], []);
+    // OpenRouter accepts the same `reasoning_effort` shorthand (none disables).
+    assert.deepEqual([...thinkingVariantsForModel('openrouter', 'openai/gpt-5.6-sol')], ['off', 'low', 'medium', 'high', 'xhigh', 'max']);
+    assert.deepEqual(buildProviderOptions(conn('openrouter'), 'openai/gpt-5.6-sol', 'high'), { openrouter: { reasoningEffort: 'high' } });
+    assert.deepEqual(buildProviderOptions(conn('openrouter'), 'openai/gpt-5.6-sol', 'off'), { openrouter: { reasoningEffort: 'none' } });
+    // claude-sonnet-5 exposes no off switch (no `none` effort); only effort tiers.
+    assert.deepEqual([...thinkingVariantsForModel('openrouter', 'anthropic/claude-sonnet-5')], ['low', 'medium', 'high', 'xhigh', 'max']);
     assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-v4-flash')], ['high', 'max']);
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'high'), { deepseek: { reasoningEffort: 'high' } });
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'max'), { deepseek: { reasoningEffort: 'max' } });
@@ -250,6 +256,7 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
     { providerType: 'deepseek', model: 'deepseek-v4-flash' },
     { providerType: 'deepinfra', model: 'moonshotai/Kimi-K2.7-Code' },
     { providerType: 'groq', model: 'openai/gpt-oss-120b' },
+    { providerType: 'openrouter', model: 'openai/gpt-5.6-sol' },
     { providerType: 'vercel', model: 'xai/grok-4.3' },
     { providerType: 'cloudflare-workers-ai', model: '@cf/moonshotai/kimi-k2.6' },
     { providerType: 'zai-coding-plan', model: 'glm-5.2', slug: 'zai-coding-plan' },
