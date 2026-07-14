@@ -107,7 +107,7 @@ const CURRENT_SHELL_RUN_RESULT_KEYS = new Set([
 
 const STOP_OPERATION_KEYS = new Set(['kind', 'applied']);
 const PTY_CONTROL_OPERATION_KEYS = new Set(['kind', 'failed', 'input', 'resize']);
-const PTY_CONTROL_INPUT_KEYS = new Set(['bytes', 'applied']);
+const PTY_CONTROL_INPUT_KEYS = new Set(['bytes', 'queued']);
 const PTY_CONTROL_RESIZE_KEYS = new Set(['cols', 'rows', 'applied', 'changed']);
 
 const LEGACY_TERMINAL_RESULT_KEYS = new Set([
@@ -332,7 +332,7 @@ function isCurrentShellRunOperation(
     && (!isRecord(value.input)
       || !hasOnlyKeys(value.input, PTY_CONTROL_INPUT_KEYS)
       || !isNonNegativeInteger(value.input.bytes)
-      || typeof value.input.applied !== 'boolean')
+      || typeof value.input.queued !== 'boolean')
   ) return false;
   return value.resize === undefined
     || (isRecord(value.resize)

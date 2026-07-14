@@ -249,7 +249,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     if (live.driverExit) {
       const record = await this.markObserved(await live.finished.join());
       return shellRunContent(record, ptyControlOperation(input, {
-        inputApplied: false,
+        inputQueued: false,
         resizeApplied: false,
         resizeChanged: false,
       }));
@@ -259,7 +259,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     }
     if (input.abortSignal?.aborted) throw abortError('WriteStdin aborted before the control operation was committed');
 
-    let inputApplied = false;
+    let inputQueued = false;
     let resizeApplied = false;
     let resizeChanged = false;
     let operationFailed = false;
@@ -293,7 +293,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       if (input.input !== undefined) {
         try {
           live.driver.write(input.input);
-          inputApplied = true;
+          inputQueued = true;
         } catch (error) {
           operationFailed = true;
           this.handleIntegrityFailure(live, asError(error, 'PTY input write failed'));
@@ -313,7 +313,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     }
 
     const operation = ptyControlOperation(input, {
-      inputApplied,
+      inputQueued,
       resizeApplied,
       resizeChanged,
       failed: operationFailed,
@@ -329,7 +329,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       if (live.integrityFailure && !live.persistFailure) {
         record = await this.markObserved(await live.finished.join());
         return shellRunContent(record, ptyControlOperation(input, {
-          inputApplied,
+          inputQueued,
           resizeApplied,
           resizeChanged,
           failed: true,
@@ -340,7 +340,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     if (live.integrityFailure && !live.persistFailure) {
       record = await this.markObserved(await live.finished.join());
       return shellRunContent(record, ptyControlOperation(input, {
-        inputApplied,
+        inputQueued,
         resizeApplied,
         resizeChanged,
         failed: true,
@@ -1232,7 +1232,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     }
     record = await this.markObserved(record);
     return shellRunContent(record, ptyControlOperation(input, {
-      inputApplied: false,
+      inputQueued: false,
       resizeApplied: false,
       resizeChanged: false,
     }));

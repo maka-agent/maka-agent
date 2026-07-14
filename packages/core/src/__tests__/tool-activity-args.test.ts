@@ -7,6 +7,7 @@ import {
   projectWriteStdinPermissionSummary,
   projectWriteStdinInput,
   WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS,
+  WRITE_STDIN_REF_PREVIEW_MAX_CHARS,
 } from '../index.js';
 
 it('formats exact terminal input as inert, unambiguous escaped text', () => {
@@ -110,4 +111,14 @@ it('rejects projected previews that bypass the display safety boundary', () => {
       inputPreview: { text, bytes: 20, truncated: false },
     }), { ref });
   }
+});
+
+it('bounds a malformed WriteStdin ref at the human projection boundary', () => {
+  const projected = projectToolActivityArgs('WriteStdin', {
+    ref: 'x'.repeat(WRITE_STDIN_REF_PREVIEW_MAX_CHARS + 20),
+    input: '\r',
+  }) as { ref: string };
+
+  assert.equal(Array.from(projected.ref).length, WRITE_STDIN_REF_PREVIEW_MAX_CHARS);
+  assert.equal(projected.ref.endsWith('...'), true);
 });

@@ -424,7 +424,7 @@ describe('ShellRunProcessManager', () => {
     assert.deepEqual(control.operation, {
       kind: 'pty_control',
       failed: false,
-      input: { bytes: 8, applied: true },
+      input: { bytes: 8, queued: true },
     });
     const completed = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(completed);
@@ -518,7 +518,7 @@ describe('ShellRunProcessManager', () => {
     assert.deepEqual(control.operation, {
       kind: 'pty_control',
       failed: false,
-      input: { bytes: 8, applied: true },
+      input: { bytes: 8, queued: true },
     });
     const completed = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(completed);
@@ -628,7 +628,7 @@ describe('ShellRunProcessManager', () => {
     assert.deepEqual(partial.operation, {
       kind: 'pty_control',
       failed: false,
-      input: { bytes: 7, applied: true },
+      input: { bytes: 7, queued: true },
     });
 
     const control = await manager.writeStdin({
@@ -640,7 +640,7 @@ describe('ShellRunProcessManager', () => {
     assert.deepEqual(control.operation, {
       kind: 'pty_control',
       failed: false,
-      input: { bytes: 1, applied: true },
+      input: { bytes: 1, queued: true },
     });
     const result = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(result);
@@ -686,7 +686,7 @@ describe('ShellRunProcessManager', () => {
     assert.deepEqual(control.operation, {
       kind: 'pty_control',
       failed: false,
-      input: { bytes: 3, applied: true },
+      input: { bytes: 3, queued: true },
     });
     const completed = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(completed);
@@ -714,7 +714,7 @@ describe('ShellRunProcessManager', () => {
       abortSignal: NO_ABORT,
     });
     assert.deepEqual(ctrlCControl.operation, {
-      kind: 'pty_control', failed: false, input: { bytes: 1, applied: true },
+      kind: 'pty_control', failed: false, input: { bytes: 1, queued: true },
     });
     const ctrlC = await waitForTerminalShellRun(manager, interrupted.ref);
     assertShellRunSnapshot(ctrlC);
@@ -739,7 +739,7 @@ describe('ShellRunProcessManager', () => {
       abortSignal: NO_ABORT,
     });
     assert.deepEqual(ctrlDControl.operation, {
-      kind: 'pty_control', failed: false, input: { bytes: 1, applied: true },
+      kind: 'pty_control', failed: false, input: { bytes: 1, queued: true },
     });
     const ctrlD = await waitForTerminalShellRun(manager, awaitingEof.ref);
     assertShellRunSnapshot(ctrlD);
@@ -787,17 +787,17 @@ describe('ShellRunProcessManager', () => {
       [
         {
           kind: 'pty_control', failed: false,
-          input: { bytes: 4, applied: true },
+          input: { bytes: 4, queued: true },
           resize: { cols: 81, rows: 25, applied: true, changed: true },
         },
         {
           kind: 'pty_control', failed: false,
-          input: { bytes: 4, applied: true },
+          input: { bytes: 4, queued: true },
           resize: { cols: 82, rows: 26, applied: true, changed: true },
         },
         {
           kind: 'pty_control', failed: false,
-          input: { bytes: 6, applied: true },
+          input: { bytes: 6, queued: true },
           resize: { cols: 83, rows: 27, applied: true, changed: true },
         },
       ],
@@ -952,7 +952,7 @@ describe('ShellRunProcessManager', () => {
       });
       assert.deepEqual(prime.operation, {
         kind: 'pty_control', failed: false,
-        input: { bytes: 5, applied: true },
+        input: { bytes: 5, queued: true },
       });
       await waitUntil(async () => {
         try {
@@ -1148,7 +1148,7 @@ describe('ShellRunProcessManager', () => {
     assert.deepEqual(result.operation, {
       kind: 'pty_control',
       failed: false,
-      input: { bytes: 1, applied: true },
+      input: { bytes: 1, queued: true },
       resize: { cols: 100, rows: 30, applied: true, changed: true },
     });
     const completed = await waitForTerminalShellRun(manager, initial.ref);
@@ -1233,7 +1233,7 @@ describe('ShellRunProcessManager', () => {
       abortSignal: NO_ABORT,
     });
     assert.deepEqual(control.operation, {
-      kind: 'pty_control', failed: false, input: { bytes: 1, applied: true },
+      kind: 'pty_control', failed: false, input: { bytes: 1, queued: true },
     });
     const result = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(result);

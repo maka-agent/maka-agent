@@ -1,6 +1,7 @@
 import { redactSecrets } from './redaction.js';
 
 export const WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS = 160;
+export const WRITE_STDIN_REF_PREVIEW_MAX_CHARS = 256;
 
 export interface WriteStdinInputPreview {
   text: string;
@@ -142,7 +143,7 @@ export function projectToolActivityArgs(toolName: string, args: unknown): unknow
   if (!parsed) return {};
   const input = args as Record<string, unknown>;
   const summary: Record<string, unknown> = {};
-  if (parsed.ref !== undefined) summary.ref = parsed.ref;
+  if (parsed.ref !== undefined) summary.ref = boundedWriteStdinRef(parsed.ref);
   if (parsed.input !== undefined) {
     summary.inputPreview = projectWriteStdinInput(parsed.input);
   } else {
@@ -174,6 +175,17 @@ function readWriteStdinArgs(args: unknown): {
     }
   }
   return parsed;
+}
+
+function boundedWriteStdinRef(ref: string): string {
+  const prefix: string[] = [];
+  let length = 0;
+  for (const char of ref) {
+    length += 1;
+    if (prefix.length < WRITE_STDIN_REF_PREVIEW_MAX_CHARS - 3) prefix.push(char);
+    if (length > WRITE_STDIN_REF_PREVIEW_MAX_CHARS) return `${prefix.join('')}...`;
+  }
+  return ref;
 }
 
 function exactTerminalInputLabel(input: string): string | undefined {

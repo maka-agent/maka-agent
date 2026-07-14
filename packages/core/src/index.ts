@@ -229,10 +229,12 @@ export {
   projectWriteStdinInput,
   readWriteStdinInputPreview,
   WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS,
+  WRITE_STDIN_REF_PREVIEW_MAX_CHARS,
   type WriteStdinInputPreview,
   type WriteStdinPermissionSummary,
 } from './tool-activity-args.js';
 export {
+  SHELL_RUN_ID_MAX_CHARS,
   SHELL_RUN_STATUSES,
   SHELL_RUN_TERMINAL_STATUSES,
   isShellOutput,
