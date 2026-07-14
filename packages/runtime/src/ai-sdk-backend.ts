@@ -385,29 +385,25 @@ function midTurnRequestPayloadChars(
 }
 
 /**
- * Durable watermark for the mid-turn trigger: the current-turn ledger
- * projection must contain the FINAL (non-partial) function_call and
- * function_response for every tool call the SDK reports as completed.
- * Measuring before this holds would under-count the tail delta once and then
- * re-count the same results as a fresh delta at the next step boundary.
+ * Event-driven wait for seq-ack progress: resolves when the queue reports any
+ * push/ack/close/wake, or immediately on abort. The caller loops and re-checks
+ * its condition — a condition variable, not a poll.
  */
-function midTurnDurableWatermarkSatisfied(
-  currentTurnEvents: readonly RuntimeEvent[],
-  requiredCallIds: ReadonlySet<string>,
-): boolean {
-  if (requiredCallIds.size === 0) return true;
-  const finalCalls = new Set<string>();
-  const finalResponses = new Set<string>();
-  for (const event of currentTurnEvents) {
-    if (event.partial === true) continue;
-    const content = event.content;
-    if (content?.kind === 'function_call') finalCalls.add(content.id);
-    else if (content?.kind === 'function_response') finalResponses.add(content.id);
-  }
-  for (const id of requiredCallIds) {
-    if (!finalCalls.has(id) || !finalResponses.has(id)) return false;
-  }
-  return true;
+function waitForQueueProgressOrAbort(
+  queue: AsyncEventQueue<SessionEvent>,
+  abortSignal: AbortSignal | undefined,
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const settle = (): void => {
+      if (settled) return;
+      settled = true;
+      abortSignal?.removeEventListener('abort', settle);
+      resolve();
+    };
+    abortSignal?.addEventListener('abort', settle, { once: true });
+    void queue.waitForProgress().then(settle);
+  });
 }
 
 function joinPromptFragments(fragments: readonly (string | undefined)[]): string | undefined {
@@ -663,8 +659,11 @@ export interface AiSdkBackendInput {
    * loader/recorder). Mid-turn capacity compaction derives its coverage pool
    * from this read: covered events are persisted by construction before the
    * checkpoint that folds them, and their bytes are exactly what recovery
-   * replays. A read that lags the stream only shrinks the tail delta — the
-   * estimate stays anchored on real provider usage.
+   * replays. A lagging read is NOT fail-safe here — the replacement
+   * projection replaces the whole message list, so a missing completed-step
+   * event would be silently dropped from the next request; the capacity hook
+   * therefore reads only after its seq-ack durability boundary (all enqueued
+   * session events processed by the consumer) is satisfied.
    */
   loadTurnRuntimeEvents?: (turnId: string) => Promise<RuntimeEvent[]>;
   /** Optional best-effort durable recorder for accepted active full compact blocks. */
@@ -1225,6 +1224,7 @@ export class AiSdkBackend implements AgentBackend {
         const midTurnCapacityHook = this.buildMidTurnCapacityCompactPrepareStep(
           turnId,
           midTurnState,
+          queue,
           providerTools,
           () => currentRepairToolNames(),
           onMidTurnDiagnosticPatch,
@@ -1313,6 +1313,14 @@ export class AiSdkBackend implements AgentBackend {
           if (isStepFinishChunk) {
             await flushStep();
             this.currentStepMessageId = this.newId();
+            if (midTurnState) {
+              // Durability clock: step N's thinking/text completion events are
+              // enqueued by flushStep just above, so only after this boundary
+              // can a seq-ack wait for step N mean anything. Wake waiters AFTER
+              // the increment or they would re-check a stale count and sleep.
+              midTurnState.flushedSteps += 1;
+              queue.wake();
+            }
           }
         }
 
@@ -1586,7 +1594,9 @@ export class AiSdkBackend implements AgentBackend {
     })();
 
     try {
-      for await (const ev of queue) yield ev;
+      // drain() carries the seq-ack semantics (consumer pull = processed ack);
+      // every consumer-facing path must go through it.
+      yield* this.drain(queue);
     } finally {
       await pumpDone.catch(() => {});
       this.cleanupAfterTurn(turnId);
@@ -2241,6 +2251,7 @@ export class AiSdkBackend implements AgentBackend {
   private buildMidTurnCapacityCompactPrepareStep(
     turnId: string,
     state: MidTurnCapacityCompactState | undefined,
+    queue: AsyncEventQueue<SessionEvent>,
     providerTools: readonly MakaTool[],
     fallbackActiveTools: () => readonly string[],
     onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void,
@@ -2341,38 +2352,44 @@ export class AiSdkBackend implements AgentBackend {
       // between checkpoint and source), and their bytes are exactly what a
       // recovery re-projection replays.
       //
-      // Durable watermark: the SDK's step results are the source of truth for
-      // which tool calls have already completed. A replacement projection
-      // built from a lagging ledger silently DROPS the missing events — the
-      // projection replaces the whole message list — so the trigger waits,
-      // condition-driven, until the ledger holds the FINAL call/response pair
-      // for every completed tool call. Each iteration re-reads through the
-      // seam (which re-awaits the run's serialized write queue and re-checks
-      // store availability); the only exits are the watermark itself, an
-      // abort, or a read failure.
-      const requiredCallIds = collectPrepareStepToolCallIds(options.steps);
+      // Seq-ack durability boundary. The replacement projection REPLACES the
+      // whole message list, so any completed-step content event missing from
+      // the durable pool is silently dropped from the next request — a
+      // lagging ledger here is content loss (e.g. a step's already-emitted
+      // assistant text), not a conservative under-count. No event-kind
+      // predicate can close that: the wait counts the event stream itself.
+      //  1. The pump has flushed every finish-step boundary the SDK reports
+      //     completed (state.flushedSteps), so ALL of the completed steps'
+      //     session events — tool pairs AND thinking/text completions — are
+      //     enqueued with producer-stamped sequence numbers.
+      //  2. The consumer has fully processed everything enqueued
+      //     (consumedCount >= pushedCount). The consumer's pull is the ack
+      //     (see drain()): it fires after processing, not after persisting,
+      //     so deliberately-unpersisted events (non-terminal errors,
+      //     partials) can never deadlock the wait.
+      // After both, ONE durable read (which itself re-awaits the run's
+      // serialized write queue) sees every event the projection may carry.
+      // Exits: the boundary, an abort, a detached consumer, or a read failure.
       const abortSignal = this.abortController?.signal;
-      let currentTurnEvents: RuntimeEvent[];
       for (;;) {
         if (abortSignal?.aborted) return shapeFailure('no_safe_completed_span', 'ledger_wait_aborted');
-        let turnLedger: RuntimeEvent[];
-        try {
-          turnLedger = await loadTurnRuntimeEvents(turnId);
-        } catch {
-          return shapeFailure('no_safe_completed_span', 'ledger_read_failed');
-        }
-        currentTurnEvents = turnLedger
-          .filter((event) => event.turnId === turnId)
-          .filter(isHistoryCompactContentEvent);
-        // The head anchor is persisted before backend.send() is invoked, so
-        // its absence is a wiring error, not replication lag — fail open now.
-        if (!currentTurnEvents.some((event) => event.id === state.headAnchor.id)) {
-          return shapeFailure('no_safe_completed_span', 'head_anchor_not_durable');
-        }
-        if (midTurnDurableWatermarkSatisfied(currentTurnEvents, requiredCallIds)) break;
-        // Yield one scheduling turn so the event consumer can flush, then
-        // re-check the condition.
-        await new Promise((resolve) => setImmediate(resolve));
+        if (queue.consumerDetached) return shapeFailure('no_safe_completed_span', 'ledger_wait_aborted');
+        if (state.flushedSteps >= options.stepNumber && queue.consumedCount >= queue.pushedCount) break;
+        await waitForQueueProgressOrAbort(queue, abortSignal);
+      }
+      let turnLedger: RuntimeEvent[];
+      try {
+        turnLedger = await loadTurnRuntimeEvents(turnId);
+      } catch {
+        return shapeFailure('no_safe_completed_span', 'ledger_read_failed');
+      }
+      const currentTurnEvents = turnLedger
+        .filter((event) => event.turnId === turnId)
+        .filter(isHistoryCompactContentEvent);
+      // The head anchor is persisted before backend.send() is invoked, so
+      // its absence is a wiring error, not replication lag — fail open now.
+      if (!currentTurnEvents.some((event) => event.id === state.headAnchor.id)) {
+        return shapeFailure('no_safe_completed_span', 'head_anchor_not_durable');
       }
       const orderedEvents = [...state.priorContentEvents, ...currentTurnEvents];
 
@@ -3456,7 +3473,22 @@ export class AiSdkBackend implements AgentBackend {
   }
 
   private async *drain(queue: AsyncEventQueue<SessionEvent>): AsyncIterable<SessionEvent> {
-    for await (const ev of queue) yield ev;
+    try {
+      for await (const ev of queue) {
+        yield ev;
+        // Generator backpressure IS the consumer's ack: this line runs only
+        // when the consumer's loop body finished for `ev` and pulled the next
+        // event, so `consumedCount` counts fully PROCESSED events. AgentRun
+        // persists each mapped event before continuing, so an acked event is
+        // either durable or deliberately skipped (partials, non-terminal
+        // errors) — exactly the set a durable read can ever return.
+        queue.ackConsumed();
+      }
+    } finally {
+      // The consumer abandoned or finished the stream; wake any seq-ack waiter
+      // so it observes `consumerDetached` instead of blocking forever.
+      queue.noteConsumerDetached();
+    }
   }
 
   private cleanupAfterTurn(turnId: string): void {

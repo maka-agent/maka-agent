@@ -38,6 +38,8 @@ interface MidTurnFixture {
   events: SessionEvent[];
   messages: unknown[];
   llmCalls: Array<{ contextBudget?: ContextBudgetDiagnostic }>;
+  /** JSON of each summarizer call's folded runtime events (coverage evidence). */
+  summarizedSources: string[];
   persist: (event: SessionEvent) => void;
 }
 
@@ -64,14 +66,16 @@ interface MidTurnFixtureOptions {
   rollingOverflow?: boolean;
   /** Economy tool availability with a huge-schema group behind load_tools (finding D). */
   bigToolGroup?: boolean;
+  /** The first step emits assistant text before its tool call (finding B). */
+  assistantTextInFirstStep?: boolean;
 }
 
 /**
  * Consumer scheduling mode for a fixture turn. `slow` reproduces the review's
  * scheduling perturbation: the event consumer (which persists to the durable
  * ledger) yields several macrotasks before persisting each event, so the
- * ledger genuinely lags the SDK's step progression and the trigger's durable
- * watermark wait is exercised for real.
+ * ledger genuinely lags the SDK's step progression and the trigger's seq-ack
+ * durability boundary is exercised for real.
  */
 type ConsumerMode = 'immediate' | 'slow';
 
@@ -83,6 +87,7 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
   const events: SessionEvent[] = [];
   const messages: unknown[] = [];
   const llmCalls: Array<{ contextBudget?: ContextBudgetDiagnostic }> = [];
+  const summarizedSources: string[] = [];
   let recordedAtThirdRequest = false;
   const fixture = { summarizerCalls: 0, ledgerReads: 0 };
   const usage = (input: number, output: number) => ({
@@ -109,7 +114,17 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     if (options.bigToolGroup) {
       return call === 1 ? toolCallChunks('tool-1', 'load_tools', { group: 'big' }) : doneChunks();
     }
-    if (call === 1) return toolCallChunks('tool-1', 'Read', { path: 'one.md' });
+    if (call === 1) {
+      const first = toolCallChunks('tool-1', 'Read', { path: 'one.md' });
+      if (!options.assistantTextInFirstStep) return first;
+      return [
+        first[0]!,
+        { type: 'text-start', id: 'step1-text' },
+        { type: 'text-delta', id: 'step1-text', delta: 'ASSISTANT_SENTINEL step one reasoning' },
+        { type: 'text-end', id: 'step1-text' },
+        ...first.slice(1),
+      ];
+    }
     if (options.finalAtSecondCall) return doneChunks();
     if (call === 2) return toolCallChunks('tool-2', 'Read', { path: 'two.md' });
     if (options.rollingOverflow && call === 3) return toolCallChunks('tool-3', 'Read', { path: 'three.md' });
@@ -229,8 +244,9 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     ...(options.activeToolResultPrune
       ? { archiveToolResult: () => ({ artifactId: 'artifact-archived-1' }) }
       : {}),
-    summarizeHistoryCompact: async () => {
+    summarizeHistoryCompact: async (input) => {
       fixture.summarizerCalls += 1;
+      summarizedSources.push(JSON.stringify(input.source.foldedRuntimeEvents));
       const summary = options.summarize ? await options.summarize() : 'MID_TURN_SUMMARY_SENTINEL';
       return summary;
     },
@@ -263,6 +279,7 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     events,
     messages,
     llmCalls,
+    summarizedSources,
     persist,
   };
 }
@@ -671,6 +688,47 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(failedOpen?.failOpenReason, 'replacement_not_smaller');
   });
 
+  test('a completed step\'s assistant text is never dropped from the replacement (review finding B)', async () => {
+    // Review round-3 finding B repro: the FIRST step emits assistant text AND
+    // a tool call, and the trigger fires at that step's own boundary. The old
+    // durable watermark waited only for the tool call/response pair — which
+    // are enqueued DURING the step, before the pump flushes the step's
+    // text_complete — so under a slow consumer the ledger could satisfy the
+    // watermark while the already-emitted assistant text was still missing.
+    // Because the replacement projection replaces the WHOLE message list,
+    // that text silently vanished from the next request. The seq-ack boundary
+    // counts the event stream itself (pump flush of the step boundary + the
+    // consumer's processed ack), so the durable pool must contain the step's
+    // text before any coverage is computed.
+    const fixture = buildFixture({
+      // High water at 200 tokens: the first step's usage (120) plus its tool
+      // result delta crosses it, so the trigger fires at the step-1 boundary.
+      reserveTokens: 1_800,
+      assistantTextInFirstStep: true,
+      finalAtSecondCall: true,
+    });
+    await runFixtureTurn(fixture, consumer);
+
+    // The text was emitted to the user...
+    assert.equal(
+      fixture.events.some((event) => event.type === 'text_complete' && event.text.includes('ASSISTANT_SENTINEL')),
+      true,
+    );
+    // ...and the projection accounts for it: the step-1 text event is in the
+    // durable pool when coverage is computed, so it survives either verbatim
+    // in the preserved tail of the second request or inside the summarized
+    // covered span — never silently dropped from both.
+    assert.equal(fixture.recorded.length, 1);
+    const secondPrompt = promptJson(fixture, 1);
+    assert.match(secondPrompt, /maka_history_compact_checkpoint/);
+    const inTail = secondPrompt.includes('ASSISTANT_SENTINEL');
+    const inCoveredSpan = fixture.summarizedSources.join('\n').includes('ASSISTANT_SENTINEL');
+    assert.equal(inTail || inCoveredSpan, true);
+    // The turn still completes normally on the compacted projection.
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
+  });
+
 }
 
 describe('mid-turn capacity compaction in the streaming backend', () => {
@@ -678,11 +736,11 @@ describe('mid-turn capacity compaction in the streaming backend', () => {
 });
 
 describe('mid-turn capacity compaction with a slow ledger consumer', () => {
-  // Review round-2 repro: the consumer that persists to the durable ledger
+  // Review round-2/3 repro: the consumer that persists to the durable ledger
   // yields several macrotasks per event, so the ledger genuinely lags the
-  // SDK's step progression. The durable watermark must make every behavior
-  // above hold identically — no under-counted deltas, no double-counted
-  // results, no over-window request slipping out.
+  // SDK's step progression. The seq-ack durability boundary must make every
+  // behavior above hold identically — no over-window request slipping out,
+  // and no completed-step content silently dropped from a replacement.
   defineMidTurnSuite('slow');
 });
 
