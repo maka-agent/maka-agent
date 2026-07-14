@@ -150,7 +150,9 @@ describe('GitHubCopilotSubscriptionService', () => {
       source.indexOf('async function syncCodexSubscriptionConnection'),
     );
     const failureBody = syncBody.slice(syncBody.indexOf('} catch {'), syncBody.indexOf('const enabledIds'));
-    assert.match(syncBody, /catch \{[\s\S]*if \(!existing\) return null;[\s\S]*enabled: false,[\s\S]*lastTestStatus: 'error'/);
+    assert.match(syncBody, /const failDiscovery = \(\) => \{[\s\S]*if \(!existing\) return null;[\s\S]*enabled: false,[\s\S]*lastTestStatus: 'error'/);
+    assert.match(syncBody, /catch \{[\s\S]*return failDiscovery\(\);/);
+    assert.match(syncBody, /if \(models\.length === 0\) return failDiscovery\(\);/);
     assert.doesNotMatch(failureBody, /fallbackModels|models\.dev|connectionStore\.save/);
   });
 

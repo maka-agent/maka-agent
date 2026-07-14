@@ -123,20 +123,24 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
+    const failDiscovery = () => {
+      if (!existing) return null;
+      return deps.connectionStore.update(existing.slug, {
+        enabled: false,
+        lastTestStatus: 'error',
+        lastTestAt: new Date(now).toISOString(),
+        lastTestMessage: 'GitHub Copilot 无法读取当前账号可用模型，请重新验证登录。',
+      });
+    };
     let models = discoveredModels;
     if (!models) {
       try {
         models = await (deps.fetchModels ?? fetchProviderModels)(discoveryConnection, tokens.access_token);
       } catch {
-        if (!existing) return null;
-        return deps.connectionStore.update(existing.slug, {
-          enabled: false,
-          lastTestStatus: 'error',
-          lastTestAt: new Date(now).toISOString(),
-          lastTestMessage: 'GitHub Copilot 无法读取当前账号可用模型，请重新验证登录。',
-        });
+        return failDiscovery();
       }
     }
+    if (models.length === 0) return failDiscovery();
     const enabledIds = models.map((model) => model.id);
     const defaultModel = enabledIds.includes(existing?.defaultModel ?? '')
       ? existing!.defaultModel
