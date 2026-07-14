@@ -9,6 +9,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./runtime-event": "./dist/runtime-event.js",
+    "./execution-evidence": "./dist/execution-evidence.js",
     "./events": "./dist/events.js",
     "./session": "./dist/session.js",
     "./agent-run": "./dist/agent-run.js",
