@@ -263,12 +263,35 @@ export async function revalidateAdditionalPermissionProposal(input: {
   proposal: AdditionalPermissionProposal;
   cwd: string;
 }): Promise<void> {
+  await revalidateApprovedAdditionalPermissions({
+    profile: input.proposal.profile,
+    normalizedPaths: input.proposal.normalizedPaths,
+    cwd: input.cwd,
+  });
+}
+
+export async function revalidateAdditionalPermissionGrant(input: {
+  grant: Pick<AdditionalPermissionGrant, 'profile' | 'normalizedPaths'>;
+  cwd: string;
+}): Promise<void> {
+  await revalidateApprovedAdditionalPermissions({
+    profile: input.grant.profile,
+    normalizedPaths: input.grant.normalizedPaths,
+    cwd: input.cwd,
+  });
+}
+
+async function revalidateApprovedAdditionalPermissions(input: {
+  profile: AdditionalPermissionProfile;
+  normalizedPaths: readonly NormalizedAdditionalPermissionPath[];
+  cwd: string;
+}): Promise<void> {
   const current = await normalizeAdditionalPermissionProfile({
     profile: {
-      ...(input.proposal.normalizedPaths.length > 0
+      ...(input.normalizedPaths.length > 0
         ? {
             fileSystem: {
-              entries: input.proposal.normalizedPaths.map((entry) => ({
+              entries: input.normalizedPaths.map((entry) => ({
                 path: entry.displayPath,
                 access: entry.access,
                 scope: entry.scope,
@@ -276,19 +299,19 @@ export async function revalidateAdditionalPermissionProposal(input: {
             },
           }
         : {}),
-      ...(input.proposal.profile.network ? { network: input.proposal.profile.network } : {}),
+      ...(input.profile.network ? { network: input.profile.network } : {}),
     },
     cwd: input.cwd,
   });
   if (
     serializeAdditionalPermissionProfile(current.profile)
-    !== serializeAdditionalPermissionProfile(input.proposal.profile)
+    !== serializeAdditionalPermissionProfile(input.profile)
   ) {
     throw pathChanged('An approved additional permission path changed before execution.');
   }
 
   const currentByKey = new Map(current.normalizedPaths.map((entry) => [permissionPathKey(entry), entry]));
-  if (input.proposal.normalizedPaths.some((approved) => (
+  if (input.normalizedPaths.some((approved) => (
     currentByKey.get(permissionPathKey(approved))?.targetType !== approved.targetType
   ))) {
     throw pathChanged('An approved additional permission target changed type before execution.');

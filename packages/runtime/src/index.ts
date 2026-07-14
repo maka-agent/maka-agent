@@ -35,6 +35,7 @@ export {
   normalizeAdditionalPermissionProfile,
   planDeclaredBashAdditionalPermission,
   planFileToolAdditionalPermission,
+  revalidateAdditionalPermissionGrant,
   revalidateAdditionalPermissionProposal,
 } from './additional-permissions.js';
 export type {
@@ -48,6 +49,22 @@ export type {
   ToolExecutionPermissionContext,
 } from './additional-permissions.js';
 export { hashAdditionalPermissionProfile } from './additional-permission-hash.js';
+export {
+  FilesystemWorkerClient,
+  FilesystemWorkerClientError,
+  buildFilesystemWorkerEnv,
+  createFilesystemWorkerLaunchSpecProvider,
+} from './filesystem-worker/index.js';
+export type {
+  CreateFilesystemWorkerLaunchSpecProviderInput,
+  FilesystemWorkerClientInput,
+  FilesystemWorkerClientOperation,
+  FilesystemWorkerExecuteInput,
+  FilesystemWorkerLaunchSpec,
+  FilesystemWorkerLaunchSpecProvider,
+  FilesystemWorkerLaunchSpecResult,
+  FilesystemWorkerResourceLocation,
+} from './filesystem-worker/index.js';
 
 export { AiSdkBackend } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
