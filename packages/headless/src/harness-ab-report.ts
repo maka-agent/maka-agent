@@ -56,6 +56,7 @@ export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbRep
   const runStatus = summary.stopReason
     ? 'stopped'
     : summary.pairedAttempts.missingPairIds.length === 0
+        && summary.pairedAttempts.missingUsagePairIds.length === 0
       ? 'completed'
       : 'incomplete';
   return {
@@ -185,6 +186,11 @@ export function assertHarnessAbReportCompleted(report: HarnessAbReport): void {
     throw new Error(`harness A/B stopped: ${report.stopReason ?? 'unknown_reason'}`);
   }
   if (report.runStatus === 'incomplete') {
+    if (report.economy.missingUsagePairs > 0) {
+      throw new Error(
+        `harness A/B incomplete: missing usage for ${report.economy.missingUsagePairs} pair(s)`,
+      );
+    }
     throw new Error(
       `harness A/B incomplete: ${report.effectiveness.pairedEvaluated}/${report.completeness.expectedPerArm} paired attempts evaluated (${report.completeness.excludedPairs} excluded, ${report.completeness.missingPairs} missing)`,
     );

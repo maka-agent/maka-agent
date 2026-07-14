@@ -1427,6 +1427,10 @@ export class AiSdkBackend implements AgentBackend {
 
   private computeTokenUsageCostUsd(usage: NormalizedAiSdkUsage): number | undefined {
     try {
+      const pricing = (this.input.lookupPricing ?? getBuiltinPricing)(
+        `${this.input.connection.providerType}:${this.input.modelId}`,
+      );
+      if (pricing === null) return undefined;
       return computeCost(
         {
           inputTokens: usage.inputTokens,
@@ -1435,7 +1439,7 @@ export class AiSdkBackend implements AgentBackend {
           cacheMissInputTokens: usage.cacheMissInputTokens,
           cacheWriteInputTokens: usage.cacheWriteInputTokens,
         },
-        (this.input.lookupPricing ?? getBuiltinPricing)(`${this.input.connection.providerType}:${this.input.modelId}`),
+        pricing,
       ).totalCost;
     } catch {
       return undefined;

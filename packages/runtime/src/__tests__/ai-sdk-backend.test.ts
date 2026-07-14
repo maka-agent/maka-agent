@@ -3806,6 +3806,51 @@ describe('AiSdkBackend usage telemetry', () => {
     ]);
   });
 
+  test('keeps checkpoint cost unknown when model pricing is unavailable', async () => {
+    const usageCheckpoints: Array<{ costUsd?: number }> = [];
+    const model = new MockLanguageModelV3({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: 'stream-start', warnings: [] },
+            {
+              type: 'finish',
+              finishReason: { unified: 'stop', raw: 'stop' },
+              usage: {
+                inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
+                outputTokens: { total: 10, text: 10, reasoning: 0 },
+              },
+            },
+          ],
+          initialDelayInMs: null,
+          chunkDelayInMs: null,
+        }),
+      }),
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'unpriced-model',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      lookupPricing: () => null,
+      recordUsageCheckpoint: async (usage: { costUsd?: number }) => {
+        usageCheckpoints.push(usage);
+      },
+    } as never);
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
+
+    assert.equal(usageCheckpoints.length, 1);
+    assert.equal(usageCheckpoints[0]?.costUsd, undefined);
+  });
+
   test('records active tool-result prune diagnostics in usage telemetry', async () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];

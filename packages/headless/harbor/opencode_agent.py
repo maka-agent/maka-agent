@@ -51,6 +51,12 @@ class MakaOpenCodeAgent(OpenCode):
 
     def _apply_cost_metadata(self, context: AgentContext) -> None:
         totals = self._token_totals(context)
+        if totals is None:
+            context.metadata = {
+                **(context.metadata or {}),
+                "opencode_pricing_source": "missing_usage",
+            }
+            return
         reported_cost = context.cost_usd
         estimated_cost = context.cost_usd
         pricing_source = "opencode" if estimated_cost is not None else None
@@ -179,14 +185,19 @@ class MakaOpenCodeAgent(OpenCode):
                 env[key] = value
         return env
 
-    def _token_totals(self, context: AgentContext) -> dict[str, int]:
+    def _token_totals(self, context: AgentContext) -> dict[str, int] | None:
         parsed = self._token_totals_from_stdout()
         if parsed is not None:
             return parsed
 
-        input_tokens = int(getattr(context, "n_input_tokens", 0) or 0)
-        output_tokens = int(getattr(context, "n_output_tokens", 0) or 0)
-        cache_read = int(getattr(context, "n_cache_tokens", 0) or 0)
+        raw_input = getattr(context, "n_input_tokens", None)
+        raw_output = getattr(context, "n_output_tokens", None)
+        raw_cache_read = getattr(context, "n_cache_tokens", None)
+        if raw_input is None and raw_output is None and raw_cache_read is None:
+            return None
+        input_tokens = int(raw_input or 0)
+        output_tokens = int(raw_output or 0)
+        cache_read = int(raw_cache_read or 0)
         cache_miss = max(0, input_tokens - cache_read)
         return {
             "input": input_tokens,
@@ -277,6 +288,21 @@ class MakaOpenCodeAgent(OpenCode):
                 name = str(tool_name)
                 tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
         tool_names = sorted(tool_call_counts)
+        token_summary = None
+        if totals is not None and context.cost_usd is not None:
+            token_summary = {
+                "input": totals["input"],
+                "cachedInput": totals["cache_read"],
+                "cacheHitInput": totals["cache_read"],
+                "cacheMissInput": totals["cache_miss"],
+                "cacheWriteInput": totals["cache_write"],
+                "cacheMissInputSource": "explicit",
+                "output": totals["output"],
+                "reasoning": totals["reasoning"],
+                "total": totals["input"] + totals["output"],
+                "costUsd": float(context.cost_usd),
+                "pricingSource": "runtime",
+            }
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         runtime_events_path = self.logs_dir / "runtime-events.jsonl"
         source_events_path = self.logs_dir / "opencode.txt"
@@ -291,19 +317,7 @@ class MakaOpenCodeAgent(OpenCode):
             "runtimeEventsPath": "/logs/agent/runtime-events.jsonl",
             "promptHash": prompt_hash,
             "executionIdentity": execution_identity,
-            "tokenSummary": {
-                "input": totals["input"],
-                "cachedInput": totals["cache_read"],
-                "cacheHitInput": totals["cache_read"],
-                "cacheMissInput": totals["cache_miss"],
-                "cacheWriteInput": totals["cache_write"],
-                "cacheMissInputSource": "explicit",
-                "output": totals["output"],
-                "reasoning": totals["reasoning"],
-                "total": totals["input"] + totals["output"],
-                "costUsd": float(context.cost_usd or 0),
-                "pricingSource": "runtime",
-            },
+            **({"tokenSummary": token_summary} if token_summary is not None else {}),
             "toolSummary": {
                 "providerVisibleToolCount": 0,
                 "actualToolCalls": sum(tool_call_counts.values()),

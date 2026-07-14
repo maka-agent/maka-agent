@@ -141,6 +141,7 @@ describe('harness A/B report', () => {
     };
 
     assert.equal(report.effectiveness.pairedEvaluated, 2);
+    assert.equal(report.runStatus, 'incomplete');
     assert.equal(economy.pairedMetered, 1);
     assert.equal(economy.missingUsagePairs, 1);
     assert.equal(report.economy.baseline.totalTokens, 120);
@@ -148,6 +149,7 @@ describe('harness A/B report', () => {
     assert.equal(report.economy.baseline.costPerPassUsd, 0.1);
     assert.equal(report.economy.candidate.costPerPassUsd, 0.2);
     assert.match(renderHarnessAbReportMarkdown(report), /fully metered pairs: 1; missing usage: 1/);
+    assert.throws(() => assertHarnessAbReportCompleted(report), /missing usage for 1 pair/);
   });
 
   test('preserves an early stop in every report format and rejects completion', () => {
