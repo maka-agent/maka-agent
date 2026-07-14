@@ -16,6 +16,19 @@ from harbor.models.agent.context import AgentContext
 
 from trial_pricing import estimate_cost, pricing_from_env
 
+_UPSTREAM_CURL_INSTALL_COMMAND = "apt-get update && apt-get install -y curl"
+_RETRYING_CURL_INSTALL_COMMAND = (
+    "command -v curl >/dev/null 2>&1 && exit 0; "
+    "status=1; "
+    "for attempt in 1 2 3; do "
+    "apt-get -o Acquire::Retries=3 update && "
+    "apt-get -o Acquire::Retries=3 install -y curl && exit 0; "
+    "status=$?; "
+    '[ "$attempt" -eq 3 ] && exit "$status"; '
+    "sleep $((attempt * 5)); "
+    'done; exit "$status"'
+)
+
 
 class MakaOpenCodeAgent(OpenCode):
     """Run Harbor's OpenCode agent while normalizing trial cost fields."""
@@ -23,6 +36,24 @@ class MakaOpenCodeAgent(OpenCode):
     @staticmethod
     def name() -> str:
         return "opencode"
+
+    async def exec_as_root(
+        self,
+        environment: BaseEnvironment,
+        command: str,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        timeout_sec: int | None = None,
+    ) -> Any:
+        if command == _UPSTREAM_CURL_INSTALL_COMMAND:
+            command = _RETRYING_CURL_INSTALL_COMMAND
+        return await super().exec_as_root(
+            environment,
+            command=command,
+            env=env,
+            cwd=cwd,
+            timeout_sec=timeout_sec,
+        )
 
     @with_prompt_template
     async def run(

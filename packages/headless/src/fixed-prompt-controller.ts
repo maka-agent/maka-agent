@@ -98,7 +98,7 @@ export interface FixedPromptTaskCompletedEvent {
   errorClass?: string;
   promptHash?: string;
   executionIdentity?: HarborCellExecutionIdentity;
-  tokenSummary: HarborCellTokenSummary;
+  tokenSummary?: HarborCellTokenSummary;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
   continuationSummary?: HarborCellContinuationSummary;
@@ -175,7 +175,7 @@ export interface FixedPromptTaskPlumbingFailedEvent {
   passed: false;
   scored: false;
   eligible: false;
-  errorClass: 'zero_cost_with_tokens' | 'prompt_hash_mismatch' | 'missing_prompt_hash' | 'missing_execution_identity' | 'execution_identity_mismatch';
+  errorClass: 'missing_token_usage' | 'zero_cost_with_tokens' | 'prompt_hash_mismatch' | 'missing_prompt_hash' | 'missing_execution_identity' | 'execution_identity_mismatch';
   error: string;
   promptHash?: string;
   expectedPromptHash?: string;
@@ -520,18 +520,21 @@ export async function writeFixedPromptResultsTsv(
     'cost_usd',
     'runtime_events_path',
   ];
-  const rows = events.map((event) => [
-    event.taskId,
-    event.status,
-    String(event.passed),
-    String(event.scored),
-    String(event.eligible),
-    event.errorClass ?? '',
-    'promptHash' in event ? event.promptHash ?? '' : '',
-    String(eventTokenSummary(event)?.total ?? 0),
-    String(eventTokenSummary(event)?.costUsd ?? 0),
-    'runtimeEventsPath' in event ? event.runtimeEventsPath ?? '' : '',
-  ]);
+  const rows = events.map((event) => {
+    const tokenSummary = eventTokenSummary(event);
+    return [
+      event.taskId,
+      event.status,
+      String(event.passed),
+      String(event.scored),
+      String(event.eligible),
+      event.errorClass ?? '',
+      'promptHash' in event ? event.promptHash ?? '' : '',
+      tokenSummary ? String(tokenSummary.total) : '',
+      tokenSummary ? String(tokenSummary.costUsd) : '',
+      'runtimeEventsPath' in event ? event.runtimeEventsPath ?? '' : '',
+    ];
+  });
   const body = [header, ...rows].map((row) => row.map(tsvCell).join('\t')).join('\n');
   await writeFile(path, `${body}\n`, 'utf8');
 }
@@ -717,7 +720,7 @@ function taskCompletedEvent(input: {
     ...(errorClass ? { errorClass } : {}),
     ...(output.cell.promptHash ? { promptHash: output.cell.promptHash } : {}),
     ...(output.cell.executionIdentity ? { executionIdentity: output.cell.executionIdentity } : {}),
-    tokenSummary: output.cell.tokenSummary,
+    ...(output.cell.tokenSummary ? { tokenSummary: output.cell.tokenSummary } : {}),
     ...(output.cell.contextBudgetPolicy ? { contextBudgetPolicy: output.cell.contextBudgetPolicy } : {}),
     ...(output.cell.contextBudgetSummary ? { contextBudgetSummary: output.cell.contextBudgetSummary } : {}),
     ...(output.cell.continuationSummary ? { continuationSummary: output.cell.continuationSummary } : {}),
@@ -766,7 +769,7 @@ function taskPlumbingFailedEvent(input: {
     error: input.error,
     ...(input.output.cell.promptHash ? { promptHash: input.output.cell.promptHash } : {}),
     expectedPromptHash: input.expectedPromptHash,
-    tokenSummary: input.output.cell.tokenSummary,
+    ...(input.output.cell.tokenSummary ? { tokenSummary: input.output.cell.tokenSummary } : {}),
     ...(input.output.cell.contextBudgetPolicy
       ? { contextBudgetPolicy: input.output.cell.contextBudgetPolicy }
       : {}),
@@ -813,7 +816,17 @@ function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash
       error: `Harbor cell prompt hash ${output.cell.promptHash} did not match ${expectedPromptHash}`,
     };
   }
-  if (output.cell.tokenSummary.total > 0 && output.cell.tokenSummary.costUsd === 0) {
+  if (
+    (output.cell.status === 'completed' || output.cell.errorClass === 'tool_step_cap_reached')
+    && output.cell.executionIdentity
+    && (!output.cell.tokenSummary || output.cell.tokenSummary.total <= 0)
+  ) {
+    return {
+      errorClass: 'missing_token_usage',
+      error: 'Harbor cell did not report token usage for the attested real-provider execution',
+    };
+  }
+  if (output.cell.tokenSummary && output.cell.tokenSummary.total > 0 && output.cell.tokenSummary.costUsd === 0) {
     return {
       errorClass: 'zero_cost_with_tokens',
       error: 'Harbor cell reported token usage but zero costUsd',
@@ -953,6 +966,16 @@ function taskBudgetExhaustedEvent(input: {
     );
     if (evidenceFailure?.errorClass === 'missing_execution_identity') {
       evidenceFailure = { ...evidenceFailure, error: LEGACY_TIMEOUT_MISSING_EXECUTION_IDENTITY_ERROR };
+    }
+    if (
+      evidenceFailure === undefined
+      && artifactRefs.executionIdentity
+      && (!artifactRefs.tokenSummary || artifactRefs.tokenSummary.total <= 0)
+    ) {
+      evidenceFailure = {
+        errorClass: 'missing_token_usage',
+        error: 'Harbor cell did not report token usage for the attested real-provider execution',
+      };
     }
   }
   const tokenSummary = artifactRefs.cellOutput?.tokenSummary ?? artifactRefs.tokenSummary;

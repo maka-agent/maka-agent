@@ -289,7 +289,7 @@ function cellArtifactRefs(cell: HarborCellOutput, hostEventsPath: string, trialD
   return {
     runtimeEventsPath: hostEventsPath,
     traceEventsPath,
-    tokenSummary: cell.tokenSummary,
+    ...(cell.tokenSummary ? { tokenSummary: cell.tokenSummary } : {}),
     cellOutput: { ...cell, runtimeEventsPath: hostEventsPath, traceEventsPath },
   };
 }
