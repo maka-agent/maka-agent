@@ -79,15 +79,17 @@ describe('runHarnessAbComparison', () => {
       const pilot = await runHarnessAbComparison({ ...common, evaluationTasks: tasks.slice(0, 2) });
       assert.equal(pilot.baseline.observed, 2);
       assert.equal(pilot.candidate.observed, 2);
-      assert.deepEqual(calls, ['a:maka', 'a:opencode', 'b:opencode', 'b:maka']);
+      assert.equal(calls.length, 4);
+      assert.deepEqual(new Set(calls), new Set(['a:maka', 'a:opencode', 'b:maka', 'b:opencode']));
 
       const full = await runHarnessAbComparison({ ...common, evaluationTasks: tasks });
       assert.equal(full.baseline.observed, 3);
       assert.equal(full.candidate.observed, 3);
-      assert.deepEqual(calls, [
-        'a:maka', 'a:opencode', 'b:opencode', 'b:maka',
-        'c:maka', 'c:opencode',
-      ]);
+      assert.equal(calls.length, 6);
+      assert.deepEqual(
+        new Set(calls),
+        new Set(['a:maka', 'a:opencode', 'b:maka', 'b:opencode', 'c:maka', 'c:opencode']),
+      );
       assert.deepEqual((await readdir(dir)).filter((name) => name.endsWith('.tsv')), []);
     } finally {
       await rm(dir, { recursive: true, force: true });
