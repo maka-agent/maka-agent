@@ -3664,7 +3664,7 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal((events.at(-1) as Extract<SessionEvent, { type: 'complete' }>).stopReason as string, 'step_limit');
   });
 
-  test('records aggregate totalUsage across AI SDK tool-loop steps', async () => {
+  test('records cumulative usage checkpoints across tool-loop steps and turns', async () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
     const llmRecords: LlmCallRecord[] = [];
@@ -3757,6 +3757,7 @@ describe('AiSdkBackend usage telemetry', () => {
     for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
       events.push(event);
     }
+    await drain(backend.send({ turnId: 'turn-2', text: 'continue', context: [] }));
 
     const usageMessage = messages.find((message) =>
       (message as { type?: string }).type === 'token_usage'
@@ -3777,7 +3778,7 @@ describe('AiSdkBackend usage telemetry', () => {
       | Extract<SessionEvent, { type: 'token_usage' }>
       | undefined;
 
-    assert.equal(streamCalls, 2);
+    assert.equal(streamCalls, 3);
     assert.equal(usageMessage?.input, 300);
     assert.equal(usageMessage?.output, 12);
     assert.equal(usageMessage?.cacheHitInput, 100);
@@ -3801,6 +3802,7 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.deepEqual(usageCheckpoints.map(({ inputTokens, outputTokens }) => ({ inputTokens, outputTokens })), [
       { inputTokens: 100, outputTokens: 5 },
       { inputTokens: 300, outputTokens: 12 },
+      { inputTokens: 500, outputTokens: 19 },
     ]);
   });
 

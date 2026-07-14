@@ -460,7 +460,7 @@ export interface AiSdkBackendInput {
   /** Optional fire-and-forget telemetry hooks. Tool implementations remain unaware. */
   recordLlmCall?: LlmTelemetryRecorder;
   recordToolInvocation?: ToolTelemetryRecorder;
-  /** Durable cumulative usage checkpoint after each completed provider step. */
+  /** Durable session-lifetime cumulative usage checkpoint after each completed provider step. */
   recordUsageCheckpoint?: (
     usage: NormalizedAiSdkUsage & { costUsd?: number },
   ) => void | Promise<void>;
@@ -563,6 +563,7 @@ export class AiSdkBackend implements AgentBackend {
   private currentWatchdog: StreamWatchdog | null = null;
   private currentRunTrace: RunTrace | null = null;
   private priorRequestShape: RequestShapeDiagnostic | undefined;
+  private cumulativeUsageCheckpoint: NormalizedAiSdkUsage | undefined;
   /**
    * Id of the assistant step currently streaming. Read by ToolRuntime via
    * `getCurrentStepId` so each tool call's `tool_start` carries the step it
@@ -817,7 +818,6 @@ export class AiSdkBackend implements AgentBackend {
     };
     let tokenUsage: NormalizedAiSdkUsage | undefined;
     let tokenUsageCostUsd: number | undefined;
-    let completedStepUsage: NormalizedAiSdkUsage | undefined;
     let streamStatus: LlmCallRecord['status'] = 'success';
     let streamErrorClass: string | undefined;
     let rawFinishReason: string | undefined;
@@ -1082,10 +1082,10 @@ export class AiSdkBackend implements AgentBackend {
             runtimeSteps += 1;
             const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
             if (stepUsage) {
-              completedStepUsage = mergeNormalizedUsage(completedStepUsage, stepUsage);
+              this.cumulativeUsageCheckpoint = mergeNormalizedUsage(this.cumulativeUsageCheckpoint, stepUsage);
               await this.input.recordUsageCheckpoint?.({
-                ...completedStepUsage,
-                costUsd: this.computeTokenUsageCostUsd(completedStepUsage),
+                ...this.cumulativeUsageCheckpoint,
+                costUsd: this.computeTokenUsageCostUsd(this.cumulativeUsageCheckpoint),
               });
             }
           }
