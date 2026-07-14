@@ -1174,10 +1174,19 @@ export class AiSdkBackend implements AgentBackend {
 
     const aiSdkTools: Record<string, unknown> = {};
     for (const t of providerTools) {
+      const execute = this.wrapToolExecute(t, turnId, queue);
       aiSdkTools[t.name] = {
         description: t.description,
         inputSchema: t.parameters,
-        execute: this.wrapToolExecute(t, turnId, queue),
+        execute: async (
+          args: unknown,
+          context: { toolCallId: string; abortSignal: AbortSignal },
+        ) => {
+          const output = await execute(args, context);
+          const providerError = providerToolError(output);
+          if (providerError) throw new Error(providerError);
+          return output;
+        },
         ...(t.toModelOutput ? { toModelOutput: t.toModelOutput } : {}),
       };
     }
@@ -3993,6 +4002,19 @@ export class AiSdkBackend implements AgentBackend {
     this.toolRuntime.endTurn(turnId, this.aborted ? 'aborted' : 'completed');
     this.aborted = false;
   }
+}
+
+function providerToolError(output: unknown): string | undefined {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return undefined;
+  const record = output as Record<string, unknown>;
+  if (typeof record.error !== 'string' || record.error.length === 0) return undefined;
+  if (typeof record.modelText === 'string' && record.modelText.length > 0) {
+    return record.modelText;
+  }
+  if (typeof record.text === 'string' && record.text.length > 0) {
+    return record.text;
+  }
+  return record.error;
 }
 
 export function repairMakaToolCall(input: {

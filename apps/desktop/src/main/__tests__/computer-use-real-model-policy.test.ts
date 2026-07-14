@@ -157,3 +157,34 @@ test('semantic mutations require an observation created by the owned fixture', a
   assert.equal(owned.text, 'ok');
   assert.deepEqual(calls, ['observe', 'click_element']);
 });
+
+test('wait and cursor_position do not require an impossible observation_id', async () => {
+  const calls: string[] = [];
+  const [wrapped] = applyComputerUseRealModelPolicy(toolSet(calls), {
+    allowedActions: ['wait', 'cursor_position'],
+    maxTotalActions: 2,
+    maxActionCounts: { wait: 1, cursor_position: 1 },
+    allowedApps: ['Owned Fixture'],
+  });
+  const context = {
+    sessionId: 's',
+    turnId: 't',
+    toolCallId: 'c',
+    cwd: '/tmp',
+    abortSignal: new AbortController().signal,
+    emitOutput() {},
+  };
+
+  const wait = await wrapped.impl(
+    { action: 'wait', duration: 0.01 } as never,
+    context,
+  ) as { text: string };
+  const cursor = await wrapped.impl(
+    { action: 'cursor_position' } as never,
+    context,
+  ) as { text: string };
+
+  assert.equal(wait.text, 'ok');
+  assert.equal(cursor.text, 'ok');
+  assert.deepEqual(calls, ['wait', 'cursor_position']);
+});

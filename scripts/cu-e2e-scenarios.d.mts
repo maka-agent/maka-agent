@@ -18,6 +18,11 @@ export interface CuE2eScenario {
   maxTotalActions?: number;
   minimumActionCounts?: Record<string, number>;
   maxActionCounts?: Record<string, number>;
+  expectedActionSequence?: string[];
+  expectedFailures?: Array<{
+    action: string;
+    error: string;
+  }>;
 }
 
 export const CU_E2E_ACTIONS: readonly string[];

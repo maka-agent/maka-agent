@@ -66,7 +66,8 @@ let physicalEventTypes: [CGEventType] = [
     .mouseMoved,
     .leftMouseDragged,
     .rightMouseDragged,
-    .otherMouseDragged
+    .otherMouseDragged,
+    .scrollWheel
 ]
 let initialPhysicalInputAge = physicalEventTypes.map { eventType in
     CGEventSource.secondsSinceLastEventType(

@@ -80,7 +80,10 @@ getAIModel
 
 The server fixtures verify each provider's exact URL prefix, API-key header,
 model ID, streaming `tool_use`, tool-result reinjection, and final semantic
-state.
+state. They also verify that a failed semantic action is reinjected as
+`tool_result.is_error:true`; Runtime records the failed result once, while the
+AI SDK adapter exposes it to the provider as a recoverable tool execution
+error.
 
 ## Dynamic Structure Finding
 
@@ -116,6 +119,14 @@ The independent Runtime fix:
 The real evidence sanitizer also previously hard-coded an OpenAI producer.
 Reports now preserve an explicit producer and provider while retaining the
 same privacy projection.
+
+## Evidence Finding
+
+The Desktop runner previously inferred fixture windows from action output, so
+an incorrect action window could add itself to the ownership allowlist. The
+launcher now discovers the exact fixture PID/window set independently before
+the model runs, binds actions by tool-call dispatch traces or observation
+lineage, and waits for trace flush before qualification.
 
 ## Evidence Privacy
 

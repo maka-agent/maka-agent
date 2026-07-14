@@ -8,6 +8,9 @@ const SAFE_TRACE_KEYS = new Set([
   'ok',
   'durationMs',
   'at',
+  'toolCallId',
+  'pid',
+  'windowId',
   'expectedPid',
   'expectedWindowId',
   'winnerPid',
@@ -102,10 +105,24 @@ export function sanitizeCuActionRecord(record) {
   const type = actionType(record?.action ?? record);
   return {
     type: SAFE_ACTION_TYPES.has(type) ? type : 'unknown',
+    ...(safeId(record?.toolCallId) ? { toolCallId: safeId(record.toolCallId) } : {}),
+    ...(safeId(record?.sourceObservationId)
+      ? { sourceObservationId: safeId(record.sourceObservationId) }
+      : {}),
+    ...(type !== 'screenshot' && safeId(record?.resultObservationId)
+      ? { resultObservationId: safeId(record.resultObservationId) }
+      : {}),
+    ...(Number.isInteger(record?.targetPid) && record.targetPid > 0
+      ? { targetPid: record.targetPid }
+      : {}),
+    ...(Number.isInteger(record?.targetWindowId) && record.targetWindowId > 0
+      ? { targetWindowId: record.targetWindowId }
+      : {}),
     ...(typeof record?.success === 'boolean' ? { success: record.success } : {}),
     ...(typeof record?.targetOwned === 'boolean'
       ? { targetOwned: record.targetOwned }
       : {}),
+    ...(record?.expectedFailure === true ? { expectedFailure: true } : {}),
     ...(Number.isFinite(record?.durationMs) ? { durationMs: record.durationMs } : {}),
     ...(Number.isFinite(record?.modelLatencyMs) ? { modelLatencyMs: record.modelLatencyMs } : {}),
     ...(Number.isFinite(record?.toolLatencyMs) ? { toolLatencyMs: record.toolLatencyMs } : {}),
@@ -193,7 +210,7 @@ export function sanitizeCuReport(report) {
     schemaVersion: report?.schemaVersion === 1 ? 1 : undefined,
     evidenceClass: safeToken(
       report?.evidenceClass,
-      new Set(['real-runtime', 'hermetic-protocol', 'static-contract']),
+      new Set(['real-runtime', 'fault-injection', 'hermetic-protocol', 'static-contract']),
     ),
     scenarioId: safeId(report?.scenarioId),
     producer: safeId(report?.producer),
@@ -202,6 +219,8 @@ export function sanitizeCuReport(report) {
       new Set(['live-network', 'hermetic', 'static']),
     ),
     policyMode: safeToken(report?.policyMode, new Set(['enforced', 'bypassed'])),
+    qualificationEligible: report?.qualificationEligible === true,
+    deprecated: report?.deprecated === true,
     toolExposure: safeToken(report?.toolExposure, new Set(['direct-e2e', 'deferred'])),
     provider: safeId(report?.provider),
     model: safeId(report?.model),
@@ -216,6 +235,8 @@ export function sanitizeCuReport(report) {
           ),
         }
       : undefined,
+    fixtureIdentity: sanitizeFixtureIdentity(report?.fixtureIdentity),
+    faultInjection: sanitizeFaultInjection(report?.faultInjection),
     run: report?.run && typeof report.run === 'object'
       ? {
           status: safeToken(
@@ -248,6 +269,37 @@ export function sanitizeCuReport(report) {
       ? report.driverTraces.map(sanitizeCuTrace).filter(Boolean)
       : [],
   };
+}
+
+function sanitizeFixtureIdentity(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const candidates = Array.isArray(value.instances) ? value.instances : [value];
+  const instances = candidates.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
+    const pid = Number.isInteger(candidate.pid) && candidate.pid > 0
+      ? candidate.pid
+      : undefined;
+    const windowIds = Array.isArray(candidate.windowIds)
+      ? [...new Set(candidate.windowIds.filter(
+          (entry) => Number.isInteger(entry) && entry > 0,
+        ))]
+      : [];
+    return pid && windowIds.length > 0 ? [{ pid, windowIds }] : [];
+  });
+  if (instances.length === 0) return undefined;
+  return {
+    instances: instances.filter((candidate, index) =>
+      instances.findIndex((entry) =>
+        entry.pid === candidate.pid
+        && JSON.stringify(entry.windowIds) === JSON.stringify(candidate.windowIds)) === index),
+  };
+}
+
+function sanitizeFaultInjection(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const layer = safeToken(value.layer, new Set(['runtime']));
+  const kind = safeId(value.kind);
+  return layer && kind ? { layer, kind } : undefined;
 }
 
 function safeId(value) {

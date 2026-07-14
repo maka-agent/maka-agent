@@ -145,7 +145,9 @@ function startMonitor(fixturePID) {
           mode: fields[0],
           frontmostPID: Number(fields[1]),
           pointer: { x: Number(fields[2]), y: Number(fields[3]) },
-          bundleIdentifier: fields[4],
+          physicalInputAge: Number(fields[4]),
+          bundleIdentifier: fields[5],
+          canonicalAppPath: fields[6],
         });
       } else if (kind === 'CHANGE' || kind === 'ERROR') {
         fail(new Error(fields.join('\t') || line));
@@ -169,6 +171,24 @@ function startMonitor(fixturePID) {
     failure,
     stop: () => terminateChild(child, 'AX model safety monitor'),
   };
+}
+
+function validateMonitorBaseline(baseline, fixturePID, label) {
+  if (baseline.mode !== 'concurrent_user') {
+    throw new Error(`${label} reported unexpected mode '${String(baseline.mode)}'`);
+  }
+  if (!Number.isFinite(baseline.physicalInputAge) || baseline.physicalInputAge < 0) {
+    throw new Error(`${label} reported invalid physical input age`);
+  }
+  if (baseline.bundleIdentifier !== fixtureBundleId) {
+    throw new Error(`${label} fixture bundle identity mismatch`);
+  }
+  if (baseline.canonicalAppPath !== expectedAppPath) {
+    throw new Error(`${label} fixture app path mismatch`);
+  }
+  if (baseline.frontmostPID === fixturePID) {
+    throw new Error(`${label} synthetic fixture became frontmost`);
+  }
 }
 
 async function run() {
@@ -206,9 +226,11 @@ async function run() {
         throw new Error('AX model safety monitor startup timeout');
       }),
     ]);
-    if (baseline.frontmostPID === fixture.oop.hostPID) {
-      throw new Error('synthetic fixture became frontmost before model execution');
-    }
+    validateMonitorBaseline(
+      baseline,
+      fixture.oop.hostPID,
+      'AX model safety monitor',
+    );
     harness = spawn(process.execPath, [harnessPath], {
       cwd: repoRoot,
       env: {
@@ -254,9 +276,11 @@ async function run() {
           throw new Error('restarted AX model safety monitor timeout');
         }),
       ]);
-      if (restartedBaseline.frontmostPID === restarted.oop.hostPID) {
-        throw new Error('restarted synthetic fixture became frontmost');
-      }
+      validateMonitorBaseline(
+        restartedBaseline,
+        restarted.oop.hostPID,
+        'restarted AX model safety monitor',
+      );
       await runChild(process.execPath, [
         '-e',
         "require('fs').writeFileSync(process.argv[1], process.argv[2], {flag:'wx',mode:0o600})",

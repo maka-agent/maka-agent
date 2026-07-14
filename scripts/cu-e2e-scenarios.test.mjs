@@ -63,6 +63,11 @@ test('layer action budgets increase deliberately', () => {
   assert.deepEqual(getCuE2eScenario('l0-observe-only').allowedActions, ['observe']);
   assert.ok(getCuE2eScenario('l1-single-click').allowedActions.includes('click_element'));
   assert.ok(!getCuE2eScenario('l1-single-click').allowedActions.includes('left_click'));
+  assert.equal(getCuE2eScenario('l1-single-click').minimumActionCounts.observe, 2);
+  assert.deepEqual(
+    getCuE2eScenario('l1-single-click').expectedActionSequence,
+    ['observe', 'observe', 'click_element'],
+  );
 
   const multi = getCuE2eScenario('l2-multi-control');
   assert.ok(multi.allowedActions.includes('scroll'));
@@ -184,6 +189,30 @@ test('validation rejects ambiguous or unsafe scenario declarations', () => {
       maxTotalActions: 3,
     }),
     /exceed maxTotalActions/,
+  );
+  assert.throws(
+    () => validateCuE2eScenario({
+      ...base,
+      expectedFailures: [{ action: 'left_click', error: 'stale_frame' }],
+    }),
+    /allowed action and error pairs/,
+  );
+  assert.throws(
+    () => validateCuE2eScenario({
+      ...base,
+      expectedFailures: [{ action: 'click_element', error: 'Stale frame' }],
+    }),
+    /allowed action and error pairs/,
+  );
+  assert.throws(
+    () => validateCuE2eScenario({
+      ...base,
+      expectedFailures: [
+        { action: 'click_element', error: 'stale_frame' },
+        { action: 'click_element', error: 'stale_frame' },
+      ],
+    }),
+    /contains duplicates/,
   );
 });
 

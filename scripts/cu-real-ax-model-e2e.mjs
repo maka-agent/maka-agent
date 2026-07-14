@@ -62,6 +62,76 @@ let semanticStructureChangeRejected = false;
 let ambiguityFixtureMutated = false;
 let nextId = 0;
 let now = Date.now();
+let totalActionAttempts = 0;
+const actionAttemptCounts = new Map();
+const fixtureInstances = new Map();
+const observationTargets = new Map();
+
+function registerFixtureInstance(app, windowId) {
+  const windowIds = fixtureInstances.get(app.pid) ?? new Set();
+  windowIds.add(windowId);
+  fixtureInstances.set(app.pid, windowIds);
+}
+
+function parseObservation(text) {
+  if (typeof text !== 'string') return undefined;
+  const candidates = [text];
+  for (const markerText of ['Fresh observation:\n', 'Fresh observation: ']) {
+    const marker = text.lastIndexOf(markerText);
+    if (marker >= 0) candidates.push(text.slice(marker + markerText.length));
+  }
+  for (const candidate of candidates.reverse()) {
+    try {
+      const value = JSON.parse(candidate);
+      if (
+        value
+        && typeof value === 'object'
+        && typeof value.observation_id === 'string'
+        && Number.isInteger(value.pid)
+        && Number.isInteger(value.window_id)
+      ) {
+        return value;
+      }
+    } catch {
+      // Try the next model-visible JSON projection.
+    }
+  }
+  return undefined;
+}
+
+function actionBudgetFor(currentScenario) {
+  const mutation = currentScenario === 'ax-click' || currentScenario === 'ambiguity'
+    ? 'click_element'
+    : 'set_value';
+  return {
+    total: 8,
+    counts: {
+      list_apps: 2,
+      observe: 4,
+      wait: 2,
+      [mutation]: currentScenario === 'intervention-recovery'
+        || currentScenario === 'restart-recovery'
+        ? 2
+        : 1,
+      ...(currentScenario === 'ax-multi-step' ? { set_value: 1, click_element: 1 } : {}),
+    },
+  };
+}
+
+function qualificationScenarioFor(currentScenario) {
+  return {
+    expectedFailures: currentScenario === 'restart-recovery'
+      ? [{ action: 'set_value', error: 'target_missing' }]
+      : currentScenario === 'ambiguity'
+        ? [
+            { action: 'click_element', error: 'stale_frame' },
+            { action: 'click_element', error: 'target_changed' },
+          ]
+        : [],
+  };
+}
+
+const qualificationScenario = qualificationScenarioFor(scenario);
 
 async function physicalInputRecentlyActive() {
   const output = await new Promise((resolvePromise, reject) => {
@@ -111,6 +181,7 @@ if (windows.length !== 1) {
   throw new Error(`expected one exact fixture window, got ${windows.length}`);
 }
 let fixtureWindowId = windows[0].windowId;
+registerFixtureInstance(fixture, fixtureWindowId);
 
 const instrumentedBackend = {
   ...backend,
@@ -184,6 +255,7 @@ const instrumentedBackend = {
         throw new Error(`expected one restarted fixture window, got ${currentWindows.length}`);
       }
       fixtureWindowId = currentWindows[0].windowId;
+      registerFixtureInstance(fixture, fixtureWindowId);
     }
     return observation;
   },
@@ -250,7 +322,7 @@ const [rawComputerTool] = buildComputerUseTools({ backend: instrumentedBackend }
 const computerTool = {
   ...rawComputerTool,
   async impl(args, context) {
-    const action = args?.action;
+    const action = typeof args?.action === 'string' ? args.action : 'unknown';
     const allowed = scenario === 'observe-only'
       ? new Set(['list_apps', 'observe', 'wait'])
       : scenario === 'ax-click' || scenario === 'ambiguity'
@@ -258,11 +330,38 @@ const computerTool = {
         : scenario === 'ax-multi-step'
           ? new Set(['list_apps', 'observe', 'set_value', 'click_element', 'wait'])
         : new Set(['list_apps', 'observe', 'set_value', 'wait']);
-    if (typeof action !== 'string' || !allowed.has(action)) {
-      throw new Error(`model action '${String(action)}' is outside the AX-only scenario budget`);
+    const budget = actionBudgetFor(scenario);
+    const nextTotal = totalActionAttempts + 1;
+    const nextActionCount = (actionAttemptCounts.get(action) ?? 0) + 1;
+    totalActionAttempts = nextTotal;
+    actionAttemptCounts.set(action, nextActionCount);
+    const sourceTarget = observationTargets.get(args?.observation_id);
+    const recordRejectedAttempt = (resultCode, message) => {
+      const ownedWindows = fixtureInstances.get(sourceTarget?.pid);
+      actions.push({
+        action: { type: action },
+        toolCallId: context.toolCallId,
+        sourceObservationId: args?.observation_id,
+        targetPid: sourceTarget?.pid,
+        targetWindowId: sourceTarget?.windowId,
+        targetOwned: Boolean(ownedWindows?.has(sourceTarget?.windowId)),
+        success: false,
+        durationMs: 0,
+        text: `maka_computer.${action} failed: ${resultCode}`,
+      });
+      throw new Error(message);
+    };
+    if (!allowed.has(action)) {
+      recordRejectedAttempt(
+        'unsupported_action_policy',
+        `model action '${action}' is outside the AX-only scenario budget`,
+      );
     }
-    if (actions.length >= 8) {
-      throw new Error('AX-only scenario action budget exceeded');
+    if (nextTotal > budget.total || nextActionCount > (budget.counts[action] ?? 0)) {
+      recordRejectedAttempt(
+        'action_budget_exceeded',
+        'AX-only scenario action budget exceeded',
+      );
     }
     if (
       action === 'observe'
@@ -275,8 +374,35 @@ const computerTool = {
     }
     const actionStartedAt = Date.now();
     const result = await rawComputerTool.impl(args, context);
+    const observation = parseObservation(result?.modelText)
+      ?? parseObservation(result?.text);
+    const dispatch = traces.findLast((trace) =>
+      trace.type === 'dispatch'
+      && trace.toolCallId === context.toolCallId);
+    const resultCode = result?.error
+      ?? (typeof result?.text === 'string'
+        ? result.text.match(/\bfailed:\s*([a-z][a-z0-9_]{1,63})\b/i)?.[1]
+        : undefined);
+    if (observation) {
+      observationTargets.set(observation.observation_id, {
+        pid: observation.pid,
+        windowId: observation.window_id,
+      });
+    }
+    const targetPid = observation?.pid ?? dispatch?.pid ?? sourceTarget?.pid;
+    const targetWindowId = observation?.window_id ?? dispatch?.windowId ?? sourceTarget?.windowId;
+    const ownedWindows = fixtureInstances.get(targetPid);
     actions.push({
       action: { type: action },
+      toolCallId: context.toolCallId,
+      sourceObservationId: args?.observation_id,
+      resultObservationId: observation?.observation_id,
+      targetPid,
+      targetWindowId,
+      targetOwned: Boolean(ownedWindows?.has(targetWindowId)),
+      success: !resultCode,
+      expectedFailure: qualificationScenario.expectedFailures.some((expected) =>
+        expected.action === action && expected.error === resultCode),
       durationMs: Date.now() - actionStartedAt,
       text: result?.text,
     });
@@ -340,6 +466,7 @@ const runtime = new AiSdkBackend({
 });
 
 const events = [];
+let terminalEvent;
 try {
   const task = scenario === 'observe-only'
     ? 'Use Maka Computer to inspect "Codex CUA Lab". Start with list_apps, observe '
@@ -373,6 +500,12 @@ try {
     context: [],
   })) {
     events.push(event.type);
+    if (event.type === 'complete' || event.type === 'abort' || event.type === 'error') {
+      terminalEvent = {
+        type: event.type,
+        ...(typeof event.stopReason === 'string' ? { stopReason: event.stopReason } : {}),
+      };
+    }
   }
 
   const fixtureState = JSON.parse(await readFile(statePath, 'utf8'));
@@ -430,24 +563,21 @@ try {
   }
   if (
     scenario === 'ambiguity'
-    && !ambiguousRecoveryObserved
-    && !semanticStructureChangeRejected
+    && (
+      !actions.some((record) => record.action.type === 'click_element')
+      || (!ambiguousRecoveryObserved && !semanticStructureChangeRejected)
+    )
   ) {
-    const safelyDeclined = actions.some((record) => record.action.type === 'observe')
-      && !actions.some((record) => record.action.type === 'click_element')
-      && modelClickDispatches.length === 0;
-    if (!safelyDeclined) {
-      throw new Error(
-        `model ambiguity scenario neither failed closed nor safely declined: ${
-          JSON.stringify({
-            actionTypes: actions.map((record) => record.action.type),
-            semanticOutcomes,
-            setupClickDispatches: setupClickDispatches.length,
-            modelClickDispatches: modelClickDispatches.length,
-          })
-        }`,
-      );
-    }
+    throw new Error(
+      `model ambiguity scenario did not attempt and observe fail-closed rejection: ${
+        JSON.stringify({
+          actionTypes: actions.map((record) => record.action.type),
+          semanticOutcomes,
+          setupClickDispatches: setupClickDispatches.length,
+          modelClickDispatches: modelClickDispatches.length,
+        })
+      }`,
+    );
   }
   if (
     (scenario === 'ax-click' || scenario === 'ax-multi-step')
@@ -472,13 +602,69 @@ try {
   ) {
     throw new Error('fixture identity changed during model execution');
   }
-  if (events.at(-1) !== 'complete') {
-    throw new Error(`model Runtime did not complete: ${events.at(-1)}`);
+  if (
+    terminalEvent?.type !== 'complete'
+    || terminalEvent.stopReason !== 'end_turn'
+  ) {
+    throw new Error(`model Runtime did not complete/end_turn: ${JSON.stringify(terminalEvent)}`);
+  }
+  if (scenario === 'ax-multi-step') {
+    const setIndex = actions.findIndex((record) => record.action.type === 'set_value');
+    const clickIndex = actions.findIndex((record) => record.action.type === 'click_element');
+    const setAction = actions[setIndex];
+    const clickAction = actions[clickIndex];
+    if (
+      setIndex < 0
+      || clickIndex <= setIndex
+      || typeof setAction?.resultObservationId !== 'string'
+      || clickAction?.sourceObservationId !== setAction.resultObservationId
+    ) {
+      throw new Error(`multi-step action order or observation lineage mismatch: ${
+        JSON.stringify(actions.map((record) => ({
+          type: record.action.type,
+          sourceObservationId: record.sourceObservationId,
+          resultObservationId: record.resultObservationId,
+        })))
+      }`);
+    }
   }
 
+  const evidenceClass = scenario === 'intervention-recovery'
+    ? 'fault-injection'
+    : 'real-runtime';
+  const canonicalFixtureState = {
+    target: {
+      setValue: fixtureState.controls.setValue,
+      buttonClickCount: fixtureState.controls.buttonClickCount,
+      hierarchyMode: fixtureState.hierarchy.mode,
+      staleTargetClickCount: fixtureState.hierarchy.staleTargetClickCount,
+      wrongTargetClickCount: fixtureState.hierarchy.wrongTargetClickCount,
+    },
+  };
+  const fixtureIdentityInstances = [...fixtureInstances.entries()].map(
+    ([pid, windowIds]) => ({
+      pid,
+      windowIds: [...windowIds],
+    }),
+  );
+  const minimumActionsPassed = scenario !== 'ambiguity'
+    || actions.some((record) => record.action.type === 'click_element');
+  const actionsWithinBudget = totalActionAttempts <= actionBudgetFor(scenario).total
+    && [...actionAttemptCounts].every(
+      ([action, count]) => count <= (actionBudgetFor(scenario).counts[action] ?? 0),
+    );
+  const actionResultsPassed = actions.every((record) =>
+    record.success === true || record.expectedFailure === true);
+  const dispatchPathPassed = forbiddenDispatches.length === 0
+    && setValueDispatches.length === expectedSetValueDispatches
+    && modelClickDispatches.length === expectedClickDispatches;
+  const qualified = minimumActionsPassed
+    && actionsWithinBudget
+    && actionResultsPassed
+    && dispatchPathPassed;
   const sanitized = sanitizeCuDirectReport({
     schemaVersion: 1,
-    evidenceClass: 'real-runtime',
+    evidenceClass,
     scenarioId: scenario === 'observe-only'
       ? 'appkit-ax-observe-only'
       : scenario === 'intervention-recovery'
@@ -493,10 +679,25 @@ try {
               ? 'appkit-ax-ambiguity'
               : 'appkit-ax-set-value',
     policyMode: 'enforced',
+    qualificationEligible: evidenceClass === 'real-runtime',
     producer: 'cu-real-ax-model-e2e',
+    transportClass: 'live-network',
     model: modelId,
     provider,
     baseUrl,
+    status: qualified ? 'pass' : 'fail',
+    terminal: terminalEvent,
+    fixtureIdentity: {
+      instances: fixtureIdentityInstances,
+    },
+    ...(evidenceClass === 'fault-injection'
+      ? {
+          faultInjection: {
+            layer: 'runtime',
+            kind: 'user_intervened',
+          },
+        }
+      : {}),
     totalLatencyMs: Date.now() - startedAt,
     loopStatus: 'completed',
     state: {
@@ -510,9 +711,6 @@ try {
       staleRecoveryObserved,
       ambiguousRecoveryObserved,
       semanticStructureChangeRejected,
-      ambiguitySafelyDeclined: scenario === 'ambiguity'
-        && !ambiguousRecoveryObserved
-        && !semanticStructureChangeRejected,
       ambiguityFixtureMutated,
       setValueDispatches: setValueDispatches.length,
       clickDispatches: modelClickDispatches.length,
@@ -520,7 +718,7 @@ try {
       pixelDispatches: forbiddenDispatches.length,
       primaryButtonClicks: fixtureState.controls.buttonClickCount,
       ambiguousClicks: fixtureState.hierarchy.staleTargetClickCount,
-      terminalEvent: events.at(-1),
+      terminalEvent,
       toolCallsPersisted: messages.filter((message) => message.type === 'tool_call').length,
       toolResultsPersisted: messages.filter((message) => message.type === 'tool_result').length,
       telemetrySuccesses: telemetry.filter((record) => record.status === 'success').length,
@@ -549,8 +747,32 @@ try {
         (outcome) => !outcome.ok && outcome.ambiguous,
       ).length,
     },
+    actionCount: actions.length,
+    actionCounts: Object.fromEntries(
+      [...actionAttemptCounts.entries()],
+    ),
+    minimumActionsPassed,
+    actionsWithinBudget,
+    dispatchPathPassed,
     actions,
-    traces: traces.filter(
+    fixtureState: canonicalFixtureState,
+    expectedState: [
+      {
+        windowId: 'target',
+        path: 'buttonClickCount',
+        pass: !['ax-click', 'ax-multi-step'].includes(scenario)
+          || fixtureState.controls.buttonClickCount === 1,
+        actual: fixtureState.controls.buttonClickCount,
+      },
+    ],
+    forbiddenEffects: {
+      status: forbiddenDispatches.length === 0
+        && fixtureState.hierarchy.wrongTargetClickCount === 0
+        ? 'pass'
+        : 'fail',
+      violations: [],
+    },
+    driverTraces: traces.filter(
       (trace) => trace.toolCallId !== 'fixture-mutate-ambiguity',
     ),
   });
@@ -560,6 +782,9 @@ try {
     mode: 0o600,
   });
   process.stdout.write(`${JSON.stringify(sanitized, null, 2)}\n`);
+  if (!qualified) {
+    throw new Error('real AX model qualification rejected canonical action evidence');
+  }
 } finally {
   await runtime.dispose();
   backend.dispose();

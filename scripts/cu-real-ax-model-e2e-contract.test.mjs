@@ -30,13 +30,33 @@ test('real AX model E2E uses production Runtime and backend with an enforced sem
   assert.match(harness, /scenario === 'ax-click'/);
   assert.match(harness, /scenario === 'ax-multi-step'/);
   assert.match(harness, /scenario === 'ambiguity'/);
+  assert.match(harness, /model ambiguity scenario did not attempt and observe fail-closed rejection/);
+  assert.doesNotMatch(harness, /safelyDeclined/);
   assert.match(harness, /error: 'user_intervened'/);
+  assert.match(harness, /evidenceClass = scenario === 'intervention-recovery'[\s\S]*'fault-injection'/);
+  assert.match(harness, /layer: 'runtime'/);
   assert.match(harness, /target_missing/);
   assert.match(harness, /ambiguousRecoveryObserved/);
   assert.match(harness, /observe again before retrying/);
   assert.match(launcher, /restart-request\.json/);
   assert.match(launcher, /restart-complete\.json/);
   assert.match(harness, /action budget exceeded/);
+  assert.match(harness, /currentScenario === 'restart-recovery'[\s\S]*\? 2/);
+  assert.match(harness, /expectedFailures:[\s\S]*action: 'set_value', error: 'target_missing'/);
+  assert.match(harness, /qualificationScenario\.expectedFailures\.some/);
+  assert.match(harness, /totalActionAttempts = nextTotal[\s\S]*recordRejectedAttempt/);
+  assert.match(harness, /unsupported_action_policy/);
+  assert.match(harness, /action_budget_exceeded/);
+  assert.match(harness, /actions\.push\([\s\S]*throw new Error\(message\)/);
+  assert.match(harness, /actionResultsPassed = actions\.every/);
+  assert.match(harness, /status: qualified \? 'pass' : 'fail'/);
+  assert.match(harness, /if \(!qualified\)[\s\S]*qualification rejected canonical action evidence/);
+  assert.match(harness, /terminalEvent\?\.type !== 'complete'/);
+  assert.match(harness, /terminalEvent\.stopReason !== 'end_turn'/);
+  assert.match(harness, /clickAction\?\.sourceObservationId !== setAction\.resultObservationId/);
+  assert.match(harness, /fixtureIdentity/);
+  assert.match(harness, /transportClass: 'live-network'/);
+  assert.match(harness, /qualificationEligible: evidenceClass === 'real-runtime'/);
   assert.match(harness, /address === 'ax'/);
   assert.match(harness, /address === 'px'/);
   assert.match(harness, /policyMode: 'enforced'/);
@@ -46,5 +66,16 @@ test('real AX model E2E uses production Runtime and backend with an enforced sem
 
 test('physical input probe is read-only', () => {
   assert.match(probe, /secondsSinceLastEventType/);
+  assert.match(probe, /\.scrollWheel/);
   assert.doesNotMatch(probe, /mouseEventSource|event\.post|pulse/);
+});
+
+test('launcher validates every READY field emitted by the safety monitor', () => {
+  assert.match(launcher, /physicalInputAge: Number\(fields\[4\]\)/);
+  assert.match(launcher, /bundleIdentifier: fields\[5\]/);
+  assert.match(launcher, /canonicalAppPath: fields\[6\]/);
+  assert.match(launcher, /baseline\.mode !== 'concurrent_user'/);
+  assert.match(launcher, /Number\.isFinite\(baseline\.physicalInputAge\)/);
+  assert.match(launcher, /baseline\.bundleIdentifier !== fixtureBundleId/);
+  assert.match(launcher, /baseline\.canonicalAppPath !== expectedAppPath/);
 });

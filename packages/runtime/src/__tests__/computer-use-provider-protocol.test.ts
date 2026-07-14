@@ -46,6 +46,7 @@ describe('Anthropic-compatible Computer Use product loops', () => {
         assert.equal(request.url, provider.expectedPath);
         assert.equal(request.headers[provider.auth], 'test-key');
         const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+        assert.equal(body.model, provider.modelId);
         requestBodies.push(body);
         const step = requestBodies.length;
         const toolInput = step === 1
@@ -119,6 +120,11 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       );
       assert.equal(events.at(-1)?.type, 'complete');
       assert.equal(requestBodies.length, 4);
+      assert.deepEqual(toolResults, [
+        { isError: false },
+        { isError: false },
+        { isError: false },
+      ]);
       assert.deepEqual(
         (requestBodies[0].tools as Array<{ name: string }>).map((tool) => tool.name),
         ['maka_computer'],
@@ -133,6 +139,106 @@ describe('Anthropic-compatible Computer Use product loops', () => {
           assert.deepEqual(body.output_config, { effort: 'max' });
         }
       }
+      assert.ok(
+        containsToolResult(requestBodies[3]?.messages, 'toolu-3'),
+        'final semantic tool result must be reinjected into the closing provider request',
+      );
+      const finalObservations = collectJsonObjects(requestBodies[3]?.messages);
+      assert.ok(
+        finalObservations.some((entry) =>
+          Array.isArray(entry.elements)
+          && entry.elements.some((element) =>
+            (element as Record<string, unknown>).value === 'provider-loop')),
+        'final provider request must contain the post-action observation',
+      );
+    });
+
+    test(`${provider.providerType} reinjects a failed semantic action as an error tool result`, async () => {
+      const requestBodies: Array<Record<string, unknown>> = [];
+      const server = await startJsonServer(async (request, response) => {
+        assert.equal(request.method, 'POST');
+        assert.equal(request.url, provider.expectedPath);
+        assert.equal(request.headers[provider.auth], 'test-key');
+        const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+        assert.equal(body.model, provider.modelId);
+        requestBodies.push(body);
+        const step = requestBodies.length;
+        const toolInput = step === 1
+          ? {
+              action: 'observe',
+              app: 'pid:42',
+              window_id: 7,
+              include_screenshot: false,
+            }
+          : step === 2
+            ? semanticInputFromMessages(body.messages)
+            : undefined;
+        respondAnthropicStream(
+          response,
+          provider.modelId,
+          step,
+          toolInput,
+        );
+      });
+      const value = { current: 'unchanged' };
+      const [computerTool] = buildComputerUseTools({
+        backend: failingSemanticBackend(value),
+      });
+      const events: SessionEvent[] = [];
+      const runtime = new AiSdkBackend({
+        sessionId: `session-${provider.providerType}-failure`,
+        header: header(provider.providerType, provider.modelId),
+        appendMessage: async () => {},
+        connection: connection(
+          provider.providerType,
+          `${server.url}${provider.baseSuffix}`,
+          provider.modelId,
+        ),
+        apiKey: 'test-key',
+        modelId: provider.modelId,
+        permissionEngine: new PermissionEngine({
+          newId: () => 'permission-id',
+          now: () => 1,
+        }),
+        modelFactory: (input) => getAIModel(input),
+        tools: [computerTool],
+        maxSteps: 4,
+        newId: idGenerator(),
+        now: monotonicClock(),
+      });
+
+      for await (const event of runtime.send({
+        turnId: 'turn-failure',
+        text: 'Attempt to update the fixture field.',
+        context: [],
+      })) {
+        events.push(event);
+      }
+
+      const toolResults = events.filter(
+        (event): event is Extract<SessionEvent, { type: 'tool_result' }> =>
+          event.type === 'tool_result',
+      );
+      assert.equal(requestBodies.length, 3);
+      assert.equal(events.at(-1)?.type, 'complete');
+      assert.equal(events.some((event) => event.type === 'error'), false);
+      assert.equal(value.current, 'unchanged');
+      assert.deepEqual(
+        toolResults.map((event) => ({ toolUseId: event.toolUseId, isError: event.isError })),
+        [
+          { toolUseId: 'toolu-1', isError: false },
+          { toolUseId: 'toolu-2', isError: true },
+        ],
+      );
+      const reinjectedFailure = findToolResult(requestBodies[2]?.messages, 'toolu-2');
+      assert.ok(reinjectedFailure, 'failed semantic result must reach the next provider request');
+      assert.equal(
+        reinjectedFailure.is_error ?? reinjectedFailure.isError,
+        true,
+        `failed semantic result must use the provider error-tool-result protocol: ${JSON.stringify(reinjectedFailure)}`,
+      );
+      assert.match(JSON.stringify(reinjectedFailure), /outcome_unknown/);
+      assert.match(JSON.stringify(reinjectedFailure), /computer\.type failed/);
     });
   }
 });
@@ -197,6 +303,23 @@ function fakeSemanticBackend(value: { current: string }): CuDispatchBackend {
   };
 }
 
+function failingSemanticBackend(value: { current: string }): CuDispatchBackend {
+  const backend = fakeSemanticBackend(value);
+  return {
+    ...backend,
+    async runSemantic(action) {
+      assert.equal(action.type, 'set_value');
+      return {
+        outcome: {
+          ok: false,
+          error: 'outcome_unknown',
+          message: 'fixture refused the semantic mutation',
+        },
+      };
+    },
+  };
+}
+
 function semanticInputFromMessages(messages: unknown) {
   const values = collectJsonObjects(messages);
   const observation = values.find((value) =>
@@ -234,6 +357,36 @@ function collectJsonObjects(value: unknown): Array<Record<string, unknown>> {
   if (Array.isArray(value)) return value.flatMap(collectJsonObjects);
   if (!value || typeof value !== 'object') return [];
   return Object.values(value).flatMap(collectJsonObjects);
+}
+
+function containsToolResult(value: unknown, toolUseId: string): boolean {
+  return Boolean(findToolResult(value, toolUseId));
+}
+
+function findToolResult(
+  value: unknown,
+  toolUseId: string,
+): Record<string, unknown> | undefined {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const result = findToolResult(entry, toolUseId);
+      if (result) return result;
+    }
+    return undefined;
+  }
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    record.type === 'tool_result'
+    && (record.tool_use_id === toolUseId || record.toolUseId === toolUseId)
+  ) {
+    return record;
+  }
+  for (const entry of Object.values(record)) {
+    const result = findToolResult(entry, toolUseId);
+    if (result) return result;
+  }
+  return undefined;
 }
 
 function respondAnthropicStream(

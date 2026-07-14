@@ -22,6 +22,8 @@ provider transports, or execution backends.
 Reports separate three evidence classes:
 
 - `real-runtime`: a live provider model used the production Maka runtime;
+- `fault-injection`: a live provider and Runtime exercised a named injected
+  failure, but the run cannot qualify as real host evidence;
 - `hermetic-protocol`: a fake transport proved protocol behavior;
 - `static-contract`: source or schema checks only.
 
@@ -29,9 +31,40 @@ Only `real-runtime` can satisfy a provider matrix cell marked `real`.
 Policy-bypassed runs remain visibly labeled and cannot become an unqualified
 pass.
 
+Real reports also fail closed unless producer, transport, policy mode, model,
+fixture PID/window ownership, latest-observation lineage, action budgets, and
+dispatch provenance are explicit. Expected failures must be authorized by the
+scenario; a report cannot authorize itself.
+
 The sanitizer preserves action types, timing, result codes, aggregate state,
 and allowlisted trace fields. It removes coordinates, typed text, raw UI
 content, credentials, full URLs, and provider payloads.
+
+## Consolidation Findings
+
+Review found that the AppKit producer emitted `traces` while qualification read
+`driverTraces`, and the Desktop launcher derived its fixture window allowlist
+from the actions being judged. The first mismatch rejected valid AX evidence;
+the second allowed circular ownership proof.
+
+Both producers now emit one canonical schema. Desktop fixture identity is
+collected independently from the launcher-owned PID and cua-driver window
+inventory before model execution. Qualification waits for matching dispatch
+traces and requires each target to belong to that independent identity.
+
+Qualification also keeps three fail-closed invariants:
+
+- restart recovery authorizes only the scenario-declared stale
+  `set_value / target_missing` result and budgets the required fresh retry;
+- disallowed and over-budget model attempts are recorded as canonical failed
+  action evidence before the harness rejects them;
+- the Desktop launcher and provider matrix call the same real-report validator,
+  so a launcher cannot exit successfully for a matrix-invalid report.
+
+The old direct real-machine qualification runner was removed. The five-round
+restart runner remains available as `e2e:computer-use-process-restart-soak`,
+but is regression-only and cannot satisfy a provider matrix cell. There is one
+qualification path rather than parallel evidence standards.
 
 ## Next Layer
 

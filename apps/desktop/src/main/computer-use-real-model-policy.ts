@@ -1,5 +1,11 @@
 import type { ComputerUseToolSet, MakaTool } from '@maka/runtime';
 
+const ACTIONS_WITHOUT_OBSERVATION_OWNERSHIP = new Set([
+  'list_apps',
+  'wait',
+  'cursor_position',
+]);
+
 export interface ComputerUseRealModelPolicy {
   allowedActions: readonly string[];
   maxTotalActions: number;
@@ -109,7 +115,7 @@ export function applyComputerUseRealModelPolicy(
         if (
           action !== 'observe'
           && action !== 'screenshot'
-          && action !== 'list_apps'
+          && !ACTIONS_WITHOUT_OBSERVATION_OWNERSHIP.has(action)
           && (
             typeof observationId !== 'string'
             || !ownedObservations.has(observationId)

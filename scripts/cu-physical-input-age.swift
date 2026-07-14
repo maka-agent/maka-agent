@@ -10,6 +10,7 @@ let eventTypes: [CGEventType] = [
     .leftMouseDragged,
     .rightMouseDragged,
     .otherMouseDragged,
+    .scrollWheel,
 ]
 
 let age = eventTypes.map { eventType in

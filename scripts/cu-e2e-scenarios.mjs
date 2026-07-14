@@ -114,9 +114,10 @@ export const CU_E2E_SCENARIOS = Object.freeze([
       invariant('target', 'primaryOverClicks', 0, 'the primary control must not be clicked twice'),
     ],
     allowedActions: ['observe', 'click_element'],
-    minimumActionCounts: { observe: 1, click_element: 1 },
+    minimumActionCounts: { observe: 2, click_element: 1 },
     maxTotalActions: 3,
     maxActionCounts: { observe: 2, click_element: 1 },
+    expectedActionSequence: ['observe', 'observe', 'click_element'],
     contractChecks: [
       'observation-window-frame-binding',
       'fresh-post-action-observation',
@@ -505,6 +506,47 @@ export function validateCuE2eScenario(scenario) {
     if (maximum !== undefined && minimum > maximum) {
       throw new Error(`${scenario.id}.${action} minimum exceeds maximum`);
     }
+  }
+  if (
+    scenario.expectedActionSequence !== undefined
+    && (
+      !Array.isArray(scenario.expectedActionSequence)
+      || scenario.expectedActionSequence.length === 0
+      || scenario.expectedActionSequence.some((action) =>
+        typeof action !== 'string' || !scenario.allowedActions.includes(action))
+    )
+  ) {
+    throw new Error(`${scenario.id}.expectedActionSequence must contain allowed actions`);
+  }
+  if (
+    Array.isArray(scenario.expectedActionSequence)
+    && scenario.maxTotalActions !== undefined
+    && scenario.expectedActionSequence.length > scenario.maxTotalActions
+  ) {
+    throw new Error(`${scenario.id}.expectedActionSequence exceeds maxTotalActions`);
+  }
+  if (
+    scenario.expectedFailures !== undefined
+    && (
+      !Array.isArray(scenario.expectedFailures)
+      || scenario.expectedFailures.some((failure) =>
+        !isRecord(failure)
+        || typeof failure.action !== 'string'
+        || !scenario.allowedActions.includes(failure.action)
+        || typeof failure.error !== 'string'
+        || !/^[a-z][a-z0-9_]{1,63}$/.test(failure.error))
+    )
+  ) {
+    throw new Error(
+      `${scenario.id}.expectedFailures must contain allowed action and error pairs`,
+    );
+  }
+  if (
+    Array.isArray(scenario.expectedFailures)
+    && new Set(scenario.expectedFailures.map(({ action, error }) => `${action}\0${error}`)).size
+      !== scenario.expectedFailures.length
+  ) {
+    throw new Error(`${scenario.id}.expectedFailures contains duplicates`);
   }
   if (scenario.maxTotalActions !== undefined) {
     const minimumTotal = Object.values(minimumCounts)
