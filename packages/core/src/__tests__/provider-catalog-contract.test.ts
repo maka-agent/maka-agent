@@ -17,17 +17,22 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { validateConnectionBaseUrl } from '../llm-connections.js';
 import {
   CATALOG_PROVIDER_TYPES,
   PROVIDER_REGISTRY,
   type ProviderCatalogGroup,
 } from '../provider-registry.js';
 
-// Mirrors the ProviderCatalogGroup union in provider-registry.ts. A new group
-// must be added here deliberately, which is the point: the catalog UI only
-// knows how to render these buckets.
-const CATALOG_GROUPS: ReadonlySet<ProviderCatalogGroup> = new Set([
-  'recommended',
+// The catalog groups the catalog UI actually renders as tabs. A new group must
+// be added here deliberately, which is the point: ProvidersPanel only knows how
+// to render these buckets. 'recommended' is deliberately NOT a base group even
+// though the ProviderCatalogGroup union carries it: the 推荐 tab is an overlay
+// sourced from RECOMMENDED_PROVIDER_TYPES (ProvidersPanel.providersForCategory),
+// while every other tab filters by catalogGroup — so a provider declaring
+// catalogGroup: 'recommended' would appear in no tab at all. (Splitting the
+// union type itself is a larger registry change, out of scope here.)
+const CATALOG_TAB_GROUPS: ReadonlySet<ProviderCatalogGroup> = new Set([
   'plans',
   'api',
   'aggregators',
@@ -43,35 +48,43 @@ describe('provider catalog contract — structural invariants over CATALOG_PROVI
     }
   });
 
-  it('assigns every catalog provider a known catalog group', () => {
+  it('assigns every catalog provider a catalog group that renders as a tab', () => {
     for (const type of CATALOG_PROVIDER_TYPES) {
       const group = PROVIDER_REGISTRY[type].catalogGroup;
       assert.ok(
-        group !== undefined && CATALOG_GROUPS.has(group),
-        `${type} catalogGroup ${String(group)} must be one of ${[...CATALOG_GROUPS].join(', ')}`,
+        group !== undefined && CATALOG_TAB_GROUPS.has(group),
+        `${type} catalogGroup ${String(group)} must be one of ${[...CATALOG_TAB_GROUPS].join(', ')}`,
       );
     }
   });
 
-  it('exposes a parseable endpoint source for every catalog provider', () => {
+  it('exposes an endpoint source that passes the production baseUrl gate', () => {
     // A provider must be able to name where its base URL comes from:
-    //   - a concrete baseUrl (must be a valid absolute URL), or
-    //   - a baseUrlTemplate whose placeholders resolve to a valid URL
+    //   - a concrete baseUrl, or
+    //   - a baseUrlTemplate whose placeholders resolve to a concrete URL
     //     (account-scoped endpoints), or
     //   - a custom openai-compatible connection where the user supplies the URL
     //     at connect time.
-    // Anything else means a broken endpoint the add flow could never complete.
+    // Concrete URLs are judged by validateConnectionBaseUrl — the same gate the
+    // connection IPC applies — so a registry default can never be something
+    // production would reject (a bare `new URL()` check would still admit
+    // `javascript:` or `file:` schemes).
     for (const type of CATALOG_PROVIDER_TYPES) {
       const def = PROVIDER_REGISTRY[type];
       if (def.baseUrl !== '') {
-        assert.doesNotThrow(() => new URL(def.baseUrl), `${type} baseUrl ${def.baseUrl} must be a valid URL`);
+        assert.equal(
+          validateConnectionBaseUrl(def.baseUrl),
+          null,
+          `${type} baseUrl ${def.baseUrl} must pass validateConnectionBaseUrl`,
+        );
         continue;
       }
       if (def.baseUrlTemplate !== undefined) {
         const resolved = def.baseUrlTemplate.replace(/\$\{[^}]+\}/g, 'placeholder');
-        assert.doesNotThrow(
-          () => new URL(resolved),
-          `${type} baseUrlTemplate ${def.baseUrlTemplate} must yield a valid URL once its placeholders are filled`,
+        assert.equal(
+          validateConnectionBaseUrl(resolved),
+          null,
+          `${type} baseUrlTemplate ${def.baseUrlTemplate} must pass validateConnectionBaseUrl once its placeholders are filled`,
         );
         continue;
       }
@@ -95,12 +108,25 @@ describe('provider catalog contract — structural invariants over CATALOG_PROVI
         def.fallbackModels.length,
         `${type} ships duplicate fallback model ids`,
       );
-      if (def.modelDiscovery.kind === 'fallback') {
-        // Static-fallback discovery has no live /models source, so the shipped
-        // snapshot is the only model source and must be non-empty.
+      if (def.fallbackModels.length === 0) {
+        // The add form derives its recommended default model from the shipped
+        // snapshot (provider-add-form.tsx → buildCatalogRecommendedDefaultModel)
+        // and connection readiness reports missing_model for an empty default
+        // (connection-readiness.ts). An empty snapshot is therefore only
+        // acceptable where the model catalog is inherently instance-specific —
+        // a user-operated runtime or endpoint (category 'local' / 'custom')
+        // whose models can only be discovered live from the user's own
+        // instance. A hosted, keyed provider with an empty snapshot would
+        // silently create never-ready connections with no recommended default.
         assert.ok(
-          def.fallbackModels.length > 0,
-          `${type} uses static-fallback discovery but ships no default model snapshot`,
+          def.category === 'local' || def.category === 'custom',
+          `${type} is a hosted provider (category ${def.category}) and must ship a non-empty default model snapshot`,
+        );
+        assert.notEqual(
+          def.modelDiscovery.kind,
+          'fallback',
+          `${type} ships no default model snapshot, so it must declare live model discovery — `
+            + 'static-fallback discovery would leave it with no model source at all',
         );
       }
     }
