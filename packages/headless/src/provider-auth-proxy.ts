@@ -11,19 +11,14 @@ export interface ProviderAuthProxy {
 
 export async function startProviderAuthProxy(input: {
   upstreamBaseUrl: string;
-  apiKeyFile?: string;
-  providerKey?: string;
+  apiKeyFile: string;
   advertisedHost?: string;
 }): Promise<ProviderAuthProxy> {
   const upstreamBaseUrl = new URL(input.upstreamBaseUrl);
   if (upstreamBaseUrl.protocol !== 'https:' && upstreamBaseUrl.protocol !== 'http:') {
     throw new Error(`provider auth proxy requires an HTTP(S) upstream: ${upstreamBaseUrl.protocol}`);
   }
-  if (Boolean(input.apiKeyFile) === Boolean(input.providerKey)) {
-    throw new Error('provider auth proxy requires exactly one provider credential source');
-  }
-  const providerKey = input.providerKey?.trim()
-    ?? (await readFile(input.apiKeyFile!, 'utf8')).trim();
+  const providerKey = (await readFile(input.apiKeyFile, 'utf8')).trim();
   if (providerKey.length === 0) throw new Error('provider API key file is empty');
   const token = randomBytes(32).toString('hex');
   const activeRequests = new Set<AbortController>();

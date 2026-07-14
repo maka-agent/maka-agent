@@ -499,7 +499,7 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
     if (!baseUrl) throw new Error(`OpenCode provider ${provider} requires a base URL`);
     const proxy = await startProviderAuthProxy({
       upstreamBaseUrl: baseUrl,
-      ...(copilotCredential ? { providerKey: copilotCredential.accessToken } : { apiKeyFile }),
+      apiKeyFile,
     });
     return {
       env: {
