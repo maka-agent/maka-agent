@@ -149,7 +149,7 @@ describe('thinkingOptionsForModel', () => {
     );
   });
 
-  test('Ollama Cloud reasoning models expose off/low/medium/high/max; GPT-OSS low/medium/high only', () => {
+  test('Ollama Cloud reasoning models expose off/low/medium/high/max; GPT-OSS low/medium/high only; deprecated excluded', () => {
     assert.deepEqual(
       thinkingOptionsForModel('ollama-cloud', 'qwen3.5:397b'),
       { efforts: ['none', 'low', 'medium', 'high', 'max'], toggle: true },
@@ -158,7 +158,7 @@ describe('thinkingOptionsForModel', () => {
       [...thinkingVariantsForModel('ollama-cloud', 'qwen3.5:397b')],
       ['off', 'low', 'medium', 'high', 'max'],
     );
-    // deepseek-v4-flash is another reasoning model using the standard wire
+    // deepseek-v4-flash is another active reasoning model using the standard wire
     assert.deepEqual(
       [...thinkingVariantsForModel('ollama-cloud', 'deepseek-v4-flash')],
       ['off', 'low', 'medium', 'high', 'max'],
@@ -174,6 +174,9 @@ describe('thinkingOptionsForModel', () => {
     );
     // Non-reasoning models still yield nothing
     assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'devstral-2:123b')], []);
+    // Deprecated models (retired from the API) do not get thinking options
+    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'cogito-2.1:671b')], []);
+    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'kimi-k2-thinking')], []);
   });
 
   test('claude-subscription inherits anthropic thinking options (displayMetadataOnly preserves them)', () => {

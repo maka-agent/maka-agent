@@ -137,8 +137,10 @@ const VOLCENGINE_CODING_PLAN_MODEL_METADATA: Record<string, ModelMetadata> = {
  * Thinking-capable Ollama Cloud models that use the standard OpenAI-compatible
  * `reasoning_effort` wire (none/low/medium/high/max). GPT-OSS is excluded — it
  * only accepts low/medium/high and is declared separately in the ollama-cloud
- * override below. The model list is derived from the generated models.dev
- * snapshot so new reasoning models are picked up automatically on the next sync.
+ * override below. Deprecated models are filtered out — Ollama publishes concrete
+ * retirement dates and deprecated models are already gone from the API.
+ * The model list is derived from the generated models.dev snapshot so new
+ * reasoning models are picked up automatically on the next sync.
  */
 const OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS: ThinkingOptions = {
   efforts: ['none', 'low', 'medium', 'high', 'max'],
@@ -147,7 +149,7 @@ const OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS: ThinkingOptions = {
 
 const ollamaCloudStandardThinkingModels: Record<string, ModelMetadata> = Object.fromEntries(
   Object.entries(GENERATED_MODELS_DEV_METADATA['ollama-cloud'])
-    .filter(([id, m]) => m.capabilities?.reasoning && !id.startsWith('gpt-oss'))
+    .filter(([id, m]) => m.capabilities?.reasoning && m.lifecycle !== 'deprecated' && !id.startsWith('gpt-oss'))
     .map(([id]) => [id, { thinkingOptions: OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS }]),
 );
 
