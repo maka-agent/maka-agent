@@ -279,6 +279,37 @@ describe('Harbor cell output contract', () => {
     assert.equal(output.steps, 2);
   });
 
+  test('uses step identity only for turns whose runtime step usage is unavailable', () => {
+    const output = buildHarborCellOutput({
+      invocation: {
+        invocationId: 'inv-mixed-steps',
+        runId: 'run-mixed-steps',
+        sessionId: 'session-1',
+        turnId: 'turn-2',
+        status: 'failed',
+        failure: { class: 'tool_step_cap_reached' },
+        events: [
+          runtimeEvent({
+            id: 'reported-turn',
+            turnId: 'turn-1',
+            actions: { tokenUsage: { input: 1, output: 1, runtimeSteps: 1 } },
+          }),
+          runtimeEvent({
+            id: 'unmetered-tool-step',
+            turnId: 'turn-2',
+            content: { kind: 'function_call', id: 'call-2', name: 'Read', args: {} },
+            refs: { toolCallId: 'call-2', stepId: 'step-2' },
+          }),
+        ],
+        startedAt: 100,
+        finishedAt: 250,
+      },
+      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+    });
+
+    assert.equal(output.steps, 2);
+  });
+
   test('summarizes context budget diagnostics from token usage events', () => {
     const output = buildHarborCellOutput({
       invocation: {

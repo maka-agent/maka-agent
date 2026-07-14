@@ -183,6 +183,39 @@ function registerStepCapThenCompleteBackend(seen: { backend?: StepCapThenComplet
   };
 }
 
+class UnmeteredStepCapThenCompleteBackend extends StepCapThenCompleteBackend {
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    if (this.prompts.length > 0) {
+      yield* super.send(input);
+      return;
+    }
+    const ts = Date.now();
+    this.prompts.push(input.text);
+    this.cwds.push(this.ctx.header.cwd);
+    yield {
+      type: 'tool_start',
+      id: 'unmetered-tool-step',
+      turnId: input.turnId,
+      ts,
+      toolUseId: 'call-1',
+      toolName: 'Read',
+      args: { path: 'README.md' },
+      stepId: 'step-1',
+    };
+    yield { type: 'complete', id: 'unmetered-step-cap', turnId: input.turnId, ts, stopReason: 'step_limit' };
+  }
+}
+
+function registerUnmeteredStepCapThenCompleteBackend(seen: { backend?: UnmeteredStepCapThenCompleteBackend }) {
+  return (registry: BackendRegistry): void => {
+    registry.register('fake', (ctx) => {
+      const backend = new UnmeteredStepCapThenCompleteBackend({ sessionId: ctx.sessionId, header: ctx.header });
+      seen.backend = backend;
+      return backend;
+    });
+  };
+}
+
 class StepCapThenThrowBackend extends StepCapThenCompleteBackend {
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     if (this.prompts.length > 0) {
@@ -600,6 +633,32 @@ describe('runHarborCell', () => {
           { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
         ],
       });
+    });
+  });
+
+  test('stops continuation at the step budget when the capped turn has no usage', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const seen: { backend?: UnmeteredStepCapThenCompleteBackend } = {};
+      const result = await runHarborCell({
+        config,
+        instruction: 'solve the benchmark task',
+        cwd: workspaceDir,
+        outputDir,
+        storageRoot,
+        registerBackends: registerUnmeteredStepCapThenCompleteBackend(seen),
+        continuationPolicy: {
+          enabled: true,
+          maxTurns: 3,
+          maxTotalRuntimeSteps: 1,
+          prompt: 'Continue neutrally from current workspace.',
+        },
+      });
+
+      assert.equal(result.output.status, 'failed');
+      assert.equal(result.output.errorClass, 'tool_step_cap_reached');
+      assert.deepEqual(seen.backend?.prompts, ['solve the benchmark task']);
+      assert.equal(result.output.continuationSummary?.totalRuntimeSteps, 1);
+      assert.equal('tokenSummary' in result.output, false);
     });
   });
 

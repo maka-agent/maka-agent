@@ -41,6 +41,7 @@ import {
 import { registerFakeBackend } from './backends.js';
 import {
   buildHarborCellOutput,
+  countRuntimeSteps,
   hashHarborSystemPrompt,
   validateHarborCellOutput,
   type HarborCellContextBudgetPolicySnapshot,
@@ -634,10 +635,7 @@ function continuationTurnSummary(
 }
 
 function invocationRuntimeSteps(invocation: InvocationResult): number {
-  return invocation.events.reduce((sum, event) => {
-    const runtimeSteps = event.actions?.tokenUsage?.runtimeSteps;
-    return sum + (runtimeSteps ?? 0);
-  }, 0);
+  return countRuntimeSteps(invocation.events);
 }
 
 function failedInvocationFromError(error: unknown, input: {

@@ -138,7 +138,7 @@ export function buildHarborCellOutput(input: {
     ...(input.continuationSummary ? { continuationSummary: input.continuationSummary } : {}),
     toolSummary: summarizeCellTools(invocation.events),
     ...taskToolSummaryField(invocation.events, input.taskToolSummaryEnabled ?? false),
-    steps: summarizeCellSteps(invocation.events),
+    steps: countRuntimeSteps(invocation.events),
     durationMs: invocation.finishedAt - invocation.startedAt,
     startedAt: invocation.startedAt,
     finishedAt: invocation.finishedAt,
@@ -151,26 +151,24 @@ export function buildHarborCellOutput(input: {
   };
 }
 
-function summarizeCellSteps(events: readonly RuntimeEvent[]): number {
-  const reportedRuntimeSteps = events.reduce(
-    (sum, event) => sum + (event.actions?.tokenUsage?.runtimeSteps ?? 0),
-    0,
-  );
-  if (reportedRuntimeSteps > 0) {
-    return reportedRuntimeSteps;
-  }
-  const stepIds = new Set<string>();
-  let legacyTextSteps = 0;
+export function countRuntimeSteps(events: readonly RuntimeEvent[]): number {
+  const turns = new Map<string, { reported: number; stepIds: Set<string>; legacyTextSteps: number }>();
   for (const event of events) {
+    const turn = turns.get(event.turnId) ?? { reported: 0, stepIds: new Set<string>(), legacyTextSteps: 0 };
+    turn.reported += event.actions?.tokenUsage?.runtimeSteps ?? 0;
+    turns.set(event.turnId, turn);
     if (event.role !== 'model' || event.partial === true) continue;
     const stepId = event.refs?.stepId ?? event.refs?.providerEventId;
     if (stepId) {
-      stepIds.add(`${event.turnId}:${stepId}`);
+      turn.stepIds.add(stepId);
     } else if (event.content?.kind === 'text') {
-      legacyTextSteps += 1;
+      turn.legacyTextSteps += 1;
     }
   }
-  return stepIds.size + legacyTextSteps;
+  return [...turns.values()].reduce(
+    (sum, turn) => sum + (turn.reported > 0 ? turn.reported : turn.stepIds.size + turn.legacyTextSteps),
+    0,
+  );
 }
 
 export function hashHarborSystemPrompt(systemPrompt: string): string {
