@@ -4,6 +4,17 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 describe('permission prompt response guard', () => {
+  it('routes one-call additional permissions through the composer without remember-for-turn', async () => {
+    const promptSource = await readFile(join(process.cwd(), '../../packages/ui/src/permission-dialog.tsx'), 'utf8');
+    const eventSource = await readFile(join(process.cwd(), 'src/renderer/app-shell-session-events.ts'), 'utf8');
+
+    assert.match(promptSource, /request: AnyPermissionRequestEvent/);
+    assert.match(promptSource, /isAdditionalPermissionRequest\(props\.request\)[\s\S]*\? \{\}[\s\S]*rememberForTurn/);
+    assert.match(promptSource, /isAdditionalPermissionRequest\(props\.request\) \? '允许这一次'/);
+    assert.doesNotMatch(eventSource, /if \(event\.kind === 'additional_permissions'\) break/);
+    assert.match(eventSource, /case 'permission_request':[\s\S]*enqueueInteraction\(current, sessionId, event\)/);
+  });
+
   it('keeps allow/deny decisions single-flight for a request id', async () => {
     const source = await readFile(join(process.cwd(), '../../packages/ui/src/permission-dialog.tsx'), 'utf8');
     const prompt = source.match(/export function PermissionPrompt[\s\S]*?function renderPermissionSummary/)?.[0] ?? '';

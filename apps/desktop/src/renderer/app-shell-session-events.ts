@@ -115,9 +115,6 @@ export function createAppShellSessionEventHandlers(options: {
         void refreshMessages(sessionId, { requiredAssistantMessageId: event.messageId }).catch(() => false);
         break;
       case 'permission_request':
-        // ToolRuntime does not emit additional-permission prompts until the
-        // dedicated renderer approval surface is wired in a later slice.
-        if (event.kind === 'additional_permissions') break;
         setInteractionBySession((current) => enqueueInteraction(current, sessionId, event));
         break;
       case 'user_question_request':
