@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { relative, resolve, sep } from 'node:path';
 import { describe, it } from 'node:test';
+import { CATALOG_PROVIDER_TYPES } from '@maka/core';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const ICONS_FILE = resolve(REPO_ROOT, 'packages/ui/src/icons.tsx');
@@ -903,5 +904,24 @@ describe('icon + typography governance contract', () => {
       );
     }
     assert.match(componentSrc, /function Ollama\(\)[\s\S]*fill="currentColor"/);
+  });
+
+  it('renders a registered brand mark for every catalog provider (no generic fallback)', async () => {
+    // Data-driven completeness so a new catalog provider is caught automatically:
+    // ProviderBrandMark falls through to <GenericProviderMark /> for any type
+    // without an explicit case, which would ship an unbranded placeholder in the
+    // catalog and detail surfaces. Core cannot import this renderer module, so
+    // this completeness invariant lives here beside the per-mark provenance tests
+    // rather than in packages/core's provider-catalog-contract.test.ts.
+    const src = await readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8');
+    const missing = CATALOG_PROVIDER_TYPES.filter(
+      (type) => !new RegExp(`case '${type.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}':`).test(src),
+    );
+    assert.deepEqual(
+      missing,
+      [],
+      'every catalog provider must resolve to a real brand mark in ProviderBrandMark, not the generic '
+        + `fallback — add a switch arm for:\n  ${missing.join('\n  ')}`,
+    );
   });
 });
