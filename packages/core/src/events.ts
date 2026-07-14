@@ -492,17 +492,30 @@ export interface CompleteEvent extends BaseEvent {
     | 'plan_handoff'
     | 'permission_handoff'
     | 'step_limit'
-    | 'max_tokens';
+    | 'max_tokens'
+    | 'context_budget_exhausted';
+  /**
+   * Detail for `stopReason: 'context_budget_exhausted'` — the runtime could not
+   * produce a provider-safe request even after mid-turn compaction. A first-class
+   * outcome, not a provider context-length error.
+   */
+  contextBudgetExhaustedDetail?: ContextBudgetExhaustedDetail;
 }
+
+export type ContextBudgetExhaustedDetail =
+  | 'no_safe_completed_span'
+  | 'summarizer_failed'
+  | 'head_anchor_exceeds_capacity';
 
 export type CompleteStopReason = CompleteEvent['stopReason'];
 
 /** Stable failure taxonomy for complete events that did not finish the turn. */
 export function failureClassFromCompleteStopReason(
   reason: CompleteStopReason,
-): 'runtime_error' | 'tool_step_cap_reached' | undefined {
+): 'runtime_error' | 'tool_step_cap_reached' | 'context_budget_exhausted' | undefined {
   if (reason === 'error') return 'runtime_error';
   if (reason === 'step_limit') return 'tool_step_cap_reached';
+  if (reason === 'context_budget_exhausted') return 'context_budget_exhausted';
   return undefined;
 }
 
