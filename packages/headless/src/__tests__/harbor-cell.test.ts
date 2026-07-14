@@ -2916,6 +2916,33 @@ setTimeout(() => {
     assert.equal(missing.apiKey, '');
   });
 
+  test('resolves Groq only from Groq credential env without rewriting the model id', () => {
+    const modelId = 'llama-3.3-70b-versatile';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'groq',
+      model: modelId,
+      env: {
+        GROQ_API_KEY: 'groq-key',
+        GROQ_BASE_URL: 'https://api.groq.com/openai/v1',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'groq-key');
+    assert.equal(resolved.connection.providerType, 'groq');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(resolved.connection.baseUrl, 'https://api.groq.com/openai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'groq',
+      model: modelId,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
   test('resolves Cloudflare Workers AI from account id and token without rewriting the model id', () => {
     const modelId = '@cf/moonshotai/kimi-k2.6';
     const resolved = resolveHarborCellAiSdkEnv({

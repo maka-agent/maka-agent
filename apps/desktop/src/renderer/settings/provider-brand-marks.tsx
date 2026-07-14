@@ -21,6 +21,7 @@ import cloudflareMarkUrl from '../assets/provider-brands/cloudflare.svg';
 import deepinfraBrandMark from '../assets/provider-brands/deepinfra.svg';
 import fireworksMarkUrl from '../assets/provider-brands/fireworks.svg';
 import githubCopilotBrandMark from '../assets/provider-brands/github-copilot.svg';
+import groqBrandMark from '../assets/provider-brands/groq.svg';
 import huggingfaceBrandMark from '../assets/provider-brands/huggingface.svg';
 import hunyuanBrandMark from '../assets/provider-brands/hunyuan.svg';
 import tencentCloudBrandMark from '../assets/provider-brands/tencentcloud.svg';
@@ -92,6 +93,15 @@ function XiaomiMiMo(): ReactElement {
 // - path: packages/static-svg/icons/deepinfra-color.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: bfc78853fe658f6446651d03218f3e809215fd7cb3bce841a6526de383286544
+
+// Real Groq mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/groq.svg
+// - variant: monochrome; no upstream color variant exists in this release
+// - license: MIT (repository LICENSE)
+// - SHA-256: 078d5cf6e7a54905040c15ddacf5ea33c13042fe7739e820cedc2096e4406651
 
 // Cloudflare mark vendored byte-for-byte from Lobe Icons:
 // - repository: https://github.com/lobehub/lobe-icons
@@ -341,6 +351,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <img src={togetherBrandMark} alt="" />;
     case 'deepinfra':
       return <img src={deepinfraBrandMark} alt="" />;
+    case 'groq':
+      return <ProviderAssetMask src={groqBrandMark} />;
     case 'cloudflare-workers-ai':
       return <img src={cloudflareMarkUrl} alt="" />;
     case 'fireworks-ai':

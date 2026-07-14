@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'github-copilot', 'google', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'opencode', 'opencode-go', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'xiaomi', 'zai', 'zai-coding-plan', 'zenmux'];
+const PROVIDER_IDS = ['anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'github-copilot', 'google', 'groq', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'opencode', 'opencode-go', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'xiaomi', 'zai', 'zai-coding-plan', 'zenmux'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -477,6 +477,37 @@ test('sync-model-metadata vendors DeepInfra provider facts and exact model ids',
   assert.match(generated, /"deepinfra": \{"id":"deepinfra","name":"Deep Infra","doc":"https:\/\/deepinfra\.com\/models"\}/);
   assert.match(generated, /"moonshotai\/Kimi-K2\.7-Code": \{"displayName":"Kimi K2\.7 Code"/);
   assert.match(generated, /"reasoning":true,"functionCalling":true/);
+});
+
+test('sync-model-metadata vendors Groq provider facts and exact model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  catalog.groq = {
+    ...catalog.groq,
+    name: 'Groq',
+    api: undefined,
+    doc: 'https://console.groq.com/docs/models',
+    models: {
+      'llama-3.3-70b-versatile': {
+        id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', reasoning: false, tool_call: true,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 131_072, output: 32_768 },
+      },
+    },
+  };
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"groq": \{/);
+  assert.match(generated, /"groq": \{"id":"groq","name":"Groq","doc":"https:\/\/console\.groq\.com\/docs\/models"\}/);
+  assert.match(generated, /"llama-3\.3-70b-versatile": \{"displayName":"Llama 3\.3 70B"/);
+  assert.match(generated, /"reasoning":false,"functionCalling":true/);
 });
 
 test('sync-model-metadata vendors Cloudflare Workers AI identity and exact model ids', async () => {

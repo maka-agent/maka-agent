@@ -62,6 +62,7 @@ describe('provider compatibility contract', () => {
       'stepfun-ai',
       'volcengine-ark',
       'deepinfra',
+      'groq',
       'cloudflare-workers-ai',
       'ollama-cloud',
       'ollama',
@@ -115,6 +116,7 @@ describe('provider compatibility contract', () => {
       'zenmux',
       'opencode',
       'opencode-go',
+      'groq',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -158,6 +160,7 @@ describe('provider compatibility contract', () => {
       'zenmux',
       'opencode',
       'opencode-go',
+      'groq',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -460,6 +463,34 @@ describe('provider compatibility contract', () => {
     assert.equal(deepinfra.fallbackModels[0], 'moonshotai/Kimi-K2.7-Code');
     assert.ok(deepinfra.fallbackModels.includes('moonshotai/Kimi-K2.6'));
     assert.ok(!deepinfra.fallbackModels.includes('BAAI/bge-m3'));
+  });
+
+  it('owns Groq direct API behavior under the stable groq id', () => {
+    const groq = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).groq;
+
+    assert.ok(groq, 'Groq must be available through the shared provider registry');
+    assert.equal(groq.label, 'Groq');
+    assert.equal(groq.baseUrl, 'https://api.groq.com/openai/v1');
+    assert.equal(groq.authKind, 'api_key');
+    assert.equal(groq.protocol, 'openai');
+    assert.deepEqual(groq.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(groq.modelDiscovery, {
+      kind: 'protocol',
+      filter: 'fallback-models',
+    });
+    assert.equal(groq.category, 'overseas');
+    assert.equal(groq.catalogGroup, 'api');
+    assert.equal(groq.modelsDevId, 'groq');
+    assert.equal(groq.fallbackModels[0], 'llama-3.3-70b-versatile');
+    assert.ok(groq.fallbackModels.includes('openai/gpt-oss-120b'));
+    assert.ok(groq.fallbackModels.includes('qwen/qwen3-32b'));
+    // gpt-oss-safeguard-20b is a moderation model, but models.dev marks it
+    // function-calling — we keep it in the fallback list to match every other
+    // provider (Vercel ships the identical model). The default stays
+    // llama-3.3-70b-versatile via recommended-first ordering; safeguard never
+    // receives reasoning_effort (no thinkingOptions entry below).
+    assert.ok(groq.fallbackModels.includes('openai/gpt-oss-safeguard-20b'));
+    assert.ok(!groq.fallbackModels.includes('whisper-large-v3'));
   });
 
   it('owns Cohere native API behavior under the stable cohere id', () => {

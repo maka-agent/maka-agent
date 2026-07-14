@@ -385,6 +385,30 @@ describe('default session target resolver', () => {
     assert.equal(target.model, modelId);
   });
 
+  test('resolves Groq credentials without rewriting the exact model id', async () => {
+    const modelId = 'llama-3.3-70b-versatile';
+    const connection = makeConnection({
+      slug: 'groq',
+      name: 'Groq',
+      providerType: 'groq',
+      defaultModel: modelId,
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'groq',
+        get: async (slug) => slug === 'groq' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'groq-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'groq');
+    assert.equal(target.apiKey, 'groq-test-key');
+    assert.equal(target.model, modelId);
+  });
+
   test('resolves Ollama Cloud credentials without crossing into local Ollama state', async () => {
     const modelId = 'qwen3.5:397b';
     const connection = makeConnection({

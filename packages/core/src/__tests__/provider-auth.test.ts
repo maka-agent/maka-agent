@@ -40,6 +40,19 @@ describe('ProviderAuth contract', () => {
     expect(contract.actionAvailability.fetch_models).toBe('available');
   });
 
+  test('Groq uses the shared API-key credential and model-discovery flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'groq',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('groq');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
   test('Cloudflare Workers AI uses API-token auth with honest snapshot model discovery', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'cloudflare-workers-ai',

@@ -288,6 +288,31 @@ test('adds DeepInfra with its exact snapshot model and upstream color mark', asy
   await expect(page.getByText('moonshotai/Kimi-K2.7-Code', { exact: true }).first()).toBeVisible();
 });
 
+test('adds Groq with its exact snapshot model and upstream monochrome mark', async ({ window: page }) => {
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
+  await page.getByRole('button', { name: '添加服务商' }).click();
+
+  await page.getByRole('tab', { name: 'API', exact: true }).click();
+  await page.getByPlaceholder('搜索服务商').fill('Groq');
+  const catalogMark = page.locator('.providerCatalogRow[data-provider="groq"] .providerLogo .providerAssetMask');
+  await expect(catalogMark).toBeVisible();
+  expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+  await page.getByRole('button', { name: /添加模型供应商：Groq/ }).click();
+  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('groq');
+  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.groq.com/openai/v1');
+  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('llama-3.3-70b-versatile');
+  await page.getByRole('button', { name: '保存供应商' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Groq', exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="groq"] .providerAssetMask');
+  await expect(detailMark).toBeVisible();
+  expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+  await expect(page.getByText('llama-3.3-70b-versatile', { exact: true }).first()).toBeVisible();
+});
+
 test('adds Cloudflare Workers AI with an account-scoped endpoint and exact model id', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();

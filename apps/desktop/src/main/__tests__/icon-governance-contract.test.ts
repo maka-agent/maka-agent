@@ -45,6 +45,7 @@ const HUGGINGFACE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/rendere
 const ZENMUX_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/zenmux.svg');
 const TOGETHER_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/together.svg');
 const DEEPINFRA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/deepinfra.svg');
+const GROQ_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/groq.svg');
 const CLOUDFLARE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cloudflare.svg');
 const FIREWORKS_BRAND_MARK_FILE = resolve(
   REPO_ROOT,
@@ -285,6 +286,32 @@ describe('icon + typography governance contract', () => {
     assert.match(
       notices,
       /apps\/desktop\/src\/renderer\/assets\/provider-brands\/deepinfra\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/deepinfra-color\.svg[\s\S]*bfc78853fe658f6446651d03218f3e809215fd7cb3bce841a6526de383286544/,
+    );
+  });
+
+  it('vendors and renders the byte-exact Lobe Icons Groq SVG', async () => {
+    const [marks, asset, notices] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(GROQ_BRAND_MARK_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      '078d5cf6e7a54905040c15ddacf5ea33c13042fe7739e820cedc2096e4406651',
+      'Groq SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 groq.svg',
+    );
+    assert.match(marks, /https:\/\/github\.com\/lobehub\/lobe-icons/);
+    assert.match(marks, /@lobehub\/icons-static-svg@1\.91\.0/);
+    assert.match(marks, /e4302041fbb3039608d25f9f618bd462783b875e/);
+    assert.match(marks, /packages\/static-svg\/icons\/groq\.svg/);
+    assert.match(marks, /license: MIT/);
+    assert.match(marks, /078d5cf6e7a54905040c15ddacf5ea33c13042fe7739e820cedc2096e4406651/);
+    assert.match(marks, /import groqBrandMark from '\.\.\/assets\/provider-brands\/groq\.svg';/);
+    assert.match(marks, /case 'groq':\s*return <ProviderAssetMask src=\{groqBrandMark\} \/>/);
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/groq\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/groq\.svg[\s\S]*078d5cf6e7a54905040c15ddacf5ea33c13042fe7739e820cedc2096e4406651/,
     );
   });
 
@@ -840,7 +867,7 @@ describe('icon + typography governance contract', () => {
       );
     }
 
-    for (const binding of ['xaiMarkUrl', 'vercelBrandMark', 'lmStudioBrandMark', 'opencodeBrandMark']) {
+    for (const binding of ['xaiMarkUrl', 'vercelBrandMark', 'lmStudioBrandMark', 'opencodeBrandMark', 'groqBrandMark']) {
       assert.match(
         componentSrc,
         new RegExp(`<ProviderAssetMask src=\\{${binding}\\} \\/>`),

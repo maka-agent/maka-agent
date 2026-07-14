@@ -1610,6 +1610,107 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.text, 'Echoed hello.');
   });
 
+  test('Groq discovers exact model ids and completes its documented two-stage tool-call loop', async () => {
+    const modelId = 'openai/gpt-oss-120b';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer groq-test-key');
+      if (request.method === 'GET' && request.url === '/openai/v1/models') {
+        respondJson(response, 200, {
+          object: 'list',
+          data: [
+            { id: modelId, object: 'model', owned_by: 'openai' },
+            { id: 'whisper-large-v3', object: 'model', owned_by: 'openai' },
+          ],
+        });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/openai/v1/chat/completions');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      const messages = body.messages as Array<{ role: string }>;
+      if (messages.some(({ role }) => role === 'tool')) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-groq-final',
+          object: 'chat.completion',
+          created: 2,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+        });
+        return;
+      }
+      respondJson(response, 200, {
+        id: 'chatcmpl-groq-tool',
+        object: 'chat.completion',
+        created: 1,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_echo',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'groq',
+      name: 'Groq',
+      providerType: 'groq',
+      baseUrl: `${server.url}/openai/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'groq-test-key');
+    assert.deepEqual(models, [{ id: modelId }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'groq-test-key', modelId: models[0]!.id }),
+      providerOptions: buildProviderOptions(connection, modelId, 'high'),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(requestBodies.map((body) => body.reasoning_effort), ['high', 'high']);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
+    );
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolCalls[0]?.input, { text: 'hello' });
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
   test('Cloudflare Workers AI uses snapshot models and completes its documented two-stage tool-call loop', async () => {
     const modelId = '@cf/moonshotai/kimi-k2.6';
     const requestBodies: Array<Record<string, unknown>> = [];

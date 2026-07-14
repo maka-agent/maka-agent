@@ -349,6 +349,11 @@ export function buildProviderOptions(
       return level
         ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level === 'off' ? 'none' : level } }
         : {};
+    // Groq accepts `reasoning_effort` for gpt-oss-120b / gpt-oss-20b only, with
+    // low/medium/high (no `none`). Per-model thinkingOptions constrain which
+    // levels reach this case, so Groq only ever receives a non-off effort here
+    // and shares the non-off branch below.
+    case 'groq':
     case 'deepseek':
     case 'moonshot':
     case 'tencent-token-plan':
