@@ -4,6 +4,29 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 import { listReadyModelChoices, resolveDefaultSessionTarget } from '../connection-target.js';
 
 describe('default session target resolver', () => {
+  test('resolves OpenCode Go credentials without rewriting its exact model id', async () => {
+    const connection = makeConnection({
+      slug: 'opencode-go',
+      name: 'OpenCode Go',
+      providerType: 'opencode-go',
+      defaultModel: 'minimax-m3',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'opencode-go',
+        get: async (slug) => slug === 'opencode-go' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'opencode-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'opencode-go');
+    assert.equal(target.apiKey, 'opencode-test-key');
+    assert.equal(target.model, 'minimax-m3');
+  });
+
   test('resolves Volcengine Coding Plan credentials without rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'volcengine-coding-plan',

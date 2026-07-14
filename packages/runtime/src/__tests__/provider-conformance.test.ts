@@ -14,6 +14,169 @@ after(async () => {
 });
 
 describe('models.dev provider conformance', () => {
+  test('OpenCode Go preserves exact discovery ids and reasoning through a two-stage tool loop', async () => {
+    const modelId = 'kimi-k2.7-code';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer opencode-test-key');
+      if (request.method === 'GET' && request.url === '/zen/go/v1/models') {
+        respondJson(response, 200, { data: [{ id: modelId }] });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/zen/go/v1/chat/completions');
+      requestBodies.push(JSON.parse(await readBody(request)) as Record<string, unknown>);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-opencode-go-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'I should call echo and use its result.',
+              tool_calls: [{
+                id: 'call_opencode_go_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+      respondJson(response, 200, {
+        id: 'chatcmpl-opencode-go-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'opencode-go',
+      name: 'OpenCode Go',
+      providerType: 'opencode-go',
+      baseUrl: `${server.url}/zen/go/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    assert.deepEqual(await fetchProviderModels(connection, 'opencode-test-key'), [{ id: modelId }]);
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'opencode-test-key', modelId }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.equal(result.steps[0]?.reasoningText, 'I should call echo and use its result.');
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_opencode_go_echo' },
+    );
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
+  test('OpenCode Zen routes GPT through Responses and preserves tool results across both stages', async () => {
+    const modelId = 'gpt-5.5';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer opencode-test-key');
+      if (request.method === 'GET' && request.url === '/zen/v1/models') {
+        respondJson(response, 200, { data: [{ id: modelId }] });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/zen/v1/responses');
+      requestBodies.push(JSON.parse(await readBody(request)) as Record<string, unknown>);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'resp_opencode_zen_tool',
+          object: 'response',
+          created_at: 1,
+          status: 'completed',
+          model: modelId,
+          output: [{
+            type: 'function_call',
+            id: 'fc_opencode_zen_echo',
+            call_id: 'call_opencode_zen_echo',
+            name: 'echo',
+            arguments: '{"text":"hello"}',
+            status: 'completed',
+          }],
+          usage: { input_tokens: 8, output_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+      respondJson(response, 200, {
+        id: 'resp_opencode_zen_final',
+        object: 'response',
+        created_at: 2,
+        status: 'completed',
+        model: modelId,
+        output: [{
+          type: 'message',
+          id: 'msg_opencode_zen_final',
+          status: 'completed',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Echoed hello.', annotations: [], logprobs: [] }],
+        }],
+        usage: { input_tokens: 14, output_tokens: 3, total_tokens: 17 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'opencode',
+      name: 'OpenCode Zen',
+      providerType: 'opencode',
+      baseUrl: `${server.url}/zen/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    assert.deepEqual(await fetchProviderModels(connection, 'opencode-test-key'), [{ id: modelId }]);
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'opencode-test-key', modelId }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(
+      (requestBodies[1]?.input as Array<Record<string, unknown>>).find(({ type }) => type === 'function_call_output'),
+      { type: 'function_call_output', call_id: 'call_opencode_zen_echo', output: '{"echoed":"hello"}' },
+    );
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
   test('ZenMux preserves exact model ids and signed reasoning through a two-stage OpenAI Chat tool loop', async () => {
     const modelId = 'moonshotai/kimi-k2.5';
     const reasoningDetails = [{

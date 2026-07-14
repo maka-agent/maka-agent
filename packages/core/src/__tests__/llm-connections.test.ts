@@ -48,6 +48,8 @@ describe('provider compatibility contract', () => {
       'cohere',
       'huggingface',
       'zenmux',
+      'opencode',
+      'opencode-go',
       'togetherai',
       'fireworks-ai',
       'nvidia',
@@ -106,6 +108,8 @@ describe('provider compatibility contract', () => {
       'huggingface',
       'ollama-cloud',
       'zenmux',
+      'opencode',
+      'opencode-go',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -145,6 +149,8 @@ describe('provider compatibility contract', () => {
       'huggingface',
       'ollama-cloud',
       'zenmux',
+      'opencode',
+      'opencode-go',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -175,6 +181,31 @@ describe('provider compatibility contract', () => {
     assert.deepEqual(PROVIDER_REGISTRY.siliconflow.modelDiscovery.query, { sub_type: 'chat' });
     assert.equal(PROVIDER_REGISTRY.ollama.modelDiscovery.kind, 'ollama');
     assert.equal(PROVIDER_REGISTRY['codex-subscription'].modelDiscovery.kind, 'fallback');
+  });
+
+  it('owns OpenCode Zen and Go as distinct mixed-protocol access paths', () => {
+    const providers = PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>;
+    const zen = providers.opencode;
+    const go = providers['opencode-go'];
+
+    assert.ok(zen);
+    assert.ok(go);
+    assert.equal(zen.baseUrl, 'https://opencode.ai/zen/v1');
+    assert.equal(go.baseUrl, 'https://opencode.ai/zen/go/v1');
+    for (const provider of [zen, go]) {
+      assert.equal(provider.authKind, 'api_key');
+      assert.equal(provider.protocol, 'openai');
+      assert.deepEqual(provider.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+      assert.deepEqual(provider.modelDiscovery, { kind: 'protocol' });
+      assert.equal(provider.catalogGroup, 'plans');
+      assert.equal(provider.catalogBadge, 'Plan');
+      assert.ok(provider.fallbackModels.length > 0);
+    }
+    assert.equal(zen.modelsDevId, 'opencode');
+    assert.equal(go.modelsDevId, 'opencode-go');
+    assert.ok(zen.fallbackModels.includes('gpt-5.5'));
+    assert.ok(go.fallbackModels.includes('minimax-m3'));
+    assert.notDeepEqual(zen.fallbackModels, go.fallbackModels);
   });
 
   it('owns Volcengine Ark Coding Plan as a fallback-only interactive coding access path', () => {

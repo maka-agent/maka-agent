@@ -7,6 +7,34 @@ import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { createConnectionStore } from '../connection-store.js';
 
 describe('FileConnectionStore', () => {
+  test('persists distinct OpenCode Zen and Go ids with exact selected models', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await store.create({
+        slug: 'opencode',
+        name: 'OpenCode Zen',
+        providerType: 'opencode',
+        defaultModel: 'gpt-5.5',
+      });
+      await store.create({
+        slug: 'opencode-go',
+        name: 'OpenCode Go',
+        providerType: 'opencode-go',
+        defaultModel: 'minimax-m3',
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.deepEqual(
+        persisted.connections.map(({ providerType, defaultModel }) => ({ providerType, defaultModel })),
+        [
+          { providerType: 'opencode', defaultModel: 'gpt-5.5' },
+          { providerType: 'opencode-go', defaultModel: 'minimax-m3' },
+        ],
+      );
+    });
+  });
+
   test('persists the Volcengine Coding Plan id and exact default model', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

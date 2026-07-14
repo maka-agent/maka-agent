@@ -217,3 +217,16 @@ test('ZenMux keeps its official provider-scoped credential environment names', (
     baseUrls: ['ZENMUX_BASE_URL'],
   });
 });
+
+test('OpenCode Zen and Go share the official API key identity with independent endpoints', () => {
+  assert.deepEqual(providerCredentialEnv('opencode'), {
+    apiKeys: ['OPENCODE_API_KEY'],
+    apiKeyFile: 'OPENCODE_API_KEY_FILE',
+    baseUrls: ['OPENCODE_BASE_URL'],
+  });
+  assert.deepEqual(providerCredentialEnv('opencode-go'), {
+    apiKeys: ['OPENCODE_API_KEY'],
+    apiKeyFile: 'OPENCODE_API_KEY_FILE',
+    baseUrls: ['OPENCODE_GO_BASE_URL'],
+  });
+});

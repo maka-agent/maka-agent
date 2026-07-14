@@ -11,6 +11,45 @@ after(async () => {
 });
 
 describe('fetchProviderModels', () => {
+  test('OpenCode Zen and Go discover exact account model ids with their shared API-key auth shape', async () => {
+    const requests: Array<{ url: string; authorization: string | undefined }> = [];
+    const server = await startJsonServer((request, response) => {
+      requests.push({ url: request.url ?? '', authorization: request.headers.authorization });
+      respondJson(response, 200, {
+        data: [{ id: request.url?.includes('/go/') ? 'minimax-m3' : 'gpt-5.5' }],
+      });
+    });
+    const base = {
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    } as const;
+
+    const zen = await fetchProviderModels({
+      ...base,
+      slug: 'opencode',
+      name: 'OpenCode Zen',
+      providerType: 'opencode',
+      baseUrl: `${server.url}/zen/v1`,
+      defaultModel: 'gpt-5.5',
+    }, 'opencode-test-key');
+    const go = await fetchProviderModels({
+      ...base,
+      slug: 'opencode-go',
+      name: 'OpenCode Go',
+      providerType: 'opencode-go',
+      baseUrl: `${server.url}/zen/go/v1`,
+      defaultModel: 'minimax-m3',
+    }, 'opencode-test-key');
+
+    assert.deepEqual(zen, [{ id: 'gpt-5.5' }]);
+    assert.deepEqual(go, [{ id: 'minimax-m3' }]);
+    assert.deepEqual(requests, [
+      { url: '/zen/v1/models', authorization: 'Bearer opencode-test-key' },
+      { url: '/zen/go/v1/models', authorization: 'Bearer opencode-test-key' },
+    ]);
+  });
+
   test('Vercel AI Gateway discovers the complete public language-model list without exposing its inference key', async () => {
     const modelId = 'anthropic/claude-opus-4.8';
     const server = await startJsonServer((request, response) => {

@@ -13,7 +13,7 @@ export type ProviderRuntimeAdapter =
   | { kind: 'claude-subscription' }
   | { kind: 'openai' }
   | { kind: 'codex-subscription' }
-  | { kind: 'google' }
+  | { kind: 'google'; normalizeBaseUrl?: boolean }
   | { kind: 'cohere' }
   | {
       kind: 'openai-compatible';
@@ -306,6 +306,24 @@ const cloudflareWorkersAiModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA['cloudflare-workers-ai'],
   ['@cf/moonshotai/kimi-k2.6', '@cf/moonshotai/kimi-k2.7-code'],
 );
+const opencode = GENERATED_MODELS_DEV_PROVIDER_FACTS.opencode;
+if (opencode.id !== 'opencode' || opencode.api !== 'https://opencode.ai/zen/v1') {
+  throw new Error('models.dev OpenCode Zen provider facts are missing the stable id or API');
+}
+const opencodeModelIds = toolCallingModelIds(
+  'OpenCode Zen',
+  GENERATED_MODELS_DEV_METADATA.opencode,
+  ['gpt-5.5'],
+).filter((id) => GENERATED_MODELS_DEV_METADATA.opencode[id]?.lifecycle !== 'deprecated');
+const opencodeGo = GENERATED_MODELS_DEV_PROVIDER_FACTS['opencode-go'];
+if (opencodeGo.id !== 'opencode-go' || opencodeGo.api !== 'https://opencode.ai/zen/go/v1') {
+  throw new Error('models.dev OpenCode Go provider facts are missing the stable id or API');
+}
+const opencodeGoModelIds = toolCallingModelIds(
+  'OpenCode Go',
+  GENERATED_MODELS_DEV_METADATA['opencode-go'],
+  ['minimax-m3'],
+).filter((id) => GENERATED_MODELS_DEV_METADATA['opencode-go'][id]?.lifecycle !== 'deprecated');
 
 function toolCallingModelIds(
   providerLabel: string,
@@ -731,6 +749,44 @@ const providerRegistry = {
     modelsDevId: zenmux.id,
     readyOrder: 36,
     catalogOrder: 36,
+  },
+  opencode: {
+    label: opencode.name,
+    description: 'Curated pay-as-you-go models for coding agents, with model-specific protocols.',
+    baseUrl: opencode.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: opencodeModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'overseas',
+    catalogGroup: 'plans',
+    catalogBadge: 'Plan',
+    signupUrl: 'https://opencode.ai/zen',
+    modelsDevId: opencode.id,
+    readyOrder: 37,
+    catalogOrder: 37,
+  },
+  'opencode-go': {
+    label: opencodeGo.name,
+    description: 'Low-cost subscription access to curated open coding models.',
+    baseUrl: opencodeGo.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: opencodeGoModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'overseas',
+    catalogGroup: 'plans',
+    catalogBadge: 'Plan',
+    signupUrl: 'https://opencode.ai/go',
+    modelsDevId: opencodeGo.id,
+    readyOrder: 38,
+    catalogOrder: 38,
   },
   togetherai: {
     label: together.name,

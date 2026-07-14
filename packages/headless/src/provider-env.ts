@@ -12,6 +12,8 @@ const PROVIDER_CREDENTIAL_ENV = {
   'kimi-coding-plan': env('ANTHROPIC'),
   'minimax-coding-plan': env('MINIMAX_CODING_PLAN', ['MINIMAX_CODING_PLAN_BASE_URL']),
   openai: env('OPENAI', ['OPENAI_BASE_URL']),
+  opencode: env('OPENCODE', ['OPENCODE_BASE_URL']),
+  'opencode-go': env('OPENCODE', ['OPENCODE_GO_BASE_URL']),
   google: env('GOOGLE', ['GOOGLE_BASE_URL']),
   deepseek: env('DEEPSEEK', ['DEEPSEEK_BASE_URL', 'OPENAI_BASE_URL'], ['OPENAI_API_KEY']),
   moonshot: env('MOONSHOT', ['MOONSHOT_BASE_URL'], ['OPENAI_API_KEY']),
