@@ -221,6 +221,21 @@ export class AgentRun {
     }, { rethrow: true });
   }
 
+  /**
+   * Durable read of this run's RuntimeEvent ledger for the mid-turn capacity
+   * invariant: waits for every write enqueued so far, then reads the store, so
+   * a caller-derived coverage prefix can only ever span events that are
+   * already persisted. Rejects when the store is unavailable — coverage must
+   * never be computed over a projection the ledger cannot replay.
+   */
+  async loadTurnRuntimeEvents(): Promise<RuntimeEvent[]> {
+    if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable) {
+      throw new Error('RuntimeEvent store is unavailable for turn runtime events');
+    }
+    await this.runtimeEventQueue.catch(() => {});
+    return await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, this.runId);
+  }
+
   recordSemanticCompactBlock(block: SemanticCompactBlock): void {
     if (!this.input.runStore || !this.runStoreAvailable) return;
     this.enqueueRunStore('append semantic compact block', async () => {

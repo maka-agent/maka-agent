@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { setImmediate as flushMacrotask } from 'node:timers/promises';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import type { LlmConnection, SessionHeader } from '@maka/core';
@@ -11,7 +12,7 @@ import { AiSdkBackend } from '../ai-sdk-backend.js';
 import { AiSdkFlow, createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
 import type { InvocationContext } from '../invocation-context.js';
 import { PermissionEngine } from '../permission-engine.js';
-import { applyRuntimeEventContextBudget, isHistoryCompactContentEvent } from '../context-budget.js';
+import { applyRuntimeEventContextBudget } from '../context-budget.js';
 import type { HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 
@@ -28,8 +29,12 @@ interface MidTurnFixture {
   summarizerCalls: number;
   priorEvents: RuntimeEvent[];
   anchor: RuntimeEvent;
+  /** The fixture's durable RuntimeEvent ledger for the current turn/run. */
+  ledger: RuntimeEvent[];
+  ledgerReads: number;
   events: SessionEvent[];
   messages: unknown[];
+  persist: (event: SessionEvent) => void;
 }
 
 interface MidTurnFixtureOptions {
@@ -39,6 +44,10 @@ interface MidTurnFixtureOptions {
   branch?: string;
   /** Omit the prior turns so the compaction pool has no safe completed span. */
   withoutPriorTurns?: boolean;
+  /** Enable the default-on active tool-result prune with a tiny threshold. */
+  activeToolResultPrune?: boolean;
+  /** Enable semantic compaction so it competes with the capacity hook. */
+  semanticCompact?: boolean;
 }
 
 function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
@@ -49,7 +58,7 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
   const events: SessionEvent[] = [];
   const messages: unknown[] = [];
   let recordedAtThirdRequest = false;
-  const fixture = { summarizerCalls: 0 };
+  const fixture = { summarizerCalls: 0, ledgerReads: 0 };
   const usage = (input: number, output: number) => ({
     inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 },
     outputTokens: { total: output, text: output, reasoning: 0 },
@@ -95,6 +104,34 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     ...runtimeTextEvent('anchor-1', 'turn-1', 'user', ANCHOR_TEXT),
     ...(options.branch !== undefined ? { branch: options.branch } : {}),
   };
+
+  // The fixture's durable run ledger: the consumer persists every non-partial
+  // mapped RuntimeEvent exactly the way AgentRun.acceptMappedEvent does (same
+  // mapper, same InvocationContext incl. branch), and the durable-read seam
+  // serves it back after pending consumer work has flushed.
+  const ledger: RuntimeEvent[] = [anchor];
+  const ledgerCtx: InvocationContext = {
+    sessionId: 'session-1',
+    invocationId: 'run-1',
+    runId: 'run-1',
+    turnId: 'turn-1',
+    ...(options.branch !== undefined ? { branch: options.branch } : {}),
+    source: 'desktop',
+    startedAt: 1,
+    request: { sessionId: 'session-1', turnId: 'turn-1', text: ANCHOR_TEXT, source: 'desktop' },
+    newId: idGenerator(),
+    now: monotonicClock(),
+  };
+  const ledgerMemory = createSessionEventMapMemory();
+  const persist = (event: SessionEvent): void => {
+    const mapped = mapSessionEventToRuntimeEvent(event, ledgerCtx, ledgerMemory);
+    // Partial snapshots live in side files and non-terminal errors are never
+    // persisted; the immutable ledger holds everything else.
+    if (mapped.partial === true) return;
+    if (mapped.content?.kind === 'error') return;
+    ledger.push(mapped);
+  };
+
   const backend = new AiSdkBackend({
     sessionId: 'session-1',
     header: header(),
@@ -123,13 +160,36 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
         mode: 'read_write',
         midTurn: { enabled: true, reserveTokens },
       },
+      ...(options.activeToolResultPrune
+        ? { activeToolResultPrune: { enabled: true, maxCurrentResultEstimatedTokens: 30 } }
+        : {}),
+      ...(options.semanticCompact
+        ? {
+            semanticCompact: {
+              enabled: true,
+              mode: 'replace' as const,
+              minStepNumber: 2,
+              maxActiveEstimatedTokens: 1,
+            },
+          }
+        : {}),
     },
+    ...(options.activeToolResultPrune
+      ? { archiveToolResult: () => ({ artifactId: 'artifact-archived-1' }) }
+      : {}),
     summarizeHistoryCompact: async () => {
       fixture.summarizerCalls += 1;
       const summary = options.summarize ? await options.summarize() : 'MID_TURN_SUMMARY_SENTINEL';
       return summary;
     },
     recordHistoryCompactCheckpoint: (checkpoint) => { recorded.push(checkpoint); },
+    loadTurnRuntimeEvents: async (turnId) => {
+      fixture.ledgerReads += 1;
+      // Emulate the durable read: let the event consumer's pending microtask
+      // work flush (the real seam awaits the run's serialized write queue).
+      await flushMacrotask();
+      return ledger.filter((event) => event.turnId === turnId);
+    },
     newId: idGenerator(),
     now: monotonicClock(),
   });
@@ -140,23 +200,27 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     recordedBeforeThirdRequest: () => recordedAtThirdRequest,
     toolExecutions,
     get summarizerCalls() { return fixture.summarizerCalls; },
+    get ledgerReads() { return fixture.ledgerReads; },
     priorEvents,
     anchor,
+    ledger,
     events,
     messages,
+    persist,
   };
 }
 
-async function runFixtureTurn(fixture: MidTurnFixture, options: { branch?: string } = {}): Promise<void> {
+async function runFixtureTurn(fixture: MidTurnFixture): Promise<void> {
   for await (const event of fixture.backend.send({
     runId: 'run-1',
     turnId: 'turn-1',
-    ...(options.branch !== undefined ? { branch: options.branch } : {}),
     headAnchorRuntimeEvent: fixture.anchor,
     text: ANCHOR_TEXT,
     context: [],
-    runtimeContext: [...fixture.priorEvents, fixture.anchor],
+    runtimeContext: [...fixture.priorEvents],
   })) {
+    // The consumer persists before continuing, exactly like AgentRun.
+    fixture.persist(event);
     fixture.events.push(event);
   }
 }
@@ -166,6 +230,15 @@ function promptJson(fixture: MidTurnFixture, call: number): string {
     role: message.role,
     content: message.content,
   })));
+}
+
+function compactionDecisions(
+  fixture: MidTurnFixture,
+): NonNullable<ContextBudgetDiagnostic['compactionDecisions']> {
+  const usageEvent = fixture.events.find((event) => event.type === 'token_usage') as
+    | { contextBudget?: ContextBudgetDiagnostic }
+    | undefined;
+  return usageEvent?.contextBudget?.compactionDecisions ?? [];
 }
 
 describe('mid-turn capacity compaction in the streaming backend', () => {
@@ -178,13 +251,17 @@ describe('mid-turn capacity compaction in the streaming backend', () => {
     const complete = fixture.events.find((event) => event.type === 'complete');
     assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
 
+    // Coverage came from the durable ledger read, not a mirrored stream.
+    assert.equal(fixture.ledgerReads > 0, true);
+
     // A mid_turn checkpoint was durably recorded before the third request.
     assert.equal(fixture.recorded.length, 1);
     assert.equal(fixture.recordedBeforeThirdRequest(), true);
     const checkpoint = fixture.recorded[0]!;
     assert.equal(checkpoint.phase, 'mid_turn');
     assert.deepEqual(checkpoint.headAnchor, { runtimeEventId: 'anchor-1', turnId: 'turn-1' });
-    // Coverage: [prior-user, prior-model, anchor, call-1, result-1].
+    // Coverage: [prior-user, prior-model, anchor, call-1, result-1] — all of
+    // them durable in the ledger before the checkpoint was recorded.
     assert.equal(checkpoint.coverage.eventCount, 5);
 
     // The next step's prompt is [compact block, verbatim head anchor, preserved tail].
@@ -203,11 +280,7 @@ describe('mid-turn capacity compaction in the streaming backend', () => {
     assert.deepEqual(fixture.toolExecutions, ['one.md', 'two.md']);
 
     // The compaction decision lands in the usage diagnostics with phase mid_turn.
-    const usageEvent = fixture.events.find((event) => event.type === 'token_usage') as
-      | { contextBudget?: ContextBudgetDiagnostic }
-      | undefined;
-    const decisions = usageEvent?.contextBudget?.compactionDecisions ?? [];
-    const midTurnDecision = decisions.find((decision) => decision.phase === 'mid_turn');
+    const midTurnDecision = compactionDecisions(fixture).find((decision) => decision.phase === 'mid_turn');
     assert.equal(midTurnDecision?.decision, 'replaced');
     assert.equal(midTurnDecision?.reason, 'context_limit');
     assert.deepEqual(midTurnDecision?.boundaryIds, [checkpoint.checkpointId]);
@@ -215,54 +288,28 @@ describe('mid-turn capacity compaction in the streaming backend', () => {
 
   test('recovery re-projection with ctx.branch replays the checkpoint without the raw span', async () => {
     const fixture = buildFixture({ branch: 'lane-7' });
-    await runFixtureTurn(fixture, { branch: 'lane-7' });
+    await runFixtureTurn(fixture);
     assert.equal(fixture.recorded.length, 1);
     const checkpoint = fixture.recorded[0]!;
 
-    // Rebuild the durable ledger exactly the way AiSdkFlow maps the yielded
-    // SessionEvents (same ctx incl. branch), then re-project as a recovery.
-    const ctx: InvocationContext = {
-      sessionId: 'session-1',
-      invocationId: 'run-1',
-      runId: 'run-1',
-      turnId: 'turn-1',
-      branch: 'lane-7',
-      source: 'desktop',
-      startedAt: 1,
-      request: { sessionId: 'session-1', turnId: 'turn-1', text: ANCHOR_TEXT, source: 'desktop' },
-      newId: () => 'ledger-id',
-      now: () => 1,
-    };
-    const memory = createSessionEventMapMemory();
-    const currentTurnLedger = fixture.events
-      .map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory))
-      .filter((event) => event.partial !== true)
-      .filter((event) => {
-        const kind = event.content?.kind;
-        return kind === 'text' || kind === 'thinking' || kind === 'function_call' || kind === 'function_response';
-      })
-      .filter(isHistoryCompactContentEvent);
-    for (const event of currentTurnLedger) {
+    // The durable ledger the coverage was computed over carries the branch on
+    // every current-turn event, because the fixture consumer maps with the
+    // same InvocationContext (incl. branch) as AiSdkFlow.
+    for (const event of fixture.ledger) {
       assert.equal(event.branch, 'lane-7');
     }
-    const ledger = [...fixture.priorEvents, fixture.anchor, ...currentTurnLedger];
 
-    const replay = applyRuntimeEventContextBudget(ledger, {
+    // Recovery: re-project prior turns + the durable current-turn ledger with
+    // normal thresholds — the checkpoint replays and the covered raw span is
+    // never re-injected, even though the raw history is below the high water.
+    const replay = applyRuntimeEventContextBudget([...fixture.priorEvents, ...fixture.ledger], {
       maxHistoryEstimatedTokens: 100_000,
       minRecentTurns: 1,
-      historyCompact: {
-        enabled: true,
-        mode: 'read_write',
-        checkpoint,
-        highWaterRatio: 0.000001,
-        tailEstimatedTokens: 1,
-      },
+      historyCompact: { enabled: true, mode: 'read_write', checkpoint },
     });
 
     assert.ok(replay);
     const replayIds = replay.events.map((event) => event.id);
-    // Replay validated: the compact block leads, the head anchor is verbatim,
-    // and no covered raw event is re-injected.
     assert.equal(replayIds[0], `history-compact:${checkpoint.checkpointId}`);
     assert.equal(replayIds.includes('anchor-1'), true);
     assert.deepEqual(replay.events[1], fixture.anchor);
@@ -335,17 +382,73 @@ describe('mid-turn capacity compaction in the streaming backend', () => {
     assert.equal(thirdPrompt.includes('RAW_SPAN_ONE_'), true);
     assert.equal(thirdPrompt.includes('maka_history_compact_checkpoint'), false);
 
-    const usageEvent = fixture.events.find((event) => event.type === 'token_usage') as
-      | { contextBudget?: ContextBudgetDiagnostic }
-      | undefined;
-    const decisions = usageEvent?.contextBudget?.compactionDecisions ?? [];
-    const failedOpen = decisions.find(
+    const failedOpen = compactionDecisions(fixture).find(
       (decision) => decision.phase === 'mid_turn' && decision.decision === 'failedOpen',
     );
     assert.equal(failedOpen?.failOpenReason, 'summarizer_failed');
   });
 
-  test('AiSdkFlow forwards branch and the head anchor to backend.send', async () => {
+  test('fails open with a diagnostic when the durable ledger read fails (never a silent skip)', async () => {
+    const fixture = buildFixture();
+    // Break the seam after construction: every trigger read now rejects.
+    (fixture.backend as unknown as {
+      input: { loadTurnRuntimeEvents: () => Promise<RuntimeEvent[]> };
+    }).input.loadTurnRuntimeEvents = () => Promise.reject(new Error('ledger offline'));
+    await runFixtureTurn(fixture);
+
+    // The turn still completes on the raw projection; nothing was recorded.
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
+    assert.equal(fixture.recorded.length, 0);
+    assert.equal(promptJson(fixture, 2).includes('RAW_SPAN_ONE_'), true);
+
+    const failedOpen = compactionDecisions(fixture).find(
+      (decision) => decision.phase === 'mid_turn' && decision.decision === 'failedOpen',
+    );
+    assert.equal(failedOpen?.failOpenReason, 'ledger_read_failed');
+  });
+
+  test('active tool-result prune re-converges the rebuilt tail after a capacity replacement', async () => {
+    const fixture = buildFixture({ activeToolResultPrune: true });
+    await runFixtureTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    assert.equal(fixture.recorded.length, 1);
+    const thirdPrompt = promptJson(fixture, 2);
+    // Capacity compaction owns the projection: compact block + verbatim anchor.
+    assert.match(thirdPrompt, /maka_history_compact_checkpoint/);
+    assert.equal(thirdPrompt.includes(ANCHOR_TEXT), true);
+    assert.equal(thirdPrompt.includes('RAW_SPAN_ONE_'), false);
+    // The large tool result in the rebuilt tail is re-archived to a
+    // placeholder by the prune hook running AFTER the capacity hook — the
+    // capacity replacement must not resurrect the raw body.
+    assert.equal(thirdPrompt.includes('RAW_SPAN_TWO_'), false);
+    assert.match(thirdPrompt, /artifact-archived-1/);
+    assert.match(thirdPrompt, /active_current_turn_tool_result_pruned_before_next_step/);
+  });
+
+  test('semantic compaction yields on the step the capacity hook replaced', async () => {
+    const fixture = buildFixture({ semanticCompact: true });
+    await runFixtureTurn(fixture);
+
+    // The capacity projection won the replaced step.
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    assert.equal(fixture.recorded.length, 1);
+    assert.match(promptJson(fixture, 2), /maka_history_compact_checkpoint/);
+
+    // Deterministic priority: semantic compaction was skipped for that step
+    // with an explicit decision — one step never runs two summarizers.
+    const yielded = compactionDecisions(fixture).find(
+      (decision) => decision.reason === 'mid_turn_capacity_precedence',
+    );
+    assert.equal(yielded?.decision, 'unchanged');
+    assert.equal(fixture.summarizerCalls, 1);
+    // No semantic summary model call was ever made.
+    assert.equal(fixture.events.some((event) => event.type === 'error'), false);
+  });
+
+  test('AiSdkFlow forwards the persisted head anchor to backend.send', async () => {
     const sendInputs: BackendSendInput[] = [];
     const anchor = runtimeTextEvent('anchor-1', 'turn-1', 'user', ANCHOR_TEXT);
     const fakeBackend: AgentBackend = {
@@ -383,7 +486,6 @@ describe('mid-turn capacity compaction in the streaming backend', () => {
       // drain
     }
     assert.equal(sendInputs.length, 1);
-    assert.equal(sendInputs[0]?.branch, 'lane-7');
     assert.equal(sendInputs[0]?.headAnchorRuntimeEvent, anchor);
   });
 });

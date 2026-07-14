@@ -677,6 +677,13 @@ export class RuntimeKernel implements RuntimeKernelLike {
           const run = runId ? active?.activeRuns.get(runId) : undefined;
           return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
         },
+        loadTurnRuntimeEvents: (turnId: string) => {
+          const active = this.active.get(sessionId);
+          const runId = active?.turnToRunId.get(turnId);
+          const run = runId ? active?.activeRuns.get(runId) : undefined;
+          if (!run) return Promise.reject(new Error('No active AgentRun for turn runtime events'));
+          return run.loadTurnRuntimeEvents();
+        },
       } : {}),
       recordActiveFullCompactBlock: (block) => {
         const active = this.active.get(sessionId);
@@ -736,6 +743,13 @@ export class RuntimeKernel implements RuntimeKernelLike {
           const runId = active?.turnToRunId.get(turnId);
           const run = runId ? active?.activeRuns.get(runId) : undefined;
           return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
+        },
+        loadTurnRuntimeEvents: (turnId: string) => {
+          const active = this.childActive.get(activeKey);
+          const runId = active?.turnToRunId.get(turnId);
+          const run = runId ? active?.activeRuns.get(runId) : undefined;
+          if (!run) return Promise.reject(new Error('No active AgentRun for turn runtime events'));
+          return run.loadTurnRuntimeEvents();
         },
       } : {}),
       recordActiveFullCompactBlock: (block) => {

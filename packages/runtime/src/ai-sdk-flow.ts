@@ -597,7 +597,6 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
       for await (const sessionEvent of this.backend.send({
         runId: ctx.runId,
         turnId: ctx.turnId,
-        ...(ctx.branch !== undefined ? { branch: ctx.branch } : {}),
         // The persisted head anchor: mid-turn capacity compaction keeps this
         // event verbatim and needs its exact ledger identity for coverage.
         ...(ctx.request.initialRuntimeEvent !== undefined

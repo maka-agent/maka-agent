@@ -51,6 +51,8 @@ export interface ModelAdapterInput {
 export interface PrepareStepLike {
   steps: ReadonlyArray<{
     toolCalls?: ReadonlyArray<{ toolCallId?: string; toolName: string; input?: unknown }>;
+    /** Real provider usage the SDK recorded for this finished step. */
+    usage?: AiSdkUsageLike;
   }>;
   stepNumber: number;
   model: unknown;
