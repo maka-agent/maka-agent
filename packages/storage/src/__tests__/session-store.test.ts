@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, test } from 'node:test';
@@ -146,6 +146,26 @@ describe('FileSessionStore CRUD', () => {
       await store.rename(header.id, overly);
       const bounded = await store.readHeader(header.id);
       assert.equal(bounded.name.length, 80);
+    });
+  });
+
+  test('retries a Windows atomic header replacement while a reader briefly holds the session file open', {
+    skip: process.platform !== 'win32',
+  }, async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const header = await store.create(makeInput({ name: 'Reader overlap' }));
+      const sessionPath = join(workspaceRoot, 'sessions', header.id, 'session.jsonl');
+      const reader = await open(sessionPath, 'r');
+      const releaseReader = setTimeout(() => void reader.close(), 40);
+
+      try {
+        const updated = await store.updateHeader(header.id, { name: 'Write survived' });
+        assert.equal(updated.name, 'Write survived');
+        assert.equal((await store.readHeader(header.id)).name, 'Write survived');
+      } finally {
+        clearTimeout(releaseReader);
+        await reader.close().catch(() => {});
+      }
     });
   });
 

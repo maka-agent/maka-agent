@@ -1,6 +1,7 @@
 import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { chainWrite } from './write-queue.js';
 import {
   deriveTurnRecords,
@@ -364,14 +365,33 @@ class FileSessionStore implements SessionStore {
 
   private async writeAtomic(path: string, content: string): Promise<void> {
     await mkdir(dirname(path), { recursive: true });
-    const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+    const tempPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
     await writeFile(tempPath, content, 'utf8');
-    await rename(tempPath, path);
+    try {
+      await replaceFileWithWindowsReaderRetry(tempPath, path);
+    } finally {
+      await rm(tempPath, { force: true }).catch(() => {});
+    }
   }
 
   private withQueue(sessionId: string, operation: () => Promise<void>): Promise<void> {
     assertSafeSessionId(sessionId);
     return chainWrite(this.writeQueues, sessionId, operation);
+  }
+}
+
+async function replaceFileWithWindowsReaderRetry(tempPath: string, path: string): Promise<void> {
+  const attempts = process.platform === 'win32' ? 6 : 1;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await rename(tempPath, path);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const retryable = process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES');
+      if (!retryable || attempt === attempts) throw error;
+      await delay(attempt * 10);
+    }
   }
 }
 
