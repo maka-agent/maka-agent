@@ -52,6 +52,11 @@ const PROVIDER_CREDENTIAL_ENV = {
   localai: env('LOCALAI', ['LOCALAI_BASE_URL']),
   'openai-compatible': env('OPENAI', ['OPENAI_BASE_URL']),
   'claude-subscription': env('ANTHROPIC'),
+  'github-copilot': {
+    apiKeys: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'],
+    apiKeyFile: 'COPILOT_GITHUB_TOKEN_FILE',
+    baseUrls: [],
+  },
 } satisfies Partial<Record<ProviderType, ProviderCredentialEnv>>;
 
 export function providerCredentialEnv(provider: string): ProviderCredentialEnv | undefined {

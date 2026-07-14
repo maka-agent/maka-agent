@@ -35,6 +35,29 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the GitHub Copilot account endpoint and per-model wire protocol', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const created = await store.create({
+        slug: 'github-copilot',
+        name: 'GitHub Copilot',
+        providerType: 'github-copilot',
+        baseUrl: 'https://api.business.githubcopilot.com',
+        defaultModel: 'gpt-5.4',
+      });
+
+      await store.update(created.slug, {
+        models: [{ id: 'gpt-5.4', apiProtocol: 'openai-responses' }],
+        modelSource: 'fetched',
+        modelsFetchedAt: 1_800_000_000_000,
+      });
+
+      const reloaded = await store.get(created.slug);
+      assert.equal(reloaded?.providerType, 'github-copilot');
+      assert.equal(reloaded?.baseUrl, 'https://api.business.githubcopilot.com');
+      assert.deepEqual(reloaded?.models, [{ id: 'gpt-5.4', apiProtocol: 'openai-responses' }]);
+    });
+  });
+
   test('persists the Volcengine Coding Plan id and exact default model', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

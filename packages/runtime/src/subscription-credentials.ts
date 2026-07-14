@@ -165,6 +165,10 @@ export async function exchangeGitHubCopilotToken(input: {
   };
 }
 
+export function isSupportedGitHubCopilotAccountToken(token: string): boolean {
+  return token.startsWith('gho_') || token.startsWith('ghu_') || token.startsWith('github_pat_');
+}
+
 function isTrustedGitHubCopilotApiEndpoint(value: string): boolean {
   try {
     const endpoint = new URL(value);

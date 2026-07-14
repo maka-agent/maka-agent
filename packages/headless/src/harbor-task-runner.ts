@@ -4,6 +4,7 @@ import { writeFile } from 'node:fs/promises';
 import { basename, delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
 import { PROVIDER_DEFAULTS, providerAuthRequiresSecret, type ProviderType } from '@maka/core/llm-connections';
+import { exchangeGitHubCopilotToken, isSupportedGitHubCopilotAccountToken } from '@maka/runtime';
 import {
   validateHarborCellExecutionIdentity,
   validateHarborCellOutput,
@@ -86,6 +87,8 @@ export interface HarborTaskRunnerOptions {
   harborTimeoutMs?: number;
   /** Injectable Harbor process runner (default: execFile the harbor binary). */
   runHarbor?: HarborProcessRunner;
+  /** Injectable only for deterministic GitHub Copilot account-token exchange tests. */
+  copilotExchangeFetch?: typeof fetch;
   now?: () => number;
 }
 
@@ -159,6 +162,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
     };
     assertNoProviderSecretsInAgentEnv(runnerOptions.agentEnv);
     const hasHostProviderRuntime = runnerOptions.apiKeyFile !== undefined
+      || githubCopilotAccountTokenFromEnv(runnerOptions.provider, runnerOptions.agentEnv) !== undefined
       || (runnerOptions.agent !== 'opencode' && !providerRequiresSecret(runnerOptions.provider));
     const configPath = join(jobsDir, 'job-config.json');
     const { agentEnv: _attemptAgentEnv, ...inputWithoutAttemptEnv } = input;
@@ -466,10 +470,19 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
   close?: () => Promise<void>;
 } | null> {
   const provider = options.provider ?? 'deepseek';
-  if (!options.apiKeyFile && providerRequiresSecret(provider)) return null;
+  const githubToken = provider === 'github-copilot'
+    ? options.apiKeyFile
+      ? (await readFile(options.apiKeyFile, 'utf8')).trim()
+      : githubCopilotAccountTokenFromEnv(provider, options.agentEnv)
+    : undefined;
+  if (!options.apiKeyFile && !githubToken && providerRequiresSecret(provider)) return null;
+  const copilotCredential = githubToken
+    ? await resolveGitHubCopilotHostCredential(githubToken, options.copilotExchangeFetch)
+    : undefined;
   const providerEnv = providerCredentialEnv(provider);
   const [primaryBaseUrl] = providerEnv?.baseUrls ?? [];
-  const baseUrl = (primaryBaseUrl ? options.agentEnv?.[primaryBaseUrl] : undefined)
+  const baseUrl = copilotCredential?.baseUrl
+    ?? (primaryBaseUrl ? options.agentEnv?.[primaryBaseUrl] : undefined)
     ?? options.agentEnv?.MAKA_BASE_URL
     ?? providerBaseUrlFromEnv(provider, options.agentEnv ?? {});
   if (options.agent === 'opencode') {
@@ -478,7 +491,7 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
     if (!baseUrl) throw new Error(`OpenCode provider ${provider} requires a base URL`);
     const proxy = await startProviderAuthProxy({
       upstreamBaseUrl: baseUrl,
-      apiKeyFile,
+      ...(copilotCredential ? { providerKey: copilotCredential.accessToken } : { apiKeyFile }),
     });
     return {
       env: {
@@ -488,18 +501,48 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
       close: proxy.close,
     };
   }
-  const apiKeyEnvName = options.apiKeyFile
-    ? normalizeRawKeyEnvName(options.apiKeyEnvName ?? requireProviderCredentialEnv(provider).apiKeys[0]!)
-    : undefined;
+  const apiKeyEnvName = copilotCredential
+    ? 'COPILOT_GITHUB_TOKEN'
+    : options.apiKeyFile
+      ? normalizeRawKeyEnvName(options.apiKeyEnvName ?? requireProviderCredentialEnv(provider).apiKeys[0]!)
+      : undefined;
   return {
     env: {
       MAKA_HOST_REPO_ROOT: options.makaRepoPath,
-      ...(options.apiKeyFile ? { MAKA_HOST_API_KEY_FILE: options.apiKeyFile } : {}),
+      ...(copilotCredential
+        ? { MAKA_HOST_API_KEY: copilotCredential.accessToken }
+        : options.apiKeyFile
+          ? { MAKA_HOST_API_KEY_FILE: options.apiKeyFile }
+          : {}),
       ...(apiKeyEnvName ? { MAKA_HOST_API_KEY_ENV_NAME: apiKeyEnvName } : {}),
-      ...(!options.apiKeyFile ? { MAKA_HOST_NO_AUTH: 'true' } : {}),
+      ...(!options.apiKeyFile && !copilotCredential ? { MAKA_HOST_NO_AUTH: 'true' } : {}),
       ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
     },
   };
+}
+
+async function resolveGitHubCopilotHostCredential(
+  githubToken: string,
+  fetchFn?: typeof fetch,
+): Promise<{ accessToken: string; baseUrl: string }> {
+  if (!isSupportedGitHubCopilotAccountToken(githubToken)) {
+    throw new Error('GitHub Copilot requires a GitHub OAuth, GitHub App user, or fine-grained account token; classic PATs are not accepted');
+  }
+  const tokens = await exchangeGitHubCopilotToken({ githubToken, fetchFn });
+  if (!tokens.base_url) throw new Error('GitHub Copilot token exchange returned no account endpoint');
+  return { accessToken: tokens.access_token, baseUrl: tokens.base_url };
+}
+
+function githubCopilotAccountTokenFromEnv(
+  provider: string | undefined,
+  agentEnv: Readonly<Record<string, string>> | undefined,
+): string | undefined {
+  if (provider !== 'github-copilot') return undefined;
+  for (const name of providerCredentialEnv(provider)?.apiKeys ?? []) {
+    const value = agentEnv?.[name]?.trim();
+    if (value) return value;
+  }
+  return undefined;
 }
 
 function taskAgentEnvWithoutProviderSecrets(options: HarborTaskRunnerOptions): Record<string, string> {

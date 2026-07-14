@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import type { SubscriptionActionResult } from '@maka/core';
 import {
   exchangeGitHubCopilotToken,
+  isSupportedGitHubCopilotAccountToken,
   parseOAuthSubscriptionTokens,
   resolveOAuthSubscriptionTokens,
   serializeOAuthSubscriptionTokens,
@@ -162,10 +163,6 @@ export class GitHubCopilotSubscriptionService {
       serializeOAuthSubscriptionTokens(tokens),
     );
   }
-}
-
-function isSupportedGitHubCopilotAccountToken(token: string): boolean {
-  return token.startsWith('gho_') || token.startsWith('ghu_') || token.startsWith('github_pat_');
 }
 
 async function resolveGitHubCliToken(): Promise<string> {

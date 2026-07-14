@@ -344,6 +344,7 @@ export {
   resolveOAuthSubscriptionAccessToken,
   resolveOAuthSubscriptionTokens,
   exchangeGitHubCopilotToken,
+  isSupportedGitHubCopilotAccountToken,
   serializeOAuthSubscriptionTokens,
 } from './subscription-credentials.js';
 export type {

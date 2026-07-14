@@ -53,6 +53,33 @@ test('provider auth proxy keeps the provider key host-side', async () => {
   }
 });
 
+test('provider auth proxy accepts a host-resolved short-lived key without a key file', async () => {
+  let upstreamAuthorization = '';
+  const upstream = createServer((request, response) => {
+    upstreamAuthorization = request.headers.authorization ?? '';
+    response.writeHead(200).end();
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const address = upstream.address();
+  assert.ok(address && typeof address !== 'string');
+  const proxy = await startProviderAuthProxy({
+    upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
+    providerKey: 'short-lived-copilot-token',
+    advertisedHost: '127.0.0.1',
+  });
+
+  try {
+    const response = await fetch(`${proxy.baseUrl}/chat/completions`, {
+      headers: { authorization: `Bearer ${proxy.token}` },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(upstreamAuthorization, 'Bearer short-lived-copilot-token');
+  } finally {
+    await proxy.close();
+    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('provider auth proxy aborts an in-flight upstream request on close', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-close-'));
   let received!: () => void;

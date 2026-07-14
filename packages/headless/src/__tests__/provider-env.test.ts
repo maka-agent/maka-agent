@@ -6,6 +6,14 @@ import {
   requireProviderCredentialEnv,
 } from '../provider-env.js';
 
+test('GitHub Copilot headless credentials are GitHub account tokens, not GitHub Models PATs', () => {
+  assert.deepEqual(providerCredentialEnv('github-copilot'), {
+    apiKeys: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'],
+    apiKeyFile: 'COPILOT_GITHUB_TOKEN_FILE',
+    baseUrls: [],
+  });
+});
+
 test('MiniMax Coding Plan uses a credential namespace separate from MiniMax direct API', () => {
   assert.deepEqual(providerCredentialEnv('minimax-coding-plan'), {
     apiKeys: ['MINIMAX_CODING_PLAN_API_KEY'],

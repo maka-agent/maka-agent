@@ -224,6 +224,70 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
+  test('exchanges a GitHub account token on the host before a Copilot Harbor cell starts', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      await writeFile(keyFile, 'gho_account-token\n', 'utf8');
+      let harborEnv: Record<string, string> | undefined;
+      let exchangedAuthorization = '';
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'github-copilot/gpt-5.4',
+        provider: 'github-copilot',
+        apiKeyFile: keyFile,
+        copilotExchangeFetch: async (_url, init) => {
+          exchangedAuthorization = new Headers(init?.headers).get('authorization') ?? '';
+          return Response.json({
+            token: 'short-lived-copilot-token',
+            expires_at: 1_900_000_000,
+            endpoints: { api: 'https://api.business.githubcopilot.com' },
+          });
+        },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n' })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(exchangedAuthorization, 'token gho_account-token');
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY, 'short-lived-copilot-token');
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, undefined);
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'COPILOT_GITHUB_TOKEN');
+      assert.equal(harborEnv?.MAKA_HOST_BASE_URL, 'https://api.business.githubcopilot.com');
+    });
+  });
+
+  test('consumes a Copilot GitHub token env on the host without copying it into the task container', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      let harborEnv: Record<string, string> | undefined;
+      const captured: { config?: Record<string, unknown> } = {};
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'github-copilot/gpt-5.4',
+        provider: 'github-copilot',
+        agentEnv: { GH_TOKEN: 'ghu_account-token' },
+        copilotExchangeFetch: async () => Response.json({
+          token: 'short-lived-copilot-token',
+          expires_at: 1_900_000_000,
+          endpoints: { api: 'https://api.githubcopilot.com' },
+        }),
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY, 'short-lived-copilot-token');
+      assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, undefined);
+      assert.doesNotMatch(JSON.stringify(captured.config), /GH_TOKEN|ghu_account-token|short-lived-copilot-token/);
+    });
+  });
+
   test('gives OpenCode an ephemeral host proxy without exposing the provider key file', async () => {
     await withRun(async ({ jobsDir, repo, keyFile }) => {
       const captured: { config?: Record<string, unknown> } = {};
