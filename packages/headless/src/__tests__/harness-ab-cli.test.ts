@@ -28,6 +28,22 @@ test('harness A/B CLI accepts a 2-task operational canary', async () => {
   }
 });
 
+test('harness A/B runtime keeps pruning enabled and semantic compact disabled', async () => {
+  const { harnessMakaContextBudgetEnv } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+
+  assert.deepEqual(harnessMakaContextBudgetEnv(), {
+    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
+    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: '2048',
+    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: '1',
+    MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on',
+    MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: '2048',
+    MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS_FULL: '0',
+    MAKA_CONTEXT_SEMANTIC_COMPACT: 'off',
+  });
+});
+
 test('detached harness launcher persists a terminal failed journal after the worker exits', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-detached-'));
   try {

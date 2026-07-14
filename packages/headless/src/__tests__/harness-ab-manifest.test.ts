@@ -11,7 +11,7 @@ import {
 } from '../harness-ab-manifest.js';
 
 describe('harness A/B manifest', () => {
-  test('freezes adjacent active and stale tool-result pruning for Maka', () => {
+  test('freezes tool-result pruning on and semantic compact off for Maka', () => {
     assert.deepEqual(HARNESS_MAKA_CONTEXT_BUDGET, {
       activeToolResultPrune: {
         enabled: true,
@@ -22,6 +22,9 @@ describe('harness A/B manifest', () => {
         enabled: true,
         maxResultEstimatedTokens: 2048,
         minRecentTurnsFull: 0,
+      },
+      semanticCompact: {
+        enabled: false,
       },
     });
   });

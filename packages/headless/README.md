@@ -163,7 +163,7 @@ embed environment variables, credentials, or hidden harness configuration.
 
 ## GLM-5.2 harness comparison
 
-`harbor/run-harness-ab.mjs` compares Maka and OpenCode 1.17.18 on the same Terminal-Bench 2.1 tasks with GLM-5.2 Max. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official revision; a matching Harbor export with one task directory per id is accepted directly. The first 30 tasks are a fixed prefix of the full seeded order.
+`harbor/run-harness-ab.mjs` compares Maka and OpenCode 1.17.18 on the same Terminal-Bench 2.1 tasks with GLM-5.2 Max. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official revision; a matching Harbor export with one task directory per id is accepted directly. The first 30 tasks are a fixed prefix of the full seeded order. Maka keeps active and stale tool-result pruning enabled while semantic compact is explicitly disabled in both the manifest and runtime environment.
 
 Validate the manifest without reading a key or starting Harbor:
 

@@ -66,6 +66,26 @@ function runLimit(raw) {
   return parsed;
 }
 
+export function harnessMakaContextBudgetEnv() {
+  return {
+    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
+    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: String(
+      HARNESS_MAKA_CONTEXT_BUDGET.activeToolResultPrune.maxCurrentResultEstimatedTokens,
+    ),
+    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: String(
+      HARNESS_MAKA_CONTEXT_BUDGET.activeToolResultPrune.minStepNumber,
+    ),
+    MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on',
+    MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: String(
+      HARNESS_MAKA_CONTEXT_BUDGET.staleToolResultPrune.maxResultEstimatedTokens,
+    ),
+    MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS_FULL: String(
+      HARNESS_MAKA_CONTEXT_BUDGET.staleToolResultPrune.minRecentTurnsFull,
+    ),
+    MAKA_CONTEXT_SEMANTIC_COMPACT: 'off',
+  };
+}
+
 export async function main() {
   const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
   const makaRepoPath = process.env.MAKA_HARNESS_AB_MAKA_REPO
@@ -175,22 +195,7 @@ export async function main() {
     agentEnv: { ZAI_BASE_URL: BASE_URL },
     timeoutMultiplier: 1,
   };
-  const makaContextBudgetEnv = {
-    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
-    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: String(
-      HARNESS_MAKA_CONTEXT_BUDGET.activeToolResultPrune.maxCurrentResultEstimatedTokens,
-    ),
-    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: String(
-      HARNESS_MAKA_CONTEXT_BUDGET.activeToolResultPrune.minStepNumber,
-    ),
-    MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on',
-    MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: String(
-      HARNESS_MAKA_CONTEXT_BUDGET.staleToolResultPrune.maxResultEstimatedTokens,
-    ),
-    MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS_FULL: String(
-      HARNESS_MAKA_CONTEXT_BUDGET.staleToolResultPrune.minRecentTurnsFull,
-    ),
-  };
+  const makaContextBudgetEnv = harnessMakaContextBudgetEnv();
   const config = (id) => ({
     id: `harness-ab-${id}`,
     backend: 'ai-sdk',

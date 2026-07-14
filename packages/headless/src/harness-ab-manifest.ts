@@ -17,6 +17,9 @@ export const HARNESS_MAKA_CONTEXT_BUDGET = {
     maxResultEstimatedTokens: 2048,
     minRecentTurnsFull: 0,
   },
+  semanticCompact: {
+    enabled: false,
+  },
 } as const;
 
 // Authoritative snapshot: https://github.com/harbor-framework/terminal-bench-2-1
