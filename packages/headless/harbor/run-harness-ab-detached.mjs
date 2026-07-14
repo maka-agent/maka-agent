@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { closeSync, openSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,8 +48,55 @@ async function launchDetached() {
   } finally {
     closeSync(logFd);
   }
+  const journalPath = join(runRoot, JOURNAL_FILENAME);
+  await waitForWorkerOwnership(child, journalPath, startedAt);
   child.unref();
-  console.log(`detached harness runner started: pid ${child.pid}; journal ${join(runRoot, JOURNAL_FILENAME)}`);
+  console.log(`detached harness runner started: pid ${child.pid}; journal ${journalPath}`);
+}
+
+function waitForWorkerOwnership(child, journalPath, startedAt) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      child.off('error', onError);
+      child.off('exit', onExit);
+      if (error) reject(error);
+      else resolve();
+    };
+    const journalMatches = async () => {
+      try {
+        const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+        return journal.pid === child.pid && journal.startedAt === startedAt;
+      } catch {
+        return false;
+      }
+    };
+    const poll = async () => {
+      if (settled) return;
+      if (await journalMatches()) {
+        finish();
+        return;
+      }
+      timer = setTimeout(poll, 10);
+    };
+    const onError = (error) => finish(error);
+    const onExit = async (code, signal) => {
+      if (await journalMatches()) {
+        finish();
+        return;
+      }
+      finish(new Error(
+        `detached harness runner exited before acquiring the run lock (code ${code ?? 'null'}, signal ${signal ?? 'none'})`,
+      ));
+    };
+    child.once('error', onError);
+    child.once('exit', onExit);
+    void poll();
+  });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

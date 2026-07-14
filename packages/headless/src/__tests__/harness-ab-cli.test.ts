@@ -93,7 +93,7 @@ test('duplicate detached launch does not overwrite the active run journal', asyn
     await writeFile(join(runRoot, 'background-run.json'), `${JSON.stringify(journal, null, 2)}\n`, 'utf8');
 
     const scriptPath = new URL('../../harbor/run-harness-ab-detached.mjs', import.meta.url);
-    await execFileAsync(process.execPath, [scriptPath.pathname], {
+    await assert.rejects(execFileAsync(process.execPath, [scriptPath.pathname], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -103,7 +103,7 @@ test('duplicate detached launch does not overwrite the active run journal', asyn
         MAKA_HARNESS_AB_LIMIT: '2',
         MAKA_HARNESS_AB_DRY_RUN: '1',
       },
-    });
+    }), /before acquiring the run lock/);
 
     await waitForFileMatch(join(runRoot, 'background-run.log'), /Terminal-Bench 2\.1 task set mismatch|A\/B run is already active/);
     assert.deepEqual(
