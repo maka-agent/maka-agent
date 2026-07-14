@@ -24,9 +24,11 @@ import {
 
 export interface EstimateNextRequestTokensInput {
   /**
-   * Real provider usage for the last completed step, summed as
-   * `inputTokens + outputTokens`. Undefined on cold start (no step has reported
-   * usage yet), which falls back to a whole-payload char estimate.
+   * The last request's real INPUT tokens as reported by the provider — never
+   * input+output, because `appendedChars` is a delta against that request's
+   * payload and already carries the step's freshly generated output.
+   * Undefined on cold start or when the sample is unusable (no positive
+   * input count), which falls back to a whole-payload char estimate.
    */
   priorUsageTokens?: number;
   /**

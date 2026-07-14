@@ -377,19 +377,28 @@ class MidTurnCapacityCompactState {
 }
 
 /**
- * Char measure of the provider-visible request payload: the (projected)
- * messages plus the serialized schemas of the active tool subset. The capacity
- * trigger and the final-request estimate owner both measure with this ONE
- * function, so their deltas against `lastRequestPayloadChars` are
- * commensurable and same-turn tool-schema growth (a `load_tools` activation)
- * is counted like any other payload growth.
+ * Char measure of the FULL provider-visible request input: the system prompt
+ * (sent through the separate `system` field), the (projected) messages, and
+ * the serialized schemas of the active tool subset. The capacity trigger and
+ * the final-request estimate owner both measure with this ONE function, so
+ * their deltas against `lastRequestPayloadChars` are commensurable and
+ * same-turn tool-schema growth (a `load_tools` activation) is counted like
+ * any other payload growth. The system prompt is constant between adjacent
+ * requests — signed deltas cancel it — but the cold-start estimate (no usable
+ * usage sample) is the whole payload, so omitting it would under-estimate by
+ * exactly the system prompt and let an over-window request stream.
  */
 function midTurnRequestPayloadChars(
   messages: readonly ModelMessage[],
   providerTools: readonly MakaTool[],
   activeTools: readonly string[],
+  systemPromptChars: number,
 ): number {
-  return JSON.stringify(messages).length + toolSchemaCharsForDiagnostics(providerTools, activeTools);
+  return (
+    Math.max(0, Math.floor(systemPromptChars))
+    + JSON.stringify(messages).length
+    + toolSchemaCharsForDiagnostics(providerTools, activeTools)
+  );
 }
 
 /**
@@ -1229,6 +1238,7 @@ export class AiSdkBackend implements AgentBackend {
             patch,
           );
         };
+        const midTurnSystemPromptChars = systemPrompt?.length ?? 0;
         const midTurnCapacityHook = this.buildMidTurnCapacityCompactPrepareStep(
           turnId,
           midTurnState,
@@ -1236,6 +1246,7 @@ export class AiSdkBackend implements AgentBackend {
           providerTools,
           () => currentRepairToolNames(),
           turnTailPrompt,
+          midTurnSystemPromptChars,
           onMidTurnDiagnosticPatch,
         );
         const activeToolResultPruneHook = this.buildActiveToolResultPrunePrepareStep(turnId, (patch) => {
@@ -1260,6 +1271,7 @@ export class AiSdkBackend implements AgentBackend {
               providerTools,
               fallbackActiveTools: () => currentRepairToolNames(),
               charsPerToken: this.input.contextBudget?.charsPerToken ?? 4,
+              systemPromptChars: midTurnSystemPromptChars,
               onDiagnosticPatch: onMidTurnDiagnosticPatch,
             })
           : shapedPrepareStep;
@@ -2264,6 +2276,7 @@ export class AiSdkBackend implements AgentBackend {
     providerTools: readonly MakaTool[],
     fallbackActiveTools: () => readonly string[],
     turnTailPrompt: string | undefined,
+    systemPromptChars: number,
     onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void,
   ): PrepareStepFunctionLike | undefined {
     if (!state) return undefined;
@@ -2351,7 +2364,12 @@ export class AiSdkBackend implements AgentBackend {
       // re-measures the post-shaping payload.
       const measuredMessages = projectedMessages ?? incomingMessages;
       const activeToolsForStep = options.activeTools ?? fallbackActiveTools();
-      const payloadChars = midTurnRequestPayloadChars(measuredMessages, providerTools, activeToolsForStep);
+      const payloadChars = midTurnRequestPayloadChars(
+        measuredMessages,
+        providerTools,
+        activeToolsForStep,
+        systemPromptChars,
+      );
       const forcedEstimate = state.forcedTriggerEstimate;
       state.forcedTriggerEstimate = undefined;
       const estimate = forcedEstimate ?? estimateNextRequestTokens({
@@ -2453,11 +2471,12 @@ export class AiSdkBackend implements AgentBackend {
       if (plan.decision === 'skip') return keepProjection();
       if (plan.decision === 'fail_open') return shapeFailure(plan.reason, plan.reason);
 
-      // Lifecycle order is validate → persist → apply. Replay applies the
+      // Lifecycle order is validate → persist → apply, where validate =
+      // materializable ∧ smaller ∧ replay-admissible. Replay applies the
       // session's latest checkpoint BEFORE any high-water check, so a
-      // checkpoint whose replacement cannot materialize or does not shrink
-      // the real payload must never be persisted — it would poison every
-      // later projection even though this step correctly refused it.
+      // checkpoint that fails ANY of the three must never be persisted — it
+      // would poison every later projection even though this step correctly
+      // refused it.
       // Persistence still precedes application, so the crash-window property
       // (never apply an unpersisted fold) is unchanged, and the recorder
       // counters stay truthful: validation failures never reached the
@@ -2500,9 +2519,29 @@ export class AiSdkBackend implements AgentBackend {
         replacementMessages,
         providerTools,
         activeToolsForStep,
+        systemPromptChars,
       );
       if (replacedPayloadChars >= payloadChars) {
         return shapeFailure('summarizer_failed', 'replacement_not_smaller');
+      }
+      // Replay admissibility, through the SAME single gate the recovery path
+      // runs (max block / max total / prefix budget) with the same policy —
+      // one acceptance standard, not two. A checkpoint accepted here but
+      // rejected at replay would still become the session's latest checkpoint
+      // and poison recovery: the next projection would refuse it and
+      // re-inject the covered raw span. Block-size rejections mean the
+      // summarizer's output is unusable (summarizer_failed); a prefix over
+      // the history budget means the irreducible remainder is too large.
+      const replayFit = evaluateHistoryCompactCheckpointReplay(
+        plan.checkpoint,
+        plan.replacementEvents.slice(1),
+        policy,
+      );
+      if (!replayFit.fits) {
+        return shapeFailure(
+          replayFit.reason === 'prefix_over_budget' ? 'head_anchor_exceeds_capacity' : 'summarizer_failed',
+          `replay_rejected_${replayFit.reason}`,
+        );
       }
 
       // The replacement is valid: durably persist the checkpoint BEFORE
@@ -2592,15 +2631,26 @@ export class AiSdkBackend implements AgentBackend {
     providerTools: readonly MakaTool[];
     fallbackActiveTools: () => readonly string[];
     charsPerToken: number;
+    systemPromptChars: number;
     onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void;
   }): PrepareStepFunctionLike {
-    const { shaped, reentry, state, providerTools, fallbackActiveTools, charsPerToken, onDiagnosticPatch } = input;
+    const {
+      shaped,
+      reentry,
+      state,
+      providerTools,
+      fallbackActiveTools,
+      charsPerToken,
+      systemPromptChars,
+      onDiagnosticPatch,
+    } = input;
     return async (options) => {
       let result = await Promise.resolve(shaped(options));
       const finalPayloadChars = (): number => midTurnRequestPayloadChars(
         result?.messages ?? options.messages,
         providerTools,
         result?.activeTools ?? options.activeTools ?? fallbackActiveTools(),
+        systemPromptChars,
       );
       let payloadChars = finalPayloadChars();
       if (options.stepNumber >= 1 && !state.exhaustedDetail) {

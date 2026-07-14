@@ -12,7 +12,7 @@ import { AiSdkBackend } from '../ai-sdk-backend.js';
 import { AiSdkFlow, createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
 import type { InvocationContext } from '../invocation-context.js';
 import { PermissionEngine } from '../permission-engine.js';
-import { applyRuntimeEventContextBudget } from '../context-budget.js';
+import { applyRuntimeEventContextBudget, evaluateHistoryCompactCheckpointReplay } from '../context-budget.js';
 import type { HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 
@@ -72,6 +72,10 @@ interface MidTurnFixtureOptions {
   firstStepUsage?: { input: number; output: number } | 'missing';
   /** Volatile per-request turn tail (cwd/task state) appended to the user message. */
   volatileTurnTail?: boolean;
+  /** Very large prior turns (~20k chars) so a large summary still shrinks the fold. */
+  giantPriors?: boolean;
+  /** Large system prompt sent via the separate `system` field (finding: cold start). */
+  bigSystemPrompt?: boolean;
 }
 
 /**
@@ -155,7 +159,7 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
       return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
     },
   });
-  const priorChars = options.bigPriors ? 2_000 : 120;
+  const priorChars = options.giantPriors ? 10_000 : options.bigPriors ? 2_000 : 120;
   const priorEvents: RuntimeEvent[] = options.withoutPriorTurns ? [] : [
     runtimeTextEvent('prior-user', 'turn-0', 'user', `PRIOR_FACT question ${'p'.repeat(priorChars)}`),
     runtimeTextEvent('prior-model', 'turn-0', 'model', `PRIOR_FACT answer ${'q'.repeat(priorChars)}`),
@@ -231,6 +235,9 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
       : {}),
     ...(options.volatileTurnTail
       ? { turnTailPrompt: 'VOLATILE_TAIL_SENTINEL cwd=/tmp/maka task=keep-going' }
+      : {}),
+    ...(options.bigSystemPrompt
+      ? { systemPrompt: 'SYSTEM_CONTEXT '.repeat(400) }
       : {}),
     contextBudget: {
       name: 'mid-turn-test',
@@ -379,6 +386,16 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(midTurnDecision?.decision, 'replaced');
     assert.equal(midTurnDecision?.reason, 'context_limit');
     assert.deepEqual(midTurnDecision?.boundaryIds, [checkpoint.checkpointId]);
+
+    // Invariant: a persisted checkpoint always passes the single replay gate
+    // under the same policy the backend replays with — the next projection
+    // selects it (no coverage_miss, no size rejection).
+    const fit = evaluateHistoryCompactCheckpointReplay(checkpoint, fixture.ledger, {
+      maxHistoryEstimatedTokens: 100_000,
+      minRecentTurns: 1,
+      historyCompact: { enabled: true, mode: 'read_write' },
+    });
+    assert.equal(fit.fits, true);
   });
 
   test('recovery re-projection with ctx.branch replays the checkpoint without the raw span', async () => {
@@ -811,6 +828,64 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(exhaustedDecision?.skippedReasonCounts?.replacement_not_smaller, 1);
     // The rejected checkpoint was never persisted.
     assert.equal(fixture.recorded.length, 0);
+  });
+
+  test('a checkpoint the next replay would reject is never persisted (review round-5 finding 1)', async () => {
+    // Review round-5 repro: maxSummaryEstimatedTokens defaults to 1024, and a
+    // 5000-char summary yields a ~1133-token checkpoint envelope. The fold
+    // clearly SHRINKS the giant covered span, so materialize+smaller alone
+    // accept and persist it — but the recovery path's single replay gate
+    // (max_block_tokens) rejects it next round and re-projects the covered
+    // raw span, violating the never-re-injected invariant. Validation must
+    // therefore include replay admissibility, through the same gate function
+    // with the same policy — one acceptance standard, not two.
+    const fixture = buildFixture({
+      giantPriors: true,
+      summarize: () => 'S'.repeat(5_000),
+    });
+    await runFixtureTurn(fixture, consumer);
+
+    // The inadmissible checkpoint was never persisted...
+    assert.equal(fixture.recorded.length, 0);
+    // ...the step failed open on the raw projection...
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
+    const thirdPrompt = promptJson(fixture, 2);
+    assert.equal(thirdPrompt.includes('PRIOR_FACT'), true);
+    assert.equal(thirdPrompt.includes('maka_history_compact_checkpoint'), false);
+    // ...with the precise gate reason in the diagnostics.
+    const failedOpen = compactionDecisions(fixture).find(
+      (decision) => decision.phase === 'mid_turn' && decision.decision === 'failedOpen',
+    );
+    assert.equal(failedOpen?.failOpenReason, 'replay_rejected_max_block_tokens');
+  });
+
+  test('the cold-start estimate covers the FULL provider input including the system prompt (review round-5 finding 2)', async () => {
+    // The system prompt travels in the separate `system` field, not in
+    // messages. With usage missing, a cold-start estimate over messages+tools
+    // alone (~2150 tokens) stays under the 2900 high water and lets a real
+    // ~3650-token request stream into a 3000-token window. The single payload
+    // measure must include the system prompt: constant between adjacent
+    // requests (signed deltas unaffected), decisive for cold start.
+    const fixture = buildFixture({
+      contextWindow: 3_000,
+      reserveTokens: 100,
+      withoutPriorTurns: true,
+      hugeFirstResult: true,
+      finalAtSecondCall: true,
+      firstStepUsage: 'missing',
+      bigSystemPrompt: true,
+    });
+    await runFixtureTurn(fixture, consumer);
+
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type, 'complete');
+    if (complete?.type !== 'complete') return;
+    assert.equal(complete.stopReason, 'context_budget_exhausted');
+    assert.equal(complete.contextBudgetExhaustedDetail, 'no_safe_completed_span');
+    // The over-window second request never streamed.
+    assert.equal(fixture.events.some((event) => event.type === 'text_complete' && event.text === 'done'), false);
   });
 
   test('a completed step\'s assistant text is never dropped from the replacement (review finding B)', async () => {
