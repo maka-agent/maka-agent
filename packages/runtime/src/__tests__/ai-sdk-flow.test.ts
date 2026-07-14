@@ -343,7 +343,11 @@ describe('AiSdkFlow seam', () => {
     assert.equal(req.actions?.permissionRequest?.requestId, 'req-1');
     assert.equal(req.actions?.permissionRequest?.toolName, 'bash');
     assert.equal(req.actions?.permissionRequest?.hint, 'destructive');
-    assert.equal(req.actions?.permissionRequest?.rememberForTurnAllowed, true);
+    assert.equal(req.actions?.permissionRequest?.kind, 'tool_permission');
+    if (req.actions?.permissionRequest?.kind !== 'tool_permission') {
+      assert.fail('expected a tool permission request');
+    }
+    assert.equal(req.actions.permissionRequest.rememberForTurnAllowed, true);
 
     const ack = out[1];
     assert.equal(ack.author, 'user', 'permission decision is authored by the user');
@@ -355,6 +359,53 @@ describe('AiSdkFlow seam', () => {
 
     // permission_handoff stopReason maps to completed (run streamed to a halt).
     assert.equal(out[2].status, 'completed');
+  });
+
+  test('maps additional permission requests without exposing raw tool args', () => {
+    const mapped = mapSessionEventToRuntimeEvent(
+      ev({
+        type: 'permission_request',
+        kind: 'additional_permissions',
+        requestId: 'req-additional-1',
+        toolUseId: 'tu-additional-1',
+        toolName: 'Write',
+        category: 'file_write',
+        reason: 'additional_permissions',
+        args: undefined,
+        additionalPermissions: {
+          fileSystem: {
+            entries: [{ path: '/tmp/export.txt', access: 'write', scope: 'exact' }],
+          },
+        },
+        cwd: '/workspace',
+        justification: 'Write the requested export outside the workspace.',
+        intentHash: 'intent-hash',
+        permissionsHash: 'permissions-hash',
+        risk: {
+          outsideWorkspace: true,
+          protectedMetadata: false,
+          networkEnabled: false,
+        },
+        alsoApprovesToolExecution: true,
+        availableDecisions: ['allow_once', 'deny'],
+      }),
+      ctx,
+      createSessionEventMapMemory(),
+    );
+
+    const request = mapped.actions?.permissionRequest;
+    assert.equal(request?.kind, 'additional_permissions');
+    if (request?.kind !== 'additional_permissions') {
+      assert.fail('expected an additional permission request');
+    }
+    assert.deepEqual(request.additionalPermissions, {
+      fileSystem: {
+        entries: [{ path: '/tmp/export.txt', access: 'write', scope: 'exact' }],
+      },
+    });
+    assert.deepEqual(request.availableDecisions, ['allow_once', 'deny']);
+    assert.equal(request.alsoApprovesToolExecution, true);
+    assert.equal('args' in request, false);
   });
 
   test('maps the error path preserving error content + terminal failed', async () => {
@@ -684,7 +735,10 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
           args,
           rememberForTurnAllowed: true,
         }),
-        mappedArgs: (event: RuntimeEvent) => event.actions?.permissionRequest?.args,
+        mappedArgs: (event: RuntimeEvent) => {
+          const request = event.actions?.permissionRequest;
+          return request?.kind === 'additional_permissions' ? undefined : request?.args;
+        },
       },
     ];
 

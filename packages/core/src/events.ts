@@ -7,7 +7,12 @@
  * Connection-setup events live in ./connections.ts (separate channel).
  */
 
-import type { PermissionMode, PermissionRequest, PermissionResponse } from './permission.js';
+import type {
+  AdditionalPermissionRequest,
+  PermissionMode,
+  PermissionRequest,
+  PermissionResponse,
+} from './permission.js';
 import type { UserQuestionRequest } from './user-question.js';
 import type {
   PipeShellOutput,
@@ -79,7 +84,7 @@ export type SessionEvent =
   | ToolOutputDeltaEvent
   | ToolProgressEvent
   | ToolResultEvent
-  | PermissionRequestEvent
+  | AnyPermissionRequestEvent
   | PermissionDecisionAckEvent
   | UserQuestionRequestEvent
   | PlanSubmittedEvent
@@ -393,6 +398,18 @@ export interface ShellRunUpdate {
 export interface PermissionRequestEvent extends BaseEvent, PermissionRequest {
   type: 'permission_request';
 }
+
+export interface AdditionalPermissionRequestEvent
+  extends BaseEvent, AdditionalPermissionRequest {
+  type: 'permission_request';
+  /** Additional-permission prompts deliberately do not expose raw tool arguments. */
+  args: undefined;
+  rememberForTurnAllowed?: false;
+}
+
+export type AnyPermissionRequestEvent =
+  | PermissionRequestEvent
+  | AdditionalPermissionRequestEvent;
 
 export interface UserQuestionRequestEvent extends BaseEvent, UserQuestionRequest {
   type: 'user_question_request';
