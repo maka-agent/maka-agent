@@ -2295,7 +2295,10 @@ setTimeout(() => {
     const missing = resolveHarborCellAiSdkEnv({
       provider: 'ollama-cloud',
       model: 'qwen3.5:397b',
-      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      env: {
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+        MAKA_CREDENTIALS_PATH: join(tmpdir(), 'maka-headless-ollama-cloud-missing-credentials.json'),
+      },
       ts: 1,
     });
     assert.equal(missing.apiKey, '');
