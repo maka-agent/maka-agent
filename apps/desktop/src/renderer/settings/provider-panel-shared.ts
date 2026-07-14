@@ -43,7 +43,7 @@ export function categoryLabel(category: ProviderCategory): string {
 }
 
 export function nextSlug(type: ProviderType, existing: string[]): string {
-  const base = type.replace(/[^a-z0-9-]/g, '-');
+  const base = type.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   if (!existing.includes(base)) return base;
   for (let i = 2; i < 100; i += 1) {
     const candidate = `${base}-${i}`;
