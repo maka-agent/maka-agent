@@ -331,6 +331,32 @@ class MidTurnCapacityCompactState {
   ) {}
 }
 
+/**
+ * Durable watermark for the mid-turn trigger: the current-turn ledger
+ * projection must contain the FINAL (non-partial) function_call and
+ * function_response for every tool call the SDK reports as completed.
+ * Measuring before this holds would under-count the tail delta once and then
+ * re-count the same results as a fresh delta at the next step boundary.
+ */
+function midTurnDurableWatermarkSatisfied(
+  currentTurnEvents: readonly RuntimeEvent[],
+  requiredCallIds: ReadonlySet<string>,
+): boolean {
+  if (requiredCallIds.size === 0) return true;
+  const finalCalls = new Set<string>();
+  const finalResponses = new Set<string>();
+  for (const event of currentTurnEvents) {
+    if (event.partial === true) continue;
+    const content = event.content;
+    if (content?.kind === 'function_call') finalCalls.add(content.id);
+    else if (content?.kind === 'function_response') finalResponses.add(content.id);
+  }
+  for (const id of requiredCallIds) {
+    if (!finalCalls.has(id) || !finalResponses.has(id)) return false;
+  }
+  return true;
+}
+
 function joinPromptFragments(fragments: readonly (string | undefined)[]): string | undefined {
   const joined = fragments
     .map((fragment) => fragment?.trim())
@@ -2107,6 +2133,7 @@ export class AiSdkBackend implements AgentBackend {
       || headAnchor.sessionId !== this.sessionId
       || headAnchor.turnId !== input.turnId
       || headAnchor.role !== 'user'
+      || headAnchor.author !== 'user'
       || !isHistoryCompactContentEvent(headAnchor)
     ) {
       return undefined;
@@ -2165,18 +2192,17 @@ export class AiSdkBackend implements AgentBackend {
       }
 
       // A skipped trigger is never silent: every failure-driven skip records a
-      // failedOpen decision. `withWriteCounters` marks the tiers where a
-      // durable write was actually attempted.
+      // failedOpen decision. Recorder counters are attached ONLY on the tiers
+      // where the recorder was actually invoked — the diagnostics must never
+      // claim a write that did not happen.
       const failOpen = (
         failOpenReason: string,
-        options2: { withWriteCounters?: boolean } = {},
+        recorderCounters: Partial<ContextBudgetDiagnostic> = {},
       ): PrepareStepResultLike | undefined => {
         onDiagnosticPatch({
           historyCompactEnabled: true,
           historyCompactMode: 'read_write',
-          ...(options2.withWriteCounters !== false
-            ? { historyCompactWritesAttempted: 1, historyCompactWriteFailures: 1 }
-            : {}),
+          ...recorderCounters,
           ...compactionDecisionDiagnosticPatch({
             stage: 'activeStep',
             sourceKind: 'runtimeEvents',
@@ -2193,19 +2219,42 @@ export class AiSdkBackend implements AgentBackend {
       // Coverage pool = the durable run ledger, read through the injected
       // seam. Covered events are persisted by construction (no crash window
       // between checkpoint and source), and their bytes are exactly what a
-      // recovery re-projection replays. A read that lags the live stream only
-      // shrinks the tail delta; the estimate stays anchored on real usage.
-      let turnLedger: RuntimeEvent[];
-      try {
-        turnLedger = await loadTurnRuntimeEvents(turnId);
-      } catch {
-        return failOpen('ledger_read_failed', { withWriteCounters: false });
-      }
-      const currentTurnEvents = turnLedger
-        .filter((event) => event.turnId === turnId)
-        .filter(isHistoryCompactContentEvent);
-      if (!currentTurnEvents.some((event) => event.id === state.headAnchor.id)) {
-        return failOpen('head_anchor_not_durable', { withWriteCounters: false });
+      // recovery re-projection replays.
+      //
+      // Durable watermark: the SDK's step results are the source of truth for
+      // which tool calls have already completed, and the last usage sample
+      // measured a request that contained all of them. Measuring a ledger
+      // snapshot that lags those events would under-count the tail delta once
+      // (an over-window request would go out) and then re-count the same
+      // events as a fresh delta at the next boundary — so the trigger waits,
+      // condition-driven, until the ledger holds the FINAL call/response pair
+      // for every completed tool call. Each iteration re-reads through the
+      // seam (which re-awaits the run's serialized write queue and re-checks
+      // store availability); the only exits are the watermark itself, an
+      // abort, or a read failure.
+      const requiredCallIds = collectPrepareStepToolCallIds(options.steps);
+      const abortSignal = this.abortController?.signal;
+      let currentTurnEvents: RuntimeEvent[];
+      for (;;) {
+        if (abortSignal?.aborted) return failOpen('ledger_wait_aborted');
+        let turnLedger: RuntimeEvent[];
+        try {
+          turnLedger = await loadTurnRuntimeEvents(turnId);
+        } catch {
+          return failOpen('ledger_read_failed');
+        }
+        currentTurnEvents = turnLedger
+          .filter((event) => event.turnId === turnId)
+          .filter(isHistoryCompactContentEvent);
+        // The head anchor is persisted before backend.send() is invoked, so
+        // its absence is a wiring error, not replication lag — fail open now.
+        if (!currentTurnEvents.some((event) => event.id === state.headAnchor.id)) {
+          return failOpen('head_anchor_not_durable');
+        }
+        if (midTurnDurableWatermarkSatisfied(currentTurnEvents, requiredCallIds)) break;
+        // Yield one scheduling turn so the event consumer can flush, then
+        // re-check the condition.
+        await new Promise((resolve) => setImmediate(resolve));
       }
       const orderedEvents = [...state.priorContentEvents, ...currentTurnEvents];
 
@@ -2263,11 +2312,20 @@ export class AiSdkBackend implements AgentBackend {
         },
       });
 
-      const exhaust = (detail: ContextBudgetExhaustedDetail): undefined => {
+      // The terminal detail is the typed outcome enum; the diagnostic reason
+      // records WHAT failed (e.g. a checkpoint write) even when the enum has
+      // no dedicated member for it, and recorder counters are attached only
+      // when the recorder actually ran.
+      const exhaust = (
+        detail: ContextBudgetExhaustedDetail,
+        diagnosticReason: string = detail,
+        recorderCounters: Partial<ContextBudgetDiagnostic> = {},
+      ): undefined => {
         state.exhaustedDetail = detail;
         onDiagnosticPatch({
           historyCompactEnabled: true,
           historyCompactMode: 'read_write',
+          ...recorderCounters,
           ...compactionDecisionDiagnosticPatch({
             stage: 'activeStep',
             sourceKind: 'runtimeEvents',
@@ -2275,7 +2333,7 @@ export class AiSdkBackend implements AgentBackend {
             phase: 'mid_turn',
             boundaryKind: 'historyCompact',
             reason: 'context_budget_exhausted',
-            skippedReasonCounts: { [detail]: 1 },
+            skippedReasonCounts: { [diagnosticReason]: 1 },
           }),
         });
         this.abortController?.abort(new Error(`mid-turn context budget exhausted: ${detail}`));
@@ -2289,13 +2347,25 @@ export class AiSdkBackend implements AgentBackend {
       // Durably persist the checkpoint BEFORE replacing the projection — the
       // same order as the pre_turn path — so a recovery re-projection never
       // re-injects the replaced raw span. A persistence failure keeps raw
-      // messages: fail open under the window, explicit outcome over it.
+      // messages: fail open under the window, explicit outcome over it — and
+      // in both tiers the durable diagnostics record write_failed.
+      const writeFailedCounters: Partial<ContextBudgetDiagnostic> = {
+        historyCompactWritesAttempted: 1,
+        historyCompactWriteFailures: 1,
+      };
       try {
         await Promise.resolve(recorder(plan.checkpoint, turnId));
       } catch {
-        return estimate > state.contextWindow ? exhaust('summarizer_failed') : failOpen('write_failed');
+        return estimate > state.contextWindow
+          ? exhaust('summarizer_failed', 'write_failed', writeFailedCounters)
+          : failOpen('write_failed', writeFailedCounters);
       }
       state.previousCheckpoint = plan.checkpoint;
+      const writeSucceededCounters: Partial<ContextBudgetDiagnostic> = {
+        historyCompactWritesAttempted: 1,
+        historyCompactBlocksWritten: 1,
+        historyCompactWrittenBlockIds: [plan.checkpoint.checkpointId],
+      };
 
       const replayPlan = buildRuntimeEventModelReplayPlan(plan.replacementEvents, {
         toolActivityTurnIds: collectToolActivityTurnIds(orderedEvents),
@@ -2305,11 +2375,11 @@ export class AiSdkBackend implements AgentBackend {
         || hasBlockingReplayDiagnostics(replayPlan)
         || (replayPlan.hasProviderNativeSemantics && !this.canReplayProviderNative(replayPlan))
       ) {
-        // The checkpoint is durable (next replay uses it); only this step's
-        // in-flight replacement is skipped.
+        // The checkpoint IS durable (the write succeeded and the next replay
+        // uses it); only this step's in-flight replacement is skipped.
         return estimate > state.contextWindow
-          ? exhaust('no_safe_completed_span')
-          : failOpen('replacement_unmaterializable');
+          ? exhaust('no_safe_completed_span', 'replacement_unmaterializable', writeSucceededCounters)
+          : failOpen('replacement_unmaterializable', writeSucceededCounters);
       }
       const replacementMessages = await this.materializeRuntimeReplayPlan(replayPlan);
       acceptedProjection = {

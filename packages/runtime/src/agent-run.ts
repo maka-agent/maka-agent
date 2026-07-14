@@ -233,6 +233,11 @@ export class AgentRun {
       throw new Error('RuntimeEvent store is unavailable for turn runtime events');
     }
     await this.runtimeEventQueue.catch(() => {});
+    // A write may have failed while we waited; a snapshot from a store that
+    // just went unavailable must not be treated as a complete durable read.
+    if (!this.runtimeEventStoreAvailable) {
+      throw new Error('RuntimeEvent store became unavailable for turn runtime events');
+    }
     return await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, this.runId);
   }
 
