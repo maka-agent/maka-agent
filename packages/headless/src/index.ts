@@ -146,6 +146,27 @@ export {
 } from './permission-grants.js';
 export type { TaskEventLedgerEntry, TaskRunProjection, TaskRunStore } from './task-run-store.js';
 export { createInMemoryTaskRunStore, createTaskRunStore, projectTaskRun } from './task-run-store.js';
+export {
+  TASK_RUN_INSPECT_SCHEMA_VERSION,
+  inspectTaskRun,
+  renderTaskRunInspectTree,
+} from './task-run-inspect.js';
+export type {
+  InspectTaskRunDependencies,
+  TaskRunInspectAgentRun,
+  TaskRunInspectAttempt,
+  TaskRunInspectCompactionCheckpoint,
+  TaskRunInspectCoverageStatus,
+  TaskRunInspectDiagnostic,
+  TaskRunInspectDiagnosticCode,
+  TaskRunInspectDocument,
+  TaskRunInspectSelfCheck,
+  TaskRunInspectSeverity,
+  TaskRunInspectSummary,
+  TaskRunInspectTaskEventSource,
+  TaskRunInspectToolFact,
+  TaskRunInspectToolSummary,
+} from './task-run-inspect.js';
 export type { TaskEventsFromResultRecordOptions } from './task-run-adapter.js';
 export {
   resultRecordFromTaskRunProjection,
