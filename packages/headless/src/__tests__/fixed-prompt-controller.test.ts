@@ -1269,6 +1269,11 @@ describe('fixed prompt controller', () => {
       const checkpoint = tokenSummary({ input: 100, output: 20, reasoning: 0, total: 120, costUsd: 0.42 });
       const scenarios = [
         {
+          name: 'missing identity and usage',
+          requireExecutionIdentity: true,
+          run: async (taskId: string) => harborOutput({ taskId, omitTokenSummary: true }),
+        },
+        {
           name: 'zero cost with tokens',
           run: async (taskId: string) => harborOutput({
             taskId,
@@ -1301,6 +1306,7 @@ describe('fixed prompt controller', () => {
           ],
           maxConcurrency: 1,
           costCeilingUsd: 1,
+          ...('requireExecutionIdentity' in scenario ? { requireExecutionIdentity: scenario.requireExecutionIdentity } : {}),
           harborRunner: async ({ task }) => {
             calls.push(task.id);
             return scenario.run(task.id);

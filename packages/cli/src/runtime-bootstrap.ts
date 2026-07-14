@@ -15,6 +15,7 @@ import {
   buildBuiltinTools,
   createBuiltinSandboxManager,
   buildDefaultContextBudgetPolicy,
+  buildPricingLookup,
   buildSkillAgentTool,
   buildGoalTools,
   buildLlmHistorySummarizer,
@@ -26,6 +27,7 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   resolveSkillDiscoveryPaths,
   resolveSelectedModelContextWindow,
+  recordLlmCall,
   type AutomationDefinition,
   type GoalContinuationDeps,
   type HostCapabilities,
@@ -46,6 +48,7 @@ import {
   createTelemetryRepo,
 } from '@maka/storage';
 import type { ToolPermissionRule } from '@maka/core/permission';
+import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
 import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
 import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
@@ -109,6 +112,8 @@ export async function createMakaCliRuntimeContext(
   const connectionStore = createConnectionStore(input.workspaceRoot);
   const credentialStore = createFileCredentialStore(input.workspaceRoot);
   const telemetryRepo = createTelemetryRepo(input.workspaceRoot);
+  await telemetryRepo.load();
+  const lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
   const settingsStore = createSettingsStore(input.workspaceRoot, telemetryRepo);
   const targetInput = {
     connectionStore,
@@ -244,6 +249,7 @@ export async function createMakaCliRuntimeContext(
       tools: allTools,
       providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
       contextBudget: buildCliContextBudgetPolicy(ready.connection, ready.model),
+      recordLlmCall: (event: LlmCallRecord) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
       loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
       loadHistoryCompactCheckpoint: ctx.loadHistoryCompactCheckpoint,
       summarizeHistoryCompact: buildLlmHistorySummarizer({

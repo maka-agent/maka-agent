@@ -1254,6 +1254,7 @@ function taskEventsCostUsd(events: readonly FixedPromptTaskWalEvent[]): number {
 
 export function hasUnknownRealProviderCost(event: FixedPromptTaskWalEvent): boolean {
   if (event.type === 'task_budget_exhausted' && event.tokenSummarySource === 'checkpoint') return true;
+  if (event.type === 'task_plumbing_failed' && event.errorClass === 'missing_execution_identity') return true;
   if (
     event.type === 'task_plumbing_failed'
     && (event.errorClass === 'missing_token_usage' || event.errorClass === 'zero_cost_with_tokens')
