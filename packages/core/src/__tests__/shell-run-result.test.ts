@@ -205,6 +205,40 @@ describe('normalizeShellToolResultContent', () => {
       assert.equal(normalizeShellToolResultContent(value).state, 'invalid');
     }
   });
+
+  it('accepts queued PTY input and rejects the superseded applied field', () => {
+    const base = {
+      ...shellRun(),
+      mode: 'pty',
+      output: {
+        mode: 'pty',
+        screen: '$ ',
+        scrollback: '',
+        cols: 80,
+        rows: 24,
+        cursor: { x: 2, y: 0, visible: true },
+        alternateScreen: false,
+        truncated: false,
+        redacted: false,
+      },
+    } as const;
+    assert.equal(normalizeShellToolResultContent({
+      ...base,
+      operation: {
+        kind: 'pty_control',
+        failed: false,
+        input: { bytes: 1, queued: true },
+      },
+    }).state, 'valid');
+    assert.equal(normalizeShellToolResultContent({
+      ...base,
+      operation: {
+        kind: 'pty_control',
+        failed: false,
+        input: { bytes: 1, applied: true },
+      },
+    }).state, 'invalid');
+  });
 });
 
 function shellRun(

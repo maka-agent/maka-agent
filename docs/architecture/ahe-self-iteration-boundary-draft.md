@@ -85,17 +85,17 @@ Runtime / Task Events
         ↓ project
 TaskRunProjection
         ↓ normalize and classify
-Harness Results + Trace Index + Messages + Failure Digest
+Harness Results + Execution Lineage + Trace Index + Failure Digest
         ↓ bind to
 Target Snapshot
 ```
 
-Projection does not replace original facts. It provides stable task semantics such as final state, artifacts, Self-check, workspace observations, and score authority. When analysis needs more depth, `trace-index.json` can still point to `events.jsonl`, transcripts, tool results, and AgentRun messages.
+Projection does not replace original facts. It provides stable task semantics such as final state, artifacts, Self-check, workspace observations, and score authority. `execution-lineage.json` states exactly which TaskRun, Attempt, AgentRun, Runtime Event coverage, Task Event coverage, and target snapshot support that projection. `trace-index.json` points separately to `task-events.jsonl`, payload-safe AgentRun inspections, transcripts, tool results, and—only when explicitly requested—canonical `runtime-events.jsonl` sources.
 
 AHE therefore receives two layers of material:
 
-- **Index and digest layer**: makes failure classes, Self-check divergence, final workspace state, and recent evidence easy to locate;
-- **Raw trace layer**: lets the controller return to the messages and events that existed at the time and check whether a digest omitted an important causal edge.
+- **Index and digest layer**: makes failure classes, Self-check divergence, final workspace state, source coverage, and explicit lineage gaps easy to locate without copying model/tool payloads into inspection documents;
+- **Raw trace layer**: when enabled, lets the controller return to the canonical Runtime Events that existed at the time and check whether a projection omitted an important causal edge.
 
 This is another payoff of an Event Log architecture: history is not only recoverable; new projections can reinterpret it later.
 
@@ -149,10 +149,14 @@ It reads an existing TaskRun store rather than rerunning tasks. After validating
 | `harness-results.json` | Normalized status and score authority for each task |
 | `trace-index.json` | Maps tasks to messages, events, transcripts, tool results, and artifacts |
 | `traces/<taskRunId>/task-run.json` | Stable TaskRun export |
+| `traces/<taskRunId>/task-events.jsonl` | Payload-safe Task Event projection; never mislabeled as Runtime Events |
+| `traces/<taskRunId>/execution-lineage.json` | Target, TaskRun, Attempt, AgentRun, and Runtime/Task coverage binding |
 | `traces/<taskRunId>/messages.json` | Model interactions normalized for AHE |
+| `traces/<taskRunId>/agent-runs/<agentRunId>/inspect.json` | Payload-safe, versioned AgentRun source inspection |
+| `traces/<taskRunId>/agent-runs/<agentRunId>/runtime-events.jsonl` | Canonical immutable Runtime Events; written only with `--include-events` |
 | `traces/<taskRunId>/failure-digest.json` | Failure summary, Self-check divergence, and final state for non-success cells |
 
-The export is deterministic: the same snapshot, projections, run id, and export time produce stable JSON. An outer controller can cache, compare, and resume without treating export ordering as new information.
+The export is deterministic: the same snapshot, projections, source ledgers, run id, and export time produce stable JSON. Every materialized local ref includes a SHA-256 digest and byte size. An outer controller can therefore bind a conclusion to file bytes rather than trusting a mutable path. Without `--include-events`, lineage and AgentRun inspection remain payload-safe and raw Runtime Event payloads are omitted by policy rather than silently claimed as present.
 
 ### Failure Digest is not another model summary
 
@@ -162,7 +166,7 @@ Deterministic code derives `failure-digest.json` from TaskRun projection. It inc
 - divergence between Self-check and external evaluation;
 - Self-check plan audit, scratch use, and workspace hygiene;
 - final artifacts, workspace state, and recent evidence;
-- debug refs back to messages, transcripts, events, and evaluation output.
+- digest-bound debug refs back to messages, transcripts, execution lineage, Task Events, optional Runtime Event sources, and evaluation output.
 
 It is an evolution-oriented projection: it reduces lookup cost while preserving the path back to original records.
 
@@ -307,7 +311,7 @@ A candidate may change prompts, tool contracts, or context policy. The same patc
 
 ### 2. Every result must bind to target identity
 
-`MakaAheRunResult` carries `runId`, `snapshotId`, and `taskId`. A score without target identity cannot safely participate in cross-version comparison.
+Current `MakaAheRunResult` rows carry an AHE batch `runId`, `snapshotId`, `taskRunId`, `taskId`, and a digest-bound `executionLineageRef`. A score without both target identity and execution lineage cannot safely participate in cross-version comparison. Legacy unversioned rows remain readable, but do not acquire a lineage claim retroactively.
 
 ### 3. Self-iteration requires a counterexample set
 
@@ -367,7 +371,8 @@ The outer loop costs more protocol and artifact plumbing, but buys clearer autho
 - The current component map is source-backed and separates editable from evidence-only components;
 - Evidence export is read-only and consumes TaskRun projections;
 - Results are bucketed conservatively by authority and accounting status;
-- Trace indexes connect messages, events, transcripts, tool results, and artifacts;
+- Versioned run results bind TaskRun identity to digest-bound execution-lineage documents;
+- Trace indexes separate Task Events from optional canonical Runtime Event sources and connect payload-safe AgentRun inspections;
 - Failure digests expose Self-check divergence, hygiene, and final state;
 - The change-manifest validator constrains components, paths, and minimum experimental claims;
 - The CLI exports baseline evidence but does not run AHE or apply patches.

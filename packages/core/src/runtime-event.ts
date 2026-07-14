@@ -15,7 +15,7 @@
  */
 
 import type { AttachmentRef } from './events.js';
-import type { PermissionRequest, PermissionResponse } from './permission.js';
+import type { PermissionRequestPayload, PermissionResponse } from './permission.js';
 import type { UserQuestionRequest } from './user-question.js';
 import type {
   CacheMissInputSource,
@@ -215,7 +215,7 @@ export interface RuntimeEventActions {
   /** Artifact key → primitive delta (size/bytes/version counters, etc.). */
   artifactDelta?: Record<string, string | number | boolean>;
   /** A permission prompt raised for a tool call. */
-  permissionRequest?: PermissionRequest;
+  permissionRequest?: PermissionRequestPayload;
   /** A resolved permission decision (allow/deny) for a prior request. */
   permissionDecision?: RuntimeEventPermissionDecision;
   /** A bounded in-turn question raised by a tool call. */

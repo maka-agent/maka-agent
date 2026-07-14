@@ -609,14 +609,14 @@ describe('tool activity presentation', () => {
           operation: {
             kind: 'pty_control',
             failed: true,
-            input: { bytes: 7, applied: false },
+            input: { bytes: 7, queued: false },
             resize: { cols: 100, rows: 30, applied: true, changed: true },
           },
         },
       } satisfies ToolActivityItem],
     }));
 
-    assert.match(markup, /未发送：echo x\\n/);
+    assert.match(markup, /未排队：echo x\\n/);
     assert.match(markup, /已调整为 100x30/);
     assert.match(markup, /后台终端交互失败/);
     assert.doesNotMatch(markup, /PRIVATE-CWD|PRIVATE-COMMAND|PRIVATE-FAILURE|PRIVATE-TERMINAL-FRAME/);
@@ -653,7 +653,7 @@ describe('tool activity presentation', () => {
       operation: {
         kind: 'pty_control',
         failed: false,
-        input: { bytes: 11, applied: true },
+        input: { bytes: 11, queued: true },
         resize: { cols: 80, rows: 24, applied: true, changed: false },
       },
     } satisfies ToolResultContent;
@@ -663,7 +663,7 @@ describe('tool activity presentation', () => {
       args,
     }));
 
-    assert.match(markup, /已发送：echo hello\\n/);
+    assert.match(markup, /已排队：echo hello\\n/);
     assert.doesNotMatch(markup, /11 字节|80x24|已调整/);
   });
 

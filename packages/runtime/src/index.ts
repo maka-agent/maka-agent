@@ -25,10 +25,12 @@ export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './perm
 
 export {
   MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS,
+  DEFAULT_ADDITIONAL_PERMISSION_GRANT_TTL_MS,
   AdditionalPermissionError,
   assertAdditionalPermissionProposal,
   buildAdditionalPermissionProposal,
   freezeAdditionalPermissionProposal,
+  freezeAdditionalPermissionGrant,
   normalizeAdditionalPermissionPath,
   normalizeAdditionalPermissionProfile,
   planDeclaredBashAdditionalPermission,
@@ -37,6 +39,7 @@ export {
 } from './additional-permissions.js';
 export type {
   AdditionalPermissionErrorReason,
+  AdditionalPermissionGrant,
   AdditionalPermissionPlanResult,
   AdditionalPermissionPlanningContext,
   AdditionalPermissionProposal,
@@ -157,6 +160,7 @@ export {
   MAX_FOREGROUND_BASH_TIMEOUT_MS,
   MAX_PTY_COLS,
   MAX_PTY_ROWS,
+  MAX_SHELL_RUN_RESOURCE_REF_CHARS,
   MAX_SHELL_RUN_TIMEOUT_MS,
   MAX_WRITE_STDIN_INPUT_BYTES,
   MIN_PTY_COLS,

@@ -5,16 +5,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { zodSchema } from 'ai';
 import { z } from 'zod';
+import { SHELL_RUN_ID_MAX_CHARS } from '@maka/core';
 import { createWorkspaceWritePermissionProfile } from '@maka/core/permission-profile';
 import { expect } from '../test-helpers.js';
 import { buildBuiltinTools } from '../builtin-tools.js';
 import { SandboxManager } from '../sandbox/sandbox-manager.js';
 import { LinuxBubblewrapBackend } from '../sandbox/linux-sandbox.js';
 import type { ShellRunLauncher } from '../shell-tools.js';
-import type {
-  BackgroundTaskStopper,
-  PtyControlWriter,
-  RuntimeResourceReader,
+import {
+  MAX_SHELL_RUN_RESOURCE_REF_CHARS,
+  SHELL_RUN_RESOURCE_PREFIX,
+  shellRunResourceRef,
+  type BackgroundTaskStopper,
+  type PtyControlWriter,
+  type RuntimeResourceReader,
 } from '../shell-run-contract.js';
 import {
   LOCAL_WORKSPACE_EXECUTOR_FACTS,
@@ -455,14 +459,32 @@ describe('builtin Bash streaming output', () => {
     const write = buildBuiltinTools({ ptyControls }).find((tool) => tool.name === 'WriteStdin');
     if (!write) throw new Error('WriteStdin tool missing');
     const parameters = write.parameters as z.ZodTypeAny;
+    const maxRef = shellRunResourceRef('x'.repeat(SHELL_RUN_ID_MAX_CHARS));
+    const refSchema = zodSchema(parameters).jsonSchema as {
+      properties?: { ref?: { maxLength?: number } };
+    };
 
-    expect(parameters.safeParse({ ref: 'ref', input: 'hello\r' }).success).toBe(true);
-    expect(parameters.safeParse({ ref: 'ref', size: { cols: 240, rows: 100 } }).success).toBe(true);
-    expect(parameters.safeParse({ ref: 'ref' }).success).toBe(false);
-    expect(parameters.safeParse({ ref: 'ref', input: '' }).success).toBe(false);
-    expect(parameters.safeParse({ ref: 'ref', input: '\uD800' }).success).toBe(false);
-    expect(parameters.safeParse({ ref: 'ref', input: 'x'.repeat(64 * 1024 + 1) }).success).toBe(false);
-    expect(parameters.safeParse({ ref: 'ref', size: { cols: 1, rows: 24 } }).success).toBe(false);
+    expect(maxRef.length).toBe(MAX_SHELL_RUN_RESOURCE_REF_CHARS);
+    expect(refSchema.properties?.ref?.maxLength).toBe(MAX_SHELL_RUN_RESOURCE_REF_CHARS);
+    expect(parameters.safeParse({ ref: maxRef, input: 'hello\r' }).success).toBe(true);
+    expect(parameters.safeParse({
+      ref: `${SHELL_RUN_RESOURCE_PREFIX}/shell-run-1`,
+      size: { cols: 240, rows: 100 },
+    }).success).toBe(true);
+    for (const ref of [
+      'ref',
+      `${SHELL_RUN_RESOURCE_PREFIX}/shell/run`,
+      `${SHELL_RUN_RESOURCE_PREFIX}/decoy/../shell-run-1`,
+      `${SHELL_RUN_RESOURCE_PREFIX}/shell-run-1?view=full`,
+      `${maxRef}x`,
+    ]) {
+      expect(parameters.safeParse({ ref, input: 'hello\r' }).success).toBe(false);
+    }
+    expect(parameters.safeParse({ ref: maxRef }).success).toBe(false);
+    expect(parameters.safeParse({ ref: maxRef, input: '' }).success).toBe(false);
+    expect(parameters.safeParse({ ref: maxRef, input: '\uD800' }).success).toBe(false);
+    expect(parameters.safeParse({ ref: maxRef, input: 'x'.repeat(64 * 1024 + 1) }).success).toBe(false);
+    expect(parameters.safeParse({ ref: maxRef, size: { cols: 1, rows: 24 } }).success).toBe(false);
   });
 
   test('delegates Bash execution to an injected workspace executor', async () => {

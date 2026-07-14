@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   MAKA_AHE_CURRENT_COMPONENTS,
+  MAKA_AHE_RUN_RESULT_SCHEMA_VERSION,
   MAKA_AHE_TARGET_PROTOCOL_VERSION,
   MAKA_AHE_TARGET_PROTOCOL_VERSION_V1,
   makaAheSourceManifestDigest,
@@ -182,6 +183,24 @@ describe('AHE target protocol', () => {
     assert.equal(result.ok, false);
     if (!result.ok) {
       assert(result.errors.some((error) => error.path === 'status'));
+    }
+  });
+
+  it('requires TaskRun and lineage identity on versioned AHE run results', () => {
+    const result = validateMakaAheRunResult({
+      schemaVersion: MAKA_AHE_RUN_RESULT_SCHEMA_VERSION,
+      protocolVersion: MAKA_AHE_TARGET_PROTOCOL_VERSION,
+      runId: 'ahe-batch-run',
+      snapshotId: 'snap-candidate',
+      taskId: 'terminal-bench/sqlite-with-gcov',
+      status: 'official_fail',
+      scoreAuthority: 'official_verifier',
+    });
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert(result.errors.some((error) => error.path === 'taskRunId'));
+      assert(result.errors.some((error) => error.path === 'executionLineageRef'));
     }
   });
 });

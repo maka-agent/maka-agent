@@ -11,6 +11,7 @@ import {
   MAX_PTY_COLS,
   MAX_PTY_ROWS,
   MAX_FOREGROUND_BASH_TIMEOUT_MS,
+  MAX_SHELL_RUN_RESOURCE_REF_CHARS,
   MAX_SHELL_RUN_TIMEOUT_MS,
   MAX_WRITE_STDIN_INPUT_BYTES,
   MIN_PTY_COLS,
@@ -18,6 +19,7 @@ import {
   type BackgroundTaskStopper,
   type PtyControlWriter,
   type ShellRunBashInput,
+  isShellRunResourceRef,
   isWellFormedTerminalInput,
 } from './shell-run-contract.js';
 import type { ChildFdInput } from './child-fd-input.js';
@@ -205,7 +207,10 @@ export function buildStopBackgroundTaskTool(backgroundTasks: BackgroundTaskStopp
 
 export function buildWriteStdinTool(ptyControls: PtyControlWriter): MakaTool {
   const parameters = z.object({
-    ref: z.string().describe('The runtime ref returned by a PTY Bash task'),
+    ref: z.string()
+      .max(MAX_SHELL_RUN_RESOURCE_REF_CHARS)
+      .refine(isShellRunResourceRef, 'ref must be a canonical PTY Bash runtime ref')
+      .describe('The runtime ref returned by a PTY Bash task'),
     input: z.string()
       .refine((value) => value.length > 0, 'input must not be empty; omit it for a resize-only call')
       .refine(isWellFormedTerminalInput, 'input must be well-formed Unicode')

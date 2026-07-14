@@ -24,17 +24,24 @@ import { hashAdditionalPermissionProfile } from './additional-permission-hash.js
 import { stableHash } from './request-shape.js';
 
 export const MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS = 500;
+export const DEFAULT_ADDITIONAL_PERMISSION_GRANT_TTL_MS = 300_000;
 
 export type AdditionalPermissionErrorReason =
   | 'invalid_additional_permissions'
   | 'additional_permissions_disallowed_by_mode'
   | 'additional_permissions_conflict_with_deny'
+  | 'additional_permission_denied'
+  | 'additional_permission_timeout'
+  | 'additional_permission_aborted'
+  | 'grant_expired'
+  | 'grant_already_consumed'
+  | 'grant_intent_mismatch'
   | 'grant_path_changed';
 
 export class AdditionalPermissionError extends Error {
   readonly code = 'ADDITIONAL_PERMISSION_FAILED';
   readonly domain = 'permission' as const;
-  readonly stage: 'planning' | 'validation';
+  readonly stage: 'planning' | 'approval' | 'validation' | 'consume';
   readonly reason: AdditionalPermissionErrorReason;
   readonly recoverable: boolean;
 
@@ -69,6 +76,21 @@ export interface AdditionalPermissionProposal {
   readonly risk: AdditionalPermissionRiskSummary;
 }
 
+export interface AdditionalPermissionGrant {
+  readonly grantId: string;
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly toolUseId: string;
+  readonly toolName: string;
+  readonly intentHash: string;
+  readonly permissionsHash: string;
+  readonly profile: AdditionalPermissionProfile;
+  readonly normalizedPaths: readonly NormalizedAdditionalPermissionPath[];
+  readonly risk: AdditionalPermissionRiskSummary;
+  readonly issuedAt: number;
+  readonly expiresAt: number;
+}
+
 export type AdditionalPermissionPlanResult =
   | { kind: 'not_required' }
   | { kind: 'request'; proposal: AdditionalPermissionProposal }
@@ -88,6 +110,17 @@ export function freezeAdditionalPermissionProposal(
     profile: freezeAdditionalPermissionProfile(proposal.profile),
     normalizedPaths: freezeNormalizedPaths(proposal.normalizedPaths),
     risk: Object.freeze({ ...proposal.risk }),
+  });
+}
+
+export function freezeAdditionalPermissionGrant(
+  grant: AdditionalPermissionGrant,
+): AdditionalPermissionGrant {
+  return Object.freeze({
+    ...grant,
+    profile: freezeAdditionalPermissionProfile(grant.profile),
+    normalizedPaths: freezeNormalizedPaths(grant.normalizedPaths),
+    risk: Object.freeze({ ...grant.risk }),
   });
 }
 

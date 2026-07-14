@@ -355,6 +355,53 @@ describe('AiSdkFlow seam', () => {
     assert.equal(out[2].status, 'completed');
   });
 
+  test('maps additional permission requests without exposing raw tool args', () => {
+    const mapped = mapSessionEventToRuntimeEvent(
+      ev({
+        type: 'permission_request',
+        kind: 'additional_permissions',
+        requestId: 'req-additional-1',
+        toolUseId: 'tu-additional-1',
+        toolName: 'Write',
+        category: 'file_write',
+        reason: 'additional_permissions',
+        args: undefined,
+        additionalPermissions: {
+          fileSystem: {
+            entries: [{ path: '/tmp/export.txt', access: 'write', scope: 'exact' }],
+          },
+        },
+        cwd: '/workspace',
+        justification: 'Write the requested export outside the workspace.',
+        intentHash: 'intent-hash',
+        permissionsHash: 'permissions-hash',
+        risk: {
+          outsideWorkspace: true,
+          protectedMetadata: false,
+          networkEnabled: false,
+        },
+        alsoApprovesToolExecution: true,
+        availableDecisions: ['allow_once', 'deny'],
+      }),
+      ctx,
+      createSessionEventMapMemory(),
+    );
+
+    const request = mapped.actions?.permissionRequest;
+    assert.equal(request?.kind, 'additional_permissions');
+    if (request?.kind !== 'additional_permissions') {
+      assert.fail('expected an additional permission request');
+    }
+    assert.deepEqual(request.additionalPermissions, {
+      fileSystem: {
+        entries: [{ path: '/tmp/export.txt', access: 'write', scope: 'exact' }],
+      },
+    });
+    assert.deepEqual(request.availableDecisions, ['allow_once', 'deny']);
+    assert.equal(request.alsoApprovesToolExecution, true);
+    assert.equal('args' in request, false);
+  });
+
   test('maps the error path preserving error content + terminal failed', async () => {
     const backend = new ScriptedBackend({
       events: [
@@ -681,7 +728,10 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
           reason: 'file_write',
           args,
         }),
-        mappedArgs: (event: RuntimeEvent) => event.actions?.permissionRequest?.args,
+        mappedArgs: (event: RuntimeEvent) => {
+          const request = event.actions?.permissionRequest;
+          return request?.kind === 'additional_permissions' ? undefined : request?.args;
+        },
       },
     ];
 

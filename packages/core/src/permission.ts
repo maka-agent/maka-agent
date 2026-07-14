@@ -657,6 +657,8 @@ function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {
 // ============================================================================
 
 export interface PermissionRequest {
+  /** Omitted by legacy persisted events; new runtime events set it explicitly. */
+  kind?: 'tool_permission';
   requestId: string;
   toolUseId: string;
   toolName: string;
@@ -675,6 +677,27 @@ export interface PermissionRequest {
   hint?: string;
   rememberForTurnAllowed?: boolean;
 }
+
+export interface AdditionalPermissionRequest {
+  kind: 'additional_permissions';
+  requestId: string;
+  toolUseId: string;
+  toolName: string;
+  category: ToolCategory;
+  reason: 'additional_permissions';
+  additionalPermissions: import('./additional-permissions.js').AdditionalPermissionProfile;
+  cwd: string;
+  justification: string;
+  intentHash: string;
+  permissionsHash: string;
+  risk: import('./additional-permissions.js').AdditionalPermissionRiskSummary;
+  alsoApprovesToolExecution: boolean;
+  availableDecisions: readonly ['allow_once', 'deny'];
+  hint?: string;
+}
+
+/** Permission prompt payloads that may be carried by canonical runtime events. */
+export type PermissionRequestPayload = PermissionRequest | AdditionalPermissionRequest;
 
 function permissionRequestArgs(args: unknown, category: ToolCategory): unknown {
   return category === 'computer_use'

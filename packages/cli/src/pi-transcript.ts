@@ -392,6 +392,11 @@ export function applyMakaSessionEventToTranscript(
     }
 
     case 'permission_request':
+      // Additional-permission prompts are not emitted by ToolRuntime until
+      // their dedicated CLI approval surface is wired in a later slice.
+      if (event.kind === 'additional_permissions') break;
+      enqueuePendingInteraction(state, event);
+      break;
     case 'user_question_request':
       enqueuePendingInteraction(state, event);
       break;

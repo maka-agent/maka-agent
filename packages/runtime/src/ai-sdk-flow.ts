@@ -32,10 +32,16 @@
 
 import {
   failureClassFromCompleteStopReason,
+  type AnyPermissionRequestEvent,
   type CompleteEvent,
   type SessionEvent,
 } from '@maka/core/events';
 import type { PermissionDecision } from '@maka/core/backend-types';
+import type {
+  AdditionalPermissionRequest,
+  PermissionRequest,
+  PermissionRequestPayload,
+} from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
 import { isTerminalRuntimeEvent, type RuntimeEvent, type RuntimeEventStatus } from '@maka/core/runtime-event';
 
@@ -101,6 +107,81 @@ function resolveBase(event: SessionEvent, ctx: InvocationContext) {
   };
   if (ctx.branch !== undefined) (base as { branch?: string }).branch = ctx.branch;
   return base;
+}
+
+function mapPermissionRequest(event: AnyPermissionRequestEvent): PermissionRequestPayload {
+  if (event.kind === 'additional_permissions') {
+    return mapAdditionalPermissionRequest(event);
+  }
+  const request: PermissionRequest = {
+    requestId: event.requestId,
+    toolUseId: event.toolUseId,
+    toolName: event.toolName,
+    category: event.category,
+    reason: event.reason,
+    args: structuredClone(event.args),
+    ...(event.hint !== undefined ? { hint: event.hint } : {}),
+  };
+  return request;
+}
+
+function mapAdditionalPermissionRequest(
+  event: AnyPermissionRequestEvent,
+): AdditionalPermissionRequest {
+  if (event.reason !== 'additional_permissions') {
+    throw malformedAdditionalPermissionRequest(event.requestId, 'reason');
+  }
+  if (!event.additionalPermissions || typeof event.additionalPermissions !== 'object') {
+    throw malformedAdditionalPermissionRequest(event.requestId, 'additionalPermissions');
+  }
+  if (typeof event.cwd !== 'string') {
+    throw malformedAdditionalPermissionRequest(event.requestId, 'cwd');
+  }
+  if (typeof event.justification !== 'string') {
+    throw malformedAdditionalPermissionRequest(event.requestId, 'justification');
+  }
+  if (typeof event.intentHash !== 'string') {
+    throw malformedAdditionalPermissionRequest(event.requestId, 'intentHash');
+  }
+  if (typeof event.permissionsHash !== 'string') {
+    throw malformedAdditionalPermissionRequest(event.requestId, 'permissionsHash');
+  }
+  if (!event.risk || typeof event.risk !== 'object') {
+    throw malformedAdditionalPermissionRequest(event.requestId, 'risk');
+  }
+  if (typeof event.alsoApprovesToolExecution !== 'boolean') {
+    throw malformedAdditionalPermissionRequest(event.requestId, 'alsoApprovesToolExecution');
+  }
+  if (
+    event.availableDecisions?.length !== 2
+    || event.availableDecisions[0] !== 'allow_once'
+    || event.availableDecisions[1] !== 'deny'
+  ) {
+    throw malformedAdditionalPermissionRequest(event.requestId, 'availableDecisions');
+  }
+  return {
+    kind: 'additional_permissions',
+    requestId: event.requestId,
+    toolUseId: event.toolUseId,
+    toolName: event.toolName,
+    category: event.category,
+    reason: 'additional_permissions',
+    additionalPermissions: structuredClone(event.additionalPermissions),
+    cwd: event.cwd,
+    justification: event.justification,
+    intentHash: event.intentHash,
+    permissionsHash: event.permissionsHash,
+    risk: structuredClone(event.risk),
+    alsoApprovesToolExecution: event.alsoApprovesToolExecution,
+    availableDecisions: ['allow_once', 'deny'],
+    ...(event.hint !== undefined ? { hint: event.hint } : {}),
+  };
+}
+
+function malformedAdditionalPermissionRequest(requestId: string, field: string): TypeError {
+  return new TypeError(
+    `Additional permission request ${requestId} has an invalid or missing ${field}.`,
+  );
 }
 
 /**
@@ -250,15 +331,7 @@ export function mapSessionEventToRuntimeEvent(
         role: 'system',
         author: 'system',
         actions: {
-          permissionRequest: {
-            requestId: event.requestId,
-            toolUseId: event.toolUseId,
-            toolName: event.toolName,
-            category: event.category,
-            reason: event.reason,
-            args: structuredClone(event.args),
-            ...(event.hint !== undefined ? { hint: event.hint } : {}),
-          },
+          permissionRequest: mapPermissionRequest(event),
         },
         refs: { toolCallId: event.toolUseId },
       };
