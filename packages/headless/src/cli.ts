@@ -5,6 +5,7 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createAgentRunStore, createRuntimeEventStore } from '@maka/storage';
+import { inspectAgentRunDocument } from '@maka/runtime';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { runAutonomousTask } from './autonomous-agent-loop.js';
 import { harborCommand } from './harbor-cli.js';
@@ -15,6 +16,8 @@ import {
   readMakaAheHarborOfficialResult,
   writeMakaAheEvidenceExport,
   type MakaAheOfficialResultOverlay,
+  type MakaAheAgentRunEvidenceByTaskRun,
+  type MakaAheAgentRunEvidenceSource,
   type MakaAheSessionMessagesByTaskRun,
 } from './ahe-evidence-export.js';
 import { writeTaskRunExport } from './result-export.js';
@@ -247,6 +250,11 @@ async function aheExportCommand(args: string[]): Promise<number> {
       harborTrialDir: parsed.flags['harbor-trial-dir'] ? resolve(parsed.flags['harbor-trial-dir']) : undefined,
     });
     const sessionMessages = await aheSessionMessagesForCli(projections, storeRoot);
+    const agentRunEvidence = await aheAgentRunEvidenceForCli(
+      projections,
+      storeRoot,
+      parsed.bools['include-events'] === true,
+    );
     const snapshot = await buildMakaAheTargetSnapshot({
       repoRoot: resolve(parsed.flags.repo),
       sourceLabel: parsed.flags['source-label'],
@@ -258,6 +266,7 @@ async function aheExportCommand(args: string[]): Promise<number> {
       includeEvents: parsed.bools['include-events'],
       officialResults,
       sessionMessages,
+      agentRunEvidence,
     });
     console.log(`targetSnapshot: ${result.files.targetSnapshotJson}`);
     console.log(`harnessResults: ${result.files.harnessResultsJson}`);
@@ -317,6 +326,56 @@ async function aheSessionMessagesForCli(
     }
   }
   return Object.keys(messagesByTaskRun).length > 0 ? messagesByTaskRun : undefined;
+}
+
+async function aheAgentRunEvidenceForCli(
+  projections: readonly TaskRunProjection[],
+  storeRoot: string,
+  includeRuntimeEvents: boolean,
+): Promise<MakaAheAgentRunEvidenceByTaskRun | undefined> {
+  const runStore = createAgentRunStore(storeRoot);
+  const runtimeEventStore = createRuntimeEventStore(storeRoot);
+  const byTaskRun: Record<string, MakaAheAgentRunEvidenceSource[]> = {};
+  for (const projection of projections) {
+    const sources: MakaAheAgentRunEvidenceSource[] = [];
+    const seen = new Set<string>();
+    for (const evidence of projection.executionLineage) {
+      const identity = evidence.execution;
+      if (!identity?.sessionId || !identity.agentRunId) continue;
+      const key = `${identity.sessionId}\u0000${identity.agentRunId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const source: MakaAheAgentRunEvidenceSource = {
+        sessionId: identity.sessionId,
+        agentRunId: identity.agentRunId,
+      };
+      try {
+        source.inspect = await inspectAgentRunDocument(runStore, runtimeEventStore, {
+          sessionId: identity.sessionId,
+          agentRunId: identity.agentRunId,
+        });
+      } catch (error) {
+        source.inspectError = errorMessage(error);
+      }
+      if (includeRuntimeEvents) {
+        try {
+          if (!runtimeEventStore.readImmutableRuntimeEvents) {
+            source.runtimeEventsError = 'RuntimeEventStore does not expose immutable Runtime Event reads';
+          } else {
+            source.runtimeEvents = await runtimeEventStore.readImmutableRuntimeEvents(
+              identity.sessionId,
+              identity.agentRunId,
+            );
+          }
+        } catch (error) {
+          source.runtimeEventsError = errorMessage(error);
+        }
+      }
+      sources.push(source);
+    }
+    if (sources.length > 0) byTaskRun[projection.taskRunId] = sources;
+  }
+  return Object.keys(byTaskRun).length > 0 ? byTaskRun : undefined;
 }
 
 async function readSessionMessages(path: string): Promise<unknown[]> {
@@ -448,6 +507,10 @@ async function taskRetryFailedCommand(args: string[]): Promise<number> {
 function mark(passed: boolean, error?: string): string {
   if (error) return '⚠️';
   return passed ? '✅' : '❌';
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 interface ParsedArgs {

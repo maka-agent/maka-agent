@@ -455,7 +455,19 @@ describe('maka-headless CLI', () => {
       const aheResults = JSON.parse(await readFile(join(aheExportDir, 'harness-results.json'), 'utf8'));
       assert.equal(aheResults.results[0].status, 'excluded');
       assert.equal(aheResults.results[0].scoreAuthority, 'self_check');
-      assert.match(await readFile(join(aheExportDir, 'trace-index.json'), 'utf8'), /traces\/task-run-1\/result.md/);
+      assert.equal(aheResults.results[0].taskRunId, 'task-run-1');
+      assert.match(aheResults.results[0].executionLineageRef.digest, /^sha256:/);
+      const aheTraceIndex = await readFile(join(aheExportDir, 'trace-index.json'), 'utf8');
+      assert.match(aheTraceIndex, /traces\/task-run-1\/result.md/);
+      assert.match(aheTraceIndex, /task-events.jsonl/);
+      assert.doesNotMatch(aheTraceIndex, /"runtimeEventsJsonl"/);
+      const aheLineage = JSON.parse(await readFile(join(aheExportDir, 'traces', 'task-run-1', 'execution-lineage.json'), 'utf8'));
+      assert.equal(aheLineage.rawRuntimeEvents, 'included');
+      assert.equal(aheLineage.attempts[0].executions.length > 0, true);
+      assert.match(aheLineage.attempts[0].executions[0].inspectRef.ref, /agent-runs\/.+\/inspect.json$/);
+      assert.match(aheLineage.attempts[0].executions[0].runtimeEventsRef.ref, /agent-runs\/.+\/runtime-events.jsonl$/);
+      assert.match(await readFile(join(aheExportDir, aheLineage.attempts[0].executions[0].inspectRef.ref), 'utf8'), /maka.agent_run_inspect.v1/);
+      assert.match(await readFile(join(aheExportDir, aheLineage.attempts[0].executions[0].runtimeEventsRef.ref), 'utf8'), /"runId"/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

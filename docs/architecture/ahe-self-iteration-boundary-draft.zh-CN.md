@@ -85,17 +85,17 @@ Runtime / Task Events
         ↓ project
 TaskRunProjection
         ↓ normalize and classify
-Harness Results + Trace Index + Messages + Failure Digest
+Harness Results + Execution Lineage + Trace Index + Failure Digest
         ↓ bind to
 Target Snapshot
 ```
 
-这不是要用 projection 替代原始事实。Projection 负责提供稳定的任务语义，例如最终状态、artifact、Self-check、workspace observation 和 score authority；需要深挖时，`trace-index.json` 仍然可以指向 `events.jsonl`、transcript、tool result 和 AgentRun message。
+这不是要用 projection 替代原始事实。Projection 负责提供稳定的任务语义，例如最终状态、artifact、Self-check、workspace observation 和 score authority。`execution-lineage.json` 会明确说明这份 projection 由哪一个 target snapshot、TaskRun、Attempt、AgentRun、Runtime Event coverage 与 Task Event coverage 支撑。`trace-index.json` 则分别指向 `task-events.jsonl`、payload-safe AgentRun inspection、transcript、tool result，以及仅在显式请求时导出的 canonical `runtime-events.jsonl`。
 
 因此，AHE 看见的不是一段经过润色的失败总结，而是两层材料：
 
-- **索引和摘要层**：帮助 controller 找到失败类别、Self-check 分歧、最终 workspace 和最近 evidence；
-- **原始追踪层**：帮助 controller 回到当时的消息与事件，验证摘要是否遗漏了关键因果链。
+- **索引和摘要层**：帮助 controller 在不复制模型和工具 payload 的前提下，找到失败类别、Self-check 分歧、最终 workspace、source coverage 与显式 lineage gaps；
+- **原始追踪层**：启用后，帮助 controller 回到当时的 canonical Runtime Events，验证 projection 是否遗漏关键因果链。
 
 这也是 Event Log 架构的重要回报：历史不只可以恢复，还可以被新的 projection 重新解释。
 
@@ -149,10 +149,14 @@ maka eval ahe export <taskRunId...> \
 | `harness-results.json` | 每个 task 的标准化状态与 score authority |
 | `trace-index.json` | task 到 messages、events、transcript、tool results 和 artifacts 的索引 |
 | `traces/<taskRunId>/task-run.json` | 稳定的 TaskRun export |
+| `traces/<taskRunId>/task-events.jsonl` | Payload-safe Task Event projection，绝不再误标成 Runtime Events |
+| `traces/<taskRunId>/execution-lineage.json` | Target、TaskRun、Attempt、AgentRun 与 Runtime/Task coverage 绑定 |
 | `traces/<taskRunId>/messages.json` | 面向 AHE 归一化的模型交互 messages |
+| `traces/<taskRunId>/agent-runs/<agentRunId>/inspect.json` | Payload-safe、带版本的 AgentRun source inspection |
+| `traces/<taskRunId>/agent-runs/<agentRunId>/runtime-events.jsonl` | Canonical immutable Runtime Events，仅在 `--include-events` 时写出 |
 | `traces/<taskRunId>/failure-digest.json` | 非成功 cell 的失败摘要、Self-check 分歧与最终状态 |
 
-导出是确定性的：当 snapshot、projection、run id 和 export time 相同，稳定 JSON 输出可以重复生成。这使外层 controller 可以缓存、比较和恢复，而不必把“导出顺序”当成新信息。
+导出是确定性的：当 snapshot、projection、source ledgers、run id 和 export time 相同，稳定 JSON 输出可以重复生成。每个由 export 物化的本地文件引用都带 SHA-256 digest 与字节数，因此外层 controller 可以把结论绑定到实际文件字节，而不是信任一个可变路径。未启用 `--include-events` 时，lineage 与 AgentRun inspection 保持 payload-safe，原始 Runtime Event payload 被明确标记为 policy omission，而不是被悄悄宣称存在。
 
 ### Failure Digest 不是另一段模型总结
 
@@ -162,7 +166,7 @@ maka eval ahe export <taskRunId...> \
 - Self-check 和外部评估之间是否分歧；
 - Self-check plan audit、scratch 与 workspace hygiene；
 - 最终 artifact、workspace state 和 recent evidence；
-- 回到 messages、transcript、events 和评估结果的 debug refs。
+- 回到 messages、transcript、execution lineage、Task Events、可选 Runtime Event sources 和评估结果的 digest-bound debug refs。
 
 它是一种面向演化循环的 projection：压缩查找成本，但保留返回原始记录的路径。
 
@@ -307,7 +311,7 @@ sequenceDiagram
 
 ### 2. 每个结果必须绑定 target identity
 
-`MakaAheRunResult` 同时带 `runId`、`snapshotId` 和 `taskId`。没有 target identity 的分数不能安全地进入跨版本比较。
+当前 `MakaAheRunResult` 同时带 AHE batch `runId`、`snapshotId`、`taskRunId`、`taskId` 与带 digest 的 `executionLineageRef`。没有 target identity 和 execution lineage 的分数都不能安全进入跨版本比较。旧的无版本 row 仍可读取，但不会被追授一条并不存在的 lineage claim。
 
 ### 3. 没有反例集合，就没有可接受的自迭代
 
@@ -367,7 +371,8 @@ Infra、excluded、unscored 和 missing cells 应保持独立。一个完整 kee
 - current component map 是 source-backed 的，并区分 editable 与 evidence-only；
 - evidence export 是只读操作，消费 TaskRun projection；
 - 结果按 authority 和 accounting status 保守分桶；
-- trace index 可以连接 messages、events、transcript、tool results 和 artifacts；
+- 带版本的 run result 会把 TaskRun identity 绑定到带 digest 的 execution-lineage document；
+- trace index 会区分 Task Events 与可选的 canonical Runtime Event sources，并连接 payload-safe AgentRun inspection；
 - failure digest 暴露 Self-check divergence、hygiene 和最终状态；
 - change manifest validator 限制 component、path 与最小实验声明；
 - CLI 可以导出 baseline evidence，但不会运行 AHE 或应用 patch。

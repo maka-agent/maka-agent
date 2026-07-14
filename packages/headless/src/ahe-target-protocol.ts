@@ -1,4 +1,11 @@
 import { createHash } from 'node:crypto';
+import {
+  EXECUTION_EVIDENCE_REF_SCHEMA_VERSION,
+  validateExecutionEvidenceRef,
+  type ExecutionEvidenceRef,
+  type ExecutionLogCoverage,
+  type TargetSnapshotRef,
+} from '@maka/core/execution-evidence';
 
 export const MAKA_AHE_TARGET_PROTOCOL_VERSION_V1 = 'maka.ahe-target.v1' as const;
 export const MAKA_AHE_TARGET_PROTOCOL_VERSION = 'maka.ahe-target.v2' as const;
@@ -7,6 +14,9 @@ export const MAKA_AHE_SUPPORTED_TARGET_PROTOCOL_VERSIONS = [
   MAKA_AHE_TARGET_PROTOCOL_VERSION_V1,
   MAKA_AHE_TARGET_PROTOCOL_VERSION,
 ] as const;
+
+export const MAKA_AHE_RUN_RESULT_SCHEMA_VERSION = 'maka.ahe.run_result.v1' as const;
+export const MAKA_AHE_EXECUTION_LINEAGE_SCHEMA_VERSION = 'maka.ahe.execution_lineage.v1' as const;
 
 export const MAKA_AHE_TARGET_SOURCE_LABEL = 'ahe-target-protocol-20260714' as const;
 
@@ -138,14 +148,66 @@ export interface MakaAheArtifactRef {
   ref: string;
   mediaType?: string;
   description?: string;
+  /** SHA-256 of the referenced file bytes when the export materialized the artifact. */
+  digest?: string;
+  sizeBytes?: number;
+}
+
+export interface MakaAheExecutionLineageGap {
+  code:
+    | 'attempt_execution_missing'
+    | 'execution_identity_missing'
+    | 'runtime_coverage_missing'
+    | 'agent_run_inspect_missing'
+    | 'runtime_events_missing'
+    | 'runtime_coverage_mismatch';
+  message: string;
+  attemptId?: string;
+  sessionId?: string;
+  agentRunId?: string;
+}
+
+export interface MakaAheExecutionLineageAgentRun {
+  evidence: ExecutionEvidenceRef;
+  inspectRef?: MakaAheArtifactRef;
+  runtimeEventsRef?: MakaAheArtifactRef;
+  gaps: readonly MakaAheExecutionLineageGap[];
+}
+
+export interface MakaAheExecutionLineageAttempt {
+  attemptId: string;
+  status: string;
+  executions: readonly MakaAheExecutionLineageAgentRun[];
+  gaps: readonly MakaAheExecutionLineageGap[];
+}
+
+export interface MakaAheExecutionLineage {
+  schemaVersion: typeof MAKA_AHE_EXECUTION_LINEAGE_SCHEMA_VERSION;
+  target: TargetSnapshotRef;
+  task: {
+    taskRunId: string;
+    taskId: string;
+    coverage?: ExecutionLogCoverage;
+  };
+  rawRuntimeEvents: 'included' | 'omitted_by_policy' | 'requested_with_gaps';
+  attempts: readonly MakaAheExecutionLineageAttempt[];
+  gaps: readonly MakaAheExecutionLineageGap[];
 }
 
 export interface MakaAheTraceIndexEntry {
+  taskRunId?: string;
   taskId: string;
   runId: string;
   snapshotId: string;
+  executionLineage?: MakaAheArtifactRef;
+  taskEventsJsonl?: MakaAheArtifactRef;
+  agentRunInspections?: readonly MakaAheArtifactRef[];
+  runtimeEventSources?: readonly MakaAheArtifactRef[];
+  messages?: MakaAheArtifactRef;
+  /** @deprecated Legacy v1 field; events.jsonl contained Task Events, not Runtime Events. */
   runtimeEventsJsonl?: MakaAheArtifactRef;
   transcript?: MakaAheArtifactRef;
+  /** @deprecated Legacy field pointed at normalized messages rather than an AgentRun source document. */
   agentRun?: MakaAheArtifactRef;
   toolResults?: readonly MakaAheArtifactRef[];
   artifacts?: readonly MakaAheArtifactRef[];
@@ -158,18 +220,28 @@ export interface MakaAheTraceIndex {
 }
 
 export interface MakaAheRunResult {
+  schemaVersion: typeof MAKA_AHE_RUN_RESULT_SCHEMA_VERSION;
   protocolVersion: MakaAheTargetProtocolVersion;
   runId: string;
   snapshotId: string;
+  taskRunId: string;
   taskId: string;
   status: MakaAheResultStatus;
   scoreAuthority: MakaAheScoreAuthority;
   score?: number;
   verifierRef?: MakaAheArtifactRef;
   traceRef?: MakaAheArtifactRef;
+  executionLineageRef: MakaAheArtifactRef;
   failureTaxonomy?: readonly string[];
   warnings?: readonly string[];
 }
+
+export type MakaAheLegacyRunResult = Omit<
+  MakaAheRunResult,
+  'schemaVersion' | 'taskRunId' | 'executionLineageRef'
+>;
+
+export type MakaAheRunResultDocument = MakaAheRunResult | MakaAheLegacyRunResult;
 
 export interface MakaAheHarnessResults {
   protocolVersion: MakaAheTargetProtocolVersion;
@@ -437,6 +509,94 @@ export function makaAheTargetSnapshotId(
   return `maka-ahe-${digest.replace(/^sha256:/, '')}`;
 }
 
+export function validateMakaAheExecutionLineage(
+  value: unknown,
+): MakaAheValidationResult<MakaAheExecutionLineage> {
+  const errors: MakaAheValidationIssue[] = [];
+  if (!isRecord(value)) return invalid('lineage', 'expected an object');
+  if (value.schemaVersion !== MAKA_AHE_EXECUTION_LINEAGE_SCHEMA_VERSION) {
+    errors.push({ path: 'schemaVersion', message: `expected "${MAKA_AHE_EXECUTION_LINEAGE_SCHEMA_VERSION}"` });
+  }
+  if (!isRecord(value.target)) {
+    errors.push({ path: 'target', message: 'expected an object' });
+  } else {
+    requireNonEmptyString(value.target.snapshotId, 'target.snapshotId', errors);
+    if (typeof value.target.sourceLabel !== 'undefined') {
+      requireNonEmptyString(value.target.sourceLabel, 'target.sourceLabel', errors);
+    }
+  }
+  if (!isRecord(value.task)) {
+    errors.push({ path: 'task', message: 'expected an object' });
+  } else {
+    requireNonEmptyString(value.task.taskRunId, 'task.taskRunId', errors);
+    requireNonEmptyString(value.task.taskId, 'task.taskId', errors);
+    const taskRef = validateExecutionEvidenceRef({
+      schemaVersion: EXECUTION_EVIDENCE_REF_SCHEMA_VERSION,
+      task: { taskRunId: value.task.taskRunId },
+      ...(typeof value.task.coverage !== 'undefined' ? { taskCoverage: value.task.coverage } : {}),
+      ...(isRecord(value.target) ? { target: value.target } : {}),
+    });
+    if (!taskRef.ok) {
+      errors.push(...taskRef.errors.map((issue) => ({ path: `task.${issue.path}`, message: issue.message })));
+    }
+  }
+  if (value.rawRuntimeEvents !== 'included'
+    && value.rawRuntimeEvents !== 'omitted_by_policy'
+    && value.rawRuntimeEvents !== 'requested_with_gaps') {
+    errors.push({ path: 'rawRuntimeEvents', message: 'expected "included", "omitted_by_policy", or "requested_with_gaps"' });
+  }
+  if (!Array.isArray(value.attempts)) {
+    errors.push({ path: 'attempts', message: 'expected an array' });
+  } else {
+    const attemptIds = new Set<string>();
+    value.attempts.forEach((attempt, attemptIndex) => {
+      const path = `attempts[${attemptIndex}]`;
+      if (!isRecord(attempt)) {
+        errors.push({ path, message: 'expected an object' });
+        return;
+      }
+      const attemptId = readString(attempt.attemptId);
+      if (!attemptId) errors.push({ path: `${path}.attemptId`, message: 'expected a non-empty string' });
+      else if (attemptIds.has(attemptId)) errors.push({ path: `${path}.attemptId`, message: `duplicate attempt id "${attemptId}"` });
+      else attemptIds.add(attemptId);
+      requireNonEmptyString(attempt.status, `${path}.status`, errors);
+      validateLineageGaps(attempt.gaps, `${path}.gaps`, errors);
+      if (!Array.isArray(attempt.executions)) {
+        errors.push({ path: `${path}.executions`, message: 'expected an array' });
+        return;
+      }
+      attempt.executions.forEach((execution, executionIndex) => {
+        const executionPath = `${path}.executions[${executionIndex}]`;
+        if (!isRecord(execution)) {
+          errors.push({ path: executionPath, message: 'expected an object' });
+          return;
+        }
+        const validation = validateExecutionEvidenceRef(execution.evidence);
+        if (!validation.ok) {
+          errors.push(...validation.errors.map((issue) => ({ path: `${executionPath}.evidence.${issue.path}`, message: issue.message })));
+        } else {
+          if (isRecord(value.task) && validation.value.task?.taskRunId !== value.task.taskRunId) {
+            errors.push({ path: `${executionPath}.evidence.task.taskRunId`, message: 'expected owning taskRunId' });
+          }
+          if (attemptId && validation.value.task?.attemptId !== attemptId) {
+            errors.push({ path: `${executionPath}.evidence.task.attemptId`, message: 'expected owning attemptId' });
+          }
+          if (isRecord(value.target) && validation.value.target?.snapshotId !== value.target.snapshotId) {
+            errors.push({ path: `${executionPath}.evidence.target.snapshotId`, message: 'expected owning target snapshotId' });
+          }
+        }
+        if (typeof execution.inspectRef !== 'undefined') validateArtifactRef(execution.inspectRef, `${executionPath}.inspectRef`, errors);
+        if (typeof execution.runtimeEventsRef !== 'undefined') validateArtifactRef(execution.runtimeEventsRef, `${executionPath}.runtimeEventsRef`, errors);
+        validateLineageGaps(execution.gaps, `${executionPath}.gaps`, errors);
+      });
+    });
+  }
+  validateLineageGaps(value.gaps, 'gaps', errors);
+  return errors.length === 0
+    ? { ok: true, value: value as unknown as MakaAheExecutionLineage }
+    : { ok: false, errors };
+}
+
 export function validateMakaAheChangeManifest(
   value: unknown,
   components: readonly MakaAheTargetComponent[] = MAKA_AHE_CURRENT_COMPONENTS,
@@ -476,7 +636,7 @@ export function validateMakaAheChangeManifest(
   return errors.length === 0 ? { ok: true, value: value as unknown as MakaAheChangeManifest } : { ok: false, errors };
 }
 
-export function validateMakaAheRunResult(value: unknown): MakaAheValidationResult<MakaAheRunResult> {
+export function validateMakaAheRunResult(value: unknown): MakaAheValidationResult<MakaAheRunResultDocument> {
   const errors: MakaAheValidationIssue[] = [];
   if (!isRecord(value)) {
     return invalid('result', 'expected an object');
@@ -486,6 +646,14 @@ export function validateMakaAheRunResult(value: unknown): MakaAheValidationResul
   requireNonEmptyString(value.runId, 'runId', errors);
   requireNonEmptyString(value.snapshotId, 'snapshotId', errors);
   requireNonEmptyString(value.taskId, 'taskId', errors);
+
+  if (typeof value.schemaVersion !== 'undefined') {
+    if (value.schemaVersion !== MAKA_AHE_RUN_RESULT_SCHEMA_VERSION) {
+      errors.push({ path: 'schemaVersion', message: `expected "${MAKA_AHE_RUN_RESULT_SCHEMA_VERSION}"` });
+    }
+    requireNonEmptyString(value.taskRunId, 'taskRunId', errors);
+    validateArtifactRef(value.executionLineageRef, 'executionLineageRef', errors);
+  }
 
   if (!isOneOf(value.status, MAKA_AHE_RESULT_STATUSES)) {
     errors.push({ path: 'status', message: 'expected a known result status' });
@@ -507,7 +675,14 @@ export function validateMakaAheRunResult(value: unknown): MakaAheValidationResul
     errors.push({ path: 'score', message: 'expected a number when present' });
   }
 
-  return errors.length === 0 ? { ok: true, value: value as unknown as MakaAheRunResult } : { ok: false, errors };
+  for (const [field, ref] of [
+    ['verifierRef', value.verifierRef],
+    ['traceRef', value.traceRef],
+  ] as const) {
+    if (typeof ref !== 'undefined') validateArtifactRef(ref, field, errors);
+  }
+
+  return errors.length === 0 ? { ok: true, value: value as unknown as MakaAheRunResultDocument } : { ok: false, errors };
 }
 
 function validateSourceRefs(value: unknown, path: string, errors: MakaAheValidationIssue[]): void {
@@ -617,6 +792,56 @@ function validateGitIdentity(value: unknown, errors: MakaAheValidationIssue[]): 
   if (typeof value.dirty !== 'undefined' && typeof value.dirty !== 'boolean') {
     errors.push({ path: 'git.dirty', message: 'expected a boolean when present' });
   }
+}
+
+function validateArtifactRef(
+  value: unknown,
+  path: string,
+  errors: MakaAheValidationIssue[],
+): void {
+  if (!isRecord(value)) {
+    errors.push({ path, message: 'expected an artifact ref object' });
+    return;
+  }
+  if (!['file', 'directory', 'url', 'blob', 'other'].includes(String(value.kind))) {
+    errors.push({ path: `${path}.kind`, message: 'expected a known artifact ref kind' });
+  }
+  requireNonEmptyString(value.ref, `${path}.ref`, errors);
+  if (typeof value.mediaType !== 'undefined') requireNonEmptyString(value.mediaType, `${path}.mediaType`, errors);
+  if (typeof value.description !== 'undefined') requireNonEmptyString(value.description, `${path}.description`, errors);
+  if (typeof value.digest !== 'undefined') requireSha256(value.digest, `${path}.digest`, errors);
+  if (typeof value.sizeBytes !== 'undefined'
+    && (typeof value.sizeBytes !== 'number' || !Number.isSafeInteger(value.sizeBytes) || value.sizeBytes < 0)) {
+    errors.push({ path: `${path}.sizeBytes`, message: 'expected a non-negative safe integer when present' });
+  }
+}
+
+function validateLineageGaps(
+  value: unknown,
+  path: string,
+  errors: MakaAheValidationIssue[],
+): void {
+  if (!Array.isArray(value)) {
+    errors.push({ path, message: 'expected an array' });
+    return;
+  }
+  const allowed = new Set([
+    'attempt_execution_missing',
+    'execution_identity_missing',
+    'runtime_coverage_missing',
+    'agent_run_inspect_missing',
+    'runtime_events_missing',
+    'runtime_coverage_mismatch',
+  ]);
+  value.forEach((gap, index) => {
+    const gapPath = `${path}[${index}]`;
+    if (!isRecord(gap)) {
+      errors.push({ path: gapPath, message: 'expected an object' });
+      return;
+    }
+    if (!allowed.has(String(gap.code))) errors.push({ path: `${gapPath}.code`, message: 'expected a known lineage gap code' });
+    requireNonEmptyString(gap.message, `${gapPath}.message`, errors);
+  });
 }
 
 function validateEvidenceCases(

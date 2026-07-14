@@ -242,14 +242,23 @@ This object says where evidence came from. It does not assert that the evidence 
 - A future schema version must use an explicit migration or compatibility reader; it must not silently reinterpret v1 cursor ordering.
 - A projection must not claim coverage that its producer cannot prove.
 
+## Current AHE integration
+
+AHE target v2 exports now carry the shared evidence spine through
+`maka.ahe.execution_lineage.v1`. Every current run-result row names its
+`taskRunId` and a digest-bound lineage document. That document binds target,
+Task coverage, Attempts, AgentRuns, and Runtime coverage without copying
+Runtime facts into Task Events. Payload-safe AgentRun inspection is exported by
+default; canonical raw Runtime Events remain opt-in. Missing identities,
+coverage, or source artifacts remain explicit gaps.
+
 ## Deferred integration work
 
 Later phases should extend the contract without changing fact ownership:
 
 1. Bind workspace observations and artifacts produced outside Runtime tool calls to their appropriate source authorities.
-2. Carry target snapshot and execution lineage through AHE exports.
-3. Represent uncertain external-side-effect/commit windows in durable recovery lineage.
-4. Extend the Phase 3A TaskRun inspector into a general Session/AgentRun/TaskRun id resolver without weakening its explicit unknown and gap semantics.
+2. Represent uncertain external-side-effect/commit windows in durable recovery lineage.
+3. Derive baseline/candidate comparison transitions from target-bound result and lineage documents rather than accepting caller-authored labels.
 
 The guiding invariant is simple:
 
