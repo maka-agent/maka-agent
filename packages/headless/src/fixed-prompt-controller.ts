@@ -817,7 +817,7 @@ function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash
     };
   }
   if (
-    output.cell.status === 'completed'
+    (output.cell.status === 'completed' || output.cell.errorClass === 'tool_step_cap_reached')
     && output.cell.executionIdentity
     && (!output.cell.tokenSummary || output.cell.tokenSummary.total <= 0)
   ) {
@@ -966,6 +966,16 @@ function taskBudgetExhaustedEvent(input: {
     );
     if (evidenceFailure?.errorClass === 'missing_execution_identity') {
       evidenceFailure = { ...evidenceFailure, error: LEGACY_TIMEOUT_MISSING_EXECUTION_IDENTITY_ERROR };
+    }
+    if (
+      evidenceFailure === undefined
+      && artifactRefs.executionIdentity
+      && (!artifactRefs.tokenSummary || artifactRefs.tokenSummary.total <= 0)
+    ) {
+      evidenceFailure = {
+        errorClass: 'missing_token_usage',
+        error: 'Harbor cell did not report token usage for the attested real-provider execution',
+      };
     }
   }
   const tokenSummary = artifactRefs.cellOutput?.tokenSummary ?? artifactRefs.tokenSummary;

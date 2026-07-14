@@ -751,7 +751,7 @@ describe('fixed prompt controller', () => {
     });
   });
 
-  test('uses early execution identity to attribute a timeout before cell output', async () => {
+  test('excludes an early-attested timeout without a usage checkpoint', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
@@ -781,8 +781,8 @@ describe('fixed prompt controller', () => {
       const event = result.events[0];
       assert.equal(event?.type, 'task_budget_exhausted');
       if (event?.type !== 'task_budget_exhausted') assert.fail('expected budget exhaustion event');
-      assert.equal(event.eligible, true);
-      assert.equal(event.evidenceErrorClass, undefined);
+      assert.equal(event.eligible, false);
+      assert.equal(event.evidenceErrorClass, 'missing_token_usage');
       assert.deepEqual(
         (event as { executionIdentity?: typeof executionIdentity }).executionIdentity,
         executionIdentity,
@@ -1778,7 +1778,7 @@ describe('fixed prompt controller', () => {
     });
   });
 
-  test('preserves the original cell failure when usage is unavailable', async () => {
+  test('excludes an attested failed cell when usage is unavailable', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       const resultsTsvPath = join(dir, 'results.tsv');
@@ -1810,9 +1810,9 @@ describe('fixed prompt controller', () => {
         newId: idFactory(),
       });
 
-      assert.equal(result.events[0]?.type, 'task_completed');
-      assert.equal(result.events[0]?.eligible, true);
-      assert.equal(result.events[0]?.errorClass, 'tool_step_cap_reached');
+      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
+      assert.equal(result.events[0]?.eligible, false);
+      assert.equal(result.events[0]?.errorClass, 'missing_token_usage');
       assert.equal('tokenSummary' in result.events[0]!, false);
       const [, row] = (await readFile(resultsTsvPath, 'utf8')).trimEnd().split('\n');
       assert.equal(row?.split('\t')[7], '');
