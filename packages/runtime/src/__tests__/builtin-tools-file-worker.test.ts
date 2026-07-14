@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, parse } from 'node:path';
 import { afterEach, describe, test } from 'node:test';
 
 import { buildBuiltinTools } from '../builtin-tools.js';
@@ -34,8 +34,11 @@ describe('builtin file tools use the sandboxed worker', () => {
 
   test('plans the minimum one-call permission for an outside Write', async () => {
     const cwd = await temporaryDirectory('maka-file-plan-cwd-');
-    const outside = await temporaryDirectory('maka-file-plan-outside-');
-    const path = join(outside, 'created.txt');
+    const path = join(
+      parse(cwd).root,
+      `maka-file-plan-outside-${process.pid}`,
+      'created.txt',
+    );
     const write = buildBuiltinTools({
       filesystemWorker: { execute: async () => ({ kind: 'read', content: '' }) },
       enableFileToolAdditionalPermissions: true,
