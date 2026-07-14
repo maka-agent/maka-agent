@@ -603,6 +603,29 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'xai/grok-4.3');
   });
 
+  test('resolves ZenMux credentials without rewriting the exact creator/model id', async () => {
+    const connection = makeConnection({
+      slug: 'zenmux',
+      name: 'ZenMux',
+      providerType: 'zenmux',
+      defaultModel: 'moonshotai/kimi-k2.5',
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'zenmux',
+        get: async (slug) => slug === 'zenmux' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'zenmux-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'zenmux');
+    assert.equal(target.apiKey, 'zenmux-test-key');
+    assert.equal(target.model, 'moonshotai/kimi-k2.5');
+  });
+
   test('uses the default ready connection and requested model', async () => {
     const connection = makeConnection({
       slug: 'local',

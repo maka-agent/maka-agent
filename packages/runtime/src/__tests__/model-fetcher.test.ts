@@ -59,6 +59,65 @@ describe('fetchProviderModels', () => {
     }]);
   });
 
+  test('ZenMux intersects its public directory with the tool-capable snapshot without exposing its inference key', async () => {
+    const modelId = 'moonshotai/kimi-k2.5';
+    const server = await startJsonServer((request, response) => {
+      assert.equal(request.method, 'GET');
+      assert.equal(request.url, '/v1/models');
+      assert.equal(request.headers.authorization, undefined);
+      respondJson(response, 200, {
+        object: 'list',
+        data: [
+          {
+            id: modelId,
+            object: 'model',
+            display_name: 'Kimi K2.5',
+            context_length: 262_000,
+            input_modalities: ['text', 'image', 'video'],
+            output_modalities: ['text'],
+            capabilities: { reasoning: true },
+          },
+          {
+            id: 'new-provider/new-model',
+            object: 'model',
+            display_name: 'Unreviewed Model',
+            context_length: 128_000,
+            input_modalities: ['text'],
+            output_modalities: ['text'],
+            capabilities: { reasoning: false },
+          },
+          {
+            id: 'anthropic/claude-sonnet-4.6',
+            object: 'model',
+            display_name: 'Claude Sonnet 4.6',
+            context_length: 1_000_000,
+            input_modalities: ['text', 'image'],
+            output_modalities: ['text'],
+            capabilities: { reasoning: true },
+          },
+        ],
+      });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'zenmux',
+      name: 'ZenMux',
+      providerType: 'zenmux',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'zenmux-inference-key');
+
+    assert.deepEqual(models, [{
+      id: modelId,
+      displayName: 'Kimi K2.5',
+      contextWindow: 262_000,
+      capabilities: { vision: true, reasoning: true },
+    }]);
+  });
+
   test('LocalAI discovers exact model aliases without sending empty authorization', async () => {
     const modelId = 'localai/Qwen3-8B-Instruct-GGUF:Q4_K_M';
     const server = await startJsonServer((request, response) => {

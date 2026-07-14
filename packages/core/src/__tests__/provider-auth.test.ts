@@ -201,6 +201,19 @@ describe('ProviderAuth contract', () => {
     expect(configured.actionAvailability.fetch_models).toBe('available');
   });
 
+  test('ZenMux requires one stored key while keeping its public bounded discovery available', () => {
+    const missing = deriveProviderAuthContract({ providerType: 'zenmux', hasSecret: false });
+    expect(missing.setupMode).toBe('api_key');
+    expect(missing.requiresSecret).toBe(true);
+    expect(missing.actionAvailability.test_credentials).toBe('hidden');
+    expect(missing.actionAvailability.fetch_models).toBe('hidden');
+
+    const configured = deriveProviderAuthContract({ providerType: 'zenmux', hasSecret: true });
+    expect(configured.providerType).toBe('zenmux');
+    expect(configured.actionAvailability.test_credentials).toBe('available');
+    expect(configured.actionAvailability.fetch_models).toBe('available');
+  });
+
   test('MiniMax Coding Plan uses the shared API-key credential flow under its own provider id', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'minimax-coding-plan',

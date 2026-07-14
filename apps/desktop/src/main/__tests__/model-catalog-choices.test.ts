@@ -299,7 +299,51 @@ describe('model catalog picker helpers', () => {
     assert.equal(buildCatalogRecommendedDefaultModel('deepseek'), 'deepseek-v4-flash');
     assert.equal(buildCatalogRecommendedDefaultModel('siliconflow'), 'moonshotai/Kimi-K2.6');
     assert.equal(buildCatalogRecommendedDefaultModel('vercel'), 'anthropic/claude-opus-4.8');
+    assert.equal(buildCatalogRecommendedDefaultModel('zenmux'), 'moonshotai/kimi-k2.5');
     assert.equal(buildCatalogRecommendedDefaultModel('openai-compatible'), '');
+  });
+
+  it('keeps ZenMux creator/model ids exact across add, detail, and Chat selection helpers', async () => {
+    const {
+      buildCatalogChatModelChoices,
+      buildCatalogModelChoices,
+      pickCatalogDefaultChatModel,
+    } = await importModelCatalogChoices();
+    const zenmux = connection({
+      slug: 'zenmux',
+      name: 'ZenMux',
+      providerType: 'zenmux',
+      defaultModel: 'moonshotai/kimi-k2.5',
+      models: [
+        { id: 'moonshotai/kimi-k2.5', displayName: 'Kimi K2.5' },
+        { id: 'moonshotai/kimi-k2.7-code', displayName: 'Kimi K2.7 Code' },
+      ],
+      modelSource: 'fetched',
+      modelsFetchedAt: 1_800_000_000_000,
+    });
+
+    assert.deepEqual(
+      buildCatalogModelChoices(zenmux).map(({ id, source, isDefault }) => ({ id, source, isDefault })),
+      [
+        { id: 'moonshotai/kimi-k2.5', source: 'provider_api', isDefault: true },
+        { id: 'moonshotai/kimi-k2.7-code', source: 'provider_api', isDefault: false },
+      ],
+    );
+    assert.deepEqual(
+      buildCatalogChatModelChoices([zenmux]).map(({ connectionSlug, providerType, model }) => ({
+        connectionSlug,
+        providerType,
+        model,
+      })),
+      [
+        { connectionSlug: 'zenmux', providerType: 'zenmux', model: 'moonshotai/kimi-k2.5' },
+        { connectionSlug: 'zenmux', providerType: 'zenmux', model: 'moonshotai/kimi-k2.7-code' },
+      ],
+    );
+    assert.deepEqual(pickCatalogDefaultChatModel(zenmux), {
+      llmConnectionSlug: 'zenmux',
+      model: 'moonshotai/kimi-k2.5',
+    });
   });
 
   it('picks the new-chat default from the normalized catalog default entry', async () => {

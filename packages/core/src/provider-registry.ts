@@ -1,6 +1,7 @@
 import type { BackendKind } from './session.js';
 import {
   GENERATED_MODELS_DEV_METADATA,
+  GENERATED_MODELS_DEV_MODEL_PROVIDER_OVERRIDES,
   GENERATED_MODELS_DEV_PROVIDER_FACTS,
 } from './model-metadata.generated.js';
 
@@ -20,6 +21,7 @@ export type ProviderRuntimeAdapter =
       passFetch?: boolean;
       requireBaseUrl?: boolean;
       replayAssistantReasoningAs?: 'reasoning';
+      replayAssistantReasoningDetails?: true;
     }
   | { kind: 'unavailable' };
 
@@ -115,6 +117,28 @@ const ollamaCloudModelIds = toolCallingModelIds(
   'Ollama Cloud',
   ollamaCloudActiveMetadata,
   ['qwen3.5:397b', 'gpt-oss:120b'],
+);
+const zenmux = GENERATED_MODELS_DEV_PROVIDER_FACTS.zenmux;
+if (zenmux.id !== 'zenmux') throw new Error('models.dev ZenMux provider facts are missing stable id zenmux');
+if (zenmux.api !== 'https://zenmux.ai/api/v1') {
+  throw new Error('models.dev ZenMux provider facts are missing the official OpenAI-compatible API');
+}
+const zenmuxModelProviderOverrides = GENERATED_MODELS_DEV_MODEL_PROVIDER_OVERRIDES.zenmux;
+if (zenmuxModelProviderOverrides['anthropic/claude-sonnet-4.6']?.npm !== '@ai-sdk/anthropic'
+  || zenmuxModelProviderOverrides['anthropic/claude-sonnet-4.6']?.api !== 'https://zenmux.ai/api/anthropic/v1') {
+  throw new Error('models.dev ZenMux snapshot is missing its Anthropic model-level protocol override');
+}
+if (zenmuxModelProviderOverrides['openai/gpt-5.4']?.npm !== '@ai-sdk/openai') {
+  throw new Error('models.dev ZenMux snapshot is missing its native OpenAI model-level protocol override');
+}
+const zenmuxOpenAICompatibleMetadata = Object.fromEntries(
+  Object.entries(GENERATED_MODELS_DEV_METADATA.zenmux)
+    .filter(([id]) => zenmuxModelProviderOverrides[id] === undefined),
+);
+const zenmuxModelIds = toolCallingModelIds(
+  'ZenMux',
+  zenmuxOpenAICompatibleMetadata,
+  ['moonshotai/kimi-k2.5'],
 );
 const fireworks = GENERATED_MODELS_DEV_PROVIDER_FACTS['fireworks-ai'];
 if (fireworks.id !== 'fireworks-ai') {
@@ -683,6 +707,30 @@ const providerRegistry = {
     modelsDevId: huggingface.id,
     readyOrder: 34,
     catalogOrder: 34,
+  },
+  zenmux: {
+    label: zenmux.name,
+    description: 'One API key for routed models with exact creator/model ids.',
+    baseUrl: zenmux.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: zenmuxModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: {
+      kind: 'openai-compatible',
+      name: 'provider',
+      replayAssistantReasoningAs: 'reasoning',
+      replayAssistantReasoningDetails: true,
+    },
+    modelDiscovery: { kind: 'protocol', auth: 'none', filter: 'fallback-models' },
+    category: 'overseas',
+    catalogGroup: 'aggregators',
+    catalogBadge: 'Gateway',
+    signupUrl: 'https://zenmux.ai/settings/keys',
+    modelsDevId: zenmux.id,
+    readyOrder: 36,
+    catalogOrder: 36,
   },
   togetherai: {
     label: together.name,

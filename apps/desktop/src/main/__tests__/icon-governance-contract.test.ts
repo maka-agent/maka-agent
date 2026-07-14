@@ -40,6 +40,7 @@ const CEREBRAS_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/a
 const MISTRAL_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/mistral.svg');
 const COHERE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cohere.svg');
 const HUGGINGFACE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/huggingface.svg');
+const ZENMUX_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/zenmux.svg');
 const TOGETHER_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/together.svg');
 const DEEPINFRA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/deepinfra.svg');
 const CLOUDFLARE_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/cloudflare.svg');
@@ -690,6 +691,30 @@ describe('icon + typography governance contract', () => {
     assert.match(componentSrc, /import lmStudioBrandMark from '\.\.\/assets\/provider-brands\/lmstudio\.svg';/);
     assert.match(componentSrc, /function ProviderAssetMask\([\s\S]*className="providerAssetMask"[\s\S]*WebkitMaskImage: mask/);
     assert.match(componentSrc, /case 'lm-studio':\s*return <ProviderAssetMask src=\{lmStudioBrandMark\} \/>/);
+  });
+
+  it('vendors the byte-exact monochrome ZenMux SVG through the shared mask and notice seams', async () => {
+    const [componentSrc, asset, notices] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(ZENMUX_BRAND_MARK_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      '1f9fab4e48601ca583e44ff06f22040a8b40f8952bc6bd67e67b065bef00b4b5',
+      'ZenMux SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 zenmux.svg',
+    );
+    assert.match(componentSrc, /import zenmuxBrandMark from '\.\.\/assets\/provider-brands\/zenmux\.svg';/);
+    assert.match(
+      componentSrc,
+      /ZenMux mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/zenmux\.svg[\s\S]*no upstream color variant[\s\S]*MIT[\s\S]*1f9fab4e48601ca583e44ff06f22040a8b40f8952bc6bd67e67b065bef00b4b5/,
+    );
+    assert.match(componentSrc, /case 'zenmux':\s*return <ProviderAssetMask src=\{zenmuxBrandMark\} \/>/);
+    assert.match(
+      notices,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/zenmux\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/zenmux\.svg[\s\S]*1f9fab4e48601ca583e44ff06f22040a8b40f8952bc6bd67e67b065bef00b4b5/,
+    );
   });
 
   it('vendors and renders the byte-exact official LocalAI SVG', async () => {

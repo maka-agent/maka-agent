@@ -209,3 +209,11 @@ test('Vercel Gateway uses its official AI Gateway credential namespace', () => {
     baseUrls: ['AI_GATEWAY_BASE_URL'],
   });
 });
+
+test('ZenMux keeps its official provider-scoped credential environment names', () => {
+  assert.deepEqual(providerCredentialEnv('zenmux'), {
+    apiKeys: ['ZENMUX_API_KEY'],
+    apiKeyFile: 'ZENMUX_API_KEY_FILE',
+    baseUrls: ['ZENMUX_BASE_URL'],
+  });
+});

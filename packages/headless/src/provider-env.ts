@@ -29,6 +29,7 @@ const PROVIDER_CREDENTIAL_ENV = {
     apiKeyFile: 'HF_TOKEN_FILE',
     baseUrls: ['HUGGINGFACE_BASE_URL'],
   },
+  zenmux: env('ZENMUX', ['ZENMUX_BASE_URL']),
   togetherai: env('TOGETHER', ['TOGETHER_BASE_URL']),
   deepinfra: env('DEEPINFRA', ['DEEPINFRA_BASE_URL']),
   'cloudflare-workers-ai': env(

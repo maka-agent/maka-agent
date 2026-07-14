@@ -74,6 +74,30 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the ZenMux identity and exact creator/model ids', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const model = 'moonshotai/kimi-k2.5';
+      const created = await store.create({
+        slug: 'zenmux',
+        name: 'ZenMux',
+        providerType: 'zenmux',
+        defaultModel: model,
+      });
+      await store.update(created.slug, {
+        models: [{ id: model, displayName: 'Kimi K2.5' }],
+        modelSource: 'fetched',
+        modelsFetchedAt: 1_800_000_000_000,
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string; models: Array<{ id: string }> }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'zenmux');
+      assert.equal(persisted.connections[0]?.defaultModel, model);
+      assert.deepEqual(persisted.connections[0]?.models, [{ id: model, displayName: 'Kimi K2.5' }]);
+    });
+  });
+
   test('persists the Ollama provider and exact cloud alias in discovery and selection state', async () => {
     await withConnectionStore(async (store, dir) => {
       const localModelId = 'qwen3.5';

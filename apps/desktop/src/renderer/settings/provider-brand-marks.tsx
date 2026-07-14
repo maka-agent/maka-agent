@@ -33,6 +33,16 @@ import stepfunBrandMark from '../assets/provider-brands/stepfun.svg';
 import vercelBrandMark from '../assets/provider-brands/vercel.svg';
 import volcengineBrandMark from '../assets/provider-brands/volcengine.svg';
 import xaiMarkUrl from '../assets/provider-brands/xai.svg';
+import zenmuxBrandMark from '../assets/provider-brands/zenmux.svg';
+
+// ZenMux mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/zenmux.svg
+// - variant: monochrome; no upstream color variant exists in this release
+// - license: MIT (repository LICENSE); ZenMux trademark remains its owner's
+// - SHA-256: 1f9fab4e48601ca583e44ff06f22040a8b40f8952bc6bd67e67b065bef00b4b5
 
 // Real xAI/Grok mark vendored byte-for-byte from Lobe Icons:
 // - repository: https://github.com/lobehub/lobe-icons
@@ -346,6 +356,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <img src={cohereBrandMark} alt="" />;
     case 'huggingface':
       return <img src={huggingfaceBrandMark} alt="" />;
+    case 'zenmux':
+      return <ProviderAssetMask src={zenmuxBrandMark} />;
     case 'tencent-tokenhub':
       return <img src={hunyuanBrandMark} alt="" />;
     case 'tencent-coding-plan':

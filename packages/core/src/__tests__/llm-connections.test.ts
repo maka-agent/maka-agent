@@ -47,6 +47,7 @@ describe('provider compatibility contract', () => {
       'mistral',
       'cohere',
       'huggingface',
+      'zenmux',
       'togetherai',
       'fireworks-ai',
       'nvidia',
@@ -104,6 +105,7 @@ describe('provider compatibility contract', () => {
       'cloudflare-workers-ai',
       'huggingface',
       'ollama-cloud',
+      'zenmux',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -142,6 +144,7 @@ describe('provider compatibility contract', () => {
       'cloudflare-workers-ai',
       'huggingface',
       'ollama-cloud',
+      'zenmux',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -264,6 +267,45 @@ describe('provider compatibility contract', () => {
     assert.ok(provider.fallbackModels.includes('openai/gpt-5.5'));
     assert.equal(provider.fallbackModels.includes('anthropic/claude-opus-4.1'), false);
     assert.equal(provider.fallbackModels.every((id) => id.includes('/')), true);
+  });
+
+  it('owns ZenMux under the stable models.dev id with public snapshot-bounded discovery', () => {
+    const zenmux = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).zenmux;
+
+    assert.ok(zenmux, 'ZenMux must be available through the shared provider registry');
+    assert.equal(zenmux.label, 'ZenMux');
+    assert.equal(zenmux.baseUrl, 'https://zenmux.ai/api/v1');
+    assert.equal(zenmux.authKind, 'api_key');
+    assert.equal(zenmux.protocol, 'openai');
+    assert.deepEqual(zenmux.runtimeAdapter, {
+      kind: 'openai-compatible',
+      name: 'provider',
+      replayAssistantReasoningAs: 'reasoning',
+      replayAssistantReasoningDetails: true,
+    });
+    assert.deepEqual(zenmux.modelDiscovery, {
+      kind: 'protocol',
+      auth: 'none',
+      filter: 'fallback-models',
+    });
+    assert.equal(zenmux.category, 'overseas');
+    assert.equal(zenmux.catalogGroup, 'aggregators');
+    assert.equal(zenmux.catalogBadge, 'Gateway');
+    assert.equal(zenmux.signupUrl, 'https://zenmux.ai/settings/keys');
+    assert.equal(zenmux.modelsDevId, 'zenmux');
+    assert.equal(zenmux.fallbackModels[0], 'moonshotai/kimi-k2.5');
+    assert.ok(zenmux.fallbackModels.includes('moonshotai/kimi-k2.7-code'));
+    assert.equal(
+      zenmux.fallbackModels.includes('anthropic/claude-sonnet-4.6'),
+      false,
+      'models.dev routes this model through ZenMux Anthropic API, not the first-slice OpenAI Chat adapter',
+    );
+    assert.equal(
+      zenmux.fallbackModels.includes('openai/gpt-5.4'),
+      false,
+      'models.dev routes this model through the native OpenAI adapter and must not imply generic Chat compatibility',
+    );
+    assert.ok(zenmux.fallbackModels.every((id) => id.includes('/')));
   });
 
   it('owns the complete Cerebras provider contract under the stable cerebras id', () => {

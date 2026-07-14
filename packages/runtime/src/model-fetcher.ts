@@ -15,8 +15,12 @@ const MODEL_FETCH_TIMEOUT_MS = 10_000;
 type RawProviderModel = {
   id?: string;
   name?: string;
+  display_name?: string;
   type?: string;
   tags?: string[];
+  input_modalities?: string[];
+  output_modalities?: string[];
+  capabilities?: { reasoning?: boolean };
   supports_image_in?: boolean;
   supports_reasoning?: boolean;
   context_length?: number;
@@ -257,6 +261,8 @@ function toModelInfo(model: RawProviderModel): ModelInfo | null {
   if (!model.id) return null;
   const contextWindow = model.context_length ?? model.context_window;
   const capabilities: NonNullable<ModelInfo['capabilities']> = {};
+  if (model.input_modalities?.includes('image')) capabilities.vision = true;
+  if (typeof model.capabilities?.reasoning === 'boolean') capabilities.reasoning = model.capabilities.reasoning;
   if (typeof model.supports_image_in === 'boolean') capabilities.vision = model.supports_image_in;
   if (typeof model.supports_reasoning === 'boolean') capabilities.reasoning = model.supports_reasoning;
   if (model.tags?.includes('vision')) capabilities.vision = true;
@@ -269,7 +275,7 @@ function toModelInfo(model: RawProviderModel): ModelInfo | null {
   }
   return {
     id: model.id,
-    ...(model.name ? { displayName: model.name } : {}),
+    ...(model.display_name || model.name ? { displayName: model.display_name ?? model.name } : {}),
     ...(typeof contextWindow === 'number' ? { contextWindow } : {}),
     ...(typeof model.max_tokens === 'number' ? { maxOutputTokens: model.max_tokens } : {}),
     ...(Object.keys(capabilities).length ? { capabilities } : {}),

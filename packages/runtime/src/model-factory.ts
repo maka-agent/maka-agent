@@ -2,8 +2,8 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createCohere } from '@ai-sdk/cohere';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { LanguageModelV3, SharedV3ProviderOptions } from '@ai-sdk/provider';
+import { createOpenAICompatible, type MetadataExtractor } from '@ai-sdk/openai-compatible';
+import { isJSONArray, type JSONArray, type LanguageModelV3, type SharedV3ProviderOptions } from '@ai-sdk/provider';
 import { PROVIDER_DEFAULTS, effectiveBaseUrl, type LlmConnection, type ProviderType } from '@maka/core/llm-connections';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { thinkingOptionsForModel, thinkingVariantsForModel } from '@maka/core/model-thinking';
@@ -75,33 +75,157 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         throw new Error(`${connection.providerType} connection ${connection.slug} requires a base URL`);
       }
       const name = adapter.name === 'connection' ? connection.slug : connection.providerType;
-      return createOpenAICompatible({
+      const model = createOpenAICompatible({
         name,
         apiKey,
         baseURL,
         ...(adapter.passFetch ? { fetch } : {}),
+        ...(adapter.replayAssistantReasoningDetails
+          ? { metadataExtractor: reasoningDetailsMetadataExtractor() }
+          : {}),
         ...(adapter.replayAssistantReasoningAs
-          ? { transformRequestBody: replayAssistantReasoning(adapter.replayAssistantReasoningAs) }
+          ? {
+              transformRequestBody: replayAssistantReasoning(
+                adapter.replayAssistantReasoningAs,
+                adapter.replayAssistantReasoningDetails === true,
+              ),
+            }
           : {}),
       }).chatModel(modelId);
+      return adapter.replayAssistantReasoningDetails ? attachReasoningDetails(model) : model;
     }
   }
 }
 
-function replayAssistantReasoning(field: 'reasoning') {
+function replayAssistantReasoning(field: 'reasoning', replayDetails: boolean) {
   return (body: Record<string, unknown>): Record<string, unknown> => {
     if (!Array.isArray(body.messages)) return body;
     let changed = false;
     const messages = body.messages.map((value) => {
-      if (!isRecord(value) || value.role !== 'assistant' || typeof value.reasoning_content !== 'string') {
-        return value;
+      if (!isRecord(value)) return value;
+      if (value.role !== 'assistant') {
+        if (!replayDetails || !Array.isArray(value.reasoning_details)) return value;
+        const { reasoning_details: _reasoningDetails, ...message } = value;
+        changed = true;
+        return message;
       }
-      const { reasoning_content: reasoningContent, ...message } = value;
-      changed = true;
-      return { ...message, [field]: reasoningContent };
+      let message = value;
+      if (typeof message.reasoning_content === 'string') {
+        const { reasoning_content: reasoningContent, ...rest } = message;
+        message = { ...rest, [field]: reasoningContent };
+        changed = true;
+      }
+      if (!replayDetails || !Array.isArray(message.tool_calls)) return message;
+      let reasoningDetails: unknown[] | undefined;
+      const toolCalls = message.tool_calls.map((toolCall) => {
+        if (!isRecord(toolCall) || !Array.isArray(toolCall.reasoning_details)) return toolCall;
+        reasoningDetails ??= toolCall.reasoning_details;
+        const { reasoning_details: _reasoningDetails, ...rest } = toolCall;
+        changed = true;
+        return rest;
+      });
+      return reasoningDetails ? { ...message, reasoning_details: reasoningDetails, tool_calls: toolCalls } : message;
     });
     return changed ? { ...body, messages } : body;
   };
+}
+
+function reasoningDetailsMetadataExtractor(): MetadataExtractor {
+  return {
+    async extractMetadata({ parsedBody }) {
+      const details = reasoningDetailsFromBody(parsedBody);
+      return details ? { zenmux: { reasoningDetails: details } } : undefined;
+    },
+    createStreamExtractor() {
+      let details: JSONArray | undefined;
+      return {
+        processChunk(parsedChunk) {
+          details = reasoningDetailsFromBody(parsedChunk) ?? details;
+        },
+        buildMetadata() {
+          return details ? { zenmux: { reasoningDetails: details } } : undefined;
+        },
+      };
+    },
+  };
+}
+
+function reasoningDetailsFromBody(body: unknown): JSONArray | undefined {
+  if (!isRecord(body) || !Array.isArray(body.choices)) return undefined;
+  for (const choice of body.choices) {
+    if (!isRecord(choice)) continue;
+    for (const carrier of [choice.message, choice.delta]) {
+      if (isRecord(carrier) && isJSONArray(carrier.reasoning_details)) {
+        return carrier.reasoning_details;
+      }
+    }
+  }
+  return undefined;
+}
+
+function attachReasoningDetails(model: LanguageModelV3): LanguageModelV3 {
+  return new Proxy(model, {
+    get(target, property, receiver) {
+      if (property === 'doGenerate') {
+        return async (...args: Parameters<LanguageModelV3['doGenerate']>) => {
+          const result = await target.doGenerate(...args);
+          const details = reasoningDetailsFromMetadata(result.providerMetadata);
+          return details ? { ...result, content: withReasoningDetails(result.content, details) } : result;
+        };
+      }
+      if (property === 'doStream') {
+        return async (...args: Parameters<LanguageModelV3['doStream']>) => {
+          const result = await target.doStream(...args);
+          let pendingToolCalls: Array<Extract<Awaited<ReturnType<LanguageModelV3['doStream']>>['stream'] extends ReadableStream<infer Chunk> ? Chunk : never, { type: 'tool-call' }>> = [];
+          const stream = result.stream.pipeThrough(new TransformStream({
+            transform(chunk, controller) {
+              if (chunk.type === 'tool-call') {
+                pendingToolCalls.push(chunk);
+                return;
+              }
+              if (chunk.type === 'finish') {
+                const details = reasoningDetailsFromMetadata(chunk.providerMetadata);
+                for (const toolCall of pendingToolCalls) {
+                  controller.enqueue(details ? withReasoningDetails([toolCall], details)[0] : toolCall);
+                }
+                pendingToolCalls = [];
+              }
+              controller.enqueue(chunk);
+            },
+            flush(controller) {
+              for (const toolCall of pendingToolCalls) controller.enqueue(toolCall);
+            },
+          }));
+          return { ...result, stream };
+        };
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
+function reasoningDetailsFromMetadata(metadata: SharedV3ProviderOptions | undefined): JSONArray | undefined {
+  const details = metadata?.zenmux?.reasoningDetails;
+  return isJSONArray(details) ? details : undefined;
+}
+
+function withReasoningDetails<Content extends { type: string; providerMetadata?: SharedV3ProviderOptions }>(
+  content: Content[],
+  details: JSONArray,
+): Content[] {
+  return content.map((part) => part.type === 'tool-call'
+    ? {
+        ...part,
+        providerMetadata: {
+          ...part.providerMetadata,
+          openaiCompatible: {
+            ...part.providerMetadata?.openaiCompatible,
+            reasoning_details: details,
+          },
+        },
+      }
+    : part);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

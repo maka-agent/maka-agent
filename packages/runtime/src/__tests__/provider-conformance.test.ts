@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { after, describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core';
-import { generateText, stepCountIs, tool } from 'ai';
+import { generateText, stepCountIs, streamText, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { buildProviderOptions, getAIModel } from '../model-factory.js';
@@ -14,6 +14,209 @@ after(async () => {
 });
 
 describe('models.dev provider conformance', () => {
+  test('ZenMux preserves exact model ids and signed reasoning through a two-stage OpenAI Chat tool loop', async () => {
+    const modelId = 'moonshotai/kimi-k2.5';
+    const reasoningDetails = [{
+      type: 'reasoning.text',
+      text: 'I should call echo with the requested text.',
+      signature: 'deterministic-test-signature',
+      format: 'anthropic-claude-v1',
+    }];
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      assert.equal(request.headers.authorization, 'Bearer zenmux-test-key');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-zenmux-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning: 'I should call echo with the requested text.',
+              reasoning_details: reasoningDetails,
+              tool_calls: [{
+                id: 'call_zenmux_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+
+      respondJson(response, 200, {
+        id: 'chatcmpl-zenmux-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'zenmux',
+      name: 'ZenMux',
+      providerType: 'zenmux',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'zenmux-test-key', modelId }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      {
+        role: 'assistant',
+        content: null,
+        reasoning: 'I should call echo with the requested text.',
+        reasoning_details: reasoningDetails,
+        tool_calls: [{
+          id: 'call_zenmux_echo',
+          type: 'function',
+          function: { name: 'echo', arguments: '{"text":"hello"}' },
+        }],
+      },
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_zenmux_echo' },
+    );
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
+  test('ZenMux replays signed reasoning details in the streamed runtime tool loop', async () => {
+    const modelId = 'moonshotai/kimi-k2.5';
+    const reasoningDetails = [{
+      type: 'reasoning.text',
+      text: 'Use echo.',
+      signature: 'deterministic-stream-signature',
+      format: 'anthropic-claude-v1',
+    }];
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      assert.equal(body.stream, true);
+      if (requestBodies.length === 1) {
+        respondOpenAIStream(response, [{
+          id: 'chatcmpl-zenmux-stream-tool',
+          object: 'chat.completion.chunk',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            delta: {
+              role: 'assistant',
+              reasoning: 'Use echo.',
+              reasoning_details: reasoningDetails,
+              tool_calls: [{
+                index: 0,
+                id: 'call_zenmux_stream_echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: null,
+          }],
+        }, {
+          id: 'chatcmpl-zenmux-stream-tool',
+          object: 'chat.completion.chunk',
+          created: 1,
+          model: modelId,
+          choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        }]);
+        return;
+      }
+      respondOpenAIStream(response, [{
+        id: 'chatcmpl-zenmux-stream-final',
+        object: 'chat.completion.chunk',
+        created: 2,
+        model: modelId,
+        choices: [{ index: 0, delta: { role: 'assistant', content: 'Echoed hello.' }, finish_reason: null }],
+      }, {
+        id: 'chatcmpl-zenmux-stream-final',
+        object: 'chat.completion.chunk',
+        created: 2,
+        model: modelId,
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+      }]);
+    });
+    const connection: LlmConnection = {
+      slug: 'zenmux',
+      name: 'ZenMux',
+      providerType: 'zenmux',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const result = streamText({
+      model: getAIModel({ connection, apiKey: 'zenmux-test-key', modelId }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(await result.text, 'Echoed hello.');
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      {
+        role: 'assistant',
+        content: null,
+        reasoning: 'Use echo.',
+        reasoning_details: reasoningDetails,
+        tool_calls: [{
+          id: 'call_zenmux_stream_echo',
+          type: 'function',
+          function: { name: 'echo', arguments: '{"text":"hello"}' },
+        }],
+      },
+    );
+  });
+
   test('Vercel Gateway preserves its public discovery boundary and exact model id through a reasoning tool loop', async () => {
     const modelId = 'xai/grok-4.3';
     const requestBodies: Array<Record<string, unknown>> = [];
@@ -2588,4 +2791,10 @@ function readBody(request: IncomingMessage): Promise<string> {
 function respondJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, { 'content-type': 'application/json' });
   response.end(JSON.stringify(body));
+}
+
+function respondOpenAIStream(response: ServerResponse, chunks: readonly unknown[]): void {
+  response.writeHead(200, { 'content-type': 'text/event-stream' });
+  for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`);
+  response.end('data: [DONE]\n\n');
 }
