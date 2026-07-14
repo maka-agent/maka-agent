@@ -94,6 +94,8 @@ export interface ModelAdapterStreamInput {
   activeTools: string[];
   system?: string;
   abortSignal: AbortSignal;
+  /** Per-request hard cap; already reconciled with any backend-level cap. */
+  maxSteps?: number;
   repairToolCall: (input: {
     toolCall: RepairableAiSdkToolCall;
     error: unknown;
@@ -165,9 +167,9 @@ export class ModelAdapter {
       providerOptions: this.input.providerOptions,
       // streamText defaults to one step when stopWhen is omitted. Its exported
       // non-stopping condition is required for an unbounded tool loop.
-      stopWhen: this.input.maxSteps === undefined
+      stopWhen: input.maxSteps === undefined
         ? isLoopFinished()
-        : stepCountIs(this.input.maxSteps),
+        : stepCountIs(input.maxSteps),
       abortSignal: input.abortSignal,
     });
   }

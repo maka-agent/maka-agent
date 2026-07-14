@@ -56,6 +56,8 @@ export interface FlowInput {
   parentRunId?: string;
   /** User turn text. */
   text: string;
+  /** Optional caller budget for model/tool-loop steps in this turn. */
+  maxRuntimeSteps?: number;
   /** Optional attachments bound to the user message. */
   attachments?: AttachmentRef[];
   /**

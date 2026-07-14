@@ -743,6 +743,7 @@ export class AiSdkBackend implements AgentBackend {
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     this.aborted = false;
     const turnId = input.turnId;
+    const maxSteps = minDefinedPositiveInt(this.maxSteps, input.maxRuntimeSteps);
     this.currentTurnId = turnId;
     this.currentRunId = input.runId ?? null;
     this.input.permissionEngine.beginTurn(turnId);
@@ -1065,6 +1066,7 @@ export class AiSdkBackend implements AgentBackend {
           },
           system: systemPrompt,
           abortSignal: this.abortController!.signal,
+          ...(maxSteps !== undefined ? { maxSteps } : {}),
           ...(prepareStep ? { prepareStep } : {}),
         });
 
@@ -1136,7 +1138,7 @@ export class AiSdkBackend implements AgentBackend {
         // With an explicit maxSteps, `finishReason === 'tool-calls'` means the
         // model wanted another tool step but the configured budget stopped it.
         const finishReason = await result.finishReason.catch(() => 'stop');
-        const stepLimit = this.maxSteps;
+        const stepLimit = maxSteps;
         const stepLimitReached = stepLimit !== undefined && finishReason === 'tool-calls';
         rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReason);
         if (stepLimitReached && runtimeSteps < stepLimit) {
@@ -1256,7 +1258,7 @@ export class AiSdkBackend implements AgentBackend {
         // Nothing may await between this check and terminal emission: Stop must
         // win even when it arrives during post-stream usage persistence.
         if (this.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
-        const stopReason = this.maxSteps !== undefined && finishReason === 'tool-calls'
+        const stopReason = maxSteps !== undefined && finishReason === 'tool-calls'
           ? 'step_limit'
           : this.mapFinishReason(finishReason);
         trace.modelStreamCompleted(stopReason);
@@ -2980,6 +2982,15 @@ function buildHistoryCompactCheckpointFailOpenContext(
 
 function incrementRecord(counts: Record<string, number>, key: string): void {
   counts[key] = (counts[key] ?? 0) + 1;
+}
+
+function minDefinedPositiveInt(left: number | undefined, right: number | undefined): number | undefined {
+  if (right !== undefined && (!Number.isInteger(right) || right < 1)) {
+    throw new Error('maxRuntimeSteps must be a positive integer when provided');
+  }
+  if (left === undefined) return right;
+  if (right === undefined) return left;
+  return Math.min(left, right);
 }
 
 function mergeCountsInto(target: Record<string, number>, source: Record<string, number> | undefined): void {

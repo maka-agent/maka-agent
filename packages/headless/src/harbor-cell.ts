@@ -377,10 +377,16 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   let attemptedTurnId: string | undefined;
   try {
     for (let turnIndex = 0; turnIndex < continuationPolicy.maxTurns; turnIndex += 1) {
+      const remainingRuntimeSteps = continuationPolicy.maxTotalRuntimeSteps - totalRuntimeSteps(invocations);
+      if (remainingRuntimeSteps <= 0) break;
       const turnId = newId();
       attemptedTurnId = turnId;
       invocation = undefined;
-      for await (const event of manager.sendMessage(session.id, { turnId, text: nextText })) {
+      for await (const event of manager.sendMessage(session.id, {
+        turnId,
+        text: nextText,
+        maxRuntimeSteps: remainingRuntimeSteps,
+      })) {
         if ((event as { type?: string }).type === 'permission_request') {
           const { requestId } = event as { requestId: string };
           await manager.respondToPermission(session.id, { requestId, decision: 'deny', rememberForTurn: true });

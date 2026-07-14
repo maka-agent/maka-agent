@@ -32,6 +32,8 @@ export interface UserMessageInput {
   turnId: string;
   text: string;
   attachments?: AttachmentRef[];
+  /** Optional hard cap for model/tool-loop steps in this turn. */
+  maxRuntimeSteps?: number;
   parentRunId?: string;
   agentId?: string;
   agentName?: string;

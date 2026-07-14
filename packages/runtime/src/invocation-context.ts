@@ -66,6 +66,8 @@ export interface InvocationRequest {
   runId?: string;
   turnId: string;
   text: string;
+  /** Optional hard cap for model/tool-loop steps in this invocation. */
+  maxRuntimeSteps?: number;
   /** Optional attachments bound to this user turn. */
   attachments?: AttachmentRef[];
   /**

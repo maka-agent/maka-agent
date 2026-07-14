@@ -364,6 +364,7 @@ function buildFlowInput(request: InvocationRequest): FlowInput {
   return {
     ...(request.lineage?.parentRunId ? { parentRunId: request.lineage.parentRunId } : {}),
     text: request.text,
+    ...(request.maxRuntimeSteps !== undefined ? { maxRuntimeSteps: request.maxRuntimeSteps } : {}),
     context: request.context ?? [],
     ...(request.runtimeContext !== undefined ? { runtimeContext: request.runtimeContext } : {}),
     ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),

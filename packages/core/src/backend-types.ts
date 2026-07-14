@@ -20,6 +20,8 @@ export interface BackendSendInput {
   runId?: string;
   /** Caller-generated turn id shared by the persisted UserMessage and every emitted event. */
   turnId: string;
+  /** Optional caller budget for model/tool-loop steps in this turn. */
+  maxRuntimeSteps?: number;
   text: string;
   attachments?: AttachmentRef[];
   /**

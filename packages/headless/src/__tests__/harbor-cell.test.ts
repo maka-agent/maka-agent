@@ -126,6 +126,7 @@ class StepCapThenCompleteBackend implements AgentBackend {
   readonly sessionId: string;
   readonly prompts: string[] = [];
   readonly cwds: string[] = [];
+  readonly maxRuntimeSteps: Array<number | undefined> = [];
 
   constructor(protected readonly ctx: { sessionId: string; header: SessionHeader }) {
     this.sessionId = ctx.sessionId;
@@ -135,6 +136,7 @@ class StepCapThenCompleteBackend implements AgentBackend {
     const ts = Date.now();
     this.prompts.push(input.text);
     this.cwds.push(this.ctx.header.cwd);
+    this.maxRuntimeSteps.push(input.maxRuntimeSteps);
     if (this.prompts.length === 1) {
       yield {
         type: 'token_usage',
@@ -247,6 +249,7 @@ class NoisyStepCapThenCompleteBackend extends StepCapThenCompleteBackend {
 
     this.prompts.push(input.text);
     this.cwds.push(this.ctx.header.cwd);
+    this.maxRuntimeSteps.push(input.maxRuntimeSteps);
     for (let index = 0; index < 60; index += 1) {
       yield {
         type: 'token_usage',
@@ -531,6 +534,7 @@ describe('runHarborCell', () => {
         'solve the benchmark task',
         'Continue neutrally from current workspace.',
       ]);
+      assert.deepEqual(seen.backend?.maxRuntimeSteps, [150, 100]);
       assert.deepEqual(seen.backend?.cwds, [workspaceDir, workspaceDir]);
       assert.equal(await readFile(join(workspaceDir, 'continued-proof.txt'), 'utf8'), 'Continue neutrally from current workspace.');
       assert.deepEqual(result.output.continuationSummary, {
@@ -685,6 +689,7 @@ describe('runHarborCell', () => {
         'solve the benchmark task',
         'Continue neutrally from current workspace.',
       ]);
+      assert.deepEqual(seen.backend?.maxRuntimeSteps, [51, 1]);
       assert.deepEqual(result.output.continuationSummary, {
         enabled: true,
         maxTurns: 3,

@@ -3594,6 +3594,28 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(loop.callCount(), 3);
   });
 
+  test('uses the lower caller step budget without weakening the backend cap', async () => {
+    const loop = countingToolLoopModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => loop.model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      maxSteps: 3,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [], maxRuntimeSteps: 2 }));
+
+    assert.equal(loop.callCount(), 2);
+  });
+
   test('reports an explicit step limit without making an auxiliary model call', async () => {
     const appended: StoredMessage[] = [];
     let streamCalls = 0;
