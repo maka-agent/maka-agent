@@ -140,6 +140,7 @@ import { probeOfficeCli } from './officecli-probe.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
 import { listLocalBranches, checkoutBranch } from './git-branch.js';
+import { searchWorkspaceFiles } from './workspace-file-search.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { botTestErrorMessage, buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 import {
@@ -1257,6 +1258,18 @@ function registerIpc(): void {
       }
       const projectPath = await currentProjectRoot();
       return checkoutBranch(projectPath, branch);
+    },
+  );
+  // Composer `@` mention popup: list workspace files under the same project
+  // root that app:info reports. Git repos honor .gitignore + untracked via
+  // `git ls-files`; other trees fall back to a bounded walk. See
+  // workspace-file-search.ts.
+  ipcMain.handle(
+    'workspace:searchFiles',
+    async (_event, input: unknown) => {
+      const request = (input ?? {}) as { query?: unknown; limit?: unknown };
+      const projectPath = await currentProjectRoot();
+      return searchWorkspaceFiles(projectPath, { query: request.query, limit: request.limit });
     },
   );
   registerMemoryIpc({ localMemory });

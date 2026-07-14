@@ -1,0 +1,85 @@
+/* Composer mention popup — the @ file / skill overlay rendered by
+   ComposerMentionPopup (@maka/ui). The popover surface (rounded-md bg-popover
+   shadow-maka-panel z-overlay) is set via Tailwind utilities on the element;
+   this file owns layout + row chrome only.
+
+   The popup is an ABSOLUTE overlay anchored to `.maka-composer-inner` (which is
+   already position:relative at rest), bottom-anchored so it floats above the
+   textarea and never grows the composer box (composer-constant-footprint-
+   contract). No `.maka-composer-inner` rest rule is added here — the
+   composer-container-single-source contract keeps that selector's single
+   definition in composer.css. */
+.maka-composer-mention-popup {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + var(--space-2));
+  width: min(360px, 100%);
+  max-height: 280px;
+  overflow-y: auto;
+  padding: var(--space-1);
+}
+
+.maka-composer-mention-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-0-5);
+}
+
+.maka-composer-mention-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-2);
+  border-radius: var(--radius-control);
+  color: var(--foreground);
+  /* No cursor:pointer — native macOS reserves the hand for links; menu-like
+     rows keep the default arrow (native-cursor-convention contract). */
+  transition: background var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-composer-mention-option[data-active="true"] {
+  background: var(--muted);
+}
+
+.maka-composer-mention-icon {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
+.maka-composer-mention-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.maka-composer-mention-name {
+  min-width: 0;
+  font-size: var(--font-size-ui);
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-composer-mention-secondary {
+  min-width: 0;
+  font-size: var(--font-size-caption);
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-composer-mention-secondary:empty {
+  display: none;
+}
+
+.maka-composer-mention-status {
+  padding: var(--space-2) var(--space-2);
+  font-size: var(--font-size-caption);
+  color: var(--muted-foreground);
+  text-align: center;
+}

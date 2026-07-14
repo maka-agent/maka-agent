@@ -563,6 +563,15 @@ declare global {
         >;
         saveArtifactAs(artifactId: string): Promise<ArtifactSaveResult>;
       };
+      workspace: {
+        searchFiles(
+          query: string,
+          limit?: number,
+        ): Promise<
+          | { ok: true; files: Array<{ relativePath: string }> }
+          | { ok: false; reason: 'no_project' | 'search_failed' }
+        >;
+      };
       visualSmoke: {
         getState(): Promise<VisualSmokeState | null>;
         capture(input: { scenario: string; variant: string }): Promise<

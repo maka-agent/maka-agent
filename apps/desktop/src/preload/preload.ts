@@ -949,6 +949,18 @@ contextBridge.exposeInMainWorld('maka', {
       return ipcRenderer.invoke('app:saveArtifactAs', artifactId);
     },
   },
+  workspace: {
+    /** Composer `@` mention popup: list workspace files matching `query`. */
+    searchFiles(
+      query: string,
+      limit?: number,
+    ): Promise<
+      | { ok: true; files: Array<{ relativePath: string }> }
+      | { ok: false; reason: 'no_project' | 'search_failed' }
+    > {
+      return ipcRenderer.invoke('workspace:searchFiles', { query, limit });
+    },
+  },
   visualSmoke: {
     getState(): Promise<VisualSmokeState | null> {
       return ipcRenderer.invoke('visualSmoke:getState');
