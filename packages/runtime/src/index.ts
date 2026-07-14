@@ -511,7 +511,7 @@ export {
 export type { ToolActivityItem, ChatItem, SessionViewModel } from './materializer.js';
 
 export { AsyncEventQueue } from './async-queue.js';
-export { FakeBackend } from './fake-backend.js';
+export { FAKE_ASK_USER_QUESTION_PROMPT, FakeBackend } from './fake-backend.js';
 
 export {
   BUILTIN_PRICING,
