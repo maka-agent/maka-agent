@@ -1,6 +1,6 @@
 import { Markdown } from '@earendil-works/pi-tui';
 import type {
-  PermissionRequestEvent,
+  AnyPermissionRequestEvent,
   UserQuestionRequestEvent,
   SessionEvent,
   ToolOutputStream,
@@ -45,7 +45,7 @@ export interface MakaPiTranscriptState {
   expandAllThinking: boolean;
 }
 
-export type MakaPiPendingInteraction = PermissionRequestEvent | UserQuestionRequestEvent;
+export type MakaPiPendingInteraction = AnyPermissionRequestEvent | UserQuestionRequestEvent;
 
 /** A single live output chunk from a `tool_output_delta` event. */
 export interface MakaPiToolOutputDelta {
@@ -392,9 +392,6 @@ export function applyMakaSessionEventToTranscript(
     }
 
     case 'permission_request':
-      // Additional-permission prompts are not emitted by ToolRuntime until
-      // their dedicated CLI approval surface is wired in a later slice.
-      if (event.kind === 'additional_permissions') break;
       enqueuePendingInteraction(state, event);
       break;
     case 'user_question_request':
@@ -720,7 +717,7 @@ export function completePendingInteraction(
   return true;
 }
 
-export function activePermissionRequest(state: MakaPiTranscriptState): PermissionRequestEvent | undefined {
+export function activePermissionRequest(state: MakaPiTranscriptState): AnyPermissionRequestEvent | undefined {
   return state.pendingInteraction?.type === 'permission_request' ? state.pendingInteraction : undefined;
 }
 
@@ -743,7 +740,7 @@ function completePendingPermissionsForToolUseId(
 ): void {
   const requestIds = [state.pendingInteraction, ...state.queuedInteractions]
     .filter(
-      (request): request is PermissionRequestEvent => (
+      (request): request is AnyPermissionRequestEvent => (
         request?.type === 'permission_request' && request.toolUseId === toolUseId
       ),
     )
@@ -1001,9 +998,11 @@ function renderWelcomeBlock(metadata: MakaPiTranscriptMetadata, width: number): 
   return lines;
 }
 
-function renderPermissionPrompt(request: PermissionRequestEvent, width: number): string[] {
+function renderPermissionPrompt(request: AnyPermissionRequestEvent, width: number): string[] {
   const lines = [
-    fitLine(`${ansi.yellow('Permission required')} ${ansi.bold(request.toolName)} ${ansi.dim(request.category)}`, width),
+    fitLine(`${ansi.yellow(
+      request.kind === 'additional_permissions' ? 'Additional permission required' : 'Permission required',
+    )} ${ansi.bold(request.toolName)} ${ansi.dim(request.category)}`, width),
   ];
   const summary = permissionRequestSummary(request);
   if (summary) lines.push(...renderIndented(summary, width, 2));
@@ -1015,7 +1014,17 @@ function renderPermissionPrompt(request: PermissionRequestEvent, width: number):
   return lines;
 }
 
-function permissionRequestSummary(request: PermissionRequestEvent): string {
+function permissionRequestSummary(request: AnyPermissionRequestEvent): string {
+  if (request.kind === 'additional_permissions') {
+    const lines = [request.justification, `cwd: ${request.cwd}`];
+    for (const entry of request.additionalPermissions.fileSystem?.entries ?? []) {
+      lines.push(`${entry.access} ${entry.scope} ${entry.path}`);
+    }
+    if (request.risk.networkEnabled) lines.push('network enabled for this call only');
+    if (request.risk.outsideWorkspace) lines.push('risk: outside workspace');
+    if (request.risk.protectedMetadata) lines.push('risk: protected metadata');
+    return limitText(lines.join('\n'), 1200);
+  }
   const args = request.args;
   if (request.toolName === 'Bash' && args !== null && typeof args === 'object') {
     const command = (args as { command?: unknown }).command;

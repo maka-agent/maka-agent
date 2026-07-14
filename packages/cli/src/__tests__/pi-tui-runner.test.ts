@@ -244,6 +244,42 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('allows additional permissions once and ignores the turn-wide approval key', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionPromptDriver(['write outside'], async () => {}, true);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('u');
+    terminal.input('n');
+    terminal.input('\r');
+    await waitFor(() => driver.permissionRequests === 1);
+    await delay(20);
+    terminal.input('a');
+    await delay(20);
+    assert.equal(driver.permissionResponses.length, 0);
+    terminal.input('y');
+    await waitFor(() => driver.permissionResponses.length === 1);
+    assert.deepEqual(driver.permissionResponses, [{
+      requestId: 'permission-1',
+      decision: 'allow',
+    }]);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => { throw new Error('TUI did not close during test cleanup'); }),
+    ]);
+  });
+
   test('denies a pending permission request from the terminal', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionPromptDriver();
@@ -3032,6 +3068,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
   constructor(
     private readonly commands: readonly string[] = ['npm test'],
     private readonly beforePermissionAck: (index: number) => Promise<void> = async () => {},
+    private readonly additionalPermissions = false,
   ) {}
 
   async listSessions(): Promise<SessionSummary[]> {
@@ -3043,7 +3080,30 @@ class PermissionPromptDriver implements MakaSessionDriver {
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     for (const [index, command] of this.commands.entries()) {
       this.permissionRequests += 1;
-      yield {
+      yield this.additionalPermissions ? {
+        type: 'permission_request',
+        kind: 'additional_permissions',
+        id: `event-permission-${index + 1}`,
+        turnId: 'turn-1',
+        ts: index + 1,
+        requestId: `permission-${index + 1}`,
+        toolUseId: `tool-${index + 1}`,
+        toolName: 'Write',
+        category: 'file_write',
+        reason: 'additional_permissions',
+        args: undefined,
+        cwd: '/repo',
+        justification: 'Write requires access to the requested path.',
+        intentHash: `sha256:${'1'.repeat(64)}`,
+        permissionsHash: `sha256:${'2'.repeat(64)}`,
+        additionalPermissions: {
+          fileSystem: { entries: [{ path: '/outside/file.txt', access: 'write', scope: 'exact' }] },
+        },
+        risk: { outsideWorkspace: true, protectedMetadata: false, networkEnabled: false },
+        alsoApprovesToolExecution: true,
+        availableDecisions: ['allow_once', 'deny'],
+        rememberForTurnAllowed: false,
+      } : {
         type: 'permission_request',
         id: `event-permission-${index + 1}`,
         turnId: 'turn-1',

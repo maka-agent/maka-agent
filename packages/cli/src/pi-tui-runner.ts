@@ -364,7 +364,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     void input.driver.respondToPermission({
       requestId: request.requestId,
       decision,
-      ...(decision === 'allow' ? { rememberForTurn } : {}),
+      ...(decision === 'allow' && request.kind !== 'additional_permissions'
+        ? { rememberForTurn }
+        : {}),
     })
       .catch((error) => {
         if (permissionResponseInFlightRequestId === request.requestId) {

@@ -669,6 +669,39 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(visibleLines.some((line) => line.includes('n/Esc deny')));
   });
 
+  test('renders one-call additional permission paths and risks without turn-wide approval', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'permission_request',
+      kind: 'additional_permissions',
+      requestId: 'permission-additional',
+      toolUseId: 'tool-write',
+      toolName: 'Write',
+      category: 'file_write',
+      reason: 'additional_permissions',
+      args: undefined,
+      cwd: '/workspace',
+      justification: 'Write requires access to the requested path.',
+      intentHash: `sha256:${'1'.repeat(64)}`,
+      permissionsHash: `sha256:${'2'.repeat(64)}`,
+      additionalPermissions: {
+        fileSystem: { entries: [{ path: '/outside/file.txt', access: 'write', scope: 'exact' }] },
+      },
+      risk: { outsideWorkspace: true, protectedMetadata: false, networkEnabled: false },
+      alsoApprovesToolExecution: true,
+      availableDecisions: ['allow_once', 'deny'],
+      rememberForTurnAllowed: false,
+    }));
+
+    const visible = renderMakaPiTranscript(state, {
+      title: 'Maka', cwd: '/workspace', model: 'model', connectionSlug: 'connection', permissionMode: 'ask',
+    }, 120).map(stripAnsi).join('\n');
+    assert.match(visible, /Additional permission required/);
+    assert.match(visible, /write exact \/outside\/file\.txt/);
+    assert.match(visible, /risk: outside workspace/);
+    assert.doesNotMatch(visible, /allow for turn/);
+  });
+
   test('queues permission and user-question requests in arrival order', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({

@@ -30,9 +30,9 @@ describe('createDefaultSandboxManager', () => {
 });
 
 describe('createBuiltinSandboxManager', () => {
-  it('enables the production builtin sandbox only on Linux', () => {
+  it('enables production sandbox backends on macOS and Linux', () => {
     assert.ok(createBuiltinSandboxManager('linux'));
-    assert.equal(createBuiltinSandboxManager('darwin'), undefined);
+    assert.ok(createBuiltinSandboxManager('darwin'));
     assert.equal(createBuiltinSandboxManager('win32'), undefined);
   });
 });
