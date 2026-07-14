@@ -57,7 +57,7 @@ function PreviewColumn(props: {
 export const StandardAndNarrow: Story = {
   render: () => (
     <main className="maka-question-review-board">
-      <PreviewColumn title="标准聊天列 · 已选择模型选项" width={760} />
+      <PreviewColumn title="标准聊天列" width={760} />
       <PreviewColumn title="窄聊天列" width={390} />
     </main>
   ),
