@@ -624,4 +624,150 @@ describe('TaskLedgerStore', () => {
     await assert.rejects(() => store.update(SESSION_ID, task.id, { status: 'completed' }), /completionEvidence/);
     assert.equal(await readFile(tasksFilePath(root), 'utf8'), before);
   });
+
+  it('allocates stable hierarchical keys under concurrent creates and resolves key or UUID', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [parent] } = await store.create(SESSION_ID, [{ subject: 'parent' }]);
+    assert.ok(parent);
+    const batches = await Promise.all([
+      store.create(SESSION_ID, [{ subject: 'child a', parentId: parent.key }]),
+      store.create(SESSION_ID, [{ subject: 'child b', parentId: parent.id }]),
+      store.create(SESSION_ID, [{ subject: 'child c', parentId: parent.key }]),
+    ]);
+    const children = batches.flatMap((batch) => batch.created);
+    assert.deepEqual(new Set(children.map((task) => task.key)), new Set(['T1.1', 'T1.2', 'T1.3']));
+    assert.equal((await store.get(SESSION_ID, 'T1.2'))?.id, children.find((task) => task.key === 'T1.2')?.id);
+    await store.update(SESSION_ID, children[0]!.key, { status: 'in_progress' });
+    assert.equal((await store.get(SESSION_ID, children[0]!.id))?.status, 'in_progress');
+    assert.deepEqual((await createTaskLedgerStore(root).list(SESSION_ID)).map((task) => task.key), ['T1', 'T1.1', 'T1.2', 'T1.3']);
+  });
+
+  it('rejects completing a parent with active descendants', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [parent] } = await store.create(SESSION_ID, [{ subject: 'parent' }]);
+    assert.ok(parent);
+    await store.create(SESSION_ID, [{ subject: 'child', parentId: parent.key }]);
+    await store.update(SESSION_ID, parent.id, { status: 'in_progress' });
+    await assert.rejects(
+      () => store.update(SESSION_ID, parent.key, { status: 'completed', completionEvidence: 'parent done' }),
+      /descendant T1\.1 is pending/,
+    );
+  });
+
+  it('backfills old JSONL fields and persists compatibility events on the next write', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    const legacyTask = { id: 'legacy-event-task', subject: 'old event', status: 'pending', createdAt: 1, updatedAt: 1 };
+    await writeFile(taskEventsFilePath(root), `${JSON.stringify({
+      eventId: 'event-1', type: 'task_created', ts: 1, sessionId: SESSION_ID,
+      taskId: legacyTask.id, nextStatus: legacyTask.status, task: legacyTask,
+    })}\n`, 'utf8');
+    const store = createTaskLedgerStore(root);
+    assert.equal((await store.get(SESSION_ID, legacyTask.id))?.key, 'T1');
+    await store.update(SESSION_ID, 'T1', { status: 'in_progress' });
+    const events = (await readFile(taskEventsFilePath(root), 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+    assert.deepEqual(events.map((item) => item.type), ['task_created', 'task_updated', 'task_started']);
+    assert.equal(events[1].task.key, 'T1');
+    assert.equal((await createTaskLedgerStore(root).get(SESSION_ID, 'T1'))?.id, legacyTask.id);
+  });
+
+  it('fails closed when a persisted child key skips a level under its parent', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    const parent = {
+      id: 'parent', key: 'T1', subject: 'parent', status: 'pending', createdAt: 1, updatedAt: 1,
+    };
+    const child = {
+      id: 'child', key: 'T1.1.1', parentId: parent.id, subject: 'child', status: 'pending', createdAt: 2, updatedAt: 2,
+    };
+    const events = [parent, child].map((task, index) => ({
+      eventId: `event-${index}`,
+      type: 'task_created',
+      ts: task.createdAt,
+      sessionId: SESSION_ID,
+      taskId: task.id,
+      nextStatus: task.status,
+      task,
+    }));
+    await writeFile(taskEventsFilePath(root), `${events.map((event) => JSON.stringify(event)).join('\n')}\n`, 'utf8');
+    const store = createTaskLedgerStore(root);
+    assert.deepEqual(await store.list(SESSION_ID), []);
+    await assert.rejects(
+      () => store.update(SESSION_ID, parent.id, { status: 'in_progress' }),
+      /projection diagnostics|does not belong under parent key/,
+    );
+  });
+
+  it('filters archived terminal tasks while preserving compatibility defaults', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    await writeFile(tasksFilePath(root), JSON.stringify([
+      {
+        id: 'old-completed', subject: 'old done', status: 'completed', createdAt: 1, updatedAt: 2,
+        endedAt: 2, completionEvidence: 'done',
+      },
+      { id: 'active-task', subject: 'active', status: 'pending', createdAt: 3, updatedAt: 3 },
+    ]), 'utf8');
+    const store = createTaskLedgerStore(root);
+    assert.deepEqual((await store.list(SESSION_ID)).map((task) => task.key), ['T1', 'T2']);
+    assert.deepEqual((await store.list(SESSION_ID, { includeArchived: false, now: 10 ** 12 })).map((task) => task.key), ['T2']);
+    assert.deepEqual((await store.list(SESSION_ID, { includeTerminal: false })).map((task) => task.key), ['T2']);
+  });
+
+  it('notifies subscribers and preserves child outcomes without auto-completing success', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const changes: Array<{ sessionId: string; taskIds: string[] }> = [];
+    const unsubscribe = store.subscribe((event) => changes.push(event));
+    const { created: [task] } = await store.create(SESSION_ID, [{ subject: 'delegated' }]);
+    assert.ok(task);
+    const owner = { actor: 'child_agent' as const, agentId: 'local-read', turnId: 'child-turn' };
+    await store.claim(SESSION_ID, task.key, owner);
+    await store.settleAgentOutcome(SESSION_ID, task.id, {
+      status: 'completed', owner: { ...owner, runId: 'child-run' }, reason: 'child reported success',
+    });
+    const settled = await store.get(SESSION_ID, task.id);
+    assert.equal(settled?.status, 'in_progress');
+    assert.equal(settled?.owner?.runId, 'child-run');
+    await assert.rejects(
+      () => store.claim(SESSION_ID, task.id, { ...owner, turnId: 'other-child-turn' }),
+      /already claimed/,
+    );
+    unsubscribe();
+    assert.equal(changes.length, 3);
+    assert.equal(changes.every((event) => event.sessionId === SESSION_ID), true);
+  });
+
+  it('persists failed and cancelled child outcomes with stable owner refs', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [failedTask, cancelledTask] } = await store.create(SESSION_ID, [
+      { subject: 'fails' },
+      { subject: 'cancels' },
+    ]);
+    assert.ok(failedTask && cancelledTask);
+    const failedOwner = { actor: 'child_agent' as const, agentId: 'local-read', turnId: 'failed-turn' };
+    const cancelledOwner = { actor: 'child_agent' as const, agentId: 'local-read', turnId: 'cancelled-turn' };
+    await store.claim(SESSION_ID, failedTask.id, failedOwner);
+    await store.claim(SESSION_ID, cancelledTask.id, cancelledOwner);
+    await store.settleAgentOutcome(SESSION_ID, failedTask.id, {
+      status: 'failed', owner: { ...failedOwner, runId: 'failed-run' }, reason: 'child tests failed',
+    });
+    await store.settleAgentOutcome(SESSION_ID, cancelledTask.id, {
+      status: 'cancelled', owner: { ...cancelledOwner, runId: 'cancelled-run' }, reason: 'parent stopped',
+    });
+
+    const reloaded = await createTaskLedgerStore(root).list(SESSION_ID);
+    const failed = reloaded.find((task) => task.id === failedTask.id);
+    const cancelled = reloaded.find((task) => task.id === cancelledTask.id);
+    assert.equal(failed?.status, 'failed');
+    assert.equal(failed?.failureReason, 'child tests failed');
+    assert.equal(failed?.owner?.runId, 'failed-run');
+    assert.equal(typeof failed?.endedAt, 'number');
+    assert.equal(cancelled?.status, 'cancelled');
+    assert.equal(cancelled?.owner?.runId, 'cancelled-run');
+    assert.equal(typeof cancelled?.endedAt, 'number');
+  });
 });

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { zodSchema } from 'ai';
 import { z } from 'zod';
 import { createWorkspaceWritePermissionProfile } from '@maka/core/permission-profile';
 import { expect } from '../test-helpers.js';
@@ -349,8 +350,10 @@ describe('builtin Bash streaming output', () => {
     const read = buildBuiltinTools({ runtimeResources }).find((tool) => tool.name === 'Read');
     if (!read) throw new Error('Read tool missing');
     const parameters = read.parameters as z.ZodTypeAny;
+    expect(zodSchema(parameters).jsonSchema.type).toBe('object');
     expect(parameters.safeParse({ path: 'README.md', offset: 2, limit: 10 }).success).toBe(true);
     expect(parameters.safeParse({ ref: 'maka://runtime/background-tasks/shell-run-1' }).success).toBe(true);
+    expect(parameters.safeParse({}).success).toBe(false);
     expect(parameters.safeParse({
       ref: 'maka://runtime/background-tasks/shell-run-1',
       offset: 2,

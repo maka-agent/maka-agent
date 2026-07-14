@@ -14,6 +14,7 @@ export type VisualSmokeScenario =
   // OAuth login must be re-run — the surface that used to be dead prose.
   | 'oauth-relogin'
   | 'turn-narrative'
+  | 'task-ledger'
   | 'artifact-pane'
   | 'artifact-errors'
   | 'streaming-sidebar'

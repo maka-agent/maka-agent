@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,10 +15,14 @@ import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
   buildHarnessAbRunManifest,
+  HARNESS_MAKA_CONTEXT_BUDGET,
   TERMINAL_BENCH_2_1_REVISION,
   TERMINAL_BENCH_2_1_TASK_IDS,
 } from '#harness-ab-manifest';
-import { runHarnessAbComparison } from '#harness-ab-run';
+import {
+  runHarnessAbComparisonUnlocked,
+  withHarnessAbRunLock,
+} from '#harness-ab-run';
 import {
   assertHarnessAbReportCompleted,
   buildHarnessAbReport,
@@ -31,7 +35,9 @@ import {
 } from './run-prompt-ab.mjs';
 
 const EXPECTED_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
-const PILOT_TASKS = 40;
+export const DEFAULT_HARNESS_AB_RUN_ID = 'glm-5.2-maka-vs-opencode-tbench-2.1';
+const CANARY_TASKS = 2;
+const PILOT_TASKS = 30;
 const PROVIDER = 'zai-coding-plan';
 const MODEL = 'glm-5.2';
 const MODEL_SPEC = `${PROVIDER}/${MODEL}`;
@@ -48,6 +54,10 @@ const PRICING = {
   source: 'z.ai-public-2026-07-13',
 };
 const HARBOR_SETUP_TEARDOWN_GRACE_SEC = 15 * 60;
+const BACKGROUND_RUN_ENV = 'MAKA_HARNESS_AB_BACKGROUND_RUN';
+const BACKGROUND_STARTED_AT_ENV = 'MAKA_HARNESS_AB_DETACHED_STARTED_AT';
+const BACKGROUND_JOURNAL_FILENAME = 'background-run.json';
+const BACKGROUND_LOG_FILENAME = 'background-run.log';
 
 function envPath(name, fallback) {
   const raw = process.env[name] || fallback;
@@ -57,22 +67,65 @@ function envPath(name, fallback) {
 
 function runLimit(raw) {
   const parsed = Number(raw ?? PILOT_TASKS);
-  if (parsed !== PILOT_TASKS && parsed !== EXPECTED_TASKS) {
-    throw new Error(`MAKA_HARNESS_AB_LIMIT must be ${PILOT_TASKS} or ${EXPECTED_TASKS}`);
+  if (parsed !== CANARY_TASKS && parsed !== PILOT_TASKS && parsed !== EXPECTED_TASKS) {
+    throw new Error(`MAKA_HARNESS_AB_LIMIT must be ${CANARY_TASKS}, ${PILOT_TASKS}, or ${EXPECTED_TASKS}`);
   }
   return parsed;
 }
 
-async function main() {
+export function harnessMakaContextBudgetEnv() {
+  return {
+    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
+    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: String(
+      HARNESS_MAKA_CONTEXT_BUDGET.activeToolResultPrune.maxCurrentResultEstimatedTokens,
+    ),
+    MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: String(
+      HARNESS_MAKA_CONTEXT_BUDGET.activeToolResultPrune.minStepNumber,
+    ),
+    MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on',
+    MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: String(
+      HARNESS_MAKA_CONTEXT_BUDGET.staleToolResultPrune.maxResultEstimatedTokens,
+    ),
+    MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS_FULL: String(
+      HARNESS_MAKA_CONTEXT_BUDGET.staleToolResultPrune.minRecentTurnsFull,
+    ),
+    MAKA_CONTEXT_SEMANTIC_COMPACT: 'off',
+  };
+}
+
+export async function main() {
   const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
   const makaRepoPath = process.env.MAKA_HARNESS_AB_MAKA_REPO
     ? resolve(process.env.MAKA_HARNESS_AB_MAKA_REPO)
     : repoRoot;
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
   const tasksRoot = envPath('MAKA_HARNESS_AB_TASKS_ROOT', join(homedir(), '.cache/harbor/tasks'));
-  const runId = process.env.MAKA_HARNESS_AB_RUN_ID || 'glm-5.2-maka-vs-opencode-tbench-2.1';
+  const runId = process.env.MAKA_HARNESS_AB_RUN_ID || DEFAULT_HARNESS_AB_RUN_ID;
   const limit = runLimit(process.env.MAKA_HARNESS_AB_LIMIT);
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
+  await withHarnessAbRunLock(runRoot, async () => {
+    const journal = backgroundJournal(runRoot);
+    if (journal) await writeBackgroundJournal(journal.path, { ...journal.base, status: 'running' });
+    let exitCode = 0;
+    try {
+      await runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runRoot });
+    } catch (error) {
+      exitCode = 1;
+      throw error;
+    } finally {
+      if (journal) {
+        await writeBackgroundJournal(journal.path, {
+          ...journal.base,
+          status: exitCode === 0 ? 'completed' : 'failed',
+          finishedAt: new Date().toISOString(),
+          exitCode,
+        });
+      }
+    }
+  });
+}
+
+async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runRoot }) {
   const allTasks = await discoverCachedHarborTasks(tasksRoot);
   assertTerminalBench21TaskSet(allTasks.map((task) => task.id));
   const taskSourceFingerprint = await fingerprintFixedPromptTaskTree(allTasks);
@@ -111,6 +164,7 @@ async function main() {
           reasoningEffort: REASONING_EFFORT,
           continuation: false,
           attemptPolicy: 'single',
+          contextBudget: HARNESS_MAKA_CONTEXT_BUDGET,
         },
       },
       {
@@ -171,6 +225,7 @@ async function main() {
     agentEnv: { ZAI_BASE_URL: BASE_URL },
     timeoutMultiplier: 1,
   };
+  const makaContextBudgetEnv = harnessMakaContextBudgetEnv();
   const config = (id) => ({
     id: `harness-ab-${id}`,
     backend: 'ai-sdk',
@@ -178,7 +233,7 @@ async function main() {
     model: MODEL,
     thinkingLevel: REASONING_EFFORT,
   });
-  const summary = await runHarnessAbComparison({
+  const summary = await runHarnessAbComparisonUnlocked({
     runId,
     runRoot,
     resultsJsonlPath: join(controllerDir, 'results.jsonl'),
@@ -190,7 +245,11 @@ async function main() {
         id: 'maka',
         config: config('maka'),
         expectedPricingProfile: PRICING.source,
-        harborRunner: createHarborTaskRunner({ ...runnerOptions, agent: 'maka' }),
+        harborRunner: createHarborTaskRunner({
+          ...runnerOptions,
+          agent: 'maka',
+          agentEnv: { ...runnerOptions.agentEnv, ...makaContextBudgetEnv },
+        }),
       },
       {
         id: 'opencode',
@@ -210,6 +269,26 @@ async function main() {
   await writeFile(join(runRoot, 'harness-ab-report.md'), renderHarnessAbReportMarkdown(report), 'utf8');
   assertHarnessAbReportCompleted(report);
   console.log(`completed: ${report.effectiveness.pairedEvaluated}/${report.completeness.expectedPerArm} paired Pass@1 cells -> ${runRoot}`);
+}
+
+function backgroundJournal(runRoot) {
+  if (process.env[BACKGROUND_RUN_ENV] !== '1') return null;
+  const logPath = join(runRoot, BACKGROUND_LOG_FILENAME);
+  return {
+    path: join(runRoot, BACKGROUND_JOURNAL_FILENAME),
+    base: {
+      schemaVersion: 1,
+      pid: process.pid,
+      startedAt: process.env[BACKGROUND_STARTED_AT_ENV] || new Date().toISOString(),
+      logPath,
+    },
+  };
+}
+
+async function writeBackgroundJournal(path, value) {
+  const pendingPath = `${path}.${process.pid}.tmp`;
+  await writeFile(pendingPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  await rename(pendingPath, path);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

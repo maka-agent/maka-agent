@@ -24,6 +24,7 @@ export * from './redact.js';
 export * from './overlay-scroll-area.js';
 export * from './smooth-stream.js';
 export * from './thinking-stream.js';
+export * from './task-ledger-panel.js';
 export * from './toast.js';
 export * from './tool-output-stream.js';
 export * from './ui.js';

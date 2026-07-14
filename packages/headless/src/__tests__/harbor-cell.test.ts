@@ -31,9 +31,11 @@ import {
   HARBOR_CELL_CONTEXT_ENV_KEYS,
   HARBOR_CELL_OUTPUT_FILENAME,
   HARBOR_CELL_RUNTIME_EVENTS_FILENAME,
+  HARBOR_CELL_USAGE_CHECKPOINT_FILENAME,
   resolveHarborCellAiSdkEnv,
   runHarborCellFromEnv,
   runHarborCell,
+  writeHarborCellUsageCheckpoint,
 } from '../harbor-cell.js';
 
 const config: Config = {
@@ -300,6 +302,70 @@ function registerStepCapTwiceThenCompleteBackend(seen: { backend?: StepCapTwiceT
 }
 
 describe('runHarborCell', () => {
+  test('atomically replaces the cumulative completed-step usage checkpoint', async () => {
+    await withDirs(async ({ outputDir }) => {
+      const first = {
+        inputTokens: 100,
+        outputTokens: 5,
+        cacheHitInputTokens: 20,
+        cacheMissInputTokens: 80,
+        cacheMissInputSource: 'explicit' as const,
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 1,
+        totalTokens: 105,
+        costUsd: 0.001,
+      };
+      await writeHarborCellUsageCheckpoint(outputDir, first);
+      await writeHarborCellUsageCheckpoint(outputDir, {
+        ...first,
+        inputTokens: 300,
+        outputTokens: 12,
+        cacheHitInputTokens: 100,
+        cacheMissInputTokens: 200,
+        reasoningTokens: 2,
+        totalTokens: 312,
+        costUsd: 0.003,
+      });
+
+      assert.deepEqual(
+        JSON.parse(await readFile(join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8')),
+        {
+          input: 300,
+          output: 12,
+          cachedInput: 100,
+          cacheHitInput: 100,
+          cacheMissInput: 200,
+          cacheWriteInput: 0,
+          cacheMissInputSource: 'explicit',
+          reasoning: 2,
+          total: 312,
+          costUsd: 0.003,
+          pricingSource: 'runtime',
+        },
+      );
+    });
+  });
+
+  test('does not turn unknown checkpoint cost into zero', async () => {
+    await withDirs(async ({ outputDir }) => {
+      await writeHarborCellUsageCheckpoint(outputDir, {
+        inputTokens: 100,
+        outputTokens: 5,
+        cacheHitInputTokens: 20,
+        cacheMissInputTokens: 80,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 1,
+        totalTokens: 105,
+      });
+
+      await assert.rejects(
+        readFile(join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8'),
+        (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
+      );
+    });
+  });
+
   test('runs in the provided workspace and writes the shared cell artifacts', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const result = await runHarborCell({
@@ -698,7 +764,7 @@ describe('runHarborCell', () => {
         staleToolResultPrune: {
           enabled: true,
           maxResultEstimatedTokens: 256,
-          minRecentTurnsFull: 2,
+          minRecentTurnsFull: 0,
         },
         activeToolResultPrune: {
           enabled: true,
@@ -1408,7 +1474,7 @@ describe('runHarborCell', () => {
         input: ReturnType<typeof buildHarborCellContextBudgetBackendOptions>;
       }).input;
       assert.equal(backendInput.contextBudget?.staleToolResultPrune?.enabled, true);
-      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 2);
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 0);
       assert.equal(backendInput.contextBudget?.archiveRetrieval?.enabled, true);
       assert.equal(backendInput.contextBudget?.archiveRetrieval?.mode, undefined);
       assert.ok(backendInput.archiveToolResult, 'expected archive writer for the placeholder producer');
@@ -1657,21 +1723,18 @@ describe('runHarborCell', () => {
   test('Harbor active tool result prune can be disabled with explicit off', () => {
     const options = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' });
     assert.equal(options.contextBudget?.activeToolResultPrune, undefined);
-    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
+    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 0 });
   });
 
   test('Harbor stale tool result prune is enabled by default without any env', () => {
     const backend = buildHarborCellContextBudgetBackendOptions({});
-    // minRecentTurnsFull is set explicitly so the runtime protection window
-    // matches the policy snapshot and desktop default instead of the runtime's
-    // internal ?? 1 fallback.
-    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
+    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 0 });
 
     const snapshot = buildHarborCellContextBudgetPolicySnapshot({});
     assert.equal(snapshot?.enabled, true);
     assert.equal(snapshot?.staleToolResultPrune?.enabled, true);
     assert.equal(snapshot?.staleToolResultPrune?.maxResultEstimatedTokens, 2048);
-    assert.equal(snapshot?.staleToolResultPrune?.minRecentTurnsFull, 2);
+    assert.equal(snapshot?.staleToolResultPrune?.minRecentTurnsFull, 0);
   });
 
   test('Harbor stale tool result prune can be disabled with explicit off', () => {
@@ -1680,9 +1743,9 @@ describe('runHarborCell', () => {
     assert.deepEqual(options.contextBudget?.activeToolResultPrune, { enabled: true });
   });
 
-  test('Harbor stale tool result prune min recent turns falls back to MAKA_CONTEXT_MIN_RECENT_TURNS', () => {
+  test('Harbor stale tool result prune does not inherit the general recent-turn window', () => {
     const fallback = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_MIN_RECENT_TURNS: '3' });
-    assert.equal(fallback.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 3);
+    assert.equal(fallback.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 0);
 
     const explicit = buildHarborCellContextBudgetBackendOptions({
       MAKA_CONTEXT_MIN_RECENT_TURNS: '3',

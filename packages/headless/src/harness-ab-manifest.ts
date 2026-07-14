@@ -4,6 +4,24 @@ import type { AbRunManifest } from './ab-types.js';
 
 export type HarnessAbArmId = 'maka' | 'opencode';
 
+export const HARNESS_AB_PAIR_CONCURRENCY = 2;
+export const HARNESS_AB_MAX_CONCURRENT_ATTEMPTS = HARNESS_AB_PAIR_CONCURRENCY * 2;
+export const HARNESS_MAKA_CONTEXT_BUDGET = {
+  activeToolResultPrune: {
+    enabled: true,
+    maxCurrentResultEstimatedTokens: 2048,
+    minStepNumber: 1,
+  },
+  staleToolResultPrune: {
+    enabled: true,
+    maxResultEstimatedTokens: 2048,
+    minRecentTurnsFull: 0,
+  },
+  semanticCompact: {
+    enabled: false,
+  },
+} as const;
+
 // Authoritative snapshot: https://github.com/harbor-framework/terminal-bench-2-1
 export const TERMINAL_BENCH_2_1_REVISION = 'd49e28f1e4ddd13d289e85a5f312a66750951932';
 export const TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT = 'sha256:456826aa4c47ed309716c964c96d2a3acc998764ebc84f3e8449c807d74bd4e7';
@@ -226,7 +244,8 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
     pilotTaskIds: evaluationTaskIds.slice(0, input.pilotTaskCount),
     reps: 1,
     candidateLimit: null,
-    maxConcurrency: 1,
+    maxConcurrency: HARNESS_AB_PAIR_CONCURRENCY,
+    maxConcurrentAttempts: HARNESS_AB_MAX_CONCURRENT_ATTEMPTS,
     selectionMode: 'explicit',
   });
   return manifest as HarnessAbRunManifest;

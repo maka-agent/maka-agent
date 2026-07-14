@@ -47,6 +47,7 @@ export type {
   HeavyTaskCompactEvidenceEnvelope,
   HeavyTaskDiffSummary,
   HeavyTaskEvidenceKind,
+  HeavyTaskEvidenceProvenanceLinkedEvent,
   HeavyTaskEvidenceRecordedEvent,
   HeavyTaskOutputSummary,
   HeavyTaskInventoryItem,
@@ -57,11 +58,15 @@ export type {
   HeavyTaskCommandEvidence,
   HeavyTaskProgressSource,
   HeavyTaskSelfCheckRecordedEvent,
+  HeavyTaskSelfCheckEvidenceLinkedEvent,
+  HeavyTaskSelfCheckFreshness,
+  HeavyTaskSelfCheckFreshnessReason,
   HeavyTaskSelfCheckGateAction,
   HeavyTaskSelfCheckGateRecordedEvent,
   HeavyTaskSelfCheckGateState,
   HeavyTaskSelfCheckStatus,
   HeavyTaskSemanticSelfCheckState,
+  HeavyTaskSelfCheckProjection,
   HeavyTaskSourceGuardResult,
   HeavyTaskToolEvidenceName,
   HeavyTaskTodoItem,
@@ -80,6 +85,7 @@ export type {
   ScoreResult,
   SelfCheckObservation,
   TaskAttempt,
+  TaskAttemptExecutionLinkedEvent,
   TaskAttemptStatus,
   TaskDefinition,
   TaskEvent,
@@ -138,7 +144,7 @@ export {
   resourceScopeEquals,
   type NormalizedPermissionArgs,
 } from './permission-grants.js';
-export type { TaskRunProjection, TaskRunStore } from './task-run-store.js';
+export type { TaskEventLedgerEntry, TaskRunProjection, TaskRunStore } from './task-run-store.js';
 export { createInMemoryTaskRunStore, createTaskRunStore, projectTaskRun } from './task-run-store.js';
 export type { TaskEventsFromResultRecordOptions } from './task-run-adapter.js';
 export {
@@ -148,6 +154,15 @@ export {
 } from './task-run-adapter.js';
 export type { RunTaskOnceDeps, RunTaskOnceResult } from './task-agent-controller.js';
 export { runTaskOnce, TaskAgentController } from './task-agent-controller.js';
+export type { TaskAttemptExecutionEvidenceInput } from './task-execution-lineage.js';
+export { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
+export type {
+  TaskEvidenceRuntimeProvenanceInput,
+  TaskEvidenceRuntimeProvenanceLink,
+} from './task-evidence-provenance.js';
+export { runtimeToolFactCoverage, taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
+export type { SelfCheckEvidenceBindingInput, SelfCheckEvidenceBindingResult } from './task-self-check-evidence.js';
+export { bindSelfCheckEvidence } from './task-self-check-evidence.js';
 export type {
   AutonomousDecisionInput,
   AutonomousDecisionPolicy,

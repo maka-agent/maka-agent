@@ -460,7 +460,10 @@ export function heavyTaskSelfCheckWorkspaceGuardStatus(
 }
 
 export function renderHeavyTaskSelfCheckForPrompt(projection: {
-  latestHeavyTaskSelfCheck?: HeavyTaskSemanticSelfCheckState;
+  latestHeavyTaskSelfCheck?: HeavyTaskSemanticSelfCheckState & {
+    freshness?: 'current' | 'stale' | 'unknown';
+    freshnessReasons?: string[];
+  };
 }): string | undefined {
   const selfCheck = projection.latestHeavyTaskSelfCheck;
   if (!selfCheck) return undefined;
@@ -469,6 +472,12 @@ export function renderHeavyTaskSelfCheckForPrompt(projection: {
     `- Latest advisory status: ${selfCheck.status}`,
     `- Public reason: ${oneLine(selfCheck.publicReason, 240)}`,
   ];
+  if (selfCheck.freshness) {
+    lines.push(`- Evidence freshness: ${selfCheck.freshness}`);
+    if (selfCheck.freshnessReasons?.length) {
+      lines.push(`  - freshness reasons: ${selfCheck.freshnessReasons.join(', ')}`);
+    }
+  }
   for (const command of selfCheck.commandEvidence.slice(0, 5)) {
     lines.push(`  - command: ${oneLine(command.command, 160)} exit=${command.exitCode ?? 'unknown'}`);
   }
@@ -647,6 +656,7 @@ function sourceFromContext(ctx: MakaToolContext): HeavyTaskSemanticSelfCheckStat
     kind: 'model_tool',
     toolCallId: ctx.toolCallId,
     ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+    ...(ctx.runId ? { agentRunId: ctx.runId } : {}),
     ...(ctx.turnId ? { turnId: ctx.turnId } : {}),
   };
 }

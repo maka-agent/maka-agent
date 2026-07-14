@@ -8,6 +8,8 @@ import {
   generalizedErrorMessage,
   generalizedErrorMessageChinese,
   redactSecrets,
+  filterModelVisibleTaskLedgerTasks,
+  sanitizeTaskLedgerTask,
   buildHealthSnapshot,
   healthSignalFromCapability,
   healthSignalFromConnection,
@@ -468,6 +470,35 @@ const goalWiring = createMainGoalWiring({
   // Surface every goal transition to the renderer so an active autonomous loop
   // is visible (badge + clear affordance) — never a silent token burn.
   onGoalChange: (goal) => emitSessionsChanged('goal-change', goal.sessionId),
+  listActionableTaskKeys: async (sessionId) => {
+    const tasks = await taskLedgerStore.list(sessionId, {
+      includeTerminal: false,
+      includeArchived: false,
+    });
+    return filterModelVisibleTaskLedgerTasks(tasks)
+      .filter((task) => task.status === 'pending' || task.status === 'in_progress')
+      .map((task) => task.key);
+  },
+  recordTaskGateDecision: async (trace) => {
+    if (!trace.turnId) return;
+    const runs = await runStore.listSessionRuns(trace.sessionId);
+    const run = runs.find((candidate) => candidate.turnId === trace.turnId);
+    if (!run) return;
+    await runStore.appendEvent(trace.sessionId, run.runId, {
+      type: 'task_gate_decided',
+      id: randomUUID(),
+      runId: run.runId,
+      sessionId: trace.sessionId,
+      turnId: trace.turnId,
+      ts: Date.now(),
+      message: `Task gate: ${trace.decision}`,
+      data: {
+        goalId: trace.goalId,
+        decision: trace.decision,
+        taskKeys: trace.taskKeys,
+      },
+    });
+  },
 });
 
 async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
@@ -518,6 +549,7 @@ function focusOrCreateMainWindow(): void {
 }
 app.on('second-instance', focusOrCreateMainWindow);
 const safeSendToRenderer = mainWindowController.send;
+taskLedgerStore.subscribe((event) => safeSendToRenderer('tasks:changed', event));
 const openGateway = new OpenGatewayService({
   getSettings: () => settingsStore.get(),
   listSessions: () => runtime.listSessions(),
@@ -610,7 +642,10 @@ const computerUseTools = applyComputerUseRealModelPolicy(
       )
     : undefined,
 );
-const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
+const agentTools: MakaTool[] = [
+  buildSubagentSpawnTool({ taskLedger: taskLedgerStore }),
+  ...buildSubagentProjectionTools(),
+];
 const deferredTools: MakaTool[] = [
   ...riveTools,
   ...officeTools,
@@ -1301,6 +1336,15 @@ function registerIpc(): void {
   );
   registerPlanReminderIpc({ planReminders, getWorkspacePrivacyContext });
   ipcMain.handle('shell-runs:list', (_event, sessionId: string) => runtime.listShellRunUpdates(sessionId));
+  ipcMain.handle('tasks:list', async (_event, sessionId: string) => {
+    const tasks = await taskLedgerStore.list(sessionId, {
+      includeTerminal: true,
+      includeArchived: false,
+      classifyResumeTrust: true,
+      ...(visualSmokeFixture ? { now: getVisualSmokeState(visualSmokeFixture)?.now ?? Date.now() } : {}),
+    });
+    return tasks.map(sanitizeTaskLedgerTask);
+  });
   ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
   ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {
     const cwd = input?.cwd ?? (await currentProjectRoot());
@@ -1884,7 +1928,7 @@ async function streamEvents(
     // re-injecting into a failing connection would spin ~maxIterations failing
     // turns. Failures never surface to the turn.
     if (!turnAborted && !turnError) {
-      void handleGoalContinuation(goalWiring.continuationDeps, sessionId).catch(() => {});
+      void handleGoalContinuation(goalWiring.continuationDeps, sessionId, turnId).catch(() => {});
     }
     return { turnId, ok: !turnAborted && !turnError, ...(turnError ? { error: turnError } : {}) };
   } catch (error) {

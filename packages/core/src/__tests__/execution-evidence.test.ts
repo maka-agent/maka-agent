@@ -162,6 +162,10 @@ describe('execution evidence spine contract', () => {
     assert.equal(compareExecutionLogCursors(first, { ...first, eventId: 'other-event' }), 'conflict');
     assert.equal(compareExecutionLogCursors(first, { ...first, streamId: 'run-2' }), 'incomparable');
     assert.equal(compareExecutionLogCursors(first, taskCursor(1, 'task-event-1')), 'incomparable');
+    assert.equal(compareExecutionLogCursors(first, {
+      ...first,
+      ledger: 'runtime_event_projection',
+    }), 'incomparable');
   });
 });
 

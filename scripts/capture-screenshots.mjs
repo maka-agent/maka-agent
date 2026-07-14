@@ -63,6 +63,7 @@ const ALL_SCENARIOS = [
   'fetched-empty',
   'connection-error',
   'turn-narrative',
+  'task-ledger',
   'artifact-pane',
   'artifact-errors',
   'streaming-sidebar',

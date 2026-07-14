@@ -15,8 +15,8 @@ export interface HarnessAbArmEconomy {
   outputTokens: number;
   totalTokens: number;
   apiEquivalentCostUsd: number;
-  tokensPerEvaluated: number | null;
-  costPerEvaluatedUsd: number | null;
+  tokensPerMetered: number | null;
+  costPerMeteredUsd: number | null;
   costPerPassUsd: number | null;
 }
 
@@ -45,6 +45,8 @@ export interface HarnessAbReport {
   };
   economy: {
     basis: 'cache-aware-api-equivalent-usd';
+    pairedMetered: number;
+    missingUsagePairs: number;
     baseline: HarnessAbArmEconomy;
     candidate: HarnessAbArmEconomy;
   };
@@ -53,7 +55,9 @@ export interface HarnessAbReport {
 export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbReport {
   const runStatus = summary.stopReason
     ? 'stopped'
-    : summary.pairedAttempts.evaluatedPairs === summary.pairedAttempts.pairs
+    : summary.pairedAttempts.missingPairIds.length === 0
+        && summary.pairedAttempts.missingUsagePairIds.length === 0
+        && summary.pairedAttempts.excludedPairIds.length === 0
       ? 'completed'
       : 'incomplete';
   return {
@@ -89,17 +93,19 @@ export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbRep
     },
     economy: {
       basis: 'cache-aware-api-equivalent-usd',
+      pairedMetered: summary.pairedAttempts.fullyMeteredPairs,
+      missingUsagePairs: summary.pairedAttempts.missingUsagePairIds.length,
       baseline: armEconomy(
         summary.baselineArmId,
         summary.pairedAttempts.baselineTokenCostSummary,
-        summary.pairedAttempts.evaluatedPairs,
-        summary.pairedAttempts.baselinePassed,
+        summary.pairedAttempts.fullyMeteredPairs,
+        summary.pairedAttempts.baselineMeteredPassed,
       ),
       candidate: armEconomy(
         summary.candidateArmId,
         summary.pairedAttempts.candidateTokenCostSummary,
-        summary.pairedAttempts.evaluatedPairs,
-        summary.pairedAttempts.candidatePassed,
+        summary.pairedAttempts.fullyMeteredPairs,
+        summary.pairedAttempts.candidateMeteredPassed,
       ),
     },
   };
@@ -119,12 +125,12 @@ export function renderHarnessAbReportCsv(report: HarnessAbReport): string {
     ['economy', 'output_tokens', baselineEconomy.armId, baselineEconomy.outputTokens, candidateEconomy.armId, candidateEconomy.outputTokens, candidateEconomy.outputTokens - baselineEconomy.outputTokens],
     ['economy', 'total_tokens', baselineEconomy.armId, baselineEconomy.totalTokens, candidateEconomy.armId, candidateEconomy.totalTokens, candidateEconomy.totalTokens - baselineEconomy.totalTokens],
     ['economy', 'api_equivalent_cost_usd', baselineEconomy.armId, baselineEconomy.apiEquivalentCostUsd, candidateEconomy.armId, candidateEconomy.apiEquivalentCostUsd, candidateEconomy.apiEquivalentCostUsd - baselineEconomy.apiEquivalentCostUsd],
-    ['economy', 'tokens_per_evaluated', baselineEconomy.armId, baselineEconomy.tokensPerEvaluated, candidateEconomy.armId, candidateEconomy.tokensPerEvaluated, nullableDelta(candidateEconomy.tokensPerEvaluated, baselineEconomy.tokensPerEvaluated)],
-    ['economy', 'cost_per_evaluated_usd', baselineEconomy.armId, baselineEconomy.costPerEvaluatedUsd, candidateEconomy.armId, candidateEconomy.costPerEvaluatedUsd, nullableDelta(candidateEconomy.costPerEvaluatedUsd, baselineEconomy.costPerEvaluatedUsd)],
+    ['economy', 'tokens_per_metered', baselineEconomy.armId, baselineEconomy.tokensPerMetered, candidateEconomy.armId, candidateEconomy.tokensPerMetered, nullableDelta(candidateEconomy.tokensPerMetered, baselineEconomy.tokensPerMetered)],
+    ['economy', 'cost_per_metered_usd', baselineEconomy.armId, baselineEconomy.costPerMeteredUsd, candidateEconomy.armId, candidateEconomy.costPerMeteredUsd, nullableDelta(candidateEconomy.costPerMeteredUsd, baselineEconomy.costPerMeteredUsd)],
     ['economy', 'cost_per_pass_usd', baselineEconomy.armId, baselineEconomy.costPerPassUsd, candidateEconomy.armId, candidateEconomy.costPerPassUsd, nullableDelta(candidateEconomy.costPerPassUsd, baselineEconomy.costPerPassUsd)],
   ];
   return [
-    'run_status,stop_reason,paired_expected,paired_evaluated,excluded_pairs,missing_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline',
+    'run_status,stop_reason,paired_expected,paired_evaluated,excluded_pairs,missing_pairs,paired_metered,missing_usage_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline',
     ...rows.map((row) => [
       report.runStatus,
       report.stopReason ?? '',
@@ -132,6 +138,8 @@ export function renderHarnessAbReportCsv(report: HarnessAbReport): string {
       report.effectiveness.pairedEvaluated,
       report.completeness.excludedPairs,
       report.completeness.missingPairs,
+      report.economy.pairedMetered,
+      report.economy.missingUsagePairs,
       ...row,
     ].map(csvCell).join(',')),
   ].join('\n') + '\n';
@@ -146,6 +154,7 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
     `Status: ${report.runStatus}${report.stopReason ? ` (${report.stopReason})` : ''}.`,
     '',
     `Run: ${report.runId}; tasks: ${report.taskCount}; paired evaluated: ${report.effectiveness.pairedEvaluated}; excluded: ${report.completeness.excludedPairs}; missing: ${report.completeness.missingPairs}.`,
+    `Economy coverage: fully metered pairs: ${report.economy.pairedMetered}; missing usage: ${report.economy.missingUsagePairs}.`,
     '',
     '## Effectiveness',
     '',
@@ -163,7 +172,7 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
     `| Uncached input tokens | ${baselineEconomy.uncachedInputTokens} | ${candidateEconomy.uncachedInputTokens} |`,
     `| Output tokens | ${baselineEconomy.outputTokens} | ${candidateEconomy.outputTokens} |`,
     `| API-equivalent cost (USD) | ${baselineEconomy.apiEquivalentCostUsd} | ${candidateEconomy.apiEquivalentCostUsd} |`,
-    `| Cost per evaluated task (USD) | ${value(baselineEconomy.costPerEvaluatedUsd)} | ${value(candidateEconomy.costPerEvaluatedUsd)} |`,
+    `| Cost per fully metered task (USD) | ${value(baselineEconomy.costPerMeteredUsd)} | ${value(candidateEconomy.costPerMeteredUsd)} |`,
     `| Cost per pass (USD) | ${value(baselineEconomy.costPerPassUsd)} | ${value(candidateEconomy.costPerPassUsd)} |`,
     '',
     '## Interpretation boundary',
@@ -178,6 +187,11 @@ export function assertHarnessAbReportCompleted(report: HarnessAbReport): void {
     throw new Error(`harness A/B stopped: ${report.stopReason ?? 'unknown_reason'}`);
   }
   if (report.runStatus === 'incomplete') {
+    if (report.economy.missingUsagePairs > 0) {
+      throw new Error(
+        `harness A/B incomplete: missing usage for ${report.economy.missingUsagePairs} pair(s)`,
+      );
+    }
     throw new Error(
       `harness A/B incomplete: ${report.effectiveness.pairedEvaluated}/${report.completeness.expectedPerArm} paired attempts evaluated (${report.completeness.excludedPairs} excluded, ${report.completeness.missingPairs} missing)`,
     );
@@ -206,8 +220,8 @@ function armEconomy(
     outputTokens: tokens.output,
     totalTokens: tokens.total,
     apiEquivalentCostUsd: tokens.costUsd,
-    tokensPerEvaluated: divide(tokens.total, evaluated),
-    costPerEvaluatedUsd: divide(tokens.costUsd, evaluated),
+    tokensPerMetered: divide(tokens.total, evaluated),
+    costPerMeteredUsd: divide(tokens.costUsd, evaluated),
     costPerPassUsd: divide(tokens.costUsd, passed),
   };
 }

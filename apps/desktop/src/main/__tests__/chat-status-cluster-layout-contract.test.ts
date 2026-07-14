@@ -38,8 +38,8 @@ describe('chat status cluster layout contract', () => {
     );
     assert.match(
       src,
-      /<div className="maka-chat-status-cluster">[\s\S]*?<\/div>\s*\{isLocalSimulationBackend && \(/,
-      'status badges should stay before the fake-backend banner so normal flow reserves vertical space before first content',
+      /<div className="maka-chat-status-cluster">[\s\S]*?<\/div>\s*\{props\.taskLedger && <TaskLedgerPanel[\s\S]*?\/?>\}\s*\{isLocalSimulationBackend && \(/,
+      'status badges and task ledger should stay before the fake-backend banner so normal flow reserves vertical space before first content',
     );
   });
 

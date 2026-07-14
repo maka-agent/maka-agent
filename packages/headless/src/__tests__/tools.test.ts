@@ -483,7 +483,7 @@ describe('isolated headless tools', () => {
         return { matches: ['src/file.ts:1:needle'] };
       },
     }, { heavyTaskEvidence: recorder });
-    const ctx = toolCtx('/workspace');
+    const ctx = { ...toolCtx('/workspace'), runId: 'agent-run-1' };
 
     await tool(tools, 'Bash').impl({ command: 'npm test' }, ctx);
     await tool(tools, 'Read').impl({ path: 'src/file.ts', limit: 10 }, ctx);
@@ -493,6 +493,7 @@ describe('isolated headless tools', () => {
 
     const projection = await store.project('run-evidence');
     assert.deepEqual(projection.heavyTaskEvidence.map((item) => item.tool?.name), ['Bash', 'Read', 'Grep', 'Write', 'Edit']);
+    assert.ok(projection.heavyTaskEvidence.every((item) => item.source.agentRunId === 'agent-run-1'));
     assert.equal(projection.latestHeavyTaskEvidence?.tool?.name, 'Edit');
     assert.equal(projection.heavyTaskEvidence[0]?.tool?.outputs[0]?.truncated, true);
     const serialized = JSON.stringify(projection.heavyTaskEvidence);

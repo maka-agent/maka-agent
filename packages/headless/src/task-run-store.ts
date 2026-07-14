@@ -1,5 +1,10 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import {
+  validateExecutionEvidenceRef,
+  type ExecutionEvidenceRef,
+  type ExecutionLogCursor,
+} from '@maka/core/execution-evidence';
 import type { ResultRecord } from './contracts.js';
 import { compactArtifactEvidence, compactSelfCheckEvidence } from './heavy-task-evidence.js';
 import { evaluateHeavyTaskCompletionStatus, type HeavyTaskCompletionStatus } from './heavy-task-finalization.js';
@@ -10,6 +15,8 @@ import type {
   HeavyTaskCompactEvidenceEnvelope,
   HeavyTaskSelfCheckPlanState,
   HeavyTaskSelfCheckGateState,
+  HeavyTaskSelfCheckFreshnessReason,
+  HeavyTaskSelfCheckProjection,
   HeavyTaskWorkspaceObservationState,
   EconomyTaskModeFacts,
   HeavyTaskInventoryState,
@@ -37,6 +44,7 @@ import type {
 export interface TaskRunProjection extends TaskRun {
   events: TaskEvent[];
   attempts: TaskAttempt[];
+  executionLineage: ExecutionEvidenceRef[];
   selfChecks: SelfCheckObservation[];
   feedback: FeedbackObservation[];
   decisions: AutonomousDecision[];
@@ -56,8 +64,8 @@ export interface TaskRunProjection extends TaskRun {
   latestHeavyTaskInventory?: HeavyTaskInventoryState;
   heavyTaskTodoStates: HeavyTaskTodoState[];
   latestHeavyTaskTodos?: HeavyTaskTodoState;
-  heavyTaskSelfChecks: HeavyTaskSemanticSelfCheckState[];
-  latestHeavyTaskSelfCheck?: HeavyTaskSemanticSelfCheckState;
+  heavyTaskSelfChecks: HeavyTaskSelfCheckProjection[];
+  latestHeavyTaskSelfCheck?: HeavyTaskSelfCheckProjection;
   heavyTaskSelfCheckPlans: HeavyTaskSelfCheckPlanState[];
   latestHeavyTaskSelfCheckPlan?: HeavyTaskSelfCheckPlanState;
   heavyTaskSelfCheckGates: HeavyTaskSelfCheckGateState[];
@@ -75,8 +83,14 @@ export interface TaskRunProjection extends TaskRun {
 
 export interface TaskRunStore {
   appendEvent(taskRunId: string, event: TaskEvent): Promise<void>;
+  readEventRecords(taskRunId: string): Promise<TaskEventLedgerEntry[]>;
   readEvents(taskRunId: string): Promise<TaskEvent[]>;
   project(taskRunId: string): Promise<TaskRunProjection>;
+}
+
+export interface TaskEventLedgerEntry {
+  event: TaskEvent;
+  cursor: ExecutionLogCursor;
 }
 
 export function createInMemoryTaskRunStore(initialEvents: readonly TaskEvent[] = []): TaskRunStore {
@@ -96,6 +110,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
     status: 'queued',
     events: [],
     attempts: [],
+    executionLineage: [],
     selfChecks: [],
     feedback: [],
     decisions: [],
@@ -117,9 +132,12 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
   };
   const attempts = new Map<string, TaskAttempt>();
   const inboxItems = new Map<string, TaskInboxItem>();
+  const selfCheckRows = new Map<string, Array<{ sequence: number; projectionIndex: number; eventId: string }>>();
+  const workspaceObservationRows = new Map<string, { sequence: number; observation: HeavyTaskWorkspaceObservationState }>();
   let terminalEvents = 0;
 
-  for (const event of events) {
+  for (let sequence = 0; sequence < events.length; sequence += 1) {
+    const event = events[sequence]!;
     if (projectedTaskRunId && event.taskRunId !== projectedTaskRunId) {
       projection.warnings.push(`ignored event ${event.id}: taskRunId ${event.taskRunId} does not match ${projectedTaskRunId}`);
       continue;
@@ -147,6 +165,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
         projection.status = 'verifying';
         break;
       case 'task_attempt_started': {
+        const previous = attempts.get(event.attemptId);
         const attempt: TaskAttempt = {
           attemptId: event.attemptId,
           taskRunId: event.taskRunId,
@@ -154,9 +173,37 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
           status: 'running',
           ...(event.sessionId ? { sessionId: event.sessionId } : {}),
           ...(event.agentRunId ? { agentRunId: event.agentRunId } : {}),
+          executionLineage: previous?.executionLineage ?? [],
         };
         attempts.set(event.attemptId, attempt);
         setOptionalRefs(projection, event.sessionId, event.agentRunId);
+        break;
+      }
+      case 'task_attempt_execution_linked': {
+        const evidence = validTaskAttemptExecutionEvidence(event, projection.warnings);
+        if (!evidence) break;
+        projection.executionLineage.push(evidence);
+        const previous = attempts.get(event.attemptId);
+        attempts.set(event.attemptId, {
+          ...(previous ?? {
+            attemptId: event.attemptId,
+            taskRunId: event.taskRunId,
+            startedAt: event.ts,
+            status: 'running',
+            executionLineage: [],
+          }),
+          ...(evidence.execution?.sessionId ? { sessionId: evidence.execution.sessionId } : {}),
+          ...(!previous?.agentRunId && evidence.execution?.agentRunId
+            ? { agentRunId: evidence.execution.agentRunId }
+            : {}),
+          executionLineage: [...(previous?.executionLineage ?? []), evidence],
+        });
+        if (!projection.sessionId && evidence.execution?.sessionId) {
+          projection.sessionId = evidence.execution.sessionId;
+        }
+        if (!projection.agentRunId && evidence.execution?.agentRunId) {
+          projection.agentRunId = evidence.execution.agentRunId;
+        }
         break;
       }
       case 'self_check_observed':
@@ -210,8 +257,17 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
         break;
       case 'heavy_task_self_check_recorded':
         if (isAcceptedHeavyTaskSelfCheck(event.selfCheck)) {
-          projection.heavyTaskSelfChecks.push(event.selfCheck);
-          projection.latestHeavyTaskSelfCheck = event.selfCheck;
+          const projectedSelfCheck: HeavyTaskSelfCheckProjection = {
+            ...event.selfCheck,
+            freshness: 'unknown',
+            freshnessReasons: ['source_binding_missing'],
+          };
+          const projectionIndex = projection.heavyTaskSelfChecks.push(projectedSelfCheck) - 1;
+          selfCheckRows.set(event.selfCheck.selfCheckId, [
+            ...(selfCheckRows.get(event.selfCheck.selfCheckId) ?? []),
+            { sequence, projectionIndex, eventId: event.id },
+          ]);
+          projection.latestHeavyTaskSelfCheck = projectedSelfCheck;
           appendCompactEvidence(
             projection,
             ...compactSelfCheckEvidence({
@@ -223,6 +279,36 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
           projection.warnings.push(`ignored heavy-task self-check ${event.selfCheck.selfCheckId}: source guard did not accept public evidence`);
         }
         break;
+      case 'heavy_task_self_check_evidence_linked': {
+        const rows = selfCheckRows.get(event.selfCheckId) ?? [];
+        if (rows.length !== 1) {
+          const reason = rows.length === 0 ? 'was not recorded first' : 'is ambiguous';
+          projection.warnings.push(`ignored self-check evidence link ${event.id}: Self-check ${event.selfCheckId} ${reason}`);
+          break;
+        }
+        const row = rows[0]!;
+        const selfCheck = projection.heavyTaskSelfChecks[row.projectionIndex]!;
+        if (selfCheck.provenance) {
+          projection.warnings.push(`ignored self-check evidence link ${event.id}: Self-check ${event.selfCheckId} is already linked`);
+          break;
+        }
+        const observationRow = workspaceObservationRows.get(event.workspaceObservationId);
+        const provenance = validHeavyTaskSelfCheckProvenance(
+          event,
+          selfCheck,
+          row.sequence,
+          row.eventId,
+          observationRow,
+          projection.warnings,
+        );
+        if (!provenance) break;
+        projection.heavyTaskSelfChecks[row.projectionIndex] = {
+          ...selfCheck,
+          provenance,
+          workspaceObservationId: event.workspaceObservationId,
+        };
+        break;
+      }
       case 'heavy_task_self_check_gate_recorded':
         projection.heavyTaskSelfCheckGates.push(event.gate);
         projection.latestHeavyTaskSelfCheckGate = event.gate;
@@ -230,12 +316,40 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
       case 'heavy_task_workspace_observation_recorded':
         projection.heavyTaskWorkspaceObservations.push(event.observation);
         projection.latestHeavyTaskWorkspaceObservation = event.observation;
+        workspaceObservationRows.set(event.observation.observationId, {
+          sequence,
+          observation: event.observation,
+        });
         break;
       case 'heavy_task_evidence_recorded':
         if (!appendCompactEvidence(projection, event.evidence)) {
           projection.warnings.push(`ignored heavy-task evidence ${event.evidence.evidenceId}: evidence must be public and match taskRunId`);
         }
         break;
+      case 'heavy_task_evidence_provenance_linked': {
+        const matchingIndexes = projection.heavyTaskEvidence.flatMap((item, index) => (
+          item.evidenceId === event.evidenceId ? [index] : []
+        ));
+        if (matchingIndexes.length !== 1) {
+          const reason = matchingIndexes.length === 0 ? 'was not recorded first' : 'is ambiguous';
+          projection.warnings.push(`ignored evidence provenance ${event.id}: evidence ${event.evidenceId} ${reason}`);
+          break;
+        }
+        const index = matchingIndexes[0]!;
+        const evidence = projection.heavyTaskEvidence[index]!;
+        const provenance = validHeavyTaskEvidenceProvenance(event, evidence, projection.warnings);
+        if (!provenance) break;
+        if (evidence.provenance) {
+          projection.warnings.push(`ignored evidence provenance ${event.id}: evidence ${event.evidenceId} is already linked`);
+          break;
+        }
+        const linked = { ...evidence, provenance };
+        projection.heavyTaskEvidence[index] = linked;
+        if (projection.latestHeavyTaskEvidence?.evidenceId === event.evidenceId) {
+          projection.latestHeavyTaskEvidence = linked;
+        }
+        break;
+      }
       case 'isolation_policy_recorded':
         projection.isolation = event.facts;
         break;
@@ -277,7 +391,12 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
           if (event.attemptId) {
             const previous = attempts.get(event.attemptId);
             attempts.set(event.attemptId, {
-              ...(previous ?? { attemptId: event.attemptId, taskRunId: event.taskRunId, startedAt: event.ts }),
+              ...(previous ?? {
+                attemptId: event.attemptId,
+                taskRunId: event.taskRunId,
+                startedAt: event.ts,
+                executionLineage: [],
+              }),
               status: 'needs_approval',
               finishedAt: event.ts,
             });
@@ -290,6 +409,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
             attemptId: event.attemptId,
             taskRunId: event.taskRunId,
             startedAt: event.ts,
+            executionLineage: [],
           }),
           status: event.status,
           finishedAt: event.finishedAt ?? event.ts,
@@ -352,6 +472,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
 
   projection.attempts = [...attempts.values()];
   projection.inboxItems = [...inboxItems.values()];
+  refreshHeavyTaskSelfCheckFreshness(projection, events, workspaceObservationRows);
   projection.latestVerifierResult = preferredVerifierResult(projection.verifierResults);
   projection.latestScoreResult = preferredScoreResult(projection.scoreResults, projection.latestVerifierResult);
   if (projection.latestScoreResult) {
@@ -402,7 +523,14 @@ class InMemoryTaskRunStore implements TaskRunStore {
   }
 
   async readEvents(taskRunId: string): Promise<TaskEvent[]> {
-    return [...(this.events.get(taskRunId) ?? [])];
+    return (await this.readEventRecords(taskRunId)).map((record) => record.event);
+  }
+
+  async readEventRecords(taskRunId: string): Promise<TaskEventLedgerEntry[]> {
+    return (this.events.get(taskRunId) ?? []).map((event, sequence) => ({
+      event,
+      cursor: taskEventCursor(taskRunId, sequence, event.id),
+    }));
   }
 
   async project(taskRunId: string): Promise<TaskRunProjection> {
@@ -430,6 +558,10 @@ class FileTaskRunStore implements TaskRunStore {
   }
 
   async readEvents(taskRunId: string): Promise<TaskEvent[]> {
+    return (await this.readEventRecords(taskRunId)).map((record) => record.event);
+  }
+
+  async readEventRecords(taskRunId: string): Promise<TaskEventLedgerEntry[]> {
     let content: string;
     try {
       content = await readFile(this.taskRunPath(taskRunId), 'utf8');
@@ -439,24 +571,29 @@ class FileTaskRunStore implements TaskRunStore {
     }
 
     const lines = content.endsWith('\n') ? content.split('\n') : content.split('\n').slice(0, -1);
-    const events: TaskEvent[] = [];
+    const records: TaskEventLedgerEntry[] = [];
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
       if (!line) continue;
+      let event: TaskEvent;
       try {
-        events.push(JSON.parse(line) as TaskEvent);
+        event = JSON.parse(line) as TaskEvent;
       } catch (error) {
-        events.push({
+        event = {
           type: 'event_corrupt',
           id: `corrupt-${i + 1}`,
           taskRunId,
           ts: 0,
           raw: line,
           error: errorMessage(error),
-        });
+        };
       }
+      records.push({
+        event,
+        cursor: taskEventCursor(taskRunId, records.length, event.id),
+      });
     }
-    return events;
+    return records;
   }
 
   async project(taskRunId: string): Promise<TaskRunProjection> {
@@ -476,6 +613,200 @@ function setOptionalRefs(projection: TaskRunProjection, sessionId: string | unde
   if (sessionId) projection.sessionId = sessionId;
   if (agentRunId) projection.agentRunId = agentRunId;
 }
+
+function taskEventCursor(taskRunId: string, sequence: number, eventId: string): ExecutionLogCursor {
+  return { ledger: 'task_event', streamId: taskRunId, sequence, eventId };
+}
+
+function validTaskAttemptExecutionEvidence(
+  event: Extract<TaskEvent, { type: 'task_attempt_execution_linked' }>,
+  warnings: string[],
+): ExecutionEvidenceRef | undefined {
+  const validation = validateExecutionEvidenceRef(event.evidence);
+  if (!validation.ok) {
+    warnings.push(`ignored execution lineage ${event.id}: ${validation.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ')}`);
+    return undefined;
+  }
+  const evidence = validation.value;
+  if (evidence.task?.taskRunId !== event.taskRunId || evidence.task.attemptId !== event.attemptId) {
+    warnings.push(`ignored execution lineage ${event.id}: task identity does not match the owning attempt`);
+    return undefined;
+  }
+  if (!evidence.execution?.agentRunId) {
+    warnings.push(`ignored execution lineage ${event.id}: execution.agentRunId is required`);
+    return undefined;
+  }
+  return evidence;
+}
+
+function validHeavyTaskEvidenceProvenance(
+  event: Extract<TaskEvent, { type: 'heavy_task_evidence_provenance_linked' }>,
+  subject: HeavyTaskCompactEvidenceEnvelope,
+  warnings: string[],
+): ExecutionEvidenceRef | undefined {
+  const validation = validateExecutionEvidenceRef(event.provenance);
+  if (!validation.ok) {
+    warnings.push(
+      `ignored evidence provenance ${event.id}: ${validation.errors
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join('; ')}`,
+    );
+    return undefined;
+  }
+  const provenance = validation.value;
+  if (provenance.task?.taskRunId !== event.taskRunId) {
+    warnings.push(`ignored evidence provenance ${event.id}: task identity does not match the owning TaskRun`);
+    return undefined;
+  }
+  const attemptId = event.attemptId;
+  if (
+    (subject.attemptId && event.attemptId !== subject.attemptId)
+    || provenance.task?.attemptId !== attemptId
+  ) {
+    warnings.push(`ignored evidence provenance ${event.id}: attempt identity does not match the evidence`);
+    return undefined;
+  }
+  if (!provenance.execution?.agentRunId || !provenance.runtimeCoverage) {
+    warnings.push(`ignored evidence provenance ${event.id}: AgentRun identity and Runtime coverage are required`);
+    return undefined;
+  }
+  if (
+    (subject.source.sessionId && subject.source.sessionId !== provenance.execution.sessionId)
+    || (subject.source.agentRunId && subject.source.agentRunId !== provenance.execution.agentRunId)
+    || (subject.source.turnId && subject.source.turnId !== provenance.execution.turnId)
+  ) {
+    warnings.push(`ignored evidence provenance ${event.id}: Runtime identity does not match the evidence source`);
+    return undefined;
+  }
+  return provenance;
+}
+
+function validHeavyTaskSelfCheckProvenance(
+  event: Extract<TaskEvent, { type: 'heavy_task_self_check_evidence_linked' }>,
+  selfCheck: HeavyTaskSelfCheckProjection,
+  selfCheckSequence: number,
+  selfCheckEventId: string,
+  observationRow: { sequence: number; observation: HeavyTaskWorkspaceObservationState } | undefined,
+  warnings: string[],
+): ExecutionEvidenceRef | undefined {
+  const validation = validateExecutionEvidenceRef(event.provenance);
+  if (!validation.ok) {
+    warnings.push(
+      `ignored self-check evidence link ${event.id}: ${validation.errors
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join('; ')}`,
+    );
+    return undefined;
+  }
+  const provenance = validation.value;
+  if (
+    provenance.task?.taskRunId !== event.taskRunId
+    || provenance.task.attemptId !== event.attemptId
+    || selfCheck.taskRunId !== event.taskRunId
+    || selfCheck.attemptId !== event.attemptId
+  ) {
+    warnings.push(`ignored self-check evidence link ${event.id}: TaskRun or attempt identity does not match`);
+    return undefined;
+  }
+  if (!provenance.execution?.agentRunId || !provenance.runtimeCoverage || !provenance.taskCoverage || !provenance.workspace) {
+    warnings.push(`ignored self-check evidence link ${event.id}: Runtime coverage, Task coverage, and workspace revision are required`);
+    return undefined;
+  }
+  if (
+    (selfCheck.source.sessionId && selfCheck.source.sessionId !== provenance.execution.sessionId)
+    || (selfCheck.source.agentRunId && selfCheck.source.agentRunId !== provenance.execution.agentRunId)
+    || (selfCheck.source.turnId && selfCheck.source.turnId !== provenance.execution.turnId)
+  ) {
+    warnings.push(`ignored self-check evidence link ${event.id}: Runtime identity does not match the Self-check source`);
+    return undefined;
+  }
+  const taskHighWater = provenance.taskCoverage.highWater;
+  if (
+    taskHighWater.ledger !== 'task_event'
+    || taskHighWater.streamId !== event.taskRunId
+    || taskHighWater.sequence !== selfCheckSequence
+    || taskHighWater.eventId !== selfCheckEventId
+  ) {
+    warnings.push(`ignored self-check evidence link ${event.id}: Task high water does not identify the Self-check record`);
+    return undefined;
+  }
+  if (
+    !observationRow
+    || observationRow.sequence <= selfCheckSequence
+    || observationRow.observation.status !== 'ok'
+    || !observationRow.observation.revision
+  ) {
+    warnings.push(`ignored self-check evidence link ${event.id}: referenced post-check workspace observation is missing`);
+    return undefined;
+  }
+  if (!sameWorkspaceRevision(provenance.workspace, observationRow.observation.revision)) {
+    warnings.push(`ignored self-check evidence link ${event.id}: workspace revision does not match the referenced observation`);
+    return undefined;
+  }
+  return provenance;
+}
+
+function refreshHeavyTaskSelfCheckFreshness(
+  projection: TaskRunProjection,
+  events: readonly TaskEvent[],
+  observationRows: ReadonlyMap<string, { sequence: number; observation: HeavyTaskWorkspaceObservationState }>,
+): void {
+  projection.heavyTaskSelfChecks = projection.heavyTaskSelfChecks.map((selfCheck) => {
+    if (!selfCheck.provenance || !selfCheck.workspaceObservationId) {
+      return withSelfCheckFreshness(selfCheck, 'unknown', ['source_binding_missing']);
+    }
+    const baseline = observationRows.get(selfCheck.workspaceObservationId);
+    if (!baseline?.observation.revision) {
+      return withSelfCheckFreshness(selfCheck, 'unknown', ['workspace_observation_missing']);
+    }
+    const laterObservations = [...observationRows.values()]
+      .filter((row) => row.sequence >= baseline.sequence && row.observation.status === 'ok' && row.observation.revision)
+      .sort((left, right) => left.sequence - right.sequence);
+    const latestObservation = laterObservations.at(-1) ?? baseline;
+    if (!sameWorkspaceRevision(selfCheck.provenance.workspace, latestObservation.observation.revision)) {
+      return withSelfCheckFreshness(selfCheck, 'stale', ['workspace_revision_changed']);
+    }
+    const hasLaterMutation = events.some((event, sequence) => (
+      sequence > latestObservation.sequence
+      && invalidatesSelfCheckWorkspace(event, selfCheck.attemptId)
+    ));
+    if (hasLaterMutation) {
+      return withSelfCheckFreshness(selfCheck, 'stale', ['later_workspace_mutation']);
+    }
+    return withSelfCheckFreshness(selfCheck, 'current', []);
+  });
+  projection.latestHeavyTaskSelfCheck = projection.heavyTaskSelfChecks.at(-1);
+}
+
+function withSelfCheckFreshness(
+  selfCheck: HeavyTaskSelfCheckProjection,
+  freshness: HeavyTaskSelfCheckProjection['freshness'],
+  freshnessReasons: HeavyTaskSelfCheckFreshnessReason[],
+): HeavyTaskSelfCheckProjection {
+  return { ...selfCheck, freshness, freshnessReasons };
+}
+
+function invalidatesSelfCheckWorkspace(event: TaskEvent, attemptId: string | undefined): boolean {
+  if (event.type !== 'heavy_task_evidence_recorded') return false;
+  if (!attemptId || event.evidence.attemptId !== attemptId) return false;
+  if (event.evidence.kind === 'artifact') return true;
+  if (event.evidence.kind !== 'tool') return false;
+  return ['Bash', 'Write', 'Edit'].includes(event.evidence.tool?.name ?? event.evidence.source.toolName ?? '');
+}
+
+function sameWorkspaceRevision(
+  left: ExecutionEvidenceRef['workspace'],
+  right: ExecutionEvidenceRef['workspace'],
+): boolean {
+  return Boolean(
+    left
+    && right
+    && left.kind === right.kind
+    && left.ref === right.ref
+    && left.dirty === right.dirty,
+  );
+}
+
 
 function resultFromScore(score: ScoreResult | undefined, verifier: VerifierResult | undefined): TaskRunResult | undefined {
   if (!score) return undefined;
@@ -531,8 +862,14 @@ function appendCompactEvidence(projection: TaskRunProjection, ...evidence: Heavy
       ok = false;
       continue;
     }
-    projection.heavyTaskEvidence.push(item);
-    projection.latestHeavyTaskEvidence = item;
+    if (item.provenance) {
+      projection.warnings.push(
+        `ignored embedded provenance on heavy-task evidence ${item.evidenceId}: a provenance link event is required`,
+      );
+    }
+    const { provenance: _embeddedProvenance, ...unlinked } = item;
+    projection.heavyTaskEvidence.push(unlinked);
+    projection.latestHeavyTaskEvidence = unlinked;
   }
   return ok;
 }

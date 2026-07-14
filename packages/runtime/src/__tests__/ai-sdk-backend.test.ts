@@ -2345,7 +2345,7 @@ describe('AiSdkBackend model history', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async (message) => {
+      appendMessage: async (message: StoredMessage) => {
         appended.push(message.type);
       },
       connection: connection(),
@@ -3664,10 +3664,11 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal((events.at(-1) as Extract<SessionEvent, { type: 'complete' }>).stopReason as string, 'step_limit');
   });
 
-  test('records aggregate totalUsage across AI SDK tool-loop steps', async () => {
+  test('records cumulative usage checkpoints across tool-loop steps and turns', async () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
     const llmRecords: LlmCallRecord[] = [];
+    const usageCheckpoints: Array<{ inputTokens: number; outputTokens: number }> = [];
     let streamCalls = 0;
     const model = new MockLanguageModelV3({
       doStream: async () => {
@@ -3734,7 +3735,7 @@ describe('AiSdkBackend usage telemetry', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async (message) => {
+      appendMessage: async (message: StoredMessage) => {
         messages.push(message);
       },
       connection: connection(),
@@ -3745,14 +3746,18 @@ describe('AiSdkBackend usage telemetry', () => {
       tools: [testTool('Read', z.object({ path: z.string() }))],
       newId: idGenerator(),
       now: monotonicClock(),
-      recordLlmCall: (record) => {
+      recordLlmCall: (record: LlmCallRecord) => {
         llmRecords.push(record);
       },
-    });
+      recordUsageCheckpoint: async (usage: { inputTokens: number; outputTokens: number }) => {
+        usageCheckpoints.push(usage);
+      },
+    } as never);
 
     for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
       events.push(event);
     }
+    await drain(backend.send({ turnId: 'turn-2', text: 'continue', context: [] }));
 
     const usageMessage = messages.find((message) =>
       (message as { type?: string }).type === 'token_usage'
@@ -3773,7 +3778,7 @@ describe('AiSdkBackend usage telemetry', () => {
       | Extract<SessionEvent, { type: 'token_usage' }>
       | undefined;
 
-    assert.equal(streamCalls, 2);
+    assert.equal(streamCalls, 3);
     assert.equal(usageMessage?.input, 300);
     assert.equal(usageMessage?.output, 12);
     assert.equal(usageMessage?.cacheHitInput, 100);
@@ -3794,6 +3799,56 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(llmRecords[0]?.reasoningTokens, 2);
     assert.equal(llmRecords[0]?.totalTokens, 312);
     assert.equal(llmRecords[0]?.rawFinishReason, 'stop');
+    assert.deepEqual(usageCheckpoints.map(({ inputTokens, outputTokens }) => ({ inputTokens, outputTokens })), [
+      { inputTokens: 100, outputTokens: 5 },
+      { inputTokens: 300, outputTokens: 12 },
+      { inputTokens: 500, outputTokens: 19 },
+    ]);
+  });
+
+  test('keeps checkpoint cost unknown when model pricing is unavailable', async () => {
+    const usageCheckpoints: Array<{ costUsd?: number }> = [];
+    const model = new MockLanguageModelV3({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: 'stream-start', warnings: [] },
+            {
+              type: 'finish',
+              finishReason: { unified: 'stop', raw: 'stop' },
+              usage: {
+                inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
+                outputTokens: { total: 10, text: 10, reasoning: 0 },
+              },
+            },
+          ],
+          initialDelayInMs: null,
+          chunkDelayInMs: null,
+        }),
+      }),
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'unpriced-model',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      lookupPricing: () => null,
+      recordUsageCheckpoint: async (usage: { costUsd?: number }) => {
+        usageCheckpoints.push(usage);
+      },
+    } as never);
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
+
+    assert.equal(usageCheckpoints.length, 1);
+    assert.equal(usageCheckpoints[0]?.costUsd, undefined);
   });
 
   test('records active tool-result prune diagnostics in usage telemetry', async () => {

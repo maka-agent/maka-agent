@@ -27,6 +27,7 @@ import {
   type TurnLineageBadge,
 } from './chat-turn.js';
 import { useChatScroll } from './use-chat-scroll.js';
+import { TaskLedgerPanel, type TaskLedgerPanelProps } from './task-ledger-panel.js';
 
 /**
  * Lifecycle status badge in the chat header. Visual
@@ -153,6 +154,8 @@ export function ChatView(props: {
     maxIterations: number;
     onClear: () => void;
   };
+  /** Session-owned task read model. Rendered as a full-width band above messages. */
+  taskLedger?: TaskLedgerPanelProps;
   /** Error from loading the active session's persisted message log. */
   messageLoadError?: string;
   messageLoadRetryPending?: boolean;
@@ -424,6 +427,7 @@ export function ChatView(props: {
         {props.connectionAlert && <ChatHeaderAlertBadge alert={props.connectionAlert} />}
         {props.eventStreamAlert && <ChatHeaderAlertBadge alert={props.eventStreamAlert} />}
       </div>
+      {props.taskLedger && <TaskLedgerPanel key={props.activeSession?.id} {...props.taskLedger} />}
       {isLocalSimulationBackend && (
         <Alert variant="info" className="maka-fake-backend-banner" role="status">
           <AlertTriangle size={14} aria-hidden="true" />

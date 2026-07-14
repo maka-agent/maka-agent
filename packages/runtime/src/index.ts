@@ -384,6 +384,22 @@ export type {
   HistoryCompactArtifactStore,
   PersistHistoryCompactBlocksDeps,
 } from './history-compact-artifacts.js';
+export {
+  HISTORY_COMPACT_SOURCE_POLICY_VERSION,
+  buildHistoryCompactCheckpoint,
+  canReplaceHistoryCompactCheckpoint,
+  historyCompactCheckpointToRuntimeEvent,
+  matchHistoryCompactCheckpointPrefix,
+  renderHistoryCompactCheckpoint,
+  validateHistoryCompactCheckpointShape,
+} from './history-compact-checkpoint.js';
+export type {
+  BuildHistoryCompactCheckpointInput,
+  HistoryCompactCheckpoint,
+  HistoryCompactCheckpointCoverage,
+  HistoryCompactCheckpointPrefixMatch,
+  HistoryCompactCheckpointSource,
+} from './history-compact-checkpoint.js';
 export { cleanupLegacyHistoryCompactArtifacts } from './history-compact-cleanup.js';
 export type {
   HistoryCompactCleanupDiagnostic,
@@ -772,7 +788,13 @@ export {
 } from './goal-tools.js';
 export type { GoalToolsDeps } from './goal-tools.js';
 export { handleGoalContinuation } from './goal-continuation.js';
-export type { GoalContinuationDeps, GoalContinuationOutcome } from './goal-continuation.js';
+export type {
+  GoalContinuationDeps,
+  GoalContinuationOutcome,
+  GoalTaskGateDecision,
+  GoalTaskGateDeps,
+  GoalTaskGateTrace,
+} from './goal-continuation.js';
 
 export {
   MAX_SKILL_BODY_CHARS,

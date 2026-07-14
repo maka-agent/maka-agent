@@ -21,6 +21,7 @@
 @import "./styles/settings/select.css";
 @import "./styles/model-switcher.css";
 @import "./styles/chat-header.css";
+@import "./styles/task-ledger.css";
 @import "./styles/error.css";
 @import "./styles/toast.css";
 @import "./styles/help.css";

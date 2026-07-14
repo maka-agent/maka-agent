@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { exec as nodeExec } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -67,6 +67,7 @@ import {
 export const HARBOR_CELL_OUTPUT_FILENAME = 'maka-cell-output.json';
 export const HARBOR_CELL_RUNTIME_EVENTS_FILENAME = 'runtime-events.jsonl';
 export const HARBOR_CELL_EXECUTION_IDENTITY_FILENAME = 'maka-cell-execution-identity.json';
+export const HARBOR_CELL_USAGE_CHECKPOINT_FILENAME = 'maka-cell-usage-checkpoint.json';
 const execAsync = promisify(nodeExec);
 const HARBOR_CELL_TOOL_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
@@ -146,6 +147,18 @@ export interface HarborCellContextBudgetBackendOptions {
   contextBudget?: ContextBudgetPolicy;
   archiveToolResult?: ToolResultArchiveRecorder;
   readToolResultArchive?: ToolResultArchiveReader;
+}
+
+export interface HarborCellUsageCheckpoint {
+  inputTokens: number;
+  outputTokens: number;
+  cacheHitInputTokens: number;
+  cacheMissInputTokens: number;
+  cacheMissInputSource: 'explicit' | 'derived';
+  cacheWriteInputTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+  costUsd?: number;
 }
 
 export interface HarborCellTaskLedgerExperimentPolicy {
@@ -459,6 +472,7 @@ export async function runHarborCellFromEnv(
         now,
         newId,
         ...(maxSteps !== undefined ? { maxSteps } : {}),
+        recordUsageCheckpoint: (usage) => writeHarborCellUsageCheckpoint(outputDir, usage),
       });
       break;
     }
@@ -657,6 +671,7 @@ export function buildAiSdkCellBackendRegistration(input: {
   now: () => number;
   newId: () => string;
   maxSteps?: number;
+  recordUsageCheckpoint?: (usage: HarborCellUsageCheckpoint) => void | Promise<void>;
 }): NonNullable<RunHarborCellInput['registerBackends']> {
   const { connection, apiKey } = resolveHarborCellAiSdkEnv({
     provider: input.provider,
@@ -724,12 +739,38 @@ export function buildAiSdkCellBackendRegistration(input: {
         recordRunTrace: ctx.recordRunTrace,
         recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
         recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
+        ...(input.recordUsageCheckpoint ? { recordUsageCheckpoint: input.recordUsageCheckpoint } : {}),
       });
     });
   };
 }
 
 export const buildHarborAiSdkBackendRegistration = buildAiSdkCellBackendRegistration;
+
+export async function writeHarborCellUsageCheckpoint(
+  outputDir: string,
+  usage: HarborCellUsageCheckpoint,
+): Promise<void> {
+  if (usage.costUsd === undefined) return;
+  const tokenSummary: HarborCellOutput['tokenSummary'] = {
+    input: usage.inputTokens,
+    output: usage.outputTokens,
+    cachedInput: usage.cacheHitInputTokens,
+    cacheHitInput: usage.cacheHitInputTokens,
+    cacheMissInput: usage.cacheMissInputTokens,
+    cacheWriteInput: usage.cacheWriteInputTokens,
+    cacheMissInputSource: usage.cacheMissInputSource,
+    reasoning: usage.reasoningTokens,
+    total: usage.totalTokens,
+    costUsd: usage.costUsd,
+    pricingSource: 'runtime',
+  };
+  await mkdir(outputDir, { recursive: true });
+  const path = join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME);
+  const pendingPath = `${path}.${process.pid}.tmp`;
+  await writeFile(pendingPath, `${JSON.stringify(tokenSummary, null, 2)}\n`, 'utf8');
+  await rename(pendingPath, path);
+}
 
 export function buildHarborCellAiSdkTools(
   executor: IsolatedToolExecutor,
@@ -809,9 +850,9 @@ export function buildHarborCellContextBudgetBackendOptions(
     contextBudget.staleToolResultPrune = {
       enabled: true,
       ...(maxResultEstimatedTokens !== undefined ? { maxResultEstimatedTokens } : {}),
-      // Explicit so the runtime protection window matches the policy snapshot
-      // and desktop default (2) instead of the runtime's internal ?? 1 fallback.
-      minRecentTurnsFull: minRecentTurnsFull ?? minRecentTurns ?? 2,
+      // Active prune owns the current turn; stale prune must take over on the
+      // next replay without restoring a full-result protection window.
+      minRecentTurnsFull: minRecentTurnsFull ?? 0,
     };
   }
 

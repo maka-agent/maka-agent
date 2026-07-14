@@ -71,16 +71,19 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     : 'Read a file from disk by path relative to session cwd.';
   const fileReadParameters = z.object({
     path: z.string().describe('A file path relative to the session cwd'),
-    offset: z.number().int().nonnegative().optional(),
-    limit: z.number().int().positive().optional(),
+    offset: z.number().int().nonnegative().describe('Zero-based file line offset').optional(),
+    limit: z.number().int().positive().describe('Maximum file lines to read').optional(),
+  }).strict();
+  const runtimeResourceReadParameters = z.object({
+    ref: z.string().describe('A runtime resource ref returned by another tool'),
   }).strict();
   const readParameters = options.runtimeResources
-    ? z.union([
-        fileReadParameters,
-        z.object({
-          ref: z.string().describe('A runtime resource ref returned by another tool'),
-        }).strict(),
-      ])
+    ? z.object({
+        ...fileReadParameters.shape,
+        ...runtimeResourceReadParameters.shape,
+      }).partial().strict()
+        .describe('Read a file with path, or a whole runtime resource with ref; provide exactly one')
+        .pipe(z.union([fileReadParameters, runtimeResourceReadParameters]))
     : fileReadParameters;
   const shell = options.shell ?? defaultShellPlan();
   const sandboxPlatform = options.sandboxPlatform ?? process.platform;

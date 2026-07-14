@@ -1,6 +1,6 @@
 # Execution Identity and Evidence Spine
 
-Status: Phase 0 contract and architecture audit. See [issue #948](https://github.com/maka-agent/maka-agent/issues/948).
+Status: Phase 0 contract, Phase 1 Runtime-to-Task lineage, and Phase 2A-2C evidence freshness and Compaction coverage. See [issue #948](https://github.com/maka-agent/maka-agent/issues/948).
 
 Maka already records the facts needed to explain an execution. Runtime Events preserve model and tool interaction facts, AgentRun records operational lifecycle, and Task Events preserve durable task-control decisions. The missing piece is a shared way to reference those facts across subsystem boundaries.
 
@@ -10,9 +10,9 @@ The Execution Identity and Evidence Spine is that reference protocol. It answers
 
 It is deliberately not a new event log, trace backend, or source of truth.
 
-## Phase 0 boundary
+## Delivery boundary
 
-Phase 0 adds a versioned shared contract in `@maka/core/execution-evidence`, runtime validation, cursor comparison rules, and this ownership audit. It does not yet:
+Phase 0 added a versioned shared contract in `@maka/core/execution-evidence`, runtime validation, cursor comparison rules, and this ownership audit. At that boundary it did not:
 
 - assign or persist log sequence numbers;
 - change Runtime, AgentRun, Session, or TaskRun storage;
@@ -20,7 +20,44 @@ Phase 0 adds a versioned shared contract in `@maka/core/execution-evidence`, run
 - attach evidence references to Self-check, Compaction, or AHE exports;
 - add a lineage inspection command.
 
-Those integrations belong to later phases of issue #948. Defining the contract first prevents each integration from inventing a different meaning for identity, coverage, or freshness.
+Defining the contract first prevents each integration from inventing a different meaning for identity, coverage, or freshness.
+
+Phase 1 makes the Runtime-to-Task portion concrete:
+
+- new AgentRun headers persist `invocationId` while legacy headers remain readable;
+- every finished headless Runtime invocation appends a `task_attempt_execution_linked` Task Event;
+- the event references TaskRun, Attempt, Session, Invocation, AgentRun, Turn, and inclusive Runtime Event coverage;
+- one Attempt may link multiple AgentRuns, including the bounded heavy-task repair run;
+- `TaskRunProjection.executionLineage` and each `TaskAttempt.executionLineage` expose the replayed links;
+- legacy `ResultRecord` imports produce an honest identity-only link when Runtime coverage is unavailable.
+
+Phase 2A binds compact heavy-task evidence back to executor-owned Runtime facts:
+
+- new tool-derived evidence records the producing AgentRun when Runtime supplies it, while legacy evidence remains readable;
+- after each headless invocation, Maka matches the evidence `toolCallId` to immutable Runtime `function_call` and `function_response` rows;
+- a `heavy_task_evidence_provenance_linked` Task Event stores only the resulting `ExecutionEvidenceRef` and inclusive Runtime range;
+- TaskRun replay overlays the validated provenance onto durably recorded compact tool and artifact evidence;
+- a missing function response, conflicting tool name, or mismatched Runtime identity produces no provenance claim.
+
+System-created artifacts, external verifier artifacts, and replay-derived Self-check envelopes keep their existing authority records. Phase 2A does not invent a Runtime source for facts that were not durably recorded from a Runtime tool call.
+
+Phase 2B makes accepted heavy-task Self-check freshness replay-derived:
+
+- Task Event stores expose stable zero-based append cursors;
+- system-owned provenance binds the Self-check to its exact Runtime call/result range, Task Event high water, and post-run workspace manifest revision;
+- replay reports `current`, `stale`, or backward-compatible `unknown` freshness;
+- later mutation evidence invalidates a bound Self-check until a matching workspace observation revalidates it;
+- the completion gate rejects explicitly stale Self-checks without pretending that legacy evidence is fresh.
+
+Phase 2C binds each newly written Compaction checkpoint to the exact ordered Runtime Event projection it summarizes:
+
+- `maka.compactable_runtime_event_projection.v1` names the session-scoped ordering and filtering policy;
+- inclusive low/high cursors identify the first and last source Runtime Event, while the existing digest still validates the complete ordered prefix;
+- prefix matching returns the successor Runtime Events that remain outside the lossy projection;
+- legacy V2 checkpoints remain readable, but a source-bound checkpoint cannot be replaced or recovered behind a legacy checkpoint that cannot prove cursor semantics;
+- the canonical Runtime Event ledger remains untouched and authoritative.
+
+The current delivery still does not add AHE lineage, recovery modeling for ambiguous external side effects, or a general inspection command.
 
 ## Existing authorities
 
@@ -29,7 +66,7 @@ The spine references existing authorities instead of copying their facts.
 | Authority | Identity today | Owns | Does not own |
 | --- | --- | --- | --- |
 | `RuntimeEvent` | `sessionId`, `invocationId`, `runId`, `turnId`, `id` | Canonical model, tool, runtime-content, and terminal interaction facts | Task scheduling or task-level decisions |
-| `AgentRunHeader` and `AgentRunEvent` | `sessionId`, `runId`, `turnId`, event `id` | Operational run lifecycle, status, model resolution, permission, usage, and run-local checkpoints | A second copy of raw Runtime interaction history |
+| `AgentRunHeader` and `AgentRunEvent` | `sessionId`, optional legacy-compatible `invocationId`, `runId`, `turnId`, event `id` | Operational run lifecycle, status, model resolution, permission, usage, and run-local checkpoints | A second copy of raw Runtime interaction history |
 | `SessionEvent` and stored messages | Session and turn-oriented identifiers | Compatibility and UI/session read models | Canonical Runtime history |
 | `TaskEvent` | `taskRunId`, optional event-specific `attemptId`, event `id` | Task lifecycle, attempts, policy decisions, evidence envelopes, permissions, and recovery-visible task state | Raw model messages, Tool Calls, or Tool Results already owned by Runtime Events |
 | `TaskRunProjection` | Fold of one `taskRunId` event stream | Current task read model derived from Task Events | Independent facts outside its source Task Events |
@@ -92,7 +129,7 @@ An ordered cursor has three required coordinates:
 
 ```ts
 interface ExecutionLogCursor {
-  ledger: 'runtime_event' | 'task_event';
+  ledger: 'runtime_event' | 'runtime_event_projection' | 'task_event';
   streamId: string;
   sequence: number;
   eventId?: string;
@@ -112,9 +149,24 @@ The planned stream bindings are:
 | Ledger | `streamId` |
 | --- | --- |
 | `runtime_event` | `execution.agentRunId` |
+| `runtime_event_projection` | session id, interpreted only with its adjacent projection policy version |
 | `task_event` | `task.taskRunId` |
 
-Phase 0 defines these semantics but does not claim that current stores already persist the ordinal. Existing Runtime Event ids are best-effort unique identifiers, not durable ordered cursors. Existing Compaction `highWaterSeq` values remain policy-local until a later integration explicitly maps them to source-log coverage.
+Canonical Runtime and Task cursors use physical append ordinals. A `runtime_event_projection` cursor is intentionally different: it is an ordinal in a named, versioned projection whose owner must publish the ordering and filtering policy beside the cursor. Cursors from that projection are therefore incomparable with canonical `runtime_event` cursors even when their boundary `eventId` values happen to match. Existing Runtime Event ids remain audit pointers, not ordering fields, and Compaction's legacy `highWaterSeq` remains a checkpoint-local value rather than a source-log cursor.
+
+For Phase 1 headless lineage, the persisted AgentRun Runtime Event JSONL is the ordered stream. Mutable partial snapshot files are excluded, while every physical JSONL row—including a lifecycle row that may carry `partial: true`—retains its append position. Those immutable positions are materialized as zero-based cursor sequences. A completed invocation therefore records coverage such as:
+
+```text
+TaskRun task-42 / Attempt attempt-2
+  -> AgentRun run-a: Runtime Events [0..146]
+  -> AgentRun run-b: Runtime Events [0..38]   # bounded repair run
+```
+
+The Task Event stores only these references and boundary event ids. Model messages, Tool Calls, Tool Results, and other Runtime facts remain solely in the Runtime Event ledger.
+
+Phase 2A applies the same rule at evidence granularity. A compact Task evidence envelope may display a bounded summary, but its `provenance` points to the immutable Runtime call/result range that owns the exact request and response. Maka requires the canonical `function_response` before creating that link; a planned or interrupted call alone is not proof of an executor result.
+
+Phase 2C applies the cursor contract without falsely describing the Compaction input as one AgentRun append log. Compaction operates on the session/model-context Runtime Event projection, so its checkpoint carries `runtime_event_projection` cursors plus `maka.compactable_runtime_event_projection.v1`. The policy fixes the projection's ordering/filtering semantics; the boundary ids and source digest then fail closed if replay no longer presents the exact covered prefix. Events after the high-water cursor are returned as explicit successor facts and remain raw in provider-visible context.
 
 Coverage is an inclusive range within one stream:
 
@@ -183,16 +235,12 @@ This object says where evidence came from. It does not assert that the evidence 
 
 ## Deferred integration work
 
-Later phases should make the contract concrete without changing fact ownership:
+Later phases should extend the contract without changing fact ownership:
 
-1. Persist `invocationId` linkage where AgentRun metadata currently exposes only `runId`.
-2. Materialize stable append ordinals for Runtime and Task Event streams, including backward-compatible reads.
-3. Persist TaskRun/Attempt to AgentRun linkage and Runtime coverage.
-4. Bind executor-owned Tool Results, artifacts, and workspace observations to evidence references.
-5. Bind Self-check to Runtime and Task high waters plus a workspace revision, then define deterministic staleness rules.
-6. Map Compaction source coverage to the shared cursor contract while retaining explicit source-event validation.
-7. Carry target snapshot and execution lineage through AHE exports.
-8. Add human-readable and machine-readable inspection surfaces that expose missing, stale, conflicting, or ambiguous lineage.
+1. Bind workspace observations and artifacts produced outside Runtime tool calls to their appropriate source authorities.
+2. Carry target snapshot and execution lineage through AHE exports.
+3. Represent uncertain external-side-effect/commit windows in durable recovery lineage.
+4. Add human-readable and machine-readable inspection surfaces that expose missing, stale, conflicting, or ambiguous lineage.
 
 The guiding invariant is simple:
 

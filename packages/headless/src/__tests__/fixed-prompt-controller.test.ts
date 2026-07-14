@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -7,6 +9,7 @@ import type { Config } from '../contracts.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 import { contextBudgetSummary } from './helpers/ab-summary-fixtures.js';
 import {
+  appendFixedPromptWalEvent,
   FixedPromptBudgetExhaustedError,
   hashSystemPrompt,
   readFixedPromptWal,
@@ -356,6 +359,52 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('serializes concurrent WAL repair and append without losing events', async () => {
+    await withDir(async (dir) => {
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      const retained = taskCompletedEvent({ taskId: 'retained' });
+      await writeFile(resultsJsonlPath, `${JSON.stringify(retained)}\n{"torn"`, 'utf8');
+      const appended = [
+        taskCompletedEvent({ taskId: 'task-a' }),
+        taskCompletedEvent({ taskId: 'task-b' }),
+      ];
+      const originalTruncate = fs.promises.truncate;
+      const originalAppendFile = fs.promises.appendFile;
+      let truncateCalls = 0;
+      let firstAppendDone!: () => void;
+      const firstAppend = new Promise<void>((resolve) => {
+        firstAppendDone = resolve;
+      });
+      fs.promises.truncate = async (...args) => {
+        truncateCalls += 1;
+        if (truncateCalls === 2) await firstAppend;
+        return originalTruncate(...args);
+      };
+      fs.promises.appendFile = async (...args) => {
+        const result = await originalAppendFile(...args);
+        firstAppendDone();
+        return result;
+      };
+      syncBuiltinESMExports();
+
+      try {
+        await Promise.all(appended.map((event) => appendFixedPromptWalEvent(resultsJsonlPath, event)));
+      } finally {
+        fs.promises.truncate = originalTruncate;
+        fs.promises.appendFile = originalAppendFile;
+        syncBuiltinESMExports();
+      }
+
+      const events = await readFixedPromptWal(resultsJsonlPath);
+      assert.equal(events.length, appended.length + 1);
+      const taskIds = events.flatMap((event) => 'taskId' in event ? [event.taskId] : []);
+      assert.deepEqual(
+        new Set(taskIds),
+        new Set(['retained', 'task-a', 'task-b']),
+      );
+    });
+  });
+
   test('retries infra-failed WAL events on resume', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -602,6 +651,10 @@ describe('fixed prompt controller', () => {
       assert.equal(result.totalCostUsd, 0.42);
       assert.equal(result.events[0]?.type, 'task_budget_exhausted');
       assert.deepEqual('tokenSummary' in result.events[0]! ? result.events[0].tokenSummary : undefined, retainedUsage);
+      assert.equal(
+        'tokenSummarySource' in result.events[0]! ? result.events[0].tokenSummarySource : undefined,
+        'checkpoint',
+      );
     });
   });
 
@@ -686,6 +739,7 @@ describe('fixed prompt controller', () => {
       assert.equal(event.evidenceErrorClass, undefined);
       assert.equal(event.tokenSummary?.total, 3);
       assert.equal(event.tokenSummary?.costUsd, 0.02);
+      assert.equal(event.tokenSummarySource, 'final');
       assert.equal(event.runtimeEventsPath, cell.runtimeEventsPath);
       assert.equal(event.traceEventsPath, cell.traceEventsPath);
       assert.deepEqual(

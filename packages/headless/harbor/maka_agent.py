@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import os
 import secrets
@@ -20,6 +21,10 @@ from harbor.models.trial.paths import EnvironmentPaths
 from harbor.utils.trajectory_utils import format_trajectory_json
 
 from trial_pricing import estimate_cost, pricing_from_env
+
+
+_COMMAND_SCOPE_ENV = "MAKA_HARBOR_COMMAND_SCOPE"
+_COMMAND_SCOPE_ROOT = "/tmp/maka-harbor-command-scopes"
 
 
 _HOST_NODE_ENV_ALLOWLIST = {
@@ -437,7 +442,11 @@ class _ToolExecutorServer:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._futures: set[concurrent.futures.Future[Any]] = set()
+        self._futures_lock = threading.Lock()
+        self._accepting_requests = False
         self.token = secrets.token_urlsafe(32)
+        self.command_scope = secrets.token_urlsafe(24)
         self.url = ""
 
     async def __aenter__(self) -> "_ToolExecutorServer":
@@ -454,16 +463,88 @@ class _ToolExecutorServer:
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         host, port = self._server.server_address
         self.url = f"http://{host}:{port}"
+        with self._futures_lock:
+            self._accepting_requests = True
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        stop_error: BaseException | None = None
+        cleanup_error: BaseException | None = None
+        try:
+            cleanup_error = await self._stop_server(
+                reclaim_scoped_processes=exc_type is not None
+            )
+        except BaseException as error:
+            stop_error = error
+        if stop_error is not None and exc_type is None:
+            cleanup_error = await self._cleanup_all_scoped_processes()
+        if stop_error is not None:
+            raise stop_error
+        if cleanup_error is not None:
+            raise cleanup_error
+
+    async def _stop_server(
+        self, *, reclaim_scoped_processes: bool
+    ) -> BaseException | None:
+        with self._futures_lock:
+            self._accepting_requests = False
+            futures = list(self._futures)
+        cleanup_error = (
+            await self._drain_futures_with_cleanup(futures)
+            if reclaim_scoped_processes
+            else await self._drain_futures(futures)
+        )
         if self._server is not None:
-            self._server.shutdown()
-            self._server.server_close()
+            await asyncio.to_thread(self._server.shutdown)
+            await asyncio.to_thread(self._server.server_close)
         if self._thread is not None:
-            self._thread.join(timeout=5)
+            await asyncio.to_thread(self._thread.join, 5)
+        return cleanup_error
+
+    async def _drain_futures(
+        self, futures: list[concurrent.futures.Future[Any]]
+    ) -> None:
+        if futures:
+            await asyncio.gather(
+                *(asyncio.wrap_future(future) for future in futures),
+                return_exceptions=True,
+            )
+
+    async def _drain_futures_with_cleanup(
+        self, futures: list[concurrent.futures.Future[Any]]
+    ) -> BaseException | None:
+        while any(not future.done() for future in futures):
+            cleanup_error = await self._cleanup_all_scoped_processes()
+            if cleanup_error is not None:
+                for future in futures:
+                    future.cancel()
+                await self._drain_futures(futures)
+                return cleanup_error
+            await asyncio.sleep(0.2)
+        await self._drain_futures(futures)
+        return await self._cleanup_all_scoped_processes()
+
+    async def _cleanup_all_scoped_processes(self) -> BaseException | None:
+        first_error: BaseException | None = None
+        try:
+            await self._cleanup_scoped_processes(signal="TERM")
+        except BaseException as error:
+            first_error = error
+        await asyncio.sleep(0.2)
+        try:
+            await self._cleanup_scoped_processes(signal="KILL")
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+        return first_error
+
+    async def _cleanup_scoped_processes(self, signal: str) -> None:
+        await self._agent.exec_as_agent(
+            self._environment,
+            command=_scoped_process_cleanup_command(self.command_scope, signal),
+        )
 
     def _handle_post(self, handler: BaseHTTPRequestHandler) -> None:
         if handler.path != "/exec":
@@ -482,15 +563,24 @@ class _ToolExecutorServer:
             timeout_ms = payload.get("timeoutMs")
             timeout_sec = _timeout_sec(timeout_ms)
             assert self._loop is not None
-            future = asyncio.run_coroutine_threadsafe(
-                self._agent.exec_as_agent(
-                    self._environment,
-                    command=command,
-                    cwd=cwd if isinstance(cwd, str) and cwd else None,
-                    timeout_sec=timeout_sec,
-                ),
-                self._loop,
-            )
+            with self._futures_lock:
+                if not self._accepting_requests:
+                    raise RuntimeError("tool executor is shutting down")
+                future = asyncio.run_coroutine_threadsafe(
+                    self._agent.exec_as_agent(
+                        self._environment,
+                        command=_scoped_command(
+                            command,
+                            self.command_scope,
+                            secrets.token_urlsafe(12),
+                        ),
+                        cwd=cwd if isinstance(cwd, str) and cwd else None,
+                        timeout_sec=timeout_sec,
+                    ),
+                    self._loop,
+                )
+                self._futures.add(future)
+            future.add_done_callback(self._discard_future)
             result = future.result(timeout=(timeout_sec or self._agent._cell_timeout_sec()) + 30)
             _write_http(handler, 200, {
                 "exitCode": _exec_exit_code(result),
@@ -499,6 +589,46 @@ class _ToolExecutorServer:
             })
         except Exception as exc:  # noqa: BLE001 - RPC boundary returns tool failure text.
             _write_http(handler, 500, {"error": str(exc)})
+
+    def _discard_future(self, future: concurrent.futures.Future[Any]) -> None:
+        with self._futures_lock:
+            self._futures.discard(future)
+
+
+def _scoped_command(command: str, scope: str, command_id: str) -> str:
+    scope_dir = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}")
+    pgid_path = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}/{command_id}.pgid")
+    return (
+        f"mkdir -p -- {scope_dir}; set -m; "
+        f"env {_COMMAND_SCOPE_ENV}={shlex.quote(scope)} bash -lc {shlex.quote(command)} & "
+        "command_pid=$!; "
+        f"printf '%s\\n' \"$command_pid\" > {pgid_path}; "
+        "wait \"$command_pid\"; command_status=$?; "
+        f"kill -0 -- \"-$command_pid\" 2>/dev/null || rm -f -- {pgid_path}; "
+        "exit \"$command_status\""
+    )
+
+
+def _scoped_process_cleanup_command(scope: str, signal: str) -> str:
+    if signal not in ("TERM", "KILL"):
+        raise ValueError(f"unsupported cleanup signal: {signal}")
+    marker = shlex.quote(f"{_COMMAND_SCOPE_ENV}={scope}")
+    scope_dir = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}")
+    return (
+        f"for pgid_file in {scope_dir}/*.pgid; do "
+        "[ -r \"$pgid_file\" ] || continue; "
+        "pgid=$(cat -- \"$pgid_file\"); "
+        "case $pgid in ''|*[!0-9]*) continue;; esac; "
+        f"kill -{signal} -- \"-$pgid\" 2>/dev/null || true; "
+        "done; "
+        "for env_file in /proc/[0-9]*/environ; do "
+        "[ -r \"$env_file\" ] || continue; "
+        f"if tr '\\000' '\\n' < \"$env_file\" | grep -Fqx -- {marker}; then "
+        "pid=${env_file#/proc/}; pid=${pid%/environ}; "
+        f"kill -{signal} \"$pid\" 2>/dev/null || true; "
+        "fi; done"
+        + (f"; rm -rf -- {scope_dir}" if signal == "KILL" else "")
+    )
 
 
 def _write_http(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:

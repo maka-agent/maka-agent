@@ -24,6 +24,47 @@ import {
 import { historyCompactBlockToCompactionBoundary } from '../compaction-boundary.js';
 
 describe('context-budget archive retrieval', () => {
+  test('prunes the newest turn when the full-result protection window is zero', () => {
+    const sentinel = 'newest-turn-full-result-must-not-be-reinjected';
+    const originalResult = { kind: 'text', text: sentinel.repeat(4) };
+    const serialized = serializeToolResultForArchive(originalResult);
+    const events = [
+      toolCall('call-newest', 'turn-newest', 'tool-newest'),
+      toolResult('result-newest', 'turn-newest', 'tool-newest', originalResult),
+    ];
+
+    const budgeted = applyRuntimeEventContextBudget(events, {
+      staleToolResultPrune: {
+        enabled: true,
+        maxResultEstimatedTokens: 1,
+        minRecentTurnsFull: 0,
+        archiveRefs: [{
+          runtimeEventId: 'result-newest',
+          toolCallId: 'tool-newest',
+          toolName: 'Read',
+          artifactId: 'artifact-newest',
+          bodySha256: sha256(serialized),
+          originalEstimatedTokens: serialized.length,
+          originalBytes: utf8Bytes(serialized),
+          rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+          reason: 'stale_tool_result_pruned_before_compact',
+        }],
+      },
+      charsPerToken: 1,
+    });
+
+    assert.ok(budgeted);
+    assert.equal(budgeted.diagnostic.prunedToolResults, 1);
+    const result = budgeted.events.find((event) => event.id === 'result-newest');
+    assert.equal(
+      result?.content?.kind === 'function_response'
+        ? (result.content.result as { kind?: string }).kind
+        : undefined,
+      ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
+    );
+    assert.equal(JSON.stringify(budgeted.events).includes(sentinel), false);
+  });
+
   test('deserializes JSON, undefined, and fallback strings', () => {
     assert.deepEqual(deserializeToolResultArchive('{"kind":"text","text":"ok"}'), { kind: 'text', text: 'ok' });
     assert.equal(deserializeToolResultArchive('undefined'), undefined);

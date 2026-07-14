@@ -14,6 +14,8 @@ export type AgentRunStatus = typeof AGENT_RUN_STATUSES[number];
 
 export interface AgentRunHeader {
   runId: string;
+  /** Durable Runtime invocation spine. Optional only for legacy run headers. */
+  invocationId?: string;
   sessionId: string;
   turnId: string;
   status: AgentRunStatus;
@@ -66,6 +68,7 @@ export type AgentRunEventType =
   | 'history_compact_checkpoint_recorded'
   | 'active_full_compact_block_recorded'
   | 'semantic_compact_block_recorded'
+  | 'task_gate_decided'
   | 'abort_requested'
   | 'run_completed'
   | 'run_failed'

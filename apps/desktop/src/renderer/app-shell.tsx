@@ -107,6 +107,7 @@ import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
 import { useShellConnections } from './use-shell-connections';
 import { useShellChatModel } from './use-shell-chat-model';
 import { useShellLiveTurn } from './use-shell-live-turn';
+import { useSessionTasks } from './use-session-tasks';
 
 type ComposerImportOwner = {
   sessionId: string | undefined;
@@ -165,6 +166,7 @@ export function AppShell({
     clearTurnTransientState,
   } = useAppShellSessionWorkspace(toastApi);
   const attachmentDraftKey = activeId ?? 'new-session';
+  const sessionTasks = useSessionTasks(activeId);
   const {
     pendingAttachments,
     pickAttachments,
@@ -1349,6 +1351,12 @@ export function AppShell({
                   iterations: activeGoal.iterations,
                   maxIterations: activeGoal.maxIterations,
                   onClear: () => { void window.maka.goal.clear(activeGoal.sessionId); },
+                } : undefined}
+                taskLedger={activeId ? {
+                  tasks: sessionTasks.tasks,
+                  loading: sessionTasks.loading,
+                  error: sessionTasks.error,
+                  onRetry: sessionTasks.retry,
                 } : undefined}
                 messageLoadError={activeId ? messageLoadErrorBySession[activeId] : undefined}
                 messageLoadRetryPending={activeId ? messageRetryPendingBySession[activeId] === true : false}

@@ -251,10 +251,12 @@ class ProgressToolBackend implements AgentBackend {
   }
 
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const bash = this.ctx.tools.find((tool) => tool.name === 'Bash');
     const inventorySubmit = this.ctx.tools.find((tool) => tool.name === 'inventory_submit');
     const todoUpdate = this.ctx.tools.find((tool) => tool.name === 'todo_update');
     const selfCheckPlanSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_plan_submit');
     const selfCheckSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_submit');
+    assert.ok(bash);
     assert.ok(inventorySubmit);
     assert.ok(todoUpdate);
     assert.ok(selfCheckPlanSubmit);
@@ -267,6 +269,7 @@ class ProgressToolBackend implements AgentBackend {
       abortSignal: new AbortController().signal,
       emitOutput: () => {},
     };
+    await bash.impl({ command: 'npm test' }, { ...toolCtx, toolCallId: 'bash-tool-call' });
     await inventorySubmit.impl({
       summary: 'Inspected public files.',
       items: [{ path: 'README.md', kind: 'file', status: 'observed' }],
@@ -279,7 +282,7 @@ class ProgressToolBackend implements AgentBackend {
     }, toolCtx);
     await selfCheckPlanSubmit.impl({
       finalArtifacts: [{
-        path: 'README.md',
+        path: '/app/README.md',
         purpose: 'visible public artifact inspected by the check',
         publicReason: 'visible task notes are public',
       }],
@@ -289,7 +292,7 @@ class ProgressToolBackend implements AgentBackend {
         publicReason: 'public check outputs stay under scratch',
       },
       workspaceGuardPlan: {
-        checkedPaths: ['README.md'],
+        checkedPaths: ['/app/README.md'],
         expectedAddedPaths: [],
         expectedGeneratedPathsOutsideScratch: [],
         publicReason: 'public guard checks visible artifact paths',
@@ -300,9 +303,45 @@ class ProgressToolBackend implements AgentBackend {
       status: 'pass',
       publicReason: 'npm test passed using public README.md-backed fixture state.',
       commandEvidence: [{ command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' }],
-      artifactEvidence: [{ path: 'README.md', kind: 'file', exists: true }],
+      artifactEvidence: [{ path: '/app/README.md', kind: 'file', exists: true }],
     }, toolCtx);
     const ts = Date.now();
+    yield {
+      type: 'tool_start',
+      id: 'progress-bash-start',
+      turnId: input.turnId,
+      ts,
+      toolUseId: 'bash-tool-call',
+      toolName: 'Bash',
+      args: { command: 'npm test' },
+    };
+    yield {
+      type: 'tool_result',
+      id: 'progress-bash-result',
+      turnId: input.turnId,
+      ts,
+      toolUseId: 'bash-tool-call',
+      isError: false,
+      content: { kind: 'text', text: 'tests passed' },
+    };
+    yield {
+      type: 'tool_start',
+      id: 'progress-self-check-start',
+      turnId: input.turnId,
+      ts,
+      toolUseId: 'progress-tool-call',
+      toolName: 'self_check_submit',
+      args: { status: 'pass' },
+    };
+    yield {
+      type: 'tool_result',
+      id: 'progress-self-check-result',
+      turnId: input.turnId,
+      ts,
+      toolUseId: 'progress-tool-call',
+      isError: false,
+      content: { kind: 'text', text: 'self-check accepted' },
+    };
     yield { type: 'complete', id: 'progress-complete', turnId: input.turnId, ts, stopReason: 'end_turn' };
   }
 
@@ -626,6 +665,7 @@ describe('runTaskOnce', () => {
             'tool_executor_identity_recorded',
             'task_run_started',
             'task_attempt_started',
+            'task_attempt_execution_linked',
             'feedback_observed',
             'task_run_verifying',
             'verifier_result_recorded',
@@ -643,6 +683,25 @@ describe('runTaskOnce', () => {
         assert.equal(tools.actualToolCalls, 0);
         assert.deepEqual(tools.actualToolNames, []);
         assert.deepEqual(tools.actualToolCallCounts, {});
+        const runtimeLedger = await readRuntimeEventLedger(
+          storageRoot,
+          result.invocation.sessionId,
+          result.invocation.runId,
+        );
+        const lineage = result.projection.attempts[0]?.executionLineage[0];
+        assert.equal(lineage?.execution?.invocationId, result.invocation.invocationId);
+        assert.equal(lineage?.execution?.agentRunId, result.invocation.runId);
+        assert.equal(lineage?.runtimeCoverage?.lowWater?.sequence, 0);
+        assert.equal(lineage?.runtimeCoverage?.lowWater?.eventId, runtimeLedger[0]?.id);
+        assert.equal(lineage?.runtimeCoverage?.highWater.sequence, runtimeLedger.length - 1);
+        assert.equal(lineage?.runtimeCoverage?.highWater.eventId, runtimeLedger.at(-1)?.id);
+        assert.equal(lineage?.runtimeCoverage?.eventCount, runtimeLedger.length);
+        const runHeader = await readAgentRunHeader(
+          storageRoot,
+          result.invocation.sessionId,
+          result.invocation.runId,
+        );
+        assert.equal(runHeader.invocationId, result.invocation.invocationId);
       } finally {
         SessionManager.prototype.sendMessage = original;
       }
@@ -751,6 +810,23 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.latestHeavyTaskSelfCheckPlan?.guard.status, 'accepted');
       assert.equal(result.projection.latestHeavyTaskSelfCheck?.guard.status, 'accepted');
       assert.equal(
+        result.projection.latestHeavyTaskSelfCheck?.freshness,
+        'current',
+        JSON.stringify({
+          warnings: result.projection.warnings,
+          selfCheck: result.projection.latestHeavyTaskSelfCheck,
+          evidenceLinks: result.projection.events.filter((event) => event.type === 'heavy_task_self_check_evidence_linked'),
+          observations: result.projection.heavyTaskWorkspaceObservations,
+        }),
+      );
+      assert.ok(result.projection.latestHeavyTaskSelfCheck?.provenance?.runtimeCoverage);
+      assert.ok(result.projection.latestHeavyTaskSelfCheck?.provenance?.taskCoverage);
+      assert.equal(result.projection.latestHeavyTaskSelfCheck?.provenance?.workspace?.kind, 'manifest');
+      assert.equal(
+        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_evidence_linked').length,
+        result.projection.heavyTaskSelfChecks.length,
+      );
+      assert.equal(
         result.projection.events.filter((event) => event.type === 'heavy_task_inventory_recorded').length,
         2,
       );
@@ -770,6 +846,27 @@ describe('runTaskOnce', () => {
         result.projection.events.filter((event) => event.type === 'heavy_task_self_check_gate_recorded').length,
         2,
       );
+      const linkedEvidence = result.projection.heavyTaskEvidence.filter((item) => item.provenance);
+      const linkedAgentRuns = new Set(
+        result.projection.executionLineage.map((item) => item.execution?.agentRunId),
+      );
+      assert.ok(linkedEvidence.length > 0);
+      assert.ok(linkedEvidence.every((item) => {
+        const provenance = item.provenance;
+        return provenance !== undefined
+          && linkedAgentRuns.has(provenance.execution?.agentRunId)
+          && provenance.execution?.turnId === item.source.turnId
+          && Boolean(provenance.runtimeCoverage?.highWater.eventId);
+      }));
+      assert.equal(
+        result.projection.events.filter((event) => event.type === 'heavy_task_evidence_provenance_linked').length,
+        linkedEvidence.length,
+      );
+      const replayDerivedSelfCheckEvidence = result.projection.heavyTaskEvidence.filter((item) => (
+        item.evidenceId.includes(':compact-')
+      ));
+      assert.ok(replayDerivedSelfCheckEvidence.length > 0);
+      assert.ok(replayDerivedSelfCheckEvidence.every((item) => item.provenance === undefined));
     });
   });
 
@@ -810,6 +907,10 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.latestHeavyTaskSelfCheckGate?.action, 'allow_finalize');
       assert.equal(result.projection.latestVerifierResult?.passed, true);
       assert.equal(result.resultRecord.passed, true);
+      assert.equal(result.projection.attempts[0]?.executionLineage.length, 2);
+      assert.equal(new Set(
+        result.projection.attempts[0]?.executionLineage.map((ref) => ref.execution?.agentRunId),
+      ).size, 2);
       const gateIndexes = result.projection.events
         .map((event, index) => event.type === 'heavy_task_self_check_gate_recorded' ? index : -1)
         .filter((index) => index >= 0);

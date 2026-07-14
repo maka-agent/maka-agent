@@ -303,6 +303,25 @@ describe('heavy-task self-check gate', () => {
     assert.equal(decision.action, 'allow_official_verifier_after_bounded_attempt');
     assert.match(decision.reason, /missing accepted public self-check/);
   });
+
+  test('stale Self-check evidence requires bounded revalidation', () => {
+    const gateProjection = projection(selfCheck('pass', {
+      command: 'npm test',
+      refs: ['/app/move.txt'],
+    }), plan(['/app/move.txt']));
+    assert.ok(gateProjection.latestHeavyTaskSelfCheck);
+    gateProjection.latestHeavyTaskSelfCheck.freshness = 'stale';
+    gateProjection.latestHeavyTaskSelfCheck.freshnessReasons = ['workspace_revision_changed'];
+
+    const decision = evaluateHeavyTaskSelfCheckGate({
+      task,
+      heavyTaskMode,
+      projection: gateProjection,
+    });
+
+    assert.equal(decision.action, 'repair_prompt');
+    assert.match(decision.reason, /self-check is stale: workspace_revision_changed/);
+  });
 });
 
 function projection(

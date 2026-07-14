@@ -8,6 +8,7 @@ import { fetchGitHubCopilotModels, isSupportedGitHubCopilotAccountToken } from '
 import {
   validateHarborCellExecutionIdentity,
   validateHarborCellOutput,
+  validateHarborCellTokenSummary,
   type HarborCellExecutionIdentity,
   type HarborCellOutput,
 } from './cell-output.js';
@@ -30,6 +31,7 @@ const execFileAsync = promisify(execFile);
 const CONTAINER_MAKA_REPO = '/opt/maka-agent';
 const TRIAL_CELL_OUTPUT = 'agent/maka-cell-output.json';
 const TRIAL_EXECUTION_IDENTITY = 'agent/maka-cell-execution-identity.json';
+const TRIAL_USAGE_CHECKPOINT = 'agent/maka-cell-usage-checkpoint.json';
 const TRIAL_RUNTIME_EVENTS = 'agent/runtime-events.jsonl';
 const TRIAL_REWARD = 'verifier/reward.txt';
 const TRIAL_VERIFIER_STDOUT = 'verifier/test-stdout.txt';
@@ -295,13 +297,29 @@ function cellArtifactRefs(cell: HarborCellOutput, hostEventsPath: string, trialD
 async function readTimedOutTrialArtifacts(trialDir: string, taskId: string) {
   const cell = await readOptionalCellOutput(join(trialDir, TRIAL_CELL_OUTPUT), taskId);
   if (cell) return cellArtifactRefs(cell, join(trialDir, TRIAL_RUNTIME_EVENTS), trialDir);
-  const executionIdentity = await readOptionalExecutionIdentity(join(trialDir, TRIAL_EXECUTION_IDENTITY));
-  return executionIdentity ? { executionIdentity } : null;
+  const [executionIdentity, tokenSummary] = await Promise.all([
+    readOptionalExecutionIdentity(join(trialDir, TRIAL_EXECUTION_IDENTITY)),
+    readOptionalTokenSummary(join(trialDir, TRIAL_USAGE_CHECKPOINT)),
+  ]);
+  return executionIdentity || tokenSummary
+    ? {
+        ...(executionIdentity ? { executionIdentity } : {}),
+        ...(tokenSummary ? { tokenSummary } : {}),
+      }
+    : null;
 }
 
 async function readOptionalExecutionIdentity(path: string): Promise<HarborCellExecutionIdentity | null> {
   try {
     return validateHarborCellExecutionIdentity(JSON.parse(await readFile(path, 'utf8')));
+  } catch {
+    return null;
+  }
+}
+
+async function readOptionalTokenSummary(path: string) {
+  try {
+    return validateHarborCellTokenSummary(JSON.parse(await readFile(path, 'utf8')));
   } catch {
     return null;
   }
@@ -439,7 +457,7 @@ export function buildHarborJobConfig(
     metrics: [{ type: 'mean', kwargs: {} }],
     agents: [
       {
-        name: adapter,
+        ...(adapter === 'maka' ? { name: adapter } : {}),
         import_path: adapter === 'opencode' ? 'opencode_agent:MakaOpenCodeAgent' : 'maka_agent:MakaAgent',
         model_name: agentModel,
         kwargs: adapter === 'maka'
