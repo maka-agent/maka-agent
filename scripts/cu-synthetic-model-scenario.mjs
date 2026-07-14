@@ -23,7 +23,11 @@ export const SYNTHETIC_COMPUTER_ALLOWED_KEYS = Object.freeze({
 });
 
 export function createSyntheticComputerScenario() {
-  const state = { value: '' };
+  const state = {
+    value: '',
+    observationSequence: 0,
+    activeObservationId: undefined,
+  };
   const calls = [];
 
   return {
@@ -70,13 +74,14 @@ function executeSyntheticComputerAction(state, args) {
     case 'set_value':
       requireExactKeys(args, ['action', 'observation_id', 'element_id', 'value']);
       if (
-        args.observation_id !== 'obs-fixture'
+        args.observation_id !== state.activeObservationId
         || args.element_id !== 'field-1'
         || args.value !== 'model-e2e'
       ) {
         throw new Error(`invalid semantic mutation: ${JSON.stringify(args)}`);
       }
       state.value = args.value;
+      state.activeObservationId = undefined;
       return {
         kind: 'action_result',
         outcome: {
@@ -88,16 +93,35 @@ function executeSyntheticComputerAction(state, args) {
         fresh_observation: observation(state),
       };
     case 'click_element':
-      throw new Error('click_element is not needed for this fixture task');
+      requireExactKeys(args, ['action', 'observation_id', 'element_id']);
+      if (
+        args.observation_id !== state.activeObservationId
+        || args.element_id !== 'field-1'
+      ) {
+        throw new Error(`invalid semantic click: ${JSON.stringify(args)}`);
+      }
+      state.activeObservationId = undefined;
+      return {
+        kind: 'action_result',
+        outcome: {
+          ok: true,
+          tier: 'ax',
+          verified: true,
+          evidence: { path: 'ax', effect: 'confirmed' },
+        },
+        fresh_observation: observation(state),
+      };
     default:
       throw new Error(`unsupported model action ${String(args.action)}`);
   }
 }
 
 function observation(state) {
+  const observationId = `obs-fixture-${++state.observationSequence}`;
+  state.activeObservationId = observationId;
   return {
     kind: 'observation',
-    observation_id: 'obs-fixture',
+    observation_id: observationId,
     app: 'pid:42',
     pid: 42,
     window_id: 7,

@@ -29,11 +29,11 @@ const backend = {
       })),
     }));
   },
-  async observeApp() {
+  async observeApp(input) {
     const result = scenario.execute(canonicalizeSyntheticComputerArgs({
       action: 'observe',
-      app: 'pid:42',
-      window_id: 7,
+      app: input.app,
+      window_id: input.windowId,
     }));
     return toRuntimeObservation(result);
   },
@@ -49,7 +49,7 @@ const backend = {
     }
     const result = scenario.execute({
       action: 'set_value',
-      observation_id: 'obs-fixture',
+      observation_id: action.observationId,
       element_id: action.elementId,
       value: action.value,
     });
@@ -58,19 +58,13 @@ const backend = {
       observation: toRuntimeObservation(result.fresh_observation),
     };
   },
-  async captureObservation() {
-    return toRuntimeObservation({
-      observation_id: 'obs-fixture',
-      app: 'pid:42',
-      pid: 42,
-      window_id: 7,
-      elements: [{
-        element_id: 'field-1',
-        role: 'AXTextField',
-        label: 'CUA Lab Set Value Field',
-        value: scenario.state.value,
-      }],
-    });
+  async captureObservation(input) {
+    return toRuntimeObservation(scenario.execute({
+      action: 'observe',
+      app: input.app,
+      window_id: input.windowId,
+      include_screenshot: true,
+    }));
   },
   async run(action) {
     return {

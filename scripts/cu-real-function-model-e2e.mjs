@@ -57,7 +57,7 @@ for (let turn = 1; turn <= maxTurns; turn += 1) {
       parallel_tool_calls: false,
       input,
       ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
-      store: true,
+      store: false,
     }),
   });
   const body = await response.text();

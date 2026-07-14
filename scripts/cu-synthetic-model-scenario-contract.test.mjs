@@ -9,7 +9,9 @@ const source = await readFile(
 
 test('shared synthetic model scenario remains AX-semantic and exact-targeted', () => {
   assert.match(source, /enum: \['list_apps', 'observe', 'click_element', 'set_value'\]/);
-  assert.match(source, /args\.observation_id !== 'obs-fixture'/);
+  assert.match(source, /args\.observation_id !== state\.activeObservationId/);
+  assert.match(source, /obs-fixture-\$\{\+\+state\.observationSequence\}/);
+  assert.match(source, /case 'click_element'/);
   assert.match(source, /args\.element_id !== 'field-1'/);
   assert.match(source, /evidence: \{ path: 'ax', effect: 'confirmed' \}/);
   assert.match(source, /include_screenshot: true/);
