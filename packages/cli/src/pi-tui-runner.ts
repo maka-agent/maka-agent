@@ -668,14 +668,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     rightLabel: string,
     items: SelectItem[],
     onSelect: (item: SelectItem) => void,
-    options: { minPrimaryColumnWidth: number; maxPrimaryColumnWidth: number; selectedIndex?: number },
+    options: { minPrimaryColumnWidth: number; maxPrimaryColumnWidth: number; selectedIndex?: number; hint?: string },
   ): void => {
     const list = new SelectList(items, 10, selectListTheme(), {
       minPrimaryColumnWidth: options.minPrimaryColumnWidth,
       maxPrimaryColumnWidth: options.maxPrimaryColumnWidth,
     });
     if (options.selectedIndex !== undefined) list.setSelectedIndex(options.selectedIndex);
-    const picker = new PickerOverlay(list, { title, rightLabel });
+    const picker = new PickerOverlay(list, { title, rightLabel, hint: options.hint });
     let overlay: OverlayHandle | undefined;
     list.onSelect = (item) => {
       overlay?.hide();
@@ -752,13 +752,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       label: target.label,
     }));
     showSelectPicker(
-      'Rewind — 回到选定轮次之前（丢弃该轮及之后，prompt 回填输入框）',
+      'Rewind',
       'Rewind',
       items,
       (item) => {
         void runControl(() => rewindToTurn(item.value));
       },
-      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 48 },
+      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 48, hint: '回到选定轮次之前（丢弃该轮及之后，prompt 回填输入框）' },
     );
   };
 
