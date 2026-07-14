@@ -68,6 +68,7 @@ export type AgentRunEventType =
   | 'history_compact_checkpoint_recorded'
   | 'active_full_compact_block_recorded'
   | 'semantic_compact_block_recorded'
+  | 'task_gate_decided'
   | 'abort_requested'
   | 'run_completed'
   | 'run_failed'

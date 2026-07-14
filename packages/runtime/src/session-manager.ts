@@ -104,6 +104,7 @@ export interface SpawnChildAgentInput {
   spec: AgentSpec;
   prompt: string;
   abortSignal?: AbortSignal;
+  onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
 }
 
 export interface SpawnChildAgentResult {
@@ -573,6 +574,7 @@ export class SessionManager {
     const startedAt = this.deps.now();
     const summary = new ChildAgentSummaryAccumulator();
     let aborted = input.abortSignal?.aborted === true;
+    await input.onReady?.({ turnId, agentId: definition.id, agentName: definition.name });
     const iterator = this.startChildTurn(sessionId, {
       turnId,
       parentRunId: input.parentRunId,

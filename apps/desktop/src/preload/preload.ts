@@ -60,6 +60,8 @@ import type {
   BrowserState,
   BrowserViewRect,
   ThemePreference,
+  Task,
+  TaskLedgerChangedEvent,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -135,6 +137,16 @@ export interface WorkspaceInstructionsState {
 }
 
 contextBridge.exposeInMainWorld('maka', {
+  tasks: {
+    list(sessionId: string): Promise<Task[]> {
+      return ipcRenderer.invoke('tasks:list', sessionId);
+    },
+    subscribeChanges(handler: (event: TaskLedgerChangedEvent) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: TaskLedgerChangedEvent) => handler(payload);
+      ipcRenderer.on('tasks:changed', listener);
+      return () => ipcRenderer.off('tasks:changed', listener);
+    },
+  },
   sessions: {
     list(filter?: SessionListFilter): Promise<SessionSummary[]> {
       return ipcRenderer.invoke('sessions:list', filter);

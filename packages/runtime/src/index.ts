@@ -772,7 +772,13 @@ export {
 } from './goal-tools.js';
 export type { GoalToolsDeps } from './goal-tools.js';
 export { handleGoalContinuation } from './goal-continuation.js';
-export type { GoalContinuationDeps, GoalContinuationOutcome } from './goal-continuation.js';
+export type {
+  GoalContinuationDeps,
+  GoalContinuationOutcome,
+  GoalTaskGateDecision,
+  GoalTaskGateDeps,
+  GoalTaskGateTrace,
+} from './goal-continuation.js';
 
 export {
   MAX_SKILL_BODY_CHARS,

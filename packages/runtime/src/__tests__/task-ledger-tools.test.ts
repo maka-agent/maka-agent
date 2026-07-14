@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { TASK_EVIDENCE_MAX_CHARS, TASK_LEDGER_MAX_TASKS, TASK_SUBJECT_MAX_CHARS, type Task, type TaskLedgerListOptions, type TaskLedgerMutationContext, type TaskLedgerStore } from '@maka/core/task-ledger';
+import { TASK_EVIDENCE_MAX_CHARS, TASK_LEDGER_MAX_TASKS, TASK_SUBJECT_MAX_CHARS, type Task, type TaskAgentOutcome, type TaskLedgerListOptions, type TaskLedgerMutationContext, type TaskLedgerStore, type TaskOwner } from '@maka/core/task-ledger';
 import {
   LEGACY_TASK_CREATE_TOOL_NAME,
   LEGACY_TASK_UPDATE_TOOL_NAME,
@@ -20,20 +20,26 @@ class FakeTaskLedgerStore implements TaskLedgerStore {
   private tasks: Task[] = [];
   public createCalls: Array<{ sessionId: string; drafts: unknown; context?: TaskLedgerMutationContext }> = [];
   public updateCalls: Array<{ sessionId: string; id: string; patch: unknown; context?: TaskLedgerMutationContext }> = [];
+  public listCalls: Array<{ sessionId: string; options?: TaskLedgerListOptions }> = [];
 
   seed(tasks: Task[]): void {
     this.tasks = tasks.map((task) => ({ ...task }));
   }
 
-  async list(_sessionId: string, options?: TaskLedgerListOptions): Promise<Task[]> {
-    return this.tasks.map((t) => ({
+  async list(sessionId: string, options?: TaskLedgerListOptions): Promise<Task[]> {
+    this.listCalls.push({ sessionId, options });
+    return this.tasks.filter((task) => {
+      if (options?.status && task.status !== options.status) return false;
+      if (options?.includeTerminal === false && ['completed', 'failed', 'cancelled'].includes(task.status)) return false;
+      return true;
+    }).map((t) => ({
       ...t,
       ...(options?.classifyResumeTrust === true && t.status === 'in_progress' ? { resumeTrust: 'stale' as const } : {}),
     }));
   }
 
   async get(_sessionId: string, id: string, options?: TaskLedgerListOptions): Promise<Task | undefined> {
-    const task = this.tasks.find((t) => t.id === id);
+    const task = this.tasks.find((t) => t.id === id || t.key === id);
     return task
       ? {
         ...task,
@@ -51,6 +57,7 @@ class FakeTaskLedgerStore implements TaskLedgerStore {
     const now = Date.now();
     const created = (drafts as Array<{ subject: string }>).map((d, i) => ({
       id: `id-${this.tasks.length + i}`,
+      key: `T${this.tasks.length + i + 1}`,
       subject: d.subject,
       status: 'pending' as const,
       createdAt: now,
@@ -71,6 +78,24 @@ class FakeTaskLedgerStore implements TaskLedgerStore {
     if (!task) throw new Error(`No such task: ${id}`);
     Object.assign(task, patch, { updatedAt: Date.now() });
     return { updated: { ...task }, total: this.tasks.length };
+  }
+
+  async claim(_sessionId: string, id: string, owner: TaskOwner): Promise<{ updated: Task; total: number }> {
+    const task = this.tasks.find((item) => item.id === id || item.key === id);
+    if (!task) throw new Error(`No such task: ${id}`);
+    Object.assign(task, { status: 'in_progress', owner });
+    return { updated: { ...task }, total: this.tasks.length };
+  }
+
+  async settleAgentOutcome(_sessionId: string, id: string, outcome: TaskAgentOutcome): Promise<{ updated: Task; total: number }> {
+    const task = this.tasks.find((item) => item.id === id || item.key === id);
+    if (!task) throw new Error(`No such task: ${id}`);
+    Object.assign(task, { owner: outcome.owner });
+    return { updated: { ...task }, total: this.tasks.length };
+  }
+
+  subscribe(): () => void {
+    return () => {};
   }
 }
 
@@ -256,6 +281,15 @@ describe('task ledger tools', () => {
     assert.equal(schema.safeParse({ tasks: [{ subject: 'x'.repeat(TASK_SUBJECT_MAX_CHARS) }] }).success, true);
     assert.equal(schema.safeParse({ tasks: [{ subject: 'x'.repeat(TASK_SUBJECT_MAX_CHARS + 1) }] }).success, false);
     assert.equal(schema.safeParse({}).success, false);
+    assert.equal(schema.safeParse({ tasks: [{ subject: 'child', parent_id: 'T1' }] }).success, true);
+    assert.equal(schema.safeParse({ tasks: [{ subject: 'child', parent_id: '../T1' }] }).success, false);
+  });
+
+  test('task_create forwards parent_id as the storage parent reference', async () => {
+    const store = new FakeTaskLedgerStore();
+    const create = findTool(buildTaskLedgerTools({ store }), TASK_CREATE_TOOL_NAME);
+    await create.impl({ tasks: [{ subject: 'child', parent_id: 'T1' }] }, fakeContext(SESSION_ID));
+    assert.deepEqual(store.createCalls[0]?.drafts, [{ subject: 'child', parentId: 'T1' }]);
   });
 
   test('task_update schema requires id and at least one of status/subject, with the same subject cap', () => {
@@ -345,11 +379,31 @@ describe('task ledger tools', () => {
     assert.equal(await get.impl({ id: 'missing' }, fakeContext(SESSION_ID)), 'No such task: missing');
   });
 
+  test('task_list forwards filters and rejects contradictory terminal options', async () => {
+    const store = new FakeTaskLedgerStore();
+    store.seed([
+      { id: 'a', key: 'T1', subject: 'active', status: 'pending', createdAt: 1, updatedAt: 1 },
+      { id: 'b', key: 'T2', subject: 'done', status: 'completed', completionEvidence: 'ok', createdAt: 2, updatedAt: 3 },
+    ]);
+    const list = findTool(buildTaskLedgerTools({ store }), TASK_LIST_TOOL_NAME);
+    const schema = list.parameters as z.ZodTypeAny;
+    assert.equal(schema.safeParse({ status: 'completed', include_terminal: false }).success, false);
+    const result = String(await list.impl({
+      status: 'pending', include_terminal: false, include_archived: false,
+    }, fakeContext(SESSION_ID)));
+    assert.match(result, /active/);
+    assert.doesNotMatch(result, /done/);
+    assert.deepEqual(store.listCalls.at(-1)?.options, {
+      status: 'pending', includeTerminal: false, includeArchived: false,
+    });
+  });
+
   test('task_list and task_get hide untrusted fallback tasks from model-visible output', async () => {
     const store = new FakeTaskLedgerStore();
     store.seed([
       {
         id: 'safe-task',
+        key: 'T1',
         subject: 'visible task',
         status: 'pending',
         createdAt: 1,
@@ -357,6 +411,7 @@ describe('task ledger tools', () => {
       },
       {
         id: 'fallback-task',
+        key: 'T2',
         subject: 'corrupt cache fallback',
         status: 'pending',
         createdAt: 2,

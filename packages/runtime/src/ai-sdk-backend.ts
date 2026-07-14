@@ -471,6 +471,7 @@ export interface AiSdkBackendInput {
     spec: AgentSpec;
     prompt: string;
     abortSignal: AbortSignal;
+    onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;

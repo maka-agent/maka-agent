@@ -57,6 +57,8 @@ import type {
   BrowserState,
   BrowserViewRect,
   ThemePreference,
+  Task,
+  TaskLedgerChangedEvent,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -125,6 +127,10 @@ declare global {
     | { file: File };
   interface Window {
     maka: {
+      tasks: {
+        list(sessionId: string): Promise<Task[]>;
+        subscribeChanges(handler: (event: TaskLedgerChangedEvent) => void): () => void;
+      };
       sessions: {
         list(filter?: SessionListFilter): Promise<SessionSummary[]>;
         create(input?: Partial<CreateSessionInput>): Promise<SessionSummary>;
