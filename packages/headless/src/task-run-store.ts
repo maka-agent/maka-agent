@@ -1,5 +1,9 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import {
+  validateExecutionEvidenceRef,
+  type ExecutionEvidenceRef,
+} from '@maka/core/execution-evidence';
 import type { ResultRecord } from './contracts.js';
 import { compactArtifactEvidence, compactSelfCheckEvidence } from './heavy-task-evidence.js';
 import { evaluateHeavyTaskCompletionStatus, type HeavyTaskCompletionStatus } from './heavy-task-finalization.js';
@@ -37,6 +41,7 @@ import type {
 export interface TaskRunProjection extends TaskRun {
   events: TaskEvent[];
   attempts: TaskAttempt[];
+  executionLineage: ExecutionEvidenceRef[];
   selfChecks: SelfCheckObservation[];
   feedback: FeedbackObservation[];
   decisions: AutonomousDecision[];
@@ -96,6 +101,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
     status: 'queued',
     events: [],
     attempts: [],
+    executionLineage: [],
     selfChecks: [],
     feedback: [],
     decisions: [],
@@ -147,6 +153,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
         projection.status = 'verifying';
         break;
       case 'task_attempt_started': {
+        const previous = attempts.get(event.attemptId);
         const attempt: TaskAttempt = {
           attemptId: event.attemptId,
           taskRunId: event.taskRunId,
@@ -154,9 +161,37 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
           status: 'running',
           ...(event.sessionId ? { sessionId: event.sessionId } : {}),
           ...(event.agentRunId ? { agentRunId: event.agentRunId } : {}),
+          executionLineage: previous?.executionLineage ?? [],
         };
         attempts.set(event.attemptId, attempt);
         setOptionalRefs(projection, event.sessionId, event.agentRunId);
+        break;
+      }
+      case 'task_attempt_execution_linked': {
+        const evidence = validTaskAttemptExecutionEvidence(event, projection.warnings);
+        if (!evidence) break;
+        projection.executionLineage.push(evidence);
+        const previous = attempts.get(event.attemptId);
+        attempts.set(event.attemptId, {
+          ...(previous ?? {
+            attemptId: event.attemptId,
+            taskRunId: event.taskRunId,
+            startedAt: event.ts,
+            status: 'running',
+            executionLineage: [],
+          }),
+          ...(evidence.execution?.sessionId ? { sessionId: evidence.execution.sessionId } : {}),
+          ...(!previous?.agentRunId && evidence.execution?.agentRunId
+            ? { agentRunId: evidence.execution.agentRunId }
+            : {}),
+          executionLineage: [...(previous?.executionLineage ?? []), evidence],
+        });
+        if (!projection.sessionId && evidence.execution?.sessionId) {
+          projection.sessionId = evidence.execution.sessionId;
+        }
+        if (!projection.agentRunId && evidence.execution?.agentRunId) {
+          projection.agentRunId = evidence.execution.agentRunId;
+        }
         break;
       }
       case 'self_check_observed':
@@ -277,7 +312,12 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
           if (event.attemptId) {
             const previous = attempts.get(event.attemptId);
             attempts.set(event.attemptId, {
-              ...(previous ?? { attemptId: event.attemptId, taskRunId: event.taskRunId, startedAt: event.ts }),
+              ...(previous ?? {
+                attemptId: event.attemptId,
+                taskRunId: event.taskRunId,
+                startedAt: event.ts,
+                executionLineage: [],
+              }),
               status: 'needs_approval',
               finishedAt: event.ts,
             });
@@ -290,6 +330,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
             attemptId: event.attemptId,
             taskRunId: event.taskRunId,
             startedAt: event.ts,
+            executionLineage: [],
           }),
           status: event.status,
           finishedAt: event.finishedAt ?? event.ts,
@@ -475,6 +516,27 @@ class FileTaskRunStore implements TaskRunStore {
 function setOptionalRefs(projection: TaskRunProjection, sessionId: string | undefined, agentRunId: string | undefined): void {
   if (sessionId) projection.sessionId = sessionId;
   if (agentRunId) projection.agentRunId = agentRunId;
+}
+
+function validTaskAttemptExecutionEvidence(
+  event: Extract<TaskEvent, { type: 'task_attempt_execution_linked' }>,
+  warnings: string[],
+): ExecutionEvidenceRef | undefined {
+  const validation = validateExecutionEvidenceRef(event.evidence);
+  if (!validation.ok) {
+    warnings.push(`ignored execution lineage ${event.id}: ${validation.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ')}`);
+    return undefined;
+  }
+  const evidence = validation.value;
+  if (evidence.task?.taskRunId !== event.taskRunId || evidence.task.attemptId !== event.attemptId) {
+    warnings.push(`ignored execution lineage ${event.id}: task identity does not match the owning attempt`);
+    return undefined;
+  }
+  if (!evidence.execution?.agentRunId) {
+    warnings.push(`ignored execution lineage ${event.id}: execution.agentRunId is required`);
+    return undefined;
+  }
+  return evidence;
 }
 
 function resultFromScore(score: ScoreResult | undefined, verifier: VerifierResult | undefined): TaskRunResult | undefined {

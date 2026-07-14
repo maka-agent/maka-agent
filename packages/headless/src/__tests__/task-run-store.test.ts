@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { HeavyTaskSelfCheckPlanState, HeavyTaskSemanticSelfCheckState, TaskEvent } from '../task-contracts.js';
+import { taskAttemptExecutionEvidence } from '../task-execution-lineage.js';
 import { createInMemoryTaskRunStore, createTaskRunStore, projectTaskRun } from '../task-run-store.js';
 
 function eventIdFactory(): () => string {
@@ -116,6 +117,7 @@ describe('TaskRunStore', () => {
     assert.equal(projection.sessionId, 's-1');
     assert.equal(projection.agentRunId, 'r-1');
     assert.equal(projection.attempts[0]?.status, 'completed');
+    assert.deepEqual(projection.attempts[0]?.executionLineage, []);
     assert.equal(projection.selfChecks[0]?.summary, 'looks solved');
     assert.equal(projection.feedback[0]?.summary, 'tests passed');
     assert.equal(projection.decisions[0]?.decision, 'stop');
@@ -127,6 +129,85 @@ describe('TaskRunStore', () => {
       verifierResultId: 'v-1',
       scoreResultId: 'score-1',
     });
+  });
+
+  test('projects every AgentRun linked to one attempt without copying Runtime facts', () => {
+    const taskRunId = 'tr-lineage';
+    const attemptId = 'attempt-1';
+    const events: TaskEvent[] = [
+      { type: 'task_run_created', id: 'e-1', taskRunId, ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      { type: 'task_run_started', id: 'e-2', taskRunId, ts: 2, sessionId: 'session-1', agentRunId: 'run-1' },
+      { type: 'task_attempt_started', id: 'e-3', taskRunId, ts: 3, attemptId, sessionId: 'session-1', agentRunId: 'run-1' },
+      {
+        type: 'task_attempt_execution_linked',
+        id: 'e-4',
+        taskRunId,
+        attemptId,
+        ts: 4,
+        evidence: taskAttemptExecutionEvidence({
+          taskRunId,
+          attemptId,
+          sessionId: 'session-1',
+          invocationId: 'invocation-1',
+          agentRunId: 'run-1',
+          turnId: 'turn-1',
+          runtimeEvents: [],
+        }),
+      },
+      {
+        type: 'task_attempt_execution_linked',
+        id: 'e-5',
+        taskRunId,
+        attemptId,
+        ts: 5,
+        evidence: taskAttemptExecutionEvidence({
+          taskRunId,
+          attemptId,
+          sessionId: 'session-1',
+          invocationId: 'invocation-2',
+          agentRunId: 'run-2',
+          turnId: 'turn-2',
+          runtimeEvents: [],
+        }),
+      },
+      { type: 'task_attempt_completed', id: 'e-6', taskRunId, ts: 6, attemptId, status: 'completed' },
+    ];
+
+    const projection = projectTaskRun(events, taskRunId);
+
+    assert.equal(projection.agentRunId, 'run-1');
+    assert.deepEqual(
+      projection.executionLineage.map((ref) => ref.execution?.agentRunId),
+      ['run-1', 'run-2'],
+    );
+    assert.deepEqual(
+      projection.attempts[0]?.executionLineage.map((ref) => ref.execution?.agentRunId),
+      ['run-1', 'run-2'],
+    );
+  });
+
+  test('rejects lineage whose task identity does not match the owning event', () => {
+    const taskRunId = 'tr-lineage-invalid';
+    const projection = projectTaskRun([
+      { type: 'task_attempt_started', id: 'e-1', taskRunId, ts: 1, attemptId: 'attempt-1' },
+      {
+        type: 'task_attempt_execution_linked',
+        id: 'e-2',
+        taskRunId,
+        attemptId: 'attempt-1',
+        ts: 2,
+        evidence: taskAttemptExecutionEvidence({
+          taskRunId: 'another-task-run',
+          attemptId: 'attempt-1',
+          sessionId: 'session-1',
+          agentRunId: 'run-1',
+          runtimeEvents: [],
+        }),
+      },
+    ], taskRunId);
+
+    assert.equal(projection.executionLineage.length, 0);
+    assert.match(projection.warnings[0] ?? '', /task identity does not match/);
   });
 
   test('projects first-class task-run artifacts', () => {

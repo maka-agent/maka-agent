@@ -60,6 +60,9 @@ describe('taskEventsFromResultRecord', () => {
 
     assert.equal(taxonomyFromResultRecord(original), 'passed');
     assert.equal(projection.latestScoreResult?.taxonomy, 'passed');
+    assert.equal(projection.executionLineage[0]?.execution?.sessionId, original.sessionId);
+    assert.equal(projection.executionLineage[0]?.execution?.agentRunId, original.runId);
+    assert.equal(projection.executionLineage[0]?.runtimeCoverage, undefined);
     assert.deepEqual(resultRecordFromTaskRunProjection(projection), original);
   });
 

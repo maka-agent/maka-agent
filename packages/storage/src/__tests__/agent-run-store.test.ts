@@ -9,7 +9,7 @@ import type { AgentRunEvent, AgentRunHeader, RuntimeEvent } from '@maka/core';
 describe('AgentRunStore', () => {
   it('creates, reads, updates, and lists runs under a session', async () => {
     await withStore(async (store, root) => {
-      const first = makeHeader({ runId: 'run-1', createdAt: 1, updatedAt: 1 });
+      const first = makeHeader({ runId: 'run-1', invocationId: 'invocation-1', createdAt: 1, updatedAt: 1 });
       const second = makeHeader({ runId: 'run-2', turnId: 'turn-2', createdAt: 2, updatedAt: 2 });
 
       await store.createRun(second);
@@ -23,6 +23,7 @@ describe('AgentRunStore', () => {
       const read = await store.readRun('session-1', 'run-1');
       assert.equal(read.status, 'completed');
       assert.equal(read.completedAt, 10);
+      assert.equal(read.invocationId, 'invocation-1');
       assert.deepEqual((await store.listSessionRuns('session-1')).map((run) => run.runId), ['run-1', 'run-2']);
       assert.equal(
         JSON.parse(await readFile(join(root, 'sessions', 'session-1', 'runs', 'run-1', 'run.json'), 'utf8')).runId,
@@ -411,10 +412,14 @@ describe('AgentRunStore', () => {
       }
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+      const readImmutable = runtimeEventStore.readImmutableRuntimeEvents;
+      assert.ok(readImmutable);
+      const immutableEvents = await readImmutable.call(runtimeEventStore, 'session-1', 'run-1');
 
       assert.equal(events.length, 1);
       assert.equal(events[0]?.partial, true);
       assert.deepEqual(events[0]?.content, { kind: 'text', text: 'hello!' });
+      assert.deepEqual(immutableEvents, []);
     });
   });
 
@@ -591,8 +596,15 @@ describe('AgentRunStore', () => {
       }
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+      const readImmutable = runtimeEventStore.readImmutableRuntimeEvents;
+      assert.ok(readImmutable);
+      const immutableEvents = await readImmutable.call(runtimeEventStore, 'session-1', 'run-1');
 
       assert.deepEqual(events.map((event) => event.id), [
+        'runtime-lifecycle-0',
+        'runtime-lifecycle-1',
+      ]);
+      assert.deepEqual(immutableEvents.map((event) => event.id), [
         'runtime-lifecycle-0',
         'runtime-lifecycle-1',
       ]);

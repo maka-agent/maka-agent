@@ -93,6 +93,7 @@ import {
   type TaskRunStore,
 } from './task-run-store.js';
 import { taskDefinitionFromTask } from './task-run-adapter.js';
+import { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
 
 export interface RunTaskOnceDeps extends RunExperimentDeps {
   taskRunStore?: TaskRunStore;
@@ -342,6 +343,15 @@ export async function runTaskOnce(
     } finally {
       await active.dispose();
     }
+    await appendTaskAttemptExecutionLink({
+      store: taskRunStore,
+      runtimeEventStore,
+      taskRunId,
+      attemptId,
+      invocation: runtimeInvocation,
+      now,
+      newId,
+    });
     const permissionHandling = await handlePermissionIntervention({
       invocation: runtimeInvocation,
       store: taskRunStore,
@@ -428,6 +438,15 @@ export async function runTaskOnce(
         } finally {
           await repairActive.dispose();
         }
+        await appendTaskAttemptExecutionLink({
+          store: taskRunStore,
+          runtimeEventStore,
+          taskRunId,
+          attemptId,
+          invocation: repairInvocation,
+          now,
+          newId,
+        });
         const repairPermissionHandling = await handlePermissionIntervention({
           invocation: repairInvocation,
           store: taskRunStore,
@@ -672,6 +691,39 @@ function toolNamesForIdentity(hasIsolatedExecutor: boolean, heavyTaskEnabled: bo
   const names = hasIsolatedExecutor ? [...ISOLATED_HEADLESS_TOOL_NAMES] : ['registered_backend'];
   if (heavyTaskEnabled && hasIsolatedExecutor) names.push(...HEAVY_TASK_PROGRESS_TOOL_NAMES, ...HEAVY_TASK_SELF_CHECK_TOOL_NAMES);
   return names;
+}
+
+async function appendTaskAttemptExecutionLink(input: {
+  store: TaskRunStore;
+  runtimeEventStore: RuntimeEventStore;
+  taskRunId: string;
+  attemptId: string;
+  invocation: InvocationResult;
+  now: () => number;
+  newId: () => string;
+}): Promise<void> {
+  const runtimeEvents = input.runtimeEventStore.readImmutableRuntimeEvents
+    ? await input.runtimeEventStore.readImmutableRuntimeEvents(
+        input.invocation.sessionId,
+        input.invocation.runId,
+      )
+    : [];
+  await appendTaskEvent(input.store, input.taskRunId, {
+    type: 'task_attempt_execution_linked',
+    id: input.newId(),
+    taskRunId: input.taskRunId,
+    attemptId: input.attemptId,
+    ts: input.now(),
+    evidence: taskAttemptExecutionEvidence({
+      taskRunId: input.taskRunId,
+      attemptId: input.attemptId,
+      sessionId: input.invocation.sessionId,
+      invocationId: input.invocation.invocationId,
+      agentRunId: input.invocation.runId,
+      turnId: input.invocation.turnId,
+      runtimeEvents,
+    }),
+  });
 }
 
 interface PermissionInterventionInput {
