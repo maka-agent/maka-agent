@@ -125,6 +125,7 @@ export function ChatModelSwitcher(props: {
   activeModel?: string;
   activeConnectionLabel?: string;
   activeModelLabel?: string;
+  currentProviderType?: ProviderType;
   choices: ChatModelChoice[];
   pending?: boolean;
   disabledReason?: string;
@@ -227,6 +228,11 @@ export function ChatModelSwitcher(props: {
           />
         )}
       >
+        {props.currentProviderType && props.renderProviderMark && (
+          <span className="maka-composer-provider-mark" data-provider={props.currentProviderType} aria-hidden="true">
+            {props.renderProviderMark(props.currentProviderType)}
+          </span>
+        )}
         <span className="maka-model-switcher-label">{pending ? '切换中' : '模型'}</span>
         <span className="maka-model-switcher-value">
           {displayLabel}
@@ -251,6 +257,7 @@ export function NewChatModelPicker(props: {
   label: string;
   choices: ChatModelChoice[];
   currentValue?: string;
+  currentProviderType?: ProviderType;
   renderProviderMark?(type: ProviderType): ReactNode;
   onPick(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
   thinkingLevels?: readonly ThinkingLevel[];
@@ -280,6 +287,11 @@ export function NewChatModelPicker(props: {
         />
       )}
     >
+      {props.currentProviderType && props.renderProviderMark && (
+        <span className="maka-composer-provider-mark" data-provider={props.currentProviderType} aria-hidden="true">
+          {props.renderProviderMark(props.currentProviderType)}
+        </span>
+      )}
       <span className="maka-composer-model-chip-text">{props.label}</span>
       {props.thinkingLevel && <span className="maka-thinking-level-tag">{thinkingLevelLabel(props.thinkingLevel)}</span>}
       {/* ModelPicker's trigger already renders a chevron — no manual one. */}

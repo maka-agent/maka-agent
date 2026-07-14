@@ -157,6 +157,7 @@ export const Composer = forwardRef<
     activeConnectionLabel?: string;
     activeModel?: string;
     activeModelLabel?: string;
+    activeProviderType?: ProviderType;
     modelChoices?: ChatModelChoice[];
     /** Renders the provider brand mark on each group heading of the model menus;
      *  injected by the desktop app to keep the provider SVG library out of @maka/ui. */
@@ -177,6 +178,7 @@ export const Composer = forwardRef<
      * choose the new-chat model inline instead of only via Settings · 模型.
      */
     newChatModel?: { llmConnectionSlug: string; model: string };
+    newChatProviderType?: ProviderType;
     onPickNewChatModel?(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
     /**
      * Empty-state only: no models are configured yet, so the model chip is a
@@ -671,6 +673,7 @@ export const Composer = forwardRef<
                     activeModel={props.activeModel}
                     activeConnectionLabel={props.activeConnectionLabel}
                     activeModelLabel={props.activeModelLabel}
+                    currentProviderType={props.activeProviderType}
                     choices={props.modelChoices ?? []}
                     pending={props.modelChangePending}
                     disabledReason={modelSwitcherDisabledReason}
@@ -689,6 +692,7 @@ export const Composer = forwardRef<
                         ? modelChoiceValue(props.newChatModel.llmConnectionSlug, props.newChatModel.model)
                         : undefined
                     }
+                    currentProviderType={props.newChatProviderType}
                     renderProviderMark={props.renderProviderMark}
                     onPick={props.onPickNewChatModel}
                     thinkingLevels={props.newChatThinkingLevels}

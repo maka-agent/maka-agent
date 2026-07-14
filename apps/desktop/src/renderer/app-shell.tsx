@@ -351,6 +351,9 @@ export function AppShell({
     persistedComposerDefaults,
     openSettingsSection,
   });
+  const newChatProviderType = newChatModel
+    ? connections.find((connection) => connection.slug === newChatModel.llmConnectionSlug)?.providerType
+    : undefined;
 
   // PR109d-b: turn footer actions per turn. Derived from the
   // materialized turn list (status + lineage descendants) + pending
@@ -1473,6 +1476,7 @@ export function AppShell({
                 activeConnectionLabel={activeConnectionLabel}
                 activeModel={activeModel}
                 activeModelLabel={activeModelLabel}
+                activeProviderType={activeConnection?.providerType}
                 modelChoices={chatModelChoices}
                 renderProviderMark={(type) => <ProviderBrandMark type={type} />}
                 modelChangePending={activeId ? pendingSessionModelBySession[activeId] === true : false}
@@ -1481,6 +1485,7 @@ export function AppShell({
                 activeThinkingLevel={activeThinkingLevel}
                 onThinkingLevelChange={(level) => setSessionThinkingLevel(level)}
                 newChatModel={newChatModel}
+                newChatProviderType={newChatProviderType}
                 onPickNewChatModel={(input) => {
                   setPendingNewChatModel(input);
                   saveComposerDefaults({ model: input });

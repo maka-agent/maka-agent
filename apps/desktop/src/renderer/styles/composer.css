@@ -124,6 +124,23 @@
   white-space: nowrap;
 }
 
+.maka-composer-provider-mark {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: grid;
+  place-items: center;
+  color: inherit;
+}
+
+.maka-composer-provider-mark > svg,
+.maka-composer-provider-mark > img,
+.maka-composer-provider-mark > .providerAssetMask {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
 .maka-composer-model-status {
   width: 6px;
   height: 6px;
