@@ -93,12 +93,14 @@ function baseEvents(): RuntimeEvent[] {
       author: 'system',
       actions: {
         permissionRequest: {
+          kind: 'tool_permission',
           requestId: 'req-1',
           toolUseId: 'tool-1',
           toolName: 'Read',
           category: 'read',
           reason: 'custom',
           args: { path: '/tmp/a.txt' },
+          rememberForTurnAllowed: true,
           hint: 'needs read access',
         },
       },

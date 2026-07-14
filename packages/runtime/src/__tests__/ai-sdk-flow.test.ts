@@ -316,12 +316,14 @@ describe('AiSdkFlow seam', () => {
       events: [
         ev({
           type: 'permission_request',
+          kind: 'tool_permission',
           requestId: 'req-1',
           toolUseId: 'tu-2',
           toolName: 'bash',
           category: 'shell_unsafe',
           reason: 'shell_dangerous',
           args: { cmd: 'rm -rf /' },
+          rememberForTurnAllowed: true,
           hint: 'destructive',
         }),
         ev({
@@ -342,6 +344,11 @@ describe('AiSdkFlow seam', () => {
     assert.equal(req.actions?.permissionRequest?.requestId, 'req-1');
     assert.equal(req.actions?.permissionRequest?.toolName, 'bash');
     assert.equal(req.actions?.permissionRequest?.hint, 'destructive');
+    assert.equal(req.actions?.permissionRequest?.kind, 'tool_permission');
+    if (req.actions?.permissionRequest?.kind !== 'tool_permission') {
+      assert.fail('expected a tool permission request');
+    }
+    assert.equal(req.actions.permissionRequest.rememberForTurnAllowed, true);
 
     const ack = out[1];
     assert.equal(ack.author, 'user', 'permission decision is authored by the user');
@@ -400,6 +407,32 @@ describe('AiSdkFlow seam', () => {
     assert.deepEqual(request.availableDecisions, ['allow_once', 'deny']);
     assert.equal(request.alsoApprovesToolExecution, true);
     assert.equal('args' in request, false);
+  });
+
+  test('rejects permission requests without an explicit valid kind', () => {
+    const valid = ev({
+      type: 'permission_request',
+      kind: 'tool_permission',
+      requestId: 'req-kind',
+      toolUseId: 'tu-kind',
+      toolName: 'Write',
+      category: 'file_write',
+      reason: 'file_write',
+      args: { path: '/tmp/example' },
+      rememberForTurnAllowed: true,
+    });
+
+    for (const kind of [undefined, 'unknown']) {
+      const malformed = { ...valid, kind } as unknown as SessionEvent;
+      assert.throws(
+        () => mapSessionEventToRuntimeEvent(
+          malformed,
+          ctx,
+          createSessionEventMapMemory(),
+        ),
+        /invalid or missing kind/,
+      );
+    }
   });
 
   test('maps the error path preserving error content + terminal failed', async () => {
@@ -721,12 +754,14 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
       {
         event: (args: unknown) => ev({
           type: 'permission_request',
+          kind: 'tool_permission',
           requestId: 'permission-owned',
           toolUseId: 'tu-owned',
           toolName: 'Write',
           category: 'file_write',
           reason: 'file_write',
           args,
+          rememberForTurnAllowed: true,
         }),
         mappedArgs: (event: RuntimeEvent) => {
           const request = event.actions?.permissionRequest;

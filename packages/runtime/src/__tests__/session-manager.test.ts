@@ -3810,7 +3810,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new EventBackend(ctx, [
-      { type: 'permission_request', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {} },
+      { type: 'permission_request', kind: 'tool_permission', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {}, rememberForTurnAllowed: true },
       { type: 'complete', stopReason: 'permission_handoff' },
     ]));
     const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(9_000) });
@@ -3834,7 +3834,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new EventBackend(ctx, [
-      { type: 'permission_request', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {} },
+      { type: 'permission_request', kind: 'tool_permission', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {}, rememberForTurnAllowed: true },
       { type: 'complete', stopReason: 'permission_handoff' },
     ]));
     const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(9_010) });
@@ -3862,7 +3862,7 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new EventBackend(ctx, [
-      { type: 'permission_request', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {} },
+      { type: 'permission_request', kind: 'tool_permission', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {}, rememberForTurnAllowed: true },
       { type: 'complete', stopReason: 'permission_handoff' },
     ]));
     const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(9_500) });

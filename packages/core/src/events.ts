@@ -12,7 +12,6 @@ import type {
   PermissionMode,
   PermissionRequest,
   PermissionResponse,
-  ToolCategory,
 } from './permission.js';
 import type { UserQuestionRequest } from './user-question.js';
 import type {
@@ -396,26 +395,8 @@ export interface ShellRunUpdate {
   result: ShellRunStateResult;
 }
 
-export interface PermissionRequestEvent extends BaseEvent {
+export interface PermissionRequestEvent extends BaseEvent, PermissionRequest {
   type: 'permission_request';
-  kind?: 'tool_permission';
-  requestId: string;
-  toolUseId: string;
-  toolName: string;
-  category: ToolCategory;
-  reason:
-    | 'shell_dangerous'
-    | 'file_write'
-    | 'fs_destructive'
-    | 'network'
-    | 'git_destructive'
-    | 'privileged'
-    | 'browser'
-    | 'computer_use'
-    | 'custom';
-  args: unknown;
-  hint?: string;
-  rememberForTurnAllowed?: boolean;
 }
 
 export interface AdditionalPermissionRequestEvent

@@ -225,12 +225,15 @@ export {
 } from './pty-output-view.js';
 export type { PtyTuiTerminalView } from './pty-output-view.js';
 export {
+  formatWriteStdinPermissionInspection,
   projectToolActivityArgs,
+  projectWriteStdinPermissionSummary,
   projectWriteStdinInput,
   readWriteStdinInputPreview,
   WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS,
   WRITE_STDIN_REF_PREVIEW_MAX_CHARS,
   type WriteStdinInputPreview,
+  type WriteStdinPermissionSummary,
 } from './tool-activity-args.js';
 export {
   SHELL_RUN_ID_MAX_CHARS,
