@@ -48,6 +48,10 @@ const FIREWORKS_BRAND_MARK_FILE = resolve(
   REPO_ROOT,
   'apps/desktop/src/renderer/assets/provider-brands/fireworks.svg',
 );
+const GITHUB_COPILOT_BRAND_MARK_FILE = resolve(
+  REPO_ROOT,
+  'apps/desktop/src/renderer/assets/provider-brands/github-copilot.svg',
+);
 const NVIDIA_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/nvidia.svg');
 const TENCENT_HUNYUAN_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/hunyuan.svg');
 const TENCENT_CLOUD_BRAND_MARK_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/assets/provider-brands/tencentcloud.svg');
@@ -387,6 +391,21 @@ describe('icon + typography governance contract', () => {
       notices,
       /apps\/desktop\/src\/renderer\/assets\/provider-brands\/fireworks\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/fireworks-color\.svg[\s\S]*f1c4782b86bc03a36323fd68ad6cc376c6b2ebe57b701cc958ebd6b8d37effd6/,
     );
+  });
+
+  it('vendors the byte-exact upstream GitHub Copilot mark with trademark-aware governance', async () => {
+    const [marks, asset, notices] = await Promise.all([
+      readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
+      readFile(GITHUB_COPILOT_BRAND_MARK_FILE),
+      readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
+    ]);
+    assert.equal(
+      createHash('sha256').update(asset).digest('hex'),
+      'eeafb3c2f333e04ccf7d031ae215f7adafaed4c6352556b0bf79496e048bcdd7',
+    );
+    assert.match(marks, /GitHub Copilot mark vendored byte-for-byte from the official Primer Octicons repository:[\s\S]*2ed936e7759451e80ae38b8147cbe2c89de6cc7a[\s\S]*icons\/copilot-24\.svg[\s\S]*eeafb3c2f333e04ccf7d031ae215f7adafaed4c6352556b0bf79496e048bcdd7/);
+    assert.match(marks, /case 'github-copilot':\s*return <ProviderAssetMask src=\{githubCopilotBrandMark\} \/>/);
+    assert.match(notices, /GitHub Copilot brand mark[\s\S]*2ed936e7759451e80ae38b8147cbe2c89de6cc7a[\s\S]*eeafb3c2f333e04ccf7d031ae215f7adafaed4c6352556b0bf79496e048bcdd7[\s\S]*does not grant rights to GitHub logos/);
   });
 
   it('keeps the verified Ollama mark and routes it through catalog, detail, and first-run surfaces', async () => {
