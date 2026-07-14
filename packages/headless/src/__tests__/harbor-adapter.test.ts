@@ -1551,6 +1551,8 @@ try:
         assert context.metadata["opencode_reported_cost_usd"] == 0.99, context.metadata
         assert context.metadata["opencode_pricing_source"] == "xiaomi-env", context.metadata
         cell = json.loads((Path(tmp) / "maka-cell-output.json").read_text(encoding="utf-8"))
+        assert cell["schemaVersion"] == 2, cell
+        assert cell["stepsKind"] == "model_steps", cell
         assert cell["executionIdentity"]["model"] == "glm-5.2", cell
         assert cell["executionIdentity"]["reasoningEffort"] == "max", cell
         assert cell["tokenSummary"]["cachedInput"] == 40, cell
@@ -1575,6 +1577,8 @@ try:
         missing_usage_context.cost_usd = None
         missing_usage_agent._write_cell_output(missing_usage_context)
         missing_usage_cell = json.loads((Path(tmp) / "maka-cell-output.json").read_text(encoding="utf-8"))
+        assert missing_usage_cell["schemaVersion"] == 2, missing_usage_cell
+        assert missing_usage_cell["stepsKind"] == "model_steps", missing_usage_cell
         assert "tokenSummary" not in missing_usage_cell, missing_usage_cell
 
         failing_agent = MakaOpenCodeAgent(Path(tmp), extra_env={

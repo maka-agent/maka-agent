@@ -478,6 +478,44 @@ describe('runPromptOptimizationLoop', () => {
     });
   });
 
+  test('aborts baseline as soon as real-provider cost observation is unavailable', async () => {
+    await withHarness(async (harness) => {
+      const calls: string[] = [];
+      await assert.rejects(
+        runLoop(harness, {
+          heldInTasks: makeTasks('hin', 2),
+          heldOutTasks: makeTasks('hout', 2),
+          rewardFor: () => 1,
+          rounds: 1,
+          baselineRuns: 1,
+          costCeilingUsd: 1,
+          omitTokenSummary: () => true,
+          onTaskRun: (roundId, taskId) => calls.push(`${roundId}:${taskId}`),
+        }),
+        /cost_observation_unavailable during baseline calibration \(completed 0 of 1 sweeps\)/,
+      );
+      assert.deepEqual(calls, ['baseline-0:hin-0']);
+    });
+  });
+
+  test('rolls back a candidate without a decision when cost observation becomes unavailable', async () => {
+    await withHarness(async (harness) => {
+      const result = await runLoop(harness, {
+        heldInTasks: makeTasks('hin', 2),
+        heldOutTasks: makeTasks('hout', 2),
+        rewardFor: () => 1,
+        rounds: 2,
+        baselineRuns: 1,
+        costCeilingUsd: 1,
+        omitTokenSummary: (roundId) => roundId === 'round-0',
+      });
+
+      assert.equal(result.stopReason, 'cost_observation_unavailable');
+      assert.equal(result.decisions.length, 0);
+      assert.equal(await readFile(harness.systemPromptPath, 'utf8'), 'original prompt\n');
+    });
+  });
+
   test('refuses to run when the held-out TSV would be visible inside the agent cwd', async () => {
     await withHarness(async (harness) => {
       await assert.rejects(

@@ -4,6 +4,7 @@ import type { Config } from './contracts.js';
 import {
   appendFixedPromptWalEvent,
   FIXED_PROMPT_WAL_SCHEMA_VERSION,
+  hasUnknownRealProviderCost,
   runFixedPromptController,
   readFixedPromptWal,
   writeFixedPromptResultsTsv,
@@ -140,6 +141,7 @@ export interface PromptOptimizationLoopInput {
 
 export type PromptOptimizationLoopStopReason =
   | 'rounds_complete'
+  | 'cost_observation_unavailable'
   | 'cost_ceiling_exceeded'
   | 'infra_failure_rate_exceeded';
 
@@ -218,10 +220,17 @@ export async function runPromptOptimizationLoop(
   assertDisjointTaskIds(heldInTaskIds, heldOutTaskIds);
 
   let totalCostUsd = 0;
+  let costObservationUnavailable = false;
   let infraFailed = 0;
   let taskAttempts = 0;
   const accumulate = (result: FixedPromptControllerResult): void => {
     totalCostUsd += result.totalCostUsd;
+    if (
+      input.costCeilingUsd !== undefined
+      && result.events.some(hasUnknownRealProviderCost)
+    ) {
+      costObservationUnavailable = true;
+    }
     for (const event of result.events) {
       taskAttempts += 1;
       if (event.type === 'task_infra_failed') infraFailed += 1;
@@ -243,6 +252,7 @@ export async function runPromptOptimizationLoop(
     harborRunner: input.harborRunner,
     ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
     ...(input.maxConcurrency !== undefined ? { maxConcurrency: input.maxConcurrency } : {}),
+    ...(input.costCeilingUsd !== undefined ? { costCeilingUsd: input.costCeilingUsd } : {}),
     now,
     newId,
   });
@@ -283,6 +293,7 @@ export async function runPromptOptimizationLoop(
   };
 
   const stopGuard = (): PromptOptimizationLoopStopReason | undefined => {
+    if (costObservationUnavailable) return 'cost_observation_unavailable';
     if (input.costCeilingUsd !== undefined && totalCostUsd >= input.costCeilingUsd) {
       return 'cost_ceiling_exceeded';
     }
@@ -551,6 +562,11 @@ export async function runPromptOptimizationLoop(
 
     const heldIn = await sweep(roundId, roundHeldInTasks, input.heldInResultsTsvPath);
     accumulate(heldIn);
+    if (costObservationUnavailable) {
+      await input.git.rollbackCommit(candidate.commitSha);
+      stopReason = 'cost_observation_unavailable';
+      break;
+    }
     const rewardHackScan = await scanHeldIn(heldIn.events);
 
     // #64 LOOP steps 8-10: only spend the held-out sweep when held-in clears the
@@ -580,6 +596,11 @@ export async function runPromptOptimizationLoop(
       }
       const heldOut = await sweep(roundId, roundHeldOutTasks, input.heldOutResultsTsvPath);
       accumulate(heldOut);
+      if (costObservationUnavailable) {
+        await input.git.rollbackCommit(candidate.commitSha);
+        stopReason = 'cost_observation_unavailable';
+        break;
+      }
       heldOutEvents = heldOut.events;
     }
 

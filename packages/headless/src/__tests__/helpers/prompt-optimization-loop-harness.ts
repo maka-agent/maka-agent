@@ -49,6 +49,7 @@ export interface RunLoopOptions {
   durationMsFor?: (roundId: string, taskId: string) => number;
   verifierFailureSummaryFor?: (roundId: string, taskId: string) => string | undefined;
   onTaskRun?: (roundId: string, taskId: string) => void;
+  omitTokenSummary?: (roundId: string, taskId: string) => boolean;
   metaAgent?: MetaAgent;
   resumeFingerprint?: string | null;
   rewardHackVerifierPatternsByTaskId?: Readonly<Record<string, readonly string[]>>;
@@ -83,6 +84,7 @@ export async function runLoop(harness: Harness, options: RunLoopOptions) {
       options.verifierFailureSummaryFor,
       options.onTaskRun,
       options.runtimeEventCommandFor,
+      options.omitTokenSummary,
     ),
     metaAgent: options.metaAgent ?? fakeMetaAgent(),
     git: createCliPromptCandidateGit({ cwd: harness.repoDir, systemPromptPath: harness.systemPromptPath }),
@@ -132,6 +134,7 @@ function fakeHarborRunner(
   verifierFailureSummaryFor?: (roundId: string, taskId: string) => string | undefined,
   onTaskRun?: (roundId: string, taskId: string) => void,
   runtimeEventCommandFor?: (roundId: string, taskId: string) => string | undefined,
+  omitTokenSummary?: (roundId: string, taskId: string) => boolean,
 ): (input: HarborTaskRunInput) => Promise<HarborTaskRunOutput> {
   return async ({ roundId, task, systemPrompt }) => {
     onTaskRun?.(roundId, task.id);
@@ -155,11 +158,22 @@ function fakeHarborRunner(
         ...(verifierFailureSummary ? { verifierFailureSummary } : {}),
       },
       cell: {
-        schemaVersion: 1,
+        schemaVersion: omitTokenSummary?.(roundId, task.id) ? 2 : 1,
         status: failed ? 'failed' : 'completed',
         runtimeEventsPath,
         promptHash: hashSystemPrompt(systemPrompt),
-        tokenSummary: tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: COST_PER_TASK }),
+        ...(omitTokenSummary?.(roundId, task.id) ? {
+          executionIdentity: {
+            llmConnectionSlug: 'deepseek',
+            model: 'test-model',
+            systemPromptHash: hashSystemPrompt(systemPrompt),
+            pricingProfile: 'test',
+          },
+          stepsKind: 'model_steps' as const,
+        } : {}),
+        ...(!omitTokenSummary?.(roundId, task.id)
+          ? { tokenSummary: tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: COST_PER_TASK }) }
+          : {}),
         toolSummary: {
           providerVisibleToolCount: 1,
           actualToolCalls: 1,
