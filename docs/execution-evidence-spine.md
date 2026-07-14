@@ -1,6 +1,6 @@
 # Execution Identity and Evidence Spine
 
-Status: Phase 0 contract plus Phase 1 Runtime-to-Task lineage. See [issue #948](https://github.com/maka-agent/maka-agent/issues/948).
+Status: Phase 0 contract, Phase 1 Runtime-to-Task lineage, and Phase 2A Runtime provenance for compact task evidence. See [issue #948](https://github.com/maka-agent/maka-agent/issues/948).
 
 Maka already records the facts needed to explain an execution. Runtime Events preserve model and tool interaction facts, AgentRun records operational lifecycle, and Task Events preserve durable task-control decisions. The missing piece is a shared way to reference those facts across subsystem boundaries.
 
@@ -31,7 +31,17 @@ Phase 1 makes the Runtime-to-Task portion concrete:
 - `TaskRunProjection.executionLineage` and each `TaskAttempt.executionLineage` expose the replayed links;
 - legacy `ResultRecord` imports produce an honest identity-only link when Runtime coverage is unavailable.
 
-Phase 1 still does not add Task Event cursors, evidence freshness, Compaction integration, AHE lineage, or a general inspection command.
+Phase 2A binds compact heavy-task evidence back to executor-owned Runtime facts:
+
+- new tool-derived evidence records the producing AgentRun when Runtime supplies it, while legacy evidence remains readable;
+- after each headless invocation, Maka matches the evidence `toolCallId` to immutable Runtime `function_call` and `function_response` rows;
+- a `heavy_task_evidence_provenance_linked` Task Event stores only the resulting `ExecutionEvidenceRef` and inclusive Runtime range;
+- TaskRun replay overlays the validated provenance onto durably recorded compact tool and artifact evidence;
+- a missing function response, conflicting tool name, or mismatched Runtime identity produces no provenance claim.
+
+System-created artifacts, external verifier artifacts, and replay-derived Self-check envelopes keep their existing authority records. Phase 2A does not invent a Runtime source for facts that were not durably recorded from a Runtime tool call.
+
+The current delivery still does not add Task Event cursors, Self-check freshness or workspace invalidation, Compaction integration, AHE lineage, or a general inspection command.
 
 ## Existing authorities
 
@@ -137,6 +147,8 @@ TaskRun task-42 / Attempt attempt-2
 
 The Task Event stores only these references and boundary event ids. Model messages, Tool Calls, Tool Results, and other Runtime facts remain solely in the Runtime Event ledger.
 
+Phase 2A applies the same rule at evidence granularity. A compact Task evidence envelope may display a bounded summary, but its `provenance` points to the immutable Runtime call/result range that owns the exact request and response. Maka requires the canonical `function_response` before creating that link; a planned or interrupted call alone is not proof of an executor result.
+
 Coverage is an inclusive range within one stream:
 
 ```ts
@@ -207,7 +219,7 @@ This object says where evidence came from. It does not assert that the evidence 
 Later phases should extend the contract without changing fact ownership:
 
 1. Materialize stable append ordinals for Task Event streams, including backward-compatible reads.
-2. Bind executor-owned Tool Results, artifacts, and workspace observations to evidence references.
+2. Bind workspace observations and artifacts produced outside Runtime tool calls to their appropriate source authorities.
 3. Bind Self-check to Runtime and Task high waters plus a workspace revision, then define deterministic staleness rules.
 4. Map Compaction source coverage to the shared cursor contract while retaining explicit source-event validation.
 5. Carry target snapshot and execution lineage through AHE exports.

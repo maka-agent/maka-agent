@@ -210,6 +210,99 @@ describe('TaskRunStore', () => {
     assert.match(projection.warnings[0] ?? '', /task identity does not match/);
   });
 
+  test('projects Runtime provenance onto compact evidence without copying Runtime facts', () => {
+    const taskRunId = 'tr-evidence-provenance';
+    const recorded = heavyTaskEvidenceEvent(taskRunId, 'e-1', 'evidence-1', 'Bash', 1);
+    if (recorded.type !== 'heavy_task_evidence_recorded') throw new Error('expected evidence event');
+    recorded.evidence.attemptId = 'attempt-1';
+    recorded.evidence.source = {
+      ...recorded.evidence.source,
+      sessionId: 'session-1',
+      agentRunId: 'run-1',
+      turnId: 'turn-1',
+    };
+    const events: TaskEvent[] = [
+      recorded,
+      {
+        type: 'heavy_task_evidence_provenance_linked',
+        id: 'e-2',
+        taskRunId,
+        attemptId: 'attempt-1',
+        ts: 2,
+        evidenceId: 'evidence-1',
+        provenance: {
+          schemaVersion: 'maka.execution_evidence_ref.v1',
+          execution: {
+            sessionId: 'session-1',
+            invocationId: 'invocation-1',
+            agentRunId: 'run-1',
+            turnId: 'turn-1',
+          },
+          task: { taskRunId, attemptId: 'attempt-1' },
+          runtimeCoverage: {
+            lowWater: { ledger: 'runtime_event', streamId: 'run-1', sequence: 4, eventId: 'call-1' },
+            highWater: { ledger: 'runtime_event', streamId: 'run-1', sequence: 6, eventId: 'result-1' },
+            eventCount: 3,
+          },
+        },
+      },
+    ];
+
+    const projection = projectTaskRun(events, taskRunId);
+
+    assert.equal(projection.heavyTaskEvidence[0]?.provenance?.execution?.agentRunId, 'run-1');
+    assert.equal(projection.heavyTaskEvidence[0]?.provenance?.runtimeCoverage?.highWater.eventId, 'result-1');
+    assert.equal(projection.events[1]?.type, 'heavy_task_evidence_provenance_linked');
+  });
+
+  test('rejects evidence provenance from a different Runtime source', () => {
+    const taskRunId = 'tr-evidence-provenance-invalid';
+    const recorded = heavyTaskEvidenceEvent(taskRunId, 'e-1', 'evidence-1', 'Bash', 1);
+    if (recorded.type !== 'heavy_task_evidence_recorded') throw new Error('expected evidence event');
+    recorded.evidence.source.agentRunId = 'run-1';
+    const projection = projectTaskRun([
+      recorded,
+      {
+        type: 'heavy_task_evidence_provenance_linked',
+        id: 'e-2',
+        taskRunId,
+        attemptId: 'attempt-1',
+        ts: 2,
+        evidenceId: 'evidence-1',
+        provenance: {
+          schemaVersion: 'maka.execution_evidence_ref.v1',
+          execution: { sessionId: 'session-1', agentRunId: 'run-2' },
+          task: { taskRunId, attemptId: 'attempt-1' },
+          runtimeCoverage: {
+            highWater: { ledger: 'runtime_event', streamId: 'run-2', sequence: 1, eventId: 'result-1' },
+          },
+        },
+      },
+    ], taskRunId);
+
+    assert.equal(projection.heavyTaskEvidence[0]?.provenance, undefined);
+    assert.match(projection.warnings[0] ?? '', /Runtime identity does not match/);
+  });
+
+  test('does not trust provenance embedded in the compact evidence fact', () => {
+    const taskRunId = 'tr-embedded-provenance';
+    const recorded = heavyTaskEvidenceEvent(taskRunId, 'e-1', 'evidence-1', 'Bash', 1);
+    if (recorded.type !== 'heavy_task_evidence_recorded') throw new Error('expected evidence event');
+    recorded.evidence.provenance = {
+      schemaVersion: 'maka.execution_evidence_ref.v1',
+      execution: { sessionId: 'session-1', agentRunId: 'run-1' },
+      task: { taskRunId, attemptId: 'attempt-1' },
+      runtimeCoverage: {
+        highWater: { ledger: 'runtime_event', streamId: 'run-1', sequence: 1, eventId: 'forged-result' },
+      },
+    };
+
+    const projection = projectTaskRun([recorded], taskRunId);
+
+    assert.equal(projection.heavyTaskEvidence[0]?.provenance, undefined);
+    assert.match(projection.warnings[0] ?? '', /provenance link event is required/);
+  });
+
   test('projects first-class task-run artifacts', () => {
     const projection = projectTaskRun([
       { type: 'task_run_created', id: 'e-1', taskRunId: 'tr-artifact', ts: 1, taskId: 'task-1', configId: 'cfg-1' },

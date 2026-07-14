@@ -47,6 +47,7 @@ export type {
   HeavyTaskCompactEvidenceEnvelope,
   HeavyTaskDiffSummary,
   HeavyTaskEvidenceKind,
+  HeavyTaskEvidenceProvenanceLinkedEvent,
   HeavyTaskEvidenceRecordedEvent,
   HeavyTaskOutputSummary,
   HeavyTaskInventoryItem,
@@ -151,6 +152,11 @@ export type { RunTaskOnceDeps, RunTaskOnceResult } from './task-agent-controller
 export { runTaskOnce, TaskAgentController } from './task-agent-controller.js';
 export type { TaskAttemptExecutionEvidenceInput } from './task-execution-lineage.js';
 export { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
+export type {
+  TaskEvidenceRuntimeProvenanceInput,
+  TaskEvidenceRuntimeProvenanceLink,
+} from './task-evidence-provenance.js';
+export { taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
 export type {
   AutonomousDecisionInput,
   AutonomousDecisionPolicy,

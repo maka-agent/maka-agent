@@ -102,12 +102,13 @@ describe('heavy-task semantic self-check tools', () => {
         },
         publicReason: 'temporary compile artifacts stayed under scratch and no deliverable files were left behind',
       },
-    }, toolContext) as { accepted: true; selfCheck: HeavyTaskSemanticSelfCheckState };
+    }, { ...toolContext, runId: 'agent-run-1' }) as { accepted: true; selfCheck: HeavyTaskSemanticSelfCheckState };
 
     assert.equal(result.accepted, true);
     assert.equal(result.selfCheck.status, 'pass');
     assert.equal(result.selfCheck.guard.status, 'accepted');
     assert.equal(result.selfCheck.source.toolCallId, 'tool-1');
+    assert.equal(result.selfCheck.source.agentRunId, 'agent-run-1');
     assert.equal(result.selfCheck.executionHygiene?.sandbox?.root, '/tmp/maka-self-check/run-1');
     assert.equal(result.selfCheck.executionHygiene?.scratchUsed, true);
     assert.equal(result.selfCheck.executionHygiene?.workspaceSideEffects, 'none');

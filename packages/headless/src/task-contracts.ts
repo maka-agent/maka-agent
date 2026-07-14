@@ -297,6 +297,8 @@ export interface HeavyTaskProgressSource {
   kind: 'model_tool';
   toolCallId: string;
   sessionId?: string;
+  /** AgentRun that executed the tool. Optional only for legacy evidence. */
+  agentRunId?: string;
   turnId?: string;
 }
 
@@ -540,6 +542,8 @@ export interface HeavyTaskCompactEvidenceEnvelope {
     runtimeEventId?: string;
     toolName?: HeavyTaskToolEvidenceName;
   };
+  /** Runtime source range that proves where this compact evidence came from. */
+  provenance?: ExecutionEvidenceRef;
   tool?: {
     name: HeavyTaskToolEvidenceName;
     inputSummary: Record<string, unknown>;
@@ -828,6 +832,14 @@ export interface HeavyTaskEvidenceRecordedEvent extends BaseTaskEvent {
   evidence: HeavyTaskCompactEvidenceEnvelope;
 }
 
+export interface HeavyTaskEvidenceProvenanceLinkedEvent extends BaseTaskEvent {
+  type: 'heavy_task_evidence_provenance_linked';
+  evidenceId: string;
+  attemptId: string;
+  /** Reference to canonical Runtime facts; never a copy of their payloads. */
+  provenance: ExecutionEvidenceRef;
+}
+
 export interface WorkspaceLeaseRecordedEvent extends BaseTaskEvent {
   type: 'workspace_lease_recorded';
   lease: WorkspaceLeaseFacts;
@@ -961,6 +973,7 @@ export type TaskEvent =
   | HeavyTaskSelfCheckGateRecordedEvent
   | HeavyTaskWorkspaceObservationRecordedEvent
   | HeavyTaskEvidenceRecordedEvent
+  | HeavyTaskEvidenceProvenanceLinkedEvent
   | IsolationPolicyRecordedEvent
   | WorkspaceLeaseRecordedEvent
   | ToolExecutorIdentityRecordedEvent

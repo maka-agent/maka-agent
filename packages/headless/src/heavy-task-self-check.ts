@@ -647,6 +647,7 @@ function sourceFromContext(ctx: MakaToolContext): HeavyTaskSemanticSelfCheckStat
     kind: 'model_tool',
     toolCallId: ctx.toolCallId,
     ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+    ...(ctx.runId ? { agentRunId: ctx.runId } : {}),
     ...(ctx.turnId ? { turnId: ctx.turnId } : {}),
   };
 }

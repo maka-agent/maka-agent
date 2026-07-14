@@ -93,6 +93,7 @@ import {
   type TaskRunStore,
 } from './task-run-store.js';
 import { taskDefinitionFromTask } from './task-run-adapter.js';
+import { taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
 import { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
 
 export interface RunTaskOnceDeps extends RunExperimentDeps {
@@ -724,6 +725,38 @@ async function appendTaskAttemptExecutionLink(input: {
       runtimeEvents,
     }),
   });
+  if (runtimeEvents.length === 0) return;
+
+  const projection = await input.store.project(input.taskRunId);
+  const projectedEvidence = new Map(
+    projection.heavyTaskEvidence.map((item) => [item.evidenceId, item]),
+  );
+  const durableEvidence = projection.events.flatMap((event) => (
+    event.type === 'heavy_task_evidence_recorded'
+      ? [projectedEvidence.get(event.evidence.evidenceId) ?? event.evidence]
+      : []
+  ));
+  const provenanceLinks = taskEvidenceRuntimeProvenanceLinks({
+    taskRunId: input.taskRunId,
+    attemptId: input.attemptId,
+    sessionId: input.invocation.sessionId,
+    invocationId: input.invocation.invocationId,
+    agentRunId: input.invocation.runId,
+    turnId: input.invocation.turnId,
+    runtimeEvents,
+    evidence: durableEvidence,
+  });
+  for (const link of provenanceLinks) {
+    await appendTaskEvent(input.store, input.taskRunId, {
+      type: 'heavy_task_evidence_provenance_linked',
+      id: input.newId(),
+      taskRunId: input.taskRunId,
+      attemptId: link.attemptId,
+      ts: input.now(),
+      evidenceId: link.evidenceId,
+      provenance: link.provenance,
+    });
+  }
 }
 
 interface PermissionInterventionInput {

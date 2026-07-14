@@ -271,6 +271,30 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
           projection.warnings.push(`ignored heavy-task evidence ${event.evidence.evidenceId}: evidence must be public and match taskRunId`);
         }
         break;
+      case 'heavy_task_evidence_provenance_linked': {
+        const matchingIndexes = projection.heavyTaskEvidence.flatMap((item, index) => (
+          item.evidenceId === event.evidenceId ? [index] : []
+        ));
+        if (matchingIndexes.length !== 1) {
+          const reason = matchingIndexes.length === 0 ? 'was not recorded first' : 'is ambiguous';
+          projection.warnings.push(`ignored evidence provenance ${event.id}: evidence ${event.evidenceId} ${reason}`);
+          break;
+        }
+        const index = matchingIndexes[0]!;
+        const evidence = projection.heavyTaskEvidence[index]!;
+        const provenance = validHeavyTaskEvidenceProvenance(event, evidence, projection.warnings);
+        if (!provenance) break;
+        if (evidence.provenance) {
+          projection.warnings.push(`ignored evidence provenance ${event.id}: evidence ${event.evidenceId} is already linked`);
+          break;
+        }
+        const linked = { ...evidence, provenance };
+        projection.heavyTaskEvidence[index] = linked;
+        if (projection.latestHeavyTaskEvidence?.evidenceId === event.evidenceId) {
+          projection.latestHeavyTaskEvidence = linked;
+        }
+        break;
+      }
       case 'isolation_policy_recorded':
         projection.isolation = event.facts;
         break;
@@ -539,6 +563,48 @@ function validTaskAttemptExecutionEvidence(
   return evidence;
 }
 
+function validHeavyTaskEvidenceProvenance(
+  event: Extract<TaskEvent, { type: 'heavy_task_evidence_provenance_linked' }>,
+  subject: HeavyTaskCompactEvidenceEnvelope,
+  warnings: string[],
+): ExecutionEvidenceRef | undefined {
+  const validation = validateExecutionEvidenceRef(event.provenance);
+  if (!validation.ok) {
+    warnings.push(
+      `ignored evidence provenance ${event.id}: ${validation.errors
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join('; ')}`,
+    );
+    return undefined;
+  }
+  const provenance = validation.value;
+  if (provenance.task?.taskRunId !== event.taskRunId) {
+    warnings.push(`ignored evidence provenance ${event.id}: task identity does not match the owning TaskRun`);
+    return undefined;
+  }
+  const attemptId = event.attemptId;
+  if (
+    (subject.attemptId && event.attemptId !== subject.attemptId)
+    || provenance.task?.attemptId !== attemptId
+  ) {
+    warnings.push(`ignored evidence provenance ${event.id}: attempt identity does not match the evidence`);
+    return undefined;
+  }
+  if (!provenance.execution?.agentRunId || !provenance.runtimeCoverage) {
+    warnings.push(`ignored evidence provenance ${event.id}: AgentRun identity and Runtime coverage are required`);
+    return undefined;
+  }
+  if (
+    (subject.source.sessionId && subject.source.sessionId !== provenance.execution.sessionId)
+    || (subject.source.agentRunId && subject.source.agentRunId !== provenance.execution.agentRunId)
+    || (subject.source.turnId && subject.source.turnId !== provenance.execution.turnId)
+  ) {
+    warnings.push(`ignored evidence provenance ${event.id}: Runtime identity does not match the evidence source`);
+    return undefined;
+  }
+  return provenance;
+}
+
 function resultFromScore(score: ScoreResult | undefined, verifier: VerifierResult | undefined): TaskRunResult | undefined {
   if (!score) return undefined;
   return {
@@ -593,8 +659,14 @@ function appendCompactEvidence(projection: TaskRunProjection, ...evidence: Heavy
       ok = false;
       continue;
     }
-    projection.heavyTaskEvidence.push(item);
-    projection.latestHeavyTaskEvidence = item;
+    if (item.provenance) {
+      projection.warnings.push(
+        `ignored embedded provenance on heavy-task evidence ${item.evidenceId}: a provenance link event is required`,
+      );
+    }
+    const { provenance: _embeddedProvenance, ...unlinked } = item;
+    projection.heavyTaskEvidence.push(unlinked);
+    projection.latestHeavyTaskEvidence = unlinked;
   }
   return ok;
 }
