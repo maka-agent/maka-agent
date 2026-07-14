@@ -38,7 +38,11 @@ export async function runHarnessAbComparison(
   return withAbRunLock(input.runRoot, () => runHarnessAbComparisonUnlocked(input));
 }
 
-async function runHarnessAbComparisonUnlocked(
+export function withHarnessAbRunLock<T>(runRoot: string, action: () => Promise<T>): Promise<T> {
+  return withAbRunLock(runRoot, action);
+}
+
+export async function runHarnessAbComparisonUnlocked(
   input: RunHarnessAbComparisonInput,
 ): Promise<AbComparisonSummary> {
   return runAbComparison({

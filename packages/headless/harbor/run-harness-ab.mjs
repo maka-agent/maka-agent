@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +19,10 @@ import {
   TERMINAL_BENCH_2_1_REVISION,
   TERMINAL_BENCH_2_1_TASK_IDS,
 } from '#harness-ab-manifest';
-import { runHarnessAbComparison } from '#harness-ab-run';
+import {
+  runHarnessAbComparisonUnlocked,
+  withHarnessAbRunLock,
+} from '#harness-ab-run';
 import {
   assertHarnessAbReportCompleted,
   buildHarnessAbReport,
@@ -51,6 +54,10 @@ const PRICING = {
   source: 'z.ai-public-2026-07-13',
 };
 const HARBOR_SETUP_TEARDOWN_GRACE_SEC = 15 * 60;
+const BACKGROUND_RUN_ENV = 'MAKA_HARNESS_AB_BACKGROUND_RUN';
+const BACKGROUND_STARTED_AT_ENV = 'MAKA_HARNESS_AB_DETACHED_STARTED_AT';
+const BACKGROUND_JOURNAL_FILENAME = 'background-run.json';
+const BACKGROUND_LOG_FILENAME = 'background-run.log';
 
 function envPath(name, fallback) {
   const raw = process.env[name] || fallback;
@@ -96,6 +103,29 @@ export async function main() {
   const runId = process.env.MAKA_HARNESS_AB_RUN_ID || DEFAULT_HARNESS_AB_RUN_ID;
   const limit = runLimit(process.env.MAKA_HARNESS_AB_LIMIT);
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
+  await withHarnessAbRunLock(runRoot, async () => {
+    const journal = backgroundJournal(runRoot);
+    if (journal) await writeBackgroundJournal(journal.path, { ...journal.base, status: 'running' });
+    let exitCode = 0;
+    try {
+      await runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runRoot });
+    } catch (error) {
+      exitCode = 1;
+      throw error;
+    } finally {
+      if (journal) {
+        await writeBackgroundJournal(journal.path, {
+          ...journal.base,
+          status: exitCode === 0 ? 'completed' : 'failed',
+          finishedAt: new Date().toISOString(),
+          exitCode,
+        });
+      }
+    }
+  });
+}
+
+async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runRoot }) {
   const allTasks = await discoverCachedHarborTasks(tasksRoot);
   assertTerminalBench21TaskSet(allTasks.map((task) => task.id));
   const taskSourceFingerprint = await fingerprintFixedPromptTaskTree(allTasks);
@@ -203,7 +233,7 @@ export async function main() {
     model: MODEL,
     thinkingLevel: REASONING_EFFORT,
   });
-  const summary = await runHarnessAbComparison({
+  const summary = await runHarnessAbComparisonUnlocked({
     runId,
     runRoot,
     resultsJsonlPath: join(controllerDir, 'results.jsonl'),
@@ -239,6 +269,26 @@ export async function main() {
   await writeFile(join(runRoot, 'harness-ab-report.md'), renderHarnessAbReportMarkdown(report), 'utf8');
   assertHarnessAbReportCompleted(report);
   console.log(`completed: ${report.effectiveness.pairedEvaluated}/${report.completeness.expectedPerArm} paired Pass@1 cells -> ${runRoot}`);
+}
+
+function backgroundJournal(runRoot) {
+  if (process.env[BACKGROUND_RUN_ENV] !== '1') return null;
+  const logPath = join(runRoot, BACKGROUND_LOG_FILENAME);
+  return {
+    path: join(runRoot, BACKGROUND_JOURNAL_FILENAME),
+    base: {
+      schemaVersion: 1,
+      pid: process.pid,
+      startedAt: process.env[BACKGROUND_STARTED_AT_ENV] || new Date().toISOString(),
+      logPath,
+    },
+  };
+}
+
+async function writeBackgroundJournal(path, value) {
+  const pendingPath = `${path}.${process.pid}.tmp`;
+  await writeFile(pendingPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  await rename(pendingPath, path);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
