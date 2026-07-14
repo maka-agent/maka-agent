@@ -67,7 +67,7 @@ describe('AiSdkBackend Computer Use model loop', () => {
       const serialized = JSON.stringify(declaredTools);
       assert.match(serialized, /maka_computer/);
       assert.match(serialized, /Prefer click_element or set_value/);
-      assert.match(serialized, /Coordinate click, scroll, drag, press_key.*currently disabled/);
+      assert.match(serialized, /Coordinate click, pointer move, scroll, drag, press_key, type.*disabled by default/);
     }
   });
 
@@ -162,7 +162,7 @@ describe('AiSdkBackend Computer Use model loop', () => {
     assert.equal(telemetry.every((record) => record.toolName === 'maka_computer'), true);
     assert.match(JSON.stringify(modelPrompts[2]), /CUA Lab Set Value Field/);
     assert.match(JSON.stringify(modelPrompts[3]), /model-written/);
-    assert.match(JSON.stringify(modelTools[0]), /Coordinate click, scroll, drag, press_key.*currently disabled/);
+    assert.match(JSON.stringify(modelTools[0]), /Coordinate click, pointer move, scroll, drag, press_key, type.*disabled by default/);
     assert.match(JSON.stringify(modelTools[0]), /Prefer click_element or set_value/);
     assert.equal(
       (modelTools[0] as Array<{ name?: string }>).some(
