@@ -141,7 +141,7 @@ export function buildHarborCellOutput(input: {
     ...(input.continuationSummary ? { continuationSummary: input.continuationSummary } : {}),
     toolSummary: summarizeCellTools(invocation.events),
     ...taskToolSummaryField(invocation.events, input.taskToolSummaryEnabled ?? false),
-    steps: invocation.events.length,
+    steps: summarizeCellSteps(invocation.events),
     durationMs: invocation.finishedAt - invocation.startedAt,
     startedAt: invocation.startedAt,
     finishedAt: invocation.finishedAt,
@@ -152,6 +152,21 @@ export function buildHarborCellOutput(input: {
       turnId: invocation.turnId,
     },
   };
+}
+
+function summarizeCellSteps(events: readonly RuntimeEvent[]): number {
+  const reportedRuntimeSteps = events.reduce(
+    (sum, event) => sum + (event.actions?.tokenUsage?.runtimeSteps ?? 0),
+    0,
+  );
+  if (reportedRuntimeSteps > 0) {
+    return reportedRuntimeSteps;
+  }
+  return events.filter((event) => (
+    event.role === 'model'
+    && event.partial !== true
+    && event.content?.kind === 'text'
+  )).length;
 }
 
 export function hashHarborSystemPrompt(systemPrompt: string): string {

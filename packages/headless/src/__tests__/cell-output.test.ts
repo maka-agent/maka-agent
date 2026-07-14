@@ -24,6 +24,7 @@ describe('Harbor cell output contract', () => {
             cacheMissInputSource: 'explicit',
             reasoning: 2,
             total: 17,
+            runtimeSteps: 1,
             costUsd: 0.00123,
             systemPromptHash: 'sha256:prompt-a',
             promptSegments: [
@@ -49,6 +50,7 @@ describe('Harbor cell output contract', () => {
             cacheRead: 2,
             cacheCreation: 1,
             total: 10,
+            runtimeSteps: 1,
             costUsd: 0.004,
             systemPromptHash: 'sha256:prompt-a',
           },
@@ -96,7 +98,7 @@ describe('Harbor cell output contract', () => {
         actualToolNames: ['Bash', 'Read'],
         actualToolCallCounts: { Bash: 1, Read: 1 },
       },
-      steps: 5,
+      steps: 2,
       durationMs: 150,
       startedAt: 100,
       finishedAt: 250,
@@ -212,6 +214,34 @@ describe('Harbor cell output contract', () => {
     assert.equal(output.tokenSummary.output, 12);
     assert.equal(output.tokenSummary.reasoning, 2);
     assert.equal(output.tokenSummary.total, 27);
+  });
+
+  test('counts completed model steps instead of streaming event chunks', () => {
+    const partialChunks = Array.from({ length: 100 }, (_, index) => runtimeEvent({
+      id: `partial-${index}`,
+      partial: true,
+      content: { kind: 'text', text: 'x' },
+    }));
+    const output = buildHarborCellOutput({
+      invocation: {
+        invocationId: 'inv-stream-steps',
+        runId: 'run-stream-steps',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        status: 'failed',
+        failure: { class: 'network' },
+        events: [
+          ...partialChunks,
+          runtimeEvent({ id: 'final-thinking', content: { kind: 'thinking', text: 'done' } }),
+          runtimeEvent({ id: 'final-text', content: { kind: 'text', text: '' } }),
+        ],
+        startedAt: 100,
+        finishedAt: 250,
+      },
+      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+    });
+
+    assert.equal(output.steps, 1);
   });
 
   test('summarizes context budget diagnostics from token usage events', () => {
