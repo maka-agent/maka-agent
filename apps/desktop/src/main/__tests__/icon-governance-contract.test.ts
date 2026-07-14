@@ -225,7 +225,7 @@ describe('icon + typography governance contract', () => {
     );
   });
 
-  it('vendors and routes the byte-exact Lobe Icons Together AI SVG through the shared mask seam', async () => {
+  it('vendors and renders the byte-exact Lobe Icons Together AI color SVG', async () => {
     const [marks, asset, notices] = await Promise.all([
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
       readFile(TOGETHER_BRAND_MARK_FILE),
@@ -234,24 +234,24 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(asset).digest('hex'),
-      'b3ec218e7e0b0432a2ce07f5ec98a1dcd24f808c74d5fee624ab31e4947feef3',
-      'Together AI SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 together.svg',
+      '27ccaf118a431c386b88418a34a4346afd9638dde10e3f2295db2eec1fa5898a',
+      'Together AI SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 together-color.svg',
     );
     assert.match(marks, /https:\/\/github\.com\/lobehub\/lobe-icons/);
     assert.match(marks, /@lobehub\/icons-static-svg@1\.91\.0/);
-    assert.match(marks, /32f4083f7a20b67ecdc7b29c0af031ada5a29c52/);
-    assert.match(marks, /packages\/static-svg\/icons\/together\.svg/);
+    assert.match(marks, /e4302041fbb3039608d25f9f618bd462783b875e/);
+    assert.match(marks, /packages\/static-svg\/icons\/together-color\.svg/);
     assert.match(marks, /license: MIT/);
-    assert.match(marks, /b3ec218e7e0b0432a2ce07f5ec98a1dcd24f808c74d5fee624ab31e4947feef3/);
+    assert.match(marks, /27ccaf118a431c386b88418a34a4346afd9638dde10e3f2295db2eec1fa5898a/);
     assert.match(marks, /import togetherBrandMark from '\.\.\/assets\/provider-brands\/together\.svg';/);
-    assert.match(marks, /case 'togetherai':\s*return <ProviderAssetMask src=\{togetherBrandMark\} \/>/);
+    assert.match(marks, /case 'togetherai':\s*return <img src=\{togetherBrandMark\} alt="" \/>/);
     assert.match(
       notices,
-      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/together\.svg[\s\S]*packages\/static-svg\/icons\/together\.svg[\s\S]*b3ec218e7e0b0432a2ce07f5ec98a1dcd24f808c74d5fee624ab31e4947feef3/,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/together\.svg[\s\S]*packages\/static-svg\/icons\/together-color\.svg[\s\S]*27ccaf118a431c386b88418a34a4346afd9638dde10e3f2295db2eec1fa5898a/,
     );
   });
 
-  it('vendors and routes the byte-exact Lobe Icons DeepInfra SVG through the shared mask seam', async () => {
+  it('vendors and renders the byte-exact Lobe Icons DeepInfra color SVG', async () => {
     const [marks, asset, notices] = await Promise.all([
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
       readFile(DEEPINFRA_BRAND_MARK_FILE),
@@ -260,20 +260,20 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(asset).digest('hex'),
-      '2a20be86e90b3c2085d5b3213f52c75e4f0041b239d6140475f5809863d45392',
-      'DeepInfra SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 deepinfra.svg',
+      'bfc78853fe658f6446651d03218f3e809215fd7cb3bce841a6526de383286544',
+      'DeepInfra SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 deepinfra-color.svg',
     );
     assert.match(marks, /https:\/\/github\.com\/lobehub\/lobe-icons/);
     assert.match(marks, /@lobehub\/icons-static-svg@1\.91\.0/);
     assert.match(marks, /e4302041fbb3039608d25f9f618bd462783b875e/);
-    assert.match(marks, /packages\/static-svg\/icons\/deepinfra\.svg/);
+    assert.match(marks, /packages\/static-svg\/icons\/deepinfra-color\.svg/);
     assert.match(marks, /license: MIT/);
-    assert.match(marks, /2a20be86e90b3c2085d5b3213f52c75e4f0041b239d6140475f5809863d45392/);
+    assert.match(marks, /bfc78853fe658f6446651d03218f3e809215fd7cb3bce841a6526de383286544/);
     assert.match(marks, /import deepinfraBrandMark from '\.\.\/assets\/provider-brands\/deepinfra\.svg';/);
-    assert.match(marks, /case 'deepinfra':\s*return <ProviderAssetMask src=\{deepinfraBrandMark\} \/>/);
+    assert.match(marks, /case 'deepinfra':\s*return <img src=\{deepinfraBrandMark\} alt="" \/>/);
     assert.match(
       notices,
-      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/deepinfra\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/deepinfra\.svg[\s\S]*2a20be86e90b3c2085d5b3213f52c75e4f0041b239d6140475f5809863d45392/,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/deepinfra\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/deepinfra-color\.svg[\s\S]*bfc78853fe658f6446651d03218f3e809215fd7cb3bce841a6526de383286544/,
     );
   });
 
@@ -307,7 +307,7 @@ describe('icon + typography governance contract', () => {
     assert.match(onboardingHero, /<ProviderLogo type=\{type\} compact \/>/);
   });
 
-  it('vendors and routes the byte-exact Cloudflare SVG through the shared mask and notice seams', async () => {
+  it('vendors and renders the byte-exact Cloudflare color SVG through the notice seam', async () => {
     const [marks, asset, notices] = await Promise.all([
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
       readFile(CLOUDFLARE_BRAND_MARK_FILE),
@@ -316,25 +316,25 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(asset).digest('hex'),
-      '78f8973dad59f8af7c4042ef6be451d809a4e14bdb2151a75a76b4e0811fd22f',
+      'cee35d3f0ecb7925ce0a89aeaff8b907cadae7c3fe44a23e4001cc8d5ee57502',
       'Cloudflare SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0',
     );
     assert.match(
       marks,
-      /Cloudflare mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cloudflare\.svg[\s\S]*license: MIT[\s\S]*SHA-256: 78f8973dad59f8af7c4042ef6be451d809a4e14bdb2151a75a76b4e0811fd22f/,
+      /Cloudflare mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cloudflare-color\.svg[\s\S]*license: MIT[\s\S]*SHA-256: cee35d3f0ecb7925ce0a89aeaff8b907cadae7c3fe44a23e4001cc8d5ee57502/,
     );
     assert.match(marks, /import cloudflareMarkUrl from '\.\.\/assets\/provider-brands\/cloudflare\.svg';/);
     assert.match(
       marks,
-      /case 'cloudflare-workers-ai':\s*return <ProviderAssetMask src=\{cloudflareMarkUrl\} \/>/,
+      /case 'cloudflare-workers-ai':\s*return <img src=\{cloudflareMarkUrl\} alt="" \/>/,
     );
     assert.match(
       notices,
-      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/cloudflare\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cloudflare\.svg[\s\S]*78f8973dad59f8af7c4042ef6be451d809a4e14bdb2151a75a76b4e0811fd22f/,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/cloudflare\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cloudflare-color\.svg[\s\S]*cee35d3f0ecb7925ce0a89aeaff8b907cadae7c3fe44a23e4001cc8d5ee57502/,
     );
   });
 
-  it('vendors and routes the byte-exact Lobe Icons Hugging Face SVG through the shared mask seam', async () => {
+  it('vendors and renders the byte-exact Lobe Icons Hugging Face color SVG', async () => {
     const [marks, asset, notices] = await Promise.all([
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
       readFile(HUGGINGFACE_BRAND_MARK_FILE),
@@ -343,24 +343,24 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(asset).digest('hex'),
-      'de7f2c60f974b75b385116ef0dc6a9fa62f2fd7bf58156b5623301a5436b91c4',
-      'Hugging Face SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 huggingface.svg',
+      '5d39d66bb6c9b026d3cb5de7bd9978dad3906570df2aca8f00078a6f8a3d0f5e',
+      'Hugging Face SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0 huggingface-color.svg',
     );
     assert.match(marks, /https:\/\/github\.com\/lobehub\/lobe-icons/);
     assert.match(marks, /@lobehub\/icons-static-svg@1\.91\.0/);
     assert.match(marks, /e4302041fbb3039608d25f9f618bd462783b875e/);
-    assert.match(marks, /packages\/static-svg\/icons\/huggingface\.svg/);
+    assert.match(marks, /packages\/static-svg\/icons\/huggingface-color\.svg/);
     assert.match(marks, /license: MIT/);
-    assert.match(marks, /de7f2c60f974b75b385116ef0dc6a9fa62f2fd7bf58156b5623301a5436b91c4/);
+    assert.match(marks, /5d39d66bb6c9b026d3cb5de7bd9978dad3906570df2aca8f00078a6f8a3d0f5e/);
     assert.match(marks, /import huggingfaceBrandMark from '\.\.\/assets\/provider-brands\/huggingface\.svg';/);
-    assert.match(marks, /case 'huggingface':\s*return <ProviderAssetMask src=\{huggingfaceBrandMark\} \/>/);
+    assert.match(marks, /case 'huggingface':\s*return <img src=\{huggingfaceBrandMark\} alt="" \/>/);
     assert.match(
       notices,
-      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/huggingface\.svg[\s\S]*packages\/static-svg\/icons\/huggingface\.svg[\s\S]*de7f2c60f974b75b385116ef0dc6a9fa62f2fd7bf58156b5623301a5436b91c4/,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/huggingface\.svg[\s\S]*packages\/static-svg\/icons\/huggingface-color\.svg[\s\S]*5d39d66bb6c9b026d3cb5de7bd9978dad3906570df2aca8f00078a6f8a3d0f5e/,
     );
   });
 
-  it('vendors and routes the byte-exact Fireworks SVG through the shared mask and notice seams', async () => {
+  it('vendors and renders the byte-exact Fireworks color SVG through the notice seam', async () => {
     const [marks, asset, notices] = await Promise.all([
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
       readFile(FIREWORKS_BRAND_MARK_FILE),
@@ -369,18 +369,18 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(asset).digest('hex'),
-      '9991ab2a8331096d3f408e07a5f2e1cb54c369143dd9fc7a97f6458478b33fe3',
+      'f1c4782b86bc03a36323fd68ad6cc376c6b2ebe57b701cc958ebd6b8d37effd6',
       'Fireworks SVG must remain byte-identical to @lobehub/icons-static-svg@1.91.0',
     );
     assert.match(
       marks,
-      /Fireworks mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/fireworks\.svg[\s\S]*license: MIT[\s\S]*SHA-256: 9991ab2a8331096d3f408e07a5f2e1cb54c369143dd9fc7a97f6458478b33fe3/,
+      /Fireworks mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/fireworks-color\.svg[\s\S]*license: MIT[\s\S]*SHA-256: f1c4782b86bc03a36323fd68ad6cc376c6b2ebe57b701cc958ebd6b8d37effd6/,
     );
     assert.match(marks, /import fireworksMarkUrl from '\.\.\/assets\/provider-brands\/fireworks\.svg';/);
-    assert.match(marks, /case 'fireworks-ai':\s*return <ProviderAssetMask src=\{fireworksMarkUrl\} \/>/);
+    assert.match(marks, /case 'fireworks-ai':\s*return <img src=\{fireworksMarkUrl\} alt="" \/>/);
     assert.match(
       notices,
-      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/fireworks\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/fireworks\.svg[\s\S]*9991ab2a8331096d3f408e07a5f2e1cb54c369143dd9fc7a97f6458478b33fe3/,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/fireworks\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/fireworks-color\.svg[\s\S]*f1c4782b86bc03a36323fd68ad6cc376c6b2ebe57b701cc958ebd6b8d37effd6/,
     );
   });
 
@@ -449,7 +449,7 @@ describe('icon + typography governance contract', () => {
     assert.doesNotMatch(marks, /ProviderMaskMark|providerMaskMark/);
   });
 
-  it('vendors and routes the byte-exact upstream Mistral mark through the shared asset-mask seam', async () => {
+  it('vendors and renders the byte-exact upstream Mistral color mark', async () => {
     const [mistralMark, componentSrc, notices] = await Promise.all([
       readFile(MISTRAL_BRAND_MARK_FILE),
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
@@ -458,23 +458,23 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(mistralMark).digest('hex'),
-      'a06cfa54e7deff7f7544175b006b7f8a03fbc5624c44f7d553a44d07ea96e629',
-      'the vendored Mistral mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 mistral.svg',
+      '722f74b289d95486b43662fe24fa883b333701296f618406cd0ed502299170b6',
+      'the vendored Mistral mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 mistral-color.svg',
     );
     assert.match(
       notices,
-      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/mistral\.svg[\s\S]*32f4083f7a20b67ecdc7b29c0af031ada5a29c52[\s\S]*packages\/static-svg\/icons\/mistral\.svg[\s\S]*a06cfa54e7deff7f7544175b006b7f8a03fbc5624c44f7d553a44d07ea96e629/,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/mistral\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/mistral-color\.svg[\s\S]*722f74b289d95486b43662fe24fa883b333701296f618406cd0ed502299170b6/,
       'Mistral must append provenance to the existing Lobe Icons notice entry',
     );
     assert.match(componentSrc, /import mistralBrandMark from '\.\.\/assets\/provider-brands\/mistral\.svg';/);
     assert.match(
       componentSrc,
-      /Mistral mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*32f4083f7a20b67ecdc7b29c0af031ada5a29c52[\s\S]*packages\/static-svg\/icons\/mistral\.svg[\s\S]*MIT[\s\S]*a06cfa54e7deff7f7544175b006b7f8a03fbc5624c44f7d553a44d07ea96e629/,
+      /Mistral mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/mistral-color\.svg[\s\S]*MIT[\s\S]*722f74b289d95486b43662fe24fa883b333701296f618406cd0ed502299170b6/,
     );
-    assert.match(componentSrc, /case 'mistral':\s*return <ProviderAssetMask src=\{mistralBrandMark\} \/>/);
+    assert.match(componentSrc, /case 'mistral':\s*return <img src=\{mistralBrandMark\} alt="" \/>/);
   });
 
-  it('vendors and routes the byte-exact upstream Cohere mark through the shared asset-mask seam', async () => {
+  it('vendors and renders the byte-exact upstream Cohere color mark', async () => {
     const [cohereMark, componentSrc, notices] = await Promise.all([
       readFile(COHERE_BRAND_MARK_FILE),
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
@@ -483,20 +483,20 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(cohereMark).digest('hex'),
-      '72851dd36d6ab017f535202744765eead8f99cfb5ced77e1840bfdb70db7a85c',
-      'the vendored Cohere mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 cohere.svg',
+      '84d0ee3cbe66f030e5a18cb2c86da9166ab2137c7a98781693bb1fbf31e392b9',
+      'the vendored Cohere mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 cohere-color.svg',
     );
     assert.match(
       notices,
-      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/cohere\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cohere\.svg[\s\S]*72851dd36d6ab017f535202744765eead8f99cfb5ced77e1840bfdb70db7a85c/,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/cohere\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cohere-color\.svg[\s\S]*84d0ee3cbe66f030e5a18cb2c86da9166ab2137c7a98781693bb1fbf31e392b9/,
       'Cohere must append provenance to the existing Lobe Icons notice entry',
     );
     assert.match(componentSrc, /import cohereBrandMark from '\.\.\/assets\/provider-brands\/cohere\.svg';/);
     assert.match(
       componentSrc,
-      /Cohere mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cohere\.svg[\s\S]*MIT[\s\S]*72851dd36d6ab017f535202744765eead8f99cfb5ced77e1840bfdb70db7a85c/,
+      /Cohere mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cohere-color\.svg[\s\S]*MIT[\s\S]*84d0ee3cbe66f030e5a18cb2c86da9166ab2137c7a98781693bb1fbf31e392b9/,
     );
-    assert.match(componentSrc, /case 'cohere':\s*return <ProviderAssetMask src=\{cohereBrandMark\} \/>/);
+    assert.match(componentSrc, /case 'cohere':\s*return <img src=\{cohereBrandMark\} alt="" \/>/);
   });
 
   it('vendors the unmodified upstream NVIDIA mark with traceable provenance', async () => {
@@ -508,23 +508,23 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(nvidiaMark).digest('hex'),
-      '5a419b99e0ffdbfbe8caa7ec25581054eae03024da59cb860c54ea55ac8e7e73',
-      'the vendored NVIDIA mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 nvidia.svg',
+      '8c941e4eb8b782eccaaea1240c059d20be33ab8eda28d7c9ed9b53ac802fe683',
+      'the vendored NVIDIA mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 nvidia-color.svg',
     );
     assert.match(
       notices,
-      /Repository: https:\/\/github\.com\/lobehub\/lobe-icons[\s\S]*@lobehub\/icons-static-svg` version `1\.91\.0`[\s\S]*apps\/desktop\/src\/renderer\/assets\/provider-brands\/nvidia\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/nvidia\.svg[\s\S]*5a419b99e0ffdbfbe8caa7ec25581054eae03024da59cb860c54ea55ac8e7e73/,
+      /Repository: https:\/\/github\.com\/lobehub\/lobe-icons[\s\S]*@lobehub\/icons-static-svg` version `1\.91\.0`[\s\S]*apps\/desktop\/src\/renderer\/assets\/provider-brands\/nvidia\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/nvidia-color\.svg[\s\S]*8c941e4eb8b782eccaaea1240c059d20be33ab8eda28d7c9ed9b53ac802fe683/,
       'NVIDIA provenance must identify the exact package release, upstream revision, path, and license',
     );
     assert.match(
       marks,
-      /import nvidiaMarkUrl from '\.\.\/assets\/provider-brands\/nvidia\.svg';[\s\S]*case 'nvidia':\s*return <ProviderAssetMask src=\{nvidiaMarkUrl\} \/>/,
-      'the stable NVIDIA provider id must consume the sole shared asset-mask seam',
+      /import nvidiaMarkUrl from '\.\.\/assets\/provider-brands\/nvidia\.svg';[\s\S]*case 'nvidia':\s*return <img src=\{nvidiaMarkUrl\} alt="" \/>/,
+      'the stable NVIDIA provider id must preserve the upstream color asset',
     );
     assert.doesNotMatch(marks, /NvidiaMask|nvidiaAssetMask/);
   });
 
-  it('vendors and routes the byte-exact upstream Hunyuan mark through the shared asset-mask seam', async () => {
+  it('vendors and renders the byte-exact upstream Hunyuan color mark', async () => {
     const [hunyuanMark, componentSrc, notices] = await Promise.all([
       readFile(TENCENT_HUNYUAN_BRAND_MARK_FILE),
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
@@ -533,23 +533,23 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(hunyuanMark).digest('hex'),
-      '7306a65eb71c4de61e21a637e5c4fef94afde823678e225c46f891cc783f6531',
-      'the vendored Hunyuan mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 hunyuan.svg',
+      '510e7bb438506b5aadfaf8b9551d1606efd5b4171161a64a64204c72a453658a',
+      'the vendored Hunyuan mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 hunyuan-color.svg',
     );
     assert.match(
       notices,
-      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/hunyuan\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/hunyuan\.svg[\s\S]*7306a65eb71c4de61e21a637e5c4fef94afde823678e225c46f891cc783f6531/,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/hunyuan\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/hunyuan-color\.svg[\s\S]*510e7bb438506b5aadfaf8b9551d1606efd5b4171161a64a64204c72a453658a/,
       'Tencent must append byte-exact Hunyuan provenance to the existing Lobe Icons notice entry',
     );
     assert.match(componentSrc, /import hunyuanBrandMark from '\.\.\/assets\/provider-brands\/hunyuan\.svg';/);
     assert.match(
       componentSrc,
-      /Hunyuan mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/hunyuan\.svg[\s\S]*MIT[\s\S]*7306a65eb71c4de61e21a637e5c4fef94afde823678e225c46f891cc783f6531/,
+      /Hunyuan mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/hunyuan-color\.svg[\s\S]*MIT[\s\S]*510e7bb438506b5aadfaf8b9551d1606efd5b4171161a64a64204c72a453658a/,
     );
-    assert.match(componentSrc, /case 'tencent-tokenhub':\s*return <ProviderAssetMask src=\{hunyuanBrandMark\} \/>/);
+    assert.match(componentSrc, /case 'tencent-tokenhub':\s*return <img src=\{hunyuanBrandMark\} alt="" \/>/);
   });
 
-  it('vendors and routes the byte-exact upstream StepFun mark through the shared asset-mask seam', async () => {
+  it('vendors and renders the byte-exact upstream StepFun color mark', async () => {
     const [stepfunMark, componentSrc, notices] = await Promise.all([
       readFile(STEPFUN_BRAND_MARK_FILE),
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
@@ -558,28 +558,28 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(stepfunMark).digest('hex'),
-      'f46fbd1eee00a3dc7874395484bcc3e25a803e9eb4b79f07b7eec377a1e2f25c',
-      'the vendored StepFun mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 stepfun.svg',
+      'f55afc0e6004c8854f76bd5bbcc0fce9fc0ed9316691d54fb02d088c24fab40d',
+      'the vendored StepFun mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 stepfun-color.svg',
     );
     assert.match(
       notices,
-      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/stepfun\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/stepfun\.svg[\s\S]*f46fbd1eee00a3dc7874395484bcc3e25a803e9eb4b79f07b7eec377a1e2f25c/,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/stepfun\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/stepfun-color\.svg[\s\S]*f55afc0e6004c8854f76bd5bbcc0fce9fc0ed9316691d54fb02d088c24fab40d/,
       'StepFun must append byte-exact provenance to the existing Lobe Icons notice entry',
     );
     assert.match(componentSrc, /import stepfunBrandMark from '\.\.\/assets\/provider-brands\/stepfun\.svg';/);
     assert.match(
       componentSrc,
-      /StepFun mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/stepfun\.svg[\s\S]*MIT[\s\S]*f46fbd1eee00a3dc7874395484bcc3e25a803e9eb4b79f07b7eec377a1e2f25c/,
+      /StepFun mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/stepfun-color\.svg[\s\S]*MIT[\s\S]*f55afc0e6004c8854f76bd5bbcc0fce9fc0ed9316691d54fb02d088c24fab40d/,
     );
-    assert.match(componentSrc, /case 'stepfun':\s*return <ProviderAssetMask src=\{stepfunBrandMark\} \/>/);
+    assert.match(componentSrc, /case 'stepfun':\s*return <img src=\{stepfunBrandMark\} alt="" \/>/);
     assert.match(
       componentSrc,
-      /case 'stepfun-ai-step-plan':\s*case 'stepfun-step-plan':\s*case 'stepfun-ai':\s*case 'stepfun':\s*return <ProviderAssetMask src=\{stepfunBrandMark\} \/>/,
-      'catalog and detail must route every StepFun access path through the same shared mark and mask seam',
+      /case 'stepfun-ai-step-plan':\s*case 'stepfun-step-plan':\s*case 'stepfun-ai':\s*case 'stepfun':\s*return <img src=\{stepfunBrandMark\} alt="" \/>/,
+      'catalog and detail must route every StepFun access path through the same shared color mark',
     );
   });
 
-  it('vendors and routes the byte-exact upstream Volcengine mark through the shared asset-mask seam', async () => {
+  it('vendors and renders the byte-exact upstream Volcengine color mark', async () => {
     const [volcengineMark, componentSrc, notices] = await Promise.all([
       readFile(VOLCENGINE_BRAND_MARK_FILE),
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
@@ -588,22 +588,22 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(volcengineMark).digest('hex'),
-      'f29d0bdc284b33d8664ef221add7fbf06a5b370ef92767fa33f6020c914d3d33',
-      'the vendored Volcengine mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 volcengine.svg',
+      '84f9e2cd1da7e73dc6c9a0f2521745d39cae96c008752cdb1baf57a8c94393a1',
+      'the vendored Volcengine mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 volcengine-color.svg',
     );
     assert.match(
       notices,
-      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/volcengine\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/volcengine\.svg[\s\S]*f29d0bdc284b33d8664ef221add7fbf06a5b370ef92767fa33f6020c914d3d33/,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/volcengine\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/volcengine-color\.svg[\s\S]*84f9e2cd1da7e73dc6c9a0f2521745d39cae96c008752cdb1baf57a8c94393a1/,
       'Volcengine must append byte-exact provenance to the existing Lobe Icons notice entry',
     );
     assert.match(componentSrc, /import volcengineBrandMark from '\.\.\/assets\/provider-brands\/volcengine\.svg';/);
     assert.match(
       componentSrc,
-      /Volcengine mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/volcengine\.svg[\s\S]*MIT[\s\S]*f29d0bdc284b33d8664ef221add7fbf06a5b370ef92767fa33f6020c914d3d33/,
+      /Volcengine mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/volcengine-color\.svg[\s\S]*MIT[\s\S]*84f9e2cd1da7e73dc6c9a0f2521745d39cae96c008752cdb1baf57a8c94393a1/,
     );
     assert.match(
       componentSrc,
-      /case 'volcengine-ark':\s*case 'volcengine-coding-plan':\s*return <ProviderAssetMask src=\{volcengineBrandMark\} \/>/,
+      /case 'volcengine-ark':\s*case 'volcengine-coding-plan':\s*return <img src=\{volcengineBrandMark\} alt="" \/>/,
       'direct Ark and Coding Plan must share the single governed Volcengine asset route',
     );
   });
@@ -617,22 +617,22 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(tencentCloudMark).digest('hex'),
-      '0563b1dbaa01aff4f20352bc9eb49bec17debeb3901a9ee80b044ac4d792c97d',
-      'the vendored Tencent Cloud mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 tencentcloud.svg',
+      'f860dae064a3afd24970efd2bc5892f39438526bf52c3a9748f61fc05c1cfd58',
+      'the vendored Tencent Cloud mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 tencentcloud-color.svg',
     );
     assert.match(
       notices,
-      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/tencentcloud\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/tencentcloud\.svg[\s\S]*0563b1dbaa01aff4f20352bc9eb49bec17debeb3901a9ee80b044ac4d792c97d/,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/tencentcloud\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/tencentcloud-color\.svg[\s\S]*f860dae064a3afd24970efd2bc5892f39438526bf52c3a9748f61fc05c1cfd58/,
       'Tencent Coding Plan must append byte-exact Tencent Cloud provenance to the existing Lobe Icons notice entry',
     );
     assert.match(componentSrc, /import tencentCloudBrandMark from '\.\.\/assets\/provider-brands\/tencentcloud\.svg';/);
     assert.match(
       componentSrc,
-      /Tencent Cloud mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/tencentcloud\.svg[\s\S]*MIT[\s\S]*0563b1dbaa01aff4f20352bc9eb49bec17debeb3901a9ee80b044ac4d792c97d/,
+      /Tencent Cloud mark vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/tencentcloud-color\.svg[\s\S]*MIT[\s\S]*f860dae064a3afd24970efd2bc5892f39438526bf52c3a9748f61fc05c1cfd58/,
     );
     assert.match(
       componentSrc,
-      /case 'tencent-coding-plan':\s*case 'tencent-token-plan':\s*return <ProviderAssetMask src=\{tencentCloudBrandMark\} \/>/,
+      /case 'tencent-coding-plan':\s*case 'tencent-token-plan':\s*return <img src=\{tencentCloudBrandMark\} alt="" \/>/,
     );
   });
 
@@ -701,10 +701,48 @@ describe('icon + typography governance contract', () => {
       'LocalAI SVG must remain byte-identical to the official LocalAI repository',
     );
     assert.match(componentSrc, /import localAiBrandMark from '\.\.\/assets\/provider-brands\/localai\.svg';/);
-    assert.match(componentSrc, /case 'localai':\s*return <ProviderAssetMask src=\{localAiBrandMark\} \/>/);
+    assert.match(componentSrc, /case 'localai':\s*return <img src=\{localAiBrandMark\} alt="" \/>/);
     assert.match(
       notices,
       /## LocalAI[\s\S]*mudler\/LocalAI[\s\S]*MIT[\s\S]*b10e330590766ea621c0b03401e77a0589558e76[\s\S]*docs\/assets\/images\/logos\/logo\.svg[\s\S]*1349c022f30a58836e9b09591031f25bf4ff6bb8627bb50691a46a1c8a512c39/,
     );
+  });
+
+  it('preserves every governed color-capable asset while keeping monochrome assets theme-aware', async () => {
+    const componentSrc = await readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8');
+    const colorAssetBindings = [
+      'cerebrasBrandMark',
+      'cloudflareMarkUrl',
+      'cohereBrandMark',
+      'deepinfraBrandMark',
+      'fireworksMarkUrl',
+      'huggingfaceBrandMark',
+      'hunyuanBrandMark',
+      'localAiBrandMark',
+      'mistralBrandMark',
+      'nvidiaMarkUrl',
+      'stepfunBrandMark',
+      'tencentCloudBrandMark',
+      'togetherBrandMark',
+      'volcengineBrandMark',
+    ];
+
+    for (const binding of colorAssetBindings) {
+      assert.match(componentSrc, new RegExp(`<img src=\\{${binding}\\} alt="" \\/>`), `${binding} must render as an img`);
+      assert.doesNotMatch(
+        componentSrc,
+        new RegExp(`<ProviderAssetMask src=\\{${binding}\\} \\/>`),
+        `${binding} must not be flattened into currentColor`,
+      );
+    }
+
+    for (const binding of ['xaiMarkUrl', 'vercelBrandMark', 'lmStudioBrandMark']) {
+      assert.match(
+        componentSrc,
+        new RegExp(`<ProviderAssetMask src=\\{${binding}\\} \\/>`),
+        `${binding} must remain theme-aware because upstream has no color variant`,
+      );
+    }
+    assert.match(componentSrc, /function Ollama\(\)[\s\S]*fill="currentColor"/);
   });
 });
