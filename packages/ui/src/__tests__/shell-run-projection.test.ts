@@ -25,7 +25,7 @@ describe('ShellRun UI projection', () => {
         operation: {
           kind: 'pty_control',
           failed: false,
-          input: { bytes: 14, applied: true },
+          input: { bytes: 14, queued: true },
           resize: { cols: 100, rows: 30, applied: true, changed: true },
         },
       }), 4),
@@ -50,7 +50,7 @@ describe('ShellRun UI projection', () => {
       {
         kind: 'pty_control',
         failed: false,
-        input: { bytes: 14, applied: true },
+        input: { bytes: 14, queued: true },
         resize: { cols: 100, rows: 30, applied: true, changed: true },
       },
     );

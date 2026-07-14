@@ -51,28 +51,6 @@
     font-size: var(--font-size-caption);
   }
 
-/* Unlayered on purpose: this class customizes a shared `Button
-   variant="secondary"` and must outrank the Tailwind utility classes baked
-   into the primitive. */
-.settingsPermissionRefresh {
-  border: var(--border-width-hairline) solid var(--border);
-  background: var(--background);
-  border-radius: var(--radius-control);
-  padding: var(--space-1) var(--space-2-5);
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-ui);
-  transition: background var(--duration-quick) var(--ease-out-strong), border-color var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong);
-}
-.settingsPermissionRefresh:hover {
-  background: var(--state-hover-bg);
-  border-color: var(--border-strong);
-  color: var(--foreground);
-}
-.settingsPermissionRefresh:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: var(--focus-ring-offset);
-}
-
 .settingsPermissionError {
     display: flex;
     flex-direction: column;

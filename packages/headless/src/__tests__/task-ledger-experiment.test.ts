@@ -41,6 +41,7 @@ describe('task ledger experiment tools', () => {
     assert.match(String(result), /Inspect failing parser test/);
     assert.match(String(result), /Run narrow regression test/);
     assert.match(String(result), /status=in_progress/);
+    assert.match(String(result), /key=T1/);
 
     await todoWrite.impl({
       todos: [

@@ -49,21 +49,6 @@
 .maka-search-modal-input::-webkit-search-cancel-button {
   display: none;
 }
-.maka-search-modal-clear {
-  width: var(--h-control-sm);
-  height: var(--h-control-sm);
-  border-radius: var(--radius-control);
-  color: var(--muted-foreground);
-}
-.maka-search-modal-clear:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-}
-.maka-search-modal-clear:focus-visible {
-  outline: var(--focus-ring-width) solid var(--ring);
-  outline-offset: var(--focus-ring-offset);
-}
-
 .maka-search-modal-body {
   display: block;
   border-top: var(--border-width-hairline) solid var(--border);

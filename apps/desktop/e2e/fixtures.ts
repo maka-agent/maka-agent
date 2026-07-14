@@ -118,7 +118,12 @@ async function withE2eWindow(
   }
 }
 
-export const test = base.extend<{ window: Page; emptyWindow: Page; longTranscriptWindow: Page }>({
+export const test = base.extend<{
+  window: Page;
+  emptyWindow: Page;
+  longTranscriptWindow: Page;
+  permissionWindow: Page;
+}>({
   // Seeded: a pre-staged connection clears onboarding so the composer is ready.
   // Used by chat / session / settings / attachment specs.
   window: async ({}, use) => {
@@ -138,6 +143,15 @@ export const test = base.extend<{ window: Page; emptyWindow: Page; longTranscrip
   longTranscriptWindow: async ({}, use) => {
     await withE2eWindow(
       { seed: false, readinessSelector: '.maka-turn', visualSmokeScenario: 'long-transcript' },
+      use,
+    );
+  },
+  // Permission takeover: boots a deterministic destructive request in the
+  // real desktop shell so the composer-slot placement and non-modal behavior
+  // are covered without a provider or test-only renderer state path.
+  permissionWindow: async ({}, use) => {
+    await withE2eWindow(
+      { seed: false, readinessSelector: '.maka-permission-prompt', visualSmokeScenario: 'permission-destructive' },
       use,
     );
   },

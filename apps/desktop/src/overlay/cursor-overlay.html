@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  /* Defense-in-depth with the window's setIgnoreMouseEvents + focusable:false:
+     nothing here is interactive or focusable (Path 18 S14). */
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; pointer-events: none; }
+  #cursor { display: block; pointer-events: none; }
+</style>
+</head>
+<body>
+  <canvas id="cursor"></canvas>
+  <script src="./cursor-overlay.js"></script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import {
   Blocks,
   BookOpen,
@@ -7,6 +8,7 @@ import {
   Loader2,
   Plus,
   Search,
+  Trash2,
 } from './icons.js';
 import type { CapabilityAuditReport } from '@maka/core';
 import { deriveCapabilityAuditReport } from '@maka/core';
@@ -47,6 +49,7 @@ function SkillLibraryPanel(props: {
   onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
   onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
   onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
+  onDeleteSkill?(skillId: string): void | Promise<void>;
   actionBusy?: boolean;
   refreshPending?: boolean;
   createPending?: boolean;
@@ -54,6 +57,7 @@ function SkillLibraryPanel(props: {
   installingSourceId?: string | null;
   updatingSkillId?: string | null;
   togglingSkillId?: string | null;
+  deletingSkillId?: string | null;
   searchQuery?: string;
   managedSkillSources?: ManagedSkillSourceEntry[];
   bundledSkillCatalog?: BundledSkillCatalogEntry[];
@@ -73,6 +77,33 @@ function SkillLibraryPanel(props: {
   });
   const [updatePreview, setUpdatePreview] = useState<ManagedSkillUpdatePreview | null>(null);
   const [reviewingSkillId, setReviewingSkillId] = useState<string | null>(null);
+  // Two-step in-place delete confirm (no dialog precedent in this panel): the
+  // first click arms 确认删除 on that row; a second click within the window
+  // deletes. The timeout reverts the armed state so a stray first click can't
+  // linger as a hot destructive control.
+  const [confirmingDeleteSkillId, setConfirmingDeleteSkillId] = useState<string | null>(null);
+  const deleteConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (deleteConfirmTimerRef.current) clearTimeout(deleteConfirmTimerRef.current);
+  }, []);
+  function clearDeleteConfirmTimer() {
+    if (deleteConfirmTimerRef.current) {
+      clearTimeout(deleteConfirmTimerRef.current);
+      deleteConfirmTimerRef.current = null;
+    }
+  }
+  function requestDeleteSkill(skill: SkillEntry) {
+    if (!props.onDeleteSkill) return;
+    if (confirmingDeleteSkillId !== skill.id) {
+      clearDeleteConfirmTimer();
+      setConfirmingDeleteSkillId(skill.id);
+      deleteConfirmTimerRef.current = setTimeout(() => setConfirmingDeleteSkillId(null), 4000);
+      return;
+    }
+    clearDeleteConfirmTimer();
+    setConfirmingDeleteSkillId(null);
+    void props.onDeleteSkill(skill.id);
+  }
   const [marketCategory, setMarketCategory] = useState<ManagedSkillCategory | typeof MARKET_CATEGORY_ALL>(MARKET_CATEGORY_ALL);
   const [marketSort, setMarketSort] = useState<MarketSort>('name');
   const normalizedSkillQuery = props.searchQuery?.trim().toLowerCase() ?? '';
@@ -143,28 +174,6 @@ function SkillLibraryPanel(props: {
     });
     if (updated) setUpdatePreview(null);
   }
-
-  const templates = (
-    <section className="maka-skill-examples" aria-label="技能示例">
-      {/* Visible divider: without it the inert example rows read as more
-          installed skills floating under the real list. */}
-      <SectionHeader title="技能示例" as="span" className="maka-skill-section-row" />
-      <ul className="maka-skill-example-grid" aria-label="技能模板示例">
-        {SKILL_EXAMPLE_CARDS.map((example) => (
-          <li key={example.title} className="maka-skill-template-row">
-            <span className="maka-skill-template-icon" aria-hidden="true">
-              <example.Icon size={13} />
-            </span>
-            <span className="maka-skill-template-copy">
-              <strong>{example.title}</strong>
-              <span>{example.body}</span>
-            </span>
-            <small>{example.meta}</small>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
 
   const categoryOptions: ReadonlyArray<SettingsSelectOption<ManagedSkillCategory | typeof MARKET_CATEGORY_ALL>> = [
     [MARKET_CATEGORY_ALL, '全部分类'],
@@ -256,7 +265,7 @@ function SkillLibraryPanel(props: {
             <UiButton
               type="button"
               variant="secondary"
-              className="maka-skill-filter-pill"
+              size="sm"
               onClick={props.onImportManagedSkillSource}
               disabled={!props.onImportManagedSkillSource || props.actionBusy}
             >
@@ -302,8 +311,8 @@ function SkillLibraryPanel(props: {
                       workspace, so it reads as a real state, not a toggle. */}
                   <UiButton
                     type="button"
-                    variant="ghost"
-                    className="maka-skill-market-install-button"
+                    variant="secondary"
+                    size="icon-sm"
                     onClick={() => props.onInstallManagedSkill?.(source.id)}
                     disabled={installed || props.actionBusy || !props.onInstallManagedSkill}
                     aria-label={`安装 ${source.name}`}
@@ -364,8 +373,8 @@ function SkillLibraryPanel(props: {
                       once installed, so the button reads as a state, not a toggle. */}
                   <UiButton
                     type="button"
-                    variant="ghost"
-                    className="maka-skill-market-install-button"
+                    variant="secondary"
+                    size="icon-sm"
                     onClick={() => props.onInstallBundledSkill?.(entry.id)}
                     disabled={entry.installed || props.actionBusy || !props.onInstallBundledSkill}
                     aria-label={`安装 ${entry.name}`}
@@ -424,6 +433,8 @@ function SkillLibraryPanel(props: {
               const updating = props.updatingSkillId === skill.id;
               const toggling = props.togglingSkillId === skill.id;
               const reviewing = reviewingSkillId === skill.id;
+              const deleting = props.deletingSkillId === skill.id;
+              const confirmingDelete = confirmingDeleteSkillId === skill.id;
               const reviewableManagedUpdate = skill.managedUpdateStatus === 'update_available' || skill.managedUpdateStatus === 'local_modified';
               const canToggleSkill = Boolean(props.onSetSkillEnabled) && skill.runtimeStatus !== 'state_error';
               const hoverText = tools.length > 0
@@ -483,7 +494,8 @@ function SkillLibraryPanel(props: {
                   )}
                   <UiButton
                     type="button"
-                    variant="ghost"
+                    variant="secondary"
+                    size="icon-sm"
                     className="maka-skill-library-open-button"
                     onClick={() => props.onOpenSkill?.(skill.id)}
                     disabled={props.actionBusy || !props.onOpenSkill}
@@ -503,12 +515,27 @@ function SkillLibraryPanel(props: {
                   {reviewableManagedUpdate && props.onPreviewManagedSkillUpdate && (
                     <UiButton
                       type="button"
-                      variant="ghost"
-                      className="maka-skill-market-install"
+                      variant="secondary"
+                      size="sm"
                       onClick={() => void reviewManagedSkillUpdate(skill)}
                       disabled={props.actionBusy || reviewingSkillId !== null}
                     >
                       {reviewing ? '审查中…' : skill.managedUpdateStatus === 'local_modified' ? '查看差异' : '查看更新'}
+                    </UiButton>
+                  )}
+                  {props.onDeleteSkill && (
+                    <UiButton
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="maka-skill-library-delete-button"
+                      data-confirming={confirmingDelete ? 'true' : undefined}
+                      onClick={() => requestDeleteSkill(skill)}
+                      disabled={props.actionBusy && !deleting}
+                      aria-label={confirmingDelete ? `确认删除 ${skill.name}` : `删除 ${skill.name}`}
+                    >
+                      {deleting ? <Loader2 size={15} aria-hidden="true" /> : <Trash2 size={15} aria-hidden="true" />}
+                      {confirmingDelete ? '确认删除' : '删除'}
                     </UiButton>
                   )}
                 </li>
@@ -553,7 +580,7 @@ function SkillLibraryPanel(props: {
         <UiButton
           type="button"
           variant="ghost"
-          className="maka-skill-filter-pill"
+          size="sm"
           onClick={() => setUpdatePreview(null)}
           disabled={props.actionBusy}
         >
@@ -562,7 +589,7 @@ function SkillLibraryPanel(props: {
         <UiButton
           type="button"
           variant="secondary"
-          className="maka-skill-filter-pill"
+          size="sm"
           onClick={() => void applyManagedSkillUpdate(updatePreview)}
           disabled={props.actionBusy || !props.onUpdateManagedSkill}
         >
@@ -582,7 +609,6 @@ function SkillLibraryPanel(props: {
         <TabsPanel value="installed">
           {skillList(installedSkills, skillListEmptyTitle, skillListEmptyBody, '已安装技能')}
           {updateReview}
-          {templates}
         </TabsPanel>
       </TabsRoot>
       {props.skills && props.skills.length > 0 ? (
@@ -593,26 +619,6 @@ function SkillLibraryPanel(props: {
     </div>
   );
 }
-
-const SKILL_EXAMPLE_CARDS: ReadonlyArray<{
-  title: string;
-  body: string;
-  meta: string;
-  Icon: typeof FileEdit;
-}> = [
-  {
-    title: '文档处理流',
-    body: '润色、批注、检查 DOCX 内容，把重复文档步骤沉进 Skill。',
-    meta: 'Office · 审阅 · 导出',
-    Icon: FileEdit,
-  },
-  {
-    title: '演示资料流',
-    body: '生成结构、整理讲稿、检查 PPTX 页面，让演示准备更稳定。',
-    meta: 'Slides · 提纲 · 校对',
-    Icon: BookOpen,
-  },
-];
 
 function formatSkillLibraryDescription(skill: SkillEntry): string | undefined {
   const raw = skill.description?.trim();
@@ -701,16 +707,15 @@ export function SkillsModuleMain(props: {
   onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
   onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
   onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
+  onDeleteSkill?(skillId: string): void | Promise<void>;
 }) {
   const [pendingSkillAction, setPendingSkillAction] = useState<string | null>(null);
   const [skillSearchQuery, setSkillSearchQuery] = useState('');
-  const skillActionMountedRef = useRef(true);
+  const skillActionMountedRef = useMountedRef();
   const pendingSkillActionRef = useRef<string | null>(null);
 
   useEffect(() => {
-    skillActionMountedRef.current = true;
     return () => {
-      skillActionMountedRef.current = false;
       pendingSkillActionRef.current = null;
     };
   }, []);
@@ -755,8 +760,8 @@ export function SkillsModuleMain(props: {
             />
           </label>
           <UiButton
-            className="maka-button"
-            variant="outline"
+            className="maka-skill-header-utility"
+            variant="secondary"
             type="button"
             onClick={() => void runSkillAction('folder', props.onOpenSkillsFolder)}
             disabled={!props.onOpenSkillsFolder || skillActionBusy}
@@ -768,7 +773,6 @@ export function SkillsModuleMain(props: {
               re-skinned by CSS into a hardcoded black-gradient pill (theme-leak
               literals + off-family radius). */}
           <UiButton
-            className="maka-skill-add-button"
             variant="default"
             type="button"
             onClick={() => void runSkillAction('create', props.onCreateSkillTemplate)}
@@ -779,8 +783,8 @@ export function SkillsModuleMain(props: {
             <span className="maka-visually-hidden">{skillCreateLegacyLabel}</span>
           </UiButton>
           <UiButton
-            className="maka-button"
-            variant="outline"
+            className="maka-skill-header-utility"
+            variant="secondary"
             type="button"
             onClick={() => void runSkillAction('refresh', props.onRefreshSkills)}
             disabled={!props.onRefreshSkills || skillActionBusy}
@@ -805,6 +809,7 @@ export function SkillsModuleMain(props: {
         onUpdateManagedSkill={props.onUpdateManagedSkill ? async (skillId, options) =>
           (await runSkillAction(`managed:update:${skillId}`, () => props.onUpdateManagedSkill?.(skillId, options))) === true : undefined}
         onSetSkillEnabled={props.onSetSkillEnabled ? (skillId, enabled) => runSkillAction(`runtime:set:${skillId}`, () => props.onSetSkillEnabled?.(skillId, enabled)) : undefined}
+        onDeleteSkill={props.onDeleteSkill ? (skillId) => runSkillAction(`delete:${skillId}`, () => props.onDeleteSkill?.(skillId)) : undefined}
         onUseSkill={props.onUseSkill}
         actionBusy={skillActionBusy}
         refreshPending={pendingSkillAction === 'refresh'}
@@ -814,6 +819,7 @@ export function SkillsModuleMain(props: {
         installingBundledId={pendingSkillAction?.startsWith('bundled:install:') ? pendingSkillAction.slice('bundled:install:'.length) : null}
         updatingSkillId={pendingSkillAction?.startsWith('managed:update:') ? pendingSkillAction.slice('managed:update:'.length) : null}
         togglingSkillId={pendingSkillAction?.startsWith('runtime:set:') ? pendingSkillAction.slice('runtime:set:'.length) : null}
+        deletingSkillId={pendingSkillAction?.startsWith('delete:') ? pendingSkillAction.slice('delete:'.length) : null}
         searchQuery={skillSearchQuery}
       />
     </main>

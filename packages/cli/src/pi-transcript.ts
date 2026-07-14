@@ -1,6 +1,7 @@
 import { Markdown } from '@earendil-works/pi-tui';
 import type {
   PermissionRequestEvent,
+  UserQuestionRequestEvent,
   SessionEvent,
   ToolOutputStream,
   ToolResultContent,
@@ -32,7 +33,8 @@ import { renderToolBlock } from './pi-transcript-tools.js';
 export interface MakaPiTranscriptState {
   entries: MakaPiTranscriptEntry[];
   sawTextDeltaMessageIds: Set<string>;
-  pendingPermission?: PermissionRequestEvent;
+  pendingInteraction?: MakaPiPendingInteraction;
+  queuedInteractions: MakaPiPendingInteraction[];
   /**
    * Global expansion toggles: one Ctrl+O press expands every tool card in the
    * transcript, one Ctrl+T press expands every thinking entry; pressing again
@@ -42,6 +44,8 @@ export interface MakaPiTranscriptState {
   expandAllTools: boolean;
   expandAllThinking: boolean;
 }
+
+export type MakaPiPendingInteraction = PermissionRequestEvent | UserQuestionRequestEvent;
 
 /** A single live output chunk from a `tool_output_delta` event. */
 export interface MakaPiToolOutputDelta {
@@ -93,6 +97,7 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
   return {
     entries: [],
     sawTextDeltaMessageIds: new Set(),
+    queuedInteractions: [],
     expandAllTools: false,
     expandAllThinking: false,
   };
@@ -156,7 +161,7 @@ export function replaceTranscriptWithStoredMessages(
       .filter((entry): entry is Extract<MakaPiTranscriptEntry, { kind: 'assistant' }> => entry.kind === 'assistant')
       .map((entry) => entry.messageId),
   );
-  state.pendingPermission = undefined;
+  clearPendingInteractions(state);
   state.expandAllTools = false;
   state.expandAllThinking = false;
 }
@@ -230,6 +235,7 @@ export async function submitPromptToTranscript(input: {
     }
   } catch (error) {
     errored = true;
+    clearPendingInteractions(input.state);
     input.state.entries.push({
       kind: 'notice',
       level: 'error',
@@ -312,6 +318,7 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'tool_result': {
+      completePendingPermissionsForToolUseId(state, event.toolUseId);
       const tool = findToolEntry(state, event.toolUseId);
       const shellRun = event.content.kind === 'shell_run' ? event.content : undefined;
       const parent = shellRun
@@ -385,18 +392,27 @@ export function applyMakaSessionEventToTranscript(
     }
 
     case 'permission_request':
-      state.pendingPermission = event;
+      // Additional-permission prompts are not emitted by ToolRuntime until
+      // their dedicated CLI approval surface is wired in a later slice.
+      if (event.kind === 'additional_permissions') break;
+      enqueuePendingInteraction(state, event);
+      break;
+    case 'user_question_request':
+      enqueuePendingInteraction(state, event);
       break;
 
     case 'permission_decision_ack':
-      if (state.pendingPermission?.requestId === event.requestId) {
-        const toolName = state.pendingPermission.toolName;
-        state.pendingPermission = undefined;
+      {
+        const request = findPendingInteraction(state, event.requestId);
+        if (request?.type === 'permission_request') {
+          completePendingInteraction(state, event.requestId);
+          const toolName = request.toolName;
         state.entries.push({
           kind: 'notice',
           level: 'info',
           text: `Permission ${event.decision}ed for ${toolName}`,
         });
+      }
       }
       break;
 
@@ -421,7 +437,7 @@ export function applyMakaSessionEventToTranscript(
     }
 
     case 'error':
-      state.pendingPermission = undefined;
+      clearPendingInteractions(state);
       state.entries.push({
         kind: 'notice',
         level: 'error',
@@ -430,7 +446,7 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'abort':
-      state.pendingPermission = undefined;
+      clearPendingInteractions(state);
       state.entries.push({
         kind: 'notice',
         level: 'info',
@@ -440,7 +456,7 @@ export function applyMakaSessionEventToTranscript(
 
     case 'complete':
       // The turn is over; any unresolved permission request is no longer actionable.
-      state.pendingPermission = undefined;
+      clearPendingInteractions(state);
       if (event.stopReason === 'max_tokens') {
         state.entries.push({
           kind: 'notice',
@@ -672,7 +688,7 @@ export function renderMakaPiTranscript(
   // A fresh session (no history, nothing pending) opens on a welcome block so the
   // first screen greets and orients instead of showing an empty pane. Once the
   // first prompt lands, entries take over and it never renders again.
-  if (state.entries.length === 0 && !state.pendingPermission) {
+  if (state.entries.length === 0 && !state.pendingInteraction) {
     return renderWelcomeBlock(metadata, safeWidth);
   }
 
@@ -682,12 +698,70 @@ export function renderMakaPiTranscript(
     lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, state.expandAllTools, state.expandAllThinking));
   }
 
-  if (state.pendingPermission) {
+  if (state.pendingInteraction?.type === 'permission_request') {
     lines.push('');
-    lines.push(...renderPermissionPrompt(state.pendingPermission, safeWidth));
+    lines.push(...renderPermissionPrompt(state.pendingInteraction, safeWidth));
   }
 
   return lines;
+}
+
+export function completePendingInteraction(
+  state: MakaPiTranscriptState,
+  requestId: string,
+): boolean {
+  if (state.pendingInteraction?.requestId === requestId) {
+    state.pendingInteraction = state.queuedInteractions.shift();
+    return true;
+  }
+  const index = state.queuedInteractions.findIndex((request) => request.requestId === requestId);
+  if (index < 0) return false;
+  state.queuedInteractions.splice(index, 1);
+  return true;
+}
+
+export function activePermissionRequest(state: MakaPiTranscriptState): PermissionRequestEvent | undefined {
+  return state.pendingInteraction?.type === 'permission_request' ? state.pendingInteraction : undefined;
+}
+
+export function activeUserQuestionRequest(state: MakaPiTranscriptState): UserQuestionRequestEvent | undefined {
+  return state.pendingInteraction?.type === 'user_question_request' ? state.pendingInteraction : undefined;
+}
+
+function enqueuePendingInteraction(
+  state: MakaPiTranscriptState,
+  request: MakaPiPendingInteraction,
+): void {
+  if (findPendingInteraction(state, request.requestId)) return;
+  if (!state.pendingInteraction) state.pendingInteraction = request;
+  else state.queuedInteractions.push(request);
+}
+
+function completePendingPermissionsForToolUseId(
+  state: MakaPiTranscriptState,
+  toolUseId: string,
+): void {
+  const requestIds = [state.pendingInteraction, ...state.queuedInteractions]
+    .filter(
+      (request): request is PermissionRequestEvent => (
+        request?.type === 'permission_request' && request.toolUseId === toolUseId
+      ),
+    )
+    .map((request) => request.requestId);
+  for (const requestId of requestIds) completePendingInteraction(state, requestId);
+}
+
+function findPendingInteraction(
+  state: MakaPiTranscriptState,
+  requestId: string,
+): MakaPiPendingInteraction | undefined {
+  if (state.pendingInteraction?.requestId === requestId) return state.pendingInteraction;
+  return state.queuedInteractions.find((request) => request.requestId === requestId);
+}
+
+function clearPendingInteractions(state: MakaPiTranscriptState): void {
+  state.pendingInteraction = undefined;
+  state.queuedInteractions = [];
 }
 
 /**
@@ -934,7 +1008,10 @@ function renderPermissionPrompt(request: PermissionRequestEvent, width: number):
   const summary = permissionRequestSummary(request);
   if (summary) lines.push(...renderIndented(summary, width, 2));
   if (request.hint) lines.push(...renderIndented(request.hint, width, 2).map(ansi.dim));
-  lines.push(fitLine(ansi.dim('y/Enter allow  n/Esc deny'), width));
+  const actions = request.rememberForTurnAllowed === true
+    ? 'y/Enter allow once  a allow for turn  n/Esc deny'
+    : 'y/Enter allow once  n/Esc deny';
+  lines.push(fitLine(ansi.dim(actions), width));
   return lines;
 }
 

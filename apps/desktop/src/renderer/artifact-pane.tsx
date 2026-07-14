@@ -30,6 +30,7 @@
  * pane returns `null` when it shouldn't take space.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Button as BaseButton } from '@base-ui/react/button';
 import {
   AlertTriangle,
   ChevronLeft,
@@ -73,6 +74,7 @@ import {
   TooltipContent,
   TooltipTrigger,
   formatBytes,
+  useMountedRef,
   useToast,
 } from '@maka/ui';
 import { ArtifactPreview } from './artifact-preview';
@@ -94,7 +96,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   const [pendingArtifactListRetry, setPendingArtifactListRetry] = useState(false);
   const [pendingArtifactAction, setPendingArtifactAction] = useState<string | null>(null);
   const artifactListRequestSeqRef = useRef(0);
-  const artifactPaneMountedRef = useRef(true);
+  const artifactPaneMountedRef = useMountedRef();
   const artifactPaneSessionIdRef = useRef<string | undefined>(sessionId);
   const recordsSessionIdRef = useRef<string | undefined>(undefined);
   const pendingArtifactListRetryRef = useRef(false);
@@ -105,9 +107,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   // ---- live data ---------------------------------------------------------
 
   useEffect(() => {
-    artifactPaneMountedRef.current = true;
     return () => {
-      artifactPaneMountedRef.current = false;
       artifactListRequestSeqRef.current += 1;
       pendingArtifactListRetryRef.current = false;
       pendingArtifactActionRef.current = null;
@@ -389,7 +389,6 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
           <TooltipTrigger
             render={<Button variant="quiet" size="icon-sm" />}
             type="button"
-            className="maka-artifact-pane-collapse"
             onClick={() => setCollapsed((current) => !current)}
             // @kenji a11y gate #3: aria-expanded reflects the actual visible
             // content state (true when pane shows list + preview + toolbar,
@@ -420,7 +419,6 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               <AlertDescription>{activeListError}</AlertDescription>
               <AlertAction>
                 <Button
-                  className="maka-artifact-error-retry"
                   variant="secondary"
                   size="sm"
                   type="button"
@@ -446,15 +444,9 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
           >
             {activeRecords.map((record) => (
               <li key={record.id} className="maka-artifact-list-item">
-                <Button
+                <BaseButton
                   id={`maka-artifact-row-${record.id}`}
                   type="button"
-                  variant="ghost"
-                  // size="nav": className owns layout. The default md size
-                  // pins h-9 on the button, but deleted rows add a badge on
-                  // an implicit second grid row — fixed height + centering
-                  // painted the badge over the icon/name.
-                  size="nav"
                   className="maka-artifact-row"
                   role="option"
                   aria-selected={record.id === selectedId}
@@ -478,7 +470,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   {record.status === 'deleted' && (
                     <Badge variant="destructive" className="maka-artifact-row-badge">已删除</Badge>
                   )}
-                </Button>
+                </BaseButton>
               </li>
             ))}
           </ul>
@@ -522,7 +514,6 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   type="button"
                   variant="secondary"
                   size="sm"
-                  className="maka-artifact-toolbar-button"
                   onClick={() => void runArtifactAction(`${selected.id}:open`, () => openInFinder(selected.id))}
                   disabled={artifactActionBusy}
                   data-pending={pendingArtifactAction === `${selected.id}:open` ? 'true' : undefined}
@@ -535,7 +526,6 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   type="button"
                   variant="secondary"
                   size="sm"
-                  className="maka-artifact-toolbar-button"
                   onClick={() => void runArtifactAction(`${selected.id}:save`, () => saveAs(selected.id))}
                   disabled={artifactActionBusy}
                   data-pending={pendingArtifactAction === `${selected.id}:save` ? 'true' : undefined}
@@ -549,7 +539,6 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                     type="button"
                     variant="secondary"
                     size="sm"
-                    className="maka-artifact-toolbar-button"
                     onClick={() => void runArtifactAction(`${selected.id}:copy`, () => copyText(selected.id))}
                     disabled={artifactActionBusy}
                     data-pending={pendingArtifactAction === `${selected.id}:copy` ? 'true' : undefined}
@@ -564,7 +553,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               <ToolbarGroup className="maka-artifact-toolbar-group maka-artifact-toolbar-danger-group">
                 <Tooltip>
                   <TooltipTrigger
-                    render={<Button type="button" variant="destructive" size="sm" className="maka-artifact-toolbar-button maka-artifact-toolbar-destructive" />}
+                    render={<Button type="button" variant="destructive" size="icon-sm" />}
                     onClick={() => void runArtifactAction(`${selected.id}:delete`, () => deleteArtifact(selected.id))}
                     disabled={artifactActionBusy}
                     data-pending={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}

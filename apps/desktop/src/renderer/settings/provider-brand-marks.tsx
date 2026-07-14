@@ -1,11 +1,12 @@
 // Official provider brand marks.
 //
-// SVG paths vendored from `@lobehub/icons-static-svg` (MIT-licensed,
+// Most SVG paths are vendored from `@lobehub/icons-static-svg` (MIT-licensed,
 // https://github.com/lobehub/lobe-icons) — the React package was NOT
 // adopted because its peerDependencies pull in antd + @lobehub/ui, which
 // we don't use. We copy only the handful of marks we render, so there is
-// zero runtime dependency. Each brand logo remains the trademark of its
-// owner and is used here only to identify the corresponding provider.
+// zero runtime dependency. MiniMax comes directly from its official brand
+// package, documented beside the import below. Each brand logo remains the
+// trademark of its owner and is used here only to identify the provider.
 //
 // Color marks keep their brand fill; monochrome marks use `currentColor`
 // so they inherit the plate's foreground color and stay legible in both
@@ -14,6 +15,190 @@
 
 import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
+import cerebrasBrandMark from '../assets/provider-brands/cerebras.svg';
+import cohereBrandMark from '../assets/provider-brands/cohere.svg';
+import cloudflareMarkUrl from '../assets/provider-brands/cloudflare.svg';
+import deepinfraBrandMark from '../assets/provider-brands/deepinfra.svg';
+import fireworksMarkUrl from '../assets/provider-brands/fireworks.svg';
+import githubCopilotBrandMark from '../assets/provider-brands/github-copilot.svg';
+import huggingfaceBrandMark from '../assets/provider-brands/huggingface.svg';
+import hunyuanBrandMark from '../assets/provider-brands/hunyuan.svg';
+import tencentCloudBrandMark from '../assets/provider-brands/tencentcloud.svg';
+import lmStudioBrandMark from '../assets/provider-brands/lmstudio.svg';
+import localAiBrandMark from '../assets/provider-brands/localai.svg';
+import minimaxBrandMark from '../assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg';
+import mistralBrandMark from '../assets/provider-brands/mistral.svg';
+import togetherBrandMark from '../assets/provider-brands/together.svg';
+import nvidiaMarkUrl from '../assets/provider-brands/nvidia.svg';
+import opencodeBrandMark from '../assets/provider-brands/opencode.svg';
+import stepfunBrandMark from '../assets/provider-brands/stepfun.svg';
+import vercelBrandMark from '../assets/provider-brands/vercel.svg';
+import volcengineBrandMark from '../assets/provider-brands/volcengine.svg';
+import xaiMarkUrl from '../assets/provider-brands/xai.svg';
+import xiaomiMiMoMarkUrl from '../assets/provider-brands/xiaomimimo.svg';
+import zaiMarkUrl from '../assets/provider-brands/zai.svg';
+import zenmuxBrandMark from '../assets/provider-brands/zenmux.svg';
+
+// ZenMux mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/zenmux.svg
+// - variant: monochrome; no upstream color variant exists in this release
+// - license: MIT (repository LICENSE); ZenMux trademark remains its owner's
+// - SHA-256: 1f9fab4e48601ca583e44ff06f22040a8b40f8952bc6bd67e67b065bef00b4b5
+
+// GitHub Copilot mark vendored byte-for-byte from the official Primer Octicons repository:
+// - repository: https://github.com/primer/octicons
+// - commit: 2ed936e7759451e80ae38b8147cbe2c89de6cc7a
+// - path: icons/copilot-24.svg
+// - SHA-256: eeafb3c2f333e04ccf7d031ae215f7adafaed4c6352556b0bf79496e048bcdd7
+// - governance: GitHub Copilot name and logo remain GitHub trademarks; the Octicons MIT grant
+//   does not grant trademark rights. Used unmodified only to identify the connected service.
+
+// Real xAI/Grok mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: 32f4083f7a20b67ecdc7b29c0af031ada5a29c52
+// - path: packages/static-svg/icons/xai.svg
+// - license: MIT (repository LICENSE)
+function XAI(): ReactElement {
+  return <ProviderAssetMask src={xaiMarkUrl} />;
+}
+
+// Xiaomi MiMo and Z.AI marks vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - paths: packages/static-svg/icons/xiaomimimo.svg and packages/static-svg/icons/zai.svg
+// - SHA-256: b04ad7dad52af2212c4567daf0ee6856f2c4625c92c680a27f9880295d558b71
+//               e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1
+// - license: MIT (repository LICENSE)
+function XiaomiMiMo(): ReactElement {
+  return <ProviderAssetMask src={xiaomiMiMoMarkUrl} />;
+}
+
+// Real Together AI mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/together-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 27ccaf118a431c386b88418a34a4346afd9638dde10e3f2295db2eec1fa5898a
+
+// Real DeepInfra mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/deepinfra-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: bfc78853fe658f6446651d03218f3e809215fd7cb3bce841a6526de383286544
+
+// Cloudflare mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/cloudflare-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: cee35d3f0ecb7925ce0a89aeaff8b907cadae7c3fe44a23e4001cc8d5ee57502
+
+// Fireworks mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/fireworks-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: f1c4782b86bc03a36323fd68ad6cc376c6b2ebe57b701cc958ebd6b8d37effd6
+
+// Vendored from lobehub/lobe-icons (MIT):
+// https://github.com/lobehub/lobe-icons
+// npm package: @lobehub/icons-static-svg@1.91.0
+// Git commit: e4302041fbb3039608d25f9f618bd462783b875e
+// Source path: packages/static-svg/icons/lmstudio.svg
+// Upstream SHA-256: 4a575e8382b52ce742ac5d21d361a7d2a08cea7c12390ee1bbb755ef7d3cc25b
+
+// LocalAI mark vendored byte-for-byte from the official LocalAI repository:
+// - repository: https://github.com/mudler/LocalAI
+// - commit: b10e330590766ea621c0b03401e77a0589558e76
+// - path: docs/assets/images/logos/logo.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 1349c022f30a58836e9b09591031f25bf4ff6bb8627bb50691a46a1c8a512c39
+
+// Mistral mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/mistral-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 722f74b289d95486b43662fe24fa883b333701296f618406cd0ed502299170b6
+
+// Cohere mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/cohere-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 84d0ee3cbe66f030e5a18cb2c86da9166ab2137c7a98781693bb1fbf31e392b9
+
+// Hugging Face mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/huggingface-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 5d39d66bb6c9b026d3cb5de7bd9978dad3906570df2aca8f00078a6f8a3d0f5e
+
+// Hunyuan mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/hunyuan-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 510e7bb438506b5aadfaf8b9551d1606efd5b4171161a64a64204c72a453658a
+
+// Tencent Cloud mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/tencentcloud-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: f860dae064a3afd24970efd2bc5892f39438526bf52c3a9748f61fc05c1cfd58
+
+// StepFun mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/stepfun-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: f55afc0e6004c8854f76bd5bbcc0fce9fc0ed9316691d54fb02d088c24fab40d
+
+// Volcengine mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/volcengine-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 84f9e2cd1da7e73dc6c9a0f2521745d39cae96c008752cdb1baf57a8c94393a1
+
+// Vercel mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: 32f4083f7a20b67ecdc7b29c0af031ada5a29c52
+// - path: packages/static-svg/icons/vercel.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 4874d52d8b2ce7c309cbd10c424fee123b2c9483e76d76ad0dca41794483eb24
+
+// OpenCode mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/opencode.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 7cfa6e9d6726f7c9fa26c7d9aef0dfec52d20a137380454340f30f12ccbfd302
+
+function ProviderAssetMask({ src }: { src: string }): ReactElement {
+  const mask = `url("${src}")`;
+  return <span className="providerAssetMask" style={{ maskImage: mask, WebkitMaskImage: mask }} aria-hidden="true" />;
+}
 
 function Claude(): ReactElement {
   return (
@@ -22,6 +207,18 @@ function Claude(): ReactElement {
         fill="#D97757"
         fillRule="nonzero"
         d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"
+      />
+    </svg>
+  );
+}
+
+// @lobehub/icons-static-svg@1.91.0/icons/siliconcloud.svg
+function SiliconCloud(): ReactElement {
+  return (
+    <svg viewBox="0 0 24 24" role="img" fill="currentColor" fillRule="evenodd" xmlns="http://www.w3.org/2000/svg">
+      <path
+        clipRule="evenodd"
+        d="M22.956 6.521H12.522c-.577 0-1.044.468-1.044 1.044v3.13c0 .577-.466 1.044-1.043 1.044H1.044c-.577 0-1.044.467-1.044 1.044v4.174C0 17.533.467 18 1.044 18h10.434c.577 0 1.044-.467 1.044-1.043v-3.13c0-.578.466-1.044 1.043-1.044h9.391c.577 0 1.044-.467 1.044-1.044V7.565c0-.576-.467-1.044-1.044-1.044z"
       />
     </svg>
   );
@@ -96,24 +293,30 @@ function Moonshot(): ReactElement {
 // three slanted strokes — NOT the legacy 智谱 molecule mark, so we vendor
 // the Z.ai mark. Monochrome upstream (no color variant); uses currentColor.
 function ZAI(): ReactElement {
-  return (
-    <svg viewBox="0 0 24 24" role="img" fill="currentColor" fillRule="evenodd" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12.105 2L9.927 4.953H.653L2.83 2h9.276zM23.254 19.048L21.078 22h-9.242l2.174-2.952h9.244zM24 2L9.264 22H0L14.736 2H24z" />
-    </svg>
-  );
+  return <ProviderAssetMask src={zaiMarkUrl} />;
 }
 
-// MiniMax ships no vendored logo in `@lobehub/icons-static-svg`, so we render
-// a neutral monochrome "M" glyph (currentColor) as an identifying placeholder
-// rather than misusing a trademarked asset. Swap in the official mark later.
+// Vendored byte-for-byte from MiniMax's official brand package:
+// https://platform.minimax.io/docs/faq/contact-us#brand-resources
+// https://file.cdn.minimax.io/public/MiniMax_Logo.zip
+// Source member:
+// MiniMax_Logo/svg/logo-only/vertical/minimax_logo-only_vertical_color-bg_white-text.svg
 function MiniMaxMark(): ReactElement {
+  return <img src={minimaxBrandMark} alt="" />;
+}
+
+function GenericProviderMark(): ReactElement {
   return (
-    <svg viewBox="0 0 24 24" role="img" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
-      <path d="M4 18V6l5 8 5-8v12M20 6v12" />
+    <svg viewBox="0 0 24 24" role="img" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="8" />
+      <path d="M8 9.5h6.5a2 2 0 010 4H9.5a2 2 0 000 4H16" />
     </svg>
   );
 }
 
+// Vendored unchanged from @lobehub/icons-static-svg@1.91.0:
+// https://github.com/lobehub/lobe-icons/blob/32f4083f7a20b67ecdc7b29c0af031ada5a29c52/packages/static-svg/icons/ollama.svg
+// Lobe Icons is MIT licensed; this path is consumed verbatim, not redrawn here.
 function Ollama(): ReactElement {
   return (
     <svg viewBox="0 0 24 24" role="img" fill="currentColor" fillRule="evenodd" xmlns="http://www.w3.org/2000/svg">
@@ -128,14 +331,36 @@ function Ollama(): ReactElement {
  */
 export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElement {
   switch (type) {
+    case 'nvidia':
+      return <img src={nvidiaMarkUrl} alt="" />;
+    case 'cerebras':
+      return <img src={cerebrasBrandMark} alt="" />;
+    case 'xai':
+      return <XAI />;
+    case 'togetherai':
+      return <img src={togetherBrandMark} alt="" />;
+    case 'deepinfra':
+      return <img src={deepinfraBrandMark} alt="" />;
+    case 'cloudflare-workers-ai':
+      return <img src={cloudflareMarkUrl} alt="" />;
+    case 'fireworks-ai':
+      return <img src={fireworksMarkUrl} alt="" />;
+    case 'siliconflow':
+      return <SiliconCloud />;
+    case 'vercel':
+      return <ProviderAssetMask src={vercelBrandMark} />;
+    case 'opencode':
+    case 'opencode-go':
+      return <ProviderAssetMask src={opencodeBrandMark} />;
     case 'anthropic':
     case 'claude-subscription':
       return <Claude />;
     case 'openai':
     case 'codex-subscription':
-    case 'litellm':
     case 'openai-compatible':
       return <OpenAI />;
+    case 'github-copilot':
+      return <ProviderAssetMask src={githubCopilotBrandMark} />;
     case 'google':
     case 'gemini-cli':
       return <Gemini />;
@@ -144,12 +369,44 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
     case 'moonshot':
     case 'kimi-coding-plan':
       return <Moonshot />;
+    case 'xiaomi':
+      return <XiaomiMiMo />;
+    case 'zai':
     case 'zai-coding-plan':
       return <ZAI />;
+    case 'minimax-coding-plan':
     case 'MiniMax':
     case 'MiniMax-cn':
       return <MiniMaxMark />;
     case 'ollama':
+    case 'ollama-cloud':
       return <Ollama />;
+    case 'lm-studio':
+      return <ProviderAssetMask src={lmStudioBrandMark} />;
+    case 'localai':
+      return <img src={localAiBrandMark} alt="" />;
+    case 'mistral':
+      return <img src={mistralBrandMark} alt="" />;
+    case 'cohere':
+      return <img src={cohereBrandMark} alt="" />;
+    case 'huggingface':
+      return <img src={huggingfaceBrandMark} alt="" />;
+    case 'zenmux':
+      return <ProviderAssetMask src={zenmuxBrandMark} />;
+    case 'tencent-tokenhub':
+      return <img src={hunyuanBrandMark} alt="" />;
+    case 'tencent-coding-plan':
+    case 'tencent-token-plan':
+      return <img src={tencentCloudBrandMark} alt="" />;
+    case 'stepfun-ai-step-plan':
+    case 'stepfun-step-plan':
+    case 'stepfun-ai':
+    case 'stepfun':
+      return <img src={stepfunBrandMark} alt="" />;
+    case 'volcengine-ark':
+    case 'volcengine-coding-plan':
+      return <img src={volcengineBrandMark} alt="" />;
+    default:
+      return <GenericProviderMark />;
   }
 }

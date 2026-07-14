@@ -1,0 +1,70 @@
+import assert from 'node:assert/strict';
+import { describe, test } from 'node:test';
+
+import type { PermissionRequestEvent, UserQuestionRequestEvent } from '@maka/core';
+import {
+  activeInteractionFor,
+  clearInteractions,
+  dequeueInteractionByRequestId,
+  dequeueInteractionByToolUseId,
+  enqueueInteraction,
+  type InteractionQueues,
+} from '../interaction-queue.js';
+
+function permission(requestId: string): PermissionRequestEvent {
+  return {
+    type: 'permission_request',
+    id: `evt_${requestId}`,
+    ts: 0,
+    requestId,
+    toolUseId: `call_${requestId}`,
+    toolName: 'browser_snapshot',
+  } as PermissionRequestEvent;
+}
+
+function question(requestId: string): UserQuestionRequestEvent {
+  return {
+    type: 'user_question_request',
+    id: `evt_${requestId}`,
+    ts: 0,
+    requestId,
+    toolUseId: `call_${requestId}`,
+    turnId: 'turn_1',
+    questions: [{ question: 'Choose', options: [{ label: 'A' }] }],
+  };
+}
+
+describe('composer interaction queue', () => {
+  test('permission and question requests share one FIFO per session', () => {
+    let queues: InteractionQueues = {};
+    queues = enqueueInteraction(queues, 's', permission('permission'));
+    queues = enqueueInteraction(queues, 's', question('question'));
+
+    assert.equal(activeInteractionFor(queues, 's')?.requestId, 'permission');
+    queues = dequeueInteractionByRequestId(queues, 's', 'permission');
+    assert.equal(activeInteractionFor(queues, 's')?.requestId, 'question');
+  });
+
+  test('deduplicates replays and isolates sessions', () => {
+    let queues: InteractionQueues = {};
+    queues = enqueueInteraction(queues, 's1', question('a'));
+    queues = enqueueInteraction(queues, 's1', question('a'));
+    queues = enqueueInteraction(queues, 's2', permission('b'));
+
+    assert.equal(queues.s1.length, 1);
+    assert.equal(activeInteractionFor(queues, 's2')?.requestId, 'b');
+  });
+
+  test('tool completion and terminal events drain stale interactions', () => {
+    let queues: InteractionQueues = {};
+    queues = enqueueInteraction(queues, 's', permission('a'));
+    queues = enqueueInteraction(queues, 's', question('b'));
+
+    queues = dequeueInteractionByToolUseId(queues, 's', 'call_a');
+    assert.equal(activeInteractionFor(queues, 's')?.requestId, 'b');
+    assert.equal(dequeueInteractionByToolUseId(queues, 's', 'missing'), queues);
+
+    queues = clearInteractions(queues, 's');
+    assert.equal(activeInteractionFor(queues, 's'), undefined);
+  });
+});

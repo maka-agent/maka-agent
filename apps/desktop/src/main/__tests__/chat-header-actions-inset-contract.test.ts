@@ -54,7 +54,7 @@ async function workspaceTopActionButtonCount(): Promise<number> {
   const start = source.indexOf('export function AppShellWorkspaceTopActions');
   assert.notEqual(start, -1, 'AppShellWorkspaceTopActions should exist');
   const block = source.slice(start);
-  return [...block.matchAll(/className="maka-workspace-icon-action"/g)].length;
+  return [...block.matchAll(/render=\{<UiButton variant="quiet" size="icon-sm" \/>\}/g)].length;
 }
 
 describe('chat header actions inset contract', () => {
@@ -98,20 +98,16 @@ describe('chat header actions inset contract', () => {
     const css = await readRendererContractCss();
     const buttonCount = await workspaceTopActionButtonCount();
     const toolbarBody = ruleBody(css, '.maka-workspace-top-actions');
-    const iconBody = ruleBody(css, '.maka-workspace-icon-action');
-
-    const buttonWidth = pxDeclaration(iconBody, 'width');
-    const buttonHeight = pxDeclaration(iconBody, 'height');
+    const buttonSize = 28;
     const gap = pxDeclaration(toolbarBody, 'gap');
     const insetAddend = workspaceTopActionsInsetAddend(css);
 
     assert.equal(buttonCount, 4, 'current top-actions toolbar renders four icon buttons');
-    assert.equal(buttonWidth, 24, 'top-actions icon buttons are 24px wide');
-    assert.equal(buttonHeight, buttonWidth, 'top-actions icon buttons should stay square');
+    assert.equal(buttonSize, 28, 'top-actions use the governed compact Button tier');
     assert.equal(gap, 6, 'top-actions icon buttons use a 6px gap');
     assert.equal(
       insetAddend,
-      (buttonCount * buttonWidth) + ((buttonCount - 1) * gap) + CHAT_HEADER_TOOLBAR_CLEARANCE_PX,
+      (buttonCount * buttonSize) + ((buttonCount - 1) * gap) + CHAT_HEADER_TOOLBAR_CLEARANCE_PX,
       'the chat-header inset addend must match the rendered toolbar footprint plus 12px clearance',
     );
   });

@@ -22,6 +22,12 @@ const SERVICE_SOURCE = resolve(
   'oauth',
   'claude-subscription-service.ts',
 );
+const SUBSCRIPTION_MODEL_FETCH_SOURCE = resolve(
+  DESKTOP_ROOT,
+  'src',
+  'main',
+  'subscription-model-fetch.ts',
+);
 describe('cloaked request module isolation (xuan G-X4)', () => {
   it('subscription service does NOT statically import cloak request construction', async () => {
     const src = await readFile(SERVICE_SOURCE, 'utf8');
@@ -81,6 +87,16 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
     assert.doesNotMatch(src, /function buildCodexSubscriptionFetch/, 'desktop must not duplicate the Codex fetch adapter');
     assert.doesNotMatch(src, /codexInstructionsFromBody/, 'Codex instruction mapping belongs in runtime');
     assert.doesNotMatch(src, /OpenAI-Beta/, 'Codex subscription headers belong in runtime');
+  });
+
+  it('main delegates GitHub Copilot subscription headers to the runtime adapter', async () => {
+    const src = await readFile(SUBSCRIPTION_MODEL_FETCH_SOURCE, 'utf8');
+    assert.match(
+      src,
+      /providerType === 'github-copilot'[\s\S]*buildRuntimeSubscriptionModelFetch\(\{[\s\S]*connection[\s\S]*sessionId[\s\S]*modelId/,
+    );
+    assert.doesNotMatch(src, /Openai-Intent/, 'GitHub Copilot compatibility headers belong in runtime');
+    assert.doesNotMatch(src, /Copilot-Vision-Request/, 'GitHub Copilot vision headers belong in runtime');
   });
 
   it('token exchange uses the pasted OAuth state and can recover the verifier from Claude Code state', async () => {

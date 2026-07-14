@@ -1,5 +1,9 @@
 import { redactSecrets } from '@maka/core';
 import type { LlmConnection } from '@maka/core/llm-connections';
+import {
+  GITHUB_COPILOT_API_VERSION,
+  GITHUB_COPILOT_COMPAT_HEADERS,
+} from './subscription-credentials.js';
 
 export interface SubscriptionModelFetchInput {
   connection: LlmConnection;
@@ -21,7 +25,71 @@ export function buildSubscriptionModelFetch(input: SubscriptionModelFetchInput):
   if (input.connection.providerType === 'codex-subscription') {
     return buildCodexSubscriptionFetch(input.sessionId, input.fetchFn ?? fetch);
   }
+  if (input.connection.providerType === 'github-copilot') {
+    return buildGitHubCopilotFetch(input.fetchFn ?? fetch);
+  }
   return undefined;
+}
+
+function buildGitHubCopilotFetch(fetchFn: typeof fetch): typeof fetch {
+  return async (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const headers = new Headers(init?.headers);
+    for (const [name, value] of Object.entries(GITHUB_COPILOT_COMPAT_HEADERS)) {
+      headers.set(name, value);
+    }
+    headers.set('Openai-Intent', 'conversation-edits');
+    headers.set('X-GitHub-Api-Version', GITHUB_COPILOT_API_VERSION);
+    headers.set('x-initiator', githubCopilotInitiator(init?.body));
+    if (githubCopilotBodyHasVision(init?.body)) headers.set('Copilot-Vision-Request', 'true');
+    return fetchFn(url, { ...init, headers });
+  };
+}
+
+function githubCopilotInitiator(body: BodyInit | null | undefined): 'user' | 'agent' {
+  if (typeof body !== 'string') return 'user';
+  try {
+    const parsed = JSON.parse(body) as { messages?: unknown; input?: unknown };
+    const items = Array.isArray(parsed.messages)
+      ? parsed.messages
+      : Array.isArray(parsed.input)
+        ? parsed.input
+        : [];
+    const last = items.at(-1);
+    return isUserInitiatedGitHubCopilotItem(last)
+      ? 'user'
+      : 'agent';
+  } catch {
+    return 'user';
+  }
+}
+
+function isUserInitiatedGitHubCopilotItem(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as { role?: unknown; content?: unknown };
+  if (item.role !== 'user') return false;
+  if (!Array.isArray(item.content)) return true;
+  return item.content.some((part) => (
+    part !== null
+    && typeof part === 'object'
+    && (part as { type?: unknown }).type !== 'tool_result'
+  ));
+}
+
+function githubCopilotBodyHasVision(body: BodyInit | null | undefined): boolean {
+  if (typeof body !== 'string') return false;
+  try {
+    return containsGitHubCopilotImage(JSON.parse(body) as unknown);
+  } catch {
+    return false;
+  }
+}
+
+function containsGitHubCopilotImage(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsGitHubCopilotImage);
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  if (record.type === 'image' || record.type === 'image_url' || record.type === 'input_image') return true;
+  return Object.values(record).some(containsGitHubCopilotImage);
 }
 
 function requireClaudeCloakMetadata(

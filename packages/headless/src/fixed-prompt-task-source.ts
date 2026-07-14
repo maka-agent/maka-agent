@@ -1,5 +1,6 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { lstat, readdir, readFile, readlink } from 'node:fs/promises';
+import { join, relative, resolve } from 'node:path';
 import type { FixedPromptTask } from './fixed-prompt-controller.js';
 
 export function resolveFixedPromptRunRoot(outDir: string, runId: string, envName = 'MAKA_PROMPT_RUN_ID'): string {
@@ -9,8 +10,8 @@ export function resolveFixedPromptRunRoot(outDir: string, runId: string, envName
   return join(outDir, runId);
 }
 
-/** Scan a Harbor task cache (`<root>/<hash>/<task-name>/task.toml`) into a
- * deterministic, id-sorted task list. */
+/** Scan a Harbor task cache (`<root>/<hash>/<task-name>/task.toml`) or exported
+ * dataset (`<root>/<task-name>/task.toml`) into a deterministic task list. */
 export async function discoverCachedHarborTasks(tasksRoot: string): Promise<FixedPromptTask[]> {
   const byId = new Map<string, FixedPromptTask>();
   let hashDirs;
@@ -22,6 +23,11 @@ export async function discoverCachedHarborTasks(tasksRoot: string): Promise<Fixe
   for (const hashDir of hashDirs) {
     if (!hashDir.isDirectory()) continue;
     const hashPath = join(tasksRoot, hashDir.name);
+    const exportedTaskToml = await readTaskToml(hashPath);
+    if (exportedTaskToml !== undefined) {
+      addDiscoveredTask(byId, hashDir.name, hashPath, exportedTaskToml);
+      continue;
+    }
     let inner;
     try {
       inner = await readdir(hashPath, { withFileTypes: true });
@@ -31,26 +37,83 @@ export async function discoverCachedHarborTasks(tasksRoot: string): Promise<Fixe
     for (const taskDir of inner) {
       if (!taskDir.isDirectory()) continue;
       const taskPath = join(hashPath, taskDir.name);
-      let taskToml: string;
-      try {
-        taskToml = await readFile(join(taskPath, 'task.toml'), 'utf8');
-      } catch {
-        continue;
-      }
-      // The controller keys events by task id, so two cached versions of the same
-      // task name would silently collide and pollute scoring. Fail loud instead.
-      const existing = byId.get(taskDir.name);
-      if (existing) {
-        throw new Error(`duplicate cached task id "${taskDir.name}": ${existing.path} and ${taskPath}`);
-      }
-      byId.set(taskDir.name, {
-        id: taskDir.name,
-        path: taskPath,
-        ...metadataField(parseTaskTomlMetadata(taskToml)),
-      });
+      const taskToml = await readTaskToml(taskPath);
+      if (taskToml === undefined) continue;
+      addDiscoveredTask(byId, taskDir.name, taskPath, taskToml);
     }
   }
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export async function fingerprintFixedPromptTaskTree(tasks: readonly FixedPromptTask[]): Promise<string> {
+  const taskEntries = [];
+  for (const task of [...tasks].sort((left, right) => left.id.localeCompare(right.id))) {
+    taskEntries.push({ id: task.id, entries: await taskDirectoryEntries(task.path) });
+  }
+  return `sha256:${createHash('sha256').update(JSON.stringify({ schemaVersion: 1, tasks: taskEntries })).digest('hex')}`;
+}
+
+async function taskDirectoryEntries(taskPath: string): Promise<Array<Record<string, string | boolean>>> {
+  const root = resolve(taskPath);
+  const entries: Array<Record<string, string | boolean>> = [];
+  await walkTaskDirectory(root, root, entries);
+  return entries;
+}
+
+async function walkTaskDirectory(
+  root: string,
+  dir: string,
+  entries: Array<Record<string, string | boolean>>,
+): Promise<void> {
+  const children = await readdir(dir, { withFileTypes: true });
+  children.sort((left, right) => left.name.localeCompare(right.name));
+  for (const child of children) {
+    const path = join(dir, child.name);
+    const entryPath = relative(root, path).split('\\').join('/');
+    const stats = await lstat(path);
+    if (child.isDirectory()) {
+      entries.push({ path: entryPath, type: 'directory' });
+      await walkTaskDirectory(root, path, entries);
+    } else if (child.isSymbolicLink()) {
+      throw new Error(`task source symlink is not supported: ${entryPath} -> ${await readlink(path)}`);
+    } else if (child.isFile()) {
+      entries.push({
+        path: entryPath,
+        type: 'file',
+        executable: (stats.mode & 0o111) !== 0,
+        hash: createHash('sha256').update(await readFile(path)).digest('hex'),
+      });
+    } else {
+      entries.push({ path: entryPath, type: 'other' });
+    }
+  }
+}
+
+async function readTaskToml(taskPath: string): Promise<string | undefined> {
+  try {
+    return await readFile(join(taskPath, 'task.toml'), 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+function addDiscoveredTask(
+  byId: Map<string, FixedPromptTask>,
+  taskId: string,
+  taskPath: string,
+  taskToml: string,
+): void {
+  // The controller keys events by task id, so two cached versions of the same
+  // task name would silently collide and pollute scoring. Fail loud instead.
+  const existing = byId.get(taskId);
+  if (existing) {
+    throw new Error(`duplicate cached task id "${taskId}": ${existing.path} and ${taskPath}`);
+  }
+  byId.set(taskId, {
+    id: taskId,
+    path: taskPath,
+    ...metadataField(parseTaskTomlMetadata(taskToml)),
+  });
 }
 
 function parseTaskTomlMetadata(text: string): FixedPromptTask['metadata'] {

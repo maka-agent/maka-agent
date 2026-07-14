@@ -59,6 +59,26 @@ describe('ShellRunProcessManager', () => {
     assert.ok(result.output.stdout.includes('exit $LASTEXITCODE'));
   });
 
+  test('runs explicit argv and supplies inherited fd payloads on the pipe path', async () => {
+    const manager = await createTestManager();
+    const result = await manager.runForegroundBash(shellInput({
+      cwd: await workspace(),
+      command: 'sandbox display command',
+      argv: [
+        process.execPath,
+        '-e',
+        'process.stdout.write(require("node:fs").readFileSync(3, "utf8"))',
+      ],
+      fdInputs: [{ fd: 3, data: Buffer.from('seccomp-payload') }],
+    }));
+
+    assert.equal(result.kind, 'terminal');
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output.mode, 'pipes');
+    if (result.output.mode !== 'pipes') throw new Error('expected pipes output');
+    assert.equal(result.output.stdout, 'seccomp-payload');
+  });
+
   test('keeps foreground execution bounded and rejects PTY promotion', async () => {
     const cwd = await workspace();
     const store = createShellRunStore(await workspace());
@@ -404,7 +424,7 @@ describe('ShellRunProcessManager', () => {
     assert.deepEqual(control.operation, {
       kind: 'pty_control',
       failed: false,
-      input: { bytes: 8, applied: true },
+      input: { bytes: 8, queued: true },
     });
     const completed = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(completed);
@@ -498,7 +518,7 @@ describe('ShellRunProcessManager', () => {
     assert.deepEqual(control.operation, {
       kind: 'pty_control',
       failed: false,
-      input: { bytes: 8, applied: true },
+      input: { bytes: 8, queued: true },
     });
     const completed = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(completed);
@@ -608,7 +628,7 @@ describe('ShellRunProcessManager', () => {
     assert.deepEqual(partial.operation, {
       kind: 'pty_control',
       failed: false,
-      input: { bytes: 7, applied: true },
+      input: { bytes: 7, queued: true },
     });
 
     const control = await manager.writeStdin({
@@ -620,7 +640,7 @@ describe('ShellRunProcessManager', () => {
     assert.deepEqual(control.operation, {
       kind: 'pty_control',
       failed: false,
-      input: { bytes: 1, applied: true },
+      input: { bytes: 1, queued: true },
     });
     const result = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(result);
@@ -666,7 +686,7 @@ describe('ShellRunProcessManager', () => {
     assert.deepEqual(control.operation, {
       kind: 'pty_control',
       failed: false,
-      input: { bytes: 3, applied: true },
+      input: { bytes: 3, queued: true },
     });
     const completed = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(completed);
@@ -694,7 +714,7 @@ describe('ShellRunProcessManager', () => {
       abortSignal: NO_ABORT,
     });
     assert.deepEqual(ctrlCControl.operation, {
-      kind: 'pty_control', failed: false, input: { bytes: 1, applied: true },
+      kind: 'pty_control', failed: false, input: { bytes: 1, queued: true },
     });
     const ctrlC = await waitForTerminalShellRun(manager, interrupted.ref);
     assertShellRunSnapshot(ctrlC);
@@ -719,7 +739,7 @@ describe('ShellRunProcessManager', () => {
       abortSignal: NO_ABORT,
     });
     assert.deepEqual(ctrlDControl.operation, {
-      kind: 'pty_control', failed: false, input: { bytes: 1, applied: true },
+      kind: 'pty_control', failed: false, input: { bytes: 1, queued: true },
     });
     const ctrlD = await waitForTerminalShellRun(manager, awaitingEof.ref);
     assertShellRunSnapshot(ctrlD);
@@ -767,17 +787,17 @@ describe('ShellRunProcessManager', () => {
       [
         {
           kind: 'pty_control', failed: false,
-          input: { bytes: 4, applied: true },
+          input: { bytes: 4, queued: true },
           resize: { cols: 81, rows: 25, applied: true, changed: true },
         },
         {
           kind: 'pty_control', failed: false,
-          input: { bytes: 4, applied: true },
+          input: { bytes: 4, queued: true },
           resize: { cols: 82, rows: 26, applied: true, changed: true },
         },
         {
           kind: 'pty_control', failed: false,
-          input: { bytes: 6, applied: true },
+          input: { bytes: 6, queued: true },
           resize: { cols: 83, rows: 27, applied: true, changed: true },
         },
       ],
@@ -932,7 +952,7 @@ describe('ShellRunProcessManager', () => {
       });
       assert.deepEqual(prime.operation, {
         kind: 'pty_control', failed: false,
-        input: { bytes: 5, applied: true },
+        input: { bytes: 5, queued: true },
       });
       await waitUntil(async () => {
         try {
@@ -1128,7 +1148,7 @@ describe('ShellRunProcessManager', () => {
     assert.deepEqual(result.operation, {
       kind: 'pty_control',
       failed: false,
-      input: { bytes: 1, applied: true },
+      input: { bytes: 1, queued: true },
       resize: { cols: 100, rows: 30, applied: true, changed: true },
     });
     const completed = await waitForTerminalShellRun(manager, initial.ref);
@@ -1213,7 +1233,7 @@ describe('ShellRunProcessManager', () => {
       abortSignal: NO_ABORT,
     });
     assert.deepEqual(control.operation, {
-      kind: 'pty_control', failed: false, input: { bytes: 1, applied: true },
+      kind: 'pty_control', failed: false, input: { bytes: 1, queued: true },
     });
     const result = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(result);
@@ -1546,6 +1566,9 @@ async function createTestManager(
 function shellInput(input: {
   cwd: string;
   command: string;
+  argv?: readonly string[];
+  env?: NodeJS.ProcessEnv;
+  fdInputs?: readonly { fd: number; data: Uint8Array }[];
   pty?: boolean;
   timeoutMs?: number;
   abortSignal?: AbortSignal;
@@ -1559,6 +1582,9 @@ function shellInput(input: {
     sourceToolCallId: 'tool-1',
     cwd: input.cwd,
     command: input.command,
+    ...(input.argv !== undefined ? { argv: input.argv } : {}),
+    ...(input.env !== undefined ? { env: input.env } : {}),
+    ...(input.fdInputs !== undefined ? { fdInputs: input.fdInputs } : {}),
     ...(input.pty !== undefined ? { pty: input.pty } : {}),
     ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
     ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),

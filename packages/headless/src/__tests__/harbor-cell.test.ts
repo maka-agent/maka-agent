@@ -4,7 +4,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import type { BackendKind, SessionEvent, SessionHeader } from '@maka/core';
+import type { BackendKind, LlmConnection, SessionEvent, SessionHeader } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import {
   BackendRegistry,
@@ -31,9 +31,11 @@ import {
   HARBOR_CELL_CONTEXT_ENV_KEYS,
   HARBOR_CELL_OUTPUT_FILENAME,
   HARBOR_CELL_RUNTIME_EVENTS_FILENAME,
+  HARBOR_CELL_USAGE_CHECKPOINT_FILENAME,
   resolveHarborCellAiSdkEnv,
   runHarborCellFromEnv,
   runHarborCell,
+  writeHarborCellUsageCheckpoint,
 } from '../harbor-cell.js';
 
 const config: Config = {
@@ -300,6 +302,70 @@ function registerStepCapTwiceThenCompleteBackend(seen: { backend?: StepCapTwiceT
 }
 
 describe('runHarborCell', () => {
+  test('atomically replaces the cumulative completed-step usage checkpoint', async () => {
+    await withDirs(async ({ outputDir }) => {
+      const first = {
+        inputTokens: 100,
+        outputTokens: 5,
+        cacheHitInputTokens: 20,
+        cacheMissInputTokens: 80,
+        cacheMissInputSource: 'explicit' as const,
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 1,
+        totalTokens: 105,
+        costUsd: 0.001,
+      };
+      await writeHarborCellUsageCheckpoint(outputDir, first);
+      await writeHarborCellUsageCheckpoint(outputDir, {
+        ...first,
+        inputTokens: 300,
+        outputTokens: 12,
+        cacheHitInputTokens: 100,
+        cacheMissInputTokens: 200,
+        reasoningTokens: 2,
+        totalTokens: 312,
+        costUsd: 0.003,
+      });
+
+      assert.deepEqual(
+        JSON.parse(await readFile(join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8')),
+        {
+          input: 300,
+          output: 12,
+          cachedInput: 100,
+          cacheHitInput: 100,
+          cacheMissInput: 200,
+          cacheWriteInput: 0,
+          cacheMissInputSource: 'explicit',
+          reasoning: 2,
+          total: 312,
+          costUsd: 0.003,
+          pricingSource: 'runtime',
+        },
+      );
+    });
+  });
+
+  test('does not turn unknown checkpoint cost into zero', async () => {
+    await withDirs(async ({ outputDir }) => {
+      await writeHarborCellUsageCheckpoint(outputDir, {
+        inputTokens: 100,
+        outputTokens: 5,
+        cacheHitInputTokens: 20,
+        cacheMissInputTokens: 80,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 1,
+        totalTokens: 105,
+      });
+
+      await assert.rejects(
+        readFile(join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8'),
+        (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
+      );
+    });
+  });
+
   test('runs in the provided workspace and writes the shared cell artifacts', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const result = await runHarborCell({
@@ -698,7 +764,7 @@ describe('runHarborCell', () => {
         staleToolResultPrune: {
           enabled: true,
           maxResultEstimatedTokens: 256,
-          minRecentTurnsFull: 2,
+          minRecentTurnsFull: 0,
         },
         activeToolResultPrune: {
           enabled: true,
@@ -938,6 +1004,33 @@ describe('runHarborCell', () => {
     });
   });
 
+  test('host-side Harbor cell attests the configured pricing profile', async () => {
+    const { main } = await import(new URL('../../harbor/run-host-cell.mjs', import.meta.url).href) as {
+      main: (options?: { registerBackends?: (registry: BackendRegistry, context: HeadlessBackendContext) => void }) => Promise<void>;
+    };
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const previousEnv = { ...process.env };
+      try {
+        process.env.MAKA_PROVIDER = 'openai';
+        process.env.MAKA_MODEL = 'openai/gpt-4o-mini';
+        process.env.MAKA_HOST_API_KEY = 'test-key';
+        process.env.MAKA_HARBOR_TOOL_EXECUTOR_URL = 'http://127.0.0.1:1';
+        process.env.MAKA_HARBOR_TOOL_EXECUTOR_TOKEN = 'token';
+        process.env.MAKA_INSTRUCTION = 'Finish the task.';
+        process.env.MAKA_WORKDIR = workspaceDir;
+        process.env.MAKA_OUTPUT_DIR = outputDir;
+        process.env.MAKA_STORAGE_ROOT = storageRoot;
+        process.env.MAKA_TRIAL_PRICING_SOURCE = 'frozen-pricing-profile';
+        await main({ registerBackends: registerCellBackend });
+      } finally {
+        process.env = previousEnv;
+      }
+
+      const output = JSON.parse(await readFile(join(outputDir, 'maka-cell-output.json'), 'utf8'));
+      assert.equal(output.executionIdentity.pricingProfile, 'frozen-pricing-profile');
+    });
+  });
+
   test('host-side Harbor cell config treats MAKA_ECONOMY_TASK_MODE=false as explicit disable', async () => {
     const { main } = await import(new URL('../../harbor/run-host-cell.mjs', import.meta.url).href) as {
       main: (options?: { registerBackends?: (registry: BackendRegistry, context: HeadlessBackendContext) => void }) => Promise<void>;
@@ -1012,6 +1105,54 @@ describe('runHarborCell', () => {
       assert.equal(backendInput.tools.find((tool) => tool.name === 'Bash')?.permissionRequired, false);
       assert.equal(backendInput.tools.find((tool) => tool.name === 'Write')?.permissionRequired, false);
       assert.match(backendInput.systemPrompt ?? '', /Prefer Read, Glob, and Grep/);
+    });
+  });
+
+  test('Harbor ai-sdk backend uses the discovered GitHub Copilot wire', async () => {
+    await withDirs(async ({ workspaceDir }) => {
+      const registry = new BackendRegistry();
+      const toolExecutor = fakeToolExecutor();
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'github-copilot',
+        model: 'gpt-5.4',
+        env: {
+          COPILOT_GITHUB_TOKEN: 'github_pat_account_token',
+          MAKA_MODEL_API_PROTOCOL: 'openai-responses',
+        },
+        now: () => 123,
+        newId: () => 'id',
+      });
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'github-copilot',
+          model: 'gpt-5.4',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+
+      const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const backendInput = (backend as unknown as {
+        input: {
+          connection: LlmConnection;
+          apiKey: string;
+          modelId: string;
+          modelFactory: (input: { connection: LlmConnection; apiKey: string; modelId: string }) => {
+            provider: string;
+          };
+        };
+      }).input;
+      const model = backendInput.modelFactory({
+        connection: backendInput.connection,
+        apiKey: backendInput.apiKey,
+        modelId: backendInput.modelId,
+      });
+
+      assert.equal(model.provider, 'openai.responses');
     });
   });
 
@@ -1333,7 +1474,7 @@ describe('runHarborCell', () => {
         input: ReturnType<typeof buildHarborCellContextBudgetBackendOptions>;
       }).input;
       assert.equal(backendInput.contextBudget?.staleToolResultPrune?.enabled, true);
-      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 2);
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 0);
       assert.equal(backendInput.contextBudget?.archiveRetrieval?.enabled, true);
       assert.equal(backendInput.contextBudget?.archiveRetrieval?.mode, undefined);
       assert.ok(backendInput.archiveToolResult, 'expected archive writer for the placeholder producer');
@@ -1582,21 +1723,18 @@ describe('runHarborCell', () => {
   test('Harbor active tool result prune can be disabled with explicit off', () => {
     const options = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' });
     assert.equal(options.contextBudget?.activeToolResultPrune, undefined);
-    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
+    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 0 });
   });
 
   test('Harbor stale tool result prune is enabled by default without any env', () => {
     const backend = buildHarborCellContextBudgetBackendOptions({});
-    // minRecentTurnsFull is set explicitly so the runtime protection window
-    // matches the policy snapshot and desktop default instead of the runtime's
-    // internal ?? 1 fallback.
-    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
+    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 0 });
 
     const snapshot = buildHarborCellContextBudgetPolicySnapshot({});
     assert.equal(snapshot?.enabled, true);
     assert.equal(snapshot?.staleToolResultPrune?.enabled, true);
     assert.equal(snapshot?.staleToolResultPrune?.maxResultEstimatedTokens, 2048);
-    assert.equal(snapshot?.staleToolResultPrune?.minRecentTurnsFull, 2);
+    assert.equal(snapshot?.staleToolResultPrune?.minRecentTurnsFull, 0);
   });
 
   test('Harbor stale tool result prune can be disabled with explicit off', () => {
@@ -1605,9 +1743,9 @@ describe('runHarborCell', () => {
     assert.deepEqual(options.contextBudget?.activeToolResultPrune, { enabled: true });
   });
 
-  test('Harbor stale tool result prune min recent turns falls back to MAKA_CONTEXT_MIN_RECENT_TURNS', () => {
+  test('Harbor stale tool result prune does not inherit the general recent-turn window', () => {
     const fallback = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_MIN_RECENT_TURNS: '3' });
-    assert.equal(fallback.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 3);
+    assert.equal(fallback.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 0);
 
     const explicit = buildHarborCellContextBudgetBackendOptions({
       MAKA_CONTEXT_MIN_RECENT_TURNS: '3',
@@ -1837,6 +1975,34 @@ describe('runHarborCell', () => {
       assert.equal(seenContexts[0]?.config.backend, 'fake');
       assert.equal(seenContexts[0]?.config.llmConnectionSlug, 'fake');
       assert.equal(seenContexts[0]?.config.model, 'fake');
+    });
+  });
+
+  test('env entrypoint carries max reasoning effort into config and execution identity', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const seenContexts: HeadlessBackendContext[] = [];
+      const result = await runHarborCellFromEnv({
+        MAKA_BACKEND: 'fake',
+        MAKA_INSTRUCTION: 'solve with max effort',
+        MAKA_MODEL: 'glm-5.2',
+        MAKA_LLM_CONNECTION_SLUG: 'zai-coding-plan',
+        MAKA_REASONING_EFFORT: 'max',
+        MAKA_WORKDIR: workspaceDir,
+        MAKA_OUTPUT_DIR: outputDir,
+        MAKA_STORAGE_ROOT: storageRoot,
+      }, {
+        registerBackends: (registry, context) => {
+          seenContexts.push(context);
+          registry.register('fake', (ctx) => new CellReportingBackend({
+            sessionId: ctx.sessionId,
+            header: ctx.header,
+            store: ctx.store,
+          }));
+        },
+      });
+
+      assert.equal(seenContexts[0]?.config.thinkingLevel, 'max');
+      assert.equal(result.output.executionIdentity?.reasoningEffort, 'max');
     });
   });
 
@@ -2129,6 +2295,663 @@ setTimeout(() => {
     });
     assert.equal(deepseek.apiKey, 'fallback-key');
     assert.equal(deepseek.connection.baseUrl, 'https://fallback.example/v1');
+  });
+
+  test('requires and preserves the account-discovered GitHub Copilot model protocol', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'github-copilot',
+      model: 'gpt-5.4',
+      env: {
+        COPILOT_GITHUB_TOKEN: 'github_pat_copilot_requests',
+        MAKA_MODEL_API_PROTOCOL: 'openai-responses',
+      },
+      ts: 123,
+    });
+
+    assert.equal(resolved.apiKey, 'github_pat_copilot_requests');
+    assert.deepEqual(resolved.connection.models, [{ id: 'gpt-5.4', apiProtocol: 'openai-responses' }]);
+    assert.throws(() => resolveHarborCellAiSdkEnv({
+      provider: 'github-copilot',
+      model: 'gpt-5.4',
+      env: { COPILOT_GITHUB_TOKEN: 'github_pat_copilot_requests' },
+      ts: 123,
+    }), /account-discovered model protocol/);
+  });
+
+  test('resolves LM Studio headless configuration without credentials', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'lm-studio',
+      model: 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF',
+      env: {},
+      ts: 123,
+    });
+
+    assert.equal(resolved.apiKey, '');
+    assert.equal(resolved.connection.providerType, 'lm-studio');
+    assert.equal(resolved.connection.baseUrl, 'http://localhost:1234/v1');
+    assert.equal(
+      resolved.connection.defaultModel,
+      'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF',
+    );
+  });
+
+  test('resolves LocalAI with an exact alias and an optional provider-scoped key', () => {
+    const model = 'localai/Qwen3-8B-Instruct-GGUF:Q4_K_M';
+    const noAuth = resolveHarborCellAiSdkEnv({
+      provider: 'localai',
+      model,
+      env: {},
+      ts: 123,
+    });
+    assert.equal(noAuth.apiKey, '');
+    assert.equal(noAuth.connection.providerType, 'localai');
+    assert.equal(noAuth.connection.baseUrl, 'http://localhost:8080/v1');
+    assert.equal(noAuth.connection.defaultModel, model);
+
+    const keyed = resolveHarborCellAiSdkEnv({
+      provider: 'localai',
+      model,
+      env: { LOCALAI_API_KEY: 'localai-user-key' },
+      ts: 123,
+    });
+    assert.equal(keyed.apiKey, 'localai-user-key');
+    assert.equal(keyed.connection.defaultModel, model);
+  });
+
+  test('resolves SiliconFlow only from SiliconFlow credential env', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'siliconflow',
+      model: 'moonshotai/Kimi-K2.6',
+      env: {
+        SILICONFLOW_API_KEY: 'siliconflow-key',
+        SILICONFLOW_BASE_URL: 'https://api.siliconflow.cn/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'siliconflow-key');
+    assert.equal(resolved.connection.baseUrl, 'https://api.siliconflow.cn/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'siliconflow',
+      model: 'moonshotai/Kimi-K2.6',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves Vercel Gateway only from its official env and preserves the creator/model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'vercel',
+      model: 'xai/grok-4.3',
+      env: {
+        AI_GATEWAY_API_KEY: 'vercel-key',
+        AI_GATEWAY_BASE_URL: 'https://ai-gateway.vercel.sh/v1',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'vercel-key');
+    assert.equal(resolved.connection.providerType, 'vercel');
+    assert.equal(resolved.connection.defaultModel, 'xai/grok-4.3');
+    assert.equal(resolved.connection.baseUrl, 'https://ai-gateway.vercel.sh/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'vercel',
+      model: 'xai/grok-4.3',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves Ollama Cloud only from OLLAMA_API_KEY and preserves the exact model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'ollama-cloud',
+      model: 'qwen3.5:397b',
+      env: {
+        OLLAMA_API_KEY: 'ollama-cloud-key',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'ollama-cloud-key');
+    assert.equal(resolved.connection.providerType, 'ollama-cloud');
+    assert.equal(resolved.connection.defaultModel, 'qwen3.5:397b');
+    assert.equal(resolved.connection.baseUrl, 'https://ollama.com/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'ollama-cloud',
+      model: 'qwen3.5:397b',
+      env: {
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+        MAKA_CREDENTIALS_PATH: join(tmpdir(), 'maka-headless-ollama-cloud-missing-credentials.json'),
+      },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves xAI only from xAI credential env without rewriting the model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'xai',
+      model: 'grok-4.5',
+      env: {
+        XAI_API_KEY: 'xai-key',
+        XAI_BASE_URL: 'https://api.x.ai/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'xai-key');
+    assert.equal(resolved.connection.providerType, 'xai');
+    assert.equal(resolved.connection.defaultModel, 'grok-4.5');
+    assert.equal(resolved.connection.baseUrl, 'https://api.x.ai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'xai',
+      model: 'grok-4.5',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  for (const provider of [
+    { type: 'xiaomi', modelId: 'mimo-v2.5', keyName: 'XIAOMI_API_KEY', baseName: 'XIAOMI_BASE_URL', baseUrl: 'https://api.xiaomimimo.com/v1' },
+    { type: 'zai', modelId: 'glm-5.2', keyName: 'ZAI_API_KEY', baseName: 'ZAI_BASE_URL', baseUrl: 'https://api.z.ai/api/paas/v4' },
+  ] as const) {
+    test(`resolves ${provider.type} only from provider-scoped env without rewriting the model id`, () => {
+      const resolved = resolveHarborCellAiSdkEnv({
+        provider: provider.type,
+        model: provider.modelId,
+        env: {
+          [provider.keyName]: `${provider.type}-key`,
+          [provider.baseName]: provider.baseUrl,
+          OPENAI_API_KEY: 'must-not-win',
+        },
+        ts: 1,
+      });
+
+      assert.equal(resolved.apiKey, `${provider.type}-key`);
+      assert.equal(resolved.connection.providerType, provider.type);
+      assert.equal(resolved.connection.defaultModel, provider.modelId);
+      assert.equal(resolved.connection.baseUrl, provider.baseUrl);
+
+      const missing = resolveHarborCellAiSdkEnv({
+        provider: provider.type,
+        model: provider.modelId,
+        env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+        ts: 1,
+      });
+      assert.equal(missing.apiKey, '');
+    });
+  }
+
+  test('resolves Tencent TokenHub only from its direct API credential env', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'tencent-tokenhub',
+      model: 'hy3-preview',
+      env: {
+        TENCENT_TOKENHUB_API_KEY: 'tencent-tokenhub-key',
+        TENCENT_TOKENHUB_BASE_URL: 'https://tokenhub-intl.tencentmaas.com/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'tencent-tokenhub-key');
+    assert.equal(resolved.connection.providerType, 'tencent-tokenhub');
+    assert.equal(resolved.connection.defaultModel, 'hy3-preview');
+    assert.equal(resolved.connection.baseUrl, 'https://tokenhub-intl.tencentmaas.com/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'tencent-tokenhub',
+      model: 'hy3-preview',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('does not load Tencent Coding Plan credentials in non-interactive Harbor runs', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-cell-tencent-coding-plan-'));
+    try {
+      const credentialsPath = join(dir, 'credentials.json');
+      await writeFile(credentialsPath, `${JSON.stringify({
+        version: 1,
+        values: { 'tencent-coding-plan:apiKey': 'must-not-load-in-headless' },
+      })}\n`, 'utf8');
+
+      const resolved = resolveHarborCellAiSdkEnv({
+        provider: 'tencent-coding-plan',
+        model: 'glm-5',
+        env: {
+          MAKA_CREDENTIALS_PATH: credentialsPath,
+          TENCENT_CODING_PLAN_API_KEY: 'must-also-not-load-in-headless',
+        },
+        ts: 1,
+      });
+
+      assert.equal(resolved.apiKey, '');
+      assert.equal(resolved.connection.providerType, 'tencent-coding-plan');
+      assert.equal(resolved.connection.defaultModel, 'glm-5');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('does not load Tencent Token Plan credentials in non-interactive Harbor runs', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-cell-tencent-token-plan-'));
+    try {
+      const credentialsPath = join(dir, 'credentials.json');
+      await writeFile(credentialsPath, `${JSON.stringify({
+        version: 1,
+        values: { 'tencent-token-plan:apiKey': 'must-not-load-in-headless' },
+      })}\n`, 'utf8');
+
+      const resolved = resolveHarborCellAiSdkEnv({
+        provider: 'tencent-token-plan',
+        model: 'hy3',
+        env: {
+          MAKA_CREDENTIALS_PATH: credentialsPath,
+          TENCENT_TOKEN_PLAN_API_KEY: 'must-also-not-load-in-headless',
+        },
+        ts: 1,
+      });
+
+      assert.equal(resolved.apiKey, '');
+      assert.equal(resolved.connection.providerType, 'tencent-token-plan');
+      assert.equal(resolved.connection.defaultModel, 'hy3');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('resolves StepFun China only from its direct API credential env', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun',
+      model: 'step-3.7-flash',
+      env: {
+        STEPFUN_API_KEY: 'stepfun-key',
+        STEPFUN_BASE_URL: 'https://api.stepfun.com/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'stepfun-key');
+    assert.equal(resolved.connection.providerType, 'stepfun');
+    assert.equal(resolved.connection.defaultModel, 'step-3.7-flash');
+    assert.equal(resolved.connection.baseUrl, 'https://api.stepfun.com/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun',
+      model: 'step-3.7-flash',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves StepFun Step Plan China only from its independent credential env', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun-step-plan',
+      model: 'step-router-v1',
+      env: {
+        STEPFUN_STEP_PLAN_API_KEY: 'stepfun-step-plan-key',
+        STEPFUN_STEP_PLAN_BASE_URL: 'https://api.stepfun.com/step_plan/v1',
+        STEPFUN_API_KEY: 'direct-key-must-not-cross',
+        OPENAI_API_KEY: 'openai-key-must-not-cross',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'stepfun-step-plan-key');
+    assert.equal(resolved.connection.providerType, 'stepfun-step-plan');
+    assert.equal(resolved.connection.defaultModel, 'step-router-v1');
+    assert.equal(resolved.connection.baseUrl, 'https://api.stepfun.com/step_plan/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun-step-plan',
+      model: 'step-router-v1',
+      env: {
+        STEPFUN_API_KEY: 'direct-key-must-not-cross',
+        OPENAI_API_KEY: 'openai-key-must-not-cross',
+      },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves StepFun Step Plan Global only from its independent credential env', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun-ai-step-plan',
+      model: 'step-3.5-flash-2603',
+      env: {
+        STEPFUN_AI_STEP_PLAN_API_KEY: 'stepfun-global-step-plan-key',
+        STEPFUN_AI_STEP_PLAN_BASE_URL: 'https://api.stepfun.ai/step_plan/v1',
+        STEPFUN_AI_API_KEY: 'global-direct-key-must-not-cross',
+        STEPFUN_STEP_PLAN_API_KEY: 'china-plan-key-must-not-cross',
+        STEPFUN_API_KEY: 'china-direct-key-must-not-cross',
+        OPENAI_API_KEY: 'openai-key-must-not-cross',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'stepfun-global-step-plan-key');
+    assert.equal(resolved.connection.providerType, 'stepfun-ai-step-plan');
+    assert.equal(resolved.connection.defaultModel, 'step-3.5-flash-2603');
+    assert.equal(resolved.connection.baseUrl, 'https://api.stepfun.ai/step_plan/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun-ai-step-plan',
+      model: 'step-3.5-flash-2603',
+      env: {
+        STEPFUN_AI_API_KEY: 'global-direct-key-must-not-cross',
+        STEPFUN_STEP_PLAN_API_KEY: 'china-plan-key-must-not-cross',
+        STEPFUN_API_KEY: 'china-direct-key-must-not-cross',
+        OPENAI_API_KEY: 'openai-key-must-not-cross',
+      },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves StepFun Global only from its independent direct API credential env', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun-ai',
+      model: 'step-3.7-flash',
+      env: {
+        STEPFUN_AI_API_KEY: 'stepfun-global-key',
+        STEPFUN_AI_BASE_URL: 'https://api.stepfun.ai/v1',
+        STEPFUN_API_KEY: 'china-key-must-not-cross',
+        OPENAI_API_KEY: 'openai-key-must-not-cross',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'stepfun-global-key');
+    assert.equal(resolved.connection.providerType, 'stepfun-ai');
+    assert.equal(resolved.connection.defaultModel, 'step-3.7-flash');
+    assert.equal(resolved.connection.baseUrl, 'https://api.stepfun.ai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'stepfun-ai',
+      model: 'step-3.7-flash',
+      env: {
+        STEPFUN_API_KEY: 'china-key-must-not-cross',
+        OPENAI_API_KEY: 'openai-key-must-not-cross',
+      },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves Volcengine Ark only from its official direct API credential env', () => {
+    const modelId = 'doubao-seed-2-0-pro-260215';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'volcengine-ark',
+      model: modelId,
+      env: {
+        ARK_API_KEY: 'ark-key',
+        ARK_BASE_URL: 'https://ark.cn-shanghai.volces.com/api/v3',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'ark-key');
+    assert.equal(resolved.connection.providerType, 'volcengine-ark');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(resolved.connection.baseUrl, 'https://ark.cn-shanghai.volces.com/api/v3');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'volcengine-ark',
+      model: modelId,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves Cerebras only from Cerebras credential env without rewriting the model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'cerebras',
+      model: 'gpt-oss-120b',
+      env: {
+        CEREBRAS_API_KEY: 'cerebras-key',
+        CEREBRAS_BASE_URL: 'https://api.cerebras.ai/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'cerebras-key');
+    assert.equal(resolved.connection.providerType, 'cerebras');
+    assert.equal(resolved.connection.defaultModel, 'gpt-oss-120b');
+    assert.equal(resolved.connection.baseUrl, 'https://api.cerebras.ai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'cerebras',
+      model: 'gpt-oss-120b',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves Mistral only from Mistral credential env without rewriting the model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'mistral',
+      model: 'mistral-large-latest',
+      env: {
+        MISTRAL_API_KEY: 'mistral-key',
+        MISTRAL_BASE_URL: 'https://api.mistral.ai/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'mistral-key');
+    assert.equal(resolved.connection.providerType, 'mistral');
+    assert.equal(resolved.connection.defaultModel, 'mistral-large-latest');
+    assert.equal(resolved.connection.baseUrl, 'https://api.mistral.ai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'mistral',
+      model: 'mistral-large-latest',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves Cohere only from Cohere credential env without rewriting the model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'cohere',
+      model: 'command-a-plus-05-2026',
+      env: {
+        COHERE_API_KEY: 'cohere-key',
+        COHERE_BASE_URL: 'https://api.cohere.com/v2',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'cohere-key');
+    assert.equal(resolved.connection.providerType, 'cohere');
+    assert.equal(resolved.connection.defaultModel, 'command-a-plus-05-2026');
+    assert.equal(resolved.connection.baseUrl, 'https://api.cohere.com/v2');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'cohere',
+      model: 'command-a-plus-05-2026',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves Hugging Face only from HF_TOKEN without rewriting its routing suffix', () => {
+    const modelId = 'openai/gpt-oss-120b:preferred';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'huggingface',
+      model: modelId,
+      env: {
+        HF_TOKEN: 'hf-token',
+        HUGGINGFACE_BASE_URL: 'https://router.huggingface.co/v1',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'hf-token');
+    assert.equal(resolved.connection.providerType, 'huggingface');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(resolved.connection.baseUrl, 'https://router.huggingface.co/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'huggingface',
+      model: modelId,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves Together AI only from Together credential env without rewriting the model id', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'togetherai',
+      model: 'MiniMaxAI/MiniMax-M3',
+      env: {
+        TOGETHER_API_KEY: 'together-key',
+        TOGETHER_BASE_URL: 'https://api.together.ai/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'together-key');
+    assert.equal(resolved.connection.providerType, 'togetherai');
+    assert.equal(resolved.connection.defaultModel, 'MiniMaxAI/MiniMax-M3');
+    assert.equal(resolved.connection.baseUrl, 'https://api.together.ai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'togetherai',
+      model: 'MiniMaxAI/MiniMax-M3',
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves DeepInfra only from DeepInfra credential env without rewriting the model id', () => {
+    const modelId = 'moonshotai/Kimi-K2.7-Code';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'deepinfra',
+      model: modelId,
+      env: {
+        DEEPINFRA_API_KEY: 'deepinfra-key',
+        DEEPINFRA_BASE_URL: 'https://api.deepinfra.com/v1/openai',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'deepinfra-key');
+    assert.equal(resolved.connection.providerType, 'deepinfra');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(resolved.connection.baseUrl, 'https://api.deepinfra.com/v1/openai');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'deepinfra',
+      model: modelId,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves Cloudflare Workers AI from account id and token without rewriting the model id', () => {
+    const modelId = '@cf/moonshotai/kimi-k2.6';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'cloudflare-workers-ai',
+      model: modelId,
+      env: {
+        CLOUDFLARE_ACCOUNT_ID: 'account-123',
+        CLOUDFLARE_API_KEY: 'cloudflare-token',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'cloudflare-token');
+    assert.equal(resolved.connection.providerType, 'cloudflare-workers-ai');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(
+      resolved.connection.baseUrl,
+      'https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1',
+    );
+  });
+
+  test('resolves Fireworks only from Fireworks credential env without rewriting the model path', () => {
+    const model = 'accounts/fireworks/models/kimi-k2p6';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'fireworks-ai',
+      model,
+      env: {
+        FIREWORKS_API_KEY: 'fireworks-key',
+        FIREWORKS_BASE_URL: 'https://api.fireworks.ai/inference/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'fireworks-key');
+    assert.equal(resolved.connection.providerType, 'fireworks-ai');
+    assert.equal(resolved.connection.defaultModel, model);
+    assert.equal(resolved.connection.baseUrl, 'https://api.fireworks.ai/inference/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'fireworks-ai',
+      model,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves NVIDIA only from NVIDIA credential env without rewriting the model id', () => {
+    const modelId = 'nvidia/nemotron-3-super-120b-a12b';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'nvidia',
+      model: modelId,
+      env: {
+        NVIDIA_API_KEY: 'nvidia-key',
+        NVIDIA_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+        OPENAI_API_KEY: 'openai-key',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'nvidia-key');
+    assert.equal(resolved.connection.providerType, 'nvidia');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(resolved.connection.baseUrl, 'https://integrate.api.nvidia.com/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'nvidia',
+      model: modelId,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
   });
 
   test('resolves ai-sdk api key from a *_API_KEY_FILE without exposing the secret on argv', async () => {

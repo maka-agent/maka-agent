@@ -9,7 +9,7 @@ import type { AgentRunEvent, AgentRunHeader, RuntimeEvent } from '@maka/core';
 describe('AgentRunStore', () => {
   it('creates, reads, updates, and lists runs under a session', async () => {
     await withStore(async (store, root) => {
-      const first = makeHeader({ runId: 'run-1', createdAt: 1, updatedAt: 1 });
+      const first = makeHeader({ runId: 'run-1', invocationId: 'invocation-1', createdAt: 1, updatedAt: 1 });
       const second = makeHeader({ runId: 'run-2', turnId: 'turn-2', createdAt: 2, updatedAt: 2 });
 
       await store.createRun(second);
@@ -23,6 +23,7 @@ describe('AgentRunStore', () => {
       const read = await store.readRun('session-1', 'run-1');
       assert.equal(read.status, 'completed');
       assert.equal(read.completedAt, 10);
+      assert.equal(read.invocationId, 'invocation-1');
       assert.deepEqual((await store.listSessionRuns('session-1')).map((run) => run.runId), ['run-1', 'run-2']);
       assert.equal(
         JSON.parse(await readFile(join(root, 'sessions', 'session-1', 'runs', 'run-1', 'run.json'), 'utf8')).runId,
@@ -229,6 +230,60 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('does not let a legacy append or repair downgrade a source-bound checkpoint projection', async () => {
+    await withStore(async (store) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+        repairEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+          event: AgentRunEvent | null,
+        ): Promise<void>;
+      };
+      const sourceBound = makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: 'checkpoint-source-bound',
+        data: {
+          checkpoint: {
+            coverage: { eventCount: 2 },
+            source: { kind: 'runtime_event_projection' },
+          },
+        },
+      });
+      const legacy = makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: 'checkpoint-legacy',
+        data: { checkpoint: { coverage: { eventCount: 99 } } },
+      });
+      await store.createRun(makeHeader());
+      await store.appendEvent('session-1', sourceBound.runId, sourceBound);
+      await store.appendEvent('session-1', legacy.runId, legacy);
+
+      assert.equal(
+        (await projectionStore.readEventProjection(
+          'session-1',
+          'history_compact_checkpoint_recorded',
+        ))?.id,
+        sourceBound.id,
+      );
+
+      await projectionStore.repairEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+        legacy,
+      );
+
+      const projected = await projectionStore.readEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+      );
+      assert.equal(projected?.id, sourceBound.id);
+    });
+  });
+
   it('replaces the same parseable but semantically invalid projection during repair', async () => {
     await withStore(async (store, root) => {
       const projectionStore = store as typeof store & {
@@ -411,10 +466,14 @@ describe('AgentRunStore', () => {
       }
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+      const readImmutable = runtimeEventStore.readImmutableRuntimeEvents;
+      assert.ok(readImmutable);
+      const immutableEvents = await readImmutable.call(runtimeEventStore, 'session-1', 'run-1');
 
       assert.equal(events.length, 1);
       assert.equal(events[0]?.partial, true);
       assert.deepEqual(events[0]?.content, { kind: 'text', text: 'hello!' });
+      assert.deepEqual(immutableEvents, []);
     });
   });
 
@@ -591,8 +650,15 @@ describe('AgentRunStore', () => {
       }
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+      const readImmutable = runtimeEventStore.readImmutableRuntimeEvents;
+      assert.ok(readImmutable);
+      const immutableEvents = await readImmutable.call(runtimeEventStore, 'session-1', 'run-1');
 
       assert.deepEqual(events.map((event) => event.id), [
+        'runtime-lifecycle-0',
+        'runtime-lifecycle-1',
+      ]);
+      assert.deepEqual(immutableEvents.map((event) => event.id), [
         'runtime-lifecycle-0',
         'runtime-lifecycle-1',
       ]);

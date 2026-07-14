@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Volume2 } from '@maka/ui/icons';
 import type { VoicePermissionStatus } from '@maka/core';
 import { defaultVoiceCaptureCaps, validateVoiceCaptureRequest } from '@maka/core';
-import { Button, PageHeader, useToast } from '@maka/ui';
+import { Button, PageHeader, formatBytes, useMountedRef, useToast } from '@maka/ui';
 
 type VoiceSmokeState =
   | { status: 'idle'; message: string }
@@ -19,16 +19,14 @@ export function VoiceModelsSettingsPage() {
   });
   const [isBusy, setIsBusy] = useState(false);
   const captureSmokeBusyRef = useRef(false);
-  const voicePageMountedRef = useRef(false);
+  const voicePageMountedRef = useMountedRef();
   const activeVoiceCaptureStreamRef = useRef<MediaStream | null>(null);
   const toast = useToast();
   const caps = defaultVoiceCaptureCaps();
   const smokeStatusId = useId();
 
   useEffect(() => {
-    voicePageMountedRef.current = true;
     return () => {
-      voicePageMountedRef.current = false;
       activeVoiceCaptureStreamRef.current?.getTracks().forEach((track) => track.stop());
       activeVoiceCaptureStreamRef.current = null;
       captureSmokeBusyRef.current = false;
@@ -103,7 +101,7 @@ export function VoiceModelsSettingsPage() {
         }
         return;
       }
-      const message = `录音链路可用：${formatVoiceDuration(durationMs)}，${formatVoiceBytes(audioBytes)}。样本未保存。`;
+      const message = `录音链路可用：${formatVoiceDuration(durationMs)}，${formatBytes(audioBytes)}。样本未保存。`;
       if (voicePageMountedRef.current) {
         setSmoke({ status: 'ok', message, durationMs, audioBytes });
         toast.success('语音自检通过', message);
@@ -240,12 +238,6 @@ function voiceValidationCopy(reason: string): string {
 
 function formatVoiceDuration(durationMs: number): string {
   return `${Math.max(0, durationMs / 1000).toFixed(1)} 秒`;
-}
-
-function formatVoiceBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function waitMs(ms: number): Promise<void> {

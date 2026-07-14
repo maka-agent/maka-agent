@@ -47,31 +47,6 @@
   border-bottom: var(--border-width-hairline) solid var(--border);
 }
 
-.maka-browser-navbtn {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: var(--border-width-hairline) solid transparent;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--foreground);
-  /* Glyph size for the 26px nav button, not body text — stays 15. */
-  font-size: var(--font-size-heading);
-  line-height: var(--leading-none);
-}
-
-.maka-browser-navbtn:hover:not(:disabled) {
-  background: var(--state-hover-bg);
-}
-
-.maka-browser-navbtn:disabled {
-  opacity: var(--opacity-disabled);
-  cursor: default;
-}
-
 .maka-browser-address {
   flex: 1 1 auto;
   min-width: 0;
@@ -132,33 +107,6 @@
   border-bottom: 0;
 }
 
-.maka-artifact-pane-collapse {
-  flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  color: var(--foreground-secondary);
-  border-radius: var(--radius-control);
-  padding: 0;
-  transition: background var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
-}
-
-.maka-artifact-pane-collapse:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-  border-color: oklch(from var(--foreground) l c h / 0.08);
-}
-
-.maka-artifact-pane-collapse:focus-visible {
-  outline: none;
-  border-color: oklch(from var(--focus-ring) l c h / 0.42);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
-}
-
 .maka-artifact-pane-title {
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
@@ -205,42 +153,6 @@
   margin: 0;
   color: var(--foreground-secondary);
   overflow-wrap: anywhere;
-}
-
-.maka-artifact-error-retry {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-height: 26px;
-  padding: 0 var(--space-2);
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-surface);
-  background: var(--background);
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-}
-
-.maka-artifact-error-retry:hover {
-  background: var(--state-hover-bg);
-}
-
-.maka-artifact-error-retry:disabled {
-  cursor: default;
-  opacity: var(--opacity-disabled);
-}
-
-.maka-artifact-error-retry:disabled:hover {
-  background: var(--background);
-}
-
-.maka-artifact-error-retry[data-pending="true"] {
-  opacity: var(--opacity-pending);
-}
-
-.maka-artifact-error-retry:focus-visible {
-  outline: none;
-  border-color: oklch(from var(--focus-ring) l c h / 0.42);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
 .maka-artifact-list {
@@ -574,44 +486,6 @@
   border-radius: 0;
   min-height: 22px;
   background: var(--border);
-}
-
-.maka-artifact-toolbar-button {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  border: var(--border-width-hairline) solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
-  border-radius: var(--radius-control);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--font-size-caption);
-}
-
-.maka-artifact-toolbar-button:hover {
-  background: var(--state-hover-bg);
-}
-
-.maka-artifact-toolbar-button:disabled {
-  cursor: default;
-  opacity: var(--opacity-disabled);
-}
-
-.maka-artifact-toolbar-button:disabled:hover {
-  background: var(--background);
-}
-
-.maka-artifact-toolbar-button[data-pending="true"] {
-  opacity: var(--opacity-pending);
-}
-
-.maka-artifact-toolbar-destructive {
-  color: var(--destructive-text);
-  border-color: oklch(from var(--destructive) l c h / 0.32);
-  /* Icon-only footprint (see artifact-pane.tsx destructive label note):
-     square-ish hit area, no text gap. */
-  gap: 0;
-  padding: var(--space-1) var(--space-1-5);
 }
 
 /* Visually hidden, still announced: the 删除/删除中… label only exists

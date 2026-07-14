@@ -4,6 +4,8 @@ import { realpathSync } from 'node:fs';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createAgentRunStore, createRuntimeEventStore } from '@maka/storage';
+import { inspectAgentRunDocument } from '@maka/runtime';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { runAutonomousTask } from './autonomous-agent-loop.js';
 import { harborCommand } from './harbor-cli.js';
@@ -14,6 +16,8 @@ import {
   readMakaAheHarborOfficialResult,
   writeMakaAheEvidenceExport,
   type MakaAheOfficialResultOverlay,
+  type MakaAheAgentRunEvidenceByTaskRun,
+  type MakaAheAgentRunEvidenceSource,
   type MakaAheSessionMessagesByTaskRun,
 } from './ahe-evidence-export.js';
 import { writeTaskRunExport } from './result-export.js';
@@ -21,6 +25,7 @@ import { backendNeedsIsolation, validateTaskVerification } from './runner.js';
 import { runTaskOnce } from './task-agent-controller.js';
 import { isTerminalTaskRunStatus, type TaskPermissionGrant } from './task-contracts.js';
 import { createTaskRunStore, type TaskRunProjection } from './task-run-store.js';
+import { inspectTaskRun, renderTaskRunInspectTree } from './task-run-inspect.js';
 import { readResults, toComparisonTable, writeResults } from './results.js';
 
 /**
@@ -181,11 +186,16 @@ async function taskInspectCommand(args: string[]): Promise<number> {
     console.error('usage: maka eval task-run inspect <taskRunId> --store <out>/runs [--json]');
     return 1;
   }
-  const projection = await createTaskRunStore(resolve(parsed.flags.store)).project(taskRunId);
+  const storageRoot = resolve(parsed.flags.store);
+  const document = await inspectTaskRun({
+    taskRunStore: createTaskRunStore(storageRoot),
+    agentRunStore: createAgentRunStore(storageRoot),
+    runtimeEventStore: createRuntimeEventStore(storageRoot),
+  }, taskRunId);
   if (parsed.bools.json) {
-    process.stdout.write(`${JSON.stringify(compactInspect(projection), null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
   } else {
-    printInspect(compactInspect(projection));
+    process.stdout.write(renderTaskRunInspectTree(document));
   }
   return 0;
 }
@@ -240,6 +250,11 @@ async function aheExportCommand(args: string[]): Promise<number> {
       harborTrialDir: parsed.flags['harbor-trial-dir'] ? resolve(parsed.flags['harbor-trial-dir']) : undefined,
     });
     const sessionMessages = await aheSessionMessagesForCli(projections, storeRoot);
+    const agentRunEvidence = await aheAgentRunEvidenceForCli(
+      projections,
+      storeRoot,
+      parsed.bools['include-events'] === true,
+    );
     const snapshot = await buildMakaAheTargetSnapshot({
       repoRoot: resolve(parsed.flags.repo),
       sourceLabel: parsed.flags['source-label'],
@@ -251,6 +266,7 @@ async function aheExportCommand(args: string[]): Promise<number> {
       includeEvents: parsed.bools['include-events'],
       officialResults,
       sessionMessages,
+      agentRunEvidence,
     });
     console.log(`targetSnapshot: ${result.files.targetSnapshotJson}`);
     console.log(`harnessResults: ${result.files.harnessResultsJson}`);
@@ -310,6 +326,56 @@ async function aheSessionMessagesForCli(
     }
   }
   return Object.keys(messagesByTaskRun).length > 0 ? messagesByTaskRun : undefined;
+}
+
+async function aheAgentRunEvidenceForCli(
+  projections: readonly TaskRunProjection[],
+  storeRoot: string,
+  includeRuntimeEvents: boolean,
+): Promise<MakaAheAgentRunEvidenceByTaskRun | undefined> {
+  const runStore = createAgentRunStore(storeRoot);
+  const runtimeEventStore = createRuntimeEventStore(storeRoot);
+  const byTaskRun: Record<string, MakaAheAgentRunEvidenceSource[]> = {};
+  for (const projection of projections) {
+    const sources: MakaAheAgentRunEvidenceSource[] = [];
+    const seen = new Set<string>();
+    for (const evidence of projection.executionLineage) {
+      const identity = evidence.execution;
+      if (!identity?.sessionId || !identity.agentRunId) continue;
+      const key = `${identity.sessionId}\u0000${identity.agentRunId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const source: MakaAheAgentRunEvidenceSource = {
+        sessionId: identity.sessionId,
+        agentRunId: identity.agentRunId,
+      };
+      try {
+        source.inspect = await inspectAgentRunDocument(runStore, runtimeEventStore, {
+          sessionId: identity.sessionId,
+          agentRunId: identity.agentRunId,
+        });
+      } catch (error) {
+        source.inspectError = errorMessage(error);
+      }
+      if (includeRuntimeEvents) {
+        try {
+          if (!runtimeEventStore.readImmutableRuntimeEvents) {
+            source.runtimeEventsError = 'RuntimeEventStore does not expose immutable Runtime Event reads';
+          } else {
+            source.runtimeEvents = await runtimeEventStore.readImmutableRuntimeEvents(
+              identity.sessionId,
+              identity.agentRunId,
+            );
+          }
+        } catch (error) {
+          source.runtimeEventsError = errorMessage(error);
+        }
+      }
+      sources.push(source);
+    }
+    if (sources.length > 0) byTaskRun[projection.taskRunId] = sources;
+  }
+  return Object.keys(byTaskRun).length > 0 ? byTaskRun : undefined;
 }
 
 async function readSessionMessages(path: string): Promise<unknown[]> {
@@ -441,6 +507,10 @@ async function taskRetryFailedCommand(args: string[]): Promise<number> {
 function mark(passed: boolean, error?: string): string {
   if (error) return '⚠️';
   return passed ? '✅' : '❌';
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 interface ParsedArgs {
@@ -583,38 +653,6 @@ function positiveInt(raw: string, flagName: string): number {
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 1) throw new Error(`${flagName} must be a positive integer`);
   return value;
-}
-
-function compactInspect(projection: TaskRunProjection): Record<string, unknown> {
-  const score = projection.latestScoreResult;
-  const verifier = projection.latestVerifierResult;
-  return {
-    taskRunId: projection.taskRunId,
-    taskId: projection.taskId,
-    configId: projection.configId,
-    status: projection.status,
-    terminal: isTerminalTaskRunStatus(projection.status),
-    taxonomy: score?.taxonomy ?? projection.result?.taxonomy,
-    passed: score?.passed ?? projection.result?.passed,
-    scored: score?.scored,
-    eligible: score?.eligible,
-    errorClass: score?.errorClass ?? verifier?.errorClass ?? projection.error?.class,
-    verifier: verifier
-      ? { id: verifier.id, kind: verifier.kind, exitCode: verifier.exitCode ?? null, passed: verifier.passed }
-      : undefined,
-    score: score ? { id: score.id, score: score.score, maxScore: score.maxScore } : undefined,
-    attempts: projection.attempts.length,
-    parked: projection.parked,
-    isolation: projection.isolation?.label ?? projection.isolation?.mode,
-    warnings: projection.warnings,
-  };
-}
-
-function printInspect(value: Record<string, unknown>): void {
-  for (const [key, item] of Object.entries(value)) {
-    if (item === undefined) continue;
-    process.stdout.write(`${key}: ${typeof item === 'object' ? JSON.stringify(item) : String(item)}\n`);
-  }
 }
 
 if (isMainModule()) {

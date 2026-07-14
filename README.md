@@ -1,4 +1,5 @@
-[中文](./README.zh-CN.md)
+<a href="./README.md"><img alt="English" src="https://img.shields.io/badge/English-2ea44f?style=for-the-badge&logo=googletranslate&logoColor=white"></a>
+<a href="./README.zh-CN.md"><img alt="简体中文" src="https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-555?style=for-the-badge&logo=googletranslate&logoColor=white"></a>
 
 # Maka
 
@@ -184,6 +185,14 @@ Run one workspace in isolation:
 npm --workspace @maka/runtime test
 npm --workspace @maka/headless test
 npm --workspace @maka/desktop test
+```
+
+Use the following commands to update `packages/core/src/model-metadata.generated.ts` from models.dev and run the focused tests. Keep access-path-specific overrides in `model-metadata.ts`; do not edit the generated file by hand.
+
+```sh
+npm run sync:model-metadata
+npm run test:scripts
+npm --workspace @maka/core test
 ```
 
 Desktop real-window and visual verification:

@@ -30,6 +30,29 @@ export type GoalContinuationOutcome =
   | { kind: 'stopped'; reason: string; status: string }
   | { kind: 'continued'; evaluation: GoalEvaluation };
 
+export type GoalTaskGateDecision =
+  | 'evaluator_terminal'
+  | 'goal_stopped'
+  | 'no_actionable_tasks'
+  | 'reminder_injected'
+  | 'reminder_limit_reached';
+
+export interface GoalTaskGateTrace {
+  sessionId: string;
+  turnId?: string;
+  goalId: string;
+  decision: GoalTaskGateDecision;
+  taskKeys: string[];
+}
+
+export interface GoalTaskGateDeps {
+  /** List only pending/in_progress tasks. Blocked and terminal tasks are excluded. */
+  listActionableTaskKeys: (sessionId: string) => Promise<string[]>;
+  /** One reminder per goal id, even when a session replaces its active goal. */
+  remindedGoalIds?: Set<string>;
+  recordDecision?: (trace: GoalTaskGateTrace) => void | Promise<void>;
+}
+
 export interface GoalContinuationDeps {
   goalManager: GoalManager;
   evaluator: GoalEvaluatorDeps;
@@ -47,15 +70,23 @@ export interface GoalContinuationDeps {
    * second turn could complete). Supplied by the wiring; omitted in unit tests.
    */
   inFlight?: Set<string>;
+  taskGate?: GoalTaskGateDeps;
 }
 
 const CONTINUATION_PREAMBLE =
   '[Goal continuation] The goal is not yet met. Keep working toward it. '
   + 'Do not redefine success around a smaller task; match your verification to the full requirement.';
 
+const TASK_GATE_REMINDER =
+  '[Task reminder] Actionable session tasks remain. Reconcile them before stopping: finish them with real evidence, '
+  + 'or update their status truthfully. A task is advisory and never overrides files, tests, artifacts, or verifier evidence.';
+
+const taskGateReminderState = new WeakMap<GoalTaskGateDeps, Set<string>>();
+
 export async function handleGoalContinuation(
   deps: GoalContinuationDeps,
   sessionId: string,
+  completedTurnId?: string,
 ): Promise<GoalContinuationOutcome> {
   const goal = deps.goalManager.getActive(sessionId);
   if (!goal) return { kind: 'no_goal' };
@@ -72,10 +103,16 @@ export async function handleGoalContinuation(
     const evaluation = await evaluateGoal(deps.evaluator, goal.condition, context, sessionId);
 
     if (evaluation.met) {
+      await recordTaskGateDecision(deps.taskGate, {
+        sessionId, turnId: completedTurnId, goalId: goal.id, decision: 'evaluator_terminal', taskKeys: [],
+      });
       deps.goalManager.markAchieved(sessionId, evaluation.reason);
       return { kind: 'achieved', evaluation };
     }
     if (evaluation.impossible) {
+      await recordTaskGateDecision(deps.taskGate, {
+        sessionId, turnId: completedTurnId, goalId: goal.id, decision: 'evaluator_terminal', taskKeys: [],
+      });
       deps.goalManager.markImpossible(sessionId, evaluation.reason);
       return { kind: 'impossible', evaluation };
     }
@@ -94,23 +131,84 @@ export async function handleGoalContinuation(
 
     const settled = deps.goalManager.get(sessionId);
     if (!settled || settled.status !== 'active') {
+      const taskKeys = await listActionableTaskKeys(deps.taskGate, sessionId);
+      await recordTaskGateDecision(deps.taskGate, {
+        sessionId,
+        turnId: completedTurnId,
+        goalId: goal.id,
+        decision: 'goal_stopped',
+        taskKeys,
+      });
       return { kind: 'stopped', reason: settled?.lastReason ?? 'Goal settled', status: settled?.status ?? 'unknown' };
     }
 
+    const taskKeys = await listActionableTaskKeys(deps.taskGate, sessionId);
+    const remindedGoalIds = deps.taskGate
+      ? deps.taskGate.remindedGoalIds ?? reminderStateFor(deps.taskGate)
+      : new Set<string>();
+    const shouldRemind = taskKeys.length > 0 && !remindedGoalIds.has(goal.id);
+    const gateDecision: GoalTaskGateDecision = taskKeys.length === 0
+      ? 'no_actionable_tasks'
+      : shouldRemind
+        ? 'reminder_injected'
+        : 'reminder_limit_reached';
     // Re-check idle immediately before injecting — the evaluator call may have
     // spanned seconds during which a user send started a new turn.
     if (!(await deps.canContinue(sessionId))) return { kind: 'cannot_continue' };
 
     settled.lastReason = evaluation.reason;
     const waitNote = evaluation.waiting ? ' (waiting on an external event — re-check, do not spin uselessly)' : '';
+    if (shouldRemind) remindedGoalIds.add(goal.id);
     deps.injectTurn(
       sessionId,
-      `${CONTINUATION_PREAMBLE}\n\nEvaluation: ${evaluation.reason}${waitNote}\n`
+      `${CONTINUATION_PREAMBLE}${shouldRemind ? `\n\n${TASK_GATE_REMINDER}\nActionable task keys: ${taskKeys.join(', ')}` : ''}`
+      + `\n\nEvaluation: ${evaluation.reason}${waitNote}\n`
       + `Goal: "${settled.condition}" (turn ${settled.iterations}/${settled.maxIterations}`
       + `${settled.consecutiveNoProgress > 0 ? `, ${settled.consecutiveNoProgress}/${settled.blockCap} no-progress` : ''})`,
     );
+    await recordTaskGateDecision(deps.taskGate, {
+      sessionId,
+      turnId: completedTurnId,
+      goalId: goal.id,
+      decision: gateDecision,
+      taskKeys,
+    });
     return { kind: 'continued', evaluation };
   } finally {
     deps.inFlight?.delete(sessionId);
+  }
+}
+
+async function listActionableTaskKeys(
+  gate: GoalTaskGateDeps | undefined,
+  sessionId: string,
+): Promise<string[]> {
+  if (!gate) return [];
+  try {
+    return [...new Set(await gate.listActionableTaskKeys(sessionId))];
+  } catch {
+    // The task ledger is advisory. A damaged/unavailable read must not
+    // suppress the established Goal continuation path.
+    return [];
+  }
+}
+
+function reminderStateFor(gate: GoalTaskGateDeps): Set<string> {
+  const existing = taskGateReminderState.get(gate);
+  if (existing) return existing;
+  const created = new Set<string>();
+  taskGateReminderState.set(gate, created);
+  return created;
+}
+
+async function recordTaskGateDecision(
+  gate: GoalTaskGateDeps | undefined,
+  trace: GoalTaskGateTrace,
+): Promise<void> {
+  if (!gate?.recordDecision) return;
+  try {
+    await gate.recordDecision(trace);
+  } catch {
+    // Diagnostic tracing must never perturb Goal continuation.
   }
 }

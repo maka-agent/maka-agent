@@ -78,13 +78,13 @@ function providerDisabledStatus(type: ProviderType): 'unavailable' | 'experiment
 
 function providerDisabledTitle(type: ProviderType): string {
   if (isWiredOAuthProvider(type)) {
-    return '请在 OAuth 分类完成账号登录；登录成功后会自动出现在模型连接。';
+    return '请在账号连接完成登录；登录成功后会自动出现在模型连接。';
   }
   return '该账号登录暂未接入聊天发送；当前请使用同一家厂商的模型密钥。';
 }
 
 function providerDisabledAriaLabel(type: ProviderType, name: string): string {
-  if (isWiredOAuthProvider(type)) return `${name}（请从 OAuth 分类登录）`;
+  if (isWiredOAuthProvider(type)) return `${name}（请从账号连接登录）`;
   return `${name}（账号登录暂未接入聊天发送）`;
 }
 

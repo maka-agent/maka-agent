@@ -752,7 +752,7 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
             type="button"
             variant="ghost"
             size="sm"
-            className="maka-button [align-self:start] data-[pending=true]:cursor-progress data-[copy-feedback=copied]:text-[color:var(--link)] data-[copy-feedback=copied]:border-[oklch(from_var(--link)_l_c_h_/_0.35)] data-[copy-feedback=failed]:text-[color:var(--destructive)] data-[copy-feedback=failed]:border-[oklch(from_var(--destructive)_l_c_h_/_0.35)]"
+            className="[align-self:start] data-[pending=true]:cursor-progress data-[copy-feedback=copied]:text-[color:var(--link)] data-[copy-feedback=copied]:border-[oklch(from_var(--link)_l_c_h_/_0.35)] data-[copy-feedback=failed]:text-[color:var(--destructive)] data-[copy-feedback=failed]:border-[oklch(from_var(--destructive)_l_c_h_/_0.35)]"
             data-pending={copyPending ? 'true' : undefined}
             data-copy-feedback={copyPhase ?? undefined}
             aria-label={`${copyLabel}错误信息`}
@@ -817,9 +817,10 @@ export function OverlayHost(props: { content?: ToolResultContent; onClose(): voi
   return (
     <div className="maka-modal-backdrop overlay">
       <UiButton
-        className={cn('maka-button', previewVariants({ part: 'close' }))}
+        className={previewVariants({ part: 'close' })}
         type="button"
         variant="ghost"
+        size="sm"
         onClick={props.onClose}
         aria-label="关闭预览"
       >

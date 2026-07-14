@@ -71,6 +71,40 @@ describe('isConnectionReady — model capability gate', () => {
     assert.deepEqual(verdict, { ready: true, model: 'custom-chat' });
   });
 
+  it('keeps optional-key LocalAI ready when no credential is stored', () => {
+    const verdict = isConnectionReady({
+      connection: connection({
+        slug: 'localai',
+        name: 'LocalAI',
+        providerType: 'localai',
+        defaultModel: 'qwen3-8b',
+        models: [{ id: 'qwen3-8b' }],
+      }),
+      hasSecret: false,
+    });
+
+    assert.deepEqual(verdict, { ready: true, model: 'qwen3-8b' });
+  });
+
+  it('keeps Vercel Gateway gated on its key while preserving the exact creator/model id', () => {
+    const vercel = connection({
+      slug: 'vercel',
+      name: 'Vercel AI Gateway',
+      providerType: 'vercel',
+      defaultModel: 'xai/grok-4.3',
+      models: [{ id: 'xai/grok-4.3', capabilities: { chat: true, functionCalling: true } }],
+    });
+
+    assert.deepEqual(isConnectionReady({ connection: vercel, hasSecret: false }), {
+      ready: false,
+      reason: 'missing_api_key',
+    });
+    assert.deepEqual(isConnectionReady({ connection: vercel, hasSecret: true }), {
+      ready: true,
+      model: 'xai/grok-4.3',
+    });
+  });
+
   it('treats an enumerated fallback model list as the local send gate', () => {
     const verdict = isConnectionReady({
       connection: connection({

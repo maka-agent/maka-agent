@@ -35,10 +35,10 @@ describe('buildProviderOptions: thinking level', () => {
   });
 
   test('openai gpt-5.5 sends reasoningEffort (none for off, max for max); gpt-4o drops level', () => {
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: {} });
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'medium'), { openai: { reasoningEffort: 'medium' } });
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'xhigh'), { openai: { reasoningEffort: 'xhigh' } });
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'off'), { openai: { reasoningEffort: 'none' } });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: { store: false } });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'medium'), { openai: { store: false, reasoningEffort: 'medium' } });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'xhigh'), { openai: { store: false, reasoningEffort: 'xhigh' } });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'off'), { openai: { store: false, reasoningEffort: 'none' } });
   });
 
   test('codex-subscription (gpt-5.5) preserves store:false / textVerbosity and merges reasoningEffort', () => {
@@ -61,6 +61,9 @@ describe('buildProviderOptions: thinking level', () => {
   });
 
   test('openai-compatible sends reasoningEffort for effort levels and does not expose no-op off', () => {
+    assert.deepEqual([...thinkingVariantsForModel('deepinfra', 'moonshotai/Kimi-K2.7-Code')], ['off', 'low', 'medium', 'high']);
+    assert.deepEqual(buildProviderOptions(conn('deepinfra'), 'moonshotai/Kimi-K2.7-Code', 'high'), { deepinfra: { reasoningEffort: 'high' } });
+    assert.deepEqual(buildProviderOptions(conn('deepinfra'), 'moonshotai/Kimi-K2.7-Code', 'off'), { deepinfra: { reasoningEffort: 'none' } });
     assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-v4-flash')], ['high', 'max']);
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'high'), { deepseek: { reasoningEffort: 'high' } });
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'max'), { deepseek: { reasoningEffort: 'max' } });
@@ -71,51 +74,145 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-chat', 'high'), {});
   });
 
+  test('Cloudflare Workers AI sends Kimi K2.6 reasoning effort and its real thinking-off wire', () => {
+    const modelId = '@cf/moonshotai/kimi-k2.6';
+    assert.deepEqual(
+      [...thinkingVariantsForModel('cloudflare-workers-ai', modelId)],
+      ['off', 'low', 'medium', 'high'],
+    );
+    assert.deepEqual(buildProviderOptions(conn('cloudflare-workers-ai'), modelId), {});
+    assert.deepEqual(
+      buildProviderOptions(conn('cloudflare-workers-ai'), modelId, 'high'),
+      { 'cloudflare-workers-ai': { reasoningEffort: 'high' } },
+    );
+    assert.deepEqual(
+      buildProviderOptions(conn('cloudflare-workers-ai'), modelId, 'off'),
+      { 'cloudflare-workers-ai': { chat_template_kwargs: { thinking: false } } },
+    );
+  });
+
+  test('StepFun Step Plan sends only officially supported reasoning effort levels', () => {
+    assert.deepEqual(
+      buildProviderOptions(conn('stepfun-step-plan'), 'step-3.7-flash', 'medium'),
+      { 'stepfun-step-plan': { reasoningEffort: 'medium' } },
+    );
+    assert.deepEqual(
+      buildProviderOptions(conn('stepfun-step-plan'), 'step-3.5-flash-2603', 'high'),
+      { 'stepfun-step-plan': { reasoningEffort: 'high' } },
+    );
+    assert.deepEqual(buildProviderOptions(conn('stepfun-step-plan'), 'step-3.5-flash-2603', 'medium'), {});
+    assert.deepEqual(buildProviderOptions(conn('stepfun-step-plan'), 'step-router-v1', 'high'), {});
+  });
+
+  test('StepFun Step Plan Global sends only officially supported reasoning effort levels', () => {
+    assert.deepEqual(
+      buildProviderOptions(conn('stepfun-ai-step-plan'), 'step-3.7-flash', 'medium'),
+      { 'stepfun-ai-step-plan': { reasoningEffort: 'medium' } },
+    );
+    assert.deepEqual(
+      buildProviderOptions(conn('stepfun-ai-step-plan'), 'step-3.5-flash-2603', 'low'),
+      { 'stepfun-ai-step-plan': { reasoningEffort: 'low' } },
+    );
+    assert.deepEqual(buildProviderOptions(conn('stepfun-ai-step-plan'), 'step-3.5-flash', 'medium'), {});
+  });
+
+  test('Volcengine Ark sends its official thinking object and optional reasoning effort', () => {
+    const modelId = 'doubao-seed-2-0-pro-260215';
+    assert.deepEqual([...thinkingVariantsForModel('volcengine-ark', modelId)], ['off', 'minimal', 'low', 'medium', 'high']);
+    assert.deepEqual(buildProviderOptions(conn('volcengine-ark'), modelId), {
+      'volcengine-ark': { thinking: { type: 'enabled' } },
+    });
+    assert.deepEqual(buildProviderOptions(conn('volcengine-ark'), modelId, 'high'), {
+      'volcengine-ark': { thinking: { type: 'enabled' }, reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('volcengine-ark'), modelId, 'off'), {
+      'volcengine-ark': { thinking: { type: 'disabled' } },
+    });
+  });
+
+  test('Cohere sends its native disabled thinking object without inventing effort levels', () => {
+    const modelId = 'command-a-plus-05-2026';
+    assert.deepEqual([...thinkingVariantsForModel('cohere', modelId)], ['off']);
+    assert.deepEqual(buildProviderOptions(conn('cohere'), modelId), { cohere: {} });
+    assert.deepEqual(buildProviderOptions(conn('cohere'), modelId, 'off'), {
+      cohere: { thinking: { type: 'disabled' } },
+    });
+    assert.deepEqual(buildProviderOptions(conn('cohere'), modelId, 'high'), { cohere: {} });
+  });
+
+  test('Tencent Token Plan sends its documented reasoning effort under the stable provider namespace', () => {
+    assert.deepEqual([...thinkingVariantsForModel('tencent-token-plan', 'hy3')], ['low', 'medium', 'high']);
+    assert.deepEqual(
+      buildProviderOptions(conn('tencent-token-plan'), 'hy3', 'high'),
+      { 'tencent-token-plan': { reasoningEffort: 'high' } },
+    );
+    assert.deepEqual(buildProviderOptions(conn('tencent-token-plan'), 'hy3', 'off'), {});
+  });
+
+  test('Vercel Gateway sends reasoning effort under its stable namespace and exact model id', () => {
+    assert.deepEqual([...thinkingVariantsForModel('vercel', 'xai/grok-4.3')], ['off', 'low', 'medium', 'high']);
+    assert.deepEqual(buildProviderOptions(conn('vercel'), 'xai/grok-4.3', 'high'), {
+      vercel: { reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('vercel'), 'xai/grok-4.3', 'off'), {
+      vercel: { reasoningEffort: 'none' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('vercel'), 'grok-4.3', 'high'), {});
+  });
+
   test('a level the model does not support is dropped (defensive)', () => {
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: {} });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: { store: false } });
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'max'), { anthropic: {} });
   });
 });
 
-describe('getAIModel: litellm provider', () => {
-  test('creates an OpenAI-compatible client with provider name "litellm" and correct modelId', () => {
+describe('getAIModel: models.dev registry providers', () => {
+  test('routes SiliconFlow through the shared OpenAI-compatible adapter without rewriting model ids', () => {
     const model = getAIModel({
-      connection: conn('litellm', 'litellm-gateway'),
-      apiKey: 'sk-test-key',
-      modelId: 'gpt-4o',
+      connection: conn('siliconflow'),
+      apiKey: 'sf-test-key',
+      modelId: 'moonshotai/Kimi-K2.6',
     });
-    assert.equal(model.modelId, 'gpt-4o');
-    assert.equal(model.provider, 'litellm.chat');
+
+    assert.equal(model.provider, 'siliconflow.chat');
+    assert.equal(model.modelId, 'moonshotai/Kimi-K2.6');
   });
 
-  test('uses the connection baseUrl override when provided', () => {
-    const model = getAIModel({
-      connection: { ...conn('litellm', 'litellm-custom'), baseUrl: 'https://litellm.company.internal/v1' },
-      apiKey: 'sk-test-key',
-      modelId: 'claude-sonnet-4-5-20250929',
-    });
-    assert.equal(model.modelId, 'claude-sonnet-4-5-20250929');
-    assert.equal(model.provider, 'litellm.chat');
+  test('routes OpenCode Zen and Go models through their registry-owned protocol overrides', () => {
+    const cases = [
+      ['opencode', 'gpt-5.5', 'openai.responses'],
+      ['opencode', 'claude-opus-4-8', 'anthropic.messages'],
+      ['opencode', 'gemini-3.5-flash', 'google.generative-ai'],
+      ['opencode-go', 'kimi-k2.7-code', 'opencode-go.chat'],
+      ['opencode-go', 'minimax-m3', 'anthropic.messages'],
+    ] as const;
+
+    for (const [providerType, modelId, expectedProvider] of cases) {
+      const model = getAIModel({ connection: conn(providerType), apiKey: 'test-key', modelId });
+      assert.equal(model.provider, expectedProvider, `${providerType}/${modelId}`);
+      assert.equal(model.modelId, modelId);
+    }
   });
 
-  test('falls back to localhost:4000 default when no baseUrl override is set', () => {
-    const model = getAIModel({
-      connection: conn('litellm', 'litellm-default'),
-      apiKey: 'sk-test-key',
-      modelId: 'gpt-4o-mini',
-    });
-    // The model is created successfully with default base URL
-    assert.equal(model.provider, 'litellm.chat');
-    assert.equal(model.modelId, 'gpt-4o-mini');
-  });
-});
+  test('routes each exact GitHub Copilot model through its account-advertised wire', () => {
+    for (const [modelId, apiProtocol, expectedProvider] of [
+      ['gpt-5.4', 'openai-responses', 'openai.responses'],
+      ['claude-sonnet-4.6', 'anthropic-messages', 'anthropic.messages'],
+      ['gemini-3.1-pro-preview', 'openai-chat', 'github-copilot.chat'],
+    ] as const) {
+      const model = getAIModel({
+        connection: {
+          ...conn('github-copilot'),
+          models: [{ id: modelId, apiProtocol }],
+        },
+        apiKey: 'github-account-token',
+        modelId,
+        fetch: async () => Response.json({}),
+      });
 
-describe('buildProviderOptions: litellm falls through to default (empty options)', () => {
-  test('litellm returns empty options regardless of thinking level', () => {
-    assert.deepEqual(buildProviderOptions(conn('litellm'), 'gpt-4o'), {});
-    assert.deepEqual(buildProviderOptions(conn('litellm'), 'gpt-4o', 'high'), {});
-    assert.deepEqual(buildProviderOptions(conn('litellm'), 'gpt-4o', 'off'), {});
-    assert.deepEqual(buildProviderOptions(conn('litellm'), 'claude-sonnet-4-5-20250929'), {});
+      assert.equal(model.provider, expectedProvider);
+      assert.equal(model.modelId, modelId);
+    }
   });
 });
 
@@ -143,7 +240,12 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
     { providerType: 'google', model: 'gemini-3-pro-preview' },
     { providerType: 'google', model: 'gemini-3.5-flash' },
     { providerType: 'deepseek', model: 'deepseek-v4-flash' },
+    { providerType: 'deepinfra', model: 'moonshotai/Kimi-K2.7-Code' },
+    { providerType: 'vercel', model: 'xai/grok-4.3' },
+    { providerType: 'cloudflare-workers-ai', model: '@cf/moonshotai/kimi-k2.6' },
     { providerType: 'zai-coding-plan', model: 'glm-5.2', slug: 'zai-coding-plan' },
+    { providerType: 'volcengine-ark', model: 'doubao-seed-2-0-pro-260215' },
+    { providerType: 'cohere', model: 'command-a-plus-05-2026' },
   ];
   for (const { providerType, model, slug } of cases) {
     test(`every effort level for ${providerType}/${model} maps to a non-empty fragment`, () => {
@@ -168,7 +270,10 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
 
   function hasRealOffWire(opts: Record<string, unknown>): boolean {
     const serialized = JSON.stringify(opts);
-    return serialized.includes('"reasoningEffort":"none"') || serialized.includes('"type":"disabled"') || serialized.includes('"thinkingBudget":0');
+    return serialized.includes('"reasoningEffort":"none"')
+      || serialized.includes('"type":"disabled"')
+      || serialized.includes('"thinkingBudget":0')
+      || serialized.includes('"thinking":false');
   }
 });
 

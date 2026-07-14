@@ -50,60 +50,15 @@ html[data-os="darwin"] .maka-session-panel {
 
 /* =============================================================================
    PR-QODERWORK-GLASS-RESHIP-L3-L6-L7 (WAWQAQ msg `c71b4dcb` thread,
-   2026-06-30). The original PR-QODERWORK-GLASS-LAYERED-0 push tried to
-   ship 5 layers (L1+L2+L3+L6+L7) but only the L1 vibrancy unblock
-   actually landed on main via the squash-merge of PR #329 (`7d008d51`).
-   The follow-up commit `023b90b2` was force-pushed but never merged, so
-   for the past 3 days users have been seeing the QoderWork "classic"
-   look despite the substrate being correctly enabled. This block
-   re-ships L3 + L6 + L7 from that delta — L2 (blur 8px → 24px) and L1
-   (blur on layout root not panel) are still out of scope because they
-   need real-window verification of the blur strength before pinning a
-   number, and the panel-vs-layout-root attribution needs a coordinated
-   move of the existing 8px rule above. Shipping the high-confidence
-   ones first.
+   2026-06-30): re-shipped the QoderWork light-glass / dark-glass look on
+   darwin vibrancy. L3 + L7 — the material + list-label rules — live below.
+   L6 — the neutral-glass color TOKENS this file used to override on darwin
+   (--color-bg-container / --color-text-quaternary, light + dark) — moved to
+   maka-tokens.css (Round C) so every token definition has one home. The
+   html[data-os="darwin"] override there stays unlayered on purpose so it still
+   outranks the :root aliases (0,1,1 > 0,1,0). Only glass-MATERIAL rules and
+   the darwin text/label overrides remain in this file.
 ============================================================================= */
-
-/* L6 — warm-toned color tokens from QoderWork's `light-glass` theme,
-   extracted by @maka-审美专家 from `/tmp/qoder-asar/out/renderer/`
-   reference bundle. Component-level CSS plugs into these so palette
-   swaps don't need callsite rewrites. Scoped to macOS so non-glass
-   platforms keep their existing neutral tokens. */
-/* UNLAYERED on purpose: reference-shell.css defines the same custom
-   properties in an unlayered :root block, and unlayered declarations
-   beat @layer ones regardless of specificity — inside @layer base this
-   entire warm glass palette was silently dead (the documented
-   "parchment glass" never shipped). html[data-os] (0,1,1) outranks
-   :root (0,1,0), so the darwin override now actually applies. */
-html[data-os="darwin"] {
-  /* Neutral-cool glass (owner decision 2026-07-03): the QoderWork
-     light-glass extraction was warm ivory (#fdfcfa/#faf9f6/#f5f3ee),
-     which read beige against vibrancy blur. zinc-family equivalents
-     keep the same lightness steps but zero warm cast. */
-  /* PALETTE-LEAK-0: the zinc hex here (#fafafa) overrode reference-shell's
-     var(--background)-derived container for ALL of darwin, so the main
-     content pane ignored palette switches entirely. Re-anchor on
-     --background so hue/chroma follow the active palette.
-     CONTENT-SURFACE-CONTRAST (maintainer, 2026-07-09): the extra −0.015
-     step made the content card visibly off-white (measured 0.985) and
-     collapsed the card↔canvas contrast to Δ0.009 — "内容面不是纯白，
-     和左边对比不够". The card is the palette background, full stop;
-     separation is the canvas/sidebar's job (surface-canvas −0.024 +
-     vibrancy), matching the reference's white-card-on-gray-shell. */
-  --color-bg-container: var(--background);
-  --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
-}
-
-/* Dark-mode variants for the darwin glass palette. The light hexes above
-   are QoderWork light-glass extractions; reused verbatim in dark mode they
-   sat under near-white foreground text and the parchment surfaces glowed
-   against the dark shell, so the dark variants below re-tune lightness. */
-html[data-os="darwin"].dark {
-  /* PALETTE-LEAK-0: same derivation as the light block — dark default
-     background (l=0.205) resolves to the previous 0.24 literal. */
-  --color-bg-container: oklch(from var(--background) calc(l + 0.035) c h);
-}
-
 
 /* L7 — group label was 9.5px UPPERCASE + 0.08em tracking on the
    sidebar, which read as "old Windows admin tool" not "macOS native
@@ -129,9 +84,8 @@ html[data-os="darwin"] .maka-session-panel-header,
     color: var(--foreground);
   }
 
-/* Unlayered on purpose: `.maka-nav-row` is a shared `UiButton size="nav"`
-   surface, so this darwin glass override must outrank the primitive's quiet
-   text utilities and the unlayered sidebar default color. */
+/* Unlayered on purpose: `.maka-nav-row` is a semantic navigation control, so
+   this darwin glass override must outrank the unlayered sidebar default color. */
 html[data-os="darwin"] .maka-nav-row {
   color: var(--foreground);
 }
@@ -175,7 +129,7 @@ html[data-os="darwin"] .maka-session-panel-footer {
   .maka-plan-heading,
   .maka-skill-tab,
   .maka-plan-tab,
-  .maka-shell-topbar-button {
+  .maka-titlebar-action {
     -webkit-user-select: none;
     user-select: none;
   }

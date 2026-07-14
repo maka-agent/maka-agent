@@ -24,6 +24,7 @@ import { backendNeedsIsolation } from './runner.js';
 import { runTaskOnce } from './task-agent-controller.js';
 import { taxonomyFromResultRecord } from './task-contracts.js';
 import { createTaskRunStore } from './task-run-store.js';
+import { requireProviderCredentialEnv } from './provider-env.js';
 
 type HarborMode = 'cell' | 'task-run';
 type HarborIsolationMode = 'none' | 'harbor-local' | 'harbor-http';
@@ -634,27 +635,7 @@ function requireModel(value: string): string {
 }
 
 function apiKeyFileEnvName(provider: ProviderType): string {
-  switch (provider) {
-    case 'deepseek':
-      return 'DEEPSEEK_API_KEY_FILE';
-    case 'moonshot':
-      return 'MOONSHOT_API_KEY_FILE';
-    case 'google':
-      return 'GOOGLE_API_KEY_FILE';
-    case 'anthropic':
-    case 'kimi-coding-plan':
-    case 'claude-subscription':
-      return 'ANTHROPIC_API_KEY_FILE';
-    case 'zai-coding-plan':
-      return 'ZAI_API_KEY_FILE';
-    case 'MiniMax':
-    case 'MiniMax-cn':
-      return 'MINIMAX_API_KEY_FILE';
-    case 'openai':
-    case 'openai-compatible':
-    default:
-      return 'OPENAI_API_KEY_FILE';
-  }
+  return requireProviderCredentialEnv(provider).apiKeyFile;
 }
 
 function optionalPositiveInt(raw: string | undefined, flagName: string): number | undefined {

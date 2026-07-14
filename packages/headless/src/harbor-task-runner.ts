@@ -3,9 +3,12 @@ import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { writeFile } from 'node:fs/promises';
 import { basename, delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
+import { PROVIDER_DEFAULTS, providerAuthRequiresSecret, type ProviderType } from '@maka/core/llm-connections';
+import { fetchGitHubCopilotModels, isSupportedGitHubCopilotAccountToken } from '@maka/runtime';
 import {
   validateHarborCellExecutionIdentity,
   validateHarborCellOutput,
+  validateHarborCellTokenSummary,
   type HarborCellExecutionIdentity,
   type HarborCellOutput,
 } from './cell-output.js';
@@ -16,12 +19,19 @@ import {
   HarborTaskRunOutput,
   HarborTaskRunner,
 } from './fixed-prompt-controller.js';
+import { startProviderAuthProxy } from './provider-auth-proxy.js';
+import {
+  providerBaseUrlFromEnv,
+  providerCredentialEnv,
+  requireProviderCredentialEnv,
+} from './provider-env.js';
 
 const execFileAsync = promisify(execFile);
 
 const CONTAINER_MAKA_REPO = '/opt/maka-agent';
 const TRIAL_CELL_OUTPUT = 'agent/maka-cell-output.json';
 const TRIAL_EXECUTION_IDENTITY = 'agent/maka-cell-execution-identity.json';
+const TRIAL_USAGE_CHECKPOINT = 'agent/maka-cell-usage-checkpoint.json';
 const TRIAL_RUNTIME_EVENTS = 'agent/runtime-events.jsonl';
 const TRIAL_REWARD = 'verifier/reward.txt';
 const TRIAL_VERIFIER_STDOUT = 'verifier/test-stdout.txt';
@@ -49,12 +59,17 @@ export interface HarborTaskPricing {
 export interface HarborTaskRunnerOptions {
   /** Host path to the maka repo, mounted read-only at /opt/maka-agent. */
   makaRepoPath: string;
+  /** Harbor adapter under test (default: Maka). */
+  agent?: 'maka' | 'opencode';
+  /** Version passed to Harbor's installed-agent adapter (used to pin OpenCode). */
+  agentVersion?: string;
   /** Base directory under which each task gets an isolated per-task job dir. */
   jobsDir: string;
   /** MAKA_MODEL, e.g. "deepseek/deepseek-v4-flash". */
   model: string;
   /** MAKA_PROVIDER, e.g. "deepseek". */
   provider?: string;
+  reasoningEffort?: 'high' | 'max';
   /** Host path to an API key file. The key stays in the Harbor control process;
    * the task container receives no provider key env, key-file path, or secret mount. */
   apiKeyFile?: string;
@@ -74,6 +89,8 @@ export interface HarborTaskRunnerOptions {
   harborTimeoutMs?: number;
   /** Injectable Harbor process runner (default: execFile the harbor binary). */
   runHarbor?: HarborProcessRunner;
+  /** Injectable only for deterministic GitHub Copilot account-discovery tests. */
+  copilotFetch?: typeof fetch;
   now?: () => number;
 }
 
@@ -91,6 +108,7 @@ export interface HarborRunRequest {
 }
 
 const DEFAULT_HARBOR_TIMEOUT_MS = 45 * 60_000;
+const HARBOR_SETUP_TEARDOWN_GRACE_MS = 15 * 60_000;
 
 export interface HarborRunResult {
   exitCode: number;
@@ -102,19 +120,13 @@ export interface HarborRunResult {
 
 export type HarborProcessRunner = (request: HarborRunRequest) => Promise<HarborRunResult>;
 
-const PROVIDER_SECRET_ENV: Record<string, { key: string; file: string; baseUrl: string }> = {
-  deepseek: { key: 'DEEPSEEK_API_KEY', file: 'DEEPSEEK_API_KEY_FILE', baseUrl: 'DEEPSEEK_BASE_URL' },
-  openai: { key: 'OPENAI_API_KEY', file: 'OPENAI_API_KEY_FILE', baseUrl: 'OPENAI_BASE_URL' },
-  'openai-compatible': { key: 'OPENAI_API_KEY', file: 'OPENAI_API_KEY_FILE', baseUrl: 'OPENAI_BASE_URL' },
-  moonshot: { key: 'MOONSHOT_API_KEY', file: 'MOONSHOT_API_KEY_FILE', baseUrl: 'MOONSHOT_BASE_URL' },
-  google: { key: 'GOOGLE_API_KEY', file: 'GOOGLE_API_KEY_FILE', baseUrl: 'GOOGLE_BASE_URL' },
-  anthropic: { key: 'ANTHROPIC_API_KEY', file: 'ANTHROPIC_API_KEY_FILE', baseUrl: 'ANTHROPIC_BASE_URL' },
-};
-
 const EXPERIMENT_IDENTITY_ENV_KEYS = new Set([
   'MAKA_BACKEND',
   'MAKA_MODEL',
   'MAKA_PROVIDER',
+  'MAKA_LLM_CONNECTION_SLUG',
+  'MAKA_REASONING_EFFORT',
+  'MAKA_OPENCODE_VARIANT',
   'MAKA_SYSTEM_PROMPT',
   'MAKA_TRIAL_INPUT_USD_PER_1M',
   'MAKA_TRIAL_OUTPUT_USD_PER_1M',
@@ -126,7 +138,7 @@ const EXPERIMENT_IDENTITY_ENV_KEYS = new Set([
 export function createHarborTaskRunner(options: HarborTaskRunnerOptions): HarborTaskRunner {
   const runHarbor = options.runHarbor ?? defaultHarborProcessRunner;
   const harborBin = options.harborBin ?? 'harbor';
-  // The bare `maka_agent:MakaAgent` import path resolves only when the adapter
+  // The bare local adapter import paths resolve only when the adapter
   // directory is on harbor's PYTHONPATH; harbor is a uv-installed tool, so its cwd
   // is not enough. Prepend it (keeping any inherited PYTHONPATH).
   const harborAdapterDir = join(options.makaRepoPath, 'packages', 'headless', 'harbor');
@@ -151,40 +163,45 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       agentEnv: mergeAgentEnv(options.agentEnv, input.agentEnv),
     };
     assertNoProviderSecretsInAgentEnv(runnerOptions.agentEnv);
-    const hostProviderEnv = hostSideProviderEnv(runnerOptions);
+    const hasHostProviderRuntime = runnerOptions.apiKeyFile !== undefined
+      || githubCopilotAccountTokenFromEnv(runnerOptions.provider, runnerOptions.agentEnv) !== undefined
+      || (runnerOptions.agent !== 'opencode' && !providerRequiresSecret(runnerOptions.provider));
     const configPath = join(jobsDir, 'job-config.json');
     const { agentEnv: _attemptAgentEnv, ...inputWithoutAttemptEnv } = input;
     const config = buildHarborJobConfig(inputWithoutAttemptEnv, {
       ...runnerOptions,
       jobsDir,
       jobName,
-      ...(hostProviderEnv ? { agentEnv: taskAgentEnvWithoutProviderSecrets(runnerOptions) } : {}),
+      ...(hasHostProviderRuntime ? { agentEnv: taskAgentEnvWithoutProviderSecrets(runnerOptions) } : {}),
     });
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 
     const args = ['run', '--config', configPath, '--yes'];
     let result: HarborRunResult;
     try {
-      result = await runHarbor({
-        harborBin,
-        configPath,
-        jobName,
-        jobsDir,
-        args,
-        cwd: options.makaRepoPath,
-        timeoutMs: options.harborTimeoutMs ?? DEFAULT_HARBOR_TIMEOUT_MS,
-        env: { PYTHONPATH: pythonPath, ...(hostProviderEnv ?? {}) },
-      });
+      const providerRuntime = await hostSideProviderRuntime(runnerOptions);
+      try {
+        result = await runHarbor({
+          harborBin,
+          configPath,
+          jobName,
+          jobsDir,
+          args,
+          cwd: options.makaRepoPath,
+          timeoutMs: resolveHarborTimeoutMs(runnerOptions, input),
+          env: { PYTHONPATH: pythonPath, ...(providerRuntime?.env ?? {}) },
+        });
+      } finally {
+        await providerRuntime?.close?.();
+      }
     } catch (error) {
       if (isBudgetExhaustedError(error)) throw error;
       throw new HarborInfraError(`harbor run failed to launch for task ${input.task.id}`, errorText(error));
     }
     if (result.timedOut) {
-      const artifactRefs = await readTimedOutCellArtifacts(jobDir, basename(input.task.path), input.task.id);
-      throw new FixedPromptBudgetExhaustedError(
+      throw new HarborInfraError(
         `harbor run timed out for task ${input.task.id}`,
         tail(result.stderr || result.stdout),
-        artifactRefs ?? undefined,
       );
     }
     if (result.exitCode !== 0) {
@@ -241,6 +258,17 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
   };
 }
 
+function resolveHarborTimeoutMs(
+  options: HarborTaskRunnerOptions,
+  input: HarborTaskRunInput,
+): number {
+  if (options.harborTimeoutMs !== undefined) return options.harborTimeoutMs;
+  const agentSec = input.task.metadata?.agentTimeoutSec ?? 0;
+  const verifierSec = input.task.metadata?.verifierTimeoutSec ?? 0;
+  const nativePhasesMs = (agentSec + verifierSec) * (options.timeoutMultiplier ?? 1) * 1_000;
+  return Math.max(DEFAULT_HARBOR_TIMEOUT_MS, nativePhasesMs + HARBOR_SETUP_TEARDOWN_GRACE_MS);
+}
+
 async function readOptionalCellOutput(cellOutputPath: string, taskId: string): Promise<HarborCellOutput | null> {
   try {
     return await readCellOutput(cellOutputPath, taskId);
@@ -266,25 +294,32 @@ function cellArtifactRefs(cell: HarborCellOutput, hostEventsPath: string, trialD
   };
 }
 
-async function readTimedOutCellArtifacts(jobDir: string, taskName: string, taskId: string) {
-  try {
-    const trialDir = await findTrialDir(jobDir, taskName);
-    return await readTimedOutTrialArtifacts(trialDir, taskId);
-  } catch {
-    return null;
-  }
-}
-
 async function readTimedOutTrialArtifacts(trialDir: string, taskId: string) {
   const cell = await readOptionalCellOutput(join(trialDir, TRIAL_CELL_OUTPUT), taskId);
   if (cell) return cellArtifactRefs(cell, join(trialDir, TRIAL_RUNTIME_EVENTS), trialDir);
-  const executionIdentity = await readOptionalExecutionIdentity(join(trialDir, TRIAL_EXECUTION_IDENTITY));
-  return executionIdentity ? { executionIdentity } : null;
+  const [executionIdentity, tokenSummary] = await Promise.all([
+    readOptionalExecutionIdentity(join(trialDir, TRIAL_EXECUTION_IDENTITY)),
+    readOptionalTokenSummary(join(trialDir, TRIAL_USAGE_CHECKPOINT)),
+  ]);
+  return executionIdentity || tokenSummary
+    ? {
+        ...(executionIdentity ? { executionIdentity } : {}),
+        ...(tokenSummary ? { tokenSummary } : {}),
+      }
+    : null;
 }
 
 async function readOptionalExecutionIdentity(path: string): Promise<HarborCellExecutionIdentity | null> {
   try {
     return validateHarborCellExecutionIdentity(JSON.parse(await readFile(path, 'utf8')));
+  } catch {
+    return null;
+  }
+}
+
+async function readOptionalTokenSummary(path: string) {
+  try {
+    return validateHarborCellTokenSummary(JSON.parse(await readFile(path, 'utf8')));
   } catch {
     return null;
   }
@@ -366,18 +401,25 @@ export function buildHarborJobConfig(
   assertNoProviderSecretsInAgentEnv(attemptAgentEnv);
   assertNoExperimentIdentityOverrides(attemptAgentEnv);
   const provider = options.provider ?? 'deepseek';
-  const model = modelIdForProvider(options.model, provider);
+  const makaModel = modelIdForProvider(options.model, provider);
+  const adapter = options.agent ?? 'maka';
+  const agentModel = adapter === 'opencode' ? modelForOpenCode(options.model, provider) : makaModel;
   const mounts: Array<Record<string, unknown>> = [
     { type: 'bind', source: options.makaRepoPath, target: CONTAINER_MAKA_REPO, read_only: true },
   ];
 
   const agentEnv: Record<string, string> = {
     MAKA_BACKEND: 'ai-sdk',
-    MAKA_MODEL: model,
+    MAKA_MODEL: makaModel,
     MAKA_PROVIDER: provider,
+    MAKA_LLM_CONNECTION_SLUG: provider,
     // Verbatim — the controller hashes exactly these bytes and verifies the round-trip.
     MAKA_SYSTEM_PROMPT: input.systemPrompt,
   };
+  if (options.reasoningEffort) {
+    agentEnv.MAKA_REASONING_EFFORT = options.reasoningEffort;
+    if (adapter === 'opencode') agentEnv.MAKA_OPENCODE_VARIANT = options.reasoningEffort;
+  }
 
   if (options.pricing) {
     agentEnv.MAKA_TRIAL_INPUT_USD_PER_1M = String(options.pricing.inputUsdPer1M);
@@ -394,7 +436,9 @@ export function buildHarborJobConfig(
   }
 
   Object.assign(agentEnv, attemptAgentEnv ?? {});
-  const cellTimeoutSec = positiveIntEnv(agentEnv.MAKA_CELL_TIMEOUT_SEC);
+  const cellTimeoutSec = positiveIntEnv(agentEnv.MAKA_CELL_TIMEOUT_SEC)
+    ?? input.task.metadata?.agentTimeoutSec;
+  if (cellTimeoutSec !== undefined) agentEnv.MAKA_CELL_TIMEOUT_SEC = String(cellTimeoutSec);
 
   return {
     job_name: options.jobName,
@@ -413,10 +457,14 @@ export function buildHarborJobConfig(
     metrics: [{ type: 'mean', kwargs: {} }],
     agents: [
       {
-        name: 'maka',
-        import_path: 'maka_agent:MakaAgent',
-        model_name: model,
-        kwargs: { backend: 'ai-sdk' },
+        ...(adapter === 'maka' ? { name: adapter } : {}),
+        import_path: adapter === 'opencode' ? 'opencode_agent:MakaOpenCodeAgent' : 'maka_agent:MakaAgent',
+        model_name: agentModel,
+        kwargs: adapter === 'maka'
+          ? { backend: 'ai-sdk' }
+          : options.agentVersion
+            ? { version: options.agentVersion }
+            : {},
         env: agentEnv,
         ...(cellTimeoutSec !== undefined ? { max_timeout_sec: cellTimeoutSec } : {}),
       },
@@ -435,28 +483,104 @@ function positiveIntEnv(raw: string | undefined): number | undefined {
   return Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
-function providerSecretEnv(provider: string): { key: string; file: string; baseUrl: string } {
-  return PROVIDER_SECRET_ENV[provider] ?? PROVIDER_SECRET_ENV.openai!;
-}
-
-function hostSideProviderEnv(options: HarborTaskRunnerOptions): Record<string, string> | null {
-  if (!options.apiKeyFile) return null;
+async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promise<{
+  env: Record<string, string>;
+  close?: () => Promise<void>;
+} | null> {
   const provider = options.provider ?? 'deepseek';
-  const providerEnv = providerSecretEnv(provider);
-  const baseUrl = options.agentEnv?.[providerEnv.baseUrl] ?? options.agentEnv?.MAKA_BASE_URL ?? options.agentEnv?.OPENAI_BASE_URL;
+  if (options.agent === 'opencode' && provider === 'github-copilot') {
+    throw new Error('GitHub Copilot Harbor runs use the Maka host agent; the OpenCode Harbor adapter does not support this provider');
+  }
+  const githubToken = provider === 'github-copilot'
+    ? options.apiKeyFile
+      ? (await readFile(options.apiKeyFile, 'utf8')).trim()
+      : githubCopilotAccountTokenFromEnv(provider, options.agentEnv)
+    : undefined;
+  if (!options.apiKeyFile && !githubToken && providerRequiresSecret(provider)) return null;
+  const providerEnv = providerCredentialEnv(provider);
+  const [primaryBaseUrl] = providerEnv?.baseUrls ?? [];
+  const configuredBaseUrl = (primaryBaseUrl ? options.agentEnv?.[primaryBaseUrl] : undefined)
+    ?? options.agentEnv?.MAKA_BASE_URL
+    ?? providerBaseUrlFromEnv(provider, options.agentEnv ?? {});
+  const copilotCredential = githubToken
+    ? await resolveGitHubCopilotHostCredential(
+        githubToken,
+        modelIdForProvider(options.model, provider),
+        configuredBaseUrl ?? PROVIDER_DEFAULTS['github-copilot'].baseUrl,
+        options.copilotFetch,
+      )
+    : undefined;
+  const baseUrl = copilotCredential?.baseUrl ?? configuredBaseUrl;
+  if (options.agent === 'opencode') {
+    const apiKeyFile = options.apiKeyFile;
+    if (!apiKeyFile) return null;
+    if (!baseUrl) throw new Error(`OpenCode provider ${provider} requires a base URL`);
+    const proxy = await startProviderAuthProxy({
+      upstreamBaseUrl: baseUrl,
+      apiKeyFile,
+    });
+    return {
+      env: {
+        MAKA_OPENCODE_PROVIDER_PROXY_URL: proxy.baseUrl,
+        MAKA_OPENCODE_PROVIDER_PROXY_TOKEN: proxy.token,
+      },
+      close: proxy.close,
+    };
+  }
+  const apiKeyEnvName = copilotCredential
+    ? 'COPILOT_GITHUB_TOKEN'
+    : options.apiKeyFile
+      ? normalizeRawKeyEnvName(options.apiKeyEnvName ?? requireProviderCredentialEnv(provider).apiKeys[0]!)
+      : undefined;
   return {
-    MAKA_HOST_REPO_ROOT: options.makaRepoPath,
-    MAKA_HOST_API_KEY_FILE: options.apiKeyFile,
-    MAKA_HOST_API_KEY_ENV_NAME: normalizeRawKeyEnvName(options.apiKeyEnvName ?? providerEnv.key),
-    ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
+    env: {
+      MAKA_HOST_REPO_ROOT: options.makaRepoPath,
+      ...(copilotCredential
+        ? { MAKA_HOST_API_KEY: copilotCredential.accessToken }
+        : options.apiKeyFile
+          ? { MAKA_HOST_API_KEY_FILE: options.apiKeyFile }
+          : {}),
+      ...(apiKeyEnvName ? { MAKA_HOST_API_KEY_ENV_NAME: apiKeyEnvName } : {}),
+      ...(!options.apiKeyFile && !copilotCredential ? { MAKA_HOST_NO_AUTH: 'true' } : {}),
+      ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
+      ...(copilotCredential ? { MAKA_HOST_MODEL_API_PROTOCOL: copilotCredential.apiProtocol } : {}),
+    },
   };
 }
 
+async function resolveGitHubCopilotHostCredential(
+  githubToken: string,
+  modelId: string,
+  baseUrl: string,
+  fetchFn?: typeof fetch,
+): Promise<{ accessToken: string; baseUrl: string; apiProtocol: 'openai-chat' | 'openai-responses' | 'anthropic-messages' }> {
+  if (!isSupportedGitHubCopilotAccountToken(githubToken)) {
+    throw new Error('GitHub Copilot requires a GitHub OAuth, GitHub App user, or fine-grained account token; classic PATs are not accepted');
+  }
+  const models = await fetchGitHubCopilotModels(baseUrl, githubToken, fetchFn);
+  const model = models.find(({ id }) => id === modelId);
+  if (!model?.apiProtocol) throw new Error(`GitHub Copilot account does not expose model ${modelId}`);
+  return { accessToken: githubToken, baseUrl, apiProtocol: model.apiProtocol };
+}
+
+function githubCopilotAccountTokenFromEnv(
+  provider: string | undefined,
+  agentEnv: Readonly<Record<string, string>> | undefined,
+): string | undefined {
+  if (provider !== 'github-copilot') return undefined;
+  for (const name of providerCredentialEnv(provider)?.apiKeys ?? []) {
+    const value = agentEnv?.[name]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
 function taskAgentEnvWithoutProviderSecrets(options: HarborTaskRunnerOptions): Record<string, string> {
-  const providerEnv = providerSecretEnv(options.provider ?? 'deepseek');
+  const providerEnv = providerCredentialEnv(options.provider ?? 'deepseek');
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(options.agentEnv ?? {})) {
-    if (key === providerEnv.key || key === providerEnv.file || key === providerEnv.baseUrl) continue;
+    if (providerEnv?.apiKeys.includes(key) || key === providerEnv?.apiKeyFile || providerEnv?.baseUrls.includes(key)) continue;
+    if (key === 'MAKA_BASE_URL') continue;
     if (/_API_KEY(_FILE)?$/.test(key)) continue;
     result[key] = value;
   }
@@ -479,6 +603,13 @@ function assertNoExperimentIdentityOverrides(agentEnv: Record<string, string> | 
 
 function normalizeRawKeyEnvName(name: string): string {
   return name.endsWith('_FILE') ? name.slice(0, -'_FILE'.length) : name;
+}
+
+function providerRequiresSecret(provider: string | undefined): boolean {
+  const providerType = (provider ?? 'deepseek') as ProviderType;
+  const definition = PROVIDER_DEFAULTS[providerType];
+  if (!definition) throw new Error(`unsupported MAKA_PROVIDER: ${provider ?? ''}`);
+  return providerAuthRequiresSecret(providerType);
 }
 
 async function findTrialDir(jobDir: string, taskName: string): Promise<string> {
@@ -657,6 +788,10 @@ function isBudgetExhaustedError(error: unknown): error is FixedPromptBudgetExhau
 export function modelIdForProvider(model: string, provider: string): string {
   const prefix = `${provider}/`;
   return model.startsWith(prefix) ? model.slice(prefix.length) : model;
+}
+
+function modelForOpenCode(model: string, provider: string): string {
+  return model.includes('/') ? model : `${provider}/${model}`;
 }
 
 function sanitize(value: string): string {

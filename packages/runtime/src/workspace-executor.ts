@@ -4,7 +4,8 @@ import { glob as nodeGlob } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { ToolExecutionFacts } from '@maka/core/permission';
-import { runShellWithBoundedTail } from './shell-exec.js';
+import { runProcessWithBoundedTail, runShellWithBoundedTail } from './shell-exec.js';
+import type { ChildFdInput } from './child-fd-input.js';
 import type { ShellPlan } from './shell-detect.js';
 
 const execAsync = promisify(exec);
@@ -25,6 +26,10 @@ export const LOCAL_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts = {
 
 export interface WorkspaceExecInput {
   command: string;
+  /** Final executable argv. When provided, bypasses host-shell parsing. */
+  argv?: readonly string[];
+  env?: NodeJS.ProcessEnv;
+  fdInputs?: readonly ChildFdInput[];
   cwd: string;
   timeoutMs: number;
   abortSignal?: AbortSignal;
@@ -190,13 +195,18 @@ export class LocalWorkspaceExecutor implements WorkspaceExecutor {
   readonly facts = LOCAL_WORKSPACE_EXECUTOR_FACTS;
 
   async exec(input: WorkspaceExecInput): Promise<WorkspaceExecResult> {
-    const result = await runShellWithBoundedTail(input.command, {
+    const options = {
       cwd: input.cwd,
       timeoutMs: input.timeoutMs,
+      ...(input.env ? { env: input.env } : {}),
+      ...(input.fdInputs ? { fdInputs: input.fdInputs } : {}),
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
       ...(input.emitOutput ? { emitOutput: input.emitOutput } : {}),
       ...(input.shell ? { shell: input.shell } : {}),
-    });
+    };
+    const result = input.argv
+      ? await runProcessWithBoundedTail(input.argv[0] ?? '', input.argv.slice(1), options)
+      : await runShellWithBoundedTail(input.command, options);
     return {
       stdout: result.stdout,
       stderr: result.stderr,

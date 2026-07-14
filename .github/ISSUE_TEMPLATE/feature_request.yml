@@ -1,0 +1,27 @@
+name: Feature request
+description: Propose an improvement or new capability for Maka
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can you not do today, or what is harder than it should be? Describe the situation rather than a specific implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: desired-outcome
+    attributes:
+      label: Desired outcome
+      description: What would be true for you if this were solved?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: What do you do today instead, and what other approaches have you considered?
+    validations:
+      required: false

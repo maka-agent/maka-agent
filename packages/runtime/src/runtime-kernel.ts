@@ -12,6 +12,7 @@ import type {
 import { isDeepStrictEqual } from 'node:util';
 import type { ChildAgentTurnInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
+import type { UserQuestionResponse } from '@maka/core/user-question';
 import { AgentRun, type AgentRunActiveSession, type AgentRunBeginResult, type AgentRunLineage } from './agent-run.js';
 import { AiSdkFlow, mapSessionEventToRuntimeEvent } from './ai-sdk-flow.js';
 import type { AgentBackend } from '@maka/core/backend-types';
@@ -44,6 +45,7 @@ export interface RuntimeKernelLike {
   startChildTurn(sessionId: string, input: ChildAgentTurnInput): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: StopSessionInput): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
+  respondToUserQuestion?(sessionId: string, response: UserQuestionResponse): Promise<void>;
   hasActiveRuns(sessionId: string): boolean;
   updateCachedHeader(sessionId: string, header: SessionHeader): void;
   disposeBackend(sessionId: string): Promise<void>;
@@ -508,6 +510,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
     const activeSessions = this.activeSessionsFor(sessionId);
     await Promise.all(activeSessions.map((active) => active.backend.respondToPermission(response)));
+  }
+
+  async respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void> {
+    const activeSessions = this.activeSessionsFor(sessionId);
+    await Promise.all(activeSessions.map((active) => active.backend.respondToUserQuestion?.(response)));
   }
 
   hasActiveRuns(sessionId: string): boolean {

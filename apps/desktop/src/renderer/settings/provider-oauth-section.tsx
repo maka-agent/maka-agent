@@ -15,6 +15,7 @@ import {
   ItemTitle,
   RelativeTime,
   Textarea,
+  useMountedRef,
   useToast,
 } from '@maka/ui';
 import { type StatusTone } from './settings-status-badge';
@@ -28,9 +29,9 @@ import {
   type SubscriptionSnapshot,
 } from './use-oauth-login-flow';
 
-type OAuthCardId = 'claude' | 'codex' | 'antigravity' | 'cursor';
+type OAuthCardId = 'claude' | 'codex' | 'github-copilot' | 'antigravity' | 'cursor';
 type OAuthServiceId = OAuthCardId;
-type BrowserOAuthServiceId = Exclude<OAuthServiceId, 'claude'>;
+type BrowserOAuthServiceId = Exclude<OAuthServiceId, 'claude' | 'github-copilot'>;
 
 interface ModelOAuthCard {
   id: OAuthCardId;
@@ -59,6 +60,14 @@ const MODEL_OAUTH_CARDS: ReadonlyArray<ModelOAuthCard> = [
     statusLabel: '可用',
   },
   {
+    id: 'github-copilot',
+    providerType: 'github-copilot',
+    name: 'GitHub Copilot',
+    description: '导入兼容 GitHub 凭据连接 Copilot 订阅。',
+    status: 'available',
+    statusLabel: '可用',
+  },
+  {
     id: 'antigravity',
     providerType: 'gemini-cli',
     name: 'Google Antigravity',
@@ -79,7 +88,7 @@ const MODEL_OAUTH_CARDS: ReadonlyArray<ModelOAuthCard> = [
 export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void> }) {
   const [openModal, setOpenModal] = useState<OAuthServiceId | null>(null);
   const toast = useToast();
-  const modelOAuthMountedRef = useRef(false);
+  const modelOAuthMountedRef = useMountedRef();
   const modelOAuthRefreshTicketRef = useRef(0);
   // PR-OAUTH-CARD-LIVE-STATE-0 (WAWQAQ msg d79fd115 follow-up):
   // before this lift the 3 button cards stayed at the static
@@ -92,6 +101,7 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
   const [cardStates, setCardStates] = useState<Record<OAuthServiceId, SubscriptionSnapshot | null>>({
     claude: null,
     codex: null,
+    'github-copilot': null,
     cursor: null,
     antigravity: null,
   });
@@ -144,10 +154,8 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
   }
 
   useEffect(() => {
-    modelOAuthMountedRef.current = true;
     void refreshAllCards();
     return () => {
-      modelOAuthMountedRef.current = false;
       modelOAuthRefreshTicketRef.current += 1;
     };
   }, []);
@@ -207,7 +215,15 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
           }}
         />
       )}
-      {openModal !== null && openModal !== 'claude' && (
+      {openModal === 'github-copilot' && (
+        <GitHubCopilotSubscriptionModal
+          onClose={() => {
+            setOpenModal(null);
+            void refreshAfterModalClose();
+          }}
+        />
+      )}
+      {openModal !== null && openModal !== 'claude' && openModal !== 'github-copilot' && (
         <SubscriptionLoginModal
           serviceId={openModal}
           onClose={() => {
@@ -332,7 +348,82 @@ async function getSubscriptionSnapshot(serviceId: OAuthServiceId): Promise<Subsc
       errorMessage: state.errorMessage,
     };
   }
+  if (serviceId === 'github-copilot') {
+    return window.maka.githubCopilotSubscription.getAccountState();
+  }
   return (await pickSubscriptionBridge(serviceId).getAccountState()) as SubscriptionSnapshot;
+}
+
+function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
+  const [state, setState] = useState<SubscriptionSnapshot | null>(null);
+  const [pendingAction, setPendingAction] = useState<'connect' | 'refresh' | 'logout' | null>(null);
+  const pendingRef = useRef<typeof pendingAction>(null);
+  const mountedRef = useMountedRef();
+  const toast = useToast();
+
+  async function refreshState() {
+    const next = await window.maka.githubCopilotSubscription.getAccountState();
+    if (mountedRef.current) setState(next);
+  }
+
+  useEffect(() => { void refreshState(); }, []);
+
+  async function runAction(action: NonNullable<typeof pendingAction>) {
+    if (pendingRef.current) return;
+    pendingRef.current = action;
+    setPendingAction(action);
+    try {
+      const result = action === 'connect'
+        ? await window.maka.githubCopilotSubscription.connectExistingLogin()
+        : action === 'refresh'
+          ? await window.maka.githubCopilotSubscription.refreshTokens()
+          : await window.maka.githubCopilotSubscription.logout();
+      if (!result.ok) toast.error('GitHub Copilot 账号操作失败', result.message);
+      await refreshState();
+    } catch (error) {
+      if (mountedRef.current) toast.error('GitHub Copilot 账号操作失败', subscriptionActionErrorMessage(error));
+    } finally {
+      pendingRef.current = null;
+      if (mountedRef.current) setPendingAction(null);
+    }
+  }
+
+  const loggedIn = state?.runtimeState === 'authenticated' || state?.runtimeState === 'refreshing';
+  return (
+    <ProviderSheet onClose={props.onClose} ariaLabel="GitHub Copilot 登录" dataSubscription="github-copilot">
+      <header className="providerConfigHeader">
+        <div>
+          <h3>GitHub Copilot</h3>
+          <p>优先读取 COPILOT_GITHUB_TOKEN，也可尝试兼容的 GitHub CLI 登录；token 不会暴露给渲染进程。</p>
+        </div>
+        <Button type="button" variant="ghost" onClick={props.onClose} aria-label="关闭">×</Button>
+      </header>
+      <div className="settingsConnectionRow" data-status={state?.runtimeState ?? 'loading'}>
+        <p className="settingsConnectionDetail">
+          {loggedIn
+            ? '已导入 GitHub Copilot 订阅账号。'
+            : state?.runtimeState === 'refresh_failed' || state?.runtimeState === 'storage_failed'
+              ? state.errorMessage
+              : '请配置具有 Copilot Requests 权限的 fine-grained PAT；普通 gh auth login 可能不包含该权限。'}
+        </p>
+        <div className="settingsConnectionActions">
+          <Button type="button" onClick={() => void runAction('connect')} disabled={pendingAction !== null}>
+            {pendingAction === 'connect' ? '导入中…' : loggedIn ? '重新导入' : '导入兼容凭据'}
+          </Button>
+          {loggedIn && (
+            <>
+              <Button type="button" variant="secondary" onClick={() => void runAction('refresh')} disabled={pendingAction !== null}>
+                {pendingAction === 'refresh' ? '验证中…' : '重新验证'}
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => void runAction('logout')} disabled={pendingAction !== null}>
+                {pendingAction === 'logout' ? '移除中…' : '移除本地登录'}
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </ProviderSheet>
+  );
 }
 
 function pickSubscriptionBridge(serviceId: BrowserOAuthServiceId): OAuthLoginFlowBridge {
@@ -430,11 +521,9 @@ function ClaudeSubscriptionCard() {
   // would `setState` on an unmounted component (loud warning in dev,
   // masks real bugs in prod). Mirror the `mountedRef` pattern other
   // settings sub-cards in this file use.
-  const claudeCardMountedRef = useRef(true);
+  const claudeCardMountedRef = useMountedRef();
   useEffect(() => {
-    claudeCardMountedRef.current = true;
     return () => {
-      claudeCardMountedRef.current = false;
       const pendingAuthRequestId = claudeAuthRequestIdRef.current;
       claudeAuthRequestIdRef.current = null;
       if (pendingAuthRequestId) void window.maka.claudeSubscription.cancelAuthorization(pendingAuthRequestId);

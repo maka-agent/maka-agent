@@ -241,7 +241,6 @@ export const PrimaryActions: Story = {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <Button>Action primary</Button>
           <Button variant="secondary">Secondary</Button>
-          <Button variant="outline">Outline</Button>
           <Button variant="ghost">Ghost</Button>
           <Button variant="quiet">Quiet</Button>
           <Button variant="destructive">Destructive</Button>
@@ -257,9 +256,7 @@ export const PrimaryActions: Story = {
           <Button variant="secondary" disabled>
             Secondary
           </Button>
-          <Button variant="outline" disabled>
-            Outline
-          </Button>
+          <Button variant="ghost" disabled>Ghost</Button>
           <Button variant="destructive" disabled>
             Destructive
           </Button>
@@ -277,13 +274,10 @@ export const PrimaryActions: Story = {
           <Button size="md">
             <Search /> Medium
           </Button>
-          <Button size="lg">
-            <Plus /> Large
-          </Button>
           <Button size="icon" aria-label="添加">
             <Plus />
           </Button>
-          <Button size="icon-sm" variant="outline" aria-label="删除">
+          <Button size="icon-sm" variant="secondary" aria-label="删除">
             <Trash2 />
           </Button>
         </div>
@@ -302,7 +296,7 @@ export const PrimaryActions: Story = {
             <Spinner style={{ height: 14, width: 14 }} />
             <span>Syncing</span>
           </Button>
-          <Button variant="outline" disabled aria-label="删除">
+          <Button variant="secondary" disabled aria-label="删除">
             <Trash2 />
           </Button>
         </div>

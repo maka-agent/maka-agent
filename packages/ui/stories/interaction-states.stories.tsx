@@ -1,4 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import type { SessionSummary } from '@maka/core';
+import { userEvent } from 'storybook/test';
+import { SessionListPanel } from '../src/session-list-panel.js';
 import { Button } from '../src/ui.js';
 
 const meta = {
@@ -7,76 +10,163 @@ const meta = {
 } satisfies Meta;
 
 export default meta;
-
 type Story = StoryObj<typeof meta>;
 
-// Visual contract for the two interaction-state backgrounds:
-//   hover     -> --state-hover-bg     (4% foreground alpha, transient)
-//   selected  -> --state-selected-bg  (6.5% foreground alpha, persistent)
-//   pressed   -> :active background = --state-selected-bg (no scale transform)
-// The rows below pin each state statically so reviewers can compare wash
-// intensity and confirm hover (4%) < selected (6.5%). Press feedback is a
-// background change, not a scale — pinned by the state-token contracts from #499.
+const VARIANTS = ['default', 'secondary', 'ghost', 'quiet', 'destructive'] as const;
+const NEUTRAL_VARIANTS = ['secondary', 'ghost', 'quiet'] as const;
+const noop = () => undefined;
 
-const rowStyle: React.CSSProperties = {
-  display: 'flex',
+const COMPOSITE_ROW_SESSIONS: SessionSummary[] = [
+  {
+    id: 'interaction-active',
+    name: '整理中文 compact controls',
+    isFlagged: false,
+    isArchived: false,
+    labels: [],
+    hasUnread: false,
+    status: 'active',
+    backend: 'fake',
+    llmConnectionSlug: 'fixture',
+    model: 'fixture-model',
+    permissionMode: 'ask',
+  },
+  {
+    id: 'interaction-default',
+    name: 'Review English interaction states',
+    isFlagged: false,
+    isArchived: false,
+    labels: [],
+    hasUnread: true,
+    status: 'active',
+    backend: 'fake',
+    llmConnectionSlug: 'fixture',
+    model: 'fixture-model',
+    permissionMode: 'ask',
+  },
+];
+
+function StoryFrame(props: { children: React.ReactNode; description: string; title: string }) {
+  return (
+    <section style={{ display: 'grid', gap: 16, maxWidth: 900 }}>
+      <div>
+        <h2 style={{ fontSize: 16, margin: 0 }}>{props.title}</h2>
+        <p style={{ color: 'var(--foreground-secondary)', fontSize: 12, margin: '4px 0 0' }}>
+          {props.description}
+        </p>
+      </div>
+      {props.children}
+    </section>
+  );
+}
+
+const rowStyle = {
   alignItems: 'center',
-  gap: 12,
-  padding: '8px 12px',
-  borderRadius: 6,
-  fontSize: 13,
-  fontFamily: 'var(--font-sans)',
-  border: '1px solid var(--border)',
+  display: 'grid',
+  gap: 8,
+  gridTemplateColumns: '88px repeat(6, max-content)',
+} as const;
+
+export const ButtonStates: Story = {
+  render: () => (
+    <StoryFrame
+      title="按钮比例 / Button proportions"
+      description="同一个 primitive 负责中英文、五种 variant 与 disabled 的统一比例。"
+    >
+      {VARIANTS.map((variant) => (
+        <div key={variant} style={{ ...rowStyle, gridTemplateColumns: '88px repeat(3, max-content)' }}>
+          <code style={{ color: 'var(--foreground-secondary)', fontSize: 11 }}>{variant}</code>
+          <Button variant={variant}>中文状态</Button>
+          <Button variant={variant}>English state</Button>
+          <Button variant={variant} disabled>已禁用 / Disabled</Button>
+        </div>
+      ))}
+    </StoryFrame>
+  ),
 };
 
 export const ListRowStates: Story = {
   render: () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 360 }}>
-      <div style={{ ...rowStyle, background: 'transparent', color: 'var(--foreground-secondary)' }}>
-        <span>default</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted-foreground)' }}>transparent</span>
+    <StoryFrame
+      title="复合行 / Composite rows"
+      description="真实侧栏导航与会话行保留自己的布局、选中态和 focus-within seam。"
+    >
+      <div style={{ height: 440, overflow: 'hidden', width: 260 }}>
+        <SessionListPanel
+          selection={{ section: 'skills' }}
+          sessions={COMPOSITE_ROW_SESSIONS}
+          activeId="interaction-active"
+          onSelectSession={noop}
+          onSelect={noop}
+          onOpenSettings={noop}
+          onNew={noop}
+        />
       </div>
-      <div style={{ ...rowStyle, background: 'var(--state-hover-bg)', color: 'var(--foreground)' }}>
-        <span>hover</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted-foreground)' }}>--state-hover-bg · 4%</span>
-      </div>
-      <div style={{ ...rowStyle, background: 'var(--state-selected-bg)', color: 'var(--foreground)', fontWeight: 500 }}>
-        <span>selected / pressed</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted-foreground)' }}>--state-selected-bg · 6.5% · no scale</span>
-      </div>
-    </div>
+    </StoryFrame>
   ),
+  play: async ({ canvasElement }) => {
+    const hoverTarget = canvasElement.querySelector<HTMLButtonElement>('.maka-nav-row:not([data-active="true"])');
+    hoverTarget?.setAttribute('data-state-target', 'hover');
+    const focusTarget = canvasElement.querySelector<HTMLButtonElement>('.maka-list-row[data-active="true"] .maka-list-row-main');
+    focusTarget?.setAttribute('data-state-target', 'focus');
+    const tabStops = Array.from(canvasElement.querySelectorAll<HTMLButtonElement>('button:not([disabled])'));
+    const focusIndex = focusTarget ? tabStops.indexOf(focusTarget) : -1;
+    if (focusIndex > 0) {
+      tabStops[focusIndex - 1]?.focus();
+      await userEvent.tab();
+    }
+  },
 };
 
 export const NeutralButtonStates: Story = {
   render: () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 480 }}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Button variant="ghost">ghost default</Button>
-        <Button variant="ghost" style={{ background: 'var(--muted)' } as React.CSSProperties}>
-          ghost hover (demo)
-        </Button>
-        <Button variant="ghost" style={{ background: 'var(--state-selected-bg)' } as React.CSSProperties}>
-          ghost pressed (demo)
-        </Button>
+    <StoryFrame
+      title="中性按钮 / Neutral buttons"
+      description="用浏览器指针悬停或按住对应目标；focus 由 story 的真实 DOM focus 固定。"
+    >
+      <div style={rowStyle}>
+        <code style={{ color: 'var(--foreground-secondary)', fontSize: 11 }}>secondary</code>
+        <Button variant="secondary">静止</Button>
+        <Button variant="secondary" data-state-target="hover">悬停</Button>
+        <Button variant="secondary" data-state-target="active">按下</Button>
+        <Button variant="secondary" data-state-target="focus">焦点</Button>
+        <Button variant="secondary" disabled data-state-target="disabled">禁用</Button>
+        <Button variant="secondary" aria-disabled="true" data-state-target="aria-disabled">ARIA 禁用</Button>
       </div>
-      <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: 0 }}>
-        Neutral variants (ghost/outline/secondary/quiet) press with state tokens: hover = <code>bg-muted</code> (var(--muted)), pressed = <code>--state-selected-bg</code>. Matches ui.tsx buttonVariants.
-      </p>
-    </div>
+      {NEUTRAL_VARIANTS.slice(1).map((variant) => (
+        <div key={variant} style={{ ...rowStyle, gridTemplateColumns: '88px repeat(3, max-content)' }}>
+          <code style={{ color: 'var(--foreground-secondary)', fontSize: 11 }}>{variant}</code>
+          <Button variant={variant}>静止</Button>
+          <Button variant={variant} disabled>禁用</Button>
+          <Button variant={variant} aria-disabled="true">ARIA 禁用</Button>
+        </div>
+      ))}
+    </StoryFrame>
   ),
+  play: async ({ canvasElement }) => {
+    canvasElement.querySelector<HTMLButtonElement>('[data-state-target="focus"]')?.focus();
+  },
 };
 
 export const SolidButtonStates: Story = {
   render: () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 480 }}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        <Button variant="default">default</Button>
-        <Button variant="destructive">destructive</Button>
-      </div>
-      <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: 0 }}>
-        Solid variants (default/destructive) fill with primary/destructive and press to their hover state (<code>hover:bg-primary/90 active:bg-primary/90</code>). They are NOT state-token surfaces — see ui.tsx buttonVariants for the real values.
-      </p>
-    </div>
+    <StoryFrame
+      title="实心按钮 / Solid buttons"
+      description="default 与 destructive 共用同一交互层级；按住 Active 目标检查真实 :active。"
+    >
+      {(['default', 'destructive'] as const).map((variant) => (
+        <div key={variant} style={rowStyle}>
+          <code style={{ color: 'var(--foreground-secondary)', fontSize: 11 }}>{variant}</code>
+          <Button variant={variant}>静止</Button>
+          <Button variant={variant} data-state-target="hover">悬停</Button>
+          <Button variant={variant} data-state-target="active">按下</Button>
+          <Button variant={variant} data-state-target="focus">焦点</Button>
+          <Button variant={variant} disabled data-state-target="disabled">禁用</Button>
+          <Button variant={variant} aria-disabled="true" data-state-target="aria-disabled">ARIA 禁用</Button>
+        </div>
+      ))}
+    </StoryFrame>
   ),
+  play: async ({ canvasElement }) => {
+    canvasElement.querySelector<HTMLButtonElement>('[data-state-target="focus"]')?.focus();
+  },
 };

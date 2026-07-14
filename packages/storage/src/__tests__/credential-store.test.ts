@@ -35,6 +35,16 @@ describe('FileCredentialStore', () => {
     });
   });
 
+  test('keeps Ollama Cloud credentials separate from local Ollama state', async () => {
+    await withTempDir(async (dir) => {
+      const store = createFileCredentialStore(dir);
+      await store.setSecret('ollama-cloud', 'api_key', 'ollama-cloud-test-key');
+
+      assert.equal(await store.getSecret('ollama-cloud', 'api_key'), 'ollama-cloud-test-key');
+      assert.equal(await store.getSecret('ollama-local', 'api_key'), null);
+    });
+  });
+
   test('deleteSecret(slug) with no kind clears every kind for that slug only', async () => {
     await withTempDir(async (dir) => {
       const store = createFileCredentialStore(dir);

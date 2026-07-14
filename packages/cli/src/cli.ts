@@ -15,6 +15,7 @@ export type MakaCliCommand =
   | { kind: 'tui' }
   | { kind: 'run'; args: string[] }
   | { kind: 'eval'; args: string[] }
+  | { kind: 'inspect'; args: string[] }
   | { kind: 'help'; text: string }
   | { kind: 'version'; text: string }
   | { kind: 'error'; message: string; exitCode: number };
@@ -26,6 +27,7 @@ export function parseMakaCliArgs(argv: string[], version: string): MakaCliComman
   if (first === '--version' || first === '-v') return { kind: 'version', text: version };
   if (first === 'run' || first === '-p') return { kind: 'run', args: argv.slice(1) };
   if (first === 'eval') return { kind: 'eval', args: argv.slice(1) };
+  if (first === 'inspect') return { kind: 'inspect', args: argv.slice(1) };
   return {
     kind: 'error',
     message: `Unexpected argument: ${first ?? ''}`,
@@ -77,6 +79,7 @@ function helpText(): string {
     '  maka run ...      Run one non-interactive model turn',
     '  maka -p ...       Alias for maka run',
     '  maka eval ...     Run evaluation and autonomous task commands',
+    '  maka inspect ...  Inspect Session, AgentRun, or TaskRun evidence',
     '',
     'Options:',
     '  -h, --help        Show help',
@@ -96,6 +99,10 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
       const { runMakaEvalCli } = await import('@maka/headless/eval-router');
       return runMakaEvalCli(command.args);
     }
+    case 'inspect': {
+      const { runMakaInspectCli } = await import('./inspect-command.js');
+      return runMakaInspectCli(command.args);
+    }
     case 'help':
       process.stdout.write(`${command.text}\n`);
       return 0;
@@ -110,6 +117,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
       let context;
       try {
         context = await createMakaCliRuntimeContext({
+          surface: 'tui',
           workspaceRoot,
           cwd: process.cwd(),
         });

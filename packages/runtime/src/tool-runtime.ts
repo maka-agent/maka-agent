@@ -14,8 +14,20 @@ import type {
 } from '@maka/core/session';
 import type { PermissionDecision } from '@maka/core/backend-types';
 import type { AgentSpec } from '@maka/core/runtime-inputs';
-import type { ToolCategory, ToolExecutionFacts, ToolPermissionRule } from '@maka/core/permission';
+import type {
+  PermissionMode,
+  ToolCategory,
+  ToolExecutionFacts,
+  ToolPermissionRule,
+} from '@maka/core/permission';
+import { classifyToolUse } from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
+import type {
+  UserQuestion,
+  UserQuestionResponse,
+  UserQuestionResult,
+} from '@maka/core/user-question';
+import { computerUseApprovalSummary } from '@maka/core';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import { redactSecrets } from '@maka/core/redaction';
@@ -30,6 +42,23 @@ import { createToolOutputDeltaEmitter } from './tool-output-delta.js';
 import { truncateToolOutput } from './tool-output.js';
 import { stableHash } from './request-shape.js';
 import type { RunTraceLike } from './run-trace.js';
+import { TurnScopedAwaitRegistry } from './turn-scoped-await-registry.js';
+import {
+  AdditionalPermissionError,
+  revalidateAdditionalPermissionProposal,
+  type AdditionalPermissionPlannerContext,
+  type AdditionalPermissionPlanResult,
+  type ToolExecutionPermissionContext,
+} from './additional-permissions.js';
+
+export type ToolModelOutputPart =
+  | { type: 'text'; text: string }
+  | { type: 'image-data'; data: string; mediaType: string };
+
+export interface ToolModelOutput {
+  type: 'content';
+  value: ToolModelOutputPart[];
+}
 
 export interface MakaTool<P = any, R = unknown> {
   /** Canonical (Claude-SDK-style) name. Pi adapter translates to canonical. */
@@ -51,8 +80,30 @@ export interface MakaTool<P = any, R = unknown> {
   categoryHint?: ToolCategory;
   /** Optional trusted facts about the executor that runs this tool. */
   executionFacts?: ToolExecutionFacts;
+  /** Optional permission/persistence projection derived from isolated execution args. */
+  permissionArgs?: (
+    args: P,
+    context: Pick<MakaToolContext, 'sessionId' | 'turnId' | 'toolCallId'>,
+  ) => unknown;
+  /** Optional trusted platform sandbox availability for this tool. */
+  sandbox?: {
+    platformSandboxAvailable: boolean;
+  } | ((context: { permissionMode: PermissionMode; cwd: string; args: P }) => {
+    platformSandboxAvailable: boolean;
+  });
+  /** Trusted runtime planner for one-call permission expansion. */
+  planAdditionalPermissions?: (
+    args: P,
+    context: AdditionalPermissionPlannerContext,
+  ) => Promise<AdditionalPermissionPlanResult> | AdditionalPermissionPlanResult;
   /** Real tool implementation. Called only after permission allows. */
   impl: (args: P, ctx: MakaToolContext) => Promise<R> | R;
+  /** Optional provider-visible content mapping, used for screenshot image parts. */
+  toModelOutput?: (options: {
+    toolCallId: string;
+    input: unknown;
+    output: unknown;
+  }) => ToolModelOutput;
 }
 
 export interface MakaToolContext {
@@ -61,15 +112,20 @@ export interface MakaToolContext {
   turnId: string;
   /** Session working directory. */
   cwd: string;
+  permissionMode?: PermissionMode;
   toolCallId: string;
   abortSignal: AbortSignal;
   emitOutput: (stream: ToolOutputStream, chunk: string) => void;
+  /** One-call grants already approved and consumed by ToolRuntime. */
+  permissionContext?: ToolExecutionPermissionContext;
   spawnChildAgent?: (input: {
     spec: AgentSpec;
     prompt: string;
+    onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
+  askUserQuestion?: (questions: UserQuestion[]) => Promise<UserQuestionResult>;
 }
 
 export type AppendMessageFn = (m: ToolCallMessage | ToolResultMessage | PermissionDecisionMessage) => Promise<void>;
@@ -128,6 +184,7 @@ export interface ToolRuntimeInput {
     spec: AgentSpec;
     prompt: string;
     abortSignal: AbortSignal;
+    onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
@@ -139,6 +196,10 @@ export interface ToolRuntimeInput {
 }
 
 export class ToolRuntime {
+  private readonly userQuestions = new TurnScopedAwaitRegistry<
+    UserQuestionResponse,
+    { toolUseId: string; questions: UserQuestion[] }
+  >();
   private activeSubagentToolCount = 0;
   /**
    * Tool-availability gating for the execute boundary. Set by the backend each
@@ -155,8 +216,42 @@ export class ToolRuntime {
    */
   private lastFailedToolCallSignature: string | undefined;
   private failedToolCallStreak = 0;
+  private lastAmbiguousComputerSignature: string | undefined;
 
   constructor(private readonly input: ToolRuntimeInput) {}
+
+  beginTurn(turnId: string): void {
+    this.resetTurnState();
+    this.userQuestions.beginTurn(turnId);
+  }
+
+  endTurn(turnId: string, reason: 'completed' | 'aborted' = 'completed'): void {
+    this.userQuestions.endTurn(
+      turnId,
+      (requestId) => new Error(`Turn ${turnId} ${reason} before user question ${requestId} was answered`),
+    );
+    this.resetTurnState();
+  }
+
+  respondToUserQuestion(turnId: string, response: UserQuestionResponse): boolean {
+    if (!response || typeof response.requestId !== 'string' || !Array.isArray(response.answers)) {
+      throw new Error('Invalid user question response');
+    }
+    const pending = this.userQuestions.entries(turnId)
+      .find(([requestId]) => requestId === response.requestId)?.[1];
+    if (!pending) return false;
+    if (
+      response.answers.length !== pending.questions.length
+      || response.answers.some((answer) => answer !== null && (typeof answer !== 'string' || answer.length === 0))
+    ) {
+      throw new Error('Invalid user question response');
+    }
+    return this.userQuestions.resolve(turnId, response.requestId, response) !== null;
+  }
+
+  pendingUserQuestionCount(turnId: string): number {
+    return this.userQuestions.pendingCount(turnId);
+  }
 
   wrapToolExecute(
     tool: MakaTool,
@@ -184,6 +279,7 @@ export class ToolRuntime {
     this.gating = undefined;
     this.lastFailedToolCallSignature = undefined;
     this.failedToolCallStreak = 0;
+    this.lastAmbiguousComputerSignature = undefined;
   }
 
   /**
@@ -244,9 +340,20 @@ export class ToolRuntime {
     args: unknown,
     ctx: { toolCallId: string; abortSignal: AbortSignal },
   ): Promise<unknown> {
+    const executionArgs = snapshotToolArgs(args);
     const toolUseId = ctx.toolCallId;
+    const permissionArgs = tool.permissionArgs
+      ? snapshotToolArgs(tool.permissionArgs(structuredClone(executionArgs) as never, {
+          sessionId: this.input.sessionId,
+          turnId,
+          toolCallId: toolUseId,
+        }))
+      : executionArgs;
+    const persistedArgs = tool.categoryHint === 'computer_use'
+      ? snapshotToolArgs(computerUseApprovalSummary(permissionArgs))
+      : permissionArgs;
     const now = this.input.now();
-    const toolIntent = describeToolIntent(tool, args);
+    const toolIntent = describeToolIntent(tool, persistedArgs);
     const trace = this.input.getRunTrace?.() ?? null;
 
     const stepId = this.input.getCurrentStepId?.();
@@ -259,7 +366,7 @@ export class ToolRuntime {
       ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
-      args,
+      args: structuredClone(persistedArgs),
       // Persist the same step id the tool_start event carries so the UI
       // timeline and post-restart backfill can pair this call with its step.
       ...(stepId !== undefined ? { stepId } : {}),
@@ -273,7 +380,7 @@ export class ToolRuntime {
       toolUseId,
       toolName: tool.name,
       ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
-      args,
+      args: structuredClone(persistedArgs),
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
       ...(stepId !== undefined ? { stepId } : {}),
@@ -296,7 +403,30 @@ export class ToolRuntime {
     // so polling and iterate-then-retry are never gated. Recoverable: the model
     // is told to change its approach. The block itself records no outcome, so the
     // streak stays parked and every further identical repeat stays blocked.
-    const callSignature = `${tool.name} ${loopGateArgsKey(args, toolUseId)}`;
+    const callSignature = `${tool.name} ${loopGateArgsKey(executionArgs, toolUseId)}`;
+    const computerSemanticSignature = tool.categoryHint === 'computer_use'
+      ? computerUseSemanticSignature(executionArgs)
+      : undefined;
+    if (
+      computerSemanticSignature
+      && computerSemanticSignature === this.lastAmbiguousComputerSignature
+    ) {
+      const reason = formatAmbiguousComputerLoopGateText();
+      await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
+      trace?.emit('tool', 'tool_failed', 'Blocked repeated ambiguous Computer Use target', {
+        toolUseId,
+        toolName: tool.name,
+        status: 'error',
+        errorClass: 'AmbiguousComputerTarget',
+      });
+      return this.errorReturn(reason);
+    }
+    if (
+      this.lastAmbiguousComputerSignature
+      && computerSemanticSignature !== this.lastAmbiguousComputerSignature
+    ) {
+      this.lastAmbiguousComputerSignature = undefined;
+    }
     if (
       callSignature === this.lastFailedToolCallSignature
       && this.failedToolCallStreak >= LOOP_GATE_IDENTICAL_THRESHOLD - 1
@@ -332,18 +462,87 @@ export class ToolRuntime {
       return this.errorReturn(reason);
     }
 
-    if (tool.permissionRequired !== false || (this.input.permissionRules?.length ?? 0) > 0) {
+    let additionalPlan: AdditionalPermissionPlanResult = { kind: 'not_required' };
+    if (tool.planAdditionalPermissions) {
+      try {
+        const plannerContext: AdditionalPermissionPlannerContext = Object.freeze({
+          sessionId: this.input.sessionId,
+          turnId,
+          toolUseId,
+          toolName: tool.name,
+          category: classifyToolUse({
+            toolName: tool.name,
+            args: executionArgs,
+            ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
+          }),
+          cwd: this.input.header.cwd,
+          mode: this.input.header.permissionMode,
+          args: executionArgs,
+        });
+        const planned = await tool.planAdditionalPermissions(
+          executionArgs as never,
+          plannerContext,
+        );
+        if (!isAdditionalPermissionPlanResult(planned)) {
+          throw new AdditionalPermissionError({
+            stage: 'planning',
+            reason: 'invalid_additional_permissions',
+            message: 'Additional permission planner returned an invalid result.',
+          });
+        }
+        additionalPlan = planned;
+      } catch (error) {
+        additionalPlan = {
+          kind: 'block',
+          reason: 'invalid_additional_permissions',
+          message: formatSyntheticToolErrorText(error),
+        };
+      }
+      if (additionalPlan.kind === 'block') {
+        const reason = formatSyntheticToolErrorText(additionalPlan.message);
+        trace?.emit('permission', 'permission_failed', 'Additional permission planning failed', {
+          toolUseId,
+          toolName: tool.name,
+          requestKind: 'additional_permissions',
+          reason: additionalPlan.reason,
+        });
+        await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
+        this.recordLoopGateOutcome(callSignature, true);
+        return this.errorReturn(reason);
+      }
+    }
+
+    if (
+      tool.permissionRequired !== false
+      || (this.input.permissionRules?.length ?? 0) > 0
+      || additionalPlan.kind === 'request'
+    ) {
       const verdict = this.input.permissionEngine.evaluate({
         sessionId: this.input.sessionId,
         turnId,
         toolUseId,
         toolName: tool.name,
-        args,
+        args: structuredClone(
+          additionalPlan.kind === 'request' ? executionArgs : permissionArgs,
+        ),
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         permissionRequired: tool.permissionRequired !== false,
         ...(this.input.permissionRules !== undefined ? { permissionRules: this.input.permissionRules } : {}),
+        ...(tool.sandbox !== undefined ? {
+          sandbox: typeof tool.sandbox === 'function'
+            ? tool.sandbox({
+              permissionMode: this.input.header.permissionMode,
+              cwd: this.input.header.cwd,
+              args: structuredClone(executionArgs),
+            })
+            : tool.sandbox,
+        } : {}),
         mode: this.input.header.permissionMode,
+        cwd: this.input.header.cwd,
+        ...(additionalPlan.kind === 'request'
+          ? { additionalPermissionProposal: additionalPlan.proposal }
+          : {}),
       });
 
       if (verdict.kind === 'block') {
@@ -383,6 +582,7 @@ export class ToolRuntime {
           toolUseId,
           toolName: tool.name,
           category: verdict.event.category,
+          requestKind: verdict.event.kind ?? 'tool_permission',
         });
         let response: PermissionDecision;
         try {
@@ -394,7 +594,8 @@ export class ToolRuntime {
             requestId: verdict.event.requestId,
             toolUseId,
             toolName: tool.name,
-            reason,
+            requestKind: verdict.event.kind ?? 'tool_permission',
+            reason: err instanceof AdditionalPermissionError ? err.reason : reason,
           });
           await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
           trace?.emit('tool', 'tool_failed', 'Tool execution failed before implementation', {
@@ -433,6 +634,7 @@ export class ToolRuntime {
           toolUseId,
           toolName: tool.name,
           decision: response.decision,
+          requestKind: verdict.event.kind ?? 'tool_permission',
           ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
         });
 
@@ -469,6 +671,45 @@ export class ToolRuntime {
       this.recordLoopGateOutcome(callSignature, true);
       return this.errorReturn(SUBAGENT_TOOL_LIMIT_MESSAGE);
     }
+
+    let permissionContext: ToolExecutionPermissionContext | undefined;
+    if (additionalPlan.kind === 'request') {
+      try {
+        await revalidateAdditionalPermissionProposal({
+          proposal: additionalPlan.proposal,
+          cwd: this.input.header.cwd,
+        });
+        const additionalGrant = this.input.permissionEngine.consumeAdditionalPermissionGrant({
+          sessionId: this.input.sessionId,
+          turnId,
+          toolUseId,
+          toolName: tool.name,
+          intentHash: additionalPlan.proposal.intentHash,
+        });
+        if (!additionalGrant) {
+          throw new AdditionalPermissionError({
+            stage: 'consume',
+            reason: 'grant_unavailable',
+            message: 'Approved additional permission grant was unavailable.',
+          });
+        }
+        permissionContext = Object.freeze({ additionalGrant });
+      } catch (error) {
+        const reason = formatSyntheticToolErrorText(error);
+        trace?.emit('permission', 'permission_failed', 'Additional permission could not be applied', {
+          toolUseId,
+          toolName: tool.name,
+          requestKind: 'additional_permissions',
+          reason: error instanceof AdditionalPermissionError
+            ? error.reason
+            : 'invalid_additional_permissions',
+        });
+        await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
+        this.recordLoopGateOutcome(callSignature, true);
+        this.releaseSubagentSlot(tool);
+        return this.errorReturn(reason);
+      }
+    }
     const startedAt = this.input.now();
     const output = createToolOutputDeltaEmitter({
       sessionId: this.input.sessionId,
@@ -496,23 +737,26 @@ export class ToolRuntime {
       pauseTarget?.pause();
       try {
         const runId = this.input.getCurrentRunId?.();
-        const result = await tool.impl(args as never, {
+        const result = await tool.impl(structuredClone(executionArgs) as never, {
           sessionId: this.input.sessionId,
           turnId,
           ...(runId ? { runId } : {}),
           cwd: this.input.header.cwd,
+          permissionMode: this.input.header.permissionMode,
           toolCallId: toolUseId,
           abortSignal: ctx.abortSignal,
           emitOutput: output.emit,
+          ...(permissionContext ? { permissionContext } : {}),
           ...(this.input.listChildAgents ? { listChildAgents: this.input.listChildAgents } : {}),
           ...(this.input.readChildAgentOutput ? { readChildAgentOutput: this.input.readChildAgentOutput } : {}),
           ...(this.buildSpawnChildAgentContext(ctx.abortSignal)),
+          askUserQuestion: (questions) => this.askUserQuestion(turnId, toolUseId, questions, queue),
         });
         output.flush();
         const durationMs = this.input.now() - startedAt;
 
         const content = coerceResultContent(result);
-        const toolResultStatus = deriveToolResultStatus(content);
+        const toolResultStatus = deriveToolResultStatus(content, result);
         const resultMsg: ToolResultMessage = {
           type: 'tool_result',
           id: this.input.newId(),
@@ -544,8 +788,10 @@ export class ToolRuntime {
           modelId: this.input.modelId,
           durationMs,
           status: toolResultStatus,
-          argsSummary: summarizeArgs(tool.name, args),
-          bytesIn: byteLength(args),
+          argsSummary: tool.categoryHint === 'computer_use'
+            ? summarizePersistedArgs(persistedArgs)
+            : summarizeArgs(tool.name, executionArgs),
+          bytesIn: byteLength(persistedArgs),
           bytesOut: byteLength(result),
           startedAt,
         });
@@ -563,7 +809,7 @@ export class ToolRuntime {
             toolUseId,
             toolName: tool.name,
             cwd: this.input.header.cwd,
-            args,
+            args: structuredClone(persistedArgs),
             result,
           },
           this.input.recordToolArtifacts,
@@ -580,13 +826,16 @@ export class ToolRuntime {
         );
 
         attemptFailed = toolResultStatus !== 'success';
+        this.lastAmbiguousComputerSignature = isAmbiguousComputerFailure(result)
+          ? computerSemanticSignature
+          : undefined;
         return result;
       } finally {
         pauseTarget?.resume();
       }
     } catch (err) {
       output.flush();
-      const terminalFailure = coerceTerminalFailure(tool, this.input.header.cwd, args, err);
+      const terminalFailure = coerceTerminalFailure(tool, this.input.header.cwd, executionArgs, err);
       if (terminalFailure) {
         const durationMs = Math.max(0, this.input.now() - startedAt);
         const resultMsg: ToolResultMessage = {
@@ -620,8 +869,10 @@ export class ToolRuntime {
           durationMs,
           status: 'error',
           errorClass: classifyError(err),
-          argsSummary: summarizeArgs(tool.name, args),
-          bytesIn: byteLength(args),
+          argsSummary: tool.categoryHint === 'computer_use'
+            ? summarizePersistedArgs(persistedArgs)
+            : summarizeArgs(tool.name, executionArgs),
+          bytesIn: byteLength(persistedArgs),
           bytesOut: byteLength(terminalFailure.content),
           startedAt,
         });
@@ -646,8 +897,10 @@ export class ToolRuntime {
         durationMs: Math.max(0, this.input.now() - startedAt),
         status: 'error',
         errorClass: classifyError(err),
-        argsSummary: summarizeArgs(tool.name, args),
-        bytesIn: byteLength(args),
+        argsSummary: tool.categoryHint === 'computer_use'
+          ? summarizePersistedArgs(persistedArgs)
+          : summarizeArgs(tool.name, executionArgs),
+        bytesIn: byteLength(persistedArgs),
         bytesOut: 0,
         startedAt,
       });
@@ -719,7 +972,34 @@ export class ToolRuntime {
         spec: input.spec,
         prompt: input.prompt,
         abortSignal,
+        ...(input.onReady ? { onReady: input.onReady } : {}),
       }) ?? Promise.reject(new Error('spawnChildAgent is unavailable')),
+    };
+  }
+
+  private async askUserQuestion(
+    turnId: string,
+    toolUseId: string,
+    questions: UserQuestion[],
+    queue: AsyncEventQueue<SessionEvent> | { push(event: SessionEvent): void },
+  ): Promise<UserQuestionResult> {
+    const requestId = this.input.newId();
+    const parked = this.userQuestions.park(turnId, requestId, { toolUseId, questions });
+    queue.push({
+      type: 'user_question_request',
+      id: this.input.newId(),
+      turnId,
+      ts: this.input.now(),
+      requestId,
+      toolUseId,
+      questions,
+    });
+    const response = await parked;
+    return {
+      answers: questions.map((question, index) => ({
+        question: question.question,
+        answer: response.answers[index] ?? null,
+      })),
     };
   }
 }
@@ -752,6 +1032,27 @@ function loopGateArgsKey(args: unknown, callId: string): string {
   }
 }
 
+function computerUseSemanticSignature(args: unknown): string | undefined {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return undefined;
+  const record = args as Record<string, unknown>;
+  if (
+    record.action !== 'click_element'
+    && record.action !== 'set_value'
+    && record.action !== 'select_text'
+    && record.action !== 'secondary_action'
+  ) return undefined;
+  try {
+    return stableHash({
+      action: record.action,
+      element_id: record.element_id,
+      value: record.value,
+      text: record.text,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Recoverable message returned when the loop-gate blocks a repeated identical
  * failing call. Tells the model the retry is pointless and to change its approach.
@@ -762,6 +1063,14 @@ export function formatLoopGateText(toolName: string): string {
     `repeatedly with no change between attempts, so it was not run again — the result ` +
     `would be the same. Change the arguments or take a different step (for example ` +
     `Read the file or inspect the relevant state) before retrying.`
+  );
+}
+
+export function formatAmbiguousComputerLoopGateText(): string {
+  return (
+    'Blocked: this Computer Use semantic target was already rejected as ambiguous '
+    + 'after a fresh observation. Do not retry the same element identity or guess '
+    + 'between duplicates; choose a uniquely identified target or stop.'
   );
 }
 
@@ -876,7 +1185,16 @@ function buildTerminalFailureMessage(code: number, stdout: string, stderr: strin
   return parts.join('\n\n');
 }
 
-function deriveToolResultStatus(content: ToolResultContent): ToolInvocationRecord['status'] {
+function deriveToolResultStatus(
+  content: ToolResultContent,
+  raw?: unknown,
+): ToolInvocationRecord['status'] {
+  if (
+    raw
+    && typeof raw === 'object'
+    && typeof (raw as { error?: unknown }).error === 'string'
+    && (raw as { error: string }).error.length > 0
+  ) return 'error';
   if (content.kind === 'explore_agent' && content.ok === false) {
     return content.reason === 'aborted' ? 'aborted' : 'error';
   }
@@ -909,10 +1227,25 @@ function deriveToolResultStatus(content: ToolResultContent): ToolInvocationRecor
   return 'success';
 }
 
+function isAmbiguousComputerFailure(raw: unknown): boolean {
+  return Boolean(
+    raw
+    && typeof raw === 'object'
+    && (raw as { error?: unknown }).error === 'stale_frame'
+    && (raw as { failureClass?: unknown }).failureClass === 'ambiguous_target',
+  );
+}
+
 function summarizeArgs(toolName: string, args: unknown): string {
   const projected = projectToolActivityArgs(toolName, args);
   const raw = typeof projected === 'string' ? projected : JSON.stringify(projected ?? null);
   const text = toolName === 'WriteStdin' ? raw : redactSecrets(raw);
+  return text.length <= 512 ? text : `${text.slice(0, 511)}…`;
+}
+
+function summarizePersistedArgs(args: unknown): string {
+  const raw = typeof args === 'string' ? args : JSON.stringify(args ?? null);
+  const text = redactSecrets(raw);
   return text.length <= 512 ? text : `${text.slice(0, 511)}…`;
 }
 
@@ -927,8 +1260,44 @@ function describeToolIntent(tool: MakaTool, args: unknown): string | undefined {
   return `只读探索：${capped}`;
 }
 
+function isAdditionalPermissionPlanResult(
+  value: unknown,
+): value is AdditionalPermissionPlanResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const result = value as Record<string, unknown>;
+  if (result.kind === 'not_required') return true;
+  if (result.kind === 'request') {
+    return Boolean(result.proposal && typeof result.proposal === 'object');
+  }
+  return result.kind === 'block'
+    && typeof result.reason === 'string'
+    && typeof result.message === 'string';
+}
+
 function byteLength(value: unknown): number {
   if (value === undefined) return 0;
   const text = typeof value === 'string' ? value : JSON.stringify(value ?? null);
   return Buffer.byteLength(text, 'utf8');
+}
+
+function snapshotToolArgs(value: unknown): unknown {
+  return snapshotJsonValue(value, new WeakSet<object>());
+}
+
+function snapshotJsonValue(value: unknown, seen: WeakSet<object>): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) throw new Error('Tool arguments must not contain cycles');
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map((entry) => snapshotJsonValue(entry, seen)));
+  }
+  const output: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !('value' in descriptor)) {
+      throw new Error(`Tool argument ${key} must be a plain data property`);
+    }
+    output[key] = snapshotJsonValue(descriptor.value, seen);
+  }
+  return Object.freeze(output);
 }

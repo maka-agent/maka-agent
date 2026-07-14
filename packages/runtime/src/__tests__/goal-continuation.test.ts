@@ -197,4 +197,93 @@ describe('handleGoalContinuation', () => {
     const out = await handleGoalContinuation(deps, SESSION);
     assert.equal(out.kind, 'no_goal');
   });
+
+  test('task gate injects one reminder per goal and traces the reminder limit', async () => {
+    const { mgr, deps, injected } = setup();
+    const traces: Array<{ decision: string; taskKeys: string[]; turnId?: string }> = [];
+    deps.taskGate = {
+      listActionableTaskKeys: async () => ['T1', 'T1.1'],
+      recordDecision: (trace) => { traces.push(trace); },
+    };
+    mgr.set(SESSION, 'finish implementation');
+    await handleGoalContinuation(deps, SESSION, 'turn-1');
+    await handleGoalContinuation(deps, SESSION, 'turn-2');
+    assert.equal(injected.length, 2);
+    assert.match(injected[0]!, /Actionable task keys: T1, T1\.1/);
+    assert.doesNotMatch(injected[1]!, /\[Task reminder\]/);
+    assert.deepEqual(traces.map((trace) => trace.decision), ['reminder_injected', 'reminder_limit_reached']);
+    assert.equal(traces[0]?.turnId, 'turn-1');
+  });
+
+  test('task gate excludes blocked/empty ledgers through its actionable read model', async () => {
+    const { mgr, deps, injected } = setup();
+    const decisions: string[] = [];
+    deps.taskGate = {
+      listActionableTaskKeys: async () => [],
+      recordDecision: (trace) => { decisions.push(trace.decision); },
+    };
+    mgr.set(SESSION, 'wait for dependency');
+    await handleGoalContinuation(deps, SESSION, 'turn-1');
+    assert.doesNotMatch(injected[0]!, /\[Task reminder\]/);
+    assert.deepEqual(decisions, ['no_actionable_tasks']);
+  });
+
+  test('evaluator terminal decisions win over actionable tasks', async () => {
+    const { mgr, deps, injected } = setup({ evaluation: { met: true, reason: 'verified' } });
+    const decisions: string[] = [];
+    let listCalls = 0;
+    deps.taskGate = {
+      listActionableTaskKeys: async () => { listCalls += 1; return ['T1']; },
+      recordDecision: (trace) => { decisions.push(trace.decision); },
+    };
+    mgr.set(SESSION, 'done');
+    await handleGoalContinuation(deps, SESSION, 'turn-final');
+    assert.equal(listCalls, 0);
+    assert.equal(injected.length, 0);
+    assert.deepEqual(decisions, ['evaluator_terminal']);
+  });
+
+  test('task reminder is not consumed when the post-evaluation idle check loses the race', async () => {
+    const { mgr, deps, injected } = setup();
+    const traces: string[] = [];
+    let canContinueCalls = 0;
+    deps.canContinue = async () => {
+      canContinueCalls += 1;
+      return canContinueCalls !== 2;
+    };
+    deps.taskGate = {
+      listActionableTaskKeys: async () => ['T1'],
+      recordDecision: (trace) => { traces.push(trace.decision); },
+    };
+    mgr.set(SESSION, 'finish implementation');
+
+    const preempted = await handleGoalContinuation(deps, SESSION, 'turn-1');
+    assert.equal(preempted.kind, 'cannot_continue');
+    assert.deepEqual(injected, []);
+    assert.deepEqual(traces, []);
+
+    const retried = await handleGoalContinuation(deps, SESSION, 'turn-2');
+    assert.equal(retried.kind, 'continued');
+    assert.match(injected[0]!, /\[Task reminder\]/);
+    assert.deepEqual(traces, ['reminder_injected']);
+  });
+
+  test('goal caps trace the actionable task keys that remain at stop', async () => {
+    const { mgr, deps } = setup({ evaluation: { met: false, progress: true } });
+    const traces: Array<{ decision: string; taskKeys: string[] }> = [];
+    deps.taskGate = {
+      listActionableTaskKeys: async () => ['T1', 'T2.1'],
+      recordDecision: (trace) => { traces.push(trace); },
+    };
+    mgr.set(SESSION, 'finish implementation', { maxIterations: 1 });
+    const result = await handleGoalContinuation(deps, SESSION, 'turn-final');
+    assert.equal(result.kind, 'stopped');
+    assert.deepEqual(traces, [{
+      sessionId: SESSION,
+      turnId: 'turn-final',
+      goalId: mgr.get(SESSION)!.id,
+      decision: 'goal_stopped',
+      taskKeys: ['T1', 'T2.1'],
+    }]);
+  });
 });

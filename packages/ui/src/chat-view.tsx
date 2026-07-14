@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, type ReactNode } from 'react';
+import { Button as BaseButton } from '@base-ui/react/button';
 import {
   AlertTriangle,
   ArrowDown,
@@ -15,7 +16,6 @@ import type { ProviderType, SessionSummary, ShellRunUpdate, StoredMessage } from
 import { isDeepResearchSession } from '@maka/core';
 import { materializeChat, materializeTurns, overlayLiveTurn, overlayShellRunUpdates } from './materialize.js';
 import type { LiveTurnProjection } from './live-turn-projection.js';
-import { Button as UiButton } from './ui.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
 import { Message } from './primitives/chat.js';
 import { EmptyState } from './empty-state.js';
@@ -27,6 +27,7 @@ import {
   type TurnLineageBadge,
 } from './chat-turn.js';
 import { useChatScroll } from './use-chat-scroll.js';
+import { TaskLedgerPanel, type TaskLedgerPanelProps } from './task-ledger-panel.js';
 
 /**
  * Lifecycle status badge in the chat header. Visual
@@ -153,6 +154,8 @@ export function ChatView(props: {
     maxIterations: number;
     onClear: () => void;
   };
+  /** Session-owned task read model. Rendered as a full-width band above messages. */
+  taskLedger?: TaskLedgerPanelProps;
   /** Error from loading the active session's persisted message log. */
   messageLoadError?: string;
   messageLoadRetryPending?: boolean;
@@ -367,16 +370,10 @@ export function ChatView(props: {
       <header className="maka-chat-header">
         <span className="maka-chat-header-spacer" />
         {props.memoryActive && (
-          /* PR-CHAT-HEADER-MEMORY-PILL-PRIMITIVE-0 (round 11/30):
-             accent-tinted memory indicator pill in the chat
-             header was a raw <button>. Routed through UiButton
-             variant="quiet" — the bespoke `.maka-chat-header-
-             memory-pill` class still owns the pill's tinted
-             background, 999px border-radius, 11px font, and
-             accent border. */
-          <UiButton
+          /* This status pill is a semantic header control rather than a
+             shared Button size or neutral variant. */
+          <BaseButton
             type="button"
-            variant="quiet"
             className="maka-chat-header-memory-pill"
             data-active="true"
             onClick={() => props.onOpenMemorySettings?.()}
@@ -385,7 +382,7 @@ export function ChatView(props: {
           >
             <BookOpen size={12} aria-hidden="true" />
             <span>记忆</span>
-          </UiButton>
+          </BaseButton>
         )}
         {deepResearchActive && (
           <span
@@ -402,9 +399,8 @@ export function ChatView(props: {
           /* Goal kill-switch pill: an active autonomous loop must be visible and
              stoppable. Reuses the mode-pill styling; clicking it clears the goal
              (the shell confirms), so the user always has a one-click stop. */
-          <UiButton
+          <BaseButton
             type="button"
-            variant="quiet"
             className="maka-chat-header-mode-pill"
             data-mode="goal"
             onClick={() => props.goalIndicator?.onClear()}
@@ -413,7 +409,7 @@ export function ChatView(props: {
           >
             <Target size={12} aria-hidden="true" />
             <span>目标 {props.goalIndicator.iterations}/{props.goalIndicator.maxIterations} · 清除</span>
-          </UiButton>
+          </BaseButton>
         )}
         {/* PR-MOVE-PERMISSION-MODE: switcher relocated into the
             composer left-controls. Header keeps the per-session status
@@ -431,6 +427,7 @@ export function ChatView(props: {
         {props.connectionAlert && <ChatHeaderAlertBadge alert={props.connectionAlert} />}
         {props.eventStreamAlert && <ChatHeaderAlertBadge alert={props.eventStreamAlert} />}
       </div>
+      {props.taskLedger && <TaskLedgerPanel key={props.activeSession?.id} {...props.taskLedger} />}
       {isLocalSimulationBackend && (
         <Alert variant="info" className="maka-fake-backend-banner" role="status">
           <AlertTriangle size={14} aria-hidden="true" />
@@ -525,16 +522,14 @@ export function ChatView(props: {
         </OverlayScrollArea>
         <PromptAnchorRail turns={promptRailTurns} scrollRef={scrollRef} />
         {!pinnedToBottom && (
-          <UiButton
+          <BaseButton
             type="button"
             className="maka-chat-jump-bottom"
-            variant="secondary"
-            size="icon-sm"
             onClick={scrollToBottom}
             aria-label="跳到最新消息"
           >
             <ArrowDown size={16} aria-hidden="true" />
-          </UiButton>
+          </BaseButton>
         )}
       </div>
     </main>
@@ -566,10 +561,8 @@ function ChatHeaderAlertBadge(props: { alert: ChatHeaderAlert }) {
   const { tone, label, tooltip, onClick } = props.alert;
   if (onClick) {
     return (
-      <UiButton
+      <BaseButton
         className="maka-chat-header-alert"
-        variant="quiet"
-        size="sm"
         data-tone={tone}
         type="button"
         onClick={onClick}
@@ -578,7 +571,7 @@ function ChatHeaderAlertBadge(props: { alert: ChatHeaderAlert }) {
       >
         <AlertTriangle size={12} aria-hidden="true" />
         <span>{label}</span>
-      </UiButton>
+      </BaseButton>
     );
   }
   return (
@@ -616,11 +609,9 @@ function SessionBranchBanner(props: {
 }) {
   const { banner } = props;
   return (
-    <UiButton
+    <BaseButton
       type="button"
       className="maka-session-branch-banner"
-      variant="quiet"
-      size="sm"
       data-from-aborted={banner.fromAbortedTurn || undefined}
       onClick={() => props.onClick?.(banner.parentSessionId)}
       aria-label={banner.fromAbortedTurn
@@ -633,7 +624,7 @@ function SessionBranchBanner(props: {
           ? `从中断前分支自 ${banner.parentSessionName}`
           : `分自 ${banner.parentSessionName}`}
       </span>
-    </UiButton>
+    </BaseButton>
   );
 }
 

@@ -15,14 +15,37 @@ projection, tool access, and recovery classification on one contract.
 Non-goals:
 
 - no workflow engine;
-- no multi-agent assignment;
 - no cron or automation scheduling;
-- no project-management UI;
+- no project-management editing, dependency graph, drag-and-drop, or bulk
+  scheduling UI;
 - no replacement for `AgentRun`, `RuntimeEvent`, filesystem, git, test, or tool
   evidence.
 
 Task status is advisory control state. It must not override real filesystem,
 git, test, verifier, scorer, or tool evidence.
+
+## Identity and Hierarchy
+
+Every current task has two identifiers:
+
+- `id` is the durable UUID primary key. It is never rewritten.
+- `key` is the session-local short reference (`T1`, `T1.1`, and deeper forms)
+  used in prompts, tools, and UI.
+
+Read and update operations accept either form. Keys are allocated inside the
+per-session serialized write queue. A child stores its parent's UUID in
+`parentId`; its short key is allocated under the parent's key. Children cannot
+be created under terminal parents, and a parent cannot become `completed`
+while any descendant remains non-terminal. A parent/child edge must advance the
+short key by exactly one segment (`T1` -> `T1.1`); skipped levels such as a
+direct `T1` -> `T1.1.1` edge invalidate the projection and fail closed.
+
+Old `tasks.json` snapshots and JSONL events without `key` or `endedAt` remain
+readable. Projection assigns stable keys in first-seen creation-event order
+(falling back to timestamps only when event order is unavailable) and derives
+missing terminal timestamps from `updatedAt`. The first later mutation appends
+compatibility events before the new mutation so the derived fields become
+durable without changing UUIDs.
 
 ## Task Status
 
@@ -103,15 +126,83 @@ The model-facing tools are:
 - `task_list`
 - `task_get`
 
-They are pure local session-state tools and do not imply subagent assignment or
-workflow dispatch. `MAKA_TASK_LEDGER_TOOLS=false` disables registration. Legacy
+The four ledger tools only mutate/read local session state; they do not dispatch
+work themselves. `task_create.tasks[].parent_id`, all task reference inputs,
+and `agent_spawn.task_id` accept UUIDs or short keys. `task_list` supports exact
+`status`, `include_terminal`, and `include_archived` filters; its no-argument
+behavior remains compatible with the original full-list behavior.
+
+`MAKA_TASK_LEDGER_TOOLS=false` disables registration. Legacy
 PascalCase aliases are not advertised and require an explicit compatibility
 flag in main-process wiring.
 
-## Debug and UI Read Model
+## Child Agent Ownership
+
+`agent_spawn(task_id=...)` resolves the task in the current session and claims
+it only after the runtime has allocated the real child turn. The claim sets the
+task to `in_progress` and records a `child_agent` owner. Once the child settles,
+the owner is enriched with the real run and turn references.
+
+A successful child does not complete the task. The parent agent must verify the
+result and supply `completionEvidence`. A failed or cancelled child records the
+truthful task outcome; a child waiting for permission leaves the task blocked.
+An active task already owned by another child turn cannot be stolen.
+
+## Prompt Budget and Archive
+
+The current-turn task tail is capped at 8,000 characters (approximately 2,000
+tokens). It renders short keys rather than UUIDs and prioritizes
+`in_progress`, `pending`, and `blocked` branches. Ancestors of included active
+tasks are retained so hierarchy remains understandable. Up to three recent
+terminal tasks are added when budget permits. When tasks are omitted, the tail
+reports the omitted count and points the model to `task_list` / `task_get`.
+
+Terminal tasks receive `endedAt`. They become logically archived after seven
+days: storage remains append-only and no task is deleted, while prompt and UI
+reads exclude archived terminal tasks. Explicit tool reads may opt back into
+them.
+
+Secret redaction, task-ledger tag stripping, evidence validation, and exclusion
+of `resumeTrust=untrusted` tasks apply before model-visible rendering.
+
+## Goal Completion Gate
+
+Ordinary interactive turns never trigger an extra model call because tasks are
+unfinished. The turn tail is advisory only.
+
+When an autonomous Goal is active, its external evaluator still decides first.
+If the evaluator says achieved or impossible, that terminal decision wins. If
+the Goal continues and pending or in-progress task keys remain, the continuation
+text includes one task reminder per Goal id. Blocked, failed, cancelled, and
+completed tasks do not trigger the reminder. The reminder is consumed only
+after the final idle check and synchronous turn injection, so a concurrent user
+turn cannot spend it without showing it. Later continuations are allowed without
+another task-specific reminder. Every injected decision is recorded as a
+`task_gate_decided` AgentRun event with the Goal id, decision, and task keys.
+When iteration, no-progress, or token caps stop a Goal, the stop event records
+the remaining actionable task keys as well.
+
+## Debug and Desktop Read Model
 
 The model-visible task ledger remains compact and omits `resumeTrust`, including
 both the turn-tail injection and `task_list` / `task_get` tool results. Debug,
 export, and trace/read-model surfaces may include task summaries with
-`resumeTrust`, reasons, evidence, and refs. UI exposure remains lightweight:
-current task, blocked reason, and completion evidence summaries only.
+`resumeTrust`, reasons, evidence, and refs.
+
+Desktop reads the same `Task[]` projection through `tasks:list`. Store changes
+emit a signal-only `tasks:changed` event; the renderer reloads instead of
+merging event payloads into a second projection. Before crossing IPC, every
+structured Task DTO is sanitized with the same secret and task-tag redaction
+rules used by model-visible text. The chat workspace shows a full-width,
+collapsible, read-only task band with the active hierarchy, short keys, status,
+owner, reason/evidence summary, and three recent terminal tasks. Session
+switches clear the old snapshot and revision guards discard late IPC responses.
+The panel provides loading, empty, error, and retry states, but no workflow
+editing controls.
+
+This interactive task ledger remains separate from:
+
+- Headless `TaskRun`, the durable execution envelope across Attempts;
+- Goal state, which owns bounded autonomous continuation;
+- Automation and plan reminders, which own scheduled execution;
+- `AgentRun` / `RuntimeEvent`, which own actual runtime and evidence history.

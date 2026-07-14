@@ -3,8 +3,8 @@
  * the provider settings source files
  * (PR-MODEL-OAUTH-ALL-0).
  *
- * Pins the user-visible OAuth login surface: four cards
- * (claude / codex / antigravity / cursor), each marked
+ * Pins the user-visible OAuth login surface: five cards
+ * (claude / codex / GitHub Copilot / antigravity / cursor), each marked
  * `status: 'available'`, and each click wires through to its
  * matching `window.maka.<provider>Subscription` bridge namespace.
  *
@@ -34,21 +34,21 @@ const OAUTH_LOGIN_FLOW_HOOK_SOURCE = resolve(
 );
 
 describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MOVE-0)', () => {
-  it('renders OAuth as a catalog tab peer, not a standalone section above the market', async () => {
+  it('keeps OAuth account connections on the connection page, outside the provider transport catalog', async () => {
     const src = await readProviderSettingsCombinedSource();
     const tabs = src.match(/const CATALOG_TABS:[\s\S]*?\];/);
     assert.ok(tabs, 'CATALOG_TABS literal must exist');
-    assert.match(tabs[0], /id:\s*'oauth'[\s\S]*label:\s*'OAuth'/, 'OAuth must be a catalog tab');
+    assert.doesNotMatch(tabs[0], /id:\s*'oauth'/, 'OAuth is an account connection, not a provider transport category');
     assert.match(
       src,
-      /<PrimitiveTabsPanel value="oauth">\s*<ModelOAuthSection\s+onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\}\s*\/>\s*<\/PrimitiveTabsPanel>/,
-      'OAuth login UI must render inside the oauth TabsPanel and refresh enabled models',
+      /<section className="providerAccountSection" aria-label="账号连接">[\s\S]*<ModelOAuthSection onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\} \/>[\s\S]*<\/section>/,
+      'OAuth login UI must render as account connections and refresh enabled models',
     );
     const marketStart = src.indexOf('<section className="providerMarket">');
     const firstOAuthRender = src.indexOf('<ModelOAuthSection');
     assert.ok(marketStart !== -1, 'provider market section must exist');
-    assert.ok(firstOAuthRender > marketStart, 'ModelOAuthSection must not be pinned above providerMarket');
-    assert.doesNotMatch(src, /providerOAuthHeader/, 'OAuth tab must not carry a second standalone section header');
+    assert.ok(firstOAuthRender > marketStart, 'ModelOAuthSection must stay inside the provider connection surface');
+    assert.match(src, /<h3>账号连接<\/h3>/, 'OAuth account connections need an explicit section label');
   });
 
   it('catalog tabs use the shared primitive Tabs primitive as a real tablist', async () => {
@@ -72,7 +72,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     }
     assert.doesNotMatch(src, /function onCatalogTabsKeyDown/, 'provider catalog tabs should not keep a custom keyboard handler');
     assert.doesNotMatch(src, /data-catalog-tab="\$\{CSS\.escape/, 'provider catalog tabs should not use manual focus queries');
-    assert.match(tabs, /value=\{catalogTab\}[\s\S]*onValueChange=\{\(value\) => setCatalogTab\(value as CatalogTab\)\}/);
+    assert.match(tabs, /value=\{catalogCategory\}[\s\S]*onValueChange=\{\(value\) => setCatalogCategory\(value as CatalogCategory\)\}/);
     assert.match(tabs, /<PrimitiveTabsList[^>]*variant="pill"[^>]*aria-label="模型供应商分类">/);
     assert.match(tabs, /<PrimitiveTabsTrigger[\s\S]*value=\{tab\.id\}/, 'catalog tabs use PrimitiveTabsTrigger as a real tablist (maka-tab comes from the primitive)');
     assert.match(tabs, /data-catalog-tab=\{tab\.id\}/);
@@ -85,7 +85,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.ok(reloadMatch, 'ProvidersPanel reload() must exist');
     assert.match(
       panel,
-      /const providersPanelMountedRef = useRef\(false\);[\s\S]*const providersReloadTicketRef = useRef\(0\);[\s\S]*const providerSheetLifecycleRef = useRef\(0\);/,
+      /const providersPanelMountedRef = useMountedRef\(\);[\s\S]*const providersReloadTicketRef = useRef\(0\);[\s\S]*const providerPageLifecycleRef = useRef\(0\);/,
       'ProvidersPanel reloads must track mounted state and latest request ownership',
     );
     assert.match(
@@ -100,7 +100,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       panel,
-      /return \(\) => \{[\s\S]*providersPanelMountedRef\.current = false;[\s\S]*providersReloadTicketRef\.current \+= 1;[\s\S]*unsubscribe\?\.\(\);/,
+      /return \(\) => \{[\s\S]*providersReloadTicketRef\.current \+= 1;[\s\S]*unsubscribe\?\.\(\);/,
       'ProvidersPanel cleanup must invalidate in-flight reloads and unsubscribe from connection events',
     );
     assert.match(
@@ -110,17 +110,17 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       src,
-      /function closeProviderConfigSheet\(\) \{[\s\S]*providerSheetLifecycleRef\.current \+= 1;[\s\S]*setAddingType\(null\);[\s\S]*setSelectedSlug\(null\);[\s\S]*\}/,
-      'closing a provider config sheet must invalidate pending sheet-scoped continuations',
+      /function navigate\(nextPage: ProviderPage, focusTarget: ProviderFocusTarget\) \{[\s\S]*providerPageLifecycleRef\.current \+= 1;[\s\S]*pendingFocusRef\.current = focusTarget;[\s\S]*setPage\(nextPage\);[\s\S]*\}/,
+      'navigating away must invalidate pending page-scoped continuations',
     );
     assert.match(
       src,
-      /onCreated=\{async \(slug\) => \{[\s\S]*const providerSheetLifecycle = providerSheetLifecycleRef\.current;[\s\S]*const reloaded = await reload\(\);[\s\S]*providerSheetLifecycleRef\.current !== providerSheetLifecycle[\s\S]*\) return;[\s\S]*setSelectedSlug\(slug\);[\s\S]*setAddingType\(null\);/,
-      'AddProviderForm completion must not select/close a stale sheet after ProvidersPanel unmounts or sheet close',
+      /onCreated=\{async \(slug\) => \{[\s\S]*const lifecycle = providerPageLifecycleRef\.current;[\s\S]*const reloaded = await reload\(\);[\s\S]*providerPageLifecycleRef\.current !== lifecycle[\s\S]*\) return;[\s\S]*navigate\(\{ kind: 'detail', slug \}, \{ kind: 'child-back' \}\);/,
+      'AddProviderForm completion must not navigate a stale page after ProvidersPanel unmounts or back navigation',
     );
     assert.match(
       src,
-      /onDeleted=\{async \(\) => \{[\s\S]*if \(!providersPanelMountedRef\.current\) return;[\s\S]*setSelectedSlug\(null\);[\s\S]*await reload\(\);/,
+      /onDeleted=\{async \(\) => \{[\s\S]*if \(!providersPanelMountedRef\.current\) return;[\s\S]*navigate\(\{ kind: 'connections' \}, \{ kind: 'add-provider' \}\);[\s\S]*await reload\(\);/,
       'Connection delete completion must not write ProvidersPanel state after unmount',
     );
   });
@@ -243,7 +243,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       addForm,
-      /const addProviderMountedRef = useRef\(false\)[\s\S]*useEffect\(\(\) => \{[\s\S]*addProviderMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*addProviderMountedRef\.current = false;[\s\S]*busyRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\);/,
+      /const addProviderMountedRef = useMountedRef\(\)[\s\S]*useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*busyRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\);/,
       'AddProviderForm must track its own sheet lifetime so pending create continuations cannot write after overlay close',
     );
     assert.match(
@@ -288,37 +288,15 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('provider config sheets expose their own accessible close button', async () => {
+  it('provider configuration uses an accessible in-pane child page, not a Sheet', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const styles = await readRendererContractCss();
-    const overlay = src.match(/function ProviderConfigSheetOverlay[\s\S]*?function ProviderCatalogCard/)?.[0] ?? '';
-
-    assert.match(overlay, /className="providerConfigSheetClose"/);
-    assert.match(overlay, /aria-label="关闭模型配置"/);
-    // Icon stroke governance round: per-call-site strokeWidth props were
-    // deleted so lucide glyphs ride one governed weight (svg.lucide CSS rule).
-    assert.match(overlay, /<X aria-hidden="true" \/>/);
-    assert.match(styles, /\.providerConfigOverlay\s*\{[^}]*position:\s*absolute;[^}]*inset:\s*0;/);
-    assert.doesNotMatch(
-      styles,
-      /\.providerConfigOverlay\s*\{[^}]*justify-content:\s*flex-end;/,
-      'Base UI renders Backdrop and Popup as siblings; overlay flex must not be treated as sheet layout',
-    );
-    assert.match(styles, /\.providerConfigSheet\s*\{[^}]*position:\s*absolute;/);
-    assert.match(styles, /\.providerConfigSheet\s*\{[^}]*inset:\s*var\(--space-3\)\s+var\(--space-3\)\s+var\(--space-3\)\s+auto;/);
-    assert.match(styles, /\.providerConfigSheet\s*\{[^}]*width:\s*min\(430px,\s*calc\(100%\s*-\s*\(var\(--space-3\)\s*\*\s*2\)\)\);/);
-    assert.match(styles, /\.providerConfigSheetClose\s*\{[\s\S]*position:\s*absolute;[\s\S]*right:\s*14px;/);
-    // The close button reuses the governed quiet icon Button, so its rest /
-    // hover / focus states come from the component, not hand-written CSS. The
-    // local class only positions and rounds it.
-    assert.match(
-      overlay,
-      /variant="quiet"[\s\S]*?size="icon-sm"[\s\S]*?className="providerConfigSheetClose"/,
-      'close button must reuse the governed quiet icon Button for its hover/focus states',
-    );
+    assert.match(src, /type ProviderPage =[\s\S]*kind: 'add'[\s\S]*kind: 'detail'/);
+    assert.match(src, /function ProviderPageHeader[\s\S]*aria-label="返回模型连接"/);
+    assert.match(src, /<div className="providerInlineEditor">[\s\S]*<AddProviderForm/);
+    assert.doesNotMatch(src, /ProviderConfigSheetOverlay/, 'API provider configuration must not use the OAuth modal infrastructure');
   });
 
-  it('provider config sheets route through Base UI Dialog nested in the settings surface', async () => {
+  it('OAuth login sheets route through Base UI Dialog nested in the settings surface', async () => {
     const src = await readProviderSettingsCombinedSource();
 
     // ProviderSheet wraps Base UI Dialog so the nested modal layer handles
@@ -339,7 +317,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       /Backdrop[\s\S]{0,80}forceRender/,
       'nested backdrop must forceRender (Base UI skips nested backdrops by default; provider sheets want the scrim)',
     );
-    assert.match(src, /<ProviderSheet/, 'provider/OAuth sheets must render via ProviderSheet');
+    assert.match(src, /<ProviderSheet/, 'OAuth sheets must render via ProviderSheet');
     assert.doesNotMatch(
       src,
       /\buseProviderSheetBackgroundInert\(/,
@@ -352,7 +330,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('does not auto-open the first provider config sheet after loading connections', async () => {
+  it('does not auto-open the first provider detail page after loading connections', async () => {
     // WAWQAQ goal sweep: Settings -> 模型 kept reopening the first
     // provider config sheet on every Settings open because reload()
     // defaulted selectedSlug to list[0]. A model list refresh should
@@ -361,9 +339,9 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     const src = await readProviderSettingsCombinedSource();
     const reloadBlock = src.match(/async function reload\(\)[\s\S]*?^\s*\}/m)?.[0] ?? '';
 
-    assert.match(reloadBlock, /setSelectedSlug\(\(current\) =>[\s\S]*list\.some\(\(connection\) => connection\.slug === current\)/);
-    assert.match(reloadBlock, /\?\s*current\s*:\s*null/);
-    assert.doesNotMatch(reloadBlock, /current\s*\?\?\s*list\[0\]\?\.slug/, 'reload must not auto-select the first provider');
+    assert.match(reloadBlock, /setPage\(\(current\) => current\.kind === 'detail' && !list\.some\(\(connection\) => connection\.slug === current\.slug\)/);
+    assert.match(reloadBlock, /\? \{ kind: 'connections' \}\s*:\s*current/);
+    assert.doesNotMatch(reloadBlock, /list\[0\]\?\.slug/, 'reload must not auto-select the first provider');
   });
 
   it('enabled model chips expose a concise aria-label instead of concatenated duplicate visible text', async () => {
@@ -426,7 +404,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'provider badges must be separated in the accessible name instead of glued to the provider name',
     );
     assert.match(src, /自定义 OpenAI 兼容接口/);
-    assert.match(src, /添加 OpenAI 兼容接口/);
+    assert.match(src, /添加模型供应商：\$\{display\.name\}/);
     assert.match(src, /智谱 · OpenAI 兼容/);
     assert.match(
       src,
@@ -485,19 +463,19 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     }
   });
 
-  it('exposes exactly four equal OAuth cards: claude, codex, antigravity, cursor', async () => {
+  it('exposes exactly five equal OAuth cards including GitHub Copilot', async () => {
     // WAWQAQ msg 8bb7e186: Claude must not be a huge standalone
     // inline card while the other OAuth providers are compact
-    // cards. All four login entries live in the same grid.
+    // cards. All five login entries live in the same grid.
     const src = await readProviderSettingsCombinedSource();
     const match = src.match(/MODEL_OAUTH_CARDS:\s*ReadonlyArray<ModelOAuthCard>\s*=\s*\[([\s\S]*?)\];/);
     assert.ok(match, 'MODEL_OAUTH_CARDS literal must exist');
     const body = match[1]!;
-    const ids = [...body.matchAll(/id:\s*'([a-z]+)'/g)].map((m) => m[1]);
+    const ids = [...body.matchAll(/id:\s*'([a-z-]+)'/g)].map((m) => m[1]);
     assert.deepEqual(
       ids.sort(),
-      ['antigravity', 'claude', 'codex', 'cursor'],
-      'grid must include exactly claude / codex / antigravity / cursor',
+      ['antigravity', 'claude', 'codex', 'cursor', 'github-copilot'],
+      'grid must include exactly claude / codex / github-copilot / antigravity / cursor',
     );
   });
 
@@ -572,7 +550,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.ok(match, 'MODEL_OAUTH_CARDS literal must exist');
     const body = match[1]!;
     const statuses = [...body.matchAll(/status:\s*'([a-z_]+)'/g)].map((m) => m[1]);
-    assert.equal(statuses.length, 4, 'each card must declare a status');
+    assert.equal(statuses.length, 5, 'each card must declare a status');
     for (const s of statuses) {
       assert.equal(s, 'available', `card status must be 'available', got '${s}'`);
     }
@@ -614,13 +592,13 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /baseUrl:\s*hasFixedOAuthBaseUrl\s*\?\s*defaults\.baseUrl\s*:\s*baseUrl \|\| undefined/,
-      'saving an OAuth connection must submit the provider default endpoint, not renderer-edited text',
+      /baseUrl:\s*baseUrl \|\| undefined/,
+      'saving an OAuth connection must submit the read-only endpoint loaded from the connection',
     );
     assert.match(
       detail,
-      /value=\{hasFixedOAuthBaseUrl \? defaults\.baseUrl : baseUrl\}/,
-      'OAuth Base URL input must display the canonical provider endpoint',
+      /value=\{baseUrl\}/,
+      'OAuth Base URL input must display the main-owned connection endpoint',
     );
     assert.match(
       detail,
@@ -736,18 +714,27 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
+  it('shows but does not require LocalAI optional credentials', async () => {
+    const src = await readProviderSettingsCombinedSource();
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+
+    assert.match(detail, /const supportsApiKey = providerAuthSupportsApiKey\(connection\.providerType\)/);
+    assert.match(detail, /const requiresCredential = providerAuthRequiresSecret\(connection\.providerType\)/);
+    assert.match(detail, /\{supportsApiKey && \([\s\S]*<PasswordInput/);
+  });
+
   it('provider detail async actions stop writing UI after the detail sheet is closed or switched', async () => {
     const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
 
     assert.match(
       detail,
-      /const connectionDetailMountedRef = useRef\(false\);[\s\S]*const connectionDetailLifecycleRef = useRef\(0\);/,
+      /const connectionDetailMountedRef = useMountedRef\(\);[\s\S]*const connectionDetailLifecycleRef = useRef\(0\);/,
       'ConnectionDetail must track mounted/lifecycle ownership',
     );
     assert.match(
       detail,
-      /useEffect\(\(\) => \{[\s\S]*connectionDetailMountedRef\.current = true;[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*return \(\) => \{[\s\S]*connectionDetailMountedRef\.current = false;[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*busyRef\.current = false;[\s\S]*testingRef\.current = false;[\s\S]*fetchingModelsRef\.current = false;[\s\S]*settingDefaultRef\.current = false;[\s\S]*deletingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[connection\.slug\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*return \(\) => \{[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*busyRef\.current = false;[\s\S]*testingRef\.current = false;[\s\S]*fetchingModelsRef\.current = false;[\s\S]*settingDefaultRef\.current = false;[\s\S]*deletingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[connection\.slug\]\);/,
       'ConnectionDetail cleanup must release every pending action owner on close or provider switch',
     );
     assert.match(
@@ -960,7 +947,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(
       section,
-      /const modelOAuthMountedRef = useRef\(false\);[\s\S]*const modelOAuthRefreshTicketRef = useRef\(0\);/,
+      /const modelOAuthMountedRef = useMountedRef\(\);[\s\S]*const modelOAuthRefreshTicketRef = useRef\(0\);/,
       'ModelOAuthSection must keep mounted and latest-refresh ownership refs',
     );
     assert.match(
@@ -970,7 +957,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       section,
-      /useEffect\(\(\) => \{[\s\S]*modelOAuthMountedRef\.current = true;[\s\S]*void refreshAllCards\(\);[\s\S]*return \(\) => \{[\s\S]*modelOAuthMountedRef\.current = false;[\s\S]*modelOAuthRefreshTicketRef\.current \+= 1;[\s\S]*\};[\s\S]*\}, \[\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*void refreshAllCards\(\);[\s\S]*return \(\) => \{[\s\S]*modelOAuthRefreshTicketRef\.current \+= 1;[\s\S]*\};[\s\S]*\}, \[\]\);/,
       'OAuth card refresh must invalidate in-flight requests on unmount',
     );
     assert.match(
@@ -1076,7 +1063,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       hook,
-      /const oauthLoginFlowMountedRef = useRef\(false\)/,
+      /const oauthLoginFlowMountedRef = useMountedRef\(\)/,
       'shared OAuth flow must own mounted state before writing async feedback',
     );
     assert.match(
@@ -1091,7 +1078,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       hook,
-      /useEffect\(\(\) => \{[\s\S]*oauthLoginFlowMountedRef\.current = true;[\s\S]*void refresh\(\);[\s\S]*return \(\) => \{[\s\S]*oauthLoginFlowMountedRef\.current = false;[\s\S]*pendingGuard\.finish\(\);[\s\S]*teardownPendingAuthorization\(authRequestIdRef, \(id\) => void bridge\.cancelAuthorization\(id\)\);[\s\S]*\};[\s\S]*\}, \[\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*void refresh\(\);[\s\S]*return \(\) => \{[\s\S]*pendingGuard\.finish\(\);[\s\S]*teardownPendingAuthorization\(authRequestIdRef, \(id\) => void bridge\.cancelAuthorization\(id\)\);[\s\S]*\};[\s\S]*\}, \[\]\);/,
       'shared OAuth flow cleanup must invalidate async feedback and cancel pending authorization',
     );
     assert.match(
@@ -1200,7 +1187,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       claudeCard,
-      /return \(\) => \{[\s\S]*claudeCardMountedRef\.current = false;[\s\S]*const pendingAuthRequestId = claudeAuthRequestIdRef\.current;[\s\S]*claudeAuthRequestIdRef\.current = null;[\s\S]*if \(pendingAuthRequestId\) void window\.maka\.claudeSubscription\.cancelAuthorization\(pendingAuthRequestId\);[\s\S]*\};/,
+      /return \(\) => \{[\s\S]*const pendingAuthRequestId = claudeAuthRequestIdRef\.current;[\s\S]*claudeAuthRequestIdRef\.current = null;[\s\S]*if \(pendingAuthRequestId\) void window\.maka\.claudeSubscription\.cancelAuthorization\(pendingAuthRequestId\);[\s\S]*\};/,
       'closing the Claude OAuth modal mid-login must cancel the pending auth request',
     );
     assert.match(
@@ -1291,13 +1278,14 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       /async function refreshAfterRelogin\(\) \{[\s\S]*await props\.bridge\.hasSecret\(connection\.slug\)[\s\S]*setHasSecret\(nextHasSecret\);[\s\S]*await props\.onChanged\(\);/,
       'a successful in-sheet re-login must re-probe the credential (expired tokens read hasSecret===true) and reload the connection status',
     );
-    assert.match(detail, /请到 OAuth 分类的登录卡片完成登录/, 'unmapped OAuth types keep an honest prose fallback');
+    assert.match(detail, /请到账号连接完成登录/, 'unmapped OAuth types keep an honest prose fallback');
   });
 
-  it('preload exposes the three new subscription namespaces alongside claudeSubscription', async () => {
+  it('preload exposes every subscription namespace alongside claudeSubscription', async () => {
     const src = await readFile(PRELOAD_SOURCE, 'utf8');
     assert.match(src, /codexSubscription:\s*\{/, 'preload must expose window.maka.codexSubscription');
     assert.match(src, /cursorSubscription:\s*\{/, 'preload must expose window.maka.cursorSubscription');
+    assert.match(src, /githubCopilotSubscription:\s*\{/, 'preload must expose window.maka.githubCopilotSubscription');
     assert.match(
       src,
       /antigravitySubscription:\s*\{/,
@@ -1316,6 +1304,10 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'antigravity-subscription:complete-authorization',
       'antigravity-subscription:get-account-state',
       'antigravity-subscription:logout',
+      'github-copilot:connect-existing-login',
+      'github-copilot:get-account-state',
+      'github-copilot:refresh-tokens',
+      'github-copilot:logout',
     ]) {
       assert.match(
         src,

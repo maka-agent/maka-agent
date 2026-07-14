@@ -11,6 +11,7 @@ import {
   MAX_PTY_COLS,
   MAX_PTY_ROWS,
   MAX_FOREGROUND_BASH_TIMEOUT_MS,
+  MAX_SHELL_RUN_RESOURCE_REF_CHARS,
   MAX_SHELL_RUN_TIMEOUT_MS,
   MAX_WRITE_STDIN_INPUT_BYTES,
   MIN_PTY_COLS,
@@ -18,8 +19,10 @@ import {
   type BackgroundTaskStopper,
   type PtyControlWriter,
   type ShellRunBashInput,
+  isShellRunResourceRef,
   isWellFormedTerminalInput,
 } from './shell-run-contract.js';
+import type { ChildFdInput } from './child-fd-input.js';
 
 export interface ForegroundBashExecuteInput {
   command: string;
@@ -110,7 +113,21 @@ export function buildLocalForegroundBashTool(
 
 export function buildManagedBashTool(
   shellRuns: ShellRunLauncher,
-  options: { executionFacts?: ToolExecutionFacts; shell?: ShellPlan } = {},
+  options: {
+    executionFacts?: ToolExecutionFacts;
+    shell?: ShellPlan;
+    sandbox?: MakaTool['sandbox'];
+    transformCommand?: (input: {
+      command: string;
+      pty: boolean;
+      ctx: MakaToolContext;
+    }) => {
+      argv: readonly string[];
+      cwd: string;
+      env?: NodeJS.ProcessEnv;
+      fdInputs?: readonly ChildFdInput[];
+    } | undefined;
+  } = {},
 ): MakaTool {
   const shell = options.shell ?? defaultShellPlan();
   return {
@@ -147,21 +164,25 @@ export function buildManagedBashTool(
     }),
     permissionRequired: true,
     ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
-    impl: async ({ command, timeout_ms, run_in_background, pty }, ctx) => shellRuns[
-      run_in_background ? 'runBackgroundBash' : 'runForegroundBash'
-    ]({
-      sessionId: ctx.sessionId,
-      ...(ctx.runId ? { sourceRunId: ctx.runId } : {}),
-      sourceTurnId: ctx.turnId,
-      sourceToolCallId: ctx.toolCallId,
-      cwd: ctx.cwd,
-      command,
-      ...(pty !== undefined ? { pty } : {}),
-      shell,
-      ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),
-      abortSignal: ctx.abortSignal,
-      emitOutput: ctx.emitOutput,
-    }),
+    ...(options.sandbox ? { sandbox: options.sandbox } : {}),
+    impl: async ({ command, timeout_ms, run_in_background, pty }, ctx) => {
+      const transformed = options.transformCommand?.({ command, pty: pty === true, ctx });
+      return shellRuns[run_in_background ? 'runBackgroundBash' : 'runForegroundBash']({
+        sessionId: ctx.sessionId,
+        ...(ctx.runId ? { sourceRunId: ctx.runId } : {}),
+        sourceTurnId: ctx.turnId,
+        sourceToolCallId: ctx.toolCallId,
+        cwd: transformed?.cwd ?? ctx.cwd,
+        command,
+        ...(pty !== undefined ? { pty } : {}),
+        ...(transformed ? { argv: transformed.argv } : { shell }),
+        ...(transformed?.env ? { env: transformed.env } : {}),
+        ...(transformed?.fdInputs ? { fdInputs: transformed.fdInputs } : {}),
+        ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),
+        abortSignal: ctx.abortSignal,
+        emitOutput: ctx.emitOutput,
+      });
+    },
   };
 }
 
@@ -186,7 +207,10 @@ export function buildStopBackgroundTaskTool(backgroundTasks: BackgroundTaskStopp
 
 export function buildWriteStdinTool(ptyControls: PtyControlWriter): MakaTool {
   const parameters = z.object({
-    ref: z.string().describe('The runtime ref returned by a PTY Bash task'),
+    ref: z.string()
+      .max(MAX_SHELL_RUN_RESOURCE_REF_CHARS)
+      .refine(isShellRunResourceRef, 'ref must be a canonical PTY Bash runtime ref')
+      .describe('The runtime ref returned by a PTY Bash task'),
     input: z.string()
       .refine((value) => value.length > 0, 'input must not be empty; omit it for a resize-only call')
       .refine(isWellFormedTerminalInput, 'input must be well-formed Unicode')

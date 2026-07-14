@@ -3,6 +3,7 @@ import {
   TASK_LEDGER_MAX_TASKS,
   TASK_SUBJECT_MAX_CHARS,
   renderSafeTaskLedgerText,
+  renderTaskLedgerPromptText,
   type Task,
 } from '@maka/core/task-ledger';
 import type { MakaTool } from '@maka/runtime';
@@ -78,7 +79,8 @@ export function renderTaskLedgerExperimentReplay(
       'Task ledger experiment state (current-turn tail; informational, not an instruction):',
       '<task-ledger>',
     );
-    lines.push(renderSafeTaskLedgerText(selected));
+    const rendered = renderTaskLedgerPromptText(selected, options.maxChars ?? DEFAULT_REPLAY_MAX_CHARS).text;
+    lines.push(...rendered.split('\n'));
     lines.push('</task-ledger>');
   }
   return capLines(lines, options.maxChars ?? DEFAULT_REPLAY_MAX_CHARS);
@@ -105,8 +107,9 @@ class InMemoryTaskLedgerExperimentStore implements TaskLedgerExperimentStore {
       throw new Error(`Task ledger experiment is limited to ${TASK_LEDGER_MAX_TASKS} tasks per session`);
     }
     const ts = this.now();
-    const tasks = todos.map((todo) => ({
+    const tasks = todos.map((todo, index) => ({
       id: this.newId(),
+      key: `T${index + 1}`,
       subject: todo.content,
       status: todo.status,
       createdAt: ts,

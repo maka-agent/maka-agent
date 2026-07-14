@@ -9,6 +9,7 @@ import type {
   ModelDiscoveryResult,
   ModelInfo,
   PermissionResponse,
+  UserQuestionResponse,
   PermissionMode,
   SearchErrorReason,
   SearchRequest,
@@ -56,6 +57,8 @@ import type {
   BrowserState,
   BrowserViewRect,
   ThemePreference,
+  Task,
+  TaskLedgerChangedEvent,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -142,6 +145,10 @@ declare global {
     | { file: File };
   interface Window {
     maka: {
+      tasks: {
+        list(sessionId: string): Promise<Task[]>;
+        subscribeChanges(handler: (event: TaskLedgerChangedEvent) => void): () => void;
+      };
       sessions: {
         list(filter?: SessionListFilter): Promise<SessionSummary[]>;
         create(input?: Partial<CreateSessionInput>): Promise<SessionSummary>;
@@ -158,6 +165,7 @@ declare global {
         regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void>;
         branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
         respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
+        respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void>;
         saveConversationToFile(input: {
           markdown: string;
           defaultName: string;
@@ -342,6 +350,16 @@ declare global {
           email?: string;
           plan?: string;
           picture?: string;
+          errorMessage?: string;
+        }>;
+        refreshTokens(): Promise<SubscriptionActionResult>;
+        logout(): Promise<SubscriptionActionResult>;
+      };
+      githubCopilotSubscription: {
+        connectExistingLogin(): Promise<SubscriptionActionResult>;
+        getAccountState(): Promise<{
+          provider: 'github-copilot';
+          runtimeState: 'not_logged_in' | 'authenticated' | 'refreshing' | 'refresh_failed' | 'storage_failed';
           errorMessage?: string;
         }>;
         refreshTokens(): Promise<SubscriptionActionResult>;
@@ -604,8 +622,12 @@ declare global {
           | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' }
         >;
         createStarter(): Promise<
-          | { ok: true; skill: SkillEntry; filePath: string }
+          | { ok: true; created: boolean; skill: SkillEntry; filePath: string }
           | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }
+        >;
+        delete(id: string): Promise<
+          | { ok: true }
+          | { ok: false; reason: 'not_found' | 'blocked_path' | 'delete_failed' }
         >;
         open(id: string, target?: 'file' | 'directory'): Promise<
           | { ok: true; target: 'file' | 'directory' }

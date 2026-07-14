@@ -1,6 +1,7 @@
 import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { chainWrite } from './write-queue.js';
 import {
   deriveTurnRecords,
@@ -25,6 +26,8 @@ const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 export interface SessionStore {
   create(input: CreateSessionInput): Promise<SessionHeader>;
   list(filter?: SessionListFilter): Promise<SessionSummary[]>;
+  /** Read only the durable header without triggering connection-lock self-healing. */
+  readHeaderSnapshot(sessionId: string): Promise<SessionHeader>;
   readHeader(sessionId: string): Promise<SessionHeader>;
   readMessages(sessionId: string): Promise<StoredMessage[]>;
   listTurns(sessionId: string): Promise<TurnRecord[]>;
@@ -109,8 +112,13 @@ class FileSessionStore implements SessionStore {
   }
 
   async list(filter?: SessionListFilter): Promise<SessionSummary[]> {
-    await mkdir(this.sessionsRoot, { recursive: true });
-    const entries = await import('node:fs/promises').then((fs) => fs.readdir(this.sessionsRoot, { withFileTypes: true }));
+    let entries;
+    try {
+      entries = await import('node:fs/promises').then((fs) => fs.readdir(this.sessionsRoot, { withFileTypes: true }));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
 
     // Phase 1: read each header plus a bounded tail preview. That keeps
     // list() proportional to the number of sessions rather than full
@@ -173,6 +181,10 @@ class FileSessionStore implements SessionStore {
       return this.updateHeader(sessionId, { connectionLocked: true });
     }
     return header;
+  }
+
+  async readHeaderSnapshot(sessionId: string): Promise<SessionHeader> {
+    return this.readHeaderOnly(sessionId);
   }
 
   async readMessages(sessionId: string): Promise<StoredMessage[]> {
@@ -364,14 +376,33 @@ class FileSessionStore implements SessionStore {
 
   private async writeAtomic(path: string, content: string): Promise<void> {
     await mkdir(dirname(path), { recursive: true });
-    const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+    const tempPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
     await writeFile(tempPath, content, 'utf8');
-    await rename(tempPath, path);
+    try {
+      await replaceFileWithWindowsReaderRetry(tempPath, path);
+    } finally {
+      await rm(tempPath, { force: true }).catch(() => {});
+    }
   }
 
   private withQueue(sessionId: string, operation: () => Promise<void>): Promise<void> {
     assertSafeSessionId(sessionId);
     return chainWrite(this.writeQueues, sessionId, operation);
+  }
+}
+
+async function replaceFileWithWindowsReaderRetry(tempPath: string, path: string): Promise<void> {
+  const attempts = process.platform === 'win32' ? 6 : 1;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await rename(tempPath, path);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const retryable = process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES');
+      if (!retryable || attempt === attempts) throw error;
+      await delay(attempt * 10);
+    }
   }
 }
 

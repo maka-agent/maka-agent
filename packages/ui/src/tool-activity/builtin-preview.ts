@@ -279,11 +279,6 @@ export function formatQuietJsonValue(value: unknown): QuietPreview {
   return { body: formatAsKeyValueLines(record) || '（空）' };
 }
 
-/** @deprecated Use formatQuietJsonValue — kept name for call-site clarity with toolName. */
-export function formatBuiltinJsonResult(_toolName: string, value: unknown): QuietPreview {
-  return formatQuietJsonValue(value);
-}
-
 function pickHeadline(
   record: Record<string, unknown>,
   skip: ReadonlySet<string>,

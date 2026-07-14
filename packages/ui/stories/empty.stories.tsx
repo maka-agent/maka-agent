@@ -89,7 +89,7 @@ export const WithAction: Story = {
           <EmptyDescription>开始第一次对话吧。</EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
-          <Button variant="outline" size="sm">新建会话</Button>
+          <Button variant="secondary" size="sm">新建会话</Button>
         </EmptyContent>
       </Empty>
     </Frame>

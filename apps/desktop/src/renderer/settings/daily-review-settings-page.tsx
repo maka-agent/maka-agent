@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DailyReviewConfig, DailyReviewMode, LlmConnection } from '@maka/core';
-import { Alert, AlertDescription, Button, Input, SettingsSelect, SettingsSwitch as Switch, useToast } from '@maka/ui';
+import { Alert, AlertDescription, Button, Input, SettingsSelect, SettingsSwitch as Switch, useMountedRef, useToast } from '@maka/ui';
 import { buildCatalogDailyReviewModelOptions } from '../model-catalog-choices';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { SettingsRows } from './settings-rows';
@@ -49,14 +49,12 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
   const [loadError, setLoadError] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [runningMode, setRunningMode] = useState<DailyReviewMode | null>(null);
-  const mountedRef = useRef(true);
+  const mountedRef = useMountedRef();
   const savingKeyRef = useRef<string | null>(null);
   const runningModeRef = useRef<DailyReviewMode | null>(null);
 
   useEffect(() => {
-    mountedRef.current = true;
     return () => {
-      mountedRef.current = false;
       savingKeyRef.current = null;
       runningModeRef.current = null;
     };

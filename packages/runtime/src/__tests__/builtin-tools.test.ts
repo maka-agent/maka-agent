@@ -3,14 +3,22 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { zodSchema } from 'ai';
 import { z } from 'zod';
+import { SHELL_RUN_ID_MAX_CHARS } from '@maka/core';
+import { createWorkspaceWritePermissionProfile } from '@maka/core/permission-profile';
 import { expect } from '../test-helpers.js';
 import { buildBuiltinTools } from '../builtin-tools.js';
+import { SandboxManager } from '../sandbox/sandbox-manager.js';
+import { LinuxBubblewrapBackend } from '../sandbox/linux-sandbox.js';
 import type { ShellRunLauncher } from '../shell-tools.js';
-import type {
-  BackgroundTaskStopper,
-  PtyControlWriter,
-  RuntimeResourceReader,
+import {
+  MAX_SHELL_RUN_RESOURCE_REF_CHARS,
+  SHELL_RUN_RESOURCE_PREFIX,
+  shellRunResourceRef,
+  type BackgroundTaskStopper,
+  type PtyControlWriter,
+  type RuntimeResourceReader,
 } from '../shell-run-contract.js';
 import {
   LOCAL_WORKSPACE_EXECUTOR_FACTS,
@@ -210,6 +218,123 @@ describe('builtin Bash streaming output', () => {
     expect((calls[0] as { pty?: boolean }).pty).toBe(true);
   });
 
+  test('wraps managed pipe Bash with bubblewrap argv and seccomp fd input', async () => {
+    const calls: any[] = [];
+    const shellRuns = {
+      async runForegroundBash(input: any) {
+        calls.push(input);
+        return {
+          kind: 'terminal', cwd: input.cwd, cmd: input.command, status: 'completed', exitCode: 0,
+          output: {
+            mode: 'pipes', stdout: '', stderr: '',
+            stdoutTruncated: false, stderrTruncated: false, redacted: false,
+          },
+        } as const;
+      },
+      async runBackgroundBash() { throw new Error('not used'); },
+    };
+    const bash = buildBuiltinTools({
+      shellRuns,
+      permissionProfile: createWorkspaceWritePermissionProfile(),
+      sandboxManager: availableLinuxManager(),
+      sandboxPlatform: 'linux',
+    }).find((candidate) => candidate.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    await bash.impl({ command: 'node --version' }, {
+      sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1', cwd: '/workspace',
+      permissionMode: 'execute', abortSignal: new AbortController().signal, emitOutput: () => {},
+    });
+
+    expect(calls[0]?.argv?.[0]).toBe('/usr/bin/bwrap');
+    expect(calls[0]?.argv?.slice(-3)).toEqual(['/bin/sh', '-lc', 'node --version']);
+    expect(calls[0]?.fdInputs?.[0]?.fd).toBe(3);
+    expect(typeof bash.sandbox).toBe('function');
+    if (typeof bash.sandbox !== 'function') throw new Error('dynamic sandbox metadata missing');
+    expect(bash.sandbox({
+      permissionMode: 'execute',
+      cwd: '/workspace',
+      args: { command: 'node --version' },
+    })).toEqual({ platformSandboxAvailable: true });
+  });
+
+  test('does not claim sandbox enforcement for PTY Bash and leaves it on the approved host path', async () => {
+    const calls: any[] = [];
+    const shellRuns = {
+      async runForegroundBash() { throw new Error('not used'); },
+      async runBackgroundBash(input: any) {
+        calls.push(input);
+        return {
+          kind: 'shell_run', ref: 'maka://runtime/background-tasks/shell-run-1',
+          mode: 'pty', status: 'running', cwd: input.cwd, cmd: input.command,
+          startedAt: 1, updatedAt: 1, revision: 1,
+        } as const;
+      },
+    };
+    const bash = buildBuiltinTools({
+      shellRuns,
+      permissionProfile: createWorkspaceWritePermissionProfile(),
+      sandboxManager: availableLinuxManager(),
+      sandboxPlatform: 'linux',
+    }).find((candidate) => candidate.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    await bash.impl({ command: 'bash', run_in_background: true, pty: true }, {
+      sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1', cwd: '/workspace',
+      permissionMode: 'execute', abortSignal: new AbortController().signal, emitOutput: () => {},
+    });
+
+    expect(calls[0]?.argv).toBe(undefined);
+    expect(calls[0]?.fdInputs).toBe(undefined);
+    expect(Boolean(calls[0]?.shell)).toBe(true);
+    expect(typeof bash.sandbox).toBe('function');
+    if (typeof bash.sandbox !== 'function') throw new Error('dynamic sandbox metadata missing');
+    expect(bash.sandbox({
+      permissionMode: 'execute',
+      cwd: '/workspace',
+      args: { command: 'bash', run_in_background: true, pty: true },
+    })).toEqual({ platformSandboxAvailable: false });
+  });
+
+  test('reports unavailable bubblewrap and keeps approved Bash on the host path', async () => {
+    const calls: any[] = [];
+    const shellRuns = {
+      async runForegroundBash(input: any) {
+        calls.push(input);
+        return {
+          kind: 'terminal', cwd: input.cwd, cmd: input.command, status: 'completed', exitCode: 0,
+          output: {
+            mode: 'pipes', stdout: 'host', stderr: '',
+            stdoutTruncated: false, stderrTruncated: false, redacted: false,
+          },
+        } as const;
+      },
+      async runBackgroundBash() { throw new Error('not used'); },
+    };
+    const bash = buildBuiltinTools({
+      shellRuns,
+      permissionProfile: createWorkspaceWritePermissionProfile(),
+      sandboxManager: unavailableLinuxManager(),
+      sandboxPlatform: 'linux',
+    }).find((candidate) => candidate.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    await bash.impl({ command: 'echo host' }, {
+      sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1', cwd: '/workspace',
+      permissionMode: 'execute', abortSignal: new AbortController().signal, emitOutput: () => {},
+    });
+
+    expect(calls[0]?.argv).toBe(undefined);
+    expect(Boolean(calls[0]?.shell)).toBe(true);
+    expect(typeof bash.sandbox).toBe('function');
+    if (typeof bash.sandbox !== 'function') throw new Error('dynamic sandbox metadata missing');
+    expect(bash.sandbox({
+      permissionMode: 'execute',
+      cwd: '/workspace',
+      args: { command: 'echo host' },
+    })).toEqual({ platformSandboxAvailable: false });
+  });
+
   test('Read treats runtime background task refs as whole resources', async () => {
     const calls: unknown[] = [];
     const runtimeResources = {
@@ -229,8 +354,10 @@ describe('builtin Bash streaming output', () => {
     const read = buildBuiltinTools({ runtimeResources }).find((tool) => tool.name === 'Read');
     if (!read) throw new Error('Read tool missing');
     const parameters = read.parameters as z.ZodTypeAny;
+    expect(zodSchema(parameters).jsonSchema.type).toBe('object');
     expect(parameters.safeParse({ path: 'README.md', offset: 2, limit: 10 }).success).toBe(true);
     expect(parameters.safeParse({ ref: 'maka://runtime/background-tasks/shell-run-1' }).success).toBe(true);
+    expect(parameters.safeParse({}).success).toBe(false);
     expect(parameters.safeParse({
       ref: 'maka://runtime/background-tasks/shell-run-1',
       offset: 2,
@@ -332,14 +459,32 @@ describe('builtin Bash streaming output', () => {
     const write = buildBuiltinTools({ ptyControls }).find((tool) => tool.name === 'WriteStdin');
     if (!write) throw new Error('WriteStdin tool missing');
     const parameters = write.parameters as z.ZodTypeAny;
+    const maxRef = shellRunResourceRef('x'.repeat(SHELL_RUN_ID_MAX_CHARS));
+    const refSchema = zodSchema(parameters).jsonSchema as {
+      properties?: { ref?: { maxLength?: number } };
+    };
 
-    expect(parameters.safeParse({ ref: 'ref', input: 'hello\r' }).success).toBe(true);
-    expect(parameters.safeParse({ ref: 'ref', size: { cols: 240, rows: 100 } }).success).toBe(true);
-    expect(parameters.safeParse({ ref: 'ref' }).success).toBe(false);
-    expect(parameters.safeParse({ ref: 'ref', input: '' }).success).toBe(false);
-    expect(parameters.safeParse({ ref: 'ref', input: '\uD800' }).success).toBe(false);
-    expect(parameters.safeParse({ ref: 'ref', input: 'x'.repeat(64 * 1024 + 1) }).success).toBe(false);
-    expect(parameters.safeParse({ ref: 'ref', size: { cols: 1, rows: 24 } }).success).toBe(false);
+    expect(maxRef.length).toBe(MAX_SHELL_RUN_RESOURCE_REF_CHARS);
+    expect(refSchema.properties?.ref?.maxLength).toBe(MAX_SHELL_RUN_RESOURCE_REF_CHARS);
+    expect(parameters.safeParse({ ref: maxRef, input: 'hello\r' }).success).toBe(true);
+    expect(parameters.safeParse({
+      ref: `${SHELL_RUN_RESOURCE_PREFIX}/shell-run-1`,
+      size: { cols: 240, rows: 100 },
+    }).success).toBe(true);
+    for (const ref of [
+      'ref',
+      `${SHELL_RUN_RESOURCE_PREFIX}/shell/run`,
+      `${SHELL_RUN_RESOURCE_PREFIX}/decoy/../shell-run-1`,
+      `${SHELL_RUN_RESOURCE_PREFIX}/shell-run-1?view=full`,
+      `${maxRef}x`,
+    ]) {
+      expect(parameters.safeParse({ ref, input: 'hello\r' }).success).toBe(false);
+    }
+    expect(parameters.safeParse({ ref: maxRef }).success).toBe(false);
+    expect(parameters.safeParse({ ref: maxRef, input: '' }).success).toBe(false);
+    expect(parameters.safeParse({ ref: maxRef, input: '\uD800' }).success).toBe(false);
+    expect(parameters.safeParse({ ref: maxRef, input: 'x'.repeat(64 * 1024 + 1) }).success).toBe(false);
+    expect(parameters.safeParse({ ref: maxRef, size: { cols: 1, rows: 24 } }).success).toBe(false);
   });
 
   test('delegates Bash execution to an injected workspace executor', async () => {
@@ -1032,4 +1177,20 @@ function fakeExecutor(overrides: Partial<WorkspaceExecutor>): WorkspaceExecutor 
     grepFiles: async () => ({ matches: [] }),
   };
   return Object.assign(base, overrides);
+}
+
+function availableLinuxManager(): SandboxManager {
+  return new SandboxManager([
+    new LinuxBubblewrapBackend({
+      capability: { available: true, bwrapPath: '/usr/bin/bwrap' },
+    }),
+  ]);
+}
+
+function unavailableLinuxManager(): SandboxManager {
+  return new SandboxManager([
+    new LinuxBubblewrapBackend({
+      capability: { available: false, reason: 'missing-bwrap', bwrapPath: '/usr/bin/bwrap' },
+    }),
+  ]);
 }

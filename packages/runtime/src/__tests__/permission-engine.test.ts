@@ -239,6 +239,22 @@ describe('PermissionEngine.evaluate — block path', () => {
 });
 
 describe('PermissionEngine.evaluate — prompt path', () => {
+  test('allows execute shell_unsafe when the runtime reports an enforceable sandbox', () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const r = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Bash',
+      args: { command: 'npm install lodash' },
+      mode: 'execute',
+      sandbox: { platformSandboxAvailable: true },
+    });
+
+    expect(r.kind).toBe('allow');
+  });
+
   test('execution facts are accepted but do not (yet) downgrade host-local shell to allow', () => {
     // executionFacts is plumbed for forward-compat: a future sandbox-aware
     // policy may auto-allow unsafe shell inside an isolated worktree. On the
@@ -446,6 +462,92 @@ describe('PermissionEngine — turn lifecycle', () => {
     if (r1.kind !== 'prompt' || r2.kind !== 'prompt') throw new Error('expected prompts');
     engine.recordResponse('t1', { requestId: r1.event.requestId, decision: 'allow' }); // no rememberForTurn
     expect(engine.pendingCount('t1')).toBe(1); // r2 still parked
+  });
+
+  test('a request that forbids turn memory ignores a forged remember response', async () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const first = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'maka_computer',
+      args: { action: 'type', text: 'secret' },
+      categoryHint: 'computer_use',
+      mode: 'execute',
+    });
+    if (first.kind !== 'prompt') throw new Error('expected prompt');
+    assert.equal(first.event.rememberForTurnAllowed, false);
+
+    engine.recordResponse('t1', {
+      requestId: first.event.requestId,
+      decision: 'allow',
+      rememberForTurn: true,
+    });
+    assert.equal((await first.parked).rememberForTurn, false);
+
+    const second = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu2',
+      toolName: 'maka_computer',
+      args: { action: 'type', text: 'other secret' },
+      categoryHint: 'computer_use',
+      mode: 'execute',
+    });
+    assert.equal(second.kind, 'prompt');
+  });
+
+  test('permission evaluation snapshots args before a caller can mutate them', () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const args = {
+      action: 'left_click',
+      app: 'Example',
+      observation_id: 'frame-1',
+      coordinate: [10, 20],
+    };
+    const result = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'maka_computer',
+      args,
+      categoryHint: 'computer_use',
+      mode: 'execute',
+    });
+    if (result.kind !== 'prompt') throw new Error('expected prompt');
+    args.app = 'Mutated';
+    args.observation_id = 'frame-999';
+    assert.deepEqual(result.event.args, {
+      action: 'left_click',
+      approvalClass: 'pointer_mutation',
+      rememberForTurnAllowed: true,
+      app: 'Example',
+      observationId: 'frame-1',
+    });
+  });
+
+  test('permission evaluation rejects accessors without invoking them', () => {
+    const { engine } = makeEngine();
+    let reads = 0;
+    const args = {
+      action: 'observe',
+      get app() {
+        reads += 1;
+        return 'Example';
+      },
+    };
+    assert.throws(() => engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'maka_computer',
+      args,
+      categoryHint: 'computer_use',
+      mode: 'execute',
+    }));
+    assert.equal(reads, 0);
   });
 
   test('remember does not absorb a parked request in a different scope', () => {

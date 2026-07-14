@@ -55,12 +55,8 @@ describe('renderer style layer cascade contract', () => {
   /**
    * Regression guard for #257 / #253 Round A.
    *
-   * The sidebar nav rows render as `<UiButton size="nav" className="maka-nav-row">`
-   * (packages/ui/src/components.tsx). The cva button base always carries the
-   * Tailwind utilities `inline-flex items-center justify-center`, and the
-   * `nav` size variant deliberately contributes NO layout utilities so that
-   * `.maka-nav-row` (display: grid + grid-template-columns + text-align: left)
-   * is the layout source of truth.
+   * Sidebar rows are semantic Base UI navigation controls whose grid layout
+   * lives in `.maka-nav-row`.
    *
    * That only holds while `.maka-nav-row` outranks the utilities. #257 wrapped
    * styles.css into `@layer base`/`@layer components`; because Tailwind v4
@@ -77,41 +73,45 @@ describe('renderer style layer cascade contract', () => {
       layers,
       0,
       `.maka-nav-row is nested in ${layers} @layer block(s); it must stay unlayered to ` +
-        'override the cva button base utilities (inline-flex/justify-center). See #257 regression.',
+        'remain the authoritative semantic navigation-row layout. See #257 regression.',
     );
   });
 
-  it('keeps .settingsHealthRefresh out of any @layer so it can override secondary Button utilities', async () => {
+  it('keeps the composite session target on the same control radius as its row action', async () => {
     const styles = await readAllRendererCss();
-    const layers = enclosingLayerCount(styles, '.settingsHealthRefresh {');
-    assert.notEqual(layers, -1, '.settingsHealthRefresh { rule not found in renderer CSS');
-    assert.equal(
-      layers,
-      0,
-      '.settingsHealthRefresh must stay unlayered because it overrides the shared secondary Button utility stack (background/border/padding/color).',
+    assert.match(
+      styles,
+      /\.maka-list-row-main\s*\{[^}]*border-radius:\s*var\(--radius-control\);[^}]*\}/,
+      'the semantic session target must own the same governed radius as .maka-list-row-menu-trigger',
     );
   });
 
-  it('keeps .settingsPermissionRefresh out of any @layer so it can override secondary Button utilities', async () => {
+  it('keeps composite session-list controls on one complete interaction contract', async () => {
     const styles = await readAllRendererCss();
-    const layers = enclosingLayerCount(styles, '.settingsPermissionRefresh {');
-    assert.notEqual(layers, -1, '.settingsPermissionRefresh { rule not found in renderer CSS');
-    assert.equal(
-      layers,
-      0,
-      '.settingsPermissionRefresh must stay unlayered because it overrides the shared secondary Button utility stack (background/border/padding/color).',
-    );
+    const controls = ':is\\(\\.maka-list-group-toggle, \\.maka-list-project-heading, \\.maka-list-project-more\\)';
+
+    assert.match(styles, new RegExp(`${controls}:hover\\s*\\{[^}]*background:\\s*var\\(--state-hover-bg\\);`));
+    assert.match(styles, new RegExp(`${controls}:active\\s*\\{[^}]*background:\\s*var\\(--state-selected-bg\\);`));
+    assert.match(styles, new RegExp(`${controls}:focus-visible\\s*\\{[^}]*outline:\\s*var\\(--focus-ring-width\\) solid var\\(--focus-ring\\);`));
+    assert.match(styles, new RegExp(`${controls}:disabled\\s*\\{[^}]*opacity:\\s*var\\(--opacity-disabled\\);`));
   });
 
-  it('keeps .settingsBotList button out of any @layer so the bot nav can override shared Button utilities', async () => {
-    const styles = await readAllRendererCss();
-    const layers = enclosingLayerCount(styles, '.settingsBotList button {');
-    assert.notEqual(layers, -1, '.settingsBotList button { rule not found in renderer CSS');
-    assert.equal(
-      layers,
-      0,
-      '.settingsBotList button must stay unlayered because the bot nav uses shared Button primitives and overrides their utility layout/background stack.',
-    );
+  it('keeps settings utility actions on governed Button variants instead of unlayered reskins', async () => {
+    const [styles, permission, health, password] = await Promise.all([
+      readAllRendererCss(),
+      readFile('src/renderer/settings/permission-center-page.tsx', 'utf8'),
+      readFile('src/renderer/settings/health-center-page.tsx', 'utf8'),
+      readFile('src/renderer/settings/password-input.tsx', 'utf8'),
+    ]);
+
+    assert.match(permission, /<Button\s+type="button"\s+variant="secondary"\s+size="sm"[\s\S]*?>\s*重新检测/);
+    assert.match(health, /<Button\s+type="button"\s+variant="secondary"\s+size="sm"[\s\S]*?>\s*刷新/);
+    assert.equal(password.match(/variant="quiet"\s+size="icon-sm"/g)?.length, 2);
+
+    for (const legacyClass of ['settingsPermissionRefresh', 'settingsHealthRefresh', 'settingsPasswordToggle']) {
+      assert.doesNotMatch(`${permission}\n${health}\n${password}`, new RegExp(`className="${legacyClass}"`));
+      assert.doesNotMatch(styles, new RegExp(`\\.${legacyClass}(?:\\s|:|\\{|\\[)`));
+    }
   });
 
   /**

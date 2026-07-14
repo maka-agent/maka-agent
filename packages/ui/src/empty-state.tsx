@@ -15,8 +15,8 @@ type EmptyStateIcon = typeof Search;
  *
  * Body accepts `ReactNode` so callers can keep inline `<code>` for
  * the skills install instructions; CTAs are rendered as the canonical
- * `.maka-button.maka-empty-state-cta` so we never grow a competing
- * pile of "empty-state action variants".
+ * the shared Button primitive so we never grow a competing empty-state
+ * action variant.
  */
 interface EmptyStateProps {
   /** Required for the card variant; unused by inline. */
@@ -68,7 +68,7 @@ export function EmptyState(props: EmptyStateProps) {
         <EmptyContent className="maka-empty-state-actions mt-0">
           {props.cta && (
             <UiButton
-              className="maka-button maka-empty-state-cta"
+              className="maka-empty-state-cta"
               type="button"
               onClick={props.cta.onClick}
               disabled={props.cta.disabled}
@@ -79,7 +79,7 @@ export function EmptyState(props: EmptyStateProps) {
           {props.secondaryCta && (
             <UiButton
               variant="ghost"
-              className="maka-button maka-empty-state-cta"
+              className="maka-empty-state-cta"
               type="button"
               onClick={props.secondaryCta.onClick}
               disabled={props.secondaryCta.disabled}

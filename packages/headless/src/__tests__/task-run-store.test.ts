@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { HeavyTaskSelfCheckPlanState, HeavyTaskSemanticSelfCheckState, TaskEvent } from '../task-contracts.js';
+import { taskAttemptExecutionEvidence } from '../task-execution-lineage.js';
 import { createInMemoryTaskRunStore, createTaskRunStore, projectTaskRun } from '../task-run-store.js';
 
 function eventIdFactory(): () => string {
@@ -103,6 +104,10 @@ describe('TaskRunStore', () => {
     for (const event of events) await store.appendEvent(event.taskRunId, event);
 
     assert.deepEqual(await store.readEvents('tr-1'), events);
+    assert.deepEqual((await store.readEventRecords('tr-1')).slice(0, 2).map((record) => record.cursor), [
+      { ledger: 'task_event', streamId: 'tr-1', sequence: 0, eventId: 'e-1' },
+      { ledger: 'task_event', streamId: 'tr-1', sequence: 1, eventId: 'e-2' },
+    ]);
   });
 
   test('projects status, attempts, observations, verifier, and score from replay', async () => {
@@ -116,6 +121,7 @@ describe('TaskRunStore', () => {
     assert.equal(projection.sessionId, 's-1');
     assert.equal(projection.agentRunId, 'r-1');
     assert.equal(projection.attempts[0]?.status, 'completed');
+    assert.deepEqual(projection.attempts[0]?.executionLineage, []);
     assert.equal(projection.selfChecks[0]?.summary, 'looks solved');
     assert.equal(projection.feedback[0]?.summary, 'tests passed');
     assert.equal(projection.decisions[0]?.decision, 'stop');
@@ -127,6 +133,178 @@ describe('TaskRunStore', () => {
       verifierResultId: 'v-1',
       scoreResultId: 'score-1',
     });
+  });
+
+  test('projects every AgentRun linked to one attempt without copying Runtime facts', () => {
+    const taskRunId = 'tr-lineage';
+    const attemptId = 'attempt-1';
+    const events: TaskEvent[] = [
+      { type: 'task_run_created', id: 'e-1', taskRunId, ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      { type: 'task_run_started', id: 'e-2', taskRunId, ts: 2, sessionId: 'session-1', agentRunId: 'run-1' },
+      { type: 'task_attempt_started', id: 'e-3', taskRunId, ts: 3, attemptId, sessionId: 'session-1', agentRunId: 'run-1' },
+      {
+        type: 'task_attempt_execution_linked',
+        id: 'e-4',
+        taskRunId,
+        attemptId,
+        ts: 4,
+        evidence: taskAttemptExecutionEvidence({
+          taskRunId,
+          attemptId,
+          sessionId: 'session-1',
+          invocationId: 'invocation-1',
+          agentRunId: 'run-1',
+          turnId: 'turn-1',
+          runtimeEvents: [],
+        }),
+      },
+      {
+        type: 'task_attempt_execution_linked',
+        id: 'e-5',
+        taskRunId,
+        attemptId,
+        ts: 5,
+        evidence: taskAttemptExecutionEvidence({
+          taskRunId,
+          attemptId,
+          sessionId: 'session-1',
+          invocationId: 'invocation-2',
+          agentRunId: 'run-2',
+          turnId: 'turn-2',
+          runtimeEvents: [],
+        }),
+      },
+      { type: 'task_attempt_completed', id: 'e-6', taskRunId, ts: 6, attemptId, status: 'completed' },
+    ];
+
+    const projection = projectTaskRun(events, taskRunId);
+
+    assert.equal(projection.agentRunId, 'run-1');
+    assert.deepEqual(
+      projection.executionLineage.map((ref) => ref.execution?.agentRunId),
+      ['run-1', 'run-2'],
+    );
+    assert.deepEqual(
+      projection.attempts[0]?.executionLineage.map((ref) => ref.execution?.agentRunId),
+      ['run-1', 'run-2'],
+    );
+  });
+
+  test('rejects lineage whose task identity does not match the owning event', () => {
+    const taskRunId = 'tr-lineage-invalid';
+    const projection = projectTaskRun([
+      { type: 'task_attempt_started', id: 'e-1', taskRunId, ts: 1, attemptId: 'attempt-1' },
+      {
+        type: 'task_attempt_execution_linked',
+        id: 'e-2',
+        taskRunId,
+        attemptId: 'attempt-1',
+        ts: 2,
+        evidence: taskAttemptExecutionEvidence({
+          taskRunId: 'another-task-run',
+          attemptId: 'attempt-1',
+          sessionId: 'session-1',
+          agentRunId: 'run-1',
+          runtimeEvents: [],
+        }),
+      },
+    ], taskRunId);
+
+    assert.equal(projection.executionLineage.length, 0);
+    assert.match(projection.warnings[0] ?? '', /task identity does not match/);
+  });
+
+  test('projects Runtime provenance onto compact evidence without copying Runtime facts', () => {
+    const taskRunId = 'tr-evidence-provenance';
+    const recorded = heavyTaskEvidenceEvent(taskRunId, 'e-1', 'evidence-1', 'Bash', 1);
+    if (recorded.type !== 'heavy_task_evidence_recorded') throw new Error('expected evidence event');
+    recorded.evidence.attemptId = 'attempt-1';
+    recorded.evidence.source = {
+      ...recorded.evidence.source,
+      sessionId: 'session-1',
+      agentRunId: 'run-1',
+      turnId: 'turn-1',
+    };
+    const events: TaskEvent[] = [
+      recorded,
+      {
+        type: 'heavy_task_evidence_provenance_linked',
+        id: 'e-2',
+        taskRunId,
+        attemptId: 'attempt-1',
+        ts: 2,
+        evidenceId: 'evidence-1',
+        provenance: {
+          schemaVersion: 'maka.execution_evidence_ref.v1',
+          execution: {
+            sessionId: 'session-1',
+            invocationId: 'invocation-1',
+            agentRunId: 'run-1',
+            turnId: 'turn-1',
+          },
+          task: { taskRunId, attemptId: 'attempt-1' },
+          runtimeCoverage: {
+            lowWater: { ledger: 'runtime_event', streamId: 'run-1', sequence: 4, eventId: 'call-1' },
+            highWater: { ledger: 'runtime_event', streamId: 'run-1', sequence: 6, eventId: 'result-1' },
+            eventCount: 3,
+          },
+        },
+      },
+    ];
+
+    const projection = projectTaskRun(events, taskRunId);
+
+    assert.equal(projection.heavyTaskEvidence[0]?.provenance?.execution?.agentRunId, 'run-1');
+    assert.equal(projection.heavyTaskEvidence[0]?.provenance?.runtimeCoverage?.highWater.eventId, 'result-1');
+    assert.equal(projection.events[1]?.type, 'heavy_task_evidence_provenance_linked');
+  });
+
+  test('rejects evidence provenance from a different Runtime source', () => {
+    const taskRunId = 'tr-evidence-provenance-invalid';
+    const recorded = heavyTaskEvidenceEvent(taskRunId, 'e-1', 'evidence-1', 'Bash', 1);
+    if (recorded.type !== 'heavy_task_evidence_recorded') throw new Error('expected evidence event');
+    recorded.evidence.source.agentRunId = 'run-1';
+    const projection = projectTaskRun([
+      recorded,
+      {
+        type: 'heavy_task_evidence_provenance_linked',
+        id: 'e-2',
+        taskRunId,
+        attemptId: 'attempt-1',
+        ts: 2,
+        evidenceId: 'evidence-1',
+        provenance: {
+          schemaVersion: 'maka.execution_evidence_ref.v1',
+          execution: { sessionId: 'session-1', agentRunId: 'run-2' },
+          task: { taskRunId, attemptId: 'attempt-1' },
+          runtimeCoverage: {
+            highWater: { ledger: 'runtime_event', streamId: 'run-2', sequence: 1, eventId: 'result-1' },
+          },
+        },
+      },
+    ], taskRunId);
+
+    assert.equal(projection.heavyTaskEvidence[0]?.provenance, undefined);
+    assert.match(projection.warnings[0] ?? '', /Runtime identity does not match/);
+  });
+
+  test('does not trust provenance embedded in the compact evidence fact', () => {
+    const taskRunId = 'tr-embedded-provenance';
+    const recorded = heavyTaskEvidenceEvent(taskRunId, 'e-1', 'evidence-1', 'Bash', 1);
+    if (recorded.type !== 'heavy_task_evidence_recorded') throw new Error('expected evidence event');
+    recorded.evidence.provenance = {
+      schemaVersion: 'maka.execution_evidence_ref.v1',
+      execution: { sessionId: 'session-1', agentRunId: 'run-1' },
+      task: { taskRunId, attemptId: 'attempt-1' },
+      runtimeCoverage: {
+        highWater: { ledger: 'runtime_event', streamId: 'run-1', sequence: 1, eventId: 'forged-result' },
+      },
+    };
+
+    const projection = projectTaskRun([recorded], taskRunId);
+
+    assert.equal(projection.heavyTaskEvidence[0]?.provenance, undefined);
+    assert.match(projection.warnings[0] ?? '', /provenance link event is required/);
   });
 
   test('projects first-class task-run artifacts', () => {
@@ -353,6 +531,123 @@ describe('TaskRunStore', () => {
     assert.equal(projection.heavyTaskEvidence[2]?.artifact?.authority?.source, 'self_check');
     assert.equal(projection.warnings.length, 2);
     assert.match(projection.warnings.join('\n'), /source guard did not accept/);
+  });
+
+  test('replays Self-check source binding and invalidates freshness after later workspace mutations', () => {
+    const taskRunId = 'tr-self-check-freshness';
+    const attemptId = 'attempt-1';
+    const selfCheck = {
+      ...acceptedSelfCheck(taskRunId, 'self-check-1', 'pass', 'npm test passed.'),
+      attemptId,
+      source: {
+        kind: 'model_tool' as const,
+        toolCallId: 'self-check-call',
+        sessionId: 'session-1',
+        agentRunId: 'run-1',
+        turnId: 'turn-1',
+      },
+    };
+    const revision = { kind: 'manifest' as const, ref: 'sha256:workspace-1', dirty: false };
+    const workspaceObservation: Extract<TaskEvent, { type: 'heavy_task_workspace_observation_recorded' }>['observation'] = {
+      schemaVersion: 1,
+      observationId: 'workspace-1',
+      taskRunId,
+      ts: 3,
+      roots: ['/app/project'],
+      entries: [{ path: '/app/project/result.txt', kind: 'file', sizeBytes: 2, sha256: 'aa' }],
+      status: 'ok',
+      command: 'observe',
+      revision,
+      source: { kind: 'system', label: 'isolated workspace observation' },
+    };
+    const prefix: TaskEvent[] = [
+      { type: 'task_run_created', id: 'created', taskRunId, ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      { type: 'heavy_task_self_check_recorded', id: 'self-check-event', taskRunId, ts: 2, selfCheck },
+      {
+        type: 'heavy_task_workspace_observation_recorded',
+        id: 'workspace-event-1',
+        taskRunId,
+        ts: 3,
+        observation: workspaceObservation,
+      },
+      {
+        type: 'heavy_task_self_check_evidence_linked',
+        id: 'self-check-link',
+        taskRunId,
+        ts: 4,
+        selfCheckId: selfCheck.selfCheckId,
+        attemptId,
+        workspaceObservationId: 'workspace-1',
+        provenance: {
+          schemaVersion: 'maka.execution_evidence_ref.v1',
+          execution: { sessionId: 'session-1', invocationId: 'invocation-1', agentRunId: 'run-1', turnId: 'turn-1' },
+          task: { taskRunId, attemptId },
+          runtimeCoverage: {
+            lowWater: { ledger: 'runtime_event', streamId: 'run-1', sequence: 2, eventId: 'runtime-call' },
+            highWater: { ledger: 'runtime_event', streamId: 'run-1', sequence: 3, eventId: 'runtime-result' },
+            eventCount: 2,
+          },
+          taskCoverage: {
+            highWater: { ledger: 'task_event', streamId: taskRunId, sequence: 1, eventId: 'self-check-event' },
+            eventCount: 2,
+          },
+          workspace: revision,
+        },
+      },
+    ];
+
+    const current = projectTaskRun(prefix, taskRunId);
+    assert.equal(current.latestHeavyTaskSelfCheck?.freshness, 'current');
+    assert.equal(current.latestHeavyTaskSelfCheck?.provenance?.taskCoverage?.highWater.eventId, 'self-check-event');
+
+    const mutationBase = heavyTaskEvidenceEvent(
+      taskRunId,
+      'mutation',
+      'write-evidence',
+      'Bash',
+      5,
+    ) as Extract<TaskEvent, { type: 'heavy_task_evidence_recorded' }>;
+    const mutation: Extract<TaskEvent, { type: 'heavy_task_evidence_recorded' }> = {
+      ...mutationBase,
+      evidence: { ...mutationBase.evidence, attemptId },
+    };
+    const mutated = projectTaskRun([...prefix, mutation], taskRunId);
+    assert.equal(mutated.latestHeavyTaskSelfCheck?.freshness, 'stale');
+    assert.deepEqual(mutated.latestHeavyTaskSelfCheck?.freshnessReasons, ['later_workspace_mutation']);
+
+    const reobserved = projectTaskRun([
+      ...mutated.events,
+      {
+        type: 'heavy_task_workspace_observation_recorded',
+        id: 'workspace-event-2',
+        taskRunId,
+        ts: 6,
+        observation: {
+          ...workspaceObservation,
+          observationId: 'workspace-2',
+          ts: 6,
+        },
+      } as TaskEvent,
+    ], taskRunId);
+    assert.equal(reobserved.latestHeavyTaskSelfCheck?.freshness, 'current');
+
+    const changed = projectTaskRun([
+      ...reobserved.events,
+      {
+        type: 'heavy_task_workspace_observation_recorded',
+        id: 'workspace-event-3',
+        taskRunId,
+        ts: 7,
+        observation: {
+          ...workspaceObservation,
+          observationId: 'workspace-3',
+          ts: 7,
+          revision: { kind: 'manifest', ref: 'sha256:workspace-2', dirty: false },
+        },
+      } as TaskEvent,
+    ], taskRunId);
+    assert.equal(changed.latestHeavyTaskSelfCheck?.freshness, 'stale');
+    assert.deepEqual(changed.latestHeavyTaskSelfCheck?.freshnessReasons, ['workspace_revision_changed']);
   });
 
   test('derives heavy-task completion from accepted self-checks and latest todos', () => {
@@ -752,6 +1047,9 @@ describe('TaskRunStore', () => {
       assert.equal(replayed.length, 2);
       assert.equal(replayed[1]?.type, 'event_corrupt');
       assert.match((replayed[1] as { error?: string }).error ?? '', /Unexpected/);
+      const records = await store.readEventRecords('tr-corrupt');
+      assert.deepEqual(records.map((record) => record.cursor.sequence), [0, 1]);
+      assert.equal(records[1]?.cursor.eventId, 'corrupt-2');
     } finally {
       await rm(storageRoot, { recursive: true, force: true });
     }

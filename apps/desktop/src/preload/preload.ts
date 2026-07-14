@@ -11,6 +11,7 @@ import type {
   ModelDiscoveryResult,
   ModelInfo,
   PermissionResponse,
+  UserQuestionResponse,
   PermissionMode,
   SearchErrorReason,
   SearchRequest,
@@ -59,6 +60,8 @@ import type {
   BrowserState,
   BrowserViewRect,
   ThemePreference,
+  Task,
+  TaskLedgerChangedEvent,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -154,6 +157,16 @@ export interface WorkspaceInstructionsState {
 }
 
 contextBridge.exposeInMainWorld('maka', {
+  tasks: {
+    list(sessionId: string): Promise<Task[]> {
+      return ipcRenderer.invoke('tasks:list', sessionId);
+    },
+    subscribeChanges(handler: (event: TaskLedgerChangedEvent) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: TaskLedgerChangedEvent) => handler(payload);
+      ipcRenderer.on('tasks:changed', listener);
+      return () => ipcRenderer.off('tasks:changed', listener);
+    },
+  },
   sessions: {
     list(filter?: SessionListFilter): Promise<SessionSummary[]> {
       return ipcRenderer.invoke('sessions:list', filter);
@@ -193,6 +206,9 @@ contextBridge.exposeInMainWorld('maka', {
     },
     respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
       return ipcRenderer.invoke('sessions:respondToPermission', sessionId, response);
+    },
+    respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void> {
+      return ipcRenderer.invoke('sessions:respondToUserQuestion', sessionId, response);
     },
     /**
      * PR-CMD-PALETTE-SAVE-CONVERSATION-FILE-0: write the renderer-formatted
@@ -543,6 +559,24 @@ contextBridge.exposeInMainWorld('maka', {
     },
     logout(): Promise<SubscriptionActionResult> {
       return ipcRenderer.invoke('codex-subscription:logout');
+    },
+  },
+  githubCopilotSubscription: {
+    connectExistingLogin(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('github-copilot:connect-existing-login');
+    },
+    getAccountState(): Promise<{
+      provider: 'github-copilot';
+      runtimeState: 'not_logged_in' | 'authenticated' | 'refreshing' | 'refresh_failed' | 'storage_failed';
+      errorMessage?: string;
+    }> {
+      return ipcRenderer.invoke('github-copilot:get-account-state');
+    },
+    refreshTokens(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('github-copilot:refresh-tokens');
+    },
+    logout(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('github-copilot:logout');
     },
   },
   cursorSubscription: {
@@ -1011,10 +1045,16 @@ contextBridge.exposeInMainWorld('maka', {
       return ipcRenderer.invoke('skills:setEnabled', skillId, enabled);
     },
     createStarter(): Promise<
-      | { ok: true; skill: SkillEntry; filePath: string }
+      | { ok: true; created: boolean; skill: SkillEntry; filePath: string }
       | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }
     > {
       return ipcRenderer.invoke('skills:createStarter');
+    },
+    delete(id: string): Promise<
+      | { ok: true }
+      | { ok: false; reason: 'not_found' | 'blocked_path' | 'delete_failed' }
+    > {
+      return ipcRenderer.invoke('skills:delete', id);
     },
     open(id: string, target: 'file' | 'directory' = 'file'): Promise<
       | { ok: true; target: 'file' | 'directory' }

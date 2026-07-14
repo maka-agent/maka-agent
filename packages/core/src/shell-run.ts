@@ -17,7 +17,9 @@ export const SHELL_RUN_TERMINAL_STATUSES = [
   'orphaned',
 ] as const;
 
-const SHELL_RUN_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+export const SHELL_RUN_ID_MAX_CHARS = 128;
+
+const SHELL_RUN_ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{1,${SHELL_RUN_ID_MAX_CHARS}}$`);
 const PIPE_SHELL_OUTPUT_KEYS = new Set([
   'mode',
   'stdout',
@@ -83,7 +85,7 @@ export type ShellRunOperation =
       failed: boolean;
       input?: {
         bytes: number;
-        applied: boolean;
+        queued: boolean;
       };
       resize?: {
         cols: number;

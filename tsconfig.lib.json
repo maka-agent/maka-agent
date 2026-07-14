@@ -4,6 +4,7 @@
     { "path": "packages/core" },
     { "path": "packages/storage" },
     { "path": "packages/runtime" },
+    { "path": "packages/computer-use" },
     { "path": "packages/ui" }
   ]
 }

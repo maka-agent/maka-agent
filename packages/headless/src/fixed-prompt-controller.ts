@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile, truncate, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import {
   validateHarborCellOutput,
   hashHarborSystemPrompt,
@@ -19,6 +19,7 @@ export const FIXED_PROMPT_WAL_SCHEMA_VERSION = 1;
 export const BUDGET_EXHAUSTED_RUNTIME_UNAVAILABLE_REASON = 'budget_exhausted_before_cell_output';
 const LEGACY_TIMEOUT_MISSING_EXECUTION_IDENTITY_ERROR = 'Timed-out Harbor attempt did not produce execution identity attestation';
 type UnscoredCellFailureClass = 'infra_failed' | 'setup_failed' | 'verification_error';
+const walWriteTails = new Map<string, Promise<void>>();
 
 export interface FixedPromptTask {
   id: string;
@@ -151,6 +152,7 @@ export interface FixedPromptTaskBudgetExhaustedEvent {
   traceEventsPath?: string;
   runtimeEventsUnavailableReason?: string;
   tokenSummary?: HarborCellTokenSummary;
+  tokenSummarySource?: 'final' | 'checkpoint';
   executionIdentity?: HarborCellExecutionIdentity;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
@@ -299,11 +301,12 @@ export interface RunFixedPromptControllerInput {
   config: Config;
   systemPromptPath: string;
   resultsJsonlPath: string;
-  resultsTsvPath: string;
+  resultsTsvPath?: string;
   tasks: readonly FixedPromptTask[];
   maxInfraFailureRate?: number;
   costCeilingUsd?: number;
   maxConcurrency?: number;
+  infraFailurePolicy?: 'retry-once' | 'terminal';
   resumeFingerprint?: string;
   requireExecutionIdentity?: boolean;
   expectedPricingProfile?: string;
@@ -322,7 +325,7 @@ export interface FixedPromptControllerResult {
   events: FixedPromptTaskWalEvent[];
   totalTokens: number;
   totalCostUsd: number;
-  resultsTsvPath: string;
+  resultsTsvPath?: string;
   stopReason?: FixedPromptControllerStopReason;
 }
 
@@ -341,7 +344,14 @@ export async function runFixedPromptController(
   const expectedPromptHash = hashSystemPrompt(systemPrompt);
   const config = { ...input.config, systemPrompt };
   const events = await readFixedPromptWal(input.resultsJsonlPath);
-  const completed = terminalTaskEvents(events, input.runId, input.roundId, expectedPromptHash, input.resumeFingerprint);
+  const completed = terminalTaskEvents(
+    events,
+    input.runId,
+    input.roundId,
+    expectedPromptHash,
+    input.resumeFingerprint,
+    input.infraFailurePolicy === 'terminal',
+  );
   const stopEvidence = roundTaskEvents(events, input.runId, input.roundId, expectedPromptHash, input.resumeFingerprint);
   let stopReason = controllerStopReason({
     events: [...stopEvidence.values()],
@@ -416,14 +426,16 @@ export async function runFixedPromptController(
   const resultEvents = input.tasks
     .map((task) => resultByTask.get(task.id))
     .filter((event): event is FixedPromptTaskWalEvent => event !== undefined);
-  await writeFixedPromptResultsTsv(input.resultsTsvPath, resultEvents);
+  if (input.resultsTsvPath !== undefined) {
+    await writeFixedPromptResultsTsv(input.resultsTsvPath, resultEvents);
+  }
 
   return {
     taskIds: resultEvents.map((event) => event.taskId),
     events: resultEvents,
     totalTokens: sum(resultEvents.map((event) => eventTokenSummary(event)?.total ?? 0)),
     totalCostUsd: sum(resultEvents.map((event) => eventTokenSummary(event)?.costUsd ?? 0)),
-    resultsTsvPath: input.resultsTsvPath,
+    ...(input.resultsTsvPath !== undefined ? { resultsTsvPath: input.resultsTsvPath } : {}),
     ...(stopReason ? { stopReason } : {}),
   };
 }
@@ -474,10 +486,21 @@ export async function readHarborTaskRunOutput(
   };
 }
 
-export async function appendFixedPromptWalEvent(path: string, event: FixedPromptWalEvent): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await truncateTornWalTail(path);
-  await appendFile(path, `${JSON.stringify(event)}\n`, 'utf8');
+export function appendFixedPromptWalEvent(path: string, event: FixedPromptWalEvent): Promise<void> {
+  const key = resolve(path);
+  const previous = walWriteTails.get(key) ?? Promise.resolve();
+  const operation = async () => {
+    await mkdir(dirname(path), { recursive: true });
+    await truncateTornWalTail(path);
+    await appendFile(path, `${JSON.stringify(event)}\n`, 'utf8');
+  };
+  const write = previous.then(operation, operation);
+  const tail = write.then(() => {}, () => {});
+  walWriteTails.set(key, tail);
+  void tail.then(() => {
+    if (walWriteTails.get(key) === tail) walWriteTails.delete(key);
+  });
+  return write;
 }
 
 export async function writeFixedPromptResultsTsv(
@@ -546,6 +569,17 @@ async function runTaskAndBuildEvent(input: {
         expectedConfig: input.config,
         requireExecutionIdentity: input.requireExecutionIdentity,
         expectedPricingProfile: input.expectedPricingProfile,
+        resumeFingerprint: input.resumeFingerprint,
+        id: input.id,
+        ts: input.ts,
+      });
+    }
+    if (input.input.infraFailurePolicy === 'terminal') {
+      return taskInfraFailedEvent({
+        error,
+        taskId: input.task.id,
+        runId: input.input.runId,
+        roundId: input.input.roundId,
         resumeFingerprint: input.resumeFingerprint,
         id: input.id,
         ts: input.ts,
@@ -812,6 +846,7 @@ function classifyExecutionIdentityFailure(
     if (
       identity.llmConnectionSlug !== expectedConfig.llmConnectionSlug
       || identity.model !== expectedModel
+      || identity.reasoningEffort !== expectedConfig.thinkingLevel
       || identity.systemPromptHash !== expectedPromptHash
       || (expectedPricingProfile !== undefined && identity.pricingProfile !== expectedPricingProfile)
     ) {
@@ -921,6 +956,11 @@ function taskBudgetExhaustedEvent(input: {
     }
   }
   const tokenSummary = artifactRefs.cellOutput?.tokenSummary ?? artifactRefs.tokenSummary;
+  const tokenSummarySource = tokenSummary
+    ? artifactRefs.cellOutput
+      ? 'final'
+      : 'checkpoint'
+    : undefined;
   const executionIdentity = artifactRefs.cellOutput?.executionIdentity ?? artifactRefs.executionIdentity;
   const cellOutput = artifactRefs.cellOutput;
   const runtimeEventsPath = artifactRefs.runtimeEventsPath ?? cellOutput?.runtimeEventsPath;
@@ -952,6 +992,7 @@ function taskBudgetExhaustedEvent(input: {
       ? { runtimeEventsUnavailableReason: artifactRefs.runtimeEventsUnavailableReason }
       : {}),
     ...(tokenSummary ? { tokenSummary } : {}),
+    ...(tokenSummarySource ? { tokenSummarySource } : {}),
     ...(cellOutput?.contextBudgetPolicy ? { contextBudgetPolicy: cellOutput.contextBudgetPolicy } : {}),
     ...(cellOutput?.contextBudgetSummary ? { contextBudgetSummary: cellOutput.contextBudgetSummary } : {}),
     ...(cellOutput?.continuationSummary ? { continuationSummary: cellOutput.continuationSummary } : {}),
@@ -1023,6 +1064,7 @@ function terminalTaskEvents(
   roundId: string,
   expectedPromptHash: string,
   resumeFingerprint: string | undefined,
+  includeInfraFailure: boolean,
 ): Map<string, FixedPromptTaskWalEvent> {
   const byTask = new Map<string, FixedPromptTaskWalEvent>();
   for (const event of events) {
@@ -1033,6 +1075,7 @@ function terminalTaskEvents(
       event.type === 'task_completed'
       || event.type === 'task_budget_exhausted'
       || event.type === 'task_plumbing_failed'
+      || (includeInfraFailure && event.type === 'task_infra_failed')
     ) {
       byTask.set(event.taskId, event);
     }

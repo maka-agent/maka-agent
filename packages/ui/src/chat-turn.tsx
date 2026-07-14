@@ -1,14 +1,15 @@
 import { Fragment, memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Button as BaseButton } from '@base-ui/react/button';
+import { useMountedRef } from './use-mounted-ref.js';
 import { AlertOctagon, Ban, Brain, Check, ChevronRight, Copy, GitBranch, Info, Loader2, RefreshCcw, Timer } from './icons.js';
 import { type ClipboardCopyPhase, useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { Markdown } from './markdown.js';
 import { formatAbsoluteTimestamp, formatClockTime, turnAbortMarkerLabel } from './chat-display-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
-import { DialogContent, DialogRoot } from './ui.js';
+import { Button as UiButton, DialogContent, DialogRoot } from './ui.js';
 import type { AttachmentRef } from '@maka/core';
 import type { TurnTimelineItem, TurnViewModel } from './materialize.js';
-import { Button as UiButton } from './ui.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Bubble, Marker, markerVariants, Message, TextShimmer } from './primitives/chat.js';
@@ -154,11 +155,10 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
     await copyFeedback.copy('message', props.text);
   }
 
-  // `footerStyle` renders this copy as the SAME quiet ghost action the
-  // assistant turn footer uses (`markerVariants('footer-action')` on a
-  // UiButton variant="quiet" size="nav" — the bare size, with icon + "复制").
+  // `footerStyle` renders this copy through the same semantic footer-action
+  // seam as the assistant turn footer.
   // The user-message copy and the assistant copy then read as one button by
-  // construction — same primitive, same class, same icon metrics — instead
+  // construction — same seam, same class, same icon metrics — instead
   // of a look-alike bespoke treatment.
   const footer = props.footerStyle === true;
   const iconSize = footer ? 12 : 14;
@@ -184,9 +184,9 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
           render={
             <UiButton
               type="button"
-              className={markerVariants({ variant: 'footer-action' })}
               variant="quiet"
-              size="nav"
+              size="icon-sm"
+              className={markerVariants({ variant: 'footer-action' })}
               aria-label={baseLabel}
               aria-busy={copyPending ? 'true' : undefined}
               disabled={copyPending}
@@ -205,11 +205,9 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
   }
 
   return (
-    <UiButton
+    <BaseButton
       type="button"
       className="maka-message-copy"
-      variant="quiet"
-      size="icon-sm"
       onClick={() => void copy()}
       aria-label={copyPhase ? `${actionLabel} · ${baseLabel}` : baseLabel}
       aria-busy={copyPending ? 'true' : undefined}
@@ -221,7 +219,7 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
     >
       {icon}
       {props.label && <span>{copyPhase === 'pending' ? '复制中…' : copyPhase === 'failed' ? '复制失败' : copied ? '已复制' : props.label}</span>}
-    </UiButton>
+    </BaseButton>
   );
 }
 
@@ -313,9 +311,9 @@ export const TurnView = memo(function TurnView(props: {
             <UiButton
               key={badge.id}
               type="button"
-              className={markerVariants({ variant: 'lineage-badge' })}
               variant="quiet"
-              size="nav"
+              size="sm"
+              className={markerVariants({ variant: 'lineage-badge' })}
               data-direction="forward"
               title={badge.tooltip ?? badge.label}
               onClick={() => props.onLineageBadgeClick?.(badge.targetTurnId)}
@@ -416,9 +414,9 @@ export const TurnView = memo(function TurnView(props: {
                 <UiButton
                   key={badge.id}
                   type="button"
-                  className={markerVariants({ variant: 'lineage-badge' })}
                   variant="quiet"
-                  size="nav"
+                  size="sm"
+                  className={markerVariants({ variant: 'lineage-badge' })}
                   data-direction="reverse"
                   title={badge.tooltip ?? badge.label}
                   onClick={() => props.onLineageBadgeClick?.(badge.targetTurnId)}
@@ -503,7 +501,7 @@ function TurnFooterActions(props: {
   const [copyPhase, setCopyPhase] = useState<ClipboardCopyPhase | null>(null);
   const copyPendingRef = useRef(false);
   const copyResetTimerRef = useRef<number | null>(null);
-  const copyMountedRef = useRef(true);
+  const copyMountedRef = useMountedRef();
 
   function clearCopyResetTimer() {
     if (copyResetTimerRef.current === null) return;
@@ -512,9 +510,7 @@ function TurnFooterActions(props: {
   }
 
   useEffect(() => {
-    copyMountedRef.current = true;
     return () => {
-      copyMountedRef.current = false;
       clearCopyResetTimer();
     };
   }, []);
@@ -592,9 +588,9 @@ function TurnFooterActions(props: {
               render={
                 <UiButton
                   type="button"
-                  className={markerVariants({ variant: 'footer-action' })}
                   variant="quiet"
-                  size="nav"
+                  size="icon-sm"
+                  className={markerVariants({ variant: 'footer-action' })}
                   aria-label={action.label}
                   data-action={action.id}
                   data-pending={isActionPending || undefined}
@@ -967,4 +963,3 @@ function readStreamSnap(): boolean {
   }
   return false;
 }
-

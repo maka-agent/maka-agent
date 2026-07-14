@@ -18,7 +18,7 @@ import type {
   PermissionSnapshot,
 } from '@maka/core';
 import { OS_PERMISSION_IDS } from '@maka/core';
-import { Button, Badge, EmptyState, RelativeTime, PageHeader, SectionHeader, StatTile, useToast } from '@maka/ui';
+import { Button, Badge, EmptyState, RelativeTime, PageHeader, SectionHeader, StatTile, useMountedRef, useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -109,13 +109,11 @@ export function PermissionCenterPage() {
   const [pendingPermAction, setPendingPermAction] = useState<string | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const toast = useToast();
-  const mountedRef = useRef(true);
+  const mountedRef = useMountedRef();
   const pendingPermActionRef = useRef<string | null>(null);
 
   useEffect(() => {
-    mountedRef.current = true;
     return () => {
-      mountedRef.current = false;
       pendingPermActionRef.current = null;
     };
   }, []);
@@ -211,8 +209,8 @@ export function PermissionCenterPage() {
             </small>
             <Button
               type="button"
-              className="settingsPermissionRefresh"
               variant="secondary"
+              size="sm"
               onClick={() => setRefreshTick((tick) => tick + 1)}
             >
               重新检测
@@ -347,15 +345,13 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
   const toast = useToast();
   const [copyingOfficeCliInstall, setCopyingOfficeCliInstall] = useState(false);
   const copyingOfficeCliInstallRef = useRef(false);
-  const capabilityRowMountedRef = useRef(false);
+  const capabilityRowMountedRef = useMountedRef();
   const readinessCopy = CAPABILITY_READINESS_COPY[capability.readiness];
   const showOfficeCliInstallActions =
     capability.id === 'office_documents' && capability.runtimeProbe.state !== 'healthy';
 
   useEffect(() => {
-    capabilityRowMountedRef.current = true;
     return () => {
-      capabilityRowMountedRef.current = false;
       copyingOfficeCliInstallRef.current = false;
     };
   }, []);
@@ -607,6 +603,7 @@ function actionApprovalLabel(state: CapabilitySnapshot['actionApproval']['state'
   switch (state) {
     case 'not_required': return '不需要审批';
     case 'required_per_action': return '每次调用都需审批';
+    case 'required_scoped_lease': return '按目标与动作类别授权';
     case 'pending': return '审批挂起';
     case 'approved': return '当前会话已批准';
     case 'denied': return '当前会话已拒绝';
@@ -616,7 +613,7 @@ function actionApprovalTone(state: CapabilitySnapshot['actionApproval']['state']
   if (state === 'approved') return 'success';
   if (state === 'denied') return 'destructive';
   if (state === 'pending') return 'warning';
-  if (state === 'required_per_action') return 'info';
+  if (state === 'required_per_action' || state === 'required_scoped_lease') return 'info';
   return 'neutral';
 }
 

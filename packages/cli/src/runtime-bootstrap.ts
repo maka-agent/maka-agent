@@ -11,7 +11,9 @@ import {
   SessionManager,
   ShellRunProcessManager,
   buildAutomationTool,
+  buildAskUserQuestionTool,
   buildBuiltinTools,
+  createBuiltinSandboxManager,
   buildDefaultContextBudgetPolicy,
   buildSkillAgentTool,
   buildGoalTools,
@@ -66,6 +68,7 @@ export interface MakaCliRuntimeContext {
 }
 
 export interface CreateMakaCliRuntimeContextInput {
+  surface: 'tui' | 'run';
   workspaceRoot: string;
   cwd: string;
   requestedConnectionSlug?: string;
@@ -131,11 +134,13 @@ export async function createMakaCliRuntimeContext(
       }
     },
   });
+  const sandboxManager = createBuiltinSandboxManager();
   const tools = buildBuiltinTools({
     shellRuns,
     runtimeResources: shellRuns,
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
+    ...(sandboxManager ? { sandboxManager } : {}),
   });
   const automationManager = new AutomationManager({
     generateId: () => randomUUID(),
@@ -193,12 +198,13 @@ export async function createMakaCliRuntimeContext(
   // names registered on this host. The CLI has no Office tools, so bundled
   // Office skills (requiredTools includes OfficeDocument/OfficeDocumentEdit)
   // are hard-hidden here without seeding them — desktop owns Office seeding.
+  const surfaceTools = input.surface === 'tui' ? [buildAskUserQuestionTool()] : [];
   const host: HostCapabilities = {
-    toolNames: new Set([...tools, automationTool, ...goalTools].map((tool) => tool.name)),
+    toolNames: new Set([...tools, automationTool, ...goalTools, ...surfaceTools].map((tool) => tool.name)),
   };
   const skillSource = resolveSkillDiscoveryPaths(input.cwd, input.workspaceRoot);
   const skillTool = buildSkillAgentTool(skillSource, host);
-  const allTools = [...tools, automationTool, ...goalTools, skillTool];
+  const allTools = [...tools, automationTool, ...goalTools, skillTool, ...surfaceTools];
 
   backends.register('ai-sdk', async (ctx) => {
     const header = input.sessionCwdOverride?.sessionId === ctx.sessionId

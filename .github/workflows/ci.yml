@@ -22,6 +22,12 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run typecheck
+      # Dead-code / dependency governance. Entry points and reasoned ignores
+      # live in knip.json; both workspaces must stay at zero findings.
+      - name: Knip (apps/desktop)
+        run: npx knip --workspace apps/desktop
+      - name: Knip (packages/ui)
+        run: npx knip --workspace packages/ui
 
   test:
     runs-on: ubuntu-latest
@@ -31,15 +37,27 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      # runtime's Grep tool shells out to ripgrep. Install only if the runner
-      # image doesn't already provide it (24.04 hasn't in practice).
-      - name: Ensure ripgrep
-        run: command -v rg >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y ripgrep; }
+      - name: Install Linux runtime dependencies
+        run: sudo apt-get update && sudo apt-get install -y ripgrep bubblewrap
+      # Ubuntu 24.04 hosted runners gate unprivileged user namespaces through
+      # AppArmor, which otherwise makes bwrap fail while configuring loopback.
+      - name: Enable bubblewrap user namespaces
+        run: |
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          if [[ -e /proc/sys/kernel/unprivileged_userns_clone ]]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
       - run: npm ci
       # build:test skips the renderer bundle (vite); test:dist only consumes
       # tsc outputs (dist/main + dist/renderer side-files), never the vite
       # bundle. e2e builds its own renderer in a separate job.
       - run: npm run build:test
+      - name: Linux sandbox smoke
+        env:
+          MAKA_REQUIRE_LINUX_SANDBOX_SMOKE: '1'
+        run: npm exec -w @maka/runtime -- node --test dist/__tests__/linux-sandbox-smoke.test.js
       # test:dist runs the suites against the dist just built above. The
       # workspace `test` scripts each do `clean && build` first, which would
       # throw away this dist and rebuild every package a second time.

@@ -119,6 +119,7 @@ describe('Harbor cell output contract', () => {
       executionIdentity: {
         llmConnectionSlug: 'deepseek',
         model: 'deepseek-v4-flash',
+        reasoningEffort: 'max',
         systemPromptHash: 'sha256:prompt-a',
         pricingProfile: 'deepseek-v4-flash-tbench-v1',
       },
@@ -127,6 +128,7 @@ describe('Harbor cell output contract', () => {
     assert.deepEqual(validated.executionIdentity, {
       llmConnectionSlug: 'deepseek',
       model: 'deepseek-v4-flash',
+      reasoningEffort: 'max',
       systemPromptHash: 'sha256:prompt-a',
       pricingProfile: 'deepseek-v4-flash-tbench-v1',
     });

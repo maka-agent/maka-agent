@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ConfigCategory } from '@maka/storage';
-import { Button, SettingsSelect, SettingsSwitch as Switch, clearGlobalInputHistory, useToast } from '@maka/ui';
+import { Button, SettingsSelect, SettingsSwitch as Switch, clearGlobalInputHistory, useMountedRef, useToast } from '@maka/ui';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
@@ -45,7 +45,7 @@ export function DataSettingsPage() {
   const [infoError, setInfoError] = useState<string | null>(null);
   const [pendingDataAction, setPendingDataAction] = useState<string | null>(null);
   const pendingDataActionRef = useRef<string | null>(null);
-  const dataPageMountedRef = useRef(false);
+  const dataPageMountedRef = useMountedRef();
   const toast = useToast();
   const [selectedCategories, setSelectedCategories] = useState<Set<ConfigCategory>>(
     () => new Set<ConfigCategory>(['connections', 'settings']),
@@ -55,7 +55,6 @@ export function DataSettingsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    dataPageMountedRef.current = true;
     void window.maka.app.info().then((next) => {
       if (!cancelled) {
         setInfo(next);
@@ -70,7 +69,6 @@ export function DataSettingsPage() {
     });
     return () => {
       cancelled = true;
-      dataPageMountedRef.current = false;
       pendingDataActionRef.current = null;
     };
   }, [toast]);
@@ -226,8 +224,7 @@ export function DataSettingsPage() {
         </Button>
         <Button
           type="button"
-          variant="outline"
-          className="border-[oklch(from_var(--destructive)_l_c_h_/_0.45)] text-[color:var(--destructive)] hover:bg-[oklch(from_var(--destructive)_l_c_h_/_0.08)]"
+          variant="destructive"
           onClick={() => void clearInputHistory()}
           disabled={dataActionDisabled}
         >

@@ -5,7 +5,6 @@ import type {
   SessionEvent,
   SessionEventStreamSnapshot,
   SessionSummary,
-  PermissionRequestEvent,
   StoredMessage,
   ThemePalette,
   ThemePreference,
@@ -15,7 +14,7 @@ import {
   generalizedErrorMessageChinese,
   type ShellRunUpdate,
 } from '@maka/core';
-import type { LiveTurnProjection, NavSelection, PermissionQueues } from '@maka/ui';
+import type { LiveTurnProjection, NavSelection } from '@maka/ui';
 import { messageReadErrorMessage } from './app-shell-copy';
 import { applyTheme, applyThemePalette } from './theme';
 import { safeLocalStorageSet } from './browser-storage';
@@ -482,7 +481,7 @@ export function useShellRunUpdates(options: {
 
 export function useSessionEventHealthPolling(options: {
   activeId: string | undefined;
-  activePermission: PermissionRequestEvent | undefined;
+  activeInteraction: { requestId: string } | undefined;
   activeSession: SessionSummary | undefined;
   activeStreamingLive: boolean;
   hasInFlightLiveTools: boolean;
@@ -493,7 +492,7 @@ export function useSessionEventHealthPolling(options: {
 }) {
   const {
     activeId,
-    activePermission,
+    activeInteraction,
     activeSession,
     activeStreamingLive,
     hasInFlightLiveTools,
@@ -505,7 +504,7 @@ export function useSessionEventHealthPolling(options: {
 
   useEffect(() => {
     if (!activeId) return;
-    const hasLiveActivity = activeStreamingLive || hasInFlightLiveTools || Boolean(activePermission);
+    const hasLiveActivity = activeStreamingLive || hasInFlightLiveTools || Boolean(activeInteraction);
     const evaluate = () => {
       const result = evaluateSessionEventStreamSnapshot({
         previous: sessionEventHealthBySessionRef.current[activeId],
@@ -533,7 +532,7 @@ export function useSessionEventHealthPolling(options: {
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [activeId, activeSession?.status, activeStreamingLive, hasInFlightLiveTools, activePermission?.requestId]);
+  }, [activeId, activeSession?.status, activeStreamingLive, hasInFlightLiveTools, activeInteraction?.requestId]);
 }
 
 // #646: transient live state is only

@@ -9,6 +9,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./permission-engine": "./dist/permission-engine.js",
+    "./additional-permissions": "./dist/additional-permissions.js",
+    "./ask-user-question-tool": "./dist/ask-user-question-tool.js",
     "./ai-sdk-backend": "./dist/ai-sdk-backend.js",
     "./builtin-tools": "./dist/builtin-tools.js",
     "./shell-tools": "./dist/shell-tools.js",
@@ -53,6 +55,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.78",
+    "@ai-sdk/cohere": "^3.0.47",
     "@ai-sdk/google": "^3.0.75",
     "@ai-sdk/openai": "^3.0.64",
     "@ai-sdk/openai-compatible": "^2.0.47",

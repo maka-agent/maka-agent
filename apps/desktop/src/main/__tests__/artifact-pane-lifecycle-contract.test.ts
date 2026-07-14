@@ -29,7 +29,7 @@ describe('ArtifactPane async lifecycle contract', () => {
     );
     assert.match(
       src,
-      /const artifactPaneMountedRef = useRef\(true\)/,
+      /const artifactPaneMountedRef = useMountedRef\(\)/,
       'ArtifactPane must track whether async artifact work still owns a mounted surface',
     );
     assert.match(
@@ -39,7 +39,7 @@ describe('ArtifactPane async lifecycle contract', () => {
     );
     assert.match(
       src,
-      /useEffect\(\(\) => \{[\s\S]*artifactPaneMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*artifactPaneMountedRef\.current = false;[\s\S]*artifactListRequestSeqRef\.current \+= 1;[\s\S]*pendingArtifactListRetryRef\.current = false;[\s\S]*pendingArtifactActionRef\.current = null;[\s\S]*\};[\s\S]*\}, \[\]\)/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*artifactListRequestSeqRef\.current \+= 1;[\s\S]*pendingArtifactListRetryRef\.current = false;[\s\S]*pendingArtifactActionRef\.current = null;[\s\S]*\};[\s\S]*\}, \[\]\)/,
       'ArtifactPane unmount must invalidate list responses, release pending owners, and be StrictMode replay safe',
     );
     assert.match(
@@ -104,8 +104,8 @@ describe('ArtifactPane async lifecycle contract', () => {
     assert.match(src, /aria-busy=\{pendingArtifactListRetry \? 'true' : undefined\}/);
     assert.match(src, /data-pending=\{pendingArtifactListRetry \? 'true' : undefined\}/);
     assert.match(src, /pendingArtifactListRetry \? '重试中…' : '重试'/);
-    assert.match(css, /\.maka-artifact-error-retry:disabled \{[\s\S]*cursor: default;[\s\S]*opacity: var\(--opacity-disabled\);[\s\S]*\}/);
-    assert.match(css, /\.maka-artifact-error-retry\[data-pending="true"\] \{[\s\S]*opacity: var\(--opacity-pending\);[\s\S]*\}/);
+    assert.doesNotMatch(src, /className="maka-artifact-error-retry"/);
+    assert.doesNotMatch(css, /\.maka-artifact-error-retry/);
     assert.doesNotMatch(src, /className="maka-artifact-error-retry"[\s\S]*onClick=\{\(\) => void refresh\(\)\}/);
     assert.match(
       subscriptionEffect,
@@ -181,7 +181,7 @@ describe('ArtifactPane async lifecycle contract', () => {
 
     assert.match(src, /const \[pendingArtifactAction, setPendingArtifactAction\] = useState<string \| null>\(null\)/);
     assert.match(src, /const pendingArtifactActionRef = useRef<string \| null>\(null\)/);
-    assert.match(src, /const artifactPaneMountedRef = useRef\(true\)/);
+    assert.match(src, /const artifactPaneMountedRef = useMountedRef\(\)/);
     assert.match(src, /const artifactActionBusy = pendingArtifactAction !== null/);
     assert.match(
       gateBlock,
@@ -211,7 +211,8 @@ describe('ArtifactPane async lifecycle contract', () => {
     assert.match(toolbarBlock, /另存中…/);
     assert.match(toolbarBlock, /复制中…/);
     assert.match(toolbarBlock, /删除中…/);
-    assert.match(css, /\.maka-artifact-toolbar-button:disabled \{[\s\S]*cursor: default;[\s\S]*opacity: var\(--opacity-disabled\);[\s\S]*\}/);
-    assert.match(css, /\.maka-artifact-toolbar-button\[data-pending="true"\] \{[\s\S]*opacity: var\(--opacity-pending\);[\s\S]*\}/);
+    assert.doesNotMatch(css, /\.maka-artifact-toolbar-button\b/, 'artifact actions must not restore consumer-owned Button states');
+    assert.match(toolbarBlock, /variant="secondary"\s+size="sm"/);
+    assert.match(toolbarBlock, /variant="destructive" size="icon-sm"/);
   });
 });

@@ -25,7 +25,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, BookOpen, CalendarDays, Check, Clock, FileText, Mic, RefreshCcw, Search, Sparkles, User } from '@maka/ui/icons';
 import { generalizedErrorMessageChinese, type AppSettings, type PlanReminder, type SettingsSection } from '@maka/core';
-import { Alert, AlertAction, AlertDescription, Button, useToast } from '@maka/ui';
+import { Alert, AlertAction, AlertDescription, Button, useMountedRef, useToast } from '@maka/ui';
+import { Button as BaseButton } from '@base-ui/react/button';
 
 interface ChecklistItem {
   id: string;
@@ -55,15 +56,13 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
   const [workspaceInstructionCount, setWorkspaceInstructionCount] = useState<number | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusRefreshPending, setStatusRefreshPending] = useState(false);
-  const checklistMountedRef = useRef(true);
+  const checklistMountedRef = useMountedRef();
   const failureToastShownRef = useRef(false);
   const statusRefreshPendingRef = useRef(false);
   const toast = useToast();
 
   useEffect(() => {
-    checklistMountedRef.current = true;
     return () => {
-      checklistMountedRef.current = false;
       statusRefreshPendingRef.current = false;
     };
   }, []);
@@ -246,9 +245,8 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
           <AlertAction>
             <Button
               type="button"
-              variant="ghost"
+              variant="secondary"
               size="sm"
-              className="maka-first-run-checklist-error-action"
               onClick={() => void refreshChecklistStatus()}
               disabled={statusRefreshPending}
               aria-busy={statusRefreshPending ? 'true' : undefined}
@@ -285,9 +283,8 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
           <AlertAction>
             <Button
               type="button"
-              variant="ghost"
+              variant="secondary"
               size="sm"
-              className="maka-first-run-checklist-error-action"
               onClick={() => void refreshChecklistStatus()}
               disabled={statusRefreshPending}
               aria-busy={statusRefreshPending ? 'true' : undefined}
@@ -306,7 +303,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
             data-done={item.done ? 'true' : undefined}
             data-kind={item.trackCompletion === false ? 'explore' : 'setup'}
           >
-            <Button type="button" variant="ghost" onClick={item.onClick} disabled={false}>
+            <BaseButton type="button" onClick={item.onClick} disabled={false}>
               <span className="maka-first-run-checklist-status" aria-hidden="true">
                 {item.done ? (
                   <Check size={14} />
@@ -323,7 +320,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
                 aria-hidden="true"
                 className="maka-first-run-checklist-arrow"
               />
-            </Button>
+            </BaseButton>
           </li>
         ))}
       </ul>

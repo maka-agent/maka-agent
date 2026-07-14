@@ -604,7 +604,7 @@ function formatPtyControlOperation(operation: ShellRunOperation | undefined, arg
   const parts: string[] = [];
   if (operation.input) {
     const preview = readWriteStdinInputPreview(args);
-    const action = operation.input.applied ? 'Sent' : 'Did not send';
+    const action = operation.input.queued ? 'Queued' : 'Did not queue';
     if (preview) {
       parts.push(preview.truncated
         ? `${action}: ${preview.text}… · ${operation.input.bytes} bytes total`

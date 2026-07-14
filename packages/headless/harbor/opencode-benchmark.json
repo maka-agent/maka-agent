@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "zai-coding-plan": {
+      "options": {
+        "apiKey": "{env:ZAI_API_KEY}",
+        "baseURL": "{env:ZAI_BASE_URL}"
+      }
+    }
+  }
+}

@@ -20,6 +20,7 @@
  *   }
  */
 
+import { isAbsolute } from 'node:path';
 import { projectToolActivityArgs } from '@maka/core';
 import {
   classifyToolUse,
@@ -33,7 +34,20 @@ import {
   type ToolExecutionFacts,
   type ToolPermissionRule,
 } from '@maka/core/permission';
-import type { PermissionDecisionAckEvent, PermissionRequestEvent } from '@maka/core/events';
+import type {
+  AnyPermissionRequestEvent,
+  PermissionDecisionAckEvent,
+} from '@maka/core/events';
+import {
+  DEFAULT_ADDITIONAL_PERMISSION_GRANT_TTL_MS,
+  AdditionalPermissionError,
+  assertAdditionalPermissionProposal,
+  freezeAdditionalPermissionGrant,
+  freezeAdditionalPermissionProposal,
+  type AdditionalPermissionGrant,
+  type AdditionalPermissionProposal,
+} from './additional-permissions.js';
+import { TurnScopedAwaitRegistry } from './turn-scoped-await-registry.js';
 
 // ============================================================================
 // Per-turn state
@@ -43,17 +57,24 @@ interface TurnState {
   turnId: string;
   /** Tool-intent scopes granted with `rememberForTurn: true` in this turn. */
   remembered: Set<string>;
-  /** Outstanding parked permission requests, keyed by requestId. */
-  parked: Map<string, ParkedRequest>;
+  /** Approved one-shot grants keyed by their bound tool invocation. */
+  additionalGrants: Map<string, PendingAdditionalPermissionGrant>;
 }
 
-interface ParkedRequest {
-  requestId: string;
+interface ParkedPermission {
+  sessionId: string;
+  turnId: string;
   toolUseId: string;
+  toolName: string;
   category: ToolCategory;
   scopeKey: string;
-  resolve(response: PermissionResponse): void;
-  reject(err: Error): void;
+  rememberForTurnAllowed: boolean;
+  additionalProposal?: AdditionalPermissionProposal;
+}
+
+interface PendingAdditionalPermissionGrant {
+  grant: AdditionalPermissionGrant;
+  consumed: boolean;
 }
 
 // ============================================================================
@@ -72,7 +93,7 @@ export type EvaluateResult =
   | {
       kind: 'prompt';
       category: ToolCategory;
-      event: PermissionRequestEvent;
+      event: AnyPermissionRequestEvent;
       /** Resolves when the user responds via respondToPermission(). */
       parked: Promise<PermissionResponse>;
     };
@@ -91,12 +112,20 @@ export interface EvaluateInput {
   mode: PermissionMode;
   /** Optional hint shown to user in the dialog. */
   hint?: string;
+  /** Runtime-normalized one-shot permission proposal for this exact tool intent. */
+  additionalPermissionProposal?: AdditionalPermissionProposal;
+  /** Canonical cwd displayed with an additional permission request. */
+  cwd?: string;
   /** Optional trusted facts about the executor that would run this tool. */
   executionFacts?: ToolExecutionFacts;
   /** Whether the tool participates in the base mode policy when no explicit rule matches. */
   permissionRequired?: boolean;
   /** Invocation-local rules. Explicit deny wins over allow, then base mode applies. */
   permissionRules?: readonly ToolPermissionRule[];
+  /** Optional trusted platform sandbox availability for sandbox-aware policy. */
+  sandbox?: {
+    platformSandboxAvailable: boolean;
+  };
 }
 
 // ============================================================================
@@ -112,25 +141,40 @@ export interface PermissionEngineDeps {
 
 export class PermissionEngine {
   private readonly turns = new Map<string, TurnState>();
+  private readonly parked = new TurnScopedAwaitRegistry<PermissionResponse, ParkedPermission>();
 
   constructor(private readonly deps: PermissionEngineDeps) {}
 
   /** Begin tracking a new turn. Idempotent. */
   beginTurn(turnId: string): void {
     if (!this.turns.has(turnId)) {
-      this.turns.set(turnId, { turnId, remembered: new Set(), parked: new Map() });
+      this.turns.set(turnId, {
+        turnId,
+        remembered: new Set(),
+        additionalGrants: new Map(),
+      });
     }
+    this.parked.beginTurn(turnId);
   }
 
   /** End tracking, rejecting any still-parked requests as user_stop. */
   endTurn(turnId: string, reason: 'completed' | 'aborted' = 'completed'): void {
     const state = this.turns.get(turnId);
     if (!state) return;
-    for (const parked of state.parked.values()) {
-      parked.reject(
-        new Error(`Turn ${turnId} ${reason} before permission request ${parked.requestId} was answered`),
-      );
-    }
+    this.parked.endTurn(
+      turnId,
+      (requestId, parked) => {
+        const message = `Turn ${turnId} ${reason} before permission request ${requestId} was answered`;
+        return parked.additionalProposal
+          ? new AdditionalPermissionError({
+              stage: 'approval',
+              reason: 'additional_permission_aborted',
+              message,
+              recoverable: true,
+            })
+          : new Error(message);
+      },
+    );
     this.turns.delete(turnId);
   }
 
@@ -141,19 +185,21 @@ export class PermissionEngine {
    */
   evaluate(input: EvaluateInput): EvaluateResult {
     const state = this.requireTurn(input.turnId);
+    const args = snapshotPermissionArgs(input.args);
 
     const category = classifyToolUse({
       toolName: input.toolName,
-      args: input.args,
+      args,
       ...(input.categoryHint !== undefined ? { categoryHint: input.categoryHint } : {}),
     });
     const ruleDecision = matchToolPermissionRules({
       toolName: input.toolName,
-      args: input.args,
+      args,
       category,
       rules: input.permissionRules ?? [],
     });
-    if (ruleDecision === 'allow') return { kind: 'allow', category };
+    const hasAdditionalProposal = input.additionalPermissionProposal !== undefined;
+    if (ruleDecision === 'allow' && !hasAdditionalProposal) return { kind: 'allow', category };
     if (ruleDecision === 'deny') {
       const requestId = this.deps.newId();
       return {
@@ -171,26 +217,70 @@ export class PermissionEngine {
         },
       };
     }
-    if (ruleDecision === undefined && input.permissionRequired === false) {
+    if (
+      ruleDecision === undefined
+      && input.permissionRequired === false
+      && !hasAdditionalProposal
+    ) {
       return { kind: 'allow', category };
     }
 
     const pre: PreToolUseResult = preToolUse({
       toolName: input.toolName,
-      args: input.args,
+      args,
       ...(input.categoryHint !== undefined ? { categoryHint: input.categoryHint } : {}),
       ...(input.executionFacts !== undefined ? { executionFacts: input.executionFacts } : {}),
+      ...(input.sandbox !== undefined ? { sandbox: input.sandbox } : {}),
       mode: input.mode,
       turnRemembered: state.remembered,
     });
 
-    if (pre.proceed) {
-      return { kind: 'allow', category: pre.category };
+    let additional = input.additionalPermissionProposal;
+    if (additional) {
+      try {
+        assertAdditionalPermissionProposal({
+          proposal: additional,
+          toolName: input.toolName,
+          args,
+        });
+        additional = freezeAdditionalPermissionProposal(additional);
+      } catch (error) {
+        return {
+          kind: 'block',
+          category: pre.category,
+          reason: error instanceof AdditionalPermissionError
+            ? error.message
+            : 'Additional permission proposal validation failed.',
+        };
+      }
+      if (input.mode === 'explore') {
+        return {
+          kind: 'block',
+          category: pre.category,
+          reason: 'Additional permissions are blocked in explore mode.',
+        };
+      }
+      if (input.mode === 'bypass') return { kind: 'allow', category: pre.category };
+      if (typeof input.cwd !== 'string' || !isAbsolute(input.cwd)) {
+        return {
+          kind: 'block',
+          category: pre.category,
+          reason: 'Additional permission requests require a canonical cwd.',
+        };
+      }
     }
-    if (pre.blockReason !== undefined) {
+
+    const baseExplicitlyAllowed = ruleDecision === 'allow'
+      || (ruleDecision === undefined && input.permissionRequired === false);
+    const baseAllowed = baseExplicitlyAllowed || pre.proceed;
+
+    if (!baseExplicitlyAllowed && pre.blockReason !== undefined) {
       return { kind: 'block', category: pre.category, reason: pre.blockReason };
     }
-    if (!pre.partialRequest) {
+    if (baseAllowed && !additional) {
+      return { kind: 'allow', category: pre.category };
+    }
+    if (!additional && !pre.partialRequest) {
       // Defensive: pre.proceed=false && !blockReason && !partialRequest is
       // unreachable per the type contract, but TS doesn't know that. Treat
       // as block to fail safe.
@@ -202,34 +292,60 @@ export class PermissionEngine {
     }
 
     const requestId = this.deps.newId();
-    const event: PermissionRequestEvent = {
-      type: 'permission_request',
-      id: this.deps.newId(),
+    const event: AnyPermissionRequestEvent = additional
+      ? {
+          type: 'permission_request',
+          kind: 'additional_permissions',
+          id: this.deps.newId(),
+          turnId: input.turnId,
+          ts: this.deps.now(),
+          requestId,
+          toolUseId: input.toolUseId,
+          toolName: input.toolName,
+          category: pre.category,
+          reason: 'additional_permissions',
+          args: undefined,
+          additionalPermissions: additional.profile,
+          cwd: input.cwd!,
+          justification: additional.justification,
+          intentHash: additional.intentHash,
+          permissionsHash: additional.permissionsHash,
+          risk: additional.risk,
+          alsoApprovesToolExecution: !baseAllowed,
+          availableDecisions: ['allow_once', 'deny'],
+          rememberForTurnAllowed: false,
+          ...(input.hint !== undefined ? { hint: input.hint } : {}),
+        }
+      : {
+          type: 'permission_request',
+          kind: 'tool_permission',
+          id: this.deps.newId(),
+          turnId: input.turnId,
+          ts: this.deps.now(),
+          requestId,
+          toolUseId: input.toolUseId,
+          toolName: pre.partialRequest!.toolName,
+          category: pre.partialRequest!.category,
+          reason: pre.partialRequest!.reason,
+          args: projectToolActivityArgs(
+            pre.partialRequest!.toolName,
+            pre.partialRequest!.args,
+          ),
+          rememberForTurnAllowed: pre.partialRequest!.rememberForTurnAllowed,
+          ...(input.hint !== undefined ? { hint: input.hint } : {}),
+        };
+
+    const parked = this.parked.park(input.turnId, requestId, {
+      sessionId: input.sessionId,
       turnId: input.turnId,
-      ts: this.deps.now(),
-      requestId,
       toolUseId: input.toolUseId,
-      toolName: pre.partialRequest.toolName,
-      category: pre.partialRequest.category,
-      reason: pre.partialRequest.reason,
-      args: projectToolActivityArgs(pre.partialRequest.toolName, pre.partialRequest.args),
-      ...(input.hint !== undefined ? { hint: input.hint } : {}),
-    };
-
-    let resolveFn: (r: PermissionResponse) => void = () => {};
-    let rejectFn: (e: Error) => void = () => {};
-    const parked = new Promise<PermissionResponse>((res, rej) => {
-      resolveFn = res;
-      rejectFn = rej;
-    });
-
-    state.parked.set(requestId, {
-      requestId,
-      toolUseId: input.toolUseId,
+      toolName: input.toolName,
       category: pre.category,
       scopeKey: pre.scopeKey,
-      resolve: resolveFn,
-      reject: rejectFn,
+      rememberForTurnAllowed: additional
+        ? false
+        : pre.partialRequest!.rememberForTurnAllowed !== false,
+      ...(additional ? { additionalProposal: additional } : {}),
     });
 
     return { kind: 'prompt', category: pre.category, event, parked };
@@ -257,28 +373,62 @@ export class PermissionEngine {
     }
     const state = this.turns.get(turnId);
     if (!state) return null;
-    const parked = state.parked.get(response.requestId);
+    const parked = this.parked.entries(turnId).find(([requestId]) => requestId === response.requestId)?.[1];
     if (!parked) return null;
 
-    state.parked.delete(response.requestId);
+    if (parked.additionalProposal && response.rememberForTurn === true) {
+      throw new Error('One-shot permission responses cannot use rememberForTurn');
+    }
 
-    if (response.decision === 'allow' && response.rememberForTurn) {
+    if (
+      response.decision === 'allow'
+      && response.rememberForTurn
+      && parked.rememberForTurnAllowed
+    ) {
       state.remembered.add(parked.scopeKey);
       // The user allowed this scope for the whole turn, so other requests
       // already parked under the same scope (e.g. the rest of a parallel
       // browser_* batch) must not each re-prompt. Resolve them now — each
       // tool's own coroutine then emits its own permission_decision_ack, so the
       // UI queue drains without a second click. The current request was already
-      // deleted above, so the snapshot never re-resolves it.
-      for (const [otherId, other] of [...state.parked]) {
-        if (other.scopeKey === parked.scopeKey) {
-          state.parked.delete(otherId);
-          other.resolve({ requestId: otherId, decision: 'allow', rememberForTurn: true });
+      // selected explicitly, so the snapshot must not auto-resolve it.
+      for (const [otherId, other] of this.parked.entries(turnId)) {
+        if (otherId !== response.requestId && other.scopeKey === parked.scopeKey) {
+          this.parked.resolve(turnId, otherId, { requestId: otherId, decision: 'allow', rememberForTurn: true });
         }
       }
     }
 
-    parked.resolve(response);
+    if (response.decision === 'allow' && parked.additionalProposal) {
+      if (state.additionalGrants.has(parked.toolUseId)) {
+        throw new Error(`Additional permission grant already exists for tool ${parked.toolUseId}`);
+      }
+      const issuedAt = this.deps.now();
+      state.additionalGrants.set(parked.toolUseId, {
+        consumed: false,
+        grant: freezeAdditionalPermissionGrant({
+          grantId: this.deps.newId(),
+          sessionId: parked.sessionId,
+          turnId: parked.turnId,
+          toolUseId: parked.toolUseId,
+          toolName: parked.toolName,
+          intentHash: parked.additionalProposal.intentHash,
+          permissionsHash: parked.additionalProposal.permissionsHash,
+          profile: parked.additionalProposal.profile,
+          normalizedPaths: parked.additionalProposal.normalizedPaths,
+          risk: parked.additionalProposal.risk,
+          issuedAt,
+          expiresAt: issuedAt + DEFAULT_ADDITIONAL_PERMISSION_GRANT_TTL_MS,
+        }),
+      });
+    }
+
+    const resolvedResponse: PermissionResponse = parked.additionalProposal
+      ? { requestId: response.requestId, decision: response.decision }
+      : parked.rememberForTurnAllowed
+        ? response
+        : { ...response, rememberForTurn: false };
+    this.parked.resolve(turnId, response.requestId, resolvedResponse);
     return { category: parked.category, toolUseId: parked.toolUseId };
   }
 
@@ -288,29 +438,109 @@ export class PermissionEngine {
    * resolve a tool call that has already failed closed.
    */
   expireRequest(turnId: string, requestId: string, reason: string): { category: ToolCategory; toolUseId: string } | null {
-    const state = this.turns.get(turnId);
-    if (!state) return null;
-    const parked = state.parked.get(requestId);
+    const metadata = this.parked.entries(turnId).find(([id]) => id === requestId)?.[1];
+    if (!metadata) return null;
+    const error = metadata.additionalProposal
+      ? new AdditionalPermissionError({
+          stage: 'approval',
+          reason: 'additional_permission_timeout',
+          message: reason,
+          recoverable: true,
+        })
+      : new Error(reason);
+    const parked = this.parked.reject(turnId, requestId, error);
     if (!parked) return null;
-    state.parked.delete(requestId);
-    parked.reject(new Error(reason));
     return { category: parked.category, toolUseId: parked.toolUseId };
   }
 
   /** Test/debug accessor. */
   pendingCount(turnId: string): number {
-    return this.turns.get(turnId)?.parked.size ?? 0;
+    return this.parked.pendingCount(turnId);
+  }
+
+  consumeAdditionalPermissionGrant(input: {
+    sessionId: string;
+    turnId: string;
+    toolUseId: string;
+    toolName: string;
+    intentHash: string;
+  }): AdditionalPermissionGrant | undefined {
+    const state = this.turns.get(input.turnId);
+    const pending = state?.additionalGrants.get(input.toolUseId);
+    if (!pending) return undefined;
+    if (pending.consumed) {
+      throw new AdditionalPermissionError({
+        stage: 'consume',
+        reason: 'grant_already_consumed',
+      });
+    }
+
+    const grant = pending.grant;
+    if (grant.expiresAt <= this.deps.now()) {
+      state!.additionalGrants.delete(input.toolUseId);
+      throw new AdditionalPermissionError({
+        stage: 'consume',
+        reason: 'grant_expired',
+      });
+    }
+    if (
+      grant.sessionId !== input.sessionId
+      || grant.turnId !== input.turnId
+      || grant.toolUseId !== input.toolUseId
+      || grant.toolName !== input.toolName
+      || grant.intentHash !== input.intentHash
+    ) {
+      throw new AdditionalPermissionError({
+        stage: 'consume',
+        reason: 'grant_intent_mismatch',
+      });
+    }
+
+    pending.consumed = true;
+    return grant;
   }
 
   private requireTurn(turnId: string): TurnState {
     let state = this.turns.get(turnId);
     if (!state) {
       // Auto-begin: callers may forget. This is a soft guarantee.
-      state = { turnId, remembered: new Set(), parked: new Map() };
+      state = {
+        turnId,
+        remembered: new Set(),
+        additionalGrants: new Map(),
+      };
       this.turns.set(turnId, state);
+      this.parked.beginTurn(turnId);
     }
     return state;
   }
+}
+
+function snapshotPermissionArgs(value: unknown): unknown {
+  return snapshotPermissionValue(value, new WeakSet<object>());
+}
+
+function snapshotPermissionValue(
+  value: unknown,
+  seen: WeakSet<object>,
+): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) throw new Error('Permission arguments must not contain cycles');
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return Object.freeze(
+      value.map((entry) => snapshotPermissionValue(entry, seen)),
+    );
+  }
+  const output: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !('value' in descriptor)) {
+      throw new Error(`Permission argument ${key} must be a plain data property`);
+    }
+    output[key] = snapshotPermissionValue(descriptor.value, seen);
+  }
+  return Object.freeze(output);
 }
 
 // ============================================================================

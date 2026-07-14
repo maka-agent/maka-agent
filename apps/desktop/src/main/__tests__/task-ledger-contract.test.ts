@@ -43,6 +43,7 @@ function makeService(tasks: Task[]) {
 
 const sampleTask: Task = {
   id: 'task-1',
+  key: 'T1',
   subject: '写单元测试',
   status: 'in_progress',
   createdAt: 1,
@@ -204,6 +205,9 @@ describe('task ledger contract', () => {
         get: async () => undefined,
         create: async () => ({ created: [], total: 0 }),
         update: async () => ({ updated: {} as Task, total: 0 }),
+        claim: async () => ({ updated: {} as Task, total: 0 }),
+        settleAgentOutcome: async () => ({ updated: {} as Task, total: 0 }),
+        subscribe: () => () => {},
       },
     });
     assert.deepEqual(tools.map((t) => t.name), [TASK_CREATE_TOOL_NAME, TASK_UPDATE_TOOL_NAME, TASK_LIST_TOOL_NAME, TASK_GET_TOOL_NAME]);

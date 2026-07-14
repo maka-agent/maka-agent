@@ -29,6 +29,7 @@ describe('Maka CLI runtime bootstrap', () => {
       });
 
       const context = await createMakaCliRuntimeContext({
+        surface: 'tui',
         workspaceRoot,
         cwd: '/repo',
       });
@@ -74,6 +75,7 @@ describe('Maka CLI runtime bootstrap', () => {
       ] as const;
 
       const context = await createMakaCliRuntimeContext({
+        surface: 'tui',
         workspaceRoot,
         cwd: '/repo',
         requestedConnectionSlug: 'selected-local',
@@ -131,6 +133,7 @@ describe('Maka CLI runtime bootstrap', () => {
         permissionMode: 'explore',
       });
       const context = await createMakaCliRuntimeContext({
+        surface: 'tui',
         workspaceRoot,
         cwd: '/canonical-repo',
         requestedConnectionSlug: 'local',
@@ -167,6 +170,7 @@ describe('Maka CLI runtime bootstrap', () => {
       });
 
       const context = await createMakaCliRuntimeContext({
+        surface: 'tui',
         workspaceRoot,
         cwd: '/repo',
       });
@@ -177,6 +181,38 @@ describe('Maka CLI runtime bootstrap', () => {
         'Edit must be registered (regression: it was once filtered out of the TUI runtime)',
       );
       assert.equal(edit?.permissionRequired, true);
+    });
+  });
+
+  test('registers AskUserQuestion only for the interactive TUI surface', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local Ollama',
+        providerType: 'ollama',
+        defaultModel: 'llama3.2',
+      });
+
+      const tui = await createMakaCliRuntimeContext({
+        workspaceRoot,
+        cwd: '/repo',
+        surface: 'tui',
+      });
+      const run = await createMakaCliRuntimeContext({
+        workspaceRoot,
+        cwd: '/repo',
+        surface: 'run',
+      });
+      try {
+        const tool = tui.tools.find((candidate) => candidate.name === 'AskUserQuestion');
+        assert.ok(tool);
+        assert.equal(tool.permissionRequired, false);
+        assert.equal(run.tools.some((candidate) => candidate.name === 'AskUserQuestion'), false);
+      } finally {
+        await tui.close();
+        await run.close();
+      }
     });
   });
 
@@ -191,6 +227,7 @@ describe('Maka CLI runtime bootstrap', () => {
       });
 
       const context = await createMakaCliRuntimeContext({
+        surface: 'tui',
         workspaceRoot,
         cwd: '/repo',
       });
@@ -214,6 +251,7 @@ describe('Maka CLI runtime bootstrap', () => {
       });
 
       const context = await createMakaCliRuntimeContext({
+        surface: 'tui',
         workspaceRoot,
         cwd: workspaceRoot,
       });
@@ -289,7 +327,8 @@ describe('Maka CLI runtime bootstrap', () => {
       await connectionStore.create({
         slug: 'local', name: 'Local Ollama', providerType: 'ollama', defaultModel: 'llama3.2',
       });
-      const context = await createMakaCliRuntimeContext({ workspaceRoot, cwd: workspaceRoot });
+      const context = await createMakaCliRuntimeContext({
+        surface: 'tui', workspaceRoot, cwd: workspaceRoot });
       const updates: ShellRunUpdate[] = [];
       const unsubscribe = context.subscribeShellRunUpdates((update) => updates.push(update));
       try {
@@ -326,7 +365,8 @@ describe('Maka CLI runtime bootstrap', () => {
       await connectionStore.create({
         slug: 'local', name: 'Local Ollama', providerType: 'ollama', defaultModel: 'llama3.2',
       });
-      const context = await createMakaCliRuntimeContext({ workspaceRoot, cwd: workspaceRoot });
+      const context = await createMakaCliRuntimeContext({
+        surface: 'tui', workspaceRoot, cwd: workspaceRoot });
       try {
         const parent = await context.runtime.createSession({
           cwd: workspaceRoot, backend: 'ai-sdk', llmConnectionSlug: 'local',
@@ -362,7 +402,8 @@ describe('Maka CLI runtime bootstrap', () => {
       await connectionStore.create({
         slug: 'local', name: 'Local Ollama', providerType: 'ollama', defaultModel: 'llama3.2',
       });
-      const context = await createMakaCliRuntimeContext({ workspaceRoot, cwd: workspaceRoot });
+      const context = await createMakaCliRuntimeContext({
+        surface: 'tui', workspaceRoot, cwd: workspaceRoot });
       try {
         const bash = context.tools.find((tool) => tool.name === 'Bash');
         assert.ok(bash);
@@ -407,6 +448,7 @@ describe('Maka CLI runtime bootstrap', () => {
         });
 
         const context = await createMakaCliRuntimeContext({
+        surface: 'tui',
           workspaceRoot,
           cwd: '/repo',
         });
@@ -457,7 +499,8 @@ describe('Maka CLI runtime bootstrap', () => {
             defaultModel: 'llama3.2',
           });
 
-          const context = await createMakaCliRuntimeContext({ workspaceRoot, cwd: '/repo' });
+          const context = await createMakaCliRuntimeContext({
+        surface: 'tui', workspaceRoot, cwd: '/repo' });
           const session = await context.runtime.createSession({
             cwd: context.cwd,
             backend: 'ai-sdk',
@@ -501,6 +544,7 @@ describe('Maka CLI runtime bootstrap', () => {
         await credentialStore.setSecret('deepseek', 'api_key', 'test-key');
 
         const context = await createMakaCliRuntimeContext({
+        surface: 'tui',
           workspaceRoot,
           cwd: '/repo',
         });

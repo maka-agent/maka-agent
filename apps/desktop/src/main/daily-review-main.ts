@@ -18,7 +18,7 @@ import type {
   DailyReviewTrigger,
   SessionSummary,
 } from '@maka/core';
-import { PROVIDER_DEFAULTS, type LlmConnection } from '@maka/core/llm-connections';
+import { providerAuthRequiresSecret, type LlmConnection } from '@maka/core/llm-connections';
 import { buildProviderOptions, getAIModel } from '@maka/runtime';
 import type { createConnectionStore, createTelemetryRepo } from '@maka/storage';
 import type { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
@@ -172,7 +172,7 @@ export function createDailyReviewMainService(deps: DailyReviewMainServiceDeps): 
     const modelId = parsed?.modelId || connection.defaultModel;
     if (!modelId) return null;
     const apiKey = await deps.resolveConnectionSecret(connection.slug);
-    if (PROVIDER_DEFAULTS[connection.providerType].authKind !== 'none' && !apiKey) return null;
+    if (providerAuthRequiresSecret(connection.providerType) && !apiKey) return null;
     return { connection, apiKey, modelId };
   }
 

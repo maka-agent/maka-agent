@@ -26,6 +26,7 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // 重新登录 button is visible.
   'oauth-relogin',
   'turn-narrative',
+  'task-ledger',
   'artifact-pane',
   'artifact-errors',
   'streaming-sidebar',
@@ -330,6 +331,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'artifact-preview-oversize':
       return { ...state, activeSessionId: ARTIFACT_SESSION_ID };
     case 'turn-narrative':
+    case 'task-ledger':
       return { ...state, activeSessionId: TURN_SESSION_ID };
     case 'browser-empty':
       // #819: the active turn session is also seeded as a live browser
@@ -530,6 +532,9 @@ export async function seedVisualSmokeFixture(input: {
     await input.credentialStore.setSecret(slug, 'api_key', `fixture-key-${slug}`);
   }
   await writeSession(input.workspaceRoot, turnSession(now), turnMessages(now));
+  if (input.fixture.scenario === 'task-ledger') {
+    await writeTaskLedgerFixture(input.workspaceRoot, now);
+  }
   await writeSession(input.workspaceRoot, processingSession(now), processingMessages(now));
   await writeSession(input.workspaceRoot, streamingSession(now), streamingMessages(now));
   await writeSession(input.workspaceRoot, permissionSession(now), permissionMessages(now));
@@ -696,6 +701,48 @@ const TURN_CONTROL_SCENARIOS = new Set<VisualSmokeScenario>([
 ]);
 
 const TURN_SESSION_ID = 'visual-smoke-turn';
+
+async function writeTaskLedgerFixture(workspaceRoot: string, now: number): Promise<void> {
+  const tasks = [
+    {
+      id: 'task-root-implementation', key: 'T1', subject: '完成会话任务台账升级', status: 'in_progress',
+      createdAt: now - 50 * 60_000, updatedAt: now - 2 * 60_000,
+      owner: { actor: 'main_agent', runId: 'run-task-parent', turnId: 'turn-fixture-2' },
+    },
+    {
+      id: 'task-child-storage', key: 'T1.1', parentId: 'task-root-implementation',
+      subject: '验证旧 JSONL 迁移与并发短 key 分配', status: 'completed',
+      createdAt: now - 45 * 60_000, updatedAt: now - 8 * 60_000, endedAt: now - 8 * 60_000,
+      completionEvidence: 'Core 与 Storage 定向测试全部通过。',
+    },
+    {
+      id: 'task-child-ui', key: 'T1.2', parentId: 'task-root-implementation',
+      subject: '检查窄窗口下的任务树布局', status: 'blocked',
+      createdAt: now - 40 * 60_000, updatedAt: now - 3 * 60_000,
+      blockedReason: '等待视觉回归截图确认 990px 视口没有文字重叠。',
+      owner: { actor: 'child_agent', agentId: 'local-read', runId: 'run-task-child', turnId: 'turn-task-child' },
+    },
+    {
+      id: 'task-grandchild-copy', key: 'T1.2.1', parentId: 'task-child-ui',
+      subject: '核对深层缩进、超长任务描述、owner 与阻塞原因在窄窗口中仍可完整换行且不遮挡后续内容',
+      status: 'pending', createdAt: now - 35 * 60_000, updatedAt: now - 3 * 60_000,
+    },
+    {
+      id: 'task-docs', key: 'T2', subject: '同步生命周期文档与边界说明', status: 'pending',
+      createdAt: now - 30 * 60_000, updatedAt: now - 5 * 60_000,
+    },
+    {
+      id: 'task-runtime', key: 'T3', subject: '验证 Goal 一次提醒门禁', status: 'completed',
+      createdAt: now - 25 * 60_000, updatedAt: now - 6 * 60_000, endedAt: now - 6 * 60_000,
+      completionEvidence: 'Goal gate 定向测试覆盖空任务、阻塞任务、一次提醒和上限放行。',
+    },
+  ];
+  await writeFile(
+    join(workspaceRoot, 'sessions', TURN_SESSION_ID, 'tasks.json'),
+    `${JSON.stringify(tasks, null, 2)}\n`,
+    'utf8',
+  );
+}
 const LONG_TRANSCRIPT_SESSION_ID = 'visual-smoke-long-transcript';
 const PROCESSING_SESSION_ID = 'visual-smoke-processing';
 const STREAMING_SESSION_ID = 'visual-smoke-streaming';
@@ -1344,7 +1391,7 @@ function permissionMessages(now: number): StoredMessage[] {
       id: 'permission-user',
       turnId: 'turn-permission',
       ts: now - 4 * 60_000,
-      text: '模拟一个需要 destructive 权限确认的操作，但不要真的执行。',
+      text: '模拟一个需要不可恢复操作权限确认的场景，但不要真的执行。',
     },
     {
       type: 'tool_call',
@@ -1353,8 +1400,8 @@ function permissionMessages(now: number): StoredMessage[] {
       ts: now - 4 * 60_000 + 1_000,
       toolName: 'Bash',
       displayName: '模拟删除命令',
-      intent: '触发 PermissionDialog destructive UI',
-      args: { cmd: 'rm -rf ./dist', cwd: '/workspace/maka' },
+      intent: '清理构建产物目录',
+      args: { command: 'rm -rf ./dist', cwd: '/workspace/maka' },
     },
   ];
 }
@@ -2416,7 +2463,7 @@ function permissionRequest(now: number): PermissionRequestEvent {
     toolName: 'Bash',
     category: 'fs_destructive',
     reason: 'fs_destructive',
-    args: { cmd: 'rm -rf ./dist', cwd: '/workspace/maka' },
-    hint: '模拟/拦截 permission request：不要实际执行 rm。',
+    args: { command: 'rm -rf ./dist', cwd: '/workspace/maka' },
+    hint: '这会删除构建产物目录；允许前请确认当前工作区。',
   };
 }

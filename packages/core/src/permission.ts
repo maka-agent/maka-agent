@@ -7,6 +7,11 @@
  * requestId at the call site.
  */
 
+import {
+  computerUseApprovalScopeKey,
+  computerUseApprovalSummary,
+} from './computer-use.js';
+
 // ============================================================================
 // Mode + Tool categories
 // ============================================================================
@@ -31,6 +36,7 @@ export type ToolCategory =
   | 'network_send' //      POST / PUT / DELETE
   | 'privileged' //        sudo, chmod, chown, kill, systemctl
   | 'browser' //           embedded-browser observe→act on the user's logged-in sessions
+  | 'computer_use' //      host-level observation and input on the user's real applications
   | 'custom_tool' //       our own session-scoped tools without a stricter category hint
   | 'subagent'; //         read-only delegated exploration tools
 
@@ -45,6 +51,7 @@ export const TOOL_CATEGORIES: readonly ToolCategory[] = [
   'network_send',
   'privileged',
   'browser',
+  'computer_use',
   'custom_tool',
   'subagent',
 ];
@@ -144,6 +151,7 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     // Driving the user's logged-in browser is an out-of-process effect; explore
     // mode is read-only-local, so block it like other network/write effects.
     browser: 'block',
+    computer_use: 'block',
     custom_tool: 'prompt',
     subagent: 'allow',
   },
@@ -158,6 +166,7 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     network_send: 'prompt',
     privileged: 'prompt',
     browser: 'prompt',
+    computer_use: 'prompt',
     custom_tool: 'allow',
     subagent: 'prompt',
   },
@@ -168,20 +177,9 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     network_send: 'allow',
     custom_tool: 'allow',
     subagent: 'allow',
-    // Fail-closed for shell: NO shell command auto-runs. A shell command cannot
-    // be proven safe from its string — args can embed execution (PowerShell
-    // `echo (Set-Content x)`, $(...), backtick, iex), so there is no reliable
-    // "safe" bucket. Read-only needs go through typed tools (Read/Glob/Grep:
-    // fixed argv, no shell). Both shell_safe (which categorizeBash no longer
-    // produces) and shell_unsafe prompt, so the boundary is structural — it
-    // does not ride on the destructive/privileged pattern list being complete;
-    // a missed variant is at most an extra confirmation, never a silent action.
-    // (Auto-running arbitrary shell inside an isolated worktree is a future
-    // capability, not a current escape hatch: it needs a worktree child
-    // executor with its OWN permission path. An agent's categoryPolicy only
-    // filters which tools the agent is GIVEN — it does not enter execution-time
-    // gating, which always flows through preToolUse → this policy table. Today
-    // the worktree implementation agent cannot even be spawned.)
+    // Shell stays prompt in the static table. policyDecisionForInput upgrades
+    // shell_unsafe to allow only when runtime proves the active profile can be
+    // enforced by a platform sandbox; otherwise this fail-closed default wins.
     shell_safe: 'prompt',
     shell_unsafe: 'prompt',
     // Irreversible ops ALWAYS prompt, even in execute mode.
@@ -193,6 +191,9 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     // visible view stays a confirmed safety net, not a default-allow. The
     // user's "allow for this turn" then carries the observe→act loop.
     browser: 'prompt',
+    // Computer Use uses target- and action-class scope keys. Remembering a
+    // metadata read never authorizes a screenshot or mutation.
+    computer_use: 'prompt',
   },
   bypass: {
     read: 'allow',
@@ -205,6 +206,7 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     network_send: 'allow',
     privileged: 'allow',
     browser: 'allow',
+    computer_use: 'allow',
     custom_tool: 'allow',
     subagent: 'allow',
   },
@@ -474,6 +476,14 @@ export interface PreToolUseInput {
    * intentionally introduced in a later policy change.
    */
   executionFacts?: ToolExecutionFacts;
+  /**
+   * Platform sandbox availability for sandbox-aware policy decisions. Unsafe
+   * shell in execute mode is only auto-allowed when the runtime can actually
+   * enforce the active profile with a platform sandbox.
+   */
+  sandbox?: {
+    platformSandboxAvailable: boolean;
+  };
 }
 
 export interface PreToolUseResult {
@@ -504,8 +514,10 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
   const category = classifyToolUse(input);
 
   // (2) Policy lookup + turn-remembered check
-  const decision = PERMISSION_POLICY[input.mode][category];
+  const decision = policyDecisionForInput(input, category);
   const scopeKey = permissionScopeKey(input.toolName, input.args, category);
+  const turnMemoryAllowed = category !== 'computer_use'
+    || computerUseApprovalSummary(input.args).rememberForTurnAllowed;
   if (decision === 'allow') {
     return { proceed: true, needsPrompt: false, category, scopeKey };
   }
@@ -518,7 +530,7 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
       blockReason: `Tool category "${category}" is blocked in mode "${input.mode}"`,
     };
   }
-  if (input.turnRemembered.has(scopeKey)) {
+  if (turnMemoryAllowed && input.turnRemembered.has(scopeKey)) {
     return { proceed: true, needsPrompt: false, category, scopeKey };
   }
 
@@ -532,9 +544,20 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
       toolName: input.toolName,
       category,
       reason: categoryToReason(category),
-      args: input.args,
+      args: permissionRequestArgs(input.args, category),
+      ...(permissionRememberForTurnAllowed(input.args, category)
+        ? { rememberForTurnAllowed: true }
+        : { rememberForTurnAllowed: false }),
     },
   };
+}
+
+function policyDecisionForInput(input: PreToolUseInput, category: ToolCategory): PolicyDecision {
+  const decision = PERMISSION_POLICY[input.mode][category];
+  if (input.mode === 'execute' && category === 'shell_unsafe') {
+    return input.sandbox?.platformSandboxAvailable === true ? 'allow' : 'prompt';
+  }
+  return decision;
 }
 
 export function permissionScopeKey(toolName: string, args: unknown, category: ToolCategory): string {
@@ -545,6 +568,7 @@ export function permissionScopeKey(toolName: string, args: unknown, category: To
   // is the safety net for which page is driven. Other categories stay scoped
   // to the specific tool + args below.
   if (category === 'browser') return 'browser';
+  if (category === 'computer_use') return computerUseApprovalScopeKey(args);
   switch (toolName) {
     case 'Write':
     case 'Edit':
@@ -621,6 +645,8 @@ function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {
       return 'privileged';
     case 'browser':
       return 'browser';
+    case 'computer_use':
+      return 'computer_use';
     default:
       return 'custom';
   }
@@ -631,6 +657,8 @@ function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {
 // ============================================================================
 
 export interface PermissionRequest {
+  /** Omitted by legacy persisted events; new runtime events set it explicitly. */
+  kind?: 'tool_permission';
   requestId: string;
   toolUseId: string;
   toolName: string;
@@ -643,9 +671,46 @@ export interface PermissionRequest {
     | 'git_destructive'
     | 'privileged'
     | 'browser'
+    | 'computer_use'
     | 'custom';
   args: unknown;
   hint?: string;
+  rememberForTurnAllowed?: boolean;
+}
+
+export interface AdditionalPermissionRequest {
+  kind: 'additional_permissions';
+  requestId: string;
+  toolUseId: string;
+  toolName: string;
+  category: ToolCategory;
+  reason: 'additional_permissions';
+  additionalPermissions: import('./additional-permissions.js').AdditionalPermissionProfile;
+  cwd: string;
+  justification: string;
+  intentHash: string;
+  permissionsHash: string;
+  risk: import('./additional-permissions.js').AdditionalPermissionRiskSummary;
+  alsoApprovesToolExecution: boolean;
+  availableDecisions: readonly ['allow_once', 'deny'];
+  hint?: string;
+}
+
+/** Permission prompt payloads that may be carried by canonical runtime events. */
+export type PermissionRequestPayload = PermissionRequest | AdditionalPermissionRequest;
+
+function permissionRequestArgs(args: unknown, category: ToolCategory): unknown {
+  return category === 'computer_use'
+    ? computerUseApprovalSummary(args)
+    : args;
+}
+
+function permissionRememberForTurnAllowed(
+  args: unknown,
+  category: ToolCategory,
+): boolean {
+  return category !== 'computer_use'
+    || computerUseApprovalSummary(args).rememberForTurnAllowed;
 }
 
 export interface PermissionResponse {

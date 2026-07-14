@@ -6,7 +6,7 @@ export type { SessionViewMode } from './session-list-panel.js';
 export type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from './module-panel-types.js';
 export { describeLoadToolResult, formatRedactedJson, formatToolIntent, loadToolDisplayName } from './tool-format.js';
 export { formatBytes, OverlayHost, ToolActivity, ToolErrorDetails } from './tool-activity.js';
-export { PermissionDialog } from './permission-dialog.js';
+export { PermissionPrompt } from './permission-dialog.js';
 export { ChatView } from './chat-view.js';
 export type { ChatHeaderAlert } from './chat-view.js';
 export type { TurnFooterActionMeta, TurnLineageBadge } from './chat-turn.js';

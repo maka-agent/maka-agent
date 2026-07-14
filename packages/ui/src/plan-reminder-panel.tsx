@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Button as BaseButton } from '@base-ui/react/button';
+import { useMountedRef } from './use-mounted-ref.js';
 import {
   ArchiveRestore,
   Check,
@@ -133,7 +135,7 @@ export function PlanReminderPanel(props: {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitPending, setSubmitPending] = useState(false);
   const [pendingActionKeys, setPendingActionKeys] = useState<ReadonlySet<string>>(() => new Set());
-  const planReminderMountedRef = useRef(true);
+  const planReminderMountedRef = useMountedRef();
   const submitPendingRef = useRef(false);
   const refreshPendingRef = useRef(false);
   const pendingActionKeysRef = useRef<Set<string>>(new Set());
@@ -185,9 +187,7 @@ export function PlanReminderPanel(props: {
   const auditReport = props.auditReport ?? deriveCapabilityAuditReport({ planReminders: props.reminders });
 
   useEffect(() => {
-    planReminderMountedRef.current = true;
     return () => {
-      planReminderMountedRef.current = false;
       submitPendingRef.current = false;
       refreshPendingRef.current = false;
       pendingActionKeysRef.current = new Set();
@@ -351,7 +351,6 @@ export function PlanReminderPanel(props: {
               type="button"
               variant="quiet"
               size="icon"
-              className="maka-plan-refresh-button"
               onClick={() => void refreshFromPanel()}
               disabled={!props.onRefresh || refreshPending}
               aria-label={refreshPending ? '正在刷新定时任务' : '刷新定时任务'}
@@ -365,7 +364,7 @@ export function PlanReminderPanel(props: {
                 duplication competing for the primary action. One entry
                 point; reintroduce a second button only when a genuinely
                 different (chat-driven) flow exists. */}
-            <UiButton type="button" className="maka-plan-new-task-button" onClick={openCreateReminderDialog}>
+            <UiButton type="button" onClick={openCreateReminderDialog}>
               <Plus size={15} aria-hidden="true" />
               新建定时任务
             </UiButton>
@@ -485,10 +484,9 @@ export function PlanReminderPanel(props: {
               <div className="maka-plan-empty-wrap" data-mode="starter-cards">
                 <div className="maka-plan-template-strip" data-layout="cards" aria-label="定时任务示例模板">
                   {PLAN_REMINDER_EXAMPLE_TEMPLATES.map((template) => (
-                    <UiButton
+                    <BaseButton
                       key={template.id}
                       type="button"
-                      variant="ghost"
                       className="maka-plan-template-card"
                       onClick={() => openPlanReminderTemplate(template)}
                     >
@@ -503,7 +501,7 @@ export function PlanReminderPanel(props: {
                         <Clock size={13} aria-hidden="true" />
                         {template.scheduleLabel}
                       </span>
-                    </UiButton>
+                    </BaseButton>
                   ))}
                 </div>
               </div>
@@ -736,6 +734,7 @@ export function PlanReminderPanel(props: {
                   key={preset}
                   type="button"
                   variant="secondary"
+                  size="sm"
                   className="maka-plan-preset"
                   onClick={() => applyRunAtPreset(preset as 'ten-minutes' | 'one-hour' | 'tomorrow-morning' | 'next-monday')}
                   disabled={formInteractionDisabled}
@@ -844,7 +843,6 @@ export function PlanReminderPanel(props: {
             )}
             <footer className="maka-plan-form-footer">
               <UiButton
-                className="maka-button maka-plan-submit"
                 variant="secondary"
                 type="button"
                 onClick={closeReminderDialog}
@@ -852,7 +850,7 @@ export function PlanReminderPanel(props: {
               >
                 取消
               </UiButton>
-              <UiButton className="maka-button maka-plan-submit" type="submit" disabled={submitDisabled}>
+              <UiButton type="submit" disabled={submitDisabled}>
                 {isEditing ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
                 <span>{submitPending ? (isEditing ? '保存中…' : '创建中…') : (isEditing ? '保存提醒' : '创建提醒')}</span>
               </UiButton>

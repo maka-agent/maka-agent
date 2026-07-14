@@ -176,7 +176,7 @@ export function MemorySettingsPage(props: {
                   <span>{backupCandidateLabel} · <RelativeTime ts={backup.updatedAt} /></span>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     className="min-w-[4rem]"
                     aria-label={`打开备份候选 ${backupCandidateLabel}`}
@@ -187,7 +187,7 @@ export function MemorySettingsPage(props: {
                   </Button>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     className="min-w-[4rem]"
                     aria-label={`恢复备份候选 ${backupCandidateLabel}`}
@@ -198,7 +198,7 @@ export function MemorySettingsPage(props: {
                   </Button>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     className="min-w-[4rem]"
                     aria-label={`复制备份候选引用 ${backupCandidateLabel}`}
@@ -255,7 +255,7 @@ export function MemorySettingsPage(props: {
             {normalizedMemoryEntryQuery ? (
               <Button
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 onClick={() => setMemoryEntryQuery('')}
               >

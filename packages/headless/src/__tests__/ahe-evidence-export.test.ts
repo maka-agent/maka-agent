@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
+import type { RuntimeEvent } from '@maka/core/runtime-event';
+import type { AgentRunInspectDocument } from '@maka/runtime';
 import {
   MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL,
   buildMakaAheTargetSnapshot,
@@ -13,6 +15,7 @@ import {
 } from '../ahe-evidence-export.js';
 import type { MakaAheTargetComponent } from '../ahe-target-protocol.js';
 import type { ScoreResult, TaskEvent } from '../task-contracts.js';
+import { taskAttemptExecutionEvidence } from '../task-execution-lineage.js';
 import { projectTaskRun } from '../task-run-store.js';
 
 describe('AHE evidence export', () => {
@@ -34,10 +37,47 @@ describe('AHE evidence export', () => {
         createdAt: '2026-07-02T00:00:00.000Z',
       });
 
-      assert.equal(first.protocolVersion, 'maka.ahe-target.v1');
+      assert.equal(first.protocolVersion, 'maka.ahe-target.v2');
       assert.equal(first.sourceLabel, MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL);
       assert.equal(first.snapshotId, second.snapshotId);
+      assert.match(first.snapshotId, /^maka-ahe-[a-f0-9]{64}$/);
+      assert.match(first.sourceManifest.digest, /^sha256:[a-f0-9]{64}$/);
+      assert.equal(first.sourceManifest.entries[0]?.sizeBytes, 28);
       assert.equal(first.components[0]?.sourceRefs[0]?.path, 'src/prompt.ts');
+
+      await writeFile(join(dir, 'src', 'prompt.ts'), 'export const prompt = "changed";\n', 'utf8');
+      const changed = await buildMakaAheTargetSnapshot({ repoRoot: dir, components });
+      assert.notEqual(changed.snapshotId, first.snapshotId);
+      assert.notEqual(changed.sourceManifest.entries[0]?.digest, first.sourceManifest.entries[0]?.digest);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('makes target identity independent of source-ref order and Git metadata', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-ahe-ordered-snapshot-'));
+    try {
+      await mkdir(join(dir, 'src'), { recursive: true });
+      await writeFile(join(dir, 'src', 'a.ts'), 'export const a = 1;\n', 'utf8');
+      await writeFile(join(dir, 'src', 'b.ts'), 'export const b = 2;\n', 'utf8');
+      const component: MakaAheTargetComponent = {
+        ...fixtureComponents('src/a.ts')[0]!,
+        sourceRefs: [{ path: 'src/a.ts' }, { path: 'src/b.ts' }],
+      };
+      const first = await buildMakaAheTargetSnapshot({
+        repoRoot: dir,
+        components: [component],
+        git: { repository: 'maka', commit: 'first', dirty: false },
+      });
+      const reordered = await buildMakaAheTargetSnapshot({
+        repoRoot: dir,
+        components: [{ ...component, sourceRefs: [...component.sourceRefs].reverse() }],
+        sourceLabel: 'a-different-exporter',
+        git: { repository: 'maka', commit: 'second', dirty: true },
+      });
+
+      assert.equal(reordered.snapshotId, first.snapshotId);
+      assert.deepEqual(reordered.sourceManifest.entries.map((entry) => entry.path), ['src/a.ts', 'src/b.ts']);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -59,6 +99,24 @@ describe('AHE evidence export', () => {
       );
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects source refs that escape the repo through symbolic links or resolve to directories', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-ahe-symlink-snapshot-'));
+    const outside = await mkdtemp(join(tmpdir(), 'maka-ahe-outside-'));
+    try {
+      await writeFile(join(outside, 'secret.ts'), 'export const secret = true;\n', 'utf8');
+      await symlink(join(outside, 'secret.ts'), join(dir, 'escaped.ts'));
+      await mkdir(join(dir, 'directory.ts'));
+
+      const escaped = await validateMakaAheSourceRefs(dir, fixtureComponents('escaped.ts'));
+      assert.match(escaped[0]?.message ?? '', /symbolic link/);
+      const directory = await validateMakaAheSourceRefs(dir, fixtureComponents('directory.ts'));
+      assert.match(directory[0]?.message ?? '', /regular file/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
     }
   });
 
@@ -104,8 +162,13 @@ describe('AHE evidence export', () => {
     assert.match(evidence.harnessResults.results[0]?.warnings?.join('\n') ?? '', /non-authoritative/);
     assert.equal(evidence.harnessResults.results[1]?.status, 'official_pass');
     assert.equal(evidence.harnessResults.results[1]?.scoreAuthority, 'official_scorer');
+    assert.equal(evidence.harnessResults.results[0]?.schemaVersion, 'maka.ahe.run_result.v1');
+    assert.equal(evidence.harnessResults.results[0]?.taskRunId, 'run-self-check');
+    assert.equal(evidence.harnessResults.results[0]?.executionLineageRef.ref, 'traces/run-self-check/execution-lineage.json');
     assert.equal(evidence.traceIndex.entries[0]?.transcript?.ref, 'traces/run-self-check/result.md');
-    assert.equal(evidence.traceIndex.entries[0]?.agentRun?.ref, 'traces/run-self-check/messages.json');
+    assert.equal(evidence.traceIndex.entries[0]?.messages?.ref, 'traces/run-self-check/messages.json');
+    assert.equal(evidence.traceIndex.entries[0]?.taskEventsJsonl?.ref, 'traces/run-self-check/task-events.jsonl');
+    assert.equal(evidence.traceIndex.entries[0]?.runtimeEventsJsonl, undefined);
   });
 
   test('overlays Harbor post-exit official results during AHE bucketing', async () => {
@@ -184,6 +247,93 @@ describe('AHE evidence export', () => {
     );
   });
 
+  test('exports payload-safe lineage by default and keeps raw Runtime Events opt-in', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'maka-ahe-safe-repo-'));
+    const out = await mkdtemp(join(tmpdir(), 'maka-ahe-safe-out-'));
+    try {
+      await writeFile(join(repo, 'prompt.ts'), 'export const prompt = "ok";\n', 'utf8');
+      const snapshot = await buildMakaAheTargetSnapshot({
+        repoRoot: repo,
+        components: fixtureComponents('prompt.ts'),
+      });
+      const runtimeEvents = [fixtureRuntimeEvent('runtime-1', {
+        content: { kind: 'text', text: 'PRIVATE_RUNTIME_PAYLOAD' },
+      })];
+      const projection = projectTaskRun([
+        { type: 'task_run_created', id: 'task-1', taskRunId: 'run-safe', ts: 1, taskId: 'task-safe', configId: 'cfg-1' },
+        { type: 'task_attempt_started', id: 'task-2', taskRunId: 'run-safe', ts: 2, attemptId: 'attempt-1' },
+        {
+          type: 'task_attempt_execution_linked', id: 'task-3', taskRunId: 'run-safe', ts: 3, attemptId: 'attempt-1',
+          evidence: taskAttemptExecutionEvidence({
+            taskRunId: 'run-safe', attemptId: 'attempt-1', sessionId: 'session-1',
+            invocationId: 'invocation-1', agentRunId: 'agent-run-1', turnId: 'turn-1', runtimeEvents,
+          }),
+        },
+      ], 'run-safe');
+
+      await writeMakaAheEvidenceExport(out, {
+        snapshot,
+        projections: [projection],
+        agentRunEvidence: {
+          'run-safe': [{ sessionId: 'session-1', agentRunId: 'agent-run-1', inspect: fixtureAgentRunInspect(runtimeEvents), runtimeEvents }],
+        },
+      });
+
+      const lineageText = await readFile(join(out, 'traces', 'run-safe', 'execution-lineage.json'), 'utf8');
+      assert.match(lineageText, /"rawRuntimeEvents": "omitted_by_policy"/);
+      assert.doesNotMatch(lineageText, /PRIVATE_RUNTIME_PAYLOAD/);
+      assert.match(await readFile(join(out, 'traces', 'run-safe', 'agent-runs', 'agent-run-1', 'inspect.json'), 'utf8'), /maka.agent_run_inspect.v1/);
+      await assert.rejects(
+        () => readFile(join(out, 'traces', 'run-safe', 'agent-runs', 'agent-run-1', 'runtime-events.jsonl'), 'utf8'),
+        /ENOENT/,
+      );
+      assert.match(await readFile(join(out, 'traces', 'run-safe', 'task-events.jsonl'), 'utf8'), /task_attempt_execution_linked/);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+      await rm(out, { recursive: true, force: true });
+    }
+  });
+
+  test('records missing execution lineage as a gap instead of inventing an AgentRun', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'maka-ahe-gap-repo-'));
+    const out = await mkdtemp(join(tmpdir(), 'maka-ahe-gap-out-'));
+    try {
+      await writeFile(join(repo, 'prompt.ts'), 'export const prompt = "ok";\n', 'utf8');
+      const snapshot = await buildMakaAheTargetSnapshot({ repoRoot: repo, components: fixtureComponents('prompt.ts') });
+      const projection = projectTaskRun([
+        { type: 'task_run_created', id: 'task-1', taskRunId: 'run-gap', ts: 1, taskId: 'task-gap', configId: 'cfg-1' },
+      ], 'run-gap');
+
+      await writeMakaAheEvidenceExport(out, {
+        snapshot,
+        projections: [projection],
+        includeEvents: true,
+        agentRunEvidence: {
+          'run-gap': [{
+            sessionId: 'session-1',
+            agentRunId: 'agent-run-1',
+            inspect: fixtureAgentRunInspect(),
+            runtimeEvents: [fixtureRuntimeEvent('unlinked-private', {
+              content: { kind: 'text', text: 'UNLINKED_PRIVATE_PAYLOAD' },
+            })],
+          }],
+        },
+      });
+
+      const lineage = JSON.parse(await readFile(join(out, 'traces', 'run-gap', 'execution-lineage.json'), 'utf8'));
+      assert.equal(lineage.attempts.length, 0);
+      assert.equal(lineage.gaps[0].code, 'attempt_execution_missing');
+      assert.equal(lineage.rawRuntimeEvents, 'requested_with_gaps');
+      await assert.rejects(
+        () => readFile(join(out, 'traces', 'run-gap', 'agent-runs', 'agent-run-1', 'runtime-events.jsonl'), 'utf8'),
+        /ENOENT/,
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+      await rm(out, { recursive: true, force: true });
+    }
+  });
+
   test('writes deterministic AHE files and per-task trace exports', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'maka-ahe-repo-'));
     const out = await mkdtemp(join(tmpdir(), 'maka-ahe-out-'));
@@ -195,8 +345,39 @@ describe('AHE evidence export', () => {
         components: fixtureComponents('src/prompt.ts'),
         createdAt: '2026-07-01T00:00:00.000Z',
       });
+      const runtimeEvents = [fixtureRuntimeEvent('runtime-1'), fixtureRuntimeEvent('runtime-2', {
+        status: 'completed',
+        role: 'system',
+        author: 'system',
+        content: { kind: 'text', text: 'RAW_RUNTIME_PAYLOAD' },
+      })];
       const projection = projectTaskRun([
         { type: 'task_run_created', id: 'e1', taskRunId: 'run-official', ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+        {
+          type: 'task_attempt_started',
+          id: 'attempt-started',
+          taskRunId: 'run-official',
+          ts: 1.1,
+          attemptId: 'attempt-1',
+          sessionId: 'session-1',
+          agentRunId: 'agent-run-1',
+        },
+        {
+          type: 'task_attempt_execution_linked',
+          id: 'execution-linked',
+          taskRunId: 'run-official',
+          ts: 1.2,
+          attemptId: 'attempt-1',
+          evidence: taskAttemptExecutionEvidence({
+            taskRunId: 'run-official',
+            attemptId: 'attempt-1',
+            sessionId: 'session-1',
+            invocationId: 'invocation-1',
+            agentRunId: 'agent-run-1',
+            turnId: 'turn-1',
+            runtimeEvents,
+          }),
+        },
         {
           type: 'heavy_task_self_check_plan_recorded',
           id: 'self-check-plan-event',
@@ -269,6 +450,14 @@ describe('AHE evidence export', () => {
         exportedAt: '2026-07-01T00:00:00.000Z',
         includeEvents: true,
         sessionMessages,
+        agentRunEvidence: {
+          'run-official': [{
+            sessionId: 'session-1',
+            agentRunId: 'agent-run-1',
+            inspect: fixtureAgentRunInspect(runtimeEvents),
+            runtimeEvents,
+          }],
+        },
       });
       const firstHarness = await readFile(first.files.harnessResultsJson, 'utf8');
       const second = await writeMakaAheEvidenceExport(out, {
@@ -278,19 +467,49 @@ describe('AHE evidence export', () => {
         exportedAt: '2026-07-01T00:00:00.000Z',
         includeEvents: true,
         sessionMessages,
+        agentRunEvidence: {
+          'run-official': [{
+            sessionId: 'session-1',
+            agentRunId: 'agent-run-1',
+            inspect: fixtureAgentRunInspect(runtimeEvents),
+            runtimeEvents,
+          }],
+        },
       });
 
       assert.equal(firstHarness, await readFile(second.files.harnessResultsJson, 'utf8'));
       const parsedHarness = JSON.parse(firstHarness);
       assert.equal(parsedHarness.results[0].status, 'official_fail');
+      assert.equal(parsedHarness.results[0].taskRunId, 'run-official');
       assert.equal(parsedHarness.results[0].traceRef.ref, 'traces/run-official/task-run.json');
+      assert.match(parsedHarness.results[0].traceRef.digest, /^sha256:/);
+      assert.match(parsedHarness.results[0].executionLineageRef.digest, /^sha256:/);
+      assert.match(parsedHarness.traceIndexRef.digest, /^sha256:/);
       const traceIndexJson = await readFile(join(out, 'trace-index.json'), 'utf8');
       assert.match(traceIndexJson, /traces\/run-official\/result.md/);
-      assert.match(traceIndexJson, /traces\/run-official\/events.jsonl/);
+      assert.match(traceIndexJson, /traces\/run-official\/task-events.jsonl/);
+      assert.match(traceIndexJson, /traces\/run-official\/execution-lineage.json/);
+      assert.match(traceIndexJson, /traces\/run-official\/agent-runs\/agent-run-1\/inspect.json/);
+      assert.match(traceIndexJson, /traces\/run-official\/agent-runs\/agent-run-1\/runtime-events.jsonl/);
+      assert.doesNotMatch(traceIndexJson, /"runtimeEventsJsonl"/);
       assert.match(traceIndexJson, /traces\/run-official\/messages.json/);
       assert.match(traceIndexJson, /traces\/run-official\/failure-digest.json/);
       assert.match(await readFile(join(out, 'traces', 'run-official', 'task-run.json'), 'utf8'), /maka.task_run_export.v1/);
-      assert.match(await readFile(join(out, 'traces', 'run-official', 'events.jsonl'), 'utf8'), /task_run_created/);
+      assert.match(await readFile(join(out, 'traces', 'run-official', 'task-events.jsonl'), 'utf8'), /task_run_created/);
+      const lineage = JSON.parse(await readFile(join(out, 'traces', 'run-official', 'execution-lineage.json'), 'utf8'));
+      assert.equal(lineage.schemaVersion, 'maka.ahe.execution_lineage.v1');
+      assert.equal(lineage.target.snapshotId, snapshot.snapshotId);
+      assert.equal(lineage.task.taskRunId, 'run-official');
+      assert.equal(lineage.task.coverage.highWater.eventId, 'e4');
+      assert.equal(lineage.attempts[0].executions[0].evidence.execution.agentRunId, 'agent-run-1');
+      assert.equal(lineage.attempts[0].executions[0].evidence.runtimeCoverage.highWater.eventId, 'runtime-2');
+      assert.match(lineage.attempts[0].executions[0].inspectRef.digest, /^sha256:/);
+      assert.match(lineage.attempts[0].executions[0].runtimeEventsRef.digest, /^sha256:/);
+      assert.deepEqual(lineage.gaps, []);
+      assert.match(
+        await readFile(join(out, 'traces', 'run-official', 'agent-runs', 'agent-run-1', 'runtime-events.jsonl'), 'utf8'),
+        /RAW_RUNTIME_PAYLOAD/,
+      );
       const failureDigest = JSON.parse(await readFile(join(out, 'traces', 'run-official', 'failure-digest.json'), 'utf8'));
       assert.equal(failureDigest.schemaVersion, 'maka.ahe.failure_digest.v1');
       assert.equal(failureDigest.status, 'official_fail');
@@ -322,6 +541,8 @@ describe('AHE evidence export', () => {
       assert.match(failureDigest.finalState.selfCheckGate.reason, /uncleaned workspace side effects/);
       assert.match(failureDigest.officialHarbor.verifier.stdoutExcerpt, /expected move e2e4/);
       assert.equal(failureDigest.debugRefs.messages.ref, 'traces/run-official/messages.json');
+      assert.equal(failureDigest.debugRefs.taskEventsJsonl.ref, 'traces/run-official/task-events.jsonl');
+      assert.equal(failureDigest.debugRefs.runtimeEventSources.length, 1);
       const messages = JSON.parse(await readFile(join(out, 'traces', 'run-official', 'messages.json'), 'utf8'));
       assert.equal(messages.trace_id, 'run-official');
       assert.equal(messages.messages[0].role, 'system');
@@ -336,6 +557,66 @@ describe('AHE evidence export', () => {
     }
   });
 });
+
+function fixtureRuntimeEvent(id: string, overrides: Partial<RuntimeEvent> = {}): RuntimeEvent {
+  return {
+    id,
+    invocationId: 'invocation-1',
+    runId: 'agent-run-1',
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    ts: 1,
+    partial: false,
+    role: 'model',
+    author: 'agent',
+    ...overrides,
+  };
+}
+
+function fixtureAgentRunInspect(runtimeEvents: readonly RuntimeEvent[] = [fixtureRuntimeEvent('runtime-1'), fixtureRuntimeEvent('runtime-2')]): AgentRunInspectDocument {
+  const first = runtimeEvents[0];
+  const last = runtimeEvents.at(-1);
+  return {
+    schemaVersion: 'maka.agent_run_inspect.v1',
+    kind: 'agent_run',
+    agentRun: {
+      sessionId: 'session-1',
+      agentRunId: 'agent-run-1',
+      invocationId: 'invocation-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 1,
+      updatedAt: 2,
+      completedAt: 2,
+    },
+    sources: {
+      operationalEventCount: 1,
+      runtimeEventCount: runtimeEvents.length,
+      ...(first && last ? {
+        runtimeCoverage: {
+          lowWater: { ledger: 'runtime_event', streamId: 'agent-run-1', sequence: 0, eventId: first.id },
+          highWater: { ledger: 'runtime_event', streamId: 'agent-run-1', sequence: runtimeEvents.length - 1, eventId: last.id },
+          eventCount: runtimeEvents.length,
+        },
+      } : {}),
+      health: {
+        runtimeLedger: 'present',
+        runtimeTerminalPresent: true,
+        operationalTerminalPresent: true,
+        statusConsistency: 'consistent',
+      },
+    },
+    tools: {
+      callCount: 0,
+      responseCount: 0,
+      errorResponseCount: 0,
+      callsWithoutResponse: [],
+      responsesWithoutCall: [],
+    },
+    compactionCheckpoints: [],
+    diagnostics: [],
+  };
+}
 
 function fixtureComponents(sourcePath: string): readonly MakaAheTargetComponent[] {
   return [{

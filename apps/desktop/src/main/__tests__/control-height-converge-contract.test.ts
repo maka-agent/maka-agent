@@ -89,10 +89,8 @@ const CONTROL_HEIGHT: ControlHeightCheck[] = [
   // sidebar / 会话 rows
   { selector: '.maka-list-row', props: ['min-height'], token: '--h-control-lg' },
   { selector: '.maka-list-row-menu-trigger', props: ['width', 'height'], token: '--h-control-lg' },
-  // .maka-search-modal-close retired: the close button is the shared
-  // DialogHeader's quiet icon-sm Button, sized by buttonVariants, not a
-  // search-modal-specific class.
-  { selector: '.maka-search-modal-clear', props: ['width', 'height'], token: '--h-control-sm' },
+  // Search close and clear actions are shared quiet icon-sm Buttons, sized by
+  // buttonVariants rather than search-modal-specific CSS.
   // 设置 nav / triggers
   { selector: '.settingsBackButton', props: ['height', 'min-height'], token: '--h-control-xl' },
   { selector: '.settingsNavItem', props: ['height', 'min-height'], token: '--h-control-xl' },
@@ -102,13 +100,8 @@ const CONTROL_HEIGHT: ControlHeightCheck[] = [
   // chat-header / palette controls
   { selector: '.maka-chat-jump-bottom', props: ['width', 'height'], token: '--h-control-md' },
   { selector: '.maka-palette-input-wrap', props: ['min-height'], token: '--h-control-lg' },
-  // first-run checklist rows
-  { selector: '.maka-first-run-checklist-error-action', props: ['min-height'], token: '--h-control-sm' },
+  // first-run checklist composite rows
   { selector: '.maka-first-run-checklist-row > button', props: ['min-height'], token: '--h-control-xl' },
-  // composer controls
-  { selector: '.maka-composer-send-button', props: ['width', 'height'], token: '--h-control-lg' },
-  { selector: '.maka-composer-workspace-picker', props: ['min-height'], token: '--h-control-sm' },
-  { selector: '.maka-composer-branch-picker', props: ['min-height'], token: '--h-control-sm' },
 ];
 
 /** Values that are always allowed (not a control-height beat). `100%`

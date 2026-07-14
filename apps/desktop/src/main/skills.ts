@@ -120,8 +120,12 @@ export interface ManagedSkillUpdatePreview {
 }
 
 export type CreateStarterSkillResult =
-  | { ok: true; skill: InstalledSkill; filePath: string }
+  | { ok: true; created: boolean; skill: InstalledSkill; filePath: string }
   | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' };
+
+export type DeleteSkillResult =
+  | { ok: true }
+  | { ok: false; reason: 'not_found' | 'blocked_path' | 'delete_failed' };
 
 export type SkillOpenTarget = 'file' | 'directory';
 export type ResolveSkillOpenPathResult =
@@ -391,6 +395,8 @@ function isMatchingBundledSkillLock(value: unknown, id: string, contentSha256: s
     value.contentSha256.toLowerCase() === contentSha256.toLowerCase();
 }
 
+const STARTER_SKILL_ID_PATTERN = /^starter-skill(?:-(\d+))?$/;
+
 export async function createStarterSkill(root: string): Promise<CreateStarterSkillResult> {
   const skillsDir = join(root, 'skills');
   try {
@@ -408,6 +414,27 @@ export async function createStarterSkill(root: string): Promise<CreateStarterSki
     skillsReal = await realpath(skillsDir);
   } catch {
     return { ok: false, reason: 'blocked_path' };
+  }
+
+  // Idempotent seeding: if a starter-skill (or starter-skill-N) already exists,
+  // reuse the lowest-ordinal one instead of minting another. Clicking 添加 used
+  // to spawn a fresh starter-skill-N per click, leaving duplicate 示例技能 rows
+  // the user could not tell apart. Reuse the shared loader so the returned skill
+  // carries the same parsed metadata every other surface sees.
+  const existingStarter = (await listInstalledSkills(root))
+    .map((skill) => {
+      const match = STARTER_SKILL_ID_PATTERN.exec(skill.id);
+      return match ? { skill, ordinal: match[1] ? Number(match[1]) : 1 } : null;
+    })
+    .filter((entry): entry is { skill: InstalledSkill; ordinal: number } => entry !== null)
+    .sort((a, b) => a.ordinal - b.ordinal)[0];
+  if (existingStarter) {
+    return {
+      ok: true,
+      created: false,
+      skill: existingStarter.skill,
+      filePath: join(existingStarter.skill.path, 'SKILL.md'),
+    };
   }
 
   for (let index = 1; index <= 99; index += 1) {
@@ -434,6 +461,7 @@ export async function createStarterSkill(root: string): Promise<CreateStarterSki
       await writeFile(filePath, starterSkillTemplate(id, name), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
       return {
         ok: true,
+        created: true,
         filePath,
         skill: {
           id,
@@ -458,6 +486,47 @@ export async function createStarterSkill(root: string): Promise<CreateStarterSki
   }
 
   return { ok: false, reason: 'already_exists' };
+}
+
+/**
+ * Delete an installed skill directory under {root}/skills/<id>. Path-hardened
+ * exactly like createStarterSkill / installManagedSkill: the skills dir and the
+ * skill dir must both be real, contained directories (no symlinks, no escape
+ * outside the workspace) before anything is removed. The recursive rm also
+ * clears any managed-skill baseline metadata under the skill's .maka/ subtree.
+ */
+export async function deleteSkill(root: string, id: string): Promise<DeleteSkillResult> {
+  if (!isSafeSkillId(id)) return { ok: false, reason: 'not_found' };
+
+  const skillsDir = join(root, 'skills');
+  let skillsReal: string;
+  try {
+    const [rootReal, skillsStat] = await Promise.all([realpath(root), lstat(skillsDir)]);
+    if (!skillsStat.isDirectory() || skillsStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    skillsReal = await realpath(skillsDir);
+    if (!isContainedPath(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
+  } catch {
+    return { ok: false, reason: 'not_found' };
+  }
+
+  const skillDir = join(skillsDir, id);
+  let skillReal: string;
+  try {
+    const skillStat = await lstat(skillDir);
+    if (!skillStat.isDirectory() || skillStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    skillReal = await realpath(skillDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ok: false, reason: 'not_found' };
+    return { ok: false, reason: 'blocked_path' };
+  }
+  if (!isContainedPath(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
+
+  try {
+    await rm(skillReal, { recursive: true });
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'delete_failed' };
+  }
 }
 
 export async function installManagedSkill(

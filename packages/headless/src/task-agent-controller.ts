@@ -93,6 +93,9 @@ import {
   type TaskRunStore,
 } from './task-run-store.js';
 import { taskDefinitionFromTask } from './task-run-adapter.js';
+import { taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
+import { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
+import { bindSelfCheckEvidence } from './task-self-check-evidence.js';
 
 export interface RunTaskOnceDeps extends RunExperimentDeps {
   taskRunStore?: TaskRunStore;
@@ -342,6 +345,15 @@ export async function runTaskOnce(
     } finally {
       await active.dispose();
     }
+    await appendTaskAttemptExecutionLink({
+      store: taskRunStore,
+      runtimeEventStore,
+      taskRunId,
+      attemptId,
+      invocation: runtimeInvocation,
+      now,
+      newId,
+    });
     const permissionHandling = await handlePermissionIntervention({
       invocation: runtimeInvocation,
       store: taskRunStore,
@@ -371,12 +383,22 @@ export async function runTaskOnce(
     await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, runtimeSummary);
     if (heavyTaskMode.enabled) {
       let gateProjection = await taskRunStore.project(taskRunId);
-      await appendHeavyTaskWorkspaceObservation({
+      const workspaceObservation = await appendHeavyTaskWorkspaceObservation({
         taskRunStore,
         taskRunId,
         projection: gateProjection,
         executor: deps.realBackendIsolation?.toolExecutor,
         cwd: agentWorkspaceDir,
+        now,
+        newId,
+      });
+      await appendHeavyTaskSelfCheckEvidenceLinks({
+        store: taskRunStore,
+        runtimeEventStore,
+        taskRunId,
+        attemptId,
+        invocation,
+        workspaceObservation,
         now,
         newId,
       });
@@ -428,6 +450,15 @@ export async function runTaskOnce(
         } finally {
           await repairActive.dispose();
         }
+        await appendTaskAttemptExecutionLink({
+          store: taskRunStore,
+          runtimeEventStore,
+          taskRunId,
+          attemptId,
+          invocation: repairInvocation,
+          now,
+          newId,
+        });
         const repairPermissionHandling = await handlePermissionIntervention({
           invocation: repairInvocation,
           store: taskRunStore,
@@ -457,12 +488,22 @@ export async function runTaskOnce(
         runtimeSummary = mergeRuntimeSummaries(runtimeSummary, repairSummary);
 
         let boundedProjection = await taskRunStore.project(taskRunId);
-        await appendHeavyTaskWorkspaceObservation({
+        const repairWorkspaceObservation = await appendHeavyTaskWorkspaceObservation({
           taskRunStore,
           taskRunId,
           projection: boundedProjection,
           executor: deps.realBackendIsolation?.toolExecutor,
           cwd: agentWorkspaceDir,
+          now,
+          newId,
+        });
+        await appendHeavyTaskSelfCheckEvidenceLinks({
+          store: taskRunStore,
+          runtimeEventStore,
+          taskRunId,
+          attemptId,
+          invocation,
+          workspaceObservation: repairWorkspaceObservation,
           now,
           newId,
         });
@@ -642,7 +683,7 @@ async function appendHeavyTaskWorkspaceObservation(input: {
   cwd: string;
   now: () => number;
   newId: () => string;
-}): Promise<void> {
+}): Promise<Extract<TaskEvent, { type: 'heavy_task_workspace_observation_recorded' }> | undefined> {
   const event = await observeHeavyTaskWorkspace({
     taskRunId: input.taskRunId,
     projection: input.projection,
@@ -652,6 +693,56 @@ async function appendHeavyTaskWorkspaceObservation(input: {
     newId: input.newId,
   });
   if (event) await appendTaskEvent(input.taskRunStore, input.taskRunId, event);
+  return event;
+}
+
+async function appendHeavyTaskSelfCheckEvidenceLinks(input: {
+  store: TaskRunStore;
+  runtimeEventStore: RuntimeEventStore;
+  taskRunId: string;
+  attemptId: string;
+  invocation: InvocationResult;
+  workspaceObservation?: Extract<TaskEvent, { type: 'heavy_task_workspace_observation_recorded' }>;
+  now: () => number;
+  newId: () => string;
+}): Promise<void> {
+  if (!input.workspaceObservation || !input.runtimeEventStore.readImmutableRuntimeEvents) return;
+  const [runtimeEvents, records] = await Promise.all([
+    input.runtimeEventStore.readImmutableRuntimeEvents(input.invocation.sessionId, input.invocation.runId),
+    input.store.readEventRecords(input.taskRunId),
+  ]);
+  const linkedSelfChecks = new Set(records.flatMap(({ event }) => (
+    event.type === 'heavy_task_self_check_evidence_linked' ? [event.selfCheckId] : []
+  )));
+  const candidates = records.filter((record): record is typeof record & {
+    event: Extract<TaskEvent, { type: 'heavy_task_self_check_recorded' }>;
+  } => (
+    record.event.type === 'heavy_task_self_check_recorded'
+    && record.event.selfCheck.attemptId === input.attemptId
+    && !linkedSelfChecks.has(record.event.selfCheck.selfCheckId)
+    && (!record.event.selfCheck.source.sessionId || record.event.selfCheck.source.sessionId === input.invocation.sessionId)
+    && (!record.event.selfCheck.source.agentRunId || record.event.selfCheck.source.agentRunId === input.invocation.runId)
+    && (!record.event.selfCheck.source.turnId || record.event.selfCheck.source.turnId === input.invocation.turnId)
+  ));
+  for (const selfCheckRecord of candidates) {
+    const binding = bindSelfCheckEvidence({
+      taskRunId: input.taskRunId,
+      attemptId: input.attemptId,
+      sessionId: input.invocation.sessionId,
+      invocationId: input.invocation.invocationId,
+      agentRunId: input.invocation.runId,
+      turnId: input.invocation.turnId,
+      runtimeEvents,
+      selfCheckRecord,
+      workspaceObservation: input.workspaceObservation,
+    });
+    if (!binding.ok) continue;
+    await appendTaskEvent(input.store, input.taskRunId, {
+      ...binding.link,
+      id: input.newId(),
+      ts: input.now(),
+    });
+  }
 }
 
 const DEFAULT_INTERVENTION_POLICY: TaskInterventionPolicy = { mode: 'fail_closed' };
@@ -672,6 +763,71 @@ function toolNamesForIdentity(hasIsolatedExecutor: boolean, heavyTaskEnabled: bo
   const names = hasIsolatedExecutor ? [...ISOLATED_HEADLESS_TOOL_NAMES] : ['registered_backend'];
   if (heavyTaskEnabled && hasIsolatedExecutor) names.push(...HEAVY_TASK_PROGRESS_TOOL_NAMES, ...HEAVY_TASK_SELF_CHECK_TOOL_NAMES);
   return names;
+}
+
+async function appendTaskAttemptExecutionLink(input: {
+  store: TaskRunStore;
+  runtimeEventStore: RuntimeEventStore;
+  taskRunId: string;
+  attemptId: string;
+  invocation: InvocationResult;
+  now: () => number;
+  newId: () => string;
+}): Promise<void> {
+  const runtimeEvents = input.runtimeEventStore.readImmutableRuntimeEvents
+    ? await input.runtimeEventStore.readImmutableRuntimeEvents(
+        input.invocation.sessionId,
+        input.invocation.runId,
+      )
+    : [];
+  await appendTaskEvent(input.store, input.taskRunId, {
+    type: 'task_attempt_execution_linked',
+    id: input.newId(),
+    taskRunId: input.taskRunId,
+    attemptId: input.attemptId,
+    ts: input.now(),
+    evidence: taskAttemptExecutionEvidence({
+      taskRunId: input.taskRunId,
+      attemptId: input.attemptId,
+      sessionId: input.invocation.sessionId,
+      invocationId: input.invocation.invocationId,
+      agentRunId: input.invocation.runId,
+      turnId: input.invocation.turnId,
+      runtimeEvents,
+    }),
+  });
+  if (runtimeEvents.length === 0) return;
+
+  const projection = await input.store.project(input.taskRunId);
+  const projectedEvidence = new Map(
+    projection.heavyTaskEvidence.map((item) => [item.evidenceId, item]),
+  );
+  const durableEvidence = projection.events.flatMap((event) => (
+    event.type === 'heavy_task_evidence_recorded'
+      ? [projectedEvidence.get(event.evidence.evidenceId) ?? event.evidence]
+      : []
+  ));
+  const provenanceLinks = taskEvidenceRuntimeProvenanceLinks({
+    taskRunId: input.taskRunId,
+    attemptId: input.attemptId,
+    sessionId: input.invocation.sessionId,
+    invocationId: input.invocation.invocationId,
+    agentRunId: input.invocation.runId,
+    turnId: input.invocation.turnId,
+    runtimeEvents,
+    evidence: durableEvidence,
+  });
+  for (const link of provenanceLinks) {
+    await appendTaskEvent(input.store, input.taskRunId, {
+      type: 'heavy_task_evidence_provenance_linked',
+      id: input.newId(),
+      taskRunId: input.taskRunId,
+      attemptId: link.attemptId,
+      ts: input.now(),
+      evidenceId: link.evidenceId,
+      provenance: link.provenance,
+    });
+  }
 }
 
 interface PermissionInterventionInput {

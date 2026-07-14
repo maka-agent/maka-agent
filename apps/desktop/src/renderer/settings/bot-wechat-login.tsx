@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { Button as BaseButton } from '@base-ui/react/button';
 import type { BotChannelSettings } from '@maka/core';
 import type { WechatBridgeQrCodeResult } from '@maka/runtime';
-import { Button, DialogContent, DialogHeader, DialogRoot, Input } from '@maka/ui';
+import { Button, DialogContent, DialogHeader, DialogRoot, Input, useMountedRef } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { settingsActionErrorMessage } from './settings-error-copy';
 
@@ -36,16 +37,14 @@ export function BotWeChatFields(props: {
         />
       </label>
       <div className="settingsBotAdvanced">
-        <Button
+        <BaseButton
           type="button"
-          variant="quiet"
-          size="sm"
           className="settingsBotAdvancedToggle"
           aria-expanded={advancedOpen}
           onClick={() => setAdvancedOpen((current) => !current)}
         >
           {advancedOpen ? '收起高级设置' : '高级设置（公众号 / 本机 bridge 地址）'}
-        </Button>
+        </BaseButton>
         {advancedOpen && (
           <div className="settingsBotAdvancedBody">
             <label className="settingsField">
@@ -95,7 +94,7 @@ export function WeChatScanLoginModal(props: {
   const fetchingQrRef = useRef(false);
   const scanLoginPollingRef = useRef(false);
   const scanLoginConfirmingRef = useRef(false);
-  const scanLoginMountedRef = useRef(false);
+  const scanLoginMountedRef = useMountedRef();
   const scanLoginFetchTicketRef = useRef(0);
 
   async function fetchQr() {
@@ -128,10 +127,8 @@ export function WeChatScanLoginModal(props: {
   }
 
   useEffect(() => {
-    scanLoginMountedRef.current = true;
     void fetchQr();
     return () => {
-      scanLoginMountedRef.current = false;
       scanLoginFetchTicketRef.current += 1;
       fetchingQrRef.current = false;
       scanLoginPollingRef.current = false;
@@ -337,7 +334,7 @@ export function WechatQrLoginModal(props: {
           ) : expired ? (
             <div className="settingsWechatQrState" data-tone="warning">
               二维码已过期
-              <Button type="button" variant="secondary" className="settingsWechatQrSecondary" disabled={loading} onClick={reloadQrCode}>
+              <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={reloadQrCode}>
                 {loading ? '刷新中…' : '刷新二维码'}
               </Button>
             </div>
@@ -352,14 +349,14 @@ export function WechatQrLoginModal(props: {
             <div className="settingsWechatQrState" data-tone="error" role="alert">
               <strong>{error.error}</strong>
               <span>{error.hint}</span>
-              <Button type="button" variant="secondary" className="settingsWechatQrSecondary" disabled={loading} onClick={reloadQrCode}>
+              <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={reloadQrCode}>
                 {loading ? '重试中…' : '重试'}
               </Button>
             </div>
           ) : (
             <div className="settingsWechatQrState" data-tone="loading">
               bridge 正在生成二维码
-              <Button type="button" variant="secondary" className="settingsWechatQrSecondary" disabled={loading} onClick={reloadQrCode}>
+              <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={reloadQrCode}>
                 {loading ? '获取中…' : '重新获取'}
               </Button>
             </div>

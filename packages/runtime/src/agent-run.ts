@@ -592,6 +592,7 @@ export class AgentRun {
     const createdAt = this.input.now();
     const header: AgentRunHeader = {
       runId: this.runId,
+      invocationId: this.runId,
       sessionId: this.sessionId,
       turnId: this.turnId,
       status: 'created',

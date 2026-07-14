@@ -5,6 +5,7 @@ import {
   type GoalContinuationDeps,
   type GoalState,
   type GoalStatus,
+  type GoalTaskGateTrace,
   type MakaTool,
 } from '@maka/runtime';
 import type { LlmConnection } from '@maka/core';
@@ -45,6 +46,10 @@ export interface CreateMainGoalWiringDeps {
   getTokenCount: (sessionId: string) => Promise<number>;
   injectTurn: (sessionId: string, text: string) => void;
   canContinue: (sessionId: string) => Promise<boolean>;
+  /** Pending/in-progress task keys used by the bounded Goal stop reminder. */
+  listActionableTaskKeys?: (sessionId: string) => Promise<string[]>;
+  /** Persist the task gate decision against the completed AgentRun. */
+  recordTaskGateDecision?: (trace: GoalTaskGateTrace) => void | Promise<void>;
   /**
    * Fired on every goal state transition (set / continue / terminal / clear).
    * The host emits a session event so the renderer can badge an active goal and
@@ -115,6 +120,13 @@ export function createMainGoalWiring(deps: CreateMainGoalWiringDeps): MainGoalWi
     getTokenCount: (sessionId) => tokenCache.get(sessionId) ?? 0,
     injectTurn: deps.injectTurn,
     canContinue: deps.canContinue,
+    ...(deps.listActionableTaskKeys ? {
+      taskGate: {
+        listActionableTaskKeys: deps.listActionableTaskKeys,
+        remindedGoalIds: new Set<string>(),
+        ...(deps.recordTaskGateDecision ? { recordDecision: deps.recordTaskGateDecision } : {}),
+      },
+    } : {}),
   };
 
   return { manager, tools, continuationDeps };

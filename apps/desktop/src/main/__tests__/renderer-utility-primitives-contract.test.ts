@@ -20,7 +20,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
       /const result = normalizeBrowserAddressInput\(address\);[\s\S]*if \(!result\.ok\) \{[\s\S]*toast\.error\('无法打开地址', browserAddressFailureCopy\(result\.reason\)\);[\s\S]*return;[\s\S]*const ownerSessionId = sessionId;[\s\S]*window\.maka\.browser\.navigate\(ownerSessionId, result\.url\)/,
       'BrowserPanel must validate addresses with the shared helper before invoking browser navigation',
     );
-    assert.match(source, /const browserPanelMountedRef = useRef\(false\)/);
+    assert.match(source, /const browserPanelMountedRef = useMountedRef\(\)/);
     assert.match(source, /const browserPanelSessionIdRef = useRef\(sessionId\)/);
     assert.match(source, /browserPanelSessionIdRef\.current = sessionId/);
     assert.match(
@@ -101,18 +101,14 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/artifact-pane.tsx'), 'utf8');
 
     assert.match(source, /import \{[^}]*\bButton\b[^}]*\bToolbar\b[^}]*\bToolbarGroup\b[^}]*\bToolbarSeparator\b[^}]*\buseToast\b[^}]*\} from '@maka\/ui';/);
-    assert.doesNotMatch(source, /<button\b/, 'ArtifactPane controls must use shared Button');
+    assert.match(source, /import \{ Button as BaseButton \} from '@base-ui\/react\/button';/);
+    assert.doesNotMatch(source, /<button\b/, 'ArtifactPane controls must use shared Button or the semantic Base UI row seam');
     assert.doesNotMatch(source, /role="toolbar"/, 'ArtifactPane toolbar semantics must come from shared primitive Toolbar');
     assert.match(source, /<Toolbar className="maka-artifact-toolbar" aria-label="生成文件操作">/);
     assert.match(source, /<ToolbarSeparator className="maka-artifact-toolbar-separator" orientation="vertical" \/>/);
-    for (const className of [
-      'maka-artifact-pane-collapse',
-      'maka-artifact-error-retry',
-      'maka-artifact-row',
-      'maka-artifact-toolbar-button',
-    ]) {
-      assert.match(source, new RegExp(`<Button[\\s\\S]*className="${className}`));
-    }
+    assert.match(source, /render=\{<Button variant="quiet" size="icon-sm" \/>\}/);
+    assert.match(source, /<Button\s+variant="secondary"\s+size="sm"[\s\S]*retryArtifactListRefresh/);
+    assert.match(source, /<BaseButton[\s\S]*className="maka-artifact-row"/);
   });
 
   it('keeps command palette search and rows on shared primitives', async () => {
@@ -186,8 +182,9 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.match(source, /import \{[^}]*\bButton\b[^}]*\} from '.\/ui\.js';/);
     assert.doesNotMatch(source, /<button\b/, 'ToastProvider controls must use shared Button');
     assert.doesNotMatch(source, /className="maka-button/, 'Confirm dialog actions must not keep legacy maka-button styling');
-    assert.match(source, /<Button[\s\S]*className="maka-toast-action"/);
-    assert.match(source, /<Button[\s\S]*className="maka-toast-close"/);
+    assert.match(source, /render=\{<Button type="button" variant="secondary" size="sm" \/>\}/);
+    assert.match(source, /render=\{<Button type="button" variant="quiet" size="icon-sm" \/>\}/);
+    assert.doesNotMatch(source, /className="maka-toast-(?:action|close)"/);
     assert.match(source, /<Button[\s\S]*variant=\{destructive \? 'destructive' : 'default'\}/);
   });
 
@@ -196,5 +193,152 @@ describe('renderer utility surfaces use shared UI primitives', () => {
 
     assert.doesNotMatch(spinner, /aria-label="Loading"/);
     assert.match(spinner, /aria-label="加载中"/);
+  });
+
+  it('keeps multiline prompt suggestions on their semantic Base UI row seam', async () => {
+    const source = await readFile(join(repoRoot, 'packages/ui/src/chat-empty-hero.tsx'), 'utf8');
+
+    assert.match(source, /import \{ Button as BaseButton \} from '@base-ui\/react\/button';/);
+    assert.match(source, /<BaseButton[\s\S]*className="maka-prompt-chip"/);
+    assert.doesNotMatch(source, /<UiButton[\s\S]*className="maka-prompt-chip/);
+    assert.doesNotMatch(source, /maka-prompt-chip h-auto/);
+  });
+
+  it('expresses clear-input-history semantics through the destructive Button variant', async () => {
+    const source = await readFile(join(process.cwd(), 'src/renderer/settings/data-settings-page.tsx'), 'utf8');
+
+    assert.match(
+      source,
+      /<Button\s+type="button"\s+variant="destructive"\s+onClick=\{\(\) => void clearInputHistory\(\)\}/,
+    );
+    assert.doesNotMatch(source, /className="[^"]*destructive[^"]*"/);
+  });
+
+  it('keeps shared Button geometry and interaction states out of consumer CSS', async () => {
+    const consumerPaths = [
+      'packages/ui/src/composer.tsx',
+      'packages/ui/src/empty-state.tsx',
+      'packages/ui/src/plan-reminder-panel.tsx',
+      'packages/ui/src/skills-panel.tsx',
+      'packages/ui/src/tool-activity.tsx',
+      'apps/desktop/src/renderer/artifact-pane.tsx',
+      'apps/desktop/src/renderer/settings/ProvidersPanel.tsx',
+      'apps/desktop/src/renderer/settings/bot-wechat-login.tsx',
+    ];
+    const consumers = await Promise.all(
+      consumerPaths.map((path) => readFile(join(repoRoot, path), 'utf8')),
+    );
+    const tokens = await readFile(join(process.cwd(), 'src/renderer/maka-tokens.css'), 'utf8');
+    const skillsCss = await readFile(join(process.cwd(), 'src/renderer/styles/module-pages/skills.css'), 'utf8');
+    const rendererCss = await readRendererContractCss();
+
+    for (const [index, source] of consumers.entries()) {
+      assert.doesNotMatch(source, /className=(?:"[^"]*\bmaka-button\b|\{cn\('maka-button')/, `${consumerPaths[index]} must not restore the legacy Button layer`);
+    }
+    assert.doesNotMatch(tokens, /\.maka-button(?:\s|:|\[|\{)/, 'renderer tokens must not keep a parallel Button implementation');
+
+    assert.doesNotMatch(skillsCss, /\.maka-skill-filter-pill\b/);
+    assert.doesNotMatch(skillsCss, /\.maka-skill-market-install-button\b/);
+    assert.doesNotMatch(skillsCss, /\.maka-skill-library-item:(?:hover|focus-within) \.maka-skill-library-open-button/);
+    assert.match(skillsCss, /\.maka-skill-library-open-button\s*\{\s*justify-self:\s*end;\s*\}/);
+
+    const skills = consumers[3];
+    assert.match(skills, /variant="secondary"\s+size="icon-sm"\s+onClick=\{\(\) => props\.onInstallManagedSkill/);
+    assert.match(skills, /variant="secondary"\s+size="icon-sm"\s+className="maka-skill-library-open-button"/);
+    assert.match(skills, /variant="secondary"\s+size="sm"\s+onClick=\{\(\) => void reviewManagedSkillUpdate/);
+    assert.doesNotMatch(skills, /className="maka-skill-filter-pill"/);
+    assert.doesNotMatch(skills, /className="maka-skill-market-install-button"/);
+    assert.doesNotMatch(skills, /className="maka-skill-market-install"/);
+    assert.doesNotMatch(skillsCss, /\.maka-skill-market-install\b/);
+
+    const artifactPane = consumers[5];
+    assert.doesNotMatch(artifactPane, /className="[^"]*maka-artifact-toolbar-button/);
+    assert.match(artifactPane, /variant="destructive" size="icon-sm"/);
+    assert.doesNotMatch(rendererCss, /\.maka-artifact-toolbar-button\b/);
+
+    const providers = consumers[6];
+    assert.match(providers, /import \{ Button as BaseButton \} from '@base-ui\/react\/button';/);
+    assert.match(providers, /<BaseButton className="enabledEmptyChip enabledEmptyAction"/);
+    assert.doesNotMatch(providers, /<Button className="enabledEmptyChip enabledEmptyAction"/);
+
+    const wechat = consumers[7];
+    assert.match(wechat, /import \{ Button as BaseButton \} from '@base-ui\/react\/button';/);
+    assert.match(wechat, /<BaseButton[\s\S]*className="settingsBotAdvancedToggle"/);
+    assert.doesNotMatch(wechat, /<Button[\s\S]*className="settingsBotAdvancedToggle"/);
+    assert.doesNotMatch(wechat, /className="settingsWechatQrSecondary"/);
+    assert.equal(wechat.match(/<Button type="button" variant="secondary" size="sm" disabled=\{loading\} onClick=\{reloadQrCode\}>/g)?.length, 3);
+    assert.doesNotMatch(rendererCss, /\.settingsWechatQrSecondary\b/);
+
+    const providerDetail = await readFile(join(process.cwd(), 'src/renderer/settings/provider-connection-detail.tsx'), 'utf8');
+    assert.match(providerDetail, /<BaseButton\s+type="button"\s+className="modelTableRow"/);
+    assert.doesNotMatch(providerDetail, /<Button\b[^>]*className="modelTableRow"/);
+  });
+
+  it('keeps representative shared Button consumers on governed variants and sizes', async () => {
+    const [artifact, onboarding, checklist, composer, search, shell, browser, plan, story, rendererCss] = await Promise.all([
+      readFile(join(process.cwd(), 'src/renderer/artifact-pane.tsx'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/OnboardingHero.tsx'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8'),
+      readFile(join(repoRoot, 'packages/ui/src/composer.tsx'), 'utf8'),
+      readFile(join(repoRoot, 'packages/ui/src/search-modal.tsx'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/app-shell-chrome-actions.tsx'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/browser-panel.tsx'), 'utf8'),
+      readFile(join(repoRoot, 'packages/ui/src/plan-reminder-panel.tsx'), 'utf8'),
+      readFile(join(repoRoot, 'packages/ui/stories/interaction-states.stories.tsx'), 'utf8'),
+      readRendererContractCss(),
+    ]);
+
+    for (const className of [
+      'maka-artifact-pane-collapse',
+      'maka-artifact-error-retry',
+      'maka-first-run-task-suggestion',
+      'maka-first-run-checklist-error-action',
+      'maka-composer-tool-button',
+      'maka-composer-context-plus',
+      'maka-composer-send-button',
+      'maka-search-modal-clear',
+      'maka-shell-topbar-button',
+      'maka-workspace-icon-action',
+      'maka-browser-navbtn',
+    ]) {
+      assert.doesNotMatch(
+        `${artifact}\n${onboarding}\n${checklist}\n${composer}\n${search}\n${shell}\n${browser}`,
+        new RegExp(`<(?:Button|UiButton)[^>]*className="[^"]*\\b${className}\\b`),
+        `${className} must not reskin a shared Button`,
+      );
+    }
+
+    assert.match(onboarding, /variant="secondary"\s+size="sm"\s+onClick=\{\(\) => prefillSuggestion/);
+    assert.match(checklist, /import \{ Button as BaseButton \} from '@base-ui\/react\/button';/);
+    assert.match(checklist, /<BaseButton[^>]*onClick=\{item\.onClick\}/);
+    assert.match(composer, /variant="quiet"\s+size="icon-sm"[\s\S]*aria-label=\{pendingImportAction/);
+    assert.match(composer, /variant="default"\s+size="icon"[\s\S]*aria-label=\{buttonCopy\.sendLabel\}/);
+    assert.match(plan, /variant="secondary"\s+size="sm"[\s\S]*onClick=\{\(\) => applyRunAtPreset/);
+
+    assert.match(story, /import \{ SessionListPanel \} from '\.\.\/src\/session-list-panel\.js';/);
+    const listRowStory = story.match(/export const ListRowStates[\s\S]*?export const NeutralButtonStates/)?.[0] ?? '';
+    assert.match(listRowStory, /<SessionListPanel/);
+    assert.doesNotMatch(listRowStory, /<Button\b/, 'composite-row story must render the product seam instead of a parallel Button demo');
+    assert.match(listRowStory, /querySelector<HTMLButtonElement>\('\.maka-nav-row:not\(\[data-active="true"\]\)'\)/);
+    assert.match(listRowStory, /setAttribute\('data-state-target', 'hover'\)/);
+    assert.match(listRowStory, /querySelector<HTMLButtonElement>\('\.maka-list-row\[data-active="true"\] \.maka-list-row-main'\)/);
+    assert.match(listRowStory, /setAttribute\('data-state-target', 'focus'\)/);
+    assert.match(story, /import \{ userEvent \} from 'storybook\/test';/);
+    assert.match(listRowStory, /await userEvent\.tab\(\)/);
+    assert.doesNotMatch(listRowStory, /focusTarget\?\.focus\(\)/);
+
+    for (const selector of [
+      'maka-artifact-pane-collapse',
+      'maka-artifact-error-retry',
+      'maka-first-run-task-suggestion',
+      'maka-first-run-checklist-error-action',
+      'maka-composer-tool-button',
+      'maka-composer-context-plus',
+      'maka-composer-send-button',
+      'maka-search-modal-clear',
+      'maka-browser-navbtn',
+    ]) {
+      assert.doesNotMatch(rendererCss, new RegExp(`\\.${selector}(?:\\s|:|\\[|\\{)`));
+    }
   });
 });

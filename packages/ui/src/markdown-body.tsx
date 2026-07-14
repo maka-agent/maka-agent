@@ -16,12 +16,12 @@
 
 import { useContext, type ReactNode } from 'react';
 import * as React from 'react';
+import { Button as BaseButton } from '@base-ui/react/button';
 import { defaultRehypePlugins, defaultRemarkPlugins, Streamdown, type ExtraProps } from 'streamdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkBreaks from 'remark-breaks';
 import { Check, Copy } from './icons.js';
 
-import { Button as UiButton } from './ui.js';
 import {
   isMakaUriCandidate,
   isSafeExternalScheme,
@@ -247,11 +247,9 @@ function CodeBlock({ children, ...rest }: { children?: ReactNode }) {
     <div className="maka-code-block">
       <div className="maka-code-block-header">
         <span className="maka-code-block-lang">{lang ?? 'code'}</span>
-        <UiButton
+        <BaseButton
           type="button"
           className="maka-code-block-copy"
-          variant="quiet"
-          size="icon-sm"
           onClick={() => void copy()}
           aria-label={copyPhase === 'pending' ? '复制代码中' : copyPhase === 'copied' ? '已复制代码' : copyPhase === 'failed' ? '复制代码失败' : '复制代码'}
           aria-busy={copyPending ? 'true' : undefined}
@@ -263,7 +261,7 @@ function CodeBlock({ children, ...rest }: { children?: ReactNode }) {
           {copied
             ? <Check size={12} aria-hidden="true" />
             : <Copy size={12} aria-hidden="true" />}
-        </UiButton>
+        </BaseButton>
       </div>
       <pre {...rest}>{children}</pre>
     </div>

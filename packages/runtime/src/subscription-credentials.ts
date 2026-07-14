@@ -1,7 +1,7 @@
 import type { ProviderType } from '@maka/core/llm-connections';
 import { TOKEN_REFRESH_SKEW_MS } from '@maka/core';
 
-export type OAuthSubscriptionProvider = Extract<ProviderType, 'claude-subscription' | 'codex-subscription'>;
+export type OAuthSubscriptionProvider = Extract<ProviderType, 'claude-subscription' | 'codex-subscription' | 'github-copilot'>;
 
 export interface OAuthSubscriptionTokens {
   access_token: string;
@@ -12,10 +12,13 @@ export interface OAuthSubscriptionTokens {
   account_uuid?: string;
   id_token?: string;
   account_id?: string;
+  base_url?: string;
 }
 
 export function isOAuthSubscriptionProvider(providerType: ProviderType): providerType is OAuthSubscriptionProvider {
-  return providerType === 'claude-subscription' || providerType === 'codex-subscription';
+  return providerType === 'claude-subscription'
+    || providerType === 'codex-subscription'
+    || providerType === 'github-copilot';
 }
 
 export function parseOAuthSubscriptionTokens(raw: string): OAuthSubscriptionTokens | null {
@@ -35,6 +38,7 @@ export function parseOAuthSubscriptionTokens(raw: string): OAuthSubscriptionToke
       ...(typeof record.account_uuid === 'string' ? { account_uuid: record.account_uuid } : {}),
       ...(typeof record.id_token === 'string' ? { id_token: record.id_token } : {}),
       ...(typeof record.account_id === 'string' ? { account_id: record.account_id } : {}),
+      ...(typeof record.base_url === 'string' ? { base_url: record.base_url } : {}),
     };
   } catch {
     return null;
@@ -107,10 +111,39 @@ async function refreshOAuthSubscriptionTokens(input: {
   now: () => number;
   fetchFn: typeof fetch;
 }): Promise<OAuthSubscriptionTokens> {
-  return input.providerType === 'claude-subscription'
-    ? refreshClaudeSubscriptionTokens(input.tokens, input.now, input.fetchFn)
-    : refreshCodexSubscriptionTokens(input.tokens, input.now, input.fetchFn);
+  switch (input.providerType) {
+    case 'claude-subscription':
+      return refreshClaudeSubscriptionTokens(input.tokens, input.now, input.fetchFn);
+    case 'codex-subscription':
+      return refreshCodexSubscriptionTokens(input.tokens, input.now, input.fetchFn);
+    case 'github-copilot':
+      return input.tokens;
+  }
 }
+
+export const GITHUB_COPILOT_DEFAULT_API_ENDPOINT = 'https://api.githubcopilot.com';
+export const GITHUB_COPILOT_API_VERSION = '2026-06-01';
+export const GITHUB_COPILOT_COMPAT_HEADERS = {
+  'User-Agent': 'GitHubCopilotChat/0.35.0',
+  'Editor-Version': 'vscode/1.107.0',
+  'Editor-Plugin-Version': 'copilot-chat/0.35.0',
+  'Copilot-Integration-Id': 'vscode-chat',
+} as const;
+
+export function createGitHubCopilotAccountTokens(githubToken: string): OAuthSubscriptionTokens {
+  return {
+    access_token: githubToken,
+    refresh_token: githubToken,
+    expires_at: Number.MAX_SAFE_INTEGER,
+    token_type: 'Bearer',
+    base_url: GITHUB_COPILOT_DEFAULT_API_ENDPOINT,
+  };
+}
+
+export function isSupportedGitHubCopilotAccountToken(token: string): boolean {
+  return token.startsWith('gho_') || token.startsWith('ghu_') || token.startsWith('github_pat_');
+}
+
 
 async function refreshClaudeSubscriptionTokens(
   tokens: OAuthSubscriptionTokens,

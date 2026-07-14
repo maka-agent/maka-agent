@@ -190,12 +190,18 @@ describe('Maka Pi TUI transcript', () => {
     const state = createMakaPiTranscriptState();
     const driver = {
       async *sendPrompt(): AsyncIterable<SessionEvent> {
+        yield event({
+          type: 'permission_request', requestId: 'permission-1', toolUseId: 'tool-1',
+          toolName: 'Bash', category: 'shell_unsafe', reason: 'shell_dangerous', args: {},
+        });
         throw new Error('network down');
       },
     };
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
     assert.equal(outcome.errored, true);
     assert.equal(outcome.aborted, false);
+    assert.equal(state.pendingInteraction, undefined);
+    assert.deepEqual(state.queuedInteractions, []);
   });
 
   test('reports completed manual compact runs when there was nothing to compact', async () => {
@@ -427,7 +433,7 @@ describe('Maka Pi TUI transcript', () => {
           operation: {
             kind: 'pty_control',
             failed: false,
-            input: { bytes: Buffer.byteLength(rawInput, 'utf8'), applied: true },
+            input: { bytes: Buffer.byteLength(rawInput, 'utf8'), queued: true },
             resize: { cols: 100, rows: 30, applied: true, changed: true },
           },
         }),
@@ -446,7 +452,7 @@ describe('Maka Pi TUI transcript', () => {
 
     assert.equal(toggleAllToolExpansion(state), true);
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /Sent: echo hello\\r/);
+    assert.match(rendered, /Queued: echo hello\\r/);
     assert.match(rendered, /Resized to 100x30/);
     assert.equal(rendered.split('UNIQUE-PTY-FRAME').length - 1, 1);
   });
@@ -655,12 +661,104 @@ describe('Maka Pi TUI transcript', () => {
       permissionMode: 'ask',
     }, 100).map(stripAnsi);
 
-    assert.equal(state.pendingPermission?.requestId, 'permission-1');
+    assert.equal(state.pendingInteraction?.requestId, 'permission-1');
     assert.ok(visibleLines.some((line) => line.includes('Permission required')));
     assert.ok(visibleLines.some((line) => line.includes('Bash')));
     assert.ok(visibleLines.some((line) => line.includes('npm test')));
     assert.ok(visibleLines.some((line) => line.includes('y/Enter allow')));
     assert.ok(visibleLines.some((line) => line.includes('n/Esc deny')));
+  });
+
+  test('queues permission and user-question requests in arrival order', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'permission_request', requestId: 'permission-1', toolUseId: 'tool-1',
+      toolName: 'Bash', category: 'shell_unsafe', reason: 'shell_dangerous', args: {},
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'user_question_request', requestId: 'question-1', toolUseId: 'tool-2',
+      questions: [{ question: 'Choose', options: [{ label: 'A' }, { label: 'B' }] }],
+    }));
+
+    assert.equal(state.pendingInteraction?.requestId, 'permission-1');
+    assert.deepEqual(state.queuedInteractions.map((item) => item.requestId), ['question-1']);
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'permission_decision_ack', requestId: 'permission-1', toolUseId: 'tool-1', decision: 'allow',
+    }));
+    assert.equal(state.pendingInteraction?.requestId, 'question-1');
+    assert.deepEqual(state.queuedInteractions, []);
+  });
+
+  test('deduplicates interactions and expires permissions by their lifecycle ids', () => {
+    const state = createMakaPiTranscriptState();
+    const first = event({
+      type: 'permission_request', requestId: 'permission-1', toolUseId: 'tool-1',
+      toolName: 'Bash', category: 'shell_unsafe', reason: 'shell_dangerous',
+      args: { command: 'printf first' },
+    });
+    const question = event({
+      type: 'user_question_request', requestId: 'question-1', toolUseId: 'question-tool',
+      questions: [{ question: 'Choose', options: [{ label: 'A' }, { label: 'B' }] }],
+    });
+    const second = event({
+      type: 'permission_request', requestId: 'permission-2', toolUseId: 'tool-2',
+      toolName: 'Bash', category: 'shell_unsafe', reason: 'shell_dangerous',
+      args: { command: 'printf second' },
+    });
+    const third = event({
+      type: 'permission_request', requestId: 'permission-3', toolUseId: 'tool-3',
+      toolName: 'Bash', category: 'shell_unsafe', reason: 'shell_dangerous',
+      args: { command: 'printf third' },
+    });
+
+    applyMakaSessionEventToTranscript(state, first);
+    applyMakaSessionEventToTranscript(state, question);
+    applyMakaSessionEventToTranscript(state, second);
+    applyMakaSessionEventToTranscript(state, third);
+    applyMakaSessionEventToTranscript(state, event({
+      ...first,
+      id: 'permission-request-replay',
+      args: { command: 'printf replayed-first' },
+    }));
+
+    assert.equal(state.pendingInteraction?.requestId, 'permission-1');
+    assert.deepEqual(
+      state.pendingInteraction?.type === 'permission_request'
+        ? state.pendingInteraction.args
+        : undefined,
+      { command: 'printf first' },
+    );
+    assert.deepEqual(state.queuedInteractions.map((item) => item.requestId), [
+      'question-1',
+      'permission-2',
+      'permission-3',
+    ]);
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'permission_decision_ack', requestId: 'permission-3', toolUseId: 'tool-3', decision: 'deny',
+    }));
+    assert.deepEqual(state.queuedInteractions.map((item) => item.requestId), [
+      'question-1',
+      'permission-2',
+    ]);
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'tool-2', isError: true,
+      content: { kind: 'text', text: 'permission expired' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'unrelated-tool', isError: false,
+      content: { kind: 'text', text: 'ok' },
+    }));
+    assert.deepEqual(state.queuedInteractions.map((item) => item.requestId), ['question-1']);
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'tool-1', isError: true,
+      content: { kind: 'text', text: 'permission expired' },
+    }));
+    assert.equal(state.pendingInteraction?.requestId, 'question-1');
+    assert.deepEqual(state.queuedInteractions, []);
   });
 
   test('orders thinking entries by arrival, before text and around tools', () => {

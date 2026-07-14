@@ -15,6 +15,25 @@
      - Multi-layer soft shadows with very low opacity (0.06) instead of one heavy shadow.
      - System UI fonts with optical antialiasing.
      - 13px base font, 4px spacing unit → dense but readable.
+
+   ── Token authority (Round C consolidation) ────────────────────────────────
+   This file is the single source of truth for design tokens. Authority order
+   when two token names describe the same thing:
+     1. AUTHORITATIVE — the --background / --foreground family (+ --accent, the
+        status colors, and the derived --foreground-N / alpha / border / state
+        / spacing / radius / typography / elevation scales). New code consumes
+        these.
+     2. COMPATIBILITY ALIASES — the --color-bg-* / --color-text-* /
+        --color-border-* names (see "color-system compatibility aliases" in
+        :root). Kept only for existing consumers. Do NOT add new --color-*
+        aliases and do NOT point new components at them; use the --background
+        family instead.
+   Alias policy: an alias is defined as `var(--<authoritative-token>)` (or a
+   thin color-mix of one) and never holds an independent value, so themes and
+   palettes only ever retune the authoritative token. reference-shell.css and
+   styles/theme-glass.css now hold LAYOUT and GLASS-MATERIAL rules only — no
+   token definitions live there anymore (the darwin glass token overrides were
+   relocated here; see "DARWIN GLASS" below).
 ============================================================================ */
 
 /* =============================================================================
@@ -27,38 +46,14 @@
      oklch() gives perceptually uniform lightness, keeping subtle surface and
      status colors calibrated.
 
-     History: started as cool blue-gray (hue 265), then briefly moved
-     to warm cream (hue 80) to mirror a single-canvas reference design
-     where sidebar + main area share the same background and
-     separation comes from hairline borders + radius rather than a
-     darker shell behind lighter cards.
-
-     PR-DEFAULT-CANVAS-DEYELLOW-0 (@yuejing 2026-05-30, WAWQAQ msg
-     `bfee559d`): de-yellowed by shifting hue 80 → 250 (cool neutral).
-     The warm-cream tone read as visibly yellow against the chrome
-     accents and felt odd as a default. Same hue family as the azure
-     palette but with lower chroma so the default stays subtler.
-
-     PR-PARCHMENT-DEFAULT-0 (@yuejing 2026-06-20, WAWQAQ msg `00dcaf3a`
-     "/goal 像素级模仿 reference implementation"): nudged back toward reference implementation's
-     `light-parchment` baseline (warm off-white).
-
-     PR-GRAY-CARD-LIFT-0 (@yuejing 2026-06-20, WAWQAQ msg `a49dbd1e`
-     "整个的底板应该是灰色的, content surface 应该是白色的"):
-     WAWQAQ pivoted off the warm-parchment family to reference implementation's plain
-     `light` theme. There:
-       --color-bg-layout (shell canvas)  : #fdfdfd ≈ near-white
-       --color-bg-container (card)       : #ffffff pure white
-       --color-fill-tertiary (chip)      : #f9f9f9 light gray
-       --color-border-tertiary           : #e6e6e6
-       --color-text                      : #141414 near-black
-     The user's intent now reads as: the shell behind everything is a
-     near-white glass plate, the cards lift off it as pure white. We
-     translate to oklch with a tiny warm chroma so the sidebar reads
-     more like 参考实现's translucent macOS surface than a flat gray slab.
-
-     `--surface-canvas` is the shell-level background (what `.appFrame`
-     paints behind everything); `--background` is what cards paint. */
+     Current model (owner decision 2026-06-20, WAWQAQ msg `a49dbd1e`
+     "整个的底板应该是灰色的, content surface 应该是白色的"): a near-white glass
+     shell plate (--surface-canvas) with pure-white content cards (--background)
+     lifting off it — separation comes from the plate + radius + hairlines, not
+     a darker shell. Earlier warm-parchment / hue-80 "cream" experiments were
+     superseded (de-yellowed to a cool-neutral hue, then flattened to plain
+     white). --surface-canvas is what `.appFrame` paints behind everything;
+     --background is what cards paint. */
   --background: oklch(1.000 0 0);
   /* PR-UI-FRAME-4 (2026-06-22): pull back from the heavy gray plate.
      参考实现's sidebar is a light glass-like near-white gradient, with
@@ -211,6 +206,22 @@
   --chat-user-foreground: var(--foreground);
   --user-message-bubble: var(--chat-user-bg);
   --selection:     oklch(from var(--accent) l c h / 0.2);
+
+  /* === color-system compatibility aliases ===
+     Legacy `--color-*` names that predate the --background family, relocated
+     here from reference-shell.css (Round C). Kept as thin aliases for the few
+     consumers still on them: `--color-bg-container` backs the agents content
+     surface (reference-shell.css) + darwin glass card; `--color-border-tertiary`
+     the composer border (composer.css); `--color-text-quaternary` the darwin
+     sidebar label text (theme-glass.css). Authoritative source is the token
+     each aliases — see the token README at the top of this file. Do NOT add
+     new --color-* names.
+     `--color-bg-container` is the one shipped exception where the alias name is
+     the canonical handle for the content-card surface (resolves to
+     --background); it carries its darwin overrides in "DARWIN GLASS" below. */
+  --color-bg-container: var(--background);
+  --color-border-tertiary: color-mix(in srgb, var(--border) 92%, transparent);
+  --color-text-quaternary: var(--muted-foreground);
 
   /* === shadow opacity (subtle in light, stronger in dark) === */
   --shadow-border-opacity: 0.08;
@@ -507,14 +518,14 @@
   --maka-workspace-top-actions-top: calc(var(--maka-titlebar-control-safe-top) - 16px); /* pixel-measured lockstep with sidebar rail — lights' optical center is 20.75 */
   --maka-workspace-top-actions-right: 24px;
   /* Horizontal footprint the absolutely-positioned .maka-workspace-top-actions
-     toolbar occupies in the top-right corner: its right offset + four 24px icon
-     buttons with 6px gaps (114px) + a 12px clearance gap. Right-aligned
+     toolbar occupies in the top-right corner: its right offset + four governed
+     28px compact icon buttons with 6px gaps (130px) + a 12px clearance gap. Right-aligned
      chat-header content (model switcher, .maka-chat-header-mode-pill, memory
      pill) and the chat-header drag strip reserve this footprint so neither
      content nor titlebar hit regions sit underneath the toolbar. Companion to
      PR-CHAT-HEADER-STATUS-CLUSTER-0, which only relocated the status cluster and
      left the in-header pills overlapping. */
-  --maka-workspace-top-actions-inset: calc(var(--maka-workspace-top-actions-right) + 126px);
+  --maka-workspace-top-actions-inset: calc(var(--maka-workspace-top-actions-right) + 142px);
 
   /* PR-WINDOW-TITLEBAR-0: Electron exposes the titlebar safe area through
      `titlebar-area-*` CSS env vars. The safe area is the usable titlebar
@@ -647,6 +658,26 @@
   --brand-deep: var(--accent);
   --brand-deep-hover: oklch(from var(--accent) calc(l + 0.06) c h);
   --bot-brand-default: var(--accent);
+}
+
+/* =============================================================================
+   DARWIN GLASS — color-alias overrides for the macOS vibrancy shell
+   (relocated from styles/theme-glass.css, Round C). Unlayered + the
+   html[data-os="darwin"] selector on purpose: the override must outrank the
+   :root aliases above (0,1,1 > 0,1,0) and beat any @layer declaration. The
+   glass MATERIAL rules (backdrop-filter, transparency) stay in theme-glass.css.
+
+   Re-anchored on --background (not a warm/zinc literal) so hue/chroma follow
+   the active palette; card↔canvas separation is the canvas/vibrancy's job, so
+   the content card == the palette background.
+============================================================================= */
+html[data-os="darwin"] {
+  --color-bg-container: var(--background);
+  --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
+}
+html[data-os="darwin"].dark {
+  /* Dark glass lifts the card one lightness step off the darker shell. */
+  --color-bg-container: oklch(from var(--background) calc(l + 0.035) c h);
 }
 
 /* =============================================================================
@@ -1230,34 +1261,6 @@
     font-size: var(--font-size-ui);
   }
 
-  /* ---- Buttons ---------------------------------------------------- */
-
-  .maka-button {
-    /* PR-UI-LAYOUT-12: button polish for warm canvas.
-     * - Padding 6/12 → 7/14 — more comfortable hit target.
-     * - Min-height pinned at 32px (was implicit; varied by content).
-     * - Focus ring added (was missing — only browser default outline). */
-    appearance: none;
-    min-height: 32px;
-    border: var(--border-width-hairline) solid var(--border);
-    background: var(--background);
-    color: var(--foreground);
-    padding: var(--space-1-5) var(--space-3);
-    border-radius: var(--radius-control);
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-medium);
-    line-height: var(--leading-tight);
-    transition: background var(--duration-quick) var(--ease-out-strong), border-color var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
-  }
-  .maka-button:hover  { background: var(--state-hover-bg); }
-  .maka-button:active { background: var(--state-selected-bg); }
-  .maka-button:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.16);
-  }
-  .maka-button[disabled],
-  .maka-button[aria-disabled="true"] { opacity: var(--opacity-disabled); cursor: not-allowed; }
-
   /* ---- Tabs ------------------------------------------------------- */
 
   /* Shared tab spec (#499 P0-3): one `maka-tab` class + `underline`/`pill`
@@ -1339,18 +1342,7 @@
     gap: var(--space-2);
   }
 
-  /* ---- Permission badge tones (for status text + dialog reason) --- */
-
-  .maka-reason-text[data-reason="shell_dangerous"] { color: var(--info-text); }
-  .maka-reason-text[data-reason="file_write"]       { color: var(--info-text); }
-  .maka-reason-text[data-reason="fs_destructive"]   { color: var(--destructive-text); font-weight: var(--font-weight-medium); }
-  .maka-reason-text[data-reason="git_destructive"]  { color: var(--destructive-text); font-weight: var(--font-weight-medium); }
-  .maka-reason-text[data-reason="privileged"]       { color: var(--destructive-text); font-weight: var(--font-weight-medium); }
-  .maka-reason-text[data-reason="network"]          { color: var(--info-text); }
-  .maka-reason-text[data-reason="browser"]          { color: var(--info-text); }
-  .maka-reason-text[data-reason="custom"]           { color: var(--foreground-secondary); }
-
-  /* ---- Code blocks (used in args preview inside permission dialog) --- */
+  /* ---- Code blocks (used in args preview inside permission prompt) --- */
 
   .maka-code {
     font-family: var(--font-mono);

@@ -123,32 +123,26 @@ describe('issue #499 P0-3 tab spec contract', () => {
       /PrimitiveTabsList[^>]*variant="pill"/,
       'catalog TabsList must pass variant="pill"',
     );
-    // Each catalog tab value has a corresponding panel: OAuth gets a fixed
-    // panel, and the three provider categories (domestic/overseas/local) are
-    // mapped to panels via value={cat}. Locking the template + the array
-    // proves every category has a panel without a runtime render test.
+    // Every provider transport category is generated from CATALOG_TABS and
+    // receives a matching panel. OAuth account connections intentionally live
+    // outside this transport catalog.
     assert.match(
       panel,
-      /PrimitiveTabsPanel[^>]*value="oauth"/,
-      'catalog must have a TabsPanel for the OAuth category',
+      /PrimitiveTabsPanel key=\{tab\.id\} value=\{tab\.id\}/,
+      'catalog must map one TabsPanel per provider category',
     );
     assert.match(
       panel,
-      /PrimitiveTabsPanel[^>]*value=\{cat\}/,
-      'catalog must map a TabsPanel per provider category (value={cat})',
-    );
-    assert.match(
-      panel,
-      /\['domestic', 'overseas', 'local'\]/,
-      'catalog category tabs must cover domestic / overseas / local',
+      /id: 'recommended'[\s\S]*id: 'plans'[\s\S]*id: 'api'[\s\S]*id: 'aggregators'[\s\S]*id: 'local'/,
+      'catalog categories must cover recommended / plans / api / aggregators / local',
     );
     // data-active hand-written boolean removed (Base UI sets data-active on the
     // active tab); data-catalog-tab stays (locked by model-oauth-section contract
     // as the tab identifier, not a manual focus query).
     assert.doesNotMatch(
       panel,
-      /data-active=\{catalogTab === tab\.id\}/,
-      'catalog hand-written data-active={catalogTab === tab.id} must be removed (Base UI sets data-active)',
+      /data-active=\{catalogCategory === tab\.id\}/,
+      'catalog hand-written data-active must be removed (Base UI sets data-active)',
     );
     assert.match(
       panel,

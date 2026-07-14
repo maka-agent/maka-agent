@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AppSettings, UpdateAppSettingsResult, UsageRange, UsageStats } from '@maka/core';
-import { Button, Input, SettingsSegmented as Segmented, SettingsSelect, SettingsSwitch as Switch, useToast } from '@maka/ui';
+import { Button, Input, SettingsSegmented as Segmented, SettingsSelect, SettingsSwitch as Switch, useMountedRef, useToast } from '@maka/ui';
 import { RefreshCcw } from '@maka/ui/icons';
 import { MetricCard } from './settings-metric-card';
 import { settingsActionErrorMessage } from './settings-error-copy';
@@ -20,7 +20,7 @@ export function UsageSettingsPage(props: {
   const usagePendingSaveCountRef = useRef(0);
   const usageSaveTicketRef = useRef(0);
   const usageRefreshRunningRef = useRef(false);
-  const usagePageMountedRef = useRef(false);
+  const usagePageMountedRef = useMountedRef();
   const stats = props.stats;
   const toast = useToast();
 
@@ -37,9 +37,7 @@ export function UsageSettingsPage(props: {
   }, [persistedUsage]);
 
   useEffect(() => {
-    usagePageMountedRef.current = true;
     return () => {
-      usagePageMountedRef.current = false;
       usageSaveTicketRef.current += 1;
       usageRefreshRunningRef.current = false;
     };
@@ -200,7 +198,7 @@ export function UsageSettingsPage(props: {
         <div className="settingsNotice">
           当前仅显示汇总指标。打开详情记录后，可以查看逐条模型请求和工具调用，按模型、工具或状态筛选，并用于排查费用与失败请求。
           <div className="settingsActionRow settingsNoticeAction">
-            <Button type="button" variant="outline" size="sm" onClick={() => void updateUsage({ showDetails: true })}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => void updateUsage({ showDetails: true })}>
               显示明细
             </Button>
           </div>

@@ -18,7 +18,10 @@ export function createSubscriptionModelFetch(deps: SubscriptionModelFetchDeps) {
     if (connection.providerType === 'claude-subscription' && isCloakEnabled()) {
       return buildClaudeSubscriptionCloakedFetch(connection, deps.claudeSubscription, sessionId, modelId);
     }
-    if (connection.providerType === 'codex-subscription') {
+    if (
+      connection.providerType === 'codex-subscription'
+      || connection.providerType === 'github-copilot'
+    ) {
       return buildRuntimeSubscriptionModelFetch({ connection, sessionId, modelId });
     }
     return undefined;

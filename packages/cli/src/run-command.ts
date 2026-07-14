@@ -245,6 +245,7 @@ export async function runMakaTextCli(
   let context: MakaRunContext;
   try {
     context = await deps.createContext({
+      surface: 'run',
       workspaceRoot,
       cwd: selection.cwd,
       ...((selection.kind === 'existing' || parsed.options.connection)

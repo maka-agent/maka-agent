@@ -1,5 +1,9 @@
 import type { ModelInfo, ProviderType } from './llm-connections.js';
 import type { ThinkingOptions } from './model-thinking.js';
+import {
+  GENERATED_MODELS_DEV_METADATA,
+  GENERATED_MODELS_DEV_MODEL_PROVIDER_OVERRIDES,
+} from './model-metadata.generated.js';
 
 export interface ModelMetadata {
   displayName?: string;
@@ -15,8 +19,29 @@ export interface ModelMetadata {
   thinkingOptions?: ThinkingOptions;
 }
 
+const generatedMetadata: Partial<Record<ProviderType, Record<string, ModelMetadata>>> = GENERATED_MODELS_DEV_METADATA;
+const generatedModelProviderOverrides: Partial<
+  Record<ProviderType, Record<string, { npm: string; api?: string }>>
+> = GENERATED_MODELS_DEV_MODEL_PROVIDER_OVERRIDES;
+
 export function lookupModelMetadata(providerType: ProviderType, modelId: string): ModelMetadata {
-  return MODELS_DEV_METADATA[providerType]?.[modelId.trim()] ?? {};
+  const id = modelId.trim();
+  const generated = generatedMetadata[providerType]?.[id];
+  const override = STATIC_MODEL_METADATA[providerType]?.[id];
+  if (!generated) return override ?? {};
+  if (!override) return generated;
+  return {
+    ...generated,
+    ...override,
+    capabilities: { ...generated.capabilities, ...override.capabilities },
+  };
+}
+
+export function lookupModelProviderOverride(
+  providerType: ProviderType,
+  modelId: string,
+): { npm: string; api?: string } | undefined {
+  return generatedModelProviderOverrides[providerType]?.[modelId.trim()];
 }
 
 /**
@@ -25,9 +50,9 @@ export function lookupModelMetadata(providerType: ProviderType, modelId: string)
  * Stored `connection.models` win when they declare `vision` explicitly
  * (provider-fetched facts). But `model-fetcher` stores bare `{ id }` entries
  * for many providers, and older connections predate any enrichment — so when
- * `vision` is unknown we fall back to the in-repo metadata, which is the only
- * authoritative source for image capability (provider /models APIs do not
- * return it). Unknown (no stored value, no metadata entry) resolves to false,
+ * `vision` is unknown we fall back to the generated models.dev snapshot and
+ * access-path-specific in-repo overrides. Unknown (no stored value, no
+ * metadata entry) resolves to false,
  * keeping the send path fail-closed for text-only models.
  */
 export function resolveModelVisionSupport(
@@ -47,94 +72,189 @@ export function curatedCatalogFallbackModelsForProvider(providerType: ProviderTy
 }
 
 const REASONING_FUNCTION_CALLING = { reasoning: true, functionCalling: true } satisfies ModelInfo['capabilities'];
-const FUNCTION_CALLING_ONLY = { functionCalling: true } satisfies ModelInfo['capabilities'];
 
-const ANTHROPIC_MODELS_DEV_METADATA: Record<string, ModelMetadata> = {
-  'claude-sonnet-4-6': { displayName: 'Claude Sonnet 4.6', lifecycle: 'active', docsUrl: 'https://docs.anthropic.com/en/docs/about-claude/models/overview', contextWindow: 1_000_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { efforts: ['low', 'medium', 'high', 'max'] }},
-  'claude-opus-4-8': { displayName: 'Claude Opus 4.8', lifecycle: 'active', docsUrl: 'https://docs.anthropic.com/en/docs/about-claude/models/overview', contextWindow: 1_000_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] }},
-  'claude-fable-5': { displayName: 'Claude Fable 5', lifecycle: 'active', docsUrl: 'https://docs.anthropic.com/en/docs/about-claude/models/overview', contextWindow: 1_000_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] }},
-  'claude-sonnet-4-5': { displayName: 'Claude Sonnet 4.5 (latest)', lifecycle: 'active', docsUrl: 'https://docs.anthropic.com/en/docs/about-claude/models/overview', contextWindow: 200_000, maxOutputTokens: 64_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { toggle: true, offBehavior: 'anthropic-thinking-disabled' }},
-  'claude-sonnet-4-5-20250929': { displayName: 'Claude Sonnet 4.5', lifecycle: 'active', docsUrl: 'https://docs.anthropic.com/en/docs/about-claude/models/overview', contextWindow: 200_000, maxOutputTokens: 64_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { toggle: true, offBehavior: 'anthropic-thinking-disabled' }},
-  'claude-opus-4-1-20250805': { displayName: 'Claude Opus 4.1', lifecycle: 'active', docsUrl: 'https://docs.anthropic.com/en/docs/about-claude/models/overview', contextWindow: 200_000, maxOutputTokens: 32_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { toggle: true, offBehavior: 'anthropic-thinking-disabled' }},
-  'claude-haiku-4-5': { displayName: 'Claude Haiku 4.5 (latest)', lifecycle: 'active', docsUrl: 'https://docs.anthropic.com/en/docs/about-claude/models/overview', contextWindow: 200_000, maxOutputTokens: 64_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { toggle: true, offBehavior: 'anthropic-thinking-disabled' }},
-  'claude-haiku-4-5-20251001': { displayName: 'Claude Haiku 4.5', lifecycle: 'active', docsUrl: 'https://docs.anthropic.com/en/docs/about-claude/models/overview', contextWindow: 200_000, maxOutputTokens: 64_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { toggle: true, offBehavior: 'anthropic-thinking-disabled' }},
-  'claude-3-5-sonnet-20241022': { displayName: 'Claude Sonnet 3.5 v2', lifecycle: 'deprecated', docsUrl: 'https://docs.anthropic.com/en/docs/about-claude/models/overview', contextWindow: 200_000, maxOutputTokens: 8_192, capabilities: { ...FUNCTION_CALLING_ONLY, vision: true } },
+const ANTHROPIC_MODEL_OVERRIDES: Record<string, ModelMetadata> = {
+  'claude-sonnet-4-6': { thinkingOptions: { efforts: ['low', 'medium', 'high', 'max'] } },
+  'claude-opus-4-8': { thinkingOptions: { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] } },
+  'claude-fable-5': { thinkingOptions: { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] } },
+  // Anthropic retired Sonnet 4.5's 1M beta on 2026-04-30; the standard API limit is 200K.
+  'claude-sonnet-4-5': { contextWindow: 200_000, thinkingOptions: { toggle: true, offBehavior: 'anthropic-thinking-disabled' } },
+  'claude-sonnet-4-5-20250929': { contextWindow: 200_000, thinkingOptions: { toggle: true, offBehavior: 'anthropic-thinking-disabled' } },
+  'claude-opus-4-1-20250805': { thinkingOptions: { toggle: true, offBehavior: 'anthropic-thinking-disabled' } },
+  'claude-haiku-4-5': { thinkingOptions: { toggle: true, offBehavior: 'anthropic-thinking-disabled' } },
+  'claude-haiku-4-5-20251001': { thinkingOptions: { toggle: true, offBehavior: 'anthropic-thinking-disabled' } },
 };
 
-const CLAUDE_SUBSCRIPTION_MODELS_DEV_METADATA = displayMetadataOnly(ANTHROPIC_MODELS_DEV_METADATA);
+const CLAUDE_SUBSCRIPTION_MODEL_METADATA = displayMetadataOnly(
+  GENERATED_MODELS_DEV_METADATA.anthropic,
+  ANTHROPIC_MODEL_OVERRIDES,
+);
 
-const GOOGLE_MODELS_DEV_METADATA: Record<string, ModelMetadata> = {
-  'gemini-3.5-flash': { displayName: 'Gemini 3.5 Flash', lifecycle: 'active', docsUrl: 'https://ai.google.dev/gemini-api/docs/models', contextWindow: 1_048_576, maxOutputTokens: 65_536, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { efforts: ['minimal', 'low', 'medium', 'high'] }},
-  'gemini-3.1-pro-preview': { displayName: 'Gemini 3.1 Pro Preview', lifecycle: 'active', docsUrl: 'https://ai.google.dev/gemini-api/docs/models', contextWindow: 1_048_576, maxOutputTokens: 65_536, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { efforts: ['low', 'medium', 'high'] }},
-  'gemini-3.1-flash-lite': { displayName: 'Gemini 3.1 Flash Lite', lifecycle: 'active', docsUrl: 'https://ai.google.dev/gemini-api/docs/models', contextWindow: 1_048_576, maxOutputTokens: 65_536, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
-  'gemini-3-pro-preview': { displayName: 'Gemini 3 Pro Preview', lifecycle: 'active', docsUrl: 'https://ai.google.dev/gemini-api/docs/models', contextWindow: 1_048_576, maxOutputTokens: 65_536, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { efforts: ['low', 'high'] }},
-  'gemini-3-flash-preview': { displayName: 'Gemini 3 Flash Preview', lifecycle: 'active', docsUrl: 'https://ai.google.dev/gemini-api/docs/models', contextWindow: 1_048_576, maxOutputTokens: 65_536, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { efforts: ['minimal', 'low', 'medium', 'high'] }},
-  'gemini-2.5-pro': { displayName: 'Gemini 2.5 Pro', lifecycle: 'active', docsUrl: 'https://ai.google.dev/gemini-api/docs/models', contextWindow: 1_048_576, maxOutputTokens: 65_536, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
-  'gemini-2.5-flash': { displayName: 'Gemini 2.5 Flash', lifecycle: 'active', docsUrl: 'https://ai.google.dev/gemini-api/docs/models', contextWindow: 1_048_576, maxOutputTokens: 65_536, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { toggle: true, offBehavior: 'google-thinking-budget-zero' }},
-  'gemini-2.0-flash': { displayName: 'Gemini 2.0 Flash', lifecycle: 'active', docsUrl: 'https://ai.google.dev/gemini-api/docs/models', contextWindow: 1_048_576, maxOutputTokens: 8_192, capabilities: { ...FUNCTION_CALLING_ONLY, vision: true } },
+const GOOGLE_MODEL_OVERRIDES: Record<string, ModelMetadata> = {
+  'gemini-3.5-flash': { thinkingOptions: { efforts: ['minimal', 'low', 'medium', 'high'] } },
+  'gemini-3.1-pro-preview': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+  'gemini-3-pro-preview': { thinkingOptions: { efforts: ['low', 'high'] } },
+  'gemini-3-flash-preview': { thinkingOptions: { efforts: ['minimal', 'low', 'medium', 'high'] } },
+  'gemini-2.5-flash': { thinkingOptions: { toggle: true, offBehavior: 'google-thinking-budget-zero' } },
 };
 
-const OPENAI_MODELS_DEV_METADATA: Record<string, ModelMetadata> = {
-  'gpt-5.5': { displayName: 'GPT-5.5', lifecycle: 'active', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 1_050_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { efforts: ['none', 'low', 'medium', 'high', 'xhigh'] }},
-  'gpt-5.5-pro': { displayName: 'GPT-5.5 Pro', lifecycle: 'active', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 1_050_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
-  'gpt-5.4': { displayName: 'GPT-5.4', lifecycle: 'active', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 1_050_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
-  'gpt-5.4-mini': { displayName: 'GPT-5.4 mini', lifecycle: 'active', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 400_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
-  'gpt-5.3-codex-spark': { displayName: 'GPT-5.3 Codex Spark', lifecycle: 'active', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 128_000, maxOutputTokens: 32_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
-  'gpt-5.3-codex': { displayName: 'GPT-5.3 Codex', lifecycle: 'active', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 400_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
-  'gpt-5.2': { displayName: 'GPT-5.2', lifecycle: 'active', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 400_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
-  'gpt-5.2-codex': { displayName: 'GPT-5.2 Codex', lifecycle: 'active', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 400_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
-  'gpt-5.1-codex-mini': { displayName: 'GPT-5.1 Codex mini', lifecycle: 'active', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 400_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
-  'gpt-4o-mini': { displayName: 'GPT-4o mini', lifecycle: 'active', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 128_000, maxOutputTokens: 16_384, capabilities: { ...FUNCTION_CALLING_ONLY, vision: true } },
-  'gpt-4o': { displayName: 'GPT-4o', lifecycle: 'active', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 128_000, maxOutputTokens: 16_384, capabilities: { ...FUNCTION_CALLING_ONLY, vision: true } },
-  'gpt-4-turbo': { displayName: 'GPT-4 Turbo', lifecycle: 'deprecated', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 128_000, maxOutputTokens: 4_096, capabilities: { ...FUNCTION_CALLING_ONLY, vision: true } },
-  'gpt-5': { displayName: 'GPT-5', lifecycle: 'active', docsUrl: 'https://platform.openai.com/docs/models', contextWindow: 400_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { efforts: ['minimal', 'low', 'medium', 'high'] }},
+const OPENAI_MODEL_OVERRIDES: Record<string, ModelMetadata> = {
+  'gpt-5.5': { thinkingOptions: { efforts: ['none', 'low', 'medium', 'high', 'xhigh'] } },
+  'gpt-5': { thinkingOptions: { efforts: ['minimal', 'low', 'medium', 'high'] } },
 };
 
-const OPENAI_OAUTH_MODELS_DEV_METADATA: Record<string, ModelMetadata> = {
-  'gpt-5.5': { ...OPENAI_MODELS_DEV_METADATA['gpt-5.5']!, contextWindow: 400_000, maxOutputTokens: 128_000 },
-  'gpt-5.5-pro': { ...OPENAI_MODELS_DEV_METADATA['gpt-5.5-pro']!, contextWindow: 400_000, maxOutputTokens: 128_000 },
-  'gpt-5.4': { ...OPENAI_MODELS_DEV_METADATA['gpt-5.4']!, contextWindow: 400_000, maxOutputTokens: 128_000 },
-  'gpt-5.4-mini': OPENAI_MODELS_DEV_METADATA['gpt-5.4-mini']!,
-  'gpt-5.3-codex-spark': OPENAI_MODELS_DEV_METADATA['gpt-5.3-codex-spark']!,
+const OPENAI_OAUTH_MODEL_METADATA: Record<string, ModelMetadata> = {
+  'gpt-5.5': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.5']!, ...OPENAI_MODEL_OVERRIDES['gpt-5.5']!, contextWindow: 400_000 },
+  'gpt-5.5-pro': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.5-pro']!, contextWindow: 400_000 },
+  'gpt-5.4': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.4']!, contextWindow: 400_000 },
+  'gpt-5.4-mini': GENERATED_MODELS_DEV_METADATA.openai['gpt-5.4-mini']!,
+  'gpt-5.3-codex-spark': GENERATED_MODELS_DEV_METADATA.openai['gpt-5.3-codex-spark']!,
 };
 
-const MINIMAX_MODELS_DEV_METADATA: Record<string, ModelMetadata> = {
-  'MiniMax-M3': { displayName: 'MiniMax-M3', lifecycle: 'active', docsUrl: 'https://platform.minimax.io/docs/guides/text-generation', contextWindow: 1_000_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: false } },
+const SILICONFLOW_MODEL_OVERRIDES: Record<string, ModelMetadata> = Object.fromEntries(
+  Object.entries(GENERATED_MODELS_DEV_METADATA.siliconflow)
+    .filter(([, metadata]) => metadata.capabilities?.functionCalling)
+    .map(([id]) => [id, { capabilities: { chat: true } }]),
+);
+
+const VOLCENGINE_CODING_PLAN_DOCS = 'https://www.volcengine.com/docs/82379/1925114';
+const VOLCENGINE_CODING_PLAN_MODEL_METADATA: Record<string, ModelMetadata> = {
+  'ark-code-latest': planModel('Ark Code Latest', false),
+  'doubao-seed-2.0-code': planModel('Doubao Seed 2.0 Code', true),
+  'doubao-seed-2.0-pro': planModel('Doubao Seed 2.0 Pro', true),
+  'doubao-seed-2.0-lite': planModel('Doubao Seed 2.0 Lite', true),
+  'doubao-seed-code': planModel('Doubao Seed Code', true),
+  'minimax-m2.7': planModel('MiniMax-M2.7', false, 200_000, 128_000),
+  'minimax-m3': planModel('MiniMax-M3', true, 512_000, 128_000),
+  'glm-5.2': planModel('GLM-5.2', false, 1_024_000, 128_000),
+  'deepseek-v4-flash': planModel('DeepSeek-V4-Flash', false, 1_024_000, 384_000),
+  'deepseek-v4-pro': planModel('DeepSeek-V4-Pro', false, 1_024_000, 384_000),
+  'kimi-k2.6': planModel('Kimi-K2.6', true, 256_000, 32_000),
+  'kimi-k2.7-code': planModel('Kimi-K2.7-Code', true, 256_000, 32_000),
 };
 
-// Provider/access-path-specific static facts. Keep limits unset unless the
-// source is authoritative for that provider path; request routing keeps raw ids.
-const MODELS_DEV_METADATA: Partial<Record<ProviderType, Record<string, ModelMetadata>>> = {
-  anthropic: ANTHROPIC_MODELS_DEV_METADATA,
-  'claude-subscription': CLAUDE_SUBSCRIPTION_MODELS_DEV_METADATA,
-  openai: OPENAI_MODELS_DEV_METADATA,
-  google: GOOGLE_MODELS_DEV_METADATA,
-  'gemini-cli': GOOGLE_MODELS_DEV_METADATA,
-  'codex-subscription': OPENAI_OAUTH_MODELS_DEV_METADATA,
+// Facts that models.dev cannot express: provider wire controls and
+// access-path-specific aliases/limits. Standard model facts stay generated.
+const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMetadata>>> = {
+  anthropic: ANTHROPIC_MODEL_OVERRIDES,
+  'minimax-coding-plan': GENERATED_MODELS_DEV_METADATA.MiniMax,
+  'stepfun-step-plan': {
+    'step-3.7-flash': {
+      ...GENERATED_MODELS_DEV_METADATA.stepfun['step-3.7-flash']!,
+      thinkingOptions: { efforts: ['low', 'medium', 'high'] },
+    },
+    'step-3.5-flash-2603': {
+      ...GENERATED_MODELS_DEV_METADATA.stepfun['step-3.5-flash-2603']!,
+      thinkingOptions: { efforts: ['low', 'high'] },
+    },
+    'step-3.5-flash': GENERATED_MODELS_DEV_METADATA.stepfun['step-3.5-flash']!,
+    'step-router-v1': {
+      displayName: 'Step Router V1',
+      lifecycle: 'active',
+      docsUrl: 'https://platform.stepfun.com/docs/zh/step-plan/integrations/reasoning-api',
+      maxOutputTokens: 384_000,
+      capabilities: { vision: false, reasoning: true, functionCalling: true },
+    },
+  },
+  'stepfun-ai-step-plan': {
+    'step-3.7-flash': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+    'step-3.5-flash-2603': { thinkingOptions: { efforts: ['low', 'high'] } },
+    'step-3.5-flash': { thinkingOptions: { efforts: ['low', 'high'] } },
+  },
+  'claude-subscription': CLAUDE_SUBSCRIPTION_MODEL_METADATA,
+  openai: OPENAI_MODEL_OVERRIDES,
+  google: GOOGLE_MODEL_OVERRIDES,
+  cohere: {
+    'command-a-plus-05-2026': { thinkingOptions: { toggle: true, offBehavior: 'cohere-thinking-disabled' } },
+    'command-a-reasoning-08-2025': { thinkingOptions: { toggle: true, offBehavior: 'cohere-thinking-disabled' } },
+  },
+  'gemini-cli': GOOGLE_MODEL_OVERRIDES,
+  'codex-subscription': OPENAI_OAUTH_MODEL_METADATA,
+  siliconflow: SILICONFLOW_MODEL_OVERRIDES,
+  vercel: {
+    'xai/grok-4.3': { thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'] } },
+  },
+  'tencent-coding-plan': {
+    'kimi-k2.5': { capabilities: { vision: false } },
+  },
+  'volcengine-ark': {
+    'doubao-seed-2-0-pro-260215': {
+      displayName: 'Doubao Seed 2.0 Pro',
+      lifecycle: 'active',
+      docsUrl: 'https://www.volcengine.com/docs/82379',
+      capabilities: { reasoning: true, functionCalling: true },
+      thinkingOptions: {
+        efforts: ['minimal', 'low', 'medium', 'high'],
+        toggle: true,
+        offBehavior: 'volcengine-thinking-disabled',
+      },
+    },
+  },
+  'volcengine-coding-plan': VOLCENGINE_CODING_PLAN_MODEL_METADATA,
+  'tencent-token-plan': {
+    hy3: { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+    'hy3-preview': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+  },
+  deepinfra: {
+    'moonshotai/Kimi-K2.7-Code': {
+      thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
+    },
+  },
+  'cloudflare-workers-ai': {
+    '@cf/moonshotai/kimi-k2.6': {
+      thinkingOptions: {
+        efforts: ['low', 'medium', 'high'],
+        toggle: true,
+        offBehavior: 'cloudflare-chat-template-thinking-false',
+      },
+    },
+  },
+  'ollama-cloud': {
+    'qwen3.5:397b': {
+      thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
+    },
+  },
   deepseek: {
-    'deepseek-v4-flash': { displayName: 'DeepSeek V4 Flash', lifecycle: 'active', docsUrl: 'https://api-docs.deepseek.com/quick_start/pricing', contextWindow: 1_000_000, maxOutputTokens: 384_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: false } , thinkingOptions: { efforts: ['high', 'max'], toggle: true }},
-    'deepseek-v4-pro': { displayName: 'DeepSeek V4 Pro', lifecycle: 'active', docsUrl: 'https://api-docs.deepseek.com/quick_start/pricing', contextWindow: 1_000_000, maxOutputTokens: 384_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: false } },
-    'deepseek-reasoner': { displayName: 'DeepSeek Reasoner', lifecycle: 'deprecated', docsUrl: 'https://api-docs.deepseek.com/quick_start/pricing', contextWindow: 1_000_000, maxOutputTokens: 384_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: false } },
-    'deepseek-chat': { displayName: 'DeepSeek Chat', lifecycle: 'deprecated', docsUrl: 'https://api-docs.deepseek.com/quick_start/pricing', contextWindow: 1_000_000, maxOutputTokens: 384_000, capabilities: { ...FUNCTION_CALLING_ONLY, vision: false } },
+    'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
   },
   'zai-coding-plan': {
-    'glm-5.2': { displayName: 'GLM-5.2', lifecycle: 'active', docsUrl: 'https://docs.z.ai', contextWindow: 1_000_000, maxOutputTokens: 131_072, capabilities: { ...REASONING_FUNCTION_CALLING, vision: false } , thinkingOptions: { efforts: ['high', 'max'] }},
-    'glm-5.1': { displayName: 'GLM-5.1', lifecycle: 'active', docsUrl: 'https://docs.z.ai', contextWindow: 200_000, maxOutputTokens: 131_072, capabilities: { ...REASONING_FUNCTION_CALLING, vision: false } , thinkingOptions: { toggle: true }},
-    'glm-5-turbo': { displayName: 'GLM-5-Turbo', lifecycle: 'active', docsUrl: 'https://docs.z.ai', contextWindow: 200_000, maxOutputTokens: 131_072, capabilities: { ...REASONING_FUNCTION_CALLING, vision: false } , thinkingOptions: { toggle: true }},
-    'glm-5v-turbo': { displayName: 'GLM-5V-Turbo', lifecycle: 'active', docsUrl: 'https://docs.z.ai', contextWindow: 200_000, maxOutputTokens: 131_072, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } , thinkingOptions: { toggle: true }},
-    'glm-4.7': { displayName: 'GLM-4.7', lifecycle: 'active', docsUrl: 'https://docs.z.ai', contextWindow: 204_800, maxOutputTokens: 131_072, capabilities: { ...REASONING_FUNCTION_CALLING, vision: false } },
-    'glm-4.5-air': { displayName: 'GLM-4.5-Air', lifecycle: 'deprecated', docsUrl: 'https://docs.z.ai', contextWindow: 131_072, maxOutputTokens: 98_304, capabilities: { ...REASONING_FUNCTION_CALLING, vision: false } , thinkingOptions: { toggle: true }},
+    'glm-5.2': { thinkingOptions: { efforts: ['high', 'max'] } },
+    'glm-5.1': { thinkingOptions: { toggle: true } },
+    'glm-5-turbo': { thinkingOptions: { toggle: true } },
+    'glm-5v-turbo': { thinkingOptions: { toggle: true } },
+    'glm-4.5-air': { thinkingOptions: { toggle: true } },
   },
-  MiniMax: MINIMAX_MODELS_DEV_METADATA,
-  'MiniMax-cn': MINIMAX_MODELS_DEV_METADATA,
+  'kimi-coding-plan': {
+    'kimi-for-coding': { displayName: 'Kimi for Coding', lifecycle: 'active', docsUrl: 'https://www.kimi.com/code/docs/en/', contextWindow: 262_144, maxOutputTokens: 32_768, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
+    'kimi-for-coding-highspeed': { displayName: 'Kimi for Coding (HighSpeed)', lifecycle: 'active', docsUrl: 'https://www.kimi.com/code/docs/en/', contextWindow: 262_144, maxOutputTokens: 32_768, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
+  },
 };
 
-function displayMetadataOnly(source: Record<string, ModelMetadata>): Record<string, ModelMetadata> {
+function planModel(
+  displayName: string,
+  vision: boolean,
+  contextWindow?: number,
+  maxOutputTokens?: number,
+): ModelMetadata {
+  return {
+    displayName,
+    lifecycle: 'active',
+    docsUrl: VOLCENGINE_CODING_PLAN_DOCS,
+    ...(contextWindow === undefined ? {} : { contextWindow }),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+    capabilities: { ...REASONING_FUNCTION_CALLING, vision },
+  };
+}
+
+function displayMetadataOnly(
+  source: Record<string, ModelMetadata>,
+  overrides: Record<string, ModelMetadata>,
+): Record<string, ModelMetadata> {
   return Object.fromEntries(Object.entries(source).map(([id, metadata]) => [id, {
     displayName: metadata.displayName,
     lifecycle: metadata.lifecycle,
     docsUrl: metadata.docsUrl,
-    thinkingOptions: metadata.thinkingOptions,
+    thinkingOptions: overrides[id]?.thinkingOptions,
   }])) as Record<string, ModelMetadata>;
 }
 

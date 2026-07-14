@@ -1,4 +1,4 @@
-import { app, ipcMain, nativeImage, safeStorage, shell } from 'electron';
+import { app, ipcMain, nativeImage, powerMonitor, safeStorage, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -8,6 +8,8 @@ import {
   generalizedErrorMessage,
   generalizedErrorMessageChinese,
   redactSecrets,
+  filterModelVisibleTaskLedgerTasks,
+  sanitizeTaskLedgerTask,
   buildHealthSnapshot,
   healthSignalFromCapability,
   healthSignalFromConnection,
@@ -21,12 +23,10 @@ import {
   expertTeamIdFromLabels,
   expertTeamLabel,
   botDisplayLabel,
-  humanizeBotStatusReason,
 } from '@maka/core';
 import type {
   AppSettings,
   BotProvider,
-  BotReadinessState,
   ConnectionEvent,
   CreateSessionInput,
   PermissionMode,
@@ -41,6 +41,7 @@ import type {
   UpdateAppSettingsResult,
   UpdateAppSettingsInput,
 } from '@maka/core';
+import { deriveBotStatusPersistenceUpdate } from './bot-status-persistence.js';
 import { buildWebSearchAgentTool, WEB_SEARCH_TOOL_NAME } from './web-search/agent-tool.js';
 import { buildRiveWorkflowTool } from './rive-workflow-tool.js';
 import { runThreadSearch } from './search/thread-search.js';
@@ -54,10 +55,12 @@ import {
   normalizeRegenerateTurnInput,
   normalizeSessionSendCommand,
   normalizeStopSessionInput,
+  normalizeUserQuestionResponse,
 } from './permission-response-guard.js';
 import { turnFailureMessageFromSessionEvent } from './turn-stream-outcome.js';
 import { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
 import { CodexSubscriptionService } from './oauth/codex-subscription-service.js';
+import { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
@@ -75,6 +78,8 @@ import {
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
+  buildAskUserQuestionTool,
+  createBuiltinSandboxManager,
   buildChildAgentTools,
   buildExpertDispatchToolForTeamId,
   buildSubagentProjectionTools,
@@ -174,6 +179,16 @@ import {
   persistSynthesisCacheBlocksToArtifacts,
 } from './synthesis-cache-artifacts.js';
 import { buildBrowserTools } from './browser/browser-tools.js';
+import {
+  computerUseServiceHealth,
+  createComputerUseHost,
+} from './computer-use-host.js';
+import { createCursorOverlayController } from './computer-use/cursor-overlay-window.js';
+import {
+  applyComputerUseRealModelPolicy,
+  parseComputerUseRealModelPolicy,
+} from './computer-use-real-model-policy.js';
+import { createComputerUseOverlayHook } from '@maka/computer-use';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
 import { createDailyReviewMainService } from './daily-review-main.js';
@@ -211,16 +226,20 @@ import { registerNotificationsIpc } from './notifications-ipc-main.js';
 // asar-packaged builds; MAKA_E2E_USER_DATA_DIR must also be set, so the fake
 // backend can't write test sessions into a real profile if someone sets only
 // MAKA_E2E.
-const isE2e =
+const hasIsolatedE2eProfile =
   !app.isPackaged &&
-  process.env.MAKA_E2E === '1' &&
   !!process.env.MAKA_E2E_USER_DATA_DIR;
+const isE2e = hasIsolatedE2eProfile && process.env.MAKA_E2E === '1';
+const isComputerUseRealModelE2e =
+  hasIsolatedE2eProfile &&
+  process.env.MAKA_CU_REAL_MODEL_E2E === '1';
+const isIsolatedE2e = isE2e || isComputerUseRealModelE2e;
 
 // E2E isolation: redirect userData BEFORE the single-instance lock so the
 // lock judges the throwaway dir, not the real user data — otherwise a
 // developer with Maka open makes the E2E process exit as a "second instance".
 // Gated by isE2e (not just the dir env) so a packaged build ignores it.
-if (isE2e && process.env.MAKA_E2E_USER_DATA_DIR) {
+if (isIsolatedE2e && process.env.MAKA_E2E_USER_DATA_DIR) {
   app.setPath('userData', process.env.MAKA_E2E_USER_DATA_DIR);
 }
 
@@ -290,6 +309,7 @@ const codexSubscription = new CodexSubscriptionService({
   userDataDir: app.getPath('userData'),
   credentialStore,
 });
+const githubCopilotSubscription = new GitHubCopilotSubscriptionService({ credentialStore });
 const buildSubscriptionModelFetch = createSubscriptionModelFetch({
   claudeSubscription,
 });
@@ -298,6 +318,7 @@ const oauthModelConnections = createOAuthModelConnectionsMainService({
   credentialStore,
   claudeSubscription,
   codexSubscription,
+  githubCopilotSubscription,
 });
 const isClaudeSubscriptionAuthenticatedState = oauthModelConnections.isClaudeSubscriptionAuthenticatedState;
 const isCodexSubscriptionAuthenticatedState = oauthModelConnections.isCodexSubscriptionAuthenticatedState;
@@ -308,6 +329,10 @@ function syncClaudeSubscriptionConnection(): Promise<LlmConnection | null> {
 
 function syncCodexSubscriptionConnection(): Promise<LlmConnection | null> {
   return oauthModelConnections.syncCodexSubscriptionConnection();
+}
+
+function syncGitHubCopilotConnection(): Promise<LlmConnection | null> {
+  return oauthModelConnections.syncGitHubCopilotConnection();
 }
 
 function syncOAuthModelConnections(): Promise<void> {
@@ -451,6 +476,35 @@ const goalWiring = createMainGoalWiring({
   // Surface every goal transition to the renderer so an active autonomous loop
   // is visible (badge + clear affordance) — never a silent token burn.
   onGoalChange: (goal) => emitSessionsChanged('goal-change', goal.sessionId),
+  listActionableTaskKeys: async (sessionId) => {
+    const tasks = await taskLedgerStore.list(sessionId, {
+      includeTerminal: false,
+      includeArchived: false,
+    });
+    return filterModelVisibleTaskLedgerTasks(tasks)
+      .filter((task) => task.status === 'pending' || task.status === 'in_progress')
+      .map((task) => task.key);
+  },
+  recordTaskGateDecision: async (trace) => {
+    if (!trace.turnId) return;
+    const runs = await runStore.listSessionRuns(trace.sessionId);
+    const run = runs.find((candidate) => candidate.turnId === trace.turnId);
+    if (!run) return;
+    await runStore.appendEvent(trace.sessionId, run.runId, {
+      type: 'task_gate_decided',
+      id: randomUUID(),
+      runId: run.runId,
+      sessionId: trace.sessionId,
+      turnId: trace.turnId,
+      ts: Date.now(),
+      message: `Task gate: ${trace.decision}`,
+      data: {
+        goalId: trace.goalId,
+        decision: trace.decision,
+        taskKeys: trace.taskKeys,
+      },
+    });
+  },
 });
 
 async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
@@ -479,13 +533,15 @@ const systemPromptService = createSystemPromptMainService({
 // BeginFrames on Linux, which stalls content-visibility inflation and any
 // frame-paced E2E protocol (measured in the scroll-geometry climb: 38 frames
 // over 31s). The E2E harness sets it, not the workflow — see fixtures.ts.
-const startHidden = (Boolean(visualSmokeFixture) || isE2e)
+const startHidden = (Boolean(visualSmokeFixture) || isIsolatedE2e)
   && process.env.MAKA_E2E_SHOW_WINDOW !== '1';
+let onMainWindowClose = (): void => {};
 const mainWindowController = createMainWindowController({
   workspaceRoot,
   visualSmokeFixture,
   settingsStore,
   startHidden,
+  onClose: () => onMainWindowClose(),
 });
 // Shared by 'second-instance' and 'activate': focus the existing window, or
 // create one if all windows were closed while the app (macOS: still in the
@@ -499,6 +555,7 @@ function focusOrCreateMainWindow(): void {
 }
 app.on('second-instance', focusOrCreateMainWindow);
 const safeSendToRenderer = mainWindowController.send;
+taskLedgerStore.subscribe((event) => safeSendToRenderer('tasks:changed', event));
 const openGateway = new OpenGatewayService({
   getSettings: () => settingsStore.get(),
   listSessions: () => runtime.listSessions(),
@@ -533,6 +590,7 @@ const shellRuns = new ShellRunProcessManager({
     safeSendToRenderer('shell-runs:update', update);
   },
 });
+const sandboxManager = createBuiltinSandboxManager();
 // Unified tool availability (issue #37). Deferred capability groups (Rive,
 // Office, browser, agent orchestration) are withheld from the
 // per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
@@ -546,14 +604,75 @@ const officeTools: MakaTool[] = [buildOfficeDocumentTool(), buildOfficeDocumentE
 // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
 // outside the app (no host) they report the browser as unavailable.
 const browserTools: MakaTool[] = buildBrowserTools();
-const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
-const deferredTools: MakaTool[] = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
+const computerUseOverlay = createCursorOverlayController();
+onMainWindowClose = () => computerUseOverlay.destroyAll();
+const computerUseHost = createComputerUseHost({
+  isPackaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  compressFrame: (base64) => {
+    try {
+      const image = nativeImage.createFromBuffer(Buffer.from(base64, 'base64'));
+      return image.isEmpty()
+        ? { base64, mimeType: 'image/png' }
+        : {
+            base64: image.toJPEG(82).toString('base64'),
+            mimeType: 'image/jpeg',
+          };
+    } catch {
+      return { base64, mimeType: 'image/png' };
+    }
+  },
+  physicalInputRecentlyActive: () => powerMonitor.getSystemIdleTime() < 1,
+  ...(isComputerUseRealModelE2e
+    ? {
+        onTrace: (event) => {
+          const tracePath = process.env.MAKA_CU_REAL_MODEL_TRACE;
+          if (!tracePath) return;
+          void import('node:fs/promises').then(({ appendFile }) =>
+            appendFile(tracePath, `${JSON.stringify(event)}\n`, {
+              encoding: 'utf8',
+              mode: 0o600,
+            }),
+          ).catch(() => {});
+        },
+      }
+    : {}),
+  overlay: createComputerUseOverlayHook(computerUseOverlay),
+});
+const computerUse = computerUseHost.selected;
+const computerUseTools = applyComputerUseRealModelPolicy(
+  computerUse.tools,
+  isComputerUseRealModelE2e
+    ? parseComputerUseRealModelPolicy(
+        process.env.MAKA_CU_REAL_MODEL_POLICY,
+      )
+    : undefined,
+);
+const agentTools: MakaTool[] = [
+  buildSubagentSpawnTool({ taskLedger: taskLedgerStore }),
+  ...buildSubagentProjectionTools(),
+];
+const deferredTools: MakaTool[] = [
+  ...riveTools,
+  ...officeTools,
+  ...browserTools,
+  ...computerUseTools,
+  ...agentTools,
+];
 const toolAvailability: ToolAvailabilityConfig = {
   economy: economyEnabled,
   groups: [
     { id: 'rive', label: 'Rive', description: 'Durable multi-agent Rive workflows: validate/import/run/status, scheduler, retries.', toolNames: riveTools.map((tool) => tool.name) },
     { id: 'office', label: 'Office', description: 'Read and edit Office documents (Word, Excel, PowerPoint, PDF).', toolNames: officeTools.map((tool) => tool.name) },
     { id: 'browser', label: 'Browser', description: 'Drive the embedded browser: navigate, snapshot, click, type, wait, extract.', toolNames: browserTools.map((tool) => tool.name) },
+    ...(computerUseTools.length > 0
+      ? [{
+          id: 'computer_use',
+          label: 'Computer',
+          description: 'Observe and operate an explicitly approved local application.',
+          toolNames: computerUseTools.map((tool) => tool.name),
+        }]
+      : []),
     buildSubagentToolGroup(),
   ],
 };
@@ -562,11 +681,13 @@ const webSearchTool = buildWebSearchAgentTool({
   getPrivacyContext: getWorkspacePrivacyContext,
 });
 const builtinTools: MakaTool[] = [
+  buildAskUserQuestionTool(),
   ...buildBuiltinTools({
     shellRuns,
     runtimeResources: shellRuns,
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
+    ...(sandboxManager ? { sandboxManager } : {}),
   }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
@@ -595,15 +716,16 @@ const builtinTools: MakaTool[] = [
 // Child agents stay file-only for local reads; parent runtime refs such as
 // maka://runtime/background-tasks/<id> are not part of their tool surface.
 const childAgentTools = buildChildAgentTools([
-  ...buildBuiltinTools().filter((tool: MakaTool) => tool.name !== 'Edit'),
+  ...buildBuiltinTools({
+    ...(sandboxManager ? { sandboxManager } : {}),
+  }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   webSearchTool,
 ]);
 let lookupPricing = buildPricingLookup();
-// PR-BOT-LASTERROR-FROM-SEND-0: per-platform last-observed readiness so
-// we only persist `lastError` on transitions, not on every status emit
-// (avoids thrashing the settings file when the live bridge re-emits the
-// same readiness during reconnect attempts).
-const previousBotReadiness = new Map<BotProvider, BotReadinessState>();
+// Track the last status fields that affect persisted diagnostics. The reason
+// is part of the key because a running bridge can remain degraded while a
+// newer, more useful failure replaces the previous one.
+const previousBotStatus = new Map<BotProvider, Pick<BotStatus, 'readiness' | 'reason'>>();
 let botIncoming: ReturnType<typeof createBotIncomingMainService>;
 // botIncoming is wired at module load, before registerIpc() defines the
 // current-project-root resolver. registerIpc reassigns this once the resolver
@@ -627,32 +749,18 @@ const botRegistry = new BotRegistry({
     // existing connection-test path writes `lastError` only on test
     // failures; without this hook, a runtime 429 / timeout would
     // disappear the moment the renderer status panel closed.
-    const prev = previousBotReadiness.get(status.platform);
-    previousBotReadiness.set(status.platform, status.readiness);
-    if (prev === status.readiness) return;
-    if (status.readiness === 'degraded') {
-      const humanized = humanizeBotStatusReason(status.reason);
-      if (humanized) {
-        void settingsStore.update({
-          botChat: {
-            channels: {
-              [status.platform]: {
-                lastError: humanized,
-                readinessUpdatedAt: Date.now(),
-              },
-            },
-          },
-        }).catch(() => {});
-      }
-    } else if (status.readiness === 'operational' && prev === 'degraded') {
-      // Clear `lastError` once the bridge recovers; otherwise the
-      // Settings page would keep surfacing a stale failure description
-      // even though sends are succeeding.
+    const previous = previousBotStatus.get(status.platform);
+    previousBotStatus.set(status.platform, {
+      readiness: status.readiness,
+      reason: status.reason,
+    });
+    const update = deriveBotStatusPersistenceUpdate(previous, status);
+    if (update) {
       void settingsStore.update({
         botChat: {
           channels: {
             [status.platform]: {
-              lastError: undefined,
+              ...update,
               readinessUpdatedAt: Date.now(),
             },
           },
@@ -767,6 +875,12 @@ backends.register('ai-sdk', async (ctx) => {
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
+  const backendTools = isComputerUseRealModelE2e
+    ? computerUseTools
+    : [...(ctx.tools ?? builtinTools)];
+  const backendToolAvailability = isComputerUseRealModelE2e
+    ? { economy: false, groups: [] }
+    : toolAvailability;
   // Expert-team lead: a main session (ctx.tools undefined) labeled
   // `mode:expert-team:<teamId>` gets the team-bound expert_dispatch tool.
   // Child turns receive scoped `ctx.tools` and inherit the label, but must NOT
@@ -783,11 +897,8 @@ backends.register('ai-sdk', async (ctx) => {
     modelId: model,
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
-    tools: [
-      ...(ctx.tools ?? builtinTools),
-      ...(expertDispatchTool ? [expertDispatchTool] : []),
-    ],
-    toolAvailability,
+    tools: expertDispatchTool ? [...backendTools, expertDispatchTool] : backendTools,
+    toolAvailability: backendToolAvailability,
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
     readChildAgentOutput: (input) => runtime.readChildAgentOutput(ctx.sessionId, input),
@@ -1237,6 +1348,15 @@ function registerIpc(): void {
   );
   registerPlanReminderIpc({ planReminders, getWorkspacePrivacyContext });
   ipcMain.handle('shell-runs:list', (_event, sessionId: string) => runtime.listShellRunUpdates(sessionId));
+  ipcMain.handle('tasks:list', async (_event, sessionId: string) => {
+    const tasks = await taskLedgerStore.list(sessionId, {
+      includeTerminal: true,
+      includeArchived: false,
+      classifyResumeTrust: true,
+      ...(visualSmokeFixture ? { now: getVisualSmokeState(visualSmokeFixture)?.now ?? Date.now() } : {}),
+    });
+    return tasks.map(sanitizeTaskLedgerTask);
+  });
   ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
   ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {
     const cwd = input?.cwd ?? (await currentProjectRoot());
@@ -1326,12 +1446,14 @@ function registerIpc(): void {
     connectionStore,
     claudeSubscription,
     codexSubscription,
+    githubCopilotSubscription,
     cursorSubscription,
     antigravitySubscription,
     isClaudeSubscriptionAuthenticatedState,
     isCodexSubscriptionAuthenticatedState,
     syncClaudeSubscriptionConnection,
     syncCodexSubscriptionConnection,
+    syncGitHubCopilotConnection,
     emitConnectionListChanged,
   });
 
@@ -1357,6 +1479,8 @@ function registerIpc(): void {
     });
   });
   ipcMain.handle('sessions:stop', async (_event, sessionId: string, input?: { source?: 'stop_button' }) => {
+    computerUseOverlay.clearForSession(sessionId);
+    computerUseTools.clearSession(sessionId);
     await runtime.stopSession(sessionId, normalizeStopSessionInput(input));
     emitSessionsChanged('status-change', sessionId);
     emitSessionsChanged('turn-status-change', sessionId);
@@ -1364,6 +1488,9 @@ function registerIpc(): void {
   });
   ipcMain.handle('sessions:respondToPermission', (_event, sessionId: string, response) =>
     runtime.respondToPermission(sessionId, normalizePermissionResponse(response)),
+  );
+  ipcMain.handle('sessions:respondToUserQuestion', (_event, sessionId: string, response) =>
+    runtime.respondToUserQuestion(sessionId, normalizeUserQuestionResponse(response)),
   );
   ipcMain.handle('sessions:send', async (event, sessionId: string, command: unknown) => {
     const sendCommand = normalizeSessionSendCommand(command);
@@ -1436,6 +1563,8 @@ function registerIpc(): void {
     return session;
   });
   ipcMain.handle('sessions:archive', async (_event, sessionId: string) => {
+    computerUseOverlay.clearForSession(sessionId);
+    computerUseTools.clearSession(sessionId);
     await runtime.archive(sessionId);
     // An archived conversation is no longer shown: drop its browser connection
     // and view so it does not keep a live Chromium page in the background.
@@ -1511,6 +1640,8 @@ function registerIpc(): void {
     return next;
   });
   ipcMain.handle('sessions:remove', async (_event, sessionId: string) => {
+    computerUseOverlay.clearForSession(sessionId);
+    computerUseTools.clearSession(sessionId);
     await runtime.remove(sessionId);
     // Drop the conversation's browser connection and destroy its view (no-op
     // if it never opened one). releaseBrowserSession disposes the view via the
@@ -1616,6 +1747,7 @@ function registerIpc(): void {
       permissions,
       botStatuses: botRegistry.allStatuses(),
       officeCliProbe,
+      computerUse: computerUseCapabilityInput(),
       now: permissions.checkedAt,
     });
   });
@@ -1629,6 +1761,7 @@ function registerIpc(): void {
       permissions,
       botStatuses: botRegistry.allStatuses(),
       officeCliProbe,
+      computerUse: computerUseCapabilityInput(),
       now,
     });
     const connections = await connectionStore.list();
@@ -1839,6 +1972,8 @@ async function streamEvents(
       }
       if (isTurnStatusChangingSessionEvent(event)) {
         emitSessionsChanged('turn-status-change', sessionId);
+        computerUseOverlay.clearForSession(sessionId);
+        computerUseTools.clearSession(sessionId);
       }
     }
     if (!finalAppendBroadcasted) {
@@ -1851,7 +1986,7 @@ async function streamEvents(
     // re-injecting into a failing connection would spin ~maxIterations failing
     // turns. Failures never surface to the turn.
     if (!turnAborted && !turnError) {
-      void handleGoalContinuation(goalWiring.continuationDeps, sessionId).catch(() => {});
+      void handleGoalContinuation(goalWiring.continuationDeps, sessionId, turnId).catch(() => {});
     }
     return { turnId, ok: !turnAborted && !turnError, ...(turnError ? { error: turnError } : {}) };
   } catch (error) {
@@ -1869,6 +2004,8 @@ async function streamEvents(
     openGateway.publishSessionEvent(sessionId, event);
     emitSessionsChanged('status-change', sessionId);
     emitSessionsChanged('turn-status-change', sessionId);
+    computerUseOverlay.clearForSession(sessionId);
+    computerUseTools.clearSession(sessionId);
     if (!finalAppendBroadcasted) {
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
@@ -2095,7 +2232,7 @@ app.whenReady().then(async () => {
   // builds get the icon via .app bundle Info.plist; this covers the
   // dev path.
   if (process.platform === 'darwin' && app.dock) {
-    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || isE2e) {
+    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || isIsolatedE2e) {
       // PR-VISUAL-SMOKE-HEADLESS: hide the dock icon so the spawned
       // Electron runs as an accessory app — no dock bounce, and it
       // never becomes frontmost / steals focus from the developer's
@@ -2174,6 +2311,7 @@ async function runBackgroundStartup(): Promise<void> {
 }
 
 app.on('window-all-closed', () => {
+  computerUseOverlay.destroyAll();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -2198,6 +2336,8 @@ async function runBeforeQuitCleanup(): Promise<void> {
   planReminders.stopTimers();
   dailyReview.stopScheduler();
   const results = await Promise.allSettled([
+    Promise.resolve().then(() => computerUseOverlay.destroyAll()),
+    Promise.resolve().then(() => computerUse.backend?.dispose?.()),
     botRegistry.stopAll(),
     openGateway.stop(),
     Promise.resolve(mainWindowController.disposeBrowserViews()),
@@ -2206,6 +2346,14 @@ async function runBeforeQuitCleanup(): Promise<void> {
   for (const result of results) {
     if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
   }
+}
+
+function computerUseCapabilityInput() {
+  const serviceState = computerUse.backend?.serviceState?.();
+  return {
+    backendId: computerUse.backendId,
+    health: computerUseServiceHealth(computerUse.backendId, serviceState),
+  };
 }
 
 app.on('activate', focusOrCreateMainWindow);

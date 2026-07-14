@@ -1,7 +1,18 @@
 import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
+import type { ExecutionLogCoverage } from '@maka/core/execution-evidence';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import { stableStringify } from './request-shape.js';
+
+export const HISTORY_COMPACT_SOURCE_POLICY_VERSION = 'maka.compactable_runtime_event_projection.v1' as const;
+
+export interface HistoryCompactCheckpointSource {
+  schemaVersion: 1;
+  kind: 'runtime_event_projection';
+  policyVersion: typeof HISTORY_COMPACT_SOURCE_POLICY_VERSION;
+  /** Inclusive cursor range in the policy-versioned, session-scoped projection. */
+  coverage: ExecutionLogCoverage;
+}
 
 export interface HistoryCompactCheckpointCoverage {
   eventCount: number;
@@ -22,6 +33,8 @@ export interface HistoryCompactCheckpoint {
   createdAt: number;
   highWaterName: string;
   highWaterSeq: number;
+  /** Present on evidence-spine checkpoints; omitted only on legacy V2 data. */
+  source?: HistoryCompactCheckpointSource;
   coverage: HistoryCompactCheckpointCoverage;
   summary: string;
   limitations: string[];
@@ -42,14 +55,27 @@ export interface BuildHistoryCompactCheckpointInput {
 }
 
 export type HistoryCompactCheckpointPrefixMatch =
-  | { coveredEventCount: number; coveredRuntimeEvents: RuntimeEvent[]; reason?: undefined }
-  | { coveredEventCount: 0; coveredRuntimeEvents: []; reason: 'invalid_checkpoint' | 'coverage_miss' | 'source_hash_mismatch' };
+  | {
+      coveredEventCount: number;
+      coveredRuntimeEvents: RuntimeEvent[];
+      successorRuntimeEvents: RuntimeEvent[];
+      reason?: undefined;
+    }
+  | {
+      coveredEventCount: 0;
+      coveredRuntimeEvents: [];
+      successorRuntimeEvents: [];
+      reason: 'invalid_checkpoint' | 'coverage_miss' | 'source_hash_mismatch';
+    };
 
 export function buildHistoryCompactCheckpoint(
   input: BuildHistoryCompactCheckpointInput,
 ): HistoryCompactCheckpoint {
   if (input.coveredRuntimeEvents.length === 0) {
     throw new Error('History compact checkpoint requires covered RuntimeEvents');
+  }
+  if (input.coveredRuntimeEvents.some((event) => event.sessionId !== input.sessionId)) {
+    throw new Error('History compact checkpoint source events must belong to one session');
   }
   const summary = input.summary.trim();
   if (summary.length === 0) {
@@ -77,11 +103,13 @@ export function buildHistoryCompactCheckpoint(
   };
   const highWaterName = input.highWaterName ?? 'history-compact-high-water';
   const highWaterSeq = input.highWaterSeq ?? createdAt;
+  const source = historyCompactCheckpointSource(input.sessionId, input.coveredRuntimeEvents);
   const checkpointId = `hcheckpoint-${sha256(stableStringify({
     version: 2,
     sessionId: input.sessionId,
     highWaterName,
     highWaterSeq,
+    source,
     coverage,
     summary: boundedSummary,
     previousCheckpointId: input.previousCheckpointId,
@@ -94,6 +122,7 @@ export function buildHistoryCompactCheckpoint(
     createdAt,
     highWaterName,
     highWaterSeq,
+    source,
     coverage,
     summary: boundedSummary,
     limitations: [
@@ -112,6 +141,9 @@ export function renderHistoryCompactCheckpoint(checkpoint: HistoryCompactCheckpo
     `<maka_history_compact_checkpoint id="${escapeAttribute(checkpoint.checkpointId)}" high_water="${escapeAttribute(checkpoint.highWaterName)}" seq="${checkpoint.highWaterSeq}" version="${checkpoint.version}">`,
     `summary: ${checkpoint.summary}`,
     `coverage: ${checkpoint.coverage.eventCount} runtime events across ${checkpoint.coverage.turnCount} turns`,
+    ...(checkpoint.source ? [
+      `source: ${checkpoint.source.policyVersion} ${checkpoint.source.coverage.lowWater?.sequence ?? 0}-${checkpoint.source.coverage.highWater.sequence}`,
+    ] : []),
     `limitations: ${checkpoint.limitations.join('; ')}`,
     '</maka_history_compact_checkpoint>',
   ].join('\n');
@@ -156,6 +188,11 @@ export function validateHistoryCompactCheckpointShape(
     && nonEmpty(through?.turnId)
     && nonEmpty(through?.runtimeEventId)
     && nonEmpty(coverage?.sourceDigest)
+    && (checkpoint.source === undefined || validHistoryCompactCheckpointSource(
+      checkpoint.source,
+      checkpoint.sessionId,
+      coverage,
+    ))
     && typeof checkpoint.summary === 'string'
     && checkpoint.summary.trim().length > 0
     && Array.isArray(checkpoint.limitations)
@@ -170,6 +207,10 @@ export function canReplaceHistoryCompactCheckpoint(
   current: HistoryCompactCheckpoint | undefined,
   candidate: HistoryCompactCheckpoint,
 ): boolean {
+  if (current?.source && !candidate.source) return false;
+  if (current?.source && candidate.source && !sameHistoryCompactSourceStream(current.source, candidate.source)) {
+    return false;
+  }
   if (!current || candidate.coverage.eventCount > current.coverage.eventCount) return true;
   if (
     candidate.coverage.eventCount !== current.coverage.eventCount
@@ -181,7 +222,8 @@ export function canReplaceHistoryCompactCheckpoint(
     && candidate.coverage.sourceDigest === current.coverage.sourceDigest
     && candidate.coverage.through.runId === current.coverage.through.runId
     && candidate.coverage.through.turnId === current.coverage.through.turnId
-    && candidate.coverage.through.runtimeEventId === current.coverage.through.runtimeEventId;
+    && candidate.coverage.through.runtimeEventId === current.coverage.through.runtimeEventId
+    && (!current.source || sameHistoryCompactSourceCoverage(current.source, candidate.source));
 }
 
 export function matchHistoryCompactCheckpointPrefix(
@@ -189,23 +231,111 @@ export function matchHistoryCompactCheckpointPrefix(
   events: readonly RuntimeEvent[],
 ): HistoryCompactCheckpointPrefixMatch {
   if (!validateHistoryCompactCheckpointShape(checkpoint)) {
-    return { coveredEventCount: 0, coveredRuntimeEvents: [], reason: 'invalid_checkpoint' };
+    return { coveredEventCount: 0, coveredRuntimeEvents: [], successorRuntimeEvents: [], reason: 'invalid_checkpoint' };
   }
   const coveredRuntimeEvents = events.slice(0, checkpoint.coverage.eventCount);
+  const successorRuntimeEvents = events.slice(checkpoint.coverage.eventCount);
+  const firstEvent = coveredRuntimeEvents[0];
   const lastEvent = coveredRuntimeEvents.at(-1);
   if (
     coveredRuntimeEvents.length !== checkpoint.coverage.eventCount
+    || coveredRuntimeEvents.some((event) => event.sessionId !== checkpoint.sessionId)
+    || !firstEvent
     || !lastEvent
     || lastEvent.runId !== checkpoint.coverage.through.runId
     || lastEvent.turnId !== checkpoint.coverage.through.turnId
     || lastEvent.id !== checkpoint.coverage.through.runtimeEventId
   ) {
-    return { coveredEventCount: 0, coveredRuntimeEvents: [], reason: 'coverage_miss' };
+    return { coveredEventCount: 0, coveredRuntimeEvents: [], successorRuntimeEvents: [], reason: 'coverage_miss' };
+  }
+  if (
+    checkpoint.source
+    && (
+      checkpoint.source.coverage.lowWater?.eventId !== firstEvent.id
+      || checkpoint.source.coverage.highWater.eventId !== lastEvent.id
+    )
+  ) {
+    return { coveredEventCount: 0, coveredRuntimeEvents: [], successorRuntimeEvents: [], reason: 'coverage_miss' };
   }
   if (historyCompactSourceDigest(coveredRuntimeEvents) !== checkpoint.coverage.sourceDigest) {
-    return { coveredEventCount: 0, coveredRuntimeEvents: [], reason: 'source_hash_mismatch' };
+    return { coveredEventCount: 0, coveredRuntimeEvents: [], successorRuntimeEvents: [], reason: 'source_hash_mismatch' };
   }
-  return { coveredEventCount: coveredRuntimeEvents.length, coveredRuntimeEvents };
+  return { coveredEventCount: coveredRuntimeEvents.length, coveredRuntimeEvents, successorRuntimeEvents };
+}
+
+function historyCompactCheckpointSource(
+  sessionId: string,
+  events: readonly RuntimeEvent[],
+): HistoryCompactCheckpointSource {
+  const first = events[0]!;
+  const last = events.at(-1)!;
+  return {
+    schemaVersion: 1,
+    kind: 'runtime_event_projection',
+    policyVersion: HISTORY_COMPACT_SOURCE_POLICY_VERSION,
+    coverage: {
+      lowWater: {
+        ledger: 'runtime_event_projection',
+        streamId: sessionId,
+        sequence: 0,
+        eventId: first.id,
+      },
+      highWater: {
+        ledger: 'runtime_event_projection',
+        streamId: sessionId,
+        sequence: events.length - 1,
+        eventId: last.id,
+      },
+      eventCount: events.length,
+    },
+  };
+}
+
+function validHistoryCompactCheckpointSource(
+  source: HistoryCompactCheckpointSource,
+  sessionId: string | undefined,
+  legacyCoverage: Partial<HistoryCompactCheckpointCoverage> | undefined,
+): boolean {
+  const low = source.coverage?.lowWater;
+  const high = source.coverage?.highWater;
+  return source.schemaVersion === 1
+    && source.kind === 'runtime_event_projection'
+    && source.policyVersion === HISTORY_COMPACT_SOURCE_POLICY_VERSION
+    && low?.ledger === 'runtime_event_projection'
+    && high?.ledger === 'runtime_event_projection'
+    && low.streamId === sessionId
+    && high.streamId === sessionId
+    && low.sequence === 0
+    && Number.isSafeInteger(high.sequence)
+    && high.sequence === (legacyCoverage?.eventCount ?? 0) - 1
+    && source.coverage.eventCount === legacyCoverage?.eventCount
+    && nonEmpty(low.eventId)
+    && nonEmpty(high.eventId)
+    && high.eventId === legacyCoverage?.through?.runtimeEventId;
+}
+
+function sameHistoryCompactSourceStream(
+  current: HistoryCompactCheckpointSource,
+  candidate: HistoryCompactCheckpointSource,
+): boolean {
+  return current.policyVersion === candidate.policyVersion
+    && current.coverage.highWater.ledger === candidate.coverage.highWater.ledger
+    && current.coverage.highWater.streamId === candidate.coverage.highWater.streamId;
+}
+
+function sameHistoryCompactSourceCoverage(
+  current: HistoryCompactCheckpointSource,
+  candidate: HistoryCompactCheckpointSource | undefined,
+): boolean {
+  return Boolean(
+    candidate
+    && sameHistoryCompactSourceStream(current, candidate)
+    && current.coverage.lowWater?.sequence === candidate.coverage.lowWater?.sequence
+    && current.coverage.lowWater?.eventId === candidate.coverage.lowWater?.eventId
+    && current.coverage.highWater.sequence === candidate.coverage.highWater.sequence
+    && current.coverage.highWater.eventId === candidate.coverage.highWater.eventId
+    && current.coverage.eventCount === candidate.coverage.eventCount,
+  );
 }
 
 function historyCompactSourceDigest(events: readonly RuntimeEvent[]): string {

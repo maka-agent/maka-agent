@@ -215,13 +215,16 @@ export function renderHeavyTaskSelfCheckGatePrompt(input: {
 }
 
 function gateBlockerReason(
-  selfCheck: HeavyTaskSemanticSelfCheckState | undefined,
+  selfCheck: TaskRunProjection['latestHeavyTaskSelfCheck'],
   plan: TaskRunProjection['latestHeavyTaskSelfCheckPlan'],
   semanticReason: string,
   checklist: readonly HeavyTaskAcceptanceCheck[],
 ): string | undefined {
   if (!selfCheck) return 'missing accepted public self-check evidence';
   if (!isAcceptedHeavyTaskSelfCheck(selfCheck)) return 'latest self-check evidence was not accepted as public';
+  if (selfCheck.freshness === 'stale') {
+    return `latest self-check is stale: ${selfCheck.freshnessReasons.join(', ') || 'workspace changed'}`;
+  }
   if (selfCheck.status !== 'pass') return `latest self-check status is ${selfCheck.status}`;
   if (selfCheck.commandEvidence.length + selfCheck.artifactEvidence.length === 0) {
     return 'latest pass self-check lacks concrete command or artifact evidence';

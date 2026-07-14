@@ -32,7 +32,7 @@ function OpenMenuCell({ label, children }: { label: string; children: React.Reac
   return (
     <div style={{ minHeight: 220, minWidth: 180 }}>
       <Menu open>
-        <MenuTrigger render={<Button variant="outline" size="sm" />}>{label}</MenuTrigger>
+        <MenuTrigger render={<Button variant="secondary" size="sm" />}>{label}</MenuTrigger>
         <MenuPopup>{children}</MenuPopup>
       </Menu>
     </div>
@@ -42,7 +42,7 @@ function OpenMenuCell({ label, children }: { label: string; children: React.Reac
 export const Basic: Story = {
   render: () => (
     <Menu>
-      <MenuTrigger render={<Button variant="outline" />}>打开菜单</MenuTrigger>
+      <MenuTrigger render={<Button variant="secondary" />}>打开菜单</MenuTrigger>
       <MenuPopup>
         <MenuItem>新建文件</MenuItem>
         <MenuItem>打开…</MenuItem>

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { SessionEvent } from '@maka/core/events';
 import type { PermissionMode, PermissionResponse } from '@maka/core/permission';
+import type { UserQuestionResponse } from '@maka/core/user-question';
 import type { BranchFromTurnInput, CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { SessionSummary, StoredMessage } from '@maka/core/session';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
@@ -14,6 +15,7 @@ export interface MakaSessionRuntime {
   compactSession(sessionId: string, input?: { turnId?: string }): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
+  respondToUserQuestion?(sessionId: string, response: UserQuestionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
   updateSession(sessionId: string, patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: ThinkingLevel | undefined; name?: string }): Promise<SessionSummary>;
   // Rewind reuses the runtime's branch primitives: a non-destructive copy of the
@@ -58,6 +60,7 @@ export interface MakaSessionDriver {
   sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
   compactSession(): AsyncIterable<SessionEvent>;
   respondToPermission(response: PermissionResponse): Promise<void>;
+  respondToUserQuestion?(response: UserQuestionResponse): Promise<void>;
   /**
    * Switch the active session's model, optionally rebinding it to another
    * connection at the same time (cross-provider `/model`). The next turn builds
@@ -134,6 +137,12 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   async respondToPermission(response: PermissionResponse): Promise<void> {
     if (!this.sessionId) throw new Error('Cannot respond to permission before a session starts.');
     await this.input.runtime.respondToPermission(this.sessionId, response);
+  }
+
+  async respondToUserQuestion(response: UserQuestionResponse): Promise<void> {
+    if (!this.sessionId) throw new Error('Cannot respond to a user question before a session starts.');
+    if (!this.input.runtime.respondToUserQuestion) throw new Error('User questions are unavailable on this runtime.');
+    await this.input.runtime.respondToUserQuestion(this.sessionId, response);
   }
 
   async setModel(model: string, connectionSlug?: string): Promise<void> {

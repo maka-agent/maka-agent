@@ -168,7 +168,7 @@ describe('permission mode transition guard copy', () => {
 
   it('composer permission picker disables itself when the composer is disabled, pending, or a disabledReason is present', async () => {
     // The picker must respect the composer's own `disabled` state (the
-    // permission-wait freeze, driven by `Boolean(activePermission)` in
+    // interaction-wait freeze, driven by `Boolean(activeInteraction)` in
     // app-shell.tsx), not only the separately-computed `permissionModeDisabledReason`
     // (which keys off `status === 'waiting_for_user'`). The two are NOT fully
     // coupled: a pending permission can set `props.disabled` before the session
@@ -218,7 +218,12 @@ describe('permission mode transition guard copy', () => {
     const renderer = await readRendererShellCombinedSource();
     const setPermissionModeBlock = renderer.match(/async function setPermissionMode[\s\S]*?async function setSessionModel/)?.[0] ?? '';
 
-    assert.match(renderer, /const pendingPermissionModeChangesRef = useRef<Set<string>>\(new Set\(\)\);/);
+    assert.match(renderer, /const permissionModeChangeRegistry = useKeyedPendingRegistry\(\);/);
+    assert.match(
+      renderer,
+      /pendingPermissionModeChangesRef: permissionModeChangeRegistry\.keysRef/,
+      'the permission-mode-change dedup Set the setPermissionMode action guards on must be backed by the shared keyed-pending registry',
+    );
     assert.match(renderer, /const sessionUi = useAppShellSessionUiState\(\);[\s\S]*setPendingPermissionModeBySession: sessionUi\.setPendingPermissionModeBySession/);
     assert.match(renderer, /const \{[\s\S]*pendingPermissionModeBySession,[\s\S]*\} = sessionUiState;/);
     assert.match(

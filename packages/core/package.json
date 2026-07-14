@@ -9,6 +9,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./runtime-event": "./dist/runtime-event.js",
+    "./execution-evidence": "./dist/execution-evidence.js",
     "./events": "./dist/events.js",
     "./session": "./dist/session.js",
     "./agent-run": "./dist/agent-run.js",
@@ -17,8 +18,10 @@
     "./session-event-health": "./dist/session-event-health.js",
     "./permission": "./dist/permission.js",
     "./permission-profile": "./dist/permission-profile.js",
+    "./additional-permissions": "./dist/additional-permissions.js",
     "./permission-profile-compiler": "./dist/permission-profile-compiler.js",
     "./permission-request-health": "./dist/permission-request-health.js",
+    "./user-question": "./dist/user-question.js",
     "./connections": "./dist/connections.js",
     "./workspace": "./dist/workspace.js",
     "./artifacts": "./dist/artifacts.js",

@@ -10,6 +10,7 @@ import {
 } from '@maka/core/permission-profile';
 
 import { SandboxManager } from '../sandbox/sandbox-manager.js';
+import { LinuxBubblewrapBackend } from '../sandbox/linux-sandbox.js';
 import type {
   SandboxBackend,
   SandboxTransformRequest,
@@ -106,19 +107,62 @@ describe('SandboxManager.selectInitial', () => {
     }
   });
 
-  it('returns backend_not_implemented for linux restricted profiles in Phase 3', () => {
-    const manager = new SandboxManager();
+  it('selects linux when a Linux backend is registered', () => {
+    const manager = new SandboxManager([
+      new LinuxBubblewrapBackend({
+        capability: { available: true, bwrapPath: '/usr/bin/bwrap' },
+      }),
+    ]);
 
     const result = manager.selectInitial({
       profile: createWorkspaceWritePermissionProfile(),
       platform: 'linux',
     });
 
-    assert.equal(result.ok, false);
-    if (!result.ok) {
-      assert.equal(result.reason, 'backend_not_implemented');
-      assert.equal(result.sandboxType, 'linux');
-    }
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.sandboxType, 'linux');
+  });
+
+  it('reports whether the selected backend can enforce the profile', () => {
+    const available = new SandboxManager([
+      new LinuxBubblewrapBackend({
+        capability: { available: true, bwrapPath: '/usr/bin/bwrap' },
+      }),
+    ]);
+    const unavailable = new SandboxManager([
+      new LinuxBubblewrapBackend({
+        capability: { available: false, reason: 'missing-bwrap', bwrapPath: '/usr/bin/bwrap' },
+      }),
+    ]);
+    const profile = createWorkspaceWritePermissionProfile();
+
+    assert.equal(available.canEnforce({ profile, platform: 'linux' }), true);
+    assert.equal(unavailable.canEnforce({ profile, platform: 'linux' }), false);
+  });
+
+  it('does not report enforcement for Linux profiles the backend will reject', () => {
+    const unsupportedArch = new SandboxManager([
+      new LinuxBubblewrapBackend({
+        capability: { available: true, bwrapPath: '/usr/bin/bwrap' },
+        arch: 'ia32',
+      }),
+    ]);
+    const denied = createWorkspaceWritePermissionProfile();
+    denied.fileSystem.entries = [
+      ...denied.fileSystem.entries,
+      { kind: 'path', access: 'deny', path: '/repo/secret' },
+    ];
+    const available = new SandboxManager([
+      new LinuxBubblewrapBackend({
+        capability: { available: true, bwrapPath: '/usr/bin/bwrap' },
+      }),
+    ]);
+
+    assert.equal(unsupportedArch.canEnforce({
+      profile: createWorkspaceWritePermissionProfile(),
+      platform: 'linux',
+    }), false);
+    assert.equal(available.canEnforce({ profile: denied, platform: 'linux' }), false);
   });
 
   it('returns unsupported_platform for win32 restricted profiles', () => {

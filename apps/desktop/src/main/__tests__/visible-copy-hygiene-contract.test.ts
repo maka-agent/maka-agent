@@ -369,11 +369,11 @@ describe('turn footer copy feedback contract', () => {
     const clipboardPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'clipboard-feedback.ts');
     const hookBlock = await readFile(clipboardPath, 'utf8');
 
-    assert.match(hookBlock, /const copyMountedRef = useRef\(true\)/, 'Shared copy feedback must track mounted state.');
+    assert.match(hookBlock, /const copyMountedRef = useMountedRef\(\)/, 'Shared copy feedback must track mounted state via the shared useMountedRef hook.');
     assert.match(
       hookBlock,
-      /useEffect\(\(\) => \{\s*copyMountedRef\.current = true;\s*return \(\) => \{\s*copyMountedRef\.current = false;\s*clearResetTimer\(\);\s*\};\s*\}, \[\]\)/,
-      'Shared copy feedback must restore mounted state during StrictMode effect replay, then cancel timers and mark itself unmounted during cleanup.',
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*clearResetTimer\(\);\s*\};\s*\}, \[\]\)/,
+      'Shared copy feedback cleanup must cancel timers; the shared useMountedRef hook owns StrictMode-safe mount state.',
     );
     assert.match(
       hookBlock,
@@ -407,8 +407,8 @@ describe('turn footer copy feedback contract', () => {
     assert.match(footerBlock, /copyResetTimerRef/, 'Turn footer copy feedback should reset without leaking timers.');
     assert.match(
       footerBlock,
-      /useEffect\(\(\) => \{\s*copyMountedRef\.current = true;\s*return \(\) => \{\s*copyMountedRef\.current = false;\s*clearCopyResetTimer\(\);\s*\};\s*\}, \[\]\)/,
-      'Turn footer copy feedback must restore mounted state during StrictMode effect replay, then clear timers on cleanup.',
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*clearCopyResetTimer\(\);\s*\};\s*\}, \[\]\)/,
+      'Turn footer copy feedback cleanup must clear timers; the shared useMountedRef hook owns StrictMode-safe mount state.',
     );
     assert.match(
       footerBlock,
@@ -495,9 +495,9 @@ describe('tool error copy feedback contract', () => {
     // (issue #332 PR3c): the pending / copy-feedback chrome — which lived UNLAYERED
     // in tool-output.css so it out-ranked the ghost button — now lives as literal
     // arbitrary utilities inlined on the copy button's `className`. We slice the
-    // `ToolErrorBanner` block and require the utilities to appear on an actual
-    // `className="maka-button …"` so the assertion proves BOTH that the state
-    // utilities exist AND that the banner's copy button wears them — a whole-file
+    // `ToolErrorBanner` block and require the utilities to appear on the actual
+    // copy button, without restoring the retired `.maka-button` layer. This proves
+    // BOTH that the state utilities exist AND that the button wears them — a whole-file
     // scan would false-pass if the string drifted to another component. These are
     // arbitrary-value utilities (source == computed), so this source contract is the
     // proof; the computed-style harness only re-diffs the non-trivial container box.
@@ -507,7 +507,7 @@ describe('tool error copy feedback contract', () => {
 
     assert.match(
       block,
-      /className="maka-button \[align-self:start\] data-\[pending=true\]:cursor-progress/,
+      /className="\[align-self:start\] data-\[pending=true\]:cursor-progress/,
       'The tool-error copy button must wear the leaf state utilities inline on its className.',
     );
     assert.match(

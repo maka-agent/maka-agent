@@ -66,6 +66,7 @@ import type { AgentSpec } from '@maka/core/runtime-inputs';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { ToolPermissionRule } from '@maka/core/permission';
+import type { UserQuestionResponse } from '@maka/core/user-question';
 import type {
   LlmCallRecord,
   PricingConfig,
@@ -459,6 +460,10 @@ export interface AiSdkBackendInput {
   /** Optional fire-and-forget telemetry hooks. Tool implementations remain unaware. */
   recordLlmCall?: LlmTelemetryRecorder;
   recordToolInvocation?: ToolTelemetryRecorder;
+  /** Durable session-lifetime cumulative usage checkpoint after each completed provider step. */
+  recordUsageCheckpoint?: (
+    usage: NormalizedAiSdkUsage & { costUsd?: number },
+  ) => void | Promise<void>;
   /** Optional pricing lookup shared with telemetry; defaults to builtin public pricing. */
   lookupPricing?: (modelKey: string) => PricingConfig | null;
   spawnChildAgent?: (input: {
@@ -466,6 +471,7 @@ export interface AiSdkBackendInput {
     spec: AgentSpec;
     prompt: string;
     abortSignal: AbortSignal;
+    onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
@@ -558,6 +564,7 @@ export class AiSdkBackend implements AgentBackend {
   private currentWatchdog: StreamWatchdog | null = null;
   private currentRunTrace: RunTrace | null = null;
   private priorRequestShape: RequestShapeDiagnostic | undefined;
+  private cumulativeUsageCheckpoint: NormalizedAiSdkUsage | undefined;
   /**
    * Id of the assistant step currently streaming. Read by ToolRuntime via
    * `getCurrentStepId` so each tool call's `tool_start` carries the step it
@@ -740,6 +747,7 @@ export class AiSdkBackend implements AgentBackend {
     this.currentTurnId = turnId;
     this.currentRunId = input.runId ?? null;
     this.input.permissionEngine.beginTurn(turnId);
+    this.toolRuntime.beginTurn(turnId);
     this.abortController = new AbortController();
 
     const queue = new AsyncEventQueue<SessionEvent>();
@@ -876,7 +884,6 @@ export class AiSdkBackend implements AgentBackend {
     // .return()-ing) the generator; resetting here makes each turn's state — the
     // loop-gate streak, subagent count, gating — depend only on this turn, not on
     // the previous turn's teardown.
-    this.toolRuntime.resetTurnState();
     if (plan.gating) {
       this.toolRuntime.setGating(plan.gating);
     }
@@ -887,6 +894,7 @@ export class AiSdkBackend implements AgentBackend {
         description: t.description,
         inputSchema: t.parameters,
         execute: this.wrapToolExecute(t, turnId, queue),
+        ...(t.toModelOutput ? { toModelOutput: t.toModelOutput } : {}),
       };
     }
 
@@ -1073,6 +1081,14 @@ export class AiSdkBackend implements AgentBackend {
           const isStepFinishChunk = chunk.type === 'finish-step' || chunk.type === 'step-finish';
           if (isStepFinishChunk) {
             runtimeSteps += 1;
+            const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
+            if (stepUsage) {
+              this.cumulativeUsageCheckpoint = mergeNormalizedUsage(this.cumulativeUsageCheckpoint, stepUsage);
+              await this.input.recordUsageCheckpoint?.({
+                ...this.cumulativeUsageCheckpoint,
+                costUsd: this.computeTokenUsageCostUsd(this.cumulativeUsageCheckpoint),
+              });
+            }
           }
           if (chunk.type === 'finish' || isStepFinishChunk) {
             rawFinishReason = rawFinishReasonString(chunk.finishReason) ?? rawFinishReason;
@@ -1371,6 +1387,7 @@ export class AiSdkBackend implements AgentBackend {
     this.historyCompactAbortController?.abort();
     if (this.currentTurnId !== null) {
       this.input.permissionEngine.endTurn(this.currentTurnId, 'aborted');
+      this.toolRuntime.endTurn(this.currentTurnId, 'aborted');
     }
     this.currentRunTrace?.abortRequested(_reason);
   }
@@ -1380,6 +1397,11 @@ export class AiSdkBackend implements AgentBackend {
     this.input.permissionEngine.recordResponse(this.currentTurnId, decision);
     // PermissionDecisionMessage + ack event are written inside wrapToolExecute
     // after parked.resolve() returns, so no further work here.
+  }
+
+  async respondToUserQuestion(response: UserQuestionResponse): Promise<void> {
+    if (this.currentTurnId === null) return;
+    this.toolRuntime.respondToUserQuestion(this.currentTurnId, response);
   }
 
   async dispose(): Promise<void> {
@@ -1406,6 +1428,10 @@ export class AiSdkBackend implements AgentBackend {
 
   private computeTokenUsageCostUsd(usage: NormalizedAiSdkUsage): number | undefined {
     try {
+      const pricing = (this.input.lookupPricing ?? getBuiltinPricing)(
+        `${this.input.connection.providerType}:${this.input.modelId}`,
+      );
+      if (pricing === null) return undefined;
       return computeCost(
         {
           inputTokens: usage.inputTokens,
@@ -1414,7 +1440,7 @@ export class AiSdkBackend implements AgentBackend {
           cacheMissInputTokens: usage.cacheMissInputTokens,
           cacheWriteInputTokens: usage.cacheWriteInputTokens,
         },
-        (this.input.lookupPricing ?? getBuiltinPricing)(`${this.input.connection.providerType}:${this.input.modelId}`),
+        pricing,
       ).totalCost;
     } catch {
       return undefined;
@@ -2222,7 +2248,7 @@ export class AiSdkBackend implements AgentBackend {
       : undefined;
     const previousCheckpoint = checkpointMatch && !checkpointMatch.reason ? loadedCheckpoint : undefined;
     const newlyFoldedRuntimeEvents = previousCheckpoint
-      ? foldedRuntimeEvents.slice(checkpointMatch!.coveredEventCount)
+      ? checkpointMatch!.successorRuntimeEvents
       : foldedRuntimeEvents;
     const retainedRuntimeEvents = input.priorRuntimeContext.filter((event) =>
       !foldedIds.has(event.id) && !event.id.startsWith('history-compact:')
@@ -2772,7 +2798,7 @@ export class AiSdkBackend implements AgentBackend {
     this.currentRunId = null;
     this.currentRunTrace = null;
     this.currentStepMessageId = null;
-    this.toolRuntime.resetTurnState();
+    this.toolRuntime.endTurn(turnId, this.aborted ? 'aborted' : 'completed');
     this.aborted = false;
   }
 }
@@ -2855,6 +2881,30 @@ function mergeActiveToolResultPruneDiagnosticPatches(
     ...sumOptionalCounts('activePrunedToolResults', left, right),
     ...sumOptionalCounts('activeArchiveFailures', left, right),
     ...sumOptionalCounts('activeEstimatedTokensSaved', left, right),
+  };
+}
+
+function mergeNormalizedUsage(
+  current: NormalizedAiSdkUsage | undefined,
+  next: NormalizedAiSdkUsage,
+): NormalizedAiSdkUsage {
+  if (!current) return next;
+  const cacheMissInputSource = current.cacheMissInputSource === 'explicit'
+    || next.cacheMissInputSource === 'explicit'
+    ? 'explicit'
+    : 'derived';
+  const cacheHitInputTokens = current.cacheHitInputTokens + next.cacheHitInputTokens;
+  return {
+    inputTokens: current.inputTokens + next.inputTokens,
+    outputTokens: current.outputTokens + next.outputTokens,
+    cacheHitInputTokens,
+    cacheMissInputTokens: current.cacheMissInputTokens + next.cacheMissInputTokens,
+    cacheMissInputSource,
+    cacheWriteInputTokens: current.cacheWriteInputTokens + next.cacheWriteInputTokens,
+    reasoningTokens: current.reasoningTokens + next.reasoningTokens,
+    totalTokens: current.totalTokens + next.totalTokens,
+    ...(next.rawFinishReason !== undefined ? { rawFinishReason: next.rawFinishReason } : {}),
+    cachedInputTokens: cacheHitInputTokens,
   };
 }
 

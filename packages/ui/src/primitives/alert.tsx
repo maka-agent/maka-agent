@@ -58,7 +58,7 @@ export function AlertDescription({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2.5 text-foreground-secondary [svg~&]:col-start-2",
+        "flex min-w-0 flex-col gap-2.5 text-foreground-secondary [overflow-wrap:anywhere] [svg~&]:col-start-2",
         className,
       )}
       data-slot="alert-description"

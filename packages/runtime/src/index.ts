@@ -23,8 +23,35 @@ export type {
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
 
+export {
+  MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS,
+  DEFAULT_ADDITIONAL_PERMISSION_GRANT_TTL_MS,
+  AdditionalPermissionError,
+  assertAdditionalPermissionProposal,
+  buildAdditionalPermissionProposal,
+  freezeAdditionalPermissionProposal,
+  freezeAdditionalPermissionGrant,
+  normalizeAdditionalPermissionPath,
+  normalizeAdditionalPermissionProfile,
+  planDeclaredBashAdditionalPermission,
+  planFileToolAdditionalPermission,
+  revalidateAdditionalPermissionProposal,
+} from './additional-permissions.js';
+export type {
+  AdditionalPermissionErrorReason,
+  AdditionalPermissionGrant,
+  AdditionalPermissionPlanResult,
+  AdditionalPermissionPlannerContext,
+  AdditionalPermissionPlanningContext,
+  AdditionalPermissionProposal,
+  NormalizedAdditionalPermissionPath,
+  ToolExecutionPermissionContext,
+} from './additional-permissions.js';
+export { hashAdditionalPermissionProfile } from './additional-permission-hash.js';
+
 export { AiSdkBackend } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
+export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
 export type {
   AgentBackend,
   BackendCompactHistoryInput,
@@ -70,6 +97,48 @@ export type {
   MakaTool as BuiltinMakaTool,
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
+export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
+export type {
+  ComputerUseToolSet,
+  CuAppSummary,
+  CuDispatchBackend,
+  CuDispatchEvidence,
+  CuDispatchOutcome,
+  CuObservedElement,
+  CuObservation,
+  CuOverlayHook,
+  CuOverlayHookContext,
+  CuPresentationFence,
+  CuRunContext,
+  CuRunResult,
+  CuScreenshot,
+  CuSemanticAction,
+} from './computer-use-tools.js';
+export {
+  bindCuaAction,
+  bindCuaActionToObservation,
+  bindCuaSemanticActionToObservation,
+  CuaFrameState,
+  fingerprintCuaAction,
+  fingerprintCuaSemanticAction,
+} from './cua-frame-state.js';
+export type {
+  CuaActionClaimResult,
+  CuaActionConfirmationResult,
+  CuaActionRejectionReason,
+  CuaBoundAction,
+  CuaFrameIdentity,
+  CuaObservation,
+  CuaObservationSnapshot,
+} from './cua-frame-state.js';
+export { CUA_SESSION_STATUSES, CuaSessionState } from './cua-session-state.js';
+export type {
+  CuaActionLease,
+  CuaActionLeaseResult,
+  CuaSessionActionBlockReason,
+  CuaSessionSnapshot,
+  CuaSessionStatus,
+} from './cua-session-state.js';
 export {
   buildManagedBashTool,
   buildForegroundBashTool,
@@ -93,6 +162,7 @@ export {
   MAX_FOREGROUND_BASH_TIMEOUT_MS,
   MAX_PTY_COLS,
   MAX_PTY_ROWS,
+  MAX_SHELL_RUN_RESOURCE_REF_CHARS,
   MAX_SHELL_RUN_TIMEOUT_MS,
   MAX_WRITE_STDIN_INPUT_BYTES,
   MIN_PTY_COLS,
@@ -160,8 +230,9 @@ export { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from './edit-rep
 export type { EditMatch, EditMatchStrategy } from './edit-replace.js';
 export { truncateToolOutput } from './tool-output.js';
 export type { TruncateToolOutputOptions, TruncatedToolOutput } from './tool-output.js';
-export { runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
+export { runProcessWithBoundedTail, runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
 export type { BoundedShellOptions, BoundedShellResult } from './shell-exec.js';
+export type { ChildFdInput } from './child-fd-input.js';
 export { detectShell, defaultShellPlan, buildShellSpawnPlan, bashToolShellGuidance } from './shell-detect.js';
 export type { ShellPlan, ShellKind, ShellSpawnPlan, DetectShellInput } from './shell-detect.js';
 export {
@@ -169,16 +240,26 @@ export {
   MACOS_SEATBELT_EXECUTABLE,
   MACOS_SEATBELT_PLATFORM_DEFAULTS_POLICY,
   MacosSeatbeltBackend,
+  LinuxBubblewrapBackend,
   SandboxManager,
+  buildBubblewrapArgv,
+  buildNetworkSeccompFilter,
+  discoverNestedProtectedMetadataPaths,
   buildSeatbeltPolicy,
   createDefaultSandboxManager,
+  createBuiltinSandboxManager,
   createSeatbeltExecArgs,
   escapeSeatbeltRegex,
+  detectLinuxSandboxCapability,
 } from './sandbox/index.js';
 export type {
   BuildSeatbeltPolicyInput,
   BuildSeatbeltPolicyResult,
+  BuildBubblewrapArgvInput,
   CreateSeatbeltExecArgsInput,
+  DetectLinuxSandboxCapabilityInput,
+  LinuxBubblewrapBackendOptions,
+  LinuxSandboxCapability,
 } from './sandbox/index.js';
 export type {
   SandboxBackend,
@@ -314,6 +395,9 @@ export {
   parseOAuthSubscriptionTokens,
   resolveOAuthSubscriptionAccessToken,
   resolveOAuthSubscriptionTokens,
+  createGitHubCopilotAccountTokens,
+  GITHUB_COPILOT_DEFAULT_API_ENDPOINT,
+  isSupportedGitHubCopilotAccountToken,
   serializeOAuthSubscriptionTokens,
 } from './subscription-credentials.js';
 export type {
@@ -352,6 +436,22 @@ export type {
   HistoryCompactArtifactStore,
   PersistHistoryCompactBlocksDeps,
 } from './history-compact-artifacts.js';
+export {
+  HISTORY_COMPACT_SOURCE_POLICY_VERSION,
+  buildHistoryCompactCheckpoint,
+  canReplaceHistoryCompactCheckpoint,
+  historyCompactCheckpointToRuntimeEvent,
+  matchHistoryCompactCheckpointPrefix,
+  renderHistoryCompactCheckpoint,
+  validateHistoryCompactCheckpointShape,
+} from './history-compact-checkpoint.js';
+export type {
+  BuildHistoryCompactCheckpointInput,
+  HistoryCompactCheckpoint,
+  HistoryCompactCheckpointCoverage,
+  HistoryCompactCheckpointPrefixMatch,
+  HistoryCompactCheckpointSource,
+} from './history-compact-checkpoint.js';
 export { cleanupLegacyHistoryCompactArtifacts } from './history-compact-cleanup.js';
 export type {
   HistoryCompactCleanupDiagnostic,
@@ -472,7 +572,7 @@ export type {
   SemanticCompactSummaryRequest,
 } from './semantic-compact.js';
 export { testConnection } from './test-connection.js';
-export { fetchProviderModels } from './model-fetcher.js';
+export { fetchGitHubCopilotModels, fetchProviderModels } from './model-fetcher.js';
 
 export {
   materializeSession,
@@ -482,7 +582,7 @@ export {
 export type { ToolActivityItem, ChatItem, SessionViewModel } from './materializer.js';
 
 export { AsyncEventQueue } from './async-queue.js';
-export { FakeBackend } from './fake-backend.js';
+export { FAKE_ASK_USER_QUESTION_PROMPT, FakeBackend } from './fake-backend.js';
 
 export {
   BUILTIN_PRICING,
@@ -625,6 +725,28 @@ export type {
   InspectAgentRunOptions,
 } from './agent-run-inspect.js';
 
+// execution-inspect.ts — payload-safe, versioned CLI inspection documents.
+export {
+  AGENT_RUN_INSPECT_DOCUMENT_VERSION,
+  SESSION_INSPECT_DOCUMENT_VERSION,
+  inspectAgentRunDocument,
+  inspectSessionDocument,
+  renderAgentRunInspectTree,
+  renderSessionInspectTree,
+} from './execution-inspect.js';
+export type {
+  AgentRunInspectCompactionCheckpoint,
+  AgentRunInspectDocument,
+  AgentRunInspectIdentity,
+  AgentRunInspectToolFact,
+  AgentRunInspectToolSummary,
+  ExecutionInspectDiagnostic,
+  ExecutionInspectSeverity,
+  SessionHeaderReader,
+  SessionInspectDocument,
+  SessionInspectSummary,
+} from './execution-inspect.js';
+
 // model-history.ts — policy-driven model-history projection.
 export { buildModelHistoryFromRuntimeEvents } from './model-history.js';
 export type {
@@ -740,7 +862,13 @@ export {
 } from './goal-tools.js';
 export type { GoalToolsDeps } from './goal-tools.js';
 export { handleGoalContinuation } from './goal-continuation.js';
-export type { GoalContinuationDeps, GoalContinuationOutcome } from './goal-continuation.js';
+export type {
+  GoalContinuationDeps,
+  GoalContinuationOutcome,
+  GoalTaskGateDecision,
+  GoalTaskGateDeps,
+  GoalTaskGateTrace,
+} from './goal-continuation.js';
 
 export {
   MAX_SKILL_BODY_CHARS,

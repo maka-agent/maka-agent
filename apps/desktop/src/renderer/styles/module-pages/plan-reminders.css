@@ -82,18 +82,6 @@
   flex-wrap: wrap;
 }
 
-/* Detail round 7: the CTA rides UiButton variant="default" untouched — the
-   former charcoal re-skin (hardcoded oklch literals + radius-pill) diverged
-   from every other module-page primary (skills 添加, daily-review 生成每日回顾).
-   Only the icon/label gap remains. */
-.maka-plan-new-task-button {
-  gap: var(--space-1);
-}
-
-.maka-plan-refresh-button {
-  color: var(--foreground-secondary);
-}
-
 .maka-plan-template-strip {
   display: flex;
   flex-direction: column;
@@ -560,15 +548,9 @@
 
 .maka-plan-preset {
   min-width: 0;
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.maka-plan-preset:hover {
-  background: var(--state-hover-bg);
 }
 
 .maka-plan-validation {
@@ -595,10 +577,6 @@
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
   line-height: var(--leading-snug);
-}
-
-.maka-plan-submit {
-  justify-content: center;
 }
 
 .maka-plan-search,

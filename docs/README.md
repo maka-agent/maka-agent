@@ -24,6 +24,7 @@ This page is the authority map for Maka documentation. Code and contract tests r
 ### Runtime and Headless
 
 - [Session task ledger lifecycle](./session-task-ledger-lifecycle.md)
+- [Execution identity and evidence spine](./execution-evidence-spine.md)
 - [AHE target protocol and evidence export](./ahe-target-protocol.md)
 - [Skill catalog policy](./skill-catalog-policy.md)
 - [Backend architecture chapters](./architecture/)

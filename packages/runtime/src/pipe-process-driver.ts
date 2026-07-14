@@ -1,7 +1,12 @@
-import { spawn, type ChildProcessByStdio } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import type { Readable } from 'node:stream';
 
 import type { ShellSpawnPlan } from './shell-detect.js';
+import {
+  buildSpawnStdio,
+  writeChildFdInputs,
+  type ChildFdInput,
+} from './child-fd-input.js';
 
 export interface PipeProcessExit {
   exitCode: number | null;
@@ -11,36 +16,51 @@ export interface PipeProcessExit {
 export interface PipeProcessDriverOptions {
   plan: ShellSpawnPlan;
   cwd: string;
+  env?: NodeJS.ProcessEnv;
+  fdInputs?: readonly ChildFdInput[];
   onData: (stream: 'stdout' | 'stderr', data: string) => void;
   onExit: (exit: PipeProcessExit) => void;
   onFailure: (error: Error) => void;
 }
 
-type PipeChild = ChildProcessByStdio<null, Readable, Readable>;
-
 export class PipeProcessDriver {
   readonly pid: number | undefined;
   readonly ready: Promise<void>;
 
-  private readonly child: PipeChild;
+  private readonly child: ChildProcess;
+  private readonly stdout: Readable;
+  private readonly stderr: Readable;
   private disposed = false;
   private exited = false;
 
   constructor(private readonly options: PipeProcessDriverOptions) {
     this.child = spawn(options.plan.file, options.plan.args, {
       cwd: options.cwd,
+      env: options.env,
       shell: options.plan.useShellOption,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: buildSpawnStdio(options.fdInputs),
       detached: process.platform !== 'win32',
     });
+    if (!this.child.stdout || !this.child.stderr) {
+      this.child.kill('SIGKILL');
+      throw new Error('Pipe process did not expose stdout and stderr');
+    }
+    this.stdout = this.child.stdout;
+    this.stderr = this.child.stderr;
     this.pid = this.child.pid;
-    this.child.stdout.setEncoding('utf8');
-    this.child.stderr.setEncoding('utf8');
-    this.child.stdout.on('data', this.onStdout);
-    this.child.stderr.on('data', this.onStderr);
+    this.stdout.setEncoding('utf8');
+    this.stderr.setEncoding('utf8');
+    this.stdout.on('data', this.onStdout);
+    this.stderr.on('data', this.onStderr);
     this.child.on('close', this.onClose);
     this.child.on('error', this.onError);
     this.ready = waitForSpawn(this.child);
+    try {
+      writeChildFdInputs(this.child, options.fdInputs);
+    } catch (error) {
+      this.child.kill('SIGKILL');
+      throw error;
+    }
   }
 
   kill(signal: 'SIGTERM' | 'SIGKILL'): boolean {
@@ -50,8 +70,8 @@ export class PipeProcessDriver {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.child.stdout.off('data', this.onStdout);
-    this.child.stderr.off('data', this.onStderr);
+    this.stdout.off('data', this.onStdout);
+    this.stderr.off('data', this.onStderr);
     this.child.off('close', this.onClose);
     this.child.off('error', this.onError);
   }
@@ -75,7 +95,7 @@ export class PipeProcessDriver {
   };
 }
 
-function waitForSpawn(child: PipeChild): Promise<void> {
+function waitForSpawn(child: ChildProcess): Promise<void> {
   return new Promise((resolve, reject) => {
     const onSpawn = () => {
       cleanup();

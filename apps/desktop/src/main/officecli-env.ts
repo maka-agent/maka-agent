@@ -1,10 +1,6 @@
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export function bundledOfficeCliToolsDir(resourcesPath = currentResourcesPath()): string {
-  return bundledOfficeCliToolsDirs(resourcesPath)[0] ?? '';
-}
-
 export function bundledOfficeCliToolsDirs(resourcesPath = currentResourcesPath()): string[] {
   const dirs = resourcesPath ? [join(resourcesPath, 'tools')] : [];
   const devToolsDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'resources', 'tools');

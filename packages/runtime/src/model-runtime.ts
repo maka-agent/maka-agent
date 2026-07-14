@@ -1,0 +1,41 @@
+import {
+  PROVIDER_DEFAULTS,
+  effectiveBaseUrl,
+  type LlmConnection,
+  type ProviderRuntimeAdapter,
+} from '@maka/core/llm-connections';
+import { lookupModelProviderOverride } from '@maka/core/model-metadata';
+
+export interface ResolvedModelRuntime {
+  adapter: ProviderRuntimeAdapter;
+  baseUrl: string;
+}
+
+export function resolveModelRuntime(connection: LlmConnection, modelId: string): ResolvedModelRuntime {
+  const override = lookupModelProviderOverride(connection.providerType, modelId);
+  const adapter = override
+    ? runtimeAdapterOverride(override.npm)
+    : PROVIDER_DEFAULTS[connection.providerType].runtimeAdapter;
+  const configuredBaseUrl = connection.baseUrl?.trim();
+  return {
+    adapter,
+    baseUrl: configuredBaseUrl
+      ? effectiveBaseUrl(connection)
+      : override?.api ?? effectiveBaseUrl(connection),
+  };
+}
+
+function runtimeAdapterOverride(packageName: string): ProviderRuntimeAdapter {
+  switch (packageName) {
+    case '@ai-sdk/anthropic':
+      return { kind: 'anthropic', auth: 'api-key', normalizeBaseUrl: true };
+    case '@ai-sdk/google':
+      return { kind: 'google', normalizeBaseUrl: false };
+    case '@ai-sdk/openai':
+      return { kind: 'openai' };
+    case '@ai-sdk/openai-compatible':
+      return { kind: 'openai-compatible', name: 'provider' };
+    default:
+      throw new Error(`models.dev model runtime package ${packageName} is unsupported`);
+  }
+}

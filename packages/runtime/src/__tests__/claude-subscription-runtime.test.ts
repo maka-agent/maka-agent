@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
-import type { LlmConnection } from '@maka/core';
+import { PROVIDER_REGISTRY, type LlmConnection } from '@maka/core';
 import { testConnection } from '../test-connection.js';
 
 describe('Claude subscription runtime wiring', () => {
@@ -93,38 +93,34 @@ describe('Claude subscription runtime wiring', () => {
     assert.equal(anthropicV1BaseUrl('https://api.kimi.com/coding/'), 'https://api.kimi.com/coding/v1', 'override omitting /v1 gets it filled in');
   });
 
-  test('model factory routes Anthropic and Kimi sends through the /v1 base URL helper', async () => {
+  test('registry routes Anthropic and Kimi through the normalized API-key adapter', async () => {
+    assert.deepEqual(PROVIDER_REGISTRY.anthropic.runtimeAdapter, {
+      kind: 'anthropic',
+      auth: 'api-key',
+      normalizeBaseUrl: true,
+    });
+    assert.deepEqual(PROVIDER_REGISTRY['kimi-coding-plan'].runtimeAdapter, {
+      kind: 'anthropic',
+      auth: 'api-key',
+      normalizeBaseUrl: true,
+    });
     const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
-    // anthropic and kimi-coding-plan share one case body; slice the whole region
-    // up to the next distinct provider (MiniMax) so a shared case is not a failure.
-    const region = src.slice(src.indexOf("case 'anthropic'"), src.indexOf("case 'MiniMax'"));
-    assert.match(region, /baseURL:\s*anthropicV1BaseUrl\(baseURL\)/, 'Anthropic API-key and Kimi sends must use the SDK /v1 base URL');
+    const region = src.slice(src.indexOf("case 'anthropic'"), src.indexOf("case 'claude-subscription'"));
+    assert.match(region, /adapter\.normalizeBaseUrl\s*\?\s*anthropicV1BaseUrl\(baseURL\)/);
   });
 
-  test('model factory sends MiniMax over Bearer (authToken), not x-api-key', async () => {
-    const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
-    const caseIdx = src.indexOf("case 'MiniMax'");
-    assert.notEqual(caseIdx, -1, 'MiniMax case must exist');
-    const caseRegion = src.slice(caseIdx, src.indexOf("case 'claude-subscription'", caseIdx));
-    assert.match(
-      caseRegion,
-      /createAnthropic\(\{[\s\S]*authToken:\s*apiKey/,
-      'MiniMax must pass the key as authToken so the request uses Authorization: Bearer (MiniMax-recommended auth)',
-    );
-    assert.doesNotMatch(
-      caseRegion,
-      /\n\s*apiKey,/,
-      'MiniMax must not send the key as x-api-key via the bare apiKey shorthand',
-    );
-    assert.match(caseRegion, /baseURL,/, 'MiniMax must keep its provider-specific Anthropic-compatible base URL');
-    assert.doesNotMatch(caseRegion, /anthropicV1BaseUrl/, 'MiniMax base URL must not be rewritten to /v1');
+  test('registry sends both MiniMax variants over Bearer without rewriting their base URL', () => {
+    const expected = { kind: 'anthropic', auth: 'bearer', normalizeBaseUrl: false };
+    assert.deepEqual(PROVIDER_REGISTRY.MiniMax.runtimeAdapter, expected);
+    assert.deepEqual(PROVIDER_REGISTRY['MiniMax-cn'].runtimeAdapter, expected);
   });
 
   test('model factory wires codex-subscription to OpenAI Responses with account-scoped fetch/header shape', async () => {
     const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
+    assert.deepEqual(PROVIDER_REGISTRY['codex-subscription'].runtimeAdapter, { kind: 'codex-subscription' });
     const caseIdx = src.indexOf("case 'codex-subscription'");
     assert.notEqual(caseIdx, -1, 'codex-subscription case must exist');
-    const caseRegion = src.slice(caseIdx, src.indexOf("case 'gemini-cli'", caseIdx));
+    const caseRegion = src.slice(caseIdx, src.indexOf("case 'unavailable'", caseIdx));
     assert.match(caseRegion, /createOpenAI\(\{[\s\S]*apiKey/, 'Codex OAuth must use OpenAI client with OAuth token');
     assert.match(caseRegion, /fetch,/, 'Codex OAuth must accept the desktop ChatGPT backend fetch wrapper');
     assert.match(caseRegion, /codexSubscriptionHeaders\(apiKey\)/, 'Codex OAuth must attach account-scoped headers');

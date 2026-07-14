@@ -13,6 +13,7 @@ import {
   type VerifierResult,
 } from './task-contracts.js';
 import type { TaskRunProjection } from './task-run-store.js';
+import { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
 
 export interface TaskEventsFromResultRecordOptions {
   task?: Task;
@@ -109,6 +110,23 @@ export function taskEventsFromResultRecord(
       ...(record.runId ? { agentRunId: record.runId } : {}),
     },
   ];
+
+  if (record.sessionId && record.runId) {
+    events.push({
+      type: 'task_attempt_execution_linked',
+      id: eventId(),
+      taskRunId,
+      attemptId,
+      ts: record.finishedAt,
+      evidence: taskAttemptExecutionEvidence({
+        taskRunId,
+        attemptId,
+        sessionId: record.sessionId,
+        agentRunId: record.runId,
+        runtimeEvents: [],
+      }),
+    });
+  }
 
   if (verifierResult) {
     events.push({ type: 'verifier_result_recorded', id: eventId(), taskRunId, ts: record.finishedAt, result: verifierResult });

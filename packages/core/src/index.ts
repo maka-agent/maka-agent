@@ -27,8 +27,11 @@ export type {
   ShellRunStateResult,
   ShellRunUpdateOwnership,
   ShellRunUpdate,
+  AdditionalPermissionRequestEvent,
+  AnyPermissionRequestEvent,
   PermissionRequestEvent,
   PermissionDecisionAckEvent,
+  UserQuestionRequestEvent,
   PlanSubmittedEvent,
   PlanStep,
   TokenUsageEvent,
@@ -40,6 +43,13 @@ export type {
   AttachmentIngestItem,
   CompleteStopReason,
 } from './events.js';
+export type {
+  UserQuestion,
+  UserQuestionOption,
+  UserQuestionRequest,
+  UserQuestionResponse,
+  UserQuestionResult,
+} from './user-question.js';
 export {
   failureClassFromCompleteStopReason,
   TOOL_ACTIVITY_KINDS,
@@ -89,6 +99,33 @@ export {
   runtimeEventHasModelVisibleContent,
   createRuntimeEventId,
 } from './runtime-event.js';
+
+// execution-evidence.ts — shared cross-ledger identity and source coverage.
+// This contract references canonical facts; it does not create another fact
+// authority. Subpath `@maka/core/execution-evidence` is preferred.
+export type {
+  ExecutionIdentityRef,
+  TaskIdentityRef,
+  ExecutionLogCursor,
+  ExecutionLogCoverage,
+  WorkspaceRevisionRef,
+  TargetSnapshotRef,
+  ExecutionEvidenceRef,
+  ExecutionLogLedger,
+  ExecutionLogCursorComparison,
+  WorkspaceRevisionKind,
+  ExecutionEvidenceValidationIssue,
+  ExecutionEvidenceValidationResult,
+} from './execution-evidence.js';
+export {
+  EXECUTION_EVIDENCE_REF_SCHEMA_VERSION,
+  EXECUTION_LOG_LEDGERS,
+  WORKSPACE_REVISION_KINDS,
+  executionLogCursorsShareStream,
+  compareExecutionLogCursors,
+  validateExecutionEvidenceRef,
+  isExecutionEvidenceRef,
+} from './execution-evidence.js';
 
 // runtime-event-store.ts
 export type {
@@ -192,9 +229,11 @@ export {
   projectWriteStdinInput,
   readWriteStdinInputPreview,
   WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS,
+  WRITE_STDIN_REF_PREVIEW_MAX_CHARS,
   type WriteStdinInputPreview,
 } from './tool-activity-args.js';
 export {
+  SHELL_RUN_ID_MAX_CHARS,
   SHELL_RUN_STATUSES,
   SHELL_RUN_TERMINAL_STATUSES,
   isShellOutput,
@@ -241,7 +280,9 @@ export type {
   ToolExecutionWriteBack,
   PreToolUseInput,
   PreToolUseResult,
+  AdditionalPermissionRequest,
   PermissionRequest,
+  PermissionRequestPayload,
   PermissionResponse,
   ToolPermissionRule,
   ToolPermissionRuleMatchInput,
@@ -263,6 +304,44 @@ export {
   preToolUse,
 } from './permission.js';
 
+// computer-use.ts
+export type {
+  ComputerUseActionOutcome,
+  ComputerUseApprovalClass,
+  ComputerUseApprovalSummary,
+  ComputerUseDispatchEvidence,
+  ComputerUseDispatchTier,
+  ComputerUseDisplayIdentity,
+  ComputerUseEffect,
+  ComputerUseErrorCode,
+  ComputerUseBoundAction,
+  ComputerUseFrameIdentity,
+  ComputerUseFrameSourceKind,
+  ComputerUseObservationIdentity,
+  ComputerUsePageIdentity,
+  ComputerUseRect,
+  ComputerUseScreenFrame,
+  ComputerUseWindowIdentity,
+  CuAction,
+  CuActionType,
+  CuPoint,
+  CuRegion,
+  CuScrollDirection,
+} from './computer-use.js';
+export {
+  COMPUTER_USE_ACTION_TYPES,
+  COMPUTER_USE_APPROVAL_CLASSES,
+  COMPUTER_USE_DISPATCH_TIERS,
+  COMPUTER_USE_EFFECTS,
+  COMPUTER_USE_ERROR_CODES,
+  COMPUTER_USE_FRAME_SOURCE_KINDS,
+  CU_ACTION_TYPES,
+  CU_SCROLL_DIRECTIONS,
+  computerUseApprovalScopeKey,
+  computerUseApprovalSummary,
+  isComputerUseErrorCode,
+} from './computer-use.js';
+
 // permission-profile.ts
 export type {
   PermissionProfile,
@@ -273,6 +352,7 @@ export type {
   PermissionProfileName,
   FileSystemAccessMode,
   FileSystemProtectedMetadataPolicy,
+  FileSystemPathMatch,
   FileSystemSandboxEntry,
   FileSystemSandboxKind,
   FileSystemSandboxPolicy,
@@ -283,6 +363,7 @@ export type {
 } from './permission-profile.js';
 export {
   FILE_SYSTEM_ACCESS_MODES,
+  FILE_SYSTEM_PATH_MATCHES,
   FILE_SYSTEM_SANDBOX_KINDS,
   FILE_SYSTEM_SPECIAL_PATHS,
   NETWORK_SANDBOX_KINDS,
@@ -296,6 +377,31 @@ export {
   isDeniedPath,
   isProtectedMetadataPath,
 } from './permission-profile.js';
+
+// additional-permissions.ts
+export type {
+  AdditionalFileSystemPermission,
+  AdditionalPermissionAccess,
+  AdditionalPermissionProfile,
+  AdditionalPermissionRiskSummary,
+  AdditionalPermissionScope,
+  AdditionalPermissionValidationFailureReason,
+  AdditionalPermissionValidationResult,
+} from './additional-permissions.js';
+export {
+  ADDITIONAL_PERMISSION_ACCESS_MODES,
+  ADDITIONAL_PERMISSION_SCOPES,
+  MAX_ADDITIONAL_FILESYSTEM_ENTRIES,
+  MAX_ADDITIONAL_PERMISSION_PATH_CHARS,
+  MAX_ADDITIONAL_PERMISSION_SERIALIZED_BYTES,
+  additionalPermissionAllowsPath,
+  additionalPermissionMatchesPath,
+  additionalPermissionRequiredForPath,
+  applyAdditionalPermissionProfile,
+  compactAdditionalFileSystemPermissions,
+  serializeAdditionalPermissionProfile,
+  validateAdditionalPermissionProfile,
+} from './additional-permissions.js';
 
 // permission-profile-compiler.ts
 export type {
@@ -573,31 +679,45 @@ export type {
   CreateTaskInput,
   ResumeTrust,
   Task,
+  TaskAgentOutcome,
+  TaskLedgerChangedEvent,
   TaskLedgerEvent,
+  TaskLedgerEventTaskSnapshot,
   TaskLedgerEventRefs,
   TaskLedgerEventType,
   TaskLedgerListOptions,
   TaskLedgerMutationContext,
   TaskLedgerNormalizeResult,
   TaskLedgerProjection,
+  TaskLedgerPromptRender,
   TaskLedgerStore,
+  TaskOwner,
   TaskStatus,
   UpdateTaskInput,
 } from './task-ledger.js';
 export {
   TASK_EVIDENCE_MAX_CHARS,
+  TASK_ARCHIVE_AFTER_MS,
   TASK_ID_MAX_CHARS,
+  TASK_KEY_MAX_CHARS,
   TASK_LEDGER_EVENT_TYPES,
   TASK_LEDGER_MAX_TASKS,
+  TASK_LEDGER_PROMPT_MAX_CHARS,
+  TASK_LEDGER_PROMPT_RECENT_TERMINAL,
   TASK_RESUME_TRUST_LEVELS,
   TASK_STATUSES,
+  TASK_TERMINAL_STATUSES,
   TASK_SUBJECT_MAX_CHARS,
   canTransitionTaskStatus,
   classifyTaskResumeTrust,
   filterModelVisibleTaskLedgerTasks,
+  findTaskByRef,
+  compareTaskKeys,
   isSafeTaskId,
   isResumeTrust,
   isTaskStatus,
+  isTaskKey,
+  isTerminalTaskStatus,
   normalizeCreateTaskInput,
   normalizeResumeTrust,
   normalizeTaskEvidenceText,
@@ -607,6 +727,8 @@ export {
   projectTaskLedgerEvents,
   renderTaskLedgerDebugText,
   renderSafeTaskLedgerText,
+  renderTaskLedgerPromptText,
+  sanitizeTaskLedgerTask,
   taskLedgerEventTypeForCreate,
   taskLedgerEventTypeForUpdate,
   validateTaskEvidence,
@@ -758,14 +880,18 @@ export type {
   ModelDiscoverySource,
   ModelInfo,
   ProviderCategory,
+  ProviderCatalogGroup,
   ProviderDefaults,
+  ProviderRuntimeAdapter,
   ProviderType,
   UpdateConnectionInput,
 } from './llm-connections.js';
 export {
   CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS,
+  PROVIDER_REGISTRY,
   PROVIDER_DEFAULTS,
   CATALOG_PROVIDER_TYPES,
+  RECOMMENDED_PROVIDER_TYPES,
   READY_PROVIDER_TYPES,
   backendKindOf,
   effectiveBaseUrl,

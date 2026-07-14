@@ -11,6 +11,7 @@ import type {
   SessionSummary,
   StoredMessage,
   UserMessageInput,
+  UserQuestionResponse,
 } from '@maka/core';
 import { createMakaSessionDriver } from '../session-driver.js';
 
@@ -438,6 +439,25 @@ describe('Maka session driver', () => {
     }]);
   });
 
+  test('routes user-question responses to the active session', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      newId: nextId('turn'),
+    });
+
+    await collect(driver.sendPrompt('choose'));
+    await driver.respondToUserQuestion?.({ requestId: 'question-1', answers: ['A', null] });
+
+    assert.deepEqual(runtime.userQuestionResponses, [{
+      sessionId: 'session-1',
+      response: { requestId: 'question-1', answers: ['A', null] },
+    }]);
+  });
+
   test('lists rewind targets newest-first, one per prompted turn, including the latest', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
@@ -653,6 +673,7 @@ class RecordingRuntime {
   readonly sent: Array<{ sessionId: string; input: UserMessageInput }> = [];
   readonly compacted: Array<{ sessionId: string; input: { turnId?: string } }> = [];
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
+  readonly userQuestionResponses: Array<{ sessionId: string; response: UserQuestionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
   readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string } }> = [];
   readonly branched: Array<{ sessionId: string; sourceTurnId: string }> = [];
@@ -711,6 +732,10 @@ class RecordingRuntime {
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
     this.permissionResponses.push({ sessionId, response });
+  }
+
+  async respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void> {
+    this.userQuestionResponses.push({ sessionId, response });
   }
 
   async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary> {

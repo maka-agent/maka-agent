@@ -49,7 +49,7 @@ export interface ConnectionUiStatusInput {
 
 export function deriveConnectionUiStatus(input: ConnectionUiStatusInput): ConnectionUiStatus {
   if (!input.enabled) return 'disabled';
-  const needsSecret = input.authKind !== 'none';
+  const needsSecret = input.authKind === 'api_key' || input.authKind === 'oauth_token';
   if ((needsSecret && !input.hasSecret) || !input.defaultModel) {
     return 'not_configured';
   }

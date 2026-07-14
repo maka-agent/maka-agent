@@ -47,6 +47,7 @@ export type {
   HeavyTaskCompactEvidenceEnvelope,
   HeavyTaskDiffSummary,
   HeavyTaskEvidenceKind,
+  HeavyTaskEvidenceProvenanceLinkedEvent,
   HeavyTaskEvidenceRecordedEvent,
   HeavyTaskOutputSummary,
   HeavyTaskInventoryItem,
@@ -57,11 +58,15 @@ export type {
   HeavyTaskCommandEvidence,
   HeavyTaskProgressSource,
   HeavyTaskSelfCheckRecordedEvent,
+  HeavyTaskSelfCheckEvidenceLinkedEvent,
+  HeavyTaskSelfCheckFreshness,
+  HeavyTaskSelfCheckFreshnessReason,
   HeavyTaskSelfCheckGateAction,
   HeavyTaskSelfCheckGateRecordedEvent,
   HeavyTaskSelfCheckGateState,
   HeavyTaskSelfCheckStatus,
   HeavyTaskSemanticSelfCheckState,
+  HeavyTaskSelfCheckProjection,
   HeavyTaskSourceGuardResult,
   HeavyTaskToolEvidenceName,
   HeavyTaskTodoItem,
@@ -80,6 +85,7 @@ export type {
   ScoreResult,
   SelfCheckObservation,
   TaskAttempt,
+  TaskAttemptExecutionLinkedEvent,
   TaskAttemptStatus,
   TaskDefinition,
   TaskEvent,
@@ -138,8 +144,29 @@ export {
   resourceScopeEquals,
   type NormalizedPermissionArgs,
 } from './permission-grants.js';
-export type { TaskRunProjection, TaskRunStore } from './task-run-store.js';
+export type { TaskEventLedgerEntry, TaskRunProjection, TaskRunStore } from './task-run-store.js';
 export { createInMemoryTaskRunStore, createTaskRunStore, projectTaskRun } from './task-run-store.js';
+export {
+  TASK_RUN_INSPECT_SCHEMA_VERSION,
+  inspectTaskRun,
+  renderTaskRunInspectTree,
+} from './task-run-inspect.js';
+export type {
+  InspectTaskRunDependencies,
+  TaskRunInspectAgentRun,
+  TaskRunInspectAttempt,
+  TaskRunInspectCompactionCheckpoint,
+  TaskRunInspectCoverageStatus,
+  TaskRunInspectDiagnostic,
+  TaskRunInspectDiagnosticCode,
+  TaskRunInspectDocument,
+  TaskRunInspectSelfCheck,
+  TaskRunInspectSeverity,
+  TaskRunInspectSummary,
+  TaskRunInspectTaskEventSource,
+  TaskRunInspectToolFact,
+  TaskRunInspectToolSummary,
+} from './task-run-inspect.js';
 export type { TaskEventsFromResultRecordOptions } from './task-run-adapter.js';
 export {
   resultRecordFromTaskRunProjection,
@@ -148,6 +175,15 @@ export {
 } from './task-run-adapter.js';
 export type { RunTaskOnceDeps, RunTaskOnceResult } from './task-agent-controller.js';
 export { runTaskOnce, TaskAgentController } from './task-agent-controller.js';
+export type { TaskAttemptExecutionEvidenceInput } from './task-execution-lineage.js';
+export { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
+export type {
+  TaskEvidenceRuntimeProvenanceInput,
+  TaskEvidenceRuntimeProvenanceLink,
+} from './task-evidence-provenance.js';
+export { runtimeToolFactCoverage, taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
+export type { SelfCheckEvidenceBindingInput, SelfCheckEvidenceBindingResult } from './task-self-check-evidence.js';
+export { bindSelfCheckEvidence } from './task-self-check-evidence.js';
 export type {
   AutonomousDecisionInput,
   AutonomousDecisionPolicy,
@@ -186,6 +222,10 @@ export type {
   BuildMakaAheTargetSnapshotOptions,
   MakaAheRunEvidence,
   MakaAheRunEvidenceOptions,
+  MakaAheAgentRunEvidenceByTaskRun,
+  MakaAheAgentRunEvidenceSource,
+  MakaAheGeneratedRefsByTaskRun,
+  MakaAheGeneratedTaskRefs,
   WriteMakaAheEvidenceExportOptions,
   WriteMakaAheEvidenceExportResult,
 } from './ahe-evidence-export.js';
@@ -202,16 +242,29 @@ export type {
   MakaAheChangeEvaluationCell,
   MakaAheChangeManifest,
   MakaAheComponentCategory,
+  MakaAheCurrentTargetProtocolVersion,
   MakaAheEvidenceCase,
+  MakaAheExecutionLineage,
+  MakaAheExecutionLineageAgentRun,
+  MakaAheExecutionLineageAttempt,
+  MakaAheExecutionLineageGap,
+  MakaAheGitIdentity,
   MakaAheHarnessResults,
+  MakaAheLegacyTargetProtocolVersion,
+  MakaAheLegacyTargetSnapshot,
+  MakaAheLegacyRunResult,
   MakaAheResultStatus,
   MakaAheRunResult,
+  MakaAheRunResultDocument,
   MakaAheScoreAuthority,
   MakaAheSnapshotIdentity,
+  MakaAheSourceManifest,
+  MakaAheSourceManifestEntry,
   MakaAheSourceRef,
   MakaAheTargetComponent,
   MakaAheTargetProtocolVersion,
   MakaAheTargetSnapshot,
+  MakaAheTargetSnapshotDocument,
   MakaAheTargetSourceLabel,
   MakaAheTraceIndex,
   MakaAheTraceIndexEntry,
@@ -222,14 +275,22 @@ export type {
 export {
   MAKA_AHE_COMPONENT_CATEGORIES,
   MAKA_AHE_CURRENT_COMPONENTS,
+  MAKA_AHE_EXECUTION_LINEAGE_SCHEMA_VERSION,
   MAKA_AHE_RESULT_STATUSES,
+  MAKA_AHE_RUN_RESULT_SCHEMA_VERSION,
   MAKA_AHE_SCORE_AUTHORITIES,
+  MAKA_AHE_SUPPORTED_TARGET_PROTOCOL_VERSIONS,
   MAKA_AHE_TARGET_PROTOCOL_VERSION,
+  MAKA_AHE_TARGET_PROTOCOL_VERSION_V1,
   MAKA_AHE_TARGET_SOURCE_LABEL,
   MAKA_AHE_TRANSITION_STATUSES,
+  makaAheSourceManifestDigest,
+  makaAheTargetSnapshotId,
   validateMakaAheChangeManifest,
+  validateMakaAheExecutionLineage,
   validateMakaAheRunResult,
   validateMakaAheTargetComponents,
+  validateMakaAheTargetSnapshot,
 } from './ahe-target-protocol.js';
 export type { TaskRunExport, WriteTaskRunExportOptions, WriteTaskRunExportResult } from './result-export.js';
 export {

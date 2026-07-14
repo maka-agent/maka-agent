@@ -1,0 +1,161 @@
+Third-Party Licenses
+====================
+
+This file records notices for third-party source assets vendored into the Maka desktop application. Each entry identifies the upstream revision and every covered vendored file so the notice remains useful in source and packaged distributions.
+
+## Lobe Icons
+
+- Repository: https://github.com/lobehub/lobe-icons
+- Package: `@lobehub/icons-static-svg` version `1.91.0`
+- License: MIT
+- Covered vendored files:
+  - `apps/desktop/src/renderer/assets/provider-brands/xai.svg`
+    - Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`
+    - Upstream path: `packages/static-svg/icons/xai.svg`
+    - SHA-256: `89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451`
+  - `apps/desktop/src/renderer/assets/provider-brands/xiaomimimo.svg`
+    - Upstream path: `packages/static-svg/icons/xiaomimimo.svg`
+    - SHA-256: `b04ad7dad52af2212c4567daf0ee6856f2c4625c92c680a27f9880295d558b71`
+  - `apps/desktop/src/renderer/assets/provider-brands/zai.svg`
+    - Upstream path: `packages/static-svg/icons/zai.svg`
+    - SHA-256: `e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1`
+  - `apps/desktop/src/renderer/assets/provider-brands/together.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/together-color.svg`
+    - SHA-256: `27ccaf118a431c386b88418a34a4346afd9638dde10e3f2295db2eec1fa5898a`
+  - `apps/desktop/src/renderer/assets/provider-brands/deepinfra.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/deepinfra-color.svg`
+    - SHA-256: `bfc78853fe658f6446651d03218f3e809215fd7cb3bce841a6526de383286544`
+  - `apps/desktop/src/renderer/assets/provider-brands/vercel.svg`
+    - Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`
+    - Upstream path: `packages/static-svg/icons/vercel.svg`
+    - SHA-256: `4874d52d8b2ce7c309cbd10c424fee123b2c9483e76d76ad0dca41794483eb24`
+  - `apps/desktop/src/renderer/assets/provider-brands/cloudflare.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/cloudflare-color.svg`
+    - SHA-256: `cee35d3f0ecb7925ce0a89aeaff8b907cadae7c3fe44a23e4001cc8d5ee57502`
+  - `apps/desktop/src/renderer/settings/provider-brand-marks.tsx` `Ollama` path
+    - Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`
+    - Upstream path: `packages/static-svg/icons/ollama.svg`
+    - SHA-256: `fe847dff4bb6ae25ebec9a7def819ec2583023552b2e88a572c481aad2d32433`
+  - `apps/desktop/src/renderer/assets/provider-brands/lmstudio.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/lmstudio.svg`
+    - SHA-256: `4a575e8382b52ce742ac5d21d361a7d2a08cea7c12390ee1bbb755ef7d3cc25b`
+  - `apps/desktop/src/renderer/assets/provider-brands/cerebras.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/cerebras-color.svg`
+    - SHA-256: `355c2225284cd06c9cf4246110b60cb21bc86039872981e1be6bb82deec2ffa7`
+  - `apps/desktop/src/renderer/assets/provider-brands/mistral.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/mistral-color.svg`
+    - SHA-256: `722f74b289d95486b43662fe24fa883b333701296f618406cd0ed502299170b6`
+  - `apps/desktop/src/renderer/assets/provider-brands/cohere.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/cohere-color.svg`
+    - SHA-256: `84d0ee3cbe66f030e5a18cb2c86da9166ab2137c7a98781693bb1fbf31e392b9`
+  - `apps/desktop/src/renderer/assets/provider-brands/huggingface.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/huggingface-color.svg`
+    - SHA-256: `5d39d66bb6c9b026d3cb5de7bd9978dad3906570df2aca8f00078a6f8a3d0f5e`
+  - `apps/desktop/src/renderer/assets/provider-brands/fireworks.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/fireworks-color.svg`
+    - SHA-256: `f1c4782b86bc03a36323fd68ad6cc376c6b2ebe57b701cc958ebd6b8d37effd6`
+  - `apps/desktop/src/renderer/assets/provider-brands/nvidia.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/nvidia-color.svg`
+    - SHA-256: `8c941e4eb8b782eccaaea1240c059d20be33ab8eda28d7c9ed9b53ac802fe683`
+  - `apps/desktop/src/renderer/assets/provider-brands/hunyuan.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/hunyuan-color.svg`
+    - SHA-256: `510e7bb438506b5aadfaf8b9551d1606efd5b4171161a64a64204c72a453658a`
+  - `apps/desktop/src/renderer/assets/provider-brands/tencentcloud.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/tencentcloud-color.svg`
+    - SHA-256: `f860dae064a3afd24970efd2bc5892f39438526bf52c3a9748f61fc05c1cfd58`
+  - `apps/desktop/src/renderer/assets/provider-brands/stepfun.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/stepfun-color.svg`
+    - SHA-256: `f55afc0e6004c8854f76bd5bbcc0fce9fc0ed9316691d54fb02d088c24fab40d`
+  - `apps/desktop/src/renderer/assets/provider-brands/volcengine.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/volcengine-color.svg`
+    - SHA-256: `84f9e2cd1da7e73dc6c9a0f2521745d39cae96c008752cdb1baf57a8c94393a1`
+  - `apps/desktop/src/renderer/assets/provider-brands/zenmux.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/zenmux.svg`
+    - Variant: monochrome (no color variant exists in this release)
+    - SHA-256: `1f9fab4e48601ca583e44ff06f22040a8b40f8952bc6bd67e67b065bef00b4b5`
+  - `apps/desktop/src/renderer/assets/provider-brands/opencode.svg`
+    - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
+    - Upstream path: `packages/static-svg/icons/opencode.svg`
+    - SHA-256: `7cfa6e9d6726f7c9fa26c7d9aef0dfec52d20a137380454340f30f12ccbfd302`
+
+The OpenCode name and logo remain trademarks of their owner and are used here only to identify the provider. The MIT license above covers the vendored Lobe Icons SVG source, not any trademark rights.
+
+MIT License
+
+Copyright (c) 2023 LobeHub
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## LocalAI
+
+- Repository: https://github.com/mudler/LocalAI
+- License: MIT
+- Covered vendored file:
+  - `apps/desktop/src/renderer/assets/provider-brands/localai.svg`
+    - Upstream commit: `b10e330590766ea621c0b03401e77a0589558e76`
+    - Upstream path: `docs/assets/images/logos/logo.svg`
+    - SHA-256: `1349c022f30a58836e9b09591031f25bf4ff6bb8627bb50691a46a1c8a512c39`
+
+MIT License
+
+Copyright (c) 2023-2025 Ettore Di Giacinto (mudler@localai.io)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## GitHub Copilot brand mark
+
+- Repository: https://github.com/primer/octicons
+- Covered vendored file:
+  - `apps/desktop/src/renderer/assets/provider-brands/github-copilot.svg`
+    - Immutable source: https://github.com/primer/octicons/blob/2ed936e7759451e80ae38b8147cbe2c89de6cc7a/icons/copilot-24.svg
+    - Upstream commit: `2ed936e7759451e80ae38b8147cbe2c89de6cc7a`
+    - Upstream path: `icons/copilot-24.svg`
+    - SHA-256: `eeafb3c2f333e04ccf7d031ae215f7adafaed4c6352556b0bf79496e048bcdd7`
+- Trademark boundary: GitHub and GitHub Copilot names and logos are GitHub trademarks. The Octicons repository states that its MIT license does not grant rights to GitHub logos. Maka vendors this upstream monochrome mark unmodified only to identify the GitHub Copilot service; this notice does not claim an MIT trademark or logo grant.

@@ -1,4 +1,5 @@
-[English](./README.md)
+<a href="./README.md"><img alt="English" src="https://img.shields.io/badge/English-555?style=for-the-badge&logo=googletranslate&logoColor=white"></a>
+<a href="./README.zh-CN.md"><img alt="简体中文" src="https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-2ea44f?style=for-the-badge&logo=googletranslate&logoColor=white"></a>
 
 # Maka
 
@@ -184,6 +185,14 @@ npm run check:release
 npm --workspace @maka/runtime test
 npm --workspace @maka/headless test
 npm --workspace @maka/desktop test
+```
+
+用以下命令从 models.dev 更新 `packages/core/src/model-metadata.generated.ts`，并运行相关测试。访问路径特有的 override 写在 `model-metadata.ts`，不要手动修改生成文件。
+
+```sh
+npm run sync:model-metadata
+npm run test:scripts
+npm --workspace @maka/core test
 ```
 
 Desktop 的真实窗口与视觉验证：

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Button as BaseButton } from '@base-ui/react/button';
 import {
   canPickDefaultModel,
   canSaveDefaultModelChange,
@@ -15,8 +16,9 @@ import {
   type ModelInfo,
   type ProviderType,
 } from '@maka/core';
+import { providerAuthRequiresSecret, providerAuthSupportsApiKey } from '@maka/core/llm-connections';
 import { formatRelativeTimestamp } from '@maka/core';
-import { Button, Chip, FieldDescription, FieldRoot, Input, Label, useToast } from '@maka/ui';
+import { Button, Chip, FieldDescription, FieldRoot, Input, Label, useMountedRef, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { buildCatalogModelChoices } from '../model-catalog-choices';
 import { providerDisplay } from './provider-display';
@@ -114,21 +116,23 @@ export function ConnectionDetail(props: {
   const fetchingModelsRef = useRef(false);
   const settingDefaultRef = useRef(false);
   const deletingRef = useRef(false);
-  const connectionDetailMountedRef = useRef(false);
+  const connectionDetailMountedRef = useMountedRef();
   const connectionDetailLifecycleRef = useRef(0);
   const toast = useToast();
-  const needsApiKey = defaults.authKind === 'api_key';
+  const supportsApiKey = providerAuthSupportsApiKey(connection.providerType);
   const needsOAuth = defaults.authKind === 'oauth_token';
   const oauthLoginService = needsOAuth ? oauthLoginServiceFor(connection.providerType) : null;
+  const usesGitHubCopilotLogin = connection.providerType === 'github-copilot';
   const hasFixedOAuthBaseUrl = needsOAuth && Boolean(defaults.baseUrl);
-  const requiresCredential = defaults.authKind !== 'none';
+  const requiresCredential = providerAuthRequiresSecret(connection.providerType);
+  const probesCredential = supportsApiKey || needsOAuth;
   const credentialProbePending = requiresCredential && (hasSecret === 'loading' || hasSecret === 'error');
   const hasUsableCredential = !requiresCredential || hasSecret === true;
   const credentialTroubleshootingCopy = needsOAuth
     ? 'OAuth 登录 / 代理设置'
     : '模型密钥 / 服务地址 / 代理设置';
   const savedBaseUrl = connection.baseUrl ?? defaults.baseUrl;
-  const draftBaseUrl = hasFixedOAuthBaseUrl ? defaults.baseUrl : baseUrl;
+  const draftBaseUrl = baseUrl;
   const hasSaveChanges =
     apiKey.length > 0 ||
     draftBaseUrl !== savedBaseUrl ||
@@ -136,10 +140,8 @@ export function ConnectionDetail(props: {
   const detailActionBusy = busy || testing || fetchingModels || settingDefault || deleting;
 
   useEffect(() => {
-    connectionDetailMountedRef.current = true;
     connectionDetailLifecycleRef.current += 1;
     return () => {
-      connectionDetailMountedRef.current = false;
       connectionDetailLifecycleRef.current += 1;
       busyRef.current = false;
       testingRef.current = false;
@@ -155,7 +157,7 @@ export function ConnectionDetail(props: {
 
   useEffect(() => {
     const lifecycle = connectionDetailLifecycleRef.current;
-    if (defaults.authKind === 'none') {
+    if (!probesCredential) {
       if (isConnectionDetailCurrent(lifecycle)) setHasSecret(true);
       return;
     }
@@ -170,7 +172,7 @@ export function ConnectionDetail(props: {
         setHasSecret('error');
         toast.error('读取模型凭据状态失败', providerPanelActionErrorMessage(error));
       });
-  }, [props.bridge, connection.slug, defaults.authKind, toast]);
+  }, [props.bridge, connection.slug, probesCredential, toast]);
 
   useEffect(() => {
     const nextSnapshot = connectionDetailSnapshot(connection, defaults.baseUrl);
@@ -233,7 +235,7 @@ export function ConnectionDetail(props: {
     let saved = false;
     try {
       await props.bridge.update(connection.slug, {
-        baseUrl: hasFixedOAuthBaseUrl ? defaults.baseUrl : baseUrl || undefined,
+        baseUrl: baseUrl || undefined,
         defaultModel,
         ...(apiKey ? { apiKey } : {}),
       });
@@ -241,7 +243,7 @@ export function ConnectionDetail(props: {
       if (!isConnectionDetailCurrent(lifecycle)) return;
       const wroteNewKey = apiKey.length > 0;
       setApiKey('');
-      const nextHasSecret = requiresCredential ? await props.bridge.hasSecret(connection.slug) : true;
+      const nextHasSecret = probesCredential ? await props.bridge.hasSecret(connection.slug) : true;
       if (!isConnectionDetailCurrent(lifecycle)) return;
       setHasSecret(nextHasSecret);
       await props.onChanged();
@@ -251,12 +253,12 @@ export function ConnectionDetail(props: {
       // dropdown only contains the static fallback list (e.g. Z.ai → just
       // glm-4.7 / 4.6 / 4.5), which looks like Maka doesn't support newer
       // models. Auto-fetch on save closes that gap.
-      if (nextHasSecret && (wroteNewKey || (!needsApiKey && models.length === 0))) {
+      if ((!requiresCredential || nextHasSecret) && (wroteNewKey || models.length === 0)) {
         void refreshModels({ silent: true });
       }
     } catch (error) {
       if (!isConnectionDetailCurrent(lifecycle)) return;
-      if (saved && requiresCredential) {
+      if (saved && probesCredential) {
         setHasSecret('error');
       }
       toast.error(
@@ -434,7 +436,7 @@ export function ConnectionDetail(props: {
         <Label className="text-xs text-foreground-secondary">服务地址</Label>
         {hasFixedOAuthBaseUrl && <FieldDescription>OAuth 固定</FieldDescription>}
         <Input
-          value={hasFixedOAuthBaseUrl ? defaults.baseUrl : baseUrl}
+          value={baseUrl}
           onChange={(event) => setBaseUrl(event.currentTarget.value)}
           placeholder={defaults.baseUrl}
           readOnly={hasFixedOAuthBaseUrl}
@@ -443,7 +445,7 @@ export function ConnectionDetail(props: {
           aria-label={hasFixedOAuthBaseUrl ? '模型连接服务地址，OAuth 固定' : '模型连接服务地址'}
         />
       </FieldRoot>
-      {needsApiKey && (
+      {supportsApiKey && (
         <FieldRoot className="grid gap-1.5">
           <Label className="text-xs text-foreground-secondary">模型密钥</Label>
           {hasSecret === true && <FieldDescription>已设置，粘贴新值可替换</FieldDescription>}
@@ -459,7 +461,9 @@ export function ConnectionDetail(props: {
         </FieldRoot>
       )}
       {needsOAuth && (
-        oauthLoginService ? (
+        usesGitHubCopilotLogin ? (
+          <GitHubCopilotReloginNotice hasSecret={hasSecret} onRelogin={refreshAfterRelogin} />
+        ) : oauthLoginService ? (
           <OAuthReloginNotice
             service={oauthLoginService}
             hasSecret={hasSecret}
@@ -478,12 +482,12 @@ export function ConnectionDetail(props: {
             </strong>
             <span>
               {hasSecret === true
-                ? '该模型连接使用主进程保存的 OAuth access token；若请求提示需要重新登录，请到 OAuth 分类的登录卡片重新授权。'
+                ? '该模型连接使用主进程保存的 OAuth access token；若请求提示需要重新登录，请到账号连接重新授权。'
                 : hasSecret === 'loading'
                   ? '正在读取本机 OAuth 登录状态，读取完成前不会把未知状态显示成未登录。'
                   : hasSecret === 'error'
                     ? '暂时无法读取本机 OAuth 登录状态；请刷新页面或重新打开设置。'
-                    : '请到 OAuth 分类的登录卡片完成登录；登录成功后会自动出现在模型连接里。'}
+                    : '请到账号连接完成登录；登录成功后会自动出现在模型连接里。'}
             </span>
           </div>
         )
@@ -528,6 +532,49 @@ export function ConnectionDetail(props: {
           {deleting ? '删除中…' : '删除'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+function GitHubCopilotReloginNotice(props: {
+  hasSecret: CredentialPresenceStatus;
+  onRelogin(): Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const mountedRef = useMountedRef();
+  const toast = useToast();
+  const loggedIn = props.hasSecret === true;
+  const loading = props.hasSecret === 'loading';
+
+  async function connect() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      const result = await window.maka.githubCopilotSubscription.connectExistingLogin();
+      if (!result.ok) {
+        toast.error('导入 GitHub Copilot 登录失败', result.message);
+        return;
+      }
+      await props.onRelogin();
+    } catch (error) {
+      if (mountedRef.current) toast.error('导入 GitHub Copilot 登录失败', generalizedErrorMessageChinese(error));
+    } finally {
+      busyRef.current = false;
+      if (mountedRef.current) setBusy(false);
+    }
+  }
+
+  return (
+    <div className="providerUnavailableNotice" data-auth-kind="oauth">
+      <strong>{loggedIn ? 'GitHub Copilot 已登录' : loading ? 'OAuth 状态读取中' : '等待兼容 GitHub 凭据'}</strong>
+      <span>{loggedIn ? '若账号或组织策略变化，可重新导入兼容凭据。' : '配置具有 Copilot Requests 权限的凭据后从本机安全导入。'}</span>
+      {!loading && (
+        <Button type="button" size="sm" disabled={busy} onClick={() => void connect()}>
+          {busy ? '导入中…' : loggedIn ? '重新导入' : '导入兼容凭据'}
+        </Button>
+      )}
     </div>
   );
 }
@@ -749,15 +796,14 @@ function ModelTable(props: {
       )}
 
       {defaultHidden && (
-        <Button
+        <BaseButton
           type="button"
-          variant="ghost"
           className="modelTableDefaultHint"
           onClick={() => setQuery('')}
           title="清空搜索"
         >
           当前默认 <code>{props.defaultModel}</code> 不在搜索结果中 · 点这里清空搜索
-        </Button>
+        </BaseButton>
       )}
 
       {props.modelChoices.length === 0 ? (
@@ -784,10 +830,9 @@ function ModelTable(props: {
             const canPickDefault = canPickDefaultModel(model);
             return (
               <li key={model.id} role="none">
-                <Button
+                <BaseButton
                   type="button"
                   className="modelTableRow"
-                  variant="ghost"
                   role="radio"
                   aria-checked={isDefault}
                   aria-disabled={!canPickDefault || props.disabled ? true : undefined}
@@ -811,7 +856,7 @@ function ModelTable(props: {
                   </span>
                   <ModelCapabilityChips model={model} />
                   {isDefault && <span className="modelTableDefaultBadge">默认</span>}
-                </Button>
+                </BaseButton>
               </li>
             );
           })}

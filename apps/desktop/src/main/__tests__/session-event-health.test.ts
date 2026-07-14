@@ -96,10 +96,10 @@ describe('renderer session event health projection', () => {
     const main = await readRendererShellCombinedSource();
 
     assert.match(main, /const hasInFlightLiveTools = useMemo\(\(\) => hasInFlightToolActivity\(liveTools\), \[liveTools\]\);/);
-    assert.match(main, /activeStreamingLive \|\| hasInFlightLiveTools \|\| Boolean\(activePermission\)/);
+    assert.match(main, /activeStreamingLive \|\| hasInFlightLiveTools \|\| Boolean\(activeInteraction\)/);
     assert.match(
       main,
-      /\}, \[activeId, activeSession\?\.status, activeStreamingLive, hasInFlightLiveTools, activePermission\?\.requestId\]\);/,
+      /\}, \[activeId, activeSession\?\.status, activeStreamingLive, hasInFlightLiveTools, activeInteraction\?\.requestId\]\);/,
       'session event health effect must rerun when tool status changes terminal without changing liveTools.length',
     );
     assert.doesNotMatch(

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ConnectionTestResult, LlmConnection } from '@maka/core';
 import { deriveProviderAuthContractFromConnection, generalizedErrorMessageChinese } from '@maka/core';
-import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
-import { Button, Chip, RelativeTime, useToast } from '@maka/ui';
+import { PROVIDER_DEFAULTS, providerAuthRequiresSecret } from '@maka/core/llm-connections';
+import { Button, Chip, RelativeTime, useMountedRef, useToast } from '@maka/ui';
 import {
   deriveAccountAuthActions,
   presentAccountAuthState,
@@ -69,13 +69,11 @@ export function AccountSettingsPage(props: {
   const [secretProbeError, setSecretProbeError] = useState<string | null>(null);
   const [testingSlug, setTestingSlug] = useState<string | null>(null);
   const testingSlugRef = useRef<string | null>(null);
-  const accountPageMountedRef = useRef(false);
+  const accountPageMountedRef = useMountedRef();
   const toast = useToast();
 
   useEffect(() => {
-    accountPageMountedRef.current = true;
     return () => {
-      accountPageMountedRef.current = false;
       testingSlugRef.current = null;
     };
   }, []);
@@ -225,7 +223,7 @@ function AccountConnectionRow(props: {
   canTest: boolean;
   onTest(): void;
 }) {
-  const requiresSecret = PROVIDER_DEFAULTS[props.connection.providerType].authKind !== 'none';
+  const requiresSecret = providerAuthRequiresSecret(props.connection.providerType);
   const secretProbePending = requiresSecret && (props.secretStatus === 'loading' || props.secretStatus === 'error');
   const hasSecretForKnownStatus = props.secretStatus === true;
   const status: ConnectionUiStatus = connectionUiStatusFromRecord(

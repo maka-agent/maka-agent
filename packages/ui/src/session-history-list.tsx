@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import type { SessionSummary } from '@maka/core';
 import { formatCompactTimestamp } from '@maka/core';
 import {
@@ -23,6 +24,7 @@ import { EmptyState } from './empty-state.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';
 import { Button as UiButton } from './ui.js';
+import { Button as BaseButton } from '@base-ui/react/button';
 import { describeBlockedReason, presentSessionStatus } from './session-status-presentation.js';
 
 type SessionRowActionId = 'flag' | 'archive' | 'rename' | 'delete';
@@ -269,14 +271,11 @@ function SessionListGroups(props: {
             {group.collapsible ? (
               /* PR-LIST-GROUP-TOGGLE-PRIMITIVE-0 (round 10/30):
                  disclosure-pattern toggle (aria-expanded +
-                 aria-controls). Routed through UiButton so the
-                 collapsible group header shares the same
-                 focus-visible + `:active` contract as every
-                 other interactive surface in the session list. */
-              <UiButton
+                 aria-controls). Base UI supplies the button semantics while
+                 this row seam owns layout and the shared focus-visible +
+                 `:active` contract for the session list. */
+              <BaseButton
                 type="button"
-                variant="quiet"
-                size="nav"
                 className="maka-list-group-label maka-list-group-toggle"
                 onClick={toggle}
                 aria-expanded={expanded}
@@ -295,7 +294,7 @@ function SessionListGroups(props: {
                   can tell whether expanding the group is worth it. Open
                   groups intentionally omit counts to keep the rail flat. */}
                 <span className="maka-list-group-count">（{group.sessions.length}）</span>
-              </UiButton>
+              </BaseButton>
             ) : (
               <div className="maka-list-group-label">
                 <span>{group.label}</span>
@@ -346,10 +345,8 @@ function ProjectSessionGroup(props: {
 
   return (
     <div className="maka-list-group" data-variant="project">
-      <UiButton
+      <BaseButton
         type="button"
-        variant="quiet"
-        size="nav"
         className="maka-list-project-heading"
         onClick={() => setExpanded((current) => !current)}
         aria-expanded={expanded}
@@ -357,7 +354,7 @@ function ProjectSessionGroup(props: {
       >
         <FolderOpen size={14} aria-hidden="true" />
         <span>{props.label}</span>
-      </UiButton>
+      </BaseButton>
       {expanded && (
         <>
           <div id={`maka-list-group-body-${props.groupKey}`}>
@@ -374,16 +371,14 @@ function ProjectSessionGroup(props: {
             ))}
           </div>
           {hiddenCount > 0 && (
-            <UiButton
+            <BaseButton
               type="button"
-              variant="quiet"
-              size="nav"
               className="maka-list-project-more"
               onClick={() => setRevealed(true)}
               aria-label={`显示 ${hiddenCount} 条更多对话`}
             >
               显示更多
-            </UiButton>
+            </BaseButton>
           )}
         </>
       )}
@@ -482,7 +477,7 @@ const SessionRow = memo(function SessionRow(props: {
   const [actionsVisible, setActionsVisible] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<SessionRowActionId | null>(null);
-  const rowMountedRef = useRef(true);
+  const rowMountedRef = useMountedRef();
   const pendingActionRef = useRef<SessionRowActionId | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // PR-FE-BUG-HUNT-11: Escape on the rename input has to suppress the
@@ -495,9 +490,7 @@ const SessionRow = memo(function SessionRow(props: {
   const actionTriggerVisible = actionsVisible || menuOpen;
 
   useEffect(() => {
-    rowMountedRef.current = true;
     return () => {
-      rowMountedRef.current = false;
       pendingActionRef.current = null;
     };
   }, []);
@@ -630,16 +623,10 @@ const SessionRow = memo(function SessionRow(props: {
         // "current" without a heavy full-bg pill.
         /* PR-SESSION-ROW-MAIN-PRIMITIVE-0 (round 14/30): the
            single most-clicked button in the app — every session
-           row's main click target. Routed through UiButton with
-           size="nav" (round-12 enabler) so the bespoke
-           `.maka-list-row-main` density (32-40px height, custom
-           padding, grid layout with text/meta columns) stays the
-           source of truth, while the primitive contributes the
-           shared `:active scale`, focus-visible, and
-           disabled-state contract. */
-        <UiButton
-          variant="quiet"
-          size="nav"
+           row's main click target. This composite navigation row keeps its
+           grid layout and multi-line density in the semantic row seam rather
+           than masquerading as a shared Button size. */
+        <BaseButton
           className="maka-list-row-main"
           type="button"
           data-session-id={session.id}
@@ -703,7 +690,7 @@ const SessionRow = memo(function SessionRow(props: {
           ) : (
             <span className="maka-list-row-meta">{formatSessionMeta(session)}</span>
           )}
-        </UiButton>
+        </BaseButton>
       )}
       {actions && !editing && (
         <Menu open={menuOpen} onOpenChange={setMenuOpen}>

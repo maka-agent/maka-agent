@@ -12,6 +12,7 @@ import type { AttachmentRef, SessionEvent } from './events.js';
 import type { RuntimeEvent } from './runtime-event.js';
 import type { StoredMessage, BackendKind } from './session.js';
 import type { PermissionResponse } from './permission.js';
+import type { UserQuestionResponse } from './user-question.js';
 import type { ContextBudgetDiagnostic } from './usage-stats/types.js';
 
 export interface BackendSendInput {
@@ -55,5 +56,6 @@ export interface AgentBackend {
   compactHistory?(input: BackendCompactHistoryInput): Promise<BackendCompactHistoryResult>;
   stop(reason: 'user_stop' | 'redirect'): Promise<void>;
   respondToPermission(decision: PermissionDecision): Promise<void>;
+  respondToUserQuestion?(response: UserQuestionResponse): Promise<void>;
   dispose(): Promise<void>;
 }

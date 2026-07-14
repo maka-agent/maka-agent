@@ -40,6 +40,9 @@
     "#runtime-policy-ab-spec": "./dist/runtime-policy-ab-spec.js",
     "#runtime-policy-ab-run": "./dist/runtime-policy-ab-run.js",
     "#runtime-policy-ab-lifecycle": "./dist/runtime-policy-ab-lifecycle.js",
+    "#harness-ab-manifest": "./dist/harness-ab-manifest.js",
+    "#harness-ab-run": "./dist/harness-ab-run.js",
+    "#harness-ab-report": "./dist/harness-ab-report.js",
     "#prompt-structural-smoke": "./dist/prompt-structural-smoke.js"
   },
   "bin": {

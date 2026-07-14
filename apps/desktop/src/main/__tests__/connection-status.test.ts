@@ -115,6 +115,17 @@ describe('deriveConnectionUiStatus', () => {
     });
   });
 
+  describe('LocalAI / optional API key path', () => {
+    it('does not make an absent optional key look unconfigured', () => {
+      assert.equal(
+        deriveConnectionUiStatus(
+          base({ authKind: 'optional_api_key', hasSecret: false, lastTestStatus: undefined }),
+        ),
+        'configured',
+      );
+    });
+  });
+
   describe('failure-does-not-disable invariant', () => {
     it('a connection that just errored stays enabled (status = error, not disabled)', () => {
       // Test invariant: backend never auto-disables on a test failure.

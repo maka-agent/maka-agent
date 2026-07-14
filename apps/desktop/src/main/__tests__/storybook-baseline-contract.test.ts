@@ -282,6 +282,19 @@ describe('Storybook baseline contract', () => {
     }
   });
 
+  it('keeps interaction stories distinct and addressable by real browser state', () => {
+    const story = readFileSync(join(REPO_ROOT, 'packages', 'ui', 'stories', 'interaction-states.stories.tsx'), 'utf8');
+
+    for (const storyName of ['ListRowStates', 'NeutralButtonStates', 'SolidButtonStates']) {
+      assert.doesNotMatch(story, new RegExp(`export const ${storyName}: Story = ButtonStates`));
+    }
+    for (const state of ['hover', 'active', 'focus', 'disabled', 'aria-disabled']) {
+      assert.match(story, new RegExp(`data-state-target="${state}"`), `${state} must have a real browser target`);
+    }
+    assert.match(story, /play:\s*async \(\{ canvasElement \}\) =>/);
+    assert.match(story, /querySelector<HTMLButtonElement>\('\[data-state-target="focus"\]'\)\?\.focus\(\)/);
+  });
+
   it('keeps Design System stories free of undefined token references', () => {
     const tokensCss = readFileSync(join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'maka-tokens.css'), 'utf8');
     const stylesCss = readFileSync(join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css'), 'utf8');

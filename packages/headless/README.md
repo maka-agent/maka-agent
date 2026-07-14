@@ -161,6 +161,27 @@ trajectory/runtime refs, submitted snapshot metadata, verifier output, score,
 budget, isolation, permission/inbox facts, taxonomy, and warnings. They do not
 embed environment variables, credentials, or hidden harness configuration.
 
+## GLM-5.2 harness comparison
+
+`harbor/run-harness-ab.mjs` compares Maka and OpenCode 1.17.18 on the same Terminal-Bench 2.1 tasks with GLM-5.2 Max. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official revision; a matching Harbor export with one task directory per id is accepted directly. The first 30 tasks are a fixed prefix of the full seeded order. Maka keeps active and stale tool-result pruning enabled while semantic compact is explicitly disabled in both the manifest and runtime environment.
+
+Validate the manifest without reading a key or starting Harbor:
+
+```sh
+MAKA_HARNESS_AB_OUT_DIR=/path/to/out \
+MAKA_HARNESS_AB_TASKS_ROOT=/path/to/terminal-bench-2.1-tasks \
+MAKA_HARNESS_AB_RUN_ID=glm-5.2-harness-ab \
+MAKA_HARNESS_AB_LIMIT=30 \
+MAKA_HARNESS_AB_DRY_RUN=1 \
+node packages/headless/harbor/run-harness-ab.mjs
+```
+
+For a live run, remove `MAKA_HARNESS_AB_DRY_RUN` and set `MAKA_HARNESS_AB_KEY_FILE` to a credential file outside git. Maka reads it in its host-side cell; OpenCode receives only a short-lived host proxy capability, never the provider key or key-file path. Use `MAKA_HARNESS_AB_LIMIT=2` for an operational canary, then resume with the same output directory and run id at `30` for the fixed pilot or `89` for the full suite; only missing cells run. The immutable manifest rejects other configuration changes.
+
+For an unattended run, invoke `node packages/headless/harbor/run-harness-ab-detached.mjs` with the same environment. It detaches the worker from the terminal and atomically journals `running`, `completed`, or `failed` in `background-run.json`; stdout and stderr go to `background-run.log`.
+
+Outputs are `harness-ab-report.json`, `.csv`, and `.md`. They report Pass@1 and cache-aware API-equivalent cost separately; they do not claim fixed-plan spend or publish results.
+
 ## Exit code
 
 `maka eval run` exits non-zero on an **infrastructure** failure (invalid

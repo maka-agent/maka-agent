@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import { ArrowUp, Blocks, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Paperclip, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import { type UiLocale, detectUiLocale } from './locale-helpers.js';
@@ -160,6 +161,7 @@ export const Composer = forwardRef<
     activeConnectionLabel?: string;
     activeModel?: string;
     activeModelLabel?: string;
+    activeProviderType?: ProviderType;
     modelChoices?: ChatModelChoice[];
     /** Renders the provider brand mark on each group heading of the model menus;
      *  injected by the desktop app to keep the provider SVG library out of @maka/ui. */
@@ -180,6 +182,7 @@ export const Composer = forwardRef<
      * choose the new-chat model inline instead of only via Settings · 模型.
      */
     newChatModel?: { llmConnectionSlug: string; model: string };
+    newChatProviderType?: ProviderType;
     onPickNewChatModel?(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
     /**
      * Empty-state only: no models are configured yet, so the model chip is a
@@ -232,7 +235,7 @@ export const Composer = forwardRef<
   const [hasDraftText, setHasDraftText] = useState(false);
   const draftStoreRef = useRef<Map<string, string>>(new Map());
   const activeDraftKeyRef = useRef<string | undefined>(props.draftKey);
-  const composerMountedRef = useRef(true);
+  const composerMountedRef = useMountedRef();
   const sendPendingRef = useRef(false);
   const compositionActiveRef = useRef(false);
   const importActionOwnerRef = useRef<ChatInputActionOwner<ComposerImportActionId> | null>(null);
@@ -252,9 +255,7 @@ export const Composer = forwardRef<
   const buttonCopy = COMPOSER_BUTTON_COPY_BY_LOCALE[locale];
 
   useEffect(() => {
-    composerMountedRef.current = true;
     return () => {
-      composerMountedRef.current = false;
       sendPendingRef.current = false;
       importActionOwnerRef.current?.reset();
     };
@@ -537,7 +538,6 @@ export const Composer = forwardRef<
     };
   }, [dragActive]);
 
-  if (props.hidden) return null;
   const importActionBusy = pendingImportAction !== null;
   const sendDisabled = props.disabled || sendPending || importActionBusy || !hasDraftText;
   const modelChipLabel = props.modelLabel?.trim() || '选择模型';
@@ -553,6 +553,7 @@ export const Composer = forwardRef<
     <form
       ref={formRef}
       className="maka-composer composer"
+      hidden={props.hidden}
       data-drag-active={dragActive ? 'true' : undefined}
       data-maka-file-drop-target={canAcceptDroppedFiles() ? 'true' : undefined}
       onDragOver={onComposerDragOver}
@@ -609,11 +610,10 @@ export const Composer = forwardRef<
                       {...triggerRest}
                       variant="quiet"
                       size="icon-sm"
-                      className="maka-composer-tool-button maka-composer-context-plus"
                       type="button"
                       disabled={props.disabled || importActionBusy}
                       onClick={(e) => { menuToggleClick?.(e); }}
-                      aria-label={importActionBusy ? '正在添加附件' : '添加'}
+                      aria-label={pendingImportAction === 'pick' ? '正在添加附件' : '添加'}
                       aria-busy={importActionBusy ? 'true' : undefined}
                       data-pending={importActionBusy ? 'true' : undefined}
                       title="添加文件、专家团…"
@@ -711,6 +711,7 @@ export const Composer = forwardRef<
                     activeModel={props.activeModel}
                     activeConnectionLabel={props.activeConnectionLabel}
                     activeModelLabel={props.activeModelLabel}
+                    currentProviderType={props.activeProviderType}
                     choices={props.modelChoices ?? []}
                     pending={props.modelChangePending}
                     disabledReason={modelSwitcherDisabledReason}
@@ -729,6 +730,7 @@ export const Composer = forwardRef<
                         ? modelChoiceValue(props.newChatModel.llmConnectionSlug, props.newChatModel.model)
                         : undefined
                     }
+                    currentProviderType={props.newChatProviderType}
                     renderProviderMark={props.renderProviderMark}
                     onPick={props.onPickNewChatModel}
                     thinkingLevels={props.newChatThinkingLevels}
@@ -742,9 +744,8 @@ export const Composer = forwardRef<
             )}
             {props.streaming ? (
               <UiButton
-                className="maka-button"
                 variant="default"
-                size="sm"
+                size="md"
                 type="button"
                 disabled={props.stopPending}
                 onClick={() => {
@@ -758,9 +759,8 @@ export const Composer = forwardRef<
               </UiButton>
             ) : (
               <UiButton
-                className="maka-composer-send-button"
                 variant="default"
-                size="icon-sm"
+                size="icon"
                 type="submit"
                 disabled={sendDisabled}
                 aria-label={buttonCopy.sendLabel}
@@ -778,12 +778,9 @@ export const Composer = forwardRef<
         const wp = props.workspacePicker!;
         return (
         <div className="maka-composer-workspace-row">
-          {/* PR-COMPOSER-WORKSPACE-PICKER-PRIMITIVE-0 (round 9/30):
-              the workspace picker badge was a raw `<button>`.
-              Routed through UiButton variant="quiet"; custom class
-              still owns the picker's inline-flex shape (icon +
-              label + chevron) and the bespoke 3px accent
-              focus-visible ring. */}
+          {/* The workspace and branch pickers are standard compact menu
+              triggers. Shared Button owns their visual and interaction states;
+              local classes only constrain layout and label truncation. */}
           <Menu>
             <MenuTrigger
               render={({ onClick: menuToggleClick, ...triggerRest }) => (
@@ -794,6 +791,7 @@ export const Composer = forwardRef<
                   }}
                   type="button"
                   variant="quiet"
+                  size="sm"
                   className="maka-composer-workspace-picker"
                   disabled={wp.pending === true}
                   aria-busy={wp.pending === true ? 'true' : undefined}
@@ -850,6 +848,7 @@ export const Composer = forwardRef<
                       }}
                       type="button"
                       variant="quiet"
+                      size="sm"
                       className="maka-composer-branch-picker"
                       disabled={triggerDisabled}
                       aria-busy={triggerDisabled ? 'true' : undefined}
