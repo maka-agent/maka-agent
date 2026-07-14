@@ -4,10 +4,11 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible, type MetadataExtractor } from '@ai-sdk/openai-compatible';
 import { isJSONArray, type JSONArray, type LanguageModelV3, type SharedV3ProviderOptions } from '@ai-sdk/provider';
-import { PROVIDER_DEFAULTS, effectiveBaseUrl, type LlmConnection, type ProviderType } from '@maka/core/llm-connections';
+import { type LlmConnection, type ProviderType } from '@maka/core/llm-connections';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { thinkingOptionsForModel, thinkingVariantsForModel } from '@maka/core/model-thinking';
 import { anthropicV1BaseUrl, googleV1BetaBaseUrl } from './provider-urls.js';
+import { resolveModelRuntime } from './model-runtime.js';
 import {
   claudeSubscriptionHeaders,
   codexSubscriptionHeaders,
@@ -24,9 +25,7 @@ const ANTHROPIC_BETA =
   'interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14';
 export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
   const { connection, apiKey, modelId, fetch } = input;
-  const baseURL = effectiveBaseUrl(connection);
-  const definition = PROVIDER_DEFAULTS[connection.providerType];
-  const adapter = definition.runtimeAdapter;
+  const { adapter, baseUrl: baseURL } = resolveModelRuntime(connection, modelId);
 
   if (adapter.kind === 'google' && adapter.normalizeBaseUrl === false) {
     return createGoogleGenerativeAI({ apiKey, baseURL }).chat(modelId);

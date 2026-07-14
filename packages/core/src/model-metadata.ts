@@ -1,6 +1,9 @@
 import type { ModelInfo, ProviderType } from './llm-connections.js';
 import type { ThinkingOptions } from './model-thinking.js';
-import { GENERATED_MODELS_DEV_METADATA } from './model-metadata.generated.js';
+import {
+  GENERATED_MODELS_DEV_METADATA,
+  GENERATED_MODELS_DEV_MODEL_PROVIDER_OVERRIDES,
+} from './model-metadata.generated.js';
 
 export interface ModelMetadata {
   displayName?: string;
@@ -17,6 +20,9 @@ export interface ModelMetadata {
 }
 
 const generatedMetadata: Partial<Record<ProviderType, Record<string, ModelMetadata>>> = GENERATED_MODELS_DEV_METADATA;
+const generatedModelProviderOverrides: Partial<
+  Record<ProviderType, Record<string, { npm: string; api?: string }>>
+> = GENERATED_MODELS_DEV_MODEL_PROVIDER_OVERRIDES;
 
 export function lookupModelMetadata(providerType: ProviderType, modelId: string): ModelMetadata {
   const id = modelId.trim();
@@ -29,6 +35,13 @@ export function lookupModelMetadata(providerType: ProviderType, modelId: string)
     ...override,
     capabilities: { ...generated.capabilities, ...override.capabilities },
   };
+}
+
+export function lookupModelProviderOverride(
+  providerType: ProviderType,
+  modelId: string,
+): { npm: string; api?: string } | undefined {
+  return generatedModelProviderOverrides[providerType]?.[modelId.trim()];
 }
 
 /**

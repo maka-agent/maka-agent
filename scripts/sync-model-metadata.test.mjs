@@ -78,7 +78,7 @@ test('sync-model-metadata preserves OpenCode provider ids and per-model protocol
         id: 'gpt-5.5', name: 'GPT 5.5', reasoning: true, tool_call: true,
         modalities: { input: ['text'], output: ['text'] },
         limit: { context: 400_000, output: 128_000 },
-        provider: { npm: '@ai-sdk/openai' },
+        provider: { npm: '@ai-sdk/openai', api: 'https://opencode.ai/zen/v1/responses-compatible' },
       },
     },
   };
@@ -105,7 +105,7 @@ test('sync-model-metadata preserves OpenCode provider ids and per-model protocol
   const generated = await readFile(output, 'utf8');
   assert.match(generated, /"opencode": \{"id":"opencode","name":"OpenCode Zen","api":"https:\/\/opencode\.ai\/zen\/v1"/);
   assert.match(generated, /"opencode-go": \{"id":"opencode-go","name":"OpenCode Go","api":"https:\/\/opencode\.ai\/zen\/go\/v1"/);
-  assert.match(generated, /"opencode": \{"gpt-5\.5":\{"npm":"@ai-sdk\/openai"\}\}/);
+  assert.match(generated, /"opencode": \{"gpt-5\.5":\{"npm":"@ai-sdk\/openai","api":"https:\/\/opencode\.ai\/zen\/v1\/responses-compatible"\}\}/);
   assert.match(generated, /"opencode-go": \{"minimax-m3":\{"npm":"@ai-sdk\/anthropic"\}\}/);
 });
 
