@@ -1,3 +1,4 @@
+import type { ExecutionEvidenceRef } from '@maka/core/execution-evidence';
 import type { ResultRecord, TaskVerification, VerifierSpec } from './contracts.js';
 
 export type TaskRunStatus =
@@ -154,6 +155,8 @@ export interface TaskAttempt {
   status: TaskAttemptStatus;
   sessionId?: string;
   agentRunId?: string;
+  /** Ordered references to every AgentRun that contributed to this attempt. */
+  executionLineage: ExecutionEvidenceRef[];
   error?: TaskRunError;
 }
 
@@ -738,6 +741,13 @@ export interface TaskAttemptStartedEvent extends BaseTaskEvent {
   agentRunId?: string;
 }
 
+export interface TaskAttemptExecutionLinkedEvent extends BaseTaskEvent {
+  type: 'task_attempt_execution_linked';
+  attemptId: string;
+  /** Cross-ledger identity and Runtime source coverage; never copied Runtime facts. */
+  evidence: ExecutionEvidenceRef;
+}
+
 export interface SelfCheckObservedEvent extends BaseTaskEvent {
   type: 'self_check_observed';
   observation: SelfCheckObservation;
@@ -935,6 +945,7 @@ export type TaskEvent =
   | TaskRunStartedEvent
   | TaskRunVerifyingEvent
   | TaskAttemptStartedEvent
+  | TaskAttemptExecutionLinkedEvent
   | SelfCheckObservedEvent
   | FeedbackObservedEvent
   | AutonomousDecisionRecordedEvent

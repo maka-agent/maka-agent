@@ -625,6 +625,7 @@ describe('runTaskOnce', () => {
             'tool_executor_identity_recorded',
             'task_run_started',
             'task_attempt_started',
+            'task_attempt_execution_linked',
             'feedback_observed',
             'task_run_verifying',
             'verifier_result_recorded',
@@ -642,6 +643,25 @@ describe('runTaskOnce', () => {
         assert.equal(tools.actualToolCalls, 0);
         assert.deepEqual(tools.actualToolNames, []);
         assert.deepEqual(tools.actualToolCallCounts, {});
+        const runtimeLedger = await readRuntimeEventLedger(
+          storageRoot,
+          result.invocation.sessionId,
+          result.invocation.runId,
+        );
+        const lineage = result.projection.attempts[0]?.executionLineage[0];
+        assert.equal(lineage?.execution?.invocationId, result.invocation.invocationId);
+        assert.equal(lineage?.execution?.agentRunId, result.invocation.runId);
+        assert.equal(lineage?.runtimeCoverage?.lowWater?.sequence, 0);
+        assert.equal(lineage?.runtimeCoverage?.lowWater?.eventId, runtimeLedger[0]?.id);
+        assert.equal(lineage?.runtimeCoverage?.highWater.sequence, runtimeLedger.length - 1);
+        assert.equal(lineage?.runtimeCoverage?.highWater.eventId, runtimeLedger.at(-1)?.id);
+        assert.equal(lineage?.runtimeCoverage?.eventCount, runtimeLedger.length);
+        const runHeader = await readAgentRunHeader(
+          storageRoot,
+          result.invocation.sessionId,
+          result.invocation.runId,
+        );
+        assert.equal(runHeader.invocationId, result.invocation.invocationId);
       } finally {
         SessionManager.prototype.sendMessage = original;
       }
@@ -809,6 +829,10 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.latestHeavyTaskSelfCheckGate?.action, 'allow_finalize');
       assert.equal(result.projection.latestVerifierResult?.passed, true);
       assert.equal(result.resultRecord.passed, true);
+      assert.equal(result.projection.attempts[0]?.executionLineage.length, 2);
+      assert.equal(new Set(
+        result.projection.attempts[0]?.executionLineage.map((ref) => ref.execution?.agentRunId),
+      ).size, 2);
       const gateIndexes = result.projection.events
         .map((event, index) => event.type === 'heavy_task_self_check_gate_recorded' ? index : -1)
         .filter((index) => index >= 0);

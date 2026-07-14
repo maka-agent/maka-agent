@@ -80,6 +80,7 @@ export type {
   ScoreResult,
   SelfCheckObservation,
   TaskAttempt,
+  TaskAttemptExecutionLinkedEvent,
   TaskAttemptStatus,
   TaskDefinition,
   TaskEvent,
@@ -148,6 +149,8 @@ export {
 } from './task-run-adapter.js';
 export type { RunTaskOnceDeps, RunTaskOnceResult } from './task-agent-controller.js';
 export { runTaskOnce, TaskAgentController } from './task-agent-controller.js';
+export type { TaskAttemptExecutionEvidenceInput } from './task-execution-lineage.js';
+export { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
 export type {
   AutonomousDecisionInput,
   AutonomousDecisionPolicy,
