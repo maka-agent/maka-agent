@@ -152,6 +152,7 @@ export interface FixedPromptTaskBudgetExhaustedEvent {
   traceEventsPath?: string;
   runtimeEventsUnavailableReason?: string;
   tokenSummary?: HarborCellTokenSummary;
+  tokenSummarySource?: 'final' | 'checkpoint';
   executionIdentity?: HarborCellExecutionIdentity;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
@@ -955,6 +956,11 @@ function taskBudgetExhaustedEvent(input: {
     }
   }
   const tokenSummary = artifactRefs.cellOutput?.tokenSummary ?? artifactRefs.tokenSummary;
+  const tokenSummarySource = tokenSummary
+    ? artifactRefs.cellOutput
+      ? 'final'
+      : 'checkpoint'
+    : undefined;
   const executionIdentity = artifactRefs.cellOutput?.executionIdentity ?? artifactRefs.executionIdentity;
   const cellOutput = artifactRefs.cellOutput;
   const runtimeEventsPath = artifactRefs.runtimeEventsPath ?? cellOutput?.runtimeEventsPath;
@@ -986,6 +992,7 @@ function taskBudgetExhaustedEvent(input: {
       ? { runtimeEventsUnavailableReason: artifactRefs.runtimeEventsUnavailableReason }
       : {}),
     ...(tokenSummary ? { tokenSummary } : {}),
+    ...(tokenSummarySource ? { tokenSummarySource } : {}),
     ...(cellOutput?.contextBudgetPolicy ? { contextBudgetPolicy: cellOutput.contextBudgetPolicy } : {}),
     ...(cellOutput?.contextBudgetSummary ? { contextBudgetSummary: cellOutput.contextBudgetSummary } : {}),
     ...(cellOutput?.continuationSummary ? { continuationSummary: cellOutput.continuationSummary } : {}),

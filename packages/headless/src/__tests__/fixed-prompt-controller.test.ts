@@ -651,6 +651,10 @@ describe('fixed prompt controller', () => {
       assert.equal(result.totalCostUsd, 0.42);
       assert.equal(result.events[0]?.type, 'task_budget_exhausted');
       assert.deepEqual('tokenSummary' in result.events[0]! ? result.events[0].tokenSummary : undefined, retainedUsage);
+      assert.equal(
+        'tokenSummarySource' in result.events[0]! ? result.events[0].tokenSummarySource : undefined,
+        'checkpoint',
+      );
     });
   });
 
@@ -735,6 +739,7 @@ describe('fixed prompt controller', () => {
       assert.equal(event.evidenceErrorClass, undefined);
       assert.equal(event.tokenSummary?.total, 3);
       assert.equal(event.tokenSummary?.costUsd, 0.02);
+      assert.equal(event.tokenSummarySource, 'final');
       assert.equal(event.runtimeEventsPath, cell.runtimeEventsPath);
       assert.equal(event.traceEventsPath, cell.traceEventsPath);
       assert.deepEqual(

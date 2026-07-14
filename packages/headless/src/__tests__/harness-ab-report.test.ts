@@ -152,6 +152,29 @@ describe('harness A/B report', () => {
     assert.throws(() => assertHarnessAbReportCompleted(report), /missing usage for 1 pair/);
   });
 
+  test('treats timeout usage checkpoints as incomplete metering', () => {
+    const checkpointOnlyTimeout = {
+      ...budgetExhausted('a'),
+      tokenSummary: usage('checkpoint', false, 100, 40, 20, 0.1).tokenSummary,
+      tokenSummarySource: 'checkpoint' as const,
+    };
+    const summary = summarizeAbComparison({
+      runId: 'glm-harness-ab',
+      roundId: 'ab-summary',
+      baselineArmId: 'maka',
+      candidateArmId: 'opencode',
+      evaluationTaskIds: ['a'],
+      baselineRuns: [[checkpointOnlyTimeout]],
+      candidateRuns: [[usage('a', true, 120, 50, 30, 0.2)]],
+    });
+
+    const report = buildHarnessAbReport(summary);
+
+    assert.equal(summary.pairedAttempts.fullyMeteredPairs, 0);
+    assert.deepEqual(summary.pairedAttempts.missingUsagePairIds, ['a#r0']);
+    assert.equal(report.runStatus, 'incomplete');
+  });
+
   test('preserves an early stop in every report format and rejects completion', () => {
     const summary = summarizeAbComparison({
       runId: 'glm-harness-ab',

@@ -520,7 +520,7 @@ function summarizeAttemptPairs(
       evaluatedPairs += 1;
       if (baseline.passed) baselinePassed += 1;
       if (candidate.passed) candidatePassed += 1;
-      if (hasTokenSummary(baseline) && hasTokenSummary(candidate)) {
+      if (hasCompleteTokenSummary(baseline) && hasCompleteTokenSummary(candidate)) {
         fullyMeteredPairs += 1;
         baselineEvaluatedEvents.push(baseline);
         candidateEvaluatedEvents.push(candidate);
@@ -558,6 +558,13 @@ function summarizeAttemptPairs(
     budgetDiscordantPairIds,
     infraOrPlumbingDiscordantPairIds,
   };
+}
+
+function hasCompleteTokenSummary(
+  event: FixedPromptTaskWalEvent,
+): event is FixedPromptTaskWalEvent & { tokenSummary: HarborCellTokenSummary } {
+  if (!hasTokenSummary(event)) return false;
+  return event.type !== 'task_budget_exhausted' || event.tokenSummarySource === 'final';
 }
 
 function hasTokenSummary(
