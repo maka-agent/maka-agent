@@ -428,7 +428,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     getBrowserViews,
     disposeBrowserViews,
     hasOpenWindows() {
-      return BrowserWindow.getAllWindows().length > 0;
+      return mainWindow !== null && !mainWindow.isDestroyed();
     },
     focus() {
       // ChatGPT Pro review P2: second-instance / activate must not show() the

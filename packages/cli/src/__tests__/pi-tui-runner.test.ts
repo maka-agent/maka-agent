@@ -280,6 +280,61 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('inspects exact WriteStdin input and allows it without turn memory', async () => {
+    const terminal = new FakeTerminal();
+    const hiddenSuffix = '\u001b[31mrm -rf /tmp/hidden-suffix\r';
+    const driver = new PermissionPromptDriver([{
+      toolName: 'WriteStdin',
+      args: {
+        ref: 'maka://runtime/background-tasks/pty-1',
+        input: `password=super-secret ${'x'.repeat(200)}${hiddenSuffix}`,
+        size: { cols: 120, rows: 40 },
+      },
+      rememberForTurnAllowed: false,
+    }]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => driver.permissionRequests === 1);
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Ctrl+O show full parameters'));
+    const collapsed = plainTerminalOutput(terminal.screenOutput());
+    assert.doesNotMatch(collapsed, /super-secret/);
+    assert.doesNotMatch(collapsed, /hidden-suffix/);
+    assert.doesNotMatch(collapsed, /allow for turn/);
+
+    terminal.input('\x0f');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('hidden-suffix\\r'));
+    const expanded = plainTerminalOutput(terminal.output());
+    assert.match(expanded, /super-secret/);
+    assert.match(expanded, /\\u\{001B\}\[31mrm -rf/);
+    assert.match(expanded, /\/tmp\/hidden-suffix\\r/);
+    assert.doesNotMatch(terminal.output(), /\u001b\[31mrm -rf/);
+
+    terminal.input('y');
+    await waitFor(() => driver.permissionResponses.length === 1);
+    assert.deepEqual(driver.permissionResponses, [{
+      requestId: 'permission-1',
+      decision: 'allow',
+    }]);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('denies a pending permission request from the terminal', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionPromptDriver();
@@ -3059,17 +3114,32 @@ class RejectingStopDriver implements MakaSessionDriver {
   }
 }
 
+interface PermissionPromptRequest {
+  toolName: string;
+  args: unknown;
+  rememberForTurnAllowed: boolean;
+}
+
 class PermissionPromptDriver implements MakaSessionDriver {
   readonly permissionResponses: PermissionResponse[] = [];
   permissionRequests = 0;
   stopCalls = 0;
   private permissionResponseWaiter: (() => void) | null = null;
+  private readonly requests: readonly PermissionPromptRequest[];
 
   constructor(
-    private readonly commands: readonly string[] = ['npm test'],
+    requests: readonly (string | PermissionPromptRequest)[] = ['npm test'],
     private readonly beforePermissionAck: (index: number) => Promise<void> = async () => {},
     private readonly additionalPermissions = false,
-  ) {}
+  ) {
+    this.requests = requests.map((request) => typeof request === 'string'
+      ? {
+          toolName: 'Bash',
+          args: { command: request },
+          rememberForTurnAllowed: true,
+        }
+      : request);
+  }
 
   async listSessions(): Promise<SessionSummary[]> {
     return [];
@@ -3078,7 +3148,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
   async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
-    for (const [index, command] of this.commands.entries()) {
+    for (const [index, request] of this.requests.entries()) {
       this.permissionRequests += 1;
       yield this.additionalPermissions ? {
         type: 'permission_request',
@@ -3105,19 +3175,20 @@ class PermissionPromptDriver implements MakaSessionDriver {
         rememberForTurnAllowed: false,
       } : {
         type: 'permission_request',
+        kind: 'tool_permission',
         id: `event-permission-${index + 1}`,
         turnId: 'turn-1',
         ts: index + 1,
         requestId: `permission-${index + 1}`,
         toolUseId: `tool-${index + 1}`,
-        toolName: 'Bash',
+        toolName: request.toolName,
         category: 'shell_unsafe',
         reason: 'shell_dangerous',
-        args: { command },
-        rememberForTurnAllowed: true,
+        args: request.args,
+        rememberForTurnAllowed: request.rememberForTurnAllowed,
       };
     }
-    for (const index of this.commands.keys()) {
+    for (const index of this.requests.keys()) {
       while (this.permissionResponses.length <= index) {
         await new Promise<void>((resolve) => {
           this.permissionResponseWaiter = resolve;
@@ -3129,7 +3200,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
         type: 'permission_decision_ack',
         id: `event-decision-${index + 1}`,
         turnId: 'turn-1',
-        ts: this.commands.length + index + 1,
+        ts: this.requests.length + index + 1,
         requestId: response.requestId,
         toolUseId: `tool-${index + 1}`,
         decision: response.decision,
@@ -3142,7 +3213,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
       type: 'complete',
       id: 'event-complete',
       turnId: 'turn-1',
-      ts: this.commands.length * 2 + 1,
+      ts: this.requests.length * 2 + 1,
       stopReason: 'end_turn',
     };
   }
@@ -3706,6 +3777,7 @@ class RejectingPermissionDriver implements MakaSessionDriver {
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     yield {
       type: 'permission_request',
+      kind: 'tool_permission',
       id: 'event-permission',
       turnId: 'turn-1',
       ts: 1,
@@ -3715,6 +3787,7 @@ class RejectingPermissionDriver implements MakaSessionDriver {
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
       args: { command: 'npm test' },
+      rememberForTurnAllowed: true,
     };
     // The turn stays parked while the permission is unresolved.
     await new Promise<void>(() => {});
@@ -3778,6 +3851,7 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     yield {
       type: 'permission_request',
+      kind: 'tool_permission',
       id: 'event-permission',
       turnId: 'turn-1',
       ts: 1,
@@ -3787,6 +3861,7 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
       args: { command: 'npm test' },
+      rememberForTurnAllowed: true,
     };
     await new Promise<void>((resolve) => {
       this.resolveContinue = resolve;

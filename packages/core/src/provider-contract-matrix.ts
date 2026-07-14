@@ -1,0 +1,340 @@
+/**
+ * Provider conformance matrix — a registry-driven plan.
+ *
+ * Conformance is the interpreted execution of what `providerRegistry`
+ * *declares*. This module derives, for every ready provider and every contract
+ * dimension, one of three states:
+ *
+ *   - `generated`      the expectation is fully recoverable from the declaration
+ *                      (protocol, runtime adapter, model discovery), so a
+ *                      parametric wire test can stand in for a hand-written one.
+ *   - `override`       the declaration proves the dimension exists but its
+ *                      contract is provider-specific and cannot be recovered
+ *                      generically; a named hand-written test owns it.
+ *   - `not-applicable` the declaration proves the dimension does not apply, with
+ *                      a machine-readable reason (and, where useful, a reverse
+ *                      assertion the executor must still hold).
+ *
+ * The row set is discovered from the registry, never a hard-coded provider list:
+ * every `status: 'ready'` entry whose runtime adapter is wired (i.e. not
+ * `unavailable`) is a row. Crucially this is *not* `READY_PROVIDER_TYPES`, whose
+ * membership is "has a `readyOrder`" and would silently drop `github-copilot`
+ * (ready, but intentionally without a `readyOrder`).
+ *
+ * Pure: no IO, no network, no clock. Given the registry it is a total function.
+ */
+
+import { lookupModelProviderOverride } from './model-metadata.js';
+import {
+  PROVIDER_REGISTRY,
+  type ProviderDefaults,
+  type ProviderModelDiscovery,
+  type ProviderRuntimeAdapter,
+  type ProviderType,
+} from './provider-registry.js';
+
+export const PROVIDER_CONTRACT_DIMENSIONS = [
+  'discovery',
+  'exact-model-id',
+  'tool-loop',
+  'reasoning-replay',
+] as const;
+
+export type ProviderContractDimension = (typeof PROVIDER_CONTRACT_DIMENSIONS)[number];
+
+export type ProviderContractCellState = 'generated' | 'override' | 'not-applicable';
+
+/** The four request wires a generated cell can be executed against. */
+export type ProviderContractWire =
+  | 'openai-chat'
+  | 'anthropic-messages'
+  | 'google-generate'
+  | 'cohere-v2';
+
+/** Runtime-adapter kinds whose request wire is provider-specific (auth, headers,
+ * per-model protocol) and therefore cannot be generated from the declaration. */
+export const SUBSCRIPTION_WIRE_ADAPTER_KINDS: ReadonlySet<ProviderRuntimeAdapter['kind']> =
+  new Set(['claude-subscription', 'codex-subscription', 'github-copilot']);
+
+/** Derived expectation for a generated `discovery` cell. */
+export interface ProviderContractDiscoveryPlan {
+  protocol: ProviderDefaults['protocol'];
+  /** `none` when the request must carry no credential — a public model list, or a
+   * provider with no credential to send; `default` when it carries provider auth. */
+  auth: 'default' | 'none';
+  path?: string;
+  query?: Readonly<Record<string, string>>;
+  responseShape?: 'array-or-data';
+  filter?: 'fallback-models' | 'language-models' | 'tool-capable';
+}
+
+/** Derived expectation for a generated `reasoning-replay` cell. */
+export interface ProviderContractReasoningReplayPlan {
+  /** Field the upstream response carries reasoning in. */
+  sourceField: 'reasoning_content';
+  /** Field the next request must carry the replayed reasoning in. */
+  replayField: 'reasoning_content' | 'reasoning';
+}
+
+export interface ProviderContractGeneratedCell {
+  state: 'generated';
+  dimension: ProviderContractDimension;
+  /** Present for wire dimensions (`exact-model-id`, `tool-loop`, `reasoning-replay`). */
+  wire?: ProviderContractWire;
+  /** Present for the `discovery` dimension. */
+  discovery?: ProviderContractDiscoveryPlan;
+  /** Present for the `reasoning-replay` dimension. */
+  reasoningReplay?: ProviderContractReasoningReplayPlan;
+}
+
+export interface ProviderContractOverrideCell {
+  state: 'override';
+  dimension: ProviderContractDimension;
+  /** Stable `${providerType}:${dimension}` key a named hand-written test registers against. */
+  overrideKey: string;
+  /** Human-readable statement of the provider-specific contract the override owns. */
+  contract: string;
+}
+
+export type ProviderContractReverseAssertion = 'must-not-request-models-endpoint';
+
+export interface ProviderContractNotApplicableCell {
+  state: 'not-applicable';
+  dimension: ProviderContractDimension;
+  /** Machine-readable justification derived from the declaration. */
+  reason: string;
+  /** An assertion the executor must still hold even though the dimension is N/A. */
+  reverseAssertion?: ProviderContractReverseAssertion;
+}
+
+export type ProviderContractCell =
+  | ProviderContractGeneratedCell
+  | ProviderContractOverrideCell
+  | ProviderContractNotApplicableCell;
+
+export interface ProviderContractRow {
+  providerType: ProviderType;
+  protocol: ProviderDefaults['protocol'];
+  adapterKind: ProviderRuntimeAdapter['kind'];
+  discoveryKind: ProviderModelDiscovery['kind'];
+  /** Deterministic model id generated cells drive through discovery and the wire. */
+  sampleModelId: string;
+  cells: Record<ProviderContractDimension, ProviderContractCell>;
+}
+
+export interface ProviderContractMatrixPlan {
+  dimensions: readonly ProviderContractDimension[];
+  rows: ProviderContractRow[];
+}
+
+const SYNTHETIC_SAMPLE_MODEL_ID = 'conformance-sample-model';
+
+function overrideKeyFor(providerType: ProviderType, dimension: ProviderContractDimension): string {
+  return `${providerType}:${dimension}`;
+}
+
+function wireForProtocol(protocol: ProviderDefaults['protocol']): ProviderContractWire {
+  switch (protocol) {
+    case 'openai':
+      return 'openai-chat';
+    case 'anthropic':
+      return 'anthropic-messages';
+    case 'google':
+      return 'google-generate';
+    case 'cohere':
+      return 'cohere-v2';
+  }
+}
+
+/**
+ * The generated wire tests the provider's *declared default* wire, so the sample
+ * model id must not divert to another one:
+ *
+ *   - a model carrying a per-model provider override (models.dev `npm`/`api`)
+ *     resolves to a different adapter/protocol at runtime (e.g. OpenCode routes
+ *     `gpt-5*` to the OpenAI Responses wire); that per-model contract is owned by
+ *     a hand-written test, not this generated default-wire cell.
+ *   - the native OpenAI adapter routes `gpt-5*` to the Responses API by id shape.
+ *
+ * The first fallback model that survives both filters is the most faithful
+ * choice — a real, exact id that also sits in any `fallback-models` discovery
+ * allowlist. Providers with no such model fall back to a synthetic id.
+ */
+function sampleModelIdFor(providerType: ProviderType, def: ProviderDefaults): string {
+  const usesDefaultWire = (id: string): boolean => {
+    if (lookupModelProviderOverride(providerType, id)) return false;
+    if (def.runtimeAdapter.kind === 'openai' && /^gpt-5/i.test(id)) return false;
+    return true;
+  };
+  return def.fallbackModels.find(usesDefaultWire) ?? SYNTHETIC_SAMPLE_MODEL_ID;
+}
+
+function discoveryCell(providerType: ProviderType, def: ProviderDefaults): ProviderContractCell {
+  const discovery = def.modelDiscovery;
+  switch (discovery.kind) {
+    case 'fallback':
+      return {
+        state: 'not-applicable',
+        dimension: 'discovery',
+        reason: 'declares-static-fallback-model-snapshot',
+        reverseAssertion: 'must-not-request-models-endpoint',
+      };
+    case 'fireworks':
+      return {
+        state: 'override',
+        dimension: 'discovery',
+        overrideKey: overrideKeyFor(providerType, 'discovery'),
+        contract: 'Fireworks account pagination discovery over /v1/accounts + per-account /models',
+      };
+    case 'cohere':
+      return {
+        state: 'override',
+        dimension: 'discovery',
+        overrideKey: overrideKeyFor(providerType, 'discovery'),
+        contract: 'Cohere native V2 paginated /v1/models discovery (endpoint=chat)',
+      };
+    case 'ollama':
+      return {
+        state: 'override',
+        dimension: 'discovery',
+        overrideKey: overrideKeyFor(providerType, 'discovery'),
+        contract: 'Ollama native /api/tags discovery',
+      };
+    case 'protocol':
+      if (discovery.auth === 'github-copilot') {
+        return {
+          state: 'override',
+          dimension: 'discovery',
+          overrideKey: overrideKeyFor(providerType, 'discovery'),
+          contract: 'GitHub Copilot subscription /models discovery (picker + endpoint gating)',
+        };
+      }
+      return {
+        state: 'generated',
+        dimension: 'discovery',
+        discovery: {
+          protocol: def.protocol,
+          auth: discovery.auth === 'none' || def.authKind === 'none' ? 'none' : 'default',
+          ...(discovery.path !== undefined ? { path: discovery.path } : {}),
+          ...(discovery.query !== undefined ? { query: discovery.query } : {}),
+          ...(discovery.responseShape !== undefined ? { responseShape: discovery.responseShape } : {}),
+          ...(discovery.filter !== undefined ? { filter: discovery.filter } : {}),
+        },
+      };
+  }
+}
+
+function wireDimensionCell(
+  dimension: 'exact-model-id' | 'tool-loop',
+  providerType: ProviderType,
+  def: ProviderDefaults,
+): ProviderContractCell {
+  if (SUBSCRIPTION_WIRE_ADAPTER_KINDS.has(def.runtimeAdapter.kind)) {
+    return {
+      state: 'override',
+      dimension,
+      overrideKey: overrideKeyFor(providerType, dimension),
+      contract: `${def.runtimeAdapter.kind} subscription wire is provider-specific (per-model protocol, headers, auth)`,
+    };
+  }
+  return { state: 'generated', dimension, wire: wireForProtocol(def.protocol) };
+}
+
+function reasoningReplayCell(providerType: ProviderType, def: ProviderDefaults): ProviderContractCell {
+  const adapter = def.runtimeAdapter;
+  if (SUBSCRIPTION_WIRE_ADAPTER_KINDS.has(adapter.kind)) {
+    return {
+      state: 'override',
+      dimension: 'reasoning-replay',
+      overrideKey: overrideKeyFor(providerType, 'reasoning-replay'),
+      contract: `${adapter.kind} replays reasoning on its provider-specific per-model wire`,
+    };
+  }
+  if (adapter.kind === 'openai-compatible') {
+    if (adapter.replayAssistantReasoningDetails === true) {
+      return {
+        state: 'override',
+        dimension: 'reasoning-replay',
+        overrideKey: overrideKeyFor(providerType, 'reasoning-replay'),
+        contract: 'Signed reasoning_details are replayed byte-for-byte (ZenMux), beyond a plain field rename',
+      };
+    }
+    return {
+      state: 'generated',
+      dimension: 'reasoning-replay',
+      wire: 'openai-chat',
+      reasoningReplay: {
+        sourceField: 'reasoning_content',
+        replayField: adapter.replayAssistantReasoningAs ?? 'reasoning_content',
+      },
+    };
+  }
+  // Native Anthropic / OpenAI / Google / Cohere SDKs own signed reasoning replay
+  // opaquely; the maka provider layer adds no wire transform to derive from.
+  return {
+    state: 'not-applicable',
+    dimension: 'reasoning-replay',
+    reason: 'vendor-sdk-owns-signed-reasoning-replay',
+  };
+}
+
+function isRow(def: ProviderDefaults): boolean {
+  return def.status === 'ready' && def.runtimeAdapter.kind !== 'unavailable';
+}
+
+export function buildProviderContractRow(
+  providerType: ProviderType,
+  def: ProviderDefaults,
+): ProviderContractRow {
+  return {
+    providerType,
+    protocol: def.protocol,
+    adapterKind: def.runtimeAdapter.kind,
+    discoveryKind: def.modelDiscovery.kind,
+    sampleModelId: sampleModelIdFor(providerType, def),
+    cells: {
+      discovery: discoveryCell(providerType, def),
+      'exact-model-id': wireDimensionCell('exact-model-id', providerType, def),
+      'tool-loop': wireDimensionCell('tool-loop', providerType, def),
+      'reasoning-replay': reasoningReplayCell(providerType, def),
+    },
+  };
+}
+
+/**
+ * Derive the full conformance matrix plan from a provider registry. Defaults to
+ * the live {@link PROVIDER_REGISTRY}; accepts an explicit registry so tests can
+ * probe the derivation with fixtures.
+ */
+export function buildProviderContractMatrixPlan(
+  registry: Readonly<Record<string, ProviderDefaults>> = PROVIDER_REGISTRY,
+): ProviderContractMatrixPlan {
+  const rows = (Object.entries(registry) as Array<[ProviderType, ProviderDefaults]>)
+    .filter(([, def]) => isRow(def))
+    .map(([providerType, def]) => buildProviderContractRow(providerType, def));
+  return { dimensions: PROVIDER_CONTRACT_DIMENSIONS, rows };
+}
+
+/** A single (provider, dimension) coordinate flattened from the plan. */
+export interface ProviderContractCellEntry {
+  providerType: ProviderType;
+  dimension: ProviderContractDimension;
+  cell: ProviderContractCell;
+  row: ProviderContractRow;
+}
+
+/** Flatten the plan into one entry per (provider, dimension) cell, in a stable order. */
+export function listProviderContractCells(
+  plan: ProviderContractMatrixPlan,
+): ProviderContractCellEntry[] {
+  const entries: ProviderContractCellEntry[] = [];
+  for (const row of plan.rows) {
+    for (const dimension of plan.dimensions) {
+      entries.push({ providerType: row.providerType, dimension, cell: row.cells[dimension], row });
+    }
+  }
+  return entries;
+}
+
+/** The live plan for the current registry. */
+export const PROVIDER_CONTRACT_MATRIX_PLAN = buildProviderContractMatrixPlan();

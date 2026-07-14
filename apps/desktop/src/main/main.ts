@@ -142,6 +142,7 @@ import { probeOfficeCli } from './officecli-probe.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
 import { listLocalBranches, checkoutBranch } from './git-branch.js';
+import { searchWorkspaceFiles } from './workspace-file-search.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { botTestErrorMessage, buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 import {
@@ -188,6 +189,10 @@ import {
   applyComputerUseRealModelPolicy,
   parseComputerUseRealModelPolicy,
 } from './computer-use-real-model-policy.js';
+import {
+  computerUseAvailabilityForModel,
+  computerUseToolsForModel,
+} from './computer-use-model-tools.js';
 import { createComputerUseOverlayHook } from '@maka/computer-use';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
@@ -897,10 +902,10 @@ backends.register('ai-sdk', async (ctx) => {
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
-  const backendTools = isComputerUseRealModelE2e
+  const candidateTools = isComputerUseRealModelE2e
     ? computerUseTools
     : [...(ctx.tools ?? builtinTools)];
-  const backendToolAvailability = isComputerUseRealModelE2e
+  const candidateToolAvailability = isComputerUseRealModelE2e
     ? { economy: false, groups: [] }
     : toolAvailability;
   // Expert-team lead: a main session (ctx.tools undefined) labeled
@@ -909,6 +914,15 @@ backends.register('ai-sdk', async (ctx) => {
   // get expert_dispatch — members cannot spawn nested teams.
   const expertTeamId = ctx.tools ? undefined : expertTeamIdFromLabels(ctx.header.labels);
   const expertDispatchTool = expertTeamId ? buildExpertDispatchToolForTeamId(expertTeamId) : undefined;
+  const backendTools = computerUseToolsForModel(
+    candidateTools,
+    computerUseTools,
+    supportsVision,
+  );
+  const backendToolAvailability = computerUseAvailabilityForModel(
+    candidateToolAvailability,
+    supportsVision,
+  );
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -1281,6 +1295,18 @@ function registerIpc(): void {
       }
       const projectPath = await currentProjectRoot();
       return checkoutBranch(projectPath, branch);
+    },
+  );
+  // Composer `@` mention popup: list workspace files under the same project
+  // root that app:info reports. Git repos honor .gitignore + untracked via
+  // `git ls-files`; other trees fall back to a bounded walk. See
+  // workspace-file-search.ts.
+  ipcMain.handle(
+    'workspace:searchFiles',
+    async (_event, input: unknown) => {
+      const request = (input ?? {}) as { query?: unknown; limit?: unknown };
+      const projectPath = await currentProjectRoot();
+      return searchWorkspaceFiles(projectPath, { query: request.query, limit: request.limit });
     },
   );
   registerMemoryIpc({ localMemory });

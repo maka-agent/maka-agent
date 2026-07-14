@@ -293,6 +293,15 @@ const deepinfraModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA.deepinfra,
   ['moonshotai/Kimi-K2.7-Code', 'moonshotai/Kimi-K2.6'],
 );
+const groq = GENERATED_MODELS_DEV_PROVIDER_FACTS.groq;
+if (groq.id !== 'groq') {
+  throw new Error('models.dev Groq provider facts are missing stable id groq');
+}
+const groqModelIds = toolCallingModelIds(
+  'Groq',
+  GENERATED_MODELS_DEV_METADATA.groq,
+  ['llama-3.3-70b-versatile'],
+);
 const vercel = GENERATED_MODELS_DEV_PROVIDER_FACTS.vercel;
 if (vercel.id !== 'vercel') {
   throw new Error('models.dev Vercel AI Gateway provider facts are missing stable id vercel');
@@ -1042,6 +1051,25 @@ const providerRegistry = {
     modelsDevId: deepinfra.id,
     readyOrder: 29,
     catalogOrder: 29,
+  },
+  groq: {
+    label: groq.name,
+    description: 'Ultra-fast LPU-hosted open models with reasoning and tool use.',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: groqModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol', filter: 'fallback-models' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://console.groq.com/keys',
+    modelsDevId: groq.id,
+    readyOrder: 39,
+    catalogOrder: 39,
   },
   'cloudflare-workers-ai': {
     label: cloudflareWorkersAi.name,

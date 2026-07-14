@@ -263,6 +263,27 @@ describe('ModelCatalogEntry', () => {
     assert.ok(!entries.some((entry) => entry.id === 'BAAI/bge-m3'));
   });
 
+  it('uses the checked-in Groq snapshot until live discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'groq',
+        providerType: 'groq',
+        defaultModel: 'llama-3.3-70b-versatile',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'llama-3.3-70b-versatile');
+    assert.equal(entries[0]?.displayName, 'Llama 3.3 70B');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'openai/gpt-oss-120b'));
+    assert.ok(entries.some((entry) => entry.id === 'openai/gpt-oss-safeguard-20b'));
+    assert.ok(!entries.some((entry) => entry.id === 'whisper-large-v3'));
+  });
+
   it('uses the checked-in Ollama Cloud snapshot with exact model ids until discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

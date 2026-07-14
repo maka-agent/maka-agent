@@ -88,6 +88,15 @@ export class CursorEngine {
     this.clickT = 0;
   }
 
+  cancel(): void {
+    this.path = null;
+    this.dist = 0;
+    this.clickT = null;
+    this.clickPoint = null;
+    this.clickOnArrive = false;
+    this.pressed = false;
+  }
+
   /** True while a direct glide or click pulse is in progress. */
   isMoving(): boolean {
     return this.path !== null || this.clickT !== null;
@@ -161,7 +170,7 @@ export class CursorEngine {
     grad.addColorStop(1, rgba(p.bloomOuter, 0));
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(px, py, bloomR, 0, 2 * PI);
+    ctx.arc(hotspotX, hotspotY, bloomR, 0, 2 * PI);
     ctx.fill();
 
     // --- Pressed state (dot + ring) ---

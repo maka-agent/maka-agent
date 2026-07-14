@@ -225,12 +225,15 @@ export {
 } from './pty-output-view.js';
 export type { PtyTuiTerminalView } from './pty-output-view.js';
 export {
+  formatWriteStdinPermissionInspection,
   projectToolActivityArgs,
+  projectWriteStdinPermissionSummary,
   projectWriteStdinInput,
   readWriteStdinInputPreview,
   WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS,
   WRITE_STDIN_REF_PREVIEW_MAX_CHARS,
   type WriteStdinInputPreview,
+  type WriteStdinPermissionSummary,
 } from './tool-activity-args.js';
 export {
   SHELL_RUN_ID_MAX_CHARS,
@@ -901,6 +904,31 @@ export {
   validateConnectionBaseUrl,
   validateSlug,
 } from './llm-connections.js';
+
+// provider-contract-matrix.ts — registry-driven conformance matrix plan.
+export type {
+  ProviderContractCell,
+  ProviderContractCellEntry,
+  ProviderContractCellState,
+  ProviderContractDimension,
+  ProviderContractDiscoveryPlan,
+  ProviderContractGeneratedCell,
+  ProviderContractMatrixPlan,
+  ProviderContractNotApplicableCell,
+  ProviderContractOverrideCell,
+  ProviderContractReasoningReplayPlan,
+  ProviderContractReverseAssertion,
+  ProviderContractRow,
+  ProviderContractWire,
+} from './provider-contract-matrix.js';
+export {
+  PROVIDER_CONTRACT_DIMENSIONS,
+  PROVIDER_CONTRACT_MATRIX_PLAN,
+  SUBSCRIPTION_WIRE_ADAPTER_KINDS,
+  buildProviderContractMatrixPlan,
+  buildProviderContractRow,
+  listProviderContractCells,
+} from './provider-contract-matrix.js';
 
 // connection-readiness.ts (PR110a)
 export type {

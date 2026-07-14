@@ -64,6 +64,14 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual([...thinkingVariantsForModel('deepinfra', 'moonshotai/Kimi-K2.7-Code')], ['off', 'low', 'medium', 'high']);
     assert.deepEqual(buildProviderOptions(conn('deepinfra'), 'moonshotai/Kimi-K2.7-Code', 'high'), { deepinfra: { reasoningEffort: 'high' } });
     assert.deepEqual(buildProviderOptions(conn('deepinfra'), 'moonshotai/Kimi-K2.7-Code', 'off'), { deepinfra: { reasoningEffort: 'none' } });
+    // Groq reasoning_effort: only gpt-oss-120b / gpt-oss-20b accept it, with
+    // low/medium/high (no `none`). qwen/qwen3-32b does not accept reasoning_effort.
+    assert.deepEqual([...thinkingVariantsForModel('groq', 'openai/gpt-oss-120b')], ['low', 'medium', 'high']);
+    assert.deepEqual(buildProviderOptions(conn('groq'), 'openai/gpt-oss-120b', 'high'), { groq: { reasoningEffort: 'high' } });
+    assert.deepEqual(buildProviderOptions(conn('groq'), 'openai/gpt-oss-120b', 'off'), {});
+    assert.deepEqual([...thinkingVariantsForModel('groq', 'qwen/qwen3-32b')], []);
+    assert.deepEqual([...thinkingVariantsForModel('groq', 'openai/gpt-oss-safeguard-20b')], []);
+    assert.deepEqual([...thinkingVariantsForModel('groq', 'llama-3.3-70b-versatile')], []);
     assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-v4-flash')], ['high', 'max']);
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'high'), { deepseek: { reasoningEffort: 'high' } });
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'max'), { deepseek: { reasoningEffort: 'max' } });
@@ -241,6 +249,7 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
     { providerType: 'google', model: 'gemini-3.5-flash' },
     { providerType: 'deepseek', model: 'deepseek-v4-flash' },
     { providerType: 'deepinfra', model: 'moonshotai/Kimi-K2.7-Code' },
+    { providerType: 'groq', model: 'openai/gpt-oss-120b' },
     { providerType: 'vercel', model: 'xai/grok-4.3' },
     { providerType: 'cloudflare-workers-ai', model: '@cf/moonshotai/kimi-k2.6' },
     { providerType: 'zai-coding-plan', model: 'glm-5.2', slug: 'zai-coding-plan' },

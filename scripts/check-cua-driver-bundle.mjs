@@ -12,7 +12,10 @@ import { promisify } from 'node:util';
 
 import {
   assertPinnedCuaDriverChecksums,
+  assertSourceProvenance,
   cuaDriverSupported,
+  verifyBinaryMetadata,
+  verifyBinaryVersion,
 } from './prepare-cua-driver.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -42,8 +45,10 @@ export async function checkCuaDriverBundle(targetPlatform = process.platform) {
     );
   }
   const info = await stat(binaryPath);
-  if (!info.isFile() || info.size <= 0) {
-    throw new Error(`cua-driver bundle is not a non-empty file: ${binaryPath}`);
+  if (!info.isFile() || info.size !== cua.binarySizeBytes) {
+    throw new Error(
+      `cua-driver bundle size mismatch: expected ${cua.binarySizeBytes}, got ${info.size}: ${binaryPath}`,
+    );
   }
   await access(binaryPath, constants.X_OK);
 
@@ -75,6 +80,10 @@ export async function checkCuaDriverBundle(targetPlatform = process.platform) {
     || marker.sourceCommit !== cua.sourceCommit
     || marker.upstreamCommit !== cua.upstreamCommit
     || marker.upstreamMergeCommit !== cua.upstreamMergeCommit
+    || marker.archiveSizeBytes !== cua.archiveSizeBytes
+    || marker.binarySizeBytes !== cua.binarySizeBytes
+    || marker.licenseSizeBytes !== cua.licenseSizeBytes
+    || marker.sourceSizeBytes !== cua.sourceSizeBytes
     || marker.archiveSha256 !== cua.archiveSha256
     || marker.binarySha256 !== cua.binarySha256
     || marker.licenseSha256 !== cua.licenseSha256
@@ -88,35 +97,20 @@ export async function checkCuaDriverBundle(targetPlatform = process.platform) {
 
   const licenseBytes = await readFile(licensePath);
   const sourceBytes = await readFile(sourcePath);
+  if (
+    licenseBytes.byteLength !== cua.licenseSizeBytes
+    || sourceBytes.byteLength !== cua.sourceSizeBytes
+  ) {
+    throw new Error('cua-driver license/provenance size mismatch. Re-run `npm run prepare:cua-driver`.');
+  }
   const actualLicenseSha256 = createHash('sha256').update(licenseBytes).digest('hex');
   const actualSourceSha256 = createHash('sha256').update(sourceBytes).digest('hex');
   if (actualLicenseSha256 !== cua.licenseSha256 || actualSourceSha256 !== cua.sourceSha256) {
     throw new Error('cua-driver license/provenance checksum mismatch. Re-run `npm run prepare:cua-driver`.');
   }
-  const source = JSON.parse(sourceBytes.toString('utf8'));
-  for (const [field, expected] of Object.entries({
-    repository: cua.repo,
-    upstreamTag: cua.upstreamTag,
-    upstreamCommit: cua.upstreamCommit,
-    sourceCommit: cua.sourceCommit,
-    patchPullRequest: cua.patchPullRequest,
-    cargoLockSha256: cua.cargoLockSha256,
-    signature: cua.signature,
-  })) {
-    if (source[field] !== expected) {
-      throw new Error(`cua-driver SOURCE.json ${field} mismatch`);
-    }
-  }
-  if (!cua.architectures.every((arch) => source.architectures?.includes(arch))) {
-    throw new Error('cua-driver SOURCE.json architectures mismatch');
-  }
-
-  const { stdout } = await execFileAsync(binaryPath, ['--version']);
-  if (stdout.trim() !== `cua-driver ${cua.expectedVersion}`) {
-    throw new Error(`cua-driver version mismatch: ${stdout.trim()}`);
-  }
-  await execFileAsync('lipo', [binaryPath, '-verify_arch', ...cua.architectures]);
-  await execFileAsync('codesign', ['--verify', '--strict', '--verbose=2', binaryPath]);
+  assertSourceProvenance(JSON.parse(sourceBytes.toString('utf8')), cua);
+  await verifyBinaryMetadata(binaryPath, cua, execFileAsync);
+  await verifyBinaryVersion(binaryPath, cua, execFileAsync);
   return {
     skipped: false,
     binaryPath,

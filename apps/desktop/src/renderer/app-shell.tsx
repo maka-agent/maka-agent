@@ -103,6 +103,7 @@ import {
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
 import { useKeyedPendingRegistry } from './use-pending-action-registry';
 import { useAppShellComposerAttachments } from './use-app-shell-composer-attachments';
+import { useComposerMentions } from './use-composer-mentions';
 import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
 import { useShellConnections } from './use-shell-connections';
 import { useShellChatModel } from './use-shell-chat-model';
@@ -752,6 +753,11 @@ export function AppShell({
     isAutomationsSurfaceActive,
     toastApi,
   });
+
+  // Composer mention popups: `/` skills (enabled only) + `@` workspace file
+  // search. The hook owns the window.maka IPC wrapper so app-shell keeps no
+  // inline mention state.
+  const { mentionSkills, searchMentionFiles } = useComposerMentions({ skills });
 
   const {
     appInfo,
@@ -1483,6 +1489,8 @@ export function AppShell({
                 onSend={sendWithAttachments}
                 onStop={stop}
                 stopPending={activeId ? stopPendingBySession[activeId] === true : false}
+                mentionSkills={mentionSkills}
+                onSearchMentionFiles={searchMentionFiles}
                 pendingAttachments={pendingAttachments}
                 onRemoveAttachment={removeAttachment}
                 onPickAttachments={pickAttachments}

@@ -178,7 +178,10 @@ export function deriveCapabilityReadiness(input: DeriveCapabilityReadinessInput)
     return 'not_configured';
   }
 
-  if (input.runtimeProbe.state === 'degraded') return 'degraded';
+  if (
+    input.runtimeProbe.state === 'degraded'
+    || input.runtimeProbe.state === 'not_available'
+  ) return 'degraded';
   if (input.feature.state === 'partial') return 'not_configured';
   return 'enabled';
 }

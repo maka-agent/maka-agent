@@ -267,6 +267,37 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     }), undefined);
   });
 
+  test('remembered tool approval does not absorb a same-scope one-shot request', async () => {
+    const { engine } = createFixture();
+    const args = { path: '/workspace/output.txt', content: 'ok' };
+    const toolPermission = engine.evaluate({
+      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
+      toolName: 'Write', args, mode: 'ask',
+    });
+    const additionalPermission = engine.evaluate({
+      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-2',
+      toolName: 'Write', args, mode: 'ask', cwd: '/workspace',
+      additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args }),
+    });
+    assert.equal(toolPermission.kind, 'prompt');
+    assert.equal(additionalPermission.kind, 'prompt');
+    if (toolPermission.kind !== 'prompt' || additionalPermission.kind !== 'prompt') return;
+
+    engine.recordResponse('turn-1', {
+      requestId: toolPermission.event.requestId,
+      decision: 'allow',
+      rememberForTurn: true,
+    });
+    await toolPermission.parked;
+
+    assert.equal(engine.pendingCount('turn-1'), 1);
+    engine.recordResponse('turn-1', {
+      requestId: additionalPermission.event.requestId,
+      decision: 'deny',
+    });
+    assert.equal((await additionalPermission.parked).decision, 'deny');
+  });
+
   test('expired grants fail closed', () => {
     const { engine, setNow } = createFixture();
     const args = { path: '/workspace/output.txt', content: 'ok' };

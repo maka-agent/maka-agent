@@ -410,6 +410,24 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists the Groq provider id and exact default model', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const modelId = 'llama-3.3-70b-versatile';
+      await store.create({
+        slug: 'groq',
+        name: 'Groq',
+        providerType: 'groq',
+        defaultModel: modelId,
+      });
+
+      const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+        connections: Array<{ providerType: string; defaultModel: string }>;
+      };
+      assert.equal(persisted.connections[0]?.providerType, 'groq');
+      assert.equal(persisted.connections[0]?.defaultModel, modelId);
+    });
+  });
+
   test('persists Ollama Cloud independently from local Ollama with exact model ids', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

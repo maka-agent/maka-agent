@@ -13,6 +13,7 @@ const PROVIDERS = {
   'github-copilot': 'github-copilot',
   google: 'google',
   'gemini-cli': 'google',
+  groq: 'groq',
   huggingface: 'huggingface',
   MiniMax: 'minimax',
   'MiniMax-cn': 'minimax-cn',

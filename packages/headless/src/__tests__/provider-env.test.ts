@@ -99,6 +99,14 @@ test('DeepInfra keeps its official provider-scoped credential environment names'
   });
 });
 
+test('Groq keeps its official provider-scoped credential environment names', () => {
+  assert.deepEqual(providerCredentialEnv('groq'), {
+    apiKeys: ['GROQ_API_KEY'],
+    apiKeyFile: 'GROQ_API_KEY_FILE',
+    baseUrls: ['GROQ_BASE_URL'],
+  });
+});
+
 test('Ollama Cloud keeps its official provider-scoped credential environment names', () => {
   assert.deepEqual(providerCredentialEnv('ollama-cloud'), {
     apiKeys: ['OLLAMA_API_KEY'],

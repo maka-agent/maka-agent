@@ -11,9 +11,10 @@ import { STEP_LIMIT_NOTICE_TEXT, type StoredMessage, type SystemNoteMessage } fr
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import {
+  formatWriteStdinPermissionInspection,
   mergeShellRunStateWithDiagnostics,
   projectToolActivityArgs,
-  readWriteStdinInputPreview,
+  projectWriteStdinPermissionSummary,
   type ShellRunUpdate,
 } from '@maka/core';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
@@ -35,6 +36,7 @@ export interface MakaPiTranscriptState {
   sawTextDeltaMessageIds: Set<string>;
   pendingInteraction?: MakaPiPendingInteraction;
   queuedInteractions: MakaPiPendingInteraction[];
+  expandedPermissionRequestId?: string;
   /**
    * Global expansion toggles: one Ctrl+O press expands every tool card in the
    * transcript, one Ctrl+T press expands every thinking entry; pressing again
@@ -181,6 +183,15 @@ export function toggleAllThinkingExpansion(state: MakaPiTranscriptState): boolea
   );
   if (!hasThinking) return false;
   state.expandAllThinking = !state.expandAllThinking;
+  return true;
+}
+
+export function togglePendingPermissionDetails(state: MakaPiTranscriptState): boolean {
+  const request = activePermissionRequest(state);
+  if (request?.toolName !== 'WriteStdin') return false;
+  state.expandedPermissionRequestId = state.expandedPermissionRequestId === request.requestId
+    ? undefined
+    : request.requestId;
   return true;
 }
 
@@ -697,7 +708,11 @@ export function renderMakaPiTranscript(
 
   if (state.pendingInteraction?.type === 'permission_request') {
     lines.push('');
-    lines.push(...renderPermissionPrompt(state.pendingInteraction, safeWidth));
+    lines.push(...renderPermissionPrompt(
+      state.pendingInteraction,
+      state.expandedPermissionRequestId === state.pendingInteraction.requestId,
+      safeWidth,
+    ));
   }
 
   return lines;
@@ -709,11 +724,17 @@ export function completePendingInteraction(
 ): boolean {
   if (state.pendingInteraction?.requestId === requestId) {
     state.pendingInteraction = state.queuedInteractions.shift();
+    if (state.expandedPermissionRequestId === requestId) {
+      state.expandedPermissionRequestId = undefined;
+    }
     return true;
   }
   const index = state.queuedInteractions.findIndex((request) => request.requestId === requestId);
   if (index < 0) return false;
   state.queuedInteractions.splice(index, 1);
+  if (state.expandedPermissionRequestId === requestId) {
+    state.expandedPermissionRequestId = undefined;
+  }
   return true;
 }
 
@@ -759,6 +780,7 @@ function findPendingInteraction(
 function clearPendingInteractions(state: MakaPiTranscriptState): void {
   state.pendingInteraction = undefined;
   state.queuedInteractions = [];
+  state.expandedPermissionRequestId = undefined;
 }
 
 /**
@@ -998,7 +1020,11 @@ function renderWelcomeBlock(metadata: MakaPiTranscriptMetadata, width: number): 
   return lines;
 }
 
-function renderPermissionPrompt(request: AnyPermissionRequestEvent, width: number): string[] {
+function renderPermissionPrompt(
+  request: AnyPermissionRequestEvent,
+  detailsExpanded: boolean,
+  width: number,
+): string[] {
   const lines = [
     fitLine(`${ansi.yellow(
       request.kind === 'additional_permissions' ? 'Additional permission required' : 'Permission required',
@@ -1007,10 +1033,20 @@ function renderPermissionPrompt(request: AnyPermissionRequestEvent, width: numbe
   const summary = permissionRequestSummary(request);
   if (summary) lines.push(...renderIndented(summary, width, 2));
   if (request.hint) lines.push(...renderIndented(request.hint, width, 2).map(ansi.dim));
-  const actions = request.rememberForTurnAllowed === true
+  if (detailsExpanded && request.toolName === 'WriteStdin') {
+    const details = formatWriteStdinPermissionInspection(request.args);
+    if (details) {
+      lines.push(fitLine(ansi.dim('Full parameters'), width));
+      lines.push(...renderIndented(details, width, 2));
+    }
+  }
+  const actions = request.rememberForTurnAllowed
     ? 'y/Enter allow once  a allow for turn  n/Esc deny'
     : 'y/Enter allow once  n/Esc deny';
-  lines.push(fitLine(ansi.dim(actions), width));
+  const detailsAction = request.toolName === 'WriteStdin'
+    ? `  Ctrl+O ${detailsExpanded ? 'hide' : 'show'} full parameters`
+    : '';
+  lines.push(fitLine(ansi.dim(`${actions}${detailsAction}`), width));
   return lines;
 }
 
@@ -1031,8 +1067,17 @@ function permissionRequestSummary(request: AnyPermissionRequestEvent): string {
     if (typeof command === 'string' && command.trim()) return `$ ${command}`;
   }
   if (request.toolName === 'WriteStdin') {
-    const input = readWriteStdinInputPreview(args);
-    if (input) return input.truncated ? `${input.text}… · ${input.bytes} bytes total` : input.text;
+    const summary = projectWriteStdinPermissionSummary(args);
+    const lines: string[] = [];
+    if (summary.ref) {
+      lines.push(`ref: ${summary.ref.text}${summary.ref.truncated ? '…' : ''}`);
+    }
+    if (summary.input) {
+      const suffix = summary.input.truncated ? `… · ${summary.input.bytes} bytes total` : '';
+      lines.push(`input: ${summary.input.text}${suffix}`);
+    }
+    if (summary.size) lines.push(`size: ${summary.size.cols}x${summary.size.rows}`);
+    return lines.join('\n');
   }
   if ((request.toolName === 'Write' || request.toolName === 'Edit') && args !== null && typeof args === 'object') {
     const path = (args as { path?: unknown }).path;

@@ -200,6 +200,16 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
       thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
     },
   },
+  groq: {
+    // Groq accepts `reasoning_effort` only for gpt-oss-120b / gpt-oss-20b, with
+    // values low/medium/high (no `none`). See console.groq.com/docs/reasoning:
+    // qwen/qwen3-32b does NOT accept reasoning_effort (it reasons with no knob),
+    // and qwen/qwen3.6-27b accepts none/default but is not yet in the snapshot.
+    // gpt-oss-safeguard-20b is a guardrail model Groq does not list as accepting
+    // reasoning_effort, so it is deliberately omitted here.
+    'openai/gpt-oss-120b': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+    'openai/gpt-oss-20b': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+  },
   'cloudflare-workers-ai': {
     '@cf/moonshotai/kimi-k2.6': {
       thinkingOptions: {

@@ -324,6 +324,7 @@ describe('applyLiveTurnEvent', () => {
     });
     const waiting = applyLiveTurnEvent(started, {
       type: 'permission_request',
+      kind: 'tool_permission',
       id: 'event-2',
       turnId: 'turn-1',
       requestId: 'request-1',
@@ -332,6 +333,7 @@ describe('applyLiveTurnEvent', () => {
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
       args: { command: 'rm file' },
+      rememberForTurnAllowed: true,
       ts: 101,
     });
     const allowed = applyLiveTurnEvent(waiting, {

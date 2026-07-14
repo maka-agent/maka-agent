@@ -34,6 +34,7 @@ import {
   submitPromptToTranscript,
   toggleAllThinkingExpansion,
   toggleAllToolExpansion,
+  togglePendingPermissionDetails,
   type MakaPiTranscriptMetadata,
 } from './pi-transcript.js';
 import { editorTheme, selectListTheme } from './tui-ansi.js';
@@ -364,7 +365,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     void input.driver.respondToPermission({
       requestId: request.requestId,
       decision,
-      ...(decision === 'allow' && request.kind !== 'additional_permissions'
+      ...(decision === 'allow' && request.rememberForTurnAllowed
         ? { rememberForTurn }
         : {}),
     })
@@ -1104,6 +1105,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // one (e.g. `Esc`, type, `Esc`).
     if (!matchesKey(data, Key.escape)) lastIdleEscapeAt = 0;
     if (matchesKey(data, Key.ctrl('o')) && !isKeyRepeat(data)) {
+      if (togglePendingPermissionDetails(state)) {
+        requestRender();
+        return { consume: true };
+      }
       if (toggleAllToolExpansion(state)) {
         requestRender();
         return { consume: true };
@@ -1123,7 +1128,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       }
       if (
         matchesKey(data, 'a')
-        && pendingPermission.rememberForTurnAllowed === true
+        && pendingPermission.rememberForTurnAllowed
       ) {
         respondToPendingPermission('allow', true);
         return { consume: true };
