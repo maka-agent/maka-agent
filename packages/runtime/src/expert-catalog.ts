@@ -100,7 +100,7 @@ export function isExpertAgentId(id: string): boolean {
  * (e.g. read-only discipline) followed by the expert's identity, lens, and the
  * shared worker protocol (star topology + pointer fan-in).
  */
-export function composeExpertSystemPrompt(
+function composeExpertSystemPrompt(
   archetype: AgentDefinition,
   team: ExpertTeamDefinition,
   expert: ExpertDefinition,
@@ -255,10 +255,6 @@ export function getExpertTeam(teamId: string): ExpertTeamDefinition | undefined 
   return BUILTIN_EXPERT_TEAMS.find((team) => team.id === teamId);
 }
 
-export function getExpertTeamMember(teamId: string, memberId: string): ExpertDefinition | undefined {
-  return getExpertTeam(teamId)?.members.find((member) => member.id === memberId);
-}
-
 /** Resolve a materialized member {@link AgentDefinition} from an `expert:<teamId>:<memberId>` id. */
 export function getExpertAgentDefinition(id: string): AgentDefinition | undefined {
   const parsed = parseExpertAgentId(id);
@@ -267,7 +263,14 @@ export function getExpertAgentDefinition(id: string): AgentDefinition | undefine
   if (!team) return undefined;
   const member = team.members.find((entry) => entry.id === parsed.memberId);
   if (!member) return undefined;
-  return materializeExpertAgentDefinition(team, member);
+  try {
+    return materializeExpertAgentDefinition(team, member);
+  } catch {
+    // A malformed member (e.g. one that widens tools past its archetype) is not
+    // a resolvable agent. Built-in teams can't reach this — assertExpertTeamDefinition
+    // rejects them at load — but honor the `| undefined` contract for any other team.
+    return undefined;
+  }
 }
 
 /**

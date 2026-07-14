@@ -256,10 +256,8 @@ export {
   buildExpertAgentId,
   buildExpertTeamLeadSystemPromptFragment,
   buildExpertTeamMemberRoster,
-  composeExpertSystemPrompt,
   getExpertAgentDefinition,
   getExpertTeam,
-  getExpertTeamMember,
   isExpertAgentId,
   listExpertTeams,
   materializeExpertAgentDefinition,
@@ -274,10 +272,8 @@ export type {
 } from './expert-catalog.js';
 export {
   EXPERT_DISPATCH_TOOL_NAME,
-  EXPERT_TOOL_GROUP_ID,
   buildExpertDispatchTool,
   buildExpertDispatchToolForTeamId,
-  buildExpertToolGroup,
 } from './expert-tools.js';
 export {
   LEGACY_TASK_CREATE_TOOL_NAME,

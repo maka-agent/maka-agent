@@ -17,7 +17,6 @@
 import { z } from 'zod';
 import type { ToolResultContent } from '@maka/core';
 import type { MakaTool } from './tool-runtime.js';
-import type { ToolGroup } from './tool-availability.js';
 import {
   type ExpertTeamDefinition,
   buildExpertAgentId,
@@ -27,7 +26,6 @@ import {
 } from './expert-catalog.js';
 
 export const EXPERT_DISPATCH_TOOL_NAME = 'expert_dispatch';
-export const EXPERT_TOOL_GROUP_ID = 'expert';
 
 type SubagentToolResult = Extract<ToolResultContent, { kind: 'subagent' }>;
 
@@ -100,13 +98,4 @@ export function buildExpertDispatchTool(team: ExpertTeamDefinition): MakaTool<
 export function buildExpertDispatchToolForTeamId(teamId: string): MakaTool | undefined {
   const team = getExpertTeam(teamId);
   return team ? (buildExpertDispatchTool(team) as MakaTool) : undefined;
-}
-
-export function buildExpertToolGroup(): ToolGroup {
-  return {
-    id: EXPERT_TOOL_GROUP_ID,
-    label: 'Expert',
-    description: 'Dispatch expert-team members as tool-scoped child agents.',
-    toolNames: [EXPERT_DISPATCH_TOOL_NAME],
-  };
 }
