@@ -29,8 +29,8 @@ import {
 import {
   assertAgentDefinitionRunnable,
   buildToolsForAgentDefinition,
-  requireBuiltinAgentDefinition,
 } from './agent-catalog.js';
+import { requireResolvedAgentDefinition } from './expert-catalog.js';
 import { loadLatestHistoryCompactCheckpointFromRunLedger } from './history-compact-ledger.js';
 import {
   canReplaceHistoryCompactCheckpoint,
@@ -251,7 +251,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     input: ChildAgentTurnInput,
   ): AsyncIterable<SessionEvent> {
     const parentHeader = await this.deps.store.readHeader(sessionId);
-    const definition = requireBuiltinAgentDefinition(input.spec.id);
+    const definition = requireResolvedAgentDefinition(input.spec.id);
     const availableChildTools = this.deps.childTools ?? [];
     assertAgentDefinitionRunnable({
       parentPermissionMode: parentHeader.permissionMode,

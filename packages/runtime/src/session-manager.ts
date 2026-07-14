@@ -85,9 +85,9 @@ import {
 } from './session-projection-helpers.js';
 import {
   listBuiltinAgentDefinitions,
-  requireBuiltinAgentDefinition,
   type AgentDefinitionListItem,
 } from './agent-catalog.js';
+import { requireResolvedAgentDefinition } from './expert-catalog.js';
 
 export interface StopSessionInput {
   source?: 'stop_button';
@@ -567,7 +567,7 @@ export class SessionManager {
     sessionId: string,
     input: SpawnChildAgentInput,
   ): Promise<SpawnChildAgentResult> {
-    const definition = requireBuiltinAgentDefinition(input.spec.id);
+    const definition = requireResolvedAgentDefinition(input.spec.id);
     const turnId = input.turnId ?? this.deps.newId();
     const startedAt = this.deps.now();
     const summary = new ChildAgentSummaryAccumulator();

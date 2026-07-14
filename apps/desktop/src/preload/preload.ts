@@ -96,6 +96,26 @@ export type QuickChatResult =
   | { ok: false; reason: 'setup_required'; state: OnboardingState }
   | { ok: false; reason: 'send_failed'; message: string };
 
+// Expert-team IPC shapes. Duplicated (not imported from main) so preload stays
+// free of main-process deps; keep in sync with `global.d.ts` + `main.ts`.
+export interface ExpertTeamMemberSummary {
+  id: string;
+  name: string;
+  description: string;
+  whenToUse?: string;
+}
+export interface ExpertTeamSummary {
+  id: string;
+  name: string;
+  description: string;
+  members: ExpertTeamMemberSummary[];
+}
+export type ExpertTeamStartResult =
+  | { ok: true; sessionId: string }
+  | { ok: false; reason: 'unknown_team'; teamId: string }
+  | { ok: false; reason: 'setup_required'; state: OnboardingState }
+  | { ok: false; reason: 'send_failed'; message: string };
+
 export interface OnboardingSnapshot {
   state: OnboardingState;
   milestones: OnboardingMilestone[];
@@ -308,6 +328,14 @@ contextBridge.exposeInMainWorld('maka', {
      */
     start(input?: { prompt?: string; mode?: QuickChatMode }): Promise<QuickChatResult> {
       return ipcRenderer.invoke('quickChat:start', input);
+    },
+  },
+  expertTeam: {
+    list(): Promise<{ teams: ExpertTeamSummary[] }> {
+      return ipcRenderer.invoke('expertTeam:list');
+    },
+    start(input: { teamId: string; prompt?: string }): Promise<ExpertTeamStartResult> {
+      return ipcRenderer.invoke('expertTeam:start', input);
     },
   },
   permissions: {

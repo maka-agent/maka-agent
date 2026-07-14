@@ -1083,5 +1083,13 @@ export {
   normalizeQuickChatMode,
 } from './explore-agent.js';
 
+// expert-team.ts — expert-team session labels.
+export {
+  EXPERT_TEAM_LABEL_PREFIX,
+  expertTeamIdFromLabels,
+  expertTeamLabel,
+  isExpertTeamSession,
+} from './expert-team.js';
+
 // attachments.ts
 export { attachmentKindFromMimeType, guessMimeFromName, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from './attachments.js';

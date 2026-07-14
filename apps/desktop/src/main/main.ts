@@ -18,6 +18,8 @@ import {
   thinkingVariantsForModel,
   resolveModelVisionSupport,
   DEEP_RESEARCH_SESSION_LABEL,
+  expertTeamIdFromLabels,
+  expertTeamLabel,
   botDisplayLabel,
   humanizeBotStatusReason,
 } from '@maka/core';
@@ -74,10 +76,13 @@ import {
   SessionManager,
   buildBuiltinTools,
   buildChildAgentTools,
+  buildExpertDispatchToolForTeamId,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
   buildSubagentToolGroup,
   getAIModel,
+  getExpertTeam,
+  listExpertTeams,
   buildProviderOptions,
   recordLlmCall,
   recordToolInvocation,
@@ -125,6 +130,7 @@ import {
 import { createFileCredentialStore, migrateLegacyCredentials } from './credential-store.js';
 import { bindOnboardingDeps, createOnboardingService } from './onboarding-service.js';
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
+import { handleExpertTeamStart as runExpertTeamStart } from './expert-team-start.js';
 import { probeOfficeCli } from './officecli-probe.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
@@ -761,6 +767,12 @@ backends.register('ai-sdk', async (ctx) => {
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
+  // Expert-team lead: a main session (ctx.tools undefined) labeled
+  // `mode:expert-team:<teamId>` gets the team-bound expert_dispatch tool.
+  // Child turns receive scoped `ctx.tools` and inherit the label, but must NOT
+  // get expert_dispatch — members cannot spawn nested teams.
+  const expertTeamId = ctx.tools ? undefined : expertTeamIdFromLabels(ctx.header.labels);
+  const expertDispatchTool = expertTeamId ? buildExpertDispatchToolForTeamId(expertTeamId) : undefined;
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -771,7 +783,10 @@ backends.register('ai-sdk', async (ctx) => {
     modelId: model,
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
-    tools: [...(ctx.tools ?? builtinTools)],
+    tools: [
+      ...(ctx.tools ?? builtinTools),
+      ...(expertDispatchTool ? [expertDispatchTool] : []),
+    ],
     toolAvailability,
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
@@ -1537,6 +1552,52 @@ function registerIpc(): void {
   // model-picker UI is ready.
   ipcMain.handle('quickChat:start', async (_event, input: unknown) => {
     return handleQuickChatStart(input, currentProjectRoot);
+  });
+
+  // Expert teams: list the built-in teams and start a labeled team session.
+  // A team session is a normal session tagged `mode:expert-team:<teamId>`; the
+  // label activates the lead persona + expert_dispatch tool (see the backend
+  // factory). The lead runs read-only (explore) and dispatches read-only members.
+  ipcMain.handle('expertTeam:list', async () => ({
+    teams: listExpertTeams().map((team) => ({
+      id: team.id,
+      name: team.name,
+      description: team.description,
+      members: team.members.map((member) => ({
+        id: member.id,
+        name: member.name,
+        description: member.description,
+        ...(member.whenToUse ? { whenToUse: member.whenToUse } : {}),
+      })),
+    })),
+  }));
+  ipcMain.handle('expertTeam:start', async (_event, input: unknown) => {
+    return runExpertTeamStart(input, {
+      isKnownTeam: (teamId) => getExpertTeam(teamId) !== undefined,
+      getOnboardingState: async () => (await onboardingService.getSnapshot()).state,
+      createSession: async ({ teamId, defaultConnectionSlug, defaultModel }) => {
+        const ready = await getReadyConnection(defaultConnectionSlug, defaultModel);
+        const team = getExpertTeam(teamId);
+        return runtime.createSession({
+          cwd: await currentProjectRoot(),
+          backend: 'ai-sdk',
+          llmConnectionSlug: ready.connection.slug,
+          model: ready.model,
+          // Shipped teams are read-only review crews: the lead reads + dispatches
+          // read-only members, so the whole session stays in explore mode.
+          permissionMode: 'explore',
+          name: team ? team.name : 'Expert Team',
+          labels: [expertTeamLabel(teamId)],
+        });
+      },
+      emitCreated: (sessionId) => emitSessionsChanged('created', sessionId),
+      ensureCanSend: (sessionId) => ensureSessionCanSend(sessionId),
+      sendFirstMessage: async (sessionId, text) => {
+        const turnId = randomUUID();
+        const iterator = runtime.sendMessage(sessionId, { turnId, text });
+        void streamEvents(sessionId, iterator, turnId);
+      },
+    });
   });
 
   ipcMain.handle('permissions:getSnapshot', () => buildPermissionSnapshot());

@@ -84,6 +84,24 @@ import type {
 // @xuan PR110b review: success branch is `{ ok: true; sessionId }`
 // only. No turn / message anchor — PR110c will add `firstTurnId` if
 // needed.
+export interface ExpertTeamMemberSummary {
+  id: string;
+  name: string;
+  description: string;
+  whenToUse?: string;
+}
+export interface ExpertTeamSummary {
+  id: string;
+  name: string;
+  description: string;
+  members: ExpertTeamMemberSummary[];
+}
+export type ExpertTeamStartResult =
+  | { ok: true; sessionId: string }
+  | { ok: false; reason: 'unknown_team'; teamId: string }
+  | { ok: false; reason: 'setup_required'; state: OnboardingState }
+  | { ok: false; reason: 'send_failed'; message: string };
+
 export type QuickChatResult =
   | { ok: true; sessionId: string }
   | { ok: false; reason: 'setup_required'; state: OnboardingState }
@@ -227,6 +245,10 @@ declare global {
       };
       quickChat: {
         start(input?: { prompt?: string; mode?: QuickChatMode }): Promise<QuickChatResult>;
+      };
+      expertTeam: {
+        list(): Promise<{ teams: ExpertTeamSummary[] }>;
+        start(input: { teamId: string; prompt?: string }): Promise<ExpertTeamStartResult>;
       };
       permissions: {
         getSnapshot(): Promise<PermissionSnapshot>;

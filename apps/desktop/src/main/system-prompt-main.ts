@@ -4,6 +4,7 @@ import {
   filterModelVisibleTaskLedgerTasks,
   buildLocalMemoryPromptBody,
   botPlatformFromSessionLabels,
+  expertTeamIdFromLabels,
   isDeepResearchSession,
   redactSecrets,
   renderSafeTaskLedgerText,
@@ -13,6 +14,7 @@ import {
   type TaskLedgerStore,
 } from '@maka/core';
 import {
+  buildExpertTeamLeadSystemPromptFragment,
   buildPersonalizationPromptFragment,
   resolveProjectGitInfo,
   buildSessionEnvironmentPromptFragment,
@@ -54,6 +56,8 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
       ? await buildWorkspaceInstructionsPromptFragment(cwd)
       : undefined;
     const deepResearch = isDeepResearchSession(header.labels) ? buildDeepResearchSystemPromptFragment() : undefined;
+    const expertTeamId = expertTeamIdFromLabels(header.labels);
+    const expertLead = expertTeamId ? buildExpertTeamLeadSystemPromptFragment(expertTeamId) : undefined;
     const botPlatform = botPlatformFromSessionLabels(header.labels);
     const botPlatformHint = botPlatform ? buildBotPlatformPromptFragment(botPlatform) : undefined;
     const memoryFragment = options && 'memoryFragment' in options
@@ -62,6 +66,7 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
     const fragments = [
       personalization.text,
       deepResearch,
+      expertLead,
       botPlatformHint,
       skills,
       workspaceInstructions,
