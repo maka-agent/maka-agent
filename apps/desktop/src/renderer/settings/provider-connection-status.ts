@@ -1,4 +1,4 @@
-// Pure status helpers for the Settings → 模型 connection list. Kept out
+// Pure status helper for the Settings → 模型 connection list. Kept out
 // of `ProvidersPanel.tsx` (no React, no DOM) so the decision logic can be
 // exercised directly from the desktop test runner, the same way
 // `connection-status.ts` is. Behavioural tests live in
@@ -7,52 +7,50 @@
 import type { LlmConnection } from '@maka/core';
 import type { StatusTone } from './settings-status-badge';
 
-/**
- * Status copy for one connection in the 模型连接 list. A lapsed OAuth
- * subscription login arrives as enabled:false + needs_reauth (main.ts
- * subscription sync keeps the connection but flags it). That is a
- * "please log back in" signal, not a user-killed connection, so
- * needs_reauth wins over the disabled check and must never read as
- * "已禁用". A bare enabled:false (only the legacy V1→V2 migration sets
- * that, untested) falls through to the neutral "暂不可用".
- */
-export function chipStatusText(connection: LlmConnection): string {
-  if (connection.lastTestStatus === 'needs_reauth') return '需要重新登录';
-  if (!connection.enabled) return '暂不可用';
-  switch (connection.lastTestStatus) {
-    case 'verified':
-      // PR-UI-AUDIT-1 (@kenji msg 7a16aa0b): `verified` is a
-      // credential-validation result only; it does NOT prove
-      // agent send / stream / interrupt paths are operational
-      // (provider-auth contract). Older copy
-      // "已验证可用" conflated validation with operational
-      // readiness, fixed to credential-only language. Matches
-      // the doc warning at SettingsModal `验证通过 ≠ 运行可用`.
-      return '凭据已验证';
-    case 'error':
-      return '上次连接失败';
-    default:
-      return '等待验证';
-  }
+export interface ConnectionChipStatus {
+  label: string;
+  tone: StatusTone;
 }
 
 /**
- * Status tone for one connection's Chip in the 模型连接 list. The branch
- * order mirrors `chipStatusText` exactly so the dot color and the copy can
- * never disagree: a lapsed OAuth login (enabled:false + needs_reauth) reads
- * as an actionable `info` ("please log back in"), a bare disabled connection
- * as `neutral`, verified as `success`, a last failure as `destructive`, and
- * an untested connection as `neutral`.
+ * Status copy + tone for one connection's Chip in the 模型连接 list. One
+ * state machine returns both so the color can never disagree with the
+ * visible copy (PR #988 review: split label/tone helpers drifted — a
+ * disabled connection that last errored kept the failure copy but lost the
+ * destructive tone).
+ *
+ * Branches, in priority order:
+ * - needs_reauth: a lapsed OAuth subscription login arrives as
+ *   enabled:false + needs_reauth (main.ts subscription sync keeps the
+ *   connection but flags it). That is a "please log back in" signal, not a
+ *   user-killed connection, so needs_reauth wins over the disabled check
+ *   and must never read as "已禁用".
+ * - !enabled + error: oauth-model-connections-main.ts failDiscovery()
+ *   persists enabled:false + lastTestStatus:'error', so the failure signal
+ *   must survive the disabled state — label carries both facts, tone stays
+ *   destructive.
+ * - !enabled (bare, or disabled+verified): neutral "暂不可用". A stale
+ *   verified result must not paint a green light on an unusable connection.
+ * - verified: PR-UI-AUDIT-1 (@kenji msg 7a16aa0b): `verified` is a
+ *   credential-validation result only; it does NOT prove agent send /
+ *   stream / interrupt paths are operational (provider-auth contract).
+ *   Older copy "已验证可用" conflated validation with operational
+ *   readiness, fixed to credential-only language. Matches the doc warning
+ *   at SettingsModal `验证通过 ≠ 运行可用`.
  */
-export function chipStatusTone(connection: LlmConnection): StatusTone {
-  if (connection.lastTestStatus === 'needs_reauth') return 'info';
-  if (!connection.enabled) return 'neutral';
+export function connectionChipStatus(connection: LlmConnection): ConnectionChipStatus {
+  if (connection.lastTestStatus === 'needs_reauth') return { label: '需要重新登录', tone: 'info' };
+  if (!connection.enabled) {
+    return connection.lastTestStatus === 'error'
+      ? { label: '暂不可用 · 上次连接失败', tone: 'destructive' }
+      : { label: '暂不可用', tone: 'neutral' };
+  }
   switch (connection.lastTestStatus) {
     case 'verified':
-      return 'success';
+      return { label: '凭据已验证', tone: 'success' };
     case 'error':
-      return 'destructive';
+      return { label: '上次连接失败', tone: 'destructive' };
     default:
-      return 'neutral';
+      return { label: '等待验证', tone: 'neutral' };
   }
 }

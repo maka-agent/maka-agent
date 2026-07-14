@@ -17,7 +17,7 @@ import {
   useMountedRef,
   useToast,
 } from '@maka/ui';
-import { chipStatusText, chipStatusTone } from './provider-connection-status';
+import { connectionChipStatus } from './provider-connection-status';
 import { AddProviderForm } from './provider-add-form';
 import { ProviderCatalogCard } from './provider-catalog';
 import { ConnectionDetail } from './provider-connection-detail';
@@ -128,13 +128,13 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
   );
 
   function chipTitle(connection: LlmConnection): string {
-    return `${connection.name} · ${chipStatusText(connection)}`;
+    return `${connection.name} · ${connectionChipStatus(connection).label}`;
   }
 
   function chipAriaLabel(connection: LlmConnection): string {
     const provider = providerDisplay(connection.providerType).name;
     const defaultSuffix = connection.slug === defaultSlug ? '，默认连接' : '';
-    return `模型连接：${connection.name}，供应商：${provider}${defaultSuffix}，${chipStatusText(connection)}`;
+    return `模型连接：${connection.name}，供应商：${provider}${defaultSuffix}，${connectionChipStatus(connection).label}`;
   }
 
   const configuredByType = (type: ProviderType) =>
@@ -314,33 +314,35 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
             </div>
           ) : (
             <ul className="connectionList" role="list">
-              {connections.map((connection) => (
-                <li key={connection.slug}>
-                  <Item
-                    className="connectionRow"
-                    selected={connection.slug === defaultSlug}
-                    data-test-status={connection.lastTestStatus ?? 'untested'}
-                    data-connection-slug={connection.slug}
-                    data-disabled={connection.enabled ? undefined : 'true'}
-                    aria-label={chipAriaLabel(connection)}
-                    title={chipTitle(connection)}
-                    render={<button type="button" onClick={() => navigate({ kind: 'detail', slug: connection.slug }, { kind: 'child-back' })} />}
-                  >
-                    <ItemMedia><ProviderLogo type={connection.providerType} compact /></ItemMedia>
-                    <ItemContent>
-                      <ItemTitle>
-                        {connection.name}
-                        {connection.slug === defaultSlug && <Chip size="sm" variant="accent">默认</Chip>}
-                      </ItemTitle>
-                      <ItemDescription>{providerDisplay(connection.providerType).name}</ItemDescription>
-                    </ItemContent>
-                    <ItemActions>
-                      <Chip dot size="sm" variant={chipStatusTone(connection)}>{chipStatusText(connection)}</Chip>
-                      <ChevronRight size={16} aria-hidden="true" />
-                    </ItemActions>
-                  </Item>
-                </li>
-              ))}
+              {connections.map((connection) => {
+                const status = connectionChipStatus(connection);
+                return (
+                  <li key={connection.slug}>
+                    <Item
+                      className="connectionRow"
+                      selected={connection.slug === defaultSlug}
+                      data-connection-slug={connection.slug}
+                      data-disabled={connection.enabled ? undefined : 'true'}
+                      aria-label={chipAriaLabel(connection)}
+                      title={chipTitle(connection)}
+                      render={<button type="button" onClick={() => navigate({ kind: 'detail', slug: connection.slug }, { kind: 'child-back' })} />}
+                    >
+                      <ItemMedia><ProviderLogo type={connection.providerType} compact /></ItemMedia>
+                      <ItemContent>
+                        <ItemTitle>
+                          {connection.name}
+                          {connection.slug === defaultSlug && <Chip size="sm" variant="accent">默认</Chip>}
+                        </ItemTitle>
+                        <ItemDescription>{providerDisplay(connection.providerType).name}</ItemDescription>
+                      </ItemContent>
+                      <ItemActions>
+                        <Chip dot size="sm" variant={status.tone}>{status.label}</Chip>
+                        <ChevronRight size={16} aria-hidden="true" />
+                      </ItemActions>
+                    </Item>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
