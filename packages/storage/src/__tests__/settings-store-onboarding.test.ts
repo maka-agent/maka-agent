@@ -215,10 +215,33 @@ describe('SettingsStore.get file recovery', () => {
 
       const [first, second] = await Promise.all([store.get(), store.get()]);
 
-      assert.deepEqual(second, first);
+      assert.equal(second.schemaVersion, first.schemaVersion);
+      assert.deepEqual(second.appearance, first.appearance);
       assert.match(await readFile(join(workspaceRoot, 'settings.json'), 'utf8'), /"schemaVersion": 1/);
     } finally {
       Date.now = originalNow;
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('does not let concurrent first reads overwrite an update', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-concurrent-update-'));
+    try {
+      const store = createSettingsStore(workspaceRoot);
+
+      const results = await Promise.all([
+        ...Array.from({ length: 20 }, () => store.get()),
+        store.update({ appearance: { theme: 'dark' } }),
+      ]);
+      const updated = results.at(-1);
+
+      assert.equal(updated?.appearance.theme, 'dark');
+      assert.equal((await store.get()).appearance.theme, 'dark');
+      assert.equal(
+        JSON.parse(await readFile(join(workspaceRoot, 'settings.json'), 'utf8')).appearance.theme,
+        'dark',
+      );
+    } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });

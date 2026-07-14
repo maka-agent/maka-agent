@@ -106,6 +106,10 @@ class FileSettingsStore implements SettingsStore {
   }
 
   async get(): Promise<AppSettings> {
+    return this.withQueue(() => this.readOrInitialize());
+  }
+
+  private async readOrInitialize(): Promise<AppSettings> {
     try {
       const text = await readFile(this.settingsPath, 'utf8');
       return normalizeSettings(JSON.parse(text));
@@ -120,7 +124,7 @@ class FileSettingsStore implements SettingsStore {
   async update(patch: UpdateAppSettingsInput): Promise<AppSettings> {
     let next: AppSettings | undefined;
     await this.withQueue(async () => {
-      const current = await this.get();
+      const current = await this.readOrInitialize();
       next = mergeSettings(current, patch);
       await this.write(next);
     });
@@ -142,7 +146,7 @@ class FileSettingsStore implements SettingsStore {
         : { id, skippedAt: timestamp };
     let result: OnboardingMilestone[] | undefined;
     await this.withQueue(async () => {
-      const current = await this.get();
+      const current = await this.readOrInitialize();
       // Append the new entry; sanitize() applies last-valid-entry-wins
       // dedup with stable first-seen position. ID validity is enforced
       // by the sanitizer (closed enum).
@@ -166,7 +170,7 @@ class FileSettingsStore implements SettingsStore {
   async clearOnboardingMilestone(id: OnboardingMilestoneId): Promise<OnboardingMilestone[]> {
     let result: OnboardingMilestone[] | undefined;
     await this.withQueue(async () => {
-      const current = await this.get();
+      const current = await this.readOrInitialize();
       const knownId = sanitizeOnboardingMilestones([{ id }]).some((entry) => entry.id === id);
       if (!knownId) {
         throw new Error(`invalid onboarding milestone id: ${String(id)}`);
@@ -273,9 +277,9 @@ class FileSettingsStore implements SettingsStore {
     await rename(tempPath, this.settingsPath);
   }
 
-  private withQueue(operation: () => Promise<void>): Promise<void> {
+  private withQueue<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.queue.then(operation, operation);
-    this.queue = next.catch(() => {});
+    this.queue = next.then(() => {}, () => {});
     return next;
   }
 }
