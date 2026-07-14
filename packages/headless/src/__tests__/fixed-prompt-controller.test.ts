@@ -1760,7 +1760,7 @@ describe('fixed prompt controller', () => {
         expectedPricingProfile: 'test-profile',
         harborRunner: async () => harborOutput({
           taskId: 'task-a',
-          tokenSummary: tokenSummary({ input: 0, output: 0, reasoning: 0, total: 0, costUsd: 0 }),
+          omitTokenSummary: true,
           executionIdentity: {
             llmConnectionSlug: 'fake',
             model: 'fake-model',
@@ -1775,6 +1775,44 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.type, 'task_plumbing_failed');
       assert.equal(result.events[0]?.eligible, false);
       assert.equal(result.events[0]?.errorClass, 'missing_token_usage');
+    });
+  });
+
+  test('preserves the original cell failure when usage is unavailable', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        requireExecutionIdentity: true,
+        expectedPricingProfile: 'test-profile',
+        harborRunner: async () => harborOutput({
+          taskId: 'task-a',
+          status: 'failed',
+          errorClass: 'tool_step_cap_reached',
+          omitTokenSummary: true,
+          executionIdentity: {
+            llmConnectionSlug: 'fake',
+            model: 'fake-model',
+            systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+            pricingProfile: 'test-profile',
+          },
+        }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.eligible, true);
+      assert.equal(result.events[0]?.errorClass, 'tool_step_cap_reached');
+      assert.equal('tokenSummary' in result.events[0]!, false);
     });
   });
 
@@ -1936,6 +1974,7 @@ function harborOutput(input: {
   promptHash?: string;
   omitPromptHash?: boolean;
   tokenSummary?: HarborTaskRunOutput['cell']['tokenSummary'];
+  omitTokenSummary?: boolean;
   contextBudgetPolicy?: HarborTaskRunOutput['cell']['contextBudgetPolicy'];
   contextBudgetSummary?: HarborTaskRunOutput['cell']['contextBudgetSummary'];
   continuationSummary?: HarborTaskRunOutput['cell']['continuationSummary'];
@@ -1954,7 +1993,9 @@ function harborOutput(input: {
       traceEventsPath: `/logs/${input.taskId}/events.jsonl`,
       ...(input.omitPromptHash ? {} : { promptHash: input.promptHash ?? hashSystemPrompt('fixed prompt\n') }),
       ...(input.executionIdentity ? { executionIdentity: input.executionIdentity } : {}),
-      tokenSummary: input.tokenSummary ?? tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }),
+      ...(input.omitTokenSummary
+        ? {}
+        : { tokenSummary: input.tokenSummary ?? tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }) }),
       ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
       ...(input.contextBudgetSummary ? { contextBudgetSummary: input.contextBudgetSummary } : {}),
       ...(input.continuationSummary ? { continuationSummary: input.continuationSummary } : {}),

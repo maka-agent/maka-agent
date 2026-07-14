@@ -98,7 +98,7 @@ export interface FixedPromptTaskCompletedEvent {
   errorClass?: string;
   promptHash?: string;
   executionIdentity?: HarborCellExecutionIdentity;
-  tokenSummary: HarborCellTokenSummary;
+  tokenSummary?: HarborCellTokenSummary;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
   continuationSummary?: HarborCellContinuationSummary;
@@ -717,7 +717,7 @@ function taskCompletedEvent(input: {
     ...(errorClass ? { errorClass } : {}),
     ...(output.cell.promptHash ? { promptHash: output.cell.promptHash } : {}),
     ...(output.cell.executionIdentity ? { executionIdentity: output.cell.executionIdentity } : {}),
-    tokenSummary: output.cell.tokenSummary,
+    ...(output.cell.tokenSummary ? { tokenSummary: output.cell.tokenSummary } : {}),
     ...(output.cell.contextBudgetPolicy ? { contextBudgetPolicy: output.cell.contextBudgetPolicy } : {}),
     ...(output.cell.contextBudgetSummary ? { contextBudgetSummary: output.cell.contextBudgetSummary } : {}),
     ...(output.cell.continuationSummary ? { continuationSummary: output.cell.continuationSummary } : {}),
@@ -766,7 +766,7 @@ function taskPlumbingFailedEvent(input: {
     error: input.error,
     ...(input.output.cell.promptHash ? { promptHash: input.output.cell.promptHash } : {}),
     expectedPromptHash: input.expectedPromptHash,
-    tokenSummary: input.output.cell.tokenSummary,
+    ...(input.output.cell.tokenSummary ? { tokenSummary: input.output.cell.tokenSummary } : {}),
     ...(input.output.cell.contextBudgetPolicy
       ? { contextBudgetPolicy: input.output.cell.contextBudgetPolicy }
       : {}),
@@ -813,13 +813,17 @@ function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash
       error: `Harbor cell prompt hash ${output.cell.promptHash} did not match ${expectedPromptHash}`,
     };
   }
-  if (output.cell.executionIdentity && output.cell.tokenSummary.total <= 0) {
+  if (
+    output.cell.status === 'completed'
+    && output.cell.executionIdentity
+    && (!output.cell.tokenSummary || output.cell.tokenSummary.total <= 0)
+  ) {
     return {
       errorClass: 'missing_token_usage',
       error: 'Harbor cell did not report token usage for the attested real-provider execution',
     };
   }
-  if (output.cell.tokenSummary.total > 0 && output.cell.tokenSummary.costUsd === 0) {
+  if (output.cell.tokenSummary && output.cell.tokenSummary.total > 0 && output.cell.tokenSummary.costUsd === 0) {
     return {
       errorClass: 'zero_cost_with_tokens',
       error: 'Harbor cell reported token usage but zero costUsd',

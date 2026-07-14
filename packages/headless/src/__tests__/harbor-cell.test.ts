@@ -382,6 +382,7 @@ describe('runHarborCell', () => {
       assert.equal(result.output.status, 'completed');
       assert.equal(result.output.promptHash, 'sha256:cell-prompt');
       assert.equal(result.output.runtimeEventsPath, join(outputDir, HARBOR_CELL_RUNTIME_EVENTS_FILENAME));
+      assert.ok(result.output.tokenSummary);
       assert.equal(result.output.tokenSummary.costUsd, 0.0042);
       assert.deepEqual(result.output.executionIdentity, {
         llmConnectionSlug: 'fake',
@@ -513,6 +514,7 @@ describe('runHarborCell', () => {
           { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
         ],
       });
+      assert.ok(result.output.tokenSummary);
       assert.equal(result.output.tokenSummary.input, 13);
       assert.equal(result.output.tokenSummary.costUsd, 0.03);
       const runtimeEvents = await readFile(join(outputDir, HARBOR_CELL_RUNTIME_EVENTS_FILENAME), 'utf8');
@@ -2043,6 +2045,7 @@ console.log(JSON.stringify({ type: 'agent_end', messages: [{ role: 'assistant', 
       assert.equal(argv.at(-1), '-p');
       assert.equal(argv.includes('solve through default pi transport'), false);
       assert.equal(await readFile(join(workspaceDir, 'pi-default-stdin.txt'), 'utf8'), 'solve through default pi transport');
+      assert.ok(result.output.tokenSummary);
       assert.equal(result.output.tokenSummary.input, 5);
       assert.equal(result.output.tokenSummary.output, 2);
       assert.equal(result.output.tokenSummary.costUsd, 0.0003);

@@ -102,7 +102,7 @@ export interface HarborCellOutput {
   runtimeEventsPath: string;
   promptHash?: string;
   executionIdentity?: HarborCellExecutionIdentity;
-  tokenSummary: HarborCellTokenSummary;
+  tokenSummary?: HarborCellTokenSummary;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
   continuationSummary?: HarborCellContinuationSummary;
@@ -132,7 +132,7 @@ export function buildHarborCellOutput(input: {
     runtimeEventsPath: input.runtimeEventsPath,
     ...promptHashField(invocation.events),
     ...(input.executionIdentity ? { executionIdentity: input.executionIdentity } : {}),
-    tokenSummary,
+    ...(tokenSummary ? { tokenSummary } : {}),
     ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
     ...contextBudgetSummaryField(invocation.events),
     ...(input.continuationSummary ? { continuationSummary: input.continuationSummary } : {}),
@@ -159,11 +159,18 @@ function summarizeCellSteps(events: readonly RuntimeEvent[]): number {
   if (reportedRuntimeSteps > 0) {
     return reportedRuntimeSteps;
   }
-  return events.filter((event) => (
-    event.role === 'model'
-    && event.partial !== true
-    && event.content?.kind === 'text'
-  )).length;
+  const stepIds = new Set<string>();
+  let legacyTextSteps = 0;
+  for (const event of events) {
+    if (event.role !== 'model' || event.partial === true) continue;
+    const stepId = event.refs?.stepId ?? event.refs?.providerEventId;
+    if (stepId) {
+      stepIds.add(`${event.turnId}:${stepId}`);
+    } else if (event.content?.kind === 'text') {
+      legacyTextSteps += 1;
+    }
+  }
+  return stepIds.size + legacyTextSteps;
 }
 
 export function hashHarborSystemPrompt(systemPrompt: string): string {
@@ -185,7 +192,9 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
   const executionIdentity = 'executionIdentity' in value
     ? validateHarborCellExecutionIdentity(value.executionIdentity)
     : undefined;
-  const tokenSummary = validateHarborCellTokenSummary(value.tokenSummary);
+  const tokenSummary = 'tokenSummary' in value
+    ? validateHarborCellTokenSummary(value.tokenSummary)
+    : undefined;
   const contextBudgetPolicy = 'contextBudgetPolicy' in value
     ? validateContextBudgetPolicySnapshot(value.contextBudgetPolicy)
     : undefined;
@@ -211,7 +220,7 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
     runtimeEventsPath,
     ...(promptHash !== undefined ? { promptHash } : {}),
     ...(executionIdentity !== undefined ? { executionIdentity } : {}),
-    tokenSummary,
+    ...(tokenSummary ? { tokenSummary } : {}),
     ...(contextBudgetPolicy !== undefined ? { contextBudgetPolicy } : {}),
     ...(contextBudgetSummary !== undefined ? { contextBudgetSummary } : {}),
     ...(continuationSummary !== undefined ? { continuationSummary } : {}),
@@ -287,7 +296,7 @@ function requireContinuationTurns(value: unknown): HarborCellContinuationTurnSum
   });
 }
 
-export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCellTokenSummary {
+export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCellTokenSummary | undefined {
   const summary: HarborCellTokenSummary = {
     input: 0,
     output: 0,
@@ -302,9 +311,11 @@ export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCell
   };
   let sawExplicitCacheMiss = false;
   let sawDerivedCacheMiss = false;
+  let sawUsage = false;
   for (const event of events) {
     const usage = event.actions?.tokenUsage;
     if (!usage) continue;
+    sawUsage = true;
     summary.input += usage.input ?? 0;
     summary.output += usage.output ?? 0;
     const cacheHitInput = usage.cacheHitInput ?? usage.cacheRead ?? 0;
@@ -328,6 +339,7 @@ export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCell
     summary.total += usage.total ?? (usage.input ?? 0) + (usage.output ?? 0) + (usage.reasoning ?? 0);
     summary.costUsd += usage.costUsd ?? 0;
   }
+  if (!sawUsage) return undefined;
   if (sawExplicitCacheMiss) {
     summary.cacheMissInputSource = 'explicit';
   } else if (sawDerivedCacheMiss) {

@@ -160,7 +160,8 @@ describe('Harbor cell output contract', () => {
 
     assert.equal(output.status, 'failed');
     assert.equal(output.errorClass, 'network');
-    assert.equal(output.tokenSummary.total, 0);
+    assert.equal('tokenSummary' in output, false);
+    assert.deepEqual(validateHarborCellOutput(output), output);
   });
 
   test('keeps output when runtime emits more than one prompt hash', () => {
@@ -214,6 +215,7 @@ describe('Harbor cell output contract', () => {
       runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
     });
 
+    assert.ok(output.tokenSummary);
     assert.equal(output.tokenSummary.input, 13);
     assert.equal(output.tokenSummary.output, 12);
     assert.equal(output.tokenSummary.reasoning, 2);
@@ -246,6 +248,35 @@ describe('Harbor cell output contract', () => {
     });
 
     assert.equal(output.steps, 1);
+  });
+
+  test('counts a pure-tool step when runtime usage does not report steps', () => {
+    const output = buildHarborCellOutput({
+      invocation: {
+        invocationId: 'inv-tool-steps',
+        runId: 'run-tool-steps',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        status: 'completed',
+        events: [
+          runtimeEvent({
+            id: 'tool-step',
+            content: { kind: 'function_call', id: 'call-1', name: 'Read', args: {} },
+            refs: { toolCallId: 'call-1', stepId: 'step-1' },
+          }),
+          runtimeEvent({
+            id: 'final-text',
+            content: { kind: 'text', text: 'done' },
+            refs: { providerEventId: 'step-2' },
+          }),
+        ],
+        startedAt: 100,
+        finishedAt: 250,
+      },
+      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+    });
+
+    assert.equal(output.steps, 2);
   });
 
   test('summarizes context budget diagnostics from token usage events', () => {
