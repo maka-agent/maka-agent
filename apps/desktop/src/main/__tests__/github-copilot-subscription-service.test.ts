@@ -26,7 +26,9 @@ describe('GitHubCopilotSubscriptionService', () => {
         },
       });
 
-      assert.deepEqual(await service.connectExistingLogin(), { ok: true });
+      const result = await service.connectExistingLogin();
+      assert.equal(result.ok, true);
+      if (result.ok) assert.deepEqual(result.models.map(({ id }) => id), ['gpt-5.4']);
       assert.equal(authorization, 'Bearer github_pat_copilot_requests');
       assert.ok(stored);
     } finally {
@@ -52,7 +54,9 @@ describe('GitHubCopilotSubscriptionService', () => {
       },
     });
 
-    assert.deepEqual(await service.connectExistingLogin(), { ok: true });
+    const result = await service.connectExistingLogin();
+    assert.equal(result.ok, true);
+    if (result.ok) assert.deepEqual(result.models.map(({ id }) => id), ['gpt-5.4']);
     assert.equal(requestAuthorization, 'Bearer gho_existing_login');
     assert.deepEqual(JSON.parse(stored ?? ''), {
       access_token: 'gho_existing_login',
@@ -122,7 +126,9 @@ describe('GitHubCopilotSubscriptionService', () => {
       fetchFn: async () => copilotModelsResponse(),
     });
 
-    assert.deepEqual(await service.refreshTokens(), { ok: true });
+    const result = await service.refreshTokens();
+    assert.equal(result.ok, true);
+    if (result.ok) assert.deepEqual(result.models.map(({ id }) => id), ['gpt-5.4']);
     const state = await service.getAccountState();
     assert.deepEqual(state, { provider: 'github-copilot', runtimeState: 'authenticated' });
     assert.equal('access_token' in state, false);
@@ -146,6 +152,20 @@ describe('GitHubCopilotSubscriptionService', () => {
     const failureBody = syncBody.slice(syncBody.indexOf('} catch {'), syncBody.indexOf('const enabledIds'));
     assert.match(syncBody, /catch \{[\s\S]*if \(!existing\) return null;[\s\S]*enabled: false,[\s\S]*lastTestStatus: 'error'/);
     assert.doesNotMatch(failureBody, /fallbackModels|models\.dev|connectionStore\.save/);
+  });
+
+  test('passes one validated discovery result into connection sync instead of fetching twice', () => {
+    const source = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'src', 'main', 'subscription-ipc-main.ts'),
+      'utf8',
+    );
+    const connectBody = source.slice(
+      source.indexOf("ipcMain.handle('github-copilot:connect-existing-login'"),
+      source.indexOf("ipcMain.handle('github-copilot:get-account-state'"),
+    );
+    assert.match(connectBody, /syncGitHubCopilotConnection\(result\.models\)/);
+    assert.match(connectBody, /if \(!connection\)/);
+    assert.doesNotMatch(connectBody, /syncGitHubCopilotConnection\(\)/);
   });
 });
 

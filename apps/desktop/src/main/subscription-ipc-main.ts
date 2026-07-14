@@ -39,16 +39,38 @@ interface SubscriptionIpcDeps {
   ): boolean;
   syncClaudeSubscriptionConnection(): Promise<LlmConnection | null>;
   syncCodexSubscriptionConnection(): Promise<LlmConnection | null>;
-  syncGitHubCopilotConnection(): Promise<LlmConnection | null>;
+  syncGitHubCopilotConnection(models?: NonNullable<LlmConnection['models']>): Promise<LlmConnection | null>;
   emitConnectionListChanged(): void;
 }
 
 export function registerSubscriptionIpc(deps: SubscriptionIpcDeps): void {
+  async function rollbackFailedGitHubCopilotConnect() {
+    await deps.githubCopilotSubscription.logout().catch(() => undefined);
+    const existing = await deps.connectionStore.get(GITHUB_COPILOT_CONNECTION_SLUG).catch(() => null);
+    if (existing) {
+      await deps.connectionStore.update(existing.slug, {
+        enabled: false,
+        lastTestStatus: 'needs_reauth',
+        lastTestAt: new Date().toISOString(),
+        lastTestMessage: 'GitHub Copilot 连接未能保存，请重新导入登录。',
+      }).catch(() => undefined);
+    }
+    return { ok: false as const, reason: 'storage_failed' as const, message: 'GitHub Copilot 连接未能保存，请重试。' };
+  }
+
   ipcMain.handle('github-copilot:connect-existing-login', async () => {
     const result = await deps.githubCopilotSubscription.connectExistingLogin();
     if (result.ok) {
-      await deps.syncGitHubCopilotConnection();
-      deps.emitConnectionListChanged();
+      try {
+        const connection = await deps.syncGitHubCopilotConnection(result.models);
+        if (!connection) {
+          return rollbackFailedGitHubCopilotConnect();
+        }
+        deps.emitConnectionListChanged();
+        return { ok: true as const };
+      } catch {
+        return rollbackFailedGitHubCopilotConnect();
+      }
     }
     return result;
   });
@@ -58,8 +80,14 @@ export function registerSubscriptionIpc(deps: SubscriptionIpcDeps): void {
   ipcMain.handle('github-copilot:refresh-tokens', async () => {
     const result = await deps.githubCopilotSubscription.refreshTokens();
     if (result.ok) {
-      await deps.syncGitHubCopilotConnection();
-      deps.emitConnectionListChanged();
+      try {
+        const connection = await deps.syncGitHubCopilotConnection(result.models);
+        if (!connection) return { ok: false as const, reason: 'storage_failed' as const, message: 'GitHub Copilot 连接未能更新，请重试。' };
+        deps.emitConnectionListChanged();
+        return { ok: true as const };
+      } catch {
+        return { ok: false as const, reason: 'storage_failed' as const, message: 'GitHub Copilot 连接未能更新，请重试。' };
+      }
     }
     return result;
   });

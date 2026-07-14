@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import type { SubscriptionActionResult } from '@maka/core';
+import type { ModelInfo, SubscriptionActionResult } from '@maka/core';
 import {
   createGitHubCopilotAccountTokens,
   fetchGitHubCopilotModels,
@@ -30,6 +30,10 @@ export interface GitHubCopilotSubscriptionServiceDeps {
   fetchFn?: typeof fetch;
 }
 
+export type GitHubCopilotValidatedActionResult =
+  | { ok: true; models: ModelInfo[] }
+  | Exclude<SubscriptionActionResult, { ok: true }>;
+
 /** Main-process adapter for importing an existing supported `gh` login. */
 export class GitHubCopilotSubscriptionService {
   private readonly credentialStore: GitHubCopilotSubscriptionServiceDeps['credentialStore'];
@@ -47,7 +51,7 @@ export class GitHubCopilotSubscriptionService {
     this.fetchFn = deps.fetchFn ?? fetch;
   }
 
-  async connectExistingLogin(): Promise<SubscriptionActionResult> {
+  async connectExistingLogin(): Promise<GitHubCopilotValidatedActionResult> {
     try {
       const githubToken = (await this.resolveGitHubToken()).trim();
       if (githubToken.startsWith('ghp_')) {
@@ -69,7 +73,7 @@ export class GitHubCopilotSubscriptionService {
       if (models.length === 0) throw new Error('GitHub Copilot account returned no usable models.');
       await this.saveTokens(tokens);
       this.lastRefreshError = null;
-      return { ok: true };
+      return { ok: true, models };
     } catch {
       return {
         ok: false,
@@ -99,7 +103,7 @@ export class GitHubCopilotSubscriptionService {
     return { provider: 'github-copilot', runtimeState: 'authenticated' };
   }
 
-  async refreshTokens(): Promise<SubscriptionActionResult> {
+  async refreshTokens(): Promise<GitHubCopilotValidatedActionResult> {
     const current = await this.loadTokens().catch(() => null);
     if (!current) return { ok: false, reason: 'refresh_failed', message: '当前未导入 GitHub Copilot 登录。' };
     this.refreshing = true;
@@ -112,7 +116,7 @@ export class GitHubCopilotSubscriptionService {
       if (models.length === 0) throw new Error('GitHub Copilot account returned no usable models.');
       await this.saveTokens(current);
       this.lastRefreshError = null;
-      return { ok: true };
+      return { ok: true, models };
     } catch {
       this.lastRefreshError = 'GitHub Copilot 凭据刷新失败，请重新导入 GitHub CLI 登录。';
       return { ok: false, reason: 'refresh_failed', message: this.lastRefreshError };

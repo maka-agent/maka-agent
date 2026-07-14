@@ -92,7 +92,9 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     return state.runtimeState === 'authenticated' || state.runtimeState === 'refreshing';
   }
 
-  async function syncGitHubCopilotConnection(): Promise<LlmConnection | null> {
+  async function syncGitHubCopilotConnection(
+    discoveredModels?: Awaited<ReturnType<typeof fetchProviderModels>>,
+  ): Promise<LlmConnection | null> {
     const state = await deps.githubCopilotSubscription.getAccountState();
     const existing = await deps.connectionStore.get(GITHUB_COPILOT_CONNECTION_SLUG);
     if (!isGitHubCopilotAuthenticatedState(state)) {
@@ -121,17 +123,19 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    let models: Awaited<ReturnType<typeof fetchProviderModels>>;
-    try {
-      models = await (deps.fetchModels ?? fetchProviderModels)(discoveryConnection, tokens.access_token);
-    } catch {
-      if (!existing) return null;
-      return deps.connectionStore.update(existing.slug, {
-        enabled: false,
-        lastTestStatus: 'error',
-        lastTestAt: new Date(now).toISOString(),
-        lastTestMessage: 'GitHub Copilot 无法读取当前账号可用模型，请重新验证登录。',
-      });
+    let models = discoveredModels;
+    if (!models) {
+      try {
+        models = await (deps.fetchModels ?? fetchProviderModels)(discoveryConnection, tokens.access_token);
+      } catch {
+        if (!existing) return null;
+        return deps.connectionStore.update(existing.slug, {
+          enabled: false,
+          lastTestStatus: 'error',
+          lastTestAt: new Date(now).toISOString(),
+          lastTestMessage: 'GitHub Copilot 无法读取当前账号可用模型，请重新验证登录。',
+        });
+      }
     }
     const enabledIds = models.map((model) => model.id);
     const defaultModel = enabledIds.includes(existing?.defaultModel ?? '')
