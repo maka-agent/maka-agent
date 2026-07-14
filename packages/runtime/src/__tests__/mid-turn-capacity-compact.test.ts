@@ -87,6 +87,18 @@ describe('mid-turn safe boundary selection', () => {
     assert.deepEqual(boundary, { ok: true, coveredCount: 1 });
   });
 
+  test('never covers an open tool call whose response has not arrived', () => {
+    const events = [
+      model('prior', 'turn-0'),
+      user('anchor', 'turn-1'),
+      call('open-call', 'call-open', 'turn-1'),
+    ];
+    // Even with no reserved tail, covering the open call would orphan the
+    // response that lands after compaction — the cut must stop before it.
+    const boundary = selectMidTurnSafeBoundary(events, { reserveTailEvents: 0 });
+    assert.deepEqual(boundary, { ok: true, coveredCount: 2 });
+  });
+
   test('reports no safe completed span when the whole pool is one atomic pair', () => {
     const events = [
       call('c1', 'call-1', 'turn-1'),
@@ -219,6 +231,34 @@ describe('plan mid-turn capacity compaction', () => {
     assert.deepEqual(outcome, { decision: 'exhausted', detail: 'head_anchor_exceeds_capacity' });
   });
 
+  test('does not double-count the retained tail when re-estimating after folding', async () => {
+    // Codex repro shape: a large covered span, a sizeable retained tail, and
+    // an over-window estimate that folding DOES rescue. Adding back the whole
+    // [block, anchor, tail] would re-count the tail (already inside the
+    // usage-anchored estimate) and misreport head_anchor_exceeds_capacity;
+    // the correct formula adds back only the covered span's substitute
+    // [block, anchor].
+    const events = [
+      model('prior-big', 'turn-0', 'P'.repeat(1_900)),   // ~475 tokens, folded
+      user('anchor', 'turn-1'),
+      call('call-a', 'ca', 'turn-1'),
+      result('res-a', 'ca', 'turn-1', 'R'.repeat(760)),  // ~190-token retained tail…
+      call('call-b', 'cb', 'turn-1'),
+      result('res-b', 'cb', 'turn-1', 'R'.repeat(760)),  // …and again
+    ];
+    const outcome = await planMidTurnCapacityCompaction(planInput({
+      orderedEvents: events,
+      estimatedNextRequestTokens: 700,
+      contextWindow: 500,
+      reserveTokens: 100,
+      reserveTailEvents: 4, // keep both call/result pairs verbatim
+    }));
+    // covered ≈ [prior-big, anchor] ≈ 480+; substitute [block, anchor] ≈ 110;
+    // after-fold ≈ 700 − 480 + 110 ≈ 330 ≤ 500 → compacted. The double-count
+    // formula reported ≈ 330 + tail(≈400) > 500 → false exhausted.
+    assert.equal(outcome.decision, 'compacted');
+  });
+
   test('fails open under the window when the replacement projection would exceed it', async () => {
     // Raw request (500) fits the window (1000) comfortably; a giant summary
     // block would push the replaced request past the window, so the plan must
@@ -268,8 +308,8 @@ function base(id: string, turnId: string): Omit<RuntimeEvent, 'role' | 'author' 
 function user(id: string, turnId: string): RuntimeEvent {
   return { ...base(id, turnId), role: 'user', author: 'user', content: { kind: 'text', text: id } };
 }
-function model(id: string, turnId: string): RuntimeEvent {
-  return { ...base(id, turnId), role: 'model', author: 'agent', content: { kind: 'text', text: id } };
+function model(id: string, turnId: string, text: string = id): RuntimeEvent {
+  return { ...base(id, turnId), role: 'model', author: 'agent', content: { kind: 'text', text } };
 }
 function call(id: string, callId: string, turnId: string): RuntimeEvent {
   return {
@@ -277,9 +317,9 @@ function call(id: string, callId: string, turnId: string): RuntimeEvent {
     content: { kind: 'function_call', id: callId, name: 'tool', args: {} },
   };
 }
-function result(id: string, callId: string, turnId: string): RuntimeEvent {
+function result(id: string, callId: string, turnId: string, payload: string = 'ok'): RuntimeEvent {
   return {
     ...base(id, turnId), role: 'tool', author: 'tool',
-    content: { kind: 'function_response', id: callId, name: 'tool', result: 'ok' },
+    content: { kind: 'function_response', id: callId, name: 'tool', result: payload },
   };
 }

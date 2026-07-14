@@ -128,9 +128,20 @@ function toolPairSpans(events: readonly RuntimeEvent[]): ToolPairSpan[] {
   return [...byCallId.values()];
 }
 
-/** A cut at exclusive index `cut` straddles a pair if exactly one side is covered. */
+/**
+ * A cut at exclusive index `cut` straddles a pair if exactly one side is
+ * covered. A call whose response is not in the pool yet is an OPEN span:
+ * covering it would orphan the response that arrives later (a result with no
+ * call in the projection), so any cut past the call is unsafe. A response
+ * without a call is inert — its call lives before the pool, so no cut inside
+ * the pool can split that pair.
+ */
 function straddlesToolPair(spans: readonly ToolPairSpan[], cut: number): boolean {
   for (const span of spans) {
+    if (span.callIndex !== undefined && span.responseIndex === undefined) {
+      if (span.callIndex < cut) return true;
+      continue;
+    }
     if (span.callIndex === undefined || span.responseIndex === undefined) continue;
     const callCovered = span.callIndex < cut;
     const responseCovered = span.responseIndex < cut;
@@ -294,17 +305,23 @@ export async function planMidTurnCapacityCompaction(
 
   // Re-estimate the FULL next request after folding, keeping the fixed
   // overhead (system prompt, tool schemas, current user content) that the
-  // usage-anchored estimate carries: subtract only the covered span's share
-  // and add back the [block, verbatim head anchor, tail] projection. Folding
-  // cannot reduce the request below this number, so when it still exceeds the
-  // window the turn is not rescuable by compaction: over the window that is
-  // the explicit exhausted outcome (the irreducible remainder — head anchor,
-  // reserved tail, and fixed overhead — exceeds capacity); under the window
-  // the raw request still fits, so a replacement projection that would grow
-  // past the window fails open instead of replacing.
+  // usage-anchored estimate carries. The estimate already includes the
+  // retained tail, so subtracting the covered span's share must add back only
+  // the covered span's SUBSTITUTE — the [block, verbatim head anchor] head of
+  // the replacement projection, never the tail again. Folding cannot reduce
+  // the request below this number, so when it still exceeds the window the
+  // turn is not rescuable by compaction: over the window that is the explicit
+  // exhausted outcome (the irreducible remainder — head anchor, reserved
+  // tail, and fixed overhead — exceeds capacity); under the window the raw
+  // request still fits, so a replacement projection that would grow past the
+  // window fails open instead of replacing.
+  const replacementHeadEvents = replacementEvents.slice(
+    0,
+    replacementEvents.length - tailRuntimeEvents.length,
+  );
   const estimatedNextRequestAfter =
     Math.max(0, input.estimatedNextRequestTokens - estimatedTokensBefore)
-    + estimateRuntimeEventsTokens(replacementEvents, charsPerToken);
+    + estimateRuntimeEventsTokens(replacementHeadEvents, charsPerToken);
   if (estimatedNextRequestAfter > input.contextWindow) {
     return failOrExhaust('replacement_exceeds_window', 'head_anchor_exceeds_capacity');
   }
