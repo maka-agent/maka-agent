@@ -113,6 +113,7 @@ async function runComparisonTaskArm(input: {
     resultsJsonlPath: input.input.resultsJsonlPath,
     resultsTsvPath: `${input.input.resultsJsonlPath}.${input.roundId}.tsv`,
     tasks: [input.task],
+    requireExecutionIdentity: true,
     ...(input.input.resumeFingerprint ? { resumeFingerprint: input.input.resumeFingerprint } : {}),
     harborRunner: input.input.harborRunner,
     ...(input.input.now ? { now: input.input.now } : {}),

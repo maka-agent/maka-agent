@@ -123,7 +123,11 @@ export async function runPromptControlExperiment(
     rewardHackVerifierPatternsByTaskId: Object.fromEntries(
       CONTROL_HELD_IN_TASKS.map((task) => [task.id, ['ZZZ_NO_CONTROL_VERIFIER_MATCH']]),
     ),
-    harborRunner: createControlHarborRunner(eventsDir),
+    harborRunner: createControlHarborRunner(
+      eventsDir,
+      provider,
+      controlConnection(provider, baseUrl, model).defaultModel,
+    ),
     ...(input.metaAgent ? { metaAgent: input.metaAgent } : {}),
     resumeFingerprint: `prompt-control:${input.runId}`,
     costCeilingUsd: 1,
@@ -159,7 +163,11 @@ export async function runPromptControlExperiment(
   return result;
 }
 
-function createControlHarborRunner(eventsDir: string) {
+function createControlHarborRunner(
+  eventsDir: string,
+  provider: LlmConnection['providerType'],
+  model: string,
+) {
   return async ({ roundId, task, systemPrompt }: HarborTaskRunInput): Promise<HarborTaskRunOutput> => {
     const hasRule = systemPrompt.includes(CONTROL_RULE_MARKER);
     const errorClass = hasRule ? undefined : `missing_${CONTROL_RULE_MARKER}`;
@@ -177,6 +185,12 @@ function createControlHarborRunner(eventsDir: string) {
         ...(errorClass ? { errorClass } : {}),
         runtimeEventsPath,
         promptHash: hashSystemPrompt(systemPrompt),
+        executionIdentity: {
+          llmConnectionSlug: provider,
+          model,
+          systemPromptHash: hashSystemPrompt(systemPrompt),
+          pricingProfile: 'prompt-control',
+        },
         tokenSummary: controlTokenSummary(),
         toolSummary: {
           providerVisibleToolCount: 1,

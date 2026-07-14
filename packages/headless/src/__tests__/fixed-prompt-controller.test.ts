@@ -1915,7 +1915,7 @@ describe('fixed prompt controller', () => {
     });
   });
 
-  test('preserves the original cell failure when usage is unavailable', async () => {
+  test('rejects a failed real-provider execution when usage is unavailable', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       const resultsTsvPath = join(dir, 'results.tsv');
@@ -1947,9 +1947,9 @@ describe('fixed prompt controller', () => {
         newId: idFactory(),
       });
 
-      assert.equal(result.events[0]?.type, 'task_completed');
-      assert.equal(result.events[0]?.eligible, true);
-      assert.equal(result.events[0]?.errorClass, 'tool_step_cap_reached');
+      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
+      assert.equal(result.events[0]?.eligible, false);
+      assert.equal(result.events[0]?.errorClass, 'missing_token_usage');
       assert.equal('tokenSummary' in result.events[0]!, false);
       const [, row] = (await readFile(resultsTsvPath, 'utf8')).trimEnd().split('\n');
       assert.equal(row?.split('\t')[7], '');

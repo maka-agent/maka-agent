@@ -861,8 +861,7 @@ function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash
     };
   }
   if (
-    output.cell.status === 'completed'
-    && output.cell.executionIdentity
+    output.cell.executionIdentity
     && (!output.cell.tokenSummary || output.cell.tokenSummary.total <= 0)
   ) {
     return {

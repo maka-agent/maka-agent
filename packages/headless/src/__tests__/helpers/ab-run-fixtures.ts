@@ -17,6 +17,12 @@ export function harborOutput(input: {
       schemaVersion: 1,
       status: 'completed',
       promptHash: input.promptHash,
+      executionIdentity: {
+        llmConnectionSlug: 'fake',
+        model: 'fake-model',
+        systemPromptHash: input.promptHash,
+        pricingProfile: 'test-profile',
+      },
       tokenSummary: tokenSummary({ input: 4, output: 6, reasoning: 0, total: 10, costUsd: 0.01 }),
       toolSummary: {
         providerVisibleToolCount: 1,
