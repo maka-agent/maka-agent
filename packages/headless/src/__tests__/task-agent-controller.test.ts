@@ -212,6 +212,7 @@ class PermissionRequestBackend implements AgentBackend {
     const ts = Date.now();
     yield {
       type: 'permission_request',
+      kind: 'tool_permission',
       id: 'permission-request-event',
       turnId: input.turnId,
       ts,

@@ -324,6 +324,7 @@ describe('applyLiveTurnEvent', () => {
     });
     const waiting = applyLiveTurnEvent(started, {
       type: 'permission_request',
+      kind: 'tool_permission',
       id: 'event-2',
       turnId: 'turn-1',
       requestId: 'request-1',

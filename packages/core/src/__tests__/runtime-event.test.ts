@@ -166,6 +166,7 @@ describe('RuntimeEvent actions', () => {
   test('permission request/decision are first-class actions', () => {
     const actions: RuntimeEventActions = {
       permissionRequest: {
+        kind: 'tool_permission',
         requestId: 'pr-1',
         toolUseId: 'tc-1',
         toolName: 'Bash',

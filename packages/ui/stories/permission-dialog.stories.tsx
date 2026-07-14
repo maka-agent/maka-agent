@@ -31,6 +31,7 @@ function makeRequest(input: {
   rememberForTurnAllowed: boolean;
 }): PermissionRequestEvent {
   return {
+    kind: 'tool_permission',
     id: `evt-${input.requestId}`,
     turnId: `turn-${input.requestId}`,
     type: 'permission_request',

@@ -93,6 +93,7 @@ function baseEvents(): RuntimeEvent[] {
       author: 'system',
       actions: {
         permissionRequest: {
+          kind: 'tool_permission',
           requestId: 'req-1',
           toolUseId: 'tool-1',
           toolName: 'Read',

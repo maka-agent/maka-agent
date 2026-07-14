@@ -544,6 +544,7 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
     category,
     scopeKey,
     partialRequest: {
+      kind: 'tool_permission',
       toolName: input.toolName,
       category,
       reason: categoryToReason(category),
@@ -643,8 +644,7 @@ function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {
 // ============================================================================
 
 export interface PermissionRequest {
-  /** Omitted by legacy persisted events; new runtime events set it explicitly. */
-  kind?: 'tool_permission';
+  kind: 'tool_permission';
   requestId: string;
   toolUseId: string;
   toolName: string;

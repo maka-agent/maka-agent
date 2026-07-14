@@ -3115,6 +3115,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
       this.permissionRequests += 1;
       yield {
         type: 'permission_request',
+        kind: 'tool_permission',
         id: `event-permission-${index + 1}`,
         turnId: 'turn-1',
         ts: index + 1,
@@ -3716,6 +3717,7 @@ class RejectingPermissionDriver implements MakaSessionDriver {
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     yield {
       type: 'permission_request',
+      kind: 'tool_permission',
       id: 'event-permission',
       turnId: 'turn-1',
       ts: 1,
@@ -3789,6 +3791,7 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     yield {
       type: 'permission_request',
+      kind: 'tool_permission',
       id: 'event-permission',
       turnId: 'turn-1',
       ts: 1,

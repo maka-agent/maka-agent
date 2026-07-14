@@ -110,26 +110,30 @@ function resolveBase(event: SessionEvent, ctx: InvocationContext) {
 }
 
 function mapPermissionRequest(event: AnyPermissionRequestEvent): PermissionRequestPayload {
-  if (event.kind === 'additional_permissions') {
-    return mapAdditionalPermissionRequest(event);
+  if (event.kind === 'tool_permission') {
+    const request: PermissionRequest = {
+      kind: 'tool_permission',
+      requestId: event.requestId,
+      toolUseId: event.toolUseId,
+      toolName: event.toolName,
+      category: event.category,
+      reason: event.reason,
+      args: structuredClone(event.args),
+      rememberForTurnAllowed: event.rememberForTurnAllowed,
+      ...(event.hint !== undefined ? { hint: event.hint } : {}),
+    };
+    return request;
   }
-  const request: PermissionRequest = {
-    kind: 'tool_permission',
-    requestId: event.requestId,
-    toolUseId: event.toolUseId,
-    toolName: event.toolName,
-    category: event.category,
-    reason: event.reason,
-    args: structuredClone(event.args),
-    rememberForTurnAllowed: event.rememberForTurnAllowed,
-    ...(event.hint !== undefined ? { hint: event.hint } : {}),
-  };
-  return request;
+  return mapAdditionalPermissionRequest(event);
 }
 
 function mapAdditionalPermissionRequest(
   event: AnyPermissionRequestEvent,
 ): AdditionalPermissionRequest {
+  const runtimeKind: unknown = event.kind;
+  if (runtimeKind !== 'additional_permissions') {
+    throw malformedAdditionalPermissionRequest(event.requestId, 'kind');
+  }
   if (event.reason !== 'additional_permissions') {
     throw malformedAdditionalPermissionRequest(event.requestId, 'reason');
   }

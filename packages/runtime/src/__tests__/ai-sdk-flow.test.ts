@@ -316,6 +316,7 @@ describe('AiSdkFlow seam', () => {
       events: [
         ev({
           type: 'permission_request',
+          kind: 'tool_permission',
           requestId: 'req-1',
           toolUseId: 'tu-2',
           toolName: 'bash',
@@ -406,6 +407,32 @@ describe('AiSdkFlow seam', () => {
     assert.deepEqual(request.availableDecisions, ['allow_once', 'deny']);
     assert.equal(request.alsoApprovesToolExecution, true);
     assert.equal('args' in request, false);
+  });
+
+  test('rejects permission requests without an explicit valid kind', () => {
+    const valid = ev({
+      type: 'permission_request',
+      kind: 'tool_permission',
+      requestId: 'req-kind',
+      toolUseId: 'tu-kind',
+      toolName: 'Write',
+      category: 'file_write',
+      reason: 'file_write',
+      args: { path: '/tmp/example' },
+      rememberForTurnAllowed: true,
+    });
+
+    for (const kind of [undefined, 'unknown']) {
+      const malformed = { ...valid, kind } as unknown as SessionEvent;
+      assert.throws(
+        () => mapSessionEventToRuntimeEvent(
+          malformed,
+          ctx,
+          createSessionEventMapMemory(),
+        ),
+        /invalid or missing kind/,
+      );
+    }
   });
 
   test('maps the error path preserving error content + terminal failed', async () => {
@@ -727,6 +754,7 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
       {
         event: (args: unknown) => ev({
           type: 'permission_request',
+          kind: 'tool_permission',
           requestId: 'permission-owned',
           toolUseId: 'tu-owned',
           toolName: 'Write',

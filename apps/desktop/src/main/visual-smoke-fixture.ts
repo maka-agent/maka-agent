@@ -2455,6 +2455,7 @@ function permissionLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession'
 function permissionRequest(now: number): PermissionRequestEvent {
   return {
     type: 'permission_request',
+    kind: 'tool_permission',
     id: 'visual-smoke-permission-event',
     turnId: 'turn-permission',
     ts: now,
