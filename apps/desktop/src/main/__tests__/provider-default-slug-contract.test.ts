@@ -41,4 +41,17 @@ describe('provider default slug contract', () => {
       );
     }
   });
+
+  it('always returns an unused slug even under dense collisions', () => {
+    // The previous bounded search gave up after '-99' and fell back to a
+    // timestamp suffix WITHOUT checking `existing`, so a dense slug space
+    // could yield an already-taken slug the save path rejects. With the base
+    // and -2..-99 all taken, the derivation must keep counting.
+    const base = nextSlug('openai', []);
+    const existing = [base, ...Array.from({ length: 98 }, (_, i) => `${base}-${i + 2}`)];
+    const derived = nextSlug('openai', existing);
+    assert.equal(derived, `${base}-100`);
+    assert.ok(!existing.includes(derived), 'derived slug must not collide with existing slugs');
+    assert.equal(validateSlug(derived), null);
+  });
 });
