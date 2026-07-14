@@ -120,6 +120,22 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
   };
 }
 
+function accumulateUsage(usage: MakaPiUsageSummary, msg: {
+  costUsd?: number;
+  input?: number;
+  cacheHitInput?: number;
+  cacheRead?: number;
+  cacheWriteInput?: number;
+  cacheCreation?: number;
+  cacheMissInput?: number;
+}): void {
+  usage.costUsd += msg.costUsd ?? 0;
+  const hit = msg.cacheHitInput ?? msg.cacheRead ?? 0;
+  const write = msg.cacheWriteInput ?? msg.cacheCreation ?? 0;
+  usage.cacheHitInput += hit;
+  usage.cacheMissInput += msg.cacheMissInput ?? Math.max(0, (msg.input ?? 0) - hit - write);
+}
+
 export function appendUserPrompt(state: MakaPiTranscriptState, text: string): void {
   state.entries.push({ kind: 'user', text });
 }
@@ -182,6 +198,9 @@ export function replaceTranscriptWithStoredMessages(
   state.expandAllTools = false;
   state.expandAllThinking = false;
   state.usage = { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 };
+  for (const msg of messages) {
+    if (msg.type === 'token_usage') accumulateUsage(state.usage, msg);
+  }
 }
 
 /** Toggle expansion of every tool card at once; false when there is none. */
@@ -452,9 +471,7 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'token_usage': {
-      state.usage.costUsd += event.costUsd ?? 0;
-      state.usage.cacheHitInput += event.cacheHitInput ?? event.cacheRead ?? 0;
-      state.usage.cacheMissInput += event.cacheMissInput ?? 0;
+      accumulateUsage(state.usage, event);
       state.usage.contextRemaining = event.contextRemaining;
       const notice = contextBudgetOutcomeNotice(event.contextBudget);
       if (notice) {
@@ -934,7 +951,7 @@ function formatTokenCount(tokens: number): string {
 }
 
 function formatCost(costUsd: number): string {
-  if (costUsd < 0.01) return costUsd.toFixed(4);
+  if (costUsd < 0.01) return '<0.01';
   return costUsd.toFixed(2);
 }
 
