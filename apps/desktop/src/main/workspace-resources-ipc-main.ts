@@ -6,6 +6,7 @@ import { createArtifactStore, resolveArtifactPath } from '@maka/storage';
 import type { createMainWindowController } from './main-window.js';
 import {
   createStarterSkill,
+  deleteSkill,
   getSkillGovernanceDetails,
   installBundledSkill,
   installManagedSkill,
@@ -162,7 +163,10 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
   ipcMain.handle('skills:createStarter', async () => {
     const result = await createStarterSkill(deps.workspaceRoot);
     if (!result.ok) return result;
-    return { ok: true as const, skill: toSkillEntry(result.skill), filePath: result.filePath };
+    return { ok: true as const, created: result.created, skill: toSkillEntry(result.skill), filePath: result.filePath };
+  });
+  ipcMain.handle('skills:delete', async (_event, id: string) => {
+    return deleteSkill(deps.workspaceRoot, id);
   });
   ipcMain.handle('skills:open', async (_event, id: string, target: 'file' | 'directory' = 'file') => {
     const resolved = await resolveSkillOpenPath(deps.workspaceRoot, id, target);

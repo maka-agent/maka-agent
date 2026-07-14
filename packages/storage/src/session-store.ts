@@ -26,6 +26,8 @@ const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 export interface SessionStore {
   create(input: CreateSessionInput): Promise<SessionHeader>;
   list(filter?: SessionListFilter): Promise<SessionSummary[]>;
+  /** Read only the durable header without triggering connection-lock self-healing. */
+  readHeaderSnapshot(sessionId: string): Promise<SessionHeader>;
   readHeader(sessionId: string): Promise<SessionHeader>;
   readMessages(sessionId: string): Promise<StoredMessage[]>;
   listTurns(sessionId: string): Promise<TurnRecord[]>;
@@ -110,8 +112,13 @@ class FileSessionStore implements SessionStore {
   }
 
   async list(filter?: SessionListFilter): Promise<SessionSummary[]> {
-    await mkdir(this.sessionsRoot, { recursive: true });
-    const entries = await import('node:fs/promises').then((fs) => fs.readdir(this.sessionsRoot, { withFileTypes: true }));
+    let entries;
+    try {
+      entries = await import('node:fs/promises').then((fs) => fs.readdir(this.sessionsRoot, { withFileTypes: true }));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
 
     // Phase 1: read each header plus a bounded tail preview. That keeps
     // list() proportional to the number of sessions rather than full
@@ -174,6 +181,10 @@ class FileSessionStore implements SessionStore {
       return this.updateHeader(sessionId, { connectionLocked: true });
     }
     return header;
+  }
+
+  async readHeaderSnapshot(sessionId: string): Promise<SessionHeader> {
+    return this.readHeaderOnly(sessionId);
   }
 
   async readMessages(sessionId: string): Promise<StoredMessage[]> {

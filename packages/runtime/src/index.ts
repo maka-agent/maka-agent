@@ -23,6 +23,27 @@ export type {
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
 
+export {
+  MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS,
+  AdditionalPermissionError,
+  assertAdditionalPermissionProposal,
+  buildAdditionalPermissionProposal,
+  freezeAdditionalPermissionProposal,
+  normalizeAdditionalPermissionPath,
+  normalizeAdditionalPermissionProfile,
+  planDeclaredBashAdditionalPermission,
+  planFileToolAdditionalPermission,
+  revalidateAdditionalPermissionProposal,
+} from './additional-permissions.js';
+export type {
+  AdditionalPermissionErrorReason,
+  AdditionalPermissionPlanResult,
+  AdditionalPermissionPlanningContext,
+  AdditionalPermissionProposal,
+  NormalizedAdditionalPermissionPath,
+} from './additional-permissions.js';
+export { hashAdditionalPermissionProfile } from './additional-permission-hash.js';
+
 export { AiSdkBackend } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
@@ -672,6 +693,28 @@ export type {
   AgentRunInspectSourceHealth,
   InspectAgentRunOptions,
 } from './agent-run-inspect.js';
+
+// execution-inspect.ts — payload-safe, versioned CLI inspection documents.
+export {
+  AGENT_RUN_INSPECT_DOCUMENT_VERSION,
+  SESSION_INSPECT_DOCUMENT_VERSION,
+  inspectAgentRunDocument,
+  inspectSessionDocument,
+  renderAgentRunInspectTree,
+  renderSessionInspectTree,
+} from './execution-inspect.js';
+export type {
+  AgentRunInspectCompactionCheckpoint,
+  AgentRunInspectDocument,
+  AgentRunInspectIdentity,
+  AgentRunInspectToolFact,
+  AgentRunInspectToolSummary,
+  ExecutionInspectDiagnostic,
+  ExecutionInspectSeverity,
+  SessionHeaderReader,
+  SessionInspectDocument,
+  SessionInspectSummary,
+} from './execution-inspect.js';
 
 // model-history.ts — policy-driven model-history projection.
 export { buildModelHistoryFromRuntimeEvents } from './model-history.js';

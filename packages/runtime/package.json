@@ -9,6 +9,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./permission-engine": "./dist/permission-engine.js",
+    "./additional-permissions": "./dist/additional-permissions.js",
     "./ask-user-question-tool": "./dist/ask-user-question-tool.js",
     "./ai-sdk-backend": "./dist/ai-sdk-backend.js",
     "./builtin-tools": "./dist/builtin-tools.js",

@@ -1,6 +1,6 @@
 # Execution Identity and Evidence Spine
 
-Status: Phase 0 contract, Phase 1 Runtime-to-Task lineage, and Phase 2A-2C evidence freshness and Compaction coverage. See [issue #948](https://github.com/maka-agent/maka-agent/issues/948).
+Status: Phase 0 contract, Phase 1 Runtime-to-Task lineage, Phase 2A-2C evidence freshness and Compaction coverage, and Phase 3A TaskRun inspection. See [issue #948](https://github.com/maka-agent/maka-agent/issues/948).
 
 Maka already records the facts needed to explain an execution. Runtime Events preserve model and tool interaction facts, AgentRun records operational lifecycle, and Task Events preserve durable task-control decisions. The missing piece is a shared way to reference those facts across subsystem boundaries.
 
@@ -57,7 +57,16 @@ Phase 2C binds each newly written Compaction checkpoint to the exact ordered Run
 - legacy V2 checkpoints remain readable, but a source-bound checkpoint cannot be replaced or recovered behind a legacy checkpoint that cannot prove cursor semantics;
 - the canonical Runtime Event ledger remains untouched and authoritative.
 
-The current delivery still does not add AHE lineage, recovery modeling for ambiguous external side effects, or a general inspection command.
+Phase 3A makes the TaskRun lineage directly inspectable:
+
+- `maka eval task-run inspect <taskRunId> --store <root>` renders a human-readable TaskRun → Attempt → AgentRun tree;
+- `--json` emits the versioned `maka.task_run_inspect.v1` machine contract from the same read model;
+- the inspector joins Task Event cursors to linked AgentRun and Runtime ledgers, then checks claimed Runtime coverage against observed boundary facts;
+- Tool Call/Response gaps, stale or unknown Self-checks, invalid Compaction records, missing AgentRuns, and projection warnings remain explicit structured diagnostics;
+- output carries identities, cursors, counts, and health facts, not copies of raw model messages, tool arguments, or tool results;
+- a Tool Call without a committed response is reported as an unknown outcome whose external side effects may have occurred, never inferred as success or failure.
+
+The current delivery still does not add AHE lineage, durable recovery modeling for ambiguous external side effects, or the general `maka inspect <sessionId|agentRunId|taskRunId>` resolver.
 
 ## Existing authorities
 
@@ -240,7 +249,7 @@ Later phases should extend the contract without changing fact ownership:
 1. Bind workspace observations and artifacts produced outside Runtime tool calls to their appropriate source authorities.
 2. Carry target snapshot and execution lineage through AHE exports.
 3. Represent uncertain external-side-effect/commit windows in durable recovery lineage.
-4. Add human-readable and machine-readable inspection surfaces that expose missing, stale, conflicting, or ambiguous lineage.
+4. Extend the Phase 3A TaskRun inspector into a general Session/AgentRun/TaskRun id resolver without weakening its explicit unknown and gap semantics.
 
 The guiding invariant is simple:
 

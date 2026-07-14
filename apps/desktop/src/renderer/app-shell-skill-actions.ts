@@ -20,6 +20,7 @@ export interface AppShellSkillActions {
   previewManagedSkillUpdate(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
   updateManagedSkill(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): Promise<boolean>;
   setSkillEnabled(skillId: string, enabled: boolean): Promise<void>;
+  deleteSkill(skillId: string): Promise<void>;
   openSkill(skillId: string): Promise<void>;
 }
 
@@ -92,7 +93,14 @@ export function createAppShellSkillActions(deps: {
       }
       await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
       if (!isSkillsSurfaceActive()) return;
-      toastApi.success('已创建示例技能', `${result.skill.id}/SKILL.md 已放到工作区 skills 目录。`);
+      // Idempotent seeding: a repeat 添加 click reuses the existing 示例技能
+      // instead of minting a duplicate. Tell the user we opened the existing
+      // one rather than pretending a new skill was created.
+      if (result.created) {
+        toastApi.success('已创建示例技能', `${result.skill.id}/SKILL.md 已放到工作区 skills 目录。`);
+      } else {
+        toastApi.success('已打开现有示例技能', '示例技能已存在，直接打开了 SKILL.md（不会重复创建）。');
+      }
       const openResult = await window.maka.skills.open(result.skill.id, 'file');
       if (!openResult.ok) {
         if (isSkillsSurfaceActive()) toastApi.error('无法打开示例技能', openSkillFailureCopy(openResult.reason));
@@ -193,6 +201,25 @@ export function createAppShellSkillActions(deps: {
     }
   }
 
+  async function deleteSkill(skillId: string) {
+    try {
+      const result = await window.maka.skills.delete(skillId);
+      if (!result.ok) {
+        if (isSkillsSurfaceActive()) toastApi.error('无法删除 Skill', deleteSkillFailureCopy(result.reason));
+        return;
+      }
+      await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
+      // A deleted bundled skill must reappear as installable under 内置, so
+      // refresh the catalog's installed flags after removal.
+      await refreshBundledSkillCatalog({ shouldShowError: isSkillsSurfaceActive });
+      if (isSkillsSurfaceActive()) toastApi.success('已删除 Skill', `${skillId} 已从当前工作区移除。`);
+    } catch (error) {
+      if (isSkillsSurfaceActive()) {
+        toastApi.error('无法删除 Skill', generalizedErrorMessageChinese(error, '无法删除 Skill，请稍后重试。'));
+      }
+    }
+  }
+
   return {
     refreshSkills,
     refreshManagedSkillSources,
@@ -204,6 +231,7 @@ export function createAppShellSkillActions(deps: {
     previewManagedSkillUpdate,
     updateManagedSkill,
     setSkillEnabled,
+    deleteSkill,
     openSkill,
   };
 }
@@ -238,6 +266,12 @@ function managedPreviewFailureCopy(reason: 'not_managed' | 'source_missing' | 'm
   if (reason === 'metadata_error') return 'Skill 元数据异常，不能安全预览。';
   if (reason === 'blocked_path') return '目标路径不允许读取。';
   return '读取 Skill 内容失败，请检查文件权限。';
+}
+
+function deleteSkillFailureCopy(reason: 'not_found' | 'blocked_path' | 'delete_failed'): string {
+  if (reason === 'not_found') return '当前工作区找不到这个 Skill。';
+  if (reason === 'blocked_path') return 'Skill 路径不允许删除。';
+  return '删除 Skill 失败，请检查文件权限。';
 }
 
 function skillRuntimeFailureCopy(reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed'): string {

@@ -600,8 +600,12 @@ declare global {
           | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' }
         >;
         createStarter(): Promise<
-          | { ok: true; skill: SkillEntry; filePath: string }
+          | { ok: true; created: boolean; skill: SkillEntry; filePath: string }
           | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }
+        >;
+        delete(id: string): Promise<
+          | { ok: true }
+          | { ok: false; reason: 'not_found' | 'blocked_path' | 'delete_failed' }
         >;
         open(id: string, target?: 'file' | 'directory'): Promise<
           | { ok: true; target: 'file' | 'directory' }

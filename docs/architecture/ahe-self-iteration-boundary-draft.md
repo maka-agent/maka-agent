@@ -125,9 +125,9 @@ Otherwise, the cheapest “improvement” would be to alter scoring, remove fail
 
 ### What snapshot identity currently guarantees
 
-`buildMakaAheTargetSnapshot` verifies that source refs exist under the repository root and generates a stable `snapshotId`. When the caller supplies Git repository, ref, commit, or dirty identity, those fields also enter the snapshot identity.
+`buildMakaAheTargetSnapshot` now emits `maka.ahe-target.v2`. It verifies that every source ref resolves to a regular file inside the repository, rejects symbolic-link escapes, and records a SHA-256 digest and byte size for each source. The manifest itself is hashed, and `snapshotId` binds that manifest to the canonical component topology.
 
-The current boundary matters: individual source-file contents are not hashed into `snapshotId`. Without Git identity, changing source content does not necessarily change the snapshot id. A production outer loop should therefore always provide an unambiguous commit identity. Content-level fingerprints are a strengthening direction, not a current guarantee.
+The identity rule is deliberately about the managed target rather than the export occasion: the same source bytes and component topology produce the same `snapshotId`; changing any registered source produces a different id. `createdAt`, `sourceLabel`, and optional Git repository/ref/commit/dirty metadata remain useful provenance, but do not change content identity. Legacy v1 snapshots remain readable as legacy documents, without being upgraded or treated as content-bound evidence.
 
 ## Evidence Export: turn run outcomes into conservative evidence
 
@@ -363,7 +363,7 @@ The outer loop costs more protocol and artifact plumbing, but buys clearer autho
 
 ### Current: facts callers can rely on
 
-- AHE target protocol uses version `maka.ahe-target.v1`;
+- new AHE target exports use content-addressed `maka.ahe-target.v2`, while readers keep explicit legacy v1 compatibility;
 - The current component map is source-backed and separates editable from evidence-only components;
 - Evidence export is read-only and consumes TaskRun projections;
 - Results are bucketed conservatively by authority and accounting status;

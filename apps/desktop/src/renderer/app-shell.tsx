@@ -735,6 +735,7 @@ export function AppShell({
     previewManagedSkillUpdate,
     updateManagedSkill,
     setSkillEnabled,
+    deleteSkill,
     openSkill,
   } = useAppShellModuleData({
     isSkillsSurfaceActive,
@@ -1301,6 +1302,7 @@ export function AppShell({
                   onPreviewManagedSkillUpdate={(skillId) => previewManagedSkillUpdate(skillId)}
                   onUpdateManagedSkill={(skillId, options) => updateManagedSkill(skillId, options)}
                   onSetSkillEnabled={(skillId, enabled) => setSkillEnabled(skillId, enabled)}
+                  onDeleteSkill={(skillId) => deleteSkill(skillId)}
                 />
               ) : navSelection.section === 'automations' ? (
                 <AutomationsPage

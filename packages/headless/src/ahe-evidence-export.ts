@@ -1,4 +1,5 @@
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import {
   MAKA_AHE_CURRENT_COMPONENTS,
@@ -10,13 +11,18 @@ import {
   type MakaAheRunResult,
   type MakaAheScoreAuthority,
   type MakaAheSnapshotIdentity,
+  type MakaAheSourceManifest,
+  type MakaAheSourceManifestEntry,
   type MakaAheTargetComponent,
   type MakaAheTargetSnapshot,
   type MakaAheTraceIndex,
   type MakaAheTraceIndexEntry,
   type MakaAheValidationIssue,
+  makaAheSourceManifestDigest,
+  makaAheTargetSnapshotId,
   validateMakaAheRunResult,
   validateMakaAheTargetComponents,
+  validateMakaAheTargetSnapshot,
 } from './ahe-target-protocol.js';
 import {
   exportableTaskEvents,
@@ -36,7 +42,7 @@ import {
 import type { AutonomousResultTaxonomy, HeavyTaskSelfCheckExecutionHygiene, HeavyTaskSelfCheckPlanAuditSummary, ScoreResult, TaskRunArtifact, VerifierResult } from './task-contracts.js';
 import type { TaskRunProjection } from './task-run-store.js';
 
-export const MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL = 'ahe-evidence-export-20260701' as const;
+export const MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL = 'ahe-evidence-export-20260714' as const;
 
 export interface BuildMakaAheTargetSnapshotOptions {
   repoRoot: string;
@@ -237,16 +243,10 @@ export async function validateMakaAheSourceRefs(
       errors.push({ path, message: issue });
       return;
     }
-    const root = resolve(repoRoot);
-    const resolved = resolve(root, sourceRef.path);
-    if (!isWithinRoot(root, resolved)) {
-      errors.push({ path, message: `source ref "${sourceRef.path}" resolves outside the repo root` });
-      return;
-    }
     try {
-      await stat(resolved);
-    } catch {
-      errors.push({ path, message: `source ref "${sourceRef.path}" does not exist under repo root` });
+      await resolveMakaAheSourceFile(repoRoot, sourceRef.path);
+    } catch (error) {
+      errors.push({ path, message: (error as Error).message });
     }
   })));
 
@@ -263,20 +263,16 @@ export async function buildMakaAheTargetSnapshot(
   }
 
   const sourceLabel = options.sourceLabel ?? MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL;
-  const identity = {
-    protocolVersion: MAKA_AHE_TARGET_PROTOCOL_VERSION,
-    sourceLabel,
-    ...(options.git ? { git: options.git } : {}),
-    components,
-  };
+  const sourceManifest = await buildMakaAheSourceManifest(options.repoRoot, components);
 
   return {
     protocolVersion: MAKA_AHE_TARGET_PROTOCOL_VERSION,
     sourceLabel,
-    snapshotId: `maka-ahe-${shortHash(identity)}`,
+    snapshotId: makaAheTargetSnapshotId(components, sourceManifest),
     createdAt: options.createdAt ?? new Date().toISOString(),
     ...(options.git ? { git: options.git } : {}),
     components,
+    sourceManifest,
   };
 }
 
@@ -338,6 +334,10 @@ export async function writeMakaAheEvidenceExport(
   outDir: string,
   options: WriteMakaAheEvidenceExportOptions,
 ): Promise<WriteMakaAheEvidenceExportResult> {
+  const snapshotValidation = validateMakaAheTargetSnapshot(options.snapshot);
+  if (!snapshotValidation.ok) {
+    throw new Error(`invalid Maka AHE target snapshot:\n${snapshotValidation.errors.map((error) => `- ${error.path}: ${error.message}`).join('\n')}`);
+  }
   await mkdir(outDir, { recursive: true });
   const evidence = makaAheEvidenceFromTaskRunProjections(options.projections, {
     snapshotId: options.snapshot.snapshotId,
@@ -1063,6 +1063,75 @@ function artifactRefKind(ref: string, artifact: TaskRunArtifact): MakaAheArtifac
 
 function sortProjections(projections: readonly TaskRunProjection[]): TaskRunProjection[] {
   return [...projections].sort((a, b) => a.taskId.localeCompare(b.taskId) || a.taskRunId.localeCompare(b.taskRunId));
+}
+
+async function buildMakaAheSourceManifest(
+  repoRoot: string,
+  components: readonly MakaAheTargetComponent[],
+): Promise<MakaAheSourceManifest> {
+  const sourceDigests = new Map<string, Promise<{ digest: string; sizeBytes: number }>>();
+  const digestFor = (sourceRefPath: string): Promise<{ digest: string; sizeBytes: number }> => {
+    const existing = sourceDigests.get(sourceRefPath);
+    if (existing) return existing;
+    const pending = (async () => {
+      const sourcePath = await resolveMakaAheSourceFile(repoRoot, sourceRefPath);
+      const content = await readFile(sourcePath);
+      return {
+        digest: `sha256:${createHash('sha256').update(content).digest('hex')}`,
+        sizeBytes: content.byteLength,
+      };
+    })();
+    sourceDigests.set(sourceRefPath, pending);
+    return pending;
+  };
+  const entries = await Promise.all(components.flatMap((component) => component.sourceRefs.map(async (sourceRef) => {
+    const source = await digestFor(sourceRef.path);
+    return {
+      componentId: component.id,
+      path: sourceRef.path,
+      ...(sourceRef.exportName ? { exportName: sourceRef.exportName } : {}),
+      digest: source.digest,
+      sizeBytes: source.sizeBytes,
+    } satisfies MakaAheSourceManifestEntry;
+  })));
+  entries.sort((a, b) => a.componentId.localeCompare(b.componentId)
+    || a.path.localeCompare(b.path)
+    || (a.exportName ?? '').localeCompare(b.exportName ?? ''));
+  return {
+    algorithm: 'sha256',
+    digest: makaAheSourceManifestDigest(entries),
+    entries,
+  };
+}
+
+async function resolveMakaAheSourceFile(repoRoot: string, sourcePath: string): Promise<string> {
+  const root = resolve(repoRoot);
+  const lexicalPath = resolve(root, sourcePath);
+  if (!isWithinRoot(root, lexicalPath)) {
+    throw new Error(`source ref "${sourcePath}" resolves outside the repo root`);
+  }
+
+  let canonicalRoot: string;
+  try {
+    canonicalRoot = await realpath(root);
+  } catch {
+    throw new Error(`repo root "${repoRoot}" does not exist`);
+  }
+
+  let canonicalPath: string;
+  try {
+    canonicalPath = await realpath(lexicalPath);
+  } catch {
+    throw new Error(`source ref "${sourcePath}" does not exist under repo root`);
+  }
+  if (!isWithinRoot(canonicalRoot, canonicalPath)) {
+    throw new Error(`source ref "${sourcePath}" resolves outside the repo root through a symbolic link`);
+  }
+  const sourceStat = await stat(canonicalPath);
+  if (!sourceStat.isFile()) {
+    throw new Error(`source ref "${sourcePath}" must resolve to a regular file`);
+  }
+  return canonicalPath;
 }
 
 function unsafeRepoPathReason(path: string): string | undefined {
