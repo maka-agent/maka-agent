@@ -172,7 +172,6 @@ export function UsageSettingsPage(props: {
               ['all', '全部状态'],
               ['success', '成功'],
               ['error', '错误'],
-              ['aborted', '已中止'],
             ] satisfies Array<readonly [typeof usageDraft.status, string]>}
             onChange={(status) => void updateUsage({ status })}
           />
@@ -235,7 +234,7 @@ function UsageTable(props: { activeTab: AppSettings['usage']['activeTab']; stats
   if (props.activeTab === 'pricing') {
     return <SimpleStatsTable ariaLabel="使用统计定价配置表" headers={['供应商', '模型', '输入 / 1M', '输出 / 1M']} rows={(props.stats?.pricing ?? []).map((row) => [row.provider, row.model, `$${row.inputPerMTokUsd}`, `$${row.outputPerMTokUsd}`])} empty="暂无定价覆盖配置" />;
   }
-  return <SimpleStatsTable ariaLabel="使用统计请求日志表" headers={['时间', '类型', '对象', '会话', 'Token', '费用', '延迟', '状态']} rows={props.logs.map((row) => [new Date(row.ts).toLocaleString(), usageRequestKindLabel(row.kind), usageRequestTarget(row), usageRequestSessionCell(row, props.onOpenSession), row.usageAvailable === false ? '—' : row.totalTokens ?? row.inputTokens + row.outputTokens, row.kind === 'model' ? row.usageAvailable === false ? '—' : `$${(row.costUsd ?? 0).toFixed(2)}` : '-', row.latencyMs ? `${row.latencyMs}ms` : '-', usageRequestStatusLabel(row.status)])} empty={props.requestEmpty} />;
+  return <SimpleStatsTable ariaLabel="使用统计请求日志表" headers={['时间', '类型', '对象', '会话', 'Token', '费用', '延迟', '状态']} rows={props.logs.map((row) => [new Date(row.ts).toLocaleString(), usageRequestKindLabel(row.kind), usageRequestTarget(row), usageRequestSessionCell(row, props.onOpenSession), row.usageAvailable === false ? '—' : row.inputTokens + row.outputTokens, row.kind === 'model' ? row.usageAvailable === false ? '—' : `$${(row.costUsd ?? 0).toFixed(2)}` : '-', row.latencyMs ? `${row.latencyMs}ms` : '-', usageRequestStatusLabel(row.status)])} empty={props.requestEmpty} />;
 }
 
 function usageRequestKindLabel(kind: UsageStats['logs'][number]['kind']) {
@@ -267,7 +266,6 @@ function usageRequestStatusLabel(status: UsageStats['logs'][number]['status']) {
   switch (status) {
     case 'success': return '成功';
     case 'error': return '错误';
-    case 'aborted': return '已中止';
   }
 }
 
