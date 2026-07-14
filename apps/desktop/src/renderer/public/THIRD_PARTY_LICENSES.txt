@@ -39,8 +39,8 @@ This file records notices for third-party source assets vendored into the Maka d
     - SHA-256: `4a575e8382b52ce742ac5d21d361a7d2a08cea7c12390ee1bbb755ef7d3cc25b`
   - `apps/desktop/src/renderer/assets/provider-brands/cerebras.svg`
     - Upstream commit: `e4302041fbb3039608d25f9f618bd462783b875e`
-    - Upstream path: `packages/static-svg/icons/cerebras.svg`
-    - SHA-256: `05af9593eca3fefdb30c5ad042040f008beea2b27e0a6b7315c319492f7a44ff`
+    - Upstream path: `packages/static-svg/icons/cerebras-color.svg`
+    - SHA-256: `355c2225284cd06c9cf4246110b60cb21bc86039872981e1be6bb82deec2ffa7`
   - `apps/desktop/src/renderer/assets/provider-brands/mistral.svg`
     - Upstream commit: `32f4083f7a20b67ecdc7b29c0af031ada5a29c52`
     - Upstream path: `packages/static-svg/icons/mistral.svg`

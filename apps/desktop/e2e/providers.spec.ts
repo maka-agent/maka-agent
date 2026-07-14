@@ -55,18 +55,32 @@ test('adds Cerebras with its exact snapshot model and API-key credential field',
 
   await page.getByRole('tab', { name: 'API', exact: true }).click();
   await page.getByPlaceholder('搜索服务商').fill('Cerebras');
-  const catalogMark = page.locator('.providerCatalogRow[data-provider="cerebras"] .providerLogo .providerAssetMask');
+  const catalogMark = page.locator('.providerCatalogRow[data-provider="cerebras"] .providerLogo img');
   await expect(catalogMark).toBeVisible();
-  expect(await catalogMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual({
+    usesAssetMask: false,
+    hasCssPaint: false,
+    hasColorFilter: false,
+  });
+  await page.evaluate(() => document.documentElement.classList.add('dark'));
+  expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual({
+    usesAssetMask: false,
+    hasCssPaint: false,
+    hasColorFilter: false,
+  });
   await page.getByRole('button', { name: /添加模型供应商：Cerebras/ }).click();
   await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.cerebras.ai/v1');
   await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('gpt-oss-120b');
   await page.getByRole('button', { name: '保存供应商' }).click();
 
   await expect(page.getByRole('heading', { name: 'Cerebras', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="cerebras"] .providerAssetMask');
+  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="cerebras"] img');
   await expect(detailMark).toBeVisible();
-  expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
+  expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual({
+    usesAssetMask: false,
+    hasCssPaint: false,
+    hasColorFilter: false,
+  });
   await expect(page.getByText('gpt-oss-120b', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
 });
@@ -327,6 +341,19 @@ function maskRenderContract(element: Element): { usesAssetMask: boolean; follows
   return {
     usesAssetMask: style.maskImage.startsWith('url('),
     followsForeground: style.backgroundColor === style.color,
+  };
+}
+
+function colorAssetRenderContract(element: Element): {
+  usesAssetMask: boolean;
+  hasCssPaint: boolean;
+  hasColorFilter: boolean;
+} {
+  const style = getComputedStyle(element);
+  return {
+    usesAssetMask: style.maskImage !== 'none',
+    hasCssPaint: style.backgroundColor !== 'rgba(0, 0, 0, 0)',
+    hasColorFilter: style.filter !== 'none' || style.opacity !== '1',
   };
 }
 

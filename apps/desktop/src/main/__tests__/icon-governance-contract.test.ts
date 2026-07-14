@@ -433,18 +433,18 @@ describe('icon + typography governance contract', () => {
 
     assert.equal(
       createHash('sha256').update(cerebrasMark).digest('hex'),
-      '05af9593eca3fefdb30c5ad042040f008beea2b27e0a6b7315c319492f7a44ff',
-      'the vendored Cerebras mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 cerebras.svg',
+      '355c2225284cd06c9cf4246110b60cb21bc86039872981e1be6bb82deec2ffa7',
+      'the vendored Cerebras mark must remain byte-identical to @lobehub/icons-static-svg@1.91.0 cerebras-color.svg',
     );
     assert.match(
       notices,
-      /Repository: https:\/\/github\.com\/lobehub\/lobe-icons[\s\S]*@lobehub\/icons-static-svg` version `1\.91\.0`[\s\S]*apps\/desktop\/src\/renderer\/assets\/provider-brands\/cerebras\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cerebras\.svg[\s\S]*05af9593eca3fefdb30c5ad042040f008beea2b27e0a6b7315c319492f7a44ff/,
+      /Repository: https:\/\/github\.com\/lobehub\/lobe-icons[\s\S]*@lobehub\/icons-static-svg` version `1\.91\.0`[\s\S]*apps\/desktop\/src\/renderer\/assets\/provider-brands\/cerebras\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/cerebras-color\.svg[\s\S]*355c2225284cd06c9cf4246110b60cb21bc86039872981e1be6bb82deec2ffa7/,
       'Cerebras provenance must identify the exact package release, upstream revision, path, and license',
     );
     assert.match(
       marks,
-      /import cerebrasMarkUrl from '\.\.\/assets\/provider-brands\/cerebras\.svg';[\s\S]*case 'cerebras':\s*return <ProviderAssetMask src=\{cerebrasMarkUrl\} \/>/,
-      'the stable Cerebras provider id must consume the sole shared asset-mask seam',
+      /import cerebrasBrandMark from '\.\.\/assets\/provider-brands\/cerebras\.svg';[\s\S]*case 'cerebras':\s*return <img src=\{cerebrasBrandMark\} alt="" \/>/,
+      'the stable Cerebras provider id must preserve the upstream color asset through an img',
     );
     assert.doesNotMatch(marks, /ProviderMaskMark|providerMaskMark/);
   });
@@ -657,7 +657,7 @@ describe('icon + typography governance contract', () => {
     );
     assert.match(
       notices,
-      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/cerebras\.svg[\s\S]*packages\/static-svg\/icons\/cerebras\.svg[\s\S]*05af9593eca3fefdb30c5ad042040f008beea2b27e0a6b7315c319492f7a44ff/,
+      /apps\/desktop\/src\/renderer\/assets\/provider-brands\/cerebras\.svg[\s\S]*packages\/static-svg\/icons\/cerebras-color\.svg[\s\S]*355c2225284cd06c9cf4246110b60cb21bc86039872981e1be6bb82deec2ffa7/,
     );
     assert.match(notices, /MIT License[\s\S]*Copyright \(c\) 2023 LobeHub[\s\S]*Permission is hereby granted/);
     assert.match(notices, /THE SOFTWARE IS PROVIDED "AS IS"/);

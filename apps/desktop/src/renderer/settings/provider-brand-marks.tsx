@@ -15,7 +15,7 @@
 
 import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
-import cerebrasMarkUrl from '../assets/provider-brands/cerebras.svg';
+import cerebrasBrandMark from '../assets/provider-brands/cerebras.svg';
 import cohereBrandMark from '../assets/provider-brands/cohere.svg';
 import cloudflareMarkUrl from '../assets/provider-brands/cloudflare.svg';
 import deepinfraBrandMark from '../assets/provider-brands/deepinfra.svg';
@@ -297,7 +297,7 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
     case 'nvidia':
       return <ProviderAssetMask src={nvidiaMarkUrl} />;
     case 'cerebras':
-      return <ProviderAssetMask src={cerebrasMarkUrl} />;
+      return <img src={cerebrasBrandMark} alt="" />;
     case 'xai':
       return <XAI />;
     case 'togetherai':
