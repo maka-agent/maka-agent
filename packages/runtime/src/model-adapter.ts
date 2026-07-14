@@ -5,16 +5,13 @@ import type {
   ThinkingDeltaEvent,
   CompleteEvent,
 } from '@maka/core/events';
-import {
-  PROVIDER_DEFAULTS,
-  providerAuthRequiresSecret,
-  type LlmConnection,
-} from '@maka/core/llm-connections';
+import { providerAuthRequiresSecret, type LlmConnection } from '@maka/core/llm-connections';
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import type { CacheMissInputSource } from '@maka/core/usage-stats/types';
 import type { ModelMessage } from 'ai';
 
 import type { AsyncEventQueue } from './async-queue.js';
+import { resolveModelRuntime } from './model-runtime.js';
 import { classifyError, errorReasonFromClass } from './tool-runtime.js';
 
 /**
@@ -128,11 +125,11 @@ export class ModelAdapter {
   constructor(private readonly input: ModelAdapterInput) {}
 
   runtimeEventReplaySupport(): ModelAdapterRuntimeEventReplaySupport {
-    const protocol = PROVIDER_DEFAULTS[this.input.connection.providerType].protocol;
+    const { adapter } = resolveModelRuntime(this.input.connection, this.input.modelId);
     return {
       toolCalls: true,
       toolResults: true,
-      signedThinking: protocol === 'anthropic',
+      signedThinking: adapter.kind === 'anthropic' || adapter.kind === 'claude-subscription',
     };
   }
 

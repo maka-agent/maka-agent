@@ -6,6 +6,7 @@ import { generateText, stepCountIs, streamText, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { buildProviderOptions, getAIModel } from '../model-factory.js';
+import { testConnection } from '../test-connection.js';
 
 const servers: Array<{ close(): Promise<void> }> = [];
 
@@ -378,6 +379,48 @@ describe('models.dev provider conformance', () => {
         }],
       },
     );
+  });
+
+  test('OpenCode connection probes follow each selected model protocol', async () => {
+    const requests: Array<{
+      url: string;
+      headers: IncomingMessage['headers'];
+      body: Record<string, unknown>;
+    }> = [];
+    const server = await startJsonServer(async (request, response) => {
+      requests.push({
+        url: request.url ?? '',
+        headers: request.headers,
+        body: JSON.parse(await readBody(request)) as Record<string, unknown>,
+      });
+      respondJson(response, 200, {});
+    });
+    const connection: LlmConnection = {
+      slug: 'opencode',
+      name: 'OpenCode Zen',
+      providerType: 'opencode',
+      baseUrl: `${server.url}/zen/v1`,
+      defaultModel: 'gpt-5.5',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    for (const modelId of ['gpt-5.5', 'claude-opus-4-8', 'gemini-3.5-flash']) {
+      assert.equal((await testConnection(connection, 'opencode-test-key', modelId)).ok, true);
+    }
+
+    assert.deepEqual(requests.map(({ url }) => url), [
+      '/zen/v1/responses',
+      '/zen/v1/messages',
+      '/zen/v1/models/gemini-3.5-flash:generateContent',
+    ]);
+    assert.equal(requests[0]?.headers.authorization, 'Bearer opencode-test-key');
+    assert.deepEqual(requests[0]?.body.input, [{ role: 'user', content: 'Hi' }]);
+    assert.equal(requests[1]?.headers['x-api-key'], 'opencode-test-key');
+    assert.deepEqual(requests[1]?.body.messages, [{ role: 'user', content: 'Hi' }]);
+    assert.equal(requests[2]?.headers['x-goog-api-key'], 'opencode-test-key');
+    assert.deepEqual(requests[2]?.body.contents, [{ role: 'user', parts: [{ text: 'Hi' }] }]);
   });
 
   test('Vercel Gateway preserves its public discovery boundary and exact model id through a reasoning tool loop', async () => {

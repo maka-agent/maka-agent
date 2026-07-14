@@ -1,11 +1,11 @@
 import {
   PROVIDER_DEFAULTS,
-  effectiveBaseUrl,
   type ConnectionTestResult,
   type LlmConnection,
 } from '@maka/core/llm-connections';
 import { proxiedFetch } from './bots/proxied-fetch.js';
 import { anthropicV1Url, googleApiUrl } from './provider-urls.js';
+import { resolveModelRuntime } from './model-runtime.js';
 import { claudeSubscriptionHeaders } from './subscription-auth.js';
 
 const CONNECTION_TEST_TIMEOUT_MS = 15_000;
@@ -16,7 +16,6 @@ export async function testConnection(
   model?: string,
 ): Promise<ConnectionTestResult> {
   const t0 = Date.now();
-  const baseUrl = effectiveBaseUrl(connection);
   const auth = PROVIDER_DEFAULTS[connection.providerType].authKind;
   const secret = auth === 'none' ? '' : apiKey;
   const testModel =
@@ -27,17 +26,26 @@ export async function testConnection(
   if (!testModel) {
     return { ok: false, errorMessage: 'No model to test' };
   }
+  const { adapter, baseUrl } = resolveModelRuntime(connection, testModel);
 
   try {
-    switch (PROVIDER_DEFAULTS[connection.providerType].protocol) {
+    switch (adapter.kind) {
       case 'anthropic':
+      case 'claude-subscription':
         return await probeAnthropic(connection, baseUrl, secret, testModel, t0);
       case 'openai':
+        return /^gpt-5/i.test(testModel)
+          ? await probeOpenAIResponses(baseUrl, secret, testModel, t0)
+          : await probeOpenAI(connection, baseUrl, secret, testModel, t0);
+      case 'codex-subscription':
+      case 'openai-compatible':
         return await probeOpenAI(connection, baseUrl, secret, testModel, t0);
       case 'google':
-        return await probeGoogle(baseUrl, secret, testModel, t0);
+        return await probeGoogle(baseUrl, secret, testModel, t0, adapter.normalizeBaseUrl !== false);
       case 'cohere':
         return await probeCohere(baseUrl, secret, testModel, t0);
+      case 'unavailable':
+        throw new Error(`${connection.providerType} is experimental and not wired yet`);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -48,6 +56,29 @@ export async function testConnection(
       latencyMs: Date.now() - t0,
     };
   }
+}
+
+async function probeOpenAIResponses(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  t0: number,
+): Promise<ConnectionTestResult> {
+  const r = await proxiedFetch(`${stripTrailing(baseUrl)}/responses`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_output_tokens: 16,
+      input: [{ role: 'user', content: 'Hi' }],
+    }),
+    timeoutMs: CONNECTION_TEST_TIMEOUT_MS,
+  });
+  if (!r.ok) return httpFailure(r, t0);
+  return { ok: true, latencyMs: Date.now() - t0, modelTested: model };
 }
 
 async function probeCohere(
@@ -156,12 +187,19 @@ async function probeGoogle(
   apiKey: string,
   model: string,
   t0: number,
+  normalizeBaseUrl: boolean,
 ): Promise<ConnectionTestResult> {
+  const url = normalizeBaseUrl
+    ? googleApiUrl(baseUrl, `/models/${encodeURIComponent(model)}:generateContent`, apiKey)
+    : `${stripTrailing(baseUrl)}/models/${encodeURIComponent(model)}:generateContent`;
   const r = await proxiedFetch(
-    googleApiUrl(baseUrl, `/models/${encodeURIComponent(model)}:generateContent`, apiKey),
+    url,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        ...(normalizeBaseUrl ? {} : { 'x-goog-api-key': apiKey }),
+        'content-type': 'application/json',
+      },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
         generationConfig: { maxOutputTokens: 16 },
