@@ -409,6 +409,7 @@ export interface AiSdkUsageLike {
     reasoningTokens?: number;
   };
   outputTokenDetails?: {
+    textTokens?: number;
     reasoningTokens?: number;
   };
   raw?: AiSdkRawUsageFields;
@@ -439,13 +440,22 @@ export function normalizeAiSdkUsage(
     ?? finiteTokenBreakdownSum(usage.inputTokens, ['noCache', 'cacheRead', 'cacheWrite'])
     ?? finiteToken(usage.promptTokens)
     ?? finiteToken(usage.raw?.prompt_tokens)
-    ?? finiteToken(usage.prompt_tokens);
+    ?? finiteToken(usage.prompt_tokens)
+    ?? finiteTokenSum([
+      usage.inputTokenDetails?.noCacheTokens,
+      usage.inputTokenDetails?.cacheReadTokens,
+      usage.inputTokenDetails?.cacheWriteTokens,
+    ]);
   const reportedOutputTokens =
     finiteTokenFromValueOrBreakdown(usage.outputTokens, 'total')
     ?? finiteTokenBreakdownSum(usage.outputTokens, ['text', 'reasoning'])
     ?? finiteToken(usage.completionTokens)
     ?? finiteToken(usage.raw?.completion_tokens)
-    ?? finiteToken(usage.completion_tokens);
+    ?? finiteToken(usage.completion_tokens)
+    ?? finiteTokenSum([
+      usage.outputTokenDetails?.textTokens,
+      usage.outputTokenDetails?.reasoningTokens,
+    ]);
   const reportedCacheHitInputTokens =
     finiteToken(usage.cacheHitInputTokens)
     ?? finiteToken(usage.cachedInputTokens)
@@ -548,6 +558,13 @@ function finiteTokenBreakdownSum(
   return parts.every((part) => part === undefined)
     ? undefined
     : parts.reduce<number>((sum, part) => sum + (part ?? 0), 0);
+}
+
+function finiteTokenSum(values: readonly unknown[]): number | undefined {
+  const tokens = values.map(finiteToken);
+  return tokens.every((token) => token === undefined)
+    ? undefined
+    : tokens.reduce<number>((sum, token) => sum + (token ?? 0), 0);
 }
 
 function rawUsageFields(usage: AiSdkUsageLike): AiSdkRawUsageFields | undefined {
