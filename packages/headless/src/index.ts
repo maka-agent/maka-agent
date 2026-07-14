@@ -58,11 +58,15 @@ export type {
   HeavyTaskCommandEvidence,
   HeavyTaskProgressSource,
   HeavyTaskSelfCheckRecordedEvent,
+  HeavyTaskSelfCheckEvidenceLinkedEvent,
+  HeavyTaskSelfCheckFreshness,
+  HeavyTaskSelfCheckFreshnessReason,
   HeavyTaskSelfCheckGateAction,
   HeavyTaskSelfCheckGateRecordedEvent,
   HeavyTaskSelfCheckGateState,
   HeavyTaskSelfCheckStatus,
   HeavyTaskSemanticSelfCheckState,
+  HeavyTaskSelfCheckProjection,
   HeavyTaskSourceGuardResult,
   HeavyTaskToolEvidenceName,
   HeavyTaskTodoItem,
@@ -140,7 +144,7 @@ export {
   resourceScopeEquals,
   type NormalizedPermissionArgs,
 } from './permission-grants.js';
-export type { TaskRunProjection, TaskRunStore } from './task-run-store.js';
+export type { TaskEventLedgerEntry, TaskRunProjection, TaskRunStore } from './task-run-store.js';
 export { createInMemoryTaskRunStore, createTaskRunStore, projectTaskRun } from './task-run-store.js';
 export type { TaskEventsFromResultRecordOptions } from './task-run-adapter.js';
 export {
@@ -156,7 +160,9 @@ export type {
   TaskEvidenceRuntimeProvenanceInput,
   TaskEvidenceRuntimeProvenanceLink,
 } from './task-evidence-provenance.js';
-export { taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
+export { runtimeToolFactCoverage, taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
+export type { SelfCheckEvidenceBindingInput, SelfCheckEvidenceBindingResult } from './task-self-check-evidence.js';
+export { bindSelfCheckEvidence } from './task-self-check-evidence.js';
 export type {
   AutonomousDecisionInput,
   AutonomousDecisionPolicy,

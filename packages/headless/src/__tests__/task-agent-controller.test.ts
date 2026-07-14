@@ -281,7 +281,7 @@ class ProgressToolBackend implements AgentBackend {
     }, toolCtx);
     await selfCheckPlanSubmit.impl({
       finalArtifacts: [{
-        path: 'README.md',
+        path: '/app/README.md',
         purpose: 'visible public artifact inspected by the check',
         publicReason: 'visible task notes are public',
       }],
@@ -291,7 +291,7 @@ class ProgressToolBackend implements AgentBackend {
         publicReason: 'public check outputs stay under scratch',
       },
       workspaceGuardPlan: {
-        checkedPaths: ['README.md'],
+        checkedPaths: ['/app/README.md'],
         expectedAddedPaths: [],
         expectedGeneratedPathsOutsideScratch: [],
         publicReason: 'public guard checks visible artifact paths',
@@ -302,7 +302,7 @@ class ProgressToolBackend implements AgentBackend {
       status: 'pass',
       publicReason: 'npm test passed using public README.md-backed fixture state.',
       commandEvidence: [{ command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' }],
-      artifactEvidence: [{ path: 'README.md', kind: 'file', exists: true }],
+      artifactEvidence: [{ path: '/app/README.md', kind: 'file', exists: true }],
     }, toolCtx);
     const ts = Date.now();
     yield {
@@ -322,6 +322,24 @@ class ProgressToolBackend implements AgentBackend {
       toolUseId: 'bash-tool-call',
       isError: false,
       content: { kind: 'text', text: 'tests passed' },
+    };
+    yield {
+      type: 'tool_start',
+      id: 'progress-self-check-start',
+      turnId: input.turnId,
+      ts,
+      toolUseId: 'progress-tool-call',
+      toolName: 'self_check_submit',
+      args: { status: 'pass' },
+    };
+    yield {
+      type: 'tool_result',
+      id: 'progress-self-check-result',
+      turnId: input.turnId,
+      ts,
+      toolUseId: 'progress-tool-call',
+      isError: false,
+      content: { kind: 'text', text: 'self-check accepted' },
     };
     yield { type: 'complete', id: 'progress-complete', turnId: input.turnId, ts, stopReason: 'end_turn' };
   }
@@ -790,6 +808,23 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.latestHeavyTaskSelfCheck?.status, 'pass');
       assert.equal(result.projection.latestHeavyTaskSelfCheckPlan?.guard.status, 'accepted');
       assert.equal(result.projection.latestHeavyTaskSelfCheck?.guard.status, 'accepted');
+      assert.equal(
+        result.projection.latestHeavyTaskSelfCheck?.freshness,
+        'current',
+        JSON.stringify({
+          warnings: result.projection.warnings,
+          selfCheck: result.projection.latestHeavyTaskSelfCheck,
+          evidenceLinks: result.projection.events.filter((event) => event.type === 'heavy_task_self_check_evidence_linked'),
+          observations: result.projection.heavyTaskWorkspaceObservations,
+        }),
+      );
+      assert.ok(result.projection.latestHeavyTaskSelfCheck?.provenance?.runtimeCoverage);
+      assert.ok(result.projection.latestHeavyTaskSelfCheck?.provenance?.taskCoverage);
+      assert.equal(result.projection.latestHeavyTaskSelfCheck?.provenance?.workspace?.kind, 'manifest');
+      assert.equal(
+        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_evidence_linked').length,
+        result.projection.heavyTaskSelfChecks.length,
+      );
       assert.equal(
         result.projection.events.filter((event) => event.type === 'heavy_task_inventory_recorded').length,
         2,
