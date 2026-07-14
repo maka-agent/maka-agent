@@ -61,7 +61,7 @@ describe('harness A/B report', () => {
     assert.match(markdown, /No composite score/);
   });
 
-  test('reports effectiveness only over pairs evaluated by both harnesses', () => {
+  test('completes once both harness cells are terminal while excluding infra pairs from effectiveness', () => {
     const summary = summarizeAbComparison({
       runId: 'glm-harness-ab',
       roundId: 'ab-summary',
@@ -74,11 +74,8 @@ describe('harness A/B report', () => {
 
     const report = buildHarnessAbReport(summary);
 
-    assert.equal(report.runStatus, 'incomplete');
-    assert.throws(
-      () => assertHarnessAbReportCompleted(report),
-      /harness A\/B incomplete: 1\/2 paired attempts evaluated \(1 excluded, 0 missing\)/,
-    );
+    assert.equal(report.runStatus, 'completed');
+    assert.doesNotThrow(() => assertHarnessAbReportCompleted(report));
     assert.deepEqual(report.effectiveness.baseline, {
       armId: 'maka',
       passed: 1,

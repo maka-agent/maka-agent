@@ -53,7 +53,7 @@ export interface HarnessAbReport {
 export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbReport {
   const runStatus = summary.stopReason
     ? 'stopped'
-    : summary.pairedAttempts.evaluatedPairs === summary.pairedAttempts.pairs
+    : summary.pairedAttempts.missingPairIds.length === 0
       ? 'completed'
       : 'incomplete';
   return {
