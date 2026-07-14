@@ -20,6 +20,18 @@ export interface BackendSendInput {
   runId?: string;
   /** Caller-generated turn id shared by the persisted UserMessage and every emitted event. */
   turnId: string;
+  /**
+   * Optional branch/agent lane forwarded from the InvocationContext. Backends
+   * that mint RuntimeEvents mid-turn (mid-turn capacity compaction) use it so
+   * their projection matches the flow-mapped ledger events exactly.
+   */
+  branch?: string;
+  /**
+   * The persisted initial user RuntimeEvent for this turn (the head anchor).
+   * Mid-turn capacity compaction keeps this event verbatim in every projection
+   * and needs its exact ledger identity for replay-checkable coverage.
+   */
+  headAnchorRuntimeEvent?: RuntimeEvent;
   text: string;
   attachments?: AttachmentRef[];
   /**
