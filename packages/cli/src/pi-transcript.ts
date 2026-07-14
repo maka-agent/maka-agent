@@ -1042,12 +1042,12 @@ function renderPermissionPrompt(
     }
   }
   const actions = request.rememberForTurnAllowed
-    ? 'y/Enter allow once  a allow for turn  n/Esc deny'
-    : 'y/Enter allow once  n/Esc deny';
+    ? `${ansi.bold('y')}${ansi.dim('/Enter allow once')}  ${ansi.bold('a')}${ansi.dim(' allow for turn')}  ${ansi.bold('n')}${ansi.dim('/Esc deny')}`
+    : `${ansi.bold('y')}${ansi.dim('/Enter allow once')}  ${ansi.bold('n')}${ansi.dim('/Esc deny')}`;
   const detailsAction = request.toolName === 'WriteStdin'
-    ? `  Ctrl+O ${detailsExpanded ? 'hide' : 'show'} full parameters`
+    ? `  ${ansi.dim('Ctrl+O ' + (detailsExpanded ? 'hide' : 'show') + ' full parameters')}`
     : '';
-  lines.push(fitLine(ansi.dim(`${actions}${detailsAction}`), width));
+  lines.push(fitLine(`${actions}${detailsAction}`, width));
   return lines;
 }
 
