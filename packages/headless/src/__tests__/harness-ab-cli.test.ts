@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -23,6 +23,36 @@ test('harness A/B CLI accepts a 2-task operational canary', async () => {
         MAKA_HARNESS_AB_DRY_RUN: '1',
       },
     }), /Terminal-Bench 2\.1 task set mismatch/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('detached harness launcher persists a terminal failed journal after the worker exits', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-detached-'));
+  try {
+    const outDir = join(dir, 'out');
+    const runId = 'detached-smoke';
+    const scriptPath = new URL('../../harbor/run-harness-ab-detached.mjs', import.meta.url);
+    await execFileAsync(process.execPath, [scriptPath.pathname], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        MAKA_HARNESS_AB_OUT_DIR: outDir,
+        MAKA_HARNESS_AB_RUN_ID: runId,
+        MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
+        MAKA_HARNESS_AB_LIMIT: '2',
+        MAKA_HARNESS_AB_DRY_RUN: '1',
+      },
+    });
+
+    const journalPath = join(outDir, runId, 'background-run.json');
+    const journal = await waitForJournal(journalPath, (value) => value.status === 'failed');
+    assert.equal(journal.exitCode, 1);
+    assert.equal(typeof journal.pid, 'number');
+    assert.equal(typeof journal.startedAt, 'string');
+    assert.equal(typeof journal.finishedAt, 'string');
+    assert.match(await readFile(join(outDir, runId, 'background-run.log'), 'utf8'), /Terminal-Bench 2\.1 task set mismatch/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -76,3 +106,20 @@ test('harness A/B CLI rejects modified task contents before reading credentials'
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+async function waitForJournal(
+  path: string,
+  predicate: (value: Record<string, unknown>) => boolean,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      const value = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+      if (predicate(value)) return value;
+    } catch {
+      // The detached worker may not have created the journal yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`timed out waiting for detached journal ${path}`);
+}

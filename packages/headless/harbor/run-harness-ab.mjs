@@ -32,6 +32,7 @@ import {
 } from './run-prompt-ab.mjs';
 
 const EXPECTED_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
+export const DEFAULT_HARNESS_AB_RUN_ID = 'glm-5.2-maka-vs-opencode-tbench-2.1';
 const CANARY_TASKS = 2;
 const PILOT_TASKS = 30;
 const PROVIDER = 'zai-coding-plan';
@@ -65,14 +66,14 @@ function runLimit(raw) {
   return parsed;
 }
 
-async function main() {
+export async function main() {
   const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
   const makaRepoPath = process.env.MAKA_HARNESS_AB_MAKA_REPO
     ? resolve(process.env.MAKA_HARNESS_AB_MAKA_REPO)
     : repoRoot;
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
   const tasksRoot = envPath('MAKA_HARNESS_AB_TASKS_ROOT', join(homedir(), '.cache/harbor/tasks'));
-  const runId = process.env.MAKA_HARNESS_AB_RUN_ID || 'glm-5.2-maka-vs-opencode-tbench-2.1';
+  const runId = process.env.MAKA_HARNESS_AB_RUN_ID || DEFAULT_HARNESS_AB_RUN_ID;
   const limit = runLimit(process.env.MAKA_HARNESS_AB_LIMIT);
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   const allTasks = await discoverCachedHarborTasks(tasksRoot);
