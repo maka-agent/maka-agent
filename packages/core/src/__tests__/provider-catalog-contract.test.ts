@@ -68,10 +68,15 @@ describe('provider catalog contract — structural invariants over CATALOG_PROVI
     // Concrete URLs are judged by validateConnectionBaseUrl — the same gate the
     // connection IPC applies — so a registry default can never be something
     // production would reject (a bare `new URL()` check would still admit
-    // `javascript:` or `file:` schemes).
+    // `javascript:` or `file:` schemes). The validator alone cannot decide
+    // blank-vs-concrete, though: it deliberately returns null for blank input,
+    // whose semantics there are "no override, fall back to the provider
+    // default" — but here the registry value IS the default, so a whitespace
+    // baseUrl means no usable endpoint. An explicit trim check routes blank
+    // values away from the validator.
     for (const type of CATALOG_PROVIDER_TYPES) {
       const def = PROVIDER_REGISTRY[type];
-      if (def.baseUrl !== '') {
+      if (def.baseUrl.trim() !== '') {
         assert.equal(
           validateConnectionBaseUrl(def.baseUrl),
           null,
@@ -81,6 +86,10 @@ describe('provider catalog contract — structural invariants over CATALOG_PROVI
       }
       if (def.baseUrlTemplate !== undefined) {
         const resolved = def.baseUrlTemplate.replace(/\$\{[^}]+\}/g, 'placeholder');
+        assert.ok(
+          resolved.trim() !== '',
+          `${type} baseUrlTemplate must resolve to a non-blank URL once its placeholders are filled`,
+        );
         assert.equal(
           validateConnectionBaseUrl(resolved),
           null,
