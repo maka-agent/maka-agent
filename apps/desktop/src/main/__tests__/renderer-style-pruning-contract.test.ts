@@ -14,17 +14,6 @@ const DYNAMIC_STYLE_HOOKS = new Set([
   // `os-theme-maka` theme at runtime.
   'os-scrollbar-horizontal',
   'os-scrollbar-vertical',
-  // ProvidersPanel builds these status modifiers with template strings:
-  // `enabledRollup is-${group.rollup}` and
-  // `enabledConnStatus is-${connection.lastTestStatus ?? 'untested'}`.
-  'is-err',
-  'is-error',
-  'is-idle',
-  'is-needs_reauth',
-  'is-ok',
-  'is-untested',
-  'is-verified',
-  'is-warn',
   // Token/runtime utility hooks defined in maka-tokens.css. These are
   // intentionally available to markdown renderers, prose plugins, and
   // shell surfaces without requiring a literal JSX className consumer.

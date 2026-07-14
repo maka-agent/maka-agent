@@ -5,6 +5,7 @@
 // `provider-connection-status.test.ts`.
 
 import type { LlmConnection } from '@maka/core';
+import type { StatusTone } from './settings-status-badge';
 
 /**
  * Status copy for one connection in the 模型连接 list. A lapsed OAuth
@@ -35,18 +36,23 @@ export function chipStatusText(connection: LlmConnection): string {
   }
 }
 
-export type GroupRollup = 'err' | 'warn' | 'ok' | 'idle';
-
 /**
- * Worst-status rollup for a provider group's collapsed header, computed
- * over the FULL group rather than only enabled connections: a lapsed
- * OAuth subscription (enabled:false + needs_reauth) must still raise the
- * header so the user sees they need to log back in. An enabled-only
- * rollup read such a group as idle and hid the problem.
+ * Status tone for one connection's Chip in the 模型连接 list. The branch
+ * order mirrors `chipStatusText` exactly so the dot color and the copy can
+ * never disagree: a lapsed OAuth login (enabled:false + needs_reauth) reads
+ * as an actionable `info` ("please log back in"), a bare disabled connection
+ * as `neutral`, verified as `success`, a last failure as `destructive`, and
+ * an untested connection as `neutral`.
  */
-export function rollupForGroup(connections: LlmConnection[]): GroupRollup {
-  if (connections.some((c) => c.lastTestStatus === 'error')) return 'err';
-  if (connections.some((c) => c.lastTestStatus === 'needs_reauth')) return 'warn';
-  if (connections.some((c) => c.lastTestStatus === 'verified')) return 'ok';
-  return 'idle';
+export function chipStatusTone(connection: LlmConnection): StatusTone {
+  if (connection.lastTestStatus === 'needs_reauth') return 'info';
+  if (!connection.enabled) return 'neutral';
+  switch (connection.lastTestStatus) {
+    case 'verified':
+      return 'success';
+    case 'error':
+      return 'destructive';
+    default:
+      return 'neutral';
+  }
 }

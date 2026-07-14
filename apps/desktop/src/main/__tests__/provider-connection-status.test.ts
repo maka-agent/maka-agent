@@ -7,10 +7,9 @@
  * These cover the P2 fix: a lapsed OAuth subscription is persisted as
  * `enabled:false + lastTestStatus:'needs_reauth'` (main.ts subscription
  * sync keeps the connection but flags it). Before the fix the status copy
- * short-circuited on `!enabled` to "已禁用" and the group rollup only
- * looked at enabled connections, so a group holding nothing but a lapsed
- * login read as idle and hid the "please log back in" signal. Both
- * assertions below are red against that previous behaviour.
+ * short-circuited on `!enabled` to "已禁用", hiding the "please log back in"
+ * signal. `chipStatusTone` colors the same signal and must branch in
+ * lockstep with `chipStatusText`.
  */
 
 import { strict as assert } from 'node:assert';
@@ -18,7 +17,7 @@ import { describe, it } from 'node:test';
 import type { LlmConnection } from '@maka/core';
 import {
   chipStatusText,
-  rollupForGroup,
+  chipStatusTone,
 } from '../../renderer/settings/provider-connection-status.js';
 
 function conn(input: Partial<LlmConnection> = {}): LlmConnection {
@@ -70,36 +69,28 @@ describe('chipStatusText', () => {
   });
 });
 
-describe('rollupForGroup', () => {
-  it('raises a warn for a group holding only a lapsed login (was hidden as idle)', () => {
-    assert.equal(
-      rollupForGroup([conn({ enabled: false, lastTestStatus: 'needs_reauth' })]),
-      'warn',
-    );
+describe('chipStatusTone', () => {
+  it('tones a lapsed OAuth login as info even when enabled:false (needs_reauth wins)', () => {
+    // Mirrors the chipStatusText priority: needs_reauth must not fall through
+    // to the disabled/neutral branch, so the dot reads as actionable info.
+    assert.equal(chipStatusTone(conn({ enabled: false, lastTestStatus: 'needs_reauth' })), 'info');
+    assert.equal(chipStatusTone(conn({ enabled: true, lastTestStatus: 'needs_reauth' })), 'info');
   });
 
-  it('raises an err for a disabled connection that last errored', () => {
-    assert.equal(rollupForGroup([conn({ enabled: false, lastTestStatus: 'error' })]), 'err');
+  it('tones a bare disabled connection as neutral', () => {
+    assert.equal(chipStatusTone(conn({ enabled: false, lastTestStatus: undefined })), 'neutral');
   });
 
-  it('reports ok when a verified connection is present', () => {
-    assert.equal(rollupForGroup([conn({ enabled: true, lastTestStatus: 'verified' })]), 'ok');
+  it('tones verified as success, last failure as destructive, untested as neutral', () => {
+    assert.equal(chipStatusTone(conn({ lastTestStatus: 'verified' })), 'success');
+    assert.equal(chipStatusTone(conn({ lastTestStatus: 'error' })), 'destructive');
+    assert.equal(chipStatusTone(conn({ lastTestStatus: undefined })), 'neutral');
   });
 
-  it('reports idle for an untested group', () => {
-    assert.equal(rollupForGroup([conn({ lastTestStatus: undefined })]), 'idle');
-  });
-
-  it('prioritises err over warn over ok across mixed connections', () => {
-    const mixed = [
-      conn({ slug: 'a', lastTestStatus: 'verified' }),
-      conn({ slug: 'b', enabled: false, lastTestStatus: 'needs_reauth' }),
-      conn({ slug: 'c', lastTestStatus: 'error' }),
-    ];
-    assert.equal(rollupForGroup(mixed), 'err');
-    assert.equal(
-      rollupForGroup(mixed.filter((c) => c.lastTestStatus !== 'error')),
-      'warn',
-    );
+  it('tones a disabled+error connection neutral, mirroring the !enabled "暂不可用" copy', () => {
+    // !enabled short-circuits before the error branch, exactly like
+    // chipStatusText — the tone must never disagree with the visible copy.
+    assert.equal(chipStatusTone(conn({ enabled: false, lastTestStatus: 'error' })), 'neutral');
+    assert.equal(chipStatusText(conn({ enabled: false, lastTestStatus: 'error' })), '暂不可用');
   });
 });

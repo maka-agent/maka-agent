@@ -61,8 +61,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     for (const name of [
       'Button',
       'PrimitiveTabs', 'PrimitiveTabsList', 'PrimitiveTabsTrigger',
-      'PrimitiveAccordion', 'PrimitiveAccordionItem', 'PrimitiveAccordionTrigger', 'PrimitiveAccordionPanel',
-      'Item', 'ItemContent', 'ItemTitle', 'ItemActions',
+      'Item', 'ItemMedia', 'ItemContent', 'ItemTitle', 'ItemDescription', 'ItemActions',
       'Input', 'RelativeTime', 'Textarea', 'useToast',
     ]) {
       assert.ok(
