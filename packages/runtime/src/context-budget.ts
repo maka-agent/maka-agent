@@ -306,6 +306,25 @@ export interface HistoryCompactPolicy {
   /** Optional archive refs keyed by RuntimeEvent id for archive-before-project validation. */
   sourceArchiveRefs?: readonly HistoryCompactSourceArchiveRef[] | Readonly<Record<string, HistoryCompactSourceArchiveRef>>;
   highWaterName?: string;
+  /**
+   * Optional mid-turn capacity compaction, layered on the same V2 checkpoint
+   * protocol. Defaults off (explicit opt-in this PR); when enabled the backend
+   * measures the next provider request between steps and folds a safe completed
+   * prefix before crossing the model context window.
+   */
+  midTurn?: HistoryCompactMidTurnPolicy;
+}
+
+export interface HistoryCompactMidTurnPolicy {
+  enabled: boolean;
+  /**
+   * Tokens kept free below the selected model context window. The proactive
+   * high-water threshold is `contextWindow - reserveTokens`. Defaults to the
+   * shared history-compact reserve (16384).
+   */
+  reserveTokens?: number;
+  /** Trailing events kept verbatim as the continuation tail. Defaults to 1. */
+  reserveTailEvents?: number;
 }
 
 export interface HistoryCompactSourceArchiveRef {

@@ -185,6 +185,7 @@ function buildHistoryCompactPolicy(
   const tailEstimatedTokens = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS);
   const minRecentTurns = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MIN_RECENT_TURNS);
   const maxSummaryEstimatedTokens = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_SUMMARY_TOKENS);
+  const midTurn = buildHistoryCompactMidTurnPolicy(env);
   return {
     enabled: true,
     mode: parseHistoryCompactMode(env.MAKA_CONTEXT_HISTORY_COMPACT_MODE),
@@ -198,6 +199,27 @@ function buildHistoryCompactPolicy(
     maxEstimatedTokens: parsePositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_TOKENS, 2048),
     maxBlockEstimatedTokens: parsePositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCK_TOKENS, 1024),
     highWaterName: env.MAKA_CONTEXT_HISTORY_COMPACT_HIGH_WATER_NAME ?? defaultHighWaterName,
+    ...(midTurn !== undefined ? { midTurn } : {}),
+  };
+}
+
+// Mid-turn capacity compaction defaults OFF this PR: only an explicit
+// MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN=on opts in, so a standalone revert of
+// this line leaves every surface's behavior unchanged. PR 3 sinks the default on.
+function buildHistoryCompactMidTurnPolicy(
+  env: Record<string, string | undefined>,
+): NonNullable<NonNullable<ContextBudgetPolicy['historyCompact']>['midTurn']> | undefined {
+  const enabled = parseOptionalBoolean(
+    env.MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN,
+    'MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN',
+  );
+  if (enabled !== true) return undefined;
+  const reserveTokens = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS) ?? 16_384;
+  const reserveTailEvents = parseOptionalNonNegativeInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN_TAIL_EVENTS);
+  return {
+    enabled: true,
+    reserveTokens,
+    ...(reserveTailEvents !== undefined ? { reserveTailEvents } : {}),
   };
 }
 

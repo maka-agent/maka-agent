@@ -556,6 +556,7 @@ export type {
   ArchiveRetrievalResult,
   HistoryCompactBlock,
   HistoryCompactCoverage,
+  HistoryCompactMidTurnPolicy,
   HistoryCompactPolicy,
   HistoryCompactReplayResult,
   HistoryCompactSourceArchiveRef,
