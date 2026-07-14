@@ -800,7 +800,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       coordinate: [25, 30],
     } as never, ctx()) as { text: string };
 
-    assert.match(result.text, /capture_failed/);
+    assert.match(result.text, /outcome_unknown/);
   });
 
   test('bound mutating actions require Screen Recording before dispatch', async () => {
@@ -867,7 +867,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       observation_id: observationId,
       region: [0, 0, 50, 40],
     } as never, ctx()) as { text: string };
-    assert.match(zoom.text, /capture_failed/);
+    assert.match(zoom.text, /outcome_unknown/);
 
     const click = await tool.impl({
       action: 'left_click',

@@ -98,6 +98,46 @@ export type {
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
 export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
+export {
+  convertOpenAIComputerAction,
+  openAIComputerActionSchema,
+} from './openai-computer-actions.js';
+export type {
+  OpenAIComputerAction,
+  OpenAIComputerActionConversion,
+} from './openai-computer-actions.js';
+export {
+  createOpenAIComputerContinuationRequest,
+  createOpenAIComputerInitialRequest,
+  decodeOpenAIComputerResponse,
+} from './openai-computer-codec.js';
+export { OPENAI_COMPUTER_INSTRUCTIONS } from './openai-computer-policy.js';
+export {
+  createOpenAIStrictObjectSchema,
+  projectOpenAIStrictFunctionArgs,
+} from './openai-strict-function.js';
+export type { OpenAIStrictFunctionProjection } from './openai-strict-function.js';
+export type {
+  OpenAIComputerCall,
+  OpenAIComputerDialect,
+  OpenAIComputerInputItem,
+  OpenAIComputerRequest,
+  OpenAIComputerResponse,
+  OpenAIComputerSafetyCheck,
+  OpenAIComputerScreenshot,
+} from './openai-computer-codec.js';
+export { runOpenAIComputerLoop } from './openai-computer-loop.js';
+export type {
+  OpenAIComputerExecutor,
+  OpenAIComputerLoopResult,
+  OpenAIComputerScreenshotProvider,
+  OpenAIComputerTransport,
+} from './openai-computer-loop.js';
+export {
+  OpenAIResponsesTransport,
+  createOpenAIResponsesTransport,
+} from './openai-responses-transport.js';
+export type { OpenAIResponsesTransportOptions } from './openai-responses-transport.js';
 export type {
   ComputerUseToolSet,
   CuAppSummary,
