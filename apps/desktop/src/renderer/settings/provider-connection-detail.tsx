@@ -568,11 +568,11 @@ function GitHubCopilotReloginNotice(props: {
 
   return (
     <div className="providerUnavailableNotice" data-auth-kind="oauth">
-      <strong>{loggedIn ? 'GitHub Copilot 已登录' : loading ? 'OAuth 状态读取中' : '等待 GitHub CLI 登录'}</strong>
-      <span>{loggedIn ? '若账号或组织策略变化，可重新导入当前 gh 登录。' : '先运行 gh auth login，再从本机安全导入。'}</span>
+      <strong>{loggedIn ? 'GitHub Copilot 已登录' : loading ? 'OAuth 状态读取中' : '等待兼容 GitHub 凭据'}</strong>
+      <span>{loggedIn ? '若账号或组织策略变化，可重新导入兼容凭据。' : '配置具有 Copilot Requests 权限的凭据后从本机安全导入。'}</span>
       {!loading && (
         <Button type="button" size="sm" disabled={busy} onClick={() => void connect()}>
-          {busy ? '导入中…' : loggedIn ? '重新导入' : '导入 GitHub CLI 登录'}
+          {busy ? '导入中…' : loggedIn ? '重新导入' : '导入兼容凭据'}
         </Button>
       )}
     </div>

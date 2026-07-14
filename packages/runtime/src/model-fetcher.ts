@@ -9,6 +9,10 @@ import { generalizedErrorMessage } from '@maka/core/redaction';
 import { proxiedFetch } from './bots/proxied-fetch.js';
 import { anthropicV1Url, googleApiUrl } from './provider-urls.js';
 import { claudeSubscriptionHeaders } from './subscription-auth.js';
+import {
+  GITHUB_COPILOT_API_VERSION,
+  GITHUB_COPILOT_COMPAT_HEADERS,
+} from './subscription-credentials.js';
 
 const MODEL_FETCH_TIMEOUT_MS = 10_000;
 
@@ -170,9 +174,9 @@ async function fetchGitHubCopilotModels(baseUrl: string, accessToken: string): P
   const response = await proxiedFetch(`${stripTrailing(baseUrl)}/models`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      'User-Agent': 'Maka/0.1.0',
-      'Editor-Version': 'Maka/0.1.0',
+      ...GITHUB_COPILOT_COMPAT_HEADERS,
       'Openai-Intent': 'conversation-edits',
+      'X-GitHub-Api-Version': GITHUB_COPILOT_API_VERSION,
     },
     timeoutMs: MODEL_FETCH_TIMEOUT_MS,
   });

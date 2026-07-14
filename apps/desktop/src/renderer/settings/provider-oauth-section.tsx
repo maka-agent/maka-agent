@@ -63,7 +63,7 @@ const MODEL_OAUTH_CARDS: ReadonlyArray<ModelOAuthCard> = [
     id: 'github-copilot',
     providerType: 'github-copilot',
     name: 'GitHub Copilot',
-    description: '导入已登录的 GitHub CLI 订阅账号。',
+    description: '导入兼容 GitHub 凭据连接 Copilot 订阅。',
     status: 'available',
     statusLabel: '可用',
   },
@@ -394,7 +394,7 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
       <header className="providerConfigHeader">
         <div>
           <h3>GitHub Copilot</h3>
-          <p>复用本机 GitHub CLI 登录，不会把 token 暴露给渲染进程。</p>
+          <p>优先读取 COPILOT_GITHUB_TOKEN，也可尝试兼容的 GitHub CLI 登录；token 不会暴露给渲染进程。</p>
         </div>
         <Button type="button" variant="ghost" onClick={props.onClose} aria-label="关闭">×</Button>
       </header>
@@ -404,11 +404,11 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
             ? '已导入 GitHub Copilot 订阅账号。'
             : state?.runtimeState === 'refresh_failed' || state?.runtimeState === 'storage_failed'
               ? state.errorMessage
-              : '请先在终端运行 gh auth login，再导入当前登录。'}
+              : '请配置具有 Copilot Requests 权限的 fine-grained PAT；普通 gh auth login 可能不包含该权限。'}
         </p>
         <div className="settingsConnectionActions">
           <Button type="button" onClick={() => void runAction('connect')} disabled={pendingAction !== null}>
-            {pendingAction === 'connect' ? '导入中…' : loggedIn ? '重新导入' : '导入 GitHub CLI 登录'}
+            {pendingAction === 'connect' ? '导入中…' : loggedIn ? '重新导入' : '导入兼容凭据'}
           </Button>
           {loggedIn && (
             <>

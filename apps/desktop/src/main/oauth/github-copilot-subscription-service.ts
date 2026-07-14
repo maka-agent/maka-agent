@@ -40,7 +40,7 @@ export class GitHubCopilotSubscriptionService {
 
   constructor(deps: GitHubCopilotSubscriptionServiceDeps) {
     this.credentialStore = deps.credentialStore;
-    this.resolveGitHubToken = deps.resolveGitHubToken ?? resolveGitHubCliToken;
+    this.resolveGitHubToken = deps.resolveGitHubToken ?? resolveGitHubAccountToken;
     this.now = deps.now ?? (() => Date.now());
     this.fetchFn = deps.fetchFn ?? fetch;
   }
@@ -52,14 +52,14 @@ export class GitHubCopilotSubscriptionService {
         return {
           ok: false,
           reason: 'token_exchange_failed',
-          message: 'GitHub Copilot 不支持 classic PAT；请使用 gh auth login 的 OAuth 登录或具有 Copilot Requests 权限的 fine-grained PAT。',
+          message: 'GitHub Copilot 不支持 classic PAT；请使用兼容 OAuth 登录或具有 Copilot Requests 权限的 fine-grained PAT。',
         };
       }
       if (!isSupportedGitHubCopilotAccountToken(githubToken)) {
         return {
           ok: false,
           reason: 'token_exchange_failed',
-          message: '当前 GitHub CLI 登录凭据类型不受支持；请重新运行 gh auth login。',
+          message: '当前 GitHub 凭据类型不受支持；请使用兼容 OAuth 登录或 fine-grained PAT。',
         };
       }
       const tokens = await exchangeGitHubCopilotToken({ githubToken, fetchFn: this.fetchFn });
@@ -70,7 +70,7 @@ export class GitHubCopilotSubscriptionService {
       return {
         ok: false,
         reason: 'token_exchange_failed',
-        message: '无法导入 GitHub CLI 登录。请先运行 gh auth login，并确认该账号具有 GitHub Copilot 订阅访问权限。',
+        message: '无法连接 GitHub Copilot。请确认账号具有订阅访问权限，且凭据具有 Copilot Requests 权限；普通 gh auth login 可能不包含该权限。',
       };
     }
   }
@@ -165,7 +165,11 @@ export class GitHubCopilotSubscriptionService {
   }
 }
 
-async function resolveGitHubCliToken(): Promise<string> {
+async function resolveGitHubAccountToken(): Promise<string> {
+  for (const name of ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'] as const) {
+    const token = process.env[name]?.trim();
+    if (token) return token;
+  }
   const result = await execFileAsync('gh', ['auth', 'token'], {
     encoding: 'utf8',
     timeout: 10_000,

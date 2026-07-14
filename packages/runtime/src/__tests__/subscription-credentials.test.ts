@@ -31,19 +31,23 @@ describe('GitHub Copilot subscription credentials', () => {
         requestedUrl = String(url);
         requestedInit = init;
         return Response.json({
-          token: 'short-lived-copilot-token',
+          token: 'tid=test;proxy-ep=proxy.business.githubcopilot.com;sig=short-lived',
           expires_at: 456,
-          endpoints: { api: 'https://api.business.githubcopilot.com' },
         });
       },
     });
 
     assert.equal(requestedUrl, 'https://api.github.com/copilot_internal/v2/token');
     assert.equal(requestedInit?.method, 'GET');
-    assert.equal(new Headers(requestedInit?.headers).get('authorization'), 'token github-account-token');
+    const headers = new Headers(requestedInit?.headers);
+    assert.equal(headers.get('authorization'), 'Bearer github-account-token');
+    assert.equal(headers.get('user-agent'), 'GitHubCopilotChat/0.35.0');
+    assert.equal(headers.get('editor-version'), 'vscode/1.107.0');
+    assert.equal(headers.get('editor-plugin-version'), 'copilot-chat/0.35.0');
+    assert.equal(headers.get('copilot-integration-id'), 'vscode-chat');
     assert.equal(requestedInit?.body, undefined);
     assert.deepEqual(tokens, {
-      access_token: 'short-lived-copilot-token',
+      access_token: 'tid=test;proxy-ep=proxy.business.githubcopilot.com;sig=short-lived',
       refresh_token: 'github-account-token',
       expires_at: 456_000,
       token_type: 'Bearer',
@@ -55,9 +59,8 @@ describe('GitHub Copilot subscription credentials', () => {
     await assert.rejects(exchangeGitHubCopilotToken({
       githubToken: 'github-account-token',
       fetchFn: async () => Response.json({
-        token: 'short-lived-copilot-token',
+        token: 'tid=test;proxy-ep=proxy.copilot-token.example.com;sig=short-lived',
         expires_at: 456,
-        endpoints: { api: 'https://copilot-token.example.com' },
       }),
     }), /untrusted GitHub Copilot API endpoint/);
   });
@@ -78,13 +81,12 @@ describe('GitHub Copilot subscription credentials', () => {
       },
       now: () => 10_000,
       fetchFn: async () => Response.json({
-        token: 'fresh-copilot-token',
+        token: 'tid=test;proxy-ep=proxy.individual.githubcopilot.com;sig=fresh',
         expires_at: 456,
-        endpoints: { api: 'https://api.individual.githubcopilot.com' },
       }),
     });
 
-    assert.equal(tokens?.access_token, 'fresh-copilot-token');
+    assert.equal(tokens?.access_token, 'tid=test;proxy-ep=proxy.individual.githubcopilot.com;sig=fresh');
     assert.equal(tokens?.refresh_token, 'github-account-token');
     assert.equal(tokens?.base_url, 'https://api.individual.githubcopilot.com');
     assert.deepEqual(JSON.parse(stored), tokens);

@@ -238,9 +238,8 @@ describe('createHarborTaskRunner', () => {
         copilotExchangeFetch: async (_url, init) => {
           exchangedAuthorization = new Headers(init?.headers).get('authorization') ?? '';
           return Response.json({
-            token: 'short-lived-copilot-token',
+            token: 'tid=test;proxy-ep=proxy.business.githubcopilot.com;sig=short-lived',
             expires_at: 1_900_000_000,
-            endpoints: { api: 'https://api.business.githubcopilot.com' },
           });
         },
         runHarbor: async (request) => {
@@ -251,8 +250,8 @@ describe('createHarborTaskRunner', () => {
 
       await runner(runInput());
 
-      assert.equal(exchangedAuthorization, 'token gho_account-token');
-      assert.equal(harborEnv?.MAKA_HOST_API_KEY, 'short-lived-copilot-token');
+      assert.equal(exchangedAuthorization, 'Bearer gho_account-token');
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY, 'tid=test;proxy-ep=proxy.business.githubcopilot.com;sig=short-lived');
       assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, undefined);
       assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'COPILOT_GITHUB_TOKEN');
       assert.equal(harborEnv?.MAKA_HOST_BASE_URL, 'https://api.business.githubcopilot.com');
@@ -270,9 +269,8 @@ describe('createHarborTaskRunner', () => {
         provider: 'github-copilot',
         agentEnv: { GH_TOKEN: 'ghu_account-token' },
         copilotExchangeFetch: async () => Response.json({
-          token: 'short-lived-copilot-token',
+          token: 'tid=test;proxy-ep=proxy.individual.githubcopilot.com;sig=short-lived',
           expires_at: 1_900_000_000,
-          endpoints: { api: 'https://api.githubcopilot.com' },
         }),
         runHarbor: async (request) => {
           harborEnv = request.env;
@@ -282,9 +280,9 @@ describe('createHarborTaskRunner', () => {
 
       await runner(runInput());
 
-      assert.equal(harborEnv?.MAKA_HOST_API_KEY, 'short-lived-copilot-token');
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY, 'tid=test;proxy-ep=proxy.individual.githubcopilot.com;sig=short-lived');
       assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, undefined);
-      assert.doesNotMatch(JSON.stringify(captured.config), /GH_TOKEN|ghu_account-token|short-lived-copilot-token/);
+      assert.doesNotMatch(JSON.stringify(captured.config), /GH_TOKEN|ghu_account-token|proxy-ep|sig=short-lived/);
     });
   });
 

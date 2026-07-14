@@ -125,7 +125,14 @@ async function refreshOAuthSubscriptionTokens(input: {
 }
 
 const GITHUB_COPILOT_TOKEN_ENDPOINT = 'https://api.github.com/copilot_internal/v2/token';
-const GITHUB_COPILOT_DEFAULT_API_ENDPOINT = 'https://api.githubcopilot.com';
+const GITHUB_COPILOT_DEFAULT_API_ENDPOINT = 'https://api.individual.githubcopilot.com';
+export const GITHUB_COPILOT_API_VERSION = '2026-06-01';
+export const GITHUB_COPILOT_COMPAT_HEADERS = {
+  'User-Agent': 'GitHubCopilotChat/0.35.0',
+  'Editor-Version': 'vscode/1.107.0',
+  'Editor-Plugin-Version': 'copilot-chat/0.35.0',
+  'Copilot-Integration-Id': 'vscode-chat',
+} as const;
 
 export async function exchangeGitHubCopilotToken(input: {
   githubToken: string;
@@ -134,15 +141,15 @@ export async function exchangeGitHubCopilotToken(input: {
   const response = await (input.fetchFn ?? fetch)(GITHUB_COPILOT_TOKEN_ENDPOINT, {
     method: 'GET',
     headers: {
-      Authorization: `token ${input.githubToken}`,
+      Authorization: `Bearer ${input.githubToken}`,
       Accept: 'application/json',
+      ...GITHUB_COPILOT_COMPAT_HEADERS,
     },
   });
   if (!response.ok) throw new Error(`GitHub Copilot token exchange failed (${response.status}).`);
   const payload = await response.json() as {
     token?: unknown;
     expires_at?: unknown;
-    endpoints?: { api?: unknown };
   };
   if (typeof payload.token !== 'string' || payload.token.length === 0) {
     throw new Error('GitHub Copilot token exchange returned no access token.');
@@ -150,9 +157,8 @@ export async function exchangeGitHubCopilotToken(input: {
   if (typeof payload.expires_at !== 'number' || !Number.isFinite(payload.expires_at)) {
     throw new Error('GitHub Copilot token exchange returned an invalid expiry.');
   }
-  const baseUrl = typeof payload.endpoints?.api === 'string'
-    ? payload.endpoints.api
-    : GITHUB_COPILOT_DEFAULT_API_ENDPOINT;
+  const baseUrl = gitHubCopilotApiEndpointFromToken(payload.token)
+    ?? GITHUB_COPILOT_DEFAULT_API_ENDPOINT;
   if (!isTrustedGitHubCopilotApiEndpoint(baseUrl)) {
     throw new Error('GitHub Copilot token exchange returned an untrusted GitHub Copilot API endpoint.');
   }
@@ -163,6 +169,17 @@ export async function exchangeGitHubCopilotToken(input: {
     token_type: 'Bearer',
     base_url: baseUrl,
   };
+}
+
+function gitHubCopilotApiEndpointFromToken(token: string): string | null {
+  const proxyEndpoint = token.match(/(?:^|;)proxy-ep=([^;]+)/)?.[1];
+  if (!proxyEndpoint) return null;
+  const apiHost = proxyEndpoint.replace(/^proxy\./, 'api.');
+  const endpoint = `https://${apiHost}`;
+  if (!isTrustedGitHubCopilotApiEndpoint(endpoint)) {
+    throw new Error('GitHub Copilot token exchange returned an untrusted GitHub Copilot API endpoint.');
+  }
+  return endpoint;
 }
 
 export function isSupportedGitHubCopilotAccountToken(token: string): boolean {

@@ -441,7 +441,11 @@ describe('fetchProviderModels', () => {
       assert.equal(request.method, 'GET');
       assert.equal(request.url, '/models');
       assert.equal(request.headers.authorization, 'Bearer short-lived-copilot-token');
-      assert.equal(request.headers['user-agent'], 'Maka/0.1.0');
+      assert.equal(request.headers['user-agent'], 'GitHubCopilotChat/0.35.0');
+      assert.equal(request.headers['editor-version'], 'vscode/1.107.0');
+      assert.equal(request.headers['editor-plugin-version'], 'copilot-chat/0.35.0');
+      assert.equal(request.headers['copilot-integration-id'], 'vscode-chat');
+      assert.equal(request.headers['x-github-api-version'], '2026-06-01');
       respondJson(response, 200, {
         data: [
           copilotModel('gpt-5.4', ['/responses']),

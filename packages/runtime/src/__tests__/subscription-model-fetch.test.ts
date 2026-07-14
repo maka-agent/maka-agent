@@ -156,8 +156,10 @@ describe('subscription model fetch', () => {
       body: responsesBody,
     });
 
-    assert.equal(observed[0]?.headers.get('user-agent'), 'Maka/0.1.0');
-    assert.equal(observed[0]?.headers.get('editor-version'), 'Maka/0.1.0');
+    assert.equal(observed[0]?.headers.get('user-agent'), 'GitHubCopilotChat/0.35.0');
+    assert.equal(observed[0]?.headers.get('editor-version'), 'vscode/1.107.0');
+    assert.equal(observed[0]?.headers.get('editor-plugin-version'), 'copilot-chat/0.35.0');
+    assert.equal(observed[0]?.headers.get('copilot-integration-id'), 'vscode-chat');
     assert.equal(observed[0]?.headers.get('openai-intent'), 'conversation-edits');
     assert.equal(observed[0]?.headers.get('x-initiator'), 'user');
     assert.equal(observed[0]?.body, userBody);
