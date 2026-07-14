@@ -23,27 +23,6 @@ import type { TelemetryRepo } from './telemetry-repo.js';
 
 type UsageSessionHeader = Pick<SessionHeader, 'id' | 'llmConnectionSlug' | 'model'>;
 
-type UsageAssistantMessage = {
-  type: 'assistant';
-  turnId: string;
-  modelId: string;
-};
-
-type UsageTokenMessage = {
-  type: 'token_usage';
-  id: string;
-  turnId: string;
-  ts: number;
-  input: number;
-  output: number;
-  usageAvailable?: boolean;
-  cacheMissInput?: number;
-  cacheRead?: number;
-  cacheCreation?: number;
-  reasoning?: number;
-  costUsd?: number;
-};
-
 type UsageToolCallMessage = {
   type: 'tool_call';
   id: string;
@@ -63,8 +42,6 @@ type UsageToolResultMessage = {
 };
 
 type UsageMessage =
-  | UsageAssistantMessage
-  | UsageTokenMessage
   | UsageToolCallMessage
   | UsageToolResultMessage;
 
@@ -220,13 +197,7 @@ class FileSettingsStore implements SettingsStore {
     await this.telemetryRepo.load();
     const query = { range };
     const telemetrySummary = this.telemetryRepo.summary(query);
-    const telemetryRows = this.telemetryRepo.logs(query, 0, Number.MAX_SAFE_INTEGER).rows;
-    const telemetryMainTurns = new Set(
-      telemetryRows
-        .filter((row) => row.callKind !== 'semantic_compact' && row.sessionId && row.turnId)
-        .map((row) => `${row.sessionId}\0${row.turnId}`),
-    );
-    const telemetryModelLogs = telemetryRows.map((row) => ({
+    const modelLogs = this.telemetryRepo.logs(query, 0, Number.MAX_SAFE_INTEGER).rows.map((row) => ({
       id: row.id,
       ts: row.ts,
       kind: 'model' as const,
@@ -245,58 +216,23 @@ class FileSettingsStore implements SettingsStore {
       latencyMs: row.latencyMs,
       status: row.status === 'success' ? 'success' as const : 'error' as const,
     }));
-    const legacyModelLogs = sessions.flatMap(({ header, messages }) => {
-      const assistantByTurn = new Map(
-        messages
-          .filter((message): message is UsageAssistantMessage => message.type === 'assistant')
-          .map((message) => [message.turnId, message.modelId]),
-      );
-      return messages
-        .filter((message): message is UsageTokenMessage => message.type === 'token_usage')
-        .filter((message) => !since || message.ts >= since)
-        .filter((message) => !telemetryMainTurns.has(`${header.id}\0${message.turnId}`))
-        .map((message) => ({
-          id: message.id,
-          ts: message.ts,
-          kind: 'model' as const,
-          sessionId: header.id,
-          turnId: message.turnId,
-          provider: header.llmConnectionSlug,
-          model: assistantByTurn.get(message.turnId) ?? header.model,
-          inputTokens: message.input,
-          outputTokens: message.output,
-          usageAvailable: message.usageAvailable !== false,
-          cacheMiss: message.cacheMissInput,
-          cacheRead: message.cacheRead,
-          cacheCreation: message.cacheCreation,
-          reasoning: message.reasoning,
-          costUsd: message.costUsd,
-          status: 'success' as const,
-        }));
-    });
-    const modelLogs = [...telemetryModelLogs, ...legacyModelLogs];
-    const meteredLegacyLogs = legacyModelLogs.filter((row) => row.usageAvailable !== false);
 
     const toolRows = sessions.flatMap(({ messages }) => toolStatsFromMessages(messages, since));
     const toolLogs = sessions.flatMap(({ header, messages }) => toolLogRowsFromMessages(header, messages, since));
     const logs = [...modelLogs, ...toolLogs].sort((a, b) => b.ts - a.ts);
     return {
       summary: {
-        totalRequests: telemetrySummary.totalRequests + legacyModelLogs.length,
-        totalCostUsd: telemetrySummary.totalCostUsd + sum(meteredLegacyLogs.map((log) => log.costUsd ?? 0)),
-        totalTokens: telemetrySummary.totalTokens.total
-          + sum(meteredLegacyLogs.map((log) => log.inputTokens + log.outputTokens)),
-        inputTokens: telemetrySummary.totalTokens.input + sum(meteredLegacyLogs.map((log) => log.inputTokens)),
-        outputTokens: telemetrySummary.totalTokens.output + sum(meteredLegacyLogs.map((log) => log.outputTokens)),
-        cacheTokens: telemetrySummary.totalTokens.cacheRead + telemetrySummary.totalTokens.cacheWrite
-          + sum(meteredLegacyLogs.map((log) => (log.cacheRead ?? 0) + (log.cacheCreation ?? 0))),
-        cacheMiss: telemetrySummary.totalTokens.cacheMiss + sum(meteredLegacyLogs.map((log) => log.cacheMiss ?? 0)),
-        cacheRead: telemetrySummary.totalTokens.cacheRead + sum(meteredLegacyLogs.map((log) => log.cacheRead ?? 0)),
-        cacheCreation: telemetrySummary.totalTokens.cacheWrite
-          + sum(meteredLegacyLogs.map((log) => log.cacheCreation ?? 0)),
-        reasoning: telemetrySummary.totalTokens.reasoning + sum(meteredLegacyLogs.map((log) => log.reasoning ?? 0)),
-        usageUnavailableRequests: (telemetrySummary.usageUnavailableRequests ?? 0)
-          + legacyModelLogs.length - meteredLegacyLogs.length,
+        totalRequests: telemetrySummary.totalRequests,
+        totalCostUsd: telemetrySummary.totalCostUsd,
+        totalTokens: telemetrySummary.totalTokens.total,
+        inputTokens: telemetrySummary.totalTokens.input,
+        outputTokens: telemetrySummary.totalTokens.output,
+        cacheTokens: telemetrySummary.totalTokens.cacheRead + telemetrySummary.totalTokens.cacheWrite,
+        cacheMiss: telemetrySummary.totalTokens.cacheMiss,
+        cacheRead: telemetrySummary.totalTokens.cacheRead,
+        cacheCreation: telemetrySummary.totalTokens.cacheWrite,
+        reasoning: telemetrySummary.totalTokens.reasoning,
+        usageUnavailableRequests: telemetrySummary.usageUnavailableRequests,
       },
       logs,
       byProvider: aggregateBy(modelLogs, 'provider'),
@@ -373,36 +309,6 @@ function normalizeUsageSessionHeader(value: unknown, sessionId: string): UsageSe
 function normalizeUsageMessage(value: unknown): UsageMessage | null {
   if (!isRecord(value)) return null;
   switch (value.type) {
-    case 'assistant':
-      if (typeof value.turnId !== 'string') return null;
-      if (typeof value.modelId !== 'string') return null;
-      return { type: 'assistant', turnId: value.turnId, modelId: value.modelId };
-    case 'token_usage':
-      if (typeof value.id !== 'string') return null;
-      if (typeof value.turnId !== 'string') return null;
-      if (!isFiniteNumber(value.ts)) return null;
-      if (!isFiniteNumber(value.input)) return null;
-      if (!isFiniteNumber(value.output)) return null;
-      if (value.usageAvailable !== undefined && typeof value.usageAvailable !== 'boolean') return null;
-      if (!isOptionalFiniteNumber(value.cacheMissInput)) return null;
-      if (!isOptionalFiniteNumber(value.cacheRead)) return null;
-      if (!isOptionalFiniteNumber(value.cacheCreation)) return null;
-      if (!isOptionalFiniteNumber(value.reasoning)) return null;
-      if (!isOptionalFiniteNumber(value.costUsd)) return null;
-      return {
-        type: 'token_usage',
-        id: value.id,
-        turnId: value.turnId,
-        ts: value.ts,
-        input: value.input,
-        output: value.output,
-        usageAvailable: value.usageAvailable,
-        cacheMissInput: value.cacheMissInput,
-        cacheRead: value.cacheRead,
-        cacheCreation: value.cacheCreation,
-        reasoning: value.reasoning,
-        costUsd: value.costUsd,
-      };
     case 'tool_call':
       if (typeof value.id !== 'string') return null;
       if (typeof value.turnId !== 'string') return null;

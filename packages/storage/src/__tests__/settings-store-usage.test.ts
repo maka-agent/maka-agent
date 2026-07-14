@@ -235,33 +235,6 @@ describe('SettingsStore.usageStats request logs', () => {
     }
   });
 
-  it('keeps legacy session usage when telemetry has no matching request', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-legacy-'));
-    try {
-      await seedSession(workspaceRoot, makeHeader(), [
-        {
-          type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 10,
-          text: 'tracked', modelId: 'runtime-model',
-        },
-        {
-          type: 'token_usage', id: 'legacy-usage', turnId: 'turn-1', ts: 20,
-          input: 10, output: 5, cacheRead: 2, costUsd: 0.02,
-        },
-      ]);
-
-      const stats = await createSettingsStore(workspaceRoot).usageStats('all');
-
-      assert.equal(stats.summary.totalRequests, 1);
-      assert.equal(stats.summary.totalTokens, 15);
-      assert.equal(stats.summary.cacheRead, 2);
-      assert.equal(stats.summary.totalCostUsd, 0.02);
-      assert.equal(stats.logs[0]?.id, 'legacy-usage');
-      assert.equal(stats.logs[0]?.model, 'runtime-model');
-    } finally {
-      await rm(workspaceRoot, { recursive: true, force: true });
-    }
-  });
-
   it('does not double-count legacy session token rows', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-bad-token-row-'));
     try {
@@ -292,9 +265,7 @@ describe('SettingsStore.usageStats request logs', () => {
       );
       const telemetryRepo = createTelemetryRepo(workspaceRoot);
       await telemetryRepo.load();
-      telemetryRepo.insertLlmCall(llmRecord({
-        id: 'telemetry-usage', sessionId: 'session-1', turnId: 'turn-2',
-      }));
+      telemetryRepo.insertLlmCall(llmRecord({ id: 'telemetry-usage' }));
 
       const stats = await createSettingsStore(workspaceRoot, telemetryRepo).usageStats('all');
 
