@@ -73,22 +73,17 @@ function buildE2eEnv(userDataDir: string, visualSmokeScenario?: string): NodeJS.
  */
 async function launchE2eApp(
   userDataDir: string,
-  { seed, readinessSelector, visualSmokeScenario }: {
+  { seed, visualSmokeScenario }: {
     seed: boolean;
-    readinessSelector: string;
     visualSmokeScenario?: string;
   },
-): Promise<{ app: ElectronApplication; page: Page }> {
+): Promise<ElectronApplication> {
   if (seed) await seedE2eConnection(userDataDir);
-  const app = await electron.launch({
+  return electron.launch({
     args: ['.'],
     cwd: DESKTOP_ROOT,
     env: buildE2eEnv(userDataDir, visualSmokeScenario),
   });
-  const page = await app.firstWindow();
-  // Centralize the cold-start wait so test bodies are flake-free under retries:0.
-  await page.waitForSelector(readinessSelector, { timeout: 20_000 });
-  return { app, page };
 }
 
 /**
@@ -109,9 +104,11 @@ async function withE2eWindow(
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'maka-e2e-'));
   let app: ElectronApplication | undefined;
   try {
-    const launched = await launchE2eApp(userDataDir, { seed, readinessSelector, visualSmokeScenario });
-    app = launched.app;
-    await use(launched.page);
+    app = await launchE2eApp(userDataDir, { seed, visualSmokeScenario });
+    const page = await app.firstWindow();
+    // Centralize the cold-start wait so test bodies are flake-free under retries:0.
+    await page.waitForSelector(readinessSelector, { timeout: 20_000 });
+    await use(page);
   } finally {
     await app?.close().catch(() => {});
     await rm(userDataDir, { recursive: true, force: true });
