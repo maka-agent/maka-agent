@@ -24,6 +24,7 @@ from trial_pricing import estimate_cost, pricing_from_env
 
 
 _COMMAND_SCOPE_ENV = "MAKA_HARBOR_COMMAND_SCOPE"
+_COMMAND_SCOPE_ROOT = "/tmp/maka-harbor-command-scopes"
 
 
 _HOST_NODE_ENV_ALLOWLIST = {
@@ -540,7 +541,11 @@ class _ToolExecutorServer:
                 future = asyncio.run_coroutine_threadsafe(
                     self._agent.exec_as_agent(
                         self._environment,
-                        command=_scoped_command(command, self.command_scope),
+                        command=_scoped_command(
+                            command,
+                            self.command_scope,
+                            secrets.token_urlsafe(12),
+                        ),
                         cwd=cwd if isinstance(cwd, str) and cwd else None,
                         timeout_sec=timeout_sec,
                     ),
@@ -562,21 +567,39 @@ class _ToolExecutorServer:
             self._futures.discard(future)
 
 
-def _scoped_command(command: str, scope: str) -> str:
-    return f"env {_COMMAND_SCOPE_ENV}={shlex.quote(scope)} bash -lc {shlex.quote(command)}"
+def _scoped_command(command: str, scope: str, command_id: str) -> str:
+    scope_dir = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}")
+    pgid_path = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}/{command_id}.pgid")
+    return (
+        f"mkdir -p -- {scope_dir}; "
+        f"env {_COMMAND_SCOPE_ENV}={shlex.quote(scope)} setsid bash -lc {shlex.quote(command)} & "
+        "command_pid=$!; "
+        f"printf '%s\\n' \"$command_pid\" > {pgid_path}; "
+        "wait \"$command_pid\"; command_status=$?; "
+        f"kill -0 -- \"-$command_pid\" 2>/dev/null || rm -f -- {pgid_path}; "
+        "exit \"$command_status\""
+    )
 
 
 def _scoped_process_cleanup_command(scope: str, signal: str) -> str:
     if signal not in ("TERM", "KILL"):
         raise ValueError(f"unsupported cleanup signal: {signal}")
     marker = shlex.quote(f"{_COMMAND_SCOPE_ENV}={scope}")
+    scope_dir = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}")
     return (
+        f"for pgid_file in {scope_dir}/*.pgid; do "
+        "[ -r \"$pgid_file\" ] || continue; "
+        "pgid=$(cat -- \"$pgid_file\"); "
+        "case $pgid in ''|*[!0-9]*) continue;; esac; "
+        f"kill -{signal} -- \"-$pgid\" 2>/dev/null || true; "
+        "done; "
         "for env_file in /proc/[0-9]*/environ; do "
         "[ -r \"$env_file\" ] || continue; "
         f"if tr '\\000' '\\n' < \"$env_file\" | grep -Fqx -- {marker}; then "
         "pid=${env_file#/proc/}; pid=${pid%/environ}; "
         f"kill -{signal} \"$pid\" 2>/dev/null || true; "
         "fi; done"
+        + (f"; rm -rf -- {scope_dir}" if signal == "KILL" else "")
     )
 
 
