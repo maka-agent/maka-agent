@@ -14,12 +14,7 @@ import { describe, it } from 'node:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createSettingsStore as createSettingsStoreWithTelemetry } from '../settings-store.js';
-import { createTelemetryRepo } from '../telemetry-repo.js';
-
-function createSettingsStore(workspaceRoot: string) {
-  return createSettingsStoreWithTelemetry(workspaceRoot, createTelemetryRepo(workspaceRoot));
-}
+import { createSettingsStore } from '../settings-store.js';
 
 describe('SettingsStore.upsertOnboardingMilestone (PR110b)', () => {
   it('stamps a fresh Date.now() timestamp (renderer cannot tamper)', async () => {

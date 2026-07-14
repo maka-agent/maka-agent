@@ -340,7 +340,6 @@ export interface UsageRequestLog {
   costUsd?: number;
   latencyMs?: number;
   status: 'success' | 'error';
-  usageAvailable?: boolean;
 }
 
 export interface UsageSummary {
@@ -354,7 +353,6 @@ export interface UsageSummary {
   cacheRead: number;
   cacheCreation: number;
   reasoning: number;
-  usageUnavailableRequests?: number;
 }
 
 export interface UsageStats {

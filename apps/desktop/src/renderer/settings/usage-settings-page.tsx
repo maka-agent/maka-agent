@@ -143,11 +143,6 @@ export function UsageSettingsPage(props: {
         <MetricCard title="总 Token" value={String(stats?.summary.totalTokens ?? 0)} detail={`输入 ${stats?.summary.inputTokens ?? 0} / 输出 ${stats?.summary.outputTokens ?? 0}`} />
         <MetricCard title="缓存 Token" value={String(stats?.summary.cacheTokens ?? 0)} detail={`新 ${stats?.summary.cacheMiss ?? 0} / 命中 ${stats?.summary.cacheRead ?? 0} / 创建 ${stats?.summary.cacheCreation ?? 0}`} />
       </div>
-      {(stats?.summary.usageUnavailableRequests ?? 0) > 0 && (
-        <div className="settingsNotice" role="status">
-          部分统计：{stats?.summary.usageUnavailableRequests} 次模型请求缺少 provider usage，Token 和费用汇总不包含这些请求。
-        </div>
-      )}
 
       <Segmented
         value={usageDraft.activeTab}
@@ -234,7 +229,7 @@ function UsageTable(props: { activeTab: AppSettings['usage']['activeTab']; stats
   if (props.activeTab === 'pricing') {
     return <SimpleStatsTable ariaLabel="使用统计定价配置表" headers={['供应商', '模型', '输入 / 1M', '输出 / 1M']} rows={(props.stats?.pricing ?? []).map((row) => [row.provider, row.model, `$${row.inputPerMTokUsd}`, `$${row.outputPerMTokUsd}`])} empty="暂无定价覆盖配置" />;
   }
-  return <SimpleStatsTable ariaLabel="使用统计请求日志表" headers={['时间', '类型', '对象', '会话', 'Token', '费用', '延迟', '状态']} rows={props.logs.map((row) => [new Date(row.ts).toLocaleString(), usageRequestKindLabel(row.kind), usageRequestTarget(row), usageRequestSessionCell(row, props.onOpenSession), row.usageAvailable === false ? '—' : row.inputTokens + row.outputTokens, row.kind === 'model' ? row.usageAvailable === false ? '—' : `$${(row.costUsd ?? 0).toFixed(2)}` : '-', row.latencyMs ? `${row.latencyMs}ms` : '-', usageRequestStatusLabel(row.status)])} empty={props.requestEmpty} />;
+  return <SimpleStatsTable ariaLabel="使用统计请求日志表" headers={['时间', '类型', '对象', '会话', 'Token', '费用', '延迟', '状态']} rows={props.logs.map((row) => [new Date(row.ts).toLocaleString(), usageRequestKindLabel(row.kind), usageRequestTarget(row), usageRequestSessionCell(row, props.onOpenSession), row.inputTokens + row.outputTokens, row.kind === 'model' ? `$${(row.costUsd ?? 0).toFixed(2)}` : '-', row.latencyMs ? `${row.latencyMs}ms` : '-', usageRequestStatusLabel(row.status)])} empty={props.requestEmpty} />;
 }
 
 function usageRequestKindLabel(kind: UsageStats['logs'][number]['kind']) {

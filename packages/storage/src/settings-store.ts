@@ -19,9 +19,28 @@ import { sanitizeOnboardingMilestones } from '@maka/core/onboarding';
 import type {
   SessionHeader,
 } from '@maka/core/session';
-import type { TelemetryRepo } from './telemetry-repo.js';
 
 type UsageSessionHeader = Pick<SessionHeader, 'id' | 'llmConnectionSlug' | 'model'>;
+
+type UsageAssistantMessage = {
+  type: 'assistant';
+  turnId: string;
+  modelId: string;
+};
+
+type UsageTokenMessage = {
+  type: 'token_usage';
+  id: string;
+  turnId: string;
+  ts: number;
+  input: number;
+  output: number;
+  cacheMissInput?: number;
+  cacheRead?: number;
+  cacheCreation?: number;
+  reasoning?: number;
+  costUsd?: number;
+};
 
 type UsageToolCallMessage = {
   type: 'tool_call';
@@ -42,6 +61,8 @@ type UsageToolResultMessage = {
 };
 
 type UsageMessage =
+  | UsageAssistantMessage
+  | UsageTokenMessage
   | UsageToolCallMessage
   | UsageToolResultMessage;
 
@@ -72,18 +93,15 @@ export interface SettingsStore {
   clearOnboardingMilestone(id: OnboardingMilestoneId): Promise<OnboardingMilestone[]>;
 }
 
-export function createSettingsStore(workspaceRoot: string, telemetryRepo: TelemetryRepo): SettingsStore {
-  return new FileSettingsStore(workspaceRoot, telemetryRepo);
+export function createSettingsStore(workspaceRoot: string): SettingsStore {
+  return new FileSettingsStore(workspaceRoot);
 }
 
 class FileSettingsStore implements SettingsStore {
   private readonly settingsPath: string;
   private queue: Promise<void> = Promise.resolve();
 
-  constructor(
-    private readonly workspaceRoot: string,
-    private readonly telemetryRepo: TelemetryRepo,
-  ) {
+  constructor(private readonly workspaceRoot: string) {
     this.settingsPath = join(workspaceRoot, 'settings.json');
   }
 
@@ -194,45 +212,55 @@ class FileSettingsStore implements SettingsStore {
   async usageStats(range: UsageRange = '24h'): Promise<UsageStats> {
     const since = rangeToSince(range);
     const sessions = await readStoredSessions(join(this.workspaceRoot, 'sessions'));
-    await this.telemetryRepo.load();
-    const query = { range };
-    const telemetrySummary = this.telemetryRepo.summary(query);
-    const modelLogs = this.telemetryRepo.logs(query, 0, Number.MAX_SAFE_INTEGER).rows.map((row) => ({
-      id: row.id,
-      ts: row.ts,
-      kind: 'model' as const,
-      sessionId: row.sessionId ?? '',
-      turnId: row.turnId ?? '',
-      provider: row.connectionSlug ?? row.providerId,
-      model: row.modelId,
-      inputTokens: row.inputTokens,
-      outputTokens: row.outputTokens,
-      usageAvailable: row.usageAvailable !== false,
-      cacheMiss: row.cacheMissTokens,
-      cacheRead: row.cacheReadTokens,
-      cacheCreation: row.cacheWriteTokens,
-      reasoning: row.reasoningTokens,
-      costUsd: row.costUsd,
-      latencyMs: row.latencyMs,
-      status: row.status === 'success' ? 'success' as const : 'error' as const,
-    }));
+    const modelLogs = sessions.flatMap(({ header, messages }) => {
+      const assistantByTurn = new Map(
+        messages
+          .filter((message) => message.type === 'assistant')
+          .map((message) => [message.turnId, message.modelId]),
+      );
+      return messages
+        .filter((message): message is UsageTokenMessage => message.type === 'token_usage')
+        .filter((message) => !since || message.ts >= since)
+        .map((message) => ({
+          id: message.id,
+          ts: message.ts,
+          kind: 'model' as const,
+          sessionId: header.id,
+          turnId: message.turnId,
+          provider: header.llmConnectionSlug,
+          model: assistantByTurn.get(message.turnId) ?? header.model,
+          inputTokens: message.input,
+          outputTokens: message.output,
+          cacheMiss: message.cacheMissInput,
+          cacheRead: message.cacheRead,
+          cacheCreation: message.cacheCreation,
+          reasoning: message.reasoning,
+          costUsd: message.costUsd,
+          status: 'success' as const,
+        }));
+    });
 
     const toolRows = sessions.flatMap(({ messages }) => toolStatsFromMessages(messages, since));
     const toolLogs = sessions.flatMap(({ header, messages }) => toolLogRowsFromMessages(header, messages, since));
     const logs = [...modelLogs, ...toolLogs].sort((a, b) => b.ts - a.ts);
+    const totalInput = sum(modelLogs.map((log) => log.inputTokens));
+    const totalOutput = sum(modelLogs.map((log) => log.outputTokens));
+    const cacheMiss = sum(modelLogs.map((log) => log.cacheMiss ?? 0));
+    const cacheRead = sum(modelLogs.map((log) => log.cacheRead ?? 0));
+    const cacheCreation = sum(modelLogs.map((log) => log.cacheCreation ?? 0));
+    const reasoning = sum(modelLogs.map((log) => log.reasoning ?? 0));
     return {
       summary: {
-        totalRequests: telemetrySummary.totalRequests,
-        totalCostUsd: telemetrySummary.totalCostUsd,
-        totalTokens: telemetrySummary.totalTokens.total,
-        inputTokens: telemetrySummary.totalTokens.input,
-        outputTokens: telemetrySummary.totalTokens.output,
-        cacheTokens: telemetrySummary.totalTokens.cacheRead + telemetrySummary.totalTokens.cacheWrite,
-        cacheMiss: telemetrySummary.totalTokens.cacheMiss,
-        cacheRead: telemetrySummary.totalTokens.cacheRead,
-        cacheCreation: telemetrySummary.totalTokens.cacheWrite,
-        reasoning: telemetrySummary.totalTokens.reasoning,
-        usageUnavailableRequests: telemetrySummary.usageUnavailableRequests,
+        totalRequests: modelLogs.length,
+        totalCostUsd: sum(modelLogs.map((log) => log.costUsd ?? 0)),
+        totalTokens: totalInput + totalOutput,
+        inputTokens: totalInput,
+        outputTokens: totalOutput,
+        cacheTokens: cacheRead + cacheCreation,
+        cacheMiss,
+        cacheRead,
+        cacheCreation,
+        reasoning,
       },
       logs,
       byProvider: aggregateBy(modelLogs, 'provider'),
@@ -309,6 +337,34 @@ function normalizeUsageSessionHeader(value: unknown, sessionId: string): UsageSe
 function normalizeUsageMessage(value: unknown): UsageMessage | null {
   if (!isRecord(value)) return null;
   switch (value.type) {
+    case 'assistant':
+      if (typeof value.turnId !== 'string') return null;
+      if (typeof value.modelId !== 'string') return null;
+      return { type: 'assistant', turnId: value.turnId, modelId: value.modelId };
+    case 'token_usage':
+      if (typeof value.id !== 'string') return null;
+      if (typeof value.turnId !== 'string') return null;
+      if (!isFiniteNumber(value.ts)) return null;
+      if (!isFiniteNumber(value.input)) return null;
+      if (!isFiniteNumber(value.output)) return null;
+      if (!isOptionalFiniteNumber(value.cacheMissInput)) return null;
+      if (!isOptionalFiniteNumber(value.cacheRead)) return null;
+      if (!isOptionalFiniteNumber(value.cacheCreation)) return null;
+      if (!isOptionalFiniteNumber(value.reasoning)) return null;
+      if (!isOptionalFiniteNumber(value.costUsd)) return null;
+      return {
+        type: 'token_usage',
+        id: value.id,
+        turnId: value.turnId,
+        ts: value.ts,
+        input: value.input,
+        output: value.output,
+        cacheMissInput: value.cacheMissInput,
+        cacheRead: value.cacheRead,
+        cacheCreation: value.cacheCreation,
+        reasoning: value.reasoning,
+        costUsd: value.costUsd,
+      };
     case 'tool_call':
       if (typeof value.id !== 'string') return null;
       if (typeof value.turnId !== 'string') return null;
@@ -370,10 +426,8 @@ function aggregateBy(logs: UsageStats['logs'], key: 'provider' | 'model') {
     const id = log[key];
     const current = rows.get(id) ?? { requests: 0, tokens: 0, costUsd: 0 };
     current.requests += 1;
-    if (log.usageAvailable !== false) {
-      current.tokens += log.inputTokens + log.outputTokens;
-      current.costUsd += log.costUsd ?? 0;
-    }
+    current.tokens += log.inputTokens + log.outputTokens;
+    current.costUsd += log.costUsd ?? 0;
     rows.set(id, current);
   }
   return [...rows.entries()]

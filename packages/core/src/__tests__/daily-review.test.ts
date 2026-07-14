@@ -131,7 +131,7 @@ describe('buildDailyReviewSummary', () => {
   const usageSummary: UsageSummaryV2 = {
     range: { from: day.fromMs, to: day.toMs },
     totalRequests: 42,
-    usageUnavailableRequests: 1,
+    usageUnavailableRequests: 0,
     totalCostUsd: 1.23,
     totalTokens: {
       input: 100,
@@ -163,7 +163,6 @@ describe('buildDailyReviewSummary', () => {
     assert.equal(out.totals.totalTokens, 300);
     assert.equal(out.totals.costUsd, 1.23);
     assert.equal(out.totals.errorCount, 2);
-    assert.equal(out.totals.usageUnavailableRequests, 1);
   });
 });
 

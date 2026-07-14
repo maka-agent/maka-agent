@@ -67,9 +67,6 @@ export function formatDailyReviewMarkdown(
   lines.push(`- 请求：${summary.totals.requestCount}`);
   lines.push(`- Token：${summary.totals.totalTokens.toLocaleString()}`);
   lines.push(`- 费用：$${summary.totals.costUsd.toFixed(2)}`);
-  if ((summary.totals.usageUnavailableRequests ?? 0) > 0) {
-    lines.push(`- 部分统计：${summary.totals.usageUnavailableRequests} 次请求缺少 provider usage，Token 和费用仅包含已计量请求。`);
-  }
   if (summary.totals.errorCount > 0) {
     lines.push(`- 错误：${summary.totals.errorCount}`);
   }
