@@ -43,6 +43,7 @@ import {
   createSessionStore,
   createSettingsStore,
   createShellRunStore,
+  createTelemetryRepo,
 } from '@maka/storage';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
@@ -107,7 +108,8 @@ export async function createMakaCliRuntimeContext(
   const artifactStore = createArtifactStore(input.workspaceRoot);
   const connectionStore = createConnectionStore(input.workspaceRoot);
   const credentialStore = createFileCredentialStore(input.workspaceRoot);
-  const settingsStore = createSettingsStore(input.workspaceRoot);
+  const telemetryRepo = createTelemetryRepo(input.workspaceRoot);
+  const settingsStore = createSettingsStore(input.workspaceRoot, telemetryRepo);
   const targetInput = {
     connectionStore,
     credentialStore,

@@ -1262,6 +1262,59 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('stops scheduling when the only cost evidence is not final and trustworthy', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const checkpoint = tokenSummary({ input: 100, output: 20, reasoning: 0, total: 120, costUsd: 0.42 });
+      const scenarios = [
+        {
+          name: 'zero cost with tokens',
+          run: async (taskId: string) => harborOutput({
+            taskId,
+            tokenSummary: tokenSummary({ input: 10, output: 2, reasoning: 0, total: 12, costUsd: 0 }),
+          }),
+        },
+        {
+          name: 'provider failure without final usage',
+          run: async (taskId: string) => harborOutput({ taskId, status: 'failed', errorClass: 'network' }),
+        },
+        {
+          name: 'timeout checkpoint lower bound',
+          run: async () => {
+            throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, { tokenSummary: checkpoint });
+          },
+        },
+      ];
+
+      for (const [index, scenario] of scenarios.entries()) {
+        const calls: string[] = [];
+        const result = await runFixedPromptController({
+          runId: `run-${index}`,
+          roundId: `round-${index}`,
+          config,
+          systemPromptPath,
+          resultsJsonlPath: join(dir, `results-${index}.jsonl`),
+          tasks: [
+            { id: 'task-a', path: '/bench/task-a' },
+            { id: 'task-b', path: '/bench/task-b' },
+          ],
+          maxConcurrency: 1,
+          costCeilingUsd: 1,
+          harborRunner: async ({ task }) => {
+            calls.push(task.id);
+            return scenario.run(task.id);
+          },
+          now: () => 100,
+          newId: idFactory(),
+        });
+
+        assert.deepEqual(calls, ['task-a'], scenario.name);
+        assert.equal(result.stopReason, 'cost_observation_unavailable', scenario.name);
+      }
+    });
+  });
+
   test('drains the active wave but does not refill after cost becomes unknown', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');

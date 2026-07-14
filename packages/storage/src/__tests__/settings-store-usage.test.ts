@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { SessionHeader, StoredMessage } from '@maka/core/session';
-import { createSettingsStore } from '../settings-store.js';
+import { createSettingsStore as createSettingsStoreWithTelemetry } from '../settings-store.js';
+import { createTelemetryRepo } from '../telemetry-repo.js';
+
+function createSettingsStore(workspaceRoot: string, telemetryRepo = createTelemetryRepo(workspaceRoot)) {
+  return createSettingsStoreWithTelemetry(workspaceRoot, telemetryRepo);
+}
 
 function makeHeader(overrides: Partial<SessionHeader> = {}): SessionHeader {
   return {
@@ -39,18 +44,54 @@ async function seedSession(workspaceRoot: string, header: SessionHeader, message
 }
 
 describe('SettingsStore.usageStats request logs', () => {
+  it('uses telemetry as the complete model-request authority', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-telemetry-'));
+    try {
+      const telemetryRepo = createTelemetryRepo(workspaceRoot);
+      await telemetryRepo.load();
+      telemetryRepo.insertLlmCall(llmRecord({
+        id: 'provider-error',
+        usageAvailable: false,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        costUsd: 0,
+        status: 'error',
+      }));
+      telemetryRepo.insertLlmCall(llmRecord({
+        id: 'compact',
+        callKind: 'semantic_compact',
+        inputTokens: 30,
+        outputTokens: 5,
+        totalTokens: 35,
+        costUsd: 0.02,
+      }));
+
+      const stats = await createSettingsStore(workspaceRoot, telemetryRepo).usageStats('all');
+
+      assert.equal(stats.summary.totalRequests, 2);
+      assert.equal(stats.summary.usageUnavailableRequests, 1);
+      assert.equal(stats.summary.totalTokens, 35);
+      assert.equal(stats.summary.totalCostUsd, 0.02);
+      assert.deepEqual(stats.logs.map((row) => row.id).sort(), ['compact', 'provider-error']);
+    } finally {
+      await flushTelemetryWrites();
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('counts unmetered requests without adding partial token or cost totals', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-unavailable-'));
     try {
-      await seedSession(workspaceRoot, makeHeader(), [
-        { type: 'token_usage', id: 'known', turnId: 'turn-1', ts: 10, input: 10, output: 2, costUsd: 0.01 },
-        {
-          type: 'token_usage', id: 'unknown', turnId: 'turn-2', ts: 20,
-          input: 0, output: 0, usageAvailable: false,
-        },
-      ]);
+      const telemetryRepo = createTelemetryRepo(workspaceRoot);
+      await telemetryRepo.load();
+      telemetryRepo.insertLlmCall(llmRecord({ id: 'known' }));
+      telemetryRepo.insertLlmCall(llmRecord({
+        id: 'unknown', usageAvailable: false, inputTokens: 0, outputTokens: 0,
+        totalTokens: 0, costUsd: 0,
+      }));
 
-      const stats = await createSettingsStore(workspaceRoot).usageStats('all');
+      const stats = await createSettingsStore(workspaceRoot, telemetryRepo).usageStats('all');
 
       assert.equal(stats.summary.totalRequests, 2);
       assert.equal(stats.summary.usageUnavailableRequests, 1);
@@ -60,6 +101,7 @@ describe('SettingsStore.usageStats request logs', () => {
       assert.equal(stats.byProvider[0]?.requests, 2);
       assert.equal(stats.byProvider[0]?.tokens, 12);
     } finally {
+      await flushTelemetryWrites();
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });
@@ -68,14 +110,6 @@ describe('SettingsStore.usageStats request logs', () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-'));
     try {
       await seedSession(workspaceRoot, makeHeader(), [
-        {
-          type: 'assistant',
-          id: 'assistant-1',
-          turnId: 'turn-1',
-          ts: 10,
-          text: 'I will inspect it.',
-          modelId: 'claude-sonnet-4-runtime',
-        },
         {
           type: 'tool_call',
           id: 'tool-1',
@@ -95,22 +129,23 @@ describe('SettingsStore.usageStats request logs', () => {
           durationMs: 37,
           content: { kind: 'text', text: 'failed' },
         },
-        {
-          type: 'token_usage',
-          id: 'usage-1',
-          turnId: 'turn-1',
-          ts: 20,
-          input: 120,
-          output: 30,
-          cacheMissInput: 105,
-          cacheRead: 10,
-          cacheCreation: 5,
-          reasoning: 4,
-          costUsd: 0.01,
-        },
       ]);
+      const telemetryRepo = createTelemetryRepo(workspaceRoot);
+      await telemetryRepo.load();
+      telemetryRepo.insertLlmCall(llmRecord({
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        modelId: 'claude-sonnet-4-runtime',
+        inputTokens: 120,
+        outputTokens: 30,
+        cacheMissInputTokens: 105,
+        cacheHitInputTokens: 10,
+        cacheWriteInputTokens: 5,
+        reasoningTokens: 4,
+        totalTokens: 150,
+      }));
 
-      const stats = await createSettingsStore(workspaceRoot).usageStats('all');
+      const stats = await createSettingsStore(workspaceRoot, telemetryRepo).usageStats('all');
 
       assert.equal(stats.summary.totalRequests, 1, 'summary counts model requests only');
       assert.equal(stats.summary.totalTokens, 150);
@@ -147,11 +182,12 @@ describe('SettingsStore.usageStats request logs', () => {
       assert.equal(toolLog.latencyMs, 37);
       assert.equal(toolLog.status, 'error');
     } finally {
+      await flushTelemetryWrites();
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });
 
-  it('keeps valid usage rows when one session message line is corrupt', async () => {
+  it('keeps valid tool rows when one session message line is corrupt', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-corrupt-line-'));
     try {
       const header = makeHeader();
@@ -171,31 +207,35 @@ describe('SettingsStore.usageStats request logs', () => {
           }),
           '{"type":"tool_call"',
           JSON.stringify({
-            type: 'token_usage',
-            id: 'usage-1',
+            type: 'tool_call',
+            id: 'tool-1',
             turnId: 'turn-1',
             ts: 20,
-            input: 10,
-            output: 5,
-            cacheRead: 2,
-            costUsd: 0.02,
+            toolName: 'Read',
+          }),
+          JSON.stringify({
+            type: 'tool_result',
+            turnId: 'turn-1',
+            ts: 25,
+            toolUseId: 'tool-1',
+            isError: false,
+            durationMs: 5,
           }),
         ].join('\n') + '\n',
       );
 
       const stats = await createSettingsStore(workspaceRoot).usageStats('all');
 
-      assert.equal(stats.summary.totalRequests, 1);
-      assert.equal(stats.summary.totalTokens, 15);
-      assert.equal(stats.summary.cacheRead, 2);
-      assert.equal(stats.summary.totalCostUsd, 0.02);
-      assert.equal(stats.logs[0]?.model, 'runtime-model');
+      assert.equal(stats.summary.totalRequests, 0);
+      assert.equal(stats.byTool[0]?.tool, 'Read');
+      assert.equal(stats.byTool[0]?.calls, 1);
+      assert.equal(stats.logs[0]?.id, 'tool:tool-1');
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });
 
-  it('ignores malformed usage rows instead of poisoning totals', async () => {
+  it('does not double-count legacy session token rows', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-bad-token-row-'));
     try {
       const header = makeHeader();
@@ -223,15 +263,46 @@ describe('SettingsStore.usageStats request logs', () => {
           }),
         ].join('\n') + '\n',
       );
+      const telemetryRepo = createTelemetryRepo(workspaceRoot);
+      await telemetryRepo.load();
+      telemetryRepo.insertLlmCall(llmRecord({ id: 'telemetry-usage' }));
 
-      const stats = await createSettingsStore(workspaceRoot).usageStats('all');
+      const stats = await createSettingsStore(workspaceRoot, telemetryRepo).usageStats('all');
 
       assert.equal(stats.summary.totalRequests, 1);
-      assert.equal(stats.summary.totalTokens, 10);
+      assert.equal(stats.summary.totalTokens, 12);
       assert.equal(stats.logs.length, 1);
-      assert.equal(stats.logs[0]?.id, 'good-usage');
+      assert.equal(stats.logs[0]?.id, 'telemetry-usage');
     } finally {
+      await flushTelemetryWrites();
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });
 });
+
+function llmRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'usage-1',
+    providerId: 'anthropic',
+    modelId: 'claude-sonnet-4',
+    inputTokens: 10,
+    outputTokens: 2,
+    cacheHitInputTokens: 0,
+    cacheMissInputTokens: 10,
+    cachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 12,
+    costUsd: 0.01,
+    latencyMs: 100,
+    status: 'success',
+    date: '2026-01-01',
+    ts: Date.UTC(2026, 0, 1),
+    startedAt: Date.UTC(2026, 0, 1) - 100,
+    ...overrides,
+  } as Parameters<ReturnType<typeof createTelemetryRepo>['insertLlmCall']>[0];
+}
+
+function flushTelemetryWrites(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 20));
+}

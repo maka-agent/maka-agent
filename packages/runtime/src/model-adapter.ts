@@ -493,19 +493,9 @@ export function normalizeAiSdkUsage(
     finiteToken(usage.totalTokens)
     ?? finiteToken(usage.raw?.total_tokens)
     ?? finiteToken(usage.total_tokens);
-  if (
-    reportedInputTokens === undefined
-    && reportedOutputTokens === undefined
-    && reportedCacheHitInputTokens === undefined
-    && reportedCacheWriteInputTokens === undefined
-    && explicitCacheMissInputTokens === undefined
-    && reportedReasoningTokens === undefined
-    && reportedTotalTokens === undefined
-  ) {
-    return undefined;
-  }
-  const inputTokens = reportedInputTokens ?? 0;
-  const outputTokens = reportedOutputTokens ?? 0;
+  if (reportedInputTokens === undefined || reportedOutputTokens === undefined) return undefined;
+  const inputTokens = reportedInputTokens;
+  const outputTokens = reportedOutputTokens;
   const cacheHitInputTokens = reportedCacheHitInputTokens ?? 0;
   const cacheWriteInputTokens = reportedCacheWriteInputTokens ?? 0;
   const cacheMissInputTokens =

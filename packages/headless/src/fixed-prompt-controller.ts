@@ -1253,9 +1253,17 @@ function taskEventsCostUsd(events: readonly FixedPromptTaskWalEvent[]): number {
 }
 
 export function hasUnknownRealProviderCost(event: FixedPromptTaskWalEvent): boolean {
+  if (event.type === 'task_budget_exhausted' && event.tokenSummarySource === 'checkpoint') return true;
+  if (
+    event.type === 'task_plumbing_failed'
+    && (event.errorClass === 'missing_token_usage' || event.errorClass === 'zero_cost_with_tokens')
+  ) return true;
+  if (
+    event.type === 'task_budget_exhausted'
+    && (event.evidenceErrorClass === 'missing_token_usage' || event.evidenceErrorClass === 'zero_cost_with_tokens')
+  ) return true;
+  if (event.type === 'task_infra_failed' && isProviderInfraFailure(event.errorClass)) return true;
   if (eventTokenSummary(event) !== undefined) return false;
-  if (event.type === 'task_plumbing_failed' && event.errorClass === 'missing_token_usage') return true;
-  if (event.type === 'task_budget_exhausted' && event.evidenceErrorClass === 'missing_token_usage') return true;
   return 'executionIdentity' in event && event.executionIdentity !== undefined;
 }
 

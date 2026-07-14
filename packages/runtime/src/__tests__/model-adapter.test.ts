@@ -245,6 +245,17 @@ describe('ModelAdapter stream and error normalization', () => {
     }), undefined);
   });
 
+  test('treats usage with either billing root missing as unavailable', () => {
+    for (const usage of [
+      { inputTokens: 100, totalTokens: 110 },
+      { outputTokens: 10, totalTokens: 110 },
+      { totalTokens: 110 },
+      { cachedInputTokens: 40 },
+    ]) {
+      assert.equal(normalizeAiSdkUsage(usage), undefined);
+    }
+  });
+
   test('derives totals from detail-only AI SDK usage', () => {
     assert.deepEqual(
       normalizeAiSdkUsage({
