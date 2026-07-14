@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile, truncate, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import {
   validateHarborCellOutput,
   hashHarborSystemPrompt,
@@ -19,6 +19,7 @@ export const FIXED_PROMPT_WAL_SCHEMA_VERSION = 1;
 export const BUDGET_EXHAUSTED_RUNTIME_UNAVAILABLE_REASON = 'budget_exhausted_before_cell_output';
 const LEGACY_TIMEOUT_MISSING_EXECUTION_IDENTITY_ERROR = 'Timed-out Harbor attempt did not produce execution identity attestation';
 type UnscoredCellFailureClass = 'infra_failed' | 'setup_failed' | 'verification_error';
+const walWriteTails = new Map<string, Promise<void>>();
 
 export interface FixedPromptTask {
   id: string;
@@ -484,10 +485,21 @@ export async function readHarborTaskRunOutput(
   };
 }
 
-export async function appendFixedPromptWalEvent(path: string, event: FixedPromptWalEvent): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await truncateTornWalTail(path);
-  await appendFile(path, `${JSON.stringify(event)}\n`, 'utf8');
+export function appendFixedPromptWalEvent(path: string, event: FixedPromptWalEvent): Promise<void> {
+  const key = resolve(path);
+  const previous = walWriteTails.get(key) ?? Promise.resolve();
+  const operation = async () => {
+    await mkdir(dirname(path), { recursive: true });
+    await truncateTornWalTail(path);
+    await appendFile(path, `${JSON.stringify(event)}\n`, 'utf8');
+  };
+  const write = previous.then(operation, operation);
+  const tail = write.then(() => {}, () => {});
+  walWriteTails.set(key, tail);
+  void tail.then(() => {
+    if (walWriteTails.get(key) === tail) walWriteTails.delete(key);
+  });
+  return write;
 }
 
 export async function writeFixedPromptResultsTsv(

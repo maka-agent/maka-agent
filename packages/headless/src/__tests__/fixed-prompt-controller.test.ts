@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -7,6 +9,7 @@ import type { Config } from '../contracts.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 import { contextBudgetSummary } from './helpers/ab-summary-fixtures.js';
 import {
+  appendFixedPromptWalEvent,
   FixedPromptBudgetExhaustedError,
   hashSystemPrompt,
   readFixedPromptWal,
@@ -353,6 +356,52 @@ describe('fixed prompt controller', () => {
 
       assert.deepEqual(secondCalls, []);
       assert.deepEqual(second.taskIds, ['task-a', 'task-b']);
+    });
+  });
+
+  test('serializes concurrent WAL repair and append without losing events', async () => {
+    await withDir(async (dir) => {
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      const retained = taskCompletedEvent({ taskId: 'retained' });
+      await writeFile(resultsJsonlPath, `${JSON.stringify(retained)}\n{"torn"`, 'utf8');
+      const appended = [
+        taskCompletedEvent({ taskId: 'task-a' }),
+        taskCompletedEvent({ taskId: 'task-b' }),
+      ];
+      const originalTruncate = fs.promises.truncate;
+      const originalAppendFile = fs.promises.appendFile;
+      let truncateCalls = 0;
+      let firstAppendDone!: () => void;
+      const firstAppend = new Promise<void>((resolve) => {
+        firstAppendDone = resolve;
+      });
+      fs.promises.truncate = async (...args) => {
+        truncateCalls += 1;
+        if (truncateCalls === 2) await firstAppend;
+        return originalTruncate(...args);
+      };
+      fs.promises.appendFile = async (...args) => {
+        const result = await originalAppendFile(...args);
+        firstAppendDone();
+        return result;
+      };
+      syncBuiltinESMExports();
+
+      try {
+        await Promise.all(appended.map((event) => appendFixedPromptWalEvent(resultsJsonlPath, event)));
+      } finally {
+        fs.promises.truncate = originalTruncate;
+        fs.promises.appendFile = originalAppendFile;
+        syncBuiltinESMExports();
+      }
+
+      const events = await readFixedPromptWal(resultsJsonlPath);
+      assert.equal(events.length, appended.length + 1);
+      const taskIds = events.flatMap((event) => 'taskId' in event ? [event.taskId] : []);
+      assert.deepEqual(
+        new Set(taskIds),
+        new Set(['retained', 'task-a', 'task-b']),
+      );
     });
   });
 
