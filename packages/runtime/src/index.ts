@@ -673,6 +673,28 @@ export type {
   InspectAgentRunOptions,
 } from './agent-run-inspect.js';
 
+// execution-inspect.ts — payload-safe, versioned CLI inspection documents.
+export {
+  AGENT_RUN_INSPECT_DOCUMENT_VERSION,
+  SESSION_INSPECT_DOCUMENT_VERSION,
+  inspectAgentRunDocument,
+  inspectSessionDocument,
+  renderAgentRunInspectTree,
+  renderSessionInspectTree,
+} from './execution-inspect.js';
+export type {
+  AgentRunInspectCompactionCheckpoint,
+  AgentRunInspectDocument,
+  AgentRunInspectIdentity,
+  AgentRunInspectToolFact,
+  AgentRunInspectToolSummary,
+  ExecutionInspectDiagnostic,
+  ExecutionInspectSeverity,
+  SessionHeaderReader,
+  SessionInspectDocument,
+  SessionInspectSummary,
+} from './execution-inspect.js';
+
 // model-history.ts — policy-driven model-history projection.
 export { buildModelHistoryFromRuntimeEvents } from './model-history.js';
 export type {

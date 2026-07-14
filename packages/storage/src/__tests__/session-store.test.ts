@@ -7,6 +7,17 @@ import type { CreateSessionInput, SessionHeader, StoredMessage } from '@maka/cor
 import { createSessionStore } from '../session-store.js';
 
 describe('FileSessionStore CRUD', () => {
+  test('list on a missing workspace is observational and does not create session storage', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-session-list-'));
+    try {
+      const sessionsRoot = join(workspaceRoot, 'sessions');
+      assert.deepEqual(await createSessionStore(workspaceRoot).list(), []);
+      await assert.rejects(() => readFile(sessionsRoot), { code: 'ENOENT' });
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   test('archive sets isArchived and archivedAt; unarchive clears them', async () => {
     await withStore(async (store) => {
       const header = await store.create(makeInput({ name: 'Archived me' }));
@@ -36,6 +47,19 @@ describe('FileSessionStore CRUD', () => {
       assert.equal(summary?.statusUpdatedAt, header.statusUpdatedAt);
       assert.equal(summary?.model, 'fake-model');
       assert.equal(summary?.cwd, '/tmp/cwd');
+    });
+  });
+
+  test('readHeaderSnapshot is observational and does not lock the connection', async () => {
+    await withStore(async (store) => {
+      const header = await store.create(makeInput({ name: 'Inspect me' }));
+      await store.appendMessage(header.id, {
+        type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'hello',
+      });
+
+      assert.equal((await store.readHeaderSnapshot(header.id)).connectionLocked, false);
+      assert.equal((await store.readHeaderSnapshot(header.id)).connectionLocked, false);
+      assert.equal((await store.readHeader(header.id)).connectionLocked, true);
     });
   });
 
