@@ -445,6 +445,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
   test('one visual overlay serializes presentation across independent sessions', async () => {
     const events: string[] = [];
     const ready = new Map<string, () => void>();
+    const finished = new Map<string, () => void>();
     const backend: CuDispatchBackend = {
       async preflight() {
         return { accessibility: true, screenRecording: true };
@@ -463,11 +464,14 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
             readyForInteraction: new Promise<void>((resolve) => {
               ready.set(context.sessionId, resolve);
             }),
-            finished: Promise.resolve(),
+            finished: new Promise<void>((resolve) => {
+              finished.set(context.sessionId, resolve);
+            }),
           };
         },
       },
       presentationReadyTimeoutMs: 10_000,
+      presentationFinishedTimeoutMs: 10_000,
     });
     const first = tool.impl(
       { action: 'wait' } as never,
@@ -483,6 +487,12 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.deepEqual(events, ['presentation:s1']);
     ready.get('s1')?.();
     await first;
+    await Promise.resolve();
+    assert.deepEqual(events, [
+      'presentation:s1',
+      'dispatch:s1',
+    ]);
+    finished.get('s1')?.();
     while (!ready.has('s2')) {
       await new Promise((resolve) => setImmediate(resolve));
     }
@@ -493,6 +503,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     ]);
     ready.get('s2')?.();
     await second;
+    finished.get('s2')?.();
   });
 
   test('clearSession releases an action queued behind another presentation', async () => {

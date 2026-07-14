@@ -29,7 +29,7 @@
     "screenshots:single": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/ui run build && npm run build && node ../../scripts/capture-screenshots.mjs --scenario",
     "smoke:real-window": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/ui run build && npm run build && node ../../scripts/desktop-real-window-smoke.mjs",
     "smoke:programmatic-window": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/ui run build && npm run build && node ../../scripts/desktop-real-window-smoke.mjs --programmatic-only",
-    "smoke:browser": "npm --workspace @maka/core run build && npm run build:main && electron scripts/browser-observe-act-smoke.mjs",
+    "smoke:browser": "npm --workspace @maka/core run build && npm --workspace @maka/runtime run build && npm --workspace @maka/computer-use run build && npm run build:main && electron scripts/browser-observe-act-smoke.mjs",
     "screenshots:diff": "node ../../scripts/diff-screenshots.mjs",
     "screenshots:diff:stable": "node ../../scripts/diff-screenshots.mjs --subset stable",
     "screenshots:chat-chrome:check": "node ../../scripts/check-chat-chrome-screenshot.mjs",

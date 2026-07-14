@@ -187,6 +187,10 @@ import {
   applyComputerUseRealModelPolicy,
   parseComputerUseRealModelPolicy,
 } from './computer-use-real-model-policy.js';
+import {
+  computerUseAvailabilityForModel,
+  computerUseToolsForModel,
+} from './computer-use-model-tools.js';
 import { createComputerUseOverlayHook } from '@maka/computer-use';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
@@ -874,10 +878,10 @@ backends.register('ai-sdk', async (ctx) => {
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
-  const backendTools = isComputerUseRealModelE2e
+  const candidateTools = isComputerUseRealModelE2e
     ? computerUseTools
     : [...(ctx.tools ?? builtinTools)];
-  const backendToolAvailability = isComputerUseRealModelE2e
+  const candidateToolAvailability = isComputerUseRealModelE2e
     ? { economy: false, groups: [] }
     : toolAvailability;
   // Expert-team lead: a main session (ctx.tools undefined) labeled
@@ -886,6 +890,15 @@ backends.register('ai-sdk', async (ctx) => {
   // get expert_dispatch — members cannot spawn nested teams.
   const expertTeamId = ctx.tools ? undefined : expertTeamIdFromLabels(ctx.header.labels);
   const expertDispatchTool = expertTeamId ? buildExpertDispatchToolForTeamId(expertTeamId) : undefined;
+  const backendTools = computerUseToolsForModel(
+    candidateTools,
+    computerUseTools,
+    supportsVision,
+  );
+  const backendToolAvailability = computerUseAvailabilityForModel(
+    candidateToolAvailability,
+    supportsVision,
+  );
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,

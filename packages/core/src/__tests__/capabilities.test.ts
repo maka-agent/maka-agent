@@ -114,6 +114,19 @@ describe('permission and capability snapshot contracts', () => {
     })).toBe('degraded');
   });
 
+  test('unavailable runtime probe degrades an otherwise enabled capability', () => {
+    expect(deriveCapabilityReadiness({
+      feature: enabledFeature,
+      configuration: presentConfig,
+      osPermissions: [requiredPermission('accessibility', 'granted')],
+      runtimeProbe: {
+        state: 'not_available',
+        source: 'runtime_probe',
+        reason: 'service exited',
+      },
+    })).toBe('degraded');
+  });
+
   test('degraded runtime probe still wins over partial feature copy', () => {
     expect(deriveCapabilityReadiness({
       feature: { state: 'partial', source: 'runtime', reason: 'local smoke only' },

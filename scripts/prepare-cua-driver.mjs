@@ -17,7 +17,17 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  mkdir,
+  open,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -32,6 +42,16 @@ const binDir = join(repoRoot, 'apps', 'desktop', 'resources', 'bin');
 const licenseDir = join(repoRoot, 'apps', 'desktop', 'resources', 'licenses', 'cua-driver');
 const DEFAULT_FETCH_TIMEOUT_MS = 300_000;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const MACH_O_MAGICS = new Set([
+  'feedface',
+  'feedfacf',
+  'cefaedfe',
+  'cffaedfe',
+  'cafebabe',
+  'bebafeca',
+  'cafebabf',
+  'bfbafeca',
+]);
 
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 const cua = manifest.cuaDriver;
@@ -73,8 +93,12 @@ export function assertPinnedCuaDriverChecksums(entry) {
     || typeof entry?.cargoLockSha256 !== 'string'
     || !Array.isArray(entry?.architectures)
     || entry.architectures.length === 0
+    || !['archiveSizeBytes', 'binarySizeBytes', 'licenseSizeBytes', 'sourceSizeBytes']
+      .every((field) => Number.isSafeInteger(entry?.[field]) && entry[field] > 0)
   ) {
-    throw new Error('bundled-tools.json cuaDriver must pin version, protocol, source commits, Cargo.lock, and architectures.');
+    throw new Error(
+      'bundled-tools.json cuaDriver must pin version, protocol, source commits, Cargo.lock, architectures, and exact file sizes.',
+    );
   }
 }
 
@@ -94,6 +118,10 @@ function expectedMarker() {
     sourceCommit: cua.sourceCommit,
     upstreamCommit: cua.upstreamCommit,
     upstreamMergeCommit: cua.upstreamMergeCommit,
+    archiveSizeBytes: cua.archiveSizeBytes,
+    binarySizeBytes: cua.binarySizeBytes,
+    licenseSizeBytes: cua.licenseSizeBytes,
+    sourceSizeBytes: cua.sourceSizeBytes,
     archiveSha256: cua.archiveSha256,
     binarySha256: cua.binarySha256,
     licenseSha256: cua.licenseSha256,
@@ -109,6 +137,10 @@ function markerMatches(marker) {
     && marker?.sourceCommit === expected.sourceCommit
     && marker?.upstreamCommit === expected.upstreamCommit
     && marker?.upstreamMergeCommit === expected.upstreamMergeCommit
+    && marker?.archiveSizeBytes === expected.archiveSizeBytes
+    && marker?.binarySizeBytes === expected.binarySizeBytes
+    && marker?.licenseSizeBytes === expected.licenseSizeBytes
+    && marker?.sourceSizeBytes === expected.sourceSizeBytes
     && marker?.archiveSha256 === expected.archiveSha256
     && marker?.binarySha256 === expected.binarySha256
     && marker?.licenseSha256 === expected.licenseSha256
@@ -133,20 +165,63 @@ function timeoutError(url) {
   return new Error(`Timed out downloading ${url} after ${FETCH_TIMEOUT_MS}ms`);
 }
 
-async function fetchBytes(url) {
+export async function downloadFileWithSha256(
+  url,
+  destination,
+  {
+    maxBytes,
+    fetchImpl = fetch,
+    timeoutMs = FETCH_TIMEOUT_MS,
+  } = {},
+) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error('cua-driver download maxBytes must be a positive integer');
+  }
   let response;
   try {
-    response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    response = await fetchImpl(url, {
+      redirect: 'follow',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
   } catch (error) {
     if (isTimeoutError(error)) throw timeoutError(url);
     throw error;
   }
   if (!response.ok) throw new Error(`Failed to download ${url}: HTTP ${response.status}`);
+  const declaredLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new Error(
+      `Refusing oversized cua-driver download: ${declaredLength} bytes exceeds ${maxBytes}`,
+    );
+  }
+  if (!response.body) {
+    throw new Error(`Failed to download ${url}: response body missing`);
+  }
+
+  const hash = createHash('sha256');
+  let bytes = 0;
+  let completed = false;
+  const file = await open(destination, 'wx', 0o600);
   try {
-    return await response.arrayBuffer();
+    for await (const rawChunk of response.body) {
+      const chunk = Buffer.from(rawChunk);
+      bytes += chunk.byteLength;
+      if (bytes > maxBytes) {
+        throw new Error(
+          `Refusing oversized cua-driver download: received more than ${maxBytes} bytes`,
+        );
+      }
+      hash.update(chunk);
+      await file.write(chunk);
+    }
+    completed = true;
+    return { bytes, sha256: hash.digest('hex') };
   } catch (error) {
     if (isTimeoutError(error)) throw timeoutError(url);
     throw error;
+  } finally {
+    await file.close();
+    if (!completed) await rm(destination, { force: true });
   }
 }
 
@@ -157,6 +232,16 @@ async function alreadyPrepared() {
     await access(destinationPath(), constants.X_OK);
     const marker = JSON.parse(await readFile(markerPath(), 'utf8'));
     if (!markerMatches(marker)) return false;
+    const [binaryInfo, licenseInfo, sourceInfo] = await Promise.all([
+      stat(destinationPath()),
+      stat(join(licenseDir, 'LICENSE.md')),
+      stat(join(licenseDir, 'SOURCE.json')),
+    ]);
+    if (
+      binaryInfo.size !== cua.binarySizeBytes
+      || licenseInfo.size !== cua.licenseSizeBytes
+      || sourceInfo.size !== cua.sourceSizeBytes
+    ) return false;
     // Re-hash the actual binary so a corrupted/swapped file with an intact marker
     // is not silently trusted — on drift, fall through to re-download/re-verify.
     const actualBinarySha256 = sha256(await readFile(destinationPath()));
@@ -170,15 +255,45 @@ async function alreadyPrepared() {
   }
 }
 
-async function verifyBinary(binaryPath) {
-  const { stdout } = await execFileAsync(binaryPath, ['--version']);
-  if (stdout.trim() !== `cua-driver ${cua.expectedVersion}`) {
+export function assertMachOHeader(bytes) {
+  const header = Buffer.from(bytes).subarray(0, 4);
+  const magic = header.toString('hex');
+  if (header.byteLength !== 4 || !MACH_O_MAGICS.has(magic)) {
+    throw new Error(`cua-driver is not a recognized Mach-O binary (magic ${magic || 'missing'})`);
+  }
+}
+
+export async function verifyBinaryMetadata(binaryPath, entry = cua, runCommand = execFileAsync) {
+  const info = await stat(binaryPath);
+  if (!info.isFile() || info.size !== entry.binarySizeBytes) {
     throw new Error(
-      `Unexpected cua-driver version: expected ${cua.expectedVersion}, got ${JSON.stringify(stdout.trim())}`,
+      `Unexpected cua-driver size: expected ${entry.binarySizeBytes}, got ${info.size}`,
     );
   }
-  await execFileAsync('lipo', [binaryPath, '-verify_arch', ...cua.architectures]);
-  await execFileAsync('codesign', ['--verify', '--strict', '--verbose=2', binaryPath]);
+  const handle = await open(binaryPath, 'r');
+  try {
+    const header = Buffer.alloc(4);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    assertMachOHeader(header.subarray(0, bytesRead));
+  } finally {
+    await handle.close();
+  }
+  await runCommand('lipo', [binaryPath, '-verify_arch', ...entry.architectures]);
+  await runCommand('codesign', ['--verify', '--strict', '--verbose=2', binaryPath]);
+  const signature = await runCommand('codesign', ['--display', '--verbose=4', binaryPath]);
+  const signatureDetails = `${signature.stdout ?? ''}\n${signature.stderr ?? ''}`;
+  if (entry.signature === 'adhoc' && !/Signature=adhoc/.test(signatureDetails)) {
+    throw new Error('cua-driver signature mismatch: expected an ad hoc code signature');
+  }
+}
+
+export async function verifyBinaryVersion(binaryPath, entry = cua, runCommand = execFileAsync) {
+  const { stdout } = await runCommand(binaryPath, ['--version']);
+  if (stdout.trim() !== `cua-driver ${entry.expectedVersion}`) {
+    throw new Error(
+      `Unexpected cua-driver version: expected ${entry.expectedVersion}, got ${JSON.stringify(stdout.trim())}`,
+    );
+  }
 }
 
 export function assertSafeTarEntries(entries) {
@@ -205,15 +320,15 @@ export function assertSafeTarListing(lines) {
   }
 }
 
-function assertSourceProvenance(source) {
+export function assertSourceProvenance(source, entry = cua) {
   const expected = {
-    repository: cua.repo,
-    upstreamTag: cua.upstreamTag,
-    upstreamCommit: cua.upstreamCommit,
-    sourceCommit: cua.sourceCommit,
-    patchPullRequest: cua.patchPullRequest,
-    cargoLockSha256: cua.cargoLockSha256,
-    signature: cua.signature,
+    repository: entry.repo,
+    upstreamTag: entry.upstreamTag,
+    upstreamCommit: entry.upstreamCommit,
+    sourceCommit: entry.sourceCommit,
+    patchPullRequest: entry.patchPullRequest,
+    cargoLockSha256: entry.cargoLockSha256,
+    signature: entry.signature,
   };
   for (const [field, value] of Object.entries(expected)) {
     if (source?.[field] !== value) {
@@ -224,8 +339,8 @@ function assertSourceProvenance(source) {
   }
   if (
     !Array.isArray(source?.architectures)
-    || source.architectures.length !== cua.architectures.length
-    || !cua.architectures.every((arch) => source.architectures.includes(arch))
+    || source.architectures.length !== entry.architectures.length
+    || !entry.architectures.every((arch) => source.architectures.includes(arch))
   ) {
     throw new Error('cua-driver SOURCE.json architectures do not match bundled-tools.json.');
   }
@@ -240,19 +355,25 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
     return { skipped: true, reason: 'up-to-date', destination: destinationPath(), version: cua.version };
   }
 
-  const url = cuaDriverDownloadUrl(cua.tag, cua.asset);
-  const data = await fetchBytes(url);
-  const actualArchiveSha256 = sha256(data);
-  if (actualArchiveSha256 !== cua.archiveSha256) {
-    throw new Error(`Checksum mismatch for ${cua.asset}: expected ${cua.archiveSha256}, got ${actualArchiveSha256}`);
-  }
-
   // Extract the tarball to a temp dir, then copy out the single `cua-driver`
   // Mach-O. Tarball internal layout is not assumed — we locate the binary.
   const workDir = await mkdtemp(join(tmpdir(), 'maka-cua-driver-'));
   try {
     const tarPath = join(workDir, cua.asset);
-    await writeFile(tarPath, Buffer.from(data));
+    const url = cuaDriverDownloadUrl(cua.tag, cua.asset);
+    const downloaded = await downloadFileWithSha256(url, tarPath, {
+      maxBytes: cua.archiveSizeBytes,
+    });
+    if (downloaded.bytes !== cua.archiveSizeBytes) {
+      throw new Error(
+        `Size mismatch for ${cua.asset}: expected ${cua.archiveSizeBytes}, got ${downloaded.bytes}`,
+      );
+    }
+    if (downloaded.sha256 !== cua.archiveSha256) {
+      throw new Error(
+        `Checksum mismatch for ${cua.asset}: expected ${cua.archiveSha256}, got ${downloaded.sha256}`,
+      );
+    }
     const listed = await execFileAsync('tar', ['-tzf', tarPath]);
     assertSafeTarEntries(listed.stdout.split('\n'));
     const verboseListing = await execFileAsync('tar', ['-tvzf', tarPath]);
@@ -267,13 +388,18 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
     }
 
     const binaryBytes = await readFile(found[0]);
+    if (binaryBytes.byteLength !== cua.binarySizeBytes) {
+      throw new Error(
+        `Size mismatch for extracted ${cua.binaryName}: expected ${cua.binarySizeBytes}, got ${binaryBytes.byteLength}`,
+      );
+    }
     const actualBinarySha256 = sha256(binaryBytes);
     if (actualBinarySha256 !== cua.binarySha256) {
       throw new Error(
         `Checksum mismatch for extracted ${cua.binaryName}: expected ${cua.binarySha256}, got ${actualBinarySha256}`,
       );
     }
-    await verifyBinary(found[0]);
+    await verifyBinaryMetadata(found[0]);
 
     const licensePaths = await execFileAsync('find', [workDir, '-name', 'LICENSE.md', '-type', 'f']);
     const sourcePaths = await execFileAsync('find', [workDir, '-name', 'SOURCE.json', '-type', 'f']);
@@ -286,6 +412,16 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
     }
     const licenseBytes = await readFile(licenses[0]);
     const sourceBytes = await readFile(sources[0]);
+    if (licenseBytes.byteLength !== cua.licenseSizeBytes) {
+      throw new Error(
+        `Size mismatch for extracted cua-driver LICENSE.md: expected ${cua.licenseSizeBytes}, got ${licenseBytes.byteLength}`,
+      );
+    }
+    if (sourceBytes.byteLength !== cua.sourceSizeBytes) {
+      throw new Error(
+        `Size mismatch for extracted cua-driver SOURCE.json: expected ${cua.sourceSizeBytes}, got ${sourceBytes.byteLength}`,
+      );
+    }
     if (sha256(licenseBytes) !== cua.licenseSha256) {
       throw new Error(`Checksum mismatch for extracted cua-driver LICENSE.md`);
     }
@@ -293,6 +429,7 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
       throw new Error(`Checksum mismatch for extracted cua-driver SOURCE.json`);
     }
     assertSourceProvenance(JSON.parse(sourceBytes.toString('utf8')));
+    await verifyBinaryVersion(found[0]);
 
     await mkdir(binDir, { recursive: true });
     await mkdir(licenseDir, { recursive: true });

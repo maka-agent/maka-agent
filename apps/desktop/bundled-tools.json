@@ -28,6 +28,10 @@
       "x86_64"
     ],
     "signature": "adhoc",
+    "archiveSizeBytes": 10473137,
+    "binarySizeBytes": 25270080,
+    "licenseSizeBytes": 1069,
+    "sourceSizeBytes": 542,
     "archiveSha256": "c15e65138200cac5a03d013c455201bcfae2b9a7fb16be7c9d332e595481862c",
     "binarySha256": "683dad5cccb47dd0a8bb5d534d62fbb9e6edfb1cded232509cf4c2b190066040",
     "licenseSha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9",

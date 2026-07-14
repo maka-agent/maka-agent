@@ -562,8 +562,10 @@ export function buildComputerUseTools(deps: {
   backend: CuDispatchBackend;
   overlay?: CuOverlayHook;
   presentationReadyTimeoutMs?: number;
+  presentationFinishedTimeoutMs?: number;
 }): ComputerUseToolSet {
   const presentationReadyTimeoutMs = deps.presentationReadyTimeoutMs ?? 1_000;
+  const presentationFinishedTimeoutMs = deps.presentationFinishedTimeoutMs ?? 1_500;
   const invocationQueues = new Map<string, Promise<void>>();
   const presentationWaiters = new Map<string, Set<() => void>>();
   const presentationQueueWaiters = new Map<string, Set<() => void>>();
@@ -917,6 +919,23 @@ export function buildComputerUseTools(deps: {
     });
   }
 
+  async function waitForPresentationFinished(
+    fence: CuPresentationFence | undefined,
+  ): Promise<void> {
+    if (!fence) return;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(finish, presentationFinishedTimeoutMs);
+      fence.finished.then(finish, finish);
+    });
+  }
+
   async function runWithPresentation(
     action: CuAction,
     context: CuRunContext,
@@ -1006,14 +1025,18 @@ export function buildComputerUseTools(deps: {
     const finish = (result?: CuRunResult) => {
       if (finished) return;
       finished = true;
+      let endPromise: Promise<void>;
       try {
-        void Promise.resolve(
+        endPromise = Promise.resolve(
           deps.overlay?.onActionEnd?.(action, result, overlayContext),
-        ).catch(() => {});
+        ).then(() => undefined, () => undefined);
       } catch {
         // Presentation is best-effort and cannot change execution outcome.
+        endPromise = Promise.resolve();
       }
-      releasePresentation?.();
+      void endPromise
+        .then(() => waitForPresentationFinished(fence))
+        .finally(() => releasePresentation?.());
     };
     try {
       if (fence) {
