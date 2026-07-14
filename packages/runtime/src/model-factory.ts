@@ -28,6 +28,10 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
   const definition = PROVIDER_DEFAULTS[connection.providerType];
   const adapter = definition.runtimeAdapter;
 
+  if (adapter.kind === 'google' && adapter.normalizeBaseUrl === false) {
+    return createGoogleGenerativeAI({ apiKey, baseURL }).chat(modelId);
+  }
+
   switch (adapter.kind) {
     case 'anthropic':
       return createAnthropic({
