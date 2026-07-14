@@ -742,6 +742,32 @@ describe('default session target resolver', () => {
     assert.equal(JSON.parse(stored).access_token, 'fresh-access-token');
   });
 
+  test('uses the GitHub Copilot account endpoint from the shared OAuth credential record', async () => {
+    const connection = makeConnection({
+      slug: 'github-copilot',
+      providerType: 'github-copilot',
+      baseUrl: 'https://api.githubcopilot.com',
+      defaultModel: 'gpt-5.4',
+    });
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'github-copilot',
+        get: async () => connection,
+      },
+      credentialStore: {
+        getSecret: async () => JSON.stringify({
+          access_token: 'short-lived-copilot-token',
+          refresh_token: 'github-account-token',
+          expires_at: Date.now() + 10 * 60_000,
+          base_url: 'https://api.business.githubcopilot.com',
+        }),
+      },
+    });
+
+    assert.equal(target.apiKey, 'short-lived-copilot-token');
+    assert.equal(target.connection.baseUrl, 'https://api.business.githubcopilot.com');
+  });
+
   test('rejects unusable OAuth subscription credentials instead of using the raw secret as an API key', async () => {
     const connection = makeConnection({
       slug: 'codex-subscription',

@@ -55,13 +55,25 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         headers: codexSubscriptionHeaders(apiKey),
       }).responses(modelId);
 
-    case 'github-copilot':
+    case 'github-copilot': {
+      const apiProtocol = connection.models?.find((model) => model.id === modelId)?.apiProtocol;
+      if (apiProtocol === 'openai-responses') {
+        return createOpenAI({ apiKey, baseURL, fetch }).responses(modelId);
+      }
+      if (apiProtocol === 'anthropic-messages') {
+        return createAnthropic({
+          authToken: apiKey,
+          baseURL: anthropicV1BaseUrl(baseURL),
+          fetch,
+        }).chat(modelId);
+      }
       return createOpenAICompatible({
         name: 'github-copilot',
         apiKey,
         baseURL,
         fetch,
       }).chatModel(modelId);
+    }
 
     case 'unavailable':
       throw new Error(`${connection.providerType} is experimental and not wired yet`);

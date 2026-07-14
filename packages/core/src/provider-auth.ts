@@ -67,6 +67,7 @@ export interface ProviderAuthContract {
 const WIRED_OAUTH_PROVIDERS = new Set<ProviderType>([
   'claude-subscription',
   'codex-subscription',
+  'github-copilot',
 ]);
 
 export function deriveProviderAuthContract(input: ProviderAuthContractInput): ProviderAuthContract {

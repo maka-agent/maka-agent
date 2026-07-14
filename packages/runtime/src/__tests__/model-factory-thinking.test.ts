@@ -194,16 +194,25 @@ describe('getAIModel: models.dev registry providers', () => {
     }
   });
 
-  test('routes GitHub Copilot through its compatibility adapter without rewriting exact model ids', () => {
-    const model = getAIModel({
-      connection: conn('github-copilot'),
-      apiKey: 'short-lived-copilot-token',
-      modelId: 'claude-sonnet-4.6',
-      fetch: async () => Response.json({}),
-    });
+  test('routes each exact GitHub Copilot model through its account-advertised wire', () => {
+    for (const [modelId, apiProtocol, expectedProvider] of [
+      ['gpt-5.4', 'openai-responses', 'openai.responses'],
+      ['claude-sonnet-4.6', 'anthropic-messages', 'anthropic.messages'],
+      ['gemini-3.1-pro-preview', 'openai-chat', 'github-copilot.chat'],
+    ] as const) {
+      const model = getAIModel({
+        connection: {
+          ...conn('github-copilot'),
+          models: [{ id: modelId, apiProtocol }],
+        },
+        apiKey: 'short-lived-copilot-token',
+        modelId,
+        fetch: async () => Response.json({}),
+      });
 
-    assert.equal(model.provider, 'github-copilot.chat');
-    assert.equal(model.modelId, 'claude-sonnet-4.6');
+      assert.equal(model.provider, expectedProvider);
+      assert.equal(model.modelId, modelId);
+    }
   });
 });
 

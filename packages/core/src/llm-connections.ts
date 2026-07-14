@@ -42,6 +42,8 @@ export type ConnectionAuth =
 export interface ModelInfo {
   id: string;
   displayName?: string;
+  /** Account-advertised request wire when one provider exposes multiple model protocols. */
+  apiProtocol?: 'openai-chat' | 'openai-responses' | 'anthropic-messages';
   contextWindow?: number;
   maxOutputTokens?: number;
   capabilities?: {

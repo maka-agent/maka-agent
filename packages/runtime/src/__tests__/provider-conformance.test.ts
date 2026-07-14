@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { buildProviderOptions, getAIModel } from '../model-factory.js';
 import { testConnection } from '../test-connection.js';
+import { buildSubscriptionModelFetch } from '../subscription-model-fetch.js';
 
 const servers: Array<{ close(): Promise<void> }> = [];
 
@@ -15,6 +16,116 @@ after(async () => {
 });
 
 describe('models.dev provider conformance', () => {
+  test('GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire', async () => {
+    const modelId = 'gemini-3.1-pro-preview';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const initiators: string[] = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer short-lived-copilot-token');
+      if (request.method === 'GET' && request.url === '/models') {
+        respondJson(response, 200, {
+          data: [{
+            id: modelId,
+            name: 'Gemini 3.1 Pro Preview',
+            model_picker_enabled: true,
+            supported_endpoints: ['/chat/completions'],
+            policy: { state: 'enabled' },
+            capabilities: {
+              limits: { max_prompt_tokens: 400_000, max_output_tokens: 64_000 },
+              supports: { tool_calls: true, reasoning_effort: ['low', 'medium', 'high'] },
+            },
+          }],
+        });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/chat/completions');
+      assert.equal(request.headers['openai-intent'], 'conversation-edits');
+      initiators.push(String(request.headers['x-initiator']));
+      requestBodies.push(JSON.parse(await readBody(request)) as Record<string, unknown>);
+      if (requestBodies.length === 1) {
+        respondJson(response, 200, {
+          id: 'copilot-tool',
+          object: 'chat.completion',
+          created: 1,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'I should use the echo tool.',
+              tool_calls: [{
+                id: 'call-copilot-echo',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"hello"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        });
+        return;
+      }
+      respondJson(response, 200, {
+        id: 'copilot-final',
+        object: 'chat.completion',
+        created: 2,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'github-copilot',
+      name: 'GitHub Copilot',
+      providerType: 'github-copilot',
+      baseUrl: server.url,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const models = await fetchProviderModels(connection, 'short-lived-copilot-token');
+    connection.models = models;
+    const modelFetch = buildSubscriptionModelFetch({
+      connection,
+      sessionId: 'session-copilot',
+      modelId,
+      fetchFn: fetch,
+    });
+    assert.ok(modelFetch);
+
+    const result = await generateText({
+      model: getAIModel({
+        connection,
+        apiKey: 'short-lived-copilot-token',
+        modelId,
+        fetch: modelFetch,
+      }),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.deepEqual(models.map((model) => [model.id, model.apiProtocol]), [[modelId, 'openai-chat']]);
+    assert.deepEqual(initiators, ['user', 'agent']);
+    assert.equal(requestBodies[0]?.model, modelId);
+    assert.equal(result.steps[0]?.reasoningText, 'I should use the echo tool.');
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
   test('OpenCode Go preserves exact discovery ids and reasoning through a two-stage tool loop', async () => {
     const modelId = 'kimi-k2.7-code';
     const requestBodies: Array<Record<string, unknown>> = [];
