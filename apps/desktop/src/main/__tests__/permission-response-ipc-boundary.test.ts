@@ -195,7 +195,7 @@ describe('permission response IPC boundary', () => {
   it('renderer clears the permission prompt when a session completes (PR-PERMISSION-UI-CLEANUP-0)', async () => {
     // Without this, a session that finishes for a reason other than
     // permission_handoff would leave a stranded permission entry in
-    // `permissionBySession[sessionId]`, keeping the prompt visible
+    // `interactionBySession[sessionId]`, keeping the prompt visible
     // and blocking the session UI until the user manually navigates
     // away. Mirrors the existing `abort` cleanup.
     const renderer = await readRendererShellSource('app-shell-session-events.ts');
@@ -206,7 +206,7 @@ describe('permission response IPC boundary', () => {
     assert.ok(completeCase, "'complete' case must exist in renderer event handler");
     assert.match(
       completeCase[0],
-      /setPermissionBySession\(\(current\) => clearPermissions\(current, sessionId\)\)/,
+      /setInteractionBySession\(\(current\) => clearInteractions\(current, sessionId\)\)/,
       "'complete' case must clear the session's permission queue — mirrors the abort handler",
     );
   });
@@ -290,7 +290,7 @@ describe('permission response IPC boundary', () => {
 
     assert.match(
       errorBranch,
-      /setPermissionBySession[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*if \(isNoRealConnectionEvent\(event\)\) \{[\s\S]*const reason = noRealConnectionReasonFromEvent\(event\);[\s\S]*showModelSetupToast\(noRealConnectionSetupDescription\(reason\), reason\);[\s\S]*\} else \{[\s\S]*toastApi\.error\('对话出错', sessionEventErrorMessage\(event\)\);[\s\S]*\}[\s\S]*\}[\s\S]*refreshSessions\(\);[\s\S]*refreshMessages\(sessionId, terminalRefreshOptions\(before\)\);/,
+      /setInteractionBySession[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*if \(isNoRealConnectionEvent\(event\)\) \{[\s\S]*const reason = noRealConnectionReasonFromEvent\(event\);[\s\S]*showModelSetupToast\(noRealConnectionSetupDescription\(reason\), reason\);[\s\S]*\} else \{[\s\S]*toastApi\.error\('对话出错', sessionEventErrorMessage\(event\)\);[\s\S]*\}[\s\S]*\}[\s\S]*refreshSessions\(\);[\s\S]*refreshMessages\(sessionId, terminalRefreshOptions\(before\)\);/,
       'background session error events may update stored state, but must not show toasts or open Settings on the active chat surface',
     );
     assert.doesNotMatch(errorBranch, /clearLiveTurn\(sessionId\)/, 'error must retain live evidence until refresh confirms handoff');

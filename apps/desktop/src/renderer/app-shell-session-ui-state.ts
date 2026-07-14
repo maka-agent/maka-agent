@@ -1,6 +1,6 @@
 import { useReducer, useRef } from 'react';
 import type { SessionEventStreamSnapshot } from '@maka/core';
-import type { LiveTurnProjection, PermissionQueues } from '@maka/ui';
+import type { InteractionQueues, LiveTurnProjection } from '@maka/ui';
 import type { ShellRunUpdatesBySession } from './shell-run-update-state.js';
 
 type StateUpdater<T> = (updater: (current: T) => T) => void;
@@ -11,7 +11,7 @@ export interface AppShellSessionUiState {
   stopPendingBySession: Record<string, boolean>;
   liveTurnBySession: Record<string, LiveTurnProjection>;
   shellRunUpdatesBySession: ShellRunUpdatesBySession;
-  permissionBySession: PermissionQueues;
+  interactionBySession: InteractionQueues;
   sessionEventHealthBySession: Record<string, SessionEventStreamSnapshot>;
   pendingPermissionModeBySession: Record<string, boolean>;
   pendingSessionModelBySession: Record<string, boolean>;
@@ -25,7 +25,7 @@ const SESSION_UI_MAP_KEYS = [
   'stopPendingBySession',
   'liveTurnBySession',
   'shellRunUpdatesBySession',
-  'permissionBySession',
+  'interactionBySession',
   'sessionEventHealthBySession',
   'pendingPermissionModeBySession',
   'pendingSessionModelBySession',
@@ -140,7 +140,7 @@ export function createAppShellSessionUiStateController(
     setStopPendingBySession: createMapSetter('stopPendingBySession'),
     setLiveTurnBySession: createMapSetter('liveTurnBySession'),
     setShellRunUpdatesBySession: createMapSetter('shellRunUpdatesBySession'),
-    setPermissionBySession: createMapSetter('permissionBySession'),
+    setInteractionBySession: createMapSetter('interactionBySession'),
     setSessionEventHealthBySession: createMapSetter('sessionEventHealthBySession'),
     setPendingPermissionModeBySession: createMapSetter('pendingPermissionModeBySession'),
     setPendingSessionModelBySession: createMapSetter('pendingSessionModelBySession'),
@@ -175,7 +175,7 @@ export function useAppShellSessionUiState() {
     setStopPendingBySession: controller.setStopPendingBySession,
     setLiveTurnBySession: controller.setLiveTurnBySession,
     setShellRunUpdatesBySession: controller.setShellRunUpdatesBySession,
-    setPermissionBySession: controller.setPermissionBySession,
+    setInteractionBySession: controller.setInteractionBySession,
     setSessionEventHealthBySession: controller.setSessionEventHealthBySession,
     setPendingPermissionModeBySession: controller.setPendingPermissionModeBySession,
     setPendingSessionModelBySession: controller.setPendingSessionModelBySession,

@@ -168,7 +168,7 @@ describe('permission mode transition guard copy', () => {
 
   it('composer permission picker disables itself when the composer is disabled, pending, or a disabledReason is present', async () => {
     // The picker must respect the composer's own `disabled` state (the
-    // permission-wait freeze, driven by `Boolean(activePermission)` in
+    // interaction-wait freeze, driven by `Boolean(activeInteraction)` in
     // app-shell.tsx), not only the separately-computed `permissionModeDisabledReason`
     // (which keys off `status === 'waiting_for_user'`). The two are NOT fully
     // coupled: a pending permission can set `props.disabled` before the session

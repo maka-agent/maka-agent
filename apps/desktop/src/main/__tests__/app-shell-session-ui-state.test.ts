@@ -28,7 +28,7 @@ function seededState(): AppShellSessionUiState {
     messageRetryPendingBySession: { drop: true, keep: true },
     stopPendingBySession: { drop: true, keep: true },
     liveTurnBySession: { drop: armLiveTurn('turn-drop'), keep: armLiveTurn('turn-keep') },
-    permissionBySession: {
+    interactionBySession: {
       drop: [permissionRequest('drop')],
       keep: [permissionRequest('keep')],
     },
@@ -65,7 +65,7 @@ describe('app shell session UI state controller', () => {
     assert.deepEqual(Object.keys(next.messageRetryPendingBySession), ['keep']);
     assert.deepEqual(Object.keys(next.stopPendingBySession), ['keep']);
     assert.deepEqual(Object.keys(next.liveTurnBySession), ['keep']);
-    assert.deepEqual(Object.keys(next.permissionBySession), ['keep']);
+    assert.deepEqual(Object.keys(next.interactionBySession), ['keep']);
     assert.deepEqual(Object.keys(next.sessionEventHealthBySession), ['keep']);
     assert.deepEqual(Object.keys(next.pendingPermissionModeBySession), ['keep']);
     assert.deepEqual(Object.keys(next.pendingSessionModelBySession), ['keep']);

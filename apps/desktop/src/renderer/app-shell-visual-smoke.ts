@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { SettingsSection, ThemePreference } from '@maka/core';
-import type { LiveTurnProjection, PermissionQueues } from '@maka/ui';
+import type { InteractionQueues, LiveTurnProjection } from '@maka/ui';
 import type { NavSelection } from '@maka/ui';
 import { applyTheme } from './theme';
 
@@ -18,7 +18,7 @@ export function createAppShellVisualSmokeActions(options: {
   setLiveBrowserSessionIds: Dispatch<SetStateAction<string[]>>;
   setLiveTurnBySession: StateUpdater<Record<string, LiveTurnProjection>>;
   setNavSelection: Dispatch<SetStateAction<NavSelection>>;
-  setPermissionBySession: StateUpdater<PermissionQueues>;
+  setInteractionBySession: StateUpdater<InteractionQueues>;
   setSearchModalOpen: Dispatch<SetStateAction<boolean>>;
   setSessionListCollapsed: Dispatch<SetStateAction<boolean>>;
   setThemePref: Dispatch<SetStateAction<ThemePreference>>;
@@ -31,7 +31,7 @@ export function createAppShellVisualSmokeActions(options: {
     setLiveBrowserSessionIds,
     setLiveTurnBySession,
     setNavSelection,
-    setPermissionBySession,
+    setInteractionBySession,
     setSearchModalOpen,
     setSessionListCollapsed,
     setThemePref,
@@ -52,11 +52,11 @@ export function createAppShellVisualSmokeActions(options: {
       setLiveTurnBySession((current) => ({ ...current, ...state.liveTurnBySession }));
     }
     if (state.permissionBySession) {
-      const seeded: PermissionQueues = {};
+      const seeded: InteractionQueues = {};
       for (const [seedSessionId, request] of Object.entries(state.permissionBySession)) {
         if (request) seeded[seedSessionId] = [request];
       }
-      setPermissionBySession((current) => ({ ...current, ...seeded }));
+      setInteractionBySession((current) => ({ ...current, ...seeded }));
     }
     // PR-IR-01b: theme override applied BEFORE the persisted user pref so
     // the screenshot variant matches `<theme>-<viewport>-<motion>.png`
