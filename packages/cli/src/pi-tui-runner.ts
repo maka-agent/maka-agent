@@ -732,7 +732,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       (item) => {
         void runControl(() => switchSession(item.value));
       },
-      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 40 },
+      { minPrimaryColumnWidth: 20, maxPrimaryColumnWidth: 120 },
     );
   };
 
