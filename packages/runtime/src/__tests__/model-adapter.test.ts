@@ -245,6 +245,46 @@ describe('ModelAdapter stream and error normalization', () => {
     }), undefined);
   });
 
+  test('treats incomplete provider usage as unavailable unless total can supply the missing side', () => {
+    assert.equal(normalizeAiSdkUsage({ inputTokens: 12 }), undefined);
+    assert.equal(normalizeAiSdkUsage({ outputTokens: 3 }), undefined);
+    assert.equal(normalizeAiSdkUsage({ totalTokens: 15 }), undefined);
+
+    assert.deepEqual(normalizeAiSdkUsage({ inputTokens: 12, totalTokens: 15 }), {
+      inputTokens: 12,
+      outputTokens: 3,
+      cacheHitInputTokens: 0,
+      cacheMissInputTokens: 12,
+      cacheMissInputSource: 'derived',
+      cachedInputTokens: 0,
+      cacheWriteInputTokens: 0,
+      reasoningTokens: 0,
+      totalTokens: 15,
+    });
+    assert.deepEqual(normalizeAiSdkUsage({ outputTokens: 3, totalTokens: 15 }), {
+      inputTokens: 12,
+      outputTokens: 3,
+      cacheHitInputTokens: 0,
+      cacheMissInputTokens: 12,
+      cacheMissInputSource: 'derived',
+      cachedInputTokens: 0,
+      cacheWriteInputTokens: 0,
+      reasoningTokens: 0,
+      totalTokens: 15,
+    });
+    assert.deepEqual(normalizeAiSdkUsage({ inputTokens: 0, outputTokens: 0 }), {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheHitInputTokens: 0,
+      cacheMissInputTokens: 0,
+      cacheMissInputSource: 'derived',
+      cachedInputTokens: 0,
+      cacheWriteInputTokens: 0,
+      reasoningTokens: 0,
+      totalTokens: 0,
+    });
+  });
+
   test('derives totals from detail-only AI SDK usage', () => {
     assert.deepEqual(
       normalizeAiSdkUsage({

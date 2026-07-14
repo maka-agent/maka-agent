@@ -4126,6 +4126,44 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(recordedBlocks[0]?.blockId, 'afcompact-sync-test');
   });
 
+  test('does not record semantic compact usage when provider usage is unavailable', () => {
+    const llmRecords: LlmCallRecord[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordLlmCall: (record) => { llmRecords.push(record); },
+    });
+
+    (backend as unknown as {
+      recordSemanticCompactSummaryCall(input: {
+        callId: string;
+        turnId: string;
+        modelId: string;
+        startedAt: number;
+        latencyMs: number;
+        status: LlmCallRecord['status'];
+      }): void;
+    }).recordSemanticCompactSummaryCall({
+      callId: 'semantic-1',
+      turnId: 'turn-1',
+      modelId: 'mock-model-id',
+      startedAt: 1,
+      latencyMs: 2,
+      status: 'error',
+    });
+
+    assert.deepEqual(llmRecords, []);
+  });
+
   test('semantic compact records a separate no-tools summarizer LLM call', async () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
