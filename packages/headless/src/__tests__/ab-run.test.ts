@@ -206,6 +206,74 @@ describe('runAbComparison', () => {
     assert.equal(result.stopReason, 'observed_cost_stop_reached');
   });
 
+  test('stops scheduling new pairs when either real-provider cost is unknown', async () => {
+    const calls: string[] = [];
+    const result = await runAbComparison({
+      runId: 'ab-run',
+      arms: [
+        { id: 'tools-off', kind: 'tools', fingerprint: sha256('tools-off') },
+        { id: 'tools-on', kind: 'tools', fingerprint: sha256('tools-on') },
+      ],
+      evaluationTasks: [
+        { id: 't1', path: '/tasks/t1' },
+        { id: 't2', path: '/tasks/t2' },
+      ],
+      reps: 1,
+      maxConcurrency: 1,
+      observedCostStopUsd: 1,
+      runArm: async ({ roundId, task, arm }) => {
+        calls.push(roundId);
+        const event = completed(task.id, true);
+        return arm.id === 'tools-off'
+          ? {
+              ...event,
+              tokenSummary: undefined,
+              executionIdentity: {
+                llmConnectionSlug: 'provider',
+                model: 'model',
+                systemPromptHash: 'sha256:prompt',
+                pricingProfile: 'test',
+              },
+            }
+          : event;
+      },
+    });
+
+    assert.deepEqual(calls, ['ab-tools-off-r0-t1', 'ab-tools-on-r0-t1']);
+    assert.equal(result.stopReason, 'cost_observation_unavailable');
+  });
+
+  test('drains active pairs but does not refill after cost becomes unknown', async () => {
+    const calls: string[] = [];
+    const result = await runAbComparison({
+      runId: 'ab-run',
+      arms: [
+        { id: 'off', kind: 'runtime', fingerprint: sha256('off') },
+        { id: 'on', kind: 'runtime', fingerprint: sha256('on') },
+      ],
+      evaluationTasks: ['t1', 't2', 't3'].map((id) => ({ id, path: `/tasks/${id}` })),
+      reps: 1,
+      maxConcurrency: 2,
+      observedCostStopUsd: 1,
+      runArm: async ({ task, arm }) => {
+        calls.push(`${task.id}:${arm.id}`);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        const event = completed(task.id, true);
+        return {
+          ...event,
+          tokenSummary: undefined,
+          executionIdentity: {
+            llmConnectionSlug: 'provider', model: 'model',
+            systemPromptHash: 'sha256:prompt', pricingProfile: 'test',
+          },
+        };
+      },
+    });
+
+    assert.deepEqual(new Set(calls), new Set(['t1:off', 't1:on', 't2:off', 't2:on']));
+    assert.equal(result.stopReason, 'cost_observation_unavailable');
+  });
+
   test('stops scheduling new pairs after a systemic provider failure', async () => {
     const calls: string[] = [];
     const result = await runAbComparison({

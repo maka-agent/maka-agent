@@ -179,6 +179,7 @@ export interface FixedPromptTaskPlumbingFailedEvent {
   error: string;
   promptHash?: string;
   expectedPromptHash?: string;
+  executionIdentity?: HarborCellExecutionIdentity;
   tokenSummary?: HarborCellTokenSummary;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
@@ -318,6 +319,7 @@ export interface RunFixedPromptControllerInput {
 export type FixedPromptControllerStopReason =
   | 'infra_failure_rate_exceeded'
   | 'systemic_provider_failure'
+  | 'cost_observation_unavailable'
   | 'cost_ceiling_exceeded';
 
 export interface FixedPromptControllerResult {
@@ -769,6 +771,7 @@ function taskPlumbingFailedEvent(input: {
     error: input.error,
     ...(input.output.cell.promptHash ? { promptHash: input.output.cell.promptHash } : {}),
     expectedPromptHash: input.expectedPromptHash,
+    ...(input.output.cell.executionIdentity ? { executionIdentity: input.output.cell.executionIdentity } : {}),
     ...(input.output.cell.tokenSummary ? { tokenSummary: input.output.cell.tokenSummary } : {}),
     ...(input.output.cell.contextBudgetPolicy
       ? { contextBudgetPolicy: input.output.cell.contextBudgetPolicy }
@@ -1172,6 +1175,9 @@ function controllerStopReason(input: {
   ) {
     return 'infra_failure_rate_exceeded';
   }
+  if (input.costCeilingUsd !== undefined && input.events.some(hasUnknownRealProviderCost)) {
+    return 'cost_observation_unavailable';
+  }
   if (input.costCeilingUsd !== undefined && taskEventsCostUsd(input.events) >= input.costCeilingUsd) {
     return 'cost_ceiling_exceeded';
   }
@@ -1198,6 +1204,13 @@ function infraFailureRate(events: readonly FixedPromptTaskWalEvent[], taskCount:
 
 function taskEventsCostUsd(events: readonly FixedPromptTaskWalEvent[]): number {
   return sum(events.map((event) => eventTokenSummary(event)?.costUsd ?? 0));
+}
+
+export function hasUnknownRealProviderCost(event: FixedPromptTaskWalEvent): boolean {
+  if (eventTokenSummary(event) !== undefined) return false;
+  if (event.type === 'task_plumbing_failed' && event.errorClass === 'missing_token_usage') return true;
+  if (event.type === 'task_budget_exhausted' && event.evidenceErrorClass === 'missing_token_usage') return true;
+  return 'executionIdentity' in event && event.executionIdentity !== undefined;
 }
 
 function eventTokenSummary(event: FixedPromptTaskWalEvent): HarborCellTokenSummary | undefined {

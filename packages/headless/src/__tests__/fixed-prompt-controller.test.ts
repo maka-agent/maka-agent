@@ -1218,6 +1218,77 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('stops scheduling when real-provider cost cannot be observed', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const calls: string[] = [];
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: [
+          { id: 'task-a', path: '/bench/task-a' },
+          { id: 'task-b', path: '/bench/task-b' },
+        ],
+        maxConcurrency: 1,
+        costCeilingUsd: 1,
+        harborRunner: async ({ task }) => {
+          calls.push(task.id);
+          return harborOutput({
+            taskId: task.id,
+            omitTokenSummary: true,
+            executionIdentity: {
+              llmConnectionSlug: 'fake',
+              model: 'fake-model',
+              systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+              pricingProfile: 'test-profile',
+            },
+          });
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.deepEqual(calls, ['task-a']);
+      assert.equal(result.stopReason, 'cost_observation_unavailable');
+    });
+  });
+
+  test('drains the active wave but does not refill after cost becomes unknown', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const calls: string[] = [];
+      const result = await runFixedPromptController({
+        runId: 'run-1', roundId: 'round-1', config, systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: ['a', 'b', 'c'].map((id) => ({ id: `task-${id}`, path: `/bench/task-${id}` })),
+        maxConcurrency: 2,
+        costCeilingUsd: 1,
+        harborRunner: async ({ task }) => {
+          calls.push(task.id);
+          await delay(1);
+          return harborOutput({
+            taskId: task.id,
+            omitTokenSummary: true,
+            executionIdentity: {
+              llmConnectionSlug: 'fake', model: 'fake-model',
+              systemPromptHash: hashSystemPrompt('fixed prompt\n'), pricingProfile: 'test-profile',
+            },
+          });
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.deepEqual(calls, ['task-a', 'task-b']);
+      assert.equal(result.stopReason, 'cost_observation_unavailable');
+    });
+  });
+
   test('checks the cost ceiling between rolling concurrency waves', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
