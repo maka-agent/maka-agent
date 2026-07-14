@@ -113,7 +113,7 @@ describe('ModelAdapter extraction contract', () => {
     assert.match(adapter, /startStream\(/);
     assert.match(adapter, /await import\('ai'\)/);
     assert.match(adapter, /streamText\(/);
-    assert.match(adapter, /stepCountIs\(this\.input\.maxSteps\)/);
+    assert.match(adapter, /stepCountIs\(input\.maxSteps\)/);
     assert.match(adapter, /handleStreamChunk\(/);
     assert.match(adapter, /switch \(chunk\.type\)/);
     assert.match(adapter, /case 'reasoning-delta'/);
