@@ -197,6 +197,9 @@ export interface AbAttemptPairSummary {
   evaluatedPairs: number;
   baselinePassed: number;
   candidatePassed: number;
+  fullyMeteredPairs: number;
+  baselineMeteredPassed: number;
+  candidateMeteredPassed: number;
   baselineTokenCostSummary: AbTokenCostSummary;
   candidateTokenCostSummary: AbTokenCostSummary;
   wins: number;
@@ -204,6 +207,7 @@ export interface AbAttemptPairSummary {
   ties: number;
   missingPairIds: string[];
   excludedPairIds: string[];
+  missingUsagePairIds: string[];
   budgetDiscordantPairIds: string[];
   infraOrPlumbingDiscordantPairIds: string[];
 }
