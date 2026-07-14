@@ -16,9 +16,11 @@ test('answers three questions and continues the same fake-backend turn', async (
   await prompt.getByRole('button', { name: '下一题' }).click();
 
   await expect(prompt.getByText('2 / 3', { exact: true })).toBeVisible();
+  await expect(prompt.getByRole('radio', { name: '本周' })).toBeFocused();
   await prompt.getByRole('button', { name: '下一题' }).click();
 
   await expect(prompt.getByText('3 / 3', { exact: true })).toBeVisible();
+  await expect(prompt.getByRole('radio', { name: '是' })).toBeFocused();
   await prompt.getByRole('radio', { name: /其他/ }).click();
   const other = prompt.getByRole('textbox', { name: '其他答案' });
   await expect(prompt.getByRole('button', { name: '提交答案' })).toBeDisabled();

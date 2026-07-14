@@ -34,9 +34,12 @@ export function UserQuestionPrompt(props: {
     setDrafts(createQuestionDrafts(props.request.questions));
     responsePendingRef.current = false;
     setResponsePending(false);
+  }, [props.request.requestId, props.request.questions]);
+
+  useEffect(() => {
     const frame = window.requestAnimationFrame(() => firstOptionRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
-  }, [props.request.requestId, props.request.questions]);
+  }, [questionIndex, props.request.requestId, props.request.questions]);
 
   const question = props.request.questions[questionIndex];
   if (!question) return null;
