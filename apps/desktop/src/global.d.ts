@@ -327,6 +327,16 @@ declare global {
         refreshTokens(): Promise<SubscriptionActionResult>;
         logout(): Promise<SubscriptionActionResult>;
       };
+      githubCopilotSubscription: {
+        connectExistingLogin(): Promise<SubscriptionActionResult>;
+        getAccountState(): Promise<{
+          provider: 'github-copilot';
+          runtimeState: 'not_logged_in' | 'authenticated' | 'refreshing' | 'refresh_failed' | 'storage_failed';
+          errorMessage?: string;
+        }>;
+        refreshTokens(): Promise<SubscriptionActionResult>;
+        logout(): Promise<SubscriptionActionResult>;
+      };
       cursorSubscription: {
         isExperimentalEnabled(): Promise<boolean>;
         getAuthUrl(): Promise<AuthorizationUrlPayload | SubscriptionActionResult>;

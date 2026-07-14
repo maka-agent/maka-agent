@@ -3,8 +3,8 @@
  * the provider settings source files
  * (PR-MODEL-OAUTH-ALL-0).
  *
- * Pins the user-visible OAuth login surface: four cards
- * (claude / codex / antigravity / cursor), each marked
+ * Pins the user-visible OAuth login surface: five cards
+ * (claude / codex / GitHub Copilot / antigravity / cursor), each marked
  * `status: 'available'`, and each click wires through to its
  * matching `window.maka.<provider>Subscription` bridge namespace.
  *
@@ -463,19 +463,19 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     }
   });
 
-  it('exposes exactly four equal OAuth cards: claude, codex, antigravity, cursor', async () => {
+  it('exposes exactly five equal OAuth cards including GitHub Copilot', async () => {
     // WAWQAQ msg 8bb7e186: Claude must not be a huge standalone
     // inline card while the other OAuth providers are compact
-    // cards. All four login entries live in the same grid.
+    // cards. All five login entries live in the same grid.
     const src = await readProviderSettingsCombinedSource();
     const match = src.match(/MODEL_OAUTH_CARDS:\s*ReadonlyArray<ModelOAuthCard>\s*=\s*\[([\s\S]*?)\];/);
     assert.ok(match, 'MODEL_OAUTH_CARDS literal must exist');
     const body = match[1]!;
-    const ids = [...body.matchAll(/id:\s*'([a-z]+)'/g)].map((m) => m[1]);
+    const ids = [...body.matchAll(/id:\s*'([a-z-]+)'/g)].map((m) => m[1]);
     assert.deepEqual(
       ids.sort(),
-      ['antigravity', 'claude', 'codex', 'cursor'],
-      'grid must include exactly claude / codex / antigravity / cursor',
+      ['antigravity', 'claude', 'codex', 'cursor', 'github-copilot'],
+      'grid must include exactly claude / codex / github-copilot / antigravity / cursor',
     );
   });
 
@@ -550,7 +550,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.ok(match, 'MODEL_OAUTH_CARDS literal must exist');
     const body = match[1]!;
     const statuses = [...body.matchAll(/status:\s*'([a-z_]+)'/g)].map((m) => m[1]);
-    assert.equal(statuses.length, 4, 'each card must declare a status');
+    assert.equal(statuses.length, 5, 'each card must declare a status');
     for (const s of statuses) {
       assert.equal(s, 'available', `card status must be 'available', got '${s}'`);
     }
@@ -592,13 +592,13 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /baseUrl:\s*hasFixedOAuthBaseUrl\s*\?\s*defaults\.baseUrl\s*:\s*baseUrl \|\| undefined/,
-      'saving an OAuth connection must submit the provider default endpoint, not renderer-edited text',
+      /baseUrl:\s*baseUrl \|\| undefined/,
+      'saving an OAuth connection must submit the read-only endpoint loaded from the connection',
     );
     assert.match(
       detail,
-      /value=\{hasFixedOAuthBaseUrl \? defaults\.baseUrl : baseUrl\}/,
-      'OAuth Base URL input must display the canonical provider endpoint',
+      /value=\{baseUrl\}/,
+      'OAuth Base URL input must display the main-owned connection endpoint',
     );
     assert.match(
       detail,
@@ -1281,10 +1281,11 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(detail, /请到账号连接完成登录/, 'unmapped OAuth types keep an honest prose fallback');
   });
 
-  it('preload exposes the three new subscription namespaces alongside claudeSubscription', async () => {
+  it('preload exposes every subscription namespace alongside claudeSubscription', async () => {
     const src = await readFile(PRELOAD_SOURCE, 'utf8');
     assert.match(src, /codexSubscription:\s*\{/, 'preload must expose window.maka.codexSubscription');
     assert.match(src, /cursorSubscription:\s*\{/, 'preload must expose window.maka.cursorSubscription');
+    assert.match(src, /githubCopilotSubscription:\s*\{/, 'preload must expose window.maka.githubCopilotSubscription');
     assert.match(
       src,
       /antigravitySubscription:\s*\{/,
@@ -1303,6 +1304,10 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'antigravity-subscription:complete-authorization',
       'antigravity-subscription:get-account-state',
       'antigravity-subscription:logout',
+      'github-copilot:connect-existing-login',
+      'github-copilot:get-account-state',
+      'github-copilot:refresh-tokens',
+      'github-copilot:logout',
     ]) {
       assert.match(
         src,

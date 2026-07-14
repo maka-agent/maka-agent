@@ -29,9 +29,9 @@ import {
   type SubscriptionSnapshot,
 } from './use-oauth-login-flow';
 
-type OAuthCardId = 'claude' | 'codex' | 'antigravity' | 'cursor';
+type OAuthCardId = 'claude' | 'codex' | 'github-copilot' | 'antigravity' | 'cursor';
 type OAuthServiceId = OAuthCardId;
-type BrowserOAuthServiceId = Exclude<OAuthServiceId, 'claude'>;
+type BrowserOAuthServiceId = Exclude<OAuthServiceId, 'claude' | 'github-copilot'>;
 
 interface ModelOAuthCard {
   id: OAuthCardId;
@@ -56,6 +56,14 @@ const MODEL_OAUTH_CARDS: ReadonlyArray<ModelOAuthCard> = [
     providerType: 'codex-subscription',
     name: 'OpenAI Codex',
     description: 'ChatGPT Plus / Pro 订阅账号登录。',
+    status: 'available',
+    statusLabel: '可用',
+  },
+  {
+    id: 'github-copilot',
+    providerType: 'github-copilot',
+    name: 'GitHub Copilot',
+    description: '导入已登录的 GitHub CLI 订阅账号。',
     status: 'available',
     statusLabel: '可用',
   },
@@ -93,6 +101,7 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
   const [cardStates, setCardStates] = useState<Record<OAuthServiceId, SubscriptionSnapshot | null>>({
     claude: null,
     codex: null,
+    'github-copilot': null,
     cursor: null,
     antigravity: null,
   });
@@ -206,7 +215,15 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
           }}
         />
       )}
-      {openModal !== null && openModal !== 'claude' && (
+      {openModal === 'github-copilot' && (
+        <GitHubCopilotSubscriptionModal
+          onClose={() => {
+            setOpenModal(null);
+            void refreshAfterModalClose();
+          }}
+        />
+      )}
+      {openModal !== null && openModal !== 'claude' && openModal !== 'github-copilot' && (
         <SubscriptionLoginModal
           serviceId={openModal}
           onClose={() => {
@@ -331,7 +348,82 @@ async function getSubscriptionSnapshot(serviceId: OAuthServiceId): Promise<Subsc
       errorMessage: state.errorMessage,
     };
   }
+  if (serviceId === 'github-copilot') {
+    return window.maka.githubCopilotSubscription.getAccountState();
+  }
   return (await pickSubscriptionBridge(serviceId).getAccountState()) as SubscriptionSnapshot;
+}
+
+function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
+  const [state, setState] = useState<SubscriptionSnapshot | null>(null);
+  const [pendingAction, setPendingAction] = useState<'connect' | 'refresh' | 'logout' | null>(null);
+  const pendingRef = useRef<typeof pendingAction>(null);
+  const mountedRef = useMountedRef();
+  const toast = useToast();
+
+  async function refreshState() {
+    const next = await window.maka.githubCopilotSubscription.getAccountState();
+    if (mountedRef.current) setState(next);
+  }
+
+  useEffect(() => { void refreshState(); }, []);
+
+  async function runAction(action: NonNullable<typeof pendingAction>) {
+    if (pendingRef.current) return;
+    pendingRef.current = action;
+    setPendingAction(action);
+    try {
+      const result = action === 'connect'
+        ? await window.maka.githubCopilotSubscription.connectExistingLogin()
+        : action === 'refresh'
+          ? await window.maka.githubCopilotSubscription.refreshTokens()
+          : await window.maka.githubCopilotSubscription.logout();
+      if (!result.ok) toast.error('GitHub Copilot 账号操作失败', result.message);
+      await refreshState();
+    } catch (error) {
+      if (mountedRef.current) toast.error('GitHub Copilot 账号操作失败', subscriptionActionErrorMessage(error));
+    } finally {
+      pendingRef.current = null;
+      if (mountedRef.current) setPendingAction(null);
+    }
+  }
+
+  const loggedIn = state?.runtimeState === 'authenticated' || state?.runtimeState === 'refreshing';
+  return (
+    <ProviderSheet onClose={props.onClose} ariaLabel="GitHub Copilot 登录" dataSubscription="github-copilot">
+      <header className="providerConfigHeader">
+        <div>
+          <h3>GitHub Copilot</h3>
+          <p>复用本机 GitHub CLI 登录，不会把 token 暴露给渲染进程。</p>
+        </div>
+        <Button type="button" variant="ghost" onClick={props.onClose} aria-label="关闭">×</Button>
+      </header>
+      <div className="settingsConnectionRow" data-status={state?.runtimeState ?? 'loading'}>
+        <p className="settingsConnectionDetail">
+          {loggedIn
+            ? '已导入 GitHub Copilot 订阅账号。'
+            : state?.runtimeState === 'refresh_failed' || state?.runtimeState === 'storage_failed'
+              ? state.errorMessage
+              : '请先在终端运行 gh auth login，再导入当前登录。'}
+        </p>
+        <div className="settingsConnectionActions">
+          <Button type="button" onClick={() => void runAction('connect')} disabled={pendingAction !== null}>
+            {pendingAction === 'connect' ? '导入中…' : loggedIn ? '重新导入' : '导入 GitHub CLI 登录'}
+          </Button>
+          {loggedIn && (
+            <>
+              <Button type="button" variant="secondary" onClick={() => void runAction('refresh')} disabled={pendingAction !== null}>
+                {pendingAction === 'refresh' ? '刷新中…' : '刷新凭据'}
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => void runAction('logout')} disabled={pendingAction !== null}>
+                {pendingAction === 'logout' ? '移除中…' : '移除本地登录'}
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </ProviderSheet>
+  );
 }
 
 function pickSubscriptionBridge(serviceId: BrowserOAuthServiceId): OAuthLoginFlowBridge {

@@ -56,6 +56,7 @@ import {
 import { turnFailureMessageFromSessionEvent } from './turn-stream-outcome.js';
 import { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
 import { CodexSubscriptionService } from './oauth/codex-subscription-service.js';
+import { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
@@ -300,6 +301,7 @@ const codexSubscription = new CodexSubscriptionService({
   userDataDir: app.getPath('userData'),
   credentialStore,
 });
+const githubCopilotSubscription = new GitHubCopilotSubscriptionService({ credentialStore });
 const buildSubscriptionModelFetch = createSubscriptionModelFetch({
   claudeSubscription,
 });
@@ -308,6 +310,7 @@ const oauthModelConnections = createOAuthModelConnectionsMainService({
   credentialStore,
   claudeSubscription,
   codexSubscription,
+  githubCopilotSubscription,
 });
 const isClaudeSubscriptionAuthenticatedState = oauthModelConnections.isClaudeSubscriptionAuthenticatedState;
 const isCodexSubscriptionAuthenticatedState = oauthModelConnections.isCodexSubscriptionAuthenticatedState;
@@ -318,6 +321,10 @@ function syncClaudeSubscriptionConnection(): Promise<LlmConnection | null> {
 
 function syncCodexSubscriptionConnection(): Promise<LlmConnection | null> {
   return oauthModelConnections.syncCodexSubscriptionConnection();
+}
+
+function syncGitHubCopilotConnection(): Promise<LlmConnection | null> {
+  return oauthModelConnections.syncGitHubCopilotConnection();
 }
 
 function syncOAuthModelConnections(): Promise<void> {
@@ -1383,12 +1390,14 @@ function registerIpc(): void {
     connectionStore,
     claudeSubscription,
     codexSubscription,
+    githubCopilotSubscription,
     cursorSubscription,
     antigravitySubscription,
     isClaudeSubscriptionAuthenticatedState,
     isCodexSubscriptionAuthenticatedState,
     syncClaudeSubscriptionConnection,
     syncCodexSubscriptionConnection,
+    syncGitHubCopilotConnection,
     emitConnectionListChanged,
   });
 

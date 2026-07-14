@@ -20,12 +20,15 @@ import {
 import {
   CLAUDE_SUBSCRIPTION_CONNECTION_SLUG,
   CODEX_SUBSCRIPTION_CONNECTION_SLUG,
+  GITHUB_COPILOT_CONNECTION_SLUG,
 } from './oauth-model-connections-main.js';
+import type { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
 
 interface SubscriptionIpcDeps {
   connectionStore: ConnectionStore;
   claudeSubscription: ClaudeSubscriptionService;
   codexSubscription: CodexSubscriptionService;
+  githubCopilotSubscription: GitHubCopilotSubscriptionService;
   cursorSubscription: CursorSubscriptionService;
   antigravitySubscription: AntigravitySubscriptionService;
   isClaudeSubscriptionAuthenticatedState(
@@ -36,10 +39,45 @@ interface SubscriptionIpcDeps {
   ): boolean;
   syncClaudeSubscriptionConnection(): Promise<LlmConnection | null>;
   syncCodexSubscriptionConnection(): Promise<LlmConnection | null>;
+  syncGitHubCopilotConnection(): Promise<LlmConnection | null>;
   emitConnectionListChanged(): void;
 }
 
 export function registerSubscriptionIpc(deps: SubscriptionIpcDeps): void {
+  ipcMain.handle('github-copilot:connect-existing-login', async () => {
+    const result = await deps.githubCopilotSubscription.connectExistingLogin();
+    if (result.ok) {
+      await deps.syncGitHubCopilotConnection();
+      deps.emitConnectionListChanged();
+    }
+    return result;
+  });
+  ipcMain.handle('github-copilot:get-account-state', async () => {
+    return deps.githubCopilotSubscription.getAccountState();
+  });
+  ipcMain.handle('github-copilot:refresh-tokens', async () => {
+    const result = await deps.githubCopilotSubscription.refreshTokens();
+    if (result.ok) {
+      await deps.syncGitHubCopilotConnection();
+      deps.emitConnectionListChanged();
+    }
+    return result;
+  });
+  ipcMain.handle('github-copilot:logout', async () => {
+    const result = await deps.githubCopilotSubscription.logout();
+    const existing = await deps.connectionStore.get(GITHUB_COPILOT_CONNECTION_SLUG);
+    if (existing) {
+      await deps.connectionStore.update(existing.slug, {
+        enabled: false,
+        lastTestStatus: 'needs_reauth',
+        lastTestAt: new Date().toISOString(),
+        lastTestMessage: 'GitHub Copilot 已移除本地登录。',
+      });
+      deps.emitConnectionListChanged();
+    }
+    return result;
+  });
+
   const experimentalDisabledResponse = {
     ok: false as const,
     reason: 'experimental_disabled' as const,

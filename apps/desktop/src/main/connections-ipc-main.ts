@@ -106,7 +106,7 @@ async function normalizeUpdateConnectionInput(
   const existing = await connectionStore.get(slug);
   const providerType = existing?.providerType;
   if (providerType && PROVIDER_DEFAULTS[providerType].authKind === 'oauth_token') {
-    return { ...normalizedPatch, baseUrl: PROVIDER_DEFAULTS[providerType].baseUrl };
+    return { ...normalizedPatch, baseUrl: existing?.baseUrl ?? PROVIDER_DEFAULTS[providerType].baseUrl };
   }
   if (normalizedPatch.baseUrl === undefined) return normalizedPatch;
   const result = normalizeConnectionBaseUrl(normalizedPatch.baseUrl);

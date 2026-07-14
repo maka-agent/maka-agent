@@ -12,15 +12,20 @@ import {
   type CodexSubscriptionService,
   isCodexSubscriptionExperimentalEnabled,
 } from './oauth/codex-subscription-service.js';
+import { fetchProviderModels } from '@maka/runtime';
+import type { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
 
 export const CLAUDE_SUBSCRIPTION_CONNECTION_SLUG = 'claude-subscription';
 export const CODEX_SUBSCRIPTION_CONNECTION_SLUG = 'codex-subscription';
+export const GITHUB_COPILOT_CONNECTION_SLUG = 'github-copilot';
 
 interface OAuthModelConnectionsDeps {
   connectionStore: ConnectionStore;
   credentialStore: CredentialStore;
   claudeSubscription: ClaudeSubscriptionService;
   codexSubscription: CodexSubscriptionService;
+  githubCopilotSubscription: GitHubCopilotSubscriptionService;
+  fetchModels?: typeof fetchProviderModels;
 }
 
 export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectionsDeps) {
@@ -81,6 +86,69 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     return state.runtimeState === 'authenticated' || state.runtimeState === 'refreshing';
   }
 
+  function isGitHubCopilotAuthenticatedState(
+    state: Awaited<ReturnType<GitHubCopilotSubscriptionService['getAccountState']>>,
+  ): boolean {
+    return state.runtimeState === 'authenticated' || state.runtimeState === 'refreshing';
+  }
+
+  async function syncGitHubCopilotConnection(): Promise<LlmConnection | null> {
+    const state = await deps.githubCopilotSubscription.getAccountState();
+    const existing = await deps.connectionStore.get(GITHUB_COPILOT_CONNECTION_SLUG);
+    if (!isGitHubCopilotAuthenticatedState(state)) {
+      if (existing) {
+        return deps.connectionStore.update(existing.slug, {
+          enabled: false,
+          lastTestStatus: 'needs_reauth',
+          lastTestAt: new Date().toISOString(),
+          lastTestMessage: state.errorMessage ?? 'GitHub Copilot 需要重新导入 GitHub CLI 登录。',
+        });
+      }
+      return null;
+    }
+    const tokens = await deps.githubCopilotSubscription.getTokensInternal();
+    if (!tokens) return existing;
+    const defaults = PROVIDER_DEFAULTS['github-copilot'];
+    const baseUrl = tokens.base_url ?? defaults.baseUrl;
+    const fallbackModels = defaults.fallbackModels.map((id) => ({ id }));
+    const now = Date.now();
+    const discoveryConnection: LlmConnection = {
+      slug: GITHUB_COPILOT_CONNECTION_SLUG,
+      name: existing?.name ?? 'GitHub Copilot',
+      providerType: 'github-copilot',
+      baseUrl,
+      defaultModel: existing?.defaultModel || defaults.fallbackModels[0] || '',
+      enabled: true,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    let models = existing?.models?.length ? existing.models : fallbackModels;
+    let modelSource = existing?.modelSource ?? 'fallback';
+    let modelsFetchedAt = existing?.modelsFetchedAt;
+    try {
+      models = await (deps.fetchModels ?? fetchProviderModels)(discoveryConnection, tokens.access_token);
+      modelSource = 'fetched';
+      modelsFetchedAt = now;
+    } catch {
+      // Account connection remains usable with the models.dev snapshot; a
+      // manual refresh can retry account discovery without losing the login.
+    }
+    const enabledIds = models.map((model) => model.id);
+    const defaultModel = enabledIds.includes(existing?.defaultModel ?? '')
+      ? existing!.defaultModel
+      : enabledIds[0] ?? '';
+    return deps.connectionStore.save({
+      ...discoveryConnection,
+      defaultModel,
+      models,
+      modelSource,
+      ...(modelsFetchedAt !== undefined ? { modelsFetchedAt } : {}),
+      lastTestStatus: 'verified',
+      lastTestAt: new Date(now).toISOString(),
+      lastTestMessage: 'GitHub Copilot 登录已导入。',
+    });
+  }
+
   async function syncCodexSubscriptionConnection(): Promise<LlmConnection | null> {
     if (!isCodexSubscriptionExperimentalEnabled()) return null;
     const state = await deps.codexSubscription.getAccountState();
@@ -133,6 +201,7 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     const results = await Promise.allSettled([
       syncClaudeSubscriptionConnection(),
       syncCodexSubscriptionConnection(),
+      syncGitHubCopilotConnection(),
     ]);
     for (const result of results) {
       if (result.status === 'rejected') {
@@ -148,6 +217,9 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     }
     if (connection?.providerType === 'codex-subscription') {
       return deps.codexSubscription.getAccessTokenInternal();
+    }
+    if (connection?.providerType === 'github-copilot') {
+      return deps.githubCopilotSubscription.getAccessTokenInternal();
     }
     return deps.credentialStore.getSecret(slug, 'api_key');
   }
@@ -173,6 +245,9 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     if (connection.providerType === 'codex-subscription') {
       return deps.codexSubscription.hasStoredCredential();
     }
+    if (connection.providerType === 'github-copilot') {
+      return deps.githubCopilotSubscription.hasStoredCredential();
+    }
     const key = await deps.credentialStore.getSecret(connection.slug, 'api_key');
     return typeof key === 'string' && key.length > 0;
   }
@@ -180,10 +255,12 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
   return {
     isClaudeSubscriptionAuthenticatedState,
     isCodexSubscriptionAuthenticatedState,
+    isGitHubCopilotAuthenticatedState,
     resolveConnectionSecret,
     hasConnectionSecret,
     syncClaudeSubscriptionConnection,
     syncCodexSubscriptionConnection,
+    syncGitHubCopilotConnection,
     syncOAuthModelConnections,
   };
 }

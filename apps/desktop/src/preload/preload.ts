@@ -521,6 +521,24 @@ contextBridge.exposeInMainWorld('maka', {
       return ipcRenderer.invoke('codex-subscription:logout');
     },
   },
+  githubCopilotSubscription: {
+    connectExistingLogin(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('github-copilot:connect-existing-login');
+    },
+    getAccountState(): Promise<{
+      provider: 'github-copilot';
+      runtimeState: 'not_logged_in' | 'authenticated' | 'refreshing' | 'refresh_failed' | 'storage_failed';
+      errorMessage?: string;
+    }> {
+      return ipcRenderer.invoke('github-copilot:get-account-state');
+    },
+    refreshTokens(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('github-copilot:refresh-tokens');
+    },
+    logout(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('github-copilot:logout');
+    },
+  },
   cursorSubscription: {
     isExperimentalEnabled(): Promise<boolean> {
       return ipcRenderer.invoke('cursor-subscription:is-experimental-enabled');

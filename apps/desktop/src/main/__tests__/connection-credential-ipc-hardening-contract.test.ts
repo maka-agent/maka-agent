@@ -144,8 +144,8 @@ describe('connection credential IPC hardening contract', () => {
     );
     assert.match(
       mainSource,
-      /async function normalizeUpdateConnectionInput\([\s\S]*PROVIDER_DEFAULTS\[providerType\]\.authKind === 'oauth_token'[\s\S]*baseUrl: PROVIDER_DEFAULTS\[providerType\]\.baseUrl/,
-      'update must continue forcing canonical OAuth provider baseUrl',
+      /async function normalizeUpdateConnectionInput\([\s\S]*PROVIDER_DEFAULTS\[providerType\]\.authKind === 'oauth_token'[\s\S]*baseUrl: existing\?\.baseUrl \?\? PROVIDER_DEFAULTS\[providerType\]\.baseUrl/,
+      'update must preserve the main-owned account endpoint for OAuth providers',
     );
     assert.match(mainSource, /connections:test[\s\S]*const apiKey = await resolveConnectionSecret\(slug\)/);
     assert.match(mainSource, /connections:fetchModels[\s\S]*const apiKey = await resolveConnectionSecret\(slug\)/);

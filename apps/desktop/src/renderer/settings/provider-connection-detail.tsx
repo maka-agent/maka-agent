@@ -122,6 +122,7 @@ export function ConnectionDetail(props: {
   const supportsApiKey = providerAuthSupportsApiKey(connection.providerType);
   const needsOAuth = defaults.authKind === 'oauth_token';
   const oauthLoginService = needsOAuth ? oauthLoginServiceFor(connection.providerType) : null;
+  const usesGitHubCopilotLogin = connection.providerType === 'github-copilot';
   const hasFixedOAuthBaseUrl = needsOAuth && Boolean(defaults.baseUrl);
   const requiresCredential = providerAuthRequiresSecret(connection.providerType);
   const probesCredential = supportsApiKey || needsOAuth;
@@ -131,7 +132,7 @@ export function ConnectionDetail(props: {
     ? 'OAuth 登录 / 代理设置'
     : '模型密钥 / 服务地址 / 代理设置';
   const savedBaseUrl = connection.baseUrl ?? defaults.baseUrl;
-  const draftBaseUrl = hasFixedOAuthBaseUrl ? defaults.baseUrl : baseUrl;
+  const draftBaseUrl = baseUrl;
   const hasSaveChanges =
     apiKey.length > 0 ||
     draftBaseUrl !== savedBaseUrl ||
@@ -234,7 +235,7 @@ export function ConnectionDetail(props: {
     let saved = false;
     try {
       await props.bridge.update(connection.slug, {
-        baseUrl: hasFixedOAuthBaseUrl ? defaults.baseUrl : baseUrl || undefined,
+        baseUrl: baseUrl || undefined,
         defaultModel,
         ...(apiKey ? { apiKey } : {}),
       });
@@ -435,7 +436,7 @@ export function ConnectionDetail(props: {
         <Label className="text-xs text-foreground-secondary">服务地址</Label>
         {hasFixedOAuthBaseUrl && <FieldDescription>OAuth 固定</FieldDescription>}
         <Input
-          value={hasFixedOAuthBaseUrl ? defaults.baseUrl : baseUrl}
+          value={baseUrl}
           onChange={(event) => setBaseUrl(event.currentTarget.value)}
           placeholder={defaults.baseUrl}
           readOnly={hasFixedOAuthBaseUrl}
@@ -460,7 +461,9 @@ export function ConnectionDetail(props: {
         </FieldRoot>
       )}
       {needsOAuth && (
-        oauthLoginService ? (
+        usesGitHubCopilotLogin ? (
+          <GitHubCopilotReloginNotice hasSecret={hasSecret} onRelogin={refreshAfterRelogin} />
+        ) : oauthLoginService ? (
           <OAuthReloginNotice
             service={oauthLoginService}
             hasSecret={hasSecret}
@@ -529,6 +532,49 @@ export function ConnectionDetail(props: {
           {deleting ? '删除中…' : '删除'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+function GitHubCopilotReloginNotice(props: {
+  hasSecret: CredentialPresenceStatus;
+  onRelogin(): Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const mountedRef = useMountedRef();
+  const toast = useToast();
+  const loggedIn = props.hasSecret === true;
+  const loading = props.hasSecret === 'loading';
+
+  async function connect() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      const result = await window.maka.githubCopilotSubscription.connectExistingLogin();
+      if (!result.ok) {
+        toast.error('导入 GitHub Copilot 登录失败', result.message);
+        return;
+      }
+      await props.onRelogin();
+    } catch (error) {
+      if (mountedRef.current) toast.error('导入 GitHub Copilot 登录失败', generalizedErrorMessageChinese(error));
+    } finally {
+      busyRef.current = false;
+      if (mountedRef.current) setBusy(false);
+    }
+  }
+
+  return (
+    <div className="providerUnavailableNotice" data-auth-kind="oauth">
+      <strong>{loggedIn ? 'GitHub Copilot 已登录' : loading ? 'OAuth 状态读取中' : '等待 GitHub CLI 登录'}</strong>
+      <span>{loggedIn ? '若账号或组织策略变化，可重新导入当前 gh 登录。' : '先运行 gh auth login，再从本机安全导入。'}</span>
+      {!loading && (
+        <Button type="button" size="sm" disabled={busy} onClick={() => void connect()}>
+          {busy ? '导入中…' : loggedIn ? '重新导入' : '导入 GitHub CLI 登录'}
+        </Button>
+      )}
     </div>
   );
 }
