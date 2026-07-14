@@ -571,8 +571,8 @@ def _scoped_command(command: str, scope: str, command_id: str) -> str:
     scope_dir = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}")
     pgid_path = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}/{command_id}.pgid")
     return (
-        f"mkdir -p -- {scope_dir}; "
-        f"env {_COMMAND_SCOPE_ENV}={shlex.quote(scope)} setsid bash -lc {shlex.quote(command)} & "
+        f"mkdir -p -- {scope_dir}; set -m; "
+        f"env {_COMMAND_SCOPE_ENV}={shlex.quote(scope)} bash -lc {shlex.quote(command)} & "
         "command_pid=$!; "
         f"printf '%s\\n' \"$command_pid\" > {pgid_path}; "
         "wait \"$command_pid\"; command_status=$?; "
