@@ -134,6 +134,29 @@ describe('Harbor cell output contract', () => {
     });
   });
 
+  test('rejects a real-provider cell when token usage is unavailable', () => {
+    assert.throws(() => buildHarborCellOutput({
+      invocation: {
+        invocationId: 'inv-missing-usage',
+        runId: 'run-missing-usage',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        status: 'failed',
+        failure: { class: 'network' },
+        events: [runtimeEvent({ id: 'user-event', role: 'user', author: 'user' })],
+        startedAt: 100,
+        finishedAt: 250,
+      },
+      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+      executionIdentity: {
+        llmConnectionSlug: 'zai-coding-plan',
+        model: 'glm-5.2',
+        systemPromptHash: 'sha256:prompt-a',
+        pricingProfile: 'zai-public',
+      },
+    }), /token usage is unavailable/);
+  });
+
   test('keeps output when runtime emits more than one prompt hash', () => {
     const output = buildHarborCellOutput({
       invocation: {

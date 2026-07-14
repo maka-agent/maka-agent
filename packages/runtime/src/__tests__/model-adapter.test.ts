@@ -237,6 +237,14 @@ describe('ModelAdapter stream and error normalization', () => {
     );
   });
 
+  test('treats provider usage without token values as unavailable', () => {
+    assert.equal(normalizeAiSdkUsage({
+      inputTokens: undefined,
+      outputTokens: undefined,
+      totalTokens: undefined,
+    }), undefined);
+  });
+
   test('preserves DeepSeek and OpenAI-compatible raw usage fields', () => {
     assert.deepEqual(
       normalizeAiSdkUsage(

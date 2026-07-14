@@ -434,19 +434,17 @@ export function normalizeAiSdkUsage(
   options: { rawFinishReason?: unknown } = {},
 ): NormalizedAiSdkUsage | undefined {
   if (!usage) return undefined;
-  const inputTokens =
+  const reportedInputTokens =
     finiteTokenFromValueOrBreakdown(usage.inputTokens, 'total')
     ?? finiteToken(usage.promptTokens)
     ?? finiteToken(usage.raw?.prompt_tokens)
-    ?? finiteToken(usage.prompt_tokens)
-    ?? 0;
-  const outputTokens =
+    ?? finiteToken(usage.prompt_tokens);
+  const reportedOutputTokens =
     finiteTokenFromValueOrBreakdown(usage.outputTokens, 'total')
     ?? finiteToken(usage.completionTokens)
     ?? finiteToken(usage.raw?.completion_tokens)
-    ?? finiteToken(usage.completion_tokens)
-    ?? 0;
-  const cacheHitInputTokens =
+    ?? finiteToken(usage.completion_tokens);
+  const reportedCacheHitInputTokens =
     finiteToken(usage.cacheHitInputTokens)
     ?? finiteToken(usage.cachedInputTokens)
     ?? finiteToken(usage.cacheReadInputTokens)
@@ -456,14 +454,12 @@ export function normalizeAiSdkUsage(
     ?? finiteToken(usage.prompt_tokens_details?.cached_tokens)
     ?? finiteTokenFromBreakdown(usage.inputTokens, 'cacheRead')
     ?? finiteToken(usage.inputTokenDetails?.cacheReadTokens)
-    ?? finiteToken(usage.inputTokenDetails?.cachedTokens)
-    ?? 0;
-  const cacheWriteInputTokens =
+    ?? finiteToken(usage.inputTokenDetails?.cachedTokens);
+  const reportedCacheWriteInputTokens =
     finiteToken(usage.cacheWriteInputTokens)
     ?? finiteToken(usage.cacheCreationInputTokens)
     ?? finiteTokenFromBreakdown(usage.inputTokens, 'cacheWrite')
-    ?? finiteToken(usage.inputTokenDetails?.cacheWriteTokens)
-    ?? 0;
+    ?? finiteToken(usage.inputTokenDetails?.cacheWriteTokens);
   const explicitCacheMissInputTokens =
     finiteToken(usage.cacheMissInputTokens)
     ?? finiteToken(usage.raw?.prompt_cache_miss_tokens)
@@ -471,24 +467,40 @@ export function normalizeAiSdkUsage(
     ?? finiteTokenFromBreakdown(usage.inputTokens, 'noCache')
     ?? finiteToken(usage.inputTokenDetails?.noCacheTokens)
     ?? finiteToken(usage.inputTokenDetails?.cacheMissTokens);
-  const cacheMissInputTokens =
-    explicitCacheMissInputTokens
-    ?? Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
-  const cacheMissInputSource: CacheMissInputSource =
-    explicitCacheMissInputTokens !== undefined ? 'explicit' : 'derived';
-  const reasoningTokens =
+  const reportedReasoningTokens =
     finiteToken(usage.reasoningTokens)
     ?? finiteTokenFromBreakdown(usage.outputTokens, 'reasoning')
     ?? finiteToken(usage.outputTokenDetails?.reasoningTokens)
     ?? finiteToken(usage.raw?.completion_tokens_details?.reasoning_tokens)
     ?? finiteToken(usage.completion_tokens_details?.reasoning_tokens)
-    ?? finiteToken(usage.inputTokenDetails?.reasoningTokens)
-    ?? 0;
-  const totalTokens =
+    ?? finiteToken(usage.inputTokenDetails?.reasoningTokens);
+  const reportedTotalTokens =
     finiteToken(usage.totalTokens)
     ?? finiteToken(usage.raw?.total_tokens)
-    ?? finiteToken(usage.total_tokens)
-    ?? inputTokens + outputTokens;
+    ?? finiteToken(usage.total_tokens);
+  if (
+    reportedInputTokens === undefined
+    && reportedOutputTokens === undefined
+    && reportedCacheHitInputTokens === undefined
+    && reportedCacheWriteInputTokens === undefined
+    && explicitCacheMissInputTokens === undefined
+    && reportedReasoningTokens === undefined
+    && reportedTotalTokens === undefined
+  ) {
+    return undefined;
+  }
+  const inputTokens = reportedInputTokens ?? 0;
+  const outputTokens = reportedOutputTokens ?? 0;
+  const cacheHitInputTokens = reportedCacheHitInputTokens ?? 0;
+  const cacheWriteInputTokens = reportedCacheWriteInputTokens ?? 0;
+  const cacheMissInputTokens =
+    explicitCacheMissInputTokens
+    ?? Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
+  const cacheMissInputSource: CacheMissInputSource =
+    explicitCacheMissInputTokens !== undefined ? 'explicit' : 'derived';
+  const reasoningTokens = reportedReasoningTokens ?? 0;
+  const totalTokens =
+    reportedTotalTokens ?? inputTokens + outputTokens;
   const raw = rawUsageFields(usage);
   const rawFinishReason = rawFinishReasonString(options.rawFinishReason);
   return {

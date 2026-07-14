@@ -124,6 +124,10 @@ export function buildHarborCellOutput(input: {
   taskToolSummaryEnabled?: boolean;
 }): HarborCellOutput {
   const { invocation } = input;
+  const tokenSummary = summarizeCellTokens(invocation.events);
+  if (input.executionIdentity && tokenSummary.total <= 0) {
+    throw new Error('Harbor cell token usage is unavailable');
+  }
   return {
     schemaVersion: HARBOR_CELL_OUTPUT_SCHEMA_VERSION,
     status: invocation.status,
@@ -131,7 +135,7 @@ export function buildHarborCellOutput(input: {
     runtimeEventsPath: input.runtimeEventsPath,
     ...promptHashField(invocation.events),
     ...(input.executionIdentity ? { executionIdentity: input.executionIdentity } : {}),
-    tokenSummary: summarizeCellTokens(invocation.events),
+    tokenSummary,
     ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
     ...contextBudgetSummaryField(invocation.events),
     ...(input.continuationSummary ? { continuationSummary: input.continuationSummary } : {}),
