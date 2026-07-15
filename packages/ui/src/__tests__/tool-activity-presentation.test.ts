@@ -107,7 +107,7 @@ describe('tool activity presentation', () => {
     );
   });
 
-  it('opens a newly errored tool even after an earlier manual collapse', () => {
+  it('keeps a tool collapsed when it errors, even after an earlier manual collapse', () => {
     const running: ToolActivityItem = {
       toolUseId: 'tool-error',
       toolName: 'Bash',
@@ -118,15 +118,46 @@ describe('tool activity presentation', () => {
       ...running,
       status: 'errored',
     };
+
+    // An error is not an attention state: the initial disclosure stays closed…
+    assert.deepEqual(
+      createToolDisclosureState(deriveToolActivityPresentation(errored)),
+      { open: false, manuallySet: false },
+    );
+
+    // …and an earlier manual collapse is not overridden when the tool errors.
     const collapsed = setToolDisclosureOpen(
       createToolDisclosureState(deriveToolActivityPresentation(running)),
       false,
     );
-
     assert.deepEqual(
       syncToolDisclosureState(collapsed, deriveToolActivityPresentation(errored)),
-      { open: true, manuallySet: false },
+      { open: false, manuallySet: true },
     );
+  });
+
+  it('keeps a settled errored tool collapsed while the summary carries the failure signal', () => {
+    const markup = renderTool({
+      toolUseId: 'tool-errored-collapsed',
+      toolName: 'Bash',
+      activityKind: 'command',
+      intent: '跑测试',
+      status: 'errored',
+      args: { command: 'npm test' },
+      result: {
+        kind: 'terminal',
+        cwd: '/tmp/maka',
+        cmd: 'npm test',
+        status: 'failed',
+        exitCode: 1,
+        output: pipeOutput('', 'Error: boom\n'),
+      },
+    });
+
+    // Collapsed: the diagnostic body is not mounted…
+    assert.doesNotMatch(markup, /Error: boom/);
+    // …but the failure stays visible on the summary line.
+    assert.match(markup, /1 个失败/);
   });
 
   it('shows diagnostic flags without exposing transport chunk counts', () => {
@@ -134,7 +165,9 @@ describe('tool activity presentation', () => {
       items: [{
         toolUseId: 'tool-output',
         toolName: 'Bash',
-        status: 'errored',
+        // waiting_permission mounts the panel in static markup; errored no
+        // longer force-opens it.
+        status: 'waiting_permission',
         args: { command: 'npm test' },
         outputChunks: [
           { seq: 1, stream: 'stdout', text: 'one\n', redacted: false, createdAt: 1 },
@@ -159,7 +192,9 @@ describe('tool activity presentation', () => {
         toolUseId: 'tool-terminal-panel',
         toolName: 'Bash',
         intent: '跑测试',
-        status: 'errored',
+        // waiting_permission mounts the panel in static markup; errored no
+        // longer force-opens it.
+        status: 'waiting_permission',
         args: { command: 'npm run -w @maka/ui test' },
         result: {
           kind: 'terminal',
@@ -200,7 +235,9 @@ describe('tool activity presentation', () => {
       items: [{
         toolUseId: 'tool-malformed-terminal',
         toolName: 'Bash',
-        status: 'errored',
+        // waiting_permission mounts the panel in static markup; errored no
+        // longer force-opens it.
+        status: 'waiting_permission',
         args: { command: 'npm test' },
         result: malformed,
       } satisfies ToolActivityItem],
@@ -405,7 +442,9 @@ describe('tool activity presentation', () => {
       items: [{
         toolUseId: 'tool-mixed',
         toolName: 'CustomInspect',
-        status: 'errored',
+        // waiting_permission mounts the panel in static markup; errored no
+        // longer force-opens it.
+        status: 'waiting_permission',
         args: {},
         result: {
           kind: 'json',
@@ -577,7 +616,9 @@ describe('tool activity presentation', () => {
         toolUseId: 'tool-pty-control',
         toolName: 'WriteStdin',
         activityKind: 'command',
-        status: 'errored',
+        // waiting_permission mounts the panel in static markup; errored no
+        // longer force-opens it.
+        status: 'waiting_permission',
         args: {
           ref: 'maka://runtime/background-tasks/pty-1',
           inputPreview: { text: 'echo x\\n', bytes: 7, truncated: false },

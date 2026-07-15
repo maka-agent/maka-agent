@@ -11,9 +11,12 @@
  *
  * These tests render the public ToolActivity surface (boxed card path) with
  * a single errored item whose error text is long enough that its tail sits
- * past the banner's 240px truncation. The tail marker must NOT appear in the
- * default (collapsed) markup — it only renders inside the CollapsiblePanel,
- * which Base UI leaves unmounted while closed.
+ * past the banner's 240px truncation. The errored card itself now stays
+ * collapsed by default (the failure signal lives on the row's status label),
+ * so the body-level assertions render the expanded card via the `open` prop.
+ * The tail marker must NOT appear even in the expanded markup — it only
+ * renders inside the inner CollapsiblePanel, which Base UI leaves unmounted
+ * while closed.
  */
 
 import { strict as assert } from 'node:assert';
@@ -44,15 +47,26 @@ function renderErrored(errorText: string): string {
   return renderToStaticMarkup(createElement(ToolActivity, { items: [erroredItem(errorText)] }));
 }
 
+function renderExpanded(errorText: string): string {
+  return renderToStaticMarkup(createElement(ToolActivity, { items: [erroredItem(errorText)], open: true }));
+}
+
 describe('PR-TOOL-ERROR-COLLAPSE-0 contract (issue #741)', () => {
-  it('renders the concise failure banner by default for an errored tool', () => {
+  it('keeps the errored card collapsed by default, with the failure signal on the row', () => {
     const markup = renderErrored(LONG_ERROR);
-    assert.match(markup, /工具调用失败/, 'errored tool must show the ToolErrorBanner summary');
+    assert.doesNotMatch(markup, /工具调用失败/, 'a collapsed errored tool must not mount the banner');
+    assert.doesNotMatch(markup, new RegExp(TAIL_MARKER), 'a collapsed errored tool must not mount the raw payload');
+    assert.match(markup, />失败</, 'the collapsed row still carries the failure status label');
+  });
+
+  it('renders the concise failure banner when an errored tool is expanded', () => {
+    const markup = renderExpanded(LONG_ERROR);
+    assert.match(markup, /工具调用失败/, 'expanded errored tool must show the ToolErrorBanner summary');
     assert.match(markup, /Validation failed:/, 'banner must show the start of the error text');
   });
 
-  it('collapses the raw diagnostic payload by default (tail marker not rendered alongside the banner)', () => {
-    const markup = renderErrored(LONG_ERROR);
+  it('collapses the raw diagnostic payload behind the inner disclosure (tail marker not rendered alongside the banner)', () => {
+    const markup = renderExpanded(LONG_ERROR);
     assert.doesNotMatch(
       markup,
       new RegExp(TAIL_MARKER),
@@ -61,14 +75,14 @@ describe('PR-TOOL-ERROR-COLLAPSE-0 contract (issue #741)', () => {
   });
 
   it('exposes a keyboard-reachable trigger to expand the raw diagnostics', () => {
-    const markup = renderErrored(LONG_ERROR);
+    const markup = renderExpanded(LONG_ERROR);
     assert.match(markup, /显示原始诊断/, 'errored tool must label the raw-details disclosure trigger');
   });
 
   it('does not collapse the banner summary itself — the first 240px stays visible', () => {
     // A short error (under the 240px banner truncation) still renders its text
     // in the banner; only the raw payload (which would duplicate it) collapses.
-    const markup = renderErrored('short failure reason');
+    const markup = renderExpanded('short failure reason');
     assert.match(markup, /short failure reason/, 'a short error must still appear in the banner');
     assert.match(markup, /显示原始诊断/, '...and still offers the raw-details disclosure');
   });
@@ -80,7 +94,7 @@ describe('PR-TOOL-ERROR-COLLAPSE-0 contract (issue #741)', () => {
     const markup = renderToStaticMarkup(createElement(ToolActivity, { items: [{
       toolUseId: 'tu_empty', toolName: 'unknown_tool', status: 'errored', args: {},
       result: { kind: 'text', text: 'validation failed' },
-    }] }));
+    }], open: true }));
     assert.doesNotMatch(markup, /data-slot="tool-output"/, 'an errored tool whose raw lives in the disclosure must not also render an empty shared output panel');
   });
 
@@ -101,7 +115,7 @@ describe('PR-TOOL-ERROR-COLLAPSE-0 contract (issue #741)', () => {
     // #741 P2: a 240-char slice kept newlines, so a 180-line error still
     // rendered ~161 lines (~2656px). The summary now caps both chars and lines.
     const multiLine = Array.from({ length: 180 }, (_, i) => `line ${i}`).join('\n');
-    const markup = renderErrored(multiLine);
+    const markup = renderExpanded(multiLine);
     const m = markup.match(/data-slot="alert-description"[^>]*>([\s\S]*?)<\/div>/);
     const summary = m?.[1] ?? '';
     assert.ok(summary.split('\n').length <= 4, `banner summary must cap at 4 lines, got ${summary.split('\n').length}`);

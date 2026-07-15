@@ -44,8 +44,9 @@ function renderAutomationResult(text: string): string {
     toolName: AUTOMATION_TOOL_NAME,
     // This test exercises the result parser, not disclosure defaults. Use an
     // attention state so Base UI mounts the panel in static markup; ordinary
-    // running tools now stay collapsed until the user asks for diagnostics.
-    status: 'errored',
+    // running tools — and now errored tools too — stay collapsed until the
+    // user asks for diagnostics.
+    status: 'waiting_permission',
     args: { mode: 'create' },
     result: { kind: 'text', text },
   };
