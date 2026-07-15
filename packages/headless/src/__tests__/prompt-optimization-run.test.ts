@@ -433,6 +433,7 @@ describe('runPromptOptimizationRun', () => {
             systemPrompt: `candidate prompt ${promptInput.roundId}\n`,
             summary: `tuned for ${promptInput.roundId}`,
             candidateRationale: {
+              editedSurface: 'system_prompt',
               failurePattern: 'coverage_regression',
               evidenceRefs: signal ? [signal.id] : [],
               hypothesis: 'make the success criteria explicit',
@@ -534,6 +535,7 @@ describe('runPromptOptimizationRun', () => {
             systemPrompt: `candidate prompt ${promptInput.roundId}\n`,
             summary: `tuned for ${promptInput.roundId}`,
             candidateRationale: {
+              editedSurface: 'system_prompt',
               failurePattern: 'coverage_regression',
               evidenceRefs: signal ? [signal.id] : [],
               hypothesis: 'make the success criteria explicit',
@@ -577,6 +579,7 @@ describe('runPromptOptimizationRun', () => {
 
       const resultsJsonlPath = join(controllerDir, 'results.jsonl');
       const candidateRationale = {
+        editedSurface: 'system_prompt' as const,
         failurePattern: 'coverage_regression' as const,
         evidenceRefs: [],
         hypothesis: 'restore held-in coverage',

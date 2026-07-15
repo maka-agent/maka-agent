@@ -11,7 +11,8 @@ export const VALID_MAKA_AHE_CHANGE_MANIFEST: MakaAheChangeManifest = {
   targetSnapshotId: 'snap-baseline',
   createdAt: '2026-07-01T00:00:00.000Z',
   changedComponents: ['maka-system-prompt', 'maka-tool-contracts'],
-  failureEvidence: [
+  editedSurface: 'system_prompt',
+  evidenceRefs: [
     {
       taskId: 'terminal-bench/sqlite-with-gcov',
       runId: 'run-baseline',
@@ -19,7 +20,7 @@ export const VALID_MAKA_AHE_CHANGE_MANIFEST: MakaAheChangeManifest = {
       summary: 'Official verifier failed after the trace showed a missing gcov artifact.',
     },
   ],
-  rootCause: 'Tool contract omitted the expected artifact path, so the task plan never verified coverage output.',
+  hypothesis: 'Tool contract omitted the expected artifact path, so the task plan never verified coverage output.',
   targetedFix: 'Clarify the artifact contract in the tool description and prompt policy.',
   predictedFixes: [
     {
@@ -27,7 +28,7 @@ export const VALID_MAKA_AHE_CHANGE_MANIFEST: MakaAheChangeManifest = {
       summary: 'Candidate should create the gcov artifact before finalizing.',
     },
   ],
-  riskCases: [
+  riskTasks: [
     {
       taskId: 'terminal-bench/qemu-startup',
       summary: 'Prompt/tool changes must not add extra setup work to unrelated heavy tasks.',

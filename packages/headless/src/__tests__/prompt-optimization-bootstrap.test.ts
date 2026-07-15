@@ -213,6 +213,7 @@ describe('ensurePromptOptimizationPromptRepo', () => {
           commitSha: candidateSha,
           promptHash,
           candidateRationale: {
+            editedSurface: 'system_prompt',
             failurePattern: 'coverage_regression',
             evidenceRefs: [],
             hypothesis: 'hypothesis',

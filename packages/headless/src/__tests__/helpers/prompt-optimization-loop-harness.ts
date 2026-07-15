@@ -107,6 +107,7 @@ export function fakeMetaAgent(): MetaAgent {
     systemPrompt: `candidate prompt ${promptInput.roundId}\n`,
     summary: `tuned for ${promptInput.roundId}`,
     candidateRationale: {
+      editedSurface: 'system_prompt',
       failurePattern: 'coverage_regression',
       evidenceRefs: evidenceRefsFor(promptInput),
       hypothesis: 'stable held-in coverage can improve with a clearer prompt',

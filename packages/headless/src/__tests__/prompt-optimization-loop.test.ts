@@ -97,6 +97,7 @@ describe('runPromptOptimizationLoop', () => {
             systemPrompt: `candidate prompt ${promptInput.roundId}\n`,
             summary: `tuned for ${promptInput.roundId}`,
             candidateRationale: {
+              editedSurface: 'system_prompt',
               failurePattern: 'coverage_regression',
               evidenceRefs: evidenceRefsFor(promptInput),
               hypothesis: 'avoid losing held-in scored artifacts',
@@ -160,6 +161,7 @@ describe('runPromptOptimizationLoop', () => {
             systemPrompt: `candidate prompt ${promptInput.roundId}\n`,
             summary: `tuned for ${promptInput.roundId}`,
             candidateRationale: {
+              editedSurface: 'system_prompt',
               failurePattern: 'verification_failed',
               evidenceRefs: evidenceRefsFor(promptInput),
               hypothesis: 'integer output selection can be made less ambiguous',
@@ -204,6 +206,7 @@ describe('runPromptOptimizationLoop', () => {
             systemPrompt: `candidate prompt ${promptInput.roundId}\n`,
             summary: `tuned for ${promptInput.roundId}`,
             candidateRationale: {
+              editedSurface: 'system_prompt',
               failurePattern: 'coverage_regression',
               evidenceRefs: evidenceRefsFor(promptInput),
               hypothesis: 'restore coverage for held-in tasks',
@@ -252,6 +255,7 @@ describe('runPromptOptimizationLoop', () => {
             systemPrompt: `candidate prompt ${promptInput.roundId}\n`,
             summary: `tuned for ${promptInput.roundId}`,
             candidateRationale: {
+              editedSurface: 'system_prompt',
               failurePattern: 'coverage_regression',
               evidenceRefs: evidenceRefsFor(promptInput),
               hypothesis: 'avoid losing held-in scored artifacts',
@@ -728,6 +732,7 @@ describe('runPromptOptimizationLoop', () => {
             systemPrompt: 'addressability candidate\n',
             summary: 'use only addressable evidence',
             candidateRationale: {
+              editedSurface: 'system_prompt',
               failurePattern: 'coverage_regression',
               evidenceRefs: evidenceRefsFor(input),
               hypothesis: 'addressable evidence supports a bounded prompt improvement',

@@ -23,6 +23,7 @@ describe('runPromptControlExperiment', () => {
             : input.currentSystemPrompt,
           summary: learnedFromHeldIn ? 'added the missing control rule' : 'no control signal found',
           candidateRationale: {
+            editedSurface: 'system_prompt',
             failurePattern: signal ? 'verification_failed' : 'other',
             evidenceRefs: signal ? [signal.id] : [],
             hypothesis: 'held-in failures share one missing prompt rule',

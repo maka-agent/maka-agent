@@ -96,9 +96,23 @@ describe('AHE target protocol', () => {
     assert.equal(result.ok, true);
   });
 
+  it('uses the same audit field names and requires the edited surface to be changed', () => {
+    const result = validateMakaAheChangeManifest({
+      ...VALID_MAKA_AHE_CHANGE_MANIFEST,
+      editedSurface: 'tool_contract',
+      changedComponents: ['maka-system-prompt'],
+    });
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert(result.errors.some((error) => error.path === 'editedSurface'));
+    }
+  });
+
   it('lets the heavy-task component patch its policy owner', () => {
     const result = validateMakaAheChangeManifest({
       ...VALID_MAKA_AHE_CHANGE_MANIFEST,
+      editedSurface: 'heavy_task_policy',
       changedComponents: ['maka-heavy-task-policy'],
       patch: {
         applyMode: 'staged_patch',

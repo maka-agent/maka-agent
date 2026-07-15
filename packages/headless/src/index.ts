@@ -4,6 +4,7 @@
 // package-local entrypoints, not the root API. Minimal usage is
 // `runExperiment(config, task, { storageRoot })`.
 export { runPromptOptimizationRun } from './prompt-optimization-run.js';
+export type { MakaChangeAuditRecord } from './change-audit.js';
 export type {
   PromptOptimizationRunInput,
   PromptOptimizationRunResult,

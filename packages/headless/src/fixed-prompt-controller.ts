@@ -14,6 +14,7 @@ import {
 } from './cell-output.js';
 import type { Config } from './contracts.js';
 import { syncParentDirectory } from './immutable-file.js';
+import type { MakaChangeAuditRecord } from './change-audit.js';
 import { assertFinitePositive, assertPositiveInt, assertRatio } from './numeric-guards.js';
 
 export const FIXED_PROMPT_WAL_SCHEMA_VERSION = 1;
@@ -249,14 +250,13 @@ export const PROMPT_CANDIDATE_FAILURE_PATTERNS = [
 
 export type PromptCandidateFailurePattern = typeof PROMPT_CANDIDATE_FAILURE_PATTERNS[number];
 
-export interface PromptCandidateRationale {
-  failurePattern: PromptCandidateFailurePattern;
-  evidenceRefs: readonly string[];
-  hypothesis: string;
-  targetedFix: string;
-  predictedFixes: readonly string[];
-  riskTasks: readonly string[];
-}
+export interface PromptCandidateRationale extends MakaChangeAuditRecord<
+  'system_prompt',
+  string,
+  string,
+  string,
+  PromptCandidateFailurePattern
+> {}
 
 export type PromptCandidateRewardHackScan =
   | { decision: 'clean' }

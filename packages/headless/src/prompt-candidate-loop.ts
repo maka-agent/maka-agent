@@ -428,8 +428,9 @@ function formatMetaAgentParseError(error: unknown): string {
 export function renderMetaAgentPrompt(input: MetaAgentPromptInput): string {
   return [
     'You are improving one system prompt for benchmark tasks.',
-    'Return JSON only: {"systemPrompt":"...","summary":"...","candidateRationale":{"failurePattern":"coverage_regression|tool_failed|max_tokens|runtime_error|verification_failed|other","evidenceRefs":["rsi-sig:id"],"hypothesis":"short plain text","targetedFix":"short plain text","predictedFixes":["held-in-task-id"],"riskTasks":["held-in-task-id"]}}.',
-    'candidateRationale.evidenceRefs may only reference RSI R2 Held-In Analysis signal ids from the prompt; when signals exist and failurePattern is not "other", cite at least one signal. candidateRationale.predictedFixes and riskTasks may only reference held-in task ids from the prompt.',
+    'Return JSON only: {"systemPrompt":"...","summary":"...","candidateRationale":{"editedSurface":"system_prompt","evidenceRefs":["rsi-sig:id"],"hypothesis":"short plain text","targetedFix":"short plain text","predictedFixes":["held-in-task-id"],"riskTasks":["held-in-task-id"]}}.',
+    'candidateRationale.evidenceRefs may only reference RSI R2 Held-In Analysis signature or signal ids from the prompt. Cite those ids directly when available. Only when no evidence id is available, add failurePattern as a coarse fallback: "coverage_regression|tool_failed|max_tokens|runtime_error|verification_failed|other".',
+    'candidateRationale.predictedFixes and riskTasks may only reference held-in task ids from the prompt.',
     'Prefer pass/fail transitions and verifier failure summaries over tool_failure_cluster. Treat tool_failure_cluster as root cause only when it is unrecovered or aligns with the final task outcome.',
     'Do not include held-out tasks, verifier internals, expected outputs, raw traces, file paths, code fences, or multiline text in candidateRationale.',
     '',
@@ -523,7 +524,13 @@ function parseCandidateRationaleShape(value: unknown): CandidateRationale {
   if (serialized.length > CANDIDATE_RATIONALE_MAX_SERIALIZED_CHARS) {
     throw new Error(`candidateRationale must serialize to at most ${CANDIDATE_RATIONALE_MAX_SERIALIZED_CHARS} characters`);
   }
-  if (!PROMPT_CANDIDATE_FAILURE_PATTERNS.includes(value.failurePattern as PromptCandidateFailurePattern)) {
+  if (value.editedSurface !== 'system_prompt') {
+    throw new Error('candidateRationale.editedSurface must be "system_prompt"');
+  }
+  if (
+    typeof value.failurePattern !== 'undefined'
+    && !PROMPT_CANDIDATE_FAILURE_PATTERNS.includes(value.failurePattern as PromptCandidateFailurePattern)
+  ) {
     throw new Error(`candidateRationale.failurePattern must be one of: ${PROMPT_CANDIDATE_FAILURE_PATTERNS.join(', ')}`);
   }
   const hypothesis = parseRationaleTextShape(value.hypothesis, 'hypothesis');
@@ -531,13 +538,18 @@ function parseCandidateRationaleShape(value: unknown): CandidateRationale {
   const evidenceRefs = parseTaskIdArrayShape(value.evidenceRefs, 'evidenceRefs');
   const predictedFixes = parseTaskIdArrayShape(value.predictedFixes, 'predictedFixes');
   const riskTasks = parseTaskIdArrayShape(value.riskTasks, 'riskTasks');
+  const failurePattern = value.failurePattern as CandidateFailurePattern | undefined;
+  if (evidenceRefs.length === 0 && typeof failurePattern === 'undefined') {
+    throw new Error('candidateRationale.failurePattern fallback is required when evidenceRefs is empty');
+  }
   return {
-    failurePattern: value.failurePattern as CandidateFailurePattern,
+    editedSurface: 'system_prompt',
     evidenceRefs,
     hypothesis,
     targetedFix,
     predictedFixes,
     riskTasks,
+    ...(failurePattern ? { failurePattern } : {}),
   };
 }
 
@@ -549,7 +561,7 @@ function validateEvidenceRefs(candidateRationale: CandidateRationale, rsiAnalysi
     }
     return;
   }
-  if (rsiAnalysis.signals.length > 0 && candidateRationale.failurePattern !== 'other' && evidenceRefs.length === 0) {
+  if (rsiAnalysis.signals.length > 0 && evidenceRefs.length === 0) {
     throw new Error('candidateRationale.evidenceRefs must cite at least one current analysis signal');
   }
   const known = new Set(rsiAnalysis.signals.map((signal) => signal.id));

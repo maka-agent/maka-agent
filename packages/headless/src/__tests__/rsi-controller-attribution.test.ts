@@ -7,8 +7,43 @@ import type { PromptAcceptanceResult } from '../prompt-acceptance-policy.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 
 describe('RSI controller attribution', () => {
+  test('treats a direct signal reference as authoritative without a coarse fallback', () => {
+    const analysis: RsiRoundAnalysis = {
+      heldInTaskSetHash: 'sha256:held-in',
+      transitionVsLastKept: [],
+      transitionVsPreviousCandidate: [],
+      coverageRegressionTaskIds: ['task-a'],
+      errorClassDistribution: [],
+      toolFailureClusters: [],
+      signals: [{ id: 'rsi-sig:coverage', kind: 'coverage_regression', taskIds: ['task-a'] }],
+    };
+
+    const attribution = buildRsiControllerAttribution({
+      runId: 'run-1',
+      roundId: 'round-1',
+      candidateCommitSha: 'candidate-sha',
+      candidateRationaleHash: 'sha256:rationale',
+      candidateRationale: {
+        editedSurface: 'system_prompt',
+        evidenceRefs: ['rsi-sig:coverage'],
+        hypothesis: 'restore coverage for the unstable held-in task',
+        targetedFix: 'make the required artifact explicit',
+        predictedFixes: ['task-a'],
+        riskTasks: [],
+      },
+      analysis,
+      heldInTaskIds: ['task-a'],
+      lastKeptEvents: [completed({ taskId: 'task-a', passed: false })],
+      candidateEvents: [completed({ taskId: 'task-a', passed: true })],
+      decision: acceptanceResult({ decision: 'keep', reason: 'held_in_improved' }),
+    });
+
+    assert.equal(attribution.rootCauseSignalMatch, 'matched');
+  });
+
   test('compares candidate rationale predictions to held-in outcomes', () => {
     const rationale: PromptCandidateRationale = {
+      editedSurface: 'system_prompt',
       failurePattern: 'coverage_regression',
       evidenceRefs: ['rsi-sig:coverage'],
       hypothesis: 'restore coverage for the unstable held-in task',
@@ -79,6 +114,7 @@ describe('RSI controller attribution', () => {
       candidateCommitSha: 'commit-1',
       candidateRationaleHash: 'sha256:rationale',
       candidateRationale: {
+        editedSurface: 'system_prompt',
         failurePattern: 'other',
         evidenceRefs: [],
         hypothesis: 'unknown held-in behavior changed',
@@ -120,6 +156,7 @@ describe('RSI controller attribution', () => {
       candidateCommitSha: 'commit-1',
       candidateRationaleHash: 'sha256:rationale',
       candidateRationale: {
+        editedSurface: 'system_prompt',
         failurePattern: 'coverage_regression',
         evidenceRefs: [],
         hypothesis: 'coverage fell after the previous prompt change',
@@ -165,6 +202,7 @@ describe('RSI controller attribution', () => {
       candidateCommitSha: 'commit-1',
       candidateRationaleHash: 'sha256:rationale',
       candidateRationale: {
+        editedSurface: 'system_prompt',
         failurePattern: 'coverage_regression',
         evidenceRefs: ['rsi-sig:coverage'],
         hypothesis: 'coverage fell after the previous prompt change',
@@ -185,6 +223,7 @@ describe('RSI controller attribution', () => {
       candidateCommitSha: 'commit-1',
       candidateRationaleHash: 'sha256:rationale',
       candidateRationale: {
+        editedSurface: 'system_prompt',
         failurePattern: 'coverage_regression',
         evidenceRefs: ['rsi-sig:tool'],
         hypothesis: 'coverage fell after the previous prompt change',
@@ -223,6 +262,7 @@ describe('RSI controller attribution', () => {
       candidateCommitSha: 'commit-1',
       candidateRationaleHash: 'sha256:rationale',
       candidateRationale: {
+        editedSurface: 'system_prompt',
         failurePattern: 'runtime_error',
         evidenceRefs: ['rsi-sig:runtime'],
         hypothesis: 'runtime errors block held-in progress',
@@ -243,6 +283,7 @@ describe('RSI controller attribution', () => {
       candidateCommitSha: 'commit-1',
       candidateRationaleHash: 'sha256:rationale',
       candidateRationale: {
+        editedSurface: 'system_prompt',
         failurePattern: 'runtime_error',
         evidenceRefs: ['rsi-sig:max-tokens'],
         hypothesis: 'runtime errors block held-in progress',
@@ -268,6 +309,7 @@ describe('RSI controller attribution', () => {
       candidateCommitSha: 'commit-1',
       candidateRationaleHash: 'sha256:rationale',
       candidateRationale: {
+        editedSurface: 'system_prompt',
         failurePattern: 'coverage_regression',
         evidenceRefs: ['rsi-sig:coverage'],
         hypothesis: 'coverage fell before this candidate',

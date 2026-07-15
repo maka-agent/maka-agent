@@ -6,6 +6,7 @@ import {
   type ExecutionLogCoverage,
   type TargetSnapshotRef,
 } from '@maka/core/execution-evidence';
+import type { MakaChangeAuditRecord } from './change-audit.js';
 
 export const MAKA_AHE_TARGET_PROTOCOL_VERSION_V1 = 'maka.ahe-target.v1' as const;
 export const MAKA_AHE_TARGET_PROTOCOL_VERSION = 'maka.ahe-target.v2' as const;
@@ -259,18 +260,18 @@ export interface MakaAheEvidenceCase {
   summary: string;
 }
 
-export interface MakaAheChangeManifest {
+export interface MakaAheChangeManifest extends MakaChangeAuditRecord<
+  MakaAheComponentCategory,
+  MakaAheEvidenceCase,
+  MakaAheEvidenceCase,
+  MakaAheEvidenceCase
+> {
   protocolVersion: MakaAheTargetProtocolVersion;
   manifestId: string;
   sourceLabel: MakaAheTargetSourceLabel | string;
   targetSnapshotId: string;
   createdAt: string;
   changedComponents: readonly string[];
-  failureEvidence: readonly MakaAheEvidenceCase[];
-  rootCause: string;
-  targetedFix: string;
-  predictedFixes: readonly MakaAheEvidenceCase[];
-  riskCases: readonly MakaAheEvidenceCase[];
   validationDataset: {
     datasetId: string;
     taskIds: readonly string[];
@@ -611,12 +612,24 @@ export function validateMakaAheChangeManifest(
   requireNonEmptyString(value.sourceLabel, 'sourceLabel', errors);
   requireNonEmptyString(value.targetSnapshotId, 'targetSnapshotId', errors);
   requireNonEmptyString(value.createdAt, 'createdAt', errors);
-  requireNonEmptyString(value.rootCause, 'rootCause', errors);
+  if (!isOneOf(value.editedSurface, MAKA_AHE_COMPONENT_CATEGORIES)) {
+    errors.push({ path: 'editedSurface', message: 'expected a known editable surface' });
+  }
+  requireNonEmptyString(value.hypothesis, 'hypothesis', errors);
   requireNonEmptyString(value.targetedFix, 'targetedFix', errors);
+  if (typeof value.failurePattern !== 'undefined') {
+    requireNonEmptyString(value.failurePattern, 'failurePattern', errors);
+  }
 
   const componentIds = new Set(components.map((component) => component.id));
   validateStringArray(value.changedComponents, 'changedComponents', errors, { minItems: 1, allowedValues: componentIds });
   const changedComponentIds = stringArray(value.changedComponents);
+  if (
+    isOneOf(value.editedSurface, MAKA_AHE_COMPONENT_CATEGORIES)
+    && !components.some((component) => changedComponentIds.includes(component.id) && component.category === value.editedSurface)
+  ) {
+    errors.push({ path: 'editedSurface', message: 'expected a surface represented by changedComponents' });
+  }
   for (const componentId of changedComponentIds) {
     const component = components.find((candidate) => candidate.id === componentId);
     if (component && !component.editable) {
@@ -626,9 +639,9 @@ export function validateMakaAheChangeManifest(
       });
     }
   }
-  validateEvidenceCases(value.failureEvidence, 'failureEvidence', errors, { minItems: 1 });
+  validateEvidenceCases(value.evidenceRefs, 'evidenceRefs', errors, { minItems: 1 });
   validateEvidenceCases(value.predictedFixes, 'predictedFixes', errors, { minItems: 1 });
-  validateEvidenceCases(value.riskCases, 'riskCases', errors, { minItems: 1 });
+  validateEvidenceCases(value.riskTasks, 'riskTasks', errors, { minItems: 1 });
   validateValidationDataset(value.validationDataset, errors);
   validatePatch(value.patch, errors, components.filter((component) => changedComponentIds.includes(component.id)));
   validateStringArray(value.rollbackCriteria, 'rollbackCriteria', errors, { minItems: 1 });

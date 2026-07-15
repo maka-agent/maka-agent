@@ -1,5 +1,6 @@
 import type {
   FixedPromptTaskWalEvent,
+  PromptCandidateFailurePattern,
   PromptCandidateRationale,
   RsiPredictedFixOutcome,
   RsiRiskTaskOutcome,
@@ -211,6 +212,9 @@ function rootCauseSignalMatch(
   if (rationale.evidenceRefs.length === 0) return 'unknown';
   const referenced = new Set(rationale.evidenceRefs);
   const referencedSignals = analysis.signals.filter((signal) => referenced.has(signal.id));
+  if (typeof rationale.failurePattern === 'undefined') {
+    return referencedSignals.length > 0 ? 'matched' : 'unknown';
+  }
   const signalKinds = new Set(referencedSignals.map((signal) => signal.kind));
   if (rationale.failurePattern === 'coverage_regression') {
     return signalKinds.has('coverage_regression') ? 'matched' : 'contradicted';
@@ -226,7 +230,7 @@ function rootCauseSignalMatch(
   return 'unknown';
 }
 
-function isErrorClassBackedFailurePattern(failurePattern: PromptCandidateRationale['failurePattern']): boolean {
+function isErrorClassBackedFailurePattern(failurePattern: PromptCandidateFailurePattern): boolean {
   return failurePattern === 'max_tokens'
     || failurePattern === 'runtime_error'
     || failurePattern === 'verification_failed';

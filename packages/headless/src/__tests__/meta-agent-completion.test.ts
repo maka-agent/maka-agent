@@ -21,6 +21,7 @@ const connection: LlmConnection = {
 
 const base = { connection, apiKey: 'unused', modelId: 'deepseek-v4-flash' } as const;
 const candidateRationale = {
+  editedSurface: 'system_prompt',
   failurePattern: 'coverage_regression',
   evidenceRefs: [],
   hypothesis: 'coverage fell after the previous prompt change',
@@ -74,6 +75,9 @@ describe('createAiSdkMetaAgentCompletion', () => {
     });
     await complete({ prompt: 'render' });
     assert.match(seenSystem ?? '', /JSON object/);
+    assert.match(seenSystem ?? '', /"editedSurface":"system_prompt"/);
+    assert.match(seenSystem ?? '', /"evidenceRefs":/);
+    assert.match(seenSystem ?? '', /failurePattern only as a coarse fallback/);
   });
 });
 

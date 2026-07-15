@@ -687,6 +687,7 @@ function committedEvent(
 
 function candidateRationale(overrides: Partial<PromptCandidateRationale> = {}): PromptCandidateRationale {
   return {
+    editedSurface: 'system_prompt',
     failurePattern: 'coverage_regression' as const,
     evidenceRefs: [],
     hypothesis: 'held-in coverage can improve with a clearer prompt',
