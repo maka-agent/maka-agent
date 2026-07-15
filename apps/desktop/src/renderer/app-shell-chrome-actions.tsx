@@ -128,11 +128,10 @@ export function AppShellWorkspaceTopActions(props: {
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
-          render={<UiButton variant="quiet" size="icon-sm" />}
+          render={<UiButton variant="quiet" size="icon-sm" disabled={!props.workbarAvailable} />}
           type="button"
           className="maka-titlebar-action"
           onClick={props.onToggleWorkbar}
-          disabled={!props.workbarAvailable}
           aria-label={workbarLabel}
           aria-expanded={props.workbarAvailable && !props.workbarCollapsed}
         >

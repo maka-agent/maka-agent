@@ -62,7 +62,7 @@ describe('app shell chrome contract', () => {
     const combined = await readRendererShellCombinedSource();
 
     assert.match(combined, /workbarAvailable: boolean/);
-    assert.match(combined, /disabled=\{!props\.workbarAvailable\}/);
+    assert.match(combined, /<UiButton variant="quiet" size="icon-sm" disabled=\{!props\.workbarAvailable\} \/>/);
     assert.match(combined, /aria-expanded=\{props\.workbarAvailable && !props\.workbarCollapsed\}/);
   });
 });

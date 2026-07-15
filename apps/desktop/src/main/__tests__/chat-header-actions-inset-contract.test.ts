@@ -54,7 +54,7 @@ async function workspaceTopActionButtonCount(): Promise<number> {
   const start = source.indexOf('export function AppShellWorkspaceTopActions');
   assert.notEqual(start, -1, 'AppShellWorkspaceTopActions should exist');
   const block = source.slice(start);
-  return [...block.matchAll(/render=\{<UiButton variant="quiet" size="icon-sm" \/>\}/g)].length;
+  return [...block.matchAll(/render=\{<UiButton variant="quiet" size="icon-sm"(?: disabled=\{[^}]+\})? \/>\}/g)].length;
 }
 
 describe('chat header actions inset contract', () => {

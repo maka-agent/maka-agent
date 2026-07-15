@@ -16,4 +16,23 @@ test('session tools share one user-controlled workbar', async ({ sessionWorkbarW
   await expect(workbar).toBeVisible();
   await tabs.getByRole('tab', { name: /文件/ }).click();
   await expect(workbar.getByText('暂无生成文件')).toBeVisible();
+
+  await page.setViewportSize({ width: 480, height: 320 });
+  const narrowLayout = await workbar.evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    viewportHeight: window.innerHeight,
+  }));
+  expect(narrowLayout.height).toBeLessThanOrEqual(narrowLayout.viewportHeight * 0.42 + 1);
+
+  await page.locator('button[aria-label="展开侧边栏"]').dispatchEvent('click');
+  await page.locator('button[aria-label="技能"]').dispatchEvent('click');
+  await expect(workbar).toBeHidden();
+  await expect(page.getByRole('main', { name: '技能' })).toBeVisible();
+});
+
+test('workbar toggle stays unavailable without an active session', async ({ window: page }) => {
+  const toggle = page.getByRole('button', { name: '暂无可用的会话工作栏' });
+
+  await expect(toggle).toBeDisabled();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 });
