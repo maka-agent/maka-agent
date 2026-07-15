@@ -15,7 +15,13 @@ import {
   type UserQuestionResponse,
 } from '@maka/core';
 import type { ShellRunUpdate } from '@maka/runtime';
-import type { MakaSessionDriver, MakaSessionRewindResult, MakaSessionSwitchResult, RewindTarget } from '../session-driver.js';
+import type {
+  MakaSessionDriver,
+  MakaSessionRewindResult,
+  MakaSessionSwitchResult,
+  RewindTarget,
+  SessionResumeAvailability,
+} from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
 import { BUSY_SPINNER_FRAMES } from '../tui-attention.js';
 import { arrangeAutocompleteAboveEditor } from '../tui-autocomplete-layout.js';
@@ -1985,6 +1991,7 @@ describe('Maka Pi TUI runner', () => {
       fakeSessionSummary('session-current', '/repo', 'Current chat'),
       { ...fakeSessionSummary('session-legacy', '/repo', 'Legacy chat'), cwd: undefined },
     ]);
+    Object.defineProperty(driver, 'getSessionResumeAvailability', { value: undefined });
     const run = runMakaPiTui({
       title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
       connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
@@ -3658,6 +3665,12 @@ class SlashCommandDriver implements MakaSessionDriver {
 
   async listSessions(): Promise<SessionSummary[]> {
     return this.sessions;
+  }
+
+  async getSessionResumeAvailability(session: SessionSummary): Promise<SessionResumeAvailability> {
+    return session.cwd
+      ? { available: true }
+      : { available: false, reason: 'Missing working directory' };
   }
 
   async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {

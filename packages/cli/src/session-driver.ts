@@ -90,8 +90,24 @@ export type SessionResumeAvailability =
   | { available: true }
   | { available: false; reason: string };
 
-export const MISSING_SESSION_CWD_REASON = 'Missing working directory';
-export const DELETED_SESSION_CWD_REASON = 'Working directory no longer exists';
+const MISSING_SESSION_CWD_REASON = 'Missing working directory';
+const DELETED_SESSION_CWD_REASON = 'Working directory no longer exists';
+
+export async function inspectSessionResumeAvailability(
+  session: SessionSummary,
+): Promise<SessionResumeAvailability> {
+  if (!session.cwd) return { available: false, reason: MISSING_SESSION_CWD_REASON };
+  try {
+    await realpath(session.cwd);
+    return { available: true };
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return { available: false, reason: DELETED_SESSION_CWD_REASON };
+    }
+    throw error;
+  }
+}
 
 export function createMakaSessionDriver(input: MakaSessionDriverInput): MakaSessionDriver {
   return new RuntimeMakaSessionDriver(input);
@@ -140,17 +156,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   }
 
   async getSessionResumeAvailability(session: SessionSummary): Promise<SessionResumeAvailability> {
-    if (!session.cwd) return { available: false, reason: MISSING_SESSION_CWD_REASON };
-    try {
-      await realpath(session.cwd);
-      return { available: true };
-    } catch (error) {
-      const code = (error as { code?: unknown }).code;
-      if (code === 'ENOENT' || code === 'ENOTDIR') {
-        return { available: false, reason: DELETED_SESSION_CWD_REASON };
-      }
-      throw error;
-    }
+    return inspectSessionResumeAvailability(session);
   }
 
   async stop(): Promise<void> {
@@ -216,11 +222,15 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     const summary = (await this.listSessions()).find((session) => session.id === sessionId);
     if (!summary) throw new Error(`Session not found: ${sessionId}`);
-    if (!summary.cwd) throw new Error('Session has no working directory and cannot be resumed.');
-    await assertSessionCwdExists(summary.cwd);
+    const availability = await inspectSessionResumeAvailability(summary);
+    if (!availability.available) {
+      if (!summary.cwd) throw new Error('Session has no working directory and cannot be resumed.');
+      throw new Error(`Session cwd no longer exists: ${summary.cwd}`);
+    }
+    const sessionCwd = summary.cwd!;
     const messages = await this.input.runtime.getMessages(summary.id);
     this.sessionId = summary.id;
-    this.cwd = summary.cwd;
+    this.cwd = sessionCwd;
     this.model = summary.model;
     this.llmConnectionSlug = summary.llmConnectionSlug;
     this.thinkingLevel = summary.thinkingLevel;
@@ -303,16 +313,4 @@ function cwdRank(session: SessionSummary, cwd: string): number {
 function firstLine(text: string): string {
   const line = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0);
   return line ?? '(empty prompt)';
-}
-
-async function assertSessionCwdExists(cwd: string): Promise<void> {
-  try {
-    await realpath(cwd);
-  } catch (error) {
-    const code = (error as { code?: unknown }).code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') {
-      throw new Error(`Session cwd no longer exists: ${cwd}`);
-    }
-    throw error;
-  }
 }

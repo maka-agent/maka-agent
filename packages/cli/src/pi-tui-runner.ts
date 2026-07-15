@@ -24,7 +24,7 @@ import {
 } from '@maka/core';
 import type { ModelChoice } from './connection-target.js';
 import {
-  MISSING_SESSION_CWD_REASON,
+  inspectSessionResumeAvailability,
   type MakaSessionDriver,
   type MakaSessionSwitchResult,
 } from './session-driver.js';
@@ -718,10 +718,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
     const availability = new Map(await Promise.all(sessions.map(async (session) => {
-      if (!session.cwd) return [session.id, { available: false, reason: MISSING_SESSION_CWD_REASON }] as const;
       return [
         session.id,
-        await input.driver.getSessionResumeAvailability?.(session) ?? { available: true },
+        await input.driver.getSessionResumeAvailability?.(session)
+          ?? await inspectSessionResumeAvailability(session),
       ] as const;
     })));
     const renderScope = (): void => {
