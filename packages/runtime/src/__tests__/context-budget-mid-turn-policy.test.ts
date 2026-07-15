@@ -4,29 +4,23 @@ import type { LlmConnection } from '@maka/core';
 import { buildDefaultContextBudgetPolicy } from '../context-budget-policy.js';
 
 describe('mid-turn history compact policy env plumbing', () => {
-  test('defaults off: no midTurn subconfig without an explicit opt-in', () => {
+  test('defaults on: the runtime derives midTurn with the shared reserve when history compaction is enabled', () => {
     const policy = buildDefaultContextBudgetPolicy(connection(), {
       env: { MAKA_CONTEXT_HISTORY_COMPACT: 'on' },
     });
     assert.equal(policy?.historyCompact?.enabled, true);
-    assert.equal(policy?.historyCompact?.midTurn, undefined);
+    assert.deepEqual(policy?.historyCompact?.midTurn, { enabled: true, reserveTokens: 16_384 });
   });
 
-  test('opts in with MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN=on and the shared reserve', () => {
-    const policy = buildDefaultContextBudgetPolicy(connection(), {
-      env: {
-        MAKA_CONTEXT_HISTORY_COMPACT: 'on',
-        MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN: 'on',
-      },
-    });
+  test('defaults on with no compaction env at all (the runtime, not the surface, owns it)', () => {
+    const policy = buildDefaultContextBudgetPolicy(connection(), { env: {} });
+    assert.equal(policy?.historyCompact?.enabled, true);
     assert.deepEqual(policy?.historyCompact?.midTurn, { enabled: true, reserveTokens: 16_384 });
   });
 
   test('honors explicit reserve and tail-event overrides', () => {
     const policy = buildDefaultContextBudgetPolicy(connection(), {
       env: {
-        MAKA_CONTEXT_HISTORY_COMPACT: 'on',
-        MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN: 'on',
         MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS: '8000',
         MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN_TAIL_EVENTS: '2',
       },
@@ -38,14 +32,22 @@ describe('mid-turn history compact policy env plumbing', () => {
     });
   });
 
-  test('mid_turn=off keeps it disabled even with history compact on', () => {
+  test('MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN=off is the escape hatch even with history compact on', () => {
     const policy = buildDefaultContextBudgetPolicy(connection(), {
       env: {
         MAKA_CONTEXT_HISTORY_COMPACT: 'on',
         MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN: 'off',
       },
     });
+    assert.equal(policy?.historyCompact?.enabled, true);
     assert.equal(policy?.historyCompact?.midTurn, undefined);
+  });
+
+  test('an explicit MAKA_CONTEXT_HISTORY_COMPACT=off disables history compaction and midTurn with it', () => {
+    const policy = buildDefaultContextBudgetPolicy(connection(), {
+      env: { MAKA_CONTEXT_HISTORY_COMPACT: 'off' },
+    });
+    assert.equal(policy?.historyCompact, undefined);
   });
 });
 

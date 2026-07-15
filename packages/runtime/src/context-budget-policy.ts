@@ -203,9 +203,15 @@ function buildHistoryCompactPolicy(
   };
 }
 
-// Mid-turn capacity compaction defaults OFF this PR: only an explicit
-// MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN=on opts in, so a standalone revert of
-// this line leaves every surface's behavior unchanged. PR 3 sinks the default on.
+// Mid-turn capacity compaction is a runtime-owned default (issue #882 PR 3):
+// whenever history compaction is enabled, the runtime derives midTurn from the
+// selected model's window (`contextWindow - reserveTokens`, the same reserve as
+// the turn-boundary budget) so every surface inherits the invariant without
+// copying config. `MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN=off` stays as the
+// explicit escape hatch. The backend still gates activation on the checkpoint
+// seams, the persisted head anchor, and a KNOWN context window, so a session
+// without model metadata (or a child with no anchor seam) never misfires even
+// though the default is on.
 function buildHistoryCompactMidTurnPolicy(
   env: Record<string, string | undefined>,
 ): NonNullable<NonNullable<ContextBudgetPolicy['historyCompact']>['midTurn']> | undefined {
@@ -213,7 +219,7 @@ function buildHistoryCompactMidTurnPolicy(
     env.MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN,
     'MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN',
   );
-  if (enabled !== true) return undefined;
+  if (enabled === false) return undefined;
   const reserveTokens = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS) ?? 16_384;
   const reserveTailEvents = parseOptionalNonNegativeInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN_TAIL_EVENTS);
   return {

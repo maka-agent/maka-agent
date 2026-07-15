@@ -52,6 +52,8 @@ interface MidTurnFixture {
 
 interface MidTurnFixtureOptions {
   contextWindow?: number;
+  /** Omit the model's context window entirely (unknown model metadata). */
+  withoutContextWindow?: boolean;
   reserveTokens?: number;
   summarize?: () => Promise<string | undefined> | string | undefined;
   branch?: string;
@@ -215,7 +217,10 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     sessionId: 'session-1',
     header: header(),
     appendMessage: async (message) => { messages.push(message); },
-    connection: { ...connection(), models: [{ id: 'mock-model-id', contextWindow }] },
+    connection: {
+      ...connection(),
+      models: [{ id: 'mock-model-id', ...(options.withoutContextWindow ? {} : { contextWindow }) }],
+    },
     apiKey: 'sk-test',
     modelId: 'mock-model-id',
     permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
@@ -1042,6 +1047,48 @@ describe('mid-turn capacity compaction flow plumbing', () => {
     }
     assert.equal(sendInputs.length, 1);
     assert.equal(sendInputs[0]?.headAnchorRuntimeEvent, anchor);
+  });
+});
+
+describe('mid-turn capacity default-on safety guards (issue #882 PR 3)', () => {
+  test('does not fire when the selected model has no known context window (conservative default)', async () => {
+    // PR 3 sinks midTurn on by default, but the backend only activates it when
+    // resolveSelectedModelContextWindow yields a window. An unknown model (no
+    // metadata, no models[].contextWindow) must fall back to never compacting
+    // rather than guessing a window — the turn runs raw and completes normally.
+    const fixture = buildFixture({ withoutContextWindow: true });
+    await runFixtureTurn(fixture);
+
+    assert.equal(fixture.recorded.length, 0);
+    assert.equal(fixture.summarizerCalls, 0);
+    assert.equal(fixture.ledgerReads, 0);
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
+    // The raw span is never folded away, proving no compaction ran.
+    assert.equal(promptJson(fixture, 2).includes('RAW_SPAN_ONE_'), true);
+  });
+
+  test('does not fire for a session without a persisted head anchor (child sessions have no seam)', async () => {
+    // PR 1's decision: child sessions are structurally without the head-anchor
+    // seam, so even with midTurn on by default the trigger must never activate.
+    // Sending without a headAnchorRuntimeEvent reproduces that shape.
+    const fixture = buildFixture();
+    const events: SessionEvent[] = [];
+    for await (const event of fixture.backend.send({
+      runId: 'run-1',
+      turnId: 'turn-1',
+      text: ANCHOR_TEXT,
+      context: [],
+      runtimeContext: [...fixture.priorEvents],
+    })) {
+      fixture.persist(event);
+      events.push(event);
+    }
+
+    assert.equal(fixture.recorded.length, 0);
+    assert.equal(fixture.summarizerCalls, 0);
+    const complete = events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
   });
 });
 

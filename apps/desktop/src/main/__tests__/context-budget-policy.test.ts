@@ -10,6 +10,7 @@ const ACTIVE_PRUNE_ENV_KEYS = [
   'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER',
   'MAKA_CONTEXT_HISTORY_COMPACT',
   'MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS',
+  'MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN',
 ] as const;
 
 const savedEnv: Record<string, string | undefined> = {};
@@ -81,6 +82,18 @@ describe('desktop activeToolResultPrune policy', () => {
     assert.equal(policy?.historyCompact?.highWaterRatio, 1);
     assert.equal(policy?.historyCompact?.minRecentTurns, 3);
     assert.equal(policy?.historyCompact?.tailEstimatedTokens, 16_384);
+  });
+
+  test('enables mid-turn capacity compaction by default with the shared reserve (runtime-owned)', () => {
+    const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: 'desktop-default-history-budget' });
+    assert.deepEqual(policy?.historyCompact?.midTurn, { enabled: true, reserveTokens: 16_384 });
+  });
+
+  test('honors MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN=off as the explicit escape hatch', () => {
+    process.env.MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN = 'off';
+    const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: 'desktop-default-history-budget' });
+    assert.equal(policy?.historyCompact?.enabled, true);
+    assert.equal(policy?.historyCompact?.midTurn, undefined);
   });
 
   test('uses the selected model context window minus the default reserve as the history budget', () => {
