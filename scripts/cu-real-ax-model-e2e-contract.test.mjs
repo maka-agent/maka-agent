@@ -87,3 +87,16 @@ test('launcher validates every READY field emitted by the safety monitor', () =>
   assert.match(launcher, /baseline\.bundleIdentifier !== fixtureBundleId/);
   assert.match(launcher, /baseline\.canonicalAppPath !== expectedAppPath/);
 });
+
+test('candidate qualification keeps artifact identity checks and supports a relocated lab', () => {
+  assert.match(launcher, /MAKA_CU_AX_MODEL_LAB_ROOT/);
+  assert.match(harness, /MAKA_CU_AX_MODEL_LAB_ROOT/);
+  assert.match(launcher, /overrideConfigured !== 0 && overrideConfigured !== 3/);
+  assert.match(launcher, /expected SHA-256, and expected version/);
+  assert.match(launcher, /\^\[a-f0-9\]\{64\}\$/);
+  assert.match(launcher, /copyFile\([\s\S]*MAKA_CU_AX_MODEL_DRIVER_OVERRIDE|copyFile\([\s\S]*driverOverride/);
+  assert.match(launcher, /MAKA_CU_AX_MODEL_EXPECTED_SHA256/);
+  assert.match(launcher, /MAKA_CU_AX_MODEL_EXPECTED_VERSION/);
+  assert.match(harness, /expectedBinarySha256/);
+  assert.match(harness, /expectedServerVersion/);
+});

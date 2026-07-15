@@ -15,7 +15,8 @@ import { sanitizeCuDirectReport } from './cu-report-sanitize.mjs';
 
 const repoRoot = new URL('..', import.meta.url).pathname;
 const binaryPath = join(repoRoot, 'apps/desktop/resources/bin/cua-driver');
-const labRoot = '/Users/haoqing/Documents/Learning/codex-computer-use-lab';
+const labRoot = process.env.MAKA_CU_AX_MODEL_LAB_ROOT
+  ?? '/Users/haoqing/Documents/Learning/codex-computer-use-lab';
 const expectedAppPath = join(labRoot, 'test-app/build/Codex CUA Lab.app');
 const statePath = join(labRoot, 'test-app/runtime/state.json');
 const fixturePID = Number(process.env.MAKA_CU_AX_MODEL_FIXTURE_PID);
@@ -33,8 +34,9 @@ const apiKey = process.env.MAKA_CU_MODEL_API_KEY
   ?? (provider === 'anthropic' ? 'coproxy' : 'bridge-managed');
 const scenario = process.env.MAKA_CU_AX_MODEL_SCENARIO ?? 'set-value';
 const targetValue = 'model-real-ax';
-const expectedBinarySha256 =
-  '683dad5cccb47dd0a8bb5d534d62fbb9e6edfb1cded232509cf4c2b190066040';
+const expectedBinarySha256 = process.env.MAKA_CU_AX_MODEL_EXPECTED_SHA256
+  ?? '683dad5cccb47dd0a8bb5d534d62fbb9e6edfb1cded232509cf4c2b190066040';
+const expectedServerVersion = process.env.MAKA_CU_AX_MODEL_EXPECTED_VERSION ?? '0.7.1';
 const resolvedTemporaryDirectory = resolve(temporaryDirectory ?? '');
 const relativeTemporaryDirectory = relative(resolve(tmpdir()), resolvedTemporaryDirectory);
 
@@ -173,7 +175,7 @@ const backend = createCuaDriverBackend({
   hostBundleId: 'com.maka.desktop',
   expectedBinarySha256,
   expectedServerName: 'cua-driver',
-  expectedServerVersion: '0.7.1',
+  expectedServerVersion,
   expectedProtocolVersion: '2025-06-18',
   timeoutMs: 10_000,
   physicalInputRecentlyActive,
@@ -331,7 +333,7 @@ const instrumentedBackend = {
       const field = result.observation?.elements.find(
         (element) => element.label === 'CUA Lab Set Value Field',
       );
-      freshAxValue = field?.value;
+      freshAxValue = result.outcome.evidence?.readbackValue ?? field?.value;
     }
     return result;
   },

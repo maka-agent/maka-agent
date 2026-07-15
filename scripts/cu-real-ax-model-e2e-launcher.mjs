@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +9,8 @@ const repoRoot = join(here, '..');
 const harnessPath = join(here, 'cu-real-ax-model-e2e.mjs');
 const monitorPath = join(here, 'cu-real-e2e-monitor.swift');
 const inputAgeSource = join(here, 'cu-physical-input-age.swift');
-const labRoot = '/Users/haoqing/Documents/Learning/codex-computer-use-lab';
+const labRoot = process.env.MAKA_CU_AX_MODEL_LAB_ROOT
+  ?? '/Users/haoqing/Documents/Learning/codex-computer-use-lab';
 const statePath = join(labRoot, 'test-app/runtime/state.json');
 const fixtureBundleId = 'com.openai.codex.cualab';
 const expectedAppPath = join(labRoot, 'test-app/build/Codex CUA Lab.app');
@@ -21,6 +22,19 @@ const reportPath = process.env.MAKA_CU_AX_MODEL_REPORT
     'cu-real-ax-model',
     `report-${Date.now()}.json`,
   );
+const driverOverride = process.env.MAKA_CU_AX_MODEL_DRIVER_OVERRIDE;
+const overrideSha256 = process.env.MAKA_CU_AX_MODEL_EXPECTED_SHA256;
+const overrideVersion = process.env.MAKA_CU_AX_MODEL_EXPECTED_VERSION;
+const overrideConfigured = [driverOverride, overrideSha256, overrideVersion]
+  .filter(Boolean).length;
+if (overrideConfigured !== 0 && overrideConfigured !== 3) {
+  throw new Error(
+    'candidate driver qualification requires override path, expected SHA-256, and expected version',
+  );
+}
+if (overrideSha256 && !/^[a-f0-9]{64}$/.test(overrideSha256)) {
+  throw new Error('candidate driver expected SHA-256 is invalid');
+}
 const delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -217,6 +231,12 @@ async function run() {
     }
     await runChild('npm', ['run', 'prepare:cua-driver'], { cwd: repoRoot });
     await runChild('npm', ['run', 'check:cua-driver-artifact'], { cwd: repoRoot });
+    if (driverOverride) {
+      await copyFile(
+        driverOverride,
+        join(repoRoot, 'apps/desktop/resources/bin/cua-driver'),
+      );
+    }
     await runChild('swiftc', [inputAgeSource, '-o', inputAgePath], {
       stdio: ['ignore', 'ignore', 'inherit'],
     });
@@ -245,9 +265,16 @@ async function run() {
         ...process.env,
         MAKA_CU_AX_MODEL_FIXTURE_PID: String(fixture.oop.hostPID),
         MAKA_CU_AX_MODEL_INPUT_AGE_PROBE: inputAgePath,
+        MAKA_CU_AX_MODEL_LAB_ROOT: labRoot,
         MAKA_CU_AX_MODEL_TEMP_DIR: temporaryDirectory,
         MAKA_CU_AX_MODEL_SCENARIO: scenario,
         MAKA_CU_AX_MODEL_REPORT: reportPath,
+        ...(overrideSha256
+          ? { MAKA_CU_AX_MODEL_EXPECTED_SHA256: overrideSha256 }
+          : {}),
+        ...(overrideVersion
+          ? { MAKA_CU_AX_MODEL_EXPECTED_VERSION: overrideVersion }
+          : {}),
       },
       stdio: ['ignore', 'inherit', 'inherit'],
     });
