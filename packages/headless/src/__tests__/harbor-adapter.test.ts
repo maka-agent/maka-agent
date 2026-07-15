@@ -612,7 +612,7 @@ describe('Harbor adapter contract', () => {
     assert.match(result.stdout, /trial_pricing ok/);
   });
 
-  test('maka_verifier.py retries infrastructure and classifies repeated timeouts in one environment', (t: TestContext) => {
+  test('maka_verifier.py retries infrastructure but classifies a candidate timeout without replaying tests', (t: TestContext) => {
     const result = spawnSync('python3', ['-c', pythonVerifierSmokeScript(repoRoot)], {
       cwd: repoRoot,
       encoding: 'utf8',
@@ -1519,6 +1519,9 @@ try:
             environment.root_commands.append((command, kwargs))
         environment.exec = exec_root
         async def exec_as_agent(environment, command, env=None, **kwargs):
+            if "opencode --model=" in command:
+                identity_path = Path(tmp) / "maka-cell-execution-identity.json"
+                assert identity_path.exists(), "sampling identity must be durable before OpenCode starts"
             environment.agent_commands.append((command, env or {}))
         agent.exec_as_agent = exec_as_agent
 
@@ -1830,6 +1833,10 @@ class FakeEnvironment:
             return types.SimpleNamespace(return_code=0, stdout="", stderr="")
         if outcome == "timeout":
             return types.SimpleNamespace(return_code=124, stdout="", stderr="")
+        if outcome == "candidate_missing_dependency":
+            self.trial_paths.test_stdout_path.write_text("/tests/test.sh: line 8: curl: command not found", encoding="utf-8")
+            self.trial_paths.reward_text_path.write_text("0\n", encoding="utf-8")
+            return types.SimpleNamespace(return_code=0, stdout="", stderr="")
         self.trial_paths.test_stdout_path.write_text("all tests passed", encoding="utf-8")
         self.trial_paths.reward_text_path.write_text("1\n", encoding="utf-8")
         return types.SimpleNamespace(return_code=0, stdout="", stderr="")
@@ -1867,7 +1874,14 @@ assert len([command for command in commands if "timeout --signal=KILL" in comman
 result, outcome, commands = asyncio.run(run_case(["timeout", "timeout"]))
 assert result.rewards == {"reward": 0}, result.rewards
 assert outcome["outcome"] == "candidate_timeout", outcome
-assert [item["classification"] for item in outcome["attempts"]] == ["timeout", "timeout"], outcome
+assert [item["classification"] for item in outcome["attempts"]] == ["timeout"], outcome
+assert len([command for command in commands if "timeout --signal=KILL" in command]) == 1, commands
+
+result, outcome, commands = asyncio.run(run_case(["candidate_missing_dependency"]))
+assert result.rewards == {"reward": 0.0}, result.rewards
+assert outcome["outcome"] == "failed", outcome
+assert [item["classification"] for item in outcome["attempts"]] == ["failed"], outcome
+assert len([command for command in commands if "timeout --signal=KILL" in command]) == 1, commands
 print("maka-verifier ok")
 `;
 }

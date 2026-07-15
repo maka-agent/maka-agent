@@ -68,7 +68,12 @@ export interface HarborTaskRunInput {
   agentEnv?: Record<string, string>;
 }
 
-export type HarborTaskRunner = (input: HarborTaskRunInput) => Promise<HarborTaskRunOutput>;
+export type HarborAttemptSamplingState = 'not_started' | 'started' | 'unknown';
+
+export interface HarborTaskRunner {
+  (input: HarborTaskRunInput): Promise<HarborTaskRunOutput>;
+  samplingState?: (input: HarborTaskRunInput) => Promise<HarborAttemptSamplingState>;
+}
 
 export interface FixedPromptBudgetExhaustedArtifactRefs {
   runtimeEventsPath?: string;
@@ -385,6 +390,17 @@ export async function runFixedPromptController(
     input.resumeFingerprint,
     input.infraFailurePolicy === 'terminal',
   );
+  const samplingStateFor = (task: FixedPromptTask) => input.harborRunner.samplingState?.({
+    runId: input.runId,
+    roundId: input.roundId,
+    task,
+    config,
+    systemPrompt,
+  });
+  for (const task of input.protectPassAtOne ? input.tasks : []) {
+    if (completed.get(task.id)?.type !== 'task_infra_failed') continue;
+    if (await samplingStateFor(task) === 'not_started') completed.delete(task.id);
+  }
   const orphanedAttempts = orphanedTaskAttempts(
     [...attemptEvents, ...events],
     input.runId,
@@ -394,6 +410,8 @@ export async function runFixedPromptController(
   );
   for (const task of input.protectPassAtOne ? input.tasks : []) {
     if (completed.has(task.id) || !orphanedAttempts.has(task.id)) continue;
+    const samplingState = await samplingStateFor(task);
+    if (samplingState === 'not_started') continue;
     const event = orphanedAttemptEvent({
       taskId: task.id,
       runId: input.runId,
@@ -543,13 +561,17 @@ export async function readHarborTaskRunOutput(
   };
 }
 
-export function appendFixedPromptWalEvent(path: string, event: FixedPromptWalEvent): Promise<void> {
+export function appendFixedPromptWalEvent(
+  path: string,
+  event: FixedPromptWalEvent,
+  options: { flush?: boolean } = {},
+): Promise<void> {
   const key = resolve(path);
   const previous = walWriteTails.get(key) ?? Promise.resolve();
   const operation = async () => {
     await mkdir(dirname(path), { recursive: true });
     await truncateTornWalTail(path);
-    await appendFile(path, `${JSON.stringify(event)}\n`, 'utf8');
+    await appendFile(path, `${JSON.stringify(event)}\n`, { encoding: 'utf8', flush: options.flush ?? false });
   };
   const write = previous.then(operation, operation);
   const tail = write.then(() => {}, () => {});
@@ -623,7 +645,11 @@ async function runTaskAndBuildEvent(input: {
         taskId: input.task.id,
         promptHash: input.expectedPromptHash,
       };
-      await appendFixedPromptWalEvent(attemptWalPath(input.input.resultsJsonlPath), attemptStarted);
+      await appendFixedPromptWalEvent(
+        attemptWalPath(input.input.resultsJsonlPath),
+        attemptStarted,
+        { flush: true },
+      );
     }
     return input.input.harborRunner({
       runId: input.input.runId,
@@ -892,16 +918,6 @@ function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash
       error: `Harbor cell prompt hash ${output.cell.promptHash} did not match ${expectedPromptHash}`,
     };
   }
-  if (
-    (output.cell.status === 'completed' || output.cell.errorClass === 'tool_step_cap_reached')
-    && output.cell.executionIdentity
-    && (!output.cell.tokenSummary || output.cell.tokenSummary.total <= 0)
-  ) {
-    return {
-      errorClass: 'missing_token_usage',
-      error: 'Harbor cell did not report token usage for the attested real-provider execution',
-    };
-  }
   if (output.cell.tokenSummary && output.cell.tokenSummary.total > 0 && output.cell.tokenSummary.costUsd === 0) {
     return {
       errorClass: 'zero_cost_with_tokens',
@@ -1042,16 +1058,6 @@ function taskBudgetExhaustedEvent(input: {
     );
     if (evidenceFailure?.errorClass === 'missing_execution_identity') {
       evidenceFailure = { ...evidenceFailure, error: LEGACY_TIMEOUT_MISSING_EXECUTION_IDENTITY_ERROR };
-    }
-    if (
-      evidenceFailure === undefined
-      && artifactRefs.executionIdentity
-      && (!artifactRefs.tokenSummary || artifactRefs.tokenSummary.total <= 0)
-    ) {
-      evidenceFailure = {
-        errorClass: 'missing_token_usage',
-        error: 'Harbor cell did not report token usage for the attested real-provider execution',
-      };
     }
   }
   const tokenSummary = artifactRefs.cellOutput?.tokenSummary ?? artifactRefs.tokenSummary;

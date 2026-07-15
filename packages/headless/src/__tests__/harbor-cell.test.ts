@@ -609,7 +609,9 @@ describe('runHarborCell', () => {
         cwd: workspaceDir,
         outputDir,
         storageRoot,
-        settleAfterMs: 25,
+        // Keep the semantic deadline short without racing unrelated test files
+        // that Node runs concurrently in the full workspace suite.
+        settleAfterMs: 250,
         continuationPolicy: {
           enabled: true,
           maxTurns: 2,

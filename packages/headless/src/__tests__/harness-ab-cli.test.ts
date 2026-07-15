@@ -85,6 +85,7 @@ test('detached harness launcher persists a terminal failed journal after the wor
     assert.equal(typeof journal.pid, 'number');
     assert.equal(typeof journal.startedAt, 'string');
     assert.equal(typeof journal.finishedAt, 'string');
+    await waitForFileMatch(join(outDir, runId, 'background-run.log'), /Terminal-Bench 2\.1 task set mismatch/);
     assert.match(await readFile(join(outDir, runId, 'background-run.log'), 'utf8'), /Terminal-Bench 2\.1 task set mismatch/);
   } finally {
     await rm(dir, { recursive: true, force: true });

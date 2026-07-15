@@ -24,10 +24,6 @@ _INFRA_PATTERNS = (
     "unable to fetch some archives",
     "failed to fetch",
     "bad gateway",
-    "curl: command not found",
-    "uvx: command not found",
-    "/root/.local/bin/env: no such file or directory",
-    "libgl.so.1: cannot open shared object file",
 )
 
 
@@ -39,8 +35,9 @@ class _TimedVerifierEnvironment:
     """Narrow environment decorator that hard-limits the test command.
 
     Harbor 0.13.2 applies one timeout around the whole verifier. This inner
-    command timeout leaves time for a second attempt and, unlike cancelling the
-    host coroutine, kills the process inside the task container.
+    command timeout leaves recovery time for verifier infrastructure failures
+    and, unlike cancelling the host coroutine, kills the process inside the
+    task container.
     """
 
     def __init__(self, environment: Any, timeout_sec: float) -> None:
@@ -120,13 +117,16 @@ class MakaVerifier(Verifier):
                 self._write_outcome(classification, attempts)
                 assert result is not None
                 return result
-            if attempt < self._max_attempts:
-                last_error = None
-                continue
             if classification == "timeout":
+                # The verifier command has started and may have mutated its
+                # workspace. Replaying it in-place would not evaluate the same
+                # post-agent state, so a timeout is terminal candidate evidence.
                 self.trial_paths.reward_text_path.write_text("0\n", encoding="utf-8")
                 self._write_outcome("candidate_timeout", attempts)
                 return VerifierResult(rewards={"reward": 0})
+            if attempt < self._max_attempts:
+                last_error = None
+                continue
 
             self._write_outcome("infra_failed", attempts)
             raise MakaVerifierInfrastructureError(

@@ -352,7 +352,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   await writeFile(
     join(input.outputDir, HARBOR_CELL_EXECUTION_IDENTITY_FILENAME),
     `${JSON.stringify(executionIdentity, null, 2)}\n`,
-    'utf8',
+    { encoding: 'utf8', flush: true },
   );
 
   let invocation: InvocationResult | undefined;

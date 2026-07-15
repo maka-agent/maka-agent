@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shlex
 import time
 from pathlib import Path
@@ -178,6 +179,7 @@ class MakaOpenCodeAgent(OpenCode):
             f"{cli_flags_arg}{variant_arg}--thinking --auto -- "
             f"{escaped_instruction}"
         )
+        self._write_execution_identity()
         await self.exec_as_agent(environment, command=command, env=env)
 
     def _stop_runner_path(self) -> str:
@@ -296,20 +298,8 @@ class MakaOpenCodeAgent(OpenCode):
         totals = self._token_totals(context)
         started_at = getattr(self, "_started_at_ms", int(time.time() * 1000))
         finished_at = getattr(self, "_finished_at_ms", started_at)
-        provider, model = self.model_name.split("/", 1)
-        system_prompt = self._get_env("MAKA_SYSTEM_PROMPT") or ""
-        prompt_hash = "sha256:" + hashlib.sha256(
-            json.dumps(system_prompt, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        pricing_profile = self._get_env("MAKA_TRIAL_PRICING_SOURCE") or "unconfigured"
-        reasoning_effort = self._get_env("MAKA_REASONING_EFFORT")
-        execution_identity = {
-            "llmConnectionSlug": self._get_env("MAKA_LLM_CONNECTION_SLUG") or provider,
-            "model": model,
-            **({"reasoningEffort": reasoning_effort} if reasoning_effort else {}),
-            "systemPromptHash": prompt_hash,
-            "pricingProfile": pricing_profile,
-        }
+        execution_identity = self._execution_identity()
+        prompt_hash = execution_identity["systemPromptHash"]
         events = self._parse_stdout() if hasattr(self, "_parse_stdout") else []
         tool_call_counts: dict[str, int] = {}
         for event in events or []:
@@ -371,9 +361,30 @@ class MakaOpenCodeAgent(OpenCode):
         (self.logs_dir / "maka-cell-output.json").write_text(
             json.dumps(output, indent=2) + "\n", encoding="utf-8"
         )
-        (self.logs_dir / "maka-cell-execution-identity.json").write_text(
-            json.dumps(execution_identity, indent=2) + "\n", encoding="utf-8"
-        )
+
+    def _execution_identity(self) -> dict[str, str]:
+        provider, model = self.model_name.split("/", 1)
+        system_prompt = self._get_env("MAKA_SYSTEM_PROMPT") or ""
+        prompt_hash = "sha256:" + hashlib.sha256(
+            json.dumps(system_prompt, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        pricing_profile = self._get_env("MAKA_TRIAL_PRICING_SOURCE") or "unconfigured"
+        reasoning_effort = self._get_env("MAKA_REASONING_EFFORT")
+        return {
+            "llmConnectionSlug": self._get_env("MAKA_LLM_CONNECTION_SLUG") or provider,
+            "model": model,
+            **({"reasoningEffort": reasoning_effort} if reasoning_effort else {}),
+            "systemPromptHash": prompt_hash,
+            "pricingProfile": pricing_profile,
+        }
+
+    def _write_execution_identity(self) -> None:
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        path = self.logs_dir / "maka-cell-execution-identity.json"
+        with path.open("w", encoding="utf-8") as output:
+            output.write(json.dumps(self._execution_identity(), indent=2) + "\n")
+            output.flush()
+            os.fsync(output.fileno())
 
 def _int_value(value: Any) -> int:
     return (

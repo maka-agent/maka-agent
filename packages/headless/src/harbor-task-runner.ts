@@ -131,7 +131,7 @@ export const HARBOR_VERIFIER_POLICY_FINGERPRINT = `sha256:${createHash('sha256')
   maxAttempts: VERIFIER_MAX_ATTEMPTS,
   defaultAttemptTimeoutSec: DEFAULT_VERIFIER_TIMEOUT_SEC,
   retryGraceSec: VERIFIER_RETRY_GRACE_SEC,
-  timeoutPolicy: 'candidate_timeout_after_two_attempts',
+  timeoutPolicy: 'candidate_timeout_without_replay',
 })).digest('hex')}`;
 
 export interface HarborRunResult {
@@ -157,7 +157,6 @@ export interface HarborOracleQualifierOptions {
 
 export type HarborOracleQualifier = (
   task: HarborTaskRunInput['task'],
-  runId: string,
 ) => Promise<HarnessOracleTaskResult>;
 
 const EXPERIMENT_IDENTITY_ENV_KEYS = new Set([
@@ -184,7 +183,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
   const harborAdapterDir = join(options.makaRepoPath, 'packages', 'headless', 'harbor');
   const pythonPath = [harborAdapterDir, process.env.PYTHONPATH].filter(Boolean).join(delimiter);
 
-  return async (input: HarborTaskRunInput): Promise<HarborTaskRunOutput> => {
+  const runner: HarborTaskRunner = async (input: HarborTaskRunInput): Promise<HarborTaskRunOutput> => {
     const jobsDir = join(
       options.jobsDir,
       sanitize(input.runId),
@@ -270,9 +269,9 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
     const cell = await readCellOutput(cellOutputPath, input.task.id);
     const verifierStdout = await readOptionalText(join(trialDir, TRIAL_VERIFIER_STDOUT));
     const verifier = await readVerifierOutcome(join(trialDir, TRIAL_VERIFIER_OUTCOME), input.task.id);
-    const verifierSetupErrorClass = !verifier && reward <= 0 && isVerifierDependencySetupFailure(verifierStdout)
-      ? 'infra_failed'
-      : undefined;
+    if (!verifier) {
+      throw new HarborInfraError(`custom verifier produced no structured verifier outcome for task ${input.task.id}`);
+    }
     const verifierFailureSummary = verifier?.outcome === 'candidate_timeout'
       ? 'candidate_timeout'
       : reward <= 0
@@ -289,7 +288,6 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       // controller's reward-hack scan and structural smoke can read raw events.
       cell: {
         ...cell,
-        ...(verifierSetupErrorClass && !cell.errorClass ? { errorClass: verifierSetupErrorClass } : {}),
         runtimeEventsPath: hostEventsPath,
         traceEventsPath: join(
           trialDir,
@@ -302,6 +300,37 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       },
     };
   };
+  runner.samplingState = (input) => readHarborAttemptSamplingState(options.jobsDir, input);
+  return runner;
+}
+
+async function readHarborAttemptSamplingState(
+  rootJobsDir: string,
+  input: HarborTaskRunInput,
+): Promise<'not_started' | 'started' | 'unknown'> {
+  const jobDir = join(
+    rootJobsDir,
+    sanitize(input.runId),
+    sanitize(input.roundId),
+    sanitize(input.task.id),
+    'trial',
+  );
+  let entries;
+  try {
+    entries = await readdir(jobDir, { withFileTypes: true });
+  } catch (error) {
+    return (error as { code?: unknown }).code === 'ENOENT' ? 'not_started' : 'unknown';
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    try {
+      await readFile(join(jobDir, entry.name, TRIAL_EXECUTION_IDENTITY), 'utf8');
+      return 'started';
+    } catch (error) {
+      if ((error as { code?: unknown }).code !== 'ENOENT') return 'unknown';
+    }
+  }
+  return 'not_started';
 }
 
 export function createHarborOracleQualifier(options: HarborOracleQualifierOptions): HarborOracleQualifier {
@@ -309,8 +338,8 @@ export function createHarborOracleQualifier(options: HarborOracleQualifierOption
   const harborBin = options.harborBin ?? 'harbor';
   const harborAdapterDir = join(options.makaRepoPath, 'packages', 'headless', 'harbor');
   const pythonPath = [harborAdapterDir, process.env.PYTHONPATH].filter(Boolean).join(delimiter);
-  return async (task, runId) => {
-    const jobsDir = join(options.jobsDir, sanitize(runId), sanitize(task.id));
+  return async (task) => {
+    const jobsDir = join(options.jobsDir, sanitize(task.id));
     const jobName = 'qualification';
     const jobDir = join(jobsDir, jobName);
     await rm(jobsDir, { recursive: true, force: true });
@@ -487,10 +516,14 @@ async function readVerifierOutcome(path: string, taskId: string): Promise<Harbor
   }
   const attempts = value.attempts.map((attempt, index) => validateVerifierAttempt(attempt, index + 1, taskId));
   const last = attempts.at(-1)!;
+  const priorAttemptsAreRetryable = attempts
+    .slice(0, -1)
+    .every((attempt) => attempt.classification === 'infra_setup_failed' || attempt.classification === 'infra_failed');
   if (
-    (outcome === 'passed' && (attempts.length !== 1 || last.classification !== 'passed' || (last.reward ?? 0) <= 0))
-    || (outcome === 'failed' && (attempts.length !== 1 || last.classification !== 'failed' || last.reward !== 0))
-    || (outcome === 'candidate_timeout' && (attempts.length !== 2 || attempts.some((attempt) => attempt.classification !== 'timeout')))
+    !priorAttemptsAreRetryable
+    || (outcome === 'passed' && (last.classification !== 'passed' || (last.reward ?? 0) <= 0))
+    || (outcome === 'failed' && (last.classification !== 'failed' || last.reward !== 0))
+    || (outcome === 'candidate_timeout' && last.classification !== 'timeout')
   ) {
     throw new HarborInfraError(`verifier outcome disagrees with its attempts for task ${taskId}`);
   }
@@ -525,20 +558,8 @@ function validateVerifierAttempt(value: unknown, expectedAttempt: number, taskId
   };
 }
 
-function isVerifierDependencySetupFailure(text: string | null): boolean {
-  if (!text) return false;
-  const normalized = text.toLowerCase();
-  return normalized.includes('unable to fetch some archives')
-    || normalized.includes('failed to fetch')
-    || normalized.includes('bad gateway')
-    || normalized.includes('curl: command not found')
-    || normalized.includes('uvx: command not found')
-    || normalized.includes('/root/.local/bin/env: no such file or directory');
-}
-
 function summarizeVerifierFailure(text: string | null): string | undefined {
   if (!text) return undefined;
-  if (isVerifierDependencySetupFailure(text)) return 'verifier_dependency_setup_failed';
   const normalized = text.toLowerCase();
   const parts: string[] = [];
   if (normalized.includes('assertionerror') || normalized.includes('assert ')) {

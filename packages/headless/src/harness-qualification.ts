@@ -99,7 +99,44 @@ function validateEvidence(value: unknown, input: QualifyHarnessTasksInput): Harn
   ) {
     throw new Error('stored Oracle qualification evidence does not match this run');
   }
+  if (!qualificationEvidenceBodyIsValid(value, expectedTaskIds, input.targetCount)) {
+    throw new Error('stored Oracle qualification evidence is malformed');
+  }
   return value as unknown as HarnessOracleQualificationEvidence;
+}
+
+function qualificationEvidenceBodyIsValid(
+  value: Record<string, unknown>,
+  expectedTaskIds: readonly string[],
+  targetCount: number,
+): boolean {
+  if (!Array.isArray(value.selectedTaskIds) || !Array.isArray(value.candidates)) return false;
+  if (
+    value.selectedTaskIds.length !== targetCount
+    || value.candidates.length < targetCount
+    || value.candidates.length > expectedTaskIds.length
+    || value.selectedTaskIds.some((taskId) => typeof taskId !== 'string')
+    || new Set(value.selectedTaskIds).size !== value.selectedTaskIds.length
+  ) return false;
+  const selectedFromCandidates: string[] = [];
+  for (const [index, candidate] of value.candidates.entries()) {
+    if (!isRecord(candidate) || candidate.taskId !== expectedTaskIds[index]) return false;
+    if (
+      typeof candidate.reward !== 'number'
+      || !Number.isFinite(candidate.reward)
+      || typeof candidate.attempts !== 'number'
+      || !Number.isSafeInteger(candidate.attempts)
+      || candidate.attempts < 1
+    ) return false;
+    if (candidate.outcome === 'passed') {
+      if (candidate.reward <= 0) return false;
+      selectedFromCandidates.push(candidate.taskId as string);
+    } else if (
+      (candidate.outcome !== 'failed' && candidate.outcome !== 'candidate_timeout')
+      || candidate.reward !== 0
+    ) return false;
+  }
+  return JSON.stringify(value.selectedTaskIds) === JSON.stringify(selectedFromCandidates);
 }
 
 function withFingerprint<T extends Record<string, unknown>>(body: T): T & { fingerprint: string } {

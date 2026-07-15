@@ -163,7 +163,7 @@ embed environment variables, credentials, or hidden harness configuration.
 
 ## GLM-5.2 harness comparison
 
-`harbor/run-harness-ab.mjs` compares Maka and OpenCode 1.17.18 on the same Terminal-Bench 2.1 tasks with GLM-5.2 Max. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official revision; a matching Harbor export with one task directory per id is accepted directly. The first 30 tasks are a fixed prefix of the full seeded order. Maka keeps active and stale tool-result pruning enabled while semantic compact is explicitly disabled in both the manifest and runtime environment.
+`harbor/run-harness-ab.mjs` compares Maka and OpenCode 1.17.18 on the same Terminal-Bench 2.1 tasks with GLM-5.2 Max. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official revision; a matching Harbor export with one task directory per id is accepted directly. Before model sampling, Harbor's Oracle inspects tasks in the frozen seeded order under the same verifier policy and selects the first 30 that pass. The immutable qualification evidence and selected task ids are bound into the run manifest. Maka keeps active and stale tool-result pruning enabled while semantic compact is explicitly disabled in both the manifest and runtime environment.
 
 Validate the manifest without reading a key or starting Harbor:
 
@@ -176,7 +176,7 @@ MAKA_HARNESS_AB_DRY_RUN=1 \
 node packages/headless/harbor/run-harness-ab.mjs
 ```
 
-For a live run, remove `MAKA_HARNESS_AB_DRY_RUN` and set `MAKA_HARNESS_AB_KEY_FILE` to a credential file outside git. Maka reads it in its host-side cell; OpenCode receives only a short-lived host proxy capability, never the provider key or key-file path. Use `MAKA_HARNESS_AB_LIMIT=2` for an operational canary, then resume with the same output directory and run id at `30` for the fixed pilot or `89` for the full suite; only missing cells run. The immutable manifest rejects other configuration changes.
+For a live run, remove `MAKA_HARNESS_AB_DRY_RUN` and set `MAKA_HARNESS_AB_KEY_FILE` to a credential file outside git. Maka reads it in its host-side cell; OpenCode receives only a short-lived host proxy capability, never the provider key or key-file path. Qualification always produces the same 30-task evaluation set for a run and is cached in `oracle-qualification.json`; `MAKA_HARNESS_AB_LIMIT=2` runs an operational canary over its first two tasks, then the same output directory and run id can resume at `30`. Only missing cells run. The 89 frozen tasks are the qualification candidate pool, not a supported evaluation limit. The immutable manifest rejects other configuration changes.
 
 For an unattended run, invoke `node packages/headless/harbor/run-harness-ab-detached.mjs` with the same environment. It detaches the worker from the terminal and atomically journals `running`, `completed`, or `failed` in `background-run.json`; stdout and stderr go to `background-run.log`.
 
