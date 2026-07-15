@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +14,13 @@ const statePath = join(labRoot, 'test-app/runtime/state.json');
 const fixtureBundleId = 'com.openai.codex.cualab';
 const expectedAppPath = join(labRoot, 'test-app/build/Codex CUA Lab.app');
 const scenario = process.env.MAKA_CU_AX_MODEL_SCENARIO ?? 'set-value';
+const reportPath = process.env.MAKA_CU_AX_MODEL_REPORT
+  ?? join(
+    repoRoot,
+    '.agents-workspace-data',
+    'cu-real-ax-model',
+    `report-${Date.now()}.json`,
+  );
 const delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -199,6 +206,7 @@ async function run() {
   let monitor;
   let harness;
   try {
+    await mkdir(dirname(reportPath), { recursive: true });
     caffeinate = spawn('/usr/bin/caffeinate', ['-dimsu'], {
       stdio: ['ignore', 'ignore', 'inherit'],
     });
@@ -239,6 +247,7 @@ async function run() {
         MAKA_CU_AX_MODEL_INPUT_AGE_PROBE: inputAgePath,
         MAKA_CU_AX_MODEL_TEMP_DIR: temporaryDirectory,
         MAKA_CU_AX_MODEL_SCENARIO: scenario,
+        MAKA_CU_AX_MODEL_REPORT: reportPath,
       },
       stdio: ['ignore', 'inherit', 'inherit'],
     });
@@ -302,6 +311,8 @@ async function run() {
     if (first.result.code !== 0) {
       throw new Error(`AX model E2E failed (${first.result.signal ?? first.result.code})`);
     }
+    await readFile(reportPath, 'utf8');
+    process.stdout.write(`Real AX model Computer Use report: ${reportPath}\n`);
   } finally {
     await terminateChild(harness, 'AX model harness').catch(() => {});
     await monitor?.stop().catch(() => {});

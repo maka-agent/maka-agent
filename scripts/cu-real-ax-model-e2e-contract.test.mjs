@@ -44,10 +44,12 @@ test('real AX model E2E uses production Runtime and backend with an enforced sem
   assert.match(harness, /currentScenario === 'restart-recovery'[\s\S]*\? 2/);
   assert.match(harness, /expectedFailures:[\s\S]*action: 'set_value', error: 'target_missing'/);
   assert.match(harness, /qualificationScenario\.expectedFailures\.some/);
-  assert.match(harness, /totalActionAttempts = nextTotal[\s\S]*recordRejectedAttempt/);
+  assert.match(harness, /totalActionAttempts = nextTotal[\s\S]*actions\.push\(attempt\)/);
   assert.match(harness, /unsupported_action_policy/);
   assert.match(harness, /action_budget_exceeded/);
-  assert.match(harness, /actions\.push\([\s\S]*throw new Error\(message\)/);
+  assert.match(harness, /target_mismatch/);
+  assert.match(harness, /catch \(error\)[\s\S]*attempt\.text = `maka_computer\.\$\{action\} failed/);
+  assert.match(harness, /actions\.push\(attempt\)[\s\S]*throw new Error\(message\)/);
   assert.match(harness, /actionResultsPassed = actions\.every/);
   assert.match(harness, /status: qualified \? 'pass' : 'fail'/);
   assert.match(harness, /if \(!qualified\)[\s\S]*qualification rejected canonical action evidence/);
@@ -62,6 +64,12 @@ test('real AX model E2E uses production Runtime and backend with an enforced sem
   assert.match(harness, /policyMode: 'enforced'/);
   assert.match(harness, /sanitizeCuDirectReport/);
   assert.match(harness, /trace\.toolCallId !== 'fixture-mutate-ambiguity'/);
+  assert.match(harness, /actionAttempts: totalActionAttempts/);
+  assert.match(harness, /restart recovery requires stale target_missing, fresh observation, and successful AX retry/);
+  assert.match(harness, /runId: randomUUID\(\)/);
+  assert.match(harness, /contentLineage/);
+  assert.match(launcher, /MAKA_CU_AX_MODEL_REPORT: reportPath/);
+  assert.match(launcher, /Real AX model Computer Use report/);
 });
 
 test('physical input probe is read-only', () => {

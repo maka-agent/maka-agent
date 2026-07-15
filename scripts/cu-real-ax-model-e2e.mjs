@@ -1,4 +1,5 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
@@ -20,6 +21,7 @@ const statePath = join(labRoot, 'test-app/runtime/state.json');
 const fixturePID = Number(process.env.MAKA_CU_AX_MODEL_FIXTURE_PID);
 const inputAgeProbe = process.env.MAKA_CU_AX_MODEL_INPUT_AGE_PROBE;
 const temporaryDirectory = process.env.MAKA_CU_AX_MODEL_TEMP_DIR;
+const reportPath = process.env.MAKA_CU_AX_MODEL_REPORT;
 const provider = process.env.MAKA_CU_MODEL_PROVIDER ?? 'openai';
 const baseUrl = process.env.MAKA_CU_MODEL_BASE_URL
   ?? (provider === 'anthropic'
@@ -41,6 +43,7 @@ if (
   || fixturePID <= 0
   || !inputAgeProbe
   || !temporaryDirectory
+  || !reportPath
   || relativeTemporaryDirectory.startsWith('..')
   || relativeTemporaryDirectory === ''
 ) {
@@ -66,6 +69,21 @@ let totalActionAttempts = 0;
 const actionAttemptCounts = new Map();
 const fixtureInstances = new Map();
 const observationTargets = new Map();
+const generatedAt = new Date().toISOString();
+const gitRevision = execFileSync('git', ['rev-parse', 'HEAD'], {
+  cwd: repoRoot,
+  encoding: 'utf8',
+}).trim();
+const reportLineage = {
+  runId: randomUUID(),
+  gitRevision,
+  generatedAt,
+  contentLineage: {
+    generator: 'scripts/cu-real-ax-model-e2e.mjs',
+    gitRevision,
+    generatedAt,
+  },
+};
 
 function registerFixtureInstance(app, windowId) {
   const windowIds = fixtureInstances.get(app.pid) ?? new Set();
@@ -336,29 +354,30 @@ const computerTool = {
     totalActionAttempts = nextTotal;
     actionAttemptCounts.set(action, nextActionCount);
     const sourceTarget = observationTargets.get(args?.observation_id);
-    const recordRejectedAttempt = (resultCode, message) => {
-      const ownedWindows = fixtureInstances.get(sourceTarget?.pid);
-      actions.push({
-        action: { type: action },
-        toolCallId: context.toolCallId,
-        sourceObservationId: args?.observation_id,
-        targetPid: sourceTarget?.pid,
-        targetWindowId: sourceTarget?.windowId,
-        targetOwned: Boolean(ownedWindows?.has(sourceTarget?.windowId)),
-        success: false,
-        durationMs: 0,
-        text: `maka_computer.${action} failed: ${resultCode}`,
-      });
+    const ownedWindows = fixtureInstances.get(sourceTarget?.pid);
+    const attempt = {
+      action: { type: action },
+      toolCallId: context.toolCallId,
+      sourceObservationId: args?.observation_id,
+      targetPid: sourceTarget?.pid,
+      targetWindowId: sourceTarget?.windowId,
+      targetOwned: Boolean(ownedWindows?.has(sourceTarget?.windowId)),
+      success: false,
+      durationMs: 0,
+    };
+    actions.push(attempt);
+    const rejectAttempt = (resultCode, message) => {
+      attempt.text = `maka_computer.${action} failed: ${resultCode}`;
       throw new Error(message);
     };
     if (!allowed.has(action)) {
-      recordRejectedAttempt(
+      rejectAttempt(
         'unsupported_action_policy',
         `model action '${action}' is outside the AX-only scenario budget`,
       );
     }
     if (nextTotal > budget.total || nextActionCount > (budget.counts[action] ?? 0)) {
-      recordRejectedAttempt(
+      rejectAttempt(
         'action_budget_exceeded',
         'AX-only scenario action budget exceeded',
       );
@@ -370,10 +389,23 @@ const computerTool = {
         || args.window_id !== fixtureWindowId
       )
     ) {
-      throw new Error('model observe target does not match the exact fixture identity');
+      rejectAttempt(
+        'target_mismatch',
+        'model observe target does not match the exact fixture identity',
+      );
     }
     const actionStartedAt = Date.now();
-    const result = await rawComputerTool.impl(args, context);
+    let result;
+    try {
+      result = await rawComputerTool.impl(args, context);
+    } catch (error) {
+      const resultCode = typeof error?.code === 'string'
+        ? error.code
+        : 'tool_error';
+      attempt.durationMs = Date.now() - actionStartedAt;
+      attempt.text = `maka_computer.${action} failed: ${resultCode}`;
+      throw error;
+    }
     const observation = parseObservation(result?.modelText)
       ?? parseObservation(result?.text);
     const dispatch = traces.findLast((trace) =>
@@ -391,20 +423,18 @@ const computerTool = {
     }
     const targetPid = observation?.pid ?? dispatch?.pid ?? sourceTarget?.pid;
     const targetWindowId = observation?.window_id ?? dispatch?.windowId ?? sourceTarget?.windowId;
-    const ownedWindows = fixtureInstances.get(targetPid);
-    actions.push({
-      action: { type: action },
-      toolCallId: context.toolCallId,
-      sourceObservationId: args?.observation_id,
+    const resultOwnedWindows = fixtureInstances.get(targetPid);
+    Object.assign(attempt, {
       resultObservationId: observation?.observation_id,
       targetPid,
       targetWindowId,
-      targetOwned: Boolean(ownedWindows?.has(targetWindowId)),
+      targetOwned: Boolean(resultOwnedWindows?.has(targetWindowId)),
       success: !resultCode,
       expectedFailure: qualificationScenario.expectedFailures.some((expected) =>
         expected.action === action && expected.error === resultCode),
       durationMs: Date.now() - actionStartedAt,
-      text: result?.text,
+      text: result?.text
+        ?? (resultCode ? `maka_computer.${action} failed: ${resultCode}` : undefined),
     });
     return result;
   },
@@ -561,6 +591,33 @@ try {
   if (scenario === 'restart-recovery' && !staleRecoveryObserved) {
     throw new Error('model restart scenario did not observe target_missing');
   }
+  if (scenario === 'restart-recovery') {
+    const staleIndex = actions.findIndex((record) =>
+      record.action.type === 'set_value'
+      && record.success === false
+      && record.expectedFailure === true);
+    const freshIndex = actions.findIndex((record, index) =>
+      index > staleIndex
+      && record.action.type === 'observe'
+      && record.success === true
+      && typeof record.resultObservationId === 'string'
+      && record.targetPid === fixture.pid);
+    const retry = actions.find((record, index) =>
+      index > freshIndex
+      && record.action.type === 'set_value'
+      && record.success === true
+      && record.sourceObservationId === actions[freshIndex]?.resultObservationId
+      && record.targetPid === fixture.pid);
+    const retryDispatch = retry && setValueDispatches.some((trace) =>
+      trace.toolCallId === retry.toolCallId
+      && trace.pid === retry.targetPid
+      && trace.windowId === retry.targetWindowId);
+    if (staleIndex < 0 || freshIndex < 0 || !retry || !retryDispatch) {
+      throw new Error(
+        'restart recovery requires stale target_missing, fresh observation, and successful AX retry',
+      );
+    }
+  }
   if (
     scenario === 'ambiguity'
     && (
@@ -664,6 +721,7 @@ try {
     && dispatchPathPassed;
   const sanitized = sanitizeCuDirectReport({
     schemaVersion: 1,
+    ...reportLineage,
     evidenceClass,
     scenarioId: scenario === 'observe-only'
       ? 'appkit-ax-observe-only'
@@ -747,10 +805,13 @@ try {
         (outcome) => !outcome.ok && outcome.ambiguous,
       ).length,
     },
+    actionAttempts: totalActionAttempts,
     actionCount: actions.length,
-    actionCounts: Object.fromEntries(
-      [...actionAttemptCounts.entries()],
-    ),
+    actionCounts: Object.fromEntries(actions.reduce((counts, record) => {
+      const type = record.action.type;
+      counts.set(type, (counts.get(type) ?? 0) + 1);
+      return counts;
+    }, new Map())),
     minimumActionsPassed,
     actionsWithinBudget,
     dispatchPathPassed,
@@ -776,7 +837,6 @@ try {
       (trace) => trace.toolCallId !== 'fixture-mutate-ambiguity',
     ),
   });
-  const reportPath = join(resolvedTemporaryDirectory, 'real-ax-model-report.json');
   await writeFile(reportPath, `${JSON.stringify(sanitized, null, 2)}\n`, {
     flag: 'wx',
     mode: 0o600,

@@ -103,8 +103,18 @@ test('report sanitizer preserves validated attribution and drops arbitrary field
 });
 
 test('canonical evidence keeps privacy-safe ownership and observation lineage', () => {
+  const generatedAt = '2026-07-12T00:00:00.000Z';
+  const gitRevision = '0123456789abcdef0123456789abcdef01234567';
   const report = sanitizeCuReport({
     schemaVersion: 1,
+    runId: 'run-1',
+    gitRevision,
+    generatedAt,
+    contentLineage: {
+      generator: 'scripts/cu-real-ax-model-e2e.mjs',
+      gitRevision,
+      generatedAt,
+    },
     evidenceClass: 'fault-injection',
     scenarioId: 'appkit-ax-intervention-recovery',
     producer: 'cu-real-ax-model-e2e',
@@ -128,6 +138,7 @@ test('canonical evidence keeps privacy-safe ownership and observation lineage', 
       targetOwned: true,
       success: true,
     }],
+    actionAttempts: 1,
     traces: [{
       type: 'dispatch',
       toolCallId: 'tool-1',
@@ -145,6 +156,15 @@ test('canonical evidence keeps privacy-safe ownership and observation lineage', 
       { pid: 84, windowIds: [9] },
     ],
   });
+  assert.equal(report.runId, 'run-1');
+  assert.equal(report.gitRevision, gitRevision);
+  assert.equal(report.generatedAt, generatedAt);
+  assert.deepEqual(report.contentLineage, {
+    generator: 'scripts/cu-real-ax-model-e2e.mjs',
+    gitRevision,
+    generatedAt,
+  });
+  assert.equal(report.actionAttempts, 1);
   assert.deepEqual(report.faultInjection, {
     layer: 'runtime',
     kind: 'user_intervened',

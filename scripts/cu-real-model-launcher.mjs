@@ -1,5 +1,7 @@
 import { _electron as electron, chromium } from '@playwright/test';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { promisify } from 'node:util';
 import {
   cp,
   mkdir,
@@ -30,6 +32,7 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..');
+const execFileAsync = promisify(execFile);
 const sourceWorkspace = join(
   homedir(),
   'Library',
@@ -76,6 +79,24 @@ const reportPath = process.env.MAKA_CU_REAL_MODEL_REPORT
 const runPrompt =
   'Use the maka_computer tool to complete this task. '
   + scenario.prompt;
+
+async function reportLineage() {
+  const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], {
+    cwd: repoRoot,
+  });
+  const generatedAt = new Date().toISOString();
+  const gitRevision = stdout.trim();
+  return {
+    runId: randomUUID(),
+    gitRevision,
+    generatedAt,
+    contentLineage: {
+      generator: 'scripts/cu-real-model-launcher.mjs',
+      gitRevision,
+      generatedAt,
+    },
+  };
+}
 
 async function reservePort() {
   const server = createServer();
@@ -433,6 +454,7 @@ function safeFailureMetadata(message) {
 }
 
 async function run() {
+  const lineage = await reportLineage();
   const userData = await mkdtemp(join(tmpdir(), 'maka-cu-real-model-'));
   const workspace = join(userData, 'workspaces', 'default');
   const tracePath = join(userData, 'computer-use-trace.jsonl');
@@ -593,7 +615,11 @@ async function run() {
       action.success === true
       && action.targetOwned === true
       && scenario.allowedActions.includes(action.type));
-    const actionCounts = Object.fromEntries(
+    const actionCounts = Object.fromEntries(actions.reduce((counts, action) => {
+      counts.set(action.type, (counts.get(action.type) ?? 0) + 1);
+      return counts;
+    }, new Map()));
+    const qualifyingActionCounts = Object.fromEntries(
       scenario.allowedActions.map((action) => [
         action,
         qualifyingActions.filter((record) => record.type === action).length,
@@ -601,7 +627,7 @@ async function run() {
     );
     const minimumActionsPassed = Object.entries(
       scenario.minimumActionCounts ?? {},
-    ).every(([action, minimum]) => (actionCounts[action] ?? 0) >= minimum);
+    ).every(([action, minimum]) => (qualifyingActionCounts[action] ?? 0) >= minimum);
     const terminalPassed =
       runResult.terminalEvent.type === 'complete'
       && runResult.terminalEvent.stopReason === 'end_turn';
@@ -618,14 +644,15 @@ async function run() {
       driverTraces,
     );
     const ownershipPassed = allActionTargetsOwned(actions);
-    const locallyQualified = terminalPassed
+    const localChecksPassed = terminalPassed
       && minimumActionsPassed
       && actionsWithinBudget
       && dispatchPathPassed
       && ownershipPassed
       && evaluation.pass;
-    const report = sanitizeCuReport({
+    const reportInput = {
       schemaVersion: 1,
+      ...lineage,
       evidenceClass: 'real-runtime',
       policyMode: 'bypassed',
       qualificationEligible: true,
@@ -647,6 +674,7 @@ async function run() {
               : undefined,
           }
         : undefined,
+      actionAttempts: actions.length,
       actionCount: actions.length,
       actionCounts,
       minimumActionsPassed,
@@ -661,19 +689,30 @@ async function run() {
           : 'fail',
         violations: evaluation.forbidden.filter((entry) => !entry.pass),
       },
-      status: locallyQualified
+      status: localChecksPassed
         ? 'pass'
         : terminalPassed && minimumActionsPassed
           ? 'fail'
           : 'inconclusive',
       traces: events.map(sanitizeCuTrace).filter(Boolean),
       driverTraces: driverTraces.map(sanitizeCuTrace).filter(Boolean),
-    });
-    const validationErrors = validateRealReport(report, {
+    };
+    const provider = {
       id: runResult.connection.providerType,
       producer: 'cu-real-model-launcher',
       model: runResult.connection.model,
-    }, scenario);
+    };
+    const provisionalReport = sanitizeCuReport(reportInput);
+    const qualificationErrors = validateRealReport(
+      { ...provisionalReport, status: 'pass' },
+      provider,
+      scenario,
+    );
+    const report = sanitizeCuReport({
+      ...reportInput,
+      status: qualificationErrors.length === 0 ? 'pass' : 'fail',
+    });
+    const validationErrors = validateRealReport(report, provider, scenario);
     await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, {
       flag: 'wx',
       mode: 0o600,
@@ -701,8 +740,10 @@ async function run() {
 }
 
 async function handleRunFailure(error) {
+  const lineage = await reportLineage().catch(() => undefined);
   const failure = sanitizeCuReport({
     schemaVersion: 1,
+    ...lineage,
     evidenceClass: 'real-runtime',
     scenarioId: scenario.id,
     producer: 'cu-real-model-launcher',

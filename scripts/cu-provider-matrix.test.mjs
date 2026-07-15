@@ -37,8 +37,18 @@ function scenario(overrides = {}) {
 }
 
 function realReport(overrides = {}) {
+  const generatedAt = '2026-07-12T00:00:00.000Z';
+  const gitRevision = '0123456789abcdef0123456789abcdef01234567';
   return {
     schemaVersion: 1,
+    runId: 'run-real-report',
+    gitRevision,
+    generatedAt,
+    contentLineage: {
+      generator: 'scripts/cu-real-model-launcher.mjs',
+      gitRevision,
+      generatedAt,
+    },
     scenarioId: 'click',
     evidenceClass: 'real-runtime',
     producer: 'cu-real-model-launcher',
@@ -73,7 +83,9 @@ function realReport(overrides = {}) {
         durationMs: 30,
       },
     ],
+    actionAttempts: 2,
     actionCount: 2,
+    actionCounts: { observe: 1, click_element: 1 },
     minimumActionsPassed: true,
     actionsWithinBudget: true,
     dispatchPathPassed: true,
@@ -91,6 +103,19 @@ function realReport(overrides = {}) {
       },
     ],
     ...overrides,
+  };
+}
+
+function withLedgerCounts(report) {
+  const actionCounts = {};
+  for (const action of report.actions) {
+    actionCounts[action.type] = (actionCounts[action.type] ?? 0) + 1;
+  }
+  return {
+    ...report,
+    actionAttempts: report.actions.length,
+    actionCount: report.actions.length,
+    actionCounts,
   };
 }
 
@@ -419,7 +444,7 @@ for (const [label, patch, pattern] of [
 ]) {
   test(`real report rejects ${label}`, async () => {
     const report = realReport(patch);
-    report.actionCount = report.actions.length;
+    Object.assign(report, withLedgerCounts(report));
     const matrix = await buildProviderMatrix({
       scenarios: [scenario()],
       providers: [{
@@ -444,7 +469,7 @@ test('wait and cursor_position do not require observation lineage or target owne
     maxTotalActions: 3,
     expectedState: [{ windowId: 'target', path: 'blue', equals: 1 }],
   });
-  const report = realReport({
+  const report = withLedgerCounts(realReport({
     actions: [
       {
         type: 'observe',
@@ -457,8 +482,7 @@ test('wait and cursor_position do not require observation lineage or target owne
       { type: 'wait', success: true },
       { type: 'cursor_position', success: true },
     ],
-    actionCount: 3,
-  });
+  }));
   const matrix = await buildProviderMatrix({
     scenarios: [noTargetScenario],
     providers: [{
@@ -630,9 +654,9 @@ test('a report cannot authorize its own expected failure', async () => {
   const unapproved = await buildProviderMatrix({
     scenarios: [scenario()],
     providers: [provider],
-    loadReport: async () => realReport({
+    loadReport: async () => withLedgerCounts(realReport({
       actions: [realReport().actions[0], failedAction],
-    }),
+    })),
   });
   assert.equal(unapproved.rows[0].status, 'invalid-report');
   assert.match(unapproved.rows[0].reportError, /scenario-authorized/);
@@ -642,9 +666,9 @@ test('a report cannot authorize its own expected failure', async () => {
       expectedFailures: [{ action: 'click_element', error: 'stale_frame' }],
     })],
     providers: [provider],
-    loadReport: async () => realReport({
+    loadReport: async () => withLedgerCounts(realReport({
       actions: [realReport().actions[0], failedAction],
-    }),
+    })),
   });
   assert.equal(approved.rows[0].status, 'pass');
 });
@@ -766,4 +790,114 @@ test('shared real-report verdict rejects lineage that a launcher-local summary c
   }, currentScenario);
 
   assert.match(errors.join('; '), /action sequence mismatch/);
+});
+
+test('validator rejects action attempt and per-action counts that diverge from the ledger', () => {
+  const report = realReport({
+    actionAttempts: 1,
+    actionCounts: { observe: 2 },
+  });
+  const errors = validateRealReport(report, {
+    id: 'openai',
+    producer: 'cu-real-model-launcher',
+    model: 'gpt-5.4',
+  }, scenario());
+
+  assert.match(errors.join('; '), /actionAttempts mismatch/);
+  assert.match(errors.join('; '), /actionCounts mismatch/);
+});
+
+test('restart recovery requires target_missing then fresh observation and AX set_value retry', () => {
+  const restartScenario = scenario({
+    allowedActions: ['observe', 'set_value'],
+    expectedFailures: [{ action: 'set_value', error: 'target_missing' }],
+    minimumActionCounts: { observe: 2, set_value: 2 },
+    maxActionCounts: { observe: 2, set_value: 2 },
+    maxTotalActions: 4,
+  });
+  const stale = {
+    type: 'set_value',
+    toolCallId: 'set-stale',
+    sourceObservationId: 'observation-old',
+    targetPid: 42,
+    targetWindowId: 7,
+    targetOwned: true,
+    success: false,
+    expectedFailure: true,
+    resultCode: 'target_missing',
+  };
+  const incomplete = withLedgerCounts(realReport({
+    fixtureIdentity: {
+      instances: [
+        { pid: 42, windowIds: [7] },
+        { pid: 84, windowIds: [9] },
+      ],
+    },
+    actions: [
+      realReport().actions[0],
+      stale,
+      {
+        type: 'observe',
+        toolCallId: 'observe-fresh',
+        resultObservationId: 'observation-fresh',
+        targetPid: 84,
+        targetWindowId: 9,
+        targetOwned: true,
+        success: true,
+      },
+    ],
+    driverTraces: [],
+  }));
+  const provider = {
+    id: 'openai',
+    producer: 'cu-real-model-launcher',
+    model: 'gpt-5.4',
+  };
+  assert.match(
+    validateRealReport(incomplete, provider, restartScenario).join('; '),
+    /restart recovery requires/,
+  );
+
+  const complete = withLedgerCounts({
+    ...incomplete,
+    actions: [
+      ...incomplete.actions,
+      {
+        type: 'set_value',
+        toolCallId: 'set-fresh',
+        sourceObservationId: 'observation-fresh',
+        resultObservationId: 'observation-after-set',
+        targetPid: 84,
+        targetWindowId: 9,
+        targetOwned: true,
+        success: true,
+      },
+    ],
+    driverTraces: [{
+      type: 'dispatch',
+      toolCallId: 'set-fresh',
+      actionType: 'set_value',
+      pid: 84,
+      windowId: 9,
+      address: 'ax',
+    }],
+  });
+  assert.doesNotMatch(
+    validateRealReport(complete, provider, restartScenario).join('; '),
+    /restart recovery requires/,
+  );
+});
+
+test('real reports require matching run and content lineage', () => {
+  const errors = validateRealReport(realReport({
+    gitRevision: 'bad',
+    contentLineage: undefined,
+  }), {
+    id: 'openai',
+    producer: 'cu-real-model-launcher',
+    model: 'gpt-5.4',
+  }, scenario());
+
+  assert.match(errors.join('; '), /gitRevision/);
+  assert.match(errors.join('; '), /contentLineage/);
 });

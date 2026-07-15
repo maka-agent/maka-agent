@@ -208,6 +208,10 @@ export function sanitizeCuReport(report) {
     : [];
   return {
     schemaVersion: report?.schemaVersion === 1 ? 1 : undefined,
+    runId: safeId(report?.runId),
+    gitRevision: safeGitRevision(report?.gitRevision),
+    generatedAt: safeTimestamp(report?.generatedAt),
+    contentLineage: sanitizeContentLineage(report?.contentLineage),
     evidenceClass: safeToken(
       report?.evidenceClass,
       new Set(['real-runtime', 'fault-injection', 'hermetic-protocol', 'static-contract']),
@@ -248,6 +252,9 @@ export function sanitizeCuReport(report) {
         }
       : undefined,
     ...(Number.isFinite(report?.totalLatencyMs) ? { totalLatencyMs: report.totalLatencyMs } : {}),
+    actionAttempts: Number.isInteger(report?.actionAttempts)
+      ? report.actionAttempts
+      : undefined,
     actionCount: Number.isInteger(report?.actionCount) ? report.actionCount : undefined,
     actionCounts: sanitizeCountMap(report?.actionCounts),
     minimumActionsPassed: report?.minimumActionsPassed === true,
@@ -269,6 +276,36 @@ export function sanitizeCuReport(report) {
       ? report.driverTraces.map(sanitizeCuTrace).filter(Boolean)
       : [],
   };
+}
+
+function sanitizeContentLineage(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const generator = safeScriptPath(value.generator);
+  const gitRevision = safeGitRevision(value.gitRevision);
+  const generatedAt = safeTimestamp(value.generatedAt);
+  if (!generator || !gitRevision || !generatedAt) return undefined;
+  return { generator, gitRevision, generatedAt };
+}
+
+function safeScriptPath(value) {
+  return typeof value === 'string'
+    && /^scripts\/[A-Za-z0-9._/-]{1,192}$/.test(value)
+    ? value
+    : undefined;
+}
+
+function safeGitRevision(value) {
+  return typeof value === 'string' && /^[a-f0-9]{40}$/.test(value)
+    ? value
+    : undefined;
+}
+
+function safeTimestamp(value) {
+  if (typeof value !== 'string') return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value
+    ? value
+    : undefined;
 }
 
 function sanitizeFixtureIdentity(value) {

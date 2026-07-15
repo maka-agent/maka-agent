@@ -276,6 +276,23 @@ export function normalizeReport(report, scenario) {
 export function validateRealReport(report, provider, scenario) {
   const errors = [];
   if (report.schemaVersion !== 1) errors.push('schemaVersion must be 1');
+  if (typeof report.runId !== 'string' || !report.runId) errors.push('runId missing');
+  if (typeof report.gitRevision !== 'string' || !/^[a-f0-9]{40}$/.test(report.gitRevision)) {
+    errors.push('gitRevision missing or invalid');
+  }
+  const generatedAt = Date.parse(report.generatedAt);
+  if (
+    typeof report.generatedAt !== 'string'
+    || !Number.isFinite(generatedAt)
+    || new Date(generatedAt).toISOString() !== report.generatedAt
+  ) errors.push('generatedAt missing or invalid');
+  if (
+    report.contentLineage?.generator !== `scripts/${report.producer === 'cu-real-model-launcher'
+      ? 'cu-real-model-launcher.mjs'
+      : 'cu-real-ax-model-e2e.mjs'}`
+    || report.contentLineage?.gitRevision !== report.gitRevision
+    || report.contentLineage?.generatedAt !== report.generatedAt
+  ) errors.push('contentLineage mismatch');
   if (report.evidenceClass !== 'real-runtime') errors.push('evidenceClass must be real-runtime');
   if (report.scenarioId !== scenario.id) errors.push('scenarioId mismatch');
   if (report.status !== 'pass') errors.push('report status must be pass');
@@ -297,7 +314,13 @@ export function validateRealReport(report, provider, scenario) {
     || report.terminal?.stopReason !== 'end_turn'
   ) errors.push('terminal must be complete/end_turn');
   const actions = Array.isArray(report.actions) ? report.actions : [];
+  const ledgerCounts = actionCounts(actions);
+  if (report.actionAttempts !== actions.length) errors.push('actionAttempts mismatch');
   if (report.actionCount !== actions.length) errors.push('actionCount mismatch');
+  if (!deepSubsetEqual(report.actionCounts, ledgerCounts)
+    || Object.keys(report.actionCounts ?? {}).length !== Object.keys(ledgerCounts).length) {
+    errors.push('actionCounts mismatch');
+  }
   if (report.minimumActionsPassed !== true) errors.push('minimumActionsPassed must be true');
   if (report.actionsWithinBudget !== true) errors.push('actionsWithinBudget must be true');
   if (actions.some((action) =>
@@ -312,6 +335,13 @@ export function validateRealReport(report, provider, scenario) {
   }
   if (!actionLineageValid(actions)) {
     errors.push('action observation lineage is incomplete or out of order');
+  }
+  if (
+    scenario.expectedFailures?.some((expected) =>
+      expected.action === 'set_value' && expected.error === 'target_missing')
+    && !restartRecoveryValid(actions, report.driverTraces)
+  ) {
+    errors.push('restart recovery requires target_missing, fresh observation, and successful AX retry');
   }
   if (
     Array.isArray(scenario.expectedActionSequence)
@@ -358,6 +388,51 @@ export function validateRealReport(report, provider, scenario) {
     if (report.dispatchPathPassed !== true) errors.push('dispatchPathPassed must be true');
   }
   return errors;
+}
+
+function actionCounts(actions) {
+  const counts = {};
+  for (const action of actions) {
+    const type = typeof action?.type === 'string' ? action.type : 'unknown';
+    counts[type] = (counts[type] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function restartRecoveryValid(actions, traces) {
+  const staleIndex = actions.findIndex((action) =>
+    action.type === 'set_value'
+    && action.success === false
+    && action.expectedFailure === true
+    && action.resultCode === 'target_missing');
+  if (staleIndex < 0) return false;
+  const stale = actions[staleIndex];
+  const freshIndex = actions.findIndex((action, index) =>
+    index > staleIndex
+    && action.type === 'observe'
+    && action.success === true
+    && typeof action.resultObservationId === 'string'
+    && (
+      action.targetPid !== stale.targetPid
+      || action.targetWindowId !== stale.targetWindowId
+    ));
+  if (freshIndex < 0) return false;
+  const fresh = actions[freshIndex];
+  const retry = actions.find((action, index) =>
+    index > freshIndex
+    && action.type === 'set_value'
+    && action.success === true
+    && action.sourceObservationId === fresh.resultObservationId
+    && action.targetPid === fresh.targetPid
+    && action.targetWindowId === fresh.targetWindowId);
+  if (!retry) return false;
+  return Array.isArray(traces) && traces.some((trace) =>
+    trace.type === 'dispatch'
+    && trace.toolCallId === retry.toolCallId
+    && trace.actionType === 'set_value'
+    && trace.pid === retry.targetPid
+    && trace.windowId === retry.targetWindowId
+    && trace.address === 'ax');
 }
 
 function actionHasOwnedFixtureTrace(action, fixtureIdentity) {

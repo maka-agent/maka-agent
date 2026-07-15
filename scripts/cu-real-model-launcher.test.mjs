@@ -62,11 +62,26 @@ test('real-model launcher owns a synthetic fixture and emits only sanitized evid
   assert.match(launcher, /resultObservationId: target\?\.observationId/);
   assert.match(launcher, /scenario\.runner/);
   assert.match(launcher, /requiresExecutionCapabilities/);
-  assert.match(launcher, /status: locallyQualified/);
+  assert.match(launcher, /qualificationErrors = validateRealReport/);
+  assert.match(launcher, /status: qualificationErrors\.length === 0 \? 'pass' : 'fail'/);
   assert.match(launcher, /validateRealReport\(report/);
   assert.match(launcher, /validationErrors\.length > 0/);
   assert.match(launcher, /evidenceClass: 'real-runtime'/);
+  assert.match(launcher, /runId: randomUUID\(\)/);
+  assert.match(launcher, /gitRevision/);
+  assert.match(launcher, /generatedAt/);
+  assert.match(launcher, /contentLineage/);
+  assert.match(launcher, /actionAttempts: actions\.length/);
   assert.doesNotMatch(launcher, /readMessages\(/);
+});
+
+test('launcher ownership verdict matches matrix exemptions for targetless actions', () => {
+  assert.equal(allActionTargetsOwned([
+    { type: 'list_apps', targetOwned: false },
+    { type: 'wait', targetOwned: false },
+    { type: 'cursor_position', targetOwned: false },
+    { type: 'observe', targetOwned: true },
+  ]), true);
 });
 
 test('Desktop isolation gate does not enable FakeBackend', () => {
