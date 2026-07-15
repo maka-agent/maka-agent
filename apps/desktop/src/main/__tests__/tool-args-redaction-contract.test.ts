@@ -50,7 +50,9 @@ describe('tool and permission args redaction', () => {
 
     const source = await readFile(join(process.cwd(), '../../packages/ui/src/tool-activity.tsx'), 'utf8');
     const toolActivity = source.match(/export function ToolActivity[\s\S]*?function ToolOutputStream/)?.[0] ?? '';
-    assert.match(toolActivity, /\{formatToolIntent\(item\.intent\)\}/);
+    // The rendered row label routes intent through formatToolIntent (redaction
+    // + 240 cap) — raw `{item.intent}` never reaches JSX.
+    assert.match(toolActivity, /formatToolIntent\(item\.intent\)/);
     assert.doesNotMatch(toolActivity, /\{item\.intent\}/);
   });
 
