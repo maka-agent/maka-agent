@@ -55,7 +55,7 @@
 }
 
 .maka-session-health-notice-action:hover {
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
 }
 
 .maka-session-health-notice-action:focus-visible {
