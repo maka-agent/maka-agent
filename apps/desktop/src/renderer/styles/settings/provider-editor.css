@@ -606,7 +606,7 @@
   display: grid;
   gap: var(--space-4);
   padding-bottom: var(--space-4);
-  border-bottom: var(--border-width-hairline) solid var(--border-subtle);
+  border-bottom: var(--border-width-hairline) solid var(--border);
 }
 
 .providerSubpageBack {
@@ -641,7 +641,7 @@
   display: grid;
   gap: var(--space-3);
   padding-top: var(--space-5);
-  border-top: var(--border-width-hairline) solid var(--border-subtle);
+  border-top: var(--border-width-hairline) solid var(--border);
 }
 
 @media (max-width: 620px) {
@@ -723,7 +723,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-1-5);
-  border: var(--border-width-hairline) solid var(--border-subtle);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background-elevated);
   color: var(--foreground);
