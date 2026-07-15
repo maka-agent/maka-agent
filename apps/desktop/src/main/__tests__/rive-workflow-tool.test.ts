@@ -137,6 +137,8 @@ describe('RiveWorkflow tool and CLI bridge', { concurrency: false }, () => {
     await withFakeRive('ignore-term', async (riveBin, cwd) => {
       const pidFile = join(cwd, 'pid');
       const controller = new AbortController();
+      let childReady!: () => void;
+      const childReadyPromise = new Promise<void>((resolve) => { childReady = resolve; });
       const promise = runRiveCli({
         action: 'workflow_status',
         workflowRunId: 'wfrun_ignore_term',
@@ -145,8 +147,21 @@ describe('RiveWorkflow tool and CLI bridge', { concurrency: false }, () => {
         riveBin,
         env: { ...process.env, PID_FILE: pidFile },
         abortSignal: controller.signal,
+        emitOutput: (stream, chunk) => {
+          if (stream === 'stdout' && chunk.includes('RIVE_CHILD_READY')) childReady();
+        },
       });
-      await waitForFile(pidFile);
+      let readyTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          childReadyPromise,
+          new Promise<never>((_, reject) => {
+            readyTimer = setTimeout(() => reject(new Error('timed out waiting for the fake Rive child')), 2_000);
+          }),
+        ]);
+      } finally {
+        if (readyTimer) clearTimeout(readyTimer);
+      }
       const pid = Number((await readFile(pidFile, 'utf8')).trim());
       controller.abort();
       await assert.rejects(promise, (error) => {
@@ -282,6 +297,7 @@ function fakeRiveScript(mode: string): string {
       '#!/bin/sh',
       'trap "" TERM',
       'echo $$ > "$PID_FILE"',
+      'echo RIVE_CHILD_READY',
       'sleep 20',
       'echo \'{"protocol":{"state":"completed"},"display":{"summary":"late"}}\'',
       '',
@@ -327,19 +343,6 @@ function fakeRiveScript(mode: string): string {
     'JSON',
     '',
   ].join('\n');
-}
-
-async function waitForFile(path: string): Promise<void> {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 1000) {
-    try {
-      await readFile(path, 'utf8');
-      return;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-  }
-  throw new Error(`timed out waiting for ${path}`);
 }
 
 async function repoRoot(): Promise<string> {

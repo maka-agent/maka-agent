@@ -106,9 +106,10 @@ describe('createOnboardingService.getSnapshot', () => {
     );
     const snapshot = service.getSnapshot();
     await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.equal(started, conns.length, 'every credential lookup must start before any lookup finishes');
+    const startedBeforeRelease = started;
     release();
     await snapshot;
+    assert.equal(startedBeforeRelease, conns.length, 'every credential lookup must start before any lookup finishes');
   });
 
   it('credential-lookup error → treated as hasSecret=false, NEVER thrown to caller', async () => {

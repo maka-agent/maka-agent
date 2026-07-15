@@ -84,6 +84,10 @@ function nextMessage(ws: WebSocket): Promise<Record<string, unknown>> {
   return new Promise((resolve) => ws.once('message', (data) => resolve(JSON.parse(String(data)))));
 }
 
+function waitForCommand(debuggerEmitter: EventEmitter): Promise<unknown[]> {
+  return once(debuggerEmitter, 'command', { signal: AbortSignal.timeout(2_000) });
+}
+
 function withDifferentSecret(endpoint: string): string {
   return endpoint.replace(/\/[^/]+$/, '/0000000000000000');
 }
@@ -186,7 +190,7 @@ describe('CdpBridge', () => {
     const { bridge, cdpEndpoint } = await startBridge(asWebContents);
     const ws = await open(cdpEndpoint);
     const errored = nextMessage(ws);
-    const commandStarted = once(wc.debugger, 'command');
+    const commandStarted = waitForCommand(wc.debugger);
     ws.send(JSON.stringify({ id: 99, method: 'Page.navigate', params: {} }));
     await commandStarted;
     await bridge.stop();
@@ -203,7 +207,7 @@ describe('CdpBridge', () => {
     const { bridge, cdpEndpoint } = await startBridge(asWebContents);
     const ws = await open(cdpEndpoint);
     const errored = nextMessage(ws);
-    const commandStarted = once(wc.debugger, 'command');
+    const commandStarted = waitForCommand(wc.debugger);
     ws.send(JSON.stringify({ id: 5, method: 'Page.navigate', params: {}, sessionId: 'session-a' }));
     await commandStarted;
     await bridge.stop();
@@ -221,7 +225,7 @@ describe('CdpBridge', () => {
     const { cdpEndpoint } = await startBridge(asWebContents);
 
     const first = await open(cdpEndpoint);
-    const firstCommandStarted = once(wc.debugger, 'command');
+    const firstCommandStarted = waitForCommand(wc.debugger);
     first.send(JSON.stringify({ id: 1, method: 'Page.navigate', params: {} }));
     await firstCommandStarted;
     first.terminate();
@@ -235,7 +239,7 @@ describe('CdpBridge', () => {
     if (!second) throw new Error('could not reconnect after terminate');
 
     const answered = nextMessage(second);
-    const secondCommandStarted = once(wc.debugger, 'command');
+    const secondCommandStarted = waitForCommand(wc.debugger);
     second.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: {} }));
     await secondCommandStarted;
     resolvers[0]?.({ stale: true }); // the dead connection's command completes late
