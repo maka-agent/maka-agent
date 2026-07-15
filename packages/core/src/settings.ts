@@ -17,6 +17,14 @@ import {
 import { defaultLocalMemorySettings, normalizeLocalMemorySettings } from './local-memory.js';
 import type { PermissionMode } from './permission.js';
 import { PERMISSION_MODES } from './permission.js';
+import {
+  UI_LOCALE_PREFERENCES,
+  isUiLocalePreference,
+  type UiLocalePreference,
+} from './ui-locale.js';
+
+export { UI_LOCALE_PREFERENCES, isUiLocalePreference } from './ui-locale.js';
+export type { UiLocalePreference } from './ui-locale.js';
 
 /**
  * PR-SETTINGS-IA-CONSOLIDATE-0 + PR-SETTINGS-REVIEW-0 (WAWQAQ msg
@@ -209,14 +217,6 @@ export interface AppearanceSettings {
  * Closed union so adding a third locale is a deliberate
  * contract-level decision.
  */
-export type UiLocalePreference = 'auto' | 'zh' | 'en';
-
-export const UI_LOCALE_PREFERENCES: readonly UiLocalePreference[] = ['auto', 'zh', 'en'];
-
-export function isUiLocalePreference(value: unknown): value is UiLocalePreference {
-  return value === 'auto' || value === 'zh' || value === 'en';
-}
-
 export interface PersonalizationSettings {
   /** How the assistant addresses the user. Empty falls back to "你". */
   displayName: string;
