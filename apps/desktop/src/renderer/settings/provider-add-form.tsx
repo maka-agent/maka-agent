@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { PROVIDER_DEFAULTS, validateSlug, type ProviderType } from '@maka/core';
 import { providerAuthRequiresSecret, providerAuthSupportsApiKey } from '@maka/core/llm-connections';
-import { Button, Chip, DialogContent, DialogHeader, DialogRoot, Input, useMountedRef } from '@maka/ui';
+import { Button, Chip, Input, useMountedRef } from '@maka/ui';
 import { buildCatalogRecommendedDefaultModel } from '../model-catalog-choices';
 import { PasswordInput } from './password-input';
-import { ProviderLogo, providerDisplay } from './provider-display';
+import { providerDisplay } from './provider-display';
 import {
   categoryLabel,
   isWiredOAuthProvider,
@@ -17,7 +17,6 @@ export function AddProviderForm(props: {
   bridge: ConnectionsBridge;
   providerType: ProviderType;
   existingSlugs: string[];
-  finalFocus?(): HTMLElement | null;
   onCancel(): void;
   onCreated(slug: string): Promise<void>;
 }) {
@@ -34,7 +33,6 @@ export function AddProviderForm(props: {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const addProviderMountedRef = useMountedRef();
-  const apiKeyInputRef = useRef<HTMLInputElement>(null);
 
   const isCloudflareWorkersAi = props.providerType === 'cloudflare-workers-ai';
   const requiresBaseUrl = !defaults.baseUrl && !isCloudflareWorkersAi;
@@ -101,71 +99,39 @@ export function AddProviderForm(props: {
   }
 
   if (usesApiKeyDialog) {
-    const titleId = `provider-key-dialog-${props.providerType}`;
-    const errorId = `${titleId}-error`;
+    const errorId = `provider-key-dialog-${props.providerType}-error`;
     return (
-      <DialogRoot
-        open
-        onOpenChange={(open) => {
-          if (!open && !busy) props.onCancel();
-        }}
-      >
-        <DialogContent
-          className="maka-modal providerKeyDialog"
-          aria-labelledby={titleId}
-          initialFocus={apiKeyInputRef}
-          finalFocus={props.finalFocus}
-          showClose={false}
-        >
-          <DialogHeader
-            icon={<ProviderLogo type={props.providerType} compact />}
-            title={`连接 ${display.name}`}
-            titleId={titleId}
-            subtitle="输入 API Key 即可连接；密钥仅保存在本机。"
-            onClose={() => {
-              if (!busy) props.onCancel();
+      <form className="providerKeyDialogForm" onSubmit={submitApiKey}>
+        <label>
+          <span>API Key</span>
+          <PasswordInput
+            value={apiKey}
+            onChange={(next) => {
+              setApiKey(next);
+              if (error) setError(null);
             }}
+            placeholder="输入或粘贴 API Key"
+            ariaLabel="API Key"
+            ariaDescribedBy={error ? errorId : undefined}
+            disabled={busy}
           />
-          <form className="providerKeyDialogForm" onSubmit={submitApiKey}>
-            <label>
-              <span>API Key</span>
-              <PasswordInput
-                value={apiKey}
-                onChange={(next) => {
-                  setApiKey(next);
-                  if (error) setError(null);
-                }}
-                placeholder="输入或粘贴 API Key"
-                ariaLabel="API Key"
-                ariaDescribedBy={error ? errorId : undefined}
-                inputRef={apiKeyInputRef}
-                disabled={busy}
-              />
-            </label>
-            {error && <p className="providerError" id={errorId} role="alert">{error}</p>}
-            <div className="providerKeyDialogActions">
-              <Button variant="ghost" type="button" disabled={busy} onClick={props.onCancel}>取消</Button>
-              <Button type="submit" disabled={busy}>
-                {busy ? '连接中…' : '连接并使用'}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </DialogRoot>
+        </label>
+        {error && <p className="providerError" id={errorId} role="alert">{error}</p>}
+        <div className="providerKeyDialogActions">
+          <Button variant="ghost" type="button" disabled={busy} onClick={props.onCancel}>取消</Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? '连接中…' : '连接并使用'}
+          </Button>
+        </div>
+      </form>
     );
   }
 
   return (
     <div className="providerEditor">
-      <header>
-        <div>
-          <h3>{isExperimental && isWiredOAuth
-            ? `${display.name} 通过 OAuth 登录`
-            : isExperimental ? '账号登录暂未接入聊天发送' : `添加 ${display.name}`}</h3>
-          <p>{display.description}</p>
-        </div>
+      <div className="providerHeaderBadges">
         <Chip variant="neutral" size="sm">{categoryLabel(defaults.category)}</Chip>
-      </header>
+      </div>
       {isExperimental && (
         <div className="providerUnavailableNotice">
           <strong>{isWiredOAuth ? '使用账号连接登录' : '账号登录暂未接入'}</strong>

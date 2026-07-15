@@ -94,6 +94,28 @@
   width: min(420px, calc(100vw - 32px));
 }
 
+.providerConnectionDialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.providerConnectionDialog [data-slot="dialog-header"] {
+  align-items: center;
+  border-bottom: 0;
+  padding-bottom: var(--space-2);
+}
+
+.providerConnectionDialog [data-slot="dialog-header-icon"],
+.providerConnectionDialog .providerLogo[data-compact="true"] {
+  width: 24px;
+  height: 24px;
+}
+
+.providerConnectionDialogBody {
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-4) var(--space-4);
+}
+
 .providerKeyDialog [data-slot="dialog-header"] {
   align-items: center;
 }

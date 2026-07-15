@@ -38,7 +38,7 @@ export interface ConnectionChipStatus {
  *   readiness, fixed to credential-only language. Matches the doc warning
  *   at SettingsModal `验证通过 ≠ 运行可用`.
  */
-export function connectionChipStatus(connection: LlmConnection): ConnectionChipStatus {
+export function connectionChipStatus(connection: LlmConnection): ConnectionChipStatus | null {
   if (connection.lastTestStatus === 'needs_reauth') return { label: '需要重新登录', tone: 'info' };
   if (!connection.enabled) {
     return connection.lastTestStatus === 'error'
@@ -47,10 +47,10 @@ export function connectionChipStatus(connection: LlmConnection): ConnectionChipS
   }
   switch (connection.lastTestStatus) {
     case 'verified':
-      return { label: '凭据已验证', tone: 'success' };
+      return null;
     case 'error':
       return { label: '上次连接失败', tone: 'destructive' };
     default:
-      return { label: '等待验证', tone: 'neutral' };
+      return null;
   }
 }
