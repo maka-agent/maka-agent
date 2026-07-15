@@ -1416,7 +1416,7 @@ export function AppShell({
                 onPromptSuggestion={(prompt) => composerRef.current?.appendText(prompt)}
               />
               )}
-              {sessionHealthNotice && (
+              {navSelection.section === 'sessions' && sessionHealthNotice && (
                 <div className="maka-session-health-notice">
                   <Alert
                     className="maka-session-health-notice-alert"

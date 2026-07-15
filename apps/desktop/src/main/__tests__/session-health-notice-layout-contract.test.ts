@@ -38,7 +38,11 @@ describe('session health notice layout contract (#1032)', () => {
       noticeIndex < slotIndex && slotIndex < composerIndex,
       'notice must sit above the interaction slot and composer',
     );
-    assert.match(shell, /sessionHealthNotice &&/);
+    assert.match(
+      shell,
+      /navSelection\.section === 'sessions' && sessionHealthNotice &&/,
+      'health notice must stay on the conversation surface, not Skills/Automations/Daily Review',
+    );
     assert.match(
       shell,
       /className="maka-session-health-notice"[\s\S]*?role="status"/,
