@@ -18,7 +18,7 @@ import {
   useToast,
 } from '@maka/ui';
 import { connectionChipStatus } from './provider-connection-status';
-import { AddProviderForm } from './provider-add-form';
+import { AddProviderForm, usesQuickApiKeyDialog } from './provider-add-form';
 import { ProviderCatalogCard } from './provider-catalog';
 import { ConnectionDetail } from './provider-connection-detail';
 import { ProviderLogo, providerDisplay } from './provider-display';
@@ -167,7 +167,8 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
     );
   }
 
-  if (page.kind === 'catalog') {
+  if (page.kind === 'catalog' || (page.kind === 'add' && usesQuickApiKeyDialog(page.providerType))) {
+    const quickAddType = page.kind === 'add' ? page.providerType : null;
     return (
       <div ref={providersPanelRef} className="providersPanel providerChildPage">
         <ProviderPageHeader
@@ -221,6 +222,24 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
             );
           })}
         </PrimitiveTabs>
+        {quickAddType && (
+          <AddProviderForm
+            key={quickAddType}
+            bridge={bridge}
+            providerType={quickAddType}
+            existingSlugs={connections.map((connection) => connection.slug)}
+            finalFocus={() => providersPanelRef.current
+              ? providerFocusElement(providersPanelRef.current, { kind: 'catalog-provider', providerType: quickAddType }) ?? null
+              : null}
+            onCancel={() => navigate({ kind: 'catalog' }, { kind: 'catalog-provider', providerType: quickAddType })}
+            onCreated={async (slug) => {
+              const lifecycle = providerPageLifecycleRef.current;
+              const reloaded = await reload();
+              if (!reloaded || !providersPanelMountedRef.current || providerPageLifecycleRef.current !== lifecycle) return;
+              navigate({ kind: 'connections' }, { kind: 'connection', slug });
+            }}
+          />
+        )}
       </div>
     );
   }

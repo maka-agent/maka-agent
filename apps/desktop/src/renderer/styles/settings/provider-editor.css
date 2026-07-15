@@ -90,6 +90,44 @@
   gap: var(--space-3);
 }
 
+.providerKeyDialog {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.providerKeyDialog [data-slot="dialog-header"] {
+  align-items: center;
+}
+
+.providerKeyDialog [data-slot="dialog-header-subtitle"] {
+  white-space: nowrap;
+}
+
+.providerKeyDialog [data-slot="dialog-header-icon"],
+.providerKeyDialog .providerLogo[data-compact="true"] {
+  width: 24px;
+  height: 24px;
+}
+
+.providerKeyDialogForm {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.providerKeyDialogForm label {
+  display: grid;
+  gap: var(--space-1-5);
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+}
+
+.providerKeyDialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 .providerUnavailableNotice {
   display: grid;
   gap: var(--space-1);

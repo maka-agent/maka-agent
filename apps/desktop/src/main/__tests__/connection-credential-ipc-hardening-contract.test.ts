@@ -55,8 +55,8 @@ describe('connection credential IPC hardening contract', () => {
     assert.match(helper, /normalizeConnectionSlugForIpc\(input\.slug, 'connection slug'\)/);
 
     const handler = handlerBlock('connections:create');
-    assert.match(handler, /const normalizedInput = normalizeCreateConnectionInput\(input\);[\s\S]*connectionStore\.create\(normalizedInput\);/);
-    assert.match(handler, /credentialStore\.setSecret\(connection\.slug, 'api_key', normalizedInput\.apiKey\)/);
+    assert.match(handler, /const normalizedInput = normalizeCreateConnectionInput\(input\);[\s\S]*createConnectionWithCredential\(\{ connectionStore, credentialStore \}, normalizedInput\)/);
+    assert.match(mainSource, /createConnectionWithCredential[\s\S]*connectionStore\.create\(input\)[\s\S]*credentialStore\.setSecret\(connection\.slug, 'api_key', input\.apiKey\)/);
   });
 
   it('caps and validates create apiKey before persistence without echoing the secret value', () => {
@@ -74,12 +74,12 @@ describe('connection credential IPC hardening contract', () => {
     );
     assert.ok(
       handler.indexOf('normalizeCreateConnectionInput(input)')
-        < handler.indexOf('connectionStore.create(normalizedInput)'),
+        < handler.indexOf('createConnectionWithCredential'),
       'create must normalize and cap apiKey before connection persistence',
     );
     assert.ok(
       handler.indexOf('normalizeCreateConnectionInput(input)')
-        < handler.indexOf('credentialStore.setSecret'),
+        < handler.indexOf('createConnectionWithCredential'),
       'create must normalize and cap apiKey before credential persistence',
     );
   });

@@ -12,6 +12,7 @@ import { PROVIDER_DEFAULTS, providerAuthRequiresSecret } from '@maka/core/llm-co
 import { fetchProviderModels, testConnection } from '@maka/runtime';
 import { createConnectionStore } from '@maka/storage';
 import { createFileCredentialStore } from './credential-store.js';
+import { createConnectionWithCredential } from './create-connection-with-credential.js';
 import { connectionTestStatusPatch } from './connection-test-status.js';
 
 type ConnectionStore = ReturnType<typeof createConnectionStore>;
@@ -170,10 +171,7 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
     // store or credential write; OAuth-token providers must keep their
     // canonical provider endpoint.
     const normalizedInput = normalizeCreateConnectionInput(input);
-    const connection = await connectionStore.create(normalizedInput);
-    if (normalizedInput.apiKey) {
-      await credentialStore.setSecret(connection.slug, 'api_key', normalizedInput.apiKey);
-    }
+    const connection = await createConnectionWithCredential({ connectionStore, credentialStore }, normalizedInput);
     emitConnectionListChanged();
     return connection;
   });

@@ -24,7 +24,7 @@ import { test, expect } from './fixtures';
 // upstream <img> mark that must stay untouched in BOTH light and dark themes);
 // the assertions below validate the *flow and the colorAssetRenderContract
 // mechanism*, not Cerebras's data — that lives in the registry contract tests.
-test('adds a catalog provider through the canonical API-key journey (search, tab, colored mark, form defaults)', async ({ window: page }) => {
+test('adds a catalog provider through the canonical API-key dialog', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();
   await expect(page.getByLabel('设置内容')).toBeVisible();
@@ -45,17 +45,48 @@ test('adds a catalog provider through the canonical API-key journey (search, tab
   expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
 
   await page.getByRole('button', { name: /添加模型供应商：Cerebras/ }).click();
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('cerebras');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.cerebras.ai/v1');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('gpt-oss-120b');
-  await page.getByRole('button', { name: '保存供应商' }).click();
+  const dialog = page.getByRole('dialog', { name: '连接 Cerebras' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('API Key')).toBeFocused();
+  await expect(dialog.getByLabel('API Key')).toHaveAttribute('type', 'password');
+  const intro = dialog.getByText('输入 API Key 即可连接；密钥仅保存在本机。');
+  await expect(intro).toBeVisible();
+  await expect(intro).toHaveCSS('white-space', 'nowrap');
+  expect(await intro.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect(dialog.getByLabel('API Key')).toHaveAttribute('placeholder', '输入或粘贴 API Key');
+  await expect(dialog.getByLabel('模型供应商连接标识')).toHaveCount(0);
+  await expect(dialog.getByLabel('模型供应商服务地址')).toHaveCount(0);
+  await expect(dialog.getByLabel('模型供应商默认模型')).toHaveCount(0);
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox?.width).toBeLessThanOrEqual(420);
+  await expect(dialog.locator('.providerLogo')).toHaveCSS('width', '24px');
+  await expect(dialog.locator('.providerLogo')).toHaveCSS('height', '24px');
+  const keyInput = dialog.getByLabel('API Key');
+  const inputBox = await keyInput.boundingBox();
+  await keyInput.fill(`sk-${'a'.repeat(300)}`);
+  const longKeyLayout = await keyInput.evaluate((input) => ({
+    clientWidth: input.clientWidth,
+    scrollWidth: input.scrollWidth,
+    clientHeight: input.clientHeight,
+    scrollHeight: input.scrollHeight,
+  }));
+  expect(longKeyLayout.scrollWidth).toBeGreaterThan(longKeyLayout.clientWidth);
+  expect(longKeyLayout.scrollHeight).toBe(longKeyLayout.clientHeight);
+  expect((await keyInput.boundingBox())?.height).toBe(inputBox?.height);
+  expect((await dialog.boundingBox())?.width).toBe(dialogBox?.width);
+  expect((await dialog.boundingBox())?.height).toBe(dialogBox?.height);
+  await keyInput.fill('e2e-cerebras-key');
+  await dialog.getByRole('button', { name: '连接并使用', exact: true }).click();
 
-  await expect(page.getByRole('heading', { name: 'Cerebras', exact: true }).first()).toBeVisible();
+  await expect(dialog).toBeHidden();
+  const connection = page.getByRole('button', { name: /模型连接：Cerebras/ });
+  await expect(connection).toBeFocused();
+  await connection.click();
   const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="cerebras"] img');
   await expect(detailMark).toBeVisible();
   expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
   await expect(page.getByText('gpt-oss-120b', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toHaveAttribute('placeholder', '••••••••');
 });
 
 // Distinct form behavior: an account-scoped provider has no fixed base URL —
@@ -78,13 +109,18 @@ test('derives an account-scoped endpoint from the Cloudflare account-id field', 
   // The plain base-URL input is replaced by the account-id field; the endpoint
   // is derived, not typed.
   await expect(page.getByLabel('Cloudflare 账户 ID')).toHaveValue('');
+  await expect(page.getByLabel('Cloudflare Workers AI API Key')).toBeVisible();
   await expect(page.getByLabel('模型供应商服务地址')).toHaveCount(0);
   await page.getByLabel('Cloudflare 账户 ID').fill(accountId);
+  await page.getByRole('button', { name: '保存供应商' }).click();
+  await expect(page.getByRole('alert')).toHaveText('请填写 Cloudflare Workers AI API Key');
+
+  await page.getByLabel('Cloudflare Workers AI API Key').fill('e2e-cloudflare-key');
   await page.getByRole('button', { name: '保存供应商' }).click();
 
   await expect(page.getByRole('heading', { name: 'Cloudflare Workers AI', exact: true }).first()).toBeVisible();
   await expect(page.getByRole('textbox', { name: '服务地址', exact: true })).toHaveValue(baseUrl);
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toHaveAttribute('placeholder', '••••••••');
 });
 
 // Distinct form behavior: a no-auth local runtime shows no API-key field at all
@@ -134,9 +170,9 @@ test('restores keyboard focus across provider child pages', async ({ window: pag
   const siliconFlow = page.getByRole('button', { name: /添加模型供应商：SiliconFlow/ });
   await siliconFlow.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('button', { name: '返回模型连接' })).toBeFocused();
+  await expect(page.getByLabel('API Key')).toBeFocused();
 
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape');
   await expect(siliconFlow).toBeFocused();
 
   const catalogBack = page.getByRole('button', { name: '返回模型连接' });
