@@ -986,8 +986,12 @@ export class AiSdkBackend implements AgentBackend {
     // Per-send sum of every COMPLETED step's usage, merged at each finish-step
     // boundary. When the send aborts (mid-turn exhaust, user stop, stream
     // error) the SDK's `totalUsage` promise never resolves, but this sum is
-    // real provider-reported evidence for the steps that did finish.
+    // real provider-reported evidence for the steps that did finish — IF every
+    // completed step produced a usable sample. One unusable sample makes the
+    // sum a partial cost, and LlmCallRecord has no partial marker, so the flag
+    // fails the whole fallback closed (#972: incomplete usage is no usage).
     let completedStepUsage: NormalizedAiSdkUsage | undefined;
+    let sawUnusableStepUsage = false;
     let streamStatus: LlmCallRecord['status'] = 'success';
     let streamErrorClass: string | undefined;
     let rawFinishReason: string | undefined;
@@ -1313,6 +1317,7 @@ export class AiSdkBackend implements AgentBackend {
           if (isStepFinishChunk) {
             runtimeSteps += 1;
             const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
+            if (!stepUsage) sawUnusableStepUsage = true;
             if (stepUsage) {
               completedStepUsage = mergeNormalizedUsage(completedStepUsage, stepUsage);
               this.cumulativeUsageCheckpoint = mergeNormalizedUsage(this.cumulativeUsageCheckpoint, stepUsage);
@@ -1577,13 +1582,16 @@ export class AiSdkBackend implements AgentBackend {
           activeCompactDiagnosticPatch,
         );
         // The terminal record is fail-closed on usage evidence: no evidence,
-        // no record. An aborted send has no `totalUsage`, but the completed
-        // steps' accumulated usage IS evidence — record it so the cost of the
-        // steps that ran and the diagnostics riding this record (the mid-turn
-        // capacity verdict is only ever issued after step 1) stay observable.
-        // If the send aborted before any finish-step, the sum is empty and the
-        // record is still skipped, preserving the no-fabrication invariant.
-        if (!tokenUsage && completedStepUsage) {
+        // no record. An aborted send has no `totalUsage`, but when EVERY
+        // completed step produced a usable sample their accumulated usage IS
+        // the complete evidence — record it, carrying the real cost of the
+        // steps that ran plus the diagnostics riding this record. Otherwise
+        // (no finish-step at all, or any unusable sample) the record is
+        // skipped: a partial sum posed as the whole call would violate the
+        // #972 no-fabrication invariant. The terminal outcome itself does not
+        // depend on this record — stopReason and the exhausted detail are
+        // durable on the CompleteEvent either way.
+        if (!tokenUsage && completedStepUsage && !sawUnusableStepUsage) {
           tokenUsage = completedStepUsage;
           tokenUsageCostUsd = this.computeTokenUsageCostUsd(tokenUsage);
         }
@@ -2324,10 +2332,11 @@ export class AiSdkBackend implements AgentBackend {
       // carries) — no coupling to how far the stream consumer has advanced.
       // Baseline = the last request's INPUT tokens only (see the state field
       // doc: the payload delta already carries the step's output). The
-      // adapter normalizes missing token fields to 0, which is fine for
-      // telemetry but a lie for estimation — a non-positive input count means
-      // the sample is unusable, so clear the baseline and let the estimate
-      // fall back to the whole-payload cold start instead of "0 + delta".
+      // adapter fails closed on missing token counts (undefined, #972), and a
+      // provider can still report a zero input outright — either way a
+      // non-positive input count is unusable for estimation, so clear the
+      // baseline and let the estimate fall back to the whole-payload cold
+      // start instead of "0 + delta".
       const lastStepInputTokens = normalizeAiSdkUsage(options.steps.at(-1)?.usage)?.inputTokens;
       state.lastRequestInputTokens =
         lastStepInputTokens !== undefined && Number.isFinite(lastStepInputTokens) && lastStepInputTokens > 0

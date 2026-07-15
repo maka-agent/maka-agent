@@ -694,6 +694,21 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(lastCall?.totalTokens, 480);
   });
 
+  test('an unusable completed-step usage sample fails the whole record closed — no partial sum (review round-7)', async () => {
+    // #972 semantics: incomplete usage evidence fails closed. The first
+    // completed step's usage is unusable (normalization returns undefined),
+    // so the sum of the remaining steps (150/30 + 150/30) is a PARTIAL cost.
+    // LlmCallRecord has no partial marker — downstream reads any record as
+    // the whole call — so the truthful outcome is no record at all; the
+    // terminal result stays observable on the durable CompleteEvent.
+    const fixture = buildFixture({ bigPriors: true, rollingOverflow: true, firstStepUsage: 'missing' });
+    await runFixtureTurn(fixture, consumer);
+
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'context_budget_exhausted');
+    assert.equal(fixture.llmCalls.length, 0);
+  });
+
   test('the verdict is issued after pruning — a prune-rescuable step is not exhausted (review finding C)', async () => {
     // Review round-3 finding C repro: one huge tool result, no safe completed
     // span for the capacity hook, but the active tool-result prune (which runs
@@ -925,6 +940,10 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(complete.contextBudgetExhaustedDetail, 'no_safe_completed_span');
     // The over-window second request never streamed.
     assert.equal(fixture.events.some((event) => event.type === 'text_complete' && event.text === 'done'), false);
+    // Every completed step's usage was unusable, so there is no usage
+    // evidence at all: the fail-closed terminal record is skipped and the
+    // exhausted outcome is observable only through the CompleteEvent above.
+    assert.equal(fixture.llmCalls.length, 0);
   });
 
   test('a completed step\'s assistant text is never dropped from the replacement (review finding B)', async () => {
