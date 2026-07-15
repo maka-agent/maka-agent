@@ -1082,6 +1082,51 @@ export function formatSyntheticToolErrorText(error: unknown): string {
 }
 
 /**
+ * Structured provider error identifiers that mean the INPUT exceeded the
+ * model's context window. These come from the provider's error JSON — an AI
+ * SDK `APICallError` carries it parsed in `data` (or raw in `responseBody`);
+ * there is no top-level `.code` on the error — and they are the ONLY
+ * unconditional overflow evidence: free-text signals below are all vetoable.
+ */
+const CONTEXT_OVERFLOW_PROVIDER_CODES: ReadonlySet<string> = new Set([
+  'context_length_exceeded', // OpenAI & OpenAI-compatible: data.error.code
+  'model_context_window_exceeded', // z.ai: data.error.code
+  'request_too_large', // Anthropic byte-size overflow (HTTP 413): data.error.type
+]);
+
+/**
+ * Extracts the structured provider error identifiers from an AI SDK-shaped
+ * error: `data.error.code` / `data.error.type` when the provider JSON was
+ * schema-parsed, else the same paths out of the raw `responseBody` JSON.
+ * Never invents fields — these are the exact shapes createJsonErrorResponseHandler
+ * produces for the OpenAI/Anthropic errorSchema families.
+ */
+function providerErrorCodes(error: Error): string[] {
+  const out: string[] = [];
+  const collect = (payload: unknown) => {
+    if (typeof payload !== 'object' || payload === null) return;
+    const inner = (payload as { error?: unknown }).error;
+    if (typeof inner !== 'object' || inner === null) return;
+    for (const key of ['code', 'type'] as const) {
+      const value = (inner as Record<string, unknown>)[key];
+      if (typeof value === 'string' && value) out.push(value.toLowerCase());
+    }
+  };
+  collect((error as { data?: unknown }).data);
+  if (out.length === 0) {
+    const body = (error as { responseBody?: unknown }).responseBody;
+    if (typeof body === 'string') {
+      try {
+        collect(JSON.parse(body));
+      } catch {
+        // Not JSON — no structured evidence.
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Provider context-length overflow signatures. A request-level 400/413 whose
  * message matches one of these means the input exceeded the model's context
  * window — the reactive-recovery trigger (issue #882 PR 2). The set is ported
@@ -1089,8 +1134,10 @@ export function formatSyntheticToolErrorText(error: unknown): string {
  * registry (Anthropic, OpenAI/-compatible, Google, xAI, Groq, OpenRouter,
  * Mistral, MiniMax, Kimi/Moonshot, Together, llama.cpp/LM Studio/Ollama, …).
  * Matched against the ORIGINAL error's composite fields (name, code, status,
- * message), never the generalized string, so a structured code like OpenAI's
- * `context_length_exceeded` classifies even with a generic HTTP message.
+ * message), never the generalized string. All of these are free-text evidence
+ * and can be vetoed by NON_CONTEXT_OVERFLOW_PATTERNS: a capacity statement or
+ * overflow phrase quoted inside a throttling/quota error must not trigger
+ * recovery — only a structured provider code is unconditional.
  */
 const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /prompt is too long/i, // Anthropic token overflow
@@ -1118,28 +1165,23 @@ const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /model_context_window_exceeded/i, // z.ai non-standard finish_reason surfaced as error text
   /prompt too long; exceeded (?:max )?context length/i, // Ollama explicit overflow error
   /context[_ ]length[_ ]exceeded/i, // OpenAI structured error code (also generic)
-];
-
-/**
- * Ambiguous token-limit wording that is an input overflow only when an
- * input-like word is the subject. Consulted last, and only when neither the
- * definitive table above nor an exclusion matched. `request` is deliberately
- * NOT in the subject list: it appears in generic prefixes ("Invalid request:
- * ...") without saying anything about which side of the token budget overflowed.
- */
-const FUZZY_CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
+  // Ambiguous token-limit wording that is an input overflow only when an
+  // input-like word is the subject. `request` is deliberately NOT in the
+  // subject list: it appears in generic prefixes ("Invalid request: ...")
+  // without saying anything about which side of the token budget overflowed.
   /(?:prompt|input|context|message)[^.]{0,80}too many tokens/i,
   /(?:prompt|input|context|message)[^.]{0,80}token limit exceeded/i,
 ];
 
 /**
  * Wording that looks token-shaped but is NOT an input overflow: throttling /
- * quota / rate limiting, and complete OUTPUT-cap relations (subject AND
- * predicate — "completion has too many tokens", "output token count of N
- * exceeds", "max_tokens token limit exceeded"). Noun phrases alone (e.g.
- * "completion token count") are not excluded: they also appear as usage
- * breakdowns inside genuine input-overflow messages, which is why definitive
- * signals are checked before exclusions.
+ * quota / rate limiting, and complete OUTPUT-cap relations in either voice —
+ * subject before predicate ("completion has too many tokens", "max_tokens
+ * token limit exceeded"), predicate before subject ("too many tokens were
+ * requested for the completion"), and the count-of form ("output token count
+ * of N exceeds"). Noun phrases alone (e.g. "completion token count") are not
+ * excluded: they also appear as usage breakdowns inside genuine
+ * input-overflow messages.
  */
 const NON_CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /rate limit/i,
@@ -1147,27 +1189,35 @@ const NON_CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /throttl/i,
   /quota/i,
   /(?:output|completion|max_tokens)\b[^.]{0,60}(?:too many tokens|token limit exceeded)/i,
+  /(?:too many tokens|token limit exceeded)[^.]{0,60}\b(?:output|completion|max_tokens)/i,
   /(?:output|completion)\s+token\s+(?:count|limit)[^.]{0,40}exceed/i,
 ];
 
 /**
- * Tiered overflow detection on an error's raw text (the composite of its
+ * Two-layer overflow detection on an error's raw text (the composite of its
  * original name/code/status/message). Triggering recovery requires positive
  * evidence of an INPUT overflow — the one class history compaction can fix:
- * 1. Definitive provider signals win unconditionally: structured evidence
- *    (e.g. OpenAI's `context_length_exceeded` code) must not be vetoed by an
- *    output-ish usage breakdown in the same message.
- * 2. Exclusions veto everything below: throttling/quota wording and complete
- *    output-cap relations never count.
- * 3. Fuzzy input-subject wording counts only when nothing above matched.
+ * 1. Vetoes first: throttling/quota wording and complete output-cap relations
+ *    disqualify every free-text signal. Free text is never unconditional — a
+ *    capacity statement quoted inside a throttle error is not an overflow.
+ * 2. Positive overflow relations count only when nothing vetoed. Structured
+ *    provider codes (the unconditional evidence) are classifyError's job,
+ *    checked before this text layer ever runs.
  */
 export function isContextOverflowErrorText(text: string): boolean {
   if (!text) return false;
-  if (CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text))) return true;
   if (NON_CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text))) return false;
-  return FUZZY_CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text));
+  return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+/**
+ * Classifies a provider error by DESCENDING evidence strength: abort, then
+ * explicit numeric statuses/codes (from fields, never substrings), then the
+ * provider's structured error code, then vetoable free-text overflow
+ * relations, and only last the weak substring heuristics — so "generate"
+ * containing "rate" can never outrank real overflow evidence, while an
+ * explicit 429/5xx always beats every text signal.
+ */
 export function classifyError(error: unknown): string {
   if (!(error instanceof Error)) return 'Other';
   const code = 'code' in error ? String((error as { code?: unknown }).code) : '';
@@ -1179,14 +1229,21 @@ export function classifyError(error: unknown): string {
   const text = `${error.name} ${code} ${statusCode} ${error.message}`.toLowerCase();
   if (text.includes('abort')) return 'Abort';
   if (statusCode === '402' || code === '402') return 'ProviderBilling';
-  if (text.includes('rate') || statusCode === '429' || code === '429') return 'RateLimit';
-  if (text.includes('auth') || statusCode === '401' || statusCode === '403' || code === '401' || code === '403') return 'Auth';
+  if (statusCode === '429' || code === '429') return 'RateLimit';
+  if (statusCode === '401' || statusCode === '403' || code === '401' || code === '403') return 'Auth';
   if (/^5\d\d$/.test(statusCode) || /^5\d\d$/.test(code)) return 'ProviderUnavailable';
-  // Context-length overflow is a request-level 400/413: classified from the
-  // composite original-error text (name + code + status + message) after the
-  // status-based classes so an explicit 429/5xx never lands here, and
-  // exclusion-first so throttling that mentions tokens does not.
+  // Structured provider evidence: the parsed error JSON's code/type is the
+  // only unconditional signal for a context overflow (request-level 400/413).
+  if (providerErrorCodes(error).some((c) => CONTEXT_OVERFLOW_PROVIDER_CODES.has(c))) {
+    return 'ContextLength';
+  }
+  // Free-text overflow relations on the composite original-error text
+  // (name + code + status + message), veto-first inside.
   if (isContextOverflowErrorText(text)) return 'ContextLength';
+  // Weak substring heuristics, last: they only catch errors that carried no
+  // stronger evidence for any other class.
+  if (text.includes('rate')) return 'RateLimit';
+  if (text.includes('auth')) return 'Auth';
   if (text.includes('timeout')) return 'Timeout';
   if (text.includes('network') || text.includes('fetch')) return 'Network';
   return error.name || 'Other';

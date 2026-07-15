@@ -231,11 +231,47 @@ describe('ModelAdapter stream and error normalization', () => {
     assert.equal(overflow('prompt token count of 21000 exceeds the limit of 16384', { statusCode: 400 }), 'ContextLength'); // GitHub Copilot
     assert.equal(overflow('the prompt contains too many tokens', { statusCode: 400 }), 'ContextLength'); // generic prompt-overflow wording
 
-    // The classification covers the ORIGINAL error fields, not just the message:
-    // an OpenAI-style structured code with a generic HTTP message must classify.
+    // The classification covers the ORIGINAL error fields, not just the message.
+    // A real AI SDK APICallError carries the provider's structured error JSON in
+    // `data` (parsed by createJsonErrorResponseHandler) or `responseBody` — there
+    // is NO top-level `.code` — so a structured code with a generic HTTP message
+    // must classify from those fields (review round-7 P1-1).
     assert.equal(
-      overflow('Bad Request', { statusCode: 400, code: 'context_length_exceeded' }),
+      overflow('Bad Request', {
+        statusCode: 400,
+        data: { error: { message: 'Bad Request', type: 'invalid_request_error', code: 'context_length_exceeded' } },
+      }),
       'ContextLength',
+    );
+    // Same provider JSON reachable only through the raw response body (schema
+    // parse failed, so `data` is absent but `responseBody` is always kept).
+    assert.equal(
+      overflow('Bad Request', {
+        statusCode: 400,
+        responseBody: '{"error":{"message":"Bad Request","code":"context_length_exceeded"}}',
+      }),
+      'ContextLength',
+    );
+    // Anthropic puts the structured identifier in data.error.type.
+    assert.equal(
+      overflow('Request Entity Too Large', {
+        statusCode: 413,
+        data: { type: 'error', error: { type: 'request_too_large', message: 'Request Entity Too Large' } },
+      }),
+      'ContextLength',
+    );
+    // A structured code embedded in free text must not be misread by a weaker
+    // substring heuristic checked earlier: "generate" contains "rate", and the
+    // rate/auth substring heuristics rank BELOW overflow evidence (round-7 P1-2).
+    assert.equal(
+      overflow('Failed to generate response: context_length_exceeded', { statusCode: 400 }),
+      'ContextLength',
+    );
+    // Explicit numeric statuses still outrank every text heuristic: a 5xx that
+    // happens to mention rate stays ProviderUnavailable.
+    assert.equal(
+      overflow('Please rate limit your requests', { statusCode: 503 }),
+      'ProviderUnavailable',
     );
 
     // Exclusion-first: throttling/rate-limit wording must NOT be read as overflow
@@ -267,6 +303,16 @@ describe('ModelAdapter stream and error normalization', () => {
     // veto is not a fixed word order.
     assert.notEqual(overflow('Invalid request: completion has too many tokens for this model', { statusCode: 400 }), 'ContextLength');
     assert.notEqual(overflow('Invalid request: max_tokens token limit exceeded', { statusCode: 400 }), 'ContextLength');
+    // ...including the passive voice, where the output subject FOLLOWS the
+    // token predicate (review round-7 P1-3).
+    assert.notEqual(overflow('Invalid input: too many tokens were requested for the completion', { statusCode: 400 }), 'ContextLength');
+    // A bare capacity STATEMENT inside an unrelated error is not an overflow
+    // relation: throttle/quota wording vetoes every free-text signal — only a
+    // structured provider code is unconditional (review round-7 P1-4).
+    assert.notEqual(
+      overflow("ThrottlingException: quota exceeded. This endpoint's maximum context length is 262144 tokens.", { statusCode: 400 }),
+      'ContextLength',
+    );
     // ...while the input-side form of the same wording still classifies.
     assert.equal(overflow('Input token limit exceeded: 250000 tokens > 200000 maximum', { statusCode: 400 }), 'ContextLength');
     // The output-cap exclusions stay adjacency-tight: OpenAI's classic input
@@ -274,10 +320,16 @@ describe('ModelAdapter stream and error normalization', () => {
     // cap, and must keep classifying.
     assert.equal(overflow("This model's maximum context length is 8192 tokens. However, you requested 10240 tokens (10140 in the messages, 100 in the completion). Please reduce the length of the messages or completion.", { statusCode: 400 }), 'ContextLength');
     assert.equal(overflow("This model's maximum context length is 8192 tokens. However, you requested 10240 tokens (10140 in the messages, 100 in max_tokens). Please reduce the length of the messages or completion.", { statusCode: 400 }), 'ContextLength');
-    // Definitive structured evidence beats the output-cap veto: a genuine
-    // input overflow may break its usage down into prompt AND completion
-    // token counts, and the context_length_exceeded code must still win.
-    assert.equal(overflow('This model\'s maximum context length is 8192 tokens. The prompt token count is 8100 and the completion token count is 100, for 8200 total. Please reduce the length of the messages.', { statusCode: 400, code: 'context_length_exceeded' }), 'ContextLength');
+    // Structured provider evidence is the ONLY unconditional signal: a genuine
+    // input overflow may word its message as an output-cap relation the text
+    // vetoes would reject, and the context_length_exceeded code must still win.
+    assert.equal(
+      overflow('Invalid request: completion has too many tokens for this model', {
+        statusCode: 400,
+        data: { error: { message: 'Invalid request: completion has too many tokens for this model', code: 'context_length_exceeded' } },
+      }),
+      'ContextLength',
+    );
     assert.equal(adapter.classifyError(Object.assign(new Error('401 Authorization'), { statusCode: 401 })), 'Auth');
   });
 
