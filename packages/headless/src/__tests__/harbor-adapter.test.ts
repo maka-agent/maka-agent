@@ -1472,6 +1472,7 @@ try:
             "MAKA_SYSTEM_PROMPT": "",
             "MAKA_REASONING_EFFORT": "max",
             "MAKA_OPENCODE_VARIANT": "max",
+            "MAKA_OPENCODE_TOOLCHAIN_FINGERPRINT": "sha256:" + "a" * 64,
             "MAKA_TRIAL_INPUT_USD_PER_1M": "2",
             "MAKA_TRIAL_OUTPUT_USD_PER_1M": "10",
             "MAKA_TRIAL_CACHE_READ_USD_PER_1M": "0.5",
@@ -1491,17 +1492,26 @@ try:
         agent.exec_as_agent = exec_as_agent
 
         asyncio.run(agent.install(environment))
-        install_command, install_kwargs = environment.root_commands[0]
-        assert "for attempt in 1 2 3" in install_command, install_command
-        assert "Acquire::Retries=3" in install_command, install_command
-        assert "sleep $((attempt * 5))" in install_command, install_command
-        assert install_kwargs["env"] == {"DEBIAN_FRONTEND": "noninteractive"}, install_kwargs
+        install_command, install_env = environment.agent_commands[0]
+        assert "/opt/maka-opencode-toolchain/bin/node" in install_command, install_command
+        assert "/opt/maka-opencode-toolchain/bin/opencode" in install_command, install_command
+        assert "sha256sum --check" in install_command, install_command
+        assert "MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT" in install_command, install_command
+        assert install_env["MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT"] == "sha256:" + "a" * 64, install_env
+        assert "curl" not in install_command, install_command
+        assert "npm" not in install_command, install_command
+        assert "nvm" not in install_command, install_command
+        assert "apt-get" not in install_command, install_command
+        assert environment.root_commands == [], environment.root_commands
 
         asyncio.run(agent.run("hi", environment, context))
         command, env = next(item for item in environment.agent_commands if "opencode --model=" in item[0])
         assert "opencode-stop-runner.mjs" in command, command
         assert "--output /logs/agent/opencode.txt" in command, command
         assert "opencode --model=zai-coding-plan/glm-5.2 run --format=json" in command, command
+        assert "/opt/maka-opencode-toolchain/bin/node" in command, command
+        assert "/opt/maka-opencode-toolchain/bin/opencode" in command, command
+        assert ".nvm" not in command, command
         assert "--pure" in command, command
         assert "--auto" in command, command
         assert "--dangerously-skip-permissions" not in command, command
@@ -1521,7 +1531,7 @@ try:
         assert 'cat --' not in command, command
         assert "test-zai-key" not in command, command
         assert "test-zai-key" not in json.dumps(env), env
-        assert len(environment.root_commands) == 1, environment.root_commands
+        assert environment.root_commands == [], environment.root_commands
         assert os.environ.get("ZAI_API_KEY") is None
         assert os.environ.get("ZAI_BASE_URL") is None
 

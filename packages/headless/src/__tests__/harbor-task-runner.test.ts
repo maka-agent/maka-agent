@@ -311,6 +311,8 @@ describe('createHarborTaskRunner', () => {
         makaRepoPath: repo,
         jobsDir,
         agent: 'opencode',
+        opencodeToolchainPath: '/toolchain',
+        agentVersion: '1.17.18',
         model: 'github-copilot/gpt-5.4',
         provider: 'github-copilot',
         apiKeyFile: keyFile,
@@ -332,6 +334,7 @@ describe('createHarborTaskRunner', () => {
         makaRepoPath: repo,
         jobsDir,
         agent: 'opencode',
+        opencodeToolchainPath: '/toolchain',
         agentVersion: '1.17.18',
         model: 'zai-coding-plan/glm-5.2',
         provider: 'zai-coding-plan',
@@ -365,6 +368,8 @@ describe('createHarborTaskRunner', () => {
         makaRepoPath: repo,
         jobsDir,
         agent: 'opencode',
+        opencodeToolchainPath: '/toolchain',
+        agentVersion: '1.17.18',
         model: 'ollama/qwen2.5-coder:7b',
         provider: 'ollama',
         agentEnv: { MAKA_BASE_URL: 'http://host.docker.internal:11434/v1' },
@@ -863,6 +868,7 @@ describe('createHarborTaskRunner', () => {
 
 describe('buildHarborJobConfig', () => {
   test('pins the OpenCode adapter and max model variant without serializing credentials', () => {
+    const toolchain = { opencodeToolchainPath: '/cache/opencode-1.17.18-linux-x64' };
     const config = buildHarborJobConfig(runInput(), {
       makaRepoPath: '/repo',
       jobsDir: '/jobs/x',
@@ -873,9 +879,11 @@ describe('buildHarborJobConfig', () => {
       reasoningEffort: 'max',
       agentVersion: '1.17.18',
       pricing: { inputUsdPer1M: 1.4, cacheReadUsdPer1M: 0.26, outputUsdPer1M: 4.4 },
+      ...toolchain,
     });
     const agent = (config.agents as Array<Record<string, unknown>>)[0]!;
     const env = agent.env as Record<string, string>;
+    const mounts = (config.environment as { mounts: Array<Record<string, unknown>> }).mounts;
 
     // Harbor resolves built-in names before import_path, so setting both would
     // silently bypass MakaOpenCodeAgent and its host-side auth proxy.
@@ -886,8 +894,29 @@ describe('buildHarborJobConfig', () => {
     assert.equal(env.MAKA_OPENCODE_VARIANT, 'max');
     assert.equal(env.MAKA_LLM_CONNECTION_SLUG, 'zai-coding-plan');
     assert.equal(env.MAKA_REASONING_EFFORT, 'max');
+    assert.match(env.MAKA_OPENCODE_TOOLCHAIN_FINGERPRINT, /^sha256:[a-f0-9]{64}$/);
+    assert.ok(mounts.some((mount) => (
+      mount.source === '/cache/opencode-1.17.18-linux-x64'
+      && mount.target === '/opt/maka-opencode-toolchain'
+      && mount.read_only === true
+    )));
     assert.equal(env.ZAI_API_KEY, undefined);
     assert.equal(env.ZAI_API_KEY_FILE, undefined);
+  });
+
+  test('requires a prepared toolchain for OpenCode before Harbor starts', () => {
+    assert.throws(
+      () => buildHarborJobConfig(runInput(), {
+        makaRepoPath: '/repo',
+        jobsDir: '/jobs/x',
+        jobName: 'trial',
+        agent: 'opencode',
+        model: 'zai-coding-plan/glm-5.2',
+        provider: 'zai-coding-plan',
+        agentVersion: '1.17.18',
+      }),
+      /opencodeToolchainPath is required for the OpenCode adapter/,
+    );
   });
 
   test('rejects experiment identity overrides in extra agent env', () => {

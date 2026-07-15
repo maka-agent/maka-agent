@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +12,11 @@ import {
   resolveFixedPromptRunRoot,
 } from '#fixed-prompt-task-source';
 import { createHarborTaskRunner } from '#harbor-task-runner';
+import {
+  OPENCODE_TOOLCHAIN_FINGERPRINT,
+  OPENCODE_TOOLCHAIN_SPEC,
+  prepareOpenCodeToolchain,
+} from '#opencode-toolchain';
 import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
@@ -135,11 +141,15 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     makaRepoPath,
     process.env.MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT,
   );
-  const toolchainFingerprint = await buildToolchainFingerprint(
+  const hostToolchainFingerprint = await buildToolchainFingerprint(
     process.env.MAKA_HARNESS_AB_TOOLCHAIN_FINGERPRINT,
     undefined,
     makaRepoPath,
   );
+  const toolchainFingerprint = `sha256:${createHash('sha256').update(JSON.stringify({
+    hostToolchainFingerprint,
+    opencodeToolchainFingerprint: OPENCODE_TOOLCHAIN_FINGERPRINT,
+  })).digest('hex')}`;
   const manifest = buildHarnessAbRunManifest({
     benchmark: {
       dataset: 'terminal-bench',
@@ -196,6 +206,11 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     console.log(`dry-run: ${limit}/${EXPECTED_TASKS} paired Pass@1 cells planned -> ${manifestPath}`);
     return;
   }
+
+  const opencodeToolchainPath = process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN
+    ? resolve(process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN)
+    : join(runRoot, 'toolchains', `opencode-${OPENCODE_TOOLCHAIN_SPEC.opencode.version}-linux-x64`);
+  await prepareOpenCodeToolchain(opencodeToolchainPath);
 
   const keyFile = envPath('MAKA_HARNESS_AB_KEY_FILE', join(repoRoot, '.local-secrets/zai-key'));
   if ((await readFile(keyFile, 'utf8')).trim().length === 0) throw new Error('MAKA_HARNESS_AB_KEY_FILE is empty');
@@ -259,6 +274,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
           ...runnerOptions,
           agent: 'opencode',
           agentVersion: OPENCODE_VERSION,
+          opencodeToolchainPath,
         }),
       },
     ],

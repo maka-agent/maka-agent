@@ -16,18 +16,13 @@ from harbor.models.agent.context import AgentContext
 
 from trial_pricing import estimate_cost, pricing_from_env
 
-_UPSTREAM_CURL_INSTALL_COMMAND = "apt-get update && apt-get install -y curl"
-_RETRYING_CURL_INSTALL_COMMAND = (
-    "command -v curl >/dev/null 2>&1 && exit 0; "
-    "status=1; "
-    "for attempt in 1 2 3; do "
-    "apt-get -o Acquire::Retries=3 update && "
-    "apt-get -o Acquire::Retries=3 install -y curl && exit 0; "
-    "status=$?; "
-    '[ "$attempt" -eq 3 ] && exit "$status"; '
-    "sleep $((attempt * 5)); "
-    'done; exit "$status"'
-)
+_TOOLCHAIN_ROOT = Path("/opt/maka-opencode-toolchain")
+_TOOLCHAIN_NODE = _TOOLCHAIN_ROOT / "bin" / "node"
+_TOOLCHAIN_OPENCODE = _TOOLCHAIN_ROOT / "bin" / "opencode"
+_TOOLCHAIN_MANIFEST = _TOOLCHAIN_ROOT / "manifest.json"
+_TOOLCHAIN_CHECKSUMS = _TOOLCHAIN_ROOT / "checksums.sha256"
+_NODE_VERSION = "22.23.1"
+_OPENCODE_VERSION = "1.17.18"
 
 
 class MakaOpenCodeAgent(OpenCode):
@@ -37,22 +32,34 @@ class MakaOpenCodeAgent(OpenCode):
     def name() -> str:
         return "opencode"
 
-    async def exec_as_root(
-        self,
-        environment: BaseEnvironment,
-        command: str,
-        env: dict[str, str] | None = None,
-        cwd: str | None = None,
-        timeout_sec: int | None = None,
-    ) -> Any:
-        if command == _UPSTREAM_CURL_INSTALL_COMMAND:
-            command = _RETRYING_CURL_INSTALL_COMMAND
-        return await super().exec_as_root(
+    def get_version_command(self) -> str | None:
+        return f"{shlex.quote(str(_TOOLCHAIN_OPENCODE))} --version"
+
+    async def install(self, environment: BaseEnvironment) -> None:
+        expected_fingerprint = self._get_env("MAKA_OPENCODE_TOOLCHAIN_FINGERPRINT")
+        if not expected_fingerprint:
+            raise ValueError("MAKA_OPENCODE_TOOLCHAIN_FINGERPRINT is required")
+        manifest_check = (
+            "const fs = require('node:fs'); "
+            "const manifest = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); "
+            "if (manifest.fingerprint !== process.env.MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT) "
+            "throw new Error('OpenCode toolchain fingerprint mismatch');"
+        )
+        command = (
+            "set -euo pipefail; "
+            'test "$(uname -s)" = Linux; '
+            'test "$(uname -m)" = x86_64; '
+            f"cd {shlex.quote(str(_TOOLCHAIN_ROOT))}; "
+            f"sha256sum --check {shlex.quote(_TOOLCHAIN_CHECKSUMS.name)}; "
+            f'test "$({shlex.quote(str(_TOOLCHAIN_NODE))} --version)" = v{_NODE_VERSION}; '
+            f'test "$({shlex.quote(str(_TOOLCHAIN_OPENCODE))} --version)" = {_OPENCODE_VERSION}; '
+            f"{shlex.quote(str(_TOOLCHAIN_NODE))} -e {shlex.quote(manifest_check)} "
+            f"{shlex.quote(str(_TOOLCHAIN_MANIFEST))}"
+        )
+        await self.exec_as_agent(
             environment,
             command=command,
-            env=env,
-            cwd=cwd,
-            timeout_sec=timeout_sec,
+            env={"MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT": expected_fingerprint},
         )
 
     @with_prompt_template
@@ -167,12 +174,11 @@ class MakaOpenCodeAgent(OpenCode):
         runner_path = self._stop_runner_path()
         grace_ms = self._stop_grace_ms()
         command = (
-            ". ~/.nvm/nvm.sh; "
-            f"node {shlex.quote(runner_path)} "
+            f"{shlex.quote(str(_TOOLCHAIN_NODE))} {shlex.quote(runner_path)} "
             "--output /logs/agent/opencode.txt "
             f"--grace-ms {grace_ms} "
             "-- "
-            f"opencode --model={shlex.quote(self.model_name)} run --format=json --pure "
+            f"{shlex.quote(str(_TOOLCHAIN_OPENCODE))} --model={shlex.quote(self.model_name)} run --format=json --pure "
             f"{cli_flags_arg}{variant_arg}--thinking --auto -- "
             f"{escaped_instruction}"
         )
