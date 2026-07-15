@@ -149,15 +149,30 @@ describe('thinkingOptionsForModel', () => {
     );
   });
 
-  test('Ollama Cloud exposes the documented OpenAI-compatible reasoning effort values', () => {
+  test('Ollama Cloud reasoning models expose off/low/medium/high/max; GPT-OSS low/medium/high only; deprecated excluded', () => {
     assert.deepEqual(
       thinkingOptionsForModel('ollama-cloud', 'qwen3.5:397b'),
-      { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
+      { efforts: ['none', 'low', 'medium', 'high', 'max'], toggle: true },
     );
     assert.deepEqual(
       [...thinkingVariantsForModel('ollama-cloud', 'qwen3.5:397b')],
-      ['off', 'low', 'medium', 'high'],
+      ['off', 'low', 'medium', 'high', 'max'],
     );
+    assert.deepEqual(
+      [...thinkingVariantsForModel('ollama-cloud', 'glm-5.2')],
+      ['off', 'low', 'medium', 'high', 'max'],
+    );
+    assert.deepEqual(
+      thinkingOptionsForModel('ollama-cloud', 'gpt-oss:120b'),
+      { efforts: ['low', 'medium', 'high'] },
+    );
+    assert.deepEqual(
+      [...thinkingVariantsForModel('ollama-cloud', 'gpt-oss:120b')],
+      ['low', 'medium', 'high'],
+    );
+    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'devstral-2:123b')], []);
+    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'cogito-2.1:671b')], []);
+    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'kimi-k2-thinking')], []);
   });
 
   test('claude-subscription inherits anthropic thinking options (displayMetadataOnly preserves them)', () => {

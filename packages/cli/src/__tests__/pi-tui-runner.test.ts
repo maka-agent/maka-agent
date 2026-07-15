@@ -1414,6 +1414,33 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('shows the default thinking status for Ollama Cloud GLM-5.2', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'glm-5.2',
+      connectionSlug: 'ollama-cloud',
+      providerType: 'ollama-cloud',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes(
+      'Maka · ask · glm-5.2 · thinking:default · ollama-cloud · /repo',
+    ));
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('handles /thinking off when the current model exposes a real off wire', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();

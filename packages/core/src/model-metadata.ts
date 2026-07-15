@@ -133,6 +133,27 @@ const VOLCENGINE_CODING_PLAN_MODEL_METADATA: Record<string, ModelMetadata> = {
   'kimi-k2.7-code': planModel('Kimi-K2.7-Code', true, 256_000, 32_000),
 };
 
+// Ollama Cloud accepts reasoning_effort for every active reasoning model in its
+// generated catalog. GPT-OSS is the narrower exception and cannot be disabled.
+const OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS: ThinkingOptions = {
+  efforts: ['none', 'low', 'medium', 'high', 'max'],
+  toggle: true,
+};
+
+const OLLAMA_CLOUD_GPT_OSS_THINKING_OPTIONS: ThinkingOptions = {
+  efforts: ['low', 'medium', 'high'],
+};
+
+const ollamaCloudThinkingModels: Record<string, ModelMetadata> = Object.fromEntries(
+  Object.entries(GENERATED_MODELS_DEV_METADATA['ollama-cloud'])
+    .filter(([, metadata]) => metadata.capabilities?.reasoning && metadata.lifecycle !== 'deprecated')
+    .map(([id]) => [id, {
+      thinkingOptions: id.startsWith('gpt-oss')
+        ? OLLAMA_CLOUD_GPT_OSS_THINKING_OPTIONS
+        : OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS,
+    }]),
+);
+
 // Facts that models.dev cannot express: provider wire controls and
 // access-path-specific aliases/limits. Standard model facts stay generated.
 const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMetadata>>> = {
@@ -225,11 +246,7 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
       },
     },
   },
-  'ollama-cloud': {
-    'qwen3.5:397b': {
-      thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
-    },
-  },
+  'ollama-cloud': ollamaCloudThinkingModels,
   deepseek: {
     'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
   },
