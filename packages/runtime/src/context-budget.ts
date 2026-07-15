@@ -308,9 +308,12 @@ export interface HistoryCompactPolicy {
   highWaterName?: string;
   /**
    * Optional mid-turn capacity compaction, layered on the same V2 checkpoint
-   * protocol. Defaults off (explicit opt-in this PR); when enabled the backend
-   * measures the next provider request between steps and folds a safe completed
-   * prefix before crossing the model context window.
+   * protocol. Omitting the field in a handwritten policy leaves it off; the
+   * shared runtime default (buildDefaultContextBudgetPolicy) enables it
+   * whenever history compaction is on, unless MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN
+   * opts out. When enabled the backend measures the next provider request
+   * between steps and folds a safe completed prefix before crossing the model
+   * context window.
    */
   midTurn?: HistoryCompactMidTurnPolicy;
 }
@@ -319,8 +322,9 @@ export interface HistoryCompactMidTurnPolicy {
   enabled: boolean;
   /**
    * Tokens kept free below the selected model context window. The proactive
-   * high-water threshold is `contextWindow - reserveTokens`. Defaults to the
-   * shared history-compact reserve (16384).
+   * high-water threshold is `contextWindow - reserveTokens`. Defaults to 16384
+   * when omitted in a handwritten policy; the shared runtime default always
+   * supplies a window-bounded value.
    */
   reserveTokens?: number;
   /** Trailing events kept verbatim as the continuation tail. Defaults to 1. */
