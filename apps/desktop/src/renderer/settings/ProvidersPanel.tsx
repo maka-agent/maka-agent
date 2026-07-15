@@ -320,7 +320,9 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
             onChanged={async () => { await reload(); }}
             onDeleted={async () => {
               closeDialog();
-              await reload();
+              const reloaded = await reload();
+              if (!reloaded || !providersPanelMountedRef.current) return;
+              providerCatalogRef.current?.querySelector<HTMLInputElement>('[type="search"]')?.focus();
             }}
           />
         </ProviderConnectionDialog>

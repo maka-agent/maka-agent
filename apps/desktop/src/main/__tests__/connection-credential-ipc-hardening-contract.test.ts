@@ -144,7 +144,7 @@ describe('connection credential IPC hardening contract', () => {
     );
     assert.match(
       mainSource,
-      /async function normalizeUpdateConnectionInput\([\s\S]*const defaults = providerType \? PROVIDER_DEFAULTS\[providerType\] : undefined;[\s\S]*defaults\?\.authKind === 'oauth_token'[\s\S]*baseUrl: existing\?\.baseUrl \?\? defaults\.baseUrl/,
+      /async function normalizeUpdateConnectionInput\([\s\S]*const defaults = providerType \? PROVIDER_DEFAULTS\[providerType\] : undefined;[\s\S]*defaults\?\.authKind === 'oauth_token'[\s\S]*hasOwnProperty\.call\(normalizedPatch, 'baseUrl'\)[\s\S]*baseUrl: existing\?\.baseUrl \?\? defaults\.baseUrl/,
       'update must preserve the main-owned account endpoint for OAuth providers',
     );
     assert.match(mainSource, /connections:test[\s\S]*const apiKey = await resolveConnectionSecret\(slug\)/);

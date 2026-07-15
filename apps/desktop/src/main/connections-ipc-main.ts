@@ -108,6 +108,9 @@ async function normalizeUpdateConnectionInput(
   const providerType = existing?.providerType;
   const defaults = providerType ? PROVIDER_DEFAULTS[providerType] : undefined;
   if (defaults?.authKind === 'oauth_token') {
+    if (!Object.prototype.hasOwnProperty.call(normalizedPatch, 'baseUrl') || normalizedPatch.baseUrl === undefined) {
+      return normalizedPatch;
+    }
     return { ...normalizedPatch, baseUrl: existing?.baseUrl ?? defaults.baseUrl };
   }
   if (normalizedPatch.baseUrl === undefined) return normalizedPatch;

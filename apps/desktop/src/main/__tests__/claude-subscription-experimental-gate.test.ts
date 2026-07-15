@@ -405,7 +405,7 @@ describe('Claude OAuth model connection bridge', () => {
     );
     assert.match(
       src,
-      /async function normalizeUpdateConnectionInput\([\s\S]*Promise<UpdateConnectionInput>[\s\S]*const defaults = providerType \? PROVIDER_DEFAULTS\[providerType\] : undefined;[\s\S]*defaults\?\.authKind === 'oauth_token'[\s\S]*baseUrl:\s*existing\?\.baseUrl \?\? defaults\.baseUrl/,
+      /async function normalizeUpdateConnectionInput\([\s\S]*Promise<UpdateConnectionInput>[\s\S]*const defaults = providerType \? PROVIDER_DEFAULTS\[providerType\] : undefined;[\s\S]*defaults\?\.authKind === 'oauth_token'[\s\S]*hasOwnProperty\.call\(normalizedPatch, 'baseUrl'\)[\s\S]*baseUrl:\s*existing\?\.baseUrl \?\? defaults\.baseUrl/,
       'update must preserve the existing main-owned OAuth endpoint',
     );
     assert.match(

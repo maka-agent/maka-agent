@@ -196,7 +196,7 @@ export function AddProviderForm(props: {
   );
 }
 
-export function usesQuickApiKeyDialog(providerType: ProviderType): boolean {
+function usesQuickApiKeyDialog(providerType: ProviderType): boolean {
   const defaults = PROVIDER_DEFAULTS[providerType];
   return defaults.authKind === 'api_key' && Boolean(defaults.baseUrl);
 }

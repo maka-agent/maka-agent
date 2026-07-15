@@ -29,9 +29,8 @@ import {
   type SubscriptionSnapshot,
 } from './use-oauth-login-flow';
 
-type OAuthCardId = 'claude' | 'codex' | 'github-copilot' | 'antigravity' | 'cursor';
+type OAuthCardId = 'claude' | 'codex' | 'github-copilot';
 type OAuthServiceId = OAuthCardId;
-type BrowserOAuthServiceId = Exclude<OAuthServiceId, 'claude' | 'github-copilot'>;
 
 interface ModelOAuthCard {
   id: OAuthCardId;
@@ -87,8 +86,6 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
     claude: null,
     codex: null,
     'github-copilot': null,
-    cursor: null,
-    antigravity: null,
   });
   const [cardRefreshError, setCardRefreshError] = useState<string | null>(null);
   const normalizedQuery = props.query?.trim().toLocaleLowerCase() ?? '';
@@ -230,9 +227,8 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
           }}
         />
       )}
-      {openModal !== null && openModal !== 'claude' && openModal !== 'github-copilot' && (
+      {openModal === 'codex' && (
         <SubscriptionLoginModal
-          serviceId={openModal}
           onClose={() => {
             setOpenModal(null);
             // Always re-fetch after the modal closes — the user may
@@ -249,17 +245,6 @@ function providerOAuthAriaLabel(card: ModelOAuthCard, badge: string, description
   return `打开 OAuth 登录：${card.name}，状态：${badge}，${description.replace(/[。.!！？?]+$/u, '')}`;
 }
 
-/**
- * Inline modal that drives a Codex / Cursor / Antigravity OAuth
- * flow against the matching `window.maka.<service>Subscription`
- * bridge. Mirrors the ClaudeSubscriptionCard pattern (Settings →
- * 账号) but does NOT expose a paste-code field — these flows are
- * loopback (Codex / Antigravity) or polling (Cursor) so the
- * browser handoff is enough.
- *
- * Tokens never enter the renderer; this component reads only
- * account-state snapshots returned by getAccountState().
- */
 function ClaudeSubscriptionModal(props: { onClose(): void }) {
   return (
     <ProviderConnectionDialog
@@ -273,16 +258,19 @@ function ClaudeSubscriptionModal(props: { onClose(): void }) {
   );
 }
 
-function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClose(): void }) {
-  const bridge = pickSubscriptionBridge(props.serviceId);
-  const display = subscriptionDisplay(props.serviceId);
+function SubscriptionLoginModal(props: { onClose(): void }) {
+  const display: SubscriptionDisplay = {
+    name: 'OpenAI Codex',
+    shortName: 'Codex',
+    detail: '点击下方按钮打开浏览器登录，授权完成后会自动回写到本机（127.0.0.1:1455）。',
+  };
   // The whole browser-loopback login/logout controller (getAuthUrl ->
   // openAuthUrl -> refresh -> completeAuthorization, one authRequestId
   // lifecycle, synchronous pending-action guard, cancellation on unmount,
   // localized toast copy) lives in useOAuthLoginFlow so the model connection
   // connection dialog can drive the exact same flow behind its relogin button.
   const flow = useOAuthLoginFlow({
-    bridge,
+    bridge: window.maka.openAiCodex as unknown as OAuthLoginFlowBridge,
     display: { name: display.name, shortName: display.shortName },
   });
 
@@ -290,7 +278,7 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
     <ProviderConnectionDialog
       title={`连接 ${display.name}`}
       subtitle={display.detail}
-      providerType={oauthProviderType(props.serviceId)}
+      providerType="openai-codex"
       onClose={props.onClose}
     >
         <div className="settingsConnectionRow" data-status={flow.runtimeState}>
@@ -340,7 +328,7 @@ async function getSubscriptionSnapshot(serviceId: OAuthServiceId): Promise<Subsc
   if (serviceId === 'github-copilot') {
     return window.maka.githubCopilotSubscription.getAccountState();
   }
-  return (await pickSubscriptionBridge(serviceId).getAccountState()) as SubscriptionSnapshot;
+  return (await window.maka.openAiCodex.getAccountState()) as SubscriptionSnapshot;
 }
 
 function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
@@ -413,61 +401,10 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
   );
 }
 
-function oauthProviderType(serviceId: BrowserOAuthServiceId): ProviderType {
-  switch (serviceId) {
-    case 'codex': return 'openai-codex';
-    case 'cursor': return 'openai-compatible';
-    case 'antigravity': return 'gemini-cli';
-  }
-}
-
-function pickSubscriptionBridge(serviceId: BrowserOAuthServiceId): OAuthLoginFlowBridge {
-  switch (serviceId) {
-    case 'codex':
-      return window.maka.openAiCodex as unknown as OAuthLoginFlowBridge;
-    case 'cursor':
-      return window.maka.cursorSubscription as unknown as OAuthLoginFlowBridge;
-    case 'antigravity':
-      return window.maka.antigravitySubscription as unknown as OAuthLoginFlowBridge;
-  }
-}
-
 interface SubscriptionDisplay {
   name: string;
   shortName: string;
   detail: string;
-}
-
-function subscriptionDisplay(serviceId: BrowserOAuthServiceId): SubscriptionDisplay {
-  switch (serviceId) {
-    case 'codex':
-      return {
-        name: 'OpenAI Codex',
-        shortName: 'Codex',
-        detail: '点击下方按钮打开浏览器登录，授权完成后会自动回写到本机（127.0.0.1:1455）。',
-      };
-    case 'cursor':
-      return {
-        name: 'Cursor',
-        shortName: 'Cursor',
-        detail: '点击下方按钮打开浏览器登录；Maka 会自动等待 Cursor 后端确认凭据。',
-      };
-    case 'antigravity':
-      return {
-        name: 'Google Antigravity',
-        shortName: 'Antigravity',
-        // OAuth flow + token persistence + IPC handlers ARE wired
-        // and tested; the only thing gating real login is the
-        // Google client_id constant (no public upstream plugin source
-        // exposes it). When the user clicks 登录 the service surfaces
-        // that exact reason via its envelope, so this card-level
-        // copy stays factual without claiming the whole thing is
-        // unimplemented.
-        detail: '使用 Google 账号登录给 Gemini 模型。当前为预览状态：需要 Google client_id 后才能完成登录。',
-      };
-  }
-  const _exhaustive: never = serviceId;
-  return _exhaustive;
 }
 
 function presentSnapshotDetail(state: SubscriptionSnapshot | null, display: SubscriptionDisplay): string {

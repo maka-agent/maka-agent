@@ -24,7 +24,7 @@ export function ProviderConnectionDialog(props: {
         className="maka-modal providerConnectionDialog"
         aria-labelledby={titleId}
         initialFocus={() => bodyRef.current?.querySelector<HTMLElement>(
-          'input:not([disabled]), button:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          'input:not([disabled]), button:not([disabled]), textarea:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
         ) ?? true}
         finalFocus={props.finalFocus}
         showClose={false}

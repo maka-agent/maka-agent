@@ -3,8 +3,8 @@
  * the provider settings source files
  * (PR-MODEL-OAUTH-ALL-0).
  *
- * Pins the user-visible OAuth login surface: five cards
- * (claude / codex / GitHub Copilot / antigravity / cursor), each marked
+ * Pins the user-visible OAuth login surface: three runnable cards
+ * (Claude / Codex / GitHub Copilot), each marked
  * `status: 'available'`, and each click wires through to its
  * matching `window.maka.<provider>Subscription` bridge namespace.
  *
@@ -119,8 +119,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       src,
-      /onDeleted=\{async \(\) => \{[\s\S]*closeDialog\(\);[\s\S]*await reload\(\);/,
-      'Connection delete completion must close its dialog before refreshing the root list',
+      /onDeleted=\{async \(\) => \{[\s\S]*closeDialog\(\);[\s\S]*const reloaded = await reload\(\);[\s\S]*providerCatalogRef\.current\?\.querySelector<HTMLInputElement>\('\[type="search"\]'\)\?\.focus\(\);/,
+      'Connection delete completion must restore focus to the stable provider search after refreshing the root list',
     );
   });
 
@@ -300,6 +300,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(src, /const requiresApiKey = providerAuthRequiresSecret\(props\.providerType\) && supportsApiKey/);
     assert.match(src, /<ProviderConnectionDialog[\s\S]*<AddProviderForm/);
     assert.match(src, /<DialogContent[\s\S]*className="maka-modal providerConnectionDialog"/);
+    assert.match(src, /initialFocus=\{\(\) =>[\s\S]*summary[\s\S]*\?\? true\}/, 'connection dialogs must focus the visible Advanced summary when no form control precedes it');
     assert.match(src, /ariaLabel="API Key"/);
     assert.match(src, /\.\.\.\(normalizedApiKey \? \{ apiKey: normalizedApiKey \} : \{\}\)/);
     assert.doesNotMatch(src, /ProviderPageHeader|providerInlineEditor/, 'creation must not retain an in-pane child editor');
@@ -449,7 +450,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   it('exposes only runnable OAuth cards', async () => {
     // WAWQAQ msg 8bb7e186: Claude must not be a huge standalone
     // inline card while the other OAuth providers are compact
-    // cards. All five login entries live in the same grid.
+    // cards. All runnable login entries live in the same grid.
     const src = await readProviderSettingsCombinedSource();
     const match = src.match(/MODEL_OAUTH_CARDS:\s*ReadonlyArray<ModelOAuthCard>\s*=\s*\[([\s\S]*?)\];/);
     assert.ok(match, 'MODEL_OAUTH_CARDS literal must exist');
@@ -1051,15 +1052,11 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('SubscriptionLoginModal picks the right service bridge per id', async () => {
+  it('SubscriptionLoginModal keeps only the runnable Codex catalog bridge', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const fnMatch = src.match(/function pickSubscriptionBridge\(serviceId:[\s\S]*?^\}/m);
-    assert.ok(fnMatch, 'pickSubscriptionBridge helper must exist');
-    const body = fnMatch[0];
-    assert.doesNotMatch(body, /case 'claude'/, 'Claude has a paste-code modal and must not use the loopback generic bridge');
-    assert.match(body, /case 'codex'[\s\S]*?window\.maka\.openAiCodex/);
-    assert.match(body, /case 'cursor'[\s\S]*?window\.maka\.cursorSubscription/);
-    assert.match(body, /case 'antigravity'[\s\S]*?window\.maka\.antigravitySubscription/);
+    const modal = src.match(/function SubscriptionLoginModal[\s\S]*?function ClaudeSubscriptionCard/)?.[0] ?? '';
+    assert.match(modal, /window\.maka\.openAiCodex/);
+    assert.doesNotMatch(modal, /pickSubscriptionBridge|cursorSubscription|antigravitySubscription/, 'hidden non-runnable catalog services must not retain unreachable modal branches');
   });
 
   it('shared login flow calls getAuthUrl → openAuthUrl → completeAuthorization on the bridge', async () => {

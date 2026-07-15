@@ -99,6 +99,7 @@ describe('connectionChipStatus', () => {
 describe('connectionLastTestMessageDisplay', () => {
   it('localizes legacy status text without exposing unknown raw provider messages', () => {
     assert.equal(connectionLastTestMessageDisplay('Authentication failed'), '鉴权失败');
+    assert.equal(connectionLastTestMessageDisplay('GitHub Copilot 登录已导入。'), 'GitHub Copilot 登录已导入。');
     assert.equal(connectionLastTestMessageDisplay('upstream detail that should not reach settings'), '连接测试状态暂时无法显示，请重新测试。');
     assert.equal(connectionLastTestMessageDisplay(undefined), undefined);
   });

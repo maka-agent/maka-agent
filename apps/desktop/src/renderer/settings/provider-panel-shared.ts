@@ -46,6 +46,23 @@ export function connectionLastTestMessageDisplay(message: string | undefined): s
     'network error': '网络错误',
     'provider returned an error': '模型服务返回错误',
     'connection test failed': '连接测试失败',
+    'claude oauth 未登录。': 'Claude OAuth 未登录。',
+    'claude oauth 本地凭据读取失败。': 'Claude OAuth 本地凭据读取失败。',
+    'claude oauth 需要重新登录。': 'Claude OAuth 需要重新登录。',
+    'claude oauth 已登录。': 'Claude OAuth 已登录。',
+    'claude oauth 已退出登录。': 'Claude OAuth 已退出登录。',
+    'codex oauth 未登录。': 'Codex OAuth 未登录。',
+    'codex oauth 本地凭据读取失败。': 'Codex OAuth 本地凭据读取失败。',
+    'codex oauth 需要重新登录。': 'Codex OAuth 需要重新登录。',
+    'codex oauth 已登录。': 'Codex OAuth 已登录。',
+    'codex oauth 已退出登录。': 'Codex OAuth 已退出登录。',
+    '当前账号无可用 codex 模型。': '当前账号无可用 Codex 模型。',
+    'codex 模型列表获取失败。': 'Codex 模型列表获取失败。',
+    'github copilot 需要重新导入 github cli 登录。': 'GitHub Copilot 需要重新导入 GitHub CLI 登录。',
+    'github copilot 无法读取当前账号可用模型，请重新验证登录。': 'GitHub Copilot 无法读取当前账号可用模型，请重新验证登录。',
+    'github copilot 登录已导入。': 'GitHub Copilot 登录已导入。',
+    'github copilot 连接未能保存，请重新导入登录。': 'GitHub Copilot 连接未能保存，请重新导入登录。',
+    'github copilot 已移除本地登录。': 'GitHub Copilot 已移除本地登录。',
   };
   const known = knownMessages[normalized];
   if (known) return known;
