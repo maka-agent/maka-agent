@@ -20,10 +20,10 @@ from harbor.verifier.verifier import Verifier
 
 
 _OUTCOME_FILENAME = "maka-verifier-outcome.json"
-_INFRA_PATTERNS = (
-    "unable to fetch some archives",
-    "failed to fetch",
-    "bad gateway",
+_INFRA_LINE_PREFIXES = (
+    "e: unable to fetch some archives",
+    "e: failed to fetch http://",
+    "e: failed to fetch https://",
 )
 
 
@@ -142,11 +142,13 @@ class MakaVerifier(Verifier):
         if self._timed_environment.timed_out:
             return "timeout"
         reward = _reward(result)
-        if reward is not None:
-            return "passed" if reward > 0 else "failed"
+        if reward is not None and reward > 0:
+            return "passed"
         stdout = _read_optional_text(self.trial_paths.test_stdout_path)
         if _is_infra_failure(stdout):
             return "infra_setup_failed"
+        if reward is not None:
+            return "failed"
         return "infra_failed"
 
     async def _clear_attempt_outputs(self) -> None:
@@ -202,5 +204,8 @@ def _read_optional_text(path: Path) -> str:
 
 
 def _is_infra_failure(text: str) -> bool:
-    normalized = text.lower()
-    return any(pattern in normalized for pattern in _INFRA_PATTERNS)
+    return any(
+        line.strip().lower().startswith(prefix)
+        for line in text.splitlines()
+        for prefix in _INFRA_LINE_PREFIXES
+    )
