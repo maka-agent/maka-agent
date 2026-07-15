@@ -30,7 +30,6 @@ import {
   heldInGateReason,
   selectAddressablePromptTasks,
   selectStablePromptTasks,
-  summarizePromptAcceptancePartition,
   type PromptAcceptanceBaseline,
   type PromptAcceptanceBaselineRun,
   type PromptAcceptanceResult,
@@ -411,7 +410,7 @@ export async function runPromptOptimizationLoop(
     events.filter((event) => stableHeldOutSet.has(event.taskId));
   let keptHeldInHistory = baselineRunsData.flatMap((run) => stableHeldIn(run.heldInEvents));
   let keptHeldOutHistory = baselineRunsData.flatMap((run) => stableHeldOut(run.heldOutEvents));
-  const initialAddressability = {
+  const selectCurrentAddressability = (): PromptOptimizationLoopResult['addressability'] => ({
     heldIn: selectAddressablePromptTasks({
       taskIds: stableHeldInTaskIds,
       keptPromptEvents: keptHeldInHistory,
@@ -420,7 +419,18 @@ export async function runPromptOptimizationLoop(
       taskIds: stableHeldOutTaskIds,
       keptPromptEvents: keptHeldOutHistory,
     }),
+  });
+  const assertAddressablePartitions = (
+    addressability: PromptOptimizationLoopResult['addressability'],
+  ): void => {
+    if (addressability.heldIn.selectedTaskIds.length === 0) {
+      throw new Error('held-in addressable task count is 0 after kept-prompt history filtering');
+    }
+    if (addressability.heldOut.selectedTaskIds.length === 0) {
+      throw new Error('held-out addressable task count is 0 after kept-prompt history filtering');
+    }
   };
+  const initialAddressability = selectCurrentAddressability();
   const roundHeldInTasks = input.heldInTasks.filter((task) => stableHeldInSet.has(task.id));
   const roundHeldOutTasks = input.heldOutTasks.filter((task) => stableHeldOutSet.has(task.id));
   const baseline = calibratePromptAcceptanceBaseline({
@@ -438,6 +448,7 @@ export async function runPromptOptimizationLoop(
     baselineRunsData[baselineRunsData.length - 1]!.heldInEvents,
   );
   let finalAddressability = initialAddressability;
+  let hasKeptCandidate = false;
   let nextPromptAttribution: RsiPromptAttribution | undefined;
 
   // 2. Candidate rounds.
@@ -452,22 +463,8 @@ export async function runPromptOptimizationLoop(
       break;
     }
     const roundId = `round-${round}`;
-    const addressability = {
-      heldIn: selectAddressablePromptTasks({
-        taskIds: stableHeldInTaskIds,
-        keptPromptEvents: keptHeldInHistory,
-      }),
-      heldOut: selectAddressablePromptTasks({
-        taskIds: stableHeldOutTaskIds,
-        keptPromptEvents: keptHeldOutHistory,
-      }),
-    };
-    if (addressability.heldIn.selectedTaskIds.length === 0) {
-      throw new Error('held-in addressable task count is 0 after kept-prompt history filtering');
-    }
-    if (addressability.heldOut.selectedTaskIds.length === 0) {
-      throw new Error('held-out addressable task count is 0 after kept-prompt history filtering');
-    }
+    const addressability = selectCurrentAddressability();
+    assertAddressablePartitions(addressability);
     finalAddressability = addressability;
     const decisionHeldInTaskIds = addressability.heldIn.selectedTaskIds;
     const decisionHeldOutTaskIds = addressability.heldOut.selectedTaskIds;
@@ -489,12 +486,9 @@ export async function runPromptOptimizationLoop(
       ? decisionHeldIn(previousCandidateHeldInExecutionEvents)
       : undefined;
     const latestHeldInFeedbackEvents = decisionHeldIn(latestHeldInFeedbackExecutionEvents);
-    const heldInReference = decisions.length === 0
-      ? activeBaseline.heldIn.referencePassEligibleRate
-      : summarizePromptAcceptancePartition(
-        lastKeptHeldInExecutionEvents,
-        decisionHeldInTaskIds,
-      ).passEligibleRate;
+    const heldInReference = hasKeptCandidate
+      ? finalHeldInReference
+      : activeBaseline.heldIn.referencePassEligibleRate;
     finalHeldInReference = heldInReference;
     const nextHeldInDigests = await digestsFor(latestHeldInFeedbackEvents);
     await writeFixedPromptResultsTsv(input.heldInResultsTsvPath, latestHeldInFeedbackEvents);
@@ -583,6 +577,7 @@ export async function runPromptOptimizationLoop(
       decisions.push(replayedResult);
       finalHeldInReference = replayedResult.heldInReferencePassEligibleRate;
       if (replayedResult.decision === 'keep') {
+        hasKeptCandidate = true;
         lastKeptCommitSha = replayedResult.lastKeptCommitSha;
         lastKeptHeldInExecutionEvents = existingDecisionRound.executedHeldIn.events;
         keptHeldInHistory = [...keptHeldInHistory, ...existingDecisionRound.executedHeldIn.events];
@@ -719,6 +714,7 @@ export async function runPromptOptimizationLoop(
     finalHeldInReference = result.heldInReferencePassEligibleRate;
 
     if (result.decision === 'keep') {
+      hasKeptCandidate = true;
       lastKeptCommitSha = result.lastKeptCommitSha;
       lastKeptHeldInExecutionEvents = heldIn.events;
       keptHeldInHistory = [...keptHeldInHistory, ...heldIn.events];
@@ -730,6 +726,13 @@ export async function runPromptOptimizationLoop(
     previousCandidateHeldInExecutionEvents = heldIn.events;
     latestHeldInFeedbackExecutionEvents = heldIn.events;
   }
+
+  // A terminal KEEP changes retained-prompt history after the final round's
+  // decision set was selected. Refresh once more so the returned profile and
+  // fail-loud empty-partition invariant describe the committed final state,
+  // including replay of a terminal keep.
+  finalAddressability = selectCurrentAddressability();
+  assertAddressablePartitions(finalAddressability);
 
   // 3. Structural smoke report over the full WAL.
   const events = await readFixedPromptWal(input.resultsJsonlPath);
