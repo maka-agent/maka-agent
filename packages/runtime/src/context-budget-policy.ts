@@ -14,9 +14,11 @@ export function buildDefaultContextBudgetPolicy(
 ): ContextBudgetPolicy | undefined {
   const env = options.env ?? process.env;
   if (env.MAKA_CONTEXT_BUDGET === 'off') return undefined;
+  const contextWindow = resolveSelectedModelContextWindow(connection, options.modelId);
+  const reserveTokens = defaultCompactReserveTokens(env, contextWindow);
   const maxHistoryEstimatedTokens =
     parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_BUDGET_TOKENS) ??
-    defaultHistoryBudgetTokens(connection, env, options.modelId);
+    defaultHistoryBudgetTokens(connection, contextWindow, reserveTokens);
   const maxHistoryTurns = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_BUDGET_TURNS);
   const minRecentTurns = parsePositiveInt(env.MAKA_CONTEXT_MIN_RECENT_TURNS, 2);
   const surfaceName = (options.name ?? 'default-history-budget').replace(/-default-history-budget$/, '');
@@ -24,7 +26,7 @@ export function buildDefaultContextBudgetPolicy(
   const archiveRetrieval = buildArchiveRetrievalPolicy(env);
   const historySearch = buildHistorySearchPolicy(env);
   const synthesisCache = buildSynthesisCachePolicy(env);
-  const historyCompact = buildHistoryCompactPolicy(env, `${surfaceName}-history-compact`);
+  const historyCompact = buildHistoryCompactPolicy(env, `${surfaceName}-history-compact`, reserveTokens);
   const historyRewrite = buildHistoryRewriteGatePolicy(env, `${surfaceName}-history-rewrite`);
   const semanticCompact = buildSemanticCompactPolicy(env, `${surfaceName}-semantic-compact`);
   const activeToolResultPrune = buildActiveToolResultPrunePolicy(env);
@@ -176,6 +178,7 @@ function buildSynthesisCachePolicy(
 function buildHistoryCompactPolicy(
   env: Record<string, string | undefined>,
   defaultHighWaterName: string,
+  reserveTokens: number,
 ): NonNullable<ContextBudgetPolicy['historyCompact']> | undefined {
   const enabled = parseOptionalBoolean(env.MAKA_CONTEXT_HISTORY_COMPACT, 'MAKA_CONTEXT_HISTORY_COMPACT');
   if (enabled === false) return undefined;
@@ -185,7 +188,7 @@ function buildHistoryCompactPolicy(
   const tailEstimatedTokens = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS);
   const minRecentTurns = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MIN_RECENT_TURNS);
   const maxSummaryEstimatedTokens = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_SUMMARY_TOKENS);
-  const midTurn = buildHistoryCompactMidTurnPolicy(env);
+  const midTurn = buildHistoryCompactMidTurnPolicy(env, reserveTokens);
   return {
     enabled: true,
     mode: parseHistoryCompactMode(env.MAKA_CONTEXT_HISTORY_COMPACT_MODE),
@@ -214,13 +217,13 @@ function buildHistoryCompactPolicy(
 // though the default is on.
 function buildHistoryCompactMidTurnPolicy(
   env: Record<string, string | undefined>,
+  reserveTokens: number,
 ): NonNullable<NonNullable<ContextBudgetPolicy['historyCompact']>['midTurn']> | undefined {
   const enabled = parseOptionalBoolean(
     env.MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN,
     'MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN',
   );
   if (enabled === false) return undefined;
-  const reserveTokens = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS) ?? 16_384;
   const reserveTailEvents = parseOptionalNonNegativeInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN_TAIL_EVENTS);
   return {
     enabled: true,
@@ -313,14 +316,31 @@ function buildSemanticCompactPolicy(
   };
 }
 
+// Single owner of the compaction reserve default. The classic 16384 reserve
+// assumed large-window models; on an 8K window it derived a 1-token history
+// budget and a 1-token mid_turn high water — every multi-step turn ran the
+// summarizer for a checkpoint the replay gate could never admit. The default
+// is therefore bounded by the KNOWN window (a quarter of it, capped at 16384;
+// peers bound the same way: opencode caps its buffer by the model's output
+// limit, gemini-cli triggers at a window fraction). An explicit
+// MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS is respected verbatim, and an
+// unknown window keeps the classic constant.
+function defaultCompactReserveTokens(
+  env: Record<string, string | undefined>,
+  contextWindow: number | undefined,
+): number {
+  const explicit = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS);
+  if (explicit !== undefined) return explicit;
+  if (contextWindow === undefined) return 16_384;
+  return Math.min(16_384, Math.max(1, Math.floor(contextWindow / 4)));
+}
+
 function defaultHistoryBudgetTokens(
   connection: LlmConnection,
-  env: Record<string, string | undefined>,
-  modelId: string | undefined,
+  contextWindow: number | undefined,
+  reserveTokens: number,
 ): number | undefined {
-  const contextWindow = resolveSelectedModelContextWindow(connection, modelId);
   if (contextWindow !== undefined) {
-    const reserveTokens = parsePositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS, 16_384);
     return Math.max(1, contextWindow - reserveTokens);
   }
   if (connection.providerType === 'deepseek') return undefined;
