@@ -592,7 +592,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /baseUrl:\s*baseUrl \|\| undefined/,
+      /props\.bridge\.update\(connection\.slug, \{[\s\S]*?baseUrl,/,
       'saving an OAuth connection must submit the read-only endpoint loaded from the connection',
     );
     assert.match(
@@ -657,6 +657,22 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       detail,
       /\{hasApiKeyChange && \([\s\S]*<Button type="button" disabled=\{detailActionBusy\} onClick=\{save\}>[\s\S]*\{hasBaseUrlChange && \([\s\S]*<Button type="button" disabled=\{detailActionBusy\} onClick=\{save\}>/,
       'each Save action must stay beside its field and out of the default visual hierarchy until that field changes',
+    );
+  });
+
+  it('forwards an empty service-address draft so the stored override can be cleared', async () => {
+    const src = await readProviderSettingsCombinedSource();
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+
+    assert.match(
+      detail,
+      /props\.bridge\.update\(connection\.slug, \{[\s\S]*?baseUrl,[\s\S]*?\.\.\.\(apiKey/,
+      'ConnectionDetail must send an empty string as an explicit service-address clear',
+    );
+    assert.doesNotMatch(
+      detail,
+      /baseUrl:\s*baseUrl\s*\|\|\s*undefined/,
+      'ConnectionDetail must not turn an explicit empty service address into an omitted patch field',
     );
   });
 

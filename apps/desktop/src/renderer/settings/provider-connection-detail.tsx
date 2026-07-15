@@ -272,7 +272,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     let saved = false;
     try {
       await props.bridge.update(connection.slug, {
-        baseUrl: baseUrl || undefined,
+        baseUrl,
         ...(apiKey ? { apiKey } : {}),
       });
       saved = true;
