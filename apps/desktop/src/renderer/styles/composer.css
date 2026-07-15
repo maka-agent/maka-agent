@@ -205,19 +205,32 @@
    Light mode: the card's own ring plus a restrained, foreground-derived drop
    (warm shadow recipe — never pure black, per PR-BOX-SHADOW-CONVERGE-0).
    The empty new-task surface keeps the flat resting card. */
-.mainColumn:not([data-home-surface="true"]) .composer .maka-composer-inner {
+.mainColumn:not([data-home-surface="true"]) .composer .maka-composer-inner:not(:focus-within) {
   box-shadow:
     0 0 0 1px oklch(from var(--foreground) l c h / var(--composer-ring-alpha, 0.035)),
     0 2px 6px -3px oklch(from var(--foreground) l c h / 0.06),
     0 10px 22px -12px oklch(from var(--foreground) l c h / 0.05);
 }
 
-/* Dark mode: elevation collapses to the card's own ring. On a dark shell a
-   blur drop reads as a dirty halo (pure black) or a glow (foreground-derived),
-   so the design system carries dark elevation as a border ring, not a shadow
-   (see the --shadow-medium dark override in maka-tokens.css). */
+/* Dark mode: separate the card from the panel by ONE monotonic tone step and
+   nothing else. Any line at the boundary that is brighter than the card fill
+   becomes a local luminance peak, which the eye parses as its own object —
+   that is the "third layer". So the card sits one step lighter than the panel
+   (0.24 → 0.29, matching a mainstream dark composer's fill/canvas ratio) and
+   carries NO resting line: no drop (halo), no ring (double frame), no colored
+   border (peak). The panel↔card profile is a single step. (Light mode keeps
+   the soft drop above; there the white panel already separates by tone.) */
 .dark .mainColumn:not([data-home-surface="true"]) .composer .maka-composer-inner {
-  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / var(--composer-ring-alpha, 0.035));
+  background-color: oklch(from var(--agents-content-area-bg) calc(l + 0.05) c h);
+}
+
+/* Resting state carries no boundary line at all — the tone step is the only
+   cue. border-color is zeroed (the 1px width stays to avoid a focus layout
+   jump) and the ring is dropped. Scoped off :focus-within so the accent border
+   + focus ring still land on focus. */
+.dark .mainColumn:not([data-home-surface="true"]) .composer .maka-composer-inner:not(:focus-within) {
+  border-color: transparent;
+  box-shadow: none;
 }
 
 /* D6 spectrum #2 (Command Input processing): while the assistant is
