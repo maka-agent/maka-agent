@@ -1,10 +1,10 @@
 /* ============================================================================
-   Error surface — full-screen error boundary + fake-backend banner
+   Error surface — full-screen error boundary
    ----------------------------------------------------------------------------
    Split out of chat-header.css (#546 PR2, relocate — zero visual change).
-   Holds the renderer error boundary (`.maka-error-*`) and the inert
-   `fake` backend notice (`.maka-fake-backend-banner`), which previously
-   shared chat-header.css with five unrelated surfaces.            */
+   Holds the renderer error boundary (`.maka-error-*`). The old inert
+   `fake` backend banner was removed by #1032 (folded into the hard-only
+   session health notice above the composer).                         */
 
 .maka-error-surface {
     position: fixed;
@@ -93,38 +93,3 @@
 .maka-error-copy-status {
     color: var(--destructive-text);
   }
-
-.maka-fake-backend-banner {
-  display: flex;
-  /* flex-start (not center): with multi-line copy a centered icon lands
-     on the middle line; the 1lh svg box from the Alert primitive aligns
-     it to the first line instead. */
-  align-items: flex-start;
-  /* The Alert primitive ships `w-full`; combined with the horizontal
-     margins that made the banner 28px wider than the pane, so its right
-     edge rendered clipped against the card. */
-  width: auto;
-  gap: var(--space-2);
-  margin: var(--space-2) var(--space-3) 0;
-  padding: var(--space-2) var(--space-3);
-  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.3);
-  border-radius: var(--radius-surface);
-  background: oklch(from var(--info) l c h / 0.10);
-  color: var(--info-text);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-normal);
-}
-
-.maka-fake-backend-banner svg {
-  flex: 0 0 auto;
-}
-
-/* AlertDescription is flex-col, which blockifies the inline copy around
-   the <strong> and broke one sentence into three stacked lines. */
-.maka-fake-backend-banner [data-slot="alert-description"] {
-  display: block;
-}
-
-.maka-fake-backend-banner strong {
-  font-weight: var(--font-weight-semibold);
-}

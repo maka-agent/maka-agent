@@ -3,7 +3,7 @@
  *
  * Lives outside the React component layer so the action × TurnStatus
  * × lineage matrix can be unit-tested with node:test. Mirrors the
- * `session-status-grouping.ts` + `chat-header-alert.ts` pattern.
+ * `session-status-grouping.ts` + `session-health-notice.ts` pattern.
  *
  * Footer actions (icon + Chinese text — see the TurnFooterActions
  * component for the actual buttons):

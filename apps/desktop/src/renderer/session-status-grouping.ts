@@ -3,7 +3,7 @@
  *
  * Extracted from the React component layer so the group ordering +
  * filtering + per-group counts can be unit-tested with node:test (no
- * DOM dependency). Mirrors `chat-header-alert.ts` + `stale-sessions.ts`
+ * DOM dependency). Mirrors `session-health-notice.ts` + `stale-sessions.ts`
  * patterns from earlier PRs.
  *
  * Group order is the @kenji-locked sequence:

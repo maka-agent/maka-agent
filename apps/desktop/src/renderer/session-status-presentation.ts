@@ -3,7 +3,7 @@
  * used by the sidebar and chat header.
  *
  * Separated from the React component layer so the copy + tone mapping
- * can be unit-tested without a DOM, mirroring `chat-header-alert.ts`
+ * can be unit-tested without a DOM, mirroring `session-health-notice.ts`
  * pattern.
  *
  * Two contracts enforced here:
@@ -17,7 +17,7 @@
  *  2. **Status tone matrix**: each SessionStatus has a single visual
  *     tone (`accent / warning / destructive / info / success / muted`)
  *     consumed by both the SessionStatusIcon and the chat-header
- *     status badge. Aligns with the existing chat-header-alert tone
+ *     status badge. Aligns with the existing session-health-notice tone
  *     vocabulary.
  */
 
@@ -67,7 +67,7 @@ export function normalizeSessionSummaryForDisplay(session: SessionSummary): Sess
 }
 
 /**
- * Status tone vocabulary — extends the chat-header-alert tone set
+ * Status tone vocabulary — extends the session-health-notice tone set
  * (`info | warning | destructive`) with `accent` for active in-flight
  * work, `success` for completed work, and `muted` for terminal /
  * dormant buckets. Tones map to semantic color tokens in CSS

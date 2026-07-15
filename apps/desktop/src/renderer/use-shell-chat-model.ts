@@ -1,33 +1,41 @@
 import { useMemo, useState } from 'react';
-import type { LlmConnection, SessionEventStreamSnapshot, SessionSummary, SettingsSection, ThinkingLevel } from '@maka/core';
+import type { LlmConnection, SessionSummary, SettingsSection, ThinkingLevel } from '@maka/core';
 import { thinkingVariantsForModel } from '@maka/core';
-import type { ChatHeaderAlert, ChatModelChoice } from '@maka/ui';
-import { deriveChatHeaderAlert } from './chat-header-alert';
+import type { ChatModelChoice } from '@maka/ui';
+import { deriveSessionHealthNotice } from './session-health-notice';
 import { pickCatalogDefaultChatModel } from './model-catalog-choices';
 import { buildChatModelChoices, chatModelChoiceLabel, normalizeActiveChatModel } from './chat-model-selection';
 import type { ComposerDefaults } from './composer-defaults';
 
 type NewChatModel = { llmConnectionSlug: string; model: string };
 
+export type SessionHealthNoticeView = {
+  tone: 'info' | 'warning' | 'destructive';
+  label: string;
+  tooltip?: string;
+  onClick(): void;
+  onClickTarget: 'models' | 'account';
+};
+
 /**
  * Owns every value the chat header + composer derive from the LLM-connection
  * list and the active session: the resolved active connection/model labels,
  * the shared model-choice list, the home / empty-state new-chat model + its
- * sticky pick, the thinking-variant lists, and the two chat-header alerts.
+ * sticky pick, the thinking-variant lists, and the hard-only session health
+ * notice (#1032).
  *
  * Pure move out of AppShell — every memo keeps its exact dependency array (so
  * `chatModelChoices` / `activeThinkingLevels` / `newChatThinkingLevels` retain
  * their referential-stability behavior) and the sticky-pick validation still
  * drops a `pendingNewChatModel` that is no longer an offered choice. The
- * `openSettingsSection` jump is injected so `chatConnectionAlert` can wrap the
- * derived click target exactly as before; its memo deliberately omits the
- * injected handler from the dep array (see the inline note).
+ * `openSettingsSection` jump is injected so `sessionHealthNotice` can wrap the
+ * derived click target; its memo deliberately omits the injected handler from
+ * the dep array (see the inline note).
  */
 export function useShellChatModel(options: {
   connections: LlmConnection[];
   defaultConnection: string | null;
   activeSession: SessionSummary | undefined;
-  activeSessionEventHealth: SessionEventStreamSnapshot | undefined;
   persistedComposerDefaults: ComposerDefaults | null;
   openSettingsSection: (section: SettingsSection) => void;
 }): {
@@ -47,10 +55,9 @@ export function useShellChatModel(options: {
   setPendingNewChatModel: (next: NewChatModel | null) => void;
   pendingNewChatThinkingLevel: ThinkingLevel | null;
   setPendingNewChatThinkingLevel: (next: ThinkingLevel | null) => void;
-  chatConnectionAlert: ChatHeaderAlert | undefined;
-  chatEventStreamAlert: ChatHeaderAlert | undefined;
+  sessionHealthNotice: SessionHealthNoticeView | undefined;
 } {
-  const { connections, defaultConnection, activeSession, activeSessionEventHealth, persistedComposerDefaults, openSettingsSection } = options;
+  const { connections, defaultConnection, activeSession, persistedComposerDefaults, openSettingsSection } = options;
   // Persisted composer defaults seed the empty-state model so the home view is
   // populated before the async `app:info` round-trip completes on mount.
   const [pendingNewChatModel, setPendingNewChatModel] = useState<NewChatModel | null>(
@@ -121,23 +128,19 @@ export function useShellChatModel(options: {
   const newChatModelLabel = chatModelChoiceLabel(chatModelChoices, newChatModel?.llmConnectionSlug, newChatModel?.model);
 
   // Cheap renderer-side "is the default connection plausibly ready" check —
-  // used to decide whether a stale session can be silent-rebound on send
-  // (xuan's send-path rebind requires a ready default) or whether the user
-  // has to fix Settings first. We can't verify `hasSecret` synchronously
-  // here without an extra IPC round-trip; backend remains authoritative if
-  // the secret is missing — it will surface `missing_api_key` reason at
-  // send time. For banner copy purposes, "default exists + enabled" is
-  // enough.
+  // used only as a display filter for hard-only health notices (#1032). Soft
+  // rebind cases stay silent when this is true; backend remains authoritative
+  // at send time for missing_api_key / missing_model / etc.
   const defaultConnectionReady = useMemo(() => {
     if (!defaultConnection) return false;
     const entry = connections.find((connection) => connection.slug === defaultConnection);
     return entry?.enabled === true;
   }, [defaultConnection, connections]);
 
-  // Banner derivation is a pure function (see `chat-header-alert.ts`); we
+  // Notice derivation is a pure function (see `session-health-notice.ts`); we
   // wrap the returned `onClickTarget` here with the Settings-jump action.
-  const chatConnectionAlert = useMemo<ChatHeaderAlert | undefined>(() => {
-    const derived = deriveChatHeaderAlert({
+  const sessionHealthNotice = useMemo<SessionHealthNoticeView | undefined>(() => {
+    const derived = deriveSessionHealthNotice({
       backend: activeSession?.backend,
       hasActiveConnection: Boolean(activeConnection),
       defaultConnectionReady,
@@ -149,6 +152,7 @@ export function useShellChatModel(options: {
       tone: derived.tone,
       label: derived.label,
       ...(derived.tooltip ? { tooltip: derived.tooltip } : {}),
+      onClickTarget: target,
       onClick: () => openSettingsSection(target),
     };
     // openSettingsSection is stable enough for our purposes — main.tsx
@@ -162,15 +166,6 @@ export function useShellChatModel(options: {
     activeConnection?.lastTestStatus,
     defaultConnectionReady,
   ]);
-
-  const chatEventStreamAlert = useMemo<ChatHeaderAlert | undefined>(() => {
-    if (activeSessionEventHealth?.status !== 'stale') return undefined;
-    return {
-      tone: 'warning',
-      label: '事件流恢复中',
-      tooltip: '当前对话的实时事件需要刷新，Maka 正在从本地会话记录恢复。',
-    };
-  }, [activeSessionEventHealth?.status]);
 
   return {
     chatModelChoices,
@@ -189,7 +184,6 @@ export function useShellChatModel(options: {
     setPendingNewChatModel,
     pendingNewChatThinkingLevel,
     setPendingNewChatThinkingLevel,
-    chatConnectionAlert,
-    chatEventStreamAlert,
+    sessionHealthNotice,
   };
 }

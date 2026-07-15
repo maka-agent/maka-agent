@@ -30,56 +30,37 @@
   margin-left: var(--maka-sidebar-collapsed-topbar-inset);
 }
 
-/* PR-CHAT-HEADER-STATUS-CLUSTER-0: the session-status / connection /
-   event-stream alert badges used to render inline in .maka-chat-header,
-   right-aligned via the header's flex spacer, which put them underneath
-   .maka-workspace-top-actions once more than one badge was visible.
-   Keep the badge cluster in normal flow between the header and chat
-   content so wrapped rows reserve vertical space instead of covering
-   the first message or the fake-backend banner. */
-.maka-chat-status-cluster {
-  width: min(60vw, 320px, calc(100% - var(--maka-workspace-top-actions-right) - 24px));
-  margin: var(--space-1) var(--maka-workspace-top-actions-right) 0 auto;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-1);
+/* #1032: hard-block session health notice sits above the composer,
+   outside the message scroll area (sibling of maka-composer-interaction-slot). */
+.maka-session-health-notice {
+  margin: 0 var(--space-3) var(--space-2);
   -webkit-app-region: no-drag;
-  /* Streaming-settle polish: the cluster is ALWAYS mounted (chat-view renders
-     the div unconditionally) and collapses via `:empty` below, so the badge
-     row glides in/out instead of mount/unmount snapping the conversation
-     column by its full height in one frame. `interpolate-size` lets the
-     `height: auto` ↔ `0` pair actually transition (Chromium 129+; Electron's
-     runtime is far past that). The reduced-motion / visual-smoke globals in
-     base.css collapse `transition-duration`, so deterministic captures and
-     accessibility users still get the instant swap. */
-  interpolate-size: allow-keywords;
-  height: auto;
-  overflow: hidden;
-  transition:
-    height var(--duration-large) var(--ease-out-strong),
-    margin-top var(--duration-large) var(--ease-out-strong),
-    opacity var(--duration-large) var(--ease-out-strong);
 }
 
-.maka-chat-status-cluster:empty {
-  height: 0;
-  margin-top: 0;
-  opacity: 0;
+.maka-session-health-notice-alert {
+  width: auto;
 }
 
-.maka-chat-status-cluster .maka-chat-header-alert,
-.maka-chat-status-cluster .maka-chat-header-status {
-  max-width: 100%;
-  min-width: 0;
-  white-space: normal;
+.maka-session-health-notice-action {
+  appearance: none;
+  border: var(--border-width-hairline) solid oklch(from var(--border) l c h / 0.9);
+  background: var(--background-elevated);
+  color: var(--foreground);
+  border-radius: var(--radius-surface);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+  cursor: default;
 }
 
-.maka-chat-status-cluster .maka-chat-header-alert > span,
-.maka-chat-status-cluster .maka-chat-header-status > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
+.maka-session-health-notice-action:hover {
+  background: var(--foreground-5);
+}
+
+.maka-session-health-notice-action:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* PR-REMOVE-CHAT-TAB (WAWQAQ msg d401938d 2026-06-23): the
@@ -157,106 +138,6 @@
 .maka-chat-header-mode-pill[data-mode="goal"]:hover {
   background: oklch(from var(--warning) l c h / 0.18);
 }
-
-  .maka-chat-header-alert {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    padding: 1px var(--space-1-5);
-    margin-bottom: var(--space-0-5);
-    border-radius: var(--radius-pill);
-    border: var(--border-width-hairline) solid transparent;
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-semibold);
-    letter-spacing: var(--tracking-wide);
-    white-space: nowrap;
-    flex: 0 0 auto;
-    -webkit-app-region: no-drag;
-    transition: transform 0.12s var(--ease-out-strong);
-  }
-
-.maka-chat-header-alert:hover {
-    transform: translateY(var(--lift-hover));
-  }
-
-.maka-chat-header-alert:focus-visible {
-    outline: var(--focus-ring-width) solid var(--focus-ring);
-    outline-offset: var(--focus-ring-offset);
-  }
-
-.maka-chat-header-alert[data-tone="info"] {
-    background: oklch(from var(--info) l c h / 0.14);
-    color: var(--info-text);
-    border-color: oklch(from var(--info) l c h / 0.20);
-  }
-
-.maka-chat-header-alert[data-tone="warning"] {
-    background: oklch(from var(--info) l c h / 0.18);
-    color: var(--info-text);
-    border-color: oklch(from var(--info) l c h / 0.30);
-  }
-
-.maka-chat-header-alert[data-tone="destructive"] {
-    background: oklch(from var(--destructive) l c h / 0.14);
-    color: var(--destructive);
-    border-color: oklch(from var(--destructive) l c h / 0.28);
-  }
-
-.maka-chat-header-status {
-    display: inline-flex;
-    align-items: center;
-    /* PR-CHAT-HEADER-BADGE-SCALE-0: matches .maka-chat-header-alert's
-       footprint so the status pill reads at the same visual scale as
-       the neighboring alert badge and toolbar icon buttons instead of
-       towering over them. */
-    padding: 1px var(--space-1-5);
-    border-radius: var(--radius-pill);
-    border: var(--border-width-hairline) solid transparent;
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-semibold);
-    line-height: var(--leading-snug);
-    /* Spacing from neighboring badges comes from the parent
-       .maka-chat-status-cluster's `gap`, not a local margin. */
-    -webkit-app-region: no-drag;
-    white-space: nowrap;
-    flex: 0 0 auto;
-  }
-
-.maka-chat-header-status[data-tone="accent"] {
-    background: oklch(from var(--nav-active) l c h / 0.14);
-    color: var(--nav-active);
-    border-color: oklch(from var(--nav-active) l c h / 0.24);
-  }
-
-.maka-chat-header-status[data-tone="warning"] {
-    background: oklch(from var(--info) l c h / 0.18);
-    color: var(--info-text);
-    border-color: oklch(from var(--info) l c h / 0.30);
-  }
-
-.maka-chat-header-status[data-tone="destructive"] {
-    background: oklch(from var(--destructive) l c h / 0.14);
-    color: var(--destructive);
-    border-color: oklch(from var(--destructive) l c h / 0.28);
-  }
-
-.maka-chat-header-status[data-tone="info"] {
-    background: oklch(from var(--info) l c h / 0.14);
-    color: var(--info-text);
-    border-color: oklch(from var(--info) l c h / 0.20);
-  }
-
-.maka-chat-header-status[data-tone="success"] {
-    background: oklch(from var(--brand-deep) l c h / 0.14);
-    color: var(--brand-deep);
-    border-color: oklch(from var(--brand-deep) l c h / 0.28);
-  }
-
-.maka-chat-header-status[data-tone="muted"] {
-    background: var(--foreground-5);
-    color: var(--foreground-secondary);
-    border-color: var(--border);
-  }
 
 .messages {
     position: relative;

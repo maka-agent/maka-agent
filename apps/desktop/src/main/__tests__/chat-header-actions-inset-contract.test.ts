@@ -58,11 +58,11 @@ async function workspaceTopActionButtonCount(): Promise<number> {
 }
 
 describe('chat header actions inset contract', () => {
-  // Companion to chat-status-cluster-layout-contract: PR-CHAT-HEADER-STATUS-CLUSTER-0
-  // only relocated the status badge cluster. The in-header mode pill
-  // (.maka-chat-header-mode-pill) and model switcher still flowed underneath the
-  // absolutely-positioned .maka-workspace-top-actions toolbar in the top-right
-  // corner. The header must reserve horizontal space for that toolbar.
+  // Companion to session-health-notice-layout-contract (#1032 removed the
+  // header status cluster). The in-header mode pill (.maka-chat-header-mode-pill)
+  // still flows underneath the absolutely-positioned .maka-workspace-top-actions
+  // toolbar in the top-right corner. The header must reserve horizontal space
+  // for that toolbar.
   it('derives the toolbar inset token from the shared right baseline', async () => {
     const css = await readRendererContractCss();
     assert.match(

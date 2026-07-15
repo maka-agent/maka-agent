@@ -10,6 +10,10 @@ import type {
 } from '@maka/core';
 import { generalizedErrorMessageChinese, hasSettledInitialOnboarding } from '@maka/core';
 import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
   AutomationsPage,
   ChatView,
   Composer,
@@ -53,10 +57,6 @@ import { useSessionGoal } from './use-session-goal';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveProjectGroups } from './session-project-grouping';
 import { deriveSessionStatusGroups } from './session-status-grouping';
-import {
-  presentSessionStatus,
-  sessionStatusAriaLabel,
-} from './session-status-presentation';
 import { deriveAppShellTurnViewModel } from './app-shell-turn-view-model';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
@@ -187,7 +187,6 @@ export function AppShell({
     liveTurnBySession,
     shellRunUpdatesBySession,
     interactionBySession,
-    sessionEventHealthBySession,
     pendingPermissionModeBySession,
     pendingSessionModelBySession,
   } = sessionUiState;
@@ -277,7 +276,7 @@ export function AppShell({
   );
   const sessionProjectGroups = useMemo(() => deriveProjectGroups(visibleSessions), [visibleSessions]);
   const sessionListGroups = viewMode === 'project' ? sessionProjectGroups : sessionStatusGroups;
-  const activeSessionEventHealth = activeId ? sessionEventHealthBySession[activeId] : undefined;
+
   // PR-DAILY-REVIEW-MVP-0: bridge for the main Daily Review module.
   // Memoized so the panel's `useEffect` cleanup keys
   // off a stable reference instead of refetching on every render.
@@ -322,12 +321,13 @@ export function AppShell({
   });
   // Surface a credential-lifecycle alert directly in the chat header when
   // the active session's connection is in `needs_reauth` / `error` or has
-  // been deleted entirely. We skip the async hasSecret fetch here — the
-  // chat header is a hint surface; AccountSettingsPage remains the
-  // authoritative detailed view. The model/thinking selection + both
-  // chat-header alerts live in useShellChatModel (pure derivation of the
-  // connection list + active session); openSettingsSection is injected so
-  // the connection alert can wrap the derived click target.
+  // been deleted entirely with no usable default. We skip the async hasSecret
+  // fetch here — the composer-adjacent notice is a hard-block surface;
+  // AccountSettingsPage remains the authoritative detailed view. Model /
+  // thinking selection + the hard-only health notice live in useShellChatModel
+  // (pure derivation of the connection list + active session);
+  // openSettingsSection is injected so the notice can wrap the derived click
+  // target.
   const {
     chatModelChoices,
     activeConnection,
@@ -344,13 +344,11 @@ export function AppShell({
     setPendingNewChatModel,
     pendingNewChatThinkingLevel,
     setPendingNewChatThinkingLevel,
-    chatConnectionAlert,
-    chatEventStreamAlert,
+    sessionHealthNotice,
   } = useShellChatModel({
     connections,
     defaultConnection,
     activeSession,
-    activeSessionEventHealth,
     persistedComposerDefaults,
     openSettingsSection,
   });
@@ -547,29 +545,6 @@ export function AppShell({
   const sessionListSelectSession = useCallback((sessionId: string) => {
     openSessionInChatRef.current(sessionId);
   }, []);
-
-  // PR109b: chat header lifecycle status badge. Hidden for `active`
-  // (default) to avoid badge noise on healthy sessions. Every other
-  // status — including `aborted` per @kenji review — surfaces a badge
-  // so the user knows the session's settled lifecycle position.
-  // Blocked also pulls the generalized blocked-reason copy into the
-  // tooltip without exposing the raw enum identifier.
-  const chatSessionStatusBadge = useMemo(() => {
-    if (!activeSession) return undefined;
-    const status = activeSession.status;
-    if (status === 'active') return undefined;
-    const presentation = presentSessionStatus(status);
-    const tooltip =
-      status === 'blocked'
-        ? sessionStatusAriaLabel(status, activeSession.blockedReason)
-        : presentation.label;
-    return {
-      status,
-      label: presentation.label,
-      tone: presentation.tone,
-      tooltip,
-    };
-  }, [activeSession?.id, activeSession?.status, activeSession?.blockedReason]);
 
   // PR109f: branched session banner. When the active session was
   // created via `sessions:branchFromTurn`, its `parentSessionId` is
@@ -1361,8 +1336,6 @@ export function AppShell({
                 userLabel={userLabel}
                 memoryActive={memoryActive}
                 onOpenMemorySettings={() => openSettingsSection('memory')}
-                connectionAlert={chatConnectionAlert}
-                eventStreamAlert={chatEventStreamAlert}
                 goalIndicator={activeGoal ? {
                   condition: activeGoal.condition,
                   status: activeGoal.status,
@@ -1379,7 +1352,6 @@ export function AppShell({
                 messageLoadError={activeId ? messageLoadErrorBySession[activeId] : undefined}
                 messageLoadRetryPending={activeId ? messageRetryPendingBySession[activeId] === true : false}
                 onRetryMessages={activeId ? () => void retryMessages(activeId) : undefined}
-                sessionStatusBadge={chatSessionStatusBadge}
                 turnFooterActionsByTurn={turnFooterActionsByTurn}
                 onTurnFooterAction={handleTurnFooterAction}
                 turnFailedReasonLabels={turnFailedReasonLabels}
@@ -1443,6 +1415,31 @@ export function AppShell({
                 onNew={createSession}
                 onPromptSuggestion={(prompt) => composerRef.current?.appendText(prompt)}
               />
+              )}
+              {sessionHealthNotice && (
+                <div className="maka-session-health-notice">
+                  <Alert
+                    className="maka-session-health-notice-alert"
+                    variant={sessionHealthNotice.tone === 'destructive' ? 'error' : sessionHealthNotice.tone === 'warning' ? 'warning' : 'info'}
+                    role="status"
+                    aria-label={sessionHealthNotice.tooltip ?? sessionHealthNotice.label}
+                    title={sessionHealthNotice.tooltip}
+                  >
+                    <AlertTitle>{sessionHealthNotice.label}</AlertTitle>
+                    {sessionHealthNotice.tooltip ? (
+                      <AlertDescription>{sessionHealthNotice.tooltip}</AlertDescription>
+                    ) : null}
+                    <AlertAction>
+                      <button
+                        type="button"
+                        className="maka-session-health-notice-action"
+                        onClick={sessionHealthNotice.onClick}
+                      >
+                        {sessionHealthNotice.onClickTarget === 'account' ? '去账号' : '去模型'}
+                      </button>
+                    </AlertAction>
+                  </Alert>
+                </div>
               )}
               <div className="maka-composer-interaction-slot">
                 {activePermission && (

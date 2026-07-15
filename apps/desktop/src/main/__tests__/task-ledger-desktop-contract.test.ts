@@ -34,16 +34,16 @@ describe('desktop task ledger contract', () => {
     assert.doesNotMatch(hook, /StoredMessage|tool_result|parse.*message/i);
   });
 
-  it('places one full-width collapsible band between chat status and messages', async () => {
+  it('places one full-width collapsible band between chat header and messages', async () => {
     const [chat, panel, css] = await Promise.all([
       source('packages/ui/src/chat-view.tsx'),
       source('packages/ui/src/task-ledger-panel.tsx'),
       source('apps/desktop/src/renderer/styles/task-ledger.css'),
     ]);
-    const statusIndex = chat.indexOf('className="maka-chat-status-cluster"');
+    const headerIndex = chat.indexOf('className="maka-chat-header"');
     const taskIndex = chat.indexOf('<TaskLedgerPanel');
     const shellIndex = chat.indexOf('className="maka-chat-shell"');
-    assert.ok(statusIndex >= 0 && statusIndex < taskIndex && taskIndex < shellIndex);
+    assert.ok(headerIndex >= 0 && headerIndex < taskIndex && taskIndex < shellIndex);
     assert.match(panel, /role="tree"/);
     assert.match(panel, /aria-level=\{depth \+ 1\}/);
     assert.match(panel, /recentTerminal[\s\S]*slice\(0, 3\)/);

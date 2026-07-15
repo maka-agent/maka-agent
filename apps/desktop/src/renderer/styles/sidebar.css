@@ -681,7 +681,7 @@
    * so all badges in .maka-list-row-name share the same rhythm. */
   padding: 1px var(--space-1-5);
   border-radius: var(--radius-pill);
-  /* Reuses the chat-header-alert warning tone tokens (--warning + --warning-text)
+  /* Reuses the session health notice warning tone tokens (--warning + --warning-text)
    * for visual consistency with the banner that explains the same state.
    * Switched from --info (blue) to --warning (amber) per UI audit §2.9 —
    * "已过期" is a degraded-state signal, not informational. */

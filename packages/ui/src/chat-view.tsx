@@ -16,7 +16,6 @@ import type { ProviderType, SessionSummary, ShellRunUpdate, StoredMessage } from
 import { isDeepResearchSession } from '@maka/core';
 import { materializeChat, materializeTurns, overlayLiveTurn, overlayShellRunUpdates } from './materialize.js';
 import type { LiveTurnProjection } from './live-turn-projection.js';
-import { Alert, AlertDescription } from './primitives/alert.js';
 import { Message } from './primitives/chat.js';
 import { EmptyState } from './empty-state.js';
 import {
@@ -28,53 +27,6 @@ import {
 } from './chat-turn.js';
 import { useChatScroll } from './use-chat-scroll.js';
 import { TaskLedgerPanel, type TaskLedgerPanelProps } from './task-ledger-panel.js';
-
-/**
- * Lifecycle status badge in the chat header. Visual
- * tone matches the SessionStatusIcon mapping so the sidebar row icon
- * and the header badge read as the same status.
- */
-function SessionStatusBadge(props: {
-  badge: {
-    status: string;
-    label: string;
-    tone: 'accent' | 'warning' | 'destructive' | 'info' | 'success' | 'muted' | 'neutral';
-    tooltip?: string;
-  };
-}) {
-  return (
-    <span
-      className="maka-chat-header-status"
-      data-tone={props.badge.tone}
-      data-status={props.badge.status}
-      role="status"
-      aria-label={props.badge.tooltip ?? props.badge.label}
-      title={props.badge.tooltip ?? props.badge.label}
-    >
-      <span>{props.badge.label}</span>
-    </span>
-  );
-}
-
-
-
-
-
-export interface ChatHeaderAlert {
-  /** Visual tone — drives badge color in the chat header. */
-  tone: 'info' | 'warning' | 'destructive';
-  /** Short label shown inside the chat header (e.g. "需要重新登录"). */
-  label: string;
-  /**
-   * Optional longer explanation rendered as the badge's `title` attribute
-   * (native browser tooltip). Use this to explain WHY the badge is up
-   * without bloating the label — e.g. "原会话使用演示 backend，发送时
-   * 会切换到默认连接".
-   */
-  tooltip?: string;
-  /** Optional click handler — e.g. open Settings · 账号 to fix it. */
-  onClick?(): void;
-}
 
 export function ChatView(props: {
   messages: StoredMessage[];
@@ -129,19 +81,6 @@ export function ChatView(props: {
    */
   emptyOverride?: ReactNode;
   /**
-   * Surfaces a small status pill in the chat header — used to expose a
-   * `needs_reauth` / `error` connection state from the credential
-   * lifecycle directly into the chat surface so the user notices before
-   * sending another doomed message.
-   */
-  connectionAlert?: ChatHeaderAlert;
-  /**
-   * Visible health for the renderer's live session-event subscription.
-   * Used when the stream goes stale and the desktop shell is refreshing
-   * from persisted messages/session state.
-   */
-  eventStreamAlert?: ChatHeaderAlert;
-  /**
    * Active autonomous-goal indicator for the session, or undefined when no
    * goal is running. Surfaces the loop (turn counter) with a one-click clear
    * affordance so a token-burning goal is never invisible or unstoppable —
@@ -160,18 +99,6 @@ export function ChatView(props: {
   messageLoadError?: string;
   messageLoadRetryPending?: boolean;
   onRetryMessages?(): void;
-  /**
-   * Lifecycle status badge for the active session. Separate from
-   * `connectionAlert` because the alert is an
-   * ephemeral fault signal while status is the session's settled
-   * lifecycle position. Hidden for `active` (default) to reduce noise.
-   */
-  sessionStatusBadge?: {
-    status: string;
-    label: string;
-    tone: 'accent' | 'warning' | 'destructive' | 'info' | 'success' | 'muted' | 'neutral';
-    tooltip?: string;
-  };
   /**
    * PR109d-b: footer actions per turn, keyed by turnId. The renderer
    * (apps/desktop/src/renderer/main.tsx) computes these from
@@ -356,7 +283,6 @@ export function ChatView(props: {
     );
   }
 
-  const isLocalSimulationBackend = props.activeSession.backend === 'fake';
   const deepResearchActive = isDeepResearchSession(props.activeSession.labels);
 
   return (
@@ -415,27 +341,7 @@ export function ChatView(props: {
             composer left-controls. Header keeps the per-session status
             chips only. */}
       </header>
-      {/* In normal flow below the header (see .maka-chat-status-cluster)
-          so wrapped multi-badge rows reserve space before banners and
-          messages. ALWAYS mounted (even with zero badges): the cluster
-          collapses/expands via the CSS `:empty` height transition instead of
-          conditional mount/unmount — unmounting it when a run completes used
-          to snap the whole conversation column up by the badge-row height in
-          a single frame (the settle "jump"). */}
-      <div className="maka-chat-status-cluster">
-        {props.sessionStatusBadge && <SessionStatusBadge badge={props.sessionStatusBadge} />}
-        {props.connectionAlert && <ChatHeaderAlertBadge alert={props.connectionAlert} />}
-        {props.eventStreamAlert && <ChatHeaderAlertBadge alert={props.eventStreamAlert} />}
-      </div>
       {props.taskLedger && <TaskLedgerPanel key={props.activeSession?.id} {...props.taskLedger} />}
-      {isLocalSimulationBackend && (
-        <Alert variant="info" className="maka-fake-backend-banner" role="status">
-          <AlertTriangle size={14} aria-hidden="true" />
-          <AlertDescription>
-            当前会话来自旧的本地模拟连接。要拿到真实 LLM 回复，请到 <strong>设置 · 模型</strong> 添加 Anthropic / OpenAI / GLM 等 API key。
-          </AlertDescription>
-        </Alert>
-      )}
       <div className="maka-chat-shell">
         {props.branchBanner && (
           <SessionBranchBanner
@@ -550,42 +456,6 @@ export function ChatView(props: {
  * `${greeting}{label}` if the user set a display name, otherwise
  * just the greeting + a softer fallback line.
  */
-
-/**
- * Small actionable pill that surfaces a credential / readiness issue
- * inline in the chat header. Kept neutral about the source — it just
- * renders a tone + label and an optional click handler. The connection
- * lifecycle helper in the desktop renderer decides when to mount this.
- */
-function ChatHeaderAlertBadge(props: { alert: ChatHeaderAlert }) {
-  const { tone, label, tooltip, onClick } = props.alert;
-  if (onClick) {
-    return (
-      <BaseButton
-        className="maka-chat-header-alert"
-        data-tone={tone}
-        type="button"
-        onClick={onClick}
-        aria-label={tooltip ?? label}
-        title={tooltip}
-      >
-        <AlertTriangle size={12} aria-hidden="true" />
-        <span>{label}</span>
-      </BaseButton>
-    );
-  }
-  return (
-    <span
-      className="maka-chat-header-alert"
-      data-tone={tone}
-      aria-label={tooltip ?? label}
-      title={tooltip}
-    >
-      <AlertTriangle size={12} aria-hidden="true" />
-      <span>{label}</span>
-    </span>
-  );
-}
 
 // PR-MOVE-PERMISSION-MODE: the chat-header `PermissionModeSwitcher`
 // radiogroup was deleted. Mode picking now lives inside the composer's

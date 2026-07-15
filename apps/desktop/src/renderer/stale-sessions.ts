@@ -4,7 +4,7 @@
  * sessions before clicking in and seeing the chat-header banner (PR108e).
  *
  * Lives outside the React component so it can be unit-tested without a DOM
- * (mirrors the `chat-header-alert.ts` pattern). The renderer wraps the
+ * (mirrors the `session-health-notice.ts` pattern). The renderer wraps the
  * returned Set into the `staleSessionIds` prop of SessionListPanel.
  *
  * Two signals classify a session as stale:

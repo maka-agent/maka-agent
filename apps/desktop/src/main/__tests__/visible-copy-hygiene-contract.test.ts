@@ -47,7 +47,7 @@ const FILES_TO_SCAN = [
   join(process.cwd(), 'src', 'renderer', 'artifact-preview.tsx'),
   join(process.cwd(), 'src', 'renderer', 'artifact-preview-registry-shell.tsx'),
   join(process.cwd(), 'src', 'renderer', 'onboarding-hero-copy.ts'),
-  join(process.cwd(), 'src', 'renderer', 'chat-header-alert.ts'),
+  join(process.cwd(), 'src', 'renderer', 'session-health-notice.ts'),
   join(process.cwd(), 'src', 'main', 'chat-readiness.ts'),
   join(process.cwd(), 'src', 'main', 'visual-smoke-fixture.ts'),
 ];
