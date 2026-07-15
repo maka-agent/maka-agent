@@ -1083,47 +1083,114 @@ export function formatSyntheticToolErrorText(error: unknown): string {
 
 /**
  * Structured provider error identifiers that mean the INPUT exceeded the
- * model's context window. These come from the provider's error JSON — an AI
- * SDK `APICallError` carries it parsed in `data` (or raw in `responseBody`);
- * there is no top-level `.code` on the error — and they are the ONLY
- * unconditional overflow evidence: free-text signals below are all vetoable.
+ * model's context window. These come from the provider's error JSON and are
+ * the ONLY unconditional overflow evidence: free-text signals are vetoable.
  */
 const CONTEXT_OVERFLOW_PROVIDER_CODES: ReadonlySet<string> = new Set([
-  'context_length_exceeded', // OpenAI & OpenAI-compatible: data.error.code
-  'model_context_window_exceeded', // z.ai: data.error.code
-  'request_too_large', // Anthropic byte-size overflow (HTTP 413): data.error.type
+  'context_length_exceeded', // OpenAI & OpenAI-compatible: error.code
+  'model_context_window_exceeded', // z.ai: error.code
+  'request_too_large', // Anthropic byte-size overflow (HTTP 413): error.type
 ]);
 
 /**
- * Extracts the structured provider error identifiers from an AI SDK-shaped
- * error: `data.error.code` / `data.error.type` when the provider JSON was
- * schema-parsed, else the same paths out of the raw `responseBody` JSON.
- * Never invents fields — these are the exact shapes createJsonErrorResponseHandler
- * produces for the OpenAI/Anthropic errorSchema families.
+ * A provider failure normalized into classification evidence. classifyError's
+ * real input domain is NOT just Error instances: a request-level failure is
+ * an AI SDK `APICallError` (provider JSON parsed in `data`, raw in
+ * `responseBody`; no top-level `.code`), while an in-stream error part
+ * carries the provider's parsed error VALUE — OpenAI Chat emits the inner
+ * `{message, type?, code?}` object, OpenAI Responses the whole
+ * `{type:'error', error:{type, code, message}}` chunk, Anthropic the inner
+ * `{type, message}` object, and openai-compatible a bare message string.
+ * Shapes read from the provider sources, never invented.
  */
-function providerErrorCodes(error: Error): string[] {
-  const out: string[] = [];
-  const collect = (payload: unknown) => {
-    if (typeof payload !== 'object' || payload === null) return;
-    const inner = (payload as { error?: unknown }).error;
-    if (typeof inner !== 'object' || inner === null) return;
+interface ProviderErrorEvidence {
+  /** Lowercased composite of the textual fields, for pattern evidence. */
+  text: string;
+  /** Explicit HTTP status from a field ('' when absent) — never a substring. */
+  statusCode: string;
+  /** Top-level code field as a string ('' when absent). */
+  code: string;
+  /** Structured provider identifiers (code/type), lowercased. */
+  structuredCodes: string[];
+}
+
+/** Collects `code`/`type` strings from a payload and from its `error` wrapper. */
+function collectStructuredCodes(payload: unknown, out: string[]): void {
+  const fromRecord = (record: unknown) => {
+    if (typeof record !== 'object' || record === null) return;
     for (const key of ['code', 'type'] as const) {
-      const value = (inner as Record<string, unknown>)[key];
+      const value = (record as Record<string, unknown>)[key];
       if (typeof value === 'string' && value) out.push(value.toLowerCase());
     }
   };
-  collect((error as { data?: unknown }).data);
-  if (out.length === 0) {
-    const body = (error as { responseBody?: unknown }).responseBody;
-    if (typeof body === 'string') {
-      try {
-        collect(JSON.parse(body));
-      } catch {
-        // Not JSON — no structured evidence.
+  fromRecord(payload);
+  if (typeof payload === 'object' && payload !== null) {
+    fromRecord((payload as { error?: unknown }).error);
+  }
+}
+
+function normalizeErrorEvidence(error: unknown): ProviderErrorEvidence | undefined {
+  if (error instanceof Error) {
+    const code = 'code' in error ? String((error as { code?: unknown }).code) : '';
+    const statusCode = 'statusCode' in error
+      ? String((error as { statusCode?: unknown }).statusCode)
+      : 'status' in error
+        ? String((error as { status?: unknown }).status)
+        : '';
+    const structuredCodes: string[] = [];
+    collectStructuredCodes((error as { data?: unknown }).data, structuredCodes);
+    if (structuredCodes.length === 0) {
+      // The failed-response handler keeps the raw body even when the provider
+      // JSON failed the schema (which is exactly when `data` is absent).
+      const body = (error as { responseBody?: unknown }).responseBody;
+      if (typeof body === 'string') {
+        try {
+          collectStructuredCodes(JSON.parse(body), structuredCodes);
+        } catch {
+          // Not JSON — no structured evidence.
+        }
       }
     }
+    return {
+      text: `${error.name} ${code} ${statusCode} ${error.message}`.toLowerCase(),
+      statusCode,
+      code,
+      structuredCodes,
+    };
   }
-  return out;
+  if (typeof error === 'string') {
+    const structuredCodes: string[] = [];
+    try {
+      collectStructuredCodes(JSON.parse(error), structuredCodes);
+    } catch {
+      // A plain message string — text evidence only.
+    }
+    return { text: error.toLowerCase(), statusCode: '', code: '', structuredCodes };
+  }
+  if (typeof error === 'object' && error !== null) {
+    const record = error as Record<string, unknown>;
+    const field = (key: string): string => {
+      const value = record[key];
+      return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+    };
+    const structuredCodes: string[] = [];
+    collectStructuredCodes(record, structuredCodes);
+    let text: string;
+    try {
+      // Serialize the whole value so message/code text is evidence no matter
+      // which of the known provider shapes carried it.
+      text = JSON.stringify(error).toLowerCase();
+    } catch {
+      text = String(error).toLowerCase();
+    }
+    return {
+      text,
+      statusCode: field('statusCode') || field('status'),
+      code: field('code'),
+      structuredCodes,
+    };
+  }
+  return undefined;
 }
 
 /**
@@ -1175,13 +1242,18 @@ const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
 
 /**
  * Wording that looks token-shaped but is NOT an input overflow: throttling /
- * quota / rate limiting, and complete OUTPUT-cap relations in either voice —
- * subject before predicate ("completion has too many tokens", "max_tokens
- * token limit exceeded"), predicate before subject ("too many tokens were
- * requested for the completion"), and the count-of form ("output token count
- * of N exceeds"). Noun phrases alone (e.g. "completion token count") are not
- * excluded: they also appear as usage breakdowns inside genuine
- * input-overflow messages.
+ * quota / rate limiting, and complete OUTPUT-cap relations in every observed
+ * permutation of role word (output/completion/max_tokens) and token
+ * predicate — subject before predicate ("completion has too many tokens",
+ * "max_tokens token limit exceeded"), predicate before subject ("too many
+ * tokens were requested for the completion"), the count-of form ("output
+ * token count of N exceeds"), the role word embedded inside the phrase
+ * ("too many completion tokens were requested"), and the role-tokens-exceed
+ * form ("Maximum completion tokens exceeded"). Noun phrases alone (e.g.
+ * "completion token count") are not excluded: they also appear as usage
+ * breakdowns inside genuine input-overflow messages, and "(prompt +
+ * completion) exceed" combined-budget wording stays classifiable because the
+ * role word is not adjacent to "tokens".
  */
 const NON_CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /rate limit/i,
@@ -1191,6 +1263,8 @@ const NON_CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /(?:output|completion|max_tokens)\b[^.]{0,60}(?:too many tokens|token limit exceeded)/i,
   /(?:too many tokens|token limit exceeded)[^.]{0,60}\b(?:output|completion|max_tokens)/i,
   /(?:output|completion)\s+token\s+(?:count|limit)[^.]{0,40}exceed/i,
+  /too many (?:output|completion|max_tokens)[^.]{0,20}tokens/i,
+  /\b(?:output|completion|max_tokens)\s+tokens?\b[^.]{0,20}exceed/i,
 ];
 
 /**
@@ -1211,42 +1285,40 @@ export function isContextOverflowErrorText(text: string): boolean {
 }
 
 /**
- * Classifies a provider error by DESCENDING evidence strength: abort, then
- * explicit numeric statuses/codes (from fields, never substrings), then the
- * provider's structured error code, then vetoable free-text overflow
- * relations, and only last the weak substring heuristics — so "generate"
- * containing "rate" can never outrank real overflow evidence, while an
- * explicit 429/5xx always beats every text signal.
+ * Classifies a provider error by DESCENDING evidence strength over the
+ * normalized evidence (Error, string, or plain stream-error-part object):
+ * abort → 402 → 429 → 401/403 (numeric fields, never substrings) → the
+ * provider's structured overflow code → bare 413 (HTTP: request entity too
+ * large — itself input-side evidence, Cerebras sends it with no body) →
+ * vetoable free-text overflow relations → generic 5xx → weak word
+ * heuristics. Specific overflow evidence outranks a generic 5xx because
+ * proxies (LiteLLM) wrap provider overflows in 503s; the weak heuristics
+ * rank last so "generate" can never become a rate limit.
  */
 export function classifyError(error: unknown): string {
-  if (!(error instanceof Error)) return 'Other';
-  const code = 'code' in error ? String((error as { code?: unknown }).code) : '';
-  const statusCode = 'statusCode' in error
-    ? String((error as { statusCode?: unknown }).statusCode)
-    : 'status' in error
-      ? String((error as { status?: unknown }).status)
-      : '';
-  const text = `${error.name} ${code} ${statusCode} ${error.message}`.toLowerCase();
+  const evidence = normalizeErrorEvidence(error);
+  if (!evidence) return 'Other';
+  const { text, statusCode, code, structuredCodes } = evidence;
   if (text.includes('abort')) return 'Abort';
   if (statusCode === '402' || code === '402') return 'ProviderBilling';
   if (statusCode === '429' || code === '429') return 'RateLimit';
   if (statusCode === '401' || statusCode === '403' || code === '401' || code === '403') return 'Auth';
-  if (/^5\d\d$/.test(statusCode) || /^5\d\d$/.test(code)) return 'ProviderUnavailable';
   // Structured provider evidence: the parsed error JSON's code/type is the
-  // only unconditional signal for a context overflow (request-level 400/413).
-  if (providerErrorCodes(error).some((c) => CONTEXT_OVERFLOW_PROVIDER_CODES.has(c))) {
-    return 'ContextLength';
-  }
-  // Free-text overflow relations on the composite original-error text
-  // (name + code + status + message), veto-first inside.
+  // only unconditional signal for a context overflow.
+  if (structuredCodes.some((c) => CONTEXT_OVERFLOW_PROVIDER_CODES.has(c))) return 'ContextLength';
+  if (statusCode === '413' || code === '413') return 'ContextLength';
+  // Free-text overflow relations on the composite text, veto-first inside.
   if (isContextOverflowErrorText(text)) return 'ContextLength';
-  // Weak substring heuristics, last: they only catch errors that carried no
-  // stronger evidence for any other class.
-  if (text.includes('rate')) return 'RateLimit';
+  if (/^5\d\d$/.test(statusCode) || /^5\d\d$/.test(code)) return 'ProviderUnavailable';
+  // Weak word heuristics, last: they only catch errors that carried no
+  // stronger evidence for any other class. `rate` must be word-shaped
+  // ("generate"/"separate" are not rate limits) while still matching the
+  // rate_limit/RateLimitError identifier spellings.
+  if (/\brate\b|rate[_-]?limit/.test(text)) return 'RateLimit';
   if (text.includes('auth')) return 'Auth';
   if (text.includes('timeout')) return 'Timeout';
   if (text.includes('network') || text.includes('fetch')) return 'Network';
-  return error.name || 'Other';
+  return error instanceof Error ? (error.name || 'Other') : 'Other';
 }
 
 export function errorReasonFromClass(errorClass: string): string | undefined {

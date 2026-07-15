@@ -243,12 +243,15 @@ describe('ModelAdapter stream and error normalization', () => {
       }),
       'ContextLength',
     );
-    // Same provider JSON reachable only through the raw response body (schema
-    // parse failed, so `data` is absent but `responseBody` is always kept).
+    // Same provider JSON reachable only through the raw response body. The
+    // body must be a shape the OpenAI errorSchema genuinely REJECTS (here:
+    // missing the required error.message), because that is the only way a
+    // real createJsonErrorResponseHandler leaves `data` absent while keeping
+    // `responseBody` — a schema-valid body always produces `data` (round-8 P3).
     assert.equal(
       overflow('Bad Request', {
         statusCode: 400,
-        responseBody: '{"error":{"message":"Bad Request","code":"context_length_exceeded"}}',
+        responseBody: '{"error":{"code":"context_length_exceeded"}}',
       }),
       'ContextLength',
     );
@@ -260,6 +263,71 @@ describe('ModelAdapter stream and error normalization', () => {
       }),
       'ContextLength',
     );
+
+    // Stream error parts are NOT Error instances: each provider enqueues its
+    // parsed error value as `{type:'error', error}` on the fullStream, and the
+    // classifier must accept the real shapes (review round-8 P1-1):
+    // OpenAI Chat emits the INNER error object (openai-chat-language-model.ts:479)…
+    assert.equal(
+      adapter.classifyError({
+        message: 'Bad Request',
+        type: 'invalid_request_error',
+        param: null,
+        code: 'context_length_exceeded',
+      }),
+      'ContextLength',
+    );
+    // …OpenAI Responses emits the WHOLE error chunk (openai-responses-language-model.ts:2105)…
+    assert.equal(
+      adapter.classifyError({
+        type: 'error',
+        sequence_number: 3,
+        error: { type: 'invalid_request_error', code: 'context_length_exceeded', message: 'Bad Request', param: null },
+      }),
+      'ContextLength',
+    );
+    // …Anthropic emits the inner {type, message} object (anthropic-messages-language-model.ts:2441)…
+    assert.equal(
+      adapter.classifyError({ type: 'invalid_request_error', message: 'prompt is too long: 213462 tokens > 200000 maximum' }),
+      'ContextLength',
+    );
+    assert.equal(
+      adapter.classifyError({ type: 'request_too_large', message: 'Request exceeds the maximum size' }),
+      'ContextLength',
+    );
+    // …and openai-compatible emits a bare message STRING (openai-compatible-chat-language-model.ts:466).
+    assert.equal(
+      adapter.classifyError("Requested token count exceeds the model's maximum context length of 131072 tokens."),
+      'ContextLength',
+    );
+    // Non-overflow object/string errors do not become ContextLength.
+    assert.equal(
+      adapter.classifyError({ type: 'invalid_request_error', message: 'missing required field' }),
+      'Other',
+    );
+
+    // Specific overflow evidence outranks a generic 5xx (review round-8 P1-2):
+    // LiteLLM-style proxies surface a provider overflow through a 503 wrapper,
+    // both as a structured code and as message text (pi overflow fixture).
+    assert.equal(
+      overflow('Service Unavailable', {
+        statusCode: 503,
+        data: { error: { message: 'Service Unavailable', code: 'context_length_exceeded' } },
+      }),
+      'ContextLength',
+    );
+    assert.equal(
+      overflow(
+        "503 litellm.ServiceUnavailableError: litellm.MidStreamFallbackError: litellm.APIConnectionError: APIConnectionError: OpenAIException - Requested token count exceeds the model's maximum context length of 131072 tokens.",
+        { statusCode: 503 },
+      ),
+      'ContextLength',
+    );
+    // A bare 413 with no body is itself input-side evidence: HTTP request
+    // entity too large (Cerebras returns exactly this — review round-8 P1-3).
+    assert.equal(overflow('Request Entity Too Large', { statusCode: 413 }), 'ContextLength');
+    assert.equal(overflow('Payload Too Large', { statusCode: 413 }), 'ContextLength');
+    assert.equal(overflow('', { statusCode: 413 }), 'ContextLength');
     // A structured code embedded in free text must not be misread by a weaker
     // substring heuristic checked earlier: "generate" contains "rate", and the
     // rate/auth substring heuristics rank BELOW overflow evidence (round-7 P1-2).
@@ -273,6 +341,13 @@ describe('ModelAdapter stream and error normalization', () => {
       overflow('Please rate limit your requests', { statusCode: 503 }),
       'ProviderUnavailable',
     );
+    // The weak rate heuristic is word-shaped, not a substring: "generate" and
+    // "separate" are not rate limits (review round-8 P2)…
+    assert.notEqual(overflow('Failed to generate response', { statusCode: 400 }), 'RateLimit');
+    assert.notEqual(overflow('Unable to separate response chunks', { statusCode: 400 }), 'RateLimit');
+    // …while genuine rate wording without an explicit 429 still classifies.
+    assert.equal(overflow('Please rate limit your requests', {}), 'RateLimit');
+    assert.equal(overflow('rate_limit_exceeded: slow down', {}), 'RateLimit');
 
     // Exclusion-first: throttling/rate-limit wording must NOT be read as overflow
     // even when it superficially mentions tokens.
@@ -306,6 +381,18 @@ describe('ModelAdapter stream and error normalization', () => {
     // ...including the passive voice, where the output subject FOLLOWS the
     // token predicate (review round-7 P1-3).
     assert.notEqual(overflow('Invalid input: too many tokens were requested for the completion', { statusCode: 400 }), 'ContextLength');
+    // ...and the embedded-role permutation, where the output word sits INSIDE
+    // the token phrase — even when a capacity statement follows in the same
+    // message (review round-8 P1-4).
+    assert.notEqual(
+      overflow("Too many completion tokens were requested. This endpoint's maximum context length is 262144 tokens.", { statusCode: 400 }),
+      'ContextLength',
+    );
+    assert.notEqual(overflow('Too many output tokens requested for this model', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(
+      overflow("Maximum completion tokens exceeded. This endpoint's maximum context length is 262144 tokens.", { statusCode: 400 }),
+      'ContextLength',
+    );
     // A bare capacity STATEMENT inside an unrelated error is not an overflow
     // relation: throttle/quota wording vetoes every free-text signal — only a
     // structured provider code is unconditional (review round-7 P1-4).
