@@ -39,18 +39,15 @@ import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import type { OnboardingSnapshot } from '../global';
 import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
-// Artifact pane + embedded browser panel are only mounted for sessions
-// that actually have artifacts / a live browser view. Loading them lazily
-// keeps their (heavy) code out of the initial chunk so first paint of the
-// chat shell is not blocked on parsing them.
-const ArtifactPane = lazy(() => import('./artifact-pane').then((m) => ({ default: m.ArtifactPane })));
-const BrowserPanel = lazy(() => import('./browser-panel').then((m) => ({ default: m.BrowserPanel })));
+// The session workbar owns the task ledger, embedded browser, and artifact
+// preview. Keep the combined auxiliary surface out of the first chat paint.
+const SessionWorkbar = lazy(() => import('./session-workbar').then((m) => ({ default: m.SessionWorkbar })));
 
-function BrowserPanelFallback() {
+function SessionWorkbarFallback() {
   return (
-    <div className="maka-browser-panel" role="status" aria-busy="true" aria-label="正在加载嵌入式浏览器">
-      <div className="maka-lazy-fallback" data-surface="panel">正在加载嵌入式浏览器…</div>
-    </div>
+    <aside className="maka-session-workbar" role="status" aria-busy="true" aria-label="正在加载会话工作栏">
+      <div className="maka-lazy-fallback" data-surface="panel">正在加载会话工作栏…</div>
+    </aside>
   );
 }
 import { useSessionGoal } from './use-session-goal';
@@ -70,6 +67,13 @@ import {
   SESSION_LIST_EXPANDED_MAX_WIDTH,
   SESSION_LIST_EXPANDED_MIN_WIDTH,
 } from './session-list-layout';
+import {
+  readSessionWorkbarCollapsed,
+  readSessionWorkbarTab,
+  readSessionWorkbarWidth,
+  SESSION_WORKBAR_MAX_WIDTH,
+  SESSION_WORKBAR_MIN_WIDTH,
+} from './session-workbar-layout';
 import {
   modelSetupToastCopy,
 } from './model-connection-errors';
@@ -680,10 +684,16 @@ export function AppShell({
   const onboardingComposerHidden = isOnboardingLoading || (showOnboardingHero && onboardingState !== undefined);
   const [sessionListWidth, setSessionListWidth] = useState(() => readSessionListWidth());
   const [sessionListCollapsed, setSessionListCollapsed] = useState(() => readSessionListCollapsed());
-  const { startColumnResize, onResizeHandleKeyDown } = createAppShellLayoutActions({
+  const [workbarCollapsed, setWorkbarCollapsed] = useState(() => readSessionWorkbarCollapsed());
+  const [workbarWidth, setWorkbarWidth] = useState(() => readSessionWorkbarWidth());
+  const [workbarTab, setWorkbarTab] = useState(() => readSessionWorkbarTab());
+  const { startColumnResize, onResizeHandleKeyDown, startWorkbarResize, onWorkbarResizeHandleKeyDown } = createAppShellLayoutActions({
     sessionListCollapsed,
     sessionListWidth,
     setSessionListWidth,
+    workbarCollapsed,
+    workbarWidth,
+    setWorkbarWidth,
   });
 
   function isAutomationsSurfaceActive(): boolean {
@@ -767,6 +777,8 @@ export function AppShell({
     setInteractionBySession,
     setSearchModalOpen,
     setSessionListCollapsed,
+    setWorkbarCollapsed,
+    setWorkbarTab,
     setThemePref,
   });
 
@@ -929,6 +941,9 @@ export function AppShell({
     navSelection,
     sessionListCollapsed,
     sessionListWidth,
+    workbarCollapsed,
+    workbarWidth,
+    workbarTab,
     themePalette,
     themePref,
   });
@@ -1258,6 +1273,8 @@ export function AppShell({
           }
         >
           <AppShellWorkspaceTopActions
+            workbarCollapsed={workbarCollapsed}
+            onToggleWorkbar={() => setWorkbarCollapsed((current) => !current)}
             onOpenFeedback={() => openSettingsSection('about')}
             onOpenPalette={openPalette}
             onOpenHelp={openHelp}
@@ -1342,12 +1359,6 @@ export function AppShell({
                   iterations: activeGoal.iterations,
                   maxIterations: activeGoal.maxIterations,
                   onClear: () => { void window.maka.goal.clear(activeGoal.sessionId); },
-                } : undefined}
-                taskLedger={activeId ? {
-                  tasks: sessionTasks.tasks,
-                  loading: sessionTasks.loading,
-                  error: sessionTasks.error,
-                  onRetry: sessionTasks.retry,
                 } : undefined}
                 messageLoadError={activeId ? messageLoadErrorBySession[activeId] : undefined}
                 messageLoadRetryPending={activeId ? messageRetryPendingBySession[activeId] === true : false}
@@ -1564,14 +1575,40 @@ export function AppShell({
                 onPermissionModeChange={(mode) => setPermissionMode(mode)}
               />
             </div>
-            {activeId && liveBrowserSessionIds.includes(activeId) && (
-              <Suspense fallback={<BrowserPanelFallback />}>
-                <BrowserPanel sessionId={activeId} hidden={hasModalOpen} />
-              </Suspense>
+            {activeId && !workbarCollapsed && (
+              <>
+                <div
+                  className="maka-workbar-resize-handle"
+                  role="separator"
+                  aria-label="调整会话工作栏宽度"
+                  aria-orientation="vertical"
+                  aria-valuemin={SESSION_WORKBAR_MIN_WIDTH}
+                  aria-valuemax={SESSION_WORKBAR_MAX_WIDTH}
+                  aria-valuenow={workbarWidth}
+                  tabIndex={0}
+                  onPointerDown={startWorkbarResize}
+                  onKeyDown={onWorkbarResizeHandleKeyDown}
+                />
+                <Suspense fallback={<SessionWorkbarFallback />}>
+                  <SessionWorkbar
+                    key={activeId}
+                    sessionId={activeId}
+                    tasks={{
+                      tasks: sessionTasks.tasks,
+                      loading: sessionTasks.loading,
+                      error: sessionTasks.error,
+                      onRetry: sessionTasks.retry,
+                    }}
+                    browserLive={liveBrowserSessionIds.includes(activeId)}
+                    hidden={hasModalOpen}
+                    width={workbarWidth}
+                    onDismiss={() => setWorkbarCollapsed(true)}
+                    activeTab={workbarTab}
+                    onActiveTabChange={setWorkbarTab}
+                  />
+                </Suspense>
+              </>
             )}
-            <Suspense fallback={null}>
-              <ArtifactPane sessionId={activeId} />
-            </Suspense>
           </div>
           </MakaUriContext.Provider>
         </div>

@@ -81,6 +81,8 @@ export {
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Paperclip,
   Pencil,
   Pin,

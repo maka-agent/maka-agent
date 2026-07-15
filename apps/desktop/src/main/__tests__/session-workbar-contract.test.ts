@@ -1,0 +1,40 @@
+import { strict as assert } from 'node:assert';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { describe, it } from 'node:test';
+import { REPO_ROOT } from './css-test-helpers.js';
+import { readRendererContractCss } from './contract-css-helpers.js';
+
+describe('session workbar contract', () => {
+  it('owns three stable peer tabs and disables Browser without a live view', async () => {
+    const source = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/session-workbar.tsx'), 'utf8');
+
+    assert.match(source, /value="tasks"[\s\S]*?>[\s\S]*任务/);
+    assert.match(source, /value="browser"[\s\S]*disabled=\{!props\.browserLive\}[\s\S]*?>[\s\S]*浏览器/);
+    assert.match(source, /value="files"[\s\S]*?>[\s\S]*文件/);
+    assert.match(source, /<TaskLedgerPanel\b/);
+    assert.match(source, /<BrowserPanel\b/);
+    assert.match(source, /<ArtifactPane\b/);
+  });
+
+  it('is the only shell owner of tasks, browser, and files', async () => {
+    const [appShell, chatView] = await Promise.all([
+      readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/app-shell.tsx'), 'utf8'),
+      readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-view.tsx'), 'utf8'),
+    ]);
+
+    assert.match(appShell, /<SessionWorkbar\b/);
+    assert.doesNotMatch(appShell, /<BrowserPanel\b/);
+    assert.doesNotMatch(appShell, /<ArtifactPane\b/);
+    assert.doesNotMatch(chatView, /<TaskLedgerPanel\b/);
+  });
+
+  it('starts its tabs below the shared titlebar action row', async () => {
+    const css = await readRendererContractCss();
+    assert.match(
+      css,
+      /\.maka-session-workbar\s*\{[\s\S]*?padding-top:\s*var\(--h-titlebar\)/,
+      'workbar tabs must not sit underneath the top-right workspace actions',
+    );
+  });
+});

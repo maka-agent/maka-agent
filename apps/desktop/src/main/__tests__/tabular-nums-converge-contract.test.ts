@@ -39,7 +39,7 @@ const TABULAR_NUMS_SELECTORS = [
   '.maka-list-row-meta',
   '.maka-daily-review-day',
   // counts / totals badges
-  '.maka-artifact-pane-count',
+  '.maka-session-workbar-count',
   '.maka-artifact-row-meta',
   '.settingsRow > span',
   '.maka-plan-tab span',

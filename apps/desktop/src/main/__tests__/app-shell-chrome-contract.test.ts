@@ -47,4 +47,13 @@ describe('app shell chrome contract', () => {
       'sidebar should not own a separate collapse button with different geometry',
     );
   });
+
+  it('exposes the session workbar toggle in the top-right workspace actions', async () => {
+    const combined = await readRendererShellCombinedSource();
+
+    assert.match(combined, /PanelRightClose/, 'expanded workbar must expose its collapse action');
+    assert.match(combined, /PanelRightOpen/, 'collapsed workbar must expose its expand action');
+    assert.match(combined, /aria-label=\{props\.workbarCollapsed \? '展开会话工作栏' : '收起会话工作栏'\}/);
+    assert.match(combined, /aria-expanded=\{!props\.workbarCollapsed\}/);
+  });
 });

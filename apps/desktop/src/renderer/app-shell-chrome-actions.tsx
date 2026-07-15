@@ -1,4 +1,4 @@
-import { CircleGauge, Grid3X3, HelpCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Search, SquarePen } from '@maka/ui/icons';
+import { CircleGauge, Grid3X3, HelpCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Search, SquarePen } from '@maka/ui/icons';
 import { Button as UiButton, Tooltip, TooltipContent, TooltipTrigger } from '@maka/ui';
 
 export function AppShellTopbarActions(props: {
@@ -62,6 +62,8 @@ export function AppShellTopbarActions(props: {
 }
 
 export function AppShellWorkspaceTopActions(props: {
+  workbarCollapsed: boolean;
+  onToggleWorkbar(): void;
   onOpenFeedback(): void;
   onOpenPalette(): void;
   onOpenHelp(): void;
@@ -116,6 +118,19 @@ export function AppShellWorkspaceTopActions(props: {
           <CircleGauge aria-hidden="true" />
         </TooltipTrigger>
         <TooltipContent>打开健康中心</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={<UiButton variant="quiet" size="icon-sm" />}
+          type="button"
+          className="maka-titlebar-action"
+          onClick={props.onToggleWorkbar}
+          aria-label={props.workbarCollapsed ? '展开会话工作栏' : '收起会话工作栏'}
+          aria-expanded={!props.workbarCollapsed}
+        >
+          {props.workbarCollapsed ? <PanelRightOpen aria-hidden="true" /> : <PanelRightClose aria-hidden="true" />}
+        </TooltipTrigger>
+        <TooltipContent>{props.workbarCollapsed ? '展开会话工作栏' : '收起会话工作栏'}</TooltipContent>
       </Tooltip>
     </div>
   );

@@ -3,6 +3,7 @@ import type { SettingsSection, ThemePreference } from '@maka/core';
 import type { InteractionQueues, LiveTurnProjection } from '@maka/ui';
 import type { NavSelection } from '@maka/ui';
 import { applyTheme } from './theme';
+import type { SessionWorkbarTab } from './session-workbar-layout';
 
 type StateUpdater<T> = (updater: (current: T) => T) => void;
 
@@ -21,6 +22,8 @@ export function createAppShellVisualSmokeActions(options: {
   setInteractionBySession: StateUpdater<InteractionQueues>;
   setSearchModalOpen: Dispatch<SetStateAction<boolean>>;
   setSessionListCollapsed: Dispatch<SetStateAction<boolean>>;
+  setWorkbarCollapsed: Dispatch<SetStateAction<boolean>>;
+  setWorkbarTab: Dispatch<SetStateAction<SessionWorkbarTab>>;
   setThemePref: Dispatch<SetStateAction<ThemePreference>>;
 }): AppShellVisualSmokeActions {
   const {
@@ -34,6 +37,8 @@ export function createAppShellVisualSmokeActions(options: {
     setInteractionBySession,
     setSearchModalOpen,
     setSessionListCollapsed,
+    setWorkbarCollapsed,
+    setWorkbarTab,
     setThemePref,
   } = options;
 
@@ -115,6 +120,8 @@ export function createAppShellVisualSmokeActions(options: {
     if (state.sidebarCollapsed !== undefined) {
       setSessionListCollapsed(state.sidebarCollapsed);
     }
+    if (state.workbarCollapsed !== undefined) setWorkbarCollapsed(state.workbarCollapsed);
+    if (state.workbarTab) setWorkbarTab(state.workbarTab);
     if (state.openSettingsSection) {
       openSettingsSection(state.openSettingsSection);
     }

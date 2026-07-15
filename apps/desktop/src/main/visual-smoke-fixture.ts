@@ -329,10 +329,10 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'artifact-preview-image':
     case 'artifact-preview-unsupported':
     case 'artifact-preview-oversize':
-      return { ...state, activeSessionId: ARTIFACT_SESSION_ID };
+      return { ...state, activeSessionId: ARTIFACT_SESSION_ID, workbarCollapsed: false, workbarTab: 'files' };
     case 'turn-narrative':
     case 'task-ledger':
-      return { ...state, activeSessionId: TURN_SESSION_ID };
+      return { ...state, activeSessionId: TURN_SESSION_ID, workbarCollapsed: false, workbarTab: 'tasks' };
     case 'browser-empty':
       // #819: the active turn session is also seeded as a live browser
       // session so BrowserPanel mounts over the chat. No native
@@ -342,7 +342,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       // Loaded / loading / nav chrome states are locked by the
       // `browser-panel-chrome` source contract; their screenshots add no
       // layout value over this empty-state baseline.
-      return { ...state, activeSessionId: TURN_SESSION_ID, liveBrowserSessionIds: [TURN_SESSION_ID] };
+      return { ...state, activeSessionId: TURN_SESSION_ID, liveBrowserSessionIds: [TURN_SESSION_ID], workbarCollapsed: false, workbarTab: 'browser' };
     case 'streaming-sidebar':
       return {
         ...state,

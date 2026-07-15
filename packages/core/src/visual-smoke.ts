@@ -289,4 +289,7 @@ export interface VisualSmokeState {
    * only the top-left icon rail.
    */
   sidebarCollapsed?: boolean;
+  /** Fixture-only session workbar state for deterministic tab screenshots. */
+  workbarCollapsed?: boolean;
+  workbarTab?: 'tasks' | 'browser' | 'files';
 }

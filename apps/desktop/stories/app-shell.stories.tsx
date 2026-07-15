@@ -202,6 +202,8 @@ function ComposedShell(props: {
           style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}
         >
           <AppShellWorkspaceTopActions
+            workbarCollapsed={false}
+            onToggleWorkbar={noop}
             onOpenFeedback={noop}
             onOpenPalette={noop}
             onOpenHelp={noop}

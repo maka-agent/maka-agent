@@ -72,11 +72,8 @@ describe('ArtifactPane async lifecycle contract', () => {
       /if \(!sessionId \|\| records\.length === 0\)/,
       'the pane must not render or hide from unscoped records',
     );
-    assert.match(
-      src,
-      /const listRef = useRef<HTMLUListElement>\(null\);[\s\S]*const previewRef = useRef<HTMLDivElement>\(null\);[\s\S]*const activeListError = listError && listError\.sessionId === sessionId \? listError\.message : null;[\s\S]*const hasLiveArtifact = activeRecords\.some\(\(record\) => record\.status !== 'deleted'\);[\s\S]*if \(!sessionId \|\| \(!hasLiveArtifact && !activeListError\)\) \{[\s\S]*return null;/,
-      'all hooks must run before the ArtifactPane early return, and deleted-only lists must not mount the pane',
-    );
+    assert.doesNotMatch(src, /return null;/, 'the Files tab owns the empty state, so ArtifactPane must stay mounted and report a zero count');
+    assert.match(src, /props\.onCountChange\?\.\(activeRecords\.length\)/, 'ArtifactPane must report the current tab count from its authoritative filtered list');
     assert.match(
       src,
       /setSelectedId\(preferredArtifactSelectionId\(activeRecords\)\)/,

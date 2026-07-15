@@ -106,7 +106,6 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.doesNotMatch(source, /role="toolbar"/, 'ArtifactPane toolbar semantics must come from shared primitive Toolbar');
     assert.match(source, /<Toolbar className="maka-artifact-toolbar" aria-label="生成文件操作">/);
     assert.match(source, /<ToolbarSeparator className="maka-artifact-toolbar-separator" orientation="vertical" \/>/);
-    assert.match(source, /render=\{<Button variant="quiet" size="icon-sm" \/>\}/);
     assert.match(source, /<Button\s+variant="secondary"\s+size="sm"[\s\S]*retryArtifactListRefresh/);
     assert.match(source, /<BaseButton[\s\S]*className="maka-artifact-row"/);
   });

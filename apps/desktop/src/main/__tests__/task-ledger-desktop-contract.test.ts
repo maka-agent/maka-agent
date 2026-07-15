@@ -34,23 +34,21 @@ describe('desktop task ledger contract', () => {
     assert.doesNotMatch(hook, /StoredMessage|tool_result|parse.*message/i);
   });
 
-  it('places one full-width collapsible band between chat header and messages', async () => {
+  it('renders the existing task tree as workbar content instead of a chat band', async () => {
     const [chat, panel, css] = await Promise.all([
       source('packages/ui/src/chat-view.tsx'),
       source('packages/ui/src/task-ledger-panel.tsx'),
       source('apps/desktop/src/renderer/styles/task-ledger.css'),
     ]);
-    const headerIndex = chat.indexOf('className="maka-chat-header"');
-    const taskIndex = chat.indexOf('<TaskLedgerPanel');
-    const shellIndex = chat.indexOf('className="maka-chat-shell"');
-    assert.ok(headerIndex >= 0 && headerIndex < taskIndex && taskIndex < shellIndex);
+    assert.doesNotMatch(chat, /<TaskLedgerPanel\b/);
+    assert.match(panel, /className="maka-task-ledger-panel"/);
     assert.match(panel, /role="tree"/);
     assert.match(panel, /aria-level=\{depth \+ 1\}/);
     assert.match(panel, /recentTerminal[\s\S]*slice\(0, 3\)/);
     assert.match(panel, /blockedReason \?\? task\.failureReason \?\? task\.completionEvidence/);
-    assert.match(css, /\.maka-task-ledger-band\s*\{[\s\S]*width:\s*100%/);
+    assert.match(css, /\.maka-task-ledger-panel\s*\{[\s\S]*height:\s*100%[\s\S]*overflow-y:\s*auto/);
     assert.match(css, /grid-template-columns:/);
-    assert.match(css, /@media\s*\(max-width:\s*720px\)/);
+    assert.match(css, /@media\s*\(max-width:\s*620px\)/);
     assert.match(css, /overflow-wrap:\s*anywhere/);
     assert.doesNotMatch(panel, /drag|drop|dependency|bulk|schedule/i);
   });
