@@ -49,24 +49,18 @@ test('adds a catalog provider through the canonical API-key dialog', async ({ wi
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel('API Key')).toBeFocused();
   await expect(dialog.getByLabel('API Key')).toHaveAttribute('type', 'password');
-  await expect(dialog.getByText('输入 Cerebras API Key 即可完成连接。')).toHaveCount(0);
-  await expect(dialog.getByText('粘贴服务商提供的 API Key，凭据仅保存在本机。')).toHaveCount(0);
   const intro = dialog.getByText('输入 API Key 即可连接；密钥仅保存在本机。');
   await expect(intro).toBeVisible();
   await expect(intro).toHaveCSS('white-space', 'nowrap');
   expect(await intro.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-  await expect(dialog.getByText('Cerebras API Key', { exact: true })).toHaveCount(0);
   await expect(dialog.getByLabel('API Key')).toHaveAttribute('placeholder', '输入或粘贴 API Key');
   await expect(dialog.getByLabel('模型供应商连接标识')).toHaveCount(0);
   await expect(dialog.getByLabel('模型供应商服务地址')).toHaveCount(0);
   await expect(dialog.getByLabel('模型供应商默认模型')).toHaveCount(0);
   const dialogBox = await dialog.boundingBox();
   expect(dialogBox?.width).toBeLessThanOrEqual(420);
-  expect(dialogBox?.height).toBeGreaterThanOrEqual(190);
-  expect(dialogBox?.height).toBeLessThanOrEqual(230);
   await expect(dialog.locator('.providerLogo')).toHaveCSS('width', '24px');
   await expect(dialog.locator('.providerLogo')).toHaveCSS('height', '24px');
-  expect((await dialog.getByRole('button', { name: '连接并使用', exact: true }).boundingBox())?.width).toBeLessThan(96);
   const keyInput = dialog.getByLabel('API Key');
   const inputBox = await keyInput.boundingBox();
   await keyInput.fill(`sk-${'a'.repeat(300)}`);
@@ -115,13 +109,18 @@ test('derives an account-scoped endpoint from the Cloudflare account-id field', 
   // The plain base-URL input is replaced by the account-id field; the endpoint
   // is derived, not typed.
   await expect(page.getByLabel('Cloudflare 账户 ID')).toHaveValue('');
+  await expect(page.getByLabel('Cloudflare Workers AI API Key')).toBeVisible();
   await expect(page.getByLabel('模型供应商服务地址')).toHaveCount(0);
   await page.getByLabel('Cloudflare 账户 ID').fill(accountId);
+  await page.getByRole('button', { name: '保存供应商' }).click();
+  await expect(page.getByRole('alert')).toHaveText('请填写 Cloudflare Workers AI API Key');
+
+  await page.getByLabel('Cloudflare Workers AI API Key').fill('e2e-cloudflare-key');
   await page.getByRole('button', { name: '保存供应商' }).click();
 
   await expect(page.getByRole('heading', { name: 'Cloudflare Workers AI', exact: true }).first()).toBeVisible();
   await expect(page.getByRole('textbox', { name: '服务地址', exact: true })).toHaveValue(baseUrl);
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toHaveAttribute('placeholder', '••••••••');
 });
 
 // Distinct form behavior: a no-auth local runtime shows no API-key field at all

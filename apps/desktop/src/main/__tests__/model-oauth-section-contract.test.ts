@@ -292,6 +292,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(src, /type ProviderPage =[\s\S]*kind: 'add'[\s\S]*kind: 'detail'/);
     assert.match(src, /function ProviderPageHeader[\s\S]*aria-label="返回模型连接"/);
     assert.match(src, /usesQuickApiKeyDialog[\s\S]*defaults\.authKind === 'api_key' && Boolean\(defaults\.baseUrl\)/);
+    assert.match(src, /const supportsApiKey = providerAuthSupportsApiKey\(props\.providerType\)/);
+    assert.match(src, /const requiresApiKey = providerAuthRequiresSecret\(props\.providerType\) && supportsApiKey/);
     assert.match(src, /<DialogContent[\s\S]*initialFocus=\{apiKeyInputRef\}[\s\S]*finalFocus=\{props\.finalFocus\}/);
     assert.match(src, /ariaLabel="API Key"/);
     assert.match(src, /\.\.\.\(normalizedApiKey \? \{ apiKey: normalizedApiKey \} : \{\}\)/);
