@@ -1165,6 +1165,8 @@ export function classifyError(error: unknown): string {
 
 export function errorReasonFromClass(errorClass: string): string | undefined {
   switch (errorClass) {
+    case 'ContextLength':
+      return 'context_overflow';
     case 'Timeout':
       return 'timeout';
     case 'Auth':
