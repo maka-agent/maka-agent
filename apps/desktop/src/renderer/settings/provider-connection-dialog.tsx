@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import type { ProviderType } from '@maka/core';
 import { DialogContent, DialogHeader, DialogRoot } from '@maka/ui';
 import { ProviderLogo } from './provider-display';
@@ -12,6 +12,7 @@ export function ProviderConnectionDialog(props: {
   children: ReactNode;
 }) {
   const titleId = `provider-connection-dialog-${props.providerType}`;
+  const bodyRef = useRef<HTMLDivElement>(null);
   return (
     <DialogRoot
       open
@@ -22,6 +23,9 @@ export function ProviderConnectionDialog(props: {
       <DialogContent
         className="maka-modal providerConnectionDialog"
         aria-labelledby={titleId}
+        initialFocus={() => bodyRef.current?.querySelector<HTMLElement>(
+          'input:not([disabled]), button:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? true}
         finalFocus={props.finalFocus}
         showClose={false}
       >
@@ -32,7 +36,7 @@ export function ProviderConnectionDialog(props: {
           subtitle={props.subtitle}
           onClose={props.onClose}
         />
-        <div className="providerConnectionDialogBody">{props.children}</div>
+        <div ref={bodyRef} className="providerConnectionDialogBody">{props.children}</div>
       </DialogContent>
     </DialogRoot>
   );

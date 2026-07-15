@@ -280,7 +280,7 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
   // openAuthUrl -> refresh -> completeAuthorization, one authRequestId
   // lifecycle, synchronous pending-action guard, cancellation on unmount,
   // localized toast copy) lives in useOAuthLoginFlow so the model connection
-  // detail sheet can drive the exact same flow behind its relogin button.
+  // connection dialog can drive the exact same flow behind its relogin button.
   const flow = useOAuthLoginFlow({
     bridge,
     display: { name: display.name, shortName: display.shortName },

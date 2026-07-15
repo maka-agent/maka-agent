@@ -32,7 +32,7 @@ import {
 } from './provider-panel-shared';
 
 // Maps an OAuth model-connection provider type to the browser-loopback login
-// service that can re-run its authorization from inside the detail sheet. Only
+// service that can re-run its authorization from inside the connection dialog. Only
 // the loopback / polling services (Codex, Antigravity) are one-button-drivable
 // here; Claude's paste-code flow and plain API-key providers return null so the
 // notice falls back to prose instead of rendering a dead button.
@@ -455,7 +455,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     }
   }
 
-  // After a successful in-sheet OAuth re-login, re-probe the credential
+  // After a successful in-dialog OAuth re-login, re-probe the credential
   // presence (an expired token still read hasSecret===true, so we must
   // refresh it) and reload the connection so its status leaves 需要重新登录.
   async function refreshAfterRelogin() {
