@@ -10,7 +10,15 @@ import {
 } from '../opencode-toolchain.js';
 
 describe('OpenCode toolchain', () => {
-  test('validates a prepared toolchain and rejects binary drift', async () => {
+  test('binds the fingerprint to the extracted binaries and rejects a self-signed cache', async () => {
+    assert.equal(
+      (OPENCODE_TOOLCHAIN_SPEC.node as { binarySha256?: string }).binarySha256,
+      '93956de2e59480474a7b46571da1651180b1a050cdf32641ebec4ce6e478e068',
+    );
+    assert.equal(
+      (OPENCODE_TOOLCHAIN_SPEC.opencode as { binarySha256?: string }).binarySha256,
+      '0cbfb6de55aa4ce3c74da12d8516376033693a88abca6238c5be32bf98130636',
+    );
     const root = await mkdtemp(join(tmpdir(), 'maka-opencode-toolchain-'));
     try {
       const binDir = join(root, 'bin');
@@ -34,23 +42,11 @@ describe('OpenCode toolchain', () => {
         Object.entries(files).map(([path, hash]) => `${hash}  ${path}\n`).join(''),
       );
 
-      const module = await import('../opencode-toolchain.js') as Record<string, unknown>;
-      const validate = module.validatePreparedOpenCodeToolchain as ((path: string) => Promise<unknown>);
-      const prepare = module.prepareOpenCodeToolchain as ((
-        path: string,
-        options: { fetchFn: typeof fetch },
-      ) => Promise<{ path: string; fingerprint: string }>);
-      await validate(root);
-      const reused = await prepare(root, {
-        fetchFn: async () => {
-          throw new Error('a valid prepared toolchain must not access the network');
-        },
-      });
-      assert.equal(reused.path, root);
-      assert.equal(reused.fingerprint, OPENCODE_TOOLCHAIN_FINGERPRINT);
-
-      await writeFile(join(binDir, 'opencode'), 'drifted opencode\n');
-      await assert.rejects(validate(root), /bin\/opencode SHA-256 mismatch/);
+      const { validatePreparedOpenCodeToolchain } = await import('../opencode-toolchain.js');
+      await assert.rejects(
+        validatePreparedOpenCodeToolchain(root),
+        /bin\/node SHA-256 mismatch/,
+      );
       assert.match(await readFile(join(root, 'manifest.json'), 'utf8'), /1\.17\.18/);
     } finally {
       await rm(root, { recursive: true, force: true });

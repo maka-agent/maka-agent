@@ -1494,7 +1494,6 @@ try:
         asyncio.run(agent.install(environment))
         install_command, install_env = environment.agent_commands[0]
         assert "/opt/maka-opencode-toolchain/bin/node" in install_command, install_command
-        assert "/opt/maka-opencode-toolchain/bin/opencode" in install_command, install_command
         assert "sha256sum --check" in install_command, install_command
         assert "MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT" in install_command, install_command
         assert install_env["MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT"] == "sha256:" + "a" * 64, install_env
@@ -1502,6 +1501,7 @@ try:
         assert "npm" not in install_command, install_command
         assert "nvm" not in install_command, install_command
         assert "apt-get" not in install_command, install_command
+        assert "--version" not in install_command, install_command
         assert environment.root_commands == [], environment.root_commands
 
         asyncio.run(agent.run("hi", environment, context))

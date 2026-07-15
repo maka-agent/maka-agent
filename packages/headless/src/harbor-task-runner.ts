@@ -70,6 +70,8 @@ export interface HarborTaskRunnerOptions {
   agentVersion?: string;
   /** Prepared OpenCode toolchain mounted read-only into task containers. */
   opencodeToolchainPath?: string;
+  /** Explicit Docker target platform shared by comparison arms. */
+  dockerPlatform?: 'linux/amd64';
   /** Base directory under which each task gets an isolated per-task job dir. */
   jobsDir: string;
   /** MAKA_MODEL, e.g. "deepseek/deepseek-v4-flash". */
@@ -471,6 +473,9 @@ export function buildHarborJobConfig(
       force_build: false,
       delete: true,
       mounts,
+      ...(options.dockerPlatform === 'linux/amd64'
+        ? { extra_docker_compose: [join(options.makaRepoPath, 'packages/headless/harbor/docker-compose-linux-amd64.yaml')] }
+        : {}),
     },
     verifier: { env: {}, disable: false },
     metrics: [{ type: 'mean', kwargs: {} }],

@@ -26,11 +26,13 @@ export const OPENCODE_TOOLCHAIN_SPEC = {
     version: '22.23.1',
     archiveUrl: 'https://nodejs.org/dist/v22.23.1/node-v22.23.1-linux-x64.tar.gz',
     archiveSha256: '7a8cb04b4a1df4eaf432125324b81b29a088e73570a23259a8de1c65d07fc129',
+    binarySha256: '93956de2e59480474a7b46571da1651180b1a050cdf32641ebec4ce6e478e068',
   },
   opencode: {
     version: '1.17.18',
     archiveUrl: 'https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.17.18.tgz',
     archiveIntegrity: 'sha512-8BmT22yp7pCXXu/HvAMaJsNNd6xhmlUrGs5YZSfU0neZfkSZg+Dkf9IGsuOugOtL0x2erDg2/6rRBpcJAGmTrA==',
+    binarySha256: '0cbfb6de55aa4ce3c74da12d8516376033693a88abca6238c5be32bf98130636',
   },
 } as const;
 
@@ -47,7 +49,6 @@ interface OpenCodeToolchainManifest {
   schemaVersion: 1;
   fingerprint: typeof OPENCODE_TOOLCHAIN_FINGERPRINT;
   spec: typeof OPENCODE_TOOLCHAIN_SPEC;
-  files: Record<'bin/node' | 'bin/opencode', string>;
 }
 
 export async function validatePreparedOpenCodeToolchain(path: string): Promise<PreparedOpenCodeToolchain> {
@@ -58,12 +59,13 @@ export async function validatePreparedOpenCodeToolchain(path: string): Promise<P
   if (JSON.stringify(manifest.spec) !== JSON.stringify(OPENCODE_TOOLCHAIN_SPEC)) {
     throw new Error('OpenCode toolchain spec does not match the pinned contract');
   }
+  const pinnedFiles = {
+    'bin/node': OPENCODE_TOOLCHAIN_SPEC.node.binarySha256,
+    'bin/opencode': OPENCODE_TOOLCHAIN_SPEC.opencode.binarySha256,
+  } as const;
   const checksums: string[] = [];
   for (const relativePath of ['bin/node', 'bin/opencode'] as const) {
-    const expected = manifest.files[relativePath];
-    if (!/^[a-f0-9]{64}$/.test(expected)) {
-      throw new Error(`OpenCode toolchain manifest is missing ${relativePath} SHA-256`);
-    }
+    const expected = pinnedFiles[relativePath];
     const actual = await sha256File(join(path, relativePath));
     if (actual !== expected) {
       throw new Error(`OpenCode toolchain ${relativePath} SHA-256 mismatch`);
@@ -122,14 +124,13 @@ export async function prepareOpenCodeToolchain(
     await chmod(join(binDir, 'opencode'), 0o755);
 
     const files = {
-      'bin/node': await sha256File(join(binDir, 'node')),
-      'bin/opencode': await sha256File(join(binDir, 'opencode')),
+      'bin/node': OPENCODE_TOOLCHAIN_SPEC.node.binarySha256,
+      'bin/opencode': OPENCODE_TOOLCHAIN_SPEC.opencode.binarySha256,
     };
     const manifest: OpenCodeToolchainManifest = {
       schemaVersion: 1,
       fingerprint: OPENCODE_TOOLCHAIN_FINGERPRINT,
       spec: OPENCODE_TOOLCHAIN_SPEC,
-      files,
     };
     await writeFile(join(temporaryPath, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     await writeFile(
@@ -160,7 +161,7 @@ function parseManifest(raw: string): OpenCodeToolchainManifest {
   } catch (error) {
     throw new Error('OpenCode toolchain manifest is not valid JSON', { cause: error });
   }
-  if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.spec) || !isRecord(value.files)) {
+  if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.spec)) {
     throw new Error('OpenCode toolchain manifest has an invalid shape');
   }
   return value as unknown as OpenCodeToolchainManifest;

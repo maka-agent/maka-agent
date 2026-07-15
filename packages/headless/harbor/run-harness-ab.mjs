@@ -48,7 +48,6 @@ const PROVIDER = 'zai-coding-plan';
 const MODEL = 'glm-5.2';
 const MODEL_SPEC = `${PROVIDER}/${MODEL}`;
 const REASONING_EFFORT = 'max';
-const OPENCODE_VERSION = '1.17.18';
 const BASE_URL = 'https://api.z.ai/api/coding/paas/v4';
 const ORDER_SEED = 'terminal-bench-2.1:glm-5.2:maka-vs-opencode:v1';
 const PRICING = {
@@ -239,6 +238,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     pricing,
     agentEnv: { ZAI_BASE_URL: BASE_URL },
     timeoutMultiplier: 1,
+    dockerPlatform: 'linux/amd64',
   };
   const makaContextBudgetEnv = harnessMakaContextBudgetEnv();
   const config = (id) => ({
@@ -273,7 +273,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
         harborRunner: createHarborTaskRunner({
           ...runnerOptions,
           agent: 'opencode',
-          agentVersion: OPENCODE_VERSION,
+          agentVersion: OPENCODE_TOOLCHAIN_SPEC.opencode.version,
           opencodeToolchainPath,
         }),
       },

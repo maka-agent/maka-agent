@@ -868,7 +868,10 @@ describe('createHarborTaskRunner', () => {
 
 describe('buildHarborJobConfig', () => {
   test('pins the OpenCode adapter and max model variant without serializing credentials', () => {
-    const toolchain = { opencodeToolchainPath: '/cache/opencode-1.17.18-linux-x64' };
+    const toolchain = {
+      opencodeToolchainPath: '/cache/opencode-1.17.18-linux-x64',
+      dockerPlatform: 'linux/amd64',
+    } as const;
     const config = buildHarborJobConfig(runInput(), {
       makaRepoPath: '/repo',
       jobsDir: '/jobs/x',
@@ -884,6 +887,7 @@ describe('buildHarborJobConfig', () => {
     const agent = (config.agents as Array<Record<string, unknown>>)[0]!;
     const env = agent.env as Record<string, string>;
     const mounts = (config.environment as { mounts: Array<Record<string, unknown>> }).mounts;
+    const extraDockerCompose = (config.environment as { extra_docker_compose?: string[] }).extra_docker_compose;
 
     // Harbor resolves built-in names before import_path, so setting both would
     // silently bypass MakaOpenCodeAgent and its host-side auth proxy.
@@ -900,8 +904,26 @@ describe('buildHarborJobConfig', () => {
       && mount.target === '/opt/maka-opencode-toolchain'
       && mount.read_only === true
     )));
+    assert.deepEqual(extraDockerCompose, ['/repo/packages/headless/harbor/docker-compose-linux-amd64.yaml']);
     assert.equal(env.ZAI_API_KEY, undefined);
     assert.equal(env.ZAI_API_KEY_FILE, undefined);
+  });
+
+  test('pins the Maka arm to the same Docker platform as OpenCode', () => {
+    const config = buildHarborJobConfig(runInput(), {
+      makaRepoPath: '/repo',
+      jobsDir: '/jobs/x',
+      jobName: 'trial',
+      agent: 'maka',
+      model: 'zai-coding-plan/glm-5.2',
+      provider: 'zai-coding-plan',
+      dockerPlatform: 'linux/amd64',
+    } as Parameters<typeof buildHarborJobConfig>[1]);
+
+    assert.deepEqual(
+      (config.environment as { extra_docker_compose?: string[] }).extra_docker_compose,
+      ['/repo/packages/headless/harbor/docker-compose-linux-amd64.yaml'],
+    );
   });
 
   test('requires a prepared toolchain for OpenCode before Harbor starts', () => {

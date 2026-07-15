@@ -21,8 +21,6 @@ _TOOLCHAIN_NODE = _TOOLCHAIN_ROOT / "bin" / "node"
 _TOOLCHAIN_OPENCODE = _TOOLCHAIN_ROOT / "bin" / "opencode"
 _TOOLCHAIN_MANIFEST = _TOOLCHAIN_ROOT / "manifest.json"
 _TOOLCHAIN_CHECKSUMS = _TOOLCHAIN_ROOT / "checksums.sha256"
-_NODE_VERSION = "22.23.1"
-_OPENCODE_VERSION = "1.17.18"
 
 
 class MakaOpenCodeAgent(OpenCode):
@@ -51,8 +49,6 @@ class MakaOpenCodeAgent(OpenCode):
             'test "$(uname -m)" = x86_64; '
             f"cd {shlex.quote(str(_TOOLCHAIN_ROOT))}; "
             f"sha256sum --check {shlex.quote(_TOOLCHAIN_CHECKSUMS.name)}; "
-            f'test "$({shlex.quote(str(_TOOLCHAIN_NODE))} --version)" = v{_NODE_VERSION}; '
-            f'test "$({shlex.quote(str(_TOOLCHAIN_OPENCODE))} --version)" = {_OPENCODE_VERSION}; '
             f"{shlex.quote(str(_TOOLCHAIN_NODE))} -e {shlex.quote(manifest_check)} "
             f"{shlex.quote(str(_TOOLCHAIN_MANIFEST))}"
         )
