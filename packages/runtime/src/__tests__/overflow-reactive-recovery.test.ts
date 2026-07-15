@@ -45,10 +45,14 @@ const OVERFLOW_MESSAGE = 'prompt is too long: 213462 tokens > 200000 maximum';
  *  - 'error500' → a non-overflow provider failure (never a recovery trigger)
  *  - 'terminated' → the provider transport dies before returning authoritative
  *                 usage for the current request
+ *  - 'terminatedMidBody' → the response starts, then its body errors while the
+ *                 SDK iterator is being consumed
+ *  - 'partialThenTerminated' → visible text arrives before the body errors
  */
 type CallKind =
   | 'tool' | 'bigtool' | 'bigread' | 'load' | 'gated' | 'done'
-  | 'overflow' | 'overflowPart' | 'overflowPartResponses' | 'error500' | 'terminated';
+  | 'overflow' | 'overflowPart' | 'overflowPartResponses' | 'error500' | 'terminated' | 'terminatedMidBody'
+  | 'partialThenTerminated';
 
 const RETRY_STEP_TEXT_SENTINEL = 'RETRY_STEP_TEXT_SENTINEL reasoning before the big read';
 const BIG_RESULT = 'BIG_RESULT_'.repeat(200);
@@ -157,6 +161,24 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     }
     if (kind === 'terminated') {
       throw new TypeError('terminated');
+    }
+    if (kind === 'terminatedMidBody') {
+      return new ReadableStream<LanguageModelV3StreamPart>({
+        start(controller) {
+          controller.enqueue({ type: 'stream-start', warnings: [] });
+          controller.error(new TypeError('terminated'));
+        },
+      });
+    }
+    if (kind === 'partialThenTerminated') {
+      return new ReadableStream<LanguageModelV3StreamPart>({
+        start(controller) {
+          controller.enqueue({ type: 'stream-start', warnings: [] });
+          controller.enqueue({ type: 'text-start', id: 'partial-text' });
+          controller.enqueue({ type: 'text-delta', id: 'partial-text', delta: 'partial' });
+          setTimeout(() => controller.error(new TypeError('terminated')), 0);
+        },
+      });
     }
     if (kind === 'overflowPart' || kind === 'overflowPartResponses') {
       // The 200 response starts streaming, then the provider sends the error
@@ -410,6 +432,25 @@ describe('reactive overflow recovery in the streaming backend', () => {
     // preserve effectiveness, but the send must remain unmetered rather than
     // presenting the successful retry's usage as the whole attempt.
     assert.equal(fixture.llmCalls.some((call) => call.totalTokens !== undefined), false);
+  });
+
+  test('retries when a provider response body terminates during stream iteration', async () => {
+    const fixture = buildReactiveFixture({ script: ['tool', 'terminatedMidBody', 'done'] });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    assert.equal(fixture.events.some((event) => event.type === 'error'), false);
+    assert.deepEqual(fixture.toolExecutions, ['one.md']);
+  });
+
+  test('does not retry a terminated request after visible output was emitted', async () => {
+    const fixture = buildReactiveFixture({ script: ['tool', 'partialThenTerminated', 'done'] });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 2);
+    assert.equal(complete(fixture)?.stopReason, 'error');
+    assert.equal(fixture.events.some((event) => event.type === 'text_delta' && event.text === 'partial'), true);
   });
 
   test('surfaces a second transport failure without spending another sample', async () => {

@@ -1501,65 +1501,70 @@ export class AiSdkBackend implements AgentBackend {
 
           let streamErrorChunk: unknown;
           let sawStreamError = false;
-          for await (const chunk of result.fullStream) {
-            if (this.aborted) break;
-            watchdog.markActivity();
-            // A request-level error ends this stream; capture it and stop
-            // consuming (the synthesized trailer carries no real step) so the
-            // recovery decision runs on the outcome, not the trailer.
-            if (chunk.type === 'error') {
-              streamErrorChunk = chunk.error;
-              sawStreamError = true;
-              break;
-            }
-            // Step boundary, version-tolerant: AI SDK v6 delimits steps with
-            // `start-step` / `finish-step`, older releases said `step-finish`.
-            // Missing the boundary would silently degrade back to one message per
-            // turn, so match both names. A duplicate boundary is harmless: the
-            // second flush no-ops (accumulators already cleared) and one extra id
-            // rotation just discards an unused id.
-            const isStepFinishChunk = chunk.type === 'finish-step' || chunk.type === 'step-finish';
-            if (isStepFinishChunk) {
-              runtimeSteps += 1;
-              const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
-              if (!stepUsage) sawUnusableStepUsage = true;
-              if (stepUsage) {
-                completedStepUsage = mergeNormalizedUsage(completedStepUsage, stepUsage);
-                this.cumulativeUsageCheckpoint = mergeNormalizedUsage(this.cumulativeUsageCheckpoint, stepUsage);
-                await this.input.recordUsageCheckpoint?.({
-                  ...this.cumulativeUsageCheckpoint,
-                  costUsd: this.computeTokenUsageCostUsd(this.cumulativeUsageCheckpoint),
-                });
+          try {
+            for await (const chunk of result.fullStream) {
+              if (this.aborted) break;
+              watchdog.markActivity();
+              // A request-level error ends this stream; capture it and stop
+              // consuming (the synthesized trailer carries no real step) so the
+              // recovery decision runs on the outcome, not the trailer.
+              if (chunk.type === 'error') {
+                streamErrorChunk = chunk.error;
+                sawStreamError = true;
+                break;
+              }
+              // Step boundary, version-tolerant: AI SDK v6 delimits steps with
+              // `start-step` / `finish-step`, older releases said `step-finish`.
+              // Missing the boundary would silently degrade back to one message per
+              // turn, so match both names. A duplicate boundary is harmless: the
+              // second flush no-ops (accumulators already cleared) and one extra id
+              // rotation just discards an unused id.
+              const isStepFinishChunk = chunk.type === 'finish-step' || chunk.type === 'step-finish';
+              if (isStepFinishChunk) {
+                runtimeSteps += 1;
+                const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
+                if (!stepUsage) sawUnusableStepUsage = true;
+                if (stepUsage) {
+                  completedStepUsage = mergeNormalizedUsage(completedStepUsage, stepUsage);
+                  this.cumulativeUsageCheckpoint = mergeNormalizedUsage(this.cumulativeUsageCheckpoint, stepUsage);
+                  await this.input.recordUsageCheckpoint?.({
+                    ...this.cumulativeUsageCheckpoint,
+                    costUsd: this.computeTokenUsageCostUsd(this.cumulativeUsageCheckpoint),
+                  });
+                }
+              }
+              if (chunk.type === 'finish' || isStepFinishChunk) {
+                rawFinishReason = rawFinishReasonString(chunk.finishReason) ?? rawFinishReason;
+              }
+              this.modelAdapter.handleStreamChunk(chunk, turnId, this.currentStepMessageId!, queue, {
+                onText: (t) => { stepText += t; },
+                onTextComplete: (t) => { stepText = t; },
+                onThinking: (t) => { stepThinking += t; },
+                onThinkingSignature: (sig) => { stepSignature = sig; },
+              });
+              // The step's text/thinking deltas are all in (the fullStream is
+              // drained in order), so flush this step's AssistantMessage and rotate
+              // to a fresh id for the next step. The step's tool calls (appended
+              // mid-step via execute()) already carry the pre-rotation id via
+              // `getCurrentStepId`, so replay can regroup them with this step's
+              // reasoning even though they land before this row in the ledger.
+              if (isStepFinishChunk) {
+                await flushStep();
+                currentStepToolExecutions = 0;
+                this.currentStepMessageId = this.newId();
+                if (midTurnState) {
+                  // Durability clock: step N's thinking/text completion events are
+                  // enqueued by flushStep just above, so only after this boundary
+                  // can a seq-ack wait for step N mean anything. Wake waiters AFTER
+                  // the increment or they would re-check a stale count and sleep.
+                  midTurnState.flushedSteps += 1;
+                  queue.wake();
+                }
               }
             }
-            if (chunk.type === 'finish' || isStepFinishChunk) {
-              rawFinishReason = rawFinishReasonString(chunk.finishReason) ?? rawFinishReason;
-            }
-            this.modelAdapter.handleStreamChunk(chunk, turnId, this.currentStepMessageId!, queue, {
-              onText: (t) => { stepText += t; },
-              onTextComplete: (t) => { stepText = t; },
-              onThinking: (t) => { stepThinking += t; },
-              onThinkingSignature: (sig) => { stepSignature = sig; },
-            });
-            // The step's text/thinking deltas are all in (the fullStream is
-            // drained in order), so flush this step's AssistantMessage and rotate
-            // to a fresh id for the next step. The step's tool calls (appended
-            // mid-step via execute()) already carry the pre-rotation id via
-            // `getCurrentStepId`, so replay can regroup them with this step's
-            // reasoning even though they land before this row in the ledger.
-            if (isStepFinishChunk) {
-              await flushStep();
-              currentStepToolExecutions = 0;
-              this.currentStepMessageId = this.newId();
-              if (midTurnState) {
-                // Durability clock: step N's thinking/text completion events are
-                // enqueued by flushStep just above, so only after this boundary
-                // can a seq-ack wait for step N mean anything. Wake waiters AFTER
-                // the increment or they would re-check a stale count and sleep.
-                midTurnState.flushedSteps += 1;
-                queue.wake();
-              }
-            }
+          } catch (error) {
+            streamErrorChunk = error;
+            sawStreamError = true;
           }
 
           if (sawStreamError && !this.aborted) {
@@ -1596,6 +1601,9 @@ export class AiSdkBackend implements AgentBackend {
               && !transportRetryUsed
               && stepBudgetRemains
               && currentStepToolExecutions === 0
+              && stepText.length === 0
+              && stepThinking.length === 0
+              && stepSignature === undefined
             ) {
               transportRetryUsed = true;
               // The failed request did not return authoritative usage. Keep
