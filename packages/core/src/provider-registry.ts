@@ -1256,7 +1256,7 @@ const providerRegistry = {
     baseUrl: 'https://chatgpt.com/backend-api/codex',
     authKind: 'oauth_token',
     backendKind: 'ai-sdk',
-    fallbackModels: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark'],
+    fallbackModels: ['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark'],
     status: 'phase3-experimental',
     protocol: 'openai',
     runtimeAdapter: { kind: 'openai-codex' },

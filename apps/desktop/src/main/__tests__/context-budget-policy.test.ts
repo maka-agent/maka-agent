@@ -105,14 +105,14 @@ describe('desktop activeToolResultPrune policy', () => {
 
   test('uses provider-specific metadata for Codex subscription models', () => {
     const policy = buildDefaultContextBudgetPolicy({
-      providerType: 'codex-subscription',
+      providerType: 'openai-codex',
       defaultModel: 'gpt-5.5',
       models: [{ id: 'gpt-5.5' }],
     } as unknown as LlmConnection, {
       name: 'desktop-default-history-budget',
       modelId: 'gpt-5.5',
     });
-    assert.equal(policy?.maxHistoryEstimatedTokens, 400_000 - 16_384);
+    assert.equal(policy?.maxHistoryEstimatedTokens, 272_000 - 16_384);
   });
 
   test('uses metadata for known DeepSeek models but keeps unknown DeepSeek models unbounded', () => {

@@ -104,10 +104,10 @@ const OPENAI_MODEL_OVERRIDES: Record<string, ModelMetadata> = {
 };
 
 const OPENAI_OAUTH_MODEL_METADATA: Record<string, ModelMetadata> = {
-  'gpt-5.5': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.5']!, ...OPENAI_MODEL_OVERRIDES['gpt-5.5']!, contextWindow: 400_000 },
-  'gpt-5.5-pro': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.5-pro']!, contextWindow: 400_000 },
-  'gpt-5.4': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.4']!, contextWindow: 400_000 },
-  'gpt-5.4-mini': GENERATED_MODELS_DEV_METADATA.openai['gpt-5.4-mini']!,
+  'gpt-5.6-sol': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.6-sol']!, contextWindow: 372_000 },
+  'gpt-5.5': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.5']!, ...OPENAI_MODEL_OVERRIDES['gpt-5.5']!, contextWindow: 272_000 },
+  'gpt-5.4': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.4']!, contextWindow: 272_000 },
+  'gpt-5.4-mini': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.4-mini']!, contextWindow: 272_000 },
   'gpt-5.3-codex-spark': GENERATED_MODELS_DEV_METADATA.openai['gpt-5.3-codex-spark']!,
 };
 
@@ -132,32 +132,6 @@ const VOLCENGINE_CODING_PLAN_MODEL_METADATA: Record<string, ModelMetadata> = {
   'kimi-k2.6': planModel('Kimi-K2.6', true, 256_000, 32_000),
   'kimi-k2.7-code': planModel('Kimi-K2.7-Code', true, 256_000, 32_000),
 };
-
-/**
- * Thinking-capable Ollama Cloud models, derived from the generated models.dev
- * snapshot so new reasoning models are picked up automatically on the next sync.
- * The endpoint globally accepts `reasoning_effort` (none/low/medium/high/max),
- * but GPT-OSS only accepts low/medium/high and cannot be fully disabled.
- * Deprecated models are filtered — Ollama publishes concrete retirement dates.
- */
-const OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS: ThinkingOptions = {
-  efforts: ['none', 'low', 'medium', 'high', 'max'],
-  toggle: true,
-};
-
-const OLLAMA_CLOUD_GPT_OSS_THINKING_OPTIONS: ThinkingOptions = {
-  efforts: ['low', 'medium', 'high'],
-};
-
-const ollamaCloudThinkingModels: Record<string, ModelMetadata> = Object.fromEntries(
-  Object.entries(GENERATED_MODELS_DEV_METADATA['ollama-cloud'])
-    .filter(([id, m]) => m.capabilities?.reasoning && m.lifecycle !== 'deprecated')
-    .map(([id]) => [id, {
-      thinkingOptions: id.startsWith('gpt-oss')
-        ? OLLAMA_CLOUD_GPT_OSS_THINKING_OPTIONS
-        : OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS,
-    }]),
-);
 
 // Facts that models.dev cannot express: provider wire controls and
 // access-path-specific aliases/limits. Standard model facts stay generated.
@@ -195,7 +169,7 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
     'command-a-reasoning-08-2025': { thinkingOptions: { toggle: true, offBehavior: 'cohere-thinking-disabled' } },
   },
   'gemini-cli': GOOGLE_MODEL_OVERRIDES,
-  'codex-subscription': OPENAI_OAUTH_MODEL_METADATA,
+  'openai-codex': OPENAI_OAUTH_MODEL_METADATA,
   siliconflow: SILICONFLOW_MODEL_OVERRIDES,
   vercel: {
     'xai/grok-4.3': { thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'] } },
@@ -251,12 +225,11 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
       },
     },
   },
-  // Ollama's OpenAI-compatible endpoint globally accepts reasoning_effort
-  // (none/low/medium/high/max). GPT-OSS is the exception: it only accepts
-  // low/medium/high and its trace cannot be fully disabled. See:
-  //   https://docs.ollama.com/api/openai-compatibility  (reasoning_effort field)
-  //   https://docs.ollama.com/capabilities/thinking      (per-model think levels)
-  'ollama-cloud': ollamaCloudThinkingModels,
+  'ollama-cloud': {
+    'qwen3.5:397b': {
+      thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
+    },
+  },
   deepseek: {
     'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
   },
