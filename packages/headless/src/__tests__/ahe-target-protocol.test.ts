@@ -96,11 +96,11 @@ describe('AHE target protocol', () => {
     assert.equal(result.ok, true);
   });
 
-  it('uses the same audit field names and requires the edited surface to be changed', () => {
+  it('uses the same audit field names and binds every changed component to the edited surface', () => {
     const result = validateMakaAheChangeManifest({
       ...VALID_MAKA_AHE_CHANGE_MANIFEST,
       editedSurface: 'tool_contract',
-      changedComponents: ['maka-system-prompt'],
+      changedComponents: ['maka-tool-contracts', 'maka-system-prompt'],
     });
 
     assert.equal(result.ok, false);
@@ -137,6 +137,7 @@ describe('AHE target protocol', () => {
   it('rejects manifests that try to patch evidence-only components', () => {
     const result = validateMakaAheChangeManifest({
       ...VALID_MAKA_AHE_CHANGE_MANIFEST,
+      editedSurface: 'runtime_evidence',
       changedComponents: ['maka-runtime-evidence'],
       patch: {
         applyMode: 'staged_patch',
@@ -153,6 +154,7 @@ describe('AHE target protocol', () => {
   it('rejects patch paths outside changed editable component source refs', () => {
     const result = validateMakaAheChangeManifest({
       ...VALID_MAKA_AHE_CHANGE_MANIFEST,
+      editedSurface: 'system_prompt',
       changedComponents: ['maka-system-prompt'],
       patch: {
         applyMode: 'staged_patch',

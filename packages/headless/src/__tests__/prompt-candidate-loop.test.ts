@@ -410,7 +410,10 @@ describe('prompt candidate loop', () => {
             signals: [{ id: 'rsi-sig:known', kind: 'coverage_regression', taskIds: ['task-a'] }],
           },
           metaAgent: async () => candidatePromptResult({
-            candidateRationale: validCandidateRationale({ evidenceRefs: ['rsi-sig:unknown'] }),
+            candidateRationale: validCandidateRationale({
+              evidenceRefs: ['rsi-sig:unknown'],
+              failurePattern: undefined,
+            }),
           }),
           git: gitNoop(dir),
           now: () => 100,
@@ -485,6 +488,26 @@ describe('prompt candidate loop', () => {
           }),
         }),
       });
+
+      await assert.rejects(
+        runPromptCandidateRound({
+          ...baseInput,
+          resultsJsonlPath: join(dir, 'redundant-fallback.jsonl'),
+          rsiAnalysis: {
+            heldInTaskSetHash: 'sha256:held-in',
+            transitionVsLastKept: [],
+            transitionVsPreviousCandidate: [],
+            coverageRegressionTaskIds: [],
+            errorClassDistribution: [],
+            toolFailureClusters: [],
+            signals: [{ id: 'rsi-sig:known', kind: 'coverage_regression', taskIds: ['task-a'] }],
+          },
+          metaAgent: async () => candidatePromptResult({
+            candidateRationale: validCandidateRationale({ evidenceRefs: ['rsi-sig:known'] }),
+          }),
+        }),
+        /candidateRationale.failurePattern must be omitted when evidenceRefs cites current analysis/,
+      );
 
       await runPromptCandidateRound({
         ...baseInput,

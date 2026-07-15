@@ -98,12 +98,14 @@ describe('runPromptOptimizationLoop', () => {
             summary: `tuned for ${promptInput.roundId}`,
             candidateRationale: {
               editedSurface: 'system_prompt',
-              failurePattern: 'coverage_regression',
               evidenceRefs: evidenceRefsFor(promptInput),
               hypothesis: 'avoid losing held-in scored artifacts',
               targetedFix: 'state artifact completion constraints plainly',
               predictedFixes: ['hin-1'],
               riskTasks: ['hin-0'],
+              ...(evidenceRefsFor(promptInput).length === 0
+                ? { failurePattern: 'coverage_regression' as const }
+                : {}),
             },
           };
         },
@@ -162,12 +164,14 @@ describe('runPromptOptimizationLoop', () => {
             summary: `tuned for ${promptInput.roundId}`,
             candidateRationale: {
               editedSurface: 'system_prompt',
-              failurePattern: 'verification_failed',
               evidenceRefs: evidenceRefsFor(promptInput),
               hypothesis: 'integer output selection can be made less ambiguous',
               targetedFix: 'prefer the task requested count when multiple totals appear',
               predictedFixes: ['hin-0'],
               riskTasks: ['hin-1'],
+              ...(evidenceRefsFor(promptInput).length === 0
+                ? { failurePattern: 'verification_failed' as const }
+                : {}),
             },
           };
         },
@@ -207,12 +211,14 @@ describe('runPromptOptimizationLoop', () => {
             summary: `tuned for ${promptInput.roundId}`,
             candidateRationale: {
               editedSurface: 'system_prompt',
-              failurePattern: 'coverage_regression',
               evidenceRefs: evidenceRefsFor(promptInput),
               hypothesis: 'restore coverage for held-in tasks',
               targetedFix: 'make artifact completion constraints explicit',
               predictedFixes: ['hin-0'],
               riskTasks: [],
+              ...(evidenceRefsFor(promptInput).length === 0
+                ? { failurePattern: 'coverage_regression' as const }
+                : {}),
             },
           };
         },
@@ -256,12 +262,14 @@ describe('runPromptOptimizationLoop', () => {
             summary: `tuned for ${promptInput.roundId}`,
             candidateRationale: {
               editedSurface: 'system_prompt',
-              failurePattern: 'coverage_regression',
               evidenceRefs: evidenceRefsFor(promptInput),
               hypothesis: 'avoid losing held-in scored artifacts',
               targetedFix: 'state artifact completion constraints plainly',
               predictedFixes: ['hin-19'],
               riskTasks: [],
+              ...(evidenceRefsFor(promptInput).length === 0
+                ? { failurePattern: 'coverage_regression' as const }
+                : {}),
             },
           };
         },
@@ -733,12 +741,14 @@ describe('runPromptOptimizationLoop', () => {
             summary: 'use only addressable evidence',
             candidateRationale: {
               editedSurface: 'system_prompt',
-              failurePattern: 'coverage_regression',
               evidenceRefs: evidenceRefsFor(input),
               hypothesis: 'addressable evidence supports a bounded prompt improvement',
               targetedFix: 'clarify the general success criteria',
               predictedFixes: [],
               riskTasks: [],
+              ...(evidenceRefsFor(input).length === 0
+                ? { failurePattern: 'coverage_regression' as const }
+                : {}),
             },
           };
         },

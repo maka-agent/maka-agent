@@ -434,12 +434,12 @@ describe('runPromptOptimizationRun', () => {
             summary: `tuned for ${promptInput.roundId}`,
             candidateRationale: {
               editedSurface: 'system_prompt',
-              failurePattern: 'coverage_regression',
               evidenceRefs: signal ? [signal.id] : [],
               hypothesis: 'make the success criteria explicit',
               targetedFix: 'clarify the prompt without task-specific answers',
               predictedFixes: [],
               riskTasks: [],
+              ...(!signal ? { failurePattern: 'coverage_regression' as const } : {}),
             },
           };
         },
@@ -536,12 +536,12 @@ describe('runPromptOptimizationRun', () => {
             summary: `tuned for ${promptInput.roundId}`,
             candidateRationale: {
               editedSurface: 'system_prompt',
-              failurePattern: 'coverage_regression',
               evidenceRefs: signal ? [signal.id] : [],
               hypothesis: 'make the success criteria explicit',
               targetedFix: 'clarify the prompt without task-specific answers',
               predictedFixes: [],
               riskTasks: [],
+              ...(!signal ? { failurePattern: 'coverage_regression' as const } : {}),
             },
           };
         },

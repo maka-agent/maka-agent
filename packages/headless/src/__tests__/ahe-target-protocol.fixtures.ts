@@ -10,8 +10,8 @@ export const VALID_MAKA_AHE_CHANGE_MANIFEST: MakaAheChangeManifest = {
   sourceLabel: MAKA_AHE_TARGET_SOURCE_LABEL,
   targetSnapshotId: 'snap-baseline',
   createdAt: '2026-07-01T00:00:00.000Z',
-  changedComponents: ['maka-system-prompt', 'maka-tool-contracts'],
-  editedSurface: 'system_prompt',
+  changedComponents: ['maka-tool-contracts'],
+  editedSurface: 'tool_contract',
   evidenceRefs: [
     {
       taskId: 'terminal-bench/sqlite-with-gcov',
@@ -42,7 +42,6 @@ export const VALID_MAKA_AHE_CHANGE_MANIFEST: MakaAheChangeManifest = {
   patch: {
     applyMode: 'staged_patch',
     changedFiles: [
-      'apps/desktop/src/main/system-prompt-main.ts',
       'packages/runtime/src/tool-runtime.ts',
     ],
   },

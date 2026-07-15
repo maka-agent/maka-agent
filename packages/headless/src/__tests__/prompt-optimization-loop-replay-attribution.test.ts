@@ -304,12 +304,12 @@ describe('runPromptOptimizationLoop replay attribution guards', () => {
           summary: `tuned for ${promptInput.roundId}`,
           candidateRationale: {
             editedSurface: 'system_prompt' as const,
-            failurePattern: 'coverage_regression' as const,
             evidenceRefs: signal ? [signal.id] : [],
             hypothesis: 'make hin-0 pass reliably',
             targetedFix: 'clarify the success criteria',
             predictedFixes: ['hin-0'],
             riskTasks: [],
+            ...(!signal ? { failurePattern: 'coverage_regression' as const } : {}),
           },
         };
       };

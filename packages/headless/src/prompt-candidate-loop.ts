@@ -542,6 +542,9 @@ function parseCandidateRationaleShape(value: unknown): CandidateRationale {
   if (evidenceRefs.length === 0 && typeof failurePattern === 'undefined') {
     throw new Error('candidateRationale.failurePattern fallback is required when evidenceRefs is empty');
   }
+  if (evidenceRefs.length > 0 && typeof failurePattern !== 'undefined') {
+    throw new Error('candidateRationale.failurePattern must be omitted when evidenceRefs cites current analysis');
+  }
   return {
     editedSurface: 'system_prompt',
     evidenceRefs,

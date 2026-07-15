@@ -103,19 +103,22 @@ export async function runLoop(harness: Harness, options: RunLoopOptions) {
 
 /** A meta-agent that proposes a unique, valid prompt per round (no model). */
 export function fakeMetaAgent(): MetaAgent {
-  return async (promptInput) => ({
-    systemPrompt: `candidate prompt ${promptInput.roundId}\n`,
-    summary: `tuned for ${promptInput.roundId}`,
-    candidateRationale: {
-      editedSurface: 'system_prompt',
-      failurePattern: 'coverage_regression',
-      evidenceRefs: evidenceRefsFor(promptInput),
-      hypothesis: 'stable held-in coverage can improve with a clearer prompt',
-      targetedFix: 'make the success criteria explicit without adding task-specific answers',
-      predictedFixes: [],
-      riskTasks: [],
-    },
-  });
+  return async (promptInput) => {
+    const evidenceRefs = evidenceRefsFor(promptInput);
+    return {
+      systemPrompt: `candidate prompt ${promptInput.roundId}\n`,
+      summary: `tuned for ${promptInput.roundId}`,
+      candidateRationale: {
+        editedSurface: 'system_prompt',
+        evidenceRefs,
+        hypothesis: 'stable held-in coverage can improve with a clearer prompt',
+        targetedFix: 'make the success criteria explicit without adding task-specific answers',
+        predictedFixes: [],
+        riskTasks: [],
+        ...(evidenceRefs.length === 0 ? { failurePattern: 'coverage_regression' as const } : {}),
+      },
+    };
+  };
 }
 
 export function evidenceRefsFor(promptInput: MetaAgentPromptInput): string[] {

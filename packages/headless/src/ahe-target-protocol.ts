@@ -613,7 +613,7 @@ export function validateMakaAheChangeManifest(
   requireNonEmptyString(value.targetSnapshotId, 'targetSnapshotId', errors);
   requireNonEmptyString(value.createdAt, 'createdAt', errors);
   if (!isOneOf(value.editedSurface, MAKA_AHE_COMPONENT_CATEGORIES)) {
-    errors.push({ path: 'editedSurface', message: 'expected a known editable surface' });
+    errors.push({ path: 'editedSurface', message: 'expected a known component category' });
   }
   requireNonEmptyString(value.hypothesis, 'hypothesis', errors);
   requireNonEmptyString(value.targetedFix, 'targetedFix', errors);
@@ -624,11 +624,12 @@ export function validateMakaAheChangeManifest(
   const componentIds = new Set(components.map((component) => component.id));
   validateStringArray(value.changedComponents, 'changedComponents', errors, { minItems: 1, allowedValues: componentIds });
   const changedComponentIds = stringArray(value.changedComponents);
+  const changedComponents = components.filter((component) => changedComponentIds.includes(component.id));
   if (
     isOneOf(value.editedSurface, MAKA_AHE_COMPONENT_CATEGORIES)
-    && !components.some((component) => changedComponentIds.includes(component.id) && component.category === value.editedSurface)
+    && changedComponents.some((component) => component.category !== value.editedSurface)
   ) {
-    errors.push({ path: 'editedSurface', message: 'expected a surface represented by changedComponents' });
+    errors.push({ path: 'editedSurface', message: 'expected every changed component to match the declared surface' });
   }
   for (const componentId of changedComponentIds) {
     const component = components.find((candidate) => candidate.id === componentId);
@@ -643,7 +644,7 @@ export function validateMakaAheChangeManifest(
   validateEvidenceCases(value.predictedFixes, 'predictedFixes', errors, { minItems: 1 });
   validateEvidenceCases(value.riskTasks, 'riskTasks', errors, { minItems: 1 });
   validateValidationDataset(value.validationDataset, errors);
-  validatePatch(value.patch, errors, components.filter((component) => changedComponentIds.includes(component.id)));
+  validatePatch(value.patch, errors, changedComponents);
   validateStringArray(value.rollbackCriteria, 'rollbackCriteria', errors, { minItems: 1 });
 
   return errors.length === 0 ? { ok: true, value: value as unknown as MakaAheChangeManifest } : { ok: false, errors };
