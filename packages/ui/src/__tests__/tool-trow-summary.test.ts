@@ -55,13 +55,29 @@ describe('tool trow summary aggregation', () => {
     assert.doesNotMatch(markup, /lucide-search/);
   });
 
-  it('live summary omits the failed count (it changes mid-group); settled includes it', () => {
+  it('keeps the failed count visible in the live summary (the group no longer force-opens on error)', () => {
     const items: ToolActivityItem[] = [
       { toolUseId: 'r1', toolName: 'Read', activityKind: 'read', status: 'completed', args: {} },
       { toolUseId: 'g1', toolName: 'Grep', activityKind: 'search', status: 'errored', args: {} },
     ];
-    assert.equal(summarizeTrowTools(items, { live: true }), '正在读取 1 个文件，搜索 1 次');
+    // Errored tools stay collapsed now, so the summary line is the failure
+    // signal and must carry the count live, not only once settled.
+    assert.equal(summarizeTrowTools(items, { live: true }), '正在读取 1 个文件，搜索 1 次，1 个失败');
     assert.equal(summarizeTrowTools(items), '读取 1 个文件，搜索 1 次，1 个失败');
+  });
+
+  it('marks an errored row with a visible 失败 word inside an expanded group', () => {
+    const markup = renderToStaticMarkup(createElement(ToolTrow, {
+      items: [
+        // waiting_permission mounts the group panel in static markup, so the
+        // per-row headers render.
+        { toolUseId: 'w1', toolName: 'Write', activityKind: 'edit', status: 'waiting_permission', args: {}, intent: '写入配置' },
+        { toolUseId: 'e1', toolName: 'Bash', activityKind: 'command', status: 'errored', args: {}, intent: '运行测试' },
+      ] satisfies ToolActivityItem[],
+    }));
+    // A collapsed errored row must not rely on the destructive tint alone —
+    // the failure is a word, not just a color.
+    assert.match(markup, /运行测试 · 失败/);
   });
 
   it('ToolTrowRow never reintroduces the per-row settle fade or the motion abstraction', () => {

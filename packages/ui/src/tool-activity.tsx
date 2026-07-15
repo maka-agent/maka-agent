@@ -621,6 +621,9 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
   // word. Running shimmers the model's intent (or the friendly tool name);
   // settled prefers the intent, falls back to the display name.
   const summaryTone = errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]';
+  // An errored row stays collapsed, so the destructive tint is not enough —
+  // the failure is spelled out as a word on the row label.
+  const rowLabel = item.intent ? formatToolIntent(item.intent) : resolveToolDisplayName(item);
   return (
     <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} data-settled={settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
@@ -631,10 +634,8 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
         />
         {running ? (
           <TextShimmer active delayed className="min-w-0 truncate text-[length:var(--font-size-base)]">{presentation.summary}</TextShimmer>
-        ) : item.intent ? (
-          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{formatToolIntent(item.intent)}</span>
         ) : (
-          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{resolveToolDisplayName(item)}</span>
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{errored ? `${rowLabel} · 失败` : rowLabel}</span>
         )}
         {/* Quiet meta sits right after the label (near the text, not pinned to
             the far edge): duration + chevron ride in on hover / open, matching
