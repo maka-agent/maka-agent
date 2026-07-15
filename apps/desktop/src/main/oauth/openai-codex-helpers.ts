@@ -1,6 +1,6 @@
 /**
  * Pure helpers for the Codex subscription OAuth service. Split
- * out from `codex-subscription-service.ts` so unit tests can
+ * out from `openai-codex-service.ts` so unit tests can
  * import them without dragging in the `electron` ESM module
  * (which is not loadable from node --test directly).
  *
@@ -178,6 +178,6 @@ export function safeExtractAccountClaims(
  * Whether the Codex subscription card is enabled at all in this
  * build. Same opt-out shape as the Claude service.
  */
-export function isCodexSubscriptionExperimentalEnabled(): boolean {
+export function isOpenAiCodexExperimentalEnabled(): boolean {
   return process.env.MAKA_CODEX_SUBSCRIPTION_EXPERIMENTAL !== '0';
 }

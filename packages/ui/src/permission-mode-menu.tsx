@@ -8,7 +8,6 @@ import {
   SelectRoot,
   SelectTrigger,
   SelectValue,
-  type PickerTriggerAppearance,
 } from './ui.js';
 
 export interface PermissionModeMeta {
@@ -81,7 +80,6 @@ export function PermissionModeSelect(props: {
   disabledReason?: string;
   ariaLabel?: string;
   className?: string;
-  appearance?: PickerTriggerAppearance;
 }) {
   const displayMode: PermissionMode = props.activeMode === 'explore' ? 'ask' : props.activeMode;
   const meta = PERMISSION_MODE_META[displayMode];
@@ -95,7 +93,6 @@ export function PermissionModeSelect(props: {
       }}
     >
       <SelectTrigger
-        appearance={props.appearance}
         aria-label={props.ariaLabel ?? `权限模式：${meta.label}`}
         title={props.disabledReason ?? meta.hint}
         className={props.className}

@@ -54,7 +54,7 @@ export type ProviderContractWire =
 /** Runtime-adapter kinds whose request wire is provider-specific (auth, headers,
  * per-model protocol) and therefore cannot be generated from the declaration. */
 export const SUBSCRIPTION_WIRE_ADAPTER_KINDS: ReadonlySet<ProviderRuntimeAdapter['kind']> =
-  new Set(['claude-subscription', 'codex-subscription', 'github-copilot']);
+  new Set(['claude-subscription', 'openai-codex', 'github-copilot']);
 
 /** Derived expectation for a generated `discovery` cell. */
 export interface ProviderContractDiscoveryPlan {

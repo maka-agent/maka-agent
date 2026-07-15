@@ -66,7 +66,7 @@ export interface ProviderAuthContract {
 
 const WIRED_OAUTH_PROVIDERS = new Set<ProviderType>([
   'claude-subscription',
-  'codex-subscription',
+  'openai-codex',
   'github-copilot',
 ]);
 

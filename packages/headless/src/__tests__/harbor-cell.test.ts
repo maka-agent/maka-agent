@@ -183,39 +183,6 @@ function registerStepCapThenCompleteBackend(seen: { backend?: StepCapThenComplet
   };
 }
 
-class UnmeteredStepCapThenCompleteBackend extends StepCapThenCompleteBackend {
-  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
-    if (this.prompts.length > 0) {
-      yield* super.send(input);
-      return;
-    }
-    const ts = Date.now();
-    this.prompts.push(input.text);
-    this.cwds.push(this.ctx.header.cwd);
-    yield {
-      type: 'tool_start',
-      id: 'unmetered-tool-step',
-      turnId: input.turnId,
-      ts,
-      toolUseId: 'call-1',
-      toolName: 'Read',
-      args: { path: 'README.md' },
-      stepId: 'step-1',
-    };
-    yield { type: 'complete', id: 'unmetered-step-cap', turnId: input.turnId, ts, stopReason: 'step_limit' };
-  }
-}
-
-function registerUnmeteredStepCapThenCompleteBackend(seen: { backend?: UnmeteredStepCapThenCompleteBackend }) {
-  return (registry: BackendRegistry): void => {
-    registry.register('fake', (ctx) => {
-      const backend = new UnmeteredStepCapThenCompleteBackend({ sessionId: ctx.sessionId, header: ctx.header });
-      seen.backend = backend;
-      return backend;
-    });
-  };
-}
-
 class StepCapThenThrowBackend extends StepCapThenCompleteBackend {
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     if (this.prompts.length > 0) {
@@ -415,7 +382,6 @@ describe('runHarborCell', () => {
       assert.equal(result.output.status, 'completed');
       assert.equal(result.output.promptHash, 'sha256:cell-prompt');
       assert.equal(result.output.runtimeEventsPath, join(outputDir, HARBOR_CELL_RUNTIME_EVENTS_FILENAME));
-      assert.ok(result.output.tokenSummary);
       assert.equal(result.output.tokenSummary.costUsd, 0.0042);
       assert.deepEqual(result.output.executionIdentity, {
         llmConnectionSlug: 'fake',
@@ -541,13 +507,12 @@ describe('runHarborCell', () => {
         continuedTurns: 1,
         stepCapHits: 1,
         capExhausted: false,
-        totalRuntimeSteps: 51,
+        totalRuntimeSteps: 50,
         turns: [
           { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
-          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 1 },
+          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
         ],
       });
-      assert.ok(result.output.tokenSummary);
       assert.equal(result.output.tokenSummary.input, 13);
       assert.equal(result.output.tokenSummary.costUsd, 0.03);
       const runtimeEvents = await readFile(join(outputDir, HARBOR_CELL_RUNTIME_EVENTS_FILENAME), 'utf8');
@@ -636,32 +601,6 @@ describe('runHarborCell', () => {
     });
   });
 
-  test('stops continuation at the step budget when the capped turn has no usage', async () => {
-    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
-      const seen: { backend?: UnmeteredStepCapThenCompleteBackend } = {};
-      const result = await runHarborCell({
-        config,
-        instruction: 'solve the benchmark task',
-        cwd: workspaceDir,
-        outputDir,
-        storageRoot,
-        registerBackends: registerUnmeteredStepCapThenCompleteBackend(seen),
-        continuationPolicy: {
-          enabled: true,
-          maxTurns: 3,
-          maxTotalRuntimeSteps: 1,
-          prompt: 'Continue neutrally from current workspace.',
-        },
-      });
-
-      assert.equal(result.output.status, 'failed');
-      assert.equal(result.output.errorClass, 'tool_step_cap_reached');
-      assert.deepEqual(seen.backend?.prompts, ['solve the benchmark task']);
-      assert.equal(result.output.continuationSummary?.totalRuntimeSteps, 1);
-      assert.equal('tokenSummary' in result.output, false);
-    });
-  });
-
   test('does not spend continuation step budget from diagnostic event count', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const seen: { backend?: NoisyStepCapThenCompleteBackend } = {};
@@ -693,10 +632,10 @@ describe('runHarborCell', () => {
         continuedTurns: 1,
         stepCapHits: 1,
         capExhausted: false,
-        totalRuntimeSteps: 51,
+        totalRuntimeSteps: 50,
         turns: [
           { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
-          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 1 },
+          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
         ],
       });
     });
@@ -735,11 +674,11 @@ describe('runHarborCell', () => {
         continuedTurns: 2,
         stepCapHits: 2,
         capExhausted: false,
-        totalRuntimeSteps: 101,
+        totalRuntimeSteps: 100,
         turns: [
           { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
           { turnIndex: 1, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
-          { turnIndex: 2, status: 'completed', stepCapHit: false, runtimeSteps: 1 },
+          { turnIndex: 2, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
         ],
       });
     });
@@ -2142,7 +2081,6 @@ console.log(JSON.stringify({ type: 'agent_end', messages: [{ role: 'assistant', 
       assert.equal(argv.at(-1), '-p');
       assert.equal(argv.includes('solve through default pi transport'), false);
       assert.equal(await readFile(join(workspaceDir, 'pi-default-stdin.txt'), 'utf8'), 'solve through default pi transport');
-      assert.ok(result.output.tokenSummary);
       assert.equal(result.output.tokenSummary.input, 5);
       assert.equal(result.output.tokenSummary.output, 2);
       assert.equal(result.output.tokenSummary.costUsd, 0.0003);

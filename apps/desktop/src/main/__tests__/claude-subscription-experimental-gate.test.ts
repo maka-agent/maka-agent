@@ -32,6 +32,15 @@ const SERVICE_SOURCE = resolve(
   'oauth',
   'claude-subscription-service.ts',
 );
+const CLAUDE_HELPERS_SOURCE = resolve(
+  REPO_ROOT,
+  'apps',
+  'desktop',
+  'src',
+  'main',
+  'oauth',
+  'claude-subscription-helpers.ts',
+);
 const SETTINGS_SOURCE = resolve(
   REPO_ROOT,
   'apps',
@@ -44,17 +53,23 @@ const SETTINGS_SOURCE = resolve(
 const CORE_TYPES_SOURCE = resolve(REPO_ROOT, 'packages', 'core', 'src', 'oauth-subscription.ts');
 
 describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
-  it('service exports isSubscriptionExperimentalEnabled tied to the env flag', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
+  it('exports isSubscriptionExperimentalEnabled tied to the env flag', async () => {
+    const helpersSrc = await readFile(CLAUDE_HELPERS_SOURCE, 'utf8');
     assert.match(
-      src,
+      helpersSrc,
       /export function isSubscriptionExperimentalEnabled\(\)/,
-      'service must export isSubscriptionExperimentalEnabled() for main + tests to consume',
+      'helpers must declare the gate function',
     );
     assert.match(
-      src,
+      helpersSrc,
       /MAKA_CLAUDE_SUBSCRIPTION_EXPERIMENTAL/,
-      'service must reference the MAKA_CLAUDE_SUBSCRIPTION_EXPERIMENTAL env var',
+      'helpers must reference the MAKA_CLAUDE_SUBSCRIPTION_EXPERIMENTAL env var',
+    );
+    const serviceSrc = await readFile(SERVICE_SOURCE, 'utf8');
+    assert.match(
+      serviceSrc,
+      /isSubscriptionExperimentalEnabled.*from.*claude-subscription-helpers/,
+      'service must re-export the gate from helpers (single source of truth)',
     );
   });
 
@@ -256,7 +271,7 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
 
   it('ProvidersPanel keeps OAuth login out of CATALOG_PROVIDER_TYPES and surfaces it as account connections', async () => {
     const src = await readProviderSettingsCombinedSource();
-    for (const provider of ['claude-subscription', 'codex-subscription', 'gemini-cli']) {
+    for (const provider of ['claude-subscription', 'openai-codex', 'gemini-cli']) {
       assert.equal(
         CATALOG_PROVIDER_TYPES.includes(provider as (typeof CATALOG_PROVIDER_TYPES)[number]),
         false,
@@ -327,7 +342,7 @@ describe('Claude OAuth model connection bridge', () => {
     assert.ok(syncMatch, 'syncOAuthModelConnections helper must exist');
     assert.match(
       syncMatch[0],
-      /Promise\.allSettled\(\[[\s\S]*syncClaudeSubscriptionConnection\(\),[\s\S]*syncCodexSubscriptionConnection\(\),[\s\S]*\]\)/,
+      /Promise\.allSettled\(\[[\s\S]*syncClaudeSubscriptionConnection\(\),[\s\S]*syncOpenAiCodexConnection\(\),[\s\S]*\]\)/,
       'one OAuth provider state failure must not reject the whole model connection list read',
     );
     assert.doesNotMatch(
@@ -366,8 +381,8 @@ describe('Claude OAuth model connection bridge', () => {
     );
     assert.match(
       fnBody,
-      /providerType === 'codex-subscription'[\s\S]*codexSubscription\.hasStoredCredential\(\)/,
-      'hasConnectionSecret must route codex-subscription through the read-only hasStoredCredential(), not getAccessTokenInternal()',
+      /providerType === 'openai-codex'[\s\S]*openAiCodex\.hasStoredCredential\(\)/,
+      'hasConnectionSecret must route openai-codex through the read-only hasStoredCredential(), not getAccessTokenInternal()',
     );
     assert.doesNotMatch(
       fnBody,
@@ -409,22 +424,22 @@ describe('Claude OAuth model connection bridge', () => {
     const src = await readMainProcessCombinedSource();
     assert.match(
       src,
-      /async function syncCodexSubscriptionConnection\(\)/,
+      /async function syncOpenAiCodexConnection\(\)/,
       'main.ts must turn Codex OAuth account state into a model connection',
     );
     assert.match(
       src,
-      /slug:\s*CODEX_SUBSCRIPTION_CONNECTION_SLUG[\s\S]*providerType:\s*'codex-subscription'[\s\S]*enabled:\s*true[\s\S]*lastTestStatus:\s*'verified'/,
-      'sync helper must upsert an enabled codex-subscription connection after login',
+      /slug:\s*CODEX_SUBSCRIPTION_CONNECTION_SLUG[\s\S]*providerType:\s*'openai-codex'[\s\S]*enabled:\s*true[\s\S]*lastTestStatus:\s*'verified'/,
+      'sync helper must upsert an enabled openai-codex connection after login',
     );
     assert.match(
       src,
-      /normalizeCodexSubscriptionModels\(existing\?\.models, fallbackModels\)/,
+      /normalizeOpenAiCodexModels\(existing\.models, fallbackModels\)/,
       'Codex OAuth sync must migrate stale unsupported model lists',
     );
     assert.match(
       src,
-      /normalizeCodexSubscriptionDefaultModel\([\s\S]*existing\?\.defaultModel[\s\S]*defaults\.fallbackModels\[0\]/,
+      /normalizeOpenAiCodexDefaultModel\([\s\S]*existing\?\.defaultModel[\s\S]*defaults\.fallbackModels\[0\]/,
       'Codex OAuth sync must migrate stale unsupported default models',
     );
     assert.match(
@@ -432,17 +447,17 @@ describe('Claude OAuth model connection bridge', () => {
       /CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS\.has\(existingDefaultModel\)/,
       'Codex OAuth migration must explicitly reject ChatGPT-account-unsupported model ids',
     );
-    const completeIdx = src.indexOf("codex-subscription:complete-authorization");
+    const completeIdx = src.indexOf("openai-codex:complete-authorization");
     assert.notEqual(completeIdx, -1, 'codex complete-authorization handler must exist');
     const completeRegion = src.slice(completeIdx, completeIdx + 1200);
     assert.match(
       completeRegion,
-      /if\s*\(\s*result\.ok\s*\)\s*\{[\s\S]*await (?:deps\.)?syncCodexSubscriptionConnection\(\);[\s\S]*(?:deps\.)?emitConnectionListChanged\(\);/,
+      /if\s*\(\s*result\.ok\s*\)\s*\{[\s\S]*await (?:deps\.)?syncOpenAiCodexConnection\(\);[\s\S]*(?:deps\.)?emitConnectionListChanged\(\);/,
       'successful Codex OAuth completion must sync the connection and notify renderer',
     );
     assert.match(
       src,
-      /providerType === 'codex-subscription'[\s\S]*codexSubscription\.getAccessTokenInternal\(\)/,
+      /providerType === 'openai-codex'[\s\S]*openAiCodex\.getAccessTokenInternal\(\)/,
       'resolveConnectionSecret must let the Codex OAuth service apply its normal refresh policy before handing the access token to the send path',
     );
   });

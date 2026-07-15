@@ -14,20 +14,20 @@ const OAUTH_DIR = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'main', 'oauth');
 const RUNTIME_BOTS_DIR = resolve(REPO_ROOT, 'packages', 'runtime', 'src', 'bots');
 
 const SERVICES_WITH_LOOPBACK_SERVER = [
-  'codex-subscription-service.ts',
+  'openai-codex-service.ts',
   'antigravity-subscription-service.ts',
 ];
 
 const SERVICES_WITH_LOAD_TOKENS = [
   'claude-subscription-service.ts',
-  'codex-subscription-service.ts',
+  'openai-codex-service.ts',
   'cursor-subscription-service.ts',
   'antigravity-subscription-service.ts',
 ];
 
 const WIRED_OAUTH_SEND_SERVICES = [
   'claude-subscription-service.ts',
-  'codex-subscription-service.ts',
+  'openai-codex-service.ts',
 ];
 
 describe('OAuth callback server: drains sockets + timeout (B-SWEEP-1, B-SWEEP-2)', () => {

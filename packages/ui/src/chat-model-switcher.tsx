@@ -179,7 +179,6 @@ export function ChatModelSwitcher(props: {
       aria-busy={pending ? 'true' : undefined}
     >
       <ModelPicker
-        triggerAppearance="quiet"
         groups={grouped}
         value={currentValue}
         disabled={disabled}
@@ -268,7 +267,6 @@ export function NewChatModelPicker(props: {
   const grouped = modelMenuGroups(props.choices);
   return (
     <ModelPicker
-      triggerAppearance="quiet"
       groups={grouped}
       value={props.currentValue ?? ''}
       renderProviderMark={props.renderProviderMark}

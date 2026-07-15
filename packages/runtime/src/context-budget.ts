@@ -17,7 +17,6 @@ import type { CompactionDecisionKind } from './compaction-boundary.js';
 import {
   historyCompactCheckpointToRuntimeEvent,
   matchHistoryCompactCheckpointPrefix,
-  midTurnHeadAnchorEvent,
   renderHistoryCompactCheckpoint,
   type HistoryCompactCheckpoint,
 } from './history-compact-checkpoint.js';
@@ -306,25 +305,6 @@ export interface HistoryCompactPolicy {
   /** Optional archive refs keyed by RuntimeEvent id for archive-before-project validation. */
   sourceArchiveRefs?: readonly HistoryCompactSourceArchiveRef[] | Readonly<Record<string, HistoryCompactSourceArchiveRef>>;
   highWaterName?: string;
-  /**
-   * Optional mid-turn capacity compaction, layered on the same V2 checkpoint
-   * protocol. Defaults off (explicit opt-in this PR); when enabled the backend
-   * measures the next provider request between steps and folds a safe completed
-   * prefix before crossing the model context window.
-   */
-  midTurn?: HistoryCompactMidTurnPolicy;
-}
-
-export interface HistoryCompactMidTurnPolicy {
-  enabled: boolean;
-  /**
-   * Tokens kept free below the selected model context window. The proactive
-   * high-water threshold is `contextWindow - reserveTokens`. Defaults to the
-   * shared history-compact reserve (16384).
-   */
-  reserveTokens?: number;
-  /** Trailing events kept verbatim as the continuation tail. Defaults to 1. */
-  reserveTailEvents?: number;
 }
 
 export interface HistoryCompactSourceArchiveRef {
@@ -672,66 +652,6 @@ export function applyRuntimeEventHistoryCompact(
   }
 
   const compactableEvents = events.filter(isHistoryCompactContentEvent);
-
-  // A mid_turn checkpoint's coverage reaches into the compacted turn's own
-  // completed steps, so it can extend past what tail selection would retain
-  // and must not require multiple prior turns. Match it against the full
-  // content projection BEFORE every size-based guard — including the
-  // below-high-water skip: replaying an accepted mid_turn checkpoint is a
-  // correctness invariant (the covered raw span must never be re-injected),
-  // not a capacity optimization, so a small raw projection does not bypass
-  // it. Replay is the deterministic [block, verbatim head anchor, tail].
-  const midTurnCheckpoint = compactPolicy.checkpoint?.phase === 'mid_turn' ? compactPolicy.checkpoint : undefined;
-  if (midTurnCheckpoint) {
-    const match = matchHistoryCompactCheckpointPrefix(midTurnCheckpoint, compactableEvents);
-    if (match.reason) {
-      increment(skippedReasonCounts, match.reason);
-    } else {
-      const headAnchor = midTurnHeadAnchorEvent(midTurnCheckpoint, match.coveredRuntimeEvents);
-      const replayTail = headAnchor
-        ? [headAnchor, ...match.successorRuntimeEvents]
-        : [...match.successorRuntimeEvents];
-      const fit = evaluateHistoryCompactCheckpointReplay(midTurnCheckpoint, replayTail, policy!, {
-        charsPerToken,
-        maxHistoryEstimatedTokens: maxTokens,
-      });
-      if (!fit.fits) {
-        increment(skippedReasonCounts, fit.reason);
-      } else {
-        return {
-          events: [historyCompactCheckpointToRuntimeEvent(midTurnCheckpoint), ...replayTail],
-          blocks: [],
-          checkpoint: midTurnCheckpoint,
-          diagnosticPatch: {
-            ...basePatch,
-            historyCompactBlocksAvailable: 1,
-            historyCompactBlocksSelected: 1,
-            historyCompactBlockIds: [midTurnCheckpoint.checkpointId],
-            historyCompactedTurns: midTurnCheckpoint.coverage.turnCount,
-            historyCompactedEvents: midTurnCheckpoint.coverage.eventCount,
-            historyCompactedEstimatedTokensBefore: estimateRuntimeEventsTokens(match.coveredRuntimeEvents, charsPerToken),
-            historyCompactedEstimatedTokensAfter: fit.checkpointTokens,
-            historyCompactCoverageHashes: [midTurnCheckpoint.coverage.sourceDigest],
-            highWaterName: midTurnCheckpoint.highWaterName,
-            highWaterSeq: midTurnCheckpoint.highWaterSeq,
-            highWaterReason: 'history_compact',
-            ...compactionDecisionDiagnosticPatch({
-              stage: 'priorReplay',
-              sourceKind: 'runtimeEvents',
-              decision: 'replaced',
-              phase: 'mid_turn',
-              boundaryKind: 'historyCompact',
-              boundaryIds: [midTurnCheckpoint.checkpointId],
-              coverage: { bodySha256: [midTurnCheckpoint.coverage.sourceDigest] },
-              estimatedTokensBefore: estimateRuntimeEventsTokens(match.coveredRuntimeEvents, charsPerToken),
-              estimatedTokensAfter: fit.checkpointTokens,
-            }),
-          },
-        };
-      }
-    }
-  }
-
   const estimatedTokensBefore = estimateRuntimeEventsTokens(compactableEvents, charsPerToken);
   const highWaterRatio = finiteRatio(compactPolicy.highWaterRatio, 0.8);
   const highWaterThreshold = Math.max(1, Math.floor(maxTokens * highWaterRatio));
@@ -803,8 +723,7 @@ export function applyRuntimeEventHistoryCompact(
     };
   }
 
-  // mid_turn checkpoints were handled above against the full content projection.
-  const checkpoint = compactPolicy.checkpoint?.phase === 'mid_turn' ? undefined : compactPolicy.checkpoint;
+  const checkpoint = compactPolicy.checkpoint;
   if (checkpoint) {
     const match = matchHistoryCompactCheckpointPrefix(checkpoint, foldedEvents);
     if (match.reason) {
@@ -2201,8 +2120,7 @@ function turnKey(event: RuntimeEvent): string {
   return event.turnId || '<unknown-turn>';
 }
 
-/** True when the event carries model-visible content the compact projection counts. */
-export function isHistoryCompactContentEvent(event: RuntimeEvent): boolean {
+function isHistoryCompactContentEvent(event: RuntimeEvent): boolean {
   return estimateRuntimeEventChars(event) > 0;
 }
 

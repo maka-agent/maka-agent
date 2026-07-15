@@ -213,7 +213,7 @@ function installSubscriptionFixtures() {
       logout: async () => ({ ok: true }),
       refreshQuota: async () => ({ ok: true }),
     },
-    codexSubscription: browserSubscriptionFixture({
+    openAiCodex: browserSubscriptionFixture({
       runtimeState: 'authenticated',
       email: 'codex@example.com',
       plan: 'Plus',

@@ -53,7 +53,6 @@ describe('active current-turn tool-result pruning', () => {
     };
     const composed = composePrepareStep(
       () => ({ activeTools: ['Read', LOAD_TOOLS_NAME] }),
-      undefined,
       activePrune,
     );
 
@@ -386,7 +385,7 @@ describe('active current-turn tool-result pruning', () => {
       messages: [{ role: 'user', content: 'load rive' }],
       tools: aiSdkTools,
       activeTools: plan.activeTools,
-      prepareStep: composePrepareStep(plan.prepareStep, undefined, activePrune),
+      prepareStep: composePrepareStep(plan.prepareStep, activePrune),
       abortSignal: new AbortController().signal,
       repairToolCall: async () => null,
     });

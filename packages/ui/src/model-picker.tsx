@@ -18,7 +18,7 @@ import {
   type ModelPickerPinnedItem,
 } from './model-picker-internals.js';
 import { cn } from './utils.js';
-import { pickerTriggerClasses, type PickerTriggerAppearance } from './ui.js';
+import { inputClasses } from './primitives/input.js';
 
 export interface ModelPickerProps {
   groups: ModelMenuGroup[];
@@ -31,7 +31,6 @@ export interface ModelPickerProps {
   searchPlaceholder?: string;
   emptyMessage?: string;
   triggerClassName?: string;
-  triggerAppearance?: PickerTriggerAppearance;
   popupClassName?: string;
   ariaLabel: string;
   title?: string;
@@ -41,17 +40,14 @@ export interface ModelPickerProps {
   children: ReactNode;
 }
 
-const ModelPickerTrigger = forwardRef<
-  HTMLButtonElement,
-  React.ComponentPropsWithoutRef<typeof BaseCombobox.Trigger> & { appearance?: PickerTriggerAppearance }
->(function ModelPickerTrigger(
-  { appearance = 'field', className, children, ...props },
+const ModelPickerTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.Trigger>>(function ModelPickerTrigger(
+  { className, children, ...props },
   ref,
 ) {
   return (
     <BaseCombobox.Trigger
       ref={ref}
-      className={cn(pickerTriggerClasses(appearance), 'justify-between', className)}
+      className={cn(inputClasses, 'justify-between', className)}
       {...props}
     >
       {children}
@@ -204,7 +200,6 @@ export function ModelPicker(props: ModelPickerProps) {
       disabled={props.disabled}
     >
       <ModelPickerTrigger
-        appearance={props.triggerAppearance}
         className={props.triggerClassName}
         aria-label={props.ariaLabel}
         title={props.title}

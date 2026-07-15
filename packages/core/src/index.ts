@@ -42,7 +42,6 @@ export type {
   AttachmentRef,
   AttachmentIngestItem,
   CompleteStopReason,
-  ContextBudgetExhaustedDetail,
 } from './events.js';
 export type {
   UserQuestion,
@@ -901,6 +900,7 @@ export {
   effectiveBaseUrl,
   migrateConnectionV1ToV2,
   normalizeConnectionBaseUrl,
+  normalizeProviderType,
   persistedBaseUrl,
   validateConnectionBaseUrl,
   validateSlug,

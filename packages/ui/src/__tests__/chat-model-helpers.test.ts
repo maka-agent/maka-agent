@@ -34,7 +34,7 @@ test('cross-provider same model name stays in separate, distinguishable groups',
   // the user must be able to tell which connection a row belongs to.
   const groups = modelMenuGroups([
     choice('openai-main', 'openai', 'gpt-5.5'),
-    choice('codex-sub', 'codex-subscription', 'gpt-5.5'),
+    choice('codex-sub', 'openai-codex', 'gpt-5.5'),
   ]);
   assert.equal(groups.length, 2);
   assert.equal(new Set(groups.map((g) => g.heading)).size, 2);

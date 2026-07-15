@@ -21,7 +21,7 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'fallback-source',
   'fetched-empty',
   'connection-error',
-  // OAuth re-login affordance: a codex-subscription connection with a stored
+  // OAuth re-login affordance: a openai-codex connection with a stored
   // but expired OAuth token (hasSecret===true), focused so its detail sheet's
   // 重新登录 button is visible.
   'oauth-relogin',
@@ -1030,7 +1030,7 @@ async function writeConnections(workspaceRoot: string, now: number, scenario: Vi
     },
   ];
   if (scenario === 'oauth-relogin') {
-    // A codex-subscription (OAuth) connection whose last test came back
+    // A openai-codex (OAuth) connection whose last test came back
     // needs_reauth. Its detail sheet must offer an inline 登录 / 重新登录
     // button (driven by the shared OAuth login flow) instead of the old dead
     // prose. Credential presence for OAuth connections is resolved through the
@@ -1039,7 +1039,7 @@ async function writeConnections(workspaceRoot: string, now: number, scenario: Vi
     connections.push({
       slug: 'codex-oauth',
       name: 'OpenAI Codex Fixture',
-      providerType: 'codex-subscription',
+      providerType: 'openai-codex',
       defaultModel: 'gpt-5.5',
       enabled: true,
       models: [model('gpt-5.5', { reasoning: true, functionCalling: true }, 200_000)],

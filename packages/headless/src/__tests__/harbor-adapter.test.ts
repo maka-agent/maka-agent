@@ -1419,16 +1419,6 @@ class OpenCode:
     def _error_messages(self):
         return []
 
-    async def exec_as_root(self, environment, command, **kwargs):
-        return await environment.exec(command, **kwargs)
-
-    async def install(self, environment):
-        await self.exec_as_root(
-            environment,
-            command="apt-get update && apt-get install -y curl",
-            env={"DEBIAN_FRONTEND": "noninteractive"},
-        )
-
     async def run(self, instruction, environment, context):
         raise AssertionError("MakaOpenCodeAgent should use its stop-sentinel run path")
 
@@ -1490,13 +1480,6 @@ try:
             environment.agent_commands.append((command, env or {}))
         agent.exec_as_agent = exec_as_agent
 
-        asyncio.run(agent.install(environment))
-        install_command, install_kwargs = environment.root_commands[0]
-        assert "for attempt in 1 2 3" in install_command, install_command
-        assert "Acquire::Retries=3" in install_command, install_command
-        assert "sleep $((attempt * 5))" in install_command, install_command
-        assert install_kwargs["env"] == {"DEBIAN_FRONTEND": "noninteractive"}, install_kwargs
-
         asyncio.run(agent.run("hi", environment, context))
         command, env = next(item for item in environment.agent_commands if "opencode --model=" in item[0])
         assert "opencode-stop-runner.mjs" in command, command
@@ -1521,7 +1504,7 @@ try:
         assert 'cat --' not in command, command
         assert "test-zai-key" not in command, command
         assert "test-zai-key" not in json.dumps(env), env
-        assert len(environment.root_commands) == 1, environment.root_commands
+        assert environment.root_commands == [], environment.root_commands
         assert os.environ.get("ZAI_API_KEY") is None
         assert os.environ.get("ZAI_BASE_URL") is None
 

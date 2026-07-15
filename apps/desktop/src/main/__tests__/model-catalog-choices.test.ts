@@ -138,7 +138,7 @@ describe('model catalog picker helpers', () => {
     const choices = buildCatalogChatModelChoices([
       connection({
         slug: 'codex-account',
-        providerType: 'codex-subscription',
+        providerType: 'openai-codex',
         models: [{ id: 'gpt-5-codex' }, { id: 'gpt-5.5' }],
         modelSource: 'fetched',
       }),
@@ -177,7 +177,7 @@ describe('model catalog picker helpers', () => {
       connection({
         slug: 'codex-account',
         name: 'person@example.com',
-        providerType: 'codex-subscription',
+        providerType: 'openai-codex',
         models: [{ id: 'gpt-5.5' }],
         modelSource: 'fetched',
       }),

@@ -3898,47 +3898,6 @@ describe('AiSdkBackend usage telemetry', () => {
     ]);
   });
 
-  test('does not record fabricated zero telemetry when provider usage is unavailable', async () => {
-    const llmRecords: LlmCallRecord[] = [];
-    const model = new MockLanguageModelV3({
-      doStream: {
-        stream: simulateReadableStream({
-          chunks: [
-            { type: 'stream-start', warnings: [] },
-            {
-              type: 'finish',
-              finishReason: { unified: 'stop', raw: 'stop' },
-              usage: {
-                inputTokens: { total: undefined, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
-                outputTokens: { total: undefined, text: undefined, reasoning: undefined },
-              } as never,
-            },
-          ],
-          initialDelayInMs: null,
-          chunkDelayInMs: null,
-        }),
-      },
-    });
-    const backend = new AiSdkBackend({
-      sessionId: 'session-1',
-      header: header(),
-      appendMessage: async () => {},
-      connection: connection(),
-      apiKey: 'sk-test',
-      modelId: 'mock-model-id',
-      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => model,
-      tools: [],
-      newId: idGenerator(),
-      now: monotonicClock(),
-      recordLlmCall: (record) => { llmRecords.push(record); },
-    });
-
-    await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
-
-    assert.deepEqual(llmRecords, []);
-  });
-
   test('keeps checkpoint cost unknown when model pricing is unavailable', async () => {
     const usageCheckpoints: Array<{ costUsd?: number }> = [];
     const model = new MockLanguageModelV3({
@@ -4216,44 +4175,6 @@ describe('AiSdkBackend usage telemetry', () => {
 
     assert.equal(recordedBlocks.length, 1);
     assert.equal(recordedBlocks[0]?.blockId, 'afcompact-sync-test');
-  });
-
-  test('does not record semantic compact usage when provider usage is unavailable', () => {
-    const llmRecords: LlmCallRecord[] = [];
-    const backend = new AiSdkBackend({
-      sessionId: 'session-1',
-      header: header(),
-      appendMessage: async () => {},
-      connection: connection(),
-      apiKey: 'sk-test',
-      modelId: 'mock-model-id',
-      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => completionModel(),
-      tools: [],
-      newId: idGenerator(),
-      now: monotonicClock(),
-      recordLlmCall: (record) => { llmRecords.push(record); },
-    });
-
-    (backend as unknown as {
-      recordSemanticCompactSummaryCall(input: {
-        callId: string;
-        turnId: string;
-        modelId: string;
-        startedAt: number;
-        latencyMs: number;
-        status: LlmCallRecord['status'];
-      }): void;
-    }).recordSemanticCompactSummaryCall({
-      callId: 'semantic-1',
-      turnId: 'turn-1',
-      modelId: 'mock-model-id',
-      startedAt: 1,
-      latencyMs: 2,
-      status: 'error',
-    });
-
-    assert.deepEqual(llmRecords, []);
   });
 
   test('semantic compact records a separate no-tools summarizer LLM call', async () => {

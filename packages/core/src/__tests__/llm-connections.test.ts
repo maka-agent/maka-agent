@@ -21,7 +21,9 @@ import {
   RECOMMENDED_PROVIDER_TYPES,
   backendKindOf,
   effectiveBaseUrl,
+  migrateConnectionV1ToV2,
   normalizeConnectionBaseUrl,
+  normalizeProviderType,
   persistedBaseUrl,
   providerAuthRequiresSecret,
   providerAuthSupportsApiKey,
@@ -77,7 +79,7 @@ describe('provider compatibility contract', () => {
       'openai-compatible',
       'github-copilot',
       'claude-subscription',
-      'codex-subscription',
+      'openai-codex',
       'gemini-cli',
     ]);
     assert.deepEqual(READY_PROVIDER_TYPES, [
@@ -198,7 +200,7 @@ describe('provider compatibility contract', () => {
     assert.equal(PROVIDER_REGISTRY.siliconflow.modelDiscovery.kind, 'protocol');
     assert.deepEqual(PROVIDER_REGISTRY.siliconflow.modelDiscovery.query, { sub_type: 'chat' });
     assert.equal(PROVIDER_REGISTRY.ollama.modelDiscovery.kind, 'ollama');
-    assert.equal(PROVIDER_REGISTRY['codex-subscription'].modelDiscovery.kind, 'fallback');
+    assert.deepEqual(PROVIDER_REGISTRY['openai-codex'].modelDiscovery, { kind: 'protocol', auth: 'openai-codex' });
   });
 
   it('owns OpenCode Zen and Go as distinct mixed-protocol access paths', () => {
@@ -1070,8 +1072,8 @@ describe('provider URL defaults', () => {
   });
 
   it('labels the ChatGPT account path as OpenAI OAuth, not Codex subscription', () => {
-    assert.equal(PROVIDER_DEFAULTS['codex-subscription'].label, 'OpenAI OAuth (ChatGPT / Codex)');
-    assert.equal(PROVIDER_DEFAULTS['codex-subscription'].description, 'ChatGPT/Codex account OAuth path for OpenAI Responses models.');
+    assert.equal(PROVIDER_DEFAULTS['openai-codex'].label, 'OpenAI OAuth (ChatGPT / Codex)');
+    assert.equal(PROVIDER_DEFAULTS['openai-codex'].description, 'ChatGPT/Codex account OAuth path for OpenAI Responses models.');
   });
 
   it('keeps Kimi Coding Plan separate from Moonshot API key access', () => {
@@ -1400,5 +1402,39 @@ describe('unknown-providerType tolerance', () => {
     assert.equal(backendKindOf({ providerType: 'anthropic' }), 'ai-sdk');
     assert.equal(providerAuthRequiresSecret('anthropic'), true);
     assert.equal(providerAuthSupportsApiKey('ollama'), false);
+  });
+});
+
+describe('normalizeProviderType (persisted providerType alias)', () => {
+  // The `codex-subscription` providerType was renamed to `openai-codex`.
+  // Connections persisted before the rename still carry the old id on disk;
+  // reading them must normalize to the current id so every downstream
+  // registry lookup, `case` dispatch, and credential resolution works.
+  it('maps the legacy codex-subscription alias to openai-codex', () => {
+    assert.equal(normalizeProviderType('codex-subscription'), 'openai-codex');
+  });
+
+  it('returns the current id unchanged for renamed and other providers', () => {
+    assert.equal(normalizeProviderType('openai-codex'), 'openai-codex');
+    assert.equal(normalizeProviderType('anthropic'), 'anthropic');
+    assert.equal(normalizeProviderType('github-copilot'), 'github-copilot');
+  });
+
+  it('passes unknown ids through unchanged so unregistered-provider tolerance stays intact', () => {
+    assert.equal(normalizeProviderType('branch-only-provider'), 'branch-only-provider');
+  });
+
+  it('migrateConnectionV1ToV2 normalizes a persisted codex-subscription connection', () => {
+    const migrated = migrateConnectionV1ToV2({
+      slug: 'codex-subscription',
+      name: 'OpenAI OAuth',
+      providerType: 'codex-subscription',
+      defaultModel: 'gpt-5.5',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    assert.equal(migrated.providerType, 'openai-codex');
+    assert.equal(migrated.slug, 'codex-subscription');
   });
 });

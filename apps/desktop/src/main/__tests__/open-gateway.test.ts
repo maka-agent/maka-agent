@@ -586,15 +586,11 @@ describe('OpenGatewayService', () => {
     const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
     assert.ok(status.baseUrl);
 
-    // Retain the whole opened stream (controller + response) for the lifetime of the
-    // assertions. undici tears down a fetch connection when its response body is
-    // garbage-collected without being consumed, so dropping the response here would let
-    // GC (heavier under load) abort registered streams before the count is checked.
-    const streams: Array<{ controller: AbortController; response: Response }> = [];
+    const controllers: AbortController[] = [];
     try {
       for (let index = 0; index < 3; index += 1) {
         const opened = await openEventStream(status.baseUrl, 'same-session');
-        streams.push(opened);
+        controllers.push(opened.controller);
         assert.equal(opened.response.status, 200);
       }
       assert.equal(service.getStatus().activeEventStreams, 3);
@@ -607,7 +603,7 @@ describe('OpenGatewayService', () => {
 
       for (let index = 0; index < 7; index += 1) {
         const opened = await openEventStream(status.baseUrl, `other-${index}`);
-        streams.push(opened);
+        controllers.push(opened.controller);
         assert.equal(opened.response.status, 200);
       }
       assert.equal(service.getStatus().activeEventStreams, 10);
@@ -618,7 +614,7 @@ describe('OpenGatewayService', () => {
       assert.doesNotMatch(globalRejected.headers.get('content-type') ?? '', /^text\/event-stream/);
       assert.equal(service.getStatus().activeEventStreams, 10);
     } finally {
-      for (const stream of streams) stream.controller.abort();
+      for (const controller of controllers) controller.abort();
       await waitFor(() => service.getStatus().activeEventStreams === 0);
     }
   });

@@ -71,7 +71,7 @@ export async function requireReadyConnection(
   // truth. The desktop side only owns: (1) async secret lookup, (2)
   // Chinese error copy, (3) the throw-error API the rest of main.ts
   // expects.
-  const normalizedConnection = normalizeCodexSubscriptionConnection(connection);
+  const normalizedConnection = normalizeOpenAiCodexConnection(connection);
   const apiKey = await deps.getApiKey(normalizedConnection.slug);
   const normalizedRequestedModel = normalizeRequestedModel(connection, requestedModel);
   const verdict = isConnectionReady({
@@ -90,9 +90,9 @@ export async function requireReadyConnection(
   return { connection: normalizedConnection, apiKey: apiKey ?? '', model: verdict.model };
 }
 
-function normalizeCodexSubscriptionConnection(connection: LlmConnection): LlmConnection {
-  if (connection.providerType !== 'codex-subscription') return connection;
-  const fallbackModels = PROVIDER_DEFAULTS['codex-subscription'].fallbackModels;
+function normalizeOpenAiCodexConnection(connection: LlmConnection): LlmConnection {
+  if (connection.providerType !== 'openai-codex') return connection;
+  const fallbackModels = PROVIDER_DEFAULTS['openai-codex'].fallbackModels;
   const safeModels = (connection.models ?? []).filter(
     (entry) => entry.id && !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(entry.id),
   );
@@ -115,7 +115,7 @@ function normalizeRequestedModel(
   requestedModel: string | undefined,
 ): string | undefined {
   if (
-    connection.providerType === 'codex-subscription' &&
+    connection.providerType === 'openai-codex' &&
     requestedModel &&
     CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(requestedModel)
   ) {

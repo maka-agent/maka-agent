@@ -4,18 +4,20 @@ import {
   type LlmConnection,
 } from '@maka/core/llm-connections';
 import type { ConnectionStore, CredentialStore } from '@maka/storage';
-import {
-  type ClaudeSubscriptionService,
-  isSubscriptionExperimentalEnabled,
-} from './oauth/claude-subscription-service.js';
-import {
-  type CodexSubscriptionService,
-  isCodexSubscriptionExperimentalEnabled,
-} from './oauth/codex-subscription-service.js';
+import type { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
+import { isSubscriptionExperimentalEnabled } from './oauth/claude-subscription-helpers.js';
+import type { OpenAiCodexService } from './oauth/openai-codex-service.js';
+import { isOpenAiCodexExperimentalEnabled } from './oauth/openai-codex-helpers.js';
 import { fetchProviderModels } from '@maka/runtime';
 import type { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
 
 export const CLAUDE_SUBSCRIPTION_CONNECTION_SLUG = 'claude-subscription';
+// Persisted connection slug: stable across the providerType rename from
+// `codex-subscription` to `openai-codex`. The credential store key in
+// `openai-codex-service.ts` and this connection slug must stay in sync so the
+// CLI (which reads OAuth tokens via `connection.slug`) can find tokens written
+// by the desktop service. Do not rename this value without a persisted-state
+// migration.
 export const CODEX_SUBSCRIPTION_CONNECTION_SLUG = 'codex-subscription';
 export const GITHUB_COPILOT_CONNECTION_SLUG = 'github-copilot';
 
@@ -23,7 +25,7 @@ interface OAuthModelConnectionsDeps {
   connectionStore: ConnectionStore;
   credentialStore: CredentialStore;
   claudeSubscription: ClaudeSubscriptionService;
-  codexSubscription: CodexSubscriptionService;
+  openAiCodex: OpenAiCodexService;
   githubCopilotSubscription: GitHubCopilotSubscriptionService;
   fetchModels?: typeof fetchProviderModels;
 }
@@ -80,8 +82,8 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     return deps.connectionStore.save(connection);
   }
 
-  function isCodexSubscriptionAuthenticatedState(
-    state: Awaited<ReturnType<CodexSubscriptionService['getAccountState']>>,
+  function isOpenAiCodexAuthenticatedState(
+    state: Awaited<ReturnType<OpenAiCodexService['getAccountState']>>,
   ): boolean {
     return state.runtimeState === 'authenticated' || state.runtimeState === 'refreshing';
   }
@@ -157,11 +159,11 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     });
   }
 
-  async function syncCodexSubscriptionConnection(): Promise<LlmConnection | null> {
-    if (!isCodexSubscriptionExperimentalEnabled()) return null;
-    const state = await deps.codexSubscription.getAccountState();
+  async function syncOpenAiCodexConnection(): Promise<LlmConnection | null> {
+    if (!isOpenAiCodexExperimentalEnabled()) return null;
+    const state = await deps.openAiCodex.getAccountState();
     const existing = await deps.connectionStore.get(CODEX_SUBSCRIPTION_CONNECTION_SLUG);
-    if (!isCodexSubscriptionAuthenticatedState(state)) {
+    if (!isOpenAiCodexAuthenticatedState(state)) {
       if (existing && (state.runtimeState === 'refresh_failed' || state.runtimeState === 'storage_failed' || state.runtimeState === 'not_logged_in')) {
         return deps.connectionStore.update(existing.slug, {
           enabled: false,
@@ -177,10 +179,10 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       return existing;
     }
 
-    const defaults = PROVIDER_DEFAULTS['codex-subscription'];
+    const defaults = PROVIDER_DEFAULTS['openai-codex'];
     const fallbackModels = defaults.fallbackModels.map((id) => ({ id }));
-    const normalizedModels = normalizeCodexSubscriptionModels(existing?.models, fallbackModels);
-    const normalizedDefaultModel = normalizeCodexSubscriptionDefaultModel(
+    const normalizedModels = normalizeOpenAiCodexModels(existing?.models, fallbackModels);
+    const normalizedDefaultModel = normalizeOpenAiCodexDefaultModel(
       existing?.defaultModel,
       normalizedModels.map((entry) => entry.id),
       defaults.fallbackModels[0] || '',
@@ -190,7 +192,7 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     const connection: LlmConnection = {
       slug: CODEX_SUBSCRIPTION_CONNECTION_SLUG,
       name: existing?.name ?? displayName,
-      providerType: 'codex-subscription',
+      providerType: 'openai-codex',
       baseUrl: defaults.baseUrl,
       defaultModel: normalizedDefaultModel,
       enabled: true,
@@ -208,7 +210,7 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
   async function syncOAuthModelConnections(): Promise<void> {
     const results = await Promise.allSettled([
       syncClaudeSubscriptionConnection(),
-      syncCodexSubscriptionConnection(),
+      syncOpenAiCodexConnection(),
       syncGitHubCopilotConnection(),
     ]);
     for (const result of results) {
@@ -223,8 +225,8 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     if (connection?.providerType === 'claude-subscription') {
       return deps.claudeSubscription.getAccessTokenInternal();
     }
-    if (connection?.providerType === 'codex-subscription') {
-      return deps.codexSubscription.getAccessTokenInternal();
+    if (connection?.providerType === 'openai-codex') {
+      return deps.openAiCodex.getAccessTokenInternal();
     }
     if (connection?.providerType === 'github-copilot') {
       return deps.githubCopilotSubscription.getAccessTokenInternal();
@@ -250,8 +252,8 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     if (connection.providerType === 'claude-subscription') {
       return deps.claudeSubscription.hasStoredCredential();
     }
-    if (connection.providerType === 'codex-subscription') {
-      return deps.codexSubscription.hasStoredCredential();
+    if (connection.providerType === 'openai-codex') {
+      return deps.openAiCodex.hasStoredCredential();
     }
     if (connection.providerType === 'github-copilot') {
       return deps.githubCopilotSubscription.hasStoredCredential();
@@ -262,18 +264,18 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
 
   return {
     isClaudeSubscriptionAuthenticatedState,
-    isCodexSubscriptionAuthenticatedState,
+    isOpenAiCodexAuthenticatedState,
     isGitHubCopilotAuthenticatedState,
     resolveConnectionSecret,
     hasConnectionSecret,
     syncClaudeSubscriptionConnection,
-    syncCodexSubscriptionConnection,
+    syncOpenAiCodexConnection,
     syncGitHubCopilotConnection,
     syncOAuthModelConnections,
   };
 }
 
-function normalizeCodexSubscriptionModels(
+function normalizeOpenAiCodexModels(
   existingModels: LlmConnection['models'] | undefined,
   fallbackModels: NonNullable<LlmConnection['models']>,
 ): NonNullable<LlmConnection['models']> {
@@ -283,7 +285,7 @@ function normalizeCodexSubscriptionModels(
   return safeExisting.length ? safeExisting : fallbackModels;
 }
 
-function normalizeCodexSubscriptionDefaultModel(
+function normalizeOpenAiCodexDefaultModel(
   existingDefaultModel: string | undefined,
   enabledModelIds: string[],
   fallbackModel: string,

@@ -24,7 +24,6 @@ describe('Harbor cell output contract', () => {
             cacheMissInputSource: 'explicit',
             reasoning: 2,
             total: 17,
-            runtimeSteps: 1,
             costUsd: 0.00123,
             systemPromptHash: 'sha256:prompt-a',
             promptSegments: [
@@ -50,7 +49,6 @@ describe('Harbor cell output contract', () => {
             cacheRead: 2,
             cacheCreation: 1,
             total: 10,
-            runtimeSteps: 1,
             costUsd: 0.004,
             systemPromptHash: 'sha256:prompt-a',
           },
@@ -98,7 +96,7 @@ describe('Harbor cell output contract', () => {
         actualToolNames: ['Bash', 'Read'],
         actualToolCallCounts: { Bash: 1, Read: 1 },
       },
-      steps: 2,
+      steps: 5,
       durationMs: 150,
       startedAt: 100,
       finishedAt: 250,
@@ -134,34 +132,6 @@ describe('Harbor cell output contract', () => {
       systemPromptHash: 'sha256:prompt-a',
       pricingProfile: 'deepseek-v4-flash-tbench-v1',
     });
-  });
-
-  test('persists a real-provider failure when token usage is unavailable', () => {
-    const output = buildHarborCellOutput({
-      invocation: {
-        invocationId: 'inv-missing-usage',
-        runId: 'run-missing-usage',
-        sessionId: 'session-1',
-        turnId: 'turn-1',
-        status: 'failed',
-        failure: { class: 'network' },
-        events: [runtimeEvent({ id: 'user-event', role: 'user', author: 'user' })],
-        startedAt: 100,
-        finishedAt: 250,
-      },
-      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
-      executionIdentity: {
-        llmConnectionSlug: 'zai-coding-plan',
-        model: 'glm-5.2',
-        systemPromptHash: 'sha256:prompt-a',
-        pricingProfile: 'zai-public',
-      },
-    });
-
-    assert.equal(output.status, 'failed');
-    assert.equal(output.errorClass, 'network');
-    assert.equal('tokenSummary' in output, false);
-    assert.deepEqual(validateHarborCellOutput(output), output);
   });
 
   test('keeps output when runtime emits more than one prompt hash', () => {
@@ -215,99 +185,10 @@ describe('Harbor cell output contract', () => {
       runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
     });
 
-    assert.ok(output.tokenSummary);
     assert.equal(output.tokenSummary.input, 13);
     assert.equal(output.tokenSummary.output, 12);
     assert.equal(output.tokenSummary.reasoning, 2);
     assert.equal(output.tokenSummary.total, 27);
-  });
-
-  test('counts completed model steps instead of streaming event chunks', () => {
-    const partialChunks = Array.from({ length: 100 }, (_, index) => runtimeEvent({
-      id: `partial-${index}`,
-      partial: true,
-      content: { kind: 'text', text: 'x' },
-    }));
-    const output = buildHarborCellOutput({
-      invocation: {
-        invocationId: 'inv-stream-steps',
-        runId: 'run-stream-steps',
-        sessionId: 'session-1',
-        turnId: 'turn-1',
-        status: 'failed',
-        failure: { class: 'network' },
-        events: [
-          ...partialChunks,
-          runtimeEvent({ id: 'final-thinking', content: { kind: 'thinking', text: 'done' } }),
-          runtimeEvent({ id: 'final-text', content: { kind: 'text', text: '' } }),
-        ],
-        startedAt: 100,
-        finishedAt: 250,
-      },
-      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
-    });
-
-    assert.equal(output.steps, 1);
-  });
-
-  test('counts a pure-tool step when runtime usage does not report steps', () => {
-    const output = buildHarborCellOutput({
-      invocation: {
-        invocationId: 'inv-tool-steps',
-        runId: 'run-tool-steps',
-        sessionId: 'session-1',
-        turnId: 'turn-1',
-        status: 'completed',
-        events: [
-          runtimeEvent({
-            id: 'tool-step',
-            content: { kind: 'function_call', id: 'call-1', name: 'Read', args: {} },
-            refs: { toolCallId: 'call-1', stepId: 'step-1' },
-          }),
-          runtimeEvent({
-            id: 'final-text',
-            content: { kind: 'text', text: 'done' },
-            refs: { providerEventId: 'step-2' },
-          }),
-        ],
-        startedAt: 100,
-        finishedAt: 250,
-      },
-      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
-    });
-
-    assert.equal(output.steps, 2);
-  });
-
-  test('uses step identity only for turns whose runtime step usage is unavailable', () => {
-    const output = buildHarborCellOutput({
-      invocation: {
-        invocationId: 'inv-mixed-steps',
-        runId: 'run-mixed-steps',
-        sessionId: 'session-1',
-        turnId: 'turn-2',
-        status: 'failed',
-        failure: { class: 'tool_step_cap_reached' },
-        events: [
-          runtimeEvent({
-            id: 'reported-turn',
-            turnId: 'turn-1',
-            actions: { tokenUsage: { input: 1, output: 1, runtimeSteps: 1 } },
-          }),
-          runtimeEvent({
-            id: 'unmetered-tool-step',
-            turnId: 'turn-2',
-            content: { kind: 'function_call', id: 'call-2', name: 'Read', args: {} },
-            refs: { toolCallId: 'call-2', stepId: 'step-2' },
-          }),
-        ],
-        startedAt: 100,
-        finishedAt: 250,
-      },
-      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
-    });
-
-    assert.equal(output.steps, 2);
   });
 
   test('summarizes context budget diagnostics from token usage events', () => {

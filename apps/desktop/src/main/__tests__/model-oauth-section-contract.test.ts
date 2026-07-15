@@ -407,7 +407,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(src, /智谱 · OpenAI 兼容/);
     assert.match(
       src,
-      /case 'codex-subscription':\s*return \{ name: 'OpenAI OAuth', description: 'ChatGPT \/ Codex 账号登录；登录后自动成为可用模型连接。' \}/,
+      /case 'openai-codex':\s*return \{ name: 'OpenAI OAuth', description: 'ChatGPT \/ Codex 账号登录；登录后自动成为可用模型连接。' \}/,
       'OpenAI OAuth account path should not be presented as a Codex subscription in provider settings',
     );
     assert.doesNotMatch(
@@ -1011,7 +1011,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.ok(fnMatch, 'pickSubscriptionBridge helper must exist');
     const body = fnMatch[0];
     assert.doesNotMatch(body, /case 'claude'/, 'Claude has a paste-code modal and must not use the loopback generic bridge');
-    assert.match(body, /case 'codex'[\s\S]*?window\.maka\.codexSubscription/);
+    assert.match(body, /case 'codex'[\s\S]*?window\.maka\.openAiCodex/);
     assert.match(body, /case 'cursor'[\s\S]*?window\.maka\.cursorSubscription/);
     assert.match(body, /case 'antigravity'[\s\S]*?window\.maka\.antigravitySubscription/);
   });
@@ -1248,7 +1248,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // Loopback services (Codex, Antigravity) get a bridge; Claude's paste flow
     // and plain API-key providers fall through to null so the notice renders
     // prose, never a dead button.
-    assert.match(mapping, /case 'codex-subscription':[\s\S]*window\.maka\.codexSubscription as unknown as OAuthLoginFlowBridge/);
+    assert.match(mapping, /case 'openai-codex':[\s\S]*window\.maka\.openAiCodex as unknown as OAuthLoginFlowBridge/);
     assert.match(mapping, /case 'gemini-cli':[\s\S]*window\.maka\.antigravitySubscription as unknown as OAuthLoginFlowBridge/);
     assert.match(mapping, /default:\s*return null;/);
     assert.doesNotMatch(mapping, /case 'claude-subscription'/, 'Claude uses a paste-code flow and must not be routed through the one-button loopback hook');
@@ -1282,7 +1282,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('preload exposes every subscription namespace alongside claudeSubscription', async () => {
     const src = await readFile(PRELOAD_SOURCE, 'utf8');
-    assert.match(src, /codexSubscription:\s*\{/, 'preload must expose window.maka.codexSubscription');
+    assert.match(src, /openAiCodex:\s*\{/, 'preload must expose window.maka.openAiCodex');
     assert.match(src, /cursorSubscription:\s*\{/, 'preload must expose window.maka.cursorSubscription');
     assert.match(src, /githubCopilotSubscription:\s*\{/, 'preload must expose window.maka.githubCopilotSubscription');
     assert.match(
@@ -1291,10 +1291,10 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'preload must expose window.maka.antigravitySubscription',
     );
     for (const channel of [
-      'codex-subscription:get-auth-url',
-      'codex-subscription:complete-authorization',
-      'codex-subscription:get-account-state',
-      'codex-subscription:logout',
+      'openai-codex:get-auth-url',
+      'openai-codex:complete-authorization',
+      'openai-codex:get-account-state',
+      'openai-codex:logout',
       'cursor-subscription:get-auth-url',
       'cursor-subscription:complete-authorization',
       'cursor-subscription:get-account-state',

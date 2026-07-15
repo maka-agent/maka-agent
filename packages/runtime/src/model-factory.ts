@@ -11,7 +11,7 @@ import { anthropicV1BaseUrl, googleV1BetaBaseUrl } from './provider-urls.js';
 import { resolveModelRuntime } from './model-runtime.js';
 import {
   claudeSubscriptionHeaders,
-  codexSubscriptionHeaders,
+  openAiCodexHeaders,
 } from './subscription-auth.js';
 
 export interface ModelFactoryInput {
@@ -47,12 +47,12 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         headers: claudeSubscriptionHeaders(),
       }).chat(modelId);
 
-    case 'codex-subscription':
+    case 'openai-codex':
       return createOpenAI({
         apiKey,
         baseURL,
         fetch,
-        headers: codexSubscriptionHeaders(apiKey),
+        headers: openAiCodexHeaders(apiKey),
       }).responses(modelId);
 
     case 'github-copilot': {
@@ -281,7 +281,7 @@ export function buildProviderOptions(
             : { effort: level }
           : {},
       };
-    case 'codex-subscription':
+    case 'openai-codex':
       return {
         openai: {
           store: false,

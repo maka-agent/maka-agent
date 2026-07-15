@@ -880,7 +880,6 @@ export const Composer = forwardRef<
                 normal chat. */}
             {props.onPermissionModeChange ? (
               <PermissionModeSelect
-                appearance="quiet"
                 activeMode={props.permissionMode ?? 'ask'}
                 onSelect={(mode) => {
                   void props.onPermissionModeChange?.(mode);

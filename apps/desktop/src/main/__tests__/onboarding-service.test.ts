@@ -290,7 +290,7 @@ describe('bindOnboardingDeps — hasCredential wiring', () => {
   // opening the app can hit the network, and a failed incidental
   // refresh could misreport a valid login as missing credentials. This
   // mirrors `ClaudeSubscriptionService.hasStoredCredential()` /
-  // `CodexSubscriptionService.hasStoredCredential()`, which read the
+  // `OpenAiCodexService.hasStoredCredential()`, which read the
   // persisted token without ever calling `refreshTokens()`.
   it('does not trigger OAuth refresh for a near-expiry token, and still reports credentialed', async () => {
     const oauthConnection = realConnection({

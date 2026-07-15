@@ -43,7 +43,7 @@ describe('connection credential IPC hardening contract', () => {
       /(^|[^\w])\.\.(?!\.)|includes\('\\.\\.'\)|includes\("\.\."\)|traversal|path traversal/i,
       'slug validator must explicitly reject traversal-looking ".." slugs even though dots are otherwise allowed for compatibility',
     );
-    for (const validSlug of ['claude-subscription', 'codex-subscription', 'zai-coding-plan', 'env-openai']) {
+    for (const validSlug of ['claude-subscription', 'openai-codex', 'zai-coding-plan', 'env-openai']) {
       assert.doesNotMatch(validSlug, /[\u0000-\u001F\u007F/:\\]/, `${validSlug} should stay representative-valid`);
       assert.ok(validSlug.length <= 64, `${validSlug} should stay under the IPC slug cap`);
     }

@@ -12,7 +12,7 @@ export type ProviderRuntimeAdapter =
   | { kind: 'anthropic'; auth: 'api-key' | 'bearer'; normalizeBaseUrl: boolean }
   | { kind: 'claude-subscription' }
   | { kind: 'openai' }
-  | { kind: 'codex-subscription' }
+  | { kind: 'openai-codex' }
   | { kind: 'google'; normalizeBaseUrl?: boolean }
   | { kind: 'github-copilot' }
   | { kind: 'cohere' }
@@ -1250,7 +1250,7 @@ const providerRegistry = {
     category: 'oauth',
     catalogBadge: 'Experimental',
   },
-  'codex-subscription': {
+  'openai-codex': {
     label: 'OpenAI OAuth (ChatGPT / Codex)',
     description: 'ChatGPT/Codex account OAuth path for OpenAI Responses models.',
     baseUrl: 'https://chatgpt.com/backend-api/codex',
@@ -1259,7 +1259,7 @@ const providerRegistry = {
     fallbackModels: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark'],
     status: 'phase3-experimental',
     protocol: 'openai',
-    runtimeAdapter: { kind: 'codex-subscription' },
+    runtimeAdapter: { kind: 'openai-codex' },
     modelDiscovery: { kind: 'fallback' },
     category: 'oauth',
     catalogBadge: 'Account',
@@ -1293,3 +1293,21 @@ function providerTypesByOrder(field: 'readyOrder' | 'catalogOrder' | 'recommende
 export const READY_PROVIDER_TYPES = providerTypesByOrder('readyOrder');
 export const CATALOG_PROVIDER_TYPES = providerTypesByOrder('catalogOrder');
 export const RECOMMENDED_PROVIDER_TYPES = providerTypesByOrder('recommendedOrder');
+
+/**
+ * Persisted providerType aliases renamed away in the current registry. Each
+ * entry maps a legacy persisted id to its current id so connections stored
+ * before a rename keep working without a destructive on-disk migration.
+ *
+ * The alias normalizes the `providerType` field only. Persisted connection
+ * slugs and credential-store keys (e.g. the `codex-subscription` slug used by
+ * the OpenAI Codex OAuth service) are intentionally left untouched so existing
+ * OAuth tokens remain reachable.
+ */
+const PROVIDER_TYPE_ALIASES: Readonly<Record<string, ProviderType>> = {
+  'codex-subscription': 'openai-codex',
+};
+
+export function normalizeProviderType(type: string): ProviderType {
+  return PROVIDER_TYPE_ALIASES[type] ?? (type as ProviderType);
+}

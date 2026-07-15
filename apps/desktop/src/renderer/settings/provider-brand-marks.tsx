@@ -379,7 +379,7 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
     case 'claude-subscription':
       return <Claude />;
     case 'openai':
-    case 'codex-subscription':
+    case 'openai-codex':
     case 'openai-compatible':
       return <OpenAI />;
     case 'github-copilot':

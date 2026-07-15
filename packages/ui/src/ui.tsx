@@ -19,23 +19,6 @@ import { inputClasses } from './primitives/input.js';
 
 export { cn } from './utils.js';
 
-export type PickerTriggerAppearance = 'field' | 'quiet';
-
-const quietPickerTriggerClasses = [
-  'inline-flex shrink-0 items-center',
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-  'disabled:pointer-events-none disabled:opacity-50',
-].join(' ');
-
-/**
- * Picker triggers appear either as form fields or as quiet toolbar controls.
- * The quiet variant intentionally carries only interaction states: its owning
- * surface remains the single source of geometry and visual chrome.
- */
-export function pickerTriggerClasses(appearance: PickerTriggerAppearance = 'field'): string {
-  return appearance === 'field' ? inputClasses : quietPickerTriggerClasses;
-}
-
 // === Base UI style-hook convention (#520 PR5 item 23) =========================
 // Every Base UI wrapper in this file exposes `data-slot="<name>"` so CSS can
 // target `[data-slot="..."]` (a stable hook that survives className drift);
@@ -274,17 +257,14 @@ export const AlertDialogContent = createModalContent({
 export { Tabs as TabsRoot, TabsList, TabsTab as TabsTrigger, TabsPanel } from './primitives/tabs.js';
 
 export const SelectRoot = BaseSelect.Root;
-export const SelectTrigger = forwardRef<
-  HTMLButtonElement,
-  React.ComponentPropsWithoutRef<typeof BaseSelect.Trigger> & { appearance?: PickerTriggerAppearance }
->(function SelectTrigger(
-  { appearance = 'field', className, children, ...props },
+export const SelectTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof BaseSelect.Trigger>>(function SelectTrigger(
+  { className, children, ...props },
   ref,
 ) {
   return (
     <BaseSelect.Trigger
       ref={ref}
-      className={cn(pickerTriggerClasses(appearance), 'justify-between', className)}
+      className={cn(inputClasses, 'justify-between', className)}
       data-slot="select-trigger"
       {...props}
     >

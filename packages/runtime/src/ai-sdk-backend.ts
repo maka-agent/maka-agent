@@ -35,7 +35,6 @@
 import type {
   SessionEvent,
   CompleteEvent,
-  ContextBudgetExhaustedDetail,
   AbortEvent,
   ErrorEvent,
   TextCompleteEvent,
@@ -146,13 +145,11 @@ import {
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
   applyRuntimeEventContextBudget,
   buildContextBudgetDiagnosticShell,
-  buildHistoryCompactBlockFromSummary,
   buildHistorySearchSource,
   buildPromptSegmentEstimates,
   collectStaleToolResultArchiveCandidates,
   evaluateHistoryCompactCheckpointReplay,
   estimateRuntimeEventsTokens,
-  isHistoryCompactContentEvent,
   mergeContextBudgetDiagnostic,
   mergeContextBudgetDiagnosticPatches,
   mergeRuntimeEventsInOriginalOrder,
@@ -183,12 +180,7 @@ import {
   matchHistoryCompactCheckpointPrefix,
   type HistoryCompactCheckpoint,
 } from './history-compact-checkpoint.js';
-import { resolveSelectedModelContextWindow } from './context-budget-policy.js';
-import {
-  estimateNextRequestTokens,
-  exceedsHighWater,
-  planMidTurnCapacityCompaction,
-} from './mid-turn-capacity-compact.js';
+
 export {
   DEFAULT_PERMISSION_TIMEOUT_MS,
   MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN,
@@ -212,34 +204,12 @@ export type {
 
 export const INVALID_TOOL_NAME = 'invalid';
 
-/**
- * Deterministic prepareStep pipeline over ONE provider-visible projection.
- * Order is a contract: mid-turn capacity compaction runs first among the
- * message-shaping hooks so every later mechanism operates on (and re-converges
- * onto) its projection — active tool-result pruning re-archives large tool
- * results in the rebuilt tail, and semantic/active-full compaction sees the
- * already-compacted messages. On a step where the capacity hook replaced the
- * request, semantic/active-full compaction yields (see send()) so two
- * summarizers never run for one step.
- *
- * Every hook here only SHAPES the projection. The pass/terminate capacity
- * verdict is issued once, after the whole pipeline, by the final-request
- * estimate owner (buildMidTurnFinalRequestVerdict) over the actual outgoing
- * (messages, tools) payload — never by an individual hook over an intermediate
- * projection that a later hook could still rescue.
- */
 export function composePrepareStep(
   toolAvailability: PrepareStepFunctionLike | undefined,
-  midTurnCapacityCompact: PrepareStepFunctionLike | undefined,
   activeToolResultPrune: PrepareStepFunctionLike | undefined,
   activeFullCompact?: PrepareStepFunctionLike | undefined,
 ): PrepareStepFunctionLike | undefined {
-  const hooks = [
-    toolAvailability,
-    midTurnCapacityCompact,
-    activeToolResultPrune,
-    activeFullCompact,
-  ].filter(Boolean) as PrepareStepFunctionLike[];
+  const hooks = [toolAvailability, activeToolResultPrune, activeFullCompact].filter(Boolean) as PrepareStepFunctionLike[];
   if (hooks.length === 0) return undefined;
   return async (options: PrepareStepLike): Promise<PrepareStepResultLike | undefined> => {
     let result: PrepareStepResultLike | undefined;
@@ -301,126 +271,6 @@ function projectAcceptedActiveFullCompactMessages(
     ...acceptedProjection.projectedMessages,
     ...incomingMessages.slice(acceptedProjection.sourceSignatures.length),
   ];
-}
-
-// ============================================================================
-// Mid-turn capacity compaction — per-send trigger state
-// ============================================================================
-
-/**
- * Per-send() state for the mid-turn capacity invariant. The coverage pool is
- * NOT mirrored here: every trigger reads the current turn's persisted
- * RuntimeEvents through the injected durable-read seam, so coverage can only
- * span events the ledger already replays. This class keeps only the trigger's
- * cursor state between steps.
- */
-class MidTurnCapacityCompactState {
-  /**
-   * Chars of the final (system prompt + messages + active tool schema)
-   * payload of the LAST prepared request, recorded by the final-request
-   * estimate owner at the end of every prepareStep pipeline run. All capacity estimates are signed
-   * deltas against this number, so they are anchored to the request the
-   * provider actually saw — a compacted projection, a pruned tail, or a
-   * same-turn tool-schema expansion all move the delta the same way.
-   */
-  lastRequestPayloadChars: number | undefined;
-  /**
-   * The last request's REAL input size: the inputTokens the provider reported
-   * for the last finished step. Never input+output — the signed payload delta
-   * already carries the step's freshly generated output (assistant text/tool
-   * calls) and its tool results, so an output-inclusive baseline would count
-   * them twice. Undefined when the last step's usage is missing or unusable
-   * (no positive input count); estimates then fall back to the whole-payload
-   * cold-start path — an unusable sample is unknown, never zero.
-   */
-  lastRequestInputTokens: number | undefined;
-  /** Latest durable checkpoint (loaded or written) for roll-forward summaries. */
-  previousCheckpoint: HistoryCompactCheckpoint | undefined;
-  /** Set when the turn must end with a context_budget_exhausted outcome. */
-  exhaustedDetail: ContextBudgetExhaustedDetail | undefined;
-  /**
-   * Step whose request the capacity hook replaced. Semantic/active-full
-   * compaction yields on that exact step so one step never runs two
-   * summarizers or double-projects.
-   */
-  replacedStepNumber: number | undefined;
-  /**
-   * finish-step boundaries the event pump has flushed into the session-event
-   * queue. The capacity hook's durability wait needs it: only after the pump
-   * has flushed step N's boundary are that step's thinking/text completion
-   * events enqueued at all.
-   */
-  flushedSteps = 0;
-  /**
-   * Set by the final-request estimate owner to force one capacity re-entry on
-   * the current step, bypassing the (deliberately approximate) high-water
-   * trigger. Consumed by the capacity hook on its next invocation.
-   */
-  forcedTriggerEstimate: number | undefined;
-  /**
-   * The capacity hook's most recent shaping failure. The owner reads it (for
-   * the same step only) to pick the terminal detail and diagnostic reason
-   * when the final payload is over the window, and to avoid re-entering a
-   * shaper that already attempted and failed this step.
-   */
-  lastShapeFailure: {
-    stepNumber: number;
-    detail: ContextBudgetExhaustedDetail;
-    diagnosticReason: string;
-  } | undefined;
-
-  constructor(
-    readonly headAnchor: RuntimeEvent,
-    readonly priorContentEvents: readonly RuntimeEvent[],
-    readonly contextWindow: number,
-  ) {}
-}
-
-/**
- * Char measure of the FULL provider-visible request input: the system prompt
- * (sent through the separate `system` field), the (projected) messages, and
- * the serialized schemas of the active tool subset. The capacity trigger and
- * the final-request estimate owner both measure with this ONE function, so
- * their deltas against `lastRequestPayloadChars` are commensurable and
- * same-turn tool-schema growth (a `load_tools` activation) is counted like
- * any other payload growth. The system prompt is constant between adjacent
- * requests — signed deltas cancel it — but the cold-start estimate (no usable
- * usage sample) is the whole payload, so omitting it would under-estimate by
- * exactly the system prompt and let an over-window request stream.
- */
-function midTurnRequestPayloadChars(
-  messages: readonly ModelMessage[],
-  providerTools: readonly MakaTool[],
-  activeTools: readonly string[],
-  systemPromptChars: number,
-): number {
-  return (
-    Math.max(0, Math.floor(systemPromptChars))
-    + JSON.stringify(messages).length
-    + toolSchemaCharsForDiagnostics(providerTools, activeTools)
-  );
-}
-
-/**
- * Event-driven wait for seq-ack progress: resolves when the queue reports any
- * push/ack/close/wake, or immediately on abort. The caller loops and re-checks
- * its condition — a condition variable, not a poll.
- */
-function waitForQueueProgressOrAbort(
-  queue: AsyncEventQueue<SessionEvent>,
-  abortSignal: AbortSignal | undefined,
-): Promise<void> {
-  return new Promise<void>((resolve) => {
-    let settled = false;
-    const settle = (): void => {
-      if (settled) return;
-      settled = true;
-      abortSignal?.removeEventListener('abort', settle);
-      resolve();
-    };
-    abortSignal?.addEventListener('abort', settle, { once: true });
-    void queue.waitForProgress().then(settle);
-  });
 }
 
 function joinPromptFragments(fragments: readonly (string | undefined)[]): string | undefined {
@@ -670,19 +520,6 @@ export interface AiSdkBackendInput {
   summarizeHistoryCompact?: HistoryCompactSummarizer;
   /** Best-effort durable recorder for accepted V2 checkpoints. */
   recordHistoryCompactCheckpoint?: HistoryCompactCheckpointRecorder;
-  /**
-   * Durable read of the given turn's persisted RuntimeEvents from the
-   * authoritative run ledger (same injection seam as the checkpoint
-   * loader/recorder). Mid-turn capacity compaction derives its coverage pool
-   * from this read: covered events are persisted by construction before the
-   * checkpoint that folds them, and their bytes are exactly what recovery
-   * replays. A lagging read is NOT fail-safe here — the replacement
-   * projection replaces the whole message list, so a missing completed-step
-   * event would be silently dropped from the next request; the capacity hook
-   * therefore reads only after its seq-ack durability boundary (all enqueued
-   * session events processed by the consumer) is satisfied.
-   */
-  loadTurnRuntimeEvents?: (turnId: string) => Promise<RuntimeEvent[]>;
   /** Optional best-effort durable recorder for accepted active full compact blocks. */
   recordActiveFullCompactBlock?: ActiveFullCompactBlockRecorder;
   /** Optional best-effort durable recorder for accepted semantic compact blocks. */
@@ -913,7 +750,6 @@ export class AiSdkBackend implements AgentBackend {
     this.toolRuntime.beginTurn(turnId);
     this.abortController = new AbortController();
 
-    const midTurnState = this.buildMidTurnCapacityCompactState(input);
     const queue = new AsyncEventQueue<SessionEvent>();
     this.currentQueue = queue;
 
@@ -983,15 +819,6 @@ export class AiSdkBackend implements AgentBackend {
     };
     let tokenUsage: NormalizedAiSdkUsage | undefined;
     let tokenUsageCostUsd: number | undefined;
-    // Per-send sum of every COMPLETED step's usage, merged at each finish-step
-    // boundary. When the send aborts (mid-turn exhaust, user stop, stream
-    // error) the SDK's `totalUsage` promise never resolves, but this sum is
-    // real provider-reported evidence for the steps that did finish — IF every
-    // completed step produced a usable sample. One unusable sample makes the
-    // sum a partial cost, and LlmCallRecord has no partial marker, so the flag
-    // fails the whole fallback closed (#972: incomplete usage is no usage).
-    let completedStepUsage: NormalizedAiSdkUsage | undefined;
-    let sawUnusableStepUsage = false;
     let streamStatus: LlmCallRecord['status'] = 'success';
     let streamErrorClass: string | undefined;
     let rawFinishReason: string | undefined;
@@ -1073,11 +900,6 @@ export class AiSdkBackend implements AgentBackend {
 
     // --- Build messages from RuntimeEvent history and its compatibility projection. ---
     const priorReplay = await this.buildPriorMessages(input);
-    if (midTurnState) {
-      // Roll-forward seed: the latest durable checkpoint (loaded or written at
-      // turn start) so a mid-turn summary only re-reads the newly folded span.
-      midTurnState.previousCheckpoint = priorReplay.latestHistoryCompactCheckpoint;
-    }
 
     // --- Background pump: streamText → fullStream → normalize → queue ---
     const pumpDone: Promise<void> = (async () => {
@@ -1196,94 +1018,37 @@ export class AiSdkBackend implements AgentBackend {
           activeTools: activeToolsForStep ?? plan.activeTools,
           priorMessages: stepMessages,
         }, priorShapeBaseline).requestShapeHash;
-        const activeCompactHook = this.buildSemanticCompactPrepareStep(
-          turnId,
-          model,
-          input.runtimeContext,
-          (messagesForStep, activeToolsForStep) => stepRequestShapeHash(messagesForStep, activeToolsForStep),
-          (patch) => {
-            activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
-              activeCompactDiagnosticPatch,
-              patch,
-            );
-          },
-        ) ?? this.buildActiveFullCompactPrepareStep(
-          turnId,
-          input.runtimeContext,
-          (messagesForStep, activeToolsForStep) => stepRequestShapeHash(messagesForStep, activeToolsForStep),
-          (patch) => {
-            activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
-              activeCompactDiagnosticPatch,
-              patch,
-            );
-          },
-        );
-        // Deterministic priority on a capacity-replaced step: the hard window
-        // invariant owns the projection, so semantic/active-full compaction
-        // yields for that step (recorded as a decision) instead of running a
-        // second summarizer over the same request.
-        const activeCompactAfterMidTurn = activeCompactHook && midTurnState
-          ? (options: PrepareStepLike) => {
-              if (midTurnState.replacedStepNumber === options.stepNumber) {
-                activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
-                  activeCompactDiagnosticPatch,
-                  compactionDecisionDiagnosticPatch({
-                    stage: 'activeStep',
-                    sourceKind: 'providerMessages',
-                    decision: 'unchanged',
-                    boundaryKind: 'historyCompact',
-                    reason: 'mid_turn_capacity_precedence',
-                    skippedReasonCounts: { mid_turn_capacity_precedence: 1 },
-                  }),
-                );
-                return undefined;
-              }
-              return activeCompactHook(options);
-            }
-          : activeCompactHook;
-        const onMidTurnDiagnosticPatch = (patch: Partial<ContextBudgetDiagnostic>): void => {
-          activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
-            activeCompactDiagnosticPatch,
-            patch,
-          );
-        };
-        const midTurnSystemPromptChars = systemPrompt?.length ?? 0;
-        const midTurnCapacityHook = this.buildMidTurnCapacityCompactPrepareStep(
-          turnId,
-          midTurnState,
-          queue,
-          providerTools,
-          () => currentRepairToolNames(),
-          turnTailPrompt,
-          midTurnSystemPromptChars,
-          onMidTurnDiagnosticPatch,
-        );
-        const activeToolResultPruneHook = this.buildActiveToolResultPrunePrepareStep(turnId, (patch) => {
-          activeToolResultPruneDiagnosticPatch = mergeActiveToolResultPruneDiagnosticPatches(
-            activeToolResultPruneDiagnosticPatch,
-            patch,
-          );
-        });
-        const shapedPrepareStep = composePrepareStep(
+        const prepareStep = composePrepareStep(
           plan.prepareStep,
-          midTurnCapacityHook,
-          activeToolResultPruneHook,
-          activeCompactAfterMidTurn,
+          this.buildActiveToolResultPrunePrepareStep(turnId, (patch) => {
+            activeToolResultPruneDiagnosticPatch = mergeActiveToolResultPruneDiagnosticPatches(
+              activeToolResultPruneDiagnosticPatch,
+              patch,
+            );
+          }),
+          this.buildSemanticCompactPrepareStep(
+            turnId,
+            model,
+            input.runtimeContext,
+            (messagesForStep, activeToolsForStep) => stepRequestShapeHash(messagesForStep, activeToolsForStep),
+            (patch) => {
+              activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
+                activeCompactDiagnosticPatch,
+                patch,
+              );
+            },
+          ) ?? this.buildActiveFullCompactPrepareStep(
+            turnId,
+            input.runtimeContext,
+            (messagesForStep, activeToolsForStep) => stepRequestShapeHash(messagesForStep, activeToolsForStep),
+            (patch) => {
+              activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
+                activeCompactDiagnosticPatch,
+                patch,
+              );
+            },
+          ),
         );
-        // The verdict owner wraps the WHOLE shaping pipeline: hooks shape, one
-        // owner measures the final payload and decides pass/terminate.
-        const prepareStep = midTurnState && midTurnCapacityHook && shapedPrepareStep
-          ? this.buildMidTurnFinalRequestVerdict({
-              shaped: shapedPrepareStep,
-              reentry: composePrepareStep(undefined, midTurnCapacityHook, activeToolResultPruneHook)!,
-              state: midTurnState,
-              providerTools,
-              fallbackActiveTools: () => currentRepairToolNames(),
-              charsPerToken: this.input.contextBudget?.charsPerToken ?? 4,
-              systemPromptChars: midTurnSystemPromptChars,
-              onDiagnosticPatch: onMidTurnDiagnosticPatch,
-            })
-          : shapedPrepareStep;
 
         const result = await this.modelAdapter.startStream({
           model,
@@ -1317,9 +1082,7 @@ export class AiSdkBackend implements AgentBackend {
           if (isStepFinishChunk) {
             runtimeSteps += 1;
             const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
-            if (!stepUsage) sawUnusableStepUsage = true;
             if (stepUsage) {
-              completedStepUsage = mergeNormalizedUsage(completedStepUsage, stepUsage);
               this.cumulativeUsageCheckpoint = mergeNormalizedUsage(this.cumulativeUsageCheckpoint, stepUsage);
               await this.input.recordUsageCheckpoint?.({
                 ...this.cumulativeUsageCheckpoint,
@@ -1345,14 +1108,6 @@ export class AiSdkBackend implements AgentBackend {
           if (isStepFinishChunk) {
             await flushStep();
             this.currentStepMessageId = this.newId();
-            if (midTurnState) {
-              // Durability clock: step N's thinking/text completion events are
-              // enqueued by flushStep just above, so only after this boundary
-              // can a seq-ack wait for step N mean anything. Wake waiters AFTER
-              // the increment or they would re-check a stale count and sleep.
-              midTurnState.flushedSteps += 1;
-              queue.wake();
-            }
           }
         }
 
@@ -1362,16 +1117,6 @@ export class AiSdkBackend implements AgentBackend {
         // persist a partial assistant turn and emit a false end_turn completion.
         if (this.aborted) {
           throw Object.assign(new Error('aborted'), { name: 'AbortError' });
-        }
-
-        // Mid-turn exhaustion aborts the SDK stream, but streamText ends
-        // gracefully on abort instead of throwing; route to the explicit
-        // outcome regardless of how the stream wound down.
-        if (midTurnState?.exhaustedDetail) {
-          throw Object.assign(
-            new Error(`mid-turn context budget exhausted: ${midTurnState.exhaustedDetail}`),
-            { name: 'MidTurnContextBudgetExhaustedError' },
-          );
         }
 
         // Catch-all: flush any residual step content if the provider closed the
@@ -1532,20 +1277,7 @@ export class AiSdkBackend implements AgentBackend {
         // BOTH exits — user stop and provider error / watchdog timeout — so
         // partialOutputRetained reflects what the user actually saw.
         await flushStep().catch(() => {});
-        if (!this.aborted && midTurnState?.exhaustedDetail) {
-          // Mid-turn compaction could not produce a provider-safe request: end
-          // the turn with the explicit first-class outcome, not a raw error.
-          streamErrorClass = 'ContextBudgetExhausted';
-          trace.modelStreamCompleted('context_budget_exhausted');
-          queue.push({
-            type: 'complete',
-            id: this.newId(),
-            turnId,
-            ts: this.now(),
-            stopReason: 'context_budget_exhausted',
-            contextBudgetExhaustedDetail: midTurnState.exhaustedDetail,
-          } satisfies CompleteEvent);
-        } else if (this.aborted) {
+        if (this.aborted) {
           queue.push({
             type: 'abort',
             id: this.newId(),
@@ -1581,39 +1313,25 @@ export class AiSdkBackend implements AgentBackend {
           activeToolResultPruneDiagnosticPatch,
           activeCompactDiagnosticPatch,
         );
-        // The terminal record is fail-closed on usage evidence: no evidence,
-        // no record. An aborted send has no `totalUsage`, but when EVERY
-        // completed step produced a usable sample their accumulated usage IS
-        // the complete evidence — record it, carrying the real cost of the
-        // steps that ran plus the diagnostics riding this record. Otherwise
-        // (no finish-step at all, or any unusable sample) the record is
-        // skipped: a partial sum posed as the whole call would violate the
-        // #972 no-fabrication invariant. The terminal outcome itself does not
-        // depend on this record — stopReason and the exhausted detail are
-        // durable on the CompleteEvent either way.
-        if (!tokenUsage && completedStepUsage && !sawUnusableStepUsage) {
-          tokenUsage = completedStepUsage;
-          tokenUsageCostUsd = this.computeTokenUsageCostUsd(tokenUsage);
-        }
-        if (tokenUsage) this.input.recordLlmCall?.({
+        this.input.recordLlmCall?.({
           sessionId: this.sessionId,
           turnId,
           connectionSlug: this.input.connection.slug,
           providerId: this.input.connection.providerType,
           modelId: this.input.modelId,
-          inputTokens: tokenUsage.inputTokens,
-          outputTokens: tokenUsage.outputTokens,
-          cacheHitInputTokens: tokenUsage.cacheHitInputTokens,
-          cacheMissInputTokens: tokenUsage.cacheMissInputTokens,
-          ...(tokenUsage.cacheMissInputSource !== undefined
+          inputTokens: tokenUsage?.inputTokens ?? 0,
+          outputTokens: tokenUsage?.outputTokens ?? 0,
+          cacheHitInputTokens: tokenUsage?.cacheHitInputTokens ?? 0,
+          cacheMissInputTokens: tokenUsage?.cacheMissInputTokens ?? 0,
+          ...(tokenUsage?.cacheMissInputSource !== undefined
             ? { cacheMissInputSource: tokenUsage.cacheMissInputSource }
             : {}),
-          cachedInputTokens: tokenUsage.cachedInputTokens,
-          cacheWriteInputTokens: tokenUsage.cacheWriteInputTokens,
-          reasoningTokens: tokenUsage.reasoningTokens,
-          totalTokens: tokenUsage.totalTokens,
-          ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
-          ...(tokenUsage.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
+          cachedInputTokens: tokenUsage?.cachedInputTokens ?? 0,
+          cacheWriteInputTokens: tokenUsage?.cacheWriteInputTokens ?? 0,
+          reasoningTokens: tokenUsage?.reasoningTokens ?? 0,
+          totalTokens: tokenUsage?.totalTokens,
+          ...(tokenUsage?.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
+          ...(tokenUsage?.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
           latencyMs: Math.max(0, this.now() - startedAt),
           status: streamStatus,
           ...(streamErrorClass ? { errorClass: streamErrorClass } : {}),
@@ -1640,9 +1358,7 @@ export class AiSdkBackend implements AgentBackend {
     })();
 
     try {
-      // drain() carries the seq-ack semantics (consumer pull = processed ack);
-      // every consumer-facing path must go through it.
-      yield* this.drain(queue);
+      for await (const ev of queue) yield ev;
     } finally {
       await pumpDone.catch(() => {});
       this.cleanupAfterTurn(turnId);
@@ -1741,8 +1457,6 @@ export class AiSdkBackend implements AgentBackend {
     diagnostics: RuntimeEventModelReplayPlan['diagnostics'];
     runtimeEventCount?: number;
     contextBudget?: ContextBudgetDiagnostic;
-    /** Latest durable checkpoint (loaded or written this turn) for mid-turn roll-forward. */
-    latestHistoryCompactCheckpoint?: HistoryCompactCheckpoint;
   }> {
     const projectedMessages = await this.materializePriorMessages(
       input.context.filter((message) => message.turnId !== input.turnId),
@@ -1757,7 +1471,6 @@ export class AiSdkBackend implements AgentBackend {
     let runtimeContext = budgeted?.events
       ?? priorRuntimeContext;
     let contextBudgetDiagnostic = budgeted?.diagnostic;
-    let latestHistoryCompactCheckpoint = contextBudget?.historyCompact?.checkpoint;
     if (preparedContextBudget.diagnosticPatch) {
       contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
         contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
@@ -1781,7 +1494,6 @@ export class AiSdkBackend implements AgentBackend {
             abortSignal: this.abortController?.signal,
           });
           if (writePatch.replacementCheckpoint) {
-            latestHistoryCompactCheckpoint = writePatch.replacementCheckpoint;
             runtimeContext = [
               historyCompactCheckpointToRuntimeEvent(writePatch.replacementCheckpoint),
               ...runtimeContext.filter((event) => !event.id.startsWith('history-compact:')),
@@ -1948,7 +1660,6 @@ export class AiSdkBackend implements AgentBackend {
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
         ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
-        ...(latestHistoryCompactCheckpoint ? { latestHistoryCompactCheckpoint } : {}),
       };
     }
 
@@ -1959,7 +1670,6 @@ export class AiSdkBackend implements AgentBackend {
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
         ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
-        ...(latestHistoryCompactCheckpoint ? { latestHistoryCompactCheckpoint } : {}),
       };
     }
 
@@ -1970,7 +1680,6 @@ export class AiSdkBackend implements AgentBackend {
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
         ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
-        ...(latestHistoryCompactCheckpoint ? { latestHistoryCompactCheckpoint } : {}),
       };
     }
 
@@ -1981,7 +1690,6 @@ export class AiSdkBackend implements AgentBackend {
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
         ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
-        ...(latestHistoryCompactCheckpoint ? { latestHistoryCompactCheckpoint } : {}),
       };
     }
 
@@ -1991,7 +1699,6 @@ export class AiSdkBackend implements AgentBackend {
       diagnostics: plan.diagnostics,
       runtimeEventCount: runtimeContext.length,
       ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
-      ...(latestHistoryCompactCheckpoint ? { latestHistoryCompactCheckpoint } : {}),
     };
   }
 
@@ -2240,514 +1947,6 @@ export class AiSdkBackend implements AgentBackend {
     };
   }
 
-  /**
-   * Mid-turn capacity compaction eligibility (issue #882 PR 1). Explicit
-   * opt-in via `historyCompact.midTurn.enabled`; requires the checkpoint
-   * writer seams plus the durable turn-ledger read, the persisted head anchor
-   * for this turn, and a known model context window.
-   */
-  private buildMidTurnCapacityCompactState(input: BackendSendInput): MidTurnCapacityCompactState | undefined {
-    const policy = this.input.contextBudget;
-    if (policy?.historyCompact?.enabled !== true || policy.historyCompact.midTurn?.enabled !== true) {
-      return undefined;
-    }
-    if (
-      !this.input.summarizeHistoryCompact
-      || !this.input.recordHistoryCompactCheckpoint
-      || !this.input.loadTurnRuntimeEvents
-    ) {
-      return undefined;
-    }
-    const headAnchor = input.headAnchorRuntimeEvent;
-    if (
-      !headAnchor
-      || headAnchor.sessionId !== this.sessionId
-      || headAnchor.turnId !== input.turnId
-      || headAnchor.role !== 'user'
-      || headAnchor.author !== 'user'
-      || !isHistoryCompactContentEvent(headAnchor)
-    ) {
-      return undefined;
-    }
-    const contextWindow = resolveSelectedModelContextWindow(this.input.connection, this.input.modelId);
-    if (contextWindow === undefined) return undefined;
-    const priorContentEvents = (input.runtimeContext ?? [])
-      .filter((event) => event.turnId !== input.turnId)
-      .filter(isHistoryCompactContentEvent);
-    return new MidTurnCapacityCompactState(headAnchor, priorContentEvents, contextWindow);
-  }
-
-  /**
-   * prepareStep SHAPING hook for the mid-turn capacity invariant: between
-   * steps of one turn, estimate the next provider request (last step's real
-   * usage + a signed char/4 payload delta, tool schemas included) against
-   * `contextWindow - reserve`; over the high-water, fold a safe completed
-   * prefix into a durable mid_turn checkpoint and continue the same turn on
-   * `[compact block, verbatim head anchor, preserved tail]`.
-   *
-   * This hook never terminates the turn: every failure fails open with a
-   * diagnostic and records itself for the final-request estimate owner, which
-   * re-measures the payload after ALL shaping (including active tool-result
-   * pruning, which runs later and can still rescue the step) and issues the
-   * context_budget_exhausted verdict only when the request that would really
-   * go out exceeds the window. The trigger threshold here is deliberately
-   * approximate — a missed or spurious trigger is recoverable; the verdict is
-   * not, so it does not live here.
-   */
-  private buildMidTurnCapacityCompactPrepareStep(
-    turnId: string,
-    state: MidTurnCapacityCompactState | undefined,
-    queue: AsyncEventQueue<SessionEvent>,
-    providerTools: readonly MakaTool[],
-    fallbackActiveTools: () => readonly string[],
-    turnTailPrompt: string | undefined,
-    systemPromptChars: number,
-    onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void,
-  ): PrepareStepFunctionLike | undefined {
-    if (!state) return undefined;
-    const summarizer = this.input.summarizeHistoryCompact!;
-    const recorder = this.input.recordHistoryCompactCheckpoint!;
-    const loadTurnRuntimeEvents = this.input.loadTurnRuntimeEvents!;
-    const policy = this.input.contextBudget!;
-    const compactPolicy = policy.historyCompact!;
-    const midTurn = compactPolicy.midTurn!;
-    const charsPerToken = policy.charsPerToken ?? 4;
-    const reserveTokens = midTurn.reserveTokens ?? 16_384;
-    const maxSummaryEstimatedTokens = compactPolicy.maxBlockEstimatedTokens
-      ?? compactPolicy.maxSummaryEstimatedTokens
-      ?? 1_024;
-    let acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined;
-
-    return async (options) => {
-      const incomingMessages = options.messages;
-      const projectedMessages = projectAcceptedActiveFullCompactMessages(incomingMessages, acceptedProjection);
-      const keepProjection = (): PrepareStepResultLike | undefined =>
-        projectedMessages ? { messages: projectedMessages } : undefined;
-      // Step 0 is shaped by the pre_turn path; the mid-turn trigger only runs
-      // between steps, once completed-step usage and events exist.
-      if (options.stepNumber < 1 || state.exhaustedDetail) return keepProjection();
-
-      // Real usage for the last finished step, read synchronously from the
-      // SDK's own step results (the same numbers the finish-step chunk
-      // carries) — no coupling to how far the stream consumer has advanced.
-      // Baseline = the last request's INPUT tokens only (see the state field
-      // doc: the payload delta already carries the step's output). The
-      // adapter fails closed on missing token counts (undefined, #972), and a
-      // provider can still report a zero input outright — either way a
-      // non-positive input count is unusable for estimation, so clear the
-      // baseline and let the estimate fall back to the whole-payload cold
-      // start instead of "0 + delta".
-      const lastStepInputTokens = normalizeAiSdkUsage(options.steps.at(-1)?.usage)?.inputTokens;
-      state.lastRequestInputTokens =
-        lastStepInputTokens !== undefined && Number.isFinite(lastStepInputTokens) && lastStepInputTokens > 0
-          ? lastStepInputTokens
-          : undefined;
-
-      // A skipped trigger is never silent: every failure-driven skip records a
-      // failedOpen decision. Recorder counters are attached ONLY on the tiers
-      // where the recorder was actually invoked — the diagnostics must never
-      // claim a write that did not happen.
-      const failOpen = (
-        failOpenReason: string,
-        recorderCounters: Partial<ContextBudgetDiagnostic> = {},
-      ): PrepareStepResultLike | undefined => {
-        onDiagnosticPatch({
-          historyCompactEnabled: true,
-          historyCompactMode: 'read_write',
-          ...recorderCounters,
-          ...compactionDecisionDiagnosticPatch({
-            stage: 'activeStep',
-            sourceKind: 'runtimeEvents',
-            decision: 'failedOpen',
-            phase: 'mid_turn',
-            boundaryKind: 'historyCompact',
-            reason: 'context_limit',
-            failOpenReason,
-          }),
-        });
-        return keepProjection();
-      };
-      // A shaping failure additionally records itself for the final-request
-      // estimate owner: when the final payload is still over the window, the
-      // owner turns this step's failure into the terminal detail instead of
-      // re-entering a shaper that already attempted and failed.
-      const shapeFailure = (
-        detail: ContextBudgetExhaustedDetail,
-        diagnosticReason: string,
-        recorderCounters: Partial<ContextBudgetDiagnostic> = {},
-      ): PrepareStepResultLike | undefined => {
-        state.lastShapeFailure = { stepNumber: options.stepNumber, detail, diagnosticReason };
-        return failOpen(diagnosticReason, recorderCounters);
-      };
-
-      // Trigger estimate: the last request's input tokens plus a SIGNED char/4 delta of
-      // this step's payload (system prompt + projected messages + active tool
-      // schemas) against the previous request's measured payload. Measured synchronously from
-      // the SDK's own projection — no ledger dependency — so a same-turn
-      // `load_tools` schema expansion or a large tool result both count. This
-      // position measures BEFORE later shapers (prune) run, so it can
-      // over-trigger; that is the recoverable direction, and the verdict owner
-      // re-measures the post-shaping payload.
-      const measuredMessages = projectedMessages ?? incomingMessages;
-      const activeToolsForStep = options.activeTools ?? fallbackActiveTools();
-      const payloadChars = midTurnRequestPayloadChars(
-        measuredMessages,
-        providerTools,
-        activeToolsForStep,
-        systemPromptChars,
-      );
-      const forcedEstimate = state.forcedTriggerEstimate;
-      state.forcedTriggerEstimate = undefined;
-      const estimate = forcedEstimate ?? estimateNextRequestTokens({
-        ...(state.lastRequestInputTokens !== undefined ? { priorUsageTokens: state.lastRequestInputTokens } : {}),
-        appendedChars: payloadChars - (state.lastRequestPayloadChars ?? payloadChars),
-        charsPerToken,
-        coldStartChars: payloadChars,
-      });
-      if (forcedEstimate === undefined && !exceedsHighWater(estimate, state.contextWindow, reserveTokens)) {
-        return keepProjection();
-      }
-
-      // Coverage pool = the durable run ledger, read through the injected
-      // seam. Covered events are persisted by construction (no crash window
-      // between checkpoint and source), and their bytes are exactly what a
-      // recovery re-projection replays.
-      //
-      // Seq-ack durability boundary. The replacement projection REPLACES the
-      // whole message list, so any completed-step content event missing from
-      // the durable pool is silently dropped from the next request — a
-      // lagging ledger here is content loss (e.g. a step's already-emitted
-      // assistant text), not a conservative under-count. No event-kind
-      // predicate can close that: the wait counts the event stream itself.
-      //  1. The pump has flushed every finish-step boundary the SDK reports
-      //     completed (state.flushedSteps), so ALL of the completed steps'
-      //     session events — tool pairs AND thinking/text completions — are
-      //     enqueued with producer-stamped sequence numbers.
-      //  2. The consumer has fully processed everything enqueued
-      //     (consumedCount >= pushedCount). The consumer's pull is the ack
-      //     (see drain()): it fires after processing, not after persisting,
-      //     so deliberately-unpersisted events (non-terminal errors,
-      //     partials) can never deadlock the wait.
-      // After both, ONE durable read (which itself re-awaits the run's
-      // serialized write queue) sees every event the projection may carry.
-      // Exits: the boundary, an abort, a detached consumer, or a read failure.
-      const abortSignal = this.abortController?.signal;
-      for (;;) {
-        if (abortSignal?.aborted) return shapeFailure('no_safe_completed_span', 'ledger_wait_aborted');
-        if (queue.consumerDetached) return shapeFailure('no_safe_completed_span', 'ledger_wait_aborted');
-        if (state.flushedSteps >= options.stepNumber && queue.consumedCount >= queue.pushedCount) break;
-        await waitForQueueProgressOrAbort(queue, abortSignal);
-      }
-      let turnLedger: RuntimeEvent[];
-      try {
-        turnLedger = await loadTurnRuntimeEvents(turnId);
-      } catch {
-        return shapeFailure('no_safe_completed_span', 'ledger_read_failed');
-      }
-      const currentTurnEvents = turnLedger
-        .filter((event) => event.turnId === turnId)
-        .filter(isHistoryCompactContentEvent);
-      // The head anchor is persisted before backend.send() is invoked, so
-      // its absence is a wiring error, not replication lag — fail open now.
-      if (!currentTurnEvents.some((event) => event.id === state.headAnchor.id)) {
-        return shapeFailure('no_safe_completed_span', 'head_anchor_not_durable');
-      }
-      const orderedEvents = [...state.priorContentEvents, ...currentTurnEvents];
-
-      const plan = await planMidTurnCapacityCompaction({
-        sessionId: this.sessionId,
-        orderedEvents,
-        headAnchor: { runtimeEventId: state.headAnchor.id, turnId },
-        estimatedNextRequestTokens: estimate,
-        contextWindow: state.contextWindow,
-        reserveTokens,
-        reserveTailEvents: midTurn.reserveTailEvents ?? 1,
-        charsPerToken,
-        now: this.now(),
-        ...(compactPolicy.highWaterName !== undefined ? { highWaterName: compactPolicy.highWaterName } : {}),
-        maxSummaryEstimatedTokens,
-        ...(state.previousCheckpoint ? { previousCheckpoint: state.previousCheckpoint } : {}),
-        summarize: async ({ coveredRuntimeEvents, newlyFoldedRuntimeEvents, previousCheckpoint }) => {
-          const draftBlock = buildHistoryCompactBlockFromSummary({
-            sessionId: this.sessionId,
-            foldedRuntimeEvents: coveredRuntimeEvents,
-            summary: 'Mid-turn capacity compaction draft.',
-            ...(compactPolicy.highWaterName !== undefined ? { highWaterName: compactPolicy.highWaterName } : {}),
-            maxSummaryEstimatedTokens,
-            charsPerToken,
-            now: this.now(),
-          });
-          return await Promise.resolve(summarizer({
-            sessionId: this.sessionId,
-            turnId,
-            source: { draftBlock, foldedRuntimeEvents: [...coveredRuntimeEvents] },
-            limits: {
-              maxBlocks: 1,
-              maxBlockEstimatedTokens: maxSummaryEstimatedTokens,
-              maxEstimatedTokens: compactPolicy.maxEstimatedTokens ?? 2_048,
-              charsPerToken,
-            },
-            ...(previousCheckpoint ? { previousCheckpoint } : {}),
-            newlyFoldedRuntimeEvents: [...newlyFoldedRuntimeEvents],
-            ...(this.abortController?.signal ? { abortSignal: this.abortController.signal } : {}),
-          }));
-        },
-      });
-
-      if (plan.decision === 'skip') return keepProjection();
-      if (plan.decision === 'fail_open') return shapeFailure(plan.reason, plan.reason);
-
-      // Lifecycle order is validate → persist → apply, where validate =
-      // materializable ∧ smaller ∧ replay-admissible. Replay applies the
-      // session's latest checkpoint BEFORE any high-water check, so a
-      // checkpoint that fails ANY of the three must never be persisted — it
-      // would poison every later projection even though this step correctly
-      // refused it.
-      // Persistence still precedes application, so the crash-window property
-      // (never apply an unpersisted fold) is unchanged, and the recorder
-      // counters stay truthful: validation failures never reached the
-      // recorder, so they attach no write counters.
-      const replayPlan = buildRuntimeEventModelReplayPlan(plan.replacementEvents, {
-        toolActivityTurnIds: collectToolActivityTurnIds(orderedEvents),
-      });
-      if (
-        replayPlan.items.length === 0
-        || hasBlockingReplayDiagnostics(replayPlan)
-        || (replayPlan.hasProviderNativeSemantics && !this.canReplayProviderNative(replayPlan))
-      ) {
-        return shapeFailure('no_safe_completed_span', 'replacement_unmaterializable');
-      }
-      // The head anchor must render exactly like the raw projection's current
-      // user message: the initial request decorates it with the volatile turn
-      // tail (cwd, shell context, task state — see send()), which is not part
-      // of the durable anchor bytes. Reuse the same decoration owner
-      // (appendTurnTailPrompt) on the anchor's replay item so a replacement
-      // never silently drops that context — and never counts the drop as
-      // shrinkage in the guard below.
-      const replayItemsWithAnchorTail = replayPlan.items.map((item) =>
-        item.kind === 'text' && item.role === 'user' && item.eventId === state.headAnchor.id
-          ? { ...item, content: this.appendTurnTailPrompt(item.content, turnTailPrompt) as string }
-          : item,
-      );
-      const replacementMessages = await this.materializeRuntimeReplayPlan({
-        ...replayPlan,
-        items: replayItemsWithAnchorTail,
-      });
-      // Apply the shape only when it actually shrinks the request: a
-      // materialized replacement that is not smaller than the current payload
-      // (e.g. a runaway summary block) would hand the verdict owner a WORSE
-      // request than the raw projection it just refused to improve. A
-      // non-shrinking fold proves the summarizer's OUTPUT is unusable — not
-      // that the irreducible remainder exceeds capacity — so over the window
-      // the owner reports it as summarizer_failed, with the precise
-      // replacement_not_smaller diagnostic reason.
-      const replacedPayloadChars = midTurnRequestPayloadChars(
-        replacementMessages,
-        providerTools,
-        activeToolsForStep,
-        systemPromptChars,
-      );
-      if (replacedPayloadChars >= payloadChars) {
-        return shapeFailure('summarizer_failed', 'replacement_not_smaller');
-      }
-      // Replay admissibility, through the SAME single gate the recovery path
-      // runs (max block / max total / prefix budget) with the same policy —
-      // one acceptance standard, not two. A checkpoint accepted here but
-      // rejected at replay would still become the session's latest checkpoint
-      // and poison recovery: the next projection would refuse it and
-      // re-inject the covered raw span. Block-size rejections mean the
-      // summarizer's output is unusable (summarizer_failed); a prefix over
-      // the history budget means the irreducible remainder is too large.
-      const replayFit = evaluateHistoryCompactCheckpointReplay(
-        plan.checkpoint,
-        plan.replacementEvents.slice(1),
-        policy,
-      );
-      if (!replayFit.fits) {
-        return shapeFailure(
-          replayFit.reason === 'prefix_over_budget' ? 'head_anchor_exceeds_capacity' : 'summarizer_failed',
-          `replay_rejected_${replayFit.reason}`,
-        );
-      }
-
-      // The replacement is valid: durably persist the checkpoint BEFORE
-      // applying the projection — the same order as the pre_turn path — so a
-      // recovery re-projection never re-injects the replaced raw span. A
-      // persistence failure keeps raw messages and records write_failed in
-      // the durable diagnostics; if the final payload is then over the
-      // window, the verdict owner maps this failure to the terminal
-      // summarizer_failed detail.
-      const writeFailedCounters: Partial<ContextBudgetDiagnostic> = {
-        historyCompactWritesAttempted: 1,
-        historyCompactWriteFailures: 1,
-      };
-      try {
-        await Promise.resolve(recorder(plan.checkpoint, turnId));
-      } catch {
-        return shapeFailure('summarizer_failed', 'write_failed', writeFailedCounters);
-      }
-      state.previousCheckpoint = plan.checkpoint;
-      acceptedProjection = {
-        sourceSignatures: incomingMessages.map(modelMessageSignature),
-        projectedMessages: replacementMessages,
-      };
-      state.replacedStepNumber = options.stepNumber;
-      onDiagnosticPatch({
-        historyCompactEnabled: true,
-        historyCompactMode: 'read_write',
-        historyCompactWritesAttempted: 1,
-        historyCompactBlocksWritten: 1,
-        historyCompactWrittenBlockIds: [plan.checkpoint.checkpointId],
-        historyCompactWriteEstimatedTokens: plan.checkpoint.estimatedTokens,
-        historyCompactBlockIds: [plan.checkpoint.checkpointId],
-        historyCompactedTurns: plan.checkpoint.coverage.turnCount,
-        historyCompactedEvents: plan.checkpoint.coverage.eventCount,
-        historyCompactedEstimatedTokensBefore: plan.estimatedTokensBefore,
-        historyCompactedEstimatedTokensAfter: plan.estimatedTokensAfter,
-        highWaterName: plan.checkpoint.highWaterName,
-        highWaterSeq: plan.checkpoint.highWaterSeq,
-        highWaterReason: 'history_compact',
-        ...compactionDecisionDiagnosticPatch({
-          stage: 'activeStep',
-          sourceKind: 'runtimeEvents',
-          decision: 'replaced',
-          phase: 'mid_turn',
-          boundaryKind: 'historyCompact',
-          boundaryIds: [plan.checkpoint.checkpointId],
-          coverage: { bodySha256: [plan.checkpoint.coverage.sourceDigest] },
-          reason: 'context_limit',
-          estimatedTokensBefore: plan.estimatedTokensBefore,
-          estimatedTokensAfter: plan.estimatedTokensAfter,
-        }),
-      });
-      return { messages: replacementMessages };
-    };
-  }
-
-  /**
-   * The single end-of-pipeline estimate owner for the mid-turn capacity
-   * invariant. Every prepareStep hook only shapes; this wrapper measures the
-   * FINAL outgoing (messages, tools) payload — the bytes the provider will
-   * actually see, after capacity compaction, active tool-result pruning, and
-   * semantic/active-full compaction have all run — and issues the one
-   * safety-critical verdict:
-   *
-   *  - estimate = the last request's real INPUT tokens + signed char/4 delta
-   *    against the previous request's measured payload (recorded here on
-   *    every step, including step 0's baseline); the delta already carries
-   *    the step's fresh output, so an output-inclusive baseline would count
-   *    it twice, and an unusable usage sample falls back to the whole-payload
-   *    cold start rather than a zero baseline;
-   *  - over the window with no capacity attempt this step (the approximate
-   *    trigger missed, e.g. growth the trigger under-weighted), force ONE
-   *    capacity re-entry — the verdict must not terminate a turn a shaper can
-   *    still rescue, and one bounded re-entry preserves termination;
-   *  - still over the window → context_budget_exhausted, with the terminal
-   *    detail taken from this step's capacity outcome: a replacement that
-   *    remains too large is head_anchor_exceeds_capacity (the irreducible
-   *    remainder exceeds capacity); a recorded shaping failure keeps its own
-   *    detail and diagnostic reason.
-   *
-   * Step 0 is shaped by the pre_turn path and only records the baseline here.
-   */
-  private buildMidTurnFinalRequestVerdict(input: {
-    shaped: PrepareStepFunctionLike;
-    reentry: PrepareStepFunctionLike;
-    state: MidTurnCapacityCompactState;
-    providerTools: readonly MakaTool[];
-    fallbackActiveTools: () => readonly string[];
-    charsPerToken: number;
-    systemPromptChars: number;
-    onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void;
-  }): PrepareStepFunctionLike {
-    const {
-      shaped,
-      reentry,
-      state,
-      providerTools,
-      fallbackActiveTools,
-      charsPerToken,
-      systemPromptChars,
-      onDiagnosticPatch,
-    } = input;
-    return async (options) => {
-      let result = await Promise.resolve(shaped(options));
-      const finalPayloadChars = (): number => midTurnRequestPayloadChars(
-        result?.messages ?? options.messages,
-        providerTools,
-        result?.activeTools ?? options.activeTools ?? fallbackActiveTools(),
-        systemPromptChars,
-      );
-      let payloadChars = finalPayloadChars();
-      if (options.stepNumber >= 1 && !state.exhaustedDetail) {
-        const estimateFinal = (): number => estimateNextRequestTokens({
-          ...(state.lastRequestInputTokens !== undefined ? { priorUsageTokens: state.lastRequestInputTokens } : {}),
-          appendedChars: payloadChars - (state.lastRequestPayloadChars ?? payloadChars),
-          charsPerToken,
-          coldStartChars: payloadChars,
-        });
-        let estimate = estimateFinal();
-        const capacityAttemptedThisStep = state.replacedStepNumber === options.stepNumber
-          || state.lastShapeFailure?.stepNumber === options.stepNumber;
-        if (estimate > state.contextWindow && !capacityAttemptedThisStep) {
-          // One bounded capacity re-entry: the trigger threshold is
-          // approximate on purpose (recoverable), so a miss must become a
-          // rescue attempt before it can become a terminal verdict. Re-run
-          // only the capacity + prune shapers over the already-shaped
-          // projection; a second attempt after a same-step failure is
-          // pointless (the failure was not a trigger miss) and would double
-          // recorder counters and summarizer calls.
-          state.forcedTriggerEstimate = estimate;
-          const reshaped = await Promise.resolve(reentry({
-            ...options,
-            messages: result?.messages ?? options.messages,
-            ...(result?.activeTools ? { activeTools: result.activeTools } : {}),
-          }));
-          state.forcedTriggerEstimate = undefined;
-          if (reshaped) {
-            result = {
-              ...(result ?? {}),
-              ...reshaped,
-              activeTools: reshaped.activeTools ?? result?.activeTools,
-            };
-          }
-          payloadChars = finalPayloadChars();
-          estimate = estimateFinal();
-        }
-        if (estimate > state.contextWindow) {
-          const failure = state.lastShapeFailure?.stepNumber === options.stepNumber
-            ? state.lastShapeFailure
-            : undefined;
-          const replacedThisStep = state.replacedStepNumber === options.stepNumber;
-          const detail: ContextBudgetExhaustedDetail = replacedThisStep
-            ? 'head_anchor_exceeds_capacity'
-            : failure?.detail ?? 'no_safe_completed_span';
-          const diagnosticReason = replacedThisStep
-            ? 'head_anchor_exceeds_capacity'
-            : failure?.diagnosticReason ?? 'no_safe_completed_span';
-          state.exhaustedDetail = detail;
-          onDiagnosticPatch({
-            historyCompactEnabled: true,
-            historyCompactMode: 'read_write',
-            ...compactionDecisionDiagnosticPatch({
-              stage: 'activeStep',
-              sourceKind: 'runtimeEvents',
-              decision: 'unchanged',
-              phase: 'mid_turn',
-              boundaryKind: 'historyCompact',
-              reason: 'context_budget_exhausted',
-              skippedReasonCounts: { [diagnosticReason]: 1 },
-            }),
-          });
-          this.abortController?.abort(new Error(`mid-turn context budget exhausted: ${detail}`));
-          return result;
-        }
-      }
-      state.lastRequestPayloadChars = payloadChars;
-      return result;
-    };
-  }
-
   private recordSemanticCompactSummaryCall(input: {
     callId: string;
     turnId: string;
@@ -2759,8 +1958,7 @@ export class AiSdkBackend implements AgentBackend {
     status: LlmCallRecord['status'];
     errorClass?: string;
   }): void {
-    if (!input.usage) return;
-    const costUsd = this.computeTokenUsageCostUsd(input.usage);
+    const costUsd = input.usage ? this.computeTokenUsageCostUsd(input.usage) : 0;
     this.input.recordLlmCall?.({
       sessionId: this.sessionId,
       turnId: input.turnId,
@@ -2769,19 +1967,19 @@ export class AiSdkBackend implements AgentBackend {
       connectionSlug: this.input.connection.slug,
       providerId: this.input.connection.providerType,
       modelId: input.modelId,
-      inputTokens: input.usage.inputTokens,
-      outputTokens: input.usage.outputTokens,
-      cacheHitInputTokens: input.usage.cacheHitInputTokens,
-      cacheMissInputTokens: input.usage.cacheMissInputTokens,
-      ...(input.usage.cacheMissInputSource !== undefined
+      inputTokens: input.usage?.inputTokens ?? 0,
+      outputTokens: input.usage?.outputTokens ?? 0,
+      cacheHitInputTokens: input.usage?.cacheHitInputTokens ?? 0,
+      cacheMissInputTokens: input.usage?.cacheMissInputTokens ?? 0,
+      ...(input.usage?.cacheMissInputSource !== undefined
         ? { cacheMissInputSource: input.usage.cacheMissInputSource }
         : {}),
-      cachedInputTokens: input.usage.cachedInputTokens,
-      cacheWriteInputTokens: input.usage.cacheWriteInputTokens,
-      reasoningTokens: input.usage.reasoningTokens,
-      totalTokens: input.usage.totalTokens,
+      cachedInputTokens: input.usage?.cachedInputTokens ?? 0,
+      cacheWriteInputTokens: input.usage?.cacheWriteInputTokens ?? 0,
+      reasoningTokens: input.usage?.reasoningTokens ?? 0,
+      totalTokens: input.usage?.totalTokens,
       ...(input.finishReason !== undefined ? { rawFinishReason: input.finishReason } : {}),
-      ...(input.usage.raw !== undefined ? { rawUsage: input.usage.raw } : {}),
+      ...(input.usage?.raw !== undefined ? { rawUsage: input.usage.raw } : {}),
       latencyMs: input.latencyMs,
       status: input.status,
       ...(input.errorClass ? { errorClass: input.errorClass } : {}),
@@ -3589,22 +2787,7 @@ export class AiSdkBackend implements AgentBackend {
   }
 
   private async *drain(queue: AsyncEventQueue<SessionEvent>): AsyncIterable<SessionEvent> {
-    try {
-      for await (const ev of queue) {
-        yield ev;
-        // Generator backpressure IS the consumer's ack: this line runs only
-        // when the consumer's loop body finished for `ev` and pulled the next
-        // event, so `consumedCount` counts fully PROCESSED events. AgentRun
-        // persists each mapped event before continuing, so an acked event is
-        // either durable or deliberately skipped (partials, non-terminal
-        // errors) — exactly the set a durable read can ever return.
-        queue.ackConsumed();
-      }
-    } finally {
-      // The consumer abandoned or finished the stream; wake any seq-ack waiter
-      // so it observes `consumerDetached` instead of blocking forever.
-      queue.noteConsumerDetached();
-    }
+    for await (const ev of queue) yield ev;
   }
 
   private cleanupAfterTurn(turnId: string): void {

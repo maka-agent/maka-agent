@@ -128,7 +128,7 @@ function selectableCatalogEntries(
     connection.providerType,
     buildConnectionModelCatalogEntries({ connection, savedModelIds }),
   ).filter((entry) => entry.canUseAsChatDefault);
-  if (entries.length > 0 || connection.providerType !== 'codex-subscription') return entries;
+  if (entries.length > 0 || connection.providerType !== 'openai-codex') return entries;
   return filterUnsupportedCodexModels(
     connection.providerType,
     buildConnectionModelCatalogEntries({
@@ -145,7 +145,7 @@ function selectableCatalogEntries(
 }
 
 function filterUnsupportedCodexModels(providerType: ProviderType, entries: ModelCatalogEntry[]): ModelCatalogEntry[] {
-  if (providerType !== 'codex-subscription') return entries;
+  if (providerType !== 'openai-codex') return entries;
   return entries.filter((entry) => !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(entry.id.trim()));
 }
 
@@ -170,7 +170,7 @@ function isModelConsumerConnection(connection: Pick<LlmConnection, 'enabled' | '
   if (
     defaults.authKind === 'oauth_token' &&
     connection.providerType !== 'claude-subscription' &&
-    connection.providerType !== 'codex-subscription'
+    connection.providerType !== 'openai-codex'
   ) {
     return false;
   }

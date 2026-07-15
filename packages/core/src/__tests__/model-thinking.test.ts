@@ -149,34 +149,15 @@ describe('thinkingOptionsForModel', () => {
     );
   });
 
-  test('Ollama Cloud reasoning models expose off/low/medium/high/max; GPT-OSS low/medium/high only; deprecated excluded', () => {
+  test('Ollama Cloud exposes the documented OpenAI-compatible reasoning effort values', () => {
     assert.deepEqual(
       thinkingOptionsForModel('ollama-cloud', 'qwen3.5:397b'),
-      { efforts: ['none', 'low', 'medium', 'high', 'max'], toggle: true },
+      { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
     );
     assert.deepEqual(
       [...thinkingVariantsForModel('ollama-cloud', 'qwen3.5:397b')],
-      ['off', 'low', 'medium', 'high', 'max'],
+      ['off', 'low', 'medium', 'high'],
     );
-    // deepseek-v4-flash is another active reasoning model using the standard wire
-    assert.deepEqual(
-      [...thinkingVariantsForModel('ollama-cloud', 'deepseek-v4-flash')],
-      ['off', 'low', 'medium', 'high', 'max'],
-    );
-    // GPT-OSS only accepts low/medium/high — no off, no max
-    assert.deepEqual(
-      thinkingOptionsForModel('ollama-cloud', 'gpt-oss:120b'),
-      { efforts: ['low', 'medium', 'high'] },
-    );
-    assert.deepEqual(
-      [...thinkingVariantsForModel('ollama-cloud', 'gpt-oss:120b')],
-      ['low', 'medium', 'high'],
-    );
-    // Non-reasoning models still yield nothing
-    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'devstral-2:123b')], []);
-    // Deprecated models (retired from the API) do not get thinking options
-    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'cogito-2.1:671b')], []);
-    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'kimi-k2-thinking')], []);
   });
 
   test('claude-subscription inherits anthropic thinking options (displayMetadataOnly preserves them)', () => {
@@ -239,8 +220,8 @@ describe('thinkingVariantsForModel', () => {
     assert.deepEqual([...thinkingVariantsForModel('zai-coding-plan', 'glm-4.5-air')], []);
   });
 
-  test('codex-subscription inherits openai gpt-5.5 thinking options', () => {
-    assert.deepEqual([...thinkingVariantsForModel('codex-subscription', 'gpt-5.5')], ['off', 'low', 'medium', 'high', 'xhigh']);
+  test('openai-codex inherits openai gpt-5.5 thinking options', () => {
+    assert.deepEqual([...thinkingVariantsForModel('openai-codex', 'gpt-5.5')], ['off', 'low', 'medium', 'high', 'xhigh']);
   });
 
   test('claude-subscription inherits anthropic thinking options', () => {

@@ -677,13 +677,6 @@ export class RuntimeKernel implements RuntimeKernelLike {
           const run = runId ? active?.activeRuns.get(runId) : undefined;
           return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
         },
-        loadTurnRuntimeEvents: (turnId: string) => {
-          const active = this.active.get(sessionId);
-          const runId = active?.turnToRunId.get(turnId);
-          const run = runId ? active?.activeRuns.get(runId) : undefined;
-          if (!run) return Promise.reject(new Error('No active AgentRun for turn runtime events'));
-          return run.loadTurnRuntimeEvents();
-        },
       } : {}),
       recordActiveFullCompactBlock: (block) => {
         const active = this.active.get(sessionId);
@@ -744,13 +737,6 @@ export class RuntimeKernel implements RuntimeKernelLike {
           const run = runId ? active?.activeRuns.get(runId) : undefined;
           return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
         },
-        // loadTurnRuntimeEvents is deliberately NOT injected for child
-        // sessions: a child run has no top-level prior context, so a mid-turn
-        // checkpoint built from its child-only ledger would claim to cover a
-        // session-scoped projection prefix and poison the session-global
-        // checkpoint cache/CAS for the parent projection. Child mid-turn
-        // compaction stays disabled (the backend requires this seam) until
-        // checkpoint streams are partitioned by lineage.
       } : {}),
       recordActiveFullCompactBlock: (block) => {
         const active = this.childActive.get(activeKey);

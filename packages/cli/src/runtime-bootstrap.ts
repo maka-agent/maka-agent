@@ -273,7 +273,6 @@ export async function createMakaCliRuntimeContext(
         maxOutputTokens: 4096,
       }),
       recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
-      loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
       systemPrompt: async ({ cwd }) => {
         const settings = await settingsStore.get();
         return buildCliSystemPrompt({
