@@ -42,15 +42,13 @@ function renderAutomationResult(text: string): string {
   const item: ToolActivityItem = {
     toolUseId: 'tu-1',
     toolName: AUTOMATION_TOOL_NAME,
-    // This test exercises the result parser, not disclosure defaults. Use an
-    // attention state so Base UI mounts the panel in static markup; ordinary
-    // running tools — and now errored tools too — stay collapsed until the
-    // user asks for diagnostics.
-    status: 'waiting_permission',
+    // This test exercises the result parser, not disclosure defaults; the
+    // open prop mounts the panel in static markup.
+    status: 'completed',
     args: { mode: 'create' },
     result: { kind: 'text', text },
   };
-  return renderToStaticMarkup(createElement(ToolActivity, { items: [item] }));
+  return renderToStaticMarkup(createElement(ToolActivity, { items: [item], open: true }));
 }
 
 describe('Automation tool result preview contract', () => {

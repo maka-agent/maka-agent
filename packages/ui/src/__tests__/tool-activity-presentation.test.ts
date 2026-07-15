@@ -165,9 +165,7 @@ describe('tool activity presentation', () => {
       items: [{
         toolUseId: 'tool-output',
         toolName: 'Bash',
-        // waiting_permission mounts the panel in static markup; errored no
-        // longer force-opens it.
-        status: 'waiting_permission',
+        status: 'errored',
         args: { command: 'npm test' },
         outputChunks: [
           { seq: 1, stream: 'stdout', text: 'one\n', redacted: false, createdAt: 1 },
@@ -176,6 +174,7 @@ describe('tool activity presentation', () => {
         ],
         outputTruncated: true,
       } satisfies ToolActivityItem],
+      open: true,
     }));
 
     assert.doesNotMatch(markup, /stdout\s+2/i);
@@ -192,9 +191,7 @@ describe('tool activity presentation', () => {
         toolUseId: 'tool-terminal-panel',
         toolName: 'Bash',
         intent: '跑测试',
-        // waiting_permission mounts the panel in static markup; errored no
-        // longer force-opens it.
-        status: 'waiting_permission',
+        status: 'errored',
         args: { command: 'npm run -w @maka/ui test' },
         result: {
           kind: 'terminal',
@@ -205,6 +202,7 @@ describe('tool activity presentation', () => {
           output: pipeOutput('packages/ui ok\n', 'Error: boom\n'),
         },
       } satisfies ToolActivityItem],
+      open: true,
     }));
 
     // Command without shell prompt; no cwd / success-style exit badge bar.
@@ -235,12 +233,11 @@ describe('tool activity presentation', () => {
       items: [{
         toolUseId: 'tool-malformed-terminal',
         toolName: 'Bash',
-        // waiting_permission mounts the panel in static markup; errored no
-        // longer force-opens it.
-        status: 'waiting_permission',
+        status: 'errored',
         args: { command: 'npm test' },
         result: malformed,
       } satisfies ToolActivityItem],
+      open: true,
     }));
 
     assert.match(markup, /npm test/);
@@ -442,15 +439,14 @@ describe('tool activity presentation', () => {
       items: [{
         toolUseId: 'tool-mixed',
         toolName: 'CustomInspect',
-        // waiting_permission mounts the panel in static markup; errored no
-        // longer force-opens it.
-        status: 'waiting_permission',
+        status: 'errored',
         args: {},
         result: {
           kind: 'json',
           value: { results: [], error: 'permission denied', ok: false },
         },
       } satisfies ToolActivityItem],
+      open: true,
     }));
 
     assert.match(markup, /permission denied/);
@@ -616,9 +612,7 @@ describe('tool activity presentation', () => {
         toolUseId: 'tool-pty-control',
         toolName: 'WriteStdin',
         activityKind: 'command',
-        // waiting_permission mounts the panel in static markup; errored no
-        // longer force-opens it.
-        status: 'waiting_permission',
+        status: 'errored',
         args: {
           ref: 'maka://runtime/background-tasks/pty-1',
           inputPreview: { text: 'echo x\\n', bytes: 7, truncated: false },
@@ -655,6 +649,7 @@ describe('tool activity presentation', () => {
           },
         },
       } satisfies ToolActivityItem],
+      open: true,
     }));
 
     assert.match(markup, /未排队：echo x\\n/);
