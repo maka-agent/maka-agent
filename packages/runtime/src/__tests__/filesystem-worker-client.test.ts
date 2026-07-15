@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, test } from 'node:test';
 import {
+  canWritePath,
   createReadOnlyPermissionProfile,
   type PermissionProfile,
 } from '@maka/core/permission-profile';
@@ -25,6 +26,7 @@ import {
 } from '../filesystem-worker/protocol.js';
 import { MacosSeatbeltBackend } from '../sandbox/macos-seatbelt.js';
 import { SandboxManager } from '../sandbox/sandbox-manager.js';
+import type { SandboxTransformRequest, SandboxTransformResult } from '../sandbox/types.js';
 
 const cleanup: string[] = [];
 
@@ -171,13 +173,56 @@ describe('filesystem worker client Grep target scope', () => {
   });
 });
 
+describe('filesystem worker operation-scoped Seatbelt profile', () => {
+  test('narrows a write worker to the exact target while preserving the base policy', async () => {
+    const workspace = await temporaryDirectory('maka-worker-client-operation-profile-');
+    const target = join(workspace, 'target.txt');
+    const sibling = join(workspace, 'sibling.txt');
+    const { client, transforms } = fakeClient();
+
+    await client.execute({
+      operation: { kind: 'write', path: target, content: 'target' },
+      cwd: workspace,
+      mode: 'execute',
+    });
+
+    const transform = transforms[0];
+    assert.ok(transform);
+    assert.equal(canWritePath(
+      transform.command.profile,
+      target,
+      transform.command.pathContext,
+    ), true);
+    assert.equal(canWritePath(
+      transform.command.profile,
+      sibling,
+      transform.command.pathContext,
+    ), false);
+    assert.deepEqual(
+      transform.command.profile.type === 'managed'
+        && transform.command.profile.fileSystem.kind === 'restricted'
+        ? transform.command.profile.fileSystem.protectedMetadata?.names
+        : undefined,
+      ['.git', '.agents', '.codex'],
+    );
+  });
+});
+
 function fakeClient(): {
   client: FilesystemWorkerClient;
   requests: FilesystemWorkerRequest[];
+  transforms: SandboxTransformRequest[];
 } {
   const requests: FilesystemWorkerRequest[] = [];
+  const transforms: SandboxTransformRequest[] = [];
+  const sandboxManager = new SandboxManager([new MacosSeatbeltBackend()]);
   const client = new FilesystemWorkerClient({
-    sandboxManager: new SandboxManager([new MacosSeatbeltBackend()]),
+    sandboxManager: Object.assign(Object.create(sandboxManager), {
+      transform(request: SandboxTransformRequest): SandboxTransformResult {
+        transforms.push(request);
+        return sandboxManager.transform(request);
+      },
+    }) as SandboxManager,
     platform: 'darwin',
     newId: () => `request-${requests.length + 1}`,
     getLaunchSpec: async () => ({
@@ -208,12 +253,16 @@ function fakeClient(): {
       };
     },
   });
-  return { client, requests };
+  return { client, requests, transforms };
 }
 
 function fakeResult(request: FilesystemWorkerRequest): FilesystemWorkerResult {
   switch (request.operation.kind) {
     case 'read': return { kind: 'read', content: 'worker-content' };
+    case 'write': return {
+      kind: 'write', ok: true, path: request.operation.path,
+      bytes: Buffer.byteLength(request.operation.content, 'utf8'),
+    };
     case 'grep': return { kind: 'grep', matches: ['file.ts:1:value'] };
     default: throw new Error(`Unexpected fake worker operation: ${request.operation.kind}`);
   }

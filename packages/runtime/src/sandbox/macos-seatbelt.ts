@@ -325,7 +325,9 @@ function resolveRoots(profile: PermissionProfile, pathContext: SandboxPathContex
     readableRoots,
     writableRoots,
     deniedRoots,
-    protectedWritableRoots: profile.fileSystem.protectedMetadata ? protectedWritableRoots : [],
+    protectedWritableRoots: profile.fileSystem.protectedMetadata && writableRoots.length > 0
+      ? uniqueRoots([...protectedWritableRoots, ...pathContext.workspaceRoots])
+      : [],
     protectedMetadataNames: profile.fileSystem.protectedMetadata?.names ?? [],
     runtimeReadableRoots: uniqueRoots(pathContext.runtimeReadableRoots ?? []),
     executableRoots: uniqueRoots(pathContext.executableRoots ?? []),
