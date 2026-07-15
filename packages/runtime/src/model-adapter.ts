@@ -113,6 +113,14 @@ export interface ModelAdapterStreamInput {
    * on the next step without mutating the cached tools prefix.
    */
   prepareStep?: PrepareStepFunctionLike;
+  /**
+   * Per-call step budget override. The step limit is a SEND-level cap owned by
+   * the backend: a reactive overflow retry re-invokes startStream mid-send and
+   * must pass only the remaining budget (configured maxSteps minus the steps
+   * already completed), or every retry would silently reset the cap. Defaults
+   * to the adapter's configured maxSteps.
+   */
+  maxSteps?: number;
 }
 
 export interface ModelAdapterStreamCallbacks {
@@ -163,6 +171,7 @@ export class ModelAdapter {
       isLoopFinished: () => unknown;
     };
 
+    const maxSteps = input.maxSteps ?? this.input.maxSteps;
     return streamText({
       model: input.model,
       messages: input.messages,
@@ -174,9 +183,9 @@ export class ModelAdapter {
       providerOptions: this.input.providerOptions,
       // streamText defaults to one step when stopWhen is omitted. Its exported
       // non-stopping condition is required for an unbounded tool loop.
-      stopWhen: this.input.maxSteps === undefined
+      stopWhen: maxSteps === undefined
         ? isLoopFinished()
-        : stepCountIs(this.input.maxSteps),
+        : stepCountIs(maxSteps),
       abortSignal: input.abortSignal,
     });
   }

@@ -113,7 +113,10 @@ describe('ModelAdapter extraction contract', () => {
     assert.match(adapter, /startStream\(/);
     assert.match(adapter, /await import\('ai'\)/);
     assert.match(adapter, /streamText\(/);
-    assert.match(adapter, /stepCountIs\(this\.input\.maxSteps\)/);
+    // The step budget stays adapter-owned, with a per-call override so the
+    // backend's reactive overflow retry passes only the remaining budget.
+    assert.match(adapter, /input\.maxSteps \?\? this\.input\.maxSteps/);
+    assert.match(adapter, /stepCountIs\(maxSteps\)/);
     assert.match(adapter, /handleStreamChunk\(/);
     assert.match(adapter, /switch \(chunk\.type\)/);
     assert.match(adapter, /case 'reasoning-delta'/);

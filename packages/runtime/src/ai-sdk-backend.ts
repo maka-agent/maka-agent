@@ -1365,6 +1365,12 @@ export class AiSdkBackend implements AgentBackend {
         let overflowRetryUsed = false;
         let result!: StreamTextResult;
         for (;;) {
+          // The step limit is a SEND-level cap: `runtimeSteps` (this send's
+          // completed steps across attempts) is its single counter, so a retry
+          // attempt gets only the remaining budget — never a fresh full one.
+          const remainingStepBudget = this.maxSteps === undefined
+            ? undefined
+            : Math.max(0, this.maxSteps - runtimeSteps);
           result = await this.modelAdapter.startStream({
             model,
             messages: attemptMessages,
@@ -1382,6 +1388,7 @@ export class AiSdkBackend implements AgentBackend {
             system: systemPrompt,
             abortSignal: this.abortController!.signal,
             ...(prepareStep ? { prepareStep } : {}),
+            ...(remainingStepBudget !== undefined ? { maxSteps: remainingStepBudget } : {}),
           });
 
           let streamErrorChunk: unknown;
@@ -1447,7 +1454,11 @@ export class AiSdkBackend implements AgentBackend {
           }
 
           if (sawStreamError && !this.aborted) {
-            const recovered = await this.recoverFromOverflowError({
+            // A retry is a fresh provider request that would run at least one
+            // more step; with the send-level budget already spent there is
+            // nothing left to grant it, so the error is terminal.
+            const stepBudgetRemains = this.maxSteps === undefined || runtimeSteps < this.maxSteps;
+            const recovered = stepBudgetRemains ? await this.recoverFromOverflowError({
               error: streamErrorChunk,
               retryAlreadyUsed: overflowRetryUsed,
               midTurnState,
@@ -1459,7 +1470,7 @@ export class AiSdkBackend implements AgentBackend {
               turnTailPrompt,
               queue,
               onDiagnosticPatch: onMidTurnDiagnosticPatch,
-            });
+            }) : undefined;
             if (recovered) {
               overflowRetryUsed = true;
               attemptMessages = recovered.messages;
@@ -1518,8 +1529,19 @@ export class AiSdkBackend implements AgentBackend {
 
         // Final usage event. AI SDK `usage` is the last step only; `totalUsage`
         // is the billing-relevant sum across all internal tool-loop steps.
+        // The send-level usage owner is `completedStepUsage`, the per-step
+        // accumulator that spans every attempt: after a reactive overflow
+        // retry, the last attempt's totalUsage covers only that attempt, so
+        // recording it would silently drop the first attempt's completed
+        // steps. totalUsage remains the authoritative shorthand only for the
+        // single-attempt send, and an unusable step sample in ANY attempt
+        // fails the whole record closed (#972) — a later attempt's valid
+        // totalUsage must not wash it back to "complete".
         try {
-          tokenUsage = normalizeAiSdkUsage(await (result.totalUsage ?? result.usage), { rawFinishReason });
+          const attemptTotalUsage = normalizeAiSdkUsage(await (result.totalUsage ?? result.usage), { rawFinishReason });
+          tokenUsage = overflowRetryUsed
+            ? (sawUnusableStepUsage ? undefined : completedStepUsage)
+            : attemptTotalUsage;
           if (tokenUsage) {
             const systemPromptHash = turnDiagnostics.requestShape.componentHashes.systemPromptHash;
             tokenUsageCostUsd = this.computeTokenUsageCostUsd(tokenUsage);
@@ -2801,7 +2823,15 @@ export class AiSdkBackend implements AgentBackend {
     if (input.retryAlreadyUsed || !state) return undefined;
     if (this.modelAdapter.classifyError(input.error) !== 'ContextLength') return undefined;
 
-    const referencePayloadChars = midTurnRequestPayloadChars(
+    // The shrink baseline is the request the provider actually rejected. Its
+    // single owner is the verdict owner's per-request payload measure
+    // (state.lastRequestPayloadChars), recorded at the end of every
+    // prepareStep run — the attempt-INITIAL messages undercount the rejected
+    // request by every same-turn tool step, and a baseline anchored there
+    // refuses folds that genuinely shrink the real request (review P1-1).
+    // The cold-start fallback only covers a send whose verdict owner never
+    // ran a prepareStep (defensive; step 0 records the baseline too).
+    const referencePayloadChars = state.lastRequestPayloadChars ?? midTurnRequestPayloadChars(
       input.currentMessages,
       input.providerTools,
       input.activeTools,

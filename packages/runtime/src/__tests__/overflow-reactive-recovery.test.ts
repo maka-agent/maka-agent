@@ -36,6 +36,18 @@ interface ReactiveFixtureOptions {
   withoutPriorTurns?: boolean;
   bigPriors?: boolean;
   summarize?: () => Promise<string | undefined> | string | undefined;
+  /** Explicit send-level step budget forwarded to the backend. */
+  maxSteps?: number;
+  /** The FIRST tool step reports an unusable usage object (no token counts). */
+  firstStepUsageMissing?: boolean;
+}
+
+interface ReactiveLlmCall {
+  status?: string;
+  errorClass?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
 }
 
 interface ReactiveFixture {
@@ -47,7 +59,7 @@ interface ReactiveFixture {
   anchor: RuntimeEvent;
   priorEvents: RuntimeEvent[];
   events: SessionEvent[];
-  llmCalls: Array<{ status?: string; errorClass?: string }>;
+  llmCalls: ReactiveLlmCall[];
   persist: (event: SessionEvent) => void;
 }
 
@@ -57,16 +69,24 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
   const recorded: HistoryCompactCheckpoint[] = [];
   const toolExecutions: string[] = [];
   const events: SessionEvent[] = [];
-  const llmCalls: Array<{ status?: string; errorClass?: string }> = [];
+  const llmCalls: ReactiveLlmCall[] = [];
   const counters = { summarizerCalls: 0 };
   const usage = (input: number, output: number) => ({
     inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 },
     outputTokens: { total: output, text: output, reasoning: 0 },
   });
-  const toolCallChunks = (id: string): LanguageModelV3StreamPart[] => [
+  const toolCallChunks = (id: string, call: number): LanguageModelV3StreamPart[] => [
     { type: 'stream-start', warnings: [] },
     { type: 'tool-call', toolCallId: id, toolName: 'Read', input: JSON.stringify({ path: 'one.md' }) },
-    { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: usage(100, 20) },
+    {
+      type: 'finish',
+      finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+      // An unusable first-step usage: the SDK accepts the object but the
+      // adapter's normalization fails closed (undefined), the #972 shape.
+      usage: options.firstStepUsageMissing && call === 1
+        ? ({ inputTokens: {}, outputTokens: {} } as ReturnType<typeof usage>)
+        : usage(100, 20),
+    },
   ];
   const doneChunks = (): LanguageModelV3StreamPart[] => [
     { type: 'stream-start', warnings: [] },
@@ -83,7 +103,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     if (kind === 'error500') {
       throw Object.assign(new Error('internal server error'), { name: 'AI_APICallError', statusCode: 500 });
     }
-    const chunks = kind === 'tool' ? toolCallChunks(`tool-${call}`) : doneChunks();
+    const chunks = kind === 'tool' ? toolCallChunks(`tool-${call}`, call) : doneChunks();
     return simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null });
   };
   const model = new MockLanguageModelV3({
@@ -148,6 +168,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     modelId: 'mock-model-id',
     permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
     modelFactory: () => model,
+    ...(options.maxSteps !== undefined ? { maxSteps: options.maxSteps } : {}),
     tools: [
       {
         name: 'Read',
@@ -268,6 +289,69 @@ describe('reactive overflow recovery in the streaming backend', () => {
     assert.equal(fixture.summarizerCalls(), 1);
     // The completed tool step was not re-executed on the retry.
     assert.deepEqual(fixture.toolExecutions, ['one.md']);
+    // Send-level usage owner (review P1-2): the terminal record carries BOTH
+    // attempts' completed steps — the first attempt's tool step (100/20) plus
+    // the retry's final step (120/10) — not just the last attempt's totalUsage.
+    const lastCall = fixture.llmCalls.at(-1);
+    assert.equal(lastCall?.status, 'success');
+    assert.equal(lastCall?.inputTokens, 220);
+    assert.equal(lastCall?.outputTokens, 30);
+    assert.equal(lastCall?.totalTokens, 250);
+  });
+
+  test('the recovery baseline is the request the provider rejected, not the attempt-initial messages', async () => {
+    // Review P1-1 repro: four completed tool steps grow the provider-visible
+    // request far beyond the attempt's INITIAL messages. The fold shrinks the
+    // real rejected request but is larger than that initial request, so a
+    // baseline anchored to the initial messages refuses it as
+    // replacement_not_smaller and the turn dies on the exact scenario reactive
+    // recovery exists for — same-turn tool growth. The unique baseline owner
+    // is the verdict owner's per-request payload measure of the request that
+    // actually went out.
+    const fixture = buildReactiveFixture({ script: ['tool', 'tool', 'tool', 'tool', 'overflow', 'done'] });
+    await runTurn(fixture);
+
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    assert.equal(fixture.events.some((event) => event.type === 'error'), false);
+    assert.equal(fixture.recorded.length, 1);
+    assert.equal(fixture.model.doStreamCalls.length, 6);
+    // The four completed tool steps ran exactly once each.
+    assert.deepEqual(fixture.toolExecutions, ['one.md', 'one.md', 'one.md', 'one.md']);
+  });
+
+  test('an unusable first-attempt step usage fails the whole record closed even when the retry succeeds', async () => {
+    // Review P1-2, fail-closed direction: the first attempt's completed step
+    // has an unusable usage sample. The retry's totalUsage is valid but covers
+    // only the retry, so recording it as the whole send would fabricate a
+    // partial cost as complete (#972). No record at all is the truthful
+    // outcome; the turn itself still completes.
+    const fixture = buildReactiveFixture({
+      script: ['tool', 'overflow', 'done'],
+      bigPriors: true,
+      firstStepUsageMissing: true,
+    });
+    await runTurn(fixture);
+
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    assert.equal(fixture.llmCalls.length, 0);
+  });
+
+  test('a retry only gets the remaining step budget under an explicit maxSteps (review P1-3)', async () => {
+    // maxSteps=2: one completed tool step before the overflow leaves a budget
+    // of exactly one step for the retry. The retry's tool step consumes it and
+    // the send ends at the explicit step limit — a fresh full budget would run
+    // a third step and a fourth provider request, breaching the send-level cap
+    // and its tool side effects.
+    const fixture = buildReactiveFixture({
+      script: ['tool', 'overflow', 'tool', 'done'],
+      bigPriors: true,
+      maxSteps: 2,
+    });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    assert.deepEqual(fixture.toolExecutions, ['one.md', 'one.md']);
+    assert.equal(complete(fixture)?.stopReason, 'step_limit');
   });
 
   test('a second overflow after the single retry ends as a real error', async () => {
