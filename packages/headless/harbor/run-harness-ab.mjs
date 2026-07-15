@@ -98,6 +98,59 @@ export function harnessMakaContextBudgetEnv() {
   };
 }
 
+export function buildHarnessAbManifest({
+  subjectFingerprint,
+  taskSourceFingerprint,
+  toolchainFingerprint,
+}) {
+  return buildHarnessAbRunManifest({
+    benchmark: {
+      dataset: 'terminal-bench',
+      version: '2.1',
+      revision: TERMINAL_BENCH_2_1_REVISION,
+      timeoutPolicy: 'task-native',
+      timeoutMultiplier: 1,
+      outerTimeoutGraceSec: HARBOR_SETUP_TEARDOWN_GRACE_SEC,
+    },
+    taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
+    orderSeed: ORDER_SEED,
+    pilotTaskCount: PILOT_TASKS,
+    model: { provider: PROVIDER, id: MODEL, reasoningEffort: REASONING_EFFORT },
+    pricing: PRICING,
+    arms: [
+      {
+        id: 'maka',
+        version: subjectFingerprint,
+        config: {
+          adapter: 'maka_agent:MakaAgent',
+          externalSystemPrompt: 'empty',
+          reasoningEffort: REASONING_EFFORT,
+          continuation: false,
+          attemptPolicy: 'single',
+          contextBudget: HARNESS_MAKA_CONTEXT_BUDGET,
+        },
+      },
+      {
+        id: 'opencode',
+        version: OPENCODE_TOOLCHAIN_SPEC.opencode.version,
+        config: {
+          adapter: 'opencode_agent:MakaOpenCodeAgent',
+          externalSystemPrompt: 'empty',
+          variant: REASONING_EFFORT,
+          pure: true,
+          permissions: 'auto',
+          attemptPolicy: 'single',
+        },
+      },
+    ],
+    taskBudgetSec: null,
+    harborTimeoutMs: null,
+    subjectFingerprint,
+    taskSourceFingerprint,
+    toolchainFingerprint,
+  });
+}
+
 export async function main() {
   const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
   const makaRepoPath = process.env.MAKA_HARNESS_AB_MAKA_REPO
@@ -149,48 +202,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     hostToolchainFingerprint,
     opencodeToolchainFingerprint: OPENCODE_TOOLCHAIN_FINGERPRINT,
   })).digest('hex')}`;
-  const manifest = buildHarnessAbRunManifest({
-    benchmark: {
-      dataset: 'terminal-bench',
-      version: '2.1',
-      revision: TERMINAL_BENCH_2_1_REVISION,
-      timeoutPolicy: 'task-native',
-      timeoutMultiplier: 1,
-      outerTimeoutGraceSec: HARBOR_SETUP_TEARDOWN_GRACE_SEC,
-    },
-    taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
-    orderSeed: ORDER_SEED,
-    pilotTaskCount: PILOT_TASKS,
-    model: { provider: PROVIDER, id: MODEL, reasoningEffort: REASONING_EFFORT },
-    pricing: PRICING,
-    arms: [
-      {
-        id: 'maka',
-        version: subjectFingerprint,
-        config: {
-          adapter: 'maka_agent:MakaAgent',
-          externalSystemPrompt: 'empty',
-          reasoningEffort: REASONING_EFFORT,
-          continuation: false,
-          attemptPolicy: 'single',
-          contextBudget: HARNESS_MAKA_CONTEXT_BUDGET,
-        },
-      },
-      {
-        id: 'opencode',
-        version: OPENCODE_VERSION,
-        config: {
-          adapter: 'opencode_agent:MakaOpenCodeAgent',
-          externalSystemPrompt: 'empty',
-          variant: REASONING_EFFORT,
-          pure: true,
-          permissions: 'auto',
-          attemptPolicy: 'single',
-        },
-      },
-    ],
-    taskBudgetSec: null,
-    harborTimeoutMs: null,
+  const manifest = buildHarnessAbManifest({
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,

@@ -44,6 +44,23 @@ test('harness A/B runtime keeps pruning enabled and semantic compact disabled', 
   });
 });
 
+test('harness A/B manifest uses the pinned OpenCode toolchain version', async () => {
+  const { buildHarnessAbManifest } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+
+  const manifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+  });
+
+  assert.equal(
+    manifest.arms.find((arm: { id: string }) => arm.id === 'opencode')?.metadata.version,
+    '1.17.18',
+  );
+});
+
 test('detached harness launcher persists a terminal failed journal after the worker exits', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-detached-'));
   try {
