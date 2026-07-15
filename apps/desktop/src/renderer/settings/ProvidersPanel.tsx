@@ -251,29 +251,31 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
                 aria-label="搜索模型服务商"
               />
             </InputGroup>
-            {CATALOG_TABS.map((tab) => {
-              const providers = providersForCategory(tab.id);
-              return (
-                <PrimitiveTabsPanel key={tab.id} value={tab.id}>
-                  {tab.id === 'accounts' ? (
-                    <ModelOAuthSection onConnectionsChanged={async () => { await reload(); }} />
-                  ) : providers.length > 0 ? (
-                    <div className="catalogGrid providerMarketGrid">
-                      {providers.map((type) => (
-                        <ProviderCatalogCard
-                          key={type}
-                          type={type}
-                          count={configuredByType(type)}
-                          onSelect={() => setDialogState({ kind: 'create', providerType: type })}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="providerCatalogEmpty" role="status">没有匹配的服务商</div>
-                  )}
-                </PrimitiveTabsPanel>
-              );
-            })}
+            <PrimitiveTabsPanel value={catalogCategory}>
+              {(catalogCategory === 'recommended' || catalogCategory === 'accounts') && (
+                <ModelOAuthSection
+                  query={catalogQuery}
+                  onConnectionsChanged={async () => { await reload(); }}
+                />
+              )}
+              {catalogCategory !== 'accounts' && (() => {
+                const providers = providersForCategory(catalogCategory);
+                return providers.length > 0 ? (
+                  <div className="catalogGrid providerMarketGrid">
+                    {providers.map((type) => (
+                      <ProviderCatalogCard
+                        key={type}
+                        type={type}
+                        count={configuredByType(type)}
+                        onSelect={() => setDialogState({ kind: 'create', providerType: type })}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="providerCatalogEmpty" role="status">没有匹配的服务商</div>
+                );
+              })()}
+            </PrimitiveTabsPanel>
           </PrimitiveTabs>
         </section>
       </section>

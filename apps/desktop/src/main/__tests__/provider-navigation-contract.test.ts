@@ -30,6 +30,14 @@ describe('Settings model provider page hierarchy', () => {
     }
   });
 
+  test('recommended catalog mixes runnable account connections and hides unavailable providers', async () => {
+    const source = await readFile(PANEL, 'utf8');
+
+    assert.match(source, /catalogCategory === 'recommended'[\s\S]*<ModelOAuthSection/);
+    assert.match(source, /PROVIDER_DEFAULTS\[type\]\.status !== 'ready'/);
+    assert.match(source, /id:\s*'accounts'/, 'runnable account connections remain directly browseable');
+  });
+
   test('inline catalog keeps standard search chrome below its category tabs', async () => {
     const [source, css] = await Promise.all([
       readFile(PANEL, 'utf8'),

@@ -18,13 +18,14 @@ import {
 } from '@maka/core';
 import { providerAuthRequiresSecret, providerAuthSupportsApiKey } from '@maka/core/llm-connections';
 import { formatRelativeTimestamp } from '@maka/core';
-import { Button, Chip, FieldDescription, FieldRoot, Input, Label, useMountedRef, useToast } from '@maka/ui';
+import { Button, FieldDescription, FieldRoot, Input, Label, RelativeTime, useMountedRef, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { buildCatalogModelChoices } from '../model-catalog-choices';
 import { providerDisplay } from './provider-display';
+import { connectionChipStatus } from './provider-connection-status';
 import { useOAuthLoginFlow, type OAuthLoginFlowBridge } from './use-oauth-login-flow';
 import {
-  categoryLabel,
+  connectionLastTestMessageDisplay,
   providerPanelActionErrorMessage,
   type ConnectionsBridge,
   type CredentialPresenceStatus,
@@ -189,6 +190,10 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     draftBaseUrl !== savedBaseUrl ||
     defaultModel !== connection.defaultModel;
   const detailActionBusy = busy || testing || fetchingModels || settingDefault || deleting;
+  const issue = connectionChipStatus(connection);
+  const lastTestMessage = connectionLastTestMessageDisplay(connection.lastTestMessage);
+  const lastTestAtMs = connection.lastTestAt ? Date.parse(connection.lastTestAt) : NaN;
+  const requiresVisibleEndpoint = !defaults.baseUrl;
 
   useEffect(() => {
     connectionDetailLifecycleRef.current += 1;
@@ -468,48 +473,18 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
   }
 
   return (
-    <div className="providerEditor">
-      <header>
-        <div>
-          <h3>{connection.name}</h3>
-          <p>{display.name}</p>
+    <div className="providerEditor providerConnectionManager">
+      {issue && (
+        <div className="providerConnectionIssue" data-tone={issue.tone} role="status">
+          <strong>{issue.label}</strong>
+          {(lastTestMessage || Number.isFinite(lastTestAtMs)) && (
+            <span>
+              {lastTestMessage && lastTestMessage !== issue.label ? lastTestMessage : null}
+              {lastTestMessage && lastTestMessage !== issue.label && Number.isFinite(lastTestAtMs) ? ' · ' : null}
+              {Number.isFinite(lastTestAtMs) && <RelativeTime ts={lastTestAtMs} />}
+            </span>
+          )}
         </div>
-        <span className="providerHeaderBadges">
-          {props.isDefault && <Chip variant="neutral" size="sm">默认</Chip>}
-          <Chip variant="neutral" size="sm">{categoryLabel(defaults.category)}</Chip>
-        </span>
-      </header>
-      <FieldRoot className="grid gap-1.5">
-        <Label className="text-xs text-foreground-secondary">连接标识</Label>
-        <Input value={connection.slug} disabled aria-label="模型连接标识" />
-      </FieldRoot>
-      <FieldRoot className="grid gap-1.5">
-        <Label className="text-xs text-foreground-secondary">服务地址</Label>
-        {hasFixedOAuthBaseUrl && <FieldDescription>OAuth 固定</FieldDescription>}
-        <Input
-          value={baseUrl}
-          onChange={(event) => setBaseUrl(event.currentTarget.value)}
-          placeholder={defaults.baseUrl}
-          readOnly={hasFixedOAuthBaseUrl}
-          disabled={detailActionBusy}
-          aria-readonly={hasFixedOAuthBaseUrl ? 'true' : undefined}
-          aria-label={hasFixedOAuthBaseUrl ? '模型连接服务地址，OAuth 固定' : '模型连接服务地址'}
-        />
-      </FieldRoot>
-      {supportsApiKey && (
-        <FieldRoot className="grid gap-1.5">
-          <Label className="text-xs text-foreground-secondary">模型密钥</Label>
-          {hasSecret === true && <FieldDescription>已设置，粘贴新值可替换</FieldDescription>}
-          {hasSecret === 'loading' && <FieldDescription>正在读取状态</FieldDescription>}
-          {hasSecret === 'error' && <FieldDescription>凭据状态未知</FieldDescription>}
-          <PasswordInput
-            value={apiKey}
-            onChange={setApiKey}
-            placeholder={hasSecret === true ? '••••••••' : '粘贴模型密钥'}
-            ariaLabel={`${display.name} 模型密钥`}
-            disabled={detailActionBusy}
-          />
-        </FieldRoot>
       )}
       {needsOAuth && (
         usesGitHubCopilotLogin ? (
@@ -550,23 +525,71 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
             : '模型凭据状态暂时没刷新成功，已避免把未知状态显示成未登录或未配置。'}
         </p>
       )}
-      <ModelTable
-        modelChoices={modelChoices}
-        defaultModel={defaultModel}
-        onPickDefault={(id) => setDefaultModel(id)}
-        modelSource={modelSource}
-        modelsFetchedAt={connection.modelsFetchedAt}
-        fallbackCount={catalogFallbackCount}
-        canRefresh={!detailActionBusy && hasUsableCredential}
-        fetchingModels={fetchingModels}
-        disabled={detailActionBusy}
-        onRefresh={() => void refreshModels()}
-      />
+      <section className="providerConnectionTask" aria-labelledby="provider-default-model-title">
+        <div className="providerConnectionTaskHeader">
+          <strong id="provider-default-model-title">默认模型</strong>
+          <span>选择该连接用于新会话的模型。</span>
+        </div>
+        <ModelTable
+          modelChoices={modelChoices}
+          defaultModel={defaultModel}
+          onPickDefault={(id) => setDefaultModel(id)}
+          modelSource={modelSource}
+          modelsFetchedAt={connection.modelsFetchedAt}
+          fallbackCount={catalogFallbackCount}
+          canRefresh={!detailActionBusy && hasUsableCredential}
+          fetchingModels={fetchingModels}
+          disabled={detailActionBusy}
+          onRefresh={() => void refreshModels()}
+        />
+      </section>
+      {supportsApiKey && (
+        <FieldRoot className="grid gap-1.5">
+          <Label className="text-xs text-foreground-secondary">模型密钥</Label>
+          {hasSecret === true && <FieldDescription>已设置，粘贴新值可替换</FieldDescription>}
+          {hasSecret === 'loading' && <FieldDescription>正在读取状态</FieldDescription>}
+          {hasSecret === 'error' && <FieldDescription>凭据状态未知</FieldDescription>}
+          <PasswordInput
+            value={apiKey}
+            onChange={setApiKey}
+            placeholder={hasSecret === true ? '••••••••' : '粘贴模型密钥'}
+            ariaLabel={`${display.name} 模型密钥`}
+            disabled={detailActionBusy}
+          />
+        </FieldRoot>
+      )}
+      {requiresVisibleEndpoint && (
+        <ConnectionEndpointField
+          baseUrl={baseUrl}
+          defaultsBaseUrl={defaults.baseUrl}
+          fixedOAuth={hasFixedOAuthBaseUrl}
+          disabled={detailActionBusy}
+          onChange={setBaseUrl}
+        />
+      )}
       {defaults.signupUrl && (
         <a className="providerExternalLink" href={defaults.signupUrl} target="_blank" rel="noreferrer noopener">
           获取模型密钥
         </a>
       )}
+      <details className="providerAdvancedSettings">
+        <summary>高级设置</summary>
+        <div className="providerAdvancedSettingsBody">
+          <FieldRoot className="grid gap-1.5">
+            <Label className="text-xs text-foreground-secondary">连接标识</Label>
+            <Input value={connection.slug} disabled aria-label="模型连接标识" />
+          </FieldRoot>
+          {!requiresVisibleEndpoint && (
+            <ConnectionEndpointField
+              baseUrl={baseUrl}
+              defaultsBaseUrl={defaults.baseUrl}
+              fixedOAuth={hasFixedOAuthBaseUrl}
+              disabled={detailActionBusy}
+              onChange={setBaseUrl}
+            />
+          )}
+        </div>
+      </details>
       <div className="providerActions">
         <Button type="button" disabled={detailActionBusy || !hasSaveChanges} onClick={save}>
           {busy ? '保存中…' : '保存修改'}
@@ -584,6 +607,30 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
         </Button>
       </div>
     </div>
+  );
+}
+
+function ConnectionEndpointField(props: {
+  baseUrl: string;
+  defaultsBaseUrl: string | undefined;
+  fixedOAuth: boolean;
+  disabled: boolean;
+  onChange(value: string): void;
+}) {
+  return (
+    <FieldRoot className="grid gap-1.5">
+      <Label className="text-xs text-foreground-secondary">服务地址</Label>
+      {props.fixedOAuth && <FieldDescription>OAuth 固定</FieldDescription>}
+      <Input
+        value={props.baseUrl}
+        onChange={(event) => props.onChange(event.currentTarget.value)}
+        placeholder={props.defaultsBaseUrl}
+        readOnly={props.fixedOAuth}
+        disabled={props.disabled}
+        aria-readonly={props.fixedOAuth ? 'true' : undefined}
+        aria-label={props.fixedOAuth ? '模型连接服务地址，OAuth 固定' : '模型连接服务地址'}
+      />
+    </FieldRoot>
   );
 }
 

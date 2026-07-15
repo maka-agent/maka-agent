@@ -6,7 +6,7 @@ const SETTINGS_ROOT = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', '
 
 export interface ProviderSettingsSources {
   panel: string;
-  sheet: string;
+  dialog: string;
   catalog: string;
   oauth: string;
   display: string;
@@ -18,7 +18,7 @@ export interface ProviderSettingsSources {
 
 const sourcePaths = {
   panel: resolve(SETTINGS_ROOT, 'ProvidersPanel.tsx'),
-  sheet: resolve(SETTINGS_ROOT, 'provider-config-sheet.tsx'),
+  dialog: resolve(SETTINGS_ROOT, 'provider-connection-dialog.tsx'),
   catalog: resolve(SETTINGS_ROOT, 'provider-catalog.tsx'),
   oauth: resolve(SETTINGS_ROOT, 'provider-oauth-section.tsx'),
   display: resolve(SETTINGS_ROOT, 'provider-display.tsx'),
@@ -28,9 +28,9 @@ const sourcePaths = {
 } as const;
 
 export async function readProviderSettingsSources(): Promise<ProviderSettingsSources> {
-  const [panel, sheet, catalog, oauth, display, addForm, detail, shared] = await Promise.all([
+  const [panel, dialog, catalog, oauth, display, addForm, detail, shared] = await Promise.all([
     readFile(sourcePaths.panel, 'utf8'),
-    readFile(sourcePaths.sheet, 'utf8'),
+    readFile(sourcePaths.dialog, 'utf8'),
     readFile(sourcePaths.catalog, 'utf8'),
     readFile(sourcePaths.oauth, 'utf8'),
     readFile(sourcePaths.display, 'utf8'),
@@ -41,7 +41,7 @@ export async function readProviderSettingsSources(): Promise<ProviderSettingsSou
 
   return {
     panel,
-    sheet,
+    dialog,
     catalog,
     oauth,
     display,
@@ -50,7 +50,7 @@ export async function readProviderSettingsSources(): Promise<ProviderSettingsSou
     shared,
     combined: [
       panel,
-      sheet,
+      dialog,
       catalog,
       oauth,
       display,

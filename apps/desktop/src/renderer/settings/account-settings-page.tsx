@@ -15,6 +15,7 @@ import {
 } from '../connection-status';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { connectionLastTestMessageDisplay } from './provider-panel-shared';
 
 type AccountSecretProbeStatus = boolean | 'loading' | 'error';
 type AccountSecretProbeResult =
@@ -38,22 +39,6 @@ function accountConnectionTestFailureFallback(result: ConnectionTestResult): str
   }
   if (result.errorClass === 'network') return '网络错误，请检查服务地址或代理设置后重试。';
   return '连接测试失败，请检查模型连接配置后重试。';
-}
-
-function accountLastTestMessageDisplay(message: string | undefined): string | undefined {
-  if (!message) return undefined;
-  const trimmed = message.trim();
-  if (!trimmed) return undefined;
-  if (/[\u4e00-\u9fa5]/.test(trimmed)) return trimmed;
-  const normalized = trimmed.toLowerCase();
-  if (normalized === 'connection verified') return '连接已验证';
-  if (normalized === 'authentication failed') return '鉴权失败';
-  if (normalized === 'request timed out') return '请求超时';
-  if (normalized === 'network error') return '网络错误';
-  if (normalized === 'provider returned an error') return '模型服务返回错误';
-  if (normalized === 'connection test failed') return '连接测试失败';
-  const classified = generalizedErrorMessageChinese(new Error(trimmed), '');
-  return classified || '连接测试状态暂时无法显示，请重新测试。';
 }
 
 export function AccountSettingsPage(props: {
@@ -258,7 +243,7 @@ function AccountConnectionRow(props: {
   const lastTestAtMs = props.connection.lastTestAt
     ? Date.parse(props.connection.lastTestAt)
     : NaN;
-  const lastTestMessage = accountLastTestMessageDisplay(props.connection.lastTestMessage);
+  const lastTestMessage = connectionLastTestMessageDisplay(props.connection.lastTestMessage);
   return (
     <div
       className="settingsConnectionRow"

@@ -20,7 +20,7 @@ import {
 } from '@maka/ui';
 import { type StatusTone } from './settings-status-badge';
 import { ProviderLogo } from './provider-display';
-import { ProviderSheet } from './provider-config-sheet';
+import { ProviderConnectionDialog } from './provider-connection-dialog';
 import {
   useOAuthLoginFlow,
   subscriptionActionErrorMessage,
@@ -67,25 +67,9 @@ const MODEL_OAUTH_CARDS: ReadonlyArray<ModelOAuthCard> = [
     status: 'available',
     statusLabel: '可用',
   },
-  {
-    id: 'antigravity',
-    providerType: 'gemini-cli',
-    name: 'Google Antigravity',
-    description: 'Google 账号登录 Gemini。',
-    status: 'available',
-    statusLabel: '预览',
-  },
-  {
-    id: 'cursor',
-    providerType: 'openai-compatible',
-    name: 'Cursor',
-    description: 'Cursor 订阅账号登录。',
-    status: 'available',
-    statusLabel: '可用',
-  },
 ];
 
-export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void> }) {
+export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(): Promise<void> }) {
   const [openModal, setOpenModal] = useState<OAuthServiceId | null>(null);
   const toast = useToast();
   const modelOAuthMountedRef = useMountedRef();
@@ -106,12 +90,18 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
     antigravity: null,
   });
   const [cardRefreshError, setCardRefreshError] = useState<string | null>(null);
+  const normalizedQuery = props.query?.trim().toLocaleLowerCase() ?? '';
+  const visibleCards = MODEL_OAUTH_CARDS.filter((card) => !normalizedQuery || [
+    card.id,
+    card.name,
+    card.description,
+  ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery)));
 
   async function refreshAllCards() {
     const ticket = modelOAuthRefreshTicketRef.current + 1;
     modelOAuthRefreshTicketRef.current = ticket;
     const results = await Promise.all(
-      MODEL_OAUTH_CARDS.map(async (card) => {
+      visibleCards.map(async (card) => {
         try {
           const snapshot = await getSubscriptionSnapshot(card.id);
           return { id: card.id, snapshot } as const;
@@ -168,7 +158,7 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
         </div>
       )}
       <div className="providerOAuthGrid">
-        {MODEL_OAUTH_CARDS.map((card) => {
+        {visibleCards.map((card) => {
           const snapshot = cardStates[card.id];
           const runtimeState = snapshot?.runtimeState ?? 'unknown';
           const isLoggedIn =
@@ -255,24 +245,15 @@ function providerOAuthAriaLabel(card: ModelOAuthCard, badge: string, description
  */
 function ClaudeSubscriptionModal(props: { onClose(): void }) {
   return (
-    <ProviderSheet onClose={props.onClose} ariaLabel="Claude Code 登录" dataSubscription="claude">
-        <header className="providerConfigHeader">
-          <div>
-            <h3>Claude Code</h3>
-            <p>登录 Claude Pro / Max 后，会同步成模型连接。</p>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={props.onClose}
-            aria-label="关闭"
-          >
-            ×
-          </Button>
-        </header>
-        <ClaudeSubscriptionCard />
-      </ProviderSheet>
-    );
+    <ProviderConnectionDialog
+      title="连接 Claude Code"
+      subtitle="登录 Claude Pro / Max 后，会同步成模型连接。"
+      providerType="claude-subscription"
+      onClose={props.onClose}
+    >
+      <ClaudeSubscriptionCard />
+    </ProviderConnectionDialog>
+  );
 }
 
 function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClose(): void }) {
@@ -289,21 +270,12 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
   });
 
   return (
-    <ProviderSheet onClose={props.onClose} ariaLabel={`${display.name} 登录`} dataSubscription={props.serviceId}>
-        <header className="providerConfigHeader">
-          <div>
-            <h3>{display.name}</h3>
-            <p>{display.detail}</p>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={props.onClose}
-            aria-label="关闭"
-          >
-            ×
-          </Button>
-        </header>
+    <ProviderConnectionDialog
+      title={`连接 ${display.name}`}
+      subtitle={display.detail}
+      providerType={oauthProviderType(props.serviceId)}
+      onClose={props.onClose}
+    >
         <div className="settingsConnectionRow" data-status={flow.runtimeState}>
           <p className="settingsConnectionDetail">
             {presentSnapshotDetail(flow.state, display)}
@@ -335,8 +307,8 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
             )}
           </div>
         </div>
-      </ProviderSheet>
-    );
+    </ProviderConnectionDialog>
+  );
 }
 
 async function getSubscriptionSnapshot(serviceId: OAuthServiceId): Promise<SubscriptionSnapshot> {
@@ -390,14 +362,12 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
 
   const loggedIn = state?.runtimeState === 'authenticated' || state?.runtimeState === 'refreshing';
   return (
-    <ProviderSheet onClose={props.onClose} ariaLabel="GitHub Copilot 登录" dataSubscription="github-copilot">
-      <header className="providerConfigHeader">
-        <div>
-          <h3>GitHub Copilot</h3>
-          <p>优先读取 COPILOT_GITHUB_TOKEN，也可尝试兼容的 GitHub CLI 登录；token 不会暴露给渲染进程。</p>
-        </div>
-        <Button type="button" variant="ghost" onClick={props.onClose} aria-label="关闭">×</Button>
-      </header>
+    <ProviderConnectionDialog
+      title="连接 GitHub Copilot"
+      subtitle="导入兼容的 GitHub 登录；token 不会暴露给渲染进程。"
+      providerType="github-copilot"
+      onClose={props.onClose}
+    >
       <div className="settingsConnectionRow" data-status={state?.runtimeState ?? 'loading'}>
         <p className="settingsConnectionDetail">
           {loggedIn
@@ -422,8 +392,16 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
           )}
         </div>
       </div>
-    </ProviderSheet>
+    </ProviderConnectionDialog>
   );
+}
+
+function oauthProviderType(serviceId: BrowserOAuthServiceId): ProviderType {
+  switch (serviceId) {
+    case 'codex': return 'openai-codex';
+    case 'cursor': return 'openai-compatible';
+    case 'antigravity': return 'gemini-cli';
+  }
 }
 
 function pickSubscriptionBridge(serviceId: BrowserOAuthServiceId): OAuthLoginFlowBridge {
