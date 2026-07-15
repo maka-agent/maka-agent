@@ -632,7 +632,7 @@ function redactString(value: string): string {
     .replace(/\bgh[opusr]_[A-Za-z0-9]{12,}\b/g, '[REDACTED]')
     .replace(/\bxox[baprs]-[A-Za-z0-9-]{8,}\b/g, '[REDACTED]')
     .replace(/([?&](?:api[_-]?key|access[_-]?token|token|key)=)[^&#\s]+/gi, '$1[REDACTED]')
-    .replace(/(\b[A-Za-z0-9_.-]*(?:api[_-]?key|(?:access|refresh|session|auth)?[_-]?token|client[_-]?secret|password|credential|secret)\s*[:=]\s*)[^\s,;]+/gi, '$1[REDACTED]')
+    .replace(/(\b[A-Za-z0-9_.-]*(?:api[_-]?key|(?:access|refresh|session|auth)?[_-]?token|client[_-]?secret|password|credentials?|secret(?:[_-]?access[_-]?key)?)\s*[:=]\s*)[^\s,;]+/gi, '$1[REDACTED]')
     .replace(/:\/\/[^/\s:@]+:[^@\s/]+@/g, '://[REDACTED]@')
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED]');
 }
