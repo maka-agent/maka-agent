@@ -9,6 +9,7 @@ import {
   decidePromptAcceptance,
   promptAcceptanceNoiseBand,
   promptAcceptanceStateFromWal,
+  selectAddressablePromptTasks,
   selectStablePromptTasks,
   summarizePromptAcceptancePartition,
 } from '../prompt-acceptance-policy.js';
@@ -198,6 +199,74 @@ describe('prompt acceptance policy', () => {
         { taskId: 'task-b', reason: 'incomplete' },
       ],
     });
+  });
+
+  test('classifies capability-limit and high-flip tasks from kept-prompt history', () => {
+    const keptPromptEvents = [
+      completed('stable', true, { id: 'stable-0', roundId: 'round-0', promptHash: 'prompt-0', ts: 1 }),
+      completed('capability', false, { id: 'capability-0', roundId: 'round-0', promptHash: 'prompt-0', ts: 2 }),
+      completed('flaky', true, { id: 'flaky-0', roundId: 'round-0', promptHash: 'prompt-0', ts: 3 }),
+      completed('stable', true, { id: 'stable-1', roundId: 'round-1', promptHash: 'prompt-1', ts: 4 }),
+      completed('capability', false, { id: 'capability-1', roundId: 'round-1', promptHash: 'prompt-1', ts: 5 }),
+      completed('flaky', false, { id: 'flaky-1', roundId: 'round-1', promptHash: 'prompt-1', ts: 6 }),
+      completed('stable', false, { id: 'stable-2', roundId: 'round-2', promptHash: 'prompt-2', ts: 7 }),
+      completed('capability', false, { id: 'capability-2', roundId: 'round-2', promptHash: 'prompt-2', ts: 8 }),
+      completed('flaky', true, { id: 'flaky-2', roundId: 'round-2', promptHash: 'prompt-2', ts: 9 }),
+    ];
+
+    const result = selectAddressablePromptTasks({
+      taskIds: ['stable', 'capability', 'flaky'],
+      keptPromptEvents,
+    });
+
+    assert.deepEqual(result, {
+      selectedTaskIds: ['stable'],
+      taskStats: [
+        {
+          taskId: 'stable',
+          observations: 3,
+          keptPrompts: 3,
+          passes: 2,
+          flips: 1,
+          flipRate: 0.5,
+          addressable: true,
+        },
+        {
+          taskId: 'capability',
+          observations: 3,
+          keptPrompts: 3,
+          passes: 0,
+          flips: 0,
+          flipRate: 0,
+          addressable: false,
+          rejectionReason: 'capability_limit',
+        },
+        {
+          taskId: 'flaky',
+          observations: 3,
+          keptPrompts: 3,
+          passes: 2,
+          flips: 2,
+          flipRate: 1,
+          addressable: false,
+          rejectionReason: 'flaky',
+        },
+      ],
+    });
+  });
+
+  test('does not infer multiple retained prompts from legacy events without prompt hashes', () => {
+    const result = selectAddressablePromptTasks({
+      taskIds: ['legacy-failure'],
+      keptPromptEvents: [
+        completed('legacy-failure', false, { id: 'legacy-0', roundId: 'baseline-0', ts: 1 }),
+        completed('legacy-failure', false, { id: 'legacy-1', roundId: 'baseline-1', ts: 2 }),
+      ],
+    });
+
+    assert.deepEqual(result.selectedTaskIds, ['legacy-failure']);
+    assert.equal(result.taskStats[0]?.keptPrompts, 1);
+    assert.equal(result.taskStats[0]?.rejectionReason, undefined);
   });
 
   test('keeps candidates that improve held-in beyond noise without falling below the held-out original floor', () => {

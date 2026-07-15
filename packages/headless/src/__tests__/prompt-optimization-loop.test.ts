@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { readFixedPromptWal } from '../fixed-prompt-controller.js';
 import { promptAcceptanceNoiseBand } from '../prompt-acceptance-policy.js';
-import { execFileAsync, evidenceRefsFor, makeTasks, runLoop, taskIndex, withHarness, type MetaAgentPromptInput } from './helpers/prompt-optimization-loop-harness.js';
+import { execFileAsync, evidenceRefsFor, fakeMetaAgent, makeTasks, runLoop, taskIndex, withHarness, type MetaAgentPromptInput } from './helpers/prompt-optimization-loop-harness.js';
 
 describe('runPromptOptimizationLoop', () => {
   test('defaults the acceptance noise band to a 1.96 z-score', async () => {
@@ -640,6 +640,133 @@ describe('runPromptOptimizationLoop', () => {
         .filter((event) => event.roundId === 'round-0' && event.type === 'task_completed' && (event.taskId ?? '').startsWith('hin-'))
         .map((event) => event.taskId);
       assert.deepEqual([...new Set(roundHeldInTaskIds)].sort(), ['hin-0', 'hin-1']);
+    });
+  });
+
+  test('runs flaky tasks but excludes them from proposal evidence and decisions', async () => {
+    await withHarness(async (harness) => {
+      const heldInTasks = makeTasks('hin', 3);
+      const heldOutTasks = makeTasks('hout', 2);
+      const roundTaskIds: string[] = [];
+      let proposalInput: MetaAgentPromptInput | undefined;
+      const rewardFor = (roundId: string, taskId: string): number => {
+        if (taskId === 'hin-0' || taskId === 'hout-0') return 1;
+        if (taskId === 'hin-2' && roundId !== 'baseline-1') return 1;
+        return roundId === 'round-0' ? 1 : 0;
+      };
+
+      const result = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 1,
+        baselineRuns: 3,
+        onTaskRun: (roundId, taskId) => {
+          if (roundId === 'round-0' && taskId.startsWith('hin-')) roundTaskIds.push(taskId);
+        },
+        metaAgent: async (input) => {
+          proposalInput = input;
+          return {
+            systemPrompt: 'addressability candidate\n',
+            summary: 'use only addressable evidence',
+            candidateRationale: {
+              failurePattern: 'coverage_regression',
+              evidenceRefs: evidenceRefsFor(input),
+              hypothesis: 'addressable evidence supports a bounded prompt improvement',
+              targetedFix: 'clarify the general success criteria',
+              predictedFixes: [],
+              riskTasks: [],
+            },
+          };
+        },
+      });
+
+      assert.ok(proposalInput);
+      assert.deepEqual(proposalInput.heldInDigests.map((digest) => digest.taskId), ['hin-0', 'hin-1']);
+      assert.match(proposalInput.resultsTsv, /hin-0/);
+      assert.match(proposalInput.resultsTsv, /hin-1/);
+      assert.doesNotMatch(proposalInput.resultsTsv, /hin-2/);
+      assert.deepEqual([...new Set(roundTaskIds)].sort(), ['hin-0', 'hin-1', 'hin-2']);
+      assert.equal(result.baseline.heldIn.taskCount, 2);
+      assert.equal(result.baseline.heldOut.taskCount, 2);
+      assert.deepEqual(result.addressability.heldIn.taskStats.map((stat) => ({
+        taskId: stat.taskId,
+        addressable: stat.addressable,
+        rejectionReason: stat.rejectionReason,
+      })), [
+        { taskId: 'hin-0', addressable: true, rejectionReason: undefined },
+        { taskId: 'hin-1', addressable: true, rejectionReason: undefined },
+        { taskId: 'hin-2', addressable: false, rejectionReason: 'flaky' },
+      ]);
+      assert.deepEqual(result.addressability.heldOut.selectedTaskIds, ['hout-0', 'hout-1']);
+      assert.deepEqual(result.droppedHeldInTaskIds, []);
+    });
+  });
+
+  test('excludes a capability-limit task after two retained prompts but keeps executing it', async () => {
+    await withHarness(async (harness) => {
+      const heldInTasks = makeTasks('hin', 20);
+      const heldOutTasks = makeTasks('hout', 4);
+      const proposalInputs: MetaAgentPromptInput[] = [];
+      const roundOneTaskIds: string[] = [];
+      const propose = fakeMetaAgent();
+      const rewardFor = (roundId: string, taskId: string): number => {
+        if (taskId.startsWith('hout-')) return 1;
+        const index = taskIndex(taskId);
+        if (roundId.startsWith('baseline-')) return index < 10 ? 1 : 0;
+        if (roundId === 'round-0') return index < 19 ? 1 : 0;
+        return 1;
+      };
+
+      const first = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 1,
+        baselineRuns: 2,
+        metaAgent: async (input) => {
+          proposalInputs.push(input);
+          return propose(input);
+        },
+      });
+      assert.equal(first.decisions[0]?.decision, 'keep');
+      assert.equal(proposalInputs.length, 1);
+      assert.match(proposalInputs[0]!.resultsTsv, /hin-19/);
+      proposalInputs.length = 0;
+
+      const result = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 2,
+        baselineRuns: 2,
+        metaAgent: async (input) => {
+          proposalInputs.push(input);
+          return propose(input);
+        },
+        onTaskRun: (roundId, taskId) => {
+          if (roundId === 'round-1' && taskId.startsWith('hin-')) roundOneTaskIds.push(taskId);
+        },
+      });
+
+      assert.equal(result.decisions[0]?.decision, 'keep');
+      assert.equal(proposalInputs.length, 1);
+      assert.doesNotMatch(proposalInputs[0]!.resultsTsv, /hin-19/);
+      assert.equal(proposalInputs[0]!.heldInDigests.some((digest) => digest.taskId === 'hin-19'), false);
+      assert.ok(roundOneTaskIds.includes('hin-19'));
+      assert.deepEqual(
+        result.addressability.heldIn.taskStats.find((stat) => stat.taskId === 'hin-19'),
+        {
+          taskId: 'hin-19',
+          observations: 3,
+          keptPrompts: 2,
+          passes: 0,
+          flips: 0,
+          flipRate: 0,
+          addressable: false,
+          rejectionReason: 'capability_limit',
+        },
+      );
     });
   });
 

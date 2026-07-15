@@ -411,6 +411,15 @@ async function main() {
   if (result.droppedHeldInTaskIds.length > 0 || result.droppedHeldOutTaskIds.length > 0) {
     console.log(`dropped (unstable in baseline): held-in [${result.droppedHeldInTaskIds.join(', ')}], held-out [${result.droppedHeldOutTaskIds.join(', ')}]`);
   }
+  const excludedHeldIn = result.addressability.heldIn.taskStats
+    .filter((stat) => !stat.addressable)
+    .map((stat) => `${stat.taskId}:${stat.rejectionReason}`);
+  const excludedHeldOut = result.addressability.heldOut.taskStats
+    .filter((stat) => !stat.addressable)
+    .map((stat) => `${stat.taskId}:${stat.rejectionReason}`);
+  if (excludedHeldIn.length > 0 || excludedHeldOut.length > 0) {
+    console.log(`excluded (proposal/decision only): held-in [${excludedHeldIn.join(', ')}], held-out [${excludedHeldOut.join(', ')}]`);
+  }
   console.log(`decisions: ${result.decisions.length} (kept ${result.keptCount})`);
   console.log(`totalCostUsd: ${result.totalCostUsd.toFixed(4)}`);
   console.log(`smoke: ${result.smoke.status} (rounds ${result.smoke.observedRounds}/${result.smoke.minimumRounds})`);

@@ -157,6 +157,35 @@ export interface StablePromptTaskSelectionResult {
   }>;
 }
 
+export type PromptTaskAddressabilityRejectionReason = 'capability_limit' | 'flaky';
+
+export interface PromptTaskAddressabilityStat {
+  taskId: string;
+  observations: number;
+  keptPrompts: number;
+  passes: number;
+  flips: number;
+  flipRate: number;
+  addressable: boolean;
+  rejectionReason?: PromptTaskAddressabilityRejectionReason;
+}
+
+export interface SelectAddressablePromptTasksInput {
+  taskIds: readonly string[];
+  /** Completed evaluations produced by prompts that were retained. The loop
+   * grows this replay-stable prefix only after each KEEP decision; excluded
+   * tasks continue to execute in candidate rounds. */
+  keptPromptEvents: readonly FixedPromptTaskWalEvent[];
+}
+
+export interface PromptTaskAddressabilitySelectionResult {
+  selectedTaskIds: string[];
+  taskStats: PromptTaskAddressabilityStat[];
+}
+
+const MIN_FLAKY_TASK_OBSERVATIONS = 3;
+const MAX_ADDRESSABLE_TASK_FLIP_RATE = 0.5;
+
 export function calibratePromptAcceptanceBaseline(
   input: CalibratePromptAcceptanceBaselineInput,
 ): PromptAcceptanceBaseline {
@@ -251,6 +280,73 @@ export function selectStablePromptTasks(
     selectedTaskIds.push(taskId);
   }
   return { selectedTaskIds, rejectedTaskIds };
+}
+
+/**
+ * Separate prompt-addressability from execution stability. A task can be
+ * perfectly runnable yet provide no useful prompt-optimization signal because
+ * the retained prompt history never solved it (capability ceiling) or because
+ * its result oscillates too often. Those tasks remain in the execution/WAL set;
+ * this selector only defines proposal evidence and acceptance/noise-band input.
+ */
+export function selectAddressablePromptTasks(
+  input: SelectAddressablePromptTasksInput,
+): PromptTaskAddressabilitySelectionResult {
+  const taskIdSet = new Set(input.taskIds);
+  const historyByTask = new Map<string, Array<{ passed: boolean; promptHash: string }>>();
+  const orderedEvents = input.keptPromptEvents
+    .filter((event): event is FixedPromptTaskCompletedEvent => (
+      event.type === 'task_completed'
+      && event.eligible
+      && event.scored
+      && taskIdSet.has(event.taskId)
+    ))
+    .map((event, index) => ({ event, index }))
+    .sort((a, b) => a.event.ts - b.event.ts || a.index - b.index);
+  for (const { event } of orderedEvents) {
+    const history = historyByTask.get(event.taskId) ?? [];
+    history.push({
+      passed: event.passed,
+      // A legacy event without prompt identity cannot prove that two distinct
+      // retained prompts hit the same ceiling, so group all such evidence into
+      // one conservative unknown prompt instead of guessing from round ids.
+      promptHash: event.promptHash ?? 'legacy-unknown',
+    });
+    historyByTask.set(event.taskId, history);
+  }
+
+  const taskStats = input.taskIds.map((taskId): PromptTaskAddressabilityStat => {
+    const history = historyByTask.get(taskId) ?? [];
+    const outcomes = history.map((item) => item.passed);
+    const observations = outcomes.length;
+    const keptPrompts = new Set(history.map((item) => item.promptHash)).size;
+    const passes = outcomes.filter(Boolean).length;
+    let flips = 0;
+    for (let index = 1; index < outcomes.length; index += 1) {
+      if (outcomes[index] !== outcomes[index - 1]) flips += 1;
+    }
+    const flipRate = observations > 1 ? flips / (observations - 1) : 0;
+    const rejectionReason: PromptTaskAddressabilityRejectionReason | undefined = keptPrompts >= 2 && passes === 0
+      ? 'capability_limit'
+      : observations >= MIN_FLAKY_TASK_OBSERVATIONS && flipRate > MAX_ADDRESSABLE_TASK_FLIP_RATE
+        ? 'flaky'
+        : undefined;
+    return {
+      taskId,
+      observations,
+      keptPrompts,
+      passes,
+      flips,
+      flipRate,
+      addressable: rejectionReason === undefined,
+      ...(rejectionReason ? { rejectionReason } : {}),
+    };
+  });
+
+  return {
+    selectedTaskIds: taskStats.filter((stat) => stat.addressable).map((stat) => stat.taskId),
+    taskStats,
+  };
 }
 
 function isStableBaselineEvent(

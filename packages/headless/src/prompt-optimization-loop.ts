@@ -28,10 +28,13 @@ import {
   calibratePromptAcceptanceBaseline,
   decidePromptAcceptance,
   heldInGateReason,
+  selectAddressablePromptTasks,
   selectStablePromptTasks,
+  summarizePromptAcceptancePartition,
   type PromptAcceptanceBaseline,
   type PromptAcceptanceBaselineRun,
   type PromptAcceptanceResult,
+  type PromptTaskAddressabilitySelectionResult,
 } from './prompt-acceptance-policy.js';
 import {
   promptStructuralSmokeReport,
@@ -158,6 +161,12 @@ export interface PromptOptimizationLoopResult {
   droppedHeldInTaskIds: string[];
   /** Held-out task ids dropped before calibration, same criterion. */
   droppedHeldOutTaskIds: string[];
+  /** Historical kept-prompt addressability used only for proposal evidence and
+   * acceptance. Rejected tasks still execute and remain recorded in the WAL. */
+  addressability: {
+    heldIn: PromptTaskAddressabilitySelectionResult;
+    heldOut: PromptTaskAddressabilitySelectionResult;
+  };
 }
 
 export async function runPromptOptimizationLoop(
@@ -396,28 +405,40 @@ export async function runPromptOptimizationLoop(
   const droppedHeldOutTaskIds = heldOutStable.rejectedTaskIds.map((rejected) => rejected.taskId);
   const stableHeldInSet = new Set(stableHeldInTaskIds);
   const stableHeldOutSet = new Set(stableHeldOutTaskIds);
-  const roundHeldInTasks = input.heldInTasks.filter((task) => stableHeldInSet.has(task.id));
-  const roundHeldOutTasks = input.heldOutTasks.filter((task) => stableHeldOutSet.has(task.id));
   const stableHeldIn = (events: readonly FixedPromptTaskWalEvent[]): FixedPromptTaskWalEvent[] =>
     events.filter((event) => stableHeldInSet.has(event.taskId));
   const stableHeldOut = (events: readonly FixedPromptTaskWalEvent[]): FixedPromptTaskWalEvent[] =>
     events.filter((event) => stableHeldOutSet.has(event.taskId));
-
+  let keptHeldInHistory = baselineRunsData.flatMap((run) => stableHeldIn(run.heldInEvents));
+  let keptHeldOutHistory = baselineRunsData.flatMap((run) => stableHeldOut(run.heldOutEvents));
+  const initialAddressability = {
+    heldIn: selectAddressablePromptTasks({
+      taskIds: stableHeldInTaskIds,
+      keptPromptEvents: keptHeldInHistory,
+    }),
+    heldOut: selectAddressablePromptTasks({
+      taskIds: stableHeldOutTaskIds,
+      keptPromptEvents: keptHeldOutHistory,
+    }),
+  };
+  const roundHeldInTasks = input.heldInTasks.filter((task) => stableHeldInSet.has(task.id));
+  const roundHeldOutTasks = input.heldOutTasks.filter((task) => stableHeldOutSet.has(task.id));
   const baseline = calibratePromptAcceptanceBaseline({
-    heldInTaskIds: stableHeldInTaskIds,
-    heldOutTaskIds: stableHeldOutTaskIds,
+    heldInTaskIds: initialAddressability.heldIn.selectedTaskIds,
+    heldOutTaskIds: initialAddressability.heldOut.selectedTaskIds,
     baselineRuns: baselineRunsData,
     zScore,
   });
 
-  const originalHeldOutEvents = stableHeldOut(baselineRunsData[0]!.heldOutEvents);
   let lastKeptCommitSha = replayState.seedCommitSha;
-  let heldInReference = baseline.heldIn.referencePassEligibleRate;
-  let lastKeptHeldInEvents: readonly FixedPromptTaskWalEvent[] = stableHeldIn(baselineRunsData[0]!.heldInEvents);
-  let previousCandidateHeldInEvents: readonly FixedPromptTaskWalEvent[] | undefined;
-  let latestHeldInFeedbackEvents: readonly FixedPromptTaskWalEvent[] = stableHeldIn(baselineRunsData[baselineRunsData.length - 1]!.heldInEvents);
+  let finalHeldInReference = baseline.heldIn.referencePassEligibleRate;
+  let lastKeptHeldInExecutionEvents: readonly FixedPromptTaskWalEvent[] = stableHeldIn(baselineRunsData[0]!.heldInEvents);
+  let previousCandidateHeldInExecutionEvents: readonly FixedPromptTaskWalEvent[] | undefined;
+  let latestHeldInFeedbackExecutionEvents: readonly FixedPromptTaskWalEvent[] = stableHeldIn(
+    baselineRunsData[baselineRunsData.length - 1]!.heldInEvents,
+  );
+  let finalAddressability = initialAddressability;
   let nextPromptAttribution: RsiPromptAttribution | undefined;
-  let nextHeldInDigests = await digestsFor(stableHeldIn(baselineRunsData[baselineRunsData.length - 1]!.heldInEvents));
 
   // 2. Candidate rounds.
   const decisions: PromptAcceptanceResult[] = [];
@@ -431,8 +452,54 @@ export async function runPromptOptimizationLoop(
       break;
     }
     const roundId = `round-${round}`;
+    const addressability = {
+      heldIn: selectAddressablePromptTasks({
+        taskIds: stableHeldInTaskIds,
+        keptPromptEvents: keptHeldInHistory,
+      }),
+      heldOut: selectAddressablePromptTasks({
+        taskIds: stableHeldOutTaskIds,
+        keptPromptEvents: keptHeldOutHistory,
+      }),
+    };
+    if (addressability.heldIn.selectedTaskIds.length === 0) {
+      throw new Error('held-in addressable task count is 0 after kept-prompt history filtering');
+    }
+    if (addressability.heldOut.selectedTaskIds.length === 0) {
+      throw new Error('held-out addressable task count is 0 after kept-prompt history filtering');
+    }
+    finalAddressability = addressability;
+    const decisionHeldInTaskIds = addressability.heldIn.selectedTaskIds;
+    const decisionHeldOutTaskIds = addressability.heldOut.selectedTaskIds;
+    const decisionHeldInSet = new Set(decisionHeldInTaskIds);
+    const decisionHeldOutSet = new Set(decisionHeldOutTaskIds);
+    const decisionHeldIn = (events: readonly FixedPromptTaskWalEvent[]): FixedPromptTaskWalEvent[] =>
+      events.filter((event) => decisionHeldInSet.has(event.taskId));
+    const decisionHeldOut = (events: readonly FixedPromptTaskWalEvent[]): FixedPromptTaskWalEvent[] =>
+      events.filter((event) => decisionHeldOutSet.has(event.taskId));
+    const activeBaseline = calibratePromptAcceptanceBaseline({
+      heldInTaskIds: decisionHeldInTaskIds,
+      heldOutTaskIds: decisionHeldOutTaskIds,
+      baselineRuns: baselineRunsData,
+      zScore,
+    });
+    const originalHeldOutEvents = decisionHeldOut(baselineRunsData[0]!.heldOutEvents);
+    const lastKeptHeldInEvents = decisionHeldIn(lastKeptHeldInExecutionEvents);
+    const previousCandidateHeldInEvents = previousCandidateHeldInExecutionEvents
+      ? decisionHeldIn(previousCandidateHeldInExecutionEvents)
+      : undefined;
+    const latestHeldInFeedbackEvents = decisionHeldIn(latestHeldInFeedbackExecutionEvents);
+    const heldInReference = decisions.length === 0
+      ? activeBaseline.heldIn.referencePassEligibleRate
+      : summarizePromptAcceptancePartition(
+        lastKeptHeldInExecutionEvents,
+        decisionHeldInTaskIds,
+      ).passEligibleRate;
+    finalHeldInReference = heldInReference;
+    const nextHeldInDigests = await digestsFor(latestHeldInFeedbackEvents);
+    await writeFixedPromptResultsTsv(input.heldInResultsTsvPath, latestHeldInFeedbackEvents);
     const promptAnalysis = await analyzeRsiRound({
-      heldInTaskIds: stableHeldInTaskIds,
+      heldInTaskIds: decisionHeldInTaskIds,
       lastKeptEvents: lastKeptHeldInEvents,
       ...(previousCandidateHeldInEvents ? { previousCandidateEvents: previousCandidateHeldInEvents } : {}),
       candidateEvents: latestHeldInFeedbackEvents,
@@ -442,8 +509,10 @@ export async function runPromptOptimizationLoop(
       state: replayState,
       runId: input.runId,
       roundId,
-      heldInTaskIds: stableHeldInTaskIds,
-      heldOutTaskIds: stableHeldOutTaskIds,
+      heldInTaskIds: decisionHeldInTaskIds,
+      heldOutTaskIds: decisionHeldOutTaskIds,
+      executedHeldInTaskIds: stableHeldInTaskIds,
+      executedHeldOutTaskIds: stableHeldOutTaskIds,
       ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
       heldInResultsTsvPath: input.heldInResultsTsvPath,
       heldOutResultsTsvPath: input.heldOutResultsTsvPath,
@@ -454,17 +523,17 @@ export async function runPromptOptimizationLoop(
         await writeFixedPromptResultsTsv(input.heldOutResultsTsvPath, existingDecisionRound.heldOut.events);
       }
       const existingHeldInEvents = existingDecisionRound.heldIn.events;
-      accumulate(existingDecisionRound.heldIn);
-      if (existingDecisionRound.heldOut) accumulate(existingDecisionRound.heldOut);
-      const replayedRewardHackScan = await scanHeldIn(existingHeldInEvents);
+      accumulate(existingDecisionRound.executedHeldIn);
+      if (existingDecisionRound.executedHeldOut) accumulate(existingDecisionRound.executedHeldOut);
+      const replayedRewardHackScan = await scanHeldIn(existingDecisionRound.executedHeldIn.events);
       if (
         !existingDecisionRound.heldOut
         && heldInGateReason({
-          heldInTaskIds: stableHeldInTaskIds,
+          heldInTaskIds: decisionHeldInTaskIds,
           lastKeptHeldInEvents,
           candidateHeldInEvents: existingHeldInEvents,
           previousHeldInReferencePassEligibleRate: heldInReference,
-          heldInPassRateNoiseBand: baseline.heldIn.noiseBand,
+          heldInPassRateNoiseBand: activeBaseline.heldIn.noiseBand,
           rewardHackScan: replayedRewardHackScan,
         }) === null
       ) {
@@ -476,12 +545,12 @@ export async function runPromptOptimizationLoop(
         candidateCommitSha: existingDecisionRound.decision.candidateCommitSha,
         previousLastKeptCommitSha: lastKeptCommitSha,
         originalCommitSha: replayState.seedCommitSha,
-        heldInTaskIds: stableHeldInTaskIds,
-        heldOutTaskIds: stableHeldOutTaskIds,
+        heldInTaskIds: decisionHeldInTaskIds,
+        heldOutTaskIds: decisionHeldOutTaskIds,
         previousHeldInReferencePassEligibleRate: heldInReference,
-        originalHeldOutPassEligibleRate: baseline.heldOut.originalPassEligibleRate,
-        heldInPassRateNoiseBand: baseline.heldIn.noiseBand,
-        heldOutPassRateNoiseBand: baseline.heldOut.noiseBand,
+        originalHeldOutPassEligibleRate: activeBaseline.heldOut.originalPassEligibleRate,
+        heldInPassRateNoiseBand: activeBaseline.heldIn.noiseBand,
+        heldOutPassRateNoiseBand: activeBaseline.heldOut.noiseBand,
         originalEvents: originalHeldOutEvents,
         lastKeptEvents: lastKeptHeldInEvents,
         candidateEvents: [...existingHeldInEvents, ...(existingDecisionRound.heldOut?.events ?? [])],
@@ -500,33 +569,36 @@ export async function runPromptOptimizationLoop(
         candidateRationale: replayedCandidate.candidateRationale,
         promptTimeAnalysis: promptAnalysis,
         analysis: await analyzeRsiRound({
-          heldInTaskIds: stableHeldInTaskIds,
+          heldInTaskIds: decisionHeldInTaskIds,
           lastKeptEvents: lastKeptHeldInEvents,
           ...(previousCandidateHeldInEvents ? { previousCandidateEvents: previousCandidateHeldInEvents } : {}),
           candidateEvents: existingHeldInEvents,
         }),
-        heldInTaskIds: stableHeldInTaskIds,
+        heldInTaskIds: decisionHeldInTaskIds,
         lastKeptEvents: lastKeptHeldInEvents,
         candidateEvents: existingHeldInEvents,
         decision: replayedResult,
       });
       assertReplayedAttributionMatchesResult(existingDecisionRound.attribution, replayedAttribution);
       decisions.push(replayedResult);
+      finalHeldInReference = replayedResult.heldInReferencePassEligibleRate;
       if (replayedResult.decision === 'keep') {
         lastKeptCommitSha = replayedResult.lastKeptCommitSha;
-        heldInReference = replayedResult.heldInReferencePassEligibleRate;
-        lastKeptHeldInEvents = existingHeldInEvents;
+        lastKeptHeldInExecutionEvents = existingDecisionRound.executedHeldIn.events;
+        keptHeldInHistory = [...keptHeldInHistory, ...existingDecisionRound.executedHeldIn.events];
+        if (existingDecisionRound.executedHeldOut) {
+          keptHeldOutHistory = [...keptHeldOutHistory, ...existingDecisionRound.executedHeldOut.events];
+        }
       }
-      previousCandidateHeldInEvents = existingHeldInEvents;
-      latestHeldInFeedbackEvents = existingHeldInEvents;
-      nextHeldInDigests = await digestsFor(existingHeldInEvents);
+      previousCandidateHeldInExecutionEvents = existingDecisionRound.executedHeldIn.events;
+      latestHeldInFeedbackExecutionEvents = existingDecisionRound.executedHeldIn.events;
       nextPromptAttribution = projectRsiPromptAttribution(existingDecisionRound.attribution);
       continue;
     }
 
     const existingCandidate = replayState.candidateByRoundId.get(roundId);
     if (existingCandidate) {
-      assertCandidateMatchesStableTaskSet(existingCandidate, stableHeldInTaskIds);
+      assertCandidateMatchesStableTaskSet(existingCandidate, decisionHeldInTaskIds);
     }
     const candidate = existingCandidate ?? await runPromptCandidateRound({
       runId: input.runId,
@@ -536,7 +608,7 @@ export async function runPromptOptimizationLoop(
       systemPromptPath: input.systemPromptPath,
       resultsTsvPath: input.heldInResultsTsvPath,
       resultsJsonlPath: input.resultsJsonlPath,
-      heldInTaskIds: stableHeldInTaskIds,
+      heldInTaskIds: decisionHeldInTaskIds,
       heldInDigests: nextHeldInDigests,
       rsiAnalysis: promptAnalysis,
       ...(nextPromptAttribution ? { promptAttribution: nextPromptAttribution } : {}),
@@ -552,20 +624,23 @@ export async function runPromptOptimizationLoop(
     const heldIn = await sweep(roundId, roundHeldInTasks, input.heldInResultsTsvPath);
     accumulate(heldIn);
     const rewardHackScan = await scanHeldIn(heldIn.events);
+    const heldInDecisionEvents = decisionHeldIn(heldIn.events);
+    await writeFixedPromptResultsTsv(input.heldInResultsTsvPath, heldInDecisionEvents);
 
     // #64 LOOP steps 8-10: only spend the held-out sweep when held-in clears the
     // gate (improved beyond noise, coverage intact, no reward-hack quarantine). A
     // candidate that cannot KEEP on held-in evidence is discarded without ever
     // running held-out — saving cost, time, and infra exposure.
     const heldInGate = heldInGateReason({
-      heldInTaskIds: stableHeldInTaskIds,
+      heldInTaskIds: decisionHeldInTaskIds,
       lastKeptHeldInEvents,
-      candidateHeldInEvents: heldIn.events,
+      candidateHeldInEvents: heldInDecisionEvents,
       previousHeldInReferencePassEligibleRate: heldInReference,
-      heldInPassRateNoiseBand: baseline.heldIn.noiseBand,
+      heldInPassRateNoiseBand: activeBaseline.heldIn.noiseBand,
       rewardHackScan,
     });
-    let heldOutEvents: readonly FixedPromptTaskWalEvent[] = [];
+    let heldOutExecutionEvents: readonly FixedPromptTaskWalEvent[] = [];
+    let heldOutDecisionEvents: readonly FixedPromptTaskWalEvent[] = [];
     if (heldInGate === null) {
       // Held-in cleared, but the held-in sweep itself can have exhausted the
       // budget. Do not start the held-out sweep if a guard already trips: the
@@ -580,7 +655,8 @@ export async function runPromptOptimizationLoop(
       }
       const heldOut = await sweep(roundId, roundHeldOutTasks, input.heldOutResultsTsvPath);
       accumulate(heldOut);
-      heldOutEvents = heldOut.events;
+      heldOutExecutionEvents = heldOut.events;
+      heldOutDecisionEvents = decisionHeldOut(heldOut.events);
     }
 
     const result = decidePromptAcceptance({
@@ -589,15 +665,15 @@ export async function runPromptOptimizationLoop(
       candidateCommitSha: candidate.commitSha,
       previousLastKeptCommitSha: lastKeptCommitSha,
       originalCommitSha: replayState.seedCommitSha,
-      heldInTaskIds: stableHeldInTaskIds,
-      heldOutTaskIds: stableHeldOutTaskIds,
+      heldInTaskIds: decisionHeldInTaskIds,
+      heldOutTaskIds: decisionHeldOutTaskIds,
       previousHeldInReferencePassEligibleRate: heldInReference,
-      originalHeldOutPassEligibleRate: baseline.heldOut.originalPassEligibleRate,
-      heldInPassRateNoiseBand: baseline.heldIn.noiseBand,
-      heldOutPassRateNoiseBand: baseline.heldOut.noiseBand,
+      originalHeldOutPassEligibleRate: activeBaseline.heldOut.originalPassEligibleRate,
+      heldInPassRateNoiseBand: activeBaseline.heldIn.noiseBand,
+      heldOutPassRateNoiseBand: activeBaseline.heldOut.noiseBand,
       originalEvents: originalHeldOutEvents,
       lastKeptEvents: lastKeptHeldInEvents,
-      candidateEvents: [...heldIn.events, ...heldOutEvents],
+      candidateEvents: [...heldInDecisionEvents, ...heldOutDecisionEvents],
       rewardHackScan,
     });
     if (result.decision === 'discard') {
@@ -620,14 +696,14 @@ export async function runPromptOptimizationLoop(
       candidateRationale: candidate.candidateRationale,
       promptTimeAnalysis: promptAnalysis,
       analysis: await analyzeRsiRound({
-        heldInTaskIds: stableHeldInTaskIds,
+        heldInTaskIds: decisionHeldInTaskIds,
         lastKeptEvents: lastKeptHeldInEvents,
         ...(previousCandidateHeldInEvents ? { previousCandidateEvents: previousCandidateHeldInEvents } : {}),
-        candidateEvents: heldIn.events,
+        candidateEvents: heldInDecisionEvents,
       }),
-      heldInTaskIds: stableHeldInTaskIds,
+      heldInTaskIds: decisionHeldInTaskIds,
       lastKeptEvents: lastKeptHeldInEvents,
-      candidateEvents: heldIn.events,
+      candidateEvents: heldInDecisionEvents,
       decision: result,
     });
     const attributionEvent: RsiControllerAttributionEvent = {
@@ -640,18 +716,19 @@ export async function runPromptOptimizationLoop(
     await appendFixedPromptWalEvent(input.resultsJsonlPath, attributionEvent);
     nextPromptAttribution = projectRsiPromptAttribution(controllerAttribution);
     decisions.push(result);
+    finalHeldInReference = result.heldInReferencePassEligibleRate;
 
     if (result.decision === 'keep') {
       lastKeptCommitSha = result.lastKeptCommitSha;
-      heldInReference = result.heldInReferencePassEligibleRate;
-      lastKeptHeldInEvents = heldIn.events;
+      lastKeptHeldInExecutionEvents = heldIn.events;
+      keptHeldInHistory = [...keptHeldInHistory, ...heldIn.events];
+      keptHeldOutHistory = [...keptHeldOutHistory, ...heldOutExecutionEvents];
     }
 
     // The most recent attempt seeds the next round's meta-agent feedback, even
     // when discarded — "this change did not help" is useful signal.
-    previousCandidateHeldInEvents = heldIn.events;
-    latestHeldInFeedbackEvents = heldIn.events;
-    nextHeldInDigests = await digestsFor(heldIn.events);
+    previousCandidateHeldInExecutionEvents = heldIn.events;
+    latestHeldInFeedbackExecutionEvents = heldIn.events;
   }
 
   // 3. Structural smoke report over the full WAL.
@@ -669,12 +746,13 @@ export async function runPromptOptimizationLoop(
     decisions,
     keptCount: decisions.filter((decision) => decision.decision === 'keep').length,
     lastKeptCommitSha,
-    heldInReferencePassEligibleRate: heldInReference,
+    heldInReferencePassEligibleRate: finalHeldInReference,
     totalCostUsd,
     stopReason,
     smoke,
     droppedHeldInTaskIds,
     droppedHeldOutTaskIds,
+    addressability: finalAddressability,
   };
 }
 
