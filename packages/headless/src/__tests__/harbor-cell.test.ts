@@ -609,7 +609,7 @@ describe('runHarborCell', () => {
         cwd: workspaceDir,
         outputDir,
         storageRoot,
-        settleAfterMs: 25,
+        settleAfterMs: 1_000,
         continuationPolicy: {
           enabled: true,
           maxTurns: 2,
