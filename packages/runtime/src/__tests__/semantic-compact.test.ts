@@ -71,8 +71,10 @@ describe('semantic compact', () => {
     assert.ok((result.block?.estimatedTokensSavedSigned ?? 0) > 0);
     assert.deepEqual(result.block?.preservedTail.toolCallIds, []);
     assert.equal(result.messages.some((message) =>
-      message.role === 'user' && JSON.stringify(message.content).includes('maka_semantic_compact_block')
+      message.role === 'assistant' && JSON.stringify(message.content).includes('maka_semantic_compact_block')
     ), true);
+    assert.deepEqual(result.messages[0], messages[0], 'the exact current-user head anchor must stay first');
+    assert.equal(result.messages.filter((message) => message.role === 'user').length, 1);
     assert.equal(result.messages.some((message) =>
       message.role === 'tool' && JSON.stringify(message.content).includes('recent-result')
     ), false);
@@ -475,6 +477,7 @@ describe('semantic compact', () => {
     assert.equal(result.block?.stateCards, undefined);
     const rendered = renderSemanticCompactBlock(result.block!);
     assert.match(rendered, /maka_semantic_compact_block/);
+    assert.match(rendered, /execute next_action instead of restarting task discovery/);
     assert.match(rendered, /next_action: Resume with preserved tail\./);
     assert.doesNotMatch(rendered, /restoration_state_cards/);
     assert.doesNotMatch(rendered, /durable_archives_available/);

@@ -409,6 +409,10 @@ Maka 当前至少有三类上下文缩减：
 
 当前 `semanticCompact` 把原始 current-user message 当作不可改写的 head anchor。Runtime 只选择 anchor 之后由完整 assistant step 与完整 tool call/result pairs 组成的连续 completed span；第一个未完成 provider episode 及其后内容保持为 exact tail。LLM 决定这个 span 中哪些目标、约束、执行状态与下一步值得进入 bounded continuation projection。总 active context 与 completed span 必须同时越过阈值，rolling successor 也必须覆盖足够多的新 raw history。
 
+精确 head anchor 始终保持为 `user` message。LLM 生成的 continuation projection 以 `assistant` message 注入，因为它表达的是模型自身已经完成的执行历史，而不是一条新的用户指令。这样可以避免把 `head anchor + projection` 变成连续两条 user message，进而导致 OpenAI-compatible 模型重新开始任务发现。该 message 不注入任何 runtime 推导的 state card。
+
+Active tool-result pruning 还必须完整保留最新 completed provider step 的结果。`prepareStep` 发生在这些结果第一次可能发送给模型之前；如果此时就 prune，相当于模型尚未消费证据，证据便已被归档。只有更新的 step 完成后，前一步结果才进入 prune 候选；semantic compaction 仍可总结最新结果，因为它的 LLM projection 会继续携带被选中的证据。
+
 Provider 可见的 continuation 只包含 exact head anchor、LLM 生成的 semantic projection 和 exact protocol tail。`semanticCompact` 不再生成或渲染 Runtime 推断的 state cards。Coverage、source refs、archive refs 与 preserved-tail indexes 只保留在 `SemanticCompactBlock` 的诊断旁路中，不注入 continuation。rolling successor 遇到旧 block 时，会重新渲染其中的 LLM summary 并忽略 legacy state cards，而不是原样回放旧的 provider message。
 
 该机制主动用 prefix rewrite 换取模型注意力。Signed token savings、compact-call cost 与 cache miss 是诊断数据，不是 attention 模式的拒绝条件；source/head/protocol validation、非截断输出与完整 provider-visible projection budget 才是 hard acceptance gates。V2 block 记录 exact head identity、predecessor、new coverage 与 cumulative digest，但 recorder 仍是 best-effort：写入失败不会撤销 invocation-local accepted projection。因此它仍不是 V2 history checkpoint 那种“durable append 成功后才进入 replay”的同一协议。

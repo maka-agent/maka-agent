@@ -312,9 +312,16 @@ function activeToolResultArchiveKey(
   return `active:${candidate.turnId}:${candidate.toolCallId}:${candidate.bodySha256}`;
 }
 
-function collectPrepareStepToolCallIds(steps: PrepareStepLike['steps']): Set<string> {
+/**
+ * Tool results from the newest completed step have not crossed the provider
+ * boundary yet: prepareStep is invoked immediately before the first request
+ * that could show those results to the model. Active pruning may archive only
+ * calls from older completed steps, after the model has had one request in
+ * which to consume their exact output.
+ */
+function collectPrunablePrepareStepToolCallIds(steps: PrepareStepLike['steps']): Set<string> {
   const out = new Set<string>();
-  for (const step of steps) {
+  for (const step of steps.slice(0, -1)) {
     for (const call of step.toolCalls ?? []) {
       if (typeof call.toolCallId === 'string' && call.toolCallId.length > 0) {
         out.add(call.toolCallId);
@@ -2343,7 +2350,7 @@ export class AiSdkBackend implements AgentBackend {
 
     const archivedPlaceholders = new Map<string, ActiveArchivedToolResultPlaceholder>();
     return async (options) => {
-      const eligibleToolCallIds = collectPrepareStepToolCallIds(options.steps);
+      const eligibleToolCallIds = collectPrunablePrepareStepToolCallIds(options.steps);
       if (eligibleToolCallIds.size === 0) return undefined;
       const rewritten = await rewriteActiveToolResultsInMessages({
         messages: options.messages,

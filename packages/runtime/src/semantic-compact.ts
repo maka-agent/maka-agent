@@ -524,7 +524,13 @@ export async function rewriteSemanticCompactInMessages(
 
 export function semanticCompactBlockToModelMessage(block: SemanticCompactBlock): ModelMessage {
   return {
-    role: 'user',
+    // The projection is authored by the same LLM from its completed execution
+    // history.  Rendering it as another user instruction leaves the exact head
+    // anchor followed by two consecutive user messages; live OpenAI-compatible
+    // providers can then treat the replacement as a fresh task and restart
+    // discovery.  Keep the user's instruction immutable and render the rolling
+    // projection as the assistant's own continuation checkpoint instead.
+    role: 'assistant',
     content: renderSemanticCompactBlock(block),
   } as ModelMessage;
 }
@@ -570,7 +576,7 @@ export function semanticCompactBlockToCompactionBoundary(
 export function renderSemanticCompactBlock(block: SemanticCompactBlock): string {
   return [
     `<maka_semantic_compact_block id="${escapeAttribute(block.blockId)}" high_water="${escapeAttribute(block.highWaterName)}" seq="${block.highWaterSeq}" version="${block.version}">`,
-    'instructions: Continue the same task from the exact user anchor, this LLM-authored semantic projection, and the verbatim protocol tail that follows it.',
+    'continuation_contract: This is my LLM-authored projection of completed work. Continue the same task from the exact user anchor, treat the findings below as established unless new evidence contradicts them, and execute next_action instead of restarting task discovery. The verbatim protocol tail, when present, follows this block.',
     'summary:',
     block.summary.text,
     '</maka_semantic_compact_block>',

@@ -71,7 +71,7 @@ describe('active current-turn tool-result pruning', () => {
     assert.match(JSON.stringify(result.messages), /maka\.active_archived_tool_result/);
   });
 
-  test('oversized current-turn tool result is archived and replaced before next step', async () => {
+  test('oversized eligible current-turn tool result is archived and replaced', async () => {
     const largeBody = 'SECRET_PAYLOAD_SHOULD_BE_ARCHIVED'.repeat(20);
     const archiveRequests: Array<{ serializedResult: string; bodySha256: string; toolCallId: string }> = [];
     const prompts: unknown[] = [];
