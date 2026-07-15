@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import {
   Editor,
   Key,
@@ -22,7 +23,11 @@ import {
   type ShellRunUpdate,
 } from '@maka/core';
 import type { ModelChoice } from './connection-target.js';
-import type { MakaSessionDriver, MakaSessionSwitchResult } from './session-driver.js';
+import {
+  MISSING_SESSION_CWD_REASON,
+  type MakaSessionDriver,
+  type MakaSessionSwitchResult,
+} from './session-driver.js';
 import {
   createMakaPiTranscriptState,
   activePermissionRequest,
@@ -113,6 +118,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let thinkingLevels: readonly ThinkingLevel[] = providerType
     ? thinkingVariantsForModel(providerType, input.model)
     : [];
+  let sessionListScope: 'current' | 'all' = 'current';
   let busy = false;
   let closed = false;
   let permissionResponseInFlightRequestId: string | null = null;
@@ -153,6 +159,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // Show the whole slash-command set at once — discoverability is the point of
   // the menu. Keep a little headroom above the current command count.
   const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: EDITOR_AUTOCOMPLETE_MAX_VISIBLE });
+  let refreshEditorCwd: ((cwd: string) => void) | undefined;
   const editorSurface = new MakaAutocompleteAboveEditorComponent(editor);
   const layout = new MakaPiLayoutComponent(transcript, editorSurface, statusLine, terminal);
   const attention = new AttentionController(terminal, {
@@ -507,11 +514,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // `messages`. Shared by switchSession and rewindToTurn so both land the same
   // runner state (model/connection/thinking/transcript/scroll).
   const applySwitchResult = async ({ summary, messages }: MakaSessionSwitchResult): Promise<void> => {
+    cwd = summary.cwd ?? cwd;
     model = summary.model;
+    const previousConnectionSlug = connectionSlug;
     connectionSlug = summary.llmConnectionSlug;
+    providerType = input.modelChoices?.find((choice) => (
+      choice.connectionSlug === summary.llmConnectionSlug
+    ))?.providerType ?? (previousConnectionSlug === summary.llmConnectionSlug ? providerType : undefined);
     permissionMode = summary.permissionMode;
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
+    refreshEditorCwd?.(cwd);
     replaceTranscriptWithStoredMessages(state, messages);
     resetShellRunSessionState();
     if (input.listShellRunUpdates) {
@@ -524,9 +537,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     shellRunElapsedTicker.sync();
   };
 
-  // Folder/connection safety is enforced inside driver.switchSession(),
-  // before it commits any internal state, so a rejected switch leaves the
-  // active session untouched and the next prompt still lands on the old one.
+  // The driver validates the durable cwd before adopting the resumed session.
+  // A failure leaves the active session untouched and the next prompt still
+  // lands on the old one.
   const switchSession = async (sessionId: string) => {
     const result = await input.driver.switchSession(sessionId);
     await applySwitchResult(result);
@@ -704,43 +717,53 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
-    const currentSessions = sessions.filter(
-      (session) => session.cwd === cwd && session.llmConnectionSlug === connectionSlug,
-    );
-    if (currentSessions.length === 0) {
-      state.entries.push({
-        kind: 'notice',
-        level: 'info',
-        text: 'No sessions found for this folder.',
+    const availability = new Map(await Promise.all(sessions.map(async (session) => {
+      if (!session.cwd) return [session.id, { available: false, reason: MISSING_SESSION_CWD_REASON }] as const;
+      return [
+        session.id,
+        await input.driver.getSessionResumeAvailability?.(session) ?? { available: true },
+      ] as const;
+    })));
+    const renderScope = (): void => {
+      const visibleSessions = sessionListScope === 'current'
+        ? sessions.filter((session) => session.cwd === cwd)
+        : sessions;
+      const items: SelectItem[] = visibleSessions.map((session) => {
+        const state = availability.get(session.id);
+        const location = sessionListScope === 'all' && session.cwd ? ` ${basename(session.cwd)}` : '';
+        return {
+          value: session.id,
+          label: session.name || session.id,
+          description: state?.available === false
+            ? `${shortSessionId(session.id)} ${state.reason}`
+            : `${shortSessionId(session.id)}${location} ${session.llmConnectionSlug} ${session.model}`,
+        };
       });
-      requestRender();
-      return;
-    }
-
-    // Recency-sorted. Label each row by its human name (the id is the selection
-    // value, not something the user should have to read) and disambiguate
-    // same-named sessions with a short id in the description. The list scrolls,
-    // so every session stays reachable — nothing is capped or hidden.
-    const items: SelectItem[] = currentSessions.map((session) => ({
-      value: session.id,
-      label: session.name || session.id,
-      description: `${shortSessionId(session.id)} ${session.model}`,
-    }));
-    // Reserve enough columns for the description (short id + model) so long
-    // CJK names truncate instead of swallowing the disambiguation text.
-    // pi-tui's renderItem deducts 2 prefix + 2 gap + 2 safety = 6 columns
-    // beyond the primary column width, so reserve 30 to leave ~24 for the
-    // description (enough for "aaaa1111 claude-sonnet-4-5").
-    const maxNameWidth = Math.max(20, terminal.columns - 30);
-    showSelectPicker(
-      'Resume Session (Current Folder)',
-      'Current Folder',
-      items,
-      (item) => {
+      const list = new SelectList(items, 10, selectListTheme(), {
+        minPrimaryColumnWidth: 20,
+        maxPrimaryColumnWidth: Math.max(20, terminal.columns - 30),
+      });
+      let overlay: OverlayHandle | undefined;
+      list.onSelect = (item) => {
+        if (availability.get(item.value)?.available === false) return;
+        overlay?.hide();
         void runControl(() => switchSession(item.value));
-      },
-      { minPrimaryColumnWidth: 20, maxPrimaryColumnWidth: maxNameWidth },
-    );
+      };
+      list.onCancel = () => overlay?.hide();
+      overlay = showBottomPicker(new PickerOverlay(list, {
+        title: 'Resume Session',
+        rightLabel: sessionListScope === 'current' ? 'Current' : 'All',
+        hint: 'Tab scope · ↑↓ move · Enter select · Esc close',
+        onInput: (data) => {
+          if (!matchesKey(data, Key.tab) || isKeyRelease(data) || isKeyRepeat(data)) return false;
+          sessionListScope = sessionListScope === 'current' ? 'all' : 'current';
+          overlay?.hide();
+          renderScope();
+          return true;
+        },
+      }));
+    };
+    renderScope();
   };
 
   const showRewindPicker = async () => {
@@ -1071,7 +1094,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     return true;
   };
 
-  editor.setAutocompleteProvider(new MakaAutocompleteProvider(input.cwd, slashCommands));
+  refreshEditorCwd = (nextCwd) => {
+    editor.setAutocompleteProvider(new MakaAutocompleteProvider(nextCwd, slashCommands));
+  };
+  refreshEditorCwd(cwd);
 
   tui.addInputListener((data) => {
     // Once closing has begun, swallow any buffered input that reaches the

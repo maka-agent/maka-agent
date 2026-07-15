@@ -975,5 +975,6 @@ export type {
   LoadSkillInstructionsResult,
   SkillRuntimeStateReadResult,
   SkillSource,
+  SkillSourceResolver,
   SkillDiscoveryEntry,
 } from './skills.js';

@@ -297,6 +297,36 @@ Make every slide carry one idea.`);
     });
   });
 
+  it('buildSkillAgentTool resolves project skills from each tool call cwd', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const firstProject = join(workspaceRoot, 'first-project');
+      const secondProject = join(workspaceRoot, 'second-project');
+      await mkdir(join(firstProject, '.agents', 'skills', 'project-helper'), { recursive: true });
+      await mkdir(join(secondProject, '.agents', 'skills', 'project-helper'), { recursive: true });
+      await writeFile(join(firstProject, '.agents', 'skills', 'project-helper', 'SKILL.md'), `---
+name: Project Helper
+description: First project helper.
+---
+# First project`, 'utf8');
+      await writeFile(join(secondProject, '.agents', 'skills', 'project-helper', 'SKILL.md'), `---
+name: Project Helper
+description: Second project helper.
+---
+# Second project`, 'utf8');
+
+      const tool = buildSkillAgentTool((ctx) => resolveSkillDiscoveryPaths(ctx.cwd, workspaceRoot));
+      const result = await tool.impl({ name: 'Project Helper' }, {
+        sessionId: 's2', turnId: 't2', cwd: secondProject, toolCallId: 'tool-2',
+        abortSignal: new AbortController().signal, emitOutput: () => {},
+      });
+
+      assert.equal(result.ok, true);
+      if (!result.ok) return;
+      assert.match(result.skill.instructions, /# Second project/);
+      assert.doesNotMatch(result.skill.instructions, /# First project/);
+    });
+  });
+
   it('loadSkillInstructions bounds loaded instructions and returns available skills on miss', async () => {
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(workspaceRoot, 'huge', `---

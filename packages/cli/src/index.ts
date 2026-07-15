@@ -1,8 +1,11 @@
 export {
   createMakaSessionDriver,
+  MISSING_SESSION_CWD_REASON,
+  DELETED_SESSION_CWD_REASON,
   type MakaSessionDriver,
   type MakaSessionDriverInput,
   type MakaSessionRuntime,
+  type SessionResumeAvailability,
 } from './session-driver.js';
 export {
   parseMakaCliArgs,

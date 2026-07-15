@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { lstat, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative } from 'node:path';
 import { z } from 'zod';
-import type { MakaTool } from './tool-runtime.js';
+import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 
 /**
  * Workspace skill read path shared by the desktop app and the CLI.
@@ -124,6 +124,7 @@ export type SkillRuntimeStateReadResult =
  * reading/writing `skills-state.json`.
  */
 export type SkillSource = string | { dirs: string[]; stateRoot: string; entries?: SkillDiscoveryEntry[] };
+export type SkillSourceResolver = (context: Pick<MakaToolContext, 'sessionId' | 'cwd'>) => SkillSource;
 
 /**
  * Standard skill discovery paths per the Agent Skills spec
@@ -447,7 +448,10 @@ export async function loadSkillInstructions(source: SkillSource, name: string, h
   return { ok: false, reason: 'not_found', availableSkills };
 }
 
-export function buildSkillAgentTool(source: SkillSource, host?: HostCapabilities): MakaTool<{ name: string }, LoadSkillInstructionsResult> {
+export function buildSkillAgentTool(
+  source: SkillSource | SkillSourceResolver,
+  host?: HostCapabilities,
+): MakaTool<{ name: string }, LoadSkillInstructionsResult> {
   return {
     name: 'Skill',
     description:
@@ -457,7 +461,11 @@ export function buildSkillAgentTool(source: SkillSource, host?: HostCapabilities
     }),
     permissionRequired: false,
     displayName: 'Skill',
-    impl: async ({ name }) => loadSkillInstructions(source, name, host),
+    impl: async ({ name }, ctx) => loadSkillInstructions(
+      typeof source === 'function' ? source(ctx) : source,
+      name,
+      host,
+    ),
   };
 }
 
