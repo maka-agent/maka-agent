@@ -118,7 +118,7 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       assert.equal(events.at(-1)?.type, 'complete');
       assert.equal(requestBodies.length, 4);
       assert.deepEqual(
-        (requestBodies[0]?.tools as Array<{ name: string }>).map((tool) => tool.name),
+        (requestBodies[0].tools as Array<{ name: string }>).map((tool) => tool.name),
         ['maka_computer'],
       );
     });

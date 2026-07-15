@@ -20,6 +20,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      - run: npm run lint
       - run: npm run build
       - run: npm run typecheck
       # Dead-code / dependency governance. Entry points and reasoned ignores

@@ -286,9 +286,9 @@ test('finished presentation releases ownership for a later semantic completion',
     kind: 'click',
     pulse: true,
   });
+  const lastCompletion = w.sent.filter((message) => message.channel === 'overlay:complete').at(-1);
   assert.equal(
-    w.sent.filter((message) => message.channel === 'overlay:complete').at(-1)?.payload
-      && (w.sent.filter((message) => message.channel === 'overlay:complete').at(-1)?.payload as { actionId: string }).actionId,
+    lastCompletion?.payload && (lastCompletion.payload as { actionId: string }).actionId,
     'semantic',
   );
 });
@@ -381,8 +381,8 @@ test('cancel() waits for renderer finished and sends no coordinate', async () =>
     channel: 'overlay:cancel',
     payload: { actionId: 'failed' },
   }]);
-  assert.equal('x' in (cancelled[0]?.payload as object), false);
-  assert.equal('y' in (cancelled[0]?.payload as object), false);
+  assert.equal('x' in (cancelled[0].payload as object), false);
+  assert.equal('y' in (cancelled[0].payload as object), false);
   w.firePresentation('failed', 'finished');
   await Promise.all([fence.readyForInteraction, fence.finished]);
   assert.equal(finished, true);

@@ -415,7 +415,7 @@ describe('builtin Bash streaming output', () => {
         sandboxPlatform: 'darwin',
       }).find((candidate) => candidate.name === 'Bash');
       assert.equal(disabledBash?.planAdditionalPermissions, undefined);
-      assert.equal((disabledBash?.parameters as z.ZodTypeAny).safeParse({
+      assert.equal((disabledBash!.parameters as z.ZodTypeAny).safeParse({
         command: 'echo unchanged',
         sandbox_permissions: { mode: 'use_default' },
       }).success, false);

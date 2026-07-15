@@ -536,11 +536,11 @@ async function runOpenAiChatWire(
     `${row.providerType} must send the exact model id on both requests`,
   );
   assert.deepEqual(
-    (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+    (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
     ['echo'],
   );
   assert.deepEqual(
-    (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+    (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
     { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
     `${row.providerType} must replay the tool result`,
   );
@@ -548,7 +548,7 @@ async function runOpenAiChatWire(
   assert.equal(result.text, FINAL_TEXT);
   if (wantsReasoning && replayField) {
     assert.equal(result.steps[0]?.reasoningText, REASONING_TEXT, `${row.providerType} should surface reasoning`);
-    const assistant = (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant');
+    const assistant = (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant');
     assert.ok(assistant, `${row.providerType} must replay the assistant turn`);
     assert.equal(
       assistant?.[replayField],
@@ -634,7 +634,7 @@ async function runAnthropicMessagesWire(row: ProviderContractRow): Promise<void>
     `${row.providerType} must send the exact model id on both requests`,
   );
   assert.deepEqual(
-    (requestBodies[0]?.tools as Array<{ name: string }>).map((entry) => entry.name),
+    (requestBodies[0].tools as Array<{ name: string }>).map((entry) => entry.name),
     ['echo'],
   );
   assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');

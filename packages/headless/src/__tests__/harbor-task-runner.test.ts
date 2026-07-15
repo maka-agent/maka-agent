@@ -402,7 +402,7 @@ describe('createHarborTaskRunner', () => {
 
       assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'SILICONFLOW_API_KEY');
       assert.equal(harborEnv?.MAKA_HOST_BASE_URL, 'https://api.siliconflow.cn/v1');
-      const agent = (captured.config?.agents as Array<{ env: Record<string, string> }>)[0]!;
+      const agent = (captured.config!.agents as Array<{ env: Record<string, string> }>)[0]!;
       assert.equal(agent.env.SILICONFLOW_BASE_URL, undefined);
     });
   });
@@ -428,7 +428,7 @@ describe('createHarborTaskRunner', () => {
 
       assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'AI_GATEWAY_API_KEY');
       assert.equal(harborEnv?.MAKA_HOST_BASE_URL, 'https://ai-gateway.vercel.sh/v1');
-      const agent = (captured.config?.agents as Array<{ env: Record<string, string> }>)[0]!;
+      const agent = (captured.config!.agents as Array<{ env: Record<string, string> }>)[0]!;
       assert.equal(agent.env.AI_GATEWAY_BASE_URL, undefined);
     });
   });
@@ -495,7 +495,7 @@ describe('createHarborTaskRunner', () => {
         assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, 'true');
         assert.equal(harborEnv?.MAKA_HOST_API_KEY, undefined);
         assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, undefined);
-        const agent = (captured.config?.agents as Array<{ model_name: string; env: Record<string, string> }>)[0]!;
+        const agent = (captured.config!.agents as Array<{ model_name: string; env: Record<string, string> }>)[0]!;
         assert.equal(agent.model_name, model);
         assert.equal(agent.env.MAKA_MODEL, model);
         assert.equal(agent.env.MAKA_BASE_URL, undefined);
@@ -527,7 +527,7 @@ describe('createHarborTaskRunner', () => {
       assert.equal(harborEnv?.MAKA_HOST_BASE_URL, baseUrl);
       assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, 'true');
       assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, undefined);
-      const agent = (captured.config?.agents as Array<{ model_name: string; env: Record<string, string> }>)[0]!;
+      const agent = (captured.config!.agents as Array<{ model_name: string; env: Record<string, string> }>)[0]!;
       assert.equal(agent.model_name, model);
       assert.equal(agent.env.MAKA_MODEL, model);
       assert.equal(agent.env.LOCALAI_BASE_URL, undefined);

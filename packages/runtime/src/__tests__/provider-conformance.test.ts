@@ -274,7 +274,7 @@ describe('models.dev provider conformance', () => {
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo and use its result.');
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_opencode_go_echo' },
     );
     assert.equal(result.text, 'Echoed hello.');
@@ -354,7 +354,7 @@ describe('models.dev provider conformance', () => {
 
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[1]?.input as Array<Record<string, unknown>>).find(({ type }) => type === 'function_call_output'),
+      (requestBodies[1].input as Array<Record<string, unknown>>).find(({ type }) => type === 'function_call_output'),
       { type: 'function_call_output', call_id: 'call_opencode_zen_echo', output: '{"echoed":"hello"}' },
     );
     assert.equal(result.text, 'Echoed hello.');
@@ -442,7 +442,7 @@ describe('models.dev provider conformance', () => {
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
       {
         role: 'assistant',
         content: null,
@@ -456,7 +456,7 @@ describe('models.dev provider conformance', () => {
       },
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_zenmux_echo' },
     );
     assert.equal(result.text, 'Echoed hello.');
@@ -548,7 +548,7 @@ describe('models.dev provider conformance', () => {
     assert.equal(await result.text, 'Echoed hello.');
     assert.equal(requestBodies.length, 2);
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
       {
         role: 'assistant',
         content: null,
@@ -707,7 +707,7 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies[0]?.reasoning_effort, 'high');
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
       {
         role: 'assistant',
         content: null,
@@ -720,7 +720,7 @@ describe('models.dev provider conformance', () => {
       },
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_vercel_echo' },
     );
     assert.equal(result.text, 'Echoed hello.');
@@ -816,7 +816,7 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies[0]?.reasoning_effort, 'high');
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
       {
         role: 'assistant',
         content: null,
@@ -829,7 +829,7 @@ describe('models.dev provider conformance', () => {
       },
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_ollama_cloud_echo' },
     );
     assert.equal(result.text, 'Echoed hello.');
@@ -1009,7 +1009,7 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies.length, 2);
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     const secondMessages = requestBodies[1]?.messages as Array<{ role: string; content: unknown }>;
@@ -1101,11 +1101,11 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies.length, 2);
     assert.deepEqual(requestBodies.map((body) => body.model), ['gpt-oss-120b', 'gpt-oss-120b']);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -1199,11 +1199,11 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies.length, 2);
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -1275,7 +1275,7 @@ describe('models.dev provider conformance', () => {
 
     assert.equal(requestBody?.model, 'moonshotai/Kimi-K2.6');
     assert.deepEqual(
-      (requestBody?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBody.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     assert.equal(result.toolCalls[0]?.toolName, 'echo');
@@ -1341,7 +1341,7 @@ describe('models.dev provider conformance', () => {
 
     assert.equal(requestBody?.model, 'MiniMax-M2.7-highspeed');
     assert.deepEqual(
-      (requestBody?.tools as Array<{ name: string }>).map((entry) => entry.name),
+      (requestBody.tools as Array<{ name: string }>).map((entry) => entry.name),
       ['echo'],
     );
     assert.equal(result.toolCalls[0]?.toolName, 'echo');
@@ -1428,11 +1428,11 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies.length, 2);
     assert.deepEqual(requestBodies.map((body) => body.model), ['grok-4.5', 'grok-4.5']);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -1522,11 +1522,11 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies.length, 2);
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -1622,11 +1622,11 @@ describe('models.dev provider conformance', () => {
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(requestBodies.map((body) => body.reasoning_effort), ['high', 'high']);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -1723,11 +1723,11 @@ describe('models.dev provider conformance', () => {
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(requestBodies.map((body) => body.reasoning_effort), ['high', 'high']);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -1824,11 +1824,11 @@ describe('models.dev provider conformance', () => {
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(requestBodies.map((body) => body.reasoning_effort), ['high', 'high']);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -1928,7 +1928,7 @@ describe('models.dev provider conformance', () => {
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(requestBodies.map((body) => body.reasoning_effort), ['high', 'high']);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     const secondMessages = requestBodies[1]?.messages as Array<{
@@ -2236,7 +2236,7 @@ describe('models.dev provider conformance', () => {
 
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
     );
     assert.equal(result.text, 'Echoed hello.');
@@ -2366,7 +2366,7 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies.length, 2);
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     const secondMessages = requestBodies[1]?.messages as Array<Record<string, unknown>>;
@@ -2475,11 +2475,11 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies.length, 2);
     assert.deepEqual(requestBodies.map((body) => body.model), ['mistral-large-latest', 'mistral-large-latest']);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'D681PevKs' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -2571,15 +2571,15 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_tencent_echo' },
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
       {
         role: 'assistant',
         content: null,
@@ -2679,7 +2679,7 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
       {
         role: 'assistant',
         content: null,
@@ -2692,7 +2692,7 @@ describe('models.dev provider conformance', () => {
       },
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_tencent_coding_plan_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -2791,7 +2791,7 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
       {
         role: 'assistant',
         content: null,
@@ -2804,7 +2804,7 @@ describe('models.dev provider conformance', () => {
       },
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_volcengine_coding_plan_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -2903,7 +2903,7 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
       {
         role: 'assistant',
         content: null,
@@ -2916,7 +2916,7 @@ describe('models.dev provider conformance', () => {
       },
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_tencent_token_plan_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -3010,15 +3010,15 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_stepfun_echo' },
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
       {
         role: 'assistant',
         content: null,
@@ -3128,11 +3128,11 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_stepfun_step_plan_echo' },
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
       {
         role: 'assistant',
         content: null,
@@ -3228,15 +3228,15 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_ark_echo' },
     );
     assert.deepEqual(
-      (requestBodies[1]?.messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
       {
         role: 'assistant',
         content: null,
@@ -3337,7 +3337,7 @@ describe('models.dev provider conformance', () => {
 
       assert.deepEqual(requestBodies.map((body) => body.model), [provider.modelId, provider.modelId]);
       assert.deepEqual(
-        (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+        (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
         { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
       );
       assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
@@ -3430,7 +3430,7 @@ async function assertOllamaModelContract(
   assert.equal(requestBodies.length, 2);
   assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
   assert.deepEqual(
-    (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+    (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
     ['echo'],
   );
   const secondMessages = requestBodies[1]?.messages as Array<{ role: string; content: string }>;

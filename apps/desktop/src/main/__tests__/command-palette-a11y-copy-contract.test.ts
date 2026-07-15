@@ -104,14 +104,34 @@ describe('Command palette accessibility and visible copy', () => {
     );
     assert.match(
       inputWrapStyle,
-      /margin:\s*var\(--space-2\)\s*var\(--space-2-5\);/,
-      'Palette InputGroup should preserve the compact command-modal inset spacing',
+      /width:\s*100%;/,
+      'Palette InputGroup should fill the search column while the header owns outer spacing',
     );
     assert.doesNotMatch(
       styles,
       /maka-palette-input-hint/,
       'Input-addon hint CSS must stay deleted along with the duplicated hint markup',
     );
+  });
+
+  it('keeps the close action beside the input group so the search shell cannot cover its hit target', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
+    const styles = await readRendererContractCss();
+    const headerStyle = styles.match(/\.maka-palette-header\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    const inputStyle = styles.match(/\.maka-palette-input\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    assert.match(
+      src,
+      /<DialogContent[\s\S]*?showClose=\{false\}/,
+      'the palette must disable DialogContent\'s absolute close button',
+    );
+    assert.match(
+      src,
+      /<div className="maka-palette-header">[\s\S]*?<InputGroup[\s\S]*?<\/InputGroup>[\s\S]*?<Button[\s\S]*?aria-label="关闭命令面板"[\s\S]*?onClick=\{props\.onClose\}[\s\S]*?<X aria-hidden="true" \/>[\s\S]*?<\/Button>[\s\S]*?<\/div>/,
+      'the close button must be a sibling immediately to the right of the input group',
+    );
+    assert.match(headerStyle, /grid-template-columns:\s*minmax\(0, 1fr\) var\(--h-control-md\);/);
+    assert.match(headerStyle, /gap:\s*var\(--space-2\);/);
+    assert.match(inputStyle, /padding-inline:\s*var\(--space-2-5\);/);
   });
 
   it('keeps command palette chrome compact, non-selectable, and tactile without blocking text entry', async () => {

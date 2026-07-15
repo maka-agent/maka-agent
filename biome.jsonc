@@ -1,0 +1,72 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  // Biome 2.5.4. See https://biomejs.dev/reference/configuration/
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    // Broad include; VCS integration (useIgnoreFile) already skips anything
+    // in .gitignore (node_modules, dist, etc). The excludes below cover
+    // tracked files that still shouldn't be touched by Biome.
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!package-lock.json",
+      // Generated shadcn/ui config — not hand-authored source.
+      "!components.json"
+    ]
+  },
+  // No formatter here on purpose. `formatter.enabled: true` on main gets
+  // picked up by editors' format-on-save, leaking a 1,299-file reformat
+  // piecemeal into unrelated PRs. Formatting lands separately as one atomic
+  // baseline PR (config + `biome format --write` baseline + check-mode CI
+  // gate + `.git-blame-ignore-revs` entry), timed when few PRs are open.
+  // See #415.
+  "linter": {
+    "enabled": true,
+    // Admission bar for this gate (PR #1019 review). This is an EXPLICIT
+    // ALLOWLIST (recommended: false): nothing enters the gate implicitly, so
+    // it can never silently drift from a correctness gate into a style gate.
+    // A rule joins only if BOTH hold:
+    //   1. it catches a defect, not a style preference; and
+    //   2. the tree is already zero-violation, or is hand-fixed to zero in
+    //      the same change that turns the rule on.
+    // Pure-style and formatting concerns are out of scope by design. Adding a
+    // rule is always a deliberate decision, never a side effect of a preset.
+    "rules": {
+      // `none` = start from an empty ruleset (the explicit-allowlist default);
+      // only the rules listed below are active.
+      "preset": "none",
+      "correctness": {
+        // A short-circuit to `undefined` would throw at the later member
+        // access. Hand-fixed to zero across the test suite in this PR.
+        "noUnsafeOptionalChaining": "error"
+      },
+      "suspicious": {
+        // Caught a real masked bug: a duplicate `fixtureState` key in
+        // cu-provider-matrix.test.mjs silently overrode the intended input.
+        // Hand-fixed to zero in this PR.
+        "noDuplicateObjectKeys": "error",
+        // `a?.b!` — a non-null assertion on an optionally-chained value
+        // defeats the short-circuit and can throw. Hand-fixed to zero.
+        "noNonNullAssertedOptionalChain": "error"
+      }
+    }
+  },
+  "css": {
+    // apps/desktop/src/renderer/styles.css uses Tailwind CSS 4 `@import`/
+    // `@source` directives; without this the parser errors on them even
+    // though no CSS lint rule is currently enabled.
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  // Import-sorting / organize-imports assist actions stay disabled; they are
+  // a formatting concern and belong with the formatter baseline PR (#415).
+  "assist": {
+    "enabled": false
+  }
+}

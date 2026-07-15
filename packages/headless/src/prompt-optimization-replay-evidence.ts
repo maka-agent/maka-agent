@@ -17,6 +17,8 @@ import { validateRsiControllerAttribution } from './rsi-controller-attribution.j
 
 export interface ReplayedPromptDecisionRound {
   decision: PromptCandidateDecisionEvent;
+  executedHeldIn: FixedPromptControllerResult;
+  executedHeldOut: FixedPromptControllerResult | undefined;
   heldIn: FixedPromptControllerResult;
   heldOut: FixedPromptControllerResult | undefined;
   attribution: RsiControllerAttributionEvent;
@@ -94,6 +96,8 @@ export function replayPromptDecisionRound(input: {
   roundId: string;
   heldInTaskIds: readonly string[];
   heldOutTaskIds: readonly string[];
+  executedHeldInTaskIds?: readonly string[];
+  executedHeldOutTaskIds?: readonly string[];
   resumeFingerprint?: string;
   heldInResultsTsvPath: string;
   heldOutResultsTsvPath: string;
@@ -134,8 +138,29 @@ export function replayPromptDecisionRound(input: {
     ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
     resultsTsvPath: input.heldOutResultsTsvPath,
   });
+  const executedHeldIn = replayRequiredControllerSweep({
+    events: input.events,
+    runId: input.runId,
+    roundId: input.roundId,
+    taskIds: input.executedHeldInTaskIds ?? input.heldInTaskIds,
+    expectedPromptHash: candidate.promptHash,
+    ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
+    resultsTsvPath: input.heldInResultsTsvPath,
+    missingEvidenceMessage: `RSI WAL replay missing executed held-in task evidence for ${input.roundId}`,
+  });
+  const executedHeldOut = replayControllerSweep({
+    events: input.events,
+    runId: input.runId,
+    roundId: input.roundId,
+    taskIds: input.executedHeldOutTaskIds ?? input.heldOutTaskIds,
+    expectedPromptHash: candidate.promptHash,
+    ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
+    resultsTsvPath: input.heldOutResultsTsvPath,
+  });
   return {
     decision,
+    executedHeldIn,
+    executedHeldOut,
     heldIn,
     heldOut,
     attribution,

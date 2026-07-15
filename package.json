@@ -15,6 +15,7 @@
     "apps/desktop"
   ],
   "scripts": {
+    "lint": "biome lint .",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test:scripts && npm --workspace @maka/core test && npm --workspace @maka/storage test && npm --workspace @maka/runtime test && npm --workspace @maka/computer-use test && npm --workspace @maka/headless test && npm --workspace maka-agent test && npm --workspace @maka/ui test && npm --workspace @maka/desktop test",
     "test:dist": "npm run test:scripts && npm exec -w @maka/core -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/storage -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/runtime -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/computer-use -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/headless -- node ../../scripts/run-headless-tests.mjs && npm exec -w maka-agent -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/ui -- node --test \"dist/**/*.test.js\" && npm --workspace @maka/desktop run test:dist",
@@ -53,6 +54,7 @@
     "e2e:computer-use-real-runtime": "node scripts/cu-real-runtime-model-e2e.mjs"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.4",
     "@types/node": "^25.0.0",
     "knip": "^6.26.0",
     "typescript": "^5.9.3"

@@ -82,7 +82,7 @@ describe('heavy-task compact evidence', () => {
     assert.equal(grepEvidence.tool?.inputSummary.matchCount, 200);
     assert.equal(grepEvidence.tool?.outputs[0]?.stream, 'matches');
     assert.equal(grepEvidence.tool?.outputs[0]?.truncated, true);
-    assert.ok((grepEvidence.tool?.outputs[0]?.excerpt?.length ?? 0) < grepEvidence.tool?.outputs[0]?.byteCount!);
+    assert.ok((grepEvidence.tool?.outputs[0]?.excerpt?.length ?? 0) < grepEvidence.tool!.outputs[0]!.byteCount!);
   });
 
   test('Write and Edit normalization omits mutation payloads and uses diff placeholders', () => {

@@ -36,6 +36,7 @@ export interface RunLoopOptions {
   rewardFor: (roundId: string, taskId: string) => number;
   rounds: number;
   baselineRuns: number;
+  zScore?: number;
   costCeilingUsd?: number;
   maxInfraFailureRate?: number;
   heldOutResultsTsvPath?: string;
@@ -65,6 +66,7 @@ export async function runLoop(harness: Harness, options: RunLoopOptions) {
     runId: options.runId ?? 'run-1',
     rounds: options.rounds,
     baselineRuns: options.baselineRuns,
+    ...(options.zScore !== undefined ? { zScore: options.zScore } : {}),
     agentCwdPath: harness.agentCwdPath,
     programPath: harness.programPath,
     systemPromptPath: harness.systemPromptPath,

@@ -143,7 +143,7 @@ describe('PiCliJsonTransport', () => {
       '-p',
     ]);
     assert.equal(capturedPrompt, 'solve it');
-    assert.deepEqual((calls[0]?.options as { cwd?: string }).cwd, '/tmp/task');
+    assert.deepEqual((calls[0].options as { cwd?: string }).cwd, '/tmp/task');
     assert.deepEqual(frames, [
       { type: 'text_delta', text: 'hi' },
       { type: 'tool_start', toolUseId: 'call-1', toolName: 'write', args: { path: 'solved.txt', content: 'ok' } },
