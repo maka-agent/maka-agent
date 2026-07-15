@@ -121,9 +121,11 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.doesNotMatch(source, /<kbd\b/, 'Command palette shortcut glyphs must use shared primitive Kbd');
     assert.match(source, /<InputGroup[\s\S]*className="maka-palette-input-wrap"[\s\S]*aria-label="命令面板搜索"[\s\S]*onMouseDown=\{\(event\) => \{/);
     assert.match(source, /<InputGroupInput[\s\S]*className="maka-palette-input"/);
-    // Shortcut hints stay in the footer, and the close action stays outside
-    // the search InputGroup so neither can cover the other's hit target.
-    assert.doesNotMatch(source, /<InputGroupAddon\b/, 'Palette input must not regrow an inline addon');
+    // The search affordance may lead the field. Shortcut hints stay in the
+    // footer, and the close action stays outside the InputGroup so neither
+    // can cover the other's hit target.
+    assert.match(source, /<InputGroupAddon align="inline-start"[\s\S]*?<Search \/>[\s\S]*?<\/InputGroupAddon>/);
+    assert.doesNotMatch(source, /<InputGroupAddon align="inline-end"/, 'Palette input must not duplicate footer shortcuts inline');
     assert.match(
       source,
       /<div className="maka-palette-header">[\s\S]*?<InputGroup[\s\S]*?<\/InputGroup>[\s\S]*?aria-label="关闭命令面板"/,
@@ -131,6 +133,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     );
     assert.match(source, /<Autocomplete.Item[\s\S]*className="maka-palette-item"/, 'Command palette rows must be Autocomplete.Item (#520 PR8)');
     assert.match(source, /<KbdGroup className="maka-shortcut-group">[\s\S]*<Kbd className="maka-shortcut-kbd">↑<\/Kbd>[\s\S]*<Kbd className="maka-shortcut-kbd">↓<\/Kbd>/);
+    assert.doesNotMatch(source, /PALETTE_DELIM/, 'Palette footer shortcut groups should be separated by spacing, not dots');
   });
 
   it('keeps keyboard help on the shared DialogHeader with a single title', async () => {

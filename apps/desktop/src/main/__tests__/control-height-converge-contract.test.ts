@@ -99,7 +99,7 @@ const CONTROL_HEIGHT: ControlHeightCheck[] = [
   { selector: '.maka-model-switcher-trigger', props: ['height'], token: '--h-control-sm' },
   // chat-header / palette controls
   { selector: '.maka-chat-jump-bottom', props: ['width', 'height'], token: '--h-control-md' },
-  { selector: '.maka-palette-input-wrap', props: ['min-height'], token: '--h-control-lg' },
+  { selector: '.maka-palette-input-wrap', props: ['min-height'], token: '--h-control-xl' },
   // first-run checklist composite rows
   { selector: '.maka-first-run-checklist-row > button', props: ['min-height'], token: '--h-control-xl' },
 ];

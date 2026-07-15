@@ -62,8 +62,6 @@ export { buildContentSearchCommands } from './command-palette-content-search';
 // (extracted so non-JSX consumers can import them under the main
 // tsconfig). Re-exported via the explicit `export { ... }` above.
 
-const PALETTE_DELIM = '·';
-
 export function useCommandPalette(): [boolean, () => void, () => void] {
   const [open, setOpen] = useState(false);
 
@@ -791,17 +789,21 @@ export function CommandPalette(props: {
           </Autocomplete.List>
         </Autocomplete.Root>
         <div className="maka-palette-footer">
-          <span>
+          <span className="maka-palette-footer-hint">
             <KbdGroup className="maka-shortcut-group">
               <Kbd className="maka-shortcut-kbd">↑</Kbd>
               <Kbd className="maka-shortcut-kbd">↓</Kbd>
             </KbdGroup>
-            选择
+            <span>选择</span>
           </span>
-          <span>{PALETTE_DELIM}</span>
-          <span><Kbd className="maka-shortcut-kbd">↵</Kbd> 执行</span>
-          <span>{PALETTE_DELIM}</span>
-          <span><Kbd className="maka-shortcut-kbd">Esc</Kbd> 关闭</span>
+          <span className="maka-palette-footer-hint">
+            <Kbd className="maka-shortcut-kbd">↵</Kbd>
+            <span>执行</span>
+          </span>
+          <span className="maka-palette-footer-hint">
+            <Kbd className="maka-shortcut-kbd">Esc</Kbd>
+            <span>关闭</span>
+          </span>
         </div>
       </DialogContent>
     </DialogRoot>

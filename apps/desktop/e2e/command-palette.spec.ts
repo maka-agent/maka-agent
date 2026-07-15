@@ -10,13 +10,13 @@ async function expectPaletteHeaderGeometry(dialog: Locator): Promise<void> {
     closeButton.boundingBox(),
     firstCommand.boundingBox(),
     searchInput.evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingLeft)),
-    dialog.locator('.maka-palette-input-wrap svg').count(),
+    dialog.locator('.maka-palette-search-icon svg').count(),
   ]);
   if (!inputBox || !closeBox || !firstCommandBox) throw new Error('Command palette controls must have rendered bounds');
 
   const gap = closeBox.x - (inputBox.x + inputBox.width);
   expect(gap).toBeGreaterThanOrEqual(8);
-  expect(paddingLeft).toBeGreaterThanOrEqual(6);
+  expect(paddingLeft).toBeGreaterThanOrEqual(8);
   expect(leadingSearchIcons).toBe(1);
   expect(firstCommandBox.height).toBeGreaterThanOrEqual(32);
 }

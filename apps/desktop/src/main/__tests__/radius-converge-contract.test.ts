@@ -373,6 +373,7 @@ describe('radius token governance (#406 gap 4)', () => {
       '.settingsCapabilityGuidanceActions code': '--radius-surface',
       '.settingsModal': '--radius-modal',
       '.maka-palette-modal': '--radius-modal',
+      '.maka-palette-input-wrap': '--radius-control',
       '.settingsPermissionIntro': '--radius-surface',
       '.settingsPermissionError': '--radius-surface',
       '.settingsCapabilityRow': '--radius-surface',

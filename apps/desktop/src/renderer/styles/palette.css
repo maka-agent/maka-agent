@@ -41,17 +41,16 @@
   min-height: var(--h-control-xl);
   border-radius: var(--radius-control);
   border-color: var(--border);
-  background: var(--foreground-2);
+  background: var(--background);
   transition:
     border-color var(--duration-quick) var(--ease-out-strong),
-    box-shadow var(--duration-quick) var(--ease-out-strong),
-    background var(--duration-quick) var(--ease-out-strong);
+    box-shadow var(--duration-quick) var(--ease-out-strong);
 }
 
 .maka-palette-input-wrap:has(input:focus) {
   border-color: var(--ring);
   background: var(--background);
-  box-shadow: 0 0 0 2px oklch(from var(--focus-ring) l c h / 0.12);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.12);
 }
 
 .maka-palette-search-icon {
@@ -234,25 +233,25 @@
 .maka-palette-footer {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: flex-end;
+  gap: var(--space-3);
+  min-height: var(--h-control-md);
   padding: var(--space-1) var(--space-3);
   border-top: var(--border-width-hairline) solid var(--border);
-  background: var(--foreground-2);
+  background: transparent;
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
 }
 
-.maka-palette-footer .maka-shortcut-group,
-.maka-palette-footer .maka-shortcut-kbd {
-  margin-right: var(--space-1);
-}
-
-.maka-palette-footer .maka-shortcut-group .maka-shortcut-kbd {
-  margin-right: 0;
+.maka-palette-footer-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
 }
 
 .maka-palette-footer .maka-shortcut-kbd {
-  padding: 1px var(--space-1);
-  background: var(--background);
+  padding: 0 var(--space-1);
+  background: var(--foreground-4);
   font-size: var(--font-size-caption);
 }

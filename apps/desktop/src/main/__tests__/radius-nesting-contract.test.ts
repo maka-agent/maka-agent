@@ -17,14 +17,16 @@
  *
  *   2. If outer − padding does NOT land on a tier, use
  *      `calc(var(--radius-*) - Npx)` — the radius-converge contract's
- *      calc allowlist permits only this shrink form. Two sites today
- *      use it: an input inside a 12px modal shell with an 8px inset
+ *      calc allowlist permits only this shrink form. One site today
+ *      uses it: an input inside a 12px modal shell with an 8px inset
  *      (12 − 8 = 4px, not a tier):
  *        .maka-search-modal-input-row  (sidebar.css)
- *        .maka-palette-input-wrap       (palette.css)
- *      This contract pins both so a later "cleanup" can't drop the calc
+ *      This contract pins it so a later "cleanup" can't drop the calc
  *      and revert to a hardcoded --radius-control (6px) that would read
  *      as too round against the shell corners.
+ *
+ * The command palette uses the control tier directly: its current header
+ * inset is not 8px, so applying this formula there would not be concentric.
  *
  * The settings-modal inner cards (audited) use the surface/control tier
  * inside the modal shell — that is form (1), already governed by the
@@ -49,11 +51,10 @@ function ruleBody(css: string, selector: string): string | null {
 }
 
 describe('PR-RADIUS-NESTING-0 contract', () => {
-  it('the two modal-inset input sites use calc(var(--radius-modal) - 8px) (12 − 8 = 4px, not a tier)', async () => {
+  it('the modal-inset search input uses calc(var(--radius-modal) - 8px) (12 − 8 = 4px, not a tier)', async () => {
     const css = stripCssComments(await readAllRendererCss());
     const sites: Array<[string, string]> = [
       ['.maka-search-modal-input-row', 'sidebar.css'],
-      ['.maka-palette-input-wrap', 'palette.css'],
     ];
     for (const [selector, label] of sites) {
       const body = ruleBody(css, selector);

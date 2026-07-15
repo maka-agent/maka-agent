@@ -84,6 +84,11 @@ describe('Command palette accessibility and visible copy', () => {
       /<InputGroup[\s\S]*className="maka-palette-input-wrap"[\s\S]*aria-label="命令面板搜索"[\s\S]*onMouseDown=\{\(event\) => \{[\s\S]*inputRef\.current\?\.focus\(\);[\s\S]*<InputGroupInput[\s\S]*aria-label="搜索命令、设置项或会话"/,
       'CommandPalette input shell must be shared primitive InputGroup with an accessible input label and whole-shell click focus',
     );
+    assert.match(
+      src,
+      /<InputGroupAddon align="inline-start" className="maka-palette-search-icon" aria-hidden="true">[\s\S]*?<Search \/>[\s\S]*?<\/InputGroupAddon>/,
+      'The primary search field keeps one leading search affordance',
+    );
     // Detail round 6: the shortcut hints (↵ 执行 / Esc 关闭) live in the
     // footer bar ONLY. An inline input addon duplicated them in the same
     // viewport — one affordance, one home.
@@ -106,6 +111,11 @@ describe('Command palette accessibility and visible copy', () => {
       inputWrapStyle,
       /width:\s*100%;/,
       'Palette InputGroup should fill the search column while the header owns outer spacing',
+    );
+    assert.match(
+      inputWrapStyle,
+      /background:\s*var\(--background\);/,
+      'Palette search should stay on the modal working plane instead of adding a gray nested fill',
     );
     assert.doesNotMatch(
       styles,
@@ -131,7 +141,7 @@ describe('Command palette accessibility and visible copy', () => {
     );
     assert.match(headerStyle, /grid-template-columns:\s*minmax\(0, 1fr\) var\(--h-control-md\);/);
     assert.match(headerStyle, /gap:\s*var\(--space-2\);/);
-    assert.match(inputStyle, /padding-inline:\s*var\(--space-2-5\);/);
+    assert.match(inputStyle, /padding-inline:\s*var\(--space-2\);/);
   });
 
   it('keeps command palette chrome compact, non-selectable, and tactile without blocking text entry', async () => {
@@ -149,7 +159,7 @@ describe('Command palette accessibility and visible copy', () => {
       'Palette modal/list/rows/footer should behave as app chrome, not accidental selectable text',
     );
     assert.match(inputStyle, /user-select:\s*text;/, 'Palette input text must stay selectable/editable');
-    assert.match(rowStyle, /min-height:\s*28px;/);
+    assert.match(rowStyle, /min-height:\s*var\(--h-control-lg\);/);
     assert.match(rowStyle, /grid-template-columns:\s*18px minmax\(0, 1fr\) auto;/);
     assert.match(
       styles,
@@ -170,6 +180,18 @@ describe('Command palette accessibility and visible copy', () => {
     );
     assert.match(styles, /\.maka-palette-icon\s*\{[\s\S]*width:\s*18px;[\s\S]*height:\s*18px;/);
     assert.match(styles, /\.maka-palette-hint\s*\{[\s\S]*font-variant-numeric:\s*tabular-nums;/);
+  });
+
+  it('keeps the footer as one quiet shortcut rail instead of a nested card', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
+    const styles = await readRendererContractCss();
+    const footerStyle = [...styles.matchAll(/\.maka-palette-footer\s*\{[\s\S]*?\}/g)].map((match) => match[0]).join('\n');
+
+    assert.doesNotMatch(src, /PALETTE_DELIM/, 'Shortcut groups should use spacing, not decorative dot separators');
+    assert.match(src, /className="maka-palette-footer-hint"/);
+    assert.match(footerStyle, /justify-content:\s*flex-end;/);
+    assert.match(footerStyle, /min-height:\s*var\(--h-control-md\);/);
+    assert.match(footerStyle, /background:\s*transparent;/);
   });
 
   it('has a visual-smoke opener for the command palette input shell', async () => {
