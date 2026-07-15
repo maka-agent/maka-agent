@@ -379,13 +379,13 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     name: `harbor-cell:${input.config.id}`,
   });
 
-  let settledByDeadline = false;
+  let deadlineReached = false;
   let settlementError: unknown;
   let settlementAttempt: Promise<void> | undefined;
   const settlementTimer = input.settleAfterMs === undefined
     ? undefined
     : setTimeout(() => {
-        settledByDeadline = true;
+        deadlineReached = true;
         settlementAttempt = manager.stopSession(session.id, {
           source: 'benchmark_deadline',
           mode: 'after_step',
@@ -407,7 +407,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   let attemptedTurnId: string | undefined;
   try {
     for (let turnIndex = 0; turnIndex < continuationPolicy.maxTurns; turnIndex += 1) {
-      if (settledByDeadline) break;
+      if (deadlineReached) break;
       const turnId = newId();
       attemptedTurnId = turnId;
       invocation = undefined;
@@ -419,7 +419,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
       }
       if (!invocation) throw new Error('Harbor cell turn finished without a runtime invocation result');
       invocations.push(invocation);
-      if (settledByDeadline) break;
+      if (deadlineReached) break;
       if (!isToolCallStepCap(invocation)) break;
       stepCapHits += 1;
       if (totalRuntimeSteps(invocations) >= continuationPolicy.maxTotalRuntimeSteps) break;
@@ -444,6 +444,11 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     throw new Error('Harbor cell finished without a runtime invocation result');
   }
   const combinedInvocation = combineInvocations(invocations);
+  const terminalRun = deadlineReached
+    ? await agentRunStore.readRun(session.id, combinedInvocation.runId).catch(() => undefined)
+    : undefined;
+  const settledByDeadline = terminalRun?.status === 'cancelled'
+    && terminalRun.abortSource === 'benchmark.deadline';
   const continuationSummary = continuationPolicy.enabled
     ? buildContinuationSummary(continuationPolicy, invocations, stepCapHits)
     : undefined;

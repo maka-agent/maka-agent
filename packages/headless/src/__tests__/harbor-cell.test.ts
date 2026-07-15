@@ -164,6 +164,44 @@ class DeadlineSettlingBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
+class TerminalClaimBeforeDeadlineBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+  stopCalls = 0;
+
+  constructor(sessionId: string) {
+    this.sessionId = sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'token_usage',
+      id: 'usage-before-normal-completion',
+      turnId: input.turnId,
+      ts: Date.now(),
+      input: 2,
+      output: 1,
+      total: 3,
+      costUsd: 0.001,
+    };
+    yield {
+      type: 'complete',
+      id: 'completed-before-deadline',
+      turnId: input.turnId,
+      ts: Date.now(),
+      stopReason: 'end_turn',
+    };
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+  }
+
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+  }
+
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
 class StepCapThenCompleteBackend implements AgentBackend {
   readonly kind: BackendKind = 'fake';
   readonly sessionId: string;
@@ -536,6 +574,29 @@ describe('runHarborCell', () => {
         JSON.parse(await readFile(join(outputDir, HARBOR_CELL_OUTPUT_FILENAME), 'utf8')),
         result.output,
       );
+    });
+  });
+
+  test('does not report deadline settlement after normal completion already claimed the terminal state', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      let backend: TerminalClaimBeforeDeadlineBackend | undefined;
+      const result = await runHarborCell({
+        config,
+        instruction: 'finish before the deadline',
+        cwd: workspaceDir,
+        outputDir,
+        storageRoot,
+        settleAfterMs: 1_000,
+        registerBackends: (registry) => {
+          registry.register('fake', (ctx) => {
+            backend = new TerminalClaimBeforeDeadlineBackend(ctx.sessionId);
+            return backend;
+          });
+        },
+      });
+
+      assert.equal(result.settledByDeadline, false);
+      assert.equal(backend?.stopCalls, 0);
     });
   });
 
