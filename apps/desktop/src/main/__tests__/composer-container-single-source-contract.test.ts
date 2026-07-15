@@ -44,6 +44,28 @@ function restRulesFor(css: string, subjectClass: string): string[] {
     .map(([prelude]) => prelude.replace(/\s+/g, ' '));
 }
 
+function composerPaddingOwners(css: string): string[] {
+  return styleRules(css)
+    .filter(([prelude, body]) => /\.composer\s*$/.test(prelude) && /\bpadding(?:-top)?\s*:/.test(body))
+    .map(([prelude, body]) => {
+      const declarations = [...body.matchAll(/\b(padding(?:-top)?)\s*:\s*([^;}]+)/g)]
+        .map((match) => `${match[1]}: ${match[2].trim().replace(/\s+/g, ' ')}`)
+        .join('; ');
+      return `${prelude.replace(/\s+/g, ' ')} => ${declarations}`;
+    })
+    .sort();
+}
+
+function composerInnerShadowOwners(css: string): string[] {
+  return styleRules(css)
+    .filter(([prelude, body]) => /(?:maka-composer-inner|composerInner)/.test(prelude) && /box-shadow\s*:/.test(body))
+    .map(([prelude, body]) => {
+      const value = body.match(/box-shadow\s*:\s*([^;}]+)/)?.[1].trim();
+      return `${prelude.replace(/\s+/g, ' ')} => ${value === 'none' ? 'none' : 'shadow'}`;
+    })
+    .sort();
+}
+
 describe('composer container single-source contract', () => {
   it('`.maka-composer-inner` rest state is defined exactly once (in composer.css)', async () => {
     const css = await readAllRendererCss();
@@ -107,5 +129,46 @@ describe('composer container single-source contract', () => {
       'composer placeholder must declare font-family explicitly (no inheritance reliance)',
     );
     assert.match(body, /font-size\s*:/, 'composer placeholder must declare font-size explicitly');
+  });
+
+  it('keeps outer padding ownership closed to the base and docked boundary rules', async () => {
+    const css = await readAllRendererCss();
+    assert.deepEqual(composerPaddingOwners(css), [
+      '.composer => padding: var(--space-2) var(--space-6) var(--space-2)',
+      '.mainColumn:not([data-home-surface="true"]) .composer => padding-top: 0',
+    ]);
+  });
+
+  it('keeps composer shadow ownership closed across rest, focus, docked, dark, and drag states', async () => {
+    const css = await readAllRendererCss();
+    assert.deepEqual(composerInnerShadowOwners(css), [
+      '.composer .maka-composer-inner => shadow',
+      '.composer .maka-composer-inner:focus-within => shadow',
+      '.dark .mainColumn:not([data-home-surface="true"]) .composer .maka-composer-inner:not(:focus-within) => none',
+      '.mainColumn:not([data-home-surface="true"]) .composer .maka-composer-inner:not(:focus-within) => shadow',
+      '.maka-composer[data-drag-active="true"] .maka-composer-inner => shadow',
+    ]);
+  });
+});
+
+describe('composer chrome ownership negative cases', () => {
+  it('detects a later padding override instead of accepting one correct rule', () => {
+    const css = `
+      .composer { padding: var(--space-2); }
+      .mainColumn:not([data-home-surface="true"]) .composer { padding-top: 0; }
+      .mainColumn .composer { padding-top: var(--space-2); }
+    `;
+    assert.equal(composerPaddingOwners(css).length, 3);
+  });
+
+  it('detects a new focus shadow owner outside the docked selector', () => {
+    const css = `
+      .mainColumn .maka-composer-inner:not(:focus-within) { box-shadow: none; }
+      .composer .maka-composer-inner:focus-within { box-shadow: 0 0 8px black; }
+    `;
+    assert.deepEqual(composerInnerShadowOwners(css), [
+      '.composer .maka-composer-inner:focus-within => shadow',
+      '.mainColumn .maka-composer-inner:not(:focus-within) => none',
+    ]);
   });
 });
