@@ -199,6 +199,13 @@
   box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.30);
 }
 
+/* The active transcript and docked card meet at one boundary. Keeping the
+   outer composer's default top padding here exposes an extra strip of panel
+   background after the transcript viewport has already ended. */
+.mainColumn:not([data-home-surface="true"]) .composer {
+  padding-top: 0;
+}
+
 /* Docked-over-stream lift. Layout already keeps the composer in its own bottom
    row; this only adds elevation so the card reads as lifted off the floor
    rather than a flat band welded to the bottom edge.
