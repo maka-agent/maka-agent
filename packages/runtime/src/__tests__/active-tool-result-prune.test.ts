@@ -5,7 +5,10 @@ import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
 import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
 import type { ModelMessage } from 'ai';
 
-import { rewriteActiveToolResultsInMessages } from '../active-tool-result-prune.js';
+import {
+  activeToolResultLineageIdentity,
+  rewriteActiveToolResultsInMessages,
+} from '../active-tool-result-prune.js';
 import { composePrepareStep } from '../ai-sdk-backend.js';
 import { ModelAdapter } from '../model-adapter.js';
 import { ToolAvailabilityRuntime, LOAD_TOOLS_NAME } from '../tool-availability.js';
@@ -281,6 +284,32 @@ describe('active current-turn tool-result pruning', () => {
     assert.equal(second.rewritten, 0);
     assert.equal(second.archiveFailures, 0);
     assert.deepEqual(second.messages, first.messages);
+  });
+
+  test('raw result and archive placeholder share a stable lineage identity', async () => {
+    const messages = [largeTextToolMessage('Read', 'tool-1', 'SECRET'.repeat(20))];
+    const rawPart = (messages[0] as Extract<ModelMessage, { role: 'tool' }>).content[0];
+    const rewritten = await rewriteActiveToolResultsInMessages({
+      messages,
+      policy: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
+      stepNumber: 1,
+      turnId: 'turn-1',
+      charsPerToken: 1,
+      archiveToolResult: () => ({ artifactId: 'artifact-tool-1' }),
+    });
+    const placeholderPart = (rewritten.messages[0] as Extract<ModelMessage, { role: 'tool' }>).content[0];
+    const differentPart = (
+      largeTextToolMessage('Read', 'tool-1', 'DIFFERENT'.repeat(20)) as Extract<ModelMessage, { role: 'tool' }>
+    ).content[0];
+
+    assert.deepEqual(
+      activeToolResultLineageIdentity(placeholderPart),
+      activeToolResultLineageIdentity(rawPart),
+    );
+    assert.notDeepEqual(
+      activeToolResultLineageIdentity(differentPart),
+      activeToolResultLineageIdentity(rawPart),
+    );
   });
 
   test('returns active prune diagnostics for rewritten and failed archives', async () => {

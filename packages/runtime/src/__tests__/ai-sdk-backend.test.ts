@@ -4337,6 +4337,21 @@ describe('AiSdkBackend usage telemetry', () => {
                 usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
               },
             ]
+          : streamCalls === 2
+          ? [
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'tool-call',
+                toolCallId: 'tool-semantic-tail',
+                toolName: 'Read',
+                input: JSON.stringify({ path: 'next.log' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+              },
+            ]
           : [
               { type: 'stream-start', warnings: [] },
               { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } },
@@ -4360,7 +4375,9 @@ describe('AiSdkBackend usage telemetry', () => {
         description: 'Read description',
         parameters: z.object({ path: z.string() }),
         permissionRequired: false,
-        impl: async () => ({ body: largeBody }),
+        impl: async ({ path }) => ({
+          body: path === 'large.log' ? largeBody : 'FRESH_SEMANTIC_TAIL_RESULT',
+        }),
       }],
       contextBudget: {
         charsPerToken: 1,
@@ -4379,7 +4396,7 @@ describe('AiSdkBackend usage telemetry', () => {
         activeFullCompact: {
           enabled: true,
           minStepNumber: 1,
-          maxActiveEstimatedTokens: 1,
+          maxActiveEstimatedTokens: 1_000_000,
           highWaterRatio: 0.1,
           minRecentMessages: 0,
           maxSummaryEstimatedTokens: 1024,
@@ -4387,7 +4404,7 @@ describe('AiSdkBackend usage telemetry', () => {
       },
       archiveToolResult: async () => {
         archiveCalls += 1;
-        return { artifactId: 'should-not-archive-fresh-result' };
+        return { artifactId: 'archived-covered-semantic-result' };
       },
       newId: idGenerator(),
       now: monotonicClock(),
@@ -4406,14 +4423,14 @@ describe('AiSdkBackend usage telemetry', () => {
       events.push(event);
     }
 
-    assert.equal(streamCalls, 2);
+    assert.equal(streamCalls, 3);
     assert.equal(model.doGenerateCalls.length, 1);
     assert.match(
       JSON.stringify(model.doGenerateCalls[0]?.prompt),
       /SEMANTIC_COMPACT_RAW_TOOL_OUTPUT/,
       'the summarizer must see a fresh result before active pruning can archive it',
     );
-    assert.equal(archiveCalls, 0);
+    assert.equal(archiveCalls, 1, 'covered raw results may become archived without invalidating projection lineage');
     assert.equal(recordedBlocks.length, 1);
     assert.equal(recordedActiveFullBlocks.length, 0, 'one step must accept at most one compaction replacement');
     assert.equal(recordedBlocks[0]?.kind, 'maka.semantic_compact_block');
@@ -4437,6 +4454,19 @@ describe('AiSdkBackend usage telemetry', () => {
       secondPromptMessages.filter((message) => message.role === 'user').length,
       1,
       'semantic replacement must not append a second user instruction',
+    );
+    const thirdPrompt = JSON.stringify(model.doStreamCalls[2]?.prompt.map((message) => ({
+      role: message.role,
+      content: message.content,
+    })));
+    assert.match(thirdPrompt, /maka_semantic_compact_block/);
+    assert.match(thirdPrompt, /FRESH_SEMANTIC_TAIL_RESULT/);
+    assert.doesNotMatch(thirdPrompt, /SEMANTIC_COMPACT_RAW_TOOL_OUTPUT/);
+    assert.doesNotMatch(thirdPrompt, /archived-covered-semantic-result/);
+    assert.equal(
+      model.doStreamCalls[2]?.prompt.filter((message) => message.role === 'user').length,
+      1,
+      'projection replay after active pruning must retain the exact single user anchor',
     );
 
     const semanticRecord = llmRecords.find((record) => record.callKind === 'semantic_compact');

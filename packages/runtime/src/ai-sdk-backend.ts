@@ -110,6 +110,7 @@ import {
   type StreamTextResult,
 } from './model-adapter.js';
 import {
+  activeToolResultLineageIdentity,
   rewriteActiveToolResultsInMessages,
   type ActiveToolResultPruneDiagnosticPatch,
 } from './active-tool-result-prune.js';
@@ -333,6 +334,7 @@ function collectPrunablePrepareStepToolCallIds(steps: PrepareStepLike['steps']):
 
 interface ActiveFullCompactPrepareStepProjection {
   sourceSignatures: readonly string[];
+  sourceSignatureMode: 'exact' | 'active_prune_lineage';
   projectedMessages: readonly ModelMessage[];
   semanticBlock?: SemanticCompactBlock;
 }
@@ -342,9 +344,15 @@ function projectAcceptedActiveFullCompactMessages(
   acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined,
 ): ModelMessage[] | undefined {
   if (!acceptedProjection) return undefined;
+  const sourceSignature = acceptedProjection.sourceSignatureMode === 'active_prune_lineage'
+    ? projectionSourceMessageSignature
+    : modelMessageSignature;
   if (incomingMessages.length < acceptedProjection.sourceSignatures.length) return undefined;
   for (let index = 0; index < acceptedProjection.sourceSignatures.length; index += 1) {
-    if (modelMessageSignature(incomingMessages[index]!) !== acceptedProjection.sourceSignatures[index]) {
+    if (
+      sourceSignature(incomingMessages[index]!)
+      !== acceptedProjection.sourceSignatures[index]
+    ) {
       return undefined;
     }
   }
@@ -2473,7 +2481,8 @@ export class AiSdkBackend implements AgentBackend {
       if (!dryRun && rewritten.decision === 'replaced') {
         if (rewritten.block) this.recordSemanticCompactBlock(rewritten.block);
         acceptedProjection = {
-          sourceSignatures: incomingMessages.map(modelMessageSignature),
+          sourceSignatures: incomingMessages.map(projectionSourceMessageSignature),
+          sourceSignatureMode: 'active_prune_lineage',
           projectedMessages: rewritten.messages,
           ...(rewritten.block ? { semanticBlock: rewritten.block } : {}),
         };
@@ -2532,6 +2541,7 @@ export class AiSdkBackend implements AgentBackend {
         if (rewritten.block) this.recordActiveFullCompactBlock(rewritten.block);
         acceptedProjection = {
           sourceSignatures: incomingMessages.map(modelMessageSignature),
+          sourceSignatureMode: 'exact',
           projectedMessages: rewritten.messages,
         };
         return { messages: rewritten.messages };
@@ -2734,6 +2744,7 @@ export class AiSdkBackend implements AgentBackend {
       }
       acceptedProjection = {
         sourceSignatures: incomingMessages.map(modelMessageSignature),
+        sourceSignatureMode: 'exact',
         projectedMessages: outcome.replacementMessages,
       };
       state.replacedStepNumber = options.stepNumber;
@@ -4103,6 +4114,29 @@ function sha256(text: string): string {
 
 function modelMessageSignature(message: ModelMessage): string {
   return sha256(stableStringifyForSignature(message));
+}
+
+/**
+ * A projection source signature must survive representation-only active
+ * pruning. Preserve every message field except a tool-result payload, whose
+ * raw body and archive placeholder are normalized to the same stable lineage
+ * identity (tool call + original body hash). Any other source mutation still
+ * invalidates the accepted projection.
+ */
+function projectionSourceMessageSignature(message: ModelMessage): string {
+  if (message.role !== 'tool' || !Array.isArray(message.content)) {
+    return modelMessageSignature(message);
+  }
+  const normalizedContent = (message.content as unknown[]).map((part) => {
+    const lineage = activeToolResultLineageIdentity(part);
+    if (!lineage || !part || typeof part !== 'object') return part;
+    const { output: _output, result: _result, ...metadata } = part as Record<string, unknown>;
+    return {
+      ...metadata,
+      makaProjectionToolResultLineage: lineage,
+    };
+  });
+  return modelMessageSignature({ ...message, content: normalizedContent } as ModelMessage);
 }
 
 function stableStringifyForSignature(value: unknown): string {

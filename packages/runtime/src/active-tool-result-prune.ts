@@ -44,6 +44,14 @@ export interface ActiveToolResultPruneDiagnosticPatch {
   activeEstimatedTokensSaved?: number;
 }
 
+export interface ActiveToolResultLineageIdentity {
+  toolCallId: string;
+  toolName: string;
+  bodySha256: string;
+  payloadField: 'output' | 'result';
+  outputKind?: string;
+}
+
 type ToolResultPartish = {
   type?: unknown;
   toolCallId?: unknown;
@@ -289,6 +297,33 @@ export function isActiveArchivedToolResultPlaceholder(
     && Number.isFinite(candidate.originalBytes)
     && candidate.originalBytes > 0
     && candidate.reason === 'active_current_turn_tool_result_pruned_before_next_step';
+}
+
+/**
+ * Return the stable identity of a tool-result part across active pruning.
+ * The raw payload and its archive placeholder intentionally share the hash of
+ * the serialized raw result, so compaction lineage can treat pruning as a
+ * representation change rather than a divergent source history.
+ */
+export function activeToolResultLineageIdentity(
+  value: unknown,
+): ActiveToolResultLineageIdentity | undefined {
+  if (!isToolResultPartish(value)) return undefined;
+  if (typeof value.toolCallId !== 'string' || typeof value.toolName !== 'string') return undefined;
+  const payload = extractPayload(value);
+  if (!payload) return undefined;
+  const placeholder = isActiveArchivedToolResultPlaceholder(payload.value)
+    ? payload.value
+    : typeof payload.value === 'string' && isActiveArchivedToolResultPlaceholderText(payload.value)
+      ? JSON.parse(payload.value) as ActiveArchivedToolResultPlaceholder
+      : undefined;
+  return {
+    toolCallId: value.toolCallId,
+    toolName: value.toolName,
+    bodySha256: placeholder?.bodySha256 ?? sha256(serializeToolResultForArchive(payload.value)),
+    payloadField: payload.field,
+    ...(payload.field === 'output' ? { outputKind: payload.outputKind } : {}),
+  };
 }
 
 function isToolResultPartish(value: unknown): value is ToolResultPartish {
