@@ -9,6 +9,8 @@ import type * as React from "react";
 // UI Field.Control) so caller CSS targeting `> textarea` / `textarea:focus-
 // visible` still matches. Base UI ships no Textarea component, so this is a
 // native textarea with maka's inputClasses chrome (plus textarea sizing).
+// Styled textareas grow with their content until the shared cap, then scroll;
+// bare textareas leave sizing to their owner (for example, Composer).
 export type TextareaProps = React.ComponentPropsWithRef<"textarea"> & {
   unstyled?: boolean;
 };
@@ -22,7 +24,12 @@ export function Textarea({
   return (
     <textarea
       ref={ref}
-      className={cn(unstyled ? bareFieldClasses : [inputClasses, 'min-h-24 resize-y leading-6'], className)}
+      className={cn(
+        unstyled
+          ? bareFieldClasses
+          : [inputClasses, 'min-h-24 max-h-80 resize-none overflow-y-auto [field-sizing:content] leading-6'],
+        className,
+      )}
       data-slot="textarea"
       {...props}
       data-maka-field-chrome={unstyled ? 'none' : undefined}

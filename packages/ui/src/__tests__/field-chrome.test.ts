@@ -59,3 +59,23 @@ test('standalone and grouped fields use flat chrome with one quiet focus treatme
   assert.doesNotMatch(groupMarkup, /before:shadow/, 'group has no decorative inset highlight');
   assert.doesNotMatch(groupMarkup, /ring-\[3px\]/, 'group focus ring stays visually quiet');
 });
+
+test('standalone Textarea grows with content instead of exposing a drag handle', () => {
+  const textareaMarkup = renderToStaticMarkup(
+    createElement(Textarea, { 'aria-label': 'Growing textarea' }),
+  );
+  const bareTextareaMarkup = renderToStaticMarkup(
+    createElement(Textarea, { unstyled: true, 'aria-label': 'Externally sized textarea' }),
+  );
+
+  assert.match(textareaMarkup, /min-h-24/, 'textarea has a useful default height');
+  assert.match(textareaMarkup, /\[field-sizing:content\]/, 'textarea follows its content height');
+  assert.match(textareaMarkup, /resize-none/, 'textarea does not expose native drag resizing');
+  assert.match(textareaMarkup, /max-h-80/, 'textarea growth stays bounded');
+  assert.match(textareaMarkup, /overflow-y-auto/, 'bounded content remains reachable');
+  assert.doesNotMatch(
+    bareTextareaMarkup,
+    /\[field-sizing:content\]|max-h-80|overflow-y-auto/,
+    'unstyled textarea leaves sizing ownership to its wrapper',
+  );
+});

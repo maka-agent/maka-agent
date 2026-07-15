@@ -37,6 +37,31 @@ test('changing the theme in settings applies to the UI', async ({ window: page }
   ).toBe(true);
 });
 
+test('settings textarea grows with content and scrolls only at its shared cap', async ({ window: page }) => {
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.getByRole('main', { name: '设置内容' }).getByRole('button', { name: '通用', exact: true }).click();
+
+  const textarea = page.getByRole('textbox', { name: '助手语气偏好' });
+  await expect(textarea).toBeVisible();
+  await expect(textarea).toHaveCSS('resize', 'none');
+  await expect(textarea).toHaveCSS('field-sizing', 'content');
+
+  const initialHeight = await textarea.evaluate((element) => element.getBoundingClientRect().height);
+  await textarea.fill(Array.from({ length: 7 }, (_, index) => `偏好 ${index + 1}`).join('\n'));
+  const grownHeight = await textarea.evaluate((element) => element.getBoundingClientRect().height);
+  expect(grownHeight).toBeGreaterThan(initialHeight);
+
+  await textarea.fill(Array.from({ length: 30 }, (_, index) => `偏好 ${index + 1}`).join('\n'));
+  const capped = await textarea.evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(capped.height).toBeLessThanOrEqual(320);
+  expect(capped.scrollHeight).toBeGreaterThan(capped.clientHeight);
+});
+
 test('remote access opens a channel detail from the overview and returns', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();
