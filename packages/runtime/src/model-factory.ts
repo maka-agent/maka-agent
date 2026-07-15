@@ -264,11 +264,22 @@ export function buildProviderOptions(
   const variants = thinkingVariantsForModel(connection.providerType, modelId);
   const level = thinkingLevel && variants.includes(thinkingLevel) ? thinkingLevel : undefined;
   switch (connection.providerType) {
+    case 'kimi-coding-plan':
+      return {
+        anthropic: modelId === 'kimi-for-coding'
+          ? {
+              // Kimi's managed coding route requires enabled thinking and max
+              // effort. The Anthropic AI SDK also requires a compatibility
+              // budget and otherwise injects the same value with a warning.
+              thinking: { type: 'enabled' as const, budgetTokens: 1_024 },
+              effort: 'max',
+            }
+          : {},
+      };
     // Anthropic-protocol: effort enum models send `effort`; toggle/budget
     // models send `thinking.disabled` for off. No budget-token mapping — the
     // provider's native effort values pass through unchanged.
     case 'anthropic':
-    case 'kimi-coding-plan':
     case 'MiniMax':
     case 'MiniMax-cn':
     case 'claude-subscription':

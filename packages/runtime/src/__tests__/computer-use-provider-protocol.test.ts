@@ -13,7 +13,7 @@ import {
   type CuDispatchBackend,
   type CuObservation,
 } from '../computer-use-tools.js';
-import { getAIModel } from '../model-factory.js';
+import { buildProviderOptions, getAIModel } from '../model-factory.js';
 import { PermissionEngine } from '../permission-engine.js';
 
 const servers: Array<{ close(): Promise<void> }> = [];
@@ -73,15 +73,16 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       });
       const events: SessionEvent[] = [];
       const toolResults: Array<{ isError: boolean }> = [];
+      const providerConnection = connection(
+        provider.providerType,
+        `${server.url}${provider.baseSuffix}`,
+        provider.modelId,
+      );
       const runtime = new AiSdkBackend({
         sessionId: `session-${provider.providerType}`,
         header: header(provider.providerType, provider.modelId),
         appendMessage: async () => {},
-        connection: connection(
-          provider.providerType,
-          `${server.url}${provider.baseSuffix}`,
-          provider.modelId,
-        ),
+        connection: providerConnection,
         apiKey: 'test-key',
         modelId: provider.modelId,
         permissionEngine: new PermissionEngine({
@@ -89,6 +90,7 @@ describe('Anthropic-compatible Computer Use product loops', () => {
           now: () => 1,
         }),
         modelFactory: (input) => getAIModel(input),
+        providerOptions: buildProviderOptions(providerConnection, provider.modelId),
         tools: [computerTool],
         maxSteps: 6,
         newId: idGenerator(),
@@ -121,6 +123,16 @@ describe('Anthropic-compatible Computer Use product loops', () => {
         (requestBodies[0].tools as Array<{ name: string }>).map((tool) => tool.name),
         ['maka_computer'],
       );
+      if (provider.providerType === 'kimi-coding-plan') {
+        for (const body of requestBodies) {
+          assert.equal(
+            (body.thinking as { type?: string } | undefined)?.type,
+            'enabled',
+            'Kimi Coding Plan must enable thinking on every turn',
+          );
+          assert.deepEqual(body.output_config, { effort: 'max' });
+        }
+      }
     });
   }
 });
