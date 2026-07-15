@@ -79,11 +79,6 @@
   font-weight: var(--font-weight-bold);
 }
 
-.settingsSidebar header .maka-shortcut-kbd {
-  font-size: var(--font-size-caption);
-  padding: 0 var(--space-1);
-}
-
 .settingsSidebar nav {
   min-height: 0;
   display: grid;

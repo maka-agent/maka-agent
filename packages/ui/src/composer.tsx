@@ -915,7 +915,7 @@ export const Composer = forwardRef<
                   ? copy.streamingHintProcessingPrefix
                   : props.continuing
                     ? copy.streamingHintContinuingPrefix
-                    : copy.streamingHintPrefix} <Kbd className="maka-shortcut-kbd">Esc</Kbd> {copy.streamingHintInterrupt}
+                    : copy.streamingHintPrefix} <Kbd>Esc</Kbd> {copy.streamingHintInterrupt}
               </span>
             ) : (
               null

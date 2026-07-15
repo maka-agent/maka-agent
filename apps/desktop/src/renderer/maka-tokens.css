@@ -978,25 +978,6 @@ html[data-os="darwin"].dark {
     body::after { display: none; }
   }
 
-  /* PR-UI-10: kbd polish — slightly bolder + 1px inset shadow for
-   * tactile "physical key" look. Avoid `box-shadow` outline so kbd
-   * inside chips/buttons doesn't add a second visible ring. */
-  kbd {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    font-family: var(--font-mono);
-    font-size: 0.82em;
-    font-weight: var(--font-weight-semibold);
-    line-height: var(--leading-none);
-    padding: var(--space-0-5) var(--space-1-5);
-    border-radius: var(--radius-control);
-    background: var(--foreground-5);
-    border: var(--border-width-hairline) solid var(--border-strong);
-    box-shadow: inset 0 -1px 0 var(--border);
-    color: var(--foreground-secondary);
-  }
 }
 
 /* =============================================================================

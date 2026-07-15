@@ -790,18 +790,18 @@ export function CommandPalette(props: {
         </Autocomplete.Root>
         <div className="maka-palette-footer">
           <span className="maka-palette-footer-hint">
-            <KbdGroup className="maka-shortcut-group">
-              <Kbd className="maka-shortcut-kbd">↑</Kbd>
-              <Kbd className="maka-shortcut-kbd">↓</Kbd>
+            <KbdGroup>
+              <Kbd>↑</Kbd>
+              <Kbd>↓</Kbd>
             </KbdGroup>
             <span>选择</span>
           </span>
           <span className="maka-palette-footer-hint">
-            <Kbd className="maka-shortcut-kbd">↵</Kbd>
+            <Kbd>↵</Kbd>
             <span>执行</span>
           </span>
           <span className="maka-palette-footer-hint">
-            <Kbd className="maka-shortcut-kbd">Esc</Kbd>
+            <Kbd>Esc</Kbd>
             <span>关闭</span>
           </span>
         </div>

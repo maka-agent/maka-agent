@@ -16,13 +16,6 @@
   background: transparent;
 }
 
-.maka-composer-streaming-hint .maka-shortcut-kbd {
-  font-size: var(--font-size-caption);
-  padding: 1px var(--space-1);
-  background: var(--foreground-3);
-  border: var(--border-width-hairline) solid var(--border);
-}
-
 .composerActions {
   display: flex;
   align-items: center;

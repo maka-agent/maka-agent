@@ -132,8 +132,29 @@ describe('renderer utility surfaces use shared UI primitives', () => {
       'Palette header must place the close action after the search InputGroup',
     );
     assert.match(source, /<Autocomplete.Item[\s\S]*className="maka-palette-item"/, 'Command palette rows must be Autocomplete.Item (#520 PR8)');
-    assert.match(source, /<KbdGroup className="maka-shortcut-group">[\s\S]*<Kbd className="maka-shortcut-kbd">↑<\/Kbd>[\s\S]*<Kbd className="maka-shortcut-kbd">↓<\/Kbd>/);
+    assert.match(source, /<KbdGroup>[\s\S]*<Kbd>↑<\/Kbd>[\s\S]*<Kbd>↓<\/Kbd>/);
     assert.doesNotMatch(source, /PALETTE_DELIM/, 'Palette footer shortcut groups should be separated by spacing, not dots');
+  });
+
+  it('keeps shortcut keycaps on the single shared Kbd recipe', async () => {
+    const [palette, help, composer, paletteCss, composerCss, navCss, tokens] = await Promise.all([
+      readFile(join(process.cwd(), 'src/renderer/command-palette.tsx'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/keyboard-help.tsx'), 'utf8'),
+      readFile(join(repoRoot, 'packages/ui/src/composer.tsx'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/styles/palette.css'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/styles/composer.css'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/styles/settings/nav-sidebar.css'), 'utf8'),
+      readFile(join(process.cwd(), 'src/renderer/maka-tokens.css'), 'utf8'),
+    ]);
+
+    assert.match(palette, /<KbdGroup>[\s\S]*<Kbd>↑<\/Kbd>[\s\S]*<Kbd>↓<\/Kbd>[\s\S]*<\/KbdGroup>/);
+    for (const source of [palette, help, composer]) {
+      assert.doesNotMatch(source, /maka-shortcut-(?:kbd|group)/, 'Consumers must not restyle the shared keycap recipe');
+    }
+    for (const css of [paletteCss, composerCss, navCss]) {
+      assert.doesNotMatch(css, /\.maka-shortcut-(?:kbd|group)\b/, 'Renderer CSS must not maintain a parallel keycap recipe');
+    }
+    assert.doesNotMatch(tokens, /^\s*kbd\s*\{/m, 'Global element CSS must not add a third outer keycap or override MenuShortcut');
   });
 
   it('keeps keyboard help on the shared DialogHeader with a single title', async () => {
@@ -154,7 +175,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.doesNotMatch(source, /所有可用快捷键/, 'The redundant second title must be dropped');
     assert.doesNotMatch(source, /maka-help-eyebrow/, 'The eyebrow row must be dropped');
     assert.doesNotMatch(source, /settingsCloseButton/, 'The boxed close-button class must be gone');
-    assert.match(source, /<Kbd className="maka-shortcut-kbd">\{key\}<\/Kbd>/);
+    assert.match(source, /<Kbd>\{key\}<\/Kbd>/);
   });
 
   it('unifies titled DialogContent modals onto the shared DialogHeader primitive', async () => {

@@ -2,9 +2,8 @@
    Command palette
    ----------------------------------------------------------------------------
    Split out of chat-header.css (#546 PR2, relocate — zero visual change).
-   The command-palette modal, input, list, items, footer, and the shared
-   `.maka-shortcut-*` kbd primitive (densest user is the palette; also
-   reused by composer and keyboard-help).                              */
+   The command-palette modal, input, list, items, and footer. Shared
+   keycap styling lives in the @maka/ui Kbd primitive.                 */
 
 .maka-palette-modal {
   width: min(584px, calc(100vw - 32px));
@@ -86,27 +85,6 @@
 
 .maka-palette-input::placeholder {
   color: var(--muted-foreground);
-}
-
-.maka-shortcut-group {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.maka-shortcut-kbd {
-  height: 16px;
-  min-width: 16px;
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-control);
-  border: 0;
-  background: var(--foreground-5);
-  box-shadow: none;
-  color: var(--foreground-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--leading-none);
 }
 
 .maka-palette-list {
@@ -248,10 +226,4 @@
   align-items: center;
   gap: var(--space-1);
   white-space: nowrap;
-}
-
-.maka-palette-footer .maka-shortcut-kbd {
-  padding: 0 var(--space-1);
-  background: var(--foreground-4);
-  font-size: var(--font-size-caption);
 }
