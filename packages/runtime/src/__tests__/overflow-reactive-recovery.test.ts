@@ -43,10 +43,12 @@ const OVERFLOW_MESSAGE = 'prompt is too long: 213462 tokens > 200000 maximum';
  *                 isErrorChunk branch never reassigns it) — locks recovery
  *                 against per-family trailer drift
  *  - 'error500' → a non-overflow provider failure (never a recovery trigger)
+ *  - 'terminated' → the provider transport dies before returning authoritative
+ *                 usage for the current request
  */
 type CallKind =
   | 'tool' | 'bigtool' | 'bigread' | 'load' | 'gated' | 'done'
-  | 'overflow' | 'overflowPart' | 'overflowPartResponses' | 'error500';
+  | 'overflow' | 'overflowPart' | 'overflowPartResponses' | 'error500' | 'terminated';
 
 const RETRY_STEP_TEXT_SENTINEL = 'RETRY_STEP_TEXT_SENTINEL reasoning before the big read';
 const BIG_RESULT = 'BIG_RESULT_'.repeat(200);
@@ -152,6 +154,9 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     }
     if (kind === 'error500') {
       throw Object.assign(new Error('internal server error'), { name: 'AI_APICallError', statusCode: 500 });
+    }
+    if (kind === 'terminated') {
+      throw new TypeError('terminated');
     }
     if (kind === 'overflowPart' || kind === 'overflowPartResponses') {
       // The 200 response starts streaming, then the provider sends the error
@@ -388,6 +393,33 @@ describe('reactive overflow recovery in the streaming backend', () => {
     // Not a context-length error → no compaction, no retry.
     assert.equal(fixture.recorded.length, 0);
     assert.equal(fixture.summarizerCalls(), 0);
+  });
+
+  test('retries one transient transport failure from the completed-step request boundary', async () => {
+    const fixture = buildReactiveFixture({ script: ['tool', 'terminated', 'done'] });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    assert.equal(fixture.events.some((event) => event.type === 'error'), false);
+    assert.deepEqual(fixture.toolExecutions, ['one.md']);
+    assert.equal(JSON.stringify(fixture.model.doStreamCalls[2]?.prompt).includes(RAW_SPAN_ONE), true);
+    assert.equal(fixture.recorded.length, 0);
+    assert.equal(fixture.summarizerCalls(), 0);
+    // The dead provider request returned no authoritative usage. Recovery may
+    // preserve effectiveness, but the send must remain unmetered rather than
+    // presenting the successful retry's usage as the whole attempt.
+    assert.equal(fixture.llmCalls.some((call) => call.totalTokens !== undefined), false);
+  });
+
+  test('surfaces a second transport failure without spending another sample', async () => {
+    const fixture = buildReactiveFixture({ script: ['tool', 'terminated', 'terminated', 'done'] });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    assert.equal(complete(fixture)?.stopReason, 'error');
+    assert.deepEqual(fixture.toolExecutions, ['one.md']);
+    assert.equal(fixture.recorded.length, 0);
   });
 
   test('compacts once and retries after a mid-stream context-length overflow', async () => {

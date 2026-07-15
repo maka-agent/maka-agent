@@ -201,6 +201,7 @@ describe('ModelAdapter stream and error normalization', () => {
     const adapter = newAdapter();
 
     assert.equal(adapter.classifyError(Object.assign(new Error('401 Authorization'), { code: 401 })), 'Auth');
+    assert.equal(adapter.classifyError(new TypeError('terminated')), 'Network');
     const billingError = Object.assign(new Error('provider request failed'), { statusCode: 402 });
     assert.equal(adapter.classifyError(billingError), 'ProviderBilling');
     assert.equal(adapter.makeErrorEvent('turn-1', billingError).reason, 'provider_billing');

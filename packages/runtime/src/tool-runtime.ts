@@ -1639,7 +1639,11 @@ export function classifyError(error: unknown): string {
   if (/\brate\b|rate[_-]?limit/.test(text)) return 'RateLimit';
   if (text.includes('auth')) return 'Auth';
   if (text.includes('timeout')) return 'Timeout';
-  if (text.includes('network') || text.includes('fetch')) return 'Network';
+  if (
+    text.includes('network')
+    || text.includes('fetch')
+    || /\btypeerror\b.*\bterminated\b/.test(text)
+  ) return 'Network';
   return error instanceof Error ? (error.name || 'Other') : 'Other';
 }
 

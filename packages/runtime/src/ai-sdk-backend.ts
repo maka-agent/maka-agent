@@ -1173,6 +1173,7 @@ export class AiSdkBackend implements AgentBackend {
     }
 
     const aiSdkTools: Record<string, unknown> = {};
+    let currentStepToolExecutions = 0;
     for (const t of providerTools) {
       const execute = this.wrapToolExecute(t, turnId, queue);
       aiSdkTools[t.name] = {
@@ -1182,6 +1183,11 @@ export class AiSdkBackend implements AgentBackend {
           args: unknown,
           context: { toolCallId: string; abortSignal: AbortSignal },
         ) => {
+          // A transport retry may discard an unfinished provider step, but it
+          // must never replay a step after a tool could already have changed
+          // external state. finish-step resets this guard at the next durable
+          // provider-request boundary.
+          currentStepToolExecutions += 1;
           const output = await execute(args, context);
           const providerError = providerToolError(output);
           if (providerError) throw new Error(providerError);
@@ -1440,21 +1446,26 @@ export class AiSdkBackend implements AgentBackend {
         let attemptStepBase = 0;
         const completedAttemptSteps: PrepareStepLike['steps'][number][] = [];
         let attemptObservedSteps: PrepareStepLike['steps'] = [];
-        const sendScopedPrepareStep: PrepareStepFunctionLike | undefined = prepareStep
-          ? async (options) => {
-              // prepareStep sees every completed step of its own attempt, so
-              // the latest observation is the whole attempt when it dies (the
-              // rejected request completes no step after it).
-              attemptObservedSteps = options.steps;
-              return prepareStep({
+        let attemptRequestMessages: ModelMessage[] = messages;
+        const sendScopedPrepareStep: PrepareStepFunctionLike = async (options) => {
+          // prepareStep sees every completed step of its own attempt and the
+          // exact messages for the next provider request. Keep that request
+          // boundary even when no shaping hook is configured: a transient
+          // transport retry can resend it without replaying completed tools.
+          attemptObservedSteps = options.steps;
+          const shaped = prepareStep
+            ? await prepareStep({
                 ...options,
                 stepNumber: attemptStepBase + options.stepNumber,
                 steps: [...completedAttemptSteps, ...options.steps],
-              });
-            }
-          : undefined;
+              })
+            : undefined;
+          attemptRequestMessages = shaped?.messages ?? options.messages;
+          return shaped;
+        };
         let attemptMessages: ModelMessage[] = messages;
         let overflowRetryUsed = false;
+        let transportRetryUsed = false;
         let result!: StreamTextResult;
         for (;;) {
           // The step limit is a SEND-level cap: `runtimeSteps` (this send's
@@ -1484,7 +1495,7 @@ export class AiSdkBackend implements AgentBackend {
             system: systemPrompt,
             abortSignal: this.abortController!.signal,
             stopAfterStep: () => this.stopAfterStepRequested,
-            ...(sendScopedPrepareStep ? { prepareStep: sendScopedPrepareStep } : {}),
+            prepareStep: sendScopedPrepareStep,
             ...(remainingStepBudget !== undefined ? { maxSteps: remainingStepBudget } : {}),
           });
 
@@ -1538,6 +1549,7 @@ export class AiSdkBackend implements AgentBackend {
             // reasoning even though they land before this row in the ledger.
             if (isStepFinishChunk) {
               await flushStep();
+              currentStepToolExecutions = 0;
               this.currentStepMessageId = this.newId();
               if (midTurnState) {
                 // Durability clock: step N's thinking/text completion events are
@@ -1576,6 +1588,26 @@ export class AiSdkBackend implements AgentBackend {
               // before the next attempt resets the SDK's local `steps`.
               completedAttemptSteps.push(...attemptObservedSteps);
               attemptObservedSteps = [];
+              continue;
+            }
+            const errorClass = this.modelAdapter.classifyError(streamErrorChunk);
+            if (
+              errorClass === 'Network'
+              && !transportRetryUsed
+              && stepBudgetRemains
+              && currentStepToolExecutions === 0
+            ) {
+              transportRetryUsed = true;
+              // The failed request did not return authoritative usage. Keep
+              // effectiveness recoverable, but fail final metering closed.
+              sawUnusableStepUsage = true;
+              attemptMessages = attemptRequestMessages;
+              completedAttemptSteps.push(...attemptObservedSteps);
+              attemptObservedSteps = [];
+              stepText = '';
+              stepThinking = '';
+              stepSignature = undefined;
+              this.currentStepMessageId = this.newId();
               continue;
             }
             // Unrecoverable (not context-length, latch spent, no seam, or no
@@ -1641,7 +1673,7 @@ export class AiSdkBackend implements AgentBackend {
         // totalUsage must not wash it back to "complete".
         try {
           const attemptTotalUsage = normalizeAiSdkUsage(await (result.totalUsage ?? result.usage), { rawFinishReason });
-          tokenUsage = overflowRetryUsed
+          tokenUsage = overflowRetryUsed || transportRetryUsed
             ? (sawUnusableStepUsage ? undefined : completedStepUsage)
             : attemptTotalUsage;
           if (tokenUsage) {
