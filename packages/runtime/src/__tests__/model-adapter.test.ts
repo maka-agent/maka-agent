@@ -255,8 +255,21 @@ describe('ModelAdapter stream and error normalization', () => {
     assert.notEqual(overflow('output token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
     assert.notEqual(overflow('completion token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
     assert.notEqual(overflow('max output token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
+    // A generic prefix must not smuggle an output cap past the input-subject
+    // constraints ("request" in "Invalid request:" is not the token subject):
+    // output caps are excluded at the exclusion-first owner, wording-wide.
+    assert.notEqual(overflow('Invalid request: output token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(overflow('Invalid request: completion token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(overflow('Invalid request: max output token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(overflow('Invalid request: max_tokens is too many tokens for this model', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(overflow('Invalid request: Maximum output token limit exceeded', { statusCode: 400 }), 'ContextLength');
     // ...while the input-side form of the same wording still classifies.
     assert.equal(overflow('Input token limit exceeded: 250000 tokens > 200000 maximum', { statusCode: 400 }), 'ContextLength');
+    // The output-cap exclusions stay adjacency-tight: OpenAI's classic input
+    // overflow mentions the completion and max_tokens without being an output
+    // cap, and must keep classifying.
+    assert.equal(overflow("This model's maximum context length is 8192 tokens. However, you requested 10240 tokens (10140 in the messages, 100 in the completion). Please reduce the length of the messages or completion.", { statusCode: 400 }), 'ContextLength');
+    assert.equal(overflow("This model's maximum context length is 8192 tokens. However, you requested 10240 tokens (10140 in the messages, 100 in max_tokens). Please reduce the length of the messages or completion.", { statusCode: 400 }), 'ContextLength');
     assert.equal(adapter.classifyError(Object.assign(new Error('401 Authorization'), { statusCode: 401 })), 'Auth');
   });
 

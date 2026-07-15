@@ -1131,16 +1131,24 @@ const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
 
 /**
  * Wording that looks token-shaped but is NOT an overflow (throttling / quota /
- * rate limiting). Checked first: any match here excludes the message from
- * overflow classification even when it also matches an overflow pattern (e.g.
- * "ThrottlingException: Too many tokens, please wait" would otherwise match
- * `/too many tokens/`).
+ * rate limiting, or an explicit OUTPUT-side cap). Checked first: any match here
+ * excludes the message from overflow classification even when it also matches
+ * an overflow pattern (e.g. "ThrottlingException: Too many tokens, please
+ * wait" would otherwise match `/too many tokens/`). The output-cap exclusions
+ * carry the invariant the subject-word constraints alone cannot: history
+ * compaction can only fix INPUT overflow, and a generic prefix like "Invalid
+ * request:" must not smuggle an output/completion/max_tokens cap past a
+ * subject-word check. Kept adjacency-tight so OpenAI's classic input-overflow
+ * wording ("... you requested N tokens (M in the messages, K in max_tokens)")
+ * is not excluded.
  */
 const NON_CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /rate limit/i,
   /too many requests/i,
   /throttl/i,
   /quota/i,
+  /(?:output|completion)\s+token\s+(?:count|limit)/i,
+  /max_tokens\b[^.]{0,60}too many tokens/i,
 ];
 
 /**
