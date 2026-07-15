@@ -144,6 +144,8 @@ describe('runAbComparison', () => {
     const finished: string[] = [];
     let allStarted!: () => void;
     const allStartedPromise = new Promise<void>((resolve) => { allStarted = resolve; });
+    let releaseSuccessful!: () => void;
+    const successfulMayFinish = new Promise<void>((resolve) => { releaseSuccessful = resolve; });
     const run = runAbComparison({
       runId: 'ab-run',
       arms: [
@@ -163,20 +165,24 @@ describe('runAbComparison', () => {
         if (started.length === 4) allStarted();
         await allStartedPromise;
         if (id === 't1:maka') throw new Error('arm failed');
-        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        await successfulMayFinish;
         finished.push(id);
         return completed(task.id, true);
       },
     });
 
-    await assert.rejects(run, /arm failed/);
-    const finishedAtReject = [...finished];
-    await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    let rejectionObserved = false;
+    const rejection = assert.rejects(run, /arm failed/).then(() => { rejectionObserved = true; });
+    await allStartedPromise;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(rejectionObserved, false, 'the comparison must keep draining active arms before rejecting');
+    releaseSuccessful();
+    await rejection;
 
     assert.deepEqual(new Set(started), new Set([
       't1:maka', 't1:opencode', 't2:maka', 't2:opencode',
     ]));
-    assert.deepEqual(new Set(finishedAtReject), new Set([
+    assert.deepEqual(new Set(finished), new Set([
       't1:opencode', 't2:maka', 't2:opencode',
     ]));
   });

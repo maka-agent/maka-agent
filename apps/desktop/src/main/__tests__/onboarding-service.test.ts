@@ -89,24 +89,26 @@ describe('createOnboardingService.getSnapshot', () => {
   });
 
   it('resolves per-connection credentials in PARALLEL (@kenji perf gate)', async () => {
-    // Each hasCredential call sleeps 50ms. With 4 connections, serial =
-    // 200ms; parallel = ~50ms. Assert <= 150ms to leave a generous
-    // buffer for slow CI machines while still catching serialization.
     const conns = ['a', 'b', 'c', 'd'].map((slug) => realConnection({ slug }));
+    let started = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
     const service = createOnboardingService(
       fakeDeps({
         listConnections: async () => conns,
         getDefaultSlug: async () => 'a',
         hasCredential: async () => {
-          await new Promise((resolve) => setTimeout(resolve, 50));
+          started += 1;
+          await gate;
           return true;
         },
       }),
     );
-    const start = Date.now();
-    await service.getSnapshot();
-    const elapsed = Date.now() - start;
-    assert.ok(elapsed < 150, `credential lookups must run in parallel; took ${elapsed}ms (serial would be ~200ms)`);
+    const snapshot = service.getSnapshot();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(started, conns.length, 'every credential lookup must start before any lookup finishes');
+    release();
+    await snapshot;
   });
 
   it('credential-lookup error → treated as hasSecret=false, NEVER thrown to caller', async () => {
