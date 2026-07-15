@@ -3,6 +3,7 @@
 // trycua/cua's cursor-overlay Rust source these were ported from.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import { CursorEngine } from '../../renderer/computer-use-overlay/engine/cursor-engine.js';
 import { planDirectPath, planPath } from '../../renderer/computer-use-overlay/engine/dubins.js';
@@ -140,6 +141,7 @@ test('cursor bloom is centered on the arrow hotspot', () => {
   const e = new CursorEngine();
   e.completeAt(320, 240);
   const gradients: number[][] = [];
+  const arcs: number[][] = [];
   const gradient = { addColorStop() {} };
   const ctx = {
     createRadialGradient: (...args: number[]) => {
@@ -148,7 +150,7 @@ test('cursor bloom is centered on the arrow hotspot', () => {
     },
     createLinearGradient: () => gradient,
     beginPath() {},
-    arc() {},
+    arc(...args: number[]) { arcs.push(args); },
     fill() {},
     stroke() {},
     moveTo() {},
@@ -162,6 +164,30 @@ test('cursor bloom is centered on the arrow hotspot', () => {
 
   e.paint(ctx, 0, 0);
   assert.deepEqual(gradients[0]?.slice(0, 5), [320, 240, 0, 320, 240]);
+  assert.deepEqual(arcs[0]?.slice(0, 2), [320, 240]);
+});
+
+test('cancel clears cursor path, pressed state, and click pulse', () => {
+  const e = new CursorEngine();
+  e.moveTo(500, 300, undefined, true);
+  e.pressed = true;
+  e.triggerClick(500, 300);
+  assert.equal(e.isMoving(), true);
+  e.cancel();
+  assert.equal(e.isMoving(), false);
+  assert.equal(e.hasMotionPath(), false);
+  assert.equal(e.pressed, false);
+});
+
+test('overlay cancel waits for the renderer frame before reporting finished', async () => {
+  const source = await readFile(
+    new URL('../../../src/overlay/cursor-overlay.ts', import.meta.url),
+    'utf8',
+  );
+  const cancelBlock = source.match(/onCancel\(\(p\) => \{([\s\S]*?)\n\}\);/)?.[1] ?? '';
+  assert.match(cancelBlock, /engine\.cancel\(\)/);
+  assert.match(cancelBlock, /kick\(\)/);
+  assert.doesNotMatch(cancelBlock, /reportPhase\('finished'\)/);
 });
 
 test('direct path planner never detours for short moves', () => {

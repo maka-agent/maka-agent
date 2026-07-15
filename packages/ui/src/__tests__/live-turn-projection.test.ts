@@ -324,6 +324,7 @@ describe('applyLiveTurnEvent', () => {
     });
     const waiting = applyLiveTurnEvent(started, {
       type: 'permission_request',
+      kind: 'tool_permission',
       id: 'event-2',
       turnId: 'turn-1',
       requestId: 'request-1',
@@ -332,6 +333,7 @@ describe('applyLiveTurnEvent', () => {
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
       args: { command: 'rm file' },
+      rememberForTurnAllowed: true,
       ts: 101,
     });
     const allowed = applyLiveTurnEvent(waiting, {
@@ -534,6 +536,18 @@ describe('reconcileTerminalLiveTurn', () => {
       { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash', args: {} },
       { type: 'tool_result', id: 'result-1', turnId: 'turn-1', ts: 2, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'ok' } },
     ]), undefined);
+  });
+
+  it('keeps a non-terminal projection armed once persisted history covers all steps', () => {
+    const inFlight: LiveTurnProjection = {
+      turnId: 'turn-1',
+      phase: 'streamed',
+      steps: toolOnly.steps,
+    };
+    assert.deepEqual(reconcileTerminalLiveTurn(inFlight, [
+      { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash', args: {} },
+      { type: 'tool_result', id: 'result-1', turnId: 'turn-1', ts: 2, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'ok' } },
+    ]), { turnId: 'turn-1', phase: 'streamed', steps: [] });
   });
 
   it('retains terminal evidence while persisted history does not cover it', () => {

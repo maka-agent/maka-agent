@@ -115,6 +115,8 @@ export function createAppShellSessionEventHandlers(options: {
         void refreshMessages(sessionId, { requiredAssistantMessageId: event.messageId }).catch(() => false);
         break;
       case 'permission_request':
+        setInteractionBySession((current) => enqueueInteraction(current, sessionId, event));
+        break;
       case 'user_question_request':
         setInteractionBySession((current) => enqueueInteraction(current, sessionId, event));
         break;

@@ -355,7 +355,7 @@ test('complete() sends exact backend coordinate only for the live action', () =>
   });
 });
 
-test('cancel() settles the live fence and sends no coordinate', async () => {
+test('cancel() waits for renderer finished and sends no coordinate', async () => {
   const { controller, created } = harness();
   const fence = controller.move({
     actionId: 'failed',
@@ -371,7 +371,10 @@ test('cancel() settles the live fence and sends no coordinate', async () => {
   controller.cancel({ actionId: 'stale', sessionId: 's' });
   assert.equal(w.sent.filter((message) => message.channel === 'overlay:cancel').length, 0);
   controller.cancel({ actionId: 'failed', sessionId: 's' });
-  await Promise.all([fence.readyForInteraction, fence.finished]);
+  let finished = false;
+  fence.finished.then(() => { finished = true; });
+  await Promise.resolve();
+  assert.equal(finished, false);
 
   const cancelled = w.sent.filter((message) => message.channel === 'overlay:cancel');
   assert.deepEqual(cancelled, [{
@@ -380,6 +383,9 @@ test('cancel() settles the live fence and sends no coordinate', async () => {
   }]);
   assert.equal('x' in (cancelled[0]?.payload as object), false);
   assert.equal('y' in (cancelled[0]?.payload as object), false);
+  w.firePresentation('failed', 'finished');
+  await Promise.all([fence.readyForInteraction, fence.finished]);
+  assert.equal(finished, true);
 });
 
 test('complete() can present an executor-resolved semantic point without a speculative begin move', () => {

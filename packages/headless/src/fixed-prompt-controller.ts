@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile, truncate, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import {
   validateHarborCellOutput,
   hashHarborSystemPrompt,
@@ -19,6 +19,7 @@ export const FIXED_PROMPT_WAL_SCHEMA_VERSION = 1;
 export const BUDGET_EXHAUSTED_RUNTIME_UNAVAILABLE_REASON = 'budget_exhausted_before_cell_output';
 const LEGACY_TIMEOUT_MISSING_EXECUTION_IDENTITY_ERROR = 'Timed-out Harbor attempt did not produce execution identity attestation';
 type UnscoredCellFailureClass = 'infra_failed' | 'setup_failed' | 'verification_error';
+const walWriteTails = new Map<string, Promise<void>>();
 
 export interface FixedPromptTask {
   id: string;
@@ -97,7 +98,7 @@ export interface FixedPromptTaskCompletedEvent {
   errorClass?: string;
   promptHash?: string;
   executionIdentity?: HarborCellExecutionIdentity;
-  tokenSummary: HarborCellTokenSummary;
+  tokenSummary?: HarborCellTokenSummary;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
   continuationSummary?: HarborCellContinuationSummary;
@@ -151,6 +152,7 @@ export interface FixedPromptTaskBudgetExhaustedEvent {
   traceEventsPath?: string;
   runtimeEventsUnavailableReason?: string;
   tokenSummary?: HarborCellTokenSummary;
+  tokenSummarySource?: 'final' | 'checkpoint';
   executionIdentity?: HarborCellExecutionIdentity;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
@@ -173,7 +175,7 @@ export interface FixedPromptTaskPlumbingFailedEvent {
   passed: false;
   scored: false;
   eligible: false;
-  errorClass: 'zero_cost_with_tokens' | 'prompt_hash_mismatch' | 'missing_prompt_hash' | 'missing_execution_identity' | 'execution_identity_mismatch';
+  errorClass: 'missing_token_usage' | 'zero_cost_with_tokens' | 'prompt_hash_mismatch' | 'missing_prompt_hash' | 'missing_execution_identity' | 'execution_identity_mismatch';
   error: string;
   promptHash?: string;
   expectedPromptHash?: string;
@@ -484,10 +486,21 @@ export async function readHarborTaskRunOutput(
   };
 }
 
-export async function appendFixedPromptWalEvent(path: string, event: FixedPromptWalEvent): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await truncateTornWalTail(path);
-  await appendFile(path, `${JSON.stringify(event)}\n`, 'utf8');
+export function appendFixedPromptWalEvent(path: string, event: FixedPromptWalEvent): Promise<void> {
+  const key = resolve(path);
+  const previous = walWriteTails.get(key) ?? Promise.resolve();
+  const operation = async () => {
+    await mkdir(dirname(path), { recursive: true });
+    await truncateTornWalTail(path);
+    await appendFile(path, `${JSON.stringify(event)}\n`, 'utf8');
+  };
+  const write = previous.then(operation, operation);
+  const tail = write.then(() => {}, () => {});
+  walWriteTails.set(key, tail);
+  void tail.then(() => {
+    if (walWriteTails.get(key) === tail) walWriteTails.delete(key);
+  });
+  return write;
 }
 
 export async function writeFixedPromptResultsTsv(
@@ -507,18 +520,21 @@ export async function writeFixedPromptResultsTsv(
     'cost_usd',
     'runtime_events_path',
   ];
-  const rows = events.map((event) => [
-    event.taskId,
-    event.status,
-    String(event.passed),
-    String(event.scored),
-    String(event.eligible),
-    event.errorClass ?? '',
-    'promptHash' in event ? event.promptHash ?? '' : '',
-    String(eventTokenSummary(event)?.total ?? 0),
-    String(eventTokenSummary(event)?.costUsd ?? 0),
-    'runtimeEventsPath' in event ? event.runtimeEventsPath ?? '' : '',
-  ]);
+  const rows = events.map((event) => {
+    const tokenSummary = eventTokenSummary(event);
+    return [
+      event.taskId,
+      event.status,
+      String(event.passed),
+      String(event.scored),
+      String(event.eligible),
+      event.errorClass ?? '',
+      'promptHash' in event ? event.promptHash ?? '' : '',
+      tokenSummary ? String(tokenSummary.total) : '',
+      tokenSummary ? String(tokenSummary.costUsd) : '',
+      'runtimeEventsPath' in event ? event.runtimeEventsPath ?? '' : '',
+    ];
+  });
   const body = [header, ...rows].map((row) => row.map(tsvCell).join('\t')).join('\n');
   await writeFile(path, `${body}\n`, 'utf8');
 }
@@ -704,7 +720,7 @@ function taskCompletedEvent(input: {
     ...(errorClass ? { errorClass } : {}),
     ...(output.cell.promptHash ? { promptHash: output.cell.promptHash } : {}),
     ...(output.cell.executionIdentity ? { executionIdentity: output.cell.executionIdentity } : {}),
-    tokenSummary: output.cell.tokenSummary,
+    ...(output.cell.tokenSummary ? { tokenSummary: output.cell.tokenSummary } : {}),
     ...(output.cell.contextBudgetPolicy ? { contextBudgetPolicy: output.cell.contextBudgetPolicy } : {}),
     ...(output.cell.contextBudgetSummary ? { contextBudgetSummary: output.cell.contextBudgetSummary } : {}),
     ...(output.cell.continuationSummary ? { continuationSummary: output.cell.continuationSummary } : {}),
@@ -753,7 +769,7 @@ function taskPlumbingFailedEvent(input: {
     error: input.error,
     ...(input.output.cell.promptHash ? { promptHash: input.output.cell.promptHash } : {}),
     expectedPromptHash: input.expectedPromptHash,
-    tokenSummary: input.output.cell.tokenSummary,
+    ...(input.output.cell.tokenSummary ? { tokenSummary: input.output.cell.tokenSummary } : {}),
     ...(input.output.cell.contextBudgetPolicy
       ? { contextBudgetPolicy: input.output.cell.contextBudgetPolicy }
       : {}),
@@ -800,7 +816,17 @@ function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash
       error: `Harbor cell prompt hash ${output.cell.promptHash} did not match ${expectedPromptHash}`,
     };
   }
-  if (output.cell.tokenSummary.total > 0 && output.cell.tokenSummary.costUsd === 0) {
+  if (
+    (output.cell.status === 'completed' || output.cell.errorClass === 'tool_step_cap_reached')
+    && output.cell.executionIdentity
+    && (!output.cell.tokenSummary || output.cell.tokenSummary.total <= 0)
+  ) {
+    return {
+      errorClass: 'missing_token_usage',
+      error: 'Harbor cell did not report token usage for the attested real-provider execution',
+    };
+  }
+  if (output.cell.tokenSummary && output.cell.tokenSummary.total > 0 && output.cell.tokenSummary.costUsd === 0) {
     return {
       errorClass: 'zero_cost_with_tokens',
       error: 'Harbor cell reported token usage but zero costUsd',
@@ -941,8 +967,23 @@ function taskBudgetExhaustedEvent(input: {
     if (evidenceFailure?.errorClass === 'missing_execution_identity') {
       evidenceFailure = { ...evidenceFailure, error: LEGACY_TIMEOUT_MISSING_EXECUTION_IDENTITY_ERROR };
     }
+    if (
+      evidenceFailure === undefined
+      && artifactRefs.executionIdentity
+      && (!artifactRefs.tokenSummary || artifactRefs.tokenSummary.total <= 0)
+    ) {
+      evidenceFailure = {
+        errorClass: 'missing_token_usage',
+        error: 'Harbor cell did not report token usage for the attested real-provider execution',
+      };
+    }
   }
   const tokenSummary = artifactRefs.cellOutput?.tokenSummary ?? artifactRefs.tokenSummary;
+  const tokenSummarySource = tokenSummary
+    ? artifactRefs.cellOutput
+      ? 'final'
+      : 'checkpoint'
+    : undefined;
   const executionIdentity = artifactRefs.cellOutput?.executionIdentity ?? artifactRefs.executionIdentity;
   const cellOutput = artifactRefs.cellOutput;
   const runtimeEventsPath = artifactRefs.runtimeEventsPath ?? cellOutput?.runtimeEventsPath;
@@ -974,6 +1015,7 @@ function taskBudgetExhaustedEvent(input: {
       ? { runtimeEventsUnavailableReason: artifactRefs.runtimeEventsUnavailableReason }
       : {}),
     ...(tokenSummary ? { tokenSummary } : {}),
+    ...(tokenSummarySource ? { tokenSummarySource } : {}),
     ...(cellOutput?.contextBudgetPolicy ? { contextBudgetPolicy: cellOutput.contextBudgetPolicy } : {}),
     ...(cellOutput?.contextBudgetSummary ? { contextBudgetSummary: cellOutput.contextBudgetSummary } : {}),
     ...(cellOutput?.continuationSummary ? { continuationSummary: cellOutput.continuationSummary } : {}),

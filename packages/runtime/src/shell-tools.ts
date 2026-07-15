@@ -2,7 +2,18 @@ import { z } from 'zod';
 import { redactSecrets } from '@maka/core/redaction';
 import type { ToolResultContent } from '@maka/core/events';
 import type { ToolExecutionFacts } from '@maka/core/permission';
+import { MAX_ADDITIONAL_FILESYSTEM_ENTRIES } from '@maka/core/additional-permissions';
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
+import {
+  MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS,
+  type AdditionalPermissionPlannerContext,
+  type AdditionalPermissionPlanResult,
+} from './additional-permissions.js';
+import type {
+  SandboxEscalationPlanResult,
+  SandboxEscalationPlannerContext,
+} from './sandbox-escalation.js';
+import type { SandboxType } from './sandbox/types.js';
 import { runShellWithBoundedTail, type BoundedShellResult } from './shell-exec.js';
 import { bashToolShellGuidance, defaultShellPlan, type ShellPlan } from './shell-detect.js';
 import { truncateToolOutput } from './tool-output.js';
@@ -11,6 +22,7 @@ import {
   MAX_PTY_COLS,
   MAX_PTY_ROWS,
   MAX_FOREGROUND_BASH_TIMEOUT_MS,
+  MAX_SHELL_RUN_RESOURCE_REF_CHARS,
   MAX_SHELL_RUN_TIMEOUT_MS,
   MAX_WRITE_STDIN_INPUT_BYTES,
   MIN_PTY_COLS,
@@ -18,6 +30,7 @@ import {
   type BackgroundTaskStopper,
   type PtyControlWriter,
   type ShellRunBashInput,
+  isShellRunResourceRef,
   isWellFormedTerminalInput,
 } from './shell-run-contract.js';
 import type { ChildFdInput } from './child-fd-input.js';
@@ -37,6 +50,8 @@ export interface ForegroundBashResult {
   stderrTruncated?: boolean;
   timedOut?: boolean;
   aborted?: boolean;
+  sandboxType?: SandboxType;
+  sandboxed?: boolean;
 }
 
 export interface BuildForegroundBashToolOptions {
@@ -59,6 +74,38 @@ type ShellRunToolResult = Extract<ToolResultContent, { kind: 'shell_run' }>;
 export interface ShellRunLauncher {
   runForegroundBash(input: ShellRunBashInput): Promise<TerminalToolResult>;
   runBackgroundBash(input: ShellRunBashInput): Promise<ShellRunToolResult>;
+}
+
+const additionalFilesystemEntrySchema = z.object({
+  path: z.string(),
+  access: z.enum(['read', 'write']),
+  scope: z.enum(['exact', 'subtree']),
+}).strict();
+
+export const bashSandboxPermissionsSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('use_default') }).strict(),
+  z.object({
+    mode: z.literal('with_additional_permissions'),
+    file_system: z.object({
+      entries: z.array(additionalFilesystemEntrySchema).max(MAX_ADDITIONAL_FILESYSTEM_ENTRIES),
+    }).strict().optional(),
+    network: z.literal(true).optional(),
+    justification: z.string().min(1).max(MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS),
+  }).strict(),
+  z.object({
+    mode: z.literal('require_escalated'),
+    justification: z.string().min(1).max(500),
+  }).strict(),
+]);
+
+export type BashSandboxPermissionsDeclaration = z.infer<typeof bashSandboxPermissionsSchema>;
+
+export interface ManagedBashPermissionArgs {
+  command: string;
+  timeout_ms?: number;
+  run_in_background?: boolean;
+  pty?: boolean;
+  sandbox_permissions?: BashSandboxPermissionsDeclaration;
 }
 
 export function buildForegroundBashTool(options: BuildForegroundBashToolOptions): MakaTool {
@@ -120,14 +167,29 @@ export function buildManagedBashTool(
       pty: boolean;
       ctx: MakaToolContext;
     }) => {
-      argv: readonly string[];
+      argv?: readonly string[];
       cwd: string;
       env?: NodeJS.ProcessEnv;
       fdInputs?: readonly ChildFdInput[];
+      sandboxType?: SandboxType;
     } | undefined;
+    planAdditionalPermissions?: (
+      args: ManagedBashPermissionArgs,
+      context: AdditionalPermissionPlannerContext,
+    ) => Promise<AdditionalPermissionPlanResult> | AdditionalPermissionPlanResult;
+    planSandboxEscalation?: (
+      args: ManagedBashPermissionArgs,
+      context: SandboxEscalationPlannerContext,
+    ) => Promise<SandboxEscalationPlanResult> | SandboxEscalationPlanResult;
   } = {},
 ): MakaTool {
   const shell = options.shell ?? defaultShellPlan();
+  const hasSandboxPermissionPlanner = Boolean(
+    options.planAdditionalPermissions || options.planSandboxEscalation,
+  );
+  const additionalPermissionDescription = hasSandboxPermissionPlanner
+    ? ' Request minimal one-call access with sandbox_permissions; use require_escalated only when sandboxed execution cannot work.'
+    : '';
   return {
     name: 'Bash',
     activityKind: 'command',
@@ -135,12 +197,18 @@ export function buildManagedBashTool(
       withShellGuidance('Run a shell command in the session cwd.', shell)
       + ` Foreground is the default (timeout ${DEFAULT_BASH_TIMEOUT_MS}ms, maximum ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms).`
       + ` Set run_in_background=true only when the command should continue as a tracked runtime background task; background commands have no default timeout (maximum explicit timeout ${MAX_SHELL_RUN_TIMEOUT_MS}ms).`
-      + ' Set pty=true together with run_in_background=true only for terminal semantics or later input; use the returned ref with Read or WriteStdin. Subject to permission policy.',
+      + ' Set pty=true together with run_in_background=true only for terminal semantics or later input; use the returned ref with Read or WriteStdin. Subject to permission policy.'
+      + additionalPermissionDescription,
     parameters: z.object({
       command: z.string().describe('The shell command to execute'),
       timeout_ms: z.number().int().positive().max(MAX_SHELL_RUN_TIMEOUT_MS).optional(),
       run_in_background: z.boolean().optional(),
       pty: z.boolean().optional(),
+      ...(hasSandboxPermissionPlanner ? {
+        sandbox_permissions: bashSandboxPermissionsSchema
+          .describe('Optional one-call filesystem/network permission or explicit unsandboxed execution request.')
+          .optional(),
+      } : {}),
     }).strict().superRefine(({ timeout_ms, run_in_background, pty }, ctx) => {
       if (!run_in_background && timeout_ms !== undefined && timeout_ms > MAX_FOREGROUND_BASH_TIMEOUT_MS) {
         ctx.addIssue({
@@ -163,6 +231,12 @@ export function buildManagedBashTool(
     permissionRequired: true,
     ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
     ...(options.sandbox ? { sandbox: options.sandbox } : {}),
+    ...(options.planAdditionalPermissions
+      ? { planAdditionalPermissions: options.planAdditionalPermissions }
+      : {}),
+    ...(options.planSandboxEscalation
+      ? { planSandboxEscalation: options.planSandboxEscalation }
+      : {}),
     impl: async ({ command, timeout_ms, run_in_background, pty }, ctx) => {
       const transformed = options.transformCommand?.({ command, pty: pty === true, ctx });
       return shellRuns[run_in_background ? 'runBackgroundBash' : 'runForegroundBash']({
@@ -173,12 +247,14 @@ export function buildManagedBashTool(
         cwd: transformed?.cwd ?? ctx.cwd,
         command,
         ...(pty !== undefined ? { pty } : {}),
-        ...(transformed ? { argv: transformed.argv } : { shell }),
+        ...(transformed?.argv ? { argv: transformed.argv } : { shell }),
         ...(transformed?.env ? { env: transformed.env } : {}),
         ...(transformed?.fdInputs ? { fdInputs: transformed.fdInputs } : {}),
         ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),
         abortSignal: ctx.abortSignal,
         emitOutput: ctx.emitOutput,
+        ...(transformed?.sandboxType ? { sandboxType: transformed.sandboxType } : {}),
+        ...(ctx.permissionContext ? { permissionContext: ctx.permissionContext } : {}),
       });
     },
   };
@@ -205,7 +281,10 @@ export function buildStopBackgroundTaskTool(backgroundTasks: BackgroundTaskStopp
 
 export function buildWriteStdinTool(ptyControls: PtyControlWriter): MakaTool {
   const parameters = z.object({
-    ref: z.string().describe('The runtime ref returned by a PTY Bash task'),
+    ref: z.string()
+      .max(MAX_SHELL_RUN_RESOURCE_REF_CHARS)
+      .refine(isShellRunResourceRef, 'ref must be a canonical PTY Bash runtime ref')
+      .describe('The runtime ref returned by a PTY Bash task'),
     input: z.string()
       .refine((value) => value.length > 0, 'input must not be empty; omit it for a resize-only call')
       .refine(isWellFormedTerminalInput, 'input must be well-formed Unicode')
@@ -263,7 +342,24 @@ export function shapeTerminalResult(input: {
       stderrTruncated: Boolean(input.result.stderrTruncated) || stderrView.truncated,
       redacted: stdout !== input.result.stdout || stderr !== input.result.stderr,
     },
+    ...(isLikelySandboxDenial(input.result) ? {
+      sandboxDenial: {
+        likely: true,
+        ...('sandboxType' in input.result
+          && (input.result.sandboxType === 'macos-seatbelt' || input.result.sandboxType === 'linux')
+          ? { backend: input.result.sandboxType }
+          : {}),
+        recovery: 'require_escalated',
+      },
+    } : {}),
   };
+}
+
+function isLikelySandboxDenial(result: ForegroundBashResult | BoundedShellResult): boolean {
+  if (!('sandboxed' in result) || result.sandboxed !== true) return false;
+  return /operation not permitted|sandbox-exec|sandbox(?:ed)?[^\n]*den(?:y|ied)/i.test(
+    `${result.stderr}\n${result.stdout}`,
+  );
 }
 
 function terminalStatus(result: ForegroundBashResult | BoundedShellResult): TerminalToolResult['status'] {

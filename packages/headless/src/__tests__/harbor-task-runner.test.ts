@@ -66,6 +66,7 @@ interface FakeOptions {
   reward?: string;
   cell?: HarborCellOutput | null;
   executionIdentity?: HarborCellExecutionIdentity;
+  usageCheckpoint?: HarborCellOutput['tokenSummary'];
   exitCode?: number;
   events?: string;
   verifierStdout?: string;
@@ -98,6 +99,13 @@ function fakeRunner(opts: FakeOptions): HarborProcessRunner {
       await writeFile(
         join(trialDir, 'agent', 'maka-cell-execution-identity.json'),
         JSON.stringify(opts.executionIdentity),
+        'utf8',
+      );
+    }
+    if (opts.usageCheckpoint) {
+      await writeFile(
+        join(trialDir, 'agent', 'maka-cell-usage-checkpoint.json'),
+        JSON.stringify(opts.usageCheckpoint),
         'utf8',
       );
     }
@@ -684,13 +692,26 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
-  test('recovers early identity from an agent-timeout trial without cell output', async () => {
+  test('recovers early identity and completed-step usage from an agent-timeout trial without cell output', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       const executionIdentity = {
         llmConnectionSlug: 'deepseek',
         model: 'deepseek-v4-flash',
         systemPromptHash: 'sha256:abc',
         pricingProfile: 'test-profile',
+      };
+      const usageCheckpoint: HarborCellOutput['tokenSummary'] = {
+        input: 12_000,
+        output: 800,
+        cachedInput: 10_000,
+        cacheHitInput: 10_000,
+        cacheMissInput: 2_000,
+        cacheWriteInput: 0,
+        cacheMissInputSource: 'explicit',
+        reasoning: 400,
+        total: 12_800,
+        costUsd: 0.01,
+        pricingSource: 'runtime',
       };
       const runner = createHarborTaskRunner({
         makaRepoPath: repo,
@@ -700,6 +721,7 @@ describe('createHarborTaskRunner', () => {
           reward: '0\n',
           cell: null,
           executionIdentity,
+          usageCheckpoint,
           trialResult: {
             exception_info: {
               exception_type: 'AgentTimeoutError',
@@ -715,6 +737,7 @@ describe('createHarborTaskRunner', () => {
           (error.artifactRefs as { executionIdentity?: HarborCellExecutionIdentity } | undefined)?.executionIdentity,
           executionIdentity,
         );
+        assert.deepEqual(error.artifactRefs?.tokenSummary, usageCheckpoint);
         return true;
       });
     });
@@ -854,7 +877,9 @@ describe('buildHarborJobConfig', () => {
     const agent = (config.agents as Array<Record<string, unknown>>)[0]!;
     const env = agent.env as Record<string, string>;
 
-    assert.equal(agent.name, 'opencode');
+    // Harbor resolves built-in names before import_path, so setting both would
+    // silently bypass MakaOpenCodeAgent and its host-side auth proxy.
+    assert.equal(agent.name, undefined);
     assert.equal(agent.import_path, 'opencode_agent:MakaOpenCodeAgent');
     assert.equal(agent.model_name, 'zai-coding-plan/glm-5.2');
     assert.deepEqual(agent.kwargs, { version: '1.17.18' });

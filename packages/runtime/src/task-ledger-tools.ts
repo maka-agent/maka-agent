@@ -7,6 +7,7 @@ import {
   TASK_ID_MAX_CHARS,
   filterModelVisibleTaskLedgerTasks,
   isSafeTaskId,
+  isTerminalTaskStatus,
   renderSafeTaskLedgerText,
   type TaskLedgerStore,
 } from '@maka/core/task-ledger';
@@ -52,7 +53,7 @@ function buildTaskCreateTool(
   store: TaskLedgerStore,
   name: string,
   updateToolName: string,
-): MakaTool<{ tasks: Array<{ subject: string }> }, string> {
+): MakaTool<{ tasks: Array<{ subject: string; parent_id?: string }> }, string> {
   return {
     name,
     displayName: 'Task Create',
@@ -63,11 +64,16 @@ function buildTaskCreateTool(
       tasks: z.array(z.object({
         subject: z.string().trim().min(1).max(TASK_SUBJECT_MAX_CHARS)
           .describe(`Short imperative description of the task (max ${TASK_SUBJECT_MAX_CHARS} characters).`),
+        parent_id: z.string().min(1).max(TASK_ID_MAX_CHARS).refine(isSafeTaskId)
+          .optional().describe('Existing parent task UUID or short key (for example T1).'),
       })).min(1).max(TASK_LEDGER_MAX_TASKS).describe('One or more tasks to add. Each starts in the pending state.'),
     }),
     permissionRequired: false,
     impl: async (input, ctx) => {
-      const { created, total } = await store.create(ctx.sessionId, input.tasks, {
+      const { created, total } = await store.create(ctx.sessionId, input.tasks.map((task) => ({
+        subject: task.subject,
+        ...(task.parent_id ? { parentId: task.parent_id } : {}),
+      })), {
         runId: ctx.runId,
         turnId: ctx.turnId,
         toolCallId: ctx.toolCallId,
@@ -99,7 +105,7 @@ function buildTaskUpdateTool(
       + 'blocked, failed, and completed updates require a reason or evidence field. '
       + 'Reopening completed/cancelled tasks requires explicitReopen=true.',
     parameters: z.object({
-      id: z.string().min(1).max(TASK_ID_MAX_CHARS).refine(isSafeTaskId, 'Task id must be a stable token (alphanumeric plus . _ : -, max 64 chars) from the current ledger.').describe('Task id from the current ledger.'),
+      id: z.string().min(1).max(TASK_ID_MAX_CHARS).refine(isSafeTaskId, 'Task reference must be a UUID or short key from the current ledger.').describe('Task UUID or short key.'),
       status: z.enum(TASK_STATUSES).optional().describe('New task status.'),
       subject: z.string().trim().min(1).max(TASK_SUBJECT_MAX_CHARS).optional()
         .describe(`Revised task description (max ${TASK_SUBJECT_MAX_CHARS} characters).`),
@@ -173,15 +179,35 @@ function buildTaskUpdateTool(
   };
 }
 
-function buildTaskListTool(store: TaskLedgerStore): MakaTool<Record<string, never>, string> {
+function buildTaskListTool(store: TaskLedgerStore): MakaTool<{
+  status?: typeof TASK_STATUSES[number];
+  include_terminal?: boolean;
+  include_archived?: boolean;
+}, string> {
   return {
     name: TASK_LIST_TOOL_NAME,
     displayName: 'Task List',
     description: 'List the current session task ledger in compact form.',
-    parameters: z.object({}),
+    parameters: z.object({
+      status: z.enum(TASK_STATUSES).optional().describe('Optional exact status filter.'),
+      include_terminal: z.boolean().optional().describe('Include terminal tasks. Defaults to true for compatibility.'),
+      include_archived: z.boolean().optional().describe('Include terminal tasks older than seven days. Defaults to true for compatibility.'),
+    }).superRefine((input, ctx) => {
+      if (input.status && isTerminalTaskStatus(input.status) && input.include_terminal === false) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['include_terminal'],
+          message: 'A terminal status filter conflicts with include_terminal=false.',
+        });
+      }
+    }),
     permissionRequired: false,
-    impl: async (_input, ctx) => {
-      const tasks = filterModelVisibleTaskLedgerTasks(await store.list(ctx.sessionId));
+    impl: async (input, ctx) => {
+      const tasks = filterModelVisibleTaskLedgerTasks(await store.list(ctx.sessionId, {
+        ...(input.status ? { status: input.status } : {}),
+        ...(input.include_terminal !== undefined ? { includeTerminal: input.include_terminal } : {}),
+        ...(input.include_archived !== undefined ? { includeArchived: input.include_archived } : {}),
+      }));
       return tasks.length === 0
         ? 'Task ledger is empty.'
         : `Task ledger total: ${tasks.length}.\n${renderSafeTaskLedgerText(tasks)}`;
@@ -195,7 +221,7 @@ function buildTaskGetTool(store: TaskLedgerStore): MakaTool<{ id: string }, stri
     displayName: 'Task Get',
     description: 'Get one task from the current session task ledger by id.',
     parameters: z.object({
-      id: z.string().min(1).max(TASK_ID_MAX_CHARS).refine(isSafeTaskId, 'Task id must be a stable token (alphanumeric plus . _ : -, max 64 chars) from the current ledger.'),
+      id: z.string().min(1).max(TASK_ID_MAX_CHARS).refine(isSafeTaskId, 'Task reference must be a UUID or short key from the current ledger.'),
     }),
     permissionRequired: false,
     impl: async (input, ctx) => {

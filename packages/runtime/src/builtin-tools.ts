@@ -6,9 +6,11 @@
 // Bash / Write / Edit go through PermissionEngine.
 
 import { z } from 'zod';
+import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute } from 'node:path';
 import {
+  applyAdditionalPermissionProfile,
   compilePermissionProfile,
   type PermissionProfile,
 } from '@maka/core';
@@ -17,10 +19,11 @@ import {
   buildManagedBashTool,
   buildStopBackgroundTaskTool,
   buildWriteStdinTool,
+  bashSandboxPermissionsSchema,
   shapeTerminalResult,
   withShellGuidance,
 } from './shell-tools.js';
-import type { ShellRunLauncher } from './shell-tools.js';
+import type { ManagedBashPermissionArgs, ShellRunLauncher } from './shell-tools.js';
 import { defaultShellPlan, type ShellPlan } from './shell-detect.js';
 import type {
   BackgroundTaskStopper,
@@ -41,8 +44,22 @@ export type { MakaTool, MakaToolContext };
 import { withFileWriteLock } from './file-write-lock.js';
 import type { SandboxManager } from './sandbox/sandbox-manager.js';
 import { linuxExecutableRoots } from './sandbox/linux-sandbox.js';
-import type { SandboxPlatform } from './sandbox/types.js';
+import type { SandboxPlatform, SandboxType } from './sandbox/types.js';
 import type { ChildFdInput } from './child-fd-input.js';
+import {
+  normalizeAdditionalPermissionPath,
+  planDeclaredBashAdditionalPermission,
+  planFileToolAdditionalPermission,
+  type AdditionalPermissionPlannerContext,
+  type AdditionalPermissionPlanResult,
+} from './additional-permissions.js';
+import type { FilesystemWorkerClient } from './filesystem-worker/client.js';
+import {
+  assertSandboxEscalationGrantForExecution,
+  planDeclaredBashSandboxEscalation,
+  type SandboxEscalationPlannerContext,
+  type SandboxEscalationPlanResult,
+} from './sandbox-escalation.js';
 
 // Generous wall-clock cap for the ripgrep-backed Grep tool. A search should be
 // near-instant; this only bounds a pathological hang now that the stream
@@ -59,18 +76,30 @@ export interface BuildBuiltinToolsOptions {
   shell?: ShellPlan;
   permissionProfile?: PermissionProfile;
   sandboxManager?: SandboxManager;
+  /** Enable only when the host consumes additional-permission approval events. */
+  enableBashAdditionalPermissions?: boolean;
+  /** Sandboxed worker used for all local filesystem tools. */
+  filesystemWorker?: Pick<FilesystemWorkerClient, 'execute'>;
+  /** Enable inferred one-call path expansion for filesystem tools. */
+  enableFileToolAdditionalPermissions?: boolean;
   /** Test/embedding override. Production callers use the current process platform. */
   sandboxPlatform?: SandboxPlatform;
 }
 
 export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaTool[] {
+  if (options.enableBashAdditionalPermissions && !options.sandboxManager) {
+    throw new Error('Bash additional permissions require a sandbox manager.');
+  }
+  if (options.enableFileToolAdditionalPermissions && !options.filesystemWorker) {
+    throw new Error('File tool additional permissions require a sandboxed filesystem worker.');
+  }
   const executor = options.executor ?? createLocalWorkspaceExecutor();
   const executionFacts = executor.facts;
   const readDescription = options.runtimeResources
-    ? 'Read a file from disk using path relative to session cwd, or read a whole runtime resource using ref.'
-    : 'Read a file from disk by path relative to session cwd.';
+    ? 'Read a file from disk, or read a whole runtime resource using ref.'
+    : 'Read a file from disk.';
   const fileReadParameters = z.object({
-    path: z.string().describe('A file path relative to the session cwd'),
+    path: z.string().describe('A file path; relative paths are resolved from the session cwd'),
     offset: z.number().int().nonnegative().describe('Zero-based file line offset').optional(),
     limit: z.number().int().positive().describe('Maximum file lines to read').optional(),
   }).strict();
@@ -87,6 +116,27 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     : fileReadParameters;
   const shell = options.shell ?? defaultShellPlan();
   const sandboxPlatform = options.sandboxPlatform ?? process.platform;
+  if (options.enableBashAdditionalPermissions && sandboxPlatform !== 'darwin') {
+    throw new Error('Bash additional permissions are currently supported only on macOS.');
+  }
+  if (options.enableFileToolAdditionalPermissions && sandboxPlatform !== 'darwin') {
+    throw new Error('File tool additional permissions are currently supported only on macOS.');
+  }
+  const bashAdditionalPermissionPlanner = options.sandboxManager
+    && options.enableBashAdditionalPermissions
+    ? createBashAdditionalPermissionPlanner(
+        options.sandboxManager,
+        options.permissionProfile,
+        sandboxPlatform,
+      )
+    : undefined;
+  const bashSandboxEscalationPlanner = options.sandboxManager
+    && options.enableBashAdditionalPermissions
+    ? createBashSandboxEscalationPlanner()
+    : undefined;
+  const filePermissionPlanner = options.enableFileToolAdditionalPermissions
+    ? createFileToolAdditionalPermissionPlanner(options.permissionProfile)
+    : undefined;
   const bashTools = options.shellRuns
     ? [buildManagedBashTool(options.shellRuns, {
         executionFacts,
@@ -106,10 +156,22 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
             ctx,
           ),
         } : {}),
+        ...(bashAdditionalPermissionPlanner
+          ? { planAdditionalPermissions: bashAdditionalPermissionPlanner }
+          : {}),
+        ...(bashSandboxEscalationPlanner
+          ? { planSandboxEscalation: bashSandboxEscalationPlanner }
+          : {}),
       })]
     : [buildExecutorBashTool(executor, shell, {
         ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
         ...(options.sandboxManager ? { sandboxManager: options.sandboxManager } : {}),
+        ...(bashAdditionalPermissionPlanner
+          ? { planAdditionalPermissions: bashAdditionalPermissionPlanner }
+          : {}),
+        ...(bashSandboxEscalationPlanner
+          ? { planSandboxEscalation: bashSandboxEscalationPlanner }
+          : {}),
         sandboxPlatform,
       })];
   const backgroundTools = [
@@ -126,7 +188,15 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       parameters: readParameters,
       permissionRequired: false,
       executionFacts,
-      impl: async (input, { cwd, sessionId, abortSignal }) => {
+      ...(filePermissionPlanner ? {
+        planAdditionalPermissions: filePermissionPlanner('Read', (args) => (
+          typeof args.path === 'string' && classifyRuntimeResourceRef(args.path) === 'file'
+            ? args.path
+            : undefined
+        )),
+      } : {}),
+      impl: async (input, ctx) => {
+        const { cwd, sessionId, abortSignal } = ctx;
         if ('ref' in input) {
           const { ref } = input;
           if (classifyRuntimeResourceRef(ref) !== 'runtime') {
@@ -141,6 +211,26 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         if (runtimeRef === 'unsupported') throw new Error(`Unsupported runtime resource ref: ${path}`);
         if (runtimeRef === 'runtime') {
           throw new Error('Runtime resources must be read with the ref parameter, not path');
+        }
+        if (options.filesystemWorker) {
+          const canonicalCwd = canonicalExistingPath(cwd);
+          const result = await options.filesystemWorker.execute({
+            operation: {
+              kind: 'read',
+              path,
+              ...(offset !== undefined ? { offset } : {}),
+              ...(limit !== undefined ? { limit } : {}),
+            },
+            cwd: canonicalCwd,
+            mode: ctx.permissionMode ?? 'ask',
+            ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+            ...(ctx.permissionContext?.additionalGrant
+              ? { additionalGrant: ctx.permissionContext.additionalGrant }
+              : {}),
+            ...(abortSignal ? { abortSignal } : {}),
+          });
+          if (result.kind !== 'read') throw new Error('Filesystem worker returned a mismatched Read result.');
+          return { content: result.content };
         }
         const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Read' });
         return await executor.readFile({
@@ -158,9 +248,30 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       parameters: z.object({ path: z.string(), content: z.string() }),
       permissionRequired: true,
       executionFacts,
-      impl: async ({ path, content }, { cwd }) => {
-        const { key } = await executor.writeLockKey({ cwd, path });
+      ...(filePermissionPlanner ? {
+        planAdditionalPermissions: filePermissionPlanner('Write', (args) => args.path),
+      } : {}),
+      impl: async ({ path, content }, ctx) => {
+        const { cwd } = ctx;
+        const canonicalCwd = options.filesystemWorker ? canonicalExistingPath(cwd) : cwd;
+        const key = options.filesystemWorker
+          ? await fileToolWriteLockKey(canonicalCwd, path)
+          : (await executor.writeLockKey({ cwd, path })).key;
         return await withFileWriteLock(key, async () => {
+          if (options.filesystemWorker) {
+            const result = await options.filesystemWorker.execute({
+              operation: { kind: 'write', path, content },
+              cwd: canonicalCwd,
+              mode: ctx.permissionMode ?? 'ask',
+              ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+              ...(ctx.permissionContext?.additionalGrant
+                ? { additionalGrant: ctx.permissionContext.additionalGrant }
+                : {}),
+              ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+            });
+            if (result.kind !== 'write') throw new Error('Filesystem worker returned a mismatched Write result.');
+            return { ok: result.ok, path: result.path, bytes: result.bytes };
+          }
           const { path: resolvedPath } = await executor.resolveWritablePath({ cwd, path, label: 'Write' });
           return await executor.writeFile({ cwd, path: resolvedPath, content });
         });
@@ -182,9 +293,42 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       }),
       permissionRequired: true,
       executionFacts,
-      impl: async ({ path, old_string, new_string }, { cwd }) => {
-        const { key } = await executor.writeLockKey({ cwd, path });
+      ...(filePermissionPlanner ? {
+        planAdditionalPermissions: filePermissionPlanner('Edit', (args) => args.path),
+      } : {}),
+      impl: async ({ path, old_string, new_string }, ctx) => {
+        const { cwd } = ctx;
+        const canonicalCwd = options.filesystemWorker ? canonicalExistingPath(cwd) : cwd;
+        const key = options.filesystemWorker
+          ? await fileToolWriteLockKey(canonicalCwd, path)
+          : (await executor.writeLockKey({ cwd, path })).key;
         return await withFileWriteLock(key, async () => {
+          if (options.filesystemWorker) {
+            const result = await options.filesystemWorker.execute({
+              operation: {
+                kind: 'edit',
+                path,
+                oldString: old_string,
+                newString: new_string,
+              },
+              cwd: canonicalCwd,
+              mode: ctx.permissionMode ?? 'ask',
+              ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+              ...(ctx.permissionContext?.additionalGrant
+                ? { additionalGrant: ctx.permissionContext.additionalGrant }
+                : {}),
+              ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+            });
+            if (result.kind !== 'edit') throw new Error('Filesystem worker returned a mismatched Edit result.');
+            return {
+              ok: result.ok,
+              path: result.path,
+              replacements: result.replacements,
+              matchedVia: result.matchedVia,
+              startLine: result.startLine,
+              endLine: result.endLine,
+            };
+          }
           const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Edit' });
           const { content: current } = await executor.readFile({ cwd, path: resolvedPath });
           const result = computeEditedSource(current, old_string, new_string, path);
@@ -217,9 +361,32 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       }),
       permissionRequired: true,
       executionFacts,
-      impl: async ({ path, sort_keys }, { cwd }) => {
-        const { key } = await executor.writeLockKey({ cwd, path });
+      ...(filePermissionPlanner ? {
+        planAdditionalPermissions: filePermissionPlanner('FormatJson', (args) => args.path),
+      } : {}),
+      impl: async ({ path, sort_keys }, ctx) => {
+        const { cwd } = ctx;
+        const canonicalCwd = options.filesystemWorker ? canonicalExistingPath(cwd) : cwd;
+        const key = options.filesystemWorker
+          ? await fileToolWriteLockKey(canonicalCwd, path)
+          : (await executor.writeLockKey({ cwd, path })).key;
         return await withFileWriteLock(key, async () => {
+          if (options.filesystemWorker) {
+            const result = await options.filesystemWorker.execute({
+              operation: { kind: 'format_json', path, sortKeys: sort_keys ?? false },
+              cwd: canonicalCwd,
+              mode: ctx.permissionMode ?? 'ask',
+              ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+              ...(ctx.permissionContext?.additionalGrant
+                ? { additionalGrant: ctx.permissionContext.additionalGrant }
+                : {}),
+              ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+            });
+            if (result.kind !== 'format_json') {
+              throw new Error('Filesystem worker returned a mismatched FormatJson result.');
+            }
+            return result;
+          }
           const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'FormatJson' });
           const { content: original } = await executor.readFile({ cwd, path: resolvedPath });
           const bytesBefore = Buffer.byteLength(original, 'utf8');
@@ -263,8 +430,27 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       }),
       permissionRequired: false,
       executionFacts,
-      impl: async ({ pattern, cwd: relCwd }, { cwd }) => {
+      ...(filePermissionPlanner ? {
+        planAdditionalPermissions: filePermissionPlanner('Glob', (args) => args.cwd ?? '.'),
+      } : {}),
+      impl: async ({ pattern, cwd: relCwd }, ctx) => {
+        const { cwd } = ctx;
         assertRelativeGlobPattern(pattern);
+        if (options.filesystemWorker) {
+          const canonicalCwd = canonicalExistingPath(cwd);
+          const result = await options.filesystemWorker.execute({
+            operation: { kind: 'glob', path: relCwd ?? '.', pattern, limit: 200 },
+            cwd: canonicalCwd,
+            mode: ctx.permissionMode ?? 'ask',
+            ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+            ...(ctx.permissionContext?.additionalGrant
+              ? { additionalGrant: ctx.permissionContext.additionalGrant }
+              : {}),
+            ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+          });
+          if (result.kind !== 'glob') throw new Error('Filesystem worker returned a mismatched Glob result.');
+          return { files: result.files };
+        }
         const { path: base } = await executor.resolveExistingPath({
           cwd,
           path: relCwd ?? '.',
@@ -284,7 +470,34 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       }),
       permissionRequired: false,
       executionFacts,
-      impl: async ({ pattern, path, glob }, { cwd, abortSignal }) => {
+      ...(filePermissionPlanner ? {
+        planAdditionalPermissions: filePermissionPlanner('Grep', (args) => args.path ?? '.'),
+      } : {}),
+      impl: async ({ pattern, path, glob }, ctx) => {
+        const { cwd, abortSignal } = ctx;
+        if (options.filesystemWorker) {
+          const canonicalCwd = canonicalExistingPath(cwd);
+          const result = await options.filesystemWorker.execute({
+            operation: {
+              kind: 'grep',
+              path: path ?? '.',
+              pattern,
+              ...(glob ? { glob } : {}),
+              maxCountPerFile: 50,
+              limit: 200,
+              timeoutMs: GREP_TIMEOUT_MS,
+            },
+            cwd: canonicalCwd,
+            mode: ctx.permissionMode ?? 'ask',
+            ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+            ...(ctx.permissionContext?.additionalGrant
+              ? { additionalGrant: ctx.permissionContext.additionalGrant }
+              : {}),
+            ...(abortSignal ? { abortSignal } : {}),
+          });
+          if (result.kind !== 'grep') throw new Error('Filesystem worker returned a mismatched Grep result.');
+          return { matches: result.matches };
+        }
         const { path: searchPath } = await executor.resolveExistingPath({
           cwd,
           path: path ?? '.',
@@ -313,7 +526,19 @@ interface ExecutorBashSandboxOptions {
   permissionProfile?: PermissionProfile;
   sandboxManager?: SandboxManager;
   sandboxPlatform: SandboxPlatform;
+  planAdditionalPermissions?: BashAdditionalPermissionPlanner;
+  planSandboxEscalation?: BashSandboxEscalationPlanner;
 }
+
+type BashAdditionalPermissionPlanner = (
+  args: ManagedBashPermissionArgs,
+  context: AdditionalPermissionPlannerContext,
+) => Promise<AdditionalPermissionPlanResult> | AdditionalPermissionPlanResult;
+
+type BashSandboxEscalationPlanner = (
+  args: ManagedBashPermissionArgs,
+  context: SandboxEscalationPlannerContext,
+) => Promise<SandboxEscalationPlanResult> | SandboxEscalationPlanResult;
 
 function buildExecutorBashTool(
   executor: WorkspaceExecutor,
@@ -324,13 +549,27 @@ function buildExecutorBashTool(
     name: 'Bash',
     activityKind: 'command',
     description: withShellGuidance('Run a shell command in the session cwd.', shell)
-      + ' Subject to permission policy.',
+      + ' Subject to permission policy.'
+      + (sandboxOptions.planAdditionalPermissions || sandboxOptions.planSandboxEscalation
+        ? ' Request minimal one-call access with sandbox_permissions; use require_escalated only when sandboxed execution cannot work.'
+        : ''),
     parameters: z.object({
       command: z.string().describe('The shell command to execute'),
       timeout_ms: z.number().int().positive().max(600_000).optional(),
-    }),
+      ...(sandboxOptions.planAdditionalPermissions || sandboxOptions.planSandboxEscalation ? {
+        sandbox_permissions: bashSandboxPermissionsSchema
+          .describe('Optional one-call filesystem/network permission or explicit unsandboxed execution request.')
+          .optional(),
+      } : {}),
+    }).strict(),
     permissionRequired: true,
     executionFacts: executor.facts,
+    ...(sandboxOptions.planAdditionalPermissions
+      ? { planAdditionalPermissions: sandboxOptions.planAdditionalPermissions }
+      : {}),
+    ...(sandboxOptions.planSandboxEscalation
+      ? { planSandboxEscalation: sandboxOptions.planSandboxEscalation }
+      : {}),
     ...(sandboxOptions.sandboxManager ? {
       sandbox: sandboxAvailabilityResolver(
         sandboxOptions.sandboxManager,
@@ -354,7 +593,7 @@ function buildExecutorBashTool(
       const result = await executor.exec({
         command,
         cwd: transformed?.cwd ?? cwd,
-        ...(transformed ? { argv: transformed.argv } : {}),
+        ...(transformed?.argv ? { argv: transformed.argv } : {}),
         ...(transformed?.env ? { env: transformed.env } : {}),
         ...(transformed?.fdInputs ? { fdInputs: transformed.fdInputs } : {}),
         timeoutMs: timeout,
@@ -362,12 +601,17 @@ function buildExecutorBashTool(
         emitOutput,
         shell,
       });
-      if (result.timedOut) throw terminalError(`Command timed out after ${timeout}ms`, result, 124);
-      if (result.aborted) throw terminalError('Command aborted', result, 130);
-      if (result.exitCode !== 0) {
-        throw terminalError(`Command failed with exit code ${result.exitCode}`, result, result.exitCode);
+      const executionResult = {
+        ...result,
+        ...(transformed?.sandboxType ? { sandboxType: transformed.sandboxType } : {}),
+        sandboxed: transformed?.sandboxType === 'macos-seatbelt' || transformed?.sandboxType === 'linux',
+      };
+      if (executionResult.timedOut) throw terminalError(`Command timed out after ${timeout}ms`, executionResult, 124);
+      if (executionResult.aborted) throw terminalError('Command aborted', executionResult, 130);
+      if (executionResult.exitCode !== 0) {
+        throw terminalError(`Command failed with exit code ${executionResult.exitCode}`, executionResult, executionResult.exitCode);
       }
-      return shapeTerminalResult({ cwd, command, result });
+      return shapeTerminalResult({ cwd, command, result: executionResult });
     },
   };
 }
@@ -378,8 +622,10 @@ function sandboxAvailabilityResolver(
   platform: SandboxPlatform,
 ): NonNullable<MakaTool['sandbox']> {
   return ({ permissionMode, cwd, args }) => {
-    if (isPtyBashArgs(args)) return { platformSandboxAvailable: false };
     const effective = effectivePermissionProfile(explicitProfile, permissionMode, cwd);
+    if (isPtyBashArgs(args) && profileRequiresSandbox(effective.profile)) {
+      return { platformSandboxAvailable: false };
+    }
     return {
       platformSandboxAvailable: manager.canEnforce({
         profile: effective.profile,
@@ -397,32 +643,56 @@ function sandboxCommand(
   pty: boolean,
   ctx: MakaToolContext,
 ): {
-  argv: readonly string[];
+  argv?: readonly string[];
   cwd: string;
   env?: NodeJS.ProcessEnv;
   fdInputs?: readonly ChildFdInput[];
+  sandboxType?: SandboxType;
 } | undefined {
-  if (pty) return undefined;
+  const cwd = canonicalExistingPath(ctx.cwd);
   const effective = effectivePermissionProfile(
     explicitProfile,
     ctx.permissionMode ?? 'ask',
-    ctx.cwd,
+    cwd,
   );
-  if (!manager.canEnforce({ profile: effective.profile, platform })) return undefined;
-
   const env = { ...process.env };
+  const additionalGrant = ctx.permissionContext?.additionalGrant;
+  const escalationGrant = ctx.permissionContext?.sandboxEscalationGrant;
+  if (additionalGrant && escalationGrant) {
+    throw new Error('Additional permissions and sandbox escalation cannot be applied together.');
+  }
+  if (escalationGrant) {
+    assertSandboxEscalationGrantForExecution({ grant: escalationGrant, command, cwd });
+  }
+  if (pty) {
+    if (escalationGrant) return { cwd, env, sandboxType: 'none' };
+    if (profileRequiresSandbox(effective.profile)) {
+      throw new Error('PTY Bash is unavailable while the active permission profile requires command sandboxing.');
+    }
+    return undefined;
+  }
+  if (!escalationGrant && !manager.canEnforce({ profile: effective.profile, platform })) {
+    if (profileRequiresSandbox(effective.profile)) {
+      throw new Error(`Command sandbox is required but unavailable on platform ${platform}.`);
+    }
+    return undefined;
+  }
+
   const result = manager.transform({
     platform,
     command: {
       program: '/bin/sh',
-      args: ['-lc', command],
-      cwd: ctx.cwd,
+      args: ['-c', command],
+      cwd,
       env,
       profile: effective.profile,
       pathContext: {
         workspaceRoots: effective.workspaceRoots,
         tmpdir: tmpdir(),
         slashTmp: '/tmp',
+        ...(platform === 'darwin' ? {
+          executableRoots: macosRuntimeExecutableRoots(process.execPath),
+        } : {}),
         ...(platform === 'linux' ? {
           minimalRoots: linuxExecutableRoots({
             execPath: process.execPath,
@@ -431,6 +701,8 @@ function sandboxCommand(
         } : {}),
       },
     },
+    ...(additionalGrant ? { additionalPermissions: additionalGrant.profile } : {}),
+    ...(escalationGrant ? { preference: 'forbid' as const } : {}),
   });
   if (!result.ok) {
     throw new Error(result.message ?? `Sandbox transform failed: ${result.reason}`);
@@ -440,7 +712,28 @@ function sandboxCommand(
     cwd: result.exec.cwd,
     ...(result.exec.env ? { env: { ...result.exec.env } } : {}),
     ...(result.exec.fdInputs ? { fdInputs: result.exec.fdInputs } : {}),
+    sandboxType: result.exec.sandboxType,
   };
+}
+
+function profileRequiresSandbox(profile: PermissionProfile): boolean {
+  return profile.type === 'managed' && profile.fileSystem.kind === 'restricted';
+}
+
+function canonicalExistingPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+function macosRuntimeExecutableRoots(execPath: string): readonly string[] {
+  return [
+    ...linuxExecutableRoots({ execPath }),
+    ...(execPath.startsWith('/opt/homebrew/') ? ['/opt/homebrew'] : []),
+    ...(execPath.startsWith('/usr/local/') ? ['/usr/local'] : []),
+  ];
 }
 
 function effectivePermissionProfile(
@@ -448,9 +741,108 @@ function effectivePermissionProfile(
   permissionMode: NonNullable<MakaToolContext['permissionMode']>,
   cwd: string,
 ): { profile: PermissionProfile; workspaceRoots: readonly string[] } {
-  if (explicitProfile) return { profile: explicitProfile, workspaceRoots: [cwd] };
-  const compiled = compilePermissionProfile({ mode: permissionMode, cwd });
+  const canonicalCwd = canonicalExistingPath(cwd);
+  if (explicitProfile) return { profile: explicitProfile, workspaceRoots: [canonicalCwd] };
+  const compiled = compilePermissionProfile({ mode: permissionMode, cwd: canonicalCwd });
   return { profile: compiled.profile, workspaceRoots: compiled.workspaceRoots };
+}
+
+function createBashAdditionalPermissionPlanner(
+  manager: SandboxManager,
+  explicitProfile: PermissionProfile | undefined,
+  platform: SandboxPlatform,
+): BashAdditionalPermissionPlanner {
+  return async (args, context) => {
+    const effective = effectivePermissionProfile(explicitProfile, context.mode, context.cwd);
+    const plan = await planDeclaredBashAdditionalPermission({
+      declaration: args.sandbox_permissions,
+      cwd: context.cwd,
+      mode: context.mode,
+      command: args.command,
+      args: context.args,
+      context: {
+        profile: effective.profile,
+        workspaceRoots: effective.workspaceRoots,
+        pathContext: {
+          tmpdir: canonicalExistingPath(tmpdir()),
+          slashTmp: canonicalExistingPath('/tmp'),
+        },
+      },
+    });
+    if (plan.kind !== 'request') return plan;
+    if (args.pty === true) {
+      return {
+        kind: 'block',
+        reason: 'invalid_additional_permissions',
+        message: 'Additional Bash permissions cannot be applied to PTY execution.',
+      };
+    }
+
+    const effectiveWithAdditional = applyAdditionalPermissionProfile(
+      effective.profile,
+      plan.proposal.profile,
+    );
+    if (!manager.canEnforce({ profile: effectiveWithAdditional, platform })) {
+      return {
+        kind: 'block',
+        reason: 'invalid_additional_permissions',
+        message: `Additional Bash permissions cannot be enforced on platform ${platform}.`,
+      };
+    }
+    return plan;
+  };
+}
+
+function createBashSandboxEscalationPlanner(): BashSandboxEscalationPlanner {
+  return (args, context) => planDeclaredBashSandboxEscalation({
+    declaration: args.sandbox_permissions,
+    command: args.command,
+    cwd: canonicalExistingPath(context.cwd),
+    mode: context.mode,
+    args: context.args,
+    recentSandboxDenial: context.recentSandboxDenial,
+  });
+}
+
+type FileToolAdditionalPermissionName = 'Read' | 'Write' | 'Edit' | 'FormatJson' | 'Glob' | 'Grep';
+type FileToolPathSelector = (args: Record<string, any>) => string | undefined;
+
+function createFileToolAdditionalPermissionPlanner(
+  explicitProfile: PermissionProfile | undefined,
+): (
+  toolName: FileToolAdditionalPermissionName,
+  selectPath: FileToolPathSelector,
+) => NonNullable<MakaTool['planAdditionalPermissions']> {
+  return (toolName, selectPath) => async (args, context) => {
+    const path = selectPath(args as Record<string, any>);
+    if (!path) return { kind: 'not_required' };
+    const effective = effectivePermissionProfile(explicitProfile, context.mode, context.cwd);
+    return await planFileToolAdditionalPermission({
+      toolName,
+      path,
+      cwd: context.cwd,
+      mode: context.mode,
+      args: context.args,
+      context: {
+        profile: effective.profile,
+        workspaceRoots: effective.workspaceRoots,
+        pathContext: {
+          tmpdir: canonicalExistingPath(tmpdir()),
+          slashTmp: canonicalExistingPath('/tmp'),
+        },
+      },
+    });
+  };
+}
+
+async function fileToolWriteLockKey(cwd: string, path: string): Promise<string> {
+  const target = await normalizeAdditionalPermissionPath({
+    path,
+    access: 'write',
+    scope: 'exact',
+    cwd,
+  });
+  return target.enforcementPath;
 }
 
 function isPtyBashArgs(args: unknown): boolean {
@@ -459,7 +851,10 @@ function isPtyBashArgs(args: unknown): boolean {
 
 function terminalError(
   message: string,
-  result: Pick<WorkspaceExecResult, 'stdout' | 'stderr' | 'stdoutTruncated' | 'stderrTruncated'>,
+  result: Pick<WorkspaceExecResult, 'stdout' | 'stderr' | 'stdoutTruncated' | 'stderrTruncated'> & {
+    sandboxType?: SandboxType;
+    sandboxed?: boolean;
+  },
   code: number,
 ): Error {
   const error = new Error(message);
@@ -469,8 +864,18 @@ function terminalError(
     stdoutTruncated: result.stdoutTruncated,
     stderrTruncated: result.stderrTruncated,
     code,
+    ...(result.sandboxType ? { sandboxType: result.sandboxType } : {}),
+    sandboxed: result.sandboxed === true,
+    ...(isLikelySandboxDenial(result) ? { reason: 'sandbox_denial', recoverable: true } : {}),
   });
   return error;
+}
+
+function isLikelySandboxDenial(result: Pick<WorkspaceExecResult, 'stdout' | 'stderr'> & { sandboxed?: boolean }): boolean {
+  if (result.sandboxed !== true) return false;
+  return /operation not permitted|sandbox-exec|sandbox(?:ed)?[^\n]*den(?:y|ied)/i.test(
+    `${result.stderr}\n${result.stdout}`,
+  );
 }
 
 function assertRelativeGlobPattern(pattern: string): void {

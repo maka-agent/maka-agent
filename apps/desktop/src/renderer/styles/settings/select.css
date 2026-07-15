@@ -110,3 +110,23 @@
   width: 100%;
   height: 100%;
 }
+
+/* Callers share one renderProviderMark between the trigger (where the 32px
+   plated avatar is right) and this popup's 1rem label slot (where that plate
+   gets squeezed by the grid column into a tall pill that overlaps the
+   heading). The slot normalizes whatever mark it is handed: fill the slot,
+   no plate chrome. Fixes today's ProviderLogo callers and any future ones. */
+.settingsSelectMenuPopup .settingsSelectMenuGroupLogo .providerLogo {
+  width: 100%;
+  height: 100%;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.settingsSelectMenuPopup .settingsSelectMenuGroupLogo .providerLogo svg,
+.settingsSelectMenuPopup .settingsSelectMenuGroupLogo .providerLogo img,
+.settingsSelectMenuPopup .settingsSelectMenuGroupLogo .providerLogo .providerAssetMask {
+  width: 100%;
+  height: 100%;
+}

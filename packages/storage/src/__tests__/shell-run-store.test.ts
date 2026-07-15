@@ -47,6 +47,46 @@ describe('ShellRunStore', () => {
     });
   });
 
+  it('round-trips sandbox execution and one-shot escalation audit facts', async () => {
+    await withStore(async (store) => {
+      const created = await store.createShellRun({
+        ...record({ shellRunId: 'shell-escalated' }),
+        sandboxExecution: { type: 'none', enforced: false },
+        sandboxEscalation: { commandHash: 'command-hash', unsandboxed: true },
+      });
+
+      assert.deepEqual(created.sandboxExecution, { type: 'none', enforced: false });
+      assert.deepEqual(created.sandboxEscalation, {
+        commandHash: 'command-hash',
+        unsandboxed: true,
+      });
+      assert.deepEqual(
+        (await store.readShellRun('session-1', 'shell-escalated')).sandboxEscalation,
+        created.sandboxEscalation,
+      );
+    });
+  });
+
+  it('rejects inconsistent sandbox execution audit facts', async () => {
+    await withStore(async (store) => {
+      await assert.rejects(
+        () => store.createShellRun({
+          ...record({ shellRunId: 'shell-invalid-enforcement' }),
+          sandboxExecution: { type: 'macos-seatbelt', enforced: false },
+        }),
+        /malformed fields/,
+      );
+      await assert.rejects(
+        () => store.createShellRun({
+          ...record({ shellRunId: 'shell-invalid-escalation' }),
+          sandboxExecution: { type: 'macos-seatbelt', enforced: true },
+          sandboxEscalation: { commandHash: 'command-hash', unsandboxed: true },
+        }),
+        /malformed fields/,
+      );
+    });
+  });
+
   it('increments revision only when durable state changes', async () => {
     await withStore(async (store) => {
       await store.createShellRun(record({ shellRunId: 'shell-1' }));

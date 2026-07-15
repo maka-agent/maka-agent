@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import type { PermissionRequestEvent, UserQuestionRequestEvent } from '@maka/core';
+import type {
+  AdditionalPermissionRequestEvent,
+  PermissionRequestEvent,
+  SandboxEscalationRequestEvent,
+  UserQuestionRequestEvent,
+} from '@maka/core';
 import {
   activeInteractionFor,
   clearInteractions,
@@ -34,6 +39,64 @@ function question(requestId: string): UserQuestionRequestEvent {
   };
 }
 
+function additionalPermission(requestId: string): AdditionalPermissionRequestEvent {
+  return {
+    type: 'permission_request',
+    kind: 'additional_permissions',
+    id: `evt_${requestId}`,
+    turnId: 'turn_1',
+    ts: 0,
+    requestId,
+    toolUseId: `call_${requestId}`,
+    toolName: 'Write',
+    category: 'file_write',
+    reason: 'additional_permissions',
+    args: undefined,
+    cwd: '/workspace',
+    justification: 'Write requires access to the requested path.',
+    intentHash: `sha256:${'1'.repeat(64)}`,
+    permissionsHash: `sha256:${'2'.repeat(64)}`,
+    additionalPermissions: {
+      fileSystem: { entries: [{ path: '/outside/file', access: 'write', scope: 'exact' }] },
+    },
+    risk: { outsideWorkspace: true, protectedMetadata: false, networkEnabled: false },
+    alsoApprovesToolExecution: true,
+    availableDecisions: ['allow_once', 'deny'],
+    rememberForTurnAllowed: false,
+  };
+}
+
+function sandboxEscalation(requestId: string): SandboxEscalationRequestEvent {
+  return {
+    type: 'permission_request',
+    kind: 'sandbox_escalation',
+    id: `evt_${requestId}`,
+    turnId: 'turn_1',
+    ts: 0,
+    requestId,
+    toolUseId: `call_${requestId}`,
+    toolName: 'Bash',
+    category: 'shell_unsafe',
+    reason: 'sandbox_escalation',
+    args: undefined,
+    command: 'printf retry-ok > /tmp/retry.txt',
+    cwd: '/workspace',
+    justification: 'The exact command must write outside the workspace.',
+    intentHash: `sha256:${'3'.repeat(64)}`,
+    commandHash: `sha256:${'4'.repeat(64)}`,
+    trigger: 'sandbox_denial',
+    risk: {
+      unsandboxedExecution: true,
+      unrestrictedFileSystem: true,
+      unrestrictedNetwork: true,
+      protectedMetadataExposed: true,
+    },
+    alsoApprovesToolExecution: true,
+    availableDecisions: ['allow_once', 'deny'],
+    rememberForTurnAllowed: false,
+  };
+}
+
 describe('composer interaction queue', () => {
   test('permission and question requests share one FIFO per session', () => {
     let queues: InteractionQueues = {};
@@ -43,6 +106,26 @@ describe('composer interaction queue', () => {
     assert.equal(activeInteractionFor(queues, 's')?.requestId, 'permission');
     queues = dequeueInteractionByRequestId(queues, 's', 'permission');
     assert.equal(activeInteractionFor(queues, 's')?.requestId, 'question');
+  });
+
+  test('queues one-call additional permissions as ordinary composer interactions', () => {
+    const queues = enqueueInteraction({}, 's', additionalPermission('additional'));
+    const active = activeInteractionFor(queues, 's');
+    assert.equal(active?.type, 'permission_request');
+    if (active?.type === 'permission_request') {
+      assert.equal(active.kind, 'additional_permissions');
+      assert.equal(active.rememberForTurnAllowed, false);
+    }
+  });
+
+  test('queues one-call sandbox escalation without turn memory', () => {
+    const queues = enqueueInteraction({}, 's', sandboxEscalation('escalation'));
+    const active = activeInteractionFor(queues, 's');
+    assert.equal(active?.type, 'permission_request');
+    if (active?.type === 'permission_request') {
+      assert.equal(active.kind, 'sandbox_escalation');
+      assert.equal(active.rememberForTurnAllowed, false);
+    }
   });
 
   test('deduplicates replays and isolates sessions', () => {

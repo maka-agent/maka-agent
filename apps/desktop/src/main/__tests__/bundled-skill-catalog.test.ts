@@ -84,6 +84,23 @@ describe('bundled skill catalog', () => {
     });
   });
 
+  it('keeps every shipped bundled skill valid through the installed-skill scanner', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const catalog = await listBundledSkillCatalog(workspaceRoot);
+      for (const entry of catalog) {
+        const result = await installBundledSkill(workspaceRoot, entry.id);
+        assert.equal(result.ok, true, `${entry.id} failed runtime skill validation`);
+      }
+
+      const installed = await listInstalledSkills(workspaceRoot);
+      assert.equal(installed.length, EXPECTED_COUNT);
+      assert.deepEqual(
+        new Set(installed.map((skill) => skill.id)),
+        new Set(catalog.map((entry) => entry.id)),
+      );
+    });
+  });
+
   it('is idempotent: a second install reports already_exists and preserves the copy', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const first = await installBundledSkill(workspaceRoot, 'summarization');

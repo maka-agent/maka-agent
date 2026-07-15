@@ -27,6 +27,10 @@ export type {
   ShellRunStateResult,
   ShellRunUpdateOwnership,
   ShellRunUpdate,
+  SandboxDenialRecovery,
+  AdditionalPermissionRequestEvent,
+  SandboxEscalationRequestEvent,
+  AnyPermissionRequestEvent,
   PermissionRequestEvent,
   PermissionDecisionAckEvent,
   UserQuestionRequestEvent,
@@ -40,6 +44,7 @@ export type {
   AttachmentRef,
   AttachmentIngestItem,
   CompleteStopReason,
+  ContextBudgetExhaustedDetail,
 } from './events.js';
 export type {
   UserQuestion,
@@ -223,13 +228,18 @@ export {
 } from './pty-output-view.js';
 export type { PtyTuiTerminalView } from './pty-output-view.js';
 export {
+  formatWriteStdinPermissionInspection,
   projectToolActivityArgs,
+  projectWriteStdinPermissionSummary,
   projectWriteStdinInput,
   readWriteStdinInputPreview,
   WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS,
+  WRITE_STDIN_REF_PREVIEW_MAX_CHARS,
   type WriteStdinInputPreview,
+  type WriteStdinPermissionSummary,
 } from './tool-activity-args.js';
 export {
+  SHELL_RUN_ID_MAX_CHARS,
   SHELL_RUN_STATUSES,
   SHELL_RUN_TERMINAL_STATUSES,
   isShellOutput,
@@ -267,6 +277,9 @@ export {
 // permission.ts
 export type {
   PermissionMode,
+  ApprovalsReviewer,
+  ApprovalRiskLevel,
+  ActiveApprovalRoutingPolicy,
   ToolCategory,
   PolicyDecision,
   ToolExecutionFacts,
@@ -276,13 +289,19 @@ export type {
   ToolExecutionWriteBack,
   PreToolUseInput,
   PreToolUseResult,
+  AdditionalPermissionRequest,
+  SandboxEscalationRequest,
+  SandboxEscalationRiskSummary,
   PermissionRequest,
+  PermissionRequestPayload,
   PermissionResponse,
   ToolPermissionRule,
   ToolPermissionRuleMatchInput,
 } from './permission.js';
 export {
   PERMISSION_MODES,
+  APPROVALS_REVIEWERS,
+  APPROVAL_RISK_LEVELS,
   TOOL_CATEGORIES,
   PERMISSION_POLICY,
   BUILTIN_TOOL_CATEGORY,
@@ -292,6 +311,7 @@ export {
   DESTRUCTIVE_GIT_PATTERNS,
   categorizeBash,
   classifyToolUse,
+  approvalRoutingPolicyForMode,
   isPermissionMode,
   isToolCategory,
   matchToolPermissionRules,
@@ -346,6 +366,7 @@ export type {
   PermissionProfileName,
   FileSystemAccessMode,
   FileSystemProtectedMetadataPolicy,
+  FileSystemPathMatch,
   FileSystemSandboxEntry,
   FileSystemSandboxKind,
   FileSystemSandboxPolicy,
@@ -356,6 +377,7 @@ export type {
 } from './permission-profile.js';
 export {
   FILE_SYSTEM_ACCESS_MODES,
+  FILE_SYSTEM_PATH_MATCHES,
   FILE_SYSTEM_SANDBOX_KINDS,
   FILE_SYSTEM_SPECIAL_PATHS,
   NETWORK_SANDBOX_KINDS,
@@ -369,6 +391,31 @@ export {
   isDeniedPath,
   isProtectedMetadataPath,
 } from './permission-profile.js';
+
+// additional-permissions.ts
+export type {
+  AdditionalFileSystemPermission,
+  AdditionalPermissionAccess,
+  AdditionalPermissionProfile,
+  AdditionalPermissionRiskSummary,
+  AdditionalPermissionScope,
+  AdditionalPermissionValidationFailureReason,
+  AdditionalPermissionValidationResult,
+} from './additional-permissions.js';
+export {
+  ADDITIONAL_PERMISSION_ACCESS_MODES,
+  ADDITIONAL_PERMISSION_SCOPES,
+  MAX_ADDITIONAL_FILESYSTEM_ENTRIES,
+  MAX_ADDITIONAL_PERMISSION_PATH_CHARS,
+  MAX_ADDITIONAL_PERMISSION_SERIALIZED_BYTES,
+  additionalPermissionAllowsPath,
+  additionalPermissionMatchesPath,
+  additionalPermissionRequiredForPath,
+  applyAdditionalPermissionProfile,
+  compactAdditionalFileSystemPermissions,
+  serializeAdditionalPermissionProfile,
+  validateAdditionalPermissionProfile,
+} from './additional-permissions.js';
 
 // permission-profile-compiler.ts
 export type {
@@ -646,31 +693,45 @@ export type {
   CreateTaskInput,
   ResumeTrust,
   Task,
+  TaskAgentOutcome,
+  TaskLedgerChangedEvent,
   TaskLedgerEvent,
+  TaskLedgerEventTaskSnapshot,
   TaskLedgerEventRefs,
   TaskLedgerEventType,
   TaskLedgerListOptions,
   TaskLedgerMutationContext,
   TaskLedgerNormalizeResult,
   TaskLedgerProjection,
+  TaskLedgerPromptRender,
   TaskLedgerStore,
+  TaskOwner,
   TaskStatus,
   UpdateTaskInput,
 } from './task-ledger.js';
 export {
   TASK_EVIDENCE_MAX_CHARS,
+  TASK_ARCHIVE_AFTER_MS,
   TASK_ID_MAX_CHARS,
+  TASK_KEY_MAX_CHARS,
   TASK_LEDGER_EVENT_TYPES,
   TASK_LEDGER_MAX_TASKS,
+  TASK_LEDGER_PROMPT_MAX_CHARS,
+  TASK_LEDGER_PROMPT_RECENT_TERMINAL,
   TASK_RESUME_TRUST_LEVELS,
   TASK_STATUSES,
+  TASK_TERMINAL_STATUSES,
   TASK_SUBJECT_MAX_CHARS,
   canTransitionTaskStatus,
   classifyTaskResumeTrust,
   filterModelVisibleTaskLedgerTasks,
+  findTaskByRef,
+  compareTaskKeys,
   isSafeTaskId,
   isResumeTrust,
   isTaskStatus,
+  isTaskKey,
+  isTerminalTaskStatus,
   normalizeCreateTaskInput,
   normalizeResumeTrust,
   normalizeTaskEvidenceText,
@@ -680,6 +741,8 @@ export {
   projectTaskLedgerEvents,
   renderTaskLedgerDebugText,
   renderSafeTaskLedgerText,
+  renderTaskLedgerPromptText,
+  sanitizeTaskLedgerTask,
   taskLedgerEventTypeForCreate,
   taskLedgerEventTypeForUpdate,
   validateTaskEvidence,
@@ -873,10 +936,36 @@ export {
   effectiveBaseUrl,
   migrateConnectionV1ToV2,
   normalizeConnectionBaseUrl,
+  normalizeProviderType,
   persistedBaseUrl,
   validateConnectionBaseUrl,
   validateSlug,
 } from './llm-connections.js';
+
+// provider-contract-matrix.ts — registry-driven conformance matrix plan.
+export type {
+  ProviderContractCell,
+  ProviderContractCellEntry,
+  ProviderContractCellState,
+  ProviderContractDimension,
+  ProviderContractDiscoveryPlan,
+  ProviderContractGeneratedCell,
+  ProviderContractMatrixPlan,
+  ProviderContractNotApplicableCell,
+  ProviderContractOverrideCell,
+  ProviderContractReasoningReplayPlan,
+  ProviderContractReverseAssertion,
+  ProviderContractRow,
+  ProviderContractWire,
+} from './provider-contract-matrix.js';
+export {
+  PROVIDER_CONTRACT_DIMENSIONS,
+  PROVIDER_CONTRACT_MATRIX_PLAN,
+  SUBSCRIPTION_WIRE_ADAPTER_KINDS,
+  buildProviderContractMatrixPlan,
+  buildProviderContractRow,
+  listProviderContractCells,
+} from './provider-contract-matrix.js';
 
 // connection-readiness.ts (PR110a)
 export type {
@@ -1184,6 +1273,14 @@ export {
   isQuickChatMode,
   normalizeQuickChatMode,
 } from './explore-agent.js';
+
+// expert-team.ts — expert-team session labels.
+export {
+  EXPERT_TEAM_LABEL_PREFIX,
+  expertTeamIdFromLabels,
+  expertTeamLabel,
+  isExpertTeamSession,
+} from './expert-team.js';
 
 // attachments.ts
 export { attachmentKindFromMimeType, guessMimeFromName, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from './attachments.js';

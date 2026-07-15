@@ -394,6 +394,33 @@ describe('applyConnectionDefaults', () => {
     assert.equal(env.MAKA_LLM_CONNECTION_SLUG, undefined);
     assert.equal(env.MAKA_BASE_URL, undefined);
   });
+
+  test('legacy codex-subscription providerType normalized to openai-codex', () => {
+    // Connections persisted before the codex-subscription -> openai-codex
+    // rename keep the old providerType on disk. applyConnectionDefaults reads
+    // llm-connections.json directly (bypassing ConnectionStore's on-read
+    // normalization), so it must normalize the alias itself or the headless
+    // path silently drops a still-valid connection.
+    const connectionsPath = makeTempConnections({
+      defaultSlug: 'codex-subscription',
+      connections: [
+        {
+          slug: 'codex-subscription',
+          providerType: 'codex-subscription',
+          defaultModel: 'gpt-5.6-sol',
+          baseUrl: 'https://chatgpt.com/backend-api/codex',
+          enabled: true,
+        },
+      ],
+    });
+
+    const env: Record<string, string | undefined> = { MAKA_CONNECTIONS_PATH: connectionsPath };
+    applyConnectionDefaults(env);
+
+    assert.equal(env.MAKA_MODEL, 'openai-codex/gpt-5.6-sol');
+    assert.equal(env.MAKA_LLM_CONNECTION_SLUG, 'codex-subscription');
+    assert.equal(env.MAKA_BASE_URL, 'https://chatgpt.com/backend-api/codex');
+  });
 });
 
 describe('resolveHarborRunOptions backend guard', () => {

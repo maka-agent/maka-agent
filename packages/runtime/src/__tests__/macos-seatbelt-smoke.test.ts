@@ -10,11 +10,13 @@ import {
   createWorkspaceWritePermissionProfile,
   type PermissionProfile,
 } from '@maka/core/permission-profile';
+import type { AdditionalPermissionProfile } from '@maka/core/additional-permissions';
 
 import {
   MACOS_SEATBELT_EXECUTABLE,
   MacosSeatbeltBackend,
 } from '../sandbox/macos-seatbelt.js';
+import { SandboxManager } from '../sandbox/sandbox-manager.js';
 
 const canRunSeatbelt = process.platform === 'darwin' && existsSync(MACOS_SEATBELT_EXECUTABLE);
 
@@ -49,9 +51,10 @@ function runSeatbeltCommand(
   workspaceRoot: string,
   command: string,
   profile: PermissionProfile = createWorkspaceWritePermissionProfile(),
+  additionalPermissions?: AdditionalPermissionProfile,
 ) {
-  const backend = new MacosSeatbeltBackend();
-  const result = backend.transform({
+  const manager = new SandboxManager([new MacosSeatbeltBackend()]);
+  const result = manager.transform({
     platform: 'darwin',
     command: {
       program: '/bin/sh',
@@ -62,6 +65,7 @@ function runSeatbeltCommand(
         workspaceRoots: [workspaceRoot],
       },
     },
+    ...(additionalPermissions ? { additionalPermissions } : {}),
   });
 
   assert.equal(result.ok, true);
@@ -100,6 +104,40 @@ describe('macOS Seatbelt smoke', { skip: !canRunSeatbelt }, () => {
     const child = runSeatbeltCommand(workspaceRoot, `printf nope > ${JSON.stringify(outsideFile)}`);
 
     assert.notEqual(child.status, 0);
+  });
+
+  it('allows only the exact outside path granted for one command', async () => {
+    const workspaceRoot = await makeWorkspace();
+    const outsideRoot = await realpath(await mkdtemp(join(tmpdir(), 'maka-seatbelt-additional-')));
+    cleanup.push(workspaceRoot, outsideRoot);
+    const allowedFile = resolve(outsideRoot, 'allowed.txt');
+    const siblingFile = resolve(outsideRoot, 'sibling.txt');
+
+    const allowed = runSeatbeltCommand(
+      workspaceRoot,
+      `printf ok > ${JSON.stringify(allowedFile)}`,
+      createWorkspaceWritePermissionProfile(),
+      {
+        fileSystem: {
+          entries: [{ path: allowedFile, access: 'write', scope: 'exact' }],
+        },
+      },
+    );
+    assert.equal(allowed.status, 0, allowed.stderr);
+    assert.equal(await readFile(allowedFile, 'utf8'), 'ok');
+
+    const sibling = runSeatbeltCommand(
+      workspaceRoot,
+      `printf nope > ${JSON.stringify(siblingFile)}`,
+      createWorkspaceWritePermissionProfile(),
+      {
+        fileSystem: {
+          entries: [{ path: allowedFile, access: 'write', scope: 'exact' }],
+        },
+      },
+    );
+    assert.notEqual(sibling.status, 0);
+    assert.equal(existsSync(siblingFile), false);
   });
 
   it('denies writes to protected metadata under the workspace root', async () => {

@@ -56,4 +56,14 @@ describe('single-instance lock contract', () => {
       'activate should share the exact same behavior as second-instance',
     );
   });
+
+  it('counts only the real main window, not cursor overlays, when deciding whether to focus', async () => {
+    const mainWindow = await readFile(
+      resolve(import.meta.dirname, '../../../../../apps/desktop/src/main/main-window.ts'),
+      'utf8',
+    );
+    const hasOpenWindows = mainWindow.match(/hasOpenWindows\(\) \{([\s\S]*?)\n    \}/)?.[1] ?? '';
+    assert.match(hasOpenWindows, /mainWindow !== null && !mainWindow\.isDestroyed\(\)/);
+    assert.doesNotMatch(hasOpenWindows, /BrowserWindow\.getAllWindows/);
+  });
 });

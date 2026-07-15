@@ -7,7 +7,13 @@
  * Connection-setup events live in ./connections.ts (separate channel).
  */
 
-import type { PermissionMode, PermissionRequest, PermissionResponse, ToolCategory } from './permission.js';
+import type {
+  AdditionalPermissionRequest,
+  PermissionMode,
+  PermissionRequest,
+  PermissionResponse,
+  SandboxEscalationRequest,
+} from './permission.js';
 import type { UserQuestionRequest } from './user-question.js';
 import type {
   PipeShellOutput,
@@ -79,7 +85,7 @@ export type SessionEvent =
   | ToolOutputDeltaEvent
   | ToolProgressEvent
   | ToolResultEvent
-  | PermissionRequestEvent
+  | AnyPermissionRequestEvent
   | PermissionDecisionAckEvent
   | UserQuestionRequestEvent
   | PlanSubmittedEvent
@@ -183,7 +189,14 @@ type ShellRunResultMetadata = {
   failureMessage?: string;
   revision: number;
   timeoutMs?: number;
+  sandboxDenial?: SandboxDenialRecovery;
 };
+
+export interface SandboxDenialRecovery {
+  likely: true;
+  backend?: 'macos-seatbelt' | 'linux';
+  recovery: 'require_escalated';
+}
 
 export type ShellRunCompactResult = ShellRunResultMetadata & (
   | { mode: 'pipes'; output?: never }
@@ -233,6 +246,7 @@ export type ToolResultContent =
       exitCode?: number;
       failureMessage?: string;
       output: ShellOutput;
+      sandboxDenial?: SandboxDenialRecovery;
     }
   | ShellRunToolResultContent
   | { kind: 'image'; mimeType: string; ref: StorageRef }
@@ -390,26 +404,30 @@ export interface ShellRunUpdate {
   result: ShellRunStateResult;
 }
 
-export interface PermissionRequestEvent extends BaseEvent {
+export interface PermissionRequestEvent extends BaseEvent, PermissionRequest {
   type: 'permission_request';
-  requestId: string;
-  toolUseId: string;
-  toolName: string;
-  category: ToolCategory;
-  reason:
-    | 'shell_dangerous'
-    | 'file_write'
-    | 'fs_destructive'
-    | 'network'
-    | 'git_destructive'
-    | 'privileged'
-    | 'browser'
-    | 'computer_use'
-    | 'custom';
-  args: unknown;
-  hint?: string;
-  rememberForTurnAllowed?: boolean;
 }
+
+export interface AdditionalPermissionRequestEvent
+  extends BaseEvent, AdditionalPermissionRequest {
+  type: 'permission_request';
+  /** Additional-permission prompts deliberately do not expose raw tool arguments. */
+  args: undefined;
+  rememberForTurnAllowed?: false;
+}
+
+export interface SandboxEscalationRequestEvent
+  extends BaseEvent, SandboxEscalationRequest {
+  type: 'permission_request';
+  /** Escalation prompts expose only bounded command and justification fields. */
+  args: undefined;
+  rememberForTurnAllowed?: false;
+}
+
+export type AnyPermissionRequestEvent =
+  | PermissionRequestEvent
+  | AdditionalPermissionRequestEvent
+  | SandboxEscalationRequestEvent;
 
 export interface UserQuestionRequestEvent extends BaseEvent, UserQuestionRequest {
   type: 'user_question_request';
@@ -426,6 +444,9 @@ export interface PermissionDecisionAckEvent extends BaseEvent {
   toolUseId: string;
   decision: 'allow' | 'deny';
   rememberForTurn?: boolean;
+  reviewer?: import('./permission.js').ApprovalsReviewer;
+  rationale?: string;
+  riskLevel?: import('./permission.js').ApprovalRiskLevel;
 }
 
 export interface PlanSubmittedEvent extends BaseEvent {
@@ -492,17 +513,30 @@ export interface CompleteEvent extends BaseEvent {
     | 'plan_handoff'
     | 'permission_handoff'
     | 'step_limit'
-    | 'max_tokens';
+    | 'max_tokens'
+    | 'context_budget_exhausted';
+  /**
+   * Detail for `stopReason: 'context_budget_exhausted'` — the runtime could not
+   * produce a provider-safe request even after mid-turn compaction. A first-class
+   * outcome, not a provider context-length error.
+   */
+  contextBudgetExhaustedDetail?: ContextBudgetExhaustedDetail;
 }
+
+export type ContextBudgetExhaustedDetail =
+  | 'no_safe_completed_span'
+  | 'summarizer_failed'
+  | 'head_anchor_exceeds_capacity';
 
 export type CompleteStopReason = CompleteEvent['stopReason'];
 
 /** Stable failure taxonomy for complete events that did not finish the turn. */
 export function failureClassFromCompleteStopReason(
   reason: CompleteStopReason,
-): 'runtime_error' | 'tool_step_cap_reached' | undefined {
+): 'runtime_error' | 'tool_step_cap_reached' | 'context_budget_exhausted' | undefined {
   if (reason === 'error') return 'runtime_error';
   if (reason === 'step_limit') return 'tool_step_cap_reached';
+  if (reason === 'context_budget_exhausted') return 'context_budget_exhausted';
   return undefined;
 }
 

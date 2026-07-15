@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   createChatInputActionOwner,
+  detectMentionTrigger,
   fileTransferContainsFiles,
   focusTextInputAtEnd,
   isChatInputComposing,
+  mentionQueryMatches,
 } from '../chat-input-behavior.js';
 
 describe('shared chat input behavior', () => {
@@ -54,5 +56,83 @@ describe('shared chat input behavior', () => {
     release();
     await action;
     assert.deepEqual(states, ['drop']);
+  });
+});
+
+describe('detectMentionTrigger', () => {
+  it('fires an @ trigger at start-of-input', () => {
+    assert.deepEqual(detectMentionTrigger('@', 1), { trigger: '@', query: '', start: 0 });
+    assert.deepEqual(detectMentionTrigger('@src', 4), { trigger: '@', query: 'src', start: 0 });
+  });
+
+  it('fires an @ trigger after whitespace (word boundary)', () => {
+    assert.deepEqual(detectMentionTrigger('open @src/app', 13), { trigger: '@', query: 'src/app', start: 5 });
+    assert.deepEqual(detectMentionTrigger('a\n@x', 4), { trigger: '@', query: 'x', start: 2 });
+  });
+
+  it('does NOT fire mid-word (no boundary before the trigger)', () => {
+    assert.equal(detectMentionTrigger('foo@bar', 7), null);
+    assert.equal(detectMentionTrigger('a/b', 3), null);
+    assert.equal(detectMentionTrigger('user@host.com', 13), null);
+  });
+
+  it('returns null when there is no trigger before the caret', () => {
+    assert.equal(detectMentionTrigger('hello world', 11), null);
+    assert.equal(detectMentionTrigger('@later', 0), null); // caret before the @
+  });
+
+  it('allows single spaces in an @ query (filenames with spaces)', () => {
+    assert.deepEqual(detectMentionTrigger('@my file', 8), { trigger: '@', query: 'my file', start: 0 });
+  });
+
+  it('kills an @ query on a double space', () => {
+    assert.equal(detectMentionTrigger('@my  file', 9), null);
+  });
+
+  it('kills an @ query on a newline', () => {
+    assert.equal(detectMentionTrigger('@line\nmore', 10), null);
+  });
+
+  it('fires a / trigger as a single token', () => {
+    assert.deepEqual(detectMentionTrigger('/', 1), { trigger: '/', query: '', start: 0 });
+    assert.deepEqual(detectMentionTrigger('/deep', 5), { trigger: '/', query: 'deep', start: 0 });
+    assert.deepEqual(detectMentionTrigger('run /skill', 10), { trigger: '/', query: 'skill', start: 4 });
+  });
+
+  it('kills a / query on ANY space or newline', () => {
+    assert.equal(detectMentionTrigger('/deep research', 14), null);
+    assert.equal(detectMentionTrigger('/a\nb', 4), null);
+  });
+
+  it('a path-internal slash does not hijack the @ trigger (only boundary triggers count)', () => {
+    // The `/` in `@foo/bar` is not at a word boundary, so it is part of the `@`
+    // query, not a competing `/` trigger. The `@` stays active with the full path.
+    assert.deepEqual(detectMentionTrigger('@foo/bar', 8), { trigger: '@', query: 'foo/bar', start: 0 });
+    assert.deepEqual(detectMentionTrigger('@src/app', 8), { trigger: '@', query: 'src/app', start: 0 });
+  });
+
+  it('the nearest boundary-anchored trigger wins', () => {
+    // A `/` typed at a boundary after an `@…` wins as the active trigger.
+    assert.deepEqual(detectMentionTrigger('@a /b', 5), { trigger: '/', query: 'b', start: 3 });
+  });
+
+  it('detects the trigger relative to the caret, not the value end', () => {
+    // Caret sits right after `@sr`; the trailing `c/app` is ignored.
+    assert.deepEqual(detectMentionTrigger('@src/app', 3), { trigger: '@', query: 'sr', start: 0 });
+  });
+});
+
+describe('mentionQueryMatches', () => {
+  it('matches case-insensitively', () => {
+    assert.equal(mentionQueryMatches('APP', 'src/app.tsx'), true);
+  });
+
+  it('requires every whitespace-separated token (AND-of-substring)', () => {
+    assert.equal(mentionQueryMatches('src app', 'src/app.tsx'), true);
+    assert.equal(mentionQueryMatches('src app', 'src/main.tsx'), false);
+  });
+
+  it('matches everything on an empty query', () => {
+    assert.equal(mentionQueryMatches('', 'anything'), true);
   });
 });

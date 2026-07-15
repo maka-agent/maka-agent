@@ -43,6 +43,7 @@ export function terminalContent(record: ShellRunRecord): TerminalToolResult {
     ...(record.exitCode !== undefined ? { exitCode: record.exitCode } : {}),
     ...(record.failureMessage !== undefined ? { failureMessage: record.failureMessage } : {}),
     output: projectShellOutputForModel(record.output),
+    ...(sandboxDenialForRecord(record) ? { sandboxDenial: sandboxDenialForRecord(record) } : {}),
   };
 }
 
@@ -66,7 +67,7 @@ export function compactShellRunContent(record: ShellRunRecord): ShellRunToolResu
 export function ptyControlOperation(
   input: ShellRunWriteInput,
   outcome: {
-    inputApplied: boolean;
+    inputQueued: boolean;
     resizeApplied: boolean;
     resizeChanged: boolean;
     failed?: boolean;
@@ -76,7 +77,7 @@ export function ptyControlOperation(
     kind: 'pty_control',
     failed: outcome.failed === true,
     ...(input.input !== undefined
-      ? { input: { bytes: Buffer.byteLength(input.input, 'utf8'), applied: outcome.inputApplied } }
+      ? { input: { bytes: Buffer.byteLength(input.input, 'utf8'), queued: outcome.inputQueued } }
       : {}),
     ...(input.size
       ? {
@@ -128,8 +129,43 @@ function shellRunSnapshotContent(record: ShellRunRecord): ShellRunSnapshotResult
   const state = shellRunStateContent(record);
   const output = projectShellOutputForModel(record.output);
   return output.mode === 'pipes'
-    ? { ...state, mode: 'pipes', output }
-    : { ...state, mode: 'pty', output };
+    ? {
+        ...state,
+        mode: 'pipes',
+        output,
+        ...(sandboxDenialForRecord(record) ? { sandboxDenial: sandboxDenialForRecord(record) } : {}),
+      }
+    : {
+        ...state,
+        mode: 'pty',
+        output,
+        ...(sandboxDenialForRecord(record) ? { sandboxDenial: sandboxDenialForRecord(record) } : {}),
+      };
+}
+
+function sandboxDenialForRecord(record: ShellRunRecord): {
+  likely: true;
+  backend?: 'macos-seatbelt' | 'linux';
+  recovery: 'require_escalated';
+} | undefined {
+  if (
+    record.status !== 'failed'
+    || record.sandboxExecution?.enforced !== true
+    || !isLikelySandboxDenialOutput(record.output)
+  ) return undefined;
+  const backend = record.sandboxExecution.type;
+  return {
+    likely: true,
+    ...(backend === 'macos-seatbelt' || backend === 'linux' ? { backend } : {}),
+    recovery: 'require_escalated',
+  };
+}
+
+function isLikelySandboxDenialOutput(output: ShellOutput): boolean {
+  const text = output.mode === 'pipes'
+    ? `${output.stderr}\n${output.stdout}`
+    : `${output.scrollback}\n${output.screen}\n${output.lastAlternateScreen ?? ''}`;
+  return /operation not permitted|sandbox-exec|sandbox(?:ed)?[^\n]*den(?:y|ied)/i.test(text);
 }
 
 function projectShellOutputForModel(output: ShellOutput): ShellOutput {

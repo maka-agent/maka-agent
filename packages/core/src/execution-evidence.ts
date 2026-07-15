@@ -9,7 +9,11 @@
 
 export const EXECUTION_EVIDENCE_REF_SCHEMA_VERSION = 'maka.execution_evidence_ref.v1' as const;
 
-export const EXECUTION_LOG_LEDGERS = ['runtime_event', 'task_event'] as const;
+export const EXECUTION_LOG_LEDGERS = [
+  'runtime_event',
+  'runtime_event_projection',
+  'task_event',
+] as const;
 export type ExecutionLogLedger = typeof EXECUTION_LOG_LEDGERS[number];
 
 export const WORKSPACE_REVISION_KINDS = [
@@ -44,12 +48,14 @@ export interface TaskIdentityRef {
 }
 
 /**
- * Ordered position in one append-only log stream.
+ * Ordered position in one log or explicitly versioned projection stream.
  *
  * `sequence` is the zero-based append ordinal within (`ledger`, `streamId`).
- * It is the only ordering field. `eventId` is an optional audit/dedup pointer
- * and MUST NOT be used to order events. Cursors from different streams are
- * incomparable.
+ * For canonical Runtime/Task ledgers it is the append ordinal. A
+ * `runtime_event_projection` owner MUST publish the ordering/filter policy
+ * beside the cursor. `sequence` is the only ordering field; `eventId` is an
+ * optional audit/dedup pointer and MUST NOT be used to order events. Cursors
+ * from different streams are incomparable.
  */
 export interface ExecutionLogCursor {
   ledger: ExecutionLogLedger;

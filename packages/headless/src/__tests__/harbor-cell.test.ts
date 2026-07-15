@@ -32,9 +32,11 @@ import {
   HARBOR_CELL_EXECUTION_IDENTITY_FILENAME,
   HARBOR_CELL_OUTPUT_FILENAME,
   HARBOR_CELL_RUNTIME_EVENTS_FILENAME,
+  HARBOR_CELL_USAGE_CHECKPOINT_FILENAME,
   resolveHarborCellAiSdkEnv,
   runHarborCellFromEnv,
   runHarborCell,
+  writeHarborCellUsageCheckpoint,
 } from '../harbor-cell.js';
 
 const config: Config = {
@@ -182,6 +184,39 @@ function registerStepCapThenCompleteBackend(seen: { backend?: StepCapThenComplet
   };
 }
 
+class UnmeteredStepCapThenCompleteBackend extends StepCapThenCompleteBackend {
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    if (this.prompts.length > 0) {
+      yield* super.send(input);
+      return;
+    }
+    const ts = Date.now();
+    this.prompts.push(input.text);
+    this.cwds.push(this.ctx.header.cwd);
+    yield {
+      type: 'tool_start',
+      id: 'unmetered-tool-step',
+      turnId: input.turnId,
+      ts,
+      toolUseId: 'call-1',
+      toolName: 'Read',
+      args: { path: 'README.md' },
+      stepId: 'step-1',
+    };
+    yield { type: 'complete', id: 'unmetered-step-cap', turnId: input.turnId, ts, stopReason: 'step_limit' };
+  }
+}
+
+function registerUnmeteredStepCapThenCompleteBackend(seen: { backend?: UnmeteredStepCapThenCompleteBackend }) {
+  return (registry: BackendRegistry): void => {
+    registry.register('fake', (ctx) => {
+      const backend = new UnmeteredStepCapThenCompleteBackend({ sessionId: ctx.sessionId, header: ctx.header });
+      seen.backend = backend;
+      return backend;
+    });
+  };
+}
+
 class StepCapThenThrowBackend extends StepCapThenCompleteBackend {
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     if (this.prompts.length > 0) {
@@ -301,6 +336,70 @@ function registerStepCapTwiceThenCompleteBackend(seen: { backend?: StepCapTwiceT
 }
 
 describe('runHarborCell', () => {
+  test('atomically replaces the cumulative completed-step usage checkpoint', async () => {
+    await withDirs(async ({ outputDir }) => {
+      const first = {
+        inputTokens: 100,
+        outputTokens: 5,
+        cacheHitInputTokens: 20,
+        cacheMissInputTokens: 80,
+        cacheMissInputSource: 'explicit' as const,
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 1,
+        totalTokens: 105,
+        costUsd: 0.001,
+      };
+      await writeHarborCellUsageCheckpoint(outputDir, first);
+      await writeHarborCellUsageCheckpoint(outputDir, {
+        ...first,
+        inputTokens: 300,
+        outputTokens: 12,
+        cacheHitInputTokens: 100,
+        cacheMissInputTokens: 200,
+        reasoningTokens: 2,
+        totalTokens: 312,
+        costUsd: 0.003,
+      });
+
+      assert.deepEqual(
+        JSON.parse(await readFile(join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8')),
+        {
+          input: 300,
+          output: 12,
+          cachedInput: 100,
+          cacheHitInput: 100,
+          cacheMissInput: 200,
+          cacheWriteInput: 0,
+          cacheMissInputSource: 'explicit',
+          reasoning: 2,
+          total: 312,
+          costUsd: 0.003,
+          pricingSource: 'runtime',
+        },
+      );
+    });
+  });
+
+  test('does not turn unknown checkpoint cost into zero', async () => {
+    await withDirs(async ({ outputDir }) => {
+      await writeHarborCellUsageCheckpoint(outputDir, {
+        inputTokens: 100,
+        outputTokens: 5,
+        cacheHitInputTokens: 20,
+        cacheMissInputTokens: 80,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 1,
+        totalTokens: 105,
+      });
+
+      await assert.rejects(
+        readFile(join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8'),
+        (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
+      );
+    });
+  });
+
   test('runs in the provided workspace and writes the shared cell artifacts', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const result = await runHarborCell({
@@ -317,6 +416,7 @@ describe('runHarborCell', () => {
       assert.equal(result.output.status, 'completed');
       assert.equal(result.output.promptHash, 'sha256:cell-prompt');
       assert.equal(result.output.runtimeEventsPath, join(outputDir, HARBOR_CELL_RUNTIME_EVENTS_FILENAME));
+      assert.ok(result.output.tokenSummary);
       assert.equal(result.output.tokenSummary.costUsd, 0.0042);
       assert.deepEqual(result.output.executionIdentity, {
         llmConnectionSlug: 'fake',
@@ -442,12 +542,13 @@ describe('runHarborCell', () => {
         continuedTurns: 1,
         stepCapHits: 1,
         capExhausted: false,
-        totalRuntimeSteps: 50,
+        totalRuntimeSteps: 51,
         turns: [
           { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
-          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 1 },
         ],
       });
+      assert.ok(result.output.tokenSummary);
       assert.equal(result.output.tokenSummary.input, 13);
       assert.equal(result.output.tokenSummary.costUsd, 0.03);
       const runtimeEvents = await readFile(join(outputDir, HARBOR_CELL_RUNTIME_EVENTS_FILENAME), 'utf8');
@@ -536,6 +637,32 @@ describe('runHarborCell', () => {
     });
   });
 
+  test('stops continuation at the step budget when the capped turn has no usage', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const seen: { backend?: UnmeteredStepCapThenCompleteBackend } = {};
+      const result = await runHarborCell({
+        config,
+        instruction: 'solve the benchmark task',
+        cwd: workspaceDir,
+        outputDir,
+        storageRoot,
+        registerBackends: registerUnmeteredStepCapThenCompleteBackend(seen),
+        continuationPolicy: {
+          enabled: true,
+          maxTurns: 3,
+          maxTotalRuntimeSteps: 1,
+          prompt: 'Continue neutrally from current workspace.',
+        },
+      });
+
+      assert.equal(result.output.status, 'failed');
+      assert.equal(result.output.errorClass, 'tool_step_cap_reached');
+      assert.deepEqual(seen.backend?.prompts, ['solve the benchmark task']);
+      assert.equal(result.output.continuationSummary?.totalRuntimeSteps, 1);
+      assert.equal('tokenSummary' in result.output, false);
+    });
+  });
+
   test('does not spend continuation step budget from diagnostic event count', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const seen: { backend?: NoisyStepCapThenCompleteBackend } = {};
@@ -567,10 +694,10 @@ describe('runHarborCell', () => {
         continuedTurns: 1,
         stepCapHits: 1,
         capExhausted: false,
-        totalRuntimeSteps: 50,
+        totalRuntimeSteps: 51,
         turns: [
           { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
-          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 1 },
         ],
       });
     });
@@ -609,11 +736,11 @@ describe('runHarborCell', () => {
         continuedTurns: 2,
         stepCapHits: 2,
         capExhausted: false,
-        totalRuntimeSteps: 100,
+        totalRuntimeSteps: 101,
         turns: [
           { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
           { turnIndex: 1, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
-          { turnIndex: 2, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+          { turnIndex: 2, status: 'completed', stepCapHit: false, runtimeSteps: 1 },
         ],
       });
     });
@@ -699,7 +826,7 @@ describe('runHarborCell', () => {
         staleToolResultPrune: {
           enabled: true,
           maxResultEstimatedTokens: 256,
-          minRecentTurnsFull: 2,
+          minRecentTurnsFull: 0,
         },
         activeToolResultPrune: {
           enabled: true,
@@ -1502,7 +1629,7 @@ describe('runHarborCell', () => {
         input: ReturnType<typeof buildHarborCellContextBudgetBackendOptions>;
       }).input;
       assert.equal(backendInput.contextBudget?.staleToolResultPrune?.enabled, true);
-      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 2);
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 0);
       assert.equal(backendInput.contextBudget?.archiveRetrieval?.enabled, true);
       assert.equal(backendInput.contextBudget?.archiveRetrieval?.mode, undefined);
       assert.ok(backendInput.archiveToolResult, 'expected archive writer for the placeholder producer');
@@ -1751,21 +1878,18 @@ describe('runHarborCell', () => {
   test('Harbor active tool result prune can be disabled with explicit off', () => {
     const options = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' });
     assert.equal(options.contextBudget?.activeToolResultPrune, undefined);
-    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
+    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 0 });
   });
 
   test('Harbor stale tool result prune is enabled by default without any env', () => {
     const backend = buildHarborCellContextBudgetBackendOptions({});
-    // minRecentTurnsFull is set explicitly so the runtime protection window
-    // matches the policy snapshot and desktop default instead of the runtime's
-    // internal ?? 1 fallback.
-    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
+    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 0 });
 
     const snapshot = buildHarborCellContextBudgetPolicySnapshot({});
     assert.equal(snapshot?.enabled, true);
     assert.equal(snapshot?.staleToolResultPrune?.enabled, true);
     assert.equal(snapshot?.staleToolResultPrune?.maxResultEstimatedTokens, 2048);
-    assert.equal(snapshot?.staleToolResultPrune?.minRecentTurnsFull, 2);
+    assert.equal(snapshot?.staleToolResultPrune?.minRecentTurnsFull, 0);
   });
 
   test('Harbor stale tool result prune can be disabled with explicit off', () => {
@@ -1774,9 +1898,9 @@ describe('runHarborCell', () => {
     assert.deepEqual(options.contextBudget?.activeToolResultPrune, { enabled: true });
   });
 
-  test('Harbor stale tool result prune min recent turns falls back to MAKA_CONTEXT_MIN_RECENT_TURNS', () => {
+  test('Harbor stale tool result prune does not inherit the general recent-turn window', () => {
     const fallback = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_MIN_RECENT_TURNS: '3' });
-    assert.equal(fallback.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 3);
+    assert.equal(fallback.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 0);
 
     const explicit = buildHarborCellContextBudgetBackendOptions({
       MAKA_CONTEXT_MIN_RECENT_TURNS: '3',
@@ -1848,6 +1972,44 @@ describe('runHarborCell', () => {
     assert.equal(snapshot.semanticCompact?.mode, 'validate_only');
     assert.equal(snapshot.semanticCompact?.minRecentToolPairs, 1);
     assert.equal(snapshot.semanticCompact?.minSavingsTokens, 64);
+  });
+
+  test('Harbor parses a synthesis-cache-only arm and reflects it in the snapshot', () => {
+    // A benchmark arm may enable only the synthesis cache; the backend options
+    // must still build a policy (regression guard for the early-return that
+    // previously required one of the other context-budget mechanisms).
+    const options = buildHarborCellContextBudgetBackendOptions({
+      MAKA_CONTEXT_SYNTHESIS_CACHE: 'on',
+      MAKA_CONTEXT_SYNTHESIS_CACHE_MODE: 'read_write',
+      MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS: '2',
+      MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS: '4096',
+      MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS: '2048',
+    });
+    assert.equal(options.contextBudget?.synthesisCache?.enabled, true);
+    assert.equal(options.contextBudget?.synthesisCache?.mode, 'read_write');
+    assert.equal(options.contextBudget?.synthesisCache?.maxBlocks, 2);
+    assert.equal(options.contextBudget?.synthesisCache?.maxEstimatedTokens, 4096);
+    assert.equal(options.contextBudget?.synthesisCache?.maxBlockEstimatedTokens, 2048);
+    assert.equal(options.contextBudget?.synthesisCache?.invalidateOnNewToolResult, true);
+    assert.equal(options.contextBudget?.synthesisCache?.schemaVersion, 1);
+
+    // Defaults: mode falls back to lookup and the bounds match the runtime policy.
+    const defaults = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_SYNTHESIS_CACHE: 'on' });
+    assert.equal(defaults.contextBudget?.synthesisCache?.mode, 'lookup');
+    assert.equal(defaults.contextBudget?.synthesisCache?.maxBlocks, 1);
+    assert.equal(defaults.contextBudget?.synthesisCache?.maxEstimatedTokens, 2048);
+    assert.equal(defaults.contextBudget?.synthesisCache?.maxBlockEstimatedTokens, 1024);
+
+    const snapshot = buildHarborCellContextBudgetPolicySnapshot({
+      MAKA_CONTEXT_SYNTHESIS_CACHE: 'on',
+      MAKA_CONTEXT_SYNTHESIS_CACHE_MODE: 'read_write',
+      MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS: '2',
+    });
+    assert.equal(snapshot?.enabled, true);
+    if (!snapshot?.enabled) throw new Error('expected context budget snapshot to be enabled');
+    assert.equal(snapshot.synthesisCache?.mode, 'read_write');
+    assert.equal(snapshot.synthesisCache?.maxBlocks, 2);
+    assert.equal(snapshot.synthesisCache?.schemaVersion, 1);
   });
 
   test('Harbor tool builder keeps the six container-native tools non-interactive', () => {
@@ -2074,6 +2236,7 @@ console.log(JSON.stringify({ type: 'agent_end', messages: [{ role: 'assistant', 
       assert.equal(argv.at(-1), '-p');
       assert.equal(argv.includes('solve through default pi transport'), false);
       assert.equal(await readFile(join(workspaceDir, 'pi-default-stdin.txt'), 'utf8'), 'solve through default pi transport');
+      assert.ok(result.output.tokenSummary);
       assert.equal(result.output.tokenSummary.input, 5);
       assert.equal(result.output.tokenSummary.output, 2);
       assert.equal(result.output.tokenSummary.costUsd, 0.0003);
@@ -2458,10 +2621,7 @@ setTimeout(() => {
     const missing = resolveHarborCellAiSdkEnv({
       provider: 'ollama-cloud',
       model: 'qwen3.5:397b',
-      env: {
-        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
-        MAKA_CREDENTIALS_PATH: join(tmpdir(), 'maka-headless-ollama-cloud-missing-credentials.json'),
-      },
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
       ts: 1,
     });
     assert.equal(missing.apiKey, '');
@@ -2902,6 +3062,60 @@ setTimeout(() => {
 
     const missing = resolveHarborCellAiSdkEnv({
       provider: 'deepinfra',
+      model: modelId,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves Groq only from Groq credential env without rewriting the model id', () => {
+    const modelId = 'llama-3.3-70b-versatile';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'groq',
+      model: modelId,
+      env: {
+        GROQ_API_KEY: 'groq-key',
+        GROQ_BASE_URL: 'https://api.groq.com/openai/v1',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'groq-key');
+    assert.equal(resolved.connection.providerType, 'groq');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(resolved.connection.baseUrl, 'https://api.groq.com/openai/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'groq',
+      model: modelId,
+      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      ts: 1,
+    });
+    assert.equal(missing.apiKey, '');
+  });
+
+  test('resolves OpenRouter only from OpenRouter credential env without rewriting the model id', () => {
+    const modelId = 'anthropic/claude-sonnet-5';
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'openrouter',
+      model: modelId,
+      env: {
+        OPENROUTER_API_KEY: 'openrouter-key',
+        OPENROUTER_BASE_URL: 'https://openrouter.ai/api/v1',
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'openrouter-key');
+    assert.equal(resolved.connection.providerType, 'openrouter');
+    assert.equal(resolved.connection.defaultModel, modelId);
+    assert.equal(resolved.connection.baseUrl, 'https://openrouter.ai/api/v1');
+
+    const missing = resolveHarborCellAiSdkEnv({
+      provider: 'openrouter',
       model: modelId,
       env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
       ts: 1,

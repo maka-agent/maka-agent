@@ -1,6 +1,7 @@
 import {
   forwardRef,
   useEffect,
+  useId,
   useImperativeHandle,
   useRef,
   useState,
@@ -11,7 +12,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useMountedRef } from './use-mounted-ref.js';
-import { ArrowUp, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Plus } from './icons.js';
+import { ArrowUp, Blocks, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Paperclip, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import { type UiLocale, detectUiLocale } from './locale-helpers.js';
 import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js';
@@ -27,18 +28,22 @@ import {
 import { readGlobalInputHistory, saveGlobalInputHistoryEntry } from './input-history.js';
 import {
   createChatInputActionOwner,
+  detectMentionTrigger,
   fileTransferContainsFiles,
   focusTextInputAtEnd,
   isChatInputComposing,
+  mentionQueryMatches,
   type ChatInputActionOwner,
+  type MentionTrigger,
 } from './chat-input-behavior.js';
+import { ComposerMentionPopup, mentionOptionId, type MentionItem } from './composer-mention-popup.js';
 import type { AttachmentRef, PermissionMode, ProviderType, SessionSummary } from '@maka/core';
 import { Button as UiButton } from './ui.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
 import { Kbd } from './primitives/kbd.js';
 import { PermissionModeSelect } from './permission-mode-menu.js';
-import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from './primitives/menu.js';
 
 const COMPOSER_MAX_HEIGHT = 240;
 
@@ -152,6 +157,10 @@ export const Composer = forwardRef<
     onAttachFilePaths?(files: File[]): void | Promise<void>;
     pendingAttachments?: readonly { displayName: string; kind: AttachmentRef['kind']; mimeType?: string; size: number }[];
     onRemoveAttachment?(index: number): void;
+    /** Built-in expert teams offered under 专家团 in the "+" menu. */
+    expertTeams?: readonly { id: string; name: string; description?: string }[];
+    /** Start a new expert-team session from the "+" menu. */
+    onStartExpertTeam?(teamId: string): void;
     modelLabel?: string;
     activeSession?: SessionSummary;
     activeConnectionLabel?: string;
@@ -221,6 +230,19 @@ export const Composer = forwardRef<
     permissionModePending?: boolean;
     permissionModeDisabledReason?: string;
     onPermissionModeChange?(mode: PermissionMode): void | Promise<void>;
+    /**
+     * Composer mention popups (v1 plain-text tokens; see
+     * notes/composer-mentions-spec-2026-07-14.md). Both are optional and the
+     * whole feature no-ops when absent (SSR contracts render Composer with
+     * minimal props):
+     *   - `mentionSkills` powers the `/` popup — pass only ENABLED skills; the
+     *     composer filters them client-side by the typed query and inserts the
+     *     house `使用 <name> 技能：` convention (human-in-the-loop, never auto-send).
+     *   - `onSearchMentionFiles` powers the `@` popup — the composer debounces
+     *     the query, and selecting a file inserts `@<relativePath> `.
+     */
+    mentionSkills?: ReadonlyArray<{ id: string; name: string; description?: string }>;
+    onSearchMentionFiles?(query: string): Promise<ReadonlyArray<{ relativePath: string }>>;
   }
 >(function Composer(props, ref) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -241,6 +263,22 @@ export const Composer = forwardRef<
     });
   }
   const promptHistoryRef = useRef<ComposerHistoryState>({ entries: readGlobalInputHistory() ?? [], index: -1, savedDraft: '' });
+  // Mention popup state (@ file / skill). `mention` holds the active trigger +
+  // query + trigger-char index; items/loading/activeIndex drive the popup. The
+  // whole block stays inert unless the matching provider prop is present, so
+  // the SSR contracts (minimal props) render nothing here.
+  const [mention, setMention] = useState<MentionTrigger | null>(null);
+  const [mentionItems, setMentionItems] = useState<readonly MentionItem[]>([]);
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+  const [mentionLoading, setMentionLoading] = useState(false);
+  const mentionListboxId = useId();
+  // Exact post-insertion snapshot: after we splice in a token the value can
+  // still parse as a valid trigger (e.g. `@file.txt ` — one trailing space),
+  // which would immediately re-open the popup. Suppress detection for that one
+  // state only; any further edit or caret move clears it and detection resumes.
+  const mentionSuppressRef = useRef<{ value: string; caret: number } | null>(null);
+  const recomputeMentionRef = useRef<() => void>(() => {});
+  const mentionPopupOpen = mention !== null;
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   // detect once per render (cheap) rather than memoizing — the locale
   // is effectively constant for the lifetime of the renderer but the
@@ -383,6 +421,40 @@ export const Composer = forwardRef<
   function onTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     // Skip when an IME composition is active so CJK input isn't interrupted.
     if (isChatInputComposing(event, compositionActiveRef.current)) return;
+    // Mention popup navigation. MUST come before the Esc/drag and streaming
+    // branches: while the popup is open Enter/Tab select a mention (never
+    // send), and Esc closes ONLY the popup (it must not clear a drag highlight
+    // or stop the stream). Arrow keys move the highlight and wrap around.
+    if (mentionPopupOpen) {
+      const count = mentionItems.length;
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (count > 0) setMentionActiveIndex((index) => (index + 1) % count);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (count > 0) setMentionActiveIndex((index) => (index - 1 + count) % count);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        if (count > 0) {
+          event.preventDefault();
+          selectMention(mentionActiveIndex);
+          return;
+        }
+        // Nothing to select (loading / no matches): swallow Enter so it can't
+        // send while the popup is up, and just close it. Let Tab move focus.
+        if (event.key === 'Enter') event.preventDefault();
+        closeMention();
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMention();
+        return;
+      }
+    }
     // Esc while a drag-active highlight is showing should clear it
     // immediately. The existing useEffect listens for blur/dragend/drop
     // but not keydown, so a user who hits Esc to cancel a stuck drag
@@ -462,7 +534,137 @@ export const Composer = forwardRef<
     resetPromptHistoryNavigation();
     autoResize();
     saveCurrentDraft();
+    recomputeMention();
   }
+
+  function closeMention() {
+    setMention(null);
+    setMentionItems([]);
+    setMentionActiveIndex(0);
+    setMentionLoading(false);
+  }
+
+  // Re-detect the active mention trigger from the live textarea value + caret.
+  // Called on input, keyup, and document selectionchange so clicking elsewhere
+  // (or moving the caret out of a trigger) closes the popup.
+  function recomputeMention() {
+    const el = textareaRef.current;
+    if (!el) return;
+    // Only the focused textarea drives the popup — a selectionchange from
+    // another field, or a blur, should close it.
+    if (typeof document !== 'undefined' && document.activeElement !== el) {
+      if (mentionPopupOpen) closeMention();
+      return;
+    }
+    const caret = el.selectionEnd ?? el.value.length;
+    const suppress = mentionSuppressRef.current;
+    if (suppress && suppress.value === el.value && suppress.caret === caret) {
+      if (mentionPopupOpen) closeMention();
+      return;
+    }
+    mentionSuppressRef.current = null;
+    const result = detectMentionTrigger(el.value, caret);
+    // Gate on provider presence so the feature no-ops when a popup has nothing
+    // to render (keeps the SSR/minimal-props path inert).
+    if (!result
+      || (result.trigger === '@' && !props.onSearchMentionFiles)
+      || (result.trigger === '/' && props.mentionSkills === undefined)) {
+      if (mentionPopupOpen) closeMention();
+      return;
+    }
+    setMention((prev) =>
+      prev && prev.trigger === result.trigger && prev.query === result.query && prev.start === result.start
+        ? prev
+        : result,
+    );
+  }
+  recomputeMentionRef.current = recomputeMention;
+
+  function selectMention(index: number) {
+    const el = textareaRef.current;
+    const current = mention;
+    if (!el || !current) return;
+    const item = mentionItems[index];
+    if (!item) return;
+    const insertion = item.type === 'file'
+      ? `@${item.relativePath} `
+      : `使用 ${item.name} 技能：`;
+    const value = el.value;
+    const caret = el.selectionEnd ?? value.length;
+    // Replace [start, caret): the trigger char (at `start`) through the caret,
+    // i.e. the `@query` / `/query` the user typed, with the plain-text token.
+    const nextValue = value.slice(0, current.start) + insertion + value.slice(caret);
+    const nextCaret = current.start + insertion.length;
+    resetPromptHistoryNavigation();
+    el.value = nextValue;
+    el.setSelectionRange(nextCaret, nextCaret);
+    mentionSuppressRef.current = { value: nextValue, caret: nextCaret };
+    closeMention();
+    saveCurrentDraft(nextValue);
+    autoResize();
+    el.focus();
+  }
+
+  // Populate the popup for the active trigger: skills filter synchronously from
+  // props; files search through the (debounced) IPC-backed callback.
+  useEffect(() => {
+    if (!mention) {
+      setMentionItems([]);
+      setMentionLoading(false);
+      return;
+    }
+    if (mention.trigger === '/') {
+      const skills = props.mentionSkills ?? [];
+      const items: MentionItem[] = skills
+        .filter((skill) => mentionQueryMatches(mention.query, `${skill.name} ${skill.description ?? ''}`))
+        .slice(0, 50)
+        .map((skill) => ({ type: 'skill', id: skill.id, name: skill.name, description: skill.description }));
+      setMentionItems(items);
+      setMentionActiveIndex(0);
+      setMentionLoading(false);
+      return undefined;
+    }
+    const search = props.onSearchMentionFiles;
+    if (!search) {
+      setMentionItems([]);
+      setMentionLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setMentionLoading(true);
+    setMentionActiveIndex(0);
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const files = await search(mention.query);
+          if (cancelled) return;
+          const items: MentionItem[] = files
+            .filter((file) => mentionQueryMatches(mention.query, file.relativePath))
+            .slice(0, 50)
+            .map((file) => ({ type: 'file', relativePath: file.relativePath }));
+          setMentionItems(items);
+        } catch {
+          // Fail soft: an IPC error just yields an empty list (未找到文件).
+          if (!cancelled) setMentionItems([]);
+        } finally {
+          if (!cancelled) setMentionLoading(false);
+        }
+      })();
+    }, 150);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [mention, props.mentionSkills, props.onSearchMentionFiles]);
+
+  // Caret-move detection: a plain click or arrow that moves the caret out of a
+  // trigger fires selectionchange (not input), so listen for it while mounted.
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const onSelectionChange = () => recomputeMentionRef.current();
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => document.removeEventListener('selectionchange', onSelectionChange);
+  }, []);
 
   function canAcceptDroppedFiles(): boolean {
     return Boolean(props.onAttachFilePaths && !props.disabled && !props.streaming && !importActionOwnerRef.current?.pending);
@@ -581,16 +783,36 @@ export const Composer = forwardRef<
           className="maka-composer-textarea resize-none"
           placeholder={copy.placeholder}
           aria-label={copy.textareaAriaLabel}
+          aria-controls={mentionPopupOpen ? mentionListboxId : undefined}
+          aria-expanded={mentionPopupOpen ? true : undefined}
+          aria-activedescendant={
+            mentionPopupOpen && mentionItems.length > 0
+              ? mentionOptionId(mentionListboxId, mentionActiveIndex)
+              : undefined
+          }
           disabled={props.disabled}
           onKeyDown={onTextareaKeyDown}
+          onKeyUp={recomputeMention}
+          onClick={recomputeMention}
           onPaste={onTextareaPaste}
           onCompositionStart={() => { compositionActiveRef.current = true; }}
-          onCompositionEnd={() => { compositionActiveRef.current = false; }}
+          onCompositionEnd={() => { compositionActiveRef.current = false; recomputeMention(); }}
           onInput={onTextareaInput}
           rows={1}
           autoComplete="off"
           spellCheck={false}
         />
+        {mention ? (
+          <ComposerMentionPopup
+            trigger={mention.trigger}
+            items={mentionItems}
+            activeIndex={mentionActiveIndex}
+            loading={mentionLoading}
+            listboxId={mentionListboxId}
+            onSelect={selectMention}
+            onHover={setMentionActiveIndex}
+          />
+        ) : null}
         {dragActive && (
           <span className="maka-visually-hidden" role="status" aria-live="polite">
             松开以导入文件内容
@@ -598,20 +820,54 @@ export const Composer = forwardRef<
         )}
         <div className="maka-composer-toolbar composerActions" data-streaming={props.streaming ? 'true' : undefined}>
           <div className="maka-composer-left-controls">
-            {!props.streaming && props.onPickAttachments ? (
-              <UiButton
-                variant="quiet"
-                size="icon-sm"
-                type="button"
-                disabled={props.disabled || importActionBusy}
-                onClick={() => void runImportAction('pick', props.onPickAttachments)}
-                aria-label={pendingImportAction === 'pick' ? '正在添加附件' : '添加附件'}
-                aria-busy={pendingImportAction === 'pick' ? 'true' : undefined}
-                data-pending={pendingImportAction === 'pick' ? 'true' : undefined}
-                title="添加附件"
-              >
-                <Plus size={15} aria-hidden="true" />
-              </UiButton>
+            {!props.streaming && (props.onPickAttachments || (props.expertTeams?.length ?? 0) > 0) ? (
+              <Menu>
+                <MenuTrigger
+                  render={({ onClick: menuToggleClick, ...triggerRest }) => (
+                    <UiButton
+                      {...triggerRest}
+                      variant="quiet"
+                      size="icon-sm"
+                      type="button"
+                      disabled={props.disabled || importActionBusy}
+                      onClick={(e) => { menuToggleClick?.(e); }}
+                      aria-label={pendingImportAction === 'pick' ? '正在添加附件' : '添加'}
+                      aria-busy={importActionBusy ? 'true' : undefined}
+                      data-pending={importActionBusy ? 'true' : undefined}
+                      title="添加文件、专家团…"
+                    >
+                      <Plus size={15} aria-hidden="true" />
+                    </UiButton>
+                  )}
+                />
+                <MenuPopup className="maka-composer-context-menu" align="start" side="top" sideOffset={6}>
+                  {props.onPickAttachments ? (
+                    <MenuItem onClick={() => void runImportAction('pick', props.onPickAttachments)}>
+                      <Paperclip size={13} aria-hidden="true" />
+                      <span>添加文件或目录</span>
+                    </MenuItem>
+                  ) : null}
+                  {(props.expertTeams?.length ?? 0) > 0 ? (
+                    <MenuSub>
+                      <MenuSubTrigger>
+                        <Blocks size={13} aria-hidden="true" />
+                        <span>专家团</span>
+                      </MenuSubTrigger>
+                      <MenuSubPopup>
+                        {props.expertTeams?.map((team) => (
+                          <MenuItem
+                            key={team.id}
+                            onClick={() => props.onStartExpertTeam?.(team.id)}
+                            {...(team.description ? { title: team.description } : {})}
+                          >
+                            <span>{team.name}</span>
+                          </MenuItem>
+                        ))}
+                      </MenuSubPopup>
+                    </MenuSub>
+                  ) : null}
+                </MenuPopup>
+              </Menu>
             ) : null}
             {/* PR-MOVE-PERMISSION-MODE: the static "通用" role chip
                 was replaced by the permission-mode dropdown — that
@@ -624,6 +880,7 @@ export const Composer = forwardRef<
                 normal chat. */}
             {props.onPermissionModeChange ? (
               <PermissionModeSelect
+                appearance="quiet"
                 activeMode={props.permissionMode ?? 'ask'}
                 onSelect={(mode) => {
                   void props.onPermissionModeChange?.(mode);

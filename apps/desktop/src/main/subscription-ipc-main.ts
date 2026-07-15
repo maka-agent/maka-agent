@@ -6,9 +6,9 @@ import {
   isSubscriptionExperimentalEnabled,
 } from './oauth/claude-subscription-service.js';
 import {
-  type CodexSubscriptionService,
-  isCodexSubscriptionExperimentalEnabled,
-} from './oauth/codex-subscription-service.js';
+  type OpenAiCodexService,
+  isOpenAiCodexExperimentalEnabled,
+} from './oauth/openai-codex-service.js';
 import {
   type CursorSubscriptionService,
   isCursorSubscriptionExperimentalEnabled,
@@ -27,18 +27,18 @@ import type { GitHubCopilotSubscriptionService } from './oauth/github-copilot-su
 interface SubscriptionIpcDeps {
   connectionStore: ConnectionStore;
   claudeSubscription: ClaudeSubscriptionService;
-  codexSubscription: CodexSubscriptionService;
+  openAiCodex: OpenAiCodexService;
   githubCopilotSubscription: GitHubCopilotSubscriptionService;
   cursorSubscription: CursorSubscriptionService;
   antigravitySubscription: AntigravitySubscriptionService;
   isClaudeSubscriptionAuthenticatedState(
     state: Awaited<ReturnType<ClaudeSubscriptionService['getAccountState']>>,
   ): boolean;
-  isCodexSubscriptionAuthenticatedState(
-    state: Awaited<ReturnType<CodexSubscriptionService['getAccountState']>>,
+  isOpenAiCodexAuthenticatedState(
+    state: Awaited<ReturnType<OpenAiCodexService['getAccountState']>>,
   ): boolean;
   syncClaudeSubscriptionConnection(): Promise<LlmConnection | null>;
-  syncCodexSubscriptionConnection(): Promise<LlmConnection | null>;
+  syncOpenAiCodexConnection(): Promise<LlmConnection | null>;
   syncGitHubCopilotConnection(models?: NonNullable<LlmConnection['models']>): Promise<LlmConnection | null>;
   emitConnectionListChanged(): void;
 }
@@ -201,72 +201,72 @@ export function registerSubscriptionIpc(deps: SubscriptionIpcDeps): void {
     reason: 'experimental_disabled' as const,
     message: 'OpenAI Codex 订阅账号为内部实验，当前未开启。',
   };
-  ipcMain.handle('codex-subscription:is-experimental-enabled', async () =>
-    isCodexSubscriptionExperimentalEnabled(),
+  ipcMain.handle('openai-codex:is-experimental-enabled', async () =>
+    isOpenAiCodexExperimentalEnabled(),
   );
-  ipcMain.handle('codex-subscription:get-auth-url', async () => {
-    if (!isCodexSubscriptionExperimentalEnabled()) return codexDisabledResponse;
-    return deps.codexSubscription.getAuthorizationUrl();
+  ipcMain.handle('openai-codex:get-auth-url', async () => {
+    if (!isOpenAiCodexExperimentalEnabled()) return codexDisabledResponse;
+    return deps.openAiCodex.getAuthorizationUrl();
   });
   ipcMain.handle(
-    'codex-subscription:open-auth-url',
+    'openai-codex:open-auth-url',
     async (_event, authRequestId: unknown) => {
-      if (!isCodexSubscriptionExperimentalEnabled()) return codexDisabledResponse;
+      if (!isOpenAiCodexExperimentalEnabled()) return codexDisabledResponse;
       if (typeof authRequestId !== 'string') {
         return { ok: false as const, reason: 'authorization_pending' as const, message: '授权会话不存在。' };
       }
-      return deps.codexSubscription.openAuthorizationUrl(authRequestId);
+      return deps.openAiCodex.openAuthorizationUrl(authRequestId);
     },
   );
   ipcMain.handle(
-    'codex-subscription:complete-authorization',
+    'openai-codex:complete-authorization',
     async (_event, authRequestId: unknown) => {
-      if (!isCodexSubscriptionExperimentalEnabled()) return codexDisabledResponse;
+      if (!isOpenAiCodexExperimentalEnabled()) return codexDisabledResponse;
       if (typeof authRequestId !== 'string') {
         return { ok: false as const, reason: 'authorization_pending' as const, message: '授权会话不存在。' };
       }
-      const result = await deps.codexSubscription.completeAuthorization(authRequestId);
+      const result = await deps.openAiCodex.completeAuthorization(authRequestId);
       if (result.ok) {
-        await deps.syncCodexSubscriptionConnection();
+        await deps.syncOpenAiCodexConnection();
         deps.emitConnectionListChanged();
       }
       return result;
     },
   );
   ipcMain.handle(
-    'codex-subscription:cancel-authorization',
+    'openai-codex:cancel-authorization',
     async (_event, authRequestId: unknown) => {
-      if (!isCodexSubscriptionExperimentalEnabled()) return { ok: true as const };
-      deps.codexSubscription.cancelAuthorization(
+      if (!isOpenAiCodexExperimentalEnabled()) return { ok: true as const };
+      deps.openAiCodex.cancelAuthorization(
         typeof authRequestId === 'string' ? authRequestId : undefined,
       );
       return { ok: true as const };
     },
   );
-  ipcMain.handle('codex-subscription:get-account-state', async () => {
-    if (!isCodexSubscriptionExperimentalEnabled()) {
+  ipcMain.handle('openai-codex:get-account-state', async () => {
+    if (!isOpenAiCodexExperimentalEnabled()) {
       return {
-        provider: 'codex-subscription' as const,
+        provider: 'openai-codex' as const,
         runtimeState: 'not_logged_in' as const,
       };
     }
-    const state = await deps.codexSubscription.getAccountState();
-    if (deps.isCodexSubscriptionAuthenticatedState(state)) {
-      await deps.syncCodexSubscriptionConnection();
+    const state = await deps.openAiCodex.getAccountState();
+    if (deps.isOpenAiCodexAuthenticatedState(state)) {
+      await deps.syncOpenAiCodexConnection();
     }
     return state;
   });
-  ipcMain.handle('codex-subscription:refresh-tokens', async () => {
-    if (!isCodexSubscriptionExperimentalEnabled()) return codexDisabledResponse;
-    const result = await deps.codexSubscription.refreshTokens();
+  ipcMain.handle('openai-codex:refresh-tokens', async () => {
+    if (!isOpenAiCodexExperimentalEnabled()) return codexDisabledResponse;
+    const result = await deps.openAiCodex.refreshTokens();
     if (result.ok) {
-      await deps.syncCodexSubscriptionConnection();
+      await deps.syncOpenAiCodexConnection();
       deps.emitConnectionListChanged();
     }
     return result;
   });
-  ipcMain.handle('codex-subscription:logout', async () => {
-    const result = await deps.codexSubscription.logout();
+  ipcMain.handle('openai-codex:logout', async () => {
+    const result = await deps.openAiCodex.logout();
     const existing = await deps.connectionStore.get(CODEX_SUBSCRIPTION_CONNECTION_SLUG);
     if (existing) {
       await deps.connectionStore.update(existing.slug, {

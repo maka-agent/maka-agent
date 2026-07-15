@@ -37,11 +37,14 @@ describe('Computer Use host health', () => {
     assert.equal(computerUseServiceHealth('cua-driver', {
       action: role('backing_off'),
       capture: { ...role('ready'), role: 'capture' },
-    }).state, 'degraded');
-    assert.equal(computerUseServiceHealth('cua-driver', {
+    }).reason, 'cua-driver service 正在启动或恢复。');
+    assert.deepEqual(computerUseServiceHealth('cua-driver', {
       action: role('unavailable'),
       capture: { ...role('ready'), role: 'capture' },
-    }).state, 'not_available');
+    }), {
+      state: 'not_available',
+      reason: 'cua-driver service 启动失败或已退出。',
+    });
     assert.deepEqual(computerUseServiceHealth('cua-driver', {
       action: role('ready'),
       capture: { ...role('idle'), role: 'capture' },
@@ -49,10 +52,13 @@ describe('Computer Use host health', () => {
       state: 'not_run',
       reason: 'cua-driver 部分服务已启动，其余服务将在需要时启动。',
     });
-    assert.equal(computerUseServiceHealth('cua-driver', {
+    assert.deepEqual(computerUseServiceHealth('cua-driver', {
       action: role('disposed'),
       capture: { ...role('ready'), role: 'capture' },
-    }).state, 'not_available');
+    }), {
+      state: 'not_available',
+      reason: 'cua-driver service 已停止。',
+    });
   });
 
   it('reports a missing backend as unavailable', () => {

@@ -1,6 +1,6 @@
 import { Markdown } from '@earendil-works/pi-tui';
 import type {
-  PermissionRequestEvent,
+  AnyPermissionRequestEvent,
   UserQuestionRequestEvent,
   SessionEvent,
   ToolOutputStream,
@@ -11,9 +11,10 @@ import { STEP_LIMIT_NOTICE_TEXT, type StoredMessage, type SystemNoteMessage } fr
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import {
+  formatWriteStdinPermissionInspection,
   mergeShellRunStateWithDiagnostics,
   projectToolActivityArgs,
-  readWriteStdinInputPreview,
+  projectWriteStdinPermissionSummary,
   type ShellRunUpdate,
 } from '@maka/core';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
@@ -30,11 +31,23 @@ import {
 } from './pi-transcript-format.js';
 import { renderToolBlock } from './pi-transcript-tools.js';
 
+export interface MakaPiUsageSummary {
+  /** Cumulative cost in USD across the session. */
+  costUsd: number;
+  /** Cumulative cache hit input tokens. */
+  cacheHitInput: number;
+  /** Cumulative cache miss input tokens. */
+  cacheMissInput: number;
+  /** Remaining context tokens from the latest token_usage event. */
+  contextRemaining?: number;
+}
+
 export interface MakaPiTranscriptState {
   entries: MakaPiTranscriptEntry[];
   sawTextDeltaMessageIds: Set<string>;
   pendingInteraction?: MakaPiPendingInteraction;
   queuedInteractions: MakaPiPendingInteraction[];
+  expandedPermissionRequestId?: string;
   /**
    * Global expansion toggles: one Ctrl+O press expands every tool card in the
    * transcript, one Ctrl+T press expands every thinking entry; pressing again
@@ -43,9 +56,11 @@ export interface MakaPiTranscriptState {
    */
   expandAllTools: boolean;
   expandAllThinking: boolean;
+  /** Aggregated token usage for statusline display; reset on session switch. */
+  usage: MakaPiUsageSummary;
 }
 
-export type MakaPiPendingInteraction = PermissionRequestEvent | UserQuestionRequestEvent;
+export type MakaPiPendingInteraction = AnyPermissionRequestEvent | UserQuestionRequestEvent;
 
 /** A single live output chunk from a `tool_output_delta` event. */
 export interface MakaPiToolOutputDelta {
@@ -91,6 +106,7 @@ export interface MakaPiTranscriptMetadata {
   thinkingLevels?: readonly ThinkingLevel[];
   sessionId?: string | null;
   busy?: boolean;
+  usage?: MakaPiUsageSummary;
 }
 
 export function createMakaPiTranscriptState(): MakaPiTranscriptState {
@@ -100,7 +116,24 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
     queuedInteractions: [],
     expandAllTools: false,
     expandAllThinking: false,
+    usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 },
   };
+}
+
+function accumulateUsage(usage: MakaPiUsageSummary, msg: {
+  costUsd?: number;
+  input?: number;
+  cacheHitInput?: number;
+  cacheRead?: number;
+  cacheWriteInput?: number;
+  cacheCreation?: number;
+  cacheMissInput?: number;
+}): void {
+  usage.costUsd += msg.costUsd ?? 0;
+  const hit = msg.cacheHitInput ?? msg.cacheRead ?? 0;
+  const write = msg.cacheWriteInput ?? msg.cacheCreation ?? 0;
+  usage.cacheHitInput += hit;
+  usage.cacheMissInput += msg.cacheMissInput ?? Math.max(0, (msg.input ?? 0) - hit - write);
 }
 
 export function appendUserPrompt(state: MakaPiTranscriptState, text: string): void {
@@ -164,6 +197,10 @@ export function replaceTranscriptWithStoredMessages(
   clearPendingInteractions(state);
   state.expandAllTools = false;
   state.expandAllThinking = false;
+  state.usage = { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 };
+  for (const msg of messages) {
+    if (msg.type === 'token_usage') accumulateUsage(state.usage, msg);
+  }
 }
 
 /** Toggle expansion of every tool card at once; false when there is none. */
@@ -184,12 +221,23 @@ export function toggleAllThinkingExpansion(state: MakaPiTranscriptState): boolea
   return true;
 }
 
-export interface TurnOutcome {
-  /** The turn was user-stopped or aborted (double-Escape → driver.stop()). */
-  aborted: boolean;
-  /** The turn ended in an error (stream `error` event or thrown failure). */
-  errored: boolean;
+export function togglePendingPermissionDetails(state: MakaPiTranscriptState): boolean {
+  const request = activePermissionRequest(state);
+  if (request?.toolName !== 'WriteStdin') return false;
+  state.expandedPermissionRequestId = state.expandedPermissionRequestId === request.requestId
+    ? undefined
+    : request.requestId;
+  return true;
 }
+
+export type TurnOutcome =
+  | {
+      kind: 'completed';
+      /** Stable identity from the runtime's terminal event. */
+      turnId: string;
+    }
+  | { kind: 'aborted'; turnId?: string }
+  | { kind: 'errored'; turnId?: string };
 
 export async function submitPromptToTranscript(input: {
   state: MakaPiTranscriptState;
@@ -206,35 +254,34 @@ export async function submitPromptToTranscript(input: {
   appendUserPrompt(input.state, input.prompt);
   input.onChange?.();
 
-  // Surface how the turn ended so the host can gate goal auto-continuation: a
-  // user_stop/abort (the Stop affordance) or an errored turn must NOT trigger
-  // another autonomous turn — mirrors the desktop `turnAborted` guard.
-  let aborted = false;
-  let errored = false;
+  // A single terminal outcome gates goal auto-continuation. Error outranks
+  // abort, which outranks success if a malformed stream emits several terminal
+  // events; well-formed runtime streams emit exactly one.
+  let outcome: TurnOutcome | undefined;
   try {
     for await (const event of input.driver.sendPrompt(input.prompt)) {
-      applyMakaSessionEventToTranscript(input.state, event);
-      if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
-        aborted = true;
-      }
-      if (event.type === 'error') {
-        errored = true;
-        input.onError?.();
-      }
-      // A non-throwing error finish (e.g. content-filter) arrives as
-      // complete{stopReason:'error'} with no separate `error` event — treat it as
-      // errored too, so goal continuation never re-injects into a failed turn
-      // (self-sufficient, not reliant on the session-status backstop).
-      if (
-        event.type === 'complete'
-        && failureClassFromCompleteStopReason(event.stopReason) !== undefined
+      const failed = event.type === 'complete'
+        && failureClassFromCompleteStopReason(event.stopReason) !== undefined;
+      if (event.type === 'error' || failed) {
+        outcome = { kind: 'errored', turnId: event.turnId };
+      } else if (
+        outcome?.kind !== 'errored'
+        && (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop'))
       ) {
-        errored = true;
+        outcome = { kind: 'aborted', turnId: event.turnId };
+      } else if (outcome === undefined && event.type === 'complete') {
+        outcome = { kind: 'completed', turnId: event.turnId };
+      }
+
+      applyMakaSessionEventToTranscript(input.state, event);
+      if (event.type === 'error') {
+        input.onError?.();
       }
       input.onChange?.();
     }
+    if (!outcome) throw new Error('Session turn ended without a completion event');
+    return outcome;
   } catch (error) {
-    errored = true;
     clearPendingInteractions(input.state);
     input.state.entries.push({
       kind: 'notice',
@@ -243,8 +290,8 @@ export async function submitPromptToTranscript(input: {
     });
     input.onError?.();
     input.onChange?.();
+    return { kind: 'errored', ...(outcome?.turnId ? { turnId: outcome.turnId } : {}) };
   }
-  return { aborted, errored };
 }
 
 export async function submitCompactToTranscript(input: {
@@ -392,6 +439,8 @@ export function applyMakaSessionEventToTranscript(
     }
 
     case 'permission_request':
+      enqueuePendingInteraction(state, event);
+      break;
     case 'user_question_request':
       enqueuePendingInteraction(state, event);
       break;
@@ -420,6 +469,8 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'token_usage': {
+      accumulateUsage(state.usage, event);
+      state.usage.contextRemaining = event.contextRemaining;
       const notice = contextBudgetOutcomeNotice(event.contextBudget);
       if (notice) {
         state.entries.push({
@@ -695,7 +746,11 @@ export function renderMakaPiTranscript(
 
   if (state.pendingInteraction?.type === 'permission_request') {
     lines.push('');
-    lines.push(...renderPermissionPrompt(state.pendingInteraction, safeWidth));
+    lines.push(...renderPermissionPrompt(
+      state.pendingInteraction,
+      state.expandedPermissionRequestId === state.pendingInteraction.requestId,
+      safeWidth,
+    ));
   }
 
   return lines;
@@ -707,15 +762,21 @@ export function completePendingInteraction(
 ): boolean {
   if (state.pendingInteraction?.requestId === requestId) {
     state.pendingInteraction = state.queuedInteractions.shift();
+    if (state.expandedPermissionRequestId === requestId) {
+      state.expandedPermissionRequestId = undefined;
+    }
     return true;
   }
   const index = state.queuedInteractions.findIndex((request) => request.requestId === requestId);
   if (index < 0) return false;
   state.queuedInteractions.splice(index, 1);
+  if (state.expandedPermissionRequestId === requestId) {
+    state.expandedPermissionRequestId = undefined;
+  }
   return true;
 }
 
-export function activePermissionRequest(state: MakaPiTranscriptState): PermissionRequestEvent | undefined {
+export function activePermissionRequest(state: MakaPiTranscriptState): AnyPermissionRequestEvent | undefined {
   return state.pendingInteraction?.type === 'permission_request' ? state.pendingInteraction : undefined;
 }
 
@@ -738,7 +799,7 @@ function completePendingPermissionsForToolUseId(
 ): void {
   const requestIds = [state.pendingInteraction, ...state.queuedInteractions]
     .filter(
-      (request): request is PermissionRequestEvent => (
+      (request): request is AnyPermissionRequestEvent => (
         request?.type === 'permission_request' && request.toolUseId === toolUseId
       ),
     )
@@ -757,6 +818,7 @@ function findPendingInteraction(
 function clearPendingInteractions(state: MakaPiTranscriptState): void {
   state.pendingInteraction = undefined;
   state.queuedInteractions = [];
+  state.expandedPermissionRequestId = undefined;
 }
 
 /**
@@ -857,11 +919,43 @@ function transcriptEntrySignature(
 
 export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width: number): string {
   const safeWidth = Math.max(1, width);
-  const thinking = metadata.thinkingLevel ? ansi.dim(` thinking:${metadata.thinkingLevel}`) : '';
-  return fitLine(
-    `${ansi.bold(metadata.title)} ${ansi.dim(metadata.model)} ${ansi.dim(metadata.connectionSlug)} ${ansi.dim(metadata.permissionMode)}${thinking} ${ansi.dim(metadata.cwd)}`,
-    safeWidth,
-  );
+  const sep = ansi.dim(' · ');
+  const parts: string[] = [ansi.bold(metadata.title), ansi.dim(metadata.permissionMode), ansi.dim(metadata.model)];
+  const thinking =
+    metadata.thinkingLevel
+      ? ansi.dim(`thinking:${metadata.thinkingLevel}`)
+      : metadata.thinkingLevels && metadata.thinkingLevels.length > 0
+        ? ansi.dim('thinking:default')
+        : '';
+  if (thinking) parts.push(thinking);
+  const usage = metadata.usage;
+  if (usage) {
+    if (usage.contextRemaining !== undefined) {
+      parts.push(ansi.dim(`ctx ${formatTokenCount(usage.contextRemaining)}`));
+    }
+    if (usage.costUsd > 0) {
+      parts.push(ansi.dim(`$${formatCost(usage.costUsd)}`));
+    }
+    const totalCache = usage.cacheHitInput + usage.cacheMissInput;
+    if (totalCache > 0) {
+      const hitRate = Math.round((usage.cacheHitInput / totalCache) * 100);
+      parts.push(ansi.dim(`cache ${hitRate}%`));
+    }
+  }
+  parts.push(ansi.dim(metadata.connectionSlug));
+  parts.push(ansi.dim(metadata.cwd));
+  return fitLine(parts.join(sep), safeWidth);
+}
+
+function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
+  return String(tokens);
+}
+
+function formatCost(costUsd: number): string {
+  if (costUsd < 0.01) return '<0.01';
+  return costUsd.toFixed(2);
 }
 
 function appendAssistantText(state: MakaPiTranscriptState, messageId: string, text: string): void {
@@ -996,29 +1090,76 @@ function renderWelcomeBlock(metadata: MakaPiTranscriptMetadata, width: number): 
   return lines;
 }
 
-function renderPermissionPrompt(request: PermissionRequestEvent, width: number): string[] {
+function renderPermissionPrompt(
+  request: AnyPermissionRequestEvent,
+  detailsExpanded: boolean,
+  width: number,
+): string[] {
   const lines = [
-    fitLine(`${ansi.yellow('Permission required')} ${ansi.bold(request.toolName)} ${ansi.dim(request.category)}`, width),
+    fitLine(`${ansi.yellow(
+      request.kind === 'additional_permissions'
+        ? 'Additional permission required'
+        : request.kind === 'sandbox_escalation'
+          ? 'Unsandboxed execution approval required'
+          : 'Permission required',
+    )} ${ansi.bold(request.toolName)} ${ansi.dim(request.category)}`, width),
   ];
   const summary = permissionRequestSummary(request);
   if (summary) lines.push(...renderIndented(summary, width, 2));
   if (request.hint) lines.push(...renderIndented(request.hint, width, 2).map(ansi.dim));
-  const actions = request.rememberForTurnAllowed === true
-    ? 'y/Enter allow once  a allow for turn  n/Esc deny'
-    : 'y/Enter allow once  n/Esc deny';
-  lines.push(fitLine(ansi.dim(actions), width));
+  if (detailsExpanded && request.toolName === 'WriteStdin') {
+    const details = formatWriteStdinPermissionInspection(request.args);
+    if (details) {
+      lines.push(fitLine(ansi.dim('Full parameters'), width));
+      lines.push(...renderIndented(details, width, 2));
+    }
+  }
+  const actions = request.rememberForTurnAllowed
+    ? `${ansi.bold('y')}${ansi.dim('/Enter allow once')}  ${ansi.bold('a')}${ansi.dim(' allow for turn')}  ${ansi.bold('n')}${ansi.dim('/Esc deny')}`
+    : `${ansi.bold('y')}${ansi.dim('/Enter allow once')}  ${ansi.bold('n')}${ansi.dim('/Esc deny')}`;
+  const detailsAction = request.toolName === 'WriteStdin'
+    ? `  ${ansi.dim('Ctrl+O ' + (detailsExpanded ? 'hide' : 'show') + ' full parameters')}`
+    : '';
+  lines.push(fitLine(`${actions}${detailsAction}`, width));
   return lines;
 }
 
-function permissionRequestSummary(request: PermissionRequestEvent): string {
+function permissionRequestSummary(request: AnyPermissionRequestEvent): string {
+  if (request.kind === 'additional_permissions') {
+    const lines = [request.justification, `cwd: ${request.cwd}`];
+    for (const entry of request.additionalPermissions.fileSystem?.entries ?? []) {
+      lines.push(`${entry.access} ${entry.scope} ${entry.path}`);
+    }
+    if (request.risk.networkEnabled) lines.push('network enabled for this call only');
+    if (request.risk.outsideWorkspace) lines.push('risk: outside workspace');
+    if (request.risk.protectedMetadata) lines.push('risk: protected metadata');
+    return limitText(lines.join('\n'), 1200);
+  }
+  if (request.kind === 'sandbox_escalation') {
+    return limitText([
+      request.justification,
+      `cwd: ${request.cwd}`,
+      `$ ${request.command}`,
+      'risk: unrestricted filesystem, network, and protected metadata access for this call',
+    ].join('\n'), 1200);
+  }
   const args = request.args;
   if (request.toolName === 'Bash' && args !== null && typeof args === 'object') {
     const command = (args as { command?: unknown }).command;
     if (typeof command === 'string' && command.trim()) return `$ ${command}`;
   }
   if (request.toolName === 'WriteStdin') {
-    const input = readWriteStdinInputPreview(args);
-    if (input) return input.truncated ? `${input.text}… · ${input.bytes} bytes total` : input.text;
+    const summary = projectWriteStdinPermissionSummary(args);
+    const lines: string[] = [];
+    if (summary.ref) {
+      lines.push(`ref: ${summary.ref.text}${summary.ref.truncated ? '…' : ''}`);
+    }
+    if (summary.input) {
+      const suffix = summary.input.truncated ? `… · ${summary.input.bytes} bytes total` : '';
+      lines.push(`input: ${summary.input.text}${suffix}`);
+    }
+    if (summary.size) lines.push(`size: ${summary.size.cols}x${summary.size.rows}`);
+    return lines.join('\n');
   }
   if ((request.toolName === 'Write' || request.toolName === 'Edit') && args !== null && typeof args === 'object') {
     const path = (args as { path?: unknown }).path;

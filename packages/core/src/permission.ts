@@ -19,6 +19,32 @@ import {
 export const PERMISSION_MODES = ['explore', 'ask', 'execute', 'bypass'] as const;
 export type PermissionMode = typeof PERMISSION_MODES[number];
 
+export const APPROVALS_REVIEWERS = ['user', 'auto_review'] as const;
+export type ApprovalsReviewer = typeof APPROVALS_REVIEWERS[number];
+
+export const APPROVAL_RISK_LEVELS = ['low', 'medium', 'high', 'critical'] as const;
+export type ApprovalRiskLevel = typeof APPROVAL_RISK_LEVELS[number];
+
+export interface ActiveApprovalRoutingPolicy {
+  readonly reviewer: ApprovalsReviewer;
+  readonly sandboxEscalationAllowed: boolean;
+}
+
+export function approvalRoutingPolicyForMode(
+  mode: PermissionMode,
+): ActiveApprovalRoutingPolicy | null {
+  switch (mode) {
+    case 'ask':
+      return { reviewer: 'user', sandboxEscalationAllowed: true };
+    case 'execute':
+      return { reviewer: 'auto_review', sandboxEscalationAllowed: true };
+    case 'explore':
+      return { reviewer: 'user', sandboxEscalationAllowed: false };
+    case 'bypass':
+      return null;
+  }
+}
+
 export function isPermissionMode(value: unknown): value is PermissionMode {
   return typeof value === 'string' && (PERMISSION_MODES as readonly string[]).includes(value);
 }
@@ -516,8 +542,11 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
   // (2) Policy lookup + turn-remembered check
   const decision = policyDecisionForInput(input, category);
   const scopeKey = permissionScopeKey(input.toolName, input.args, category);
-  const turnMemoryAllowed = category !== 'computer_use'
-    || computerUseApprovalSummary(input.args).rememberForTurnAllowed;
+  const rememberForTurnAllowed = permissionRememberForTurnAllowed(
+    input.toolName,
+    input.args,
+    category,
+  );
   if (decision === 'allow') {
     return { proceed: true, needsPrompt: false, category, scopeKey };
   }
@@ -530,7 +559,7 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
       blockReason: `Tool category "${category}" is blocked in mode "${input.mode}"`,
     };
   }
-  if (turnMemoryAllowed && input.turnRemembered.has(scopeKey)) {
+  if (rememberForTurnAllowed && input.turnRemembered.has(scopeKey)) {
     return { proceed: true, needsPrompt: false, category, scopeKey };
   }
 
@@ -541,13 +570,12 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
     category,
     scopeKey,
     partialRequest: {
+      kind: 'tool_permission',
       toolName: input.toolName,
       category,
       reason: categoryToReason(category),
       args: permissionRequestArgs(input.args, category),
-      ...(permissionRememberForTurnAllowed(input.args, category)
-        ? { rememberForTurnAllowed: true }
-        : { rememberForTurnAllowed: false }),
+      rememberForTurnAllowed,
     },
   };
 }
@@ -580,8 +608,6 @@ export function permissionScopeKey(toolName: string, args: unknown, category: To
       return `${category}:${toolName}:${stringArg(args, 'path')}:${stringArg(args, 'glob')}:${stringArg(args, 'pattern')}`;
     case 'Bash':
       return `${category}:${toolName}:${normalizeScopeText(stringArg(args, 'command'))}`;
-    case 'WriteStdin':
-      return `${category}:${toolName}:${writeStdinScopeArgs(args)}`;
     case 'WebSearch':
       return `${category}:${toolName}:${stringArg(args, 'query')}`;
     default:
@@ -602,19 +628,6 @@ function normalizeScopeText(value: string): string {
 function stableScopeJson(value: unknown): string {
   const json = JSON.stringify(normalizeForScope(value, new WeakSet<object>()));
   return (json ?? String(value)).slice(0, 1024);
-}
-
-function writeStdinScopeArgs(args: unknown): string {
-  const value = args && typeof args === 'object' && !Array.isArray(args)
-    ? args as Record<string, unknown>
-    : {};
-  const sideEffect: Record<string, unknown> = {
-    ref: typeof value.ref === 'string' ? value.ref : '',
-  };
-  if (typeof value.input === 'string') sideEffect.input = value.input;
-  if (value.size !== undefined) sideEffect.size = value.size;
-  const json = JSON.stringify(normalizeForScope(sideEffect, new WeakSet<object>()));
-  return json ?? String(sideEffect);
 }
 
 function normalizeForScope(value: unknown, seen: WeakSet<object>): unknown {
@@ -657,6 +670,7 @@ function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {
 // ============================================================================
 
 export interface PermissionRequest {
+  kind: 'tool_permission';
   requestId: string;
   toolUseId: string;
   toolName: string;
@@ -673,8 +687,58 @@ export interface PermissionRequest {
     | 'custom';
   args: unknown;
   hint?: string;
-  rememberForTurnAllowed?: boolean;
+  rememberForTurnAllowed: boolean;
 }
+
+export interface AdditionalPermissionRequest {
+  kind: 'additional_permissions';
+  requestId: string;
+  toolUseId: string;
+  toolName: string;
+  category: ToolCategory;
+  reason: 'additional_permissions';
+  additionalPermissions: import('./additional-permissions.js').AdditionalPermissionProfile;
+  cwd: string;
+  justification: string;
+  intentHash: string;
+  permissionsHash: string;
+  risk: import('./additional-permissions.js').AdditionalPermissionRiskSummary;
+  alsoApprovesToolExecution: boolean;
+  availableDecisions: readonly ['allow_once', 'deny'];
+  hint?: string;
+}
+
+export interface SandboxEscalationRiskSummary {
+  readonly unsandboxedExecution: true;
+  readonly unrestrictedFileSystem: true;
+  readonly unrestrictedNetwork: true;
+  readonly protectedMetadataExposed: true;
+}
+
+export interface SandboxEscalationRequest {
+  kind: 'sandbox_escalation';
+  requestId: string;
+  toolUseId: string;
+  toolName: 'Bash';
+  category: ToolCategory;
+  reason: 'sandbox_escalation';
+  command: string;
+  cwd: string;
+  justification: string;
+  intentHash: string;
+  commandHash: string;
+  trigger: 'proactive' | 'sandbox_denial';
+  risk: SandboxEscalationRiskSummary;
+  alsoApprovesToolExecution: boolean;
+  availableDecisions: readonly ['allow_once', 'deny'];
+  hint?: string;
+}
+
+/** Permission prompt payloads that may be carried by canonical runtime events. */
+export type PermissionRequestPayload =
+  | PermissionRequest
+  | AdditionalPermissionRequest
+  | SandboxEscalationRequest;
 
 function permissionRequestArgs(args: unknown, category: ToolCategory): unknown {
   return category === 'computer_use'
@@ -683,9 +747,11 @@ function permissionRequestArgs(args: unknown, category: ToolCategory): unknown {
 }
 
 function permissionRememberForTurnAllowed(
+  toolName: string,
   args: unknown,
   category: ToolCategory,
 ): boolean {
+  if (toolName === 'WriteStdin') return false;
   return category !== 'computer_use'
     || computerUseApprovalSummary(args).rememberForTurnAllowed;
 }
@@ -694,4 +760,7 @@ export interface PermissionResponse {
   requestId: string;
   decision: 'allow' | 'deny';
   rememberForTurn?: boolean;
+  reviewer?: ApprovalsReviewer;
+  rationale?: string;
+  riskLevel?: ApprovalRiskLevel;
 }

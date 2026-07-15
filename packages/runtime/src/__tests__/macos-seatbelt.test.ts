@@ -205,6 +205,55 @@ describe('buildSeatbeltPolicy', () => {
     assert.match(policyText(createWorkspaceWritePermissionProfile()), /\(deny network\*\)/);
     assert.match(policyText(restrictedProfileWithEnabledNetwork()), /\(allow network\*\)/);
   });
+
+  it('renders exact path entries as literal and subtree entries as subpath', () => {
+    const profile: PermissionProfile = {
+      type: 'managed',
+      name: 'custom',
+      fileSystem: {
+        kind: 'restricted',
+        entries: [
+          { kind: 'path', access: 'write', path: '/outside/file.txt', match: 'exact' },
+          { kind: 'path', access: 'read', path: '/outside/tree', match: 'subtree' },
+        ],
+      },
+      network: { kind: 'restricted' },
+    };
+    const result = buildSeatbeltPolicy({
+      profile,
+      pathContext: { workspaceRoots: ['/repo'] },
+    });
+
+    assert.match(result.policy, /\(literal \(param "READABLE_ROOT_0"\)\)/);
+    assert.match(result.policy, /\(subpath \(param "READABLE_ROOT_1"\)\)/);
+    assert.match(result.policy, /\(literal \(param "WRITABLE_ROOT_0"\)\)/);
+    assert.deepEqual(result.definitionArgs.slice(0, 3), [
+      '-DREADABLE_ROOT_0=/outside/file.txt',
+      '-DREADABLE_ROOT_1=/outside/tree',
+      '-DWRITABLE_ROOT_0=/outside/file.txt',
+    ]);
+  });
+
+  it('keeps explicit exact deny requirements on every allow clause', () => {
+    const profile: PermissionProfile = {
+      type: 'managed',
+      name: 'custom',
+      fileSystem: {
+        kind: 'restricted',
+        entries: [
+          { kind: 'path', access: 'write', path: '/outside', match: 'subtree' },
+          { kind: 'path', access: 'deny', path: '/outside/locked.txt', match: 'exact' },
+        ],
+      },
+      network: { kind: 'restricted' },
+    };
+
+    const policy = buildSeatbeltPolicy({
+      profile,
+      pathContext: { workspaceRoots: ['/repo'] },
+    }).policy;
+    assert.match(policy, /\(require-not \(literal "\/outside\/locked\.txt"\)\)/);
+  });
 });
 
 describe('createSeatbeltExecArgs', () => {

@@ -12,6 +12,8 @@ export type FileSystemSandboxKind = typeof FILE_SYSTEM_SANDBOX_KINDS[number];
 export const FILE_SYSTEM_ACCESS_MODES = ['read', 'write', 'deny'] as const;
 export type FileSystemAccessMode = typeof FILE_SYSTEM_ACCESS_MODES[number];
 
+export const FILE_SYSTEM_PATH_MATCHES = ['exact', 'subtree'] as const;
+export type FileSystemPathMatch = typeof FILE_SYSTEM_PATH_MATCHES[number];
 export const FILE_SYSTEM_SPECIAL_PATHS = [
   ':root',
   ':workspace_roots',
@@ -26,6 +28,8 @@ export type FileSystemSandboxEntry =
       kind: 'path';
       access: FileSystemAccessMode;
       path: string;
+      /** Defaults to subtree for backward compatibility with profile roots. */
+      match?: FileSystemPathMatch;
     }
   | {
       kind: 'special';
@@ -176,7 +180,7 @@ export function canWritePath(
   const policy = fileSystemPolicy(profile);
   if (!policy) return true;
   if (isDeniedPath(profile, path, context)) return false;
-  if (isProtectedWriteDenied(policy, path, context)) return false;
+  if (isProtectedWriteDenied(policy, path, context) && !hasExplicitPathWrite(policy, path, context)) return false;
   if (policy.kind === 'unrestricted' || policy.kind === 'external_sandbox') return true;
   return hasMatchingAccess(policy, path, context, ['write']);
 }
@@ -223,9 +227,23 @@ function entryMatchesPath(
   path: string,
   context: PermissionProfileMatchContext,
 ): boolean {
+  if (entry.kind === 'path' && entry.match === 'exact') {
+    return samePath(path, entry.path);
+  }
   return entryRoots(entry, context).some((root) => pathWithinRoot(path, root));
 }
 
+function hasExplicitPathWrite(
+  policy: FileSystemSandboxPolicy,
+  path: string,
+  context: PermissionProfileMatchContext,
+): boolean {
+  return policy.entries.some((entry) => (
+    entry.kind === 'path'
+    && entry.access === 'write'
+    && entryMatchesPath(entry, path, context)
+  ));
+}
 function entryRoots(entry: FileSystemSandboxEntry, context: PermissionProfileMatchContext): readonly string[] {
   if (entry.kind === 'path') return [entry.path];
   switch (entry.special) {
@@ -270,6 +288,9 @@ function pathWithinRoot(path: string, root: string): boolean {
   return normalizedPath === normalizedRoot || normalizedPath.startsWith(normalizedRoot + '/');
 }
 
+function samePath(path: string, expected: string): boolean {
+  return trimTrailingSlashes(path) === trimTrailingSlashes(expected);
+}
 function trimTrailingSlashes(value: string): string {
   if (!value) return '';
   const trimmed = value.replace(/\/+$/, '');

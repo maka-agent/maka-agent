@@ -1,4 +1,5 @@
 import type { PermissionProfile } from '@maka/core/permission-profile';
+import type { AdditionalPermissionProfile } from '@maka/core/additional-permissions';
 import type { ChildFdInput } from '../child-fd-input.js';
 
 export type SandboxType = 'none' | 'macos-seatbelt' | 'linux';
@@ -21,6 +22,10 @@ export interface SandboxPathContext {
   tmpdir?: string;
   slashTmp?: string;
   minimalRoots?: readonly string[];
+  /** Runtime files needed only to launch a sandboxed helper process. */
+  runtimeReadableRoots?: readonly string[];
+  /** Runtime binaries/frameworks that the helper process may map and execute. */
+  executableRoots?: readonly string[];
 }
 
 export interface SandboxCommand {
@@ -68,6 +73,8 @@ export type SandboxSelectionResult =
 
 export interface SandboxTransformRequest {
   command: SandboxCommand;
+  /** One-call permissions merged into command.profile for this transform only. */
+  additionalPermissions?: AdditionalPermissionProfile;
   preference?: SandboxablePreference;
   platform?: SandboxPlatform;
 }

@@ -294,31 +294,30 @@ describe('PermissionEngine.evaluate — prompt path', () => {
     expect(r.event.turnId).toBe('t1');
     expect(r.event.toolUseId).toBe('tu1');
     expect(r.event.requestId).toMatch(/^id-/);
+    expect(r.event.rememberForTurnAllowed).toBe(true);
   });
 
-  test('projects WriteStdin permission args to a bounded human-readable preview', () => {
+  test('preserves exact WriteStdin permission args and disables turn memory', () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');
+    const args = {
+      ref: 'maka://runtime/background-tasks/pty-1',
+      input: 'private input\r',
+      size: { cols: 100, rows: 30 },
+    };
     const r = engine.evaluate({
       sessionId: 's1',
       turnId: 't1',
       toolUseId: 'tu-stdin',
       toolName: 'WriteStdin',
-      args: {
-        ref: 'maka://runtime/background-tasks/pty-1',
-        input: 'private input\r',
-        size: { cols: 100, rows: 30 },
-      },
+      args,
       mode: 'ask',
     });
 
     assert.equal(r.kind, 'prompt');
     if (r.kind !== 'prompt') return;
-    assert.deepEqual(r.event.args, {
-      ref: 'maka://runtime/background-tasks/pty-1',
-      inputPreview: { text: 'private input\\r', bytes: 14, truncated: false },
-      size: { cols: 100, rows: 30 },
-    });
+    assert.deepEqual(r.event.args, args);
+    assert.equal(r.event.rememberForTurnAllowed, false);
   });
 
   test('parked Promise resolves on recordResponse', async () => {
@@ -464,7 +463,7 @@ describe('PermissionEngine — turn lifecycle', () => {
     expect(engine.pendingCount('t1')).toBe(1); // r2 still parked
   });
 
-  test('a request that forbids turn memory ignores a forged remember response', async () => {
+  test('a request that forbids turn memory rejects a forged remember response without losing the request', async () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');
     const first = engine.evaluate({
@@ -479,12 +478,21 @@ describe('PermissionEngine — turn lifecycle', () => {
     if (first.kind !== 'prompt') throw new Error('expected prompt');
     assert.equal(first.event.rememberForTurnAllowed, false);
 
+    assert.throws(
+      () => engine.recordResponse('t1', {
+        requestId: first.event.requestId,
+        decision: 'allow',
+        rememberForTurn: true,
+      }),
+      /cannot be remembered/,
+    );
+    assert.equal(engine.pendingCount('t1'), 1);
+
     engine.recordResponse('t1', {
       requestId: first.event.requestId,
       decision: 'allow',
-      rememberForTurn: true,
     });
-    assert.equal((await first.parked).rememberForTurn, false);
+    assert.equal((await first.parked).decision, 'allow');
 
     const second = engine.evaluate({
       sessionId: 's1',
@@ -604,6 +612,42 @@ describe('PermissionEngine — recordResponse edge cases', () => {
     engine.recordResponse('t1', { requestId: r.event.requestId, decision: 'deny' });
     const resolved = await r.parked;
     expect(resolved.decision).toBe('deny');
+  });
+
+  test('completes a WriteStdin denial without granting turn memory', async () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const args = {
+      ref: 'maka://runtime/background-tasks/pty-1',
+      input: 'n\r',
+    };
+    const first = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'WriteStdin',
+      args,
+      mode: 'ask',
+    });
+    if (first.kind !== 'prompt') throw new Error('expected prompt');
+
+    engine.recordResponse('t1', {
+      requestId: first.event.requestId,
+      decision: 'deny',
+      rememberForTurn: true,
+    });
+    assert.equal((await first.parked).decision, 'deny');
+    assert.equal(engine.pendingCount('t1'), 0);
+
+    const repeated = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu2',
+      toolName: 'WriteStdin',
+      args,
+      mode: 'ask',
+    });
+    assert.equal(repeated.kind, 'prompt');
   });
 
   test('unknown requestId → null, no throw', () => {

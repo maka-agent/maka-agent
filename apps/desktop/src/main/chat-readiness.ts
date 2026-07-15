@@ -31,6 +31,7 @@ export interface ReadyConnection {
 export interface SessionRebindDeps {
   readyConnectionDeps: ReadyConnectionDeps;
   getDefaultSlug(): Promise<string | null>;
+  listConnectionSlugs(): Promise<string[]>;
   updateSession(
     sessionId: string,
     patch: Pick<SessionHeader, 'backend' | 'llmConnectionSlug' | 'model' | 'connectionLocked'>,
@@ -70,7 +71,7 @@ export async function requireReadyConnection(
   // truth. The desktop side only owns: (1) async secret lookup, (2)
   // Chinese error copy, (3) the throw-error API the rest of main.ts
   // expects.
-  const normalizedConnection = normalizeCodexSubscriptionConnection(connection);
+  const normalizedConnection = normalizeOpenAiCodexConnection(connection);
   const apiKey = await deps.getApiKey(normalizedConnection.slug);
   const normalizedRequestedModel = normalizeRequestedModel(connection, requestedModel);
   const verdict = isConnectionReady({
@@ -89,9 +90,9 @@ export async function requireReadyConnection(
   return { connection: normalizedConnection, apiKey: apiKey ?? '', model: verdict.model };
 }
 
-function normalizeCodexSubscriptionConnection(connection: LlmConnection): LlmConnection {
-  if (connection.providerType !== 'codex-subscription') return connection;
-  const fallbackModels = PROVIDER_DEFAULTS['codex-subscription'].fallbackModels;
+function normalizeOpenAiCodexConnection(connection: LlmConnection): LlmConnection {
+  if (connection.providerType !== 'openai-codex') return connection;
+  const fallbackModels = PROVIDER_DEFAULTS['openai-codex'].fallbackModels;
   const safeModels = (connection.models ?? []).filter(
     (entry) => entry.id && !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(entry.id),
   );
@@ -114,7 +115,7 @@ function normalizeRequestedModel(
   requestedModel: string | undefined,
 ): string | undefined {
   if (
-    connection.providerType === 'codex-subscription' &&
+    connection.providerType === 'openai-codex' &&
     requestedModel &&
     CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(requestedModel)
   ) {
@@ -197,12 +198,17 @@ export async function ensureSessionCanSendOrRebind(
       throw error;
     }
     const defaultSlug = await deps.getDefaultSlug();
-    let ready: ReadyConnection;
-    try {
-      ready = await requireReadyConnection(defaultSlug, deps.readyConnectionDeps);
-    } catch {
-      throw error;
+    const connectionSlugs = await deps.listConnectionSlugs().catch(() => []);
+    let ready: ReadyConnection | undefined;
+    for (const slug of new Set([defaultSlug, ...connectionSlugs])) {
+      try {
+        ready = await requireReadyConnection(slug, deps.readyConnectionDeps);
+        break;
+      } catch {
+        // Try the next persisted connection; the original error wins if none are ready.
+      }
     }
+    if (!ready) throw error;
     await deps.updateSession(sessionId, {
       backend: 'ai-sdk',
       llmConnectionSlug: ready.connection.slug,

@@ -1,15 +1,42 @@
-import type { ArtifactRecord } from '@maka/core';
+import type { ArtifactRecord, ArtifactSource } from '@maka/core';
 import {
   buildSynthesisCacheBlocksFromHydratedArchives,
   estimateTokens,
   validateSynthesisCacheBlockShape,
   type SynthesisCacheBlock,
-  type SynthesisCacheLoadInput,
-  type SynthesisCacheLoadResult,
-  type SynthesisCacheWriteInput,
-  type SynthesisCacheWriteResult,
-} from '@maka/runtime';
-import type { ArtifactStore } from '@maka/storage';
+} from './context-budget.js';
+import type {
+  SynthesisCacheLoadInput,
+  SynthesisCacheLoadResult,
+  SynthesisCacheWriteInput,
+  SynthesisCacheWriteResult,
+} from './ai-sdk-backend.js';
+
+/**
+ * The synthesis-cache persistence glue lives here (rather than on a desktop or
+ * headless surface) so every embedder shares one implementation — mirroring the
+ * sibling `history-compact-artifacts` module. It is typed against the
+ * *structural* artifact-store contract below instead of importing
+ * `@maka/storage`, keeping runtime storage-agnostic; `@maka/storage`'s
+ * `ArtifactStore` satisfies this interface, so desktop and headless both pass
+ * their real store unchanged.
+ */
+export interface SynthesisCacheArtifactStore {
+  create(input: {
+    id?: string;
+    sessionId: string;
+    turnId: string;
+    name: string;
+    kind: 'file';
+    content: string;
+    mimeType?: string;
+    source: ArtifactSource;
+    summary?: string;
+    now?: number;
+  }): Promise<ArtifactRecord>;
+  list(sessionId: string, options?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]>;
+  readText(artifactId: string, options?: { maxBytes?: number }): Promise<{ ok: true; text: string } | { ok: false; reason: string }>;
+}
 
 export interface PersistSynthesisCacheBlocksDeps {
   now?: () => number;
@@ -17,7 +44,7 @@ export interface PersistSynthesisCacheBlocksDeps {
 }
 
 export async function persistSynthesisCacheBlocksToArtifacts(
-  artifactStore: Pick<ArtifactStore, 'create'>,
+  artifactStore: Pick<SynthesisCacheArtifactStore, 'create'>,
   input: SynthesisCacheWriteInput,
   deps: PersistSynthesisCacheBlocksDeps = {},
 ): Promise<SynthesisCacheWriteResult> {
@@ -57,7 +84,7 @@ export async function persistSynthesisCacheBlocksToArtifacts(
 }
 
 export async function loadSynthesisCacheBlocksFromArtifacts(
-  artifactStore: Pick<ArtifactStore, 'list' | 'readText'>,
+  artifactStore: Pick<SynthesisCacheArtifactStore, 'list' | 'readText'>,
   input: SynthesisCacheLoadInput,
 ): Promise<SynthesisCacheLoadResult> {
   const maxBlocks = input.maxBlocks ?? 1;

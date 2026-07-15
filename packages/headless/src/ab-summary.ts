@@ -184,7 +184,7 @@ function pairTaskId(pairId: string): string {
 function summarizeTokenCost(
   events: readonly FixedPromptTaskWalEvent[],
 ): AbTokenCostSummary {
-  const withUsage = events.filter((event): event is FixedPromptTaskWalEvent & { tokenSummary: HarborCellTokenSummary } => 'tokenSummary' in event && event.tokenSummary !== undefined);
+  const withUsage = events.filter(hasTokenSummary);
   const durations = events.flatMap((event) => 'durationMs' in event && event.durationMs !== undefined ? [event.durationMs] : []);
   return {
     input: sum(withUsage.map((event) => event.tokenSummary.input)),
@@ -480,6 +480,7 @@ function summarizeAttemptPairs(
 ): AbAttemptPairSummary {
   const missingPairIds: string[] = [];
   const excludedPairIds: string[] = [];
+  const missingUsagePairIds: string[] = [];
   const budgetDiscordantPairIds: string[] = [];
   const infraOrPlumbingDiscordantPairIds: string[] = [];
   const baselineEvaluatedEvents: FixedPromptTaskWalEvent[] = [];
@@ -488,6 +489,9 @@ function summarizeAttemptPairs(
   let evaluatedPairs = 0;
   let baselinePassed = 0;
   let candidatePassed = 0;
+  let fullyMeteredPairs = 0;
+  let baselineMeteredPassed = 0;
+  let candidateMeteredPassed = 0;
   let wins = 0;
   let losses = 0;
   let ties = 0;
@@ -514,10 +518,17 @@ function summarizeAttemptPairs(
         continue;
       }
       evaluatedPairs += 1;
-      baselineEvaluatedEvents.push(baseline);
-      candidateEvaluatedEvents.push(candidate);
       if (baseline.passed) baselinePassed += 1;
       if (candidate.passed) candidatePassed += 1;
+      if (hasCompleteTokenSummary(baseline) && hasCompleteTokenSummary(candidate)) {
+        fullyMeteredPairs += 1;
+        baselineEvaluatedEvents.push(baseline);
+        candidateEvaluatedEvents.push(candidate);
+        if (baseline.passed) baselineMeteredPassed += 1;
+        if (candidate.passed) candidateMeteredPassed += 1;
+      } else {
+        missingUsagePairIds.push(pairId);
+      }
       if (candidate.passed === baseline.passed) {
         ties += 1;
       } else if (candidate.passed) {
@@ -533,6 +544,9 @@ function summarizeAttemptPairs(
     evaluatedPairs,
     baselinePassed,
     candidatePassed,
+    fullyMeteredPairs,
+    baselineMeteredPassed,
+    candidateMeteredPassed,
     baselineTokenCostSummary: summarizeTokenCost(baselineEvaluatedEvents),
     candidateTokenCostSummary: summarizeTokenCost(candidateEvaluatedEvents),
     wins,
@@ -540,9 +554,23 @@ function summarizeAttemptPairs(
     ties,
     missingPairIds,
     excludedPairIds,
+    missingUsagePairIds,
     budgetDiscordantPairIds,
     infraOrPlumbingDiscordantPairIds,
   };
+}
+
+function hasCompleteTokenSummary(
+  event: FixedPromptTaskWalEvent,
+): event is FixedPromptTaskWalEvent & { tokenSummary: HarborCellTokenSummary } {
+  if (!hasTokenSummary(event)) return false;
+  return event.type !== 'task_budget_exhausted' || event.tokenSummarySource === 'final';
+}
+
+function hasTokenSummary(
+  event: FixedPromptTaskWalEvent,
+): event is FixedPromptTaskWalEvent & { tokenSummary: HarborCellTokenSummary } {
+  return 'tokenSummary' in event && event.tokenSummary !== undefined;
 }
 
 function decide(

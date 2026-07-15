@@ -230,6 +230,60 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('does not let a legacy append or repair downgrade a source-bound checkpoint projection', async () => {
+    await withStore(async (store) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+        repairEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+          event: AgentRunEvent | null,
+        ): Promise<void>;
+      };
+      const sourceBound = makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: 'checkpoint-source-bound',
+        data: {
+          checkpoint: {
+            coverage: { eventCount: 2 },
+            source: { kind: 'runtime_event_projection' },
+          },
+        },
+      });
+      const legacy = makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: 'checkpoint-legacy',
+        data: { checkpoint: { coverage: { eventCount: 99 } } },
+      });
+      await store.createRun(makeHeader());
+      await store.appendEvent('session-1', sourceBound.runId, sourceBound);
+      await store.appendEvent('session-1', legacy.runId, legacy);
+
+      assert.equal(
+        (await projectionStore.readEventProjection(
+          'session-1',
+          'history_compact_checkpoint_recorded',
+        ))?.id,
+        sourceBound.id,
+      );
+
+      await projectionStore.repairEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+        legacy,
+      );
+
+      const projected = await projectionStore.readEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+      );
+      assert.equal(projected?.id, sourceBound.id);
+    });
+  });
+
   it('replaces the same parseable but semantically invalid projection during repair', async () => {
     await withStore(async (store, root) => {
       const projectionStore = store as typeof store & {

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, test } from 'node:test';
+import { createSessionStore } from '@maka/storage';
 import {
   parseMakaCliArgs,
   formatStartupConnectionError,
@@ -44,6 +45,13 @@ describe('Maka CLI args', () => {
     });
   });
 
+  test('routes the unified inspect command without changing its arguments', () => {
+    assert.deepEqual(parseMakaCliArgs(['inspect', 'run-1', '--json'], '0.1.0'), {
+      kind: 'inspect',
+      args: ['run-1', '--json'],
+    });
+  });
+
   test('routes maka run and maka -p through the exact same command shape', () => {
     assert.deepEqual(parseMakaCliArgs(['run', 'hello', '--max-steps', '3'], '0.1.0'), {
       kind: 'run',
@@ -61,6 +69,7 @@ describe('Maka CLI args', () => {
     if (command.kind !== 'help') return;
     assert.match(command.text, /Usage: maka/);
     assert.match(command.text, /maka-agent/);
+    assert.match(command.text, /maka inspect/);
   });
 
   test('prints version', () => {
@@ -141,6 +150,27 @@ describe('Maka CLI args', () => {
     ]);
 
     assert.equal(stdout.trim(), '0.1.0');
+  });
+
+  test('inspects a Session through the executable entrypoint', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-cli-inspect-'));
+    try {
+      const session = await createSessionStore(root).create({
+        cwd: '/tmp/workspace', name: 'CLI inspect', backend: 'fake',
+        llmConnectionSlug: 'fake', model: 'fake-model', permissionMode: 'ask',
+      });
+      const result = await runCliProcess(cliPath, [
+        'inspect', session.id, '--store', root, '--kind', 'session', '--json',
+      ]);
+
+      assert.equal(result.code, 0);
+      assert.equal(result.stderr, '');
+      const document = JSON.parse(result.stdout) as { schemaVersion: string; kind: string };
+      assert.equal(document.schemaVersion, 'maka.session_inspect.v1');
+      assert.equal(document.kind, 'session');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test('runs a fake evaluation through the unified executable', async () => {

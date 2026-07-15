@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -7,6 +9,7 @@ import type { Config } from '../contracts.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 import { contextBudgetSummary } from './helpers/ab-summary-fixtures.js';
 import {
+  appendFixedPromptWalEvent,
   FixedPromptBudgetExhaustedError,
   hashSystemPrompt,
   readFixedPromptWal,
@@ -356,6 +359,52 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('serializes concurrent WAL repair and append without losing events', async () => {
+    await withDir(async (dir) => {
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      const retained = taskCompletedEvent({ taskId: 'retained' });
+      await writeFile(resultsJsonlPath, `${JSON.stringify(retained)}\n{"torn"`, 'utf8');
+      const appended = [
+        taskCompletedEvent({ taskId: 'task-a' }),
+        taskCompletedEvent({ taskId: 'task-b' }),
+      ];
+      const originalTruncate = fs.promises.truncate;
+      const originalAppendFile = fs.promises.appendFile;
+      let truncateCalls = 0;
+      let firstAppendDone!: () => void;
+      const firstAppend = new Promise<void>((resolve) => {
+        firstAppendDone = resolve;
+      });
+      fs.promises.truncate = async (...args) => {
+        truncateCalls += 1;
+        if (truncateCalls === 2) await firstAppend;
+        return originalTruncate(...args);
+      };
+      fs.promises.appendFile = async (...args) => {
+        const result = await originalAppendFile(...args);
+        firstAppendDone();
+        return result;
+      };
+      syncBuiltinESMExports();
+
+      try {
+        await Promise.all(appended.map((event) => appendFixedPromptWalEvent(resultsJsonlPath, event)));
+      } finally {
+        fs.promises.truncate = originalTruncate;
+        fs.promises.appendFile = originalAppendFile;
+        syncBuiltinESMExports();
+      }
+
+      const events = await readFixedPromptWal(resultsJsonlPath);
+      assert.equal(events.length, appended.length + 1);
+      const taskIds = events.flatMap((event) => 'taskId' in event ? [event.taskId] : []);
+      assert.deepEqual(
+        new Set(taskIds),
+        new Set(['retained', 'task-a', 'task-b']),
+      );
+    });
+  });
+
   test('retries infra-failed WAL events on resume', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -602,6 +651,10 @@ describe('fixed prompt controller', () => {
       assert.equal(result.totalCostUsd, 0.42);
       assert.equal(result.events[0]?.type, 'task_budget_exhausted');
       assert.deepEqual('tokenSummary' in result.events[0]! ? result.events[0].tokenSummary : undefined, retainedUsage);
+      assert.equal(
+        'tokenSummarySource' in result.events[0]! ? result.events[0].tokenSummarySource : undefined,
+        'checkpoint',
+      );
     });
   });
 
@@ -686,6 +739,7 @@ describe('fixed prompt controller', () => {
       assert.equal(event.evidenceErrorClass, undefined);
       assert.equal(event.tokenSummary?.total, 3);
       assert.equal(event.tokenSummary?.costUsd, 0.02);
+      assert.equal(event.tokenSummarySource, 'final');
       assert.equal(event.runtimeEventsPath, cell.runtimeEventsPath);
       assert.equal(event.traceEventsPath, cell.traceEventsPath);
       assert.deepEqual(
@@ -697,7 +751,7 @@ describe('fixed prompt controller', () => {
     });
   });
 
-  test('uses early execution identity to attribute a timeout before cell output', async () => {
+  test('excludes an early-attested timeout without a usage checkpoint', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
@@ -727,8 +781,8 @@ describe('fixed prompt controller', () => {
       const event = result.events[0];
       assert.equal(event?.type, 'task_budget_exhausted');
       if (event?.type !== 'task_budget_exhausted') assert.fail('expected budget exhaustion event');
-      assert.equal(event.eligible, true);
-      assert.equal(event.evidenceErrorClass, undefined);
+      assert.equal(event.eligible, false);
+      assert.equal(event.evidenceErrorClass, 'missing_token_usage');
       assert.deepEqual(
         (event as { executionIdentity?: typeof executionIdentity }).executionIdentity,
         executionIdentity,
@@ -1689,6 +1743,83 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('records missing real-provider usage as a plumbing failure', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        requireExecutionIdentity: true,
+        expectedPricingProfile: 'test-profile',
+        harborRunner: async () => harborOutput({
+          taskId: 'task-a',
+          omitTokenSummary: true,
+          executionIdentity: {
+            llmConnectionSlug: 'fake',
+            model: 'fake-model',
+            systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+            pricingProfile: 'test-profile',
+          },
+        }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
+      assert.equal(result.events[0]?.eligible, false);
+      assert.equal(result.events[0]?.errorClass, 'missing_token_usage');
+    });
+  });
+
+  test('excludes an attested failed cell when usage is unavailable', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath,
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        requireExecutionIdentity: true,
+        expectedPricingProfile: 'test-profile',
+        harborRunner: async () => harborOutput({
+          taskId: 'task-a',
+          status: 'failed',
+          errorClass: 'tool_step_cap_reached',
+          omitTokenSummary: true,
+          executionIdentity: {
+            llmConnectionSlug: 'fake',
+            model: 'fake-model',
+            systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+            pricingProfile: 'test-profile',
+          },
+        }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
+      assert.equal(result.events[0]?.eligible, false);
+      assert.equal(result.events[0]?.errorClass, 'missing_token_usage');
+      assert.equal('tokenSummary' in result.events[0]!, false);
+      const [, row] = (await readFile(resultsTsvPath, 'utf8')).trimEnd().split('\n');
+      assert.equal(row?.split('\t')[7], '');
+      assert.equal(row?.split('\t')[8], '');
+    });
+  });
+
   test('records prompt hash mismatches as plumbing failures', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -1847,6 +1978,7 @@ function harborOutput(input: {
   promptHash?: string;
   omitPromptHash?: boolean;
   tokenSummary?: HarborTaskRunOutput['cell']['tokenSummary'];
+  omitTokenSummary?: boolean;
   contextBudgetPolicy?: HarborTaskRunOutput['cell']['contextBudgetPolicy'];
   contextBudgetSummary?: HarborTaskRunOutput['cell']['contextBudgetSummary'];
   continuationSummary?: HarborTaskRunOutput['cell']['continuationSummary'];
@@ -1865,7 +1997,9 @@ function harborOutput(input: {
       traceEventsPath: `/logs/${input.taskId}/events.jsonl`,
       ...(input.omitPromptHash ? {} : { promptHash: input.promptHash ?? hashSystemPrompt('fixed prompt\n') }),
       ...(input.executionIdentity ? { executionIdentity: input.executionIdentity } : {}),
-      tokenSummary: input.tokenSummary ?? tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }),
+      ...(input.omitTokenSummary
+        ? {}
+        : { tokenSummary: input.tokenSummary ?? tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }) }),
       ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
       ...(input.contextBudgetSummary ? { contextBudgetSummary: input.contextBudgetSummary } : {}),
       ...(input.continuationSummary ? { continuationSummary: input.continuationSummary } : {}),

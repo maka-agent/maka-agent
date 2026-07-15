@@ -137,7 +137,26 @@ description: Build decks.
       assert.deepEqual(await importManagedSkillSource({ root: cacheRoot, sourceFile: invalid }), {
         ok: false,
         reason: 'invalid_skill',
+        diagnostics: [{
+          code: 'missing_frontmatter',
+          severity: 'error',
+          field: 'frontmatter',
+          message: 'SKILL.md must start with a YAML frontmatter block.',
+        }],
       });
+
+      const missingDescriptionDir = join(root, 'incoming', 'missing-description');
+      await mkdir(missingDescriptionDir, { recursive: true });
+      const missingDescription = join(missingDescriptionDir, 'SKILL.md');
+      await writeFile(missingDescription, `---
+name: Missing Description
+---
+# Missing Description`, 'utf8');
+      const rejected = await importManagedSkillSource({ root: cacheRoot, sourceFile: missingDescription });
+      assert.equal(rejected.ok, false);
+      if (rejected.ok) return;
+      assert.equal(rejected.reason, 'invalid_skill');
+      assert.deepEqual(rejected.diagnostics?.map((issue) => issue.code), ['missing_description']);
 
       const sourceDir = join(root, 'incoming', 'deck-helper');
       await mkdir(sourceDir, { recursive: true });

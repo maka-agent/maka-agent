@@ -23,9 +23,84 @@ export type {
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
 
+export {
+  MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS,
+  DEFAULT_ADDITIONAL_PERMISSION_GRANT_TTL_MS,
+  AdditionalPermissionError,
+  assertAdditionalPermissionProposal,
+  buildAdditionalPermissionProposal,
+  freezeAdditionalPermissionProposal,
+  freezeAdditionalPermissionGrant,
+  normalizeAdditionalPermissionPath,
+  normalizeAdditionalPermissionProfile,
+  planDeclaredBashAdditionalPermission,
+  planFileToolAdditionalPermission,
+  revalidateAdditionalPermissionGrant,
+  revalidateAdditionalPermissionProposal,
+} from './additional-permissions.js';
+export type {
+  AdditionalPermissionErrorReason,
+  AdditionalPermissionGrant,
+  AdditionalPermissionPlanResult,
+  AdditionalPermissionPlannerContext,
+  AdditionalPermissionPlanningContext,
+  AdditionalPermissionProposal,
+  NormalizedAdditionalPermissionPath,
+  ToolExecutionPermissionContext,
+} from './additional-permissions.js';
+export { hashAdditionalPermissionProfile } from './additional-permission-hash.js';
+export {
+  DEFAULT_SANDBOX_ESCALATION_GRANT_TTL_MS,
+  MAX_SANDBOX_ESCALATION_JUSTIFICATION_CHARS,
+  SandboxEscalationError,
+  assertSandboxEscalationGrantForExecution,
+  assertSandboxEscalationProposal,
+  freezeSandboxEscalationGrant,
+  freezeSandboxEscalationProposal,
+  planDeclaredBashSandboxEscalation,
+  sandboxEscalationCommandHash,
+} from './sandbox-escalation.js';
+export type {
+  SandboxEscalationErrorReason,
+  SandboxEscalationGrant,
+  SandboxEscalationPlanResult,
+  SandboxEscalationPlannerContext,
+  SandboxEscalationProposal,
+} from './sandbox-escalation.js';
+export {
+  AiSdkAutoApprovalReviewer,
+  ApprovalCoordinator,
+  DEFAULT_AUTO_APPROVAL_REVIEW_TIMEOUT_MS,
+  MAX_AUTO_APPROVAL_RATIONALE_CHARS,
+} from './approval-reviewer.js';
+export type {
+  AiSdkAutoApprovalReviewerInput,
+  ApprovalCoordinatorObserver,
+  AutoApprovalReviewContext,
+  AutoApprovalReviewDecision,
+  AutoApprovalReviewer,
+} from './approval-reviewer.js';
+export {
+  FilesystemWorkerClient,
+  FilesystemWorkerClientError,
+  buildFilesystemWorkerEnv,
+  createFilesystemWorkerLaunchSpecProvider,
+} from './filesystem-worker/index.js';
+export type {
+  CreateFilesystemWorkerLaunchSpecProviderInput,
+  FilesystemWorkerClientInput,
+  FilesystemWorkerClientOperation,
+  FilesystemWorkerExecuteInput,
+  FilesystemWorkerLaunchSpec,
+  FilesystemWorkerLaunchSpecProvider,
+  FilesystemWorkerLaunchSpecResult,
+  FilesystemWorkerResourceLocation,
+} from './filesystem-worker/index.js';
+
 export { AiSdkBackend, ProviderReplayProjectionError } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
+export { terminateChildProcessTree } from './process-tree-terminator.js';
 export type {
   AgentBackend,
   BackendCompactHistoryInput,
@@ -72,6 +147,46 @@ export type {
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
 export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
+export {
+  convertOpenAIComputerAction,
+  openAIComputerActionSchema,
+} from './openai-computer-actions.js';
+export type {
+  OpenAIComputerAction,
+  OpenAIComputerActionConversion,
+} from './openai-computer-actions.js';
+export {
+  createOpenAIComputerContinuationRequest,
+  createOpenAIComputerInitialRequest,
+  decodeOpenAIComputerResponse,
+} from './openai-computer-codec.js';
+export { OPENAI_COMPUTER_INSTRUCTIONS } from './openai-computer-policy.js';
+export {
+  createOpenAIStrictObjectSchema,
+  projectOpenAIStrictFunctionArgs,
+} from './openai-strict-function.js';
+export type { OpenAIStrictFunctionProjection } from './openai-strict-function.js';
+export type {
+  OpenAIComputerCall,
+  OpenAIComputerDialect,
+  OpenAIComputerInputItem,
+  OpenAIComputerRequest,
+  OpenAIComputerResponse,
+  OpenAIComputerSafetyCheck,
+  OpenAIComputerScreenshot,
+} from './openai-computer-codec.js';
+export { runOpenAIComputerLoop } from './openai-computer-loop.js';
+export type {
+  OpenAIComputerExecutor,
+  OpenAIComputerLoopResult,
+  OpenAIComputerScreenshotProvider,
+  OpenAIComputerTransport,
+} from './openai-computer-loop.js';
+export {
+  OpenAIResponsesTransport,
+  createOpenAIResponsesTransport,
+} from './openai-responses-transport.js';
+export type { OpenAIResponsesTransportOptions } from './openai-responses-transport.js';
 export type {
   ComputerUseToolSet,
   CuAppSummary,
@@ -120,11 +235,14 @@ export {
   buildStopBackgroundTaskTool,
   buildWriteStdinTool,
   shapeTerminalResult,
+  bashSandboxPermissionsSchema,
 } from './shell-tools.js';
 export type {
+  BashSandboxPermissionsDeclaration,
   BuildForegroundBashToolOptions,
   ForegroundBashExecuteInput,
   ForegroundBashResult,
+  ManagedBashPermissionArgs,
   ShellRunLauncher,
 } from './shell-tools.js';
 export {
@@ -136,6 +254,7 @@ export {
   MAX_FOREGROUND_BASH_TIMEOUT_MS,
   MAX_PTY_COLS,
   MAX_PTY_ROWS,
+  MAX_SHELL_RUN_RESOURCE_REF_CHARS,
   MAX_SHELL_RUN_TIMEOUT_MS,
   MAX_WRITE_STDIN_INPUT_BYTES,
   MIN_PTY_COLS,
@@ -305,6 +424,31 @@ export {
   buildSubagentToolGroup,
 } from './subagent-tools.js';
 export {
+  BUILTIN_EXPERT_TEAMS,
+  EXPERT_AGENT_ID_PREFIX,
+  buildExpertAgentId,
+  buildExpertTeamLeadSystemPromptFragment,
+  buildExpertTeamMemberRoster,
+  getExpertAgentDefinition,
+  getExpertTeam,
+  isExpertAgentId,
+  listExpertTeams,
+  materializeExpertAgentDefinition,
+  parseExpertAgentId,
+  requireResolvedAgentDefinition,
+  resolveAgentDefinition,
+} from './expert-catalog.js';
+export type {
+  ExpertDefinition,
+  ExpertTeamDefinition,
+  ExpertTeamLead,
+} from './expert-catalog.js';
+export {
+  EXPERT_DISPATCH_TOOL_NAME,
+  buildExpertDispatchTool,
+  buildExpertDispatchToolForTeamId,
+} from './expert-tools.js';
+export {
   LEGACY_TASK_CREATE_TOOL_NAME,
   LEGACY_TASK_UPDATE_TOOL_NAME,
   TASK_CREATE_TOOL_NAME,
@@ -384,6 +528,42 @@ export type {
   HistoryCompactArtifactStore,
   PersistHistoryCompactBlocksDeps,
 } from './history-compact-artifacts.js';
+export {
+  HISTORY_COMPACT_SOURCE_POLICY_VERSION,
+  buildHistoryCompactCheckpoint,
+  canReplaceHistoryCompactCheckpoint,
+  historyCompactCheckpointToRuntimeEvent,
+  matchHistoryCompactCheckpointPrefix,
+  midTurnHeadAnchorEvent,
+  projectHistoryCompactCheckpointReplay,
+  renderHistoryCompactCheckpoint,
+  validateHistoryCompactCheckpointShape,
+} from './history-compact-checkpoint.js';
+export type {
+  BuildHistoryCompactCheckpointInput,
+  HistoryCompactCheckpoint,
+  HistoryCompactCheckpointCoverage,
+  HistoryCompactCheckpointHeadAnchor,
+  HistoryCompactCheckpointPhase,
+  HistoryCompactCheckpointPrefixMatch,
+  HistoryCompactCheckpointSource,
+} from './history-compact-checkpoint.js';
+export {
+  estimateNextRequestTokens,
+  exceedsContextWindow,
+  exceedsHighWater,
+  planMidTurnCapacityCompaction,
+  selectMidTurnSafeBoundary,
+} from './mid-turn-capacity-compact.js';
+export type {
+  EstimateNextRequestTokensInput,
+  MidTurnBoundary,
+  MidTurnBoundaryOptions,
+  MidTurnFailReason,
+  MidTurnSummarizer,
+  PlanMidTurnCapacityCompactionInput,
+  PlanMidTurnCapacityCompactionResult,
+} from './mid-turn-capacity-compact.js';
 export { cleanupLegacyHistoryCompactArtifacts } from './history-compact-cleanup.js';
 export type {
   HistoryCompactCleanupDiagnostic,
@@ -430,6 +610,7 @@ export type {
   ArchiveRetrievalResult,
   HistoryCompactBlock,
   HistoryCompactCoverage,
+  HistoryCompactMidTurnPolicy,
   HistoryCompactPolicy,
   HistoryCompactReplayResult,
   HistoryCompactSourceArchiveRef,
@@ -452,6 +633,14 @@ export type {
   ActiveArchivedToolResultPlaceholder,
   PromptSegmentInput,
 } from './context-budget.js';
+export {
+  loadSynthesisCacheBlocksFromArtifacts,
+  persistSynthesisCacheBlocksToArtifacts,
+} from './synthesis-cache-artifacts.js';
+export type {
+  PersistSynthesisCacheBlocksDeps,
+  SynthesisCacheArtifactStore,
+} from './synthesis-cache-artifacts.js';
 export {
   activeFullCompactBlockToCompactionBoundary,
   activeFullCompactCoverageFromEntries,
@@ -492,38 +681,19 @@ export {
   renderSemanticCompactBlock,
   rewriteSemanticCompactInMessages,
   semanticCompactBlockToModelMessage,
-  validateSemanticCompactBlockForSourceIndex,
-  validateSemanticCompactReplacementShape,
 } from './semantic-compact.js';
 export type {
   SemanticCompactBlock,
   SemanticCompactDecision,
-  SemanticCompactFailure,
-  SemanticCompactFailureReason,
-  SemanticCompactFailureStage,
   SemanticCompactPolicy,
   SemanticCompactRewriteInput,
   SemanticCompactRewriteResult,
   SemanticCompactStateCard,
   SemanticCompactSummarizer,
   SemanticCompactSummaryRequest,
-  SemanticCompactValidationResult,
 } from './semantic-compact.js';
-export {
-  estimateProviderMessagesTokens,
-  projectProviderReplayMessages,
-  validateProviderMessageShape,
-} from './provider-replay-projection.js';
-export type {
-  ProviderMessageShapeFailureReason,
-  ProviderMessageShapeValidation,
-  ProviderReplayProjectionFailure,
-  ProviderReplayProjectionFailureReason,
-  ProviderReplayProjectionPolicy,
-  ProviderReplayProjectionResult,
-} from './provider-replay-projection.js';
 export { testConnection } from './test-connection.js';
-export { fetchGitHubCopilotModels, fetchProviderModels } from './model-fetcher.js';
+export { fetchGitHubCopilotModels, fetchOpenAiCodexModels, fetchProviderModels, OpenAiCodexDiscoveryError } from './model-fetcher.js';
 
 export {
   materializeSession,
@@ -676,6 +846,28 @@ export type {
   InspectAgentRunOptions,
 } from './agent-run-inspect.js';
 
+// execution-inspect.ts — payload-safe, versioned CLI inspection documents.
+export {
+  AGENT_RUN_INSPECT_DOCUMENT_VERSION,
+  SESSION_INSPECT_DOCUMENT_VERSION,
+  inspectAgentRunDocument,
+  inspectSessionDocument,
+  renderAgentRunInspectTree,
+  renderSessionInspectTree,
+} from './execution-inspect.js';
+export type {
+  AgentRunInspectCompactionCheckpoint,
+  AgentRunInspectDocument,
+  AgentRunInspectIdentity,
+  AgentRunInspectToolFact,
+  AgentRunInspectToolSummary,
+  ExecutionInspectDiagnostic,
+  ExecutionInspectSeverity,
+  SessionHeaderReader,
+  SessionInspectDocument,
+  SessionInspectSummary,
+} from './execution-inspect.js';
+
 // model-history.ts — policy-driven model-history projection.
 export { buildModelHistoryFromRuntimeEvents } from './model-history.js';
 export type {
@@ -791,7 +983,13 @@ export {
 } from './goal-tools.js';
 export type { GoalToolsDeps } from './goal-tools.js';
 export { handleGoalContinuation } from './goal-continuation.js';
-export type { GoalContinuationDeps, GoalContinuationOutcome } from './goal-continuation.js';
+export type {
+  GoalContinuationDeps,
+  GoalContinuationOutcome,
+  GoalTaskGateDecision,
+  GoalTaskGateDeps,
+  GoalTaskGateTrace,
+} from './goal-continuation.js';
 
 export {
   MAX_SKILL_BODY_CHARS,
@@ -802,13 +1000,16 @@ export {
   SKILLS_PROMPT_CONTEXT_RATIO,
   resolveSkillsPromptCharBudget,
   scanWorkspaceSkills,
+  scanWorkspaceSkillsWithDiagnostics,
   scanSkills,
+  scanSkillsWithDiagnostics,
   resolveSkillDiscoveryPaths,
   buildSkillsPromptFragment,
   loadSkillInstructions,
   buildSkillAgentTool,
   gateSkillsByHostCapabilities,
   parseSkillFrontMatter,
+  validateSkillMetadata,
   readSkillRuntimeState,
   writeSkillRuntimeState,
   readContainedRegularFile,
@@ -820,6 +1021,13 @@ export {
 } from './skills.js';
 export type {
   SkillRuntimeStatus,
+  SkillManifest,
+  SkillValidationSeverity,
+  SkillValidationCode,
+  SkillValidationIssue,
+  SkillMetadataValidationResult,
+  SkillScanDiagnostic,
+  SkillScanResult,
   RuntimeSkillDefinition,
   ScannedSkill,
   HostCapabilities,
@@ -830,5 +1038,6 @@ export type {
   LoadSkillInstructionsResult,
   SkillRuntimeStateReadResult,
   SkillSource,
+  SkillSourceResolver,
   SkillDiscoveryEntry,
 } from './skills.js';

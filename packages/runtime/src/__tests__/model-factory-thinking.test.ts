@@ -41,10 +41,10 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'off'), { openai: { store: false, reasoningEffort: 'none' } });
   });
 
-  test('codex-subscription (gpt-5.5) preserves store:false / textVerbosity and merges reasoningEffort', () => {
-    assert.deepEqual(buildProviderOptions(conn('codex-subscription'), 'gpt-5.5'), { openai: { store: false, textVerbosity: 'medium' } });
-    assert.deepEqual(buildProviderOptions(conn('codex-subscription'), 'gpt-5.5', 'high'), { openai: { store: false, textVerbosity: 'medium', reasoningEffort: 'high' } });
-    assert.deepEqual(buildProviderOptions(conn('codex-subscription'), 'gpt-5.5', 'off'), { openai: { store: false, textVerbosity: 'medium', reasoningEffort: 'none' } });
+  test('openai-codex (gpt-5.5) preserves store:false / textVerbosity and merges reasoningEffort', () => {
+    assert.deepEqual(buildProviderOptions(conn('openai-codex'), 'gpt-5.5'), { openai: { store: false, textVerbosity: 'medium' } });
+    assert.deepEqual(buildProviderOptions(conn('openai-codex'), 'gpt-5.5', 'high'), { openai: { store: false, textVerbosity: 'medium', reasoningEffort: 'high' } });
+    assert.deepEqual(buildProviderOptions(conn('openai-codex'), 'gpt-5.5', 'off'), { openai: { store: false, textVerbosity: 'medium', reasoningEffort: 'none' } });
   });
 
   test('google effort model (gemini-3) sends thinkingLevel; Gemini 2.5 Flash off sends thinkingBudget 0; safetySettings always present', () => {
@@ -64,6 +64,20 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual([...thinkingVariantsForModel('deepinfra', 'moonshotai/Kimi-K2.7-Code')], ['off', 'low', 'medium', 'high']);
     assert.deepEqual(buildProviderOptions(conn('deepinfra'), 'moonshotai/Kimi-K2.7-Code', 'high'), { deepinfra: { reasoningEffort: 'high' } });
     assert.deepEqual(buildProviderOptions(conn('deepinfra'), 'moonshotai/Kimi-K2.7-Code', 'off'), { deepinfra: { reasoningEffort: 'none' } });
+    // Groq reasoning_effort: only gpt-oss-120b / gpt-oss-20b accept it, with
+    // low/medium/high (no `none`). qwen/qwen3-32b does not accept reasoning_effort.
+    assert.deepEqual([...thinkingVariantsForModel('groq', 'openai/gpt-oss-120b')], ['low', 'medium', 'high']);
+    assert.deepEqual(buildProviderOptions(conn('groq'), 'openai/gpt-oss-120b', 'high'), { groq: { reasoningEffort: 'high' } });
+    assert.deepEqual(buildProviderOptions(conn('groq'), 'openai/gpt-oss-120b', 'off'), {});
+    assert.deepEqual([...thinkingVariantsForModel('groq', 'qwen/qwen3-32b')], []);
+    assert.deepEqual([...thinkingVariantsForModel('groq', 'openai/gpt-oss-safeguard-20b')], []);
+    assert.deepEqual([...thinkingVariantsForModel('groq', 'llama-3.3-70b-versatile')], []);
+    // OpenRouter accepts the same `reasoning_effort` shorthand (none disables).
+    assert.deepEqual([...thinkingVariantsForModel('openrouter', 'openai/gpt-5.6-sol')], ['off', 'low', 'medium', 'high', 'xhigh', 'max']);
+    assert.deepEqual(buildProviderOptions(conn('openrouter'), 'openai/gpt-5.6-sol', 'high'), { openrouter: { reasoningEffort: 'high' } });
+    assert.deepEqual(buildProviderOptions(conn('openrouter'), 'openai/gpt-5.6-sol', 'off'), { openrouter: { reasoningEffort: 'none' } });
+    // claude-sonnet-5 exposes no off switch (no `none` effort); only effort tiers.
+    assert.deepEqual([...thinkingVariantsForModel('openrouter', 'anthropic/claude-sonnet-5')], ['low', 'medium', 'high', 'xhigh', 'max']);
     assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-v4-flash')], ['high', 'max']);
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'high'), { deepseek: { reasoningEffort: 'high' } });
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'max'), { deepseek: { reasoningEffort: 'max' } });
@@ -158,6 +172,21 @@ describe('buildProviderOptions: thinking level', () => {
       vercel: { reasoningEffort: 'none' },
     });
     assert.deepEqual(buildProviderOptions(conn('vercel'), 'grok-4.3', 'high'), {});
+  });
+
+  test('Ollama Cloud sends reasoning effort under its namespace; standard models expose off, GPT-OSS does not', () => {
+    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'glm-5.2')], ['off', 'low', 'medium', 'high', 'max']);
+    assert.deepEqual(buildProviderOptions(conn('ollama-cloud'), 'glm-5.2', 'high'), {
+      'ollama-cloud': { reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('ollama-cloud'), 'glm-5.2', 'off'), {
+      'ollama-cloud': { reasoningEffort: 'none' },
+    });
+    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'gpt-oss:120b')], ['low', 'medium', 'high']);
+    assert.deepEqual(buildProviderOptions(conn('ollama-cloud'), 'gpt-oss:120b', 'high'), {
+      'ollama-cloud': { reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('ollama-cloud'), 'gpt-oss:120b', 'off'), {});
   });
 
   test('a level the model does not support is dropped (defensive)', () => {
@@ -260,12 +289,16 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
     { providerType: 'claude-subscription', model: 'claude-opus-4-8' },
     { providerType: 'openai', model: 'gpt-5.5' },
     { providerType: 'openai', model: 'gpt-5' },
-    { providerType: 'codex-subscription', model: 'gpt-5.5' },
+    { providerType: 'openai-codex', model: 'gpt-5.5' },
     { providerType: 'google', model: 'gemini-3-pro-preview' },
     { providerType: 'google', model: 'gemini-3.5-flash' },
     { providerType: 'deepseek', model: 'deepseek-v4-flash' },
     { providerType: 'deepinfra', model: 'moonshotai/Kimi-K2.7-Code' },
+    { providerType: 'groq', model: 'openai/gpt-oss-120b' },
+    { providerType: 'openrouter', model: 'openai/gpt-5.6-sol' },
     { providerType: 'vercel', model: 'xai/grok-4.3' },
+    { providerType: 'ollama-cloud', model: 'glm-5.2' },
+    { providerType: 'ollama-cloud', model: 'gpt-oss:120b' },
     { providerType: 'cloudflare-workers-ai', model: '@cf/moonshotai/kimi-k2.6' },
     { providerType: 'zai-coding-plan', model: 'glm-5.2', slug: 'zai-coding-plan' },
     { providerType: 'volcengine-ark', model: 'doubao-seed-2-0-pro-260215' },

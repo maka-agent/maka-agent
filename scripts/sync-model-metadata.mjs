@@ -4,6 +4,7 @@ const SOURCE_URL = 'https://models.dev/api.json';
 const DEFAULT_OUTPUT = 'packages/core/src/model-metadata.generated.ts';
 const PROVIDERS = {
   anthropic: 'anthropic',
+  alibaba: 'alibaba',
   cerebras: 'cerebras',
   cohere: 'cohere',
   'cloudflare-workers-ai': 'cloudflare-workers-ai',
@@ -13,6 +14,7 @@ const PROVIDERS = {
   'github-copilot': 'github-copilot',
   google: 'google',
   'gemini-cli': 'google',
+  groq: 'groq',
   huggingface: 'huggingface',
   MiniMax: 'minimax',
   'MiniMax-cn': 'minimax-cn',
@@ -23,6 +25,7 @@ const PROVIDERS = {
   openai: 'openai',
   opencode: 'opencode',
   'opencode-go': 'opencode-go',
+  openrouter: 'openrouter',
   siliconflow: 'siliconflow',
   stepfun: 'stepfun',
   'stepfun-ai': 'stepfun-ai',

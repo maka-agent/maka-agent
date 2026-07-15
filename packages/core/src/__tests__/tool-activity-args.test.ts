@@ -2,10 +2,54 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 
 import {
+  formatWriteStdinPermissionInspection,
   projectToolActivityArgs,
+  projectWriteStdinPermissionSummary,
   projectWriteStdinInput,
   WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS,
+  WRITE_STDIN_REF_PREVIEW_MAX_CHARS,
 } from '../index.js';
+
+it('formats exact terminal input as inert, unambiguous escaped text', () => {
+  assert.equal(
+    formatWriteStdinPermissionInspection({ input: 'a\\r\r"' }),
+    String.raw`input: "a\\r\r\""`,
+  );
+  assert.equal(
+    formatWriteStdinPermissionInspection({ input: '\u001b\u202E中' }),
+    String.raw`input: "\u{001B}\u{202E}中"`,
+  );
+  assert.equal(
+    formatWriteStdinPermissionInspection({ input: '\u0085\u2028\uD800' }),
+    String.raw`input: "\u{0085}\u{2028}\u{D800}"`,
+  );
+  assert.equal(
+    formatWriteStdinPermissionInspection({ input: '\uFE0F\u034F' }),
+    String.raw`input: "\u{FE0F}\u{034F}"`,
+  );
+});
+
+it('derives a bounded summary and a complete inert WriteStdin permission inspection', () => {
+  const suffix = '\u001b[31mrm -rf /tmp/example\r';
+  const args = {
+    ref: `maka://runtime/background-tasks/${'r'.repeat(200)}`,
+    input: `token=secret-value ${'x'.repeat(200)}${suffix}`,
+    size: { cols: 120, rows: 40 },
+  };
+
+  const summary = projectWriteStdinPermissionSummary(args);
+  assert.equal(summary.ref?.truncated, true);
+  assert.equal(summary.input?.truncated, true);
+  assert.equal(summary.input?.text.includes('secret-value'), false);
+  assert.equal(summary.input?.text.includes('rm -rf'), false);
+  assert.deepEqual(summary.size, { cols: 120, rows: 40 });
+
+  const inspection = formatWriteStdinPermissionInspection(args);
+  assert.ok(inspection?.includes(String.raw`\u{001B}[31mrm -rf /tmp/example\r`));
+  assert.ok(inspection?.includes('secret-value'));
+  assert.ok(inspection?.includes('size: 120x40'));
+  assert.equal(inspection?.includes('\u001b'), false);
+});
 
 it('projects WriteStdin activity to a bounded human-readable input preview', () => {
   const projected = projectToolActivityArgs('WriteStdin', {
@@ -21,6 +65,15 @@ it('projects WriteStdin activity to a bounded human-readable input preview', () 
   assert.doesNotMatch((projected as { inputPreview: { text: string } }).inputPreview.text, /\r/);
   assert.deepEqual(projectToolActivityArgs('WriteStdin', projected), projected);
   assert.deepEqual(projectToolActivityArgs('WriteStdin', 'malformed raw input'), {});
+
+  const invalidSize = {
+    ref: 'maka://runtime/background-tasks/one',
+    size: { cols: 1.5, rows: Number.POSITIVE_INFINITY },
+  };
+  assert.deepEqual(projectToolActivityArgs('WriteStdin', invalidSize), {
+    ref: 'maka://runtime/background-tasks/one',
+  });
+  assert.equal(projectWriteStdinPermissionSummary(invalidSize).size, undefined);
 });
 
 it('names terminal controls, redacts secrets, escapes invisible input, and caps previews', () => {
@@ -58,4 +111,14 @@ it('rejects projected previews that bypass the display safety boundary', () => {
       inputPreview: { text, bytes: 20, truncated: false },
     }), { ref });
   }
+});
+
+it('bounds a malformed WriteStdin ref at the human projection boundary', () => {
+  const projected = projectToolActivityArgs('WriteStdin', {
+    ref: 'x'.repeat(WRITE_STDIN_REF_PREVIEW_MAX_CHARS + 20),
+    input: '\r',
+  }) as { ref: string };
+
+  assert.equal(Array.from(projected.ref).length, WRITE_STDIN_REF_PREVIEW_MAX_CHARS);
+  assert.equal(projected.ref.endsWith('...'), true);
 });

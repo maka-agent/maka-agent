@@ -38,9 +38,7 @@ function toolStatusText(entry: MakaPiToolEntry): string {
         : ansi.red(entry.status);
   const duration = entry.durationMs === undefined
     ? ''
-    : entry.toolName === 'Bash' && entry.result?.kind === 'shell_run'
-      ? ansi.dim(` ${Math.floor(entry.durationMs / 1_000)}s`)
-      : ansi.dim(` ${entry.durationMs}ms`);
+    : ansi.dim(` ${entry.durationMs}ms`);
   return `${status}${duration}`;
 }
 
@@ -54,7 +52,7 @@ function renderCompactToolBlock(entry: MakaPiToolEntry, width: number): string[]
   // so any multi-line summary text would silently break the two-line card.
   const inputSummary = collapseToSingleLine(toolInputSummary(entry));
   const header = `${ansi.yellow('Tool')} ${entry.title ?? entry.toolName}`
-    + `${inputSummary ? ` ${ansi.dim(inputSummary)}` : ''} ${toolStatusText(entry)}`;
+    + ` ${toolStatusText(entry)}${inputSummary ? ` ${ansi.dim(inputSummary)}` : ''}`;
   const lines = [fitLine(header, width)];
   const summary = compactToolSummary(entry, width);
   if (summary) {
@@ -143,7 +141,7 @@ function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolS
   if (result?.kind === 'terminal') return compactTerminalSummary(result, hasLiveOutput);
   if (result?.kind === 'file_diff') return compactDiffSummary(result);
   if (result?.kind === 'file_write') {
-    return { text: `wrote ${result.bytes} bytes ${result.path}`, expandable: hasLiveOutput };
+    return { text: `Wrote ${result.bytes} bytes to ${result.path}`, expandable: hasLiveOutput };
   }
 
   if (entry.toolName === 'Grep') {
@@ -604,7 +602,7 @@ function formatPtyControlOperation(operation: ShellRunOperation | undefined, arg
   const parts: string[] = [];
   if (operation.input) {
     const preview = readWriteStdinInputPreview(args);
-    const action = operation.input.applied ? 'Sent' : 'Did not send';
+    const action = operation.input.queued ? 'Queued' : 'Did not queue';
     if (preview) {
       parts.push(preview.truncated
         ? `${action}: ${preview.text}… · ${operation.input.bytes} bytes total`

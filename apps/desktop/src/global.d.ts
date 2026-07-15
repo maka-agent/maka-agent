@@ -58,6 +58,8 @@ import type {
   BrowserState,
   BrowserViewRect,
   ThemePreference,
+  Task,
+  TaskLedgerChangedEvent,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -89,6 +91,24 @@ import type {
 // @xuan PR110b review: success branch is `{ ok: true; sessionId }`
 // only. No turn / message anchor — PR110c will add `firstTurnId` if
 // needed.
+export interface ExpertTeamMemberSummary {
+  id: string;
+  name: string;
+  description: string;
+  whenToUse?: string;
+}
+export interface ExpertTeamSummary {
+  id: string;
+  name: string;
+  description: string;
+  members: ExpertTeamMemberSummary[];
+}
+export type ExpertTeamStartResult =
+  | { ok: true; sessionId: string }
+  | { ok: false; reason: 'unknown_team'; teamId: string }
+  | { ok: false; reason: 'setup_required'; state: OnboardingState }
+  | { ok: false; reason: 'send_failed'; message: string };
+
 export type QuickChatResult =
   | { ok: true; sessionId: string }
   | { ok: false; reason: 'setup_required'; state: OnboardingState }
@@ -129,6 +149,10 @@ declare global {
     | { file: File };
   interface Window {
     maka: {
+      tasks: {
+        list(sessionId: string): Promise<Task[]>;
+        subscribeChanges(handler: (event: TaskLedgerChangedEvent) => void): () => void;
+      };
       sessions: {
         list(filter?: SessionListFilter): Promise<SessionSummary[]>;
         create(input?: Partial<CreateSessionInput>): Promise<SessionSummary>;
@@ -234,6 +258,10 @@ declare global {
       quickChat: {
         start(input?: { prompt?: string; mode?: QuickChatMode }): Promise<QuickChatResult>;
       };
+      expertTeam: {
+        list(): Promise<{ teams: ExpertTeamSummary[] }>;
+        start(input: { teamId: string; prompt?: string }): Promise<ExpertTeamStartResult>;
+      };
       permissions: {
         getSnapshot(): Promise<PermissionSnapshot>;
         openSystemSettings(
@@ -316,14 +344,14 @@ declare global {
         refreshTokens(): Promise<SubscriptionActionResult>;
         logout(): Promise<SubscriptionActionResult>;
       };
-      codexSubscription: {
+      openAiCodex: {
         isExperimentalEnabled(): Promise<boolean>;
         getAuthUrl(): Promise<AuthorizationUrlPayload | SubscriptionActionResult>;
         openAuthUrl(authRequestId: string): Promise<SubscriptionActionResult>;
         completeAuthorization(authRequestId: string): Promise<SubscriptionActionResult>;
         cancelAuthorization(authRequestId?: string): Promise<{ ok: true }>;
         getAccountState(): Promise<{
-          provider: 'codex-subscription';
+          provider: 'openai-codex';
           runtimeState:
             | 'not_logged_in'
             | 'authorizing'
@@ -547,6 +575,15 @@ declare global {
         >;
         saveArtifactAs(artifactId: string): Promise<ArtifactSaveResult>;
       };
+      workspace: {
+        searchFiles(
+          query: string,
+          limit?: number,
+        ): Promise<
+          | { ok: true; files: Array<{ relativePath: string }> }
+          | { ok: false; reason: 'no_project' | 'search_failed' }
+        >;
+      };
       visualSmoke: {
         getState(): Promise<VisualSmokeState | null>;
         capture(input: { scenario: string; variant: string }): Promise<
@@ -606,8 +643,12 @@ declare global {
           | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' }
         >;
         createStarter(): Promise<
-          | { ok: true; skill: SkillEntry; filePath: string }
+          | { ok: true; created: boolean; skill: SkillEntry; filePath: string }
           | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }
+        >;
+        delete(id: string): Promise<
+          | { ok: true }
+          | { ok: false; reason: 'not_found' | 'blocked_path' | 'delete_failed' }
         >;
         open(id: string, target?: 'file' | 'directory'): Promise<
           | { ok: true; target: 'file' | 'directory' }

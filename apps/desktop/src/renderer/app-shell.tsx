@@ -103,10 +103,12 @@ import {
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
 import { useKeyedPendingRegistry } from './use-pending-action-registry';
 import { useAppShellComposerAttachments } from './use-app-shell-composer-attachments';
+import { useComposerMentions } from './use-composer-mentions';
 import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
 import { useShellConnections } from './use-shell-connections';
 import { useShellChatModel } from './use-shell-chat-model';
 import { useShellLiveTurn } from './use-shell-live-turn';
+import { useSessionTasks } from './use-session-tasks';
 
 type ComposerImportOwner = {
   sessionId: string | undefined;
@@ -165,6 +167,7 @@ export function AppShell({
     clearTurnTransientState,
   } = useAppShellSessionWorkspace(toastApi);
   const attachmentDraftKey = activeId ?? 'new-session';
+  const sessionTasks = useSessionTasks(activeId);
   const {
     pendingAttachments,
     pickAttachments,
@@ -614,7 +617,7 @@ export function AppShell({
   const onboarding = useOnboardingSnapshot(initialOnboardingSnapshot);
   const [quickChatPending, setQuickChatPending] = useState(false);
   const quickChatPendingRef = useRef(false);
-  const { handleQuickChatSubmit } = createAppShellQuickChatActions({
+  const { handleQuickChatSubmit, handleExpertTeamStart } = createAppShellQuickChatActions({
     activeIdRef,
     captureComposerImportOwner,
     composerRef,
@@ -626,6 +629,16 @@ export function AppShell({
     setQuickChatPending,
     toastApi,
   });
+  // Built-in expert teams for the composer "+" menu. Loaded once — the catalog
+  // is static, so a failure just leaves the 专家团 entry hidden.
+  const [expertTeams, setExpertTeams] = useState<readonly { id: string; name: string; description?: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void window.maka.expertTeam.list()
+      .then((result) => { if (!cancelled) setExpertTeams(result.teams); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   const onboardingState = onboarding.snapshot?.state;
   const onboardingSettled = hasSettledInitialOnboarding(onboarding.snapshot?.milestones ?? []);
   // Seed sessions from the onboarding snapshot on first load — the snapshot
@@ -733,12 +746,18 @@ export function AppShell({
     previewManagedSkillUpdate,
     updateManagedSkill,
     setSkillEnabled,
+    deleteSkill,
     openSkill,
   } = useAppShellModuleData({
     isSkillsSurfaceActive,
     isAutomationsSurfaceActive,
     toastApi,
   });
+
+  // Composer mention popups: `/` skills (enabled only) + `@` workspace file
+  // search. The hook owns the window.maka IPC wrapper so app-shell keeps no
+  // inline mention state.
+  const { mentionSkills, searchMentionFiles } = useComposerMentions({ skills });
 
   const {
     appInfo,
@@ -1299,6 +1318,7 @@ export function AppShell({
                   onPreviewManagedSkillUpdate={(skillId) => previewManagedSkillUpdate(skillId)}
                   onUpdateManagedSkill={(skillId, options) => updateManagedSkill(skillId, options)}
                   onSetSkillEnabled={(skillId, enabled) => setSkillEnabled(skillId, enabled)}
+                  onDeleteSkill={(skillId) => deleteSkill(skillId)}
                 />
               ) : navSelection.section === 'automations' ? (
                 <AutomationsPage
@@ -1349,6 +1369,12 @@ export function AppShell({
                   iterations: activeGoal.iterations,
                   maxIterations: activeGoal.maxIterations,
                   onClear: () => { void window.maka.goal.clear(activeGoal.sessionId); },
+                } : undefined}
+                taskLedger={activeId ? {
+                  tasks: sessionTasks.tasks,
+                  loading: sessionTasks.loading,
+                  error: sessionTasks.error,
+                  onRetry: sessionTasks.retry,
                 } : undefined}
                 messageLoadError={activeId ? messageLoadErrorBySession[activeId] : undefined}
                 messageLoadRetryPending={activeId ? messageRetryPendingBySession[activeId] === true : false}
@@ -1463,10 +1489,14 @@ export function AppShell({
                 onSend={sendWithAttachments}
                 onStop={stop}
                 stopPending={activeId ? stopPendingBySession[activeId] === true : false}
+                mentionSkills={mentionSkills}
+                onSearchMentionFiles={searchMentionFiles}
                 pendingAttachments={pendingAttachments}
                 onRemoveAttachment={removeAttachment}
                 onPickAttachments={pickAttachments}
                 onAttachFilePaths={attachFilePaths}
+                expertTeams={expertTeams}
+                onStartExpertTeam={handleExpertTeamStart}
                 modelLabel={
                   activeModelLabel
                   ?? newChatModelLabel

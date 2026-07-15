@@ -267,7 +267,7 @@ describe('Maka session driver', () => {
 
       await assert.rejects(
         driver.switchSession('no-cwd'),
-        /Session belongs to a different folder/,
+        /Session has no working directory/,
       );
 
       await collect(driver.sendPrompt('again'));
@@ -282,9 +282,8 @@ describe('Maka session driver', () => {
     const missingCwd = await mkdtemp(join(tmpdir(), 'maka-missing-session-cwd-'));
     await rm(missingCwd, { recursive: true, force: true });
     const runtime = new RecordingRuntime();
-    runtime.sessionSummaries = [
-      sessionSummary({ id: 'deleted-worktree', cwd: missingCwd }),
-    ];
+    const deleted = sessionSummary({ id: 'deleted-worktree', cwd: missingCwd });
+    runtime.sessionSummaries = [deleted];
     const driver = createMakaSessionDriver({
       runtime,
       cwd: '/repo',
@@ -292,6 +291,10 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
+    assert.deepEqual(await driver.getSessionResumeAvailability?.(deleted), {
+      available: false,
+      reason: 'Working directory no longer exists',
+    });
     await assert.rejects(
       driver.switchSession('deleted-worktree'),
       new RegExp(`Session cwd no longer exists: ${escapeRegExp(missingCwd)}`),
@@ -299,7 +302,7 @@ describe('Maka session driver', () => {
     assert.equal(driver.getSessionId(), null);
   });
 
-  test('refuses to switch across folders and leaves the active session unchanged', async () => {
+  test('switches across folders and uses the resumed cwd for the next new session', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'maka-active-cwd-'));
     const elsewhere = await mkdtemp(join(tmpdir(), 'maka-other-cwd-'));
     try {
@@ -313,23 +316,20 @@ describe('Maka session driver', () => {
       });
       await collect(driver.sendPrompt('hi'));
 
-      await assert.rejects(
-        driver.switchSession('other-folder'),
-        /Session belongs to a different folder/,
-      );
+      const resumed = await driver.switchSession('other-folder');
+      driver.startNewSession();
+      await collect(driver.sendPrompt('new work here'));
 
-      // The rejected switch must not move the active session: the next prompt
-      // still lands on the original session.
-      await collect(driver.sendPrompt('again'));
+      assert.equal(resumed.summary.cwd, elsewhere);
       assert.equal(runtime.sent[0]?.sessionId, 'session-1');
-      assert.equal(runtime.sent[1]?.sessionId, 'session-1');
+      assert.equal(runtime.created[1]?.cwd, elsewhere);
     } finally {
       await rm(repo, { recursive: true, force: true });
       await rm(elsewhere, { recursive: true, force: true });
     }
   });
 
-  test('refuses to switch across connections and leaves the active session unchanged', async () => {
+  test('adopts the resumed connection and model for the next new session', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'maka-active-cwd-'));
     try {
       const runtime = new RecordingRuntime();
@@ -344,14 +344,12 @@ describe('Maka session driver', () => {
       });
       await collect(driver.sendPrompt('hi'));
 
-      await assert.rejects(
-        driver.switchSession('other-conn'),
-        /Session uses a different connection/,
-      );
+      await driver.switchSession('other-conn');
+      driver.startNewSession();
+      await collect(driver.sendPrompt('new work here'));
 
-      await collect(driver.sendPrompt('again'));
-      assert.equal(runtime.sent[0]?.sessionId, 'session-1');
-      assert.equal(runtime.sent[1]?.sessionId, 'session-1');
+      assert.equal(runtime.created[1]?.llmConnectionSlug, 'other-connection');
+      assert.equal(runtime.created[1]?.model, 'claude-sonnet-4-5');
     } finally {
       await rm(repo, { recursive: true, force: true });
     }

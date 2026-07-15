@@ -19,7 +19,7 @@ export function normalizeActiveChatModel(
   );
   if (matchingChoice) return matchingChoice.model;
   if (
-    connection?.providerType === 'codex-subscription' &&
+    connection?.providerType === 'openai-codex' &&
     requested &&
     CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(requested)
   ) {

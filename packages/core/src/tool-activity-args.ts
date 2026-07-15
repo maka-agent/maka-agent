@@ -1,11 +1,91 @@
 import { redactSecrets } from './redaction.js';
 
 export const WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS = 160;
+export const WRITE_STDIN_REF_PREVIEW_MAX_CHARS = 256;
 
 export interface WriteStdinInputPreview {
   text: string;
   bytes: number;
   truncated: boolean;
+}
+
+export interface WriteStdinPermissionSummary {
+  ref?: {
+    text: string;
+    truncated: boolean;
+  };
+  input?: WriteStdinInputPreview;
+  size?: {
+    cols: number;
+    rows: number;
+  };
+}
+
+function escapeTerminalTextForInspection(input: string): string {
+  let escaped = '"';
+  for (const char of input) {
+    switch (char) {
+      case '\\':
+        escaped += '\\\\';
+        break;
+      case '"':
+        escaped += '\\"';
+        break;
+      case '\r':
+        escaped += '\\r';
+        break;
+      case '\n':
+        escaped += '\\n';
+        break;
+      case '\t':
+        escaped += '\\t';
+        break;
+      case '\b':
+        escaped += '\\b';
+        break;
+      case '\f':
+        escaped += '\\f';
+        break;
+      default: {
+        const codePoint = char.codePointAt(0) ?? 0;
+        escaped += codePoint < 0x20
+          || (codePoint >= 0xd800 && codePoint <= 0xdfff)
+          || isInvisibleCodePoint(codePoint)
+          ? `\\u{${codePoint.toString(16).toUpperCase().padStart(4, '0')}}`
+          : char;
+      }
+    }
+  }
+  return `${escaped}"`;
+}
+
+export function projectWriteStdinPermissionSummary(args: unknown): WriteStdinPermissionSummary {
+  const parsed = readWriteStdinArgs(args);
+  if (!parsed) return {};
+  const summary: WriteStdinPermissionSummary = {};
+  if (parsed.ref !== undefined) {
+    const preview = projectWriteStdinInput(parsed.ref);
+    summary.ref = { text: preview.text, truncated: preview.truncated };
+  }
+  if (parsed.input !== undefined) summary.input = projectWriteStdinInput(parsed.input);
+  if (parsed.size !== undefined) summary.size = parsed.size;
+  return summary;
+}
+
+export function formatWriteStdinPermissionInspection(args: unknown): string | undefined {
+  const parsed = readWriteStdinArgs(args);
+  if (!parsed) return undefined;
+  const lines: string[] = [];
+  if (parsed.ref !== undefined) {
+    lines.push(`ref: ${escapeTerminalTextForInspection(parsed.ref)}`);
+  }
+  if (parsed.input !== undefined) {
+    lines.push(`input: ${escapeTerminalTextForInspection(parsed.input)}`);
+  }
+  if (parsed.size !== undefined) {
+    lines.push(`size: ${parsed.size.cols}x${parsed.size.rows}`);
+  }
+  return lines.length > 0 ? lines.join('\n') : undefined;
 }
 
 export function projectWriteStdinInput(input: string): WriteStdinInputPreview {
@@ -59,23 +139,53 @@ function isSafeProjectedInputText(text: string): boolean {
 
 export function projectToolActivityArgs(toolName: string, args: unknown): unknown {
   if (toolName !== 'WriteStdin') return args;
-  if (!args || typeof args !== 'object' || Array.isArray(args)) return {};
+  const parsed = readWriteStdinArgs(args);
+  if (!parsed) return {};
   const input = args as Record<string, unknown>;
   const summary: Record<string, unknown> = {};
-  if (typeof input.ref === 'string') summary.ref = input.ref;
-  if (typeof input.input === 'string') {
-    summary.inputPreview = projectWriteStdinInput(input.input);
+  if (parsed.ref !== undefined) summary.ref = boundedWriteStdinRef(parsed.ref);
+  if (parsed.input !== undefined) {
+    summary.inputPreview = projectWriteStdinInput(parsed.input);
   } else {
     const preview = readWriteStdinInputPreview(input);
     if (preview) summary.inputPreview = preview;
   }
-  if (input.size && typeof input.size === 'object' && !Array.isArray(input.size)) {
-    const size = input.size as Record<string, unknown>;
-    if (typeof size.cols === 'number' && typeof size.rows === 'number') {
-      summary.size = { cols: size.cols, rows: size.rows };
+  if (parsed.size !== undefined) summary.size = parsed.size;
+  return summary;
+}
+
+function readWriteStdinArgs(args: unknown): {
+  ref?: string;
+  input?: string;
+  size?: { cols: number; rows: number };
+} | undefined {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return undefined;
+  const value = args as Record<string, unknown>;
+  const parsed: {
+    ref?: string;
+    input?: string;
+    size?: { cols: number; rows: number };
+  } = {};
+  if (typeof value.ref === 'string') parsed.ref = value.ref;
+  if (typeof value.input === 'string') parsed.input = value.input;
+  if (value.size && typeof value.size === 'object' && !Array.isArray(value.size)) {
+    const size = value.size as Record<string, unknown>;
+    if (Number.isSafeInteger(size.cols) && Number.isSafeInteger(size.rows)) {
+      parsed.size = { cols: size.cols as number, rows: size.rows as number };
     }
   }
-  return summary;
+  return parsed;
+}
+
+function boundedWriteStdinRef(ref: string): string {
+  const prefix: string[] = [];
+  let length = 0;
+  for (const char of ref) {
+    length += 1;
+    if (prefix.length < WRITE_STDIN_REF_PREVIEW_MAX_CHARS - 3) prefix.push(char);
+    if (length > WRITE_STDIN_REF_PREVIEW_MAX_CHARS) return `${prefix.join('')}...`;
+  }
+  return ref;
 }
 
 function exactTerminalInputLabel(input: string): string | undefined {
@@ -128,5 +238,7 @@ function terminalInputCharDisplay(char: string): string {
 }
 
 function isInvisibleCodePoint(codePoint: number): boolean {
-  return /[\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(String.fromCodePoint(codePoint));
+  return /[\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(
+    String.fromCodePoint(codePoint),
+  );
 }

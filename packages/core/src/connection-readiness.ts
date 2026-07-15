@@ -108,7 +108,7 @@ export function isConnectionReady(input: IsConnectionReadyInput): IsConnectionRe
   if (
     authKind === 'oauth_token' &&
     connection.providerType !== 'claude-subscription' &&
-    connection.providerType !== 'codex-subscription' &&
+    connection.providerType !== 'openai-codex' &&
     connection.providerType !== 'github-copilot'
   ) {
     return { ready: false, reason: 'oauth_subscription_not_wired' };

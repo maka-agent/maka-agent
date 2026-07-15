@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Run the headless Node test suite without inheriting machine-level Git config.
+ * Run the headless Node test suite without inheriting user config or credentials.
  *
  * Usage:
  *   node scripts/run-headless-tests.mjs
@@ -20,21 +20,37 @@ const testPattern = 'dist/**/*.test.js';
 
 const usage = `Usage: node scripts/run-headless-tests.mjs
 
-Runs packages/headless tests with an isolated, empty global Git config.
+Runs packages/headless tests with isolated user config, credentials, proxies, and Git config.
 `;
+
+const sensitiveEnvName = /(?:^|_)(?:API_KEY|ACCESS_KEY|PRIVATE_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)(?:_|$)/i;
+const proxyEnvName = /^(?:HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY)$/i;
 
 export function runHeadlessTests(options = {}) {
   const cwd = options.cwd ?? headlessDir;
   const spawn = options.spawnSync ?? spawnSync;
-  const tempDir = mkdtempSync(join(tmpdir(), 'maka-headless-git-config-'));
+  const inheritedEnv = options.env ?? process.env;
+  const tempDir = mkdtempSync(join(tmpdir(), 'maka-headless-test-env-'));
+  const credentialsPath = join(tempDir, 'credentials.json');
   const globalConfigPath = join(tempDir, 'gitconfig');
-  writeFileSync(globalConfigPath, '', { encoding: 'utf8', mode: 0o600 });
 
   try {
+    writeFileSync(credentialsPath, '{"version":1,"values":{}}\n', { encoding: 'utf8', mode: 0o600 });
+    writeFileSync(globalConfigPath, '', { encoding: 'utf8', mode: 0o600 });
     const result = spawn(process.execPath, ['--test', testPattern], {
       cwd,
       env: {
-        ...process.env,
+        ...Object.fromEntries(Object.entries(inheritedEnv).filter(
+          ([name]) => !sensitiveEnvName.test(name) && !proxyEnvName.test(name),
+        )),
+        HOME: tempDir,
+        USERPROFILE: tempDir,
+        XDG_CONFIG_HOME: join(tempDir, 'config'),
+        XDG_DATA_HOME: join(tempDir, 'data'),
+        XDG_STATE_HOME: join(tempDir, 'state'),
+        XDG_CACHE_HOME: join(tempDir, 'cache'),
+        APPDATA: join(tempDir, 'appdata'),
+        MAKA_CREDENTIALS_PATH: credentialsPath,
         GIT_CONFIG_GLOBAL: globalConfigPath,
         GIT_CONFIG_NOSYSTEM: '1',
       },

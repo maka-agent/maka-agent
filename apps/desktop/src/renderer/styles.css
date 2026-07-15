@@ -21,6 +21,7 @@
 @import "./styles/settings/select.css";
 @import "./styles/model-switcher.css";
 @import "./styles/chat-header.css";
+@import "./styles/task-ledger.css";
 @import "./styles/error.css";
 @import "./styles/toast.css";
 @import "./styles/help.css";
@@ -29,6 +30,7 @@
 @import "./styles/chat-message.css" layer(components);
 @import "./styles/prose.css" layer(components);
 @import "./styles/composer.css";
+@import "./styles/composer-mention.css";
 @import "./styles/chat-detail.css";
 @import "./styles/settings.css";
 @import "./styles/markdown-link.css" layer(components);

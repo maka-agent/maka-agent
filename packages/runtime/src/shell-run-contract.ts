@@ -1,7 +1,15 @@
-import { isShellRunId, type ShellRunStore, type ShellRunUpdate, type ToolResultContent } from '@maka/core';
+import {
+  isShellRunId,
+  SHELL_RUN_ID_MAX_CHARS,
+  type ShellRunStore,
+  type ShellRunUpdate,
+  type ToolResultContent,
+} from '@maka/core';
 
 import type { ShellPlan } from './shell-detect.js';
 import type { ChildFdInput } from './child-fd-input.js';
+import type { ToolExecutionPermissionContext } from './additional-permissions.js';
+import type { SandboxType } from './sandbox/types.js';
 
 export const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 export const MAX_FOREGROUND_BASH_TIMEOUT_MS = 10 * 60 * 1_000;
@@ -17,6 +25,8 @@ export const DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS = 1_000;
 export const DEFAULT_SHELL_RUN_FLUSH_BYTES = 64 * 1024;
 export const SHELL_RUN_CONTEXT_SUMMARY_LIMIT = 8;
 export const SHELL_RUN_RESOURCE_PREFIX = 'maka://runtime/background-tasks';
+export const MAX_SHELL_RUN_RESOURCE_REF_CHARS =
+  SHELL_RUN_RESOURCE_PREFIX.length + 1 + SHELL_RUN_ID_MAX_CHARS;
 
 const SHELL_RUN_RESOURCE_PATH_PATTERN = /^\/background-tasks\/([^/]+)$/;
 
@@ -54,6 +64,10 @@ export interface ShellRunBashInput {
   abortSignal?: AbortSignal;
   emitOutput: (stream: 'stdout' | 'stderr', chunk: string) => void;
   shell?: ShellPlan;
+  /** One-call grants consumed by ToolRuntime for this exact invocation. */
+  permissionContext?: ToolExecutionPermissionContext;
+  /** Effective command sandbox selected before process launch. */
+  sandboxType?: SandboxType;
 }
 
 export interface ShellRunWriteInput {
@@ -154,7 +168,7 @@ export function parseShellRunResourceRef(ref: string): { shellRunId: string } | 
     const shellRunId = decodeURIComponent(encodedId);
     if (
       !isShellRunId(shellRunId)
-      || encodedId !== encodeURIComponent(shellRunId)
+      || ref !== shellRunResourceRef(shellRunId)
     ) return null;
     return { shellRunId };
   } catch {

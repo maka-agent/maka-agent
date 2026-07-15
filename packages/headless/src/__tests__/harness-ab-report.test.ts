@@ -8,7 +8,7 @@ import {
   renderHarnessAbReportCsv,
   renderHarnessAbReportMarkdown,
 } from '../harness-ab-report.js';
-import { completed, withUsage } from './helpers/ab-summary-fixtures.js';
+import { budgetExhausted, completed, withUsage } from './helpers/ab-summary-fixtures.js';
 
 describe('harness A/B report', () => {
   test('keeps effectiveness and economy as separate reproducible axes', () => {
@@ -50,9 +50,9 @@ describe('harness A/B report', () => {
     assert.equal('score' in report, false);
 
     const csv = renderHarnessAbReportCsv(report);
-    assert.match(csv, /^run_status,stop_reason,paired_expected,paired_evaluated,excluded_pairs,missing_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline\n/);
-    assert.match(csv, /completed,,2,2,0,0,effectiveness,pass_rate,maka,1,opencode,0.5,-0.5/);
-    assert.match(csv, /completed,,2,2,0,0,economy,total_tokens,maka,240,opencode,360,120/);
+    assert.match(csv, /^run_status,stop_reason,paired_expected,paired_evaluated,excluded_pairs,missing_pairs,paired_metered,missing_usage_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline\n/);
+    assert.match(csv, /completed,,2,2,0,0,2,0,effectiveness,pass_rate,maka,1,opencode,0.5,-0.5/);
+    assert.match(csv, /completed,,2,2,0,0,2,0,economy,total_tokens,maka,240,opencode,360,120/);
 
     const markdown = renderHarnessAbReportMarkdown(report);
     assert.match(markdown, /# Maka vs OpenCode — GLM-5\.2 Harness Comparison/);
@@ -61,7 +61,7 @@ describe('harness A/B report', () => {
     assert.match(markdown, /No composite score/);
   });
 
-  test('reports effectiveness only over pairs evaluated by both harnesses', () => {
+  test('stays incomplete when an infrastructure pair is excluded', () => {
     const summary = summarizeAbComparison({
       runId: 'glm-harness-ab',
       roundId: 'ab-summary',
@@ -75,10 +75,7 @@ describe('harness A/B report', () => {
     const report = buildHarnessAbReport(summary);
 
     assert.equal(report.runStatus, 'incomplete');
-    assert.throws(
-      () => assertHarnessAbReportCompleted(report),
-      /harness A\/B incomplete: 1\/2 paired attempts evaluated \(1 excluded, 0 missing\)/,
-    );
+    assert.throws(() => assertHarnessAbReportCompleted(report), /1 excluded/);
     assert.deepEqual(report.effectiveness.baseline, {
       armId: 'maka',
       passed: 1,
@@ -116,8 +113,66 @@ describe('harness A/B report', () => {
     assert.equal(report.effectiveness.pairedEvaluated, 1);
     assert.equal(report.economy.baseline.totalTokens, 100);
     assert.equal(report.economy.candidate.totalTokens, 100);
-    assert.equal(report.economy.baseline.tokensPerEvaluated, 100);
-    assert.equal(report.economy.candidate.tokensPerEvaluated, 100);
+    assert.equal(report.economy.baseline.tokensPerMetered, 100);
+    assert.equal(report.economy.candidate.tokensPerMetered, 100);
+  });
+
+  test('excludes a pair from economy when either evaluated arm is missing usage', () => {
+    const summary = summarizeAbComparison({
+      runId: 'glm-harness-ab',
+      roundId: 'ab-summary',
+      baselineArmId: 'maka',
+      candidateArmId: 'opencode',
+      evaluationTaskIds: ['a', 'b'],
+      baselineRuns: [[
+        usage('a', true, 100, 40, 20, 0.1),
+        budgetExhausted('b'),
+      ]],
+      candidateRuns: [[
+        usage('a', true, 120, 50, 30, 0.2),
+        usage('b', true, 900, 0, 100, 0.9),
+      ]],
+    });
+
+    const report = buildHarnessAbReport(summary);
+    const economy = report.economy as typeof report.economy & {
+      pairedMetered: number;
+      missingUsagePairs: number;
+    };
+
+    assert.equal(report.effectiveness.pairedEvaluated, 2);
+    assert.equal(report.runStatus, 'incomplete');
+    assert.equal(economy.pairedMetered, 1);
+    assert.equal(economy.missingUsagePairs, 1);
+    assert.equal(report.economy.baseline.totalTokens, 120);
+    assert.equal(report.economy.candidate.totalTokens, 150);
+    assert.equal(report.economy.baseline.costPerPassUsd, 0.1);
+    assert.equal(report.economy.candidate.costPerPassUsd, 0.2);
+    assert.match(renderHarnessAbReportMarkdown(report), /fully metered pairs: 1; missing usage: 1/);
+    assert.throws(() => assertHarnessAbReportCompleted(report), /missing usage for 1 pair/);
+  });
+
+  test('treats timeout usage checkpoints as incomplete metering', () => {
+    const checkpointOnlyTimeout = {
+      ...budgetExhausted('a'),
+      tokenSummary: usage('checkpoint', false, 100, 40, 20, 0.1).tokenSummary,
+      tokenSummarySource: 'checkpoint' as const,
+    };
+    const summary = summarizeAbComparison({
+      runId: 'glm-harness-ab',
+      roundId: 'ab-summary',
+      baselineArmId: 'maka',
+      candidateArmId: 'opencode',
+      evaluationTaskIds: ['a'],
+      baselineRuns: [[checkpointOnlyTimeout]],
+      candidateRuns: [[usage('a', true, 120, 50, 30, 0.2)]],
+    });
+
+    const report = buildHarnessAbReport(summary);
+
+    assert.equal(summary.pairedAttempts.fullyMeteredPairs, 0);
+    assert.deepEqual(summary.pairedAttempts.missingUsagePairIds, ['a#r0']);
+    assert.equal(report.runStatus, 'incomplete');
   });
 
   test('preserves an early stop in every report format and rejects completion', () => {
@@ -137,8 +192,8 @@ describe('harness A/B report', () => {
 
     assert.equal(report.runStatus, 'stopped');
     assert.equal(report.stopReason, 'systemic_provider_failure');
-    assert.match(renderHarnessAbReportCsv(report), /^run_status,stop_reason,paired_expected,paired_evaluated,excluded_pairs,missing_pairs,axis,metric,/);
-    assert.match(renderHarnessAbReportCsv(report), /stopped,systemic_provider_failure,1,0,1,0,effectiveness,pass_rate/);
+    assert.match(renderHarnessAbReportCsv(report), /^run_status,stop_reason,paired_expected,paired_evaluated,excluded_pairs,missing_pairs,paired_metered,missing_usage_pairs,axis,metric,/);
+    assert.match(renderHarnessAbReportCsv(report), /stopped,systemic_provider_failure,1,0,1,0,0,0,effectiveness,pass_rate/);
     assert.match(renderHarnessAbReportMarkdown(report), /Status: stopped \(systemic_provider_failure\)\./);
     assert.throws(
       () => assertHarnessAbReportCompleted(report),

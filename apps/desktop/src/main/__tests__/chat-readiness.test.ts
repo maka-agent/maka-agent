@@ -152,30 +152,30 @@ describe('chat readiness guard', () => {
 
   test('allows Codex OAuth once its subscription send path is wired', async () => {
     const ready = await requireReadyConnection(
-      'codex-subscription',
+      'openai-codex',
       deps({
         connection: connection({
-          slug: 'codex-subscription',
+          slug: 'openai-codex',
           name: 'Codex Subscription',
-          providerType: 'codex-subscription',
+          providerType: 'openai-codex',
           defaultModel: 'gpt-5.5',
         }),
         apiKey: 'codex-oauth-secret',
       }),
     );
-    assert.equal(ready.connection.slug, 'codex-subscription');
+    assert.equal(ready.connection.slug, 'openai-codex');
     assert.equal(ready.apiKey, 'codex-oauth-secret');
     assert.equal(ready.model, 'gpt-5.5');
   });
 
   test('normalizes stale Codex OAuth session model away from unsupported ChatGPT-account model', async () => {
     const ready = await requireReadyConnection(
-      'codex-subscription',
+      'openai-codex',
       deps({
         connection: connection({
-          slug: 'codex-subscription',
+          slug: 'openai-codex',
           name: 'Codex Subscription',
-          providerType: 'codex-subscription',
+          providerType: 'openai-codex',
           defaultModel: 'gpt-5.5',
           models: [{ id: 'gpt-5.5' }, { id: 'gpt-5.4' }],
         }),
@@ -183,7 +183,7 @@ describe('chat readiness guard', () => {
       }),
       'gpt-5-codex',
     );
-    assert.equal(ready.connection.slug, 'codex-subscription');
+    assert.equal(ready.connection.slug, 'openai-codex');
     assert.equal(ready.model, 'gpt-5.5');
   });
 
@@ -345,6 +345,9 @@ describe('chat readiness guard', () => {
         async getDefaultSlug() {
           return 'zai-coding-plan';
         },
+        async listConnectionSlugs() {
+          return [];
+        },
         async updateSession(_sessionId, patch) {
           updates.push(patch);
         },
@@ -396,6 +399,9 @@ describe('chat readiness guard', () => {
           async getDefaultSlug() {
             return 'zai-coding-plan';
           },
+          async listConnectionSlugs() {
+            return [];
+          },
           async updateSession(_sessionId, patch) {
             updates.push(patch);
           },
@@ -423,6 +429,9 @@ describe('chat readiness guard', () => {
           async getDefaultSlug() {
             return 'anthropic';
           },
+          async listConnectionSlugs() {
+            return [];
+          },
           async updateSession(_sessionId, patch) {
             updates.push(patch);
           },
@@ -447,10 +456,53 @@ describe('chat readiness guard', () => {
         async getDefaultSlug() {
           return 'anthropic';
         },
+        async listConnectionSlugs() {
+          return [];
+        },
         async updateSession(_sessionId, patch) {
           updates.push(patch);
         },
       },
+    );
+
+    assert.deepEqual(result, {
+      rebound: true,
+      connectionSlug: 'anthropic',
+      modelId: 'claude-3-5-sonnet-20241022',
+    });
+    assert.equal(updates.length, 1);
+  });
+
+  test('rebinds an unknown-provider session to the first existing ready connection', async () => {
+    const updates: unknown[] = [];
+    const rebindDeps = {
+      readyConnectionDeps: keyedDeps({
+        'branch-only-provider': {
+          connection: connection({
+            slug: 'branch-only-provider',
+            name: 'Branch-only provider',
+            providerType: 'branch-only-provider' as never,
+            defaultModel: 'branch-model',
+          }),
+          apiKey: 'gsk-test',
+        },
+        anthropic: { connection: connection(), apiKey: 'sk-test' },
+      }),
+      async getDefaultSlug() {
+        return 'branch-only-provider';
+      },
+      async listConnectionSlugs() {
+        return ['branch-only-provider', 'anthropic'];
+      },
+      async updateSession(_sessionId: string, patch: unknown) {
+        updates.push(patch);
+      },
+    };
+
+    const result = await ensureSessionCanSendOrRebind(
+      'session-unknown-provider',
+      header({ llmConnectionSlug: 'branch-only-provider', model: 'branch-model' }),
+      rebindDeps,
     );
 
     assert.deepEqual(result, {
@@ -471,6 +523,9 @@ describe('chat readiness guard', () => {
           readyConnectionDeps: keyedDeps({}),
           async getDefaultSlug() {
             return null;
+          },
+          async listConnectionSlugs() {
+            return ['missing'];
           },
           async updateSession() {
             throw new Error('must not update');

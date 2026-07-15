@@ -11,7 +11,7 @@ import { anthropicV1BaseUrl, googleV1BetaBaseUrl } from './provider-urls.js';
 import { resolveModelRuntime } from './model-runtime.js';
 import {
   claudeSubscriptionHeaders,
-  codexSubscriptionHeaders,
+  openAiCodexHeaders,
 } from './subscription-auth.js';
 
 export interface ModelFactoryInput {
@@ -47,12 +47,12 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         headers: claudeSubscriptionHeaders(),
       }).chat(modelId);
 
-    case 'codex-subscription':
+    case 'openai-codex':
       return createOpenAI({
         apiKey,
         baseURL,
         fetch,
-        headers: codexSubscriptionHeaders(apiKey),
+        headers: openAiCodexHeaders(apiKey),
       }).responses(modelId);
 
     case 'github-copilot': {
@@ -289,7 +289,7 @@ export function buildProviderOptions(
             : { effort: level }
           : {},
       };
-    case 'codex-subscription':
+    case 'openai-codex':
       return {
         openai: {
           store: false,
@@ -351,12 +351,18 @@ export function buildProviderOptions(
               : { reasoningEffort: level },
           }
         : {};
-    // DeepInfra documents `none` as its real off wire. Other compatible
-    // providers below expose only their confirmed non-off effort values.
+    // DeepInfra and OpenRouter document `none` as their real off wire. Other
+    // compatible providers below expose only their confirmed non-off effort values.
     case 'deepinfra':
+    case 'openrouter':
       return level
         ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level === 'off' ? 'none' : level } }
         : {};
+    // Groq accepts `reasoning_effort` for gpt-oss-120b / gpt-oss-20b only, with
+    // low/medium/high (no `none`). Per-model thinkingOptions constrain which
+    // levels reach this case, so Groq only ever receives a non-off effort here
+    // and shares the non-off branch below.
+    case 'groq':
     case 'deepseek':
     case 'moonshot':
     case 'tencent-token-plan':

@@ -99,9 +99,18 @@ class FileAgentRunStore implements AgentRunStore {
     assertSafeId(runId, 'Invalid run id');
     if (event.type === 'history_compact_checkpoint_recorded') {
       await this.withProjectionQueue(sessionId, event.type, async () => {
+        let current: AgentRunEvent | null | undefined;
+        try {
+          current = await this.readEventProjectionUnlocked(sessionId, event.type);
+        } catch {
+          current = undefined;
+        }
         await rm(this.eventProjectionPath(sessionId, event.type), { force: true });
         await this.appendRunEvent(sessionId, runId, event);
-        await this.writeEventProjectionUnlocked(sessionId, event.type, event).catch(() => {
+        const projected = shouldPreserveCheckpointProjectionDuringAppend(current, event)
+          ? current!
+          : event;
+        await this.writeEventProjectionUnlocked(sessionId, event.type, projected).catch(() => {
           // The canonical event is durable; a missing derived projection safely replays raw history.
         });
       });
@@ -281,6 +290,20 @@ class FileAgentRunStore implements AgentRunStore {
   }
 }
 
+function shouldPreserveCheckpointProjectionDuringAppend(
+  current: AgentRunEvent | null | undefined,
+  candidate: AgentRunEvent,
+): boolean {
+  if (!current) return false;
+  const currentSourceBound = historyCompactProjectionIsSourceBound(current);
+  const candidateSourceBound = historyCompactProjectionIsSourceBound(candidate);
+  if (currentSourceBound !== candidateSourceBound) return currentSourceBound;
+  const currentCoverage = historyCompactProjectionCoverage(current);
+  const candidateCoverage = historyCompactProjectionCoverage(candidate);
+  return currentCoverage !== undefined
+    && (candidateCoverage === undefined || currentCoverage > candidateCoverage);
+}
+
 function shouldPreserveProjectionDuringRepair(
   current: AgentRunEvent | null | undefined,
   candidate: AgentRunEvent | null,
@@ -288,10 +311,21 @@ function shouldPreserveProjectionDuringRepair(
 ): boolean {
   if (!current) return false;
   if (type !== 'history_compact_checkpoint_recorded') return true;
+  const currentSourceBound = historyCompactProjectionIsSourceBound(current);
+  const candidateSourceBound = candidate ? historyCompactProjectionIsSourceBound(candidate) : false;
+  if (currentSourceBound !== candidateSourceBound) return currentSourceBound;
   const currentCoverage = historyCompactProjectionCoverage(current);
   const candidateCoverage = candidate && historyCompactProjectionCoverage(candidate);
   return currentCoverage !== undefined
     && (candidateCoverage === null || candidateCoverage === undefined || currentCoverage >= candidateCoverage);
+}
+
+function historyCompactProjectionIsSourceBound(event: AgentRunEvent): boolean {
+  const checkpoint = event.data?.checkpoint;
+  if (!checkpoint || typeof checkpoint !== 'object') return false;
+  const source = (checkpoint as { source?: unknown }).source;
+  if (!source || typeof source !== 'object') return false;
+  return (source as { kind?: unknown }).kind === 'runtime_event_projection';
 }
 
 function historyCompactProjectionCoverage(event: AgentRunEvent): number | undefined {

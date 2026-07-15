@@ -53,7 +53,7 @@ const MODEL_OAUTH_CARDS: ReadonlyArray<ModelOAuthCard> = [
   },
   {
     id: 'codex',
-    providerType: 'codex-subscription',
+    providerType: 'openai-codex',
     name: 'OpenAI Codex',
     description: 'ChatGPT Plus / Pro 订阅账号登录。',
     status: 'available',
@@ -429,7 +429,7 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
 function pickSubscriptionBridge(serviceId: BrowserOAuthServiceId): OAuthLoginFlowBridge {
   switch (serviceId) {
     case 'codex':
-      return window.maka.codexSubscription as unknown as OAuthLoginFlowBridge;
+      return window.maka.openAiCodex as unknown as OAuthLoginFlowBridge;
     case 'cursor':
       return window.maka.cursorSubscription as unknown as OAuthLoginFlowBridge;
     case 'antigravity':

@@ -16,6 +16,7 @@ import {
   providerApiKeyEnvName,
   reasoningEffortFromEnv,
   runHarborCell,
+  writeHarborCellUsageCheckpoint,
 } from '#harbor-cell';
 
 const TRIAL_PRICING_ENV = [
@@ -79,6 +80,7 @@ export async function main(options = {}) {
       now,
       newId,
       ...(maxSteps !== undefined ? { maxSteps } : {}),
+      recordUsageCheckpoint: (usage) => writeHarborCellUsageCheckpoint(outputDir, usage),
     }),
     realBackendIsolation: {
       kind: 'external',

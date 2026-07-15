@@ -1,4 +1,4 @@
-import type { ExecutionEvidenceRef } from '@maka/core/execution-evidence';
+import type { ExecutionEvidenceRef, WorkspaceRevisionRef } from '@maka/core/execution-evidence';
 import type { ResultRecord, TaskVerification, VerifierSpec } from './contracts.js';
 
 export type TaskRunStatus =
@@ -446,6 +446,8 @@ export interface HeavyTaskWorkspaceObservationEntry {
   path: string;
   kind: 'file' | 'directory' | 'symlink' | 'other';
   symlinkTarget?: string;
+  sizeBytes?: number;
+  sha256?: string;
 }
 
 export interface HeavyTaskWorkspaceObservationState {
@@ -457,6 +459,8 @@ export interface HeavyTaskWorkspaceObservationState {
   entries: HeavyTaskWorkspaceObservationEntry[];
   status: 'ok' | 'error';
   command: string;
+  /** Deterministic digest of the public manifest when observation succeeded. */
+  revision?: WorkspaceRevisionRef;
   errorExcerpt?: string;
   source: { kind: 'system'; label: string };
 }
@@ -474,6 +478,22 @@ export interface HeavyTaskSemanticSelfCheckState {
   executionHygiene?: HeavyTaskSelfCheckExecutionHygiene;
   guard: HeavyTaskSourceGuardResult & { status: 'accepted' };
   source: HeavyTaskProgressSource;
+}
+
+export type HeavyTaskSelfCheckFreshness = 'current' | 'stale' | 'unknown';
+
+export type HeavyTaskSelfCheckFreshnessReason =
+  | 'source_binding_missing'
+  | 'workspace_observation_missing'
+  | 'workspace_revision_changed'
+  | 'later_workspace_mutation';
+
+/** Replay-derived Self-check state. Durable source facts remain separate events. */
+export interface HeavyTaskSelfCheckProjection extends HeavyTaskSemanticSelfCheckState {
+  provenance?: ExecutionEvidenceRef;
+  workspaceObservationId?: string;
+  freshness: HeavyTaskSelfCheckFreshness;
+  freshnessReasons: HeavyTaskSelfCheckFreshnessReason[];
 }
 
 export interface HeavyTaskAcceptanceCheck {
@@ -812,6 +832,15 @@ export interface HeavyTaskSelfCheckRecordedEvent extends BaseTaskEvent {
   selfCheck: HeavyTaskSemanticSelfCheckState;
 }
 
+export interface HeavyTaskSelfCheckEvidenceLinkedEvent extends BaseTaskEvent {
+  type: 'heavy_task_self_check_evidence_linked';
+  selfCheckId: string;
+  attemptId: string;
+  workspaceObservationId: string;
+  /** Canonical Runtime/Task coverage and the observed workspace revision. */
+  provenance: ExecutionEvidenceRef;
+}
+
 export interface HeavyTaskSelfCheckPlanRecordedEvent extends BaseTaskEvent {
   type: 'heavy_task_self_check_plan_recorded';
   plan: HeavyTaskSelfCheckPlanState;
@@ -970,6 +999,7 @@ export type TaskEvent =
   | HeavyTaskTodosRecordedEvent
   | HeavyTaskSelfCheckPlanRecordedEvent
   | HeavyTaskSelfCheckRecordedEvent
+  | HeavyTaskSelfCheckEvidenceLinkedEvent
   | HeavyTaskSelfCheckGateRecordedEvent
   | HeavyTaskWorkspaceObservationRecordedEvent
   | HeavyTaskEvidenceRecordedEvent

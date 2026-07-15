@@ -371,7 +371,6 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   margin-top: auto;
 }
 
-.maka-skill-examples,
 .maka-skill-installed {
   display: grid;
   /* Atlas §14.6 quick-win — section internal gap aligned to reference's
@@ -386,86 +385,6 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   font-weight: var(--font-weight-semibold);
   letter-spacing: var(--tracking-widest);
   text-transform: uppercase;
-}
-
-.maka-skill-example-grid {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: var(--space-0-5);
-}
-
-.maka-skill-template-row {
-  min-width: 0;
-  display: grid;
-  /* 3 children in a 2-col grid need explicit placement — auto-flow dropped
-     the meta line under the ICON column and shattered the row. */
-  grid-template-columns: 18px minmax(0, 1fr);
-  grid-template-areas:
-    'icon copy'
-    '.    meta';
-  gap: var(--space-0-5) var(--space-1-5);
-  align-items: center;
-  padding: var(--space-1) var(--space-2);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  transition: background-color var(--duration-base) var(--ease-out-strong);
-}
-
-.maka-skill-template-row:hover {
-  background: var(--state-hover-bg);
-}
-
-.maka-skill-template-row > .maka-skill-template-icon { grid-area: icon; align-self: center; }
-.maka-skill-template-row > .maka-skill-template-copy { grid-area: copy; }
-.maka-skill-template-row > small { grid-area: meta; }
-
-.maka-skill-template-icon {
-  grid-row: span 2;
-  width: 18px;
-  height: 18px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: var(--radius-control);
-  background: oklch(from var(--link) l c h / 0.08);
-  color: var(--link);
-}
-
-.maka-skill-template-copy {
-  min-width: 0;
-  display: grid;
-  gap: var(--space-0-5);
-}
-
-.maka-skill-template-copy strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--leading-snug);
-}
-
-.maka-skill-template-copy span {
-  min-width: 0;
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-caption);
-  line-height: var(--leading-normal);
-}
-
-.maka-skill-template-row small {
-  grid-column: 2;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-  line-height: var(--leading-snug);
 }
 
 .maka-skill-library-list {
@@ -486,7 +405,12 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   --maka-skill-library-action-size: var(--h-control-sm);
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content max-content max-content;
+  /* Info column takes the slack; every trailing action (use / open / switch /
+     review / delete) flows into its own max-content implicit column, so the
+     row never wraps regardless of how many actions a skill surfaces. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
   align-items: center;
   gap: var(--space-2);
   padding-right: var(--space-3);
@@ -622,6 +546,18 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
 
 .maka-skill-library-runtime-switch {
   justify-self: end;
+}
+
+/* Per-row delete: neutral until armed. The two-step confirm state
+   (data-confirming) deepens to the destructive tone so 确认删除 reads as the
+   hot action, matching exception-only status color governance. */
+.maka-skill-library-delete-button {
+  justify-self: end;
+}
+
+.maka-skill-library-delete-button[data-confirming='true'] {
+  border-color: oklch(from var(--destructive) l c h / 0.4);
+  color: var(--destructive);
 }
 
 .maka-skill-installed-empty {

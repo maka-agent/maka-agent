@@ -45,11 +45,13 @@ export class TurnScopedAwaitRegistry<TValue, TMetadata> {
     return request.metadata;
   }
 
-  endTurn(turnId: string, errorFor: (requestId: string) => Error): void {
+  endTurn(turnId: string, errorFor: (requestId: string, metadata: TMetadata) => Error): void {
     const requests = this.turns.get(turnId);
     if (!requests) return;
     this.turns.delete(turnId);
-    for (const [requestId, request] of requests) request.reject(errorFor(requestId));
+    for (const [requestId, request] of requests) {
+      request.reject(errorFor(requestId, request.metadata));
+    }
   }
 
   entries(turnId: string): ReadonlyArray<readonly [string, TMetadata]> {

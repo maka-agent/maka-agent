@@ -16,6 +16,19 @@ from harbor.models.agent.context import AgentContext
 
 from trial_pricing import estimate_cost, pricing_from_env
 
+_UPSTREAM_CURL_INSTALL_COMMAND = "apt-get update && apt-get install -y curl"
+_RETRYING_CURL_INSTALL_COMMAND = (
+    "command -v curl >/dev/null 2>&1 && exit 0; "
+    "status=1; "
+    "for attempt in 1 2 3; do "
+    "apt-get -o Acquire::Retries=3 update && "
+    "apt-get -o Acquire::Retries=3 install -y curl && exit 0; "
+    "status=$?; "
+    '[ "$attempt" -eq 3 ] && exit "$status"; '
+    "sleep $((attempt * 5)); "
+    'done; exit "$status"'
+)
+
 
 class MakaOpenCodeAgent(OpenCode):
     """Run Harbor's OpenCode agent while normalizing trial cost fields."""
@@ -23,6 +36,24 @@ class MakaOpenCodeAgent(OpenCode):
     @staticmethod
     def name() -> str:
         return "opencode"
+
+    async def exec_as_root(
+        self,
+        environment: BaseEnvironment,
+        command: str,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        timeout_sec: int | None = None,
+    ) -> Any:
+        if command == _UPSTREAM_CURL_INSTALL_COMMAND:
+            command = _RETRYING_CURL_INSTALL_COMMAND
+        return await super().exec_as_root(
+            environment,
+            command=command,
+            env=env,
+            cwd=cwd,
+            timeout_sec=timeout_sec,
+        )
 
     @with_prompt_template
     async def run(
@@ -51,6 +82,12 @@ class MakaOpenCodeAgent(OpenCode):
 
     def _apply_cost_metadata(self, context: AgentContext) -> None:
         totals = self._token_totals(context)
+        if totals is None:
+            context.metadata = {
+                **(context.metadata or {}),
+                "opencode_pricing_source": "missing_usage",
+            }
+            return
         reported_cost = context.cost_usd
         estimated_cost = context.cost_usd
         pricing_source = "opencode" if estimated_cost is not None else None
@@ -110,6 +147,7 @@ class MakaOpenCodeAgent(OpenCode):
         env = self._provider_env(provider)
         env["ZAI_BASE_URL"] = proxy_url
         env["ZAI_API_KEY"] = proxy_token
+        env["OPENCODE_CONFIG"] = self._opencode_config_path()
         env["OPENCODE_FAKE_VCS"] = "git"
 
         skills_command = self._build_register_skills_command()
@@ -150,6 +188,16 @@ class MakaOpenCodeAgent(OpenCode):
             / "opencode-stop-runner.mjs"
         )
 
+    def _opencode_config_path(self) -> str:
+        maka_repo = self._get_env("MAKA_REPO_ROOT") or "/opt/maka-agent"
+        return str(
+            Path(maka_repo)
+            / "packages"
+            / "headless"
+            / "harbor"
+            / "opencode-benchmark.json"
+        )
+
     def _stop_grace_ms(self) -> int:
         raw = self._get_env("MAKA_OPENCODE_STOP_GRACE_MS")
         if raw is None:
@@ -168,14 +216,19 @@ class MakaOpenCodeAgent(OpenCode):
                 env[key] = value
         return env
 
-    def _token_totals(self, context: AgentContext) -> dict[str, int]:
+    def _token_totals(self, context: AgentContext) -> dict[str, int] | None:
         parsed = self._token_totals_from_stdout()
         if parsed is not None:
             return parsed
 
-        input_tokens = int(getattr(context, "n_input_tokens", 0) or 0)
-        output_tokens = int(getattr(context, "n_output_tokens", 0) or 0)
-        cache_read = int(getattr(context, "n_cache_tokens", 0) or 0)
+        raw_input = getattr(context, "n_input_tokens", None)
+        raw_output = getattr(context, "n_output_tokens", None)
+        raw_cache_read = getattr(context, "n_cache_tokens", None)
+        if raw_input is None and raw_output is None and raw_cache_read is None:
+            return None
+        input_tokens = int(raw_input or 0)
+        output_tokens = int(raw_output or 0)
+        cache_read = int(raw_cache_read or 0)
         cache_miss = max(0, input_tokens - cache_read)
         return {
             "input": input_tokens,
@@ -219,8 +272,8 @@ class MakaOpenCodeAgent(OpenCode):
             step_cache_write = (
                 _int_value(cache.get("write")) if isinstance(cache, dict) else 0
             )
-            input_tokens += step_input + step_cache_read
-            output_tokens += step_output
+            input_tokens += step_input + step_cache_read + step_cache_write
+            output_tokens += step_output + step_reasoning
             cache_read += step_cache_read
             cache_write += step_cache_write
             reasoning += step_reasoning
@@ -266,6 +319,21 @@ class MakaOpenCodeAgent(OpenCode):
                 name = str(tool_name)
                 tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
         tool_names = sorted(tool_call_counts)
+        token_summary = None
+        if totals is not None and context.cost_usd is not None:
+            token_summary = {
+                "input": totals["input"],
+                "cachedInput": totals["cache_read"],
+                "cacheHitInput": totals["cache_read"],
+                "cacheMissInput": totals["cache_miss"],
+                "cacheWriteInput": totals["cache_write"],
+                "cacheMissInputSource": "explicit",
+                "output": totals["output"],
+                "reasoning": totals["reasoning"],
+                "total": totals["input"] + totals["output"],
+                "costUsd": float(context.cost_usd),
+                "pricingSource": "runtime",
+            }
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         runtime_events_path = self.logs_dir / "runtime-events.jsonl"
         source_events_path = self.logs_dir / "opencode.txt"
@@ -280,19 +348,7 @@ class MakaOpenCodeAgent(OpenCode):
             "runtimeEventsPath": "/logs/agent/runtime-events.jsonl",
             "promptHash": prompt_hash,
             "executionIdentity": execution_identity,
-            "tokenSummary": {
-                "input": totals["input"],
-                "cachedInput": totals["cache_read"],
-                "cacheHitInput": totals["cache_read"],
-                "cacheMissInput": totals["cache_miss"],
-                "cacheWriteInput": totals["cache_write"],
-                "cacheMissInputSource": "explicit",
-                "output": totals["output"],
-                "reasoning": totals["reasoning"],
-                "total": totals["input"] + totals["output"],
-                "costUsd": float(context.cost_usd or 0),
-                "pricingSource": "runtime",
-            },
+            **({"tokenSummary": token_summary} if token_summary is not None else {}),
             "toolSummary": {
                 "providerVisibleToolCount": 0,
                 "actualToolCalls": sum(tool_call_counts.values()),

@@ -124,6 +124,8 @@ export interface TaskRunExport {
 export interface WriteTaskRunExportOptions {
   includeEvents?: boolean;
   exportedAt?: string;
+  /** Defaults to events.jsonl. AHE uses task-events.jsonl to avoid confusing Task and Runtime ledgers. */
+  eventsFileName?: string;
 }
 
 export interface WriteTaskRunExportResult {
@@ -152,7 +154,7 @@ export async function writeTaskRunExport(
   await writeFile(files.resultJson, `${JSON.stringify(compactResultView(rendered), null, 2)}\n`, 'utf8');
   await writeFile(files.resultMd, renderTaskRunMarkdown(rendered), 'utf8');
   if (options.includeEvents) {
-    files.eventsJsonl = join(outDir, 'events.jsonl');
+    files.eventsJsonl = join(outDir, options.eventsFileName ?? 'events.jsonl');
     await writeFile(files.eventsJsonl, eventsJsonl(projection.events), 'utf8');
   }
   return { export: rendered, files };

@@ -95,6 +95,7 @@ import {
 import { taskDefinitionFromTask } from './task-run-adapter.js';
 import { taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
 import { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
+import { bindSelfCheckEvidence } from './task-self-check-evidence.js';
 
 export interface RunTaskOnceDeps extends RunExperimentDeps {
   taskRunStore?: TaskRunStore;
@@ -382,12 +383,22 @@ export async function runTaskOnce(
     await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, runtimeSummary);
     if (heavyTaskMode.enabled) {
       let gateProjection = await taskRunStore.project(taskRunId);
-      await appendHeavyTaskWorkspaceObservation({
+      const workspaceObservation = await appendHeavyTaskWorkspaceObservation({
         taskRunStore,
         taskRunId,
         projection: gateProjection,
         executor: deps.realBackendIsolation?.toolExecutor,
         cwd: agentWorkspaceDir,
+        now,
+        newId,
+      });
+      await appendHeavyTaskSelfCheckEvidenceLinks({
+        store: taskRunStore,
+        runtimeEventStore,
+        taskRunId,
+        attemptId,
+        invocation,
+        workspaceObservation,
         now,
         newId,
       });
@@ -477,12 +488,22 @@ export async function runTaskOnce(
         runtimeSummary = mergeRuntimeSummaries(runtimeSummary, repairSummary);
 
         let boundedProjection = await taskRunStore.project(taskRunId);
-        await appendHeavyTaskWorkspaceObservation({
+        const repairWorkspaceObservation = await appendHeavyTaskWorkspaceObservation({
           taskRunStore,
           taskRunId,
           projection: boundedProjection,
           executor: deps.realBackendIsolation?.toolExecutor,
           cwd: agentWorkspaceDir,
+          now,
+          newId,
+        });
+        await appendHeavyTaskSelfCheckEvidenceLinks({
+          store: taskRunStore,
+          runtimeEventStore,
+          taskRunId,
+          attemptId,
+          invocation,
+          workspaceObservation: repairWorkspaceObservation,
           now,
           newId,
         });
@@ -662,7 +683,7 @@ async function appendHeavyTaskWorkspaceObservation(input: {
   cwd: string;
   now: () => number;
   newId: () => string;
-}): Promise<void> {
+}): Promise<Extract<TaskEvent, { type: 'heavy_task_workspace_observation_recorded' }> | undefined> {
   const event = await observeHeavyTaskWorkspace({
     taskRunId: input.taskRunId,
     projection: input.projection,
@@ -672,6 +693,56 @@ async function appendHeavyTaskWorkspaceObservation(input: {
     newId: input.newId,
   });
   if (event) await appendTaskEvent(input.taskRunStore, input.taskRunId, event);
+  return event;
+}
+
+async function appendHeavyTaskSelfCheckEvidenceLinks(input: {
+  store: TaskRunStore;
+  runtimeEventStore: RuntimeEventStore;
+  taskRunId: string;
+  attemptId: string;
+  invocation: InvocationResult;
+  workspaceObservation?: Extract<TaskEvent, { type: 'heavy_task_workspace_observation_recorded' }>;
+  now: () => number;
+  newId: () => string;
+}): Promise<void> {
+  if (!input.workspaceObservation || !input.runtimeEventStore.readImmutableRuntimeEvents) return;
+  const [runtimeEvents, records] = await Promise.all([
+    input.runtimeEventStore.readImmutableRuntimeEvents(input.invocation.sessionId, input.invocation.runId),
+    input.store.readEventRecords(input.taskRunId),
+  ]);
+  const linkedSelfChecks = new Set(records.flatMap(({ event }) => (
+    event.type === 'heavy_task_self_check_evidence_linked' ? [event.selfCheckId] : []
+  )));
+  const candidates = records.filter((record): record is typeof record & {
+    event: Extract<TaskEvent, { type: 'heavy_task_self_check_recorded' }>;
+  } => (
+    record.event.type === 'heavy_task_self_check_recorded'
+    && record.event.selfCheck.attemptId === input.attemptId
+    && !linkedSelfChecks.has(record.event.selfCheck.selfCheckId)
+    && (!record.event.selfCheck.source.sessionId || record.event.selfCheck.source.sessionId === input.invocation.sessionId)
+    && (!record.event.selfCheck.source.agentRunId || record.event.selfCheck.source.agentRunId === input.invocation.runId)
+    && (!record.event.selfCheck.source.turnId || record.event.selfCheck.source.turnId === input.invocation.turnId)
+  ));
+  for (const selfCheckRecord of candidates) {
+    const binding = bindSelfCheckEvidence({
+      taskRunId: input.taskRunId,
+      attemptId: input.attemptId,
+      sessionId: input.invocation.sessionId,
+      invocationId: input.invocation.invocationId,
+      agentRunId: input.invocation.runId,
+      turnId: input.invocation.turnId,
+      runtimeEvents,
+      selfCheckRecord,
+      workspaceObservation: input.workspaceObservation,
+    });
+    if (!binding.ok) continue;
+    await appendTaskEvent(input.store, input.taskRunId, {
+      ...binding.link,
+      id: input.newId(),
+      ts: input.now(),
+    });
+  }
 }
 
 const DEFAULT_INTERVENTION_POLICY: TaskInterventionPolicy = { mode: 'fail_closed' };

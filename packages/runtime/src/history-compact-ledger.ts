@@ -61,11 +61,16 @@ export async function loadLatestHistoryCompactCheckpointFromRunLedger(
 function selectRecoveredCheckpoint(
   candidates: readonly LedgerCheckpointCandidate[],
 ): LedgerCheckpointCandidate | undefined {
-  const maxCoverage = candidates.reduce(
+  // Once source-bound checkpoints exist, never recover a legacy checkpoint
+  // that cannot prove its projection ordering/cursors, even if it was written
+  // later by an older binary.
+  const sourceBound = candidates.filter((candidate) => candidate.checkpoint.source !== undefined);
+  const compatible = sourceBound.length > 0 ? sourceBound : candidates;
+  const maxCoverage = compatible.reduce(
     (max, candidate) => Math.max(max, candidate.checkpoint.coverage.eventCount),
     0,
   );
-  const furthest = candidates.filter(
+  const furthest = compatible.filter(
     (candidate) => candidate.checkpoint.coverage.eventCount === maxCoverage,
   );
   const byCheckpointId = new Map(

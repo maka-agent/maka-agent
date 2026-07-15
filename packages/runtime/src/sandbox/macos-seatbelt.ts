@@ -196,11 +196,18 @@ export interface CreateSeatbeltExecArgsInput extends BuildSeatbeltPolicyInput {
 }
 
 interface ResolvedRoots {
-  readableRoots: readonly string[];
-  writableRoots: readonly string[];
-  deniedRoots: readonly string[];
+  readableRoots: readonly ResolvedRoot[];
+  writableRoots: readonly ResolvedRoot[];
+  deniedRoots: readonly ResolvedRoot[];
   protectedWritableRoots: readonly string[];
   protectedMetadataNames: readonly string[];
+  runtimeReadableRoots: readonly string[];
+  executableRoots: readonly string[];
+}
+
+interface ResolvedRoot {
+  path: string;
+  match: 'exact' | 'subtree';
 }
 
 export function escapeSeatbeltRegex(value: string): string {
@@ -210,8 +217,10 @@ export function escapeSeatbeltRegex(value: string): string {
 export function buildSeatbeltPolicy(input: BuildSeatbeltPolicyInput): BuildSeatbeltPolicyResult {
   const roots = resolveRoots(input.profile, input.pathContext);
   const definitionArgs = [
-    ...roots.readableRoots.map((root, index) => `-DREADABLE_ROOT_${index}=${root}`),
-    ...roots.writableRoots.map((root, index) => `-DWRITABLE_ROOT_${index}=${root}`),
+    ...roots.readableRoots.map((root, index) => `-DREADABLE_ROOT_${index}=${root.path}`),
+    ...roots.writableRoots.map((root, index) => `-DWRITABLE_ROOT_${index}=${root.path}`),
+    ...roots.runtimeReadableRoots.map((root, index) => `-DRUNTIME_READABLE_ROOT_${index}=${root}`),
+    ...roots.executableRoots.map((root, index) => `-DEXECUTABLE_ROOT_${index}=${root}`),
   ];
 
   const sections = [
@@ -219,6 +228,7 @@ export function buildSeatbeltPolicy(input: BuildSeatbeltPolicyInput): BuildSeatb
     MACOS_SEATBELT_PLATFORM_DEFAULTS_POLICY,
     buildReadableRootsPolicy(roots),
     buildWritableRootsPolicy(roots),
+    buildRuntimeRootsPolicy(roots),
     buildNetworkPolicy(input.profile),
   ].filter(Boolean);
 
@@ -283,28 +293,30 @@ function resolveRoots(profile: PermissionProfile, pathContext: SandboxPathContex
       deniedRoots: [],
       protectedWritableRoots: [],
       protectedMetadataNames: [],
+      runtimeReadableRoots: [],
+      executableRoots: [],
     };
   }
 
-  const readableRoots: string[] = [];
-  const writableRoots: string[] = [];
-  const deniedRoots: string[] = [];
+  const readableRoots: ResolvedRoot[] = [];
+  const writableRoots: ResolvedRoot[] = [];
+  const deniedRoots: ResolvedRoot[] = [];
   const protectedWritableRoots: string[] = [];
 
   for (const entry of profile.fileSystem.entries) {
     const roots = rootsForEntry(entry, pathContext);
     if (entry.access === 'deny') {
-      addUniqueRoots(deniedRoots, roots);
+      addUniqueResolvedRoots(deniedRoots, roots);
       continue;
     }
 
     if (entry.access === 'read' || entry.access === 'write') {
-      addUniqueRoots(readableRoots, roots);
+      addUniqueResolvedRoots(readableRoots, roots);
     }
     if (entry.access === 'write') {
-      addUniqueRoots(writableRoots, roots);
+      addUniqueResolvedRoots(writableRoots, roots);
       if (entry.kind === 'special' && entry.special === ':workspace_roots') {
-        addUniqueRoots(protectedWritableRoots, roots);
+        addUniqueRoots(protectedWritableRoots, roots.map((root) => root.path));
       }
     }
   }
@@ -313,28 +325,42 @@ function resolveRoots(profile: PermissionProfile, pathContext: SandboxPathContex
     readableRoots,
     writableRoots,
     deniedRoots,
-    protectedWritableRoots: profile.fileSystem.protectedMetadata ? protectedWritableRoots : [],
+    protectedWritableRoots: profile.fileSystem.protectedMetadata && writableRoots.length > 0
+      ? uniqueRoots([...protectedWritableRoots, ...pathContext.workspaceRoots])
+      : [],
     protectedMetadataNames: profile.fileSystem.protectedMetadata?.names ?? [],
+    runtimeReadableRoots: uniqueRoots(pathContext.runtimeReadableRoots ?? []),
+    executableRoots: uniqueRoots(pathContext.executableRoots ?? []),
   };
 }
 
 function rootsForEntry(
   entry: PermissionProfileManagedEntry,
   pathContext: SandboxPathContext,
-): readonly string[] {
-  if (entry.kind === 'path') return [entry.path];
+): readonly ResolvedRoot[] {
+  if (entry.kind === 'path') {
+    return [{ path: entry.path, match: entry.match ?? 'subtree' }];
+  }
 
   switch (entry.special) {
     case ':root':
-      return ['/'];
+      return [{ path: '/', match: 'subtree' }];
     case ':workspace_roots':
-      return pathContext.workspaceRoots;
+      return pathContext.workspaceRoots.map((path) => ({ path, match: 'subtree' as const }));
     case ':tmpdir':
-      return pathContext.tmpdir ? [pathContext.tmpdir] : [];
+      return pathContext.tmpdir ? [{ path: pathContext.tmpdir, match: 'subtree' }] : [];
     case ':slash_tmp':
-      return [pathContext.slashTmp ?? '/tmp'];
+      return [{ path: pathContext.slashTmp ?? '/tmp', match: 'subtree' }];
     case ':minimal':
-      return pathContext.minimalRoots ?? [];
+      return (pathContext.minimalRoots ?? []).map((path) => ({ path, match: 'subtree' as const }));
+  }
+}
+
+function addUniqueResolvedRoots(target: ResolvedRoot[], roots: readonly ResolvedRoot[]): void {
+  for (const root of roots) {
+    if (!target.some((existing) => existing.path === root.path && existing.match === root.match)) {
+      target.push(root);
+    }
   }
 }
 
@@ -344,12 +370,21 @@ function addUniqueRoots(target: string[], roots: readonly string[]): void {
   }
 }
 
+function uniqueRoots(roots: readonly string[]): readonly string[] {
+  const unique: string[] = [];
+  addUniqueRoots(unique, roots);
+  return unique;
+}
+
 function buildReadableRootsPolicy(roots: ResolvedRoots): string {
   if (roots.readableRoots.length === 0) return '';
 
   const denyRequirements = deniedRootRequirements(roots.deniedRoots);
   const params = roots.readableRoots
-    .map((_, index) => accessRootClause(`(subpath (param "READABLE_ROOT_${index}"))`, denyRequirements))
+    .map((root, index) => accessRootClause(
+      seatbeltPathClause(root, `READABLE_ROOT_${index}`),
+      denyRequirements,
+    ))
     .join('\n');
   return `(allow file-read*\n${params})`;
 }
@@ -363,16 +398,33 @@ function buildWritableRootsPolicy(roots: ResolvedRoots): string {
   return `(allow file-write*\n${params})`;
 }
 
+function buildRuntimeRootsPolicy(roots: ResolvedRoots): string {
+  const sections: string[] = [];
+  if (roots.runtimeReadableRoots.length > 0) {
+    const clauses = roots.runtimeReadableRoots
+      .map((_, index) => `  (subpath (param "RUNTIME_READABLE_ROOT_${index}"))`)
+      .join('\n');
+    sections.push(`(allow file-read* file-test-existence\n${clauses})`);
+  }
+  if (roots.executableRoots.length > 0) {
+    const clauses = roots.executableRoots
+      .map((_, index) => `  (subpath (param "EXECUTABLE_ROOT_${index}"))`)
+      .join('\n');
+    sections.push(`(allow file-read* file-test-existence file-map-executable\n${clauses})`);
+  }
+  return sections.join('\n\n');
+}
+
 function writableRootClause(
-  root: string,
+  root: ResolvedRoot,
   index: number,
   roots: ResolvedRoots,
 ): string {
-  const rootParam = `(subpath (param "WRITABLE_ROOT_${index}"))`;
+  const rootParam = seatbeltPathClause(root, `WRITABLE_ROOT_${index}`);
   const requirements = [...deniedRootRequirements(roots.deniedRoots)];
 
-  if (roots.protectedWritableRoots.includes(root)) {
-    requirements.push(...roots.protectedMetadataNames.map((name) => protectedMetadataRequirement(root, name)));
+  if (roots.protectedWritableRoots.includes(root.path)) {
+    requirements.push(...roots.protectedMetadataNames.map((name) => protectedMetadataRequirement(root.path, name)));
   }
 
   return accessRootClause(rootParam, requirements);
@@ -385,14 +437,25 @@ function accessRootClause(rootParam: string, requirements: readonly string[]): s
   return `  (require-all\n    ${rootParam}\n${requirementLines}\n  )`;
 }
 
-function deniedRootRequirements(deniedRoots: readonly string[]): readonly string[] {
+function deniedRootRequirements(deniedRoots: readonly ResolvedRoot[]): readonly string[] {
   return deniedRoots.map(deniedRootRequirement);
 }
 
-function deniedRootRequirement(root: string): string {
-  const trimmedRoot = trimTrailingSlash(root);
+function deniedRootRequirement(root: ResolvedRoot): string {
+  const trimmedRoot = trimTrailingSlash(root.path);
+  if (root.match === 'exact') {
+    return `(require-not (literal "${escapeSeatbeltString(trimmedRoot)}"))`;
+  }
   if (trimmedRoot === '/') return '(require-not (regex #"^/.*$"))';
   return `(require-not (regex #"^${escapeSeatbeltRegex(trimmedRoot)}(/.*)?$"))`;
+}
+
+function seatbeltPathClause(root: ResolvedRoot, parameter: string): string {
+  return `(${root.match === 'exact' ? 'literal' : 'subpath'} (param "${parameter}"))`;
+}
+
+function escapeSeatbeltString(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
 }
 
 function protectedMetadataRequirement(root: string, name: string): string {

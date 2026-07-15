@@ -140,7 +140,7 @@ function PtyControlPreview(props: {
   const parts: string[] = [];
   if (operation.input) {
     const preview = readWriteStdinInputPreview(props.args);
-    const action = operation.input.applied ? '已发送' : '未发送';
+    const action = operation.input.queued ? '已排队' : '未排队';
     if (preview) {
       parts.push(preview.truncated
         ? `${action}：${preview.text}… · 共 ${operation.input.bytes} 字节`

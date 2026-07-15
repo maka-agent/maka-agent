@@ -135,14 +135,16 @@ export function computerUseServiceHealth(
     role.state === 'unavailable' || role.state === 'disposed')) {
     return {
       state: 'not_available',
-      reason: 'cua-driver 服务当前不可用。',
+      reason: roles.some((role) => role.state === 'disposed')
+        ? 'cua-driver service 已停止。'
+        : 'cua-driver service 启动失败或已退出。',
     };
   }
   if (roles.some((role) =>
     role.state === 'starting' || role.state === 'backing_off')) {
     return {
       state: 'degraded',
-      reason: 'cua-driver 服务正在启动或恢复。',
+      reason: 'cua-driver service 正在启动或恢复。',
     };
   }
   if (roles.every((role) => role.state === 'ready')) {

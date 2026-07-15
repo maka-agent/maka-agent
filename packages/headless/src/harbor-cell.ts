@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { exec as nodeExec } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -25,21 +25,27 @@ import {
   defaultShellPlan,
   getAIModel,
   getBuiltinPricing,
+  loadSynthesisCacheBlocksFromArtifacts,
+  persistSynthesisCacheBlocksToArtifacts,
   runShellWithBoundedTail,
   type MakaTool,
   type InvocationResult,
   type ContextBudgetPolicy,
+  type SynthesisCacheLoader,
+  type SynthesisCacheWriter,
   type ToolResultArchiveReader,
   type ToolResultArchiveRecorder,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
+  createArtifactStore,
   createRuntimeEventStore,
   createSessionStore,
 } from '@maka/storage';
 import { registerFakeBackend } from './backends.js';
 import {
   buildHarborCellOutput,
+  countRuntimeSteps,
   hashHarborSystemPrompt,
   validateHarborCellOutput,
   type HarborCellContextBudgetPolicySnapshot,
@@ -66,6 +72,7 @@ import {
 export const HARBOR_CELL_OUTPUT_FILENAME = 'maka-cell-output.json';
 export const HARBOR_CELL_RUNTIME_EVENTS_FILENAME = 'runtime-events.jsonl';
 export const HARBOR_CELL_EXECUTION_IDENTITY_FILENAME = 'maka-cell-execution-identity.json';
+export const HARBOR_CELL_USAGE_CHECKPOINT_FILENAME = 'maka-cell-usage-checkpoint.json';
 const execAsync = promisify(nodeExec);
 const HARBOR_CELL_TOOL_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
@@ -147,6 +154,18 @@ export interface HarborCellContextBudgetBackendOptions {
   readToolResultArchive?: ToolResultArchiveReader;
 }
 
+export interface HarborCellUsageCheckpoint {
+  inputTokens: number;
+  outputTokens: number;
+  cacheHitInputTokens: number;
+  cacheMissInputTokens: number;
+  cacheMissInputSource: 'explicit' | 'derived';
+  cacheWriteInputTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+  costUsd?: number;
+}
+
 export interface HarborCellTaskLedgerExperimentPolicy {
   enabled: true;
   replayMaxChars: number;
@@ -216,6 +235,11 @@ export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
   'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_ESTIMATED_TOKENS',
   'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS',
   'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES',
+  'MAKA_CONTEXT_SYNTHESIS_CACHE',
+  'MAKA_CONTEXT_SYNTHESIS_CACHE_MODE',
+  'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS',
+  'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS',
+  'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS',
   'MAKA_CONTEXT_TOOL_RESULT_ARCHIVE_DIR',
   'MAKA_CONTEXT_TASK_TOOLS',
   'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS',
@@ -468,6 +492,7 @@ export async function runHarborCellFromEnv(
         now,
         newId,
         ...(maxSteps !== undefined ? { maxSteps } : {}),
+        recordUsageCheckpoint: (usage) => writeHarborCellUsageCheckpoint(outputDir, usage),
       });
       break;
     }
@@ -643,10 +668,7 @@ function continuationTurnSummary(
 }
 
 function invocationRuntimeSteps(invocation: InvocationResult): number {
-  return invocation.events.reduce((sum, event) => {
-    const runtimeSteps = event.actions?.tokenUsage?.runtimeSteps;
-    return sum + (runtimeSteps ?? 0);
-  }, 0);
+  return countRuntimeSteps(invocation.events);
 }
 
 function failedInvocationFromError(error: unknown, input: {
@@ -680,6 +702,7 @@ export function buildAiSdkCellBackendRegistration(input: {
   now: () => number;
   newId: () => string;
   maxSteps?: number;
+  recordUsageCheckpoint?: (usage: HarborCellUsageCheckpoint) => void | Promise<void>;
 }): NonNullable<RunHarborCellInput['registerBackends']> {
   const { connection, apiKey } = resolveHarborCellAiSdkEnv({
     provider: input.provider,
@@ -694,6 +717,14 @@ export function buildAiSdkCellBackendRegistration(input: {
     : getBuiltinPricing;
   const permissionEngine = new PermissionEngine({ newId: input.newId, now: input.now });
   const contextBudgetBackendOptions = buildHarborCellContextBudgetBackendOptions(input.env);
+  // Back the synthesis cache with the run-scoped `@maka/storage` artifact store
+  // (blocks land under `{storageRoot}/artifacts/{sessionId}/`, run- and
+  // session-scoped, sharing the same lift as desktop). Only constructed when the
+  // policy is active so a baseline arm stays untouched.
+  const synthesisCacheCallbacks = buildHarborCellSynthesisCacheCallbacks(
+    input.env,
+    contextBudgetBackendOptions.contextBudget?.synthesisCache?.enabled === true,
+  );
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(input.env);
   const taskLedgerExperimentStore = taskLedgerExperimentPolicy
     ? createInMemoryTaskLedgerExperimentStore({ now: input.now, newId: input.newId })
@@ -746,18 +777,45 @@ export function buildAiSdkCellBackendRegistration(input: {
           : {}),
         lookupPricing,
         ...contextBudgetBackendOptions,
+        ...synthesisCacheCallbacks,
         ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
         newId: input.newId,
         now: input.now,
         recordRunTrace: ctx.recordRunTrace,
         recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
         recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
+        ...(input.recordUsageCheckpoint ? { recordUsageCheckpoint: input.recordUsageCheckpoint } : {}),
       });
     });
   };
 }
 
 export const buildHarborAiSdkBackendRegistration = buildAiSdkCellBackendRegistration;
+
+export async function writeHarborCellUsageCheckpoint(
+  outputDir: string,
+  usage: HarborCellUsageCheckpoint,
+): Promise<void> {
+  if (usage.costUsd === undefined) return;
+  const tokenSummary: HarborCellOutput['tokenSummary'] = {
+    input: usage.inputTokens,
+    output: usage.outputTokens,
+    cachedInput: usage.cacheHitInputTokens,
+    cacheHitInput: usage.cacheHitInputTokens,
+    cacheMissInput: usage.cacheMissInputTokens,
+    cacheWriteInput: usage.cacheWriteInputTokens,
+    cacheMissInputSource: usage.cacheMissInputSource,
+    reasoning: usage.reasoningTokens,
+    total: usage.totalTokens,
+    costUsd: usage.costUsd,
+    pricingSource: 'runtime',
+  };
+  await mkdir(outputDir, { recursive: true });
+  const path = join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME);
+  const pendingPath = `${path}.${process.pid}.tmp`;
+  await writeFile(pendingPath, `${JSON.stringify(tokenSummary, null, 2)}\n`, 'utf8');
+  await rename(pendingPath, path);
+}
 
 export function buildHarborCellAiSdkTools(
   executor: IsolatedToolExecutor,
@@ -803,7 +861,12 @@ export function buildHarborCellContextBudgetBackendOptions(
     env.MAKA_HARBOR_CONTEXT_SEMANTIC_COMPACT,
     'MAKA_CONTEXT_SEMANTIC_COMPACT',
   ) ?? false;
-  if (!pruneEnabled && !activePruneEnabled && !archiveRetrievalEnabled && !activeFullCompactEnabled && !semanticCompactEnabled) return {};
+  const synthesisCacheEnabled = booleanEnv(
+    env.MAKA_CONTEXT_SYNTHESIS_CACHE ??
+    env.MAKA_HARBOR_CONTEXT_SYNTHESIS_CACHE,
+    'MAKA_CONTEXT_SYNTHESIS_CACHE',
+  ) ?? false;
+  if (!pruneEnabled && !activePruneEnabled && !archiveRetrievalEnabled && !activeFullCompactEnabled && !semanticCompactEnabled && !synthesisCacheEnabled) return {};
 
   const contextBudget: ContextBudgetPolicy = {
     name: env.MAKA_CONTEXT_BUDGET_NAME ?? 'harbor-cell-context-budget',
@@ -837,9 +900,9 @@ export function buildHarborCellContextBudgetBackendOptions(
     contextBudget.staleToolResultPrune = {
       enabled: true,
       ...(maxResultEstimatedTokens !== undefined ? { maxResultEstimatedTokens } : {}),
-      // Explicit so the runtime protection window matches the policy snapshot
-      // and desktop default (2) instead of the runtime's internal ?? 1 fallback.
-      minRecentTurnsFull: minRecentTurnsFull ?? minRecentTurns ?? 2,
+      // Active prune owns the current turn; stale prune must take over on the
+      // next replay without restoring a full-result protection window.
+      minRecentTurnsFull: minRecentTurnsFull ?? 0,
     };
   }
 
@@ -988,6 +1051,18 @@ export function buildHarborCellContextBudgetBackendOptions(
     };
   }
 
+  if (synthesisCacheEnabled) {
+    contextBudget.synthesisCache = {
+      enabled: true,
+      mode: env.MAKA_CONTEXT_SYNTHESIS_CACHE_MODE === 'read_write' ? 'read_write' : 'lookup',
+      maxBlocks: positiveIntEnv(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS, 'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS') ?? 1,
+      maxEstimatedTokens: positiveIntEnv(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS, 'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS') ?? 2048,
+      maxBlockEstimatedTokens: positiveIntEnv(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS, 'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS') ?? 1024,
+      invalidateOnNewToolResult: true,
+      schemaVersion: 1,
+    };
+  }
+
   const archiveDir = harborCellToolResultArchiveDir(env);
   if (!archiveDir) return { contextBudget };
   return {
@@ -1049,6 +1124,20 @@ export function buildHarborCellTaskLedgerExperimentPolicy(
   return {
     enabled: true,
     replayMaxChars: positiveIntEnv(env.MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS, 'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS') ?? 4_000,
+  };
+}
+
+function buildHarborCellSynthesisCacheCallbacks(
+  env: RunHarborCellEnv,
+  enabled: boolean,
+): { loadSynthesisCache?: SynthesisCacheLoader; writeSynthesisCache?: SynthesisCacheWriter } {
+  if (!enabled) return {};
+  const outputDir = env.MAKA_OUTPUT_DIR ?? '/logs/agent';
+  const storageRoot = env.MAKA_STORAGE_ROOT ?? join(outputDir, 'maka-storage');
+  const artifactStore = createArtifactStore(storageRoot);
+  return {
+    loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
+    writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event),
   };
 }
 
@@ -1202,6 +1291,23 @@ export function buildHarborCellContextBudgetPolicySnapshot(
             maxEstimatedTokens: contextBudget.archiveRetrieval.maxEstimatedTokens ?? 8192,
             maxBytes: contextBudget.archiveRetrieval.maxBytes ?? 1024 * 1024,
             order: 'newest_first',
+          },
+        }
+      : {}),
+    ...(contextBudget.synthesisCache
+      ? {
+          synthesisCache: {
+            enabled: contextBudget.synthesisCache.enabled,
+            ...(contextBudget.synthesisCache.mode ? { mode: contextBudget.synthesisCache.mode } : {}),
+            maxBlocks: contextBudget.synthesisCache.maxBlocks ?? 1,
+            maxEstimatedTokens: contextBudget.synthesisCache.maxEstimatedTokens ?? 2048,
+            maxBlockEstimatedTokens: contextBudget.synthesisCache.maxBlockEstimatedTokens ?? 1024,
+            ...(contextBudget.synthesisCache.invalidateOnNewToolResult !== undefined
+              ? { invalidateOnNewToolResult: contextBudget.synthesisCache.invalidateOnNewToolResult }
+              : {}),
+            ...(contextBudget.synthesisCache.schemaVersion !== undefined
+              ? { schemaVersion: contextBudget.synthesisCache.schemaVersion }
+              : {}),
           },
         }
       : {}),

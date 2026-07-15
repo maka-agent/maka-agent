@@ -1,7 +1,7 @@
 import type { ProviderType } from '@maka/core/llm-connections';
 import { TOKEN_REFRESH_SKEW_MS } from '@maka/core';
 
-export type OAuthSubscriptionProvider = Extract<ProviderType, 'claude-subscription' | 'codex-subscription' | 'github-copilot'>;
+export type OAuthSubscriptionProvider = Extract<ProviderType, 'claude-subscription' | 'openai-codex' | 'github-copilot'>;
 
 export interface OAuthSubscriptionTokens {
   access_token: string;
@@ -17,7 +17,7 @@ export interface OAuthSubscriptionTokens {
 
 export function isOAuthSubscriptionProvider(providerType: ProviderType): providerType is OAuthSubscriptionProvider {
   return providerType === 'claude-subscription'
-    || providerType === 'codex-subscription'
+    || providerType === 'openai-codex'
     || providerType === 'github-copilot';
 }
 
@@ -114,8 +114,8 @@ async function refreshOAuthSubscriptionTokens(input: {
   switch (input.providerType) {
     case 'claude-subscription':
       return refreshClaudeSubscriptionTokens(input.tokens, input.now, input.fetchFn);
-    case 'codex-subscription':
-      return refreshCodexSubscriptionTokens(input.tokens, input.now, input.fetchFn);
+    case 'openai-codex':
+      return refreshOpenAiCodexTokens(input.tokens, input.now, input.fetchFn);
     case 'github-copilot':
       return input.tokens;
   }
@@ -181,7 +181,7 @@ async function refreshClaudeSubscriptionTokens(
   };
 }
 
-async function refreshCodexSubscriptionTokens(
+async function refreshOpenAiCodexTokens(
   tokens: OAuthSubscriptionTokens,
   now: () => number,
   fetchFn: typeof fetch,

@@ -27,6 +27,7 @@ const DESKTOP_DIR = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const REPO_ROOT    = resolve(DESKTOP_DIR, '..', '..');
 const ON_WINDOWS   = process.platform === 'win32';
 const TSC_CLI      = join(REPO_ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
+const RUNTIME_WORKER_BUILD = join(REPO_ROOT, 'packages', 'runtime', 'scripts', 'build-filesystem-worker.mjs');
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -71,6 +72,10 @@ await Promise.all([
   runNodeTool(REPO_ROOT, TSC_CLI, ['--build', 'tsconfig.lib.json']).then(
     () => log('build', 'libraries (all) — done'),
     (e) => { log('build', `libraries — FAILED: ${e.message}`); throw e; },
+  ),
+  runNodeTool(REPO_ROOT, RUNTIME_WORKER_BUILD, []).then(
+    () => log('build', 'filesystem worker bundle — done'),
+    (e) => { log('build', `filesystem worker bundle — FAILED: ${e.message}`); throw e; },
   ),
   // esbuild via its JS API — NOT `node node_modules/esbuild/bin/esbuild`:
   // esbuild's postinstall swaps that file for a platform-native binary,

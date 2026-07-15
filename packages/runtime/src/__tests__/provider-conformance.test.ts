@@ -169,6 +169,31 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies[0]?.model, modelId);
     assert.equal(result.steps[0]?.reasoningText, 'I should use the echo tool.');
     assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    // Turn two must carry the exact model id, replay the assistant tool-call
+    // turn (original tool_calls id + reasoning_content verbatim), and link the
+    // tool result back through tool_call_id.
+    assert.equal(requestBodies[1]?.model, modelId);
+    const secondMessages = requestBodies[1]?.messages as Array<Record<string, unknown>>;
+    const assistant = secondMessages.find((message) => message.role === 'assistant');
+    assert.ok(assistant, 'turn two must replay the assistant tool-call turn');
+    assert.deepEqual(
+      (assistant.tool_calls as Array<{ id: string }>).map(({ id }) => id),
+      ['call-copilot-echo'],
+      'turn two must replay the original tool_calls id',
+    );
+    assert.equal(
+      assistant.reasoning_content,
+      'I should use the echo tool.',
+      'turn two must replay the first-turn reasoning verbatim as reasoning_content',
+    );
+    const toolMessage = secondMessages.find((message) => message.role === 'tool');
+    assert.ok(toolMessage, 'turn two must carry a tool message with the echo result');
+    assert.equal(toolMessage.tool_call_id, 'call-copilot-echo');
+    const toolMessageContent = JSON.stringify(toolMessage.content);
+    assert.ok(
+      toolMessageContent.includes('echoed') && toolMessageContent.includes('hello'),
+      `turn two tool message must carry the echo output, got ${toolMessageContent}`,
+    );
     assert.equal(result.text, 'Echoed hello.');
   });
 
@@ -1581,6 +1606,208 @@ describe('models.dev provider conformance', () => {
 
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'deepinfra-test-key', modelId: models[0]!.id }),
+      providerOptions: buildProviderOptions(connection, modelId, 'high'),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(requestBodies.map((body) => body.reasoning_effort), ['high', 'high']);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
+    );
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolCalls[0]?.input, { text: 'hello' });
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
+  test('Groq discovers exact model ids and completes its documented two-stage tool-call loop', async () => {
+    const modelId = 'openai/gpt-oss-120b';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer groq-test-key');
+      if (request.method === 'GET' && request.url === '/openai/v1/models') {
+        respondJson(response, 200, {
+          object: 'list',
+          data: [
+            { id: modelId, object: 'model', owned_by: 'openai' },
+            { id: 'whisper-large-v3', object: 'model', owned_by: 'openai' },
+          ],
+        });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/openai/v1/chat/completions');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      const messages = body.messages as Array<{ role: string }>;
+      if (messages.some(({ role }) => role === 'tool')) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-groq-final',
+          object: 'chat.completion',
+          created: 2,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+        });
+        return;
+      }
+      respondJson(response, 200, {
+        id: 'chatcmpl-groq-tool',
+        object: 'chat.completion',
+        created: 1,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_echo',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'groq',
+      name: 'Groq',
+      providerType: 'groq',
+      baseUrl: `${server.url}/openai/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'groq-test-key');
+    assert.deepEqual(models, [{ id: modelId }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'groq-test-key', modelId: models[0]!.id }),
+      providerOptions: buildProviderOptions(connection, modelId, 'high'),
+      prompt: 'Call echo with hello.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        echo: tool({
+          description: 'Echo text',
+          inputSchema: z.object({ text: z.string() }),
+          execute: async ({ text }) => ({ echoed: text }),
+        }),
+      },
+    });
+
+    assert.equal(requestBodies.length, 2);
+    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(requestBodies.map((body) => body.reasoning_effort), ['high', 'high']);
+    assert.deepEqual(
+      (requestBodies[0]?.tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      ['echo'],
+    );
+    assert.deepEqual(
+      (requestBodies[1]?.messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
+    );
+    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+    assert.deepEqual(result.steps[0]?.toolCalls[0]?.input, { text: 'hello' });
+    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+    assert.equal(result.text, 'Echoed hello.');
+  });
+
+  test('OpenRouter discovers exact model ids and completes its documented two-stage tool-call loop', async () => {
+    const modelId = 'anthropic/claude-sonnet-5';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer openrouter-test-key');
+      if (request.method === 'GET' && request.url === '/api/v1/models') {
+        respondJson(response, 200, {
+          object: 'list',
+          data: [
+            { id: modelId, object: 'model', owned_by: 'anthropic' },
+            { id: 'openrouter-test/non-fallback', object: 'model', owned_by: 'openrouter-test' },
+          ],
+        });
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/api/v1/chat/completions');
+      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      requestBodies.push(body);
+      const messages = body.messages as Array<{ role: string }>;
+      if (messages.some(({ role }) => role === 'tool')) {
+        respondJson(response, 200, {
+          id: 'chatcmpl-openrouter-final',
+          object: 'chat.completion',
+          created: 2,
+          model: modelId,
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+        });
+        return;
+      }
+      respondJson(response, 200, {
+        id: 'chatcmpl-openrouter-tool',
+        object: 'chat.completion',
+        created: 1,
+        model: modelId,
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_echo',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'openrouter',
+      name: 'OpenRouter',
+      providerType: 'openrouter',
+      baseUrl: `${server.url}/api/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const models = await fetchProviderModels(connection, 'openrouter-test-key');
+    assert.deepEqual(models, [{ id: modelId }]);
+
+    const result = await generateText({
+      model: getAIModel({ connection, apiKey: 'openrouter-test-key', modelId: models[0]!.id }),
       providerOptions: buildProviderOptions(connection, modelId, 'high'),
       prompt: 'Call echo with hello.',
       stopWhen: stepCountIs(2),

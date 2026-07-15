@@ -1,147 +1,32 @@
-/* ---- Enabled models: provider → connection hierarchy (Base UI Accordion).
- * Each provider is a collapsible row; its connections live in the panel, so
- * the list reads as provider over connection instead of a flat peer list.
- * Problem providers open by default (see defaultOpenGroups). ---- */
-/* Seamless list: no card box (it was the heaviest element on the page and
- * clashed with the catalog below). Hairline top/bottom bounds the group;
- * whitespace + the logo plates carry the structure. */
-.enabledAccordion {
+/* ---- Enabled models: flat connection list. Each connection is one
+ * top-level row (logo · name + provider · status chip · chevron), sorted
+ * strictly in bridge.list() order. The Item primitive carries the row
+ * chrome (media / content / actions, hover + selected fills); this file
+ * only owns the scroll container, the hairline between rows, and the
+ * disabled dimming. Status tone lives on the Chip primitive, the default
+ * marker on the Chip `accent` variant — no bespoke status/tag CSS here. */
+.connectionList {
   max-height: 360px;
   overflow-y: auto;
-}
-
-.enabledProvider + .enabledProvider {
-  border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
-}
-
-.enabledProviderHead { margin: 0; }
-
-.enabledProviderTrigger {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  width: 100%;
-  /* pad-x 6 + logo 32 + gap 11 = 49 → connection name (pl-[49px]) sits
-   * directly under the provider name; pr keeps the rollup status right
-   * edge aligned with the connection status (pr-[32px] = 6 + chevron 15 +
-   * meta gap 11). */
-  padding: var(--space-3) var(--space-1-5);
-  background: transparent;
-  border: 0;
-  color: var(--foreground);
-  font: inherit;
-  text-align: left;
-  transition: background-color var(--duration-quick) var(--ease-out-strong);
-}
-
-/* Round 10: interactive fills in the seamless list are ROUNDED like every
-   other row surface in the app (sidebar nav, session list) — square
-   full-bleed bands broke the radius language. */
-.enabledProviderTrigger { border-radius: var(--radius-control); }
-.enabledProviderTrigger:hover { background: var(--state-hover-bg); }
-
-.enabledProviderName {
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-normal);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.enabledProviderMeta {
-  margin-left: auto;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.enabledChevron {
-  color: var(--muted-foreground);
-  transition: transform var(--duration-base) var(--ease-out-strong);
-}
-
-.enabledProviderTrigger[data-panel-open] .enabledChevron,
-.enabledProvider[data-open] .enabledChevron {
-  transform: rotate(90deg);
-}
-
-/* status line, shared by the provider rollup and each connection row;
- * the dot inherits the text color via currentColor. */
-.enabledRollup,
-.enabledConnStatus {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  font-size: var(--font-size-ui);
-  white-space: nowrap;
-  color: var(--muted-foreground);
-}
-
-.enabledStatusDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  flex: 0 0 auto;
-}
-
-.enabledRollup.is-ok,
-.enabledConnStatus.is-verified { color: var(--success); }
-.enabledRollup.is-warn,
-.enabledConnStatus.is-needs_reauth { color: var(--info-text); }
-.enabledRollup.is-err,
-.enabledConnStatus.is-error { color: var(--destructive); }
-.enabledRollup.is-idle,
-.enabledConnStatus.is-untested { color: var(--muted-foreground); }
-
-/* Connection-row harmonization: the expanded panel used to paint a
-   full-bleed 2% wash + top border from x=0 — an edge-to-edge band under
-   the logo column that read as a different component from the catalog
-   rows below. The panel is transparent now; the rounded row fills
-   (hover / selected) carry the state, inset from the edges like every
-   other row surface. */
-.enabledProviderPanel {
-  padding-bottom: var(--space-1);
-}
-
-.enabledProviderPanel ul {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.enabledProviderPanel li + li .enabledConnRow {
-  border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
-}
-
-.enabledConnRow {
+.connectionRow {
   border-radius: var(--radius-control);
 }
 
-/* The default-connection selected wash now rides the Item `selected` prop
-   (data-selected → --state-selected-bg), so no bespoke [data-default] fill
-   rule remains here — one selected-row implementation across the app. */
+.connectionList li + li .connectionRow {
+  border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
+}
 
-.enabledConnRow[data-disabled="true"] {
+/* The default-connection selected wash rides the Item `selected` prop
+   (data-selected → --state-selected-bg), one selected-row implementation
+   across the app. */
+
+.connectionRow[data-disabled="true"] {
   opacity: var(--opacity-muted);
-}
-
-.enabledConnTitle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.enabledDefaultTag {
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  color: var(--nav-active);
-  background: oklch(from var(--nav-active) l c h / 0.14);
-  border-radius: var(--radius-pill);
-  padding: 1px var(--space-2);
 }
 
 .catalogPillTabs,

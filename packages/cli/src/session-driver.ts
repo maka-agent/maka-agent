@@ -57,6 +57,7 @@ export interface MakaSessionSwitchResult {
 
 export interface MakaSessionDriver {
   listSessions(): Promise<SessionSummary[]>;
+  getSessionResumeAvailability?(session: SessionSummary): Promise<SessionResumeAvailability>;
   sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
   compactSession(): AsyncIterable<SessionEvent>;
   respondToPermission(response: PermissionResponse): Promise<void>;
@@ -85,12 +86,36 @@ export interface MakaSessionDriver {
   getSessionId(): string | null;
 }
 
+export type SessionResumeAvailability =
+  | { available: true }
+  | { available: false; reason: string };
+
+const MISSING_SESSION_CWD_REASON = 'Missing working directory';
+const DELETED_SESSION_CWD_REASON = 'Working directory no longer exists';
+
+export async function inspectSessionResumeAvailability(
+  session: SessionSummary,
+): Promise<SessionResumeAvailability> {
+  if (!session.cwd) return { available: false, reason: MISSING_SESSION_CWD_REASON };
+  try {
+    await realpath(session.cwd);
+    return { available: true };
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return { available: false, reason: DELETED_SESSION_CWD_REASON };
+    }
+    throw error;
+  }
+}
+
 export function createMakaSessionDriver(input: MakaSessionDriverInput): MakaSessionDriver {
   return new RuntimeMakaSessionDriver(input);
 }
 
 class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private sessionId: string | null = null;
+  private cwd: string;
   private model: string;
   // The connection the active/next session runs on. Mutable so a cross-provider
   // /model switch can rebind it; new sessions are created on this connection.
@@ -101,6 +126,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
 
   constructor(private readonly input: MakaSessionDriverInput) {
     this.newId = input.newId ?? randomUUID;
+    this.cwd = input.cwd;
     this.model = input.model;
     this.llmConnectionSlug = input.llmConnectionSlug;
     this.permissionMode = input.permissionMode ?? 'ask';
@@ -123,10 +149,14 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     return (await this.input.runtime.listSessions())
       .map((session, index) => ({ session, index }))
       .sort((left, right) => {
-        const cwdDelta = cwdRank(left.session, this.input.cwd) - cwdRank(right.session, this.input.cwd);
+        const cwdDelta = cwdRank(left.session, this.cwd) - cwdRank(right.session, this.cwd);
         return cwdDelta !== 0 ? cwdDelta : left.index - right.index;
       })
       .map(({ session }) => session);
+  }
+
+  async getSessionResumeAvailability(session: SessionSummary): Promise<SessionResumeAvailability> {
+    return inspectSessionResumeAvailability(session);
   }
 
   async stop(): Promise<void> {
@@ -192,17 +222,15 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     const summary = (await this.listSessions()).find((session) => session.id === sessionId);
     if (!summary) throw new Error(`Session not found: ${sessionId}`);
-    if (summary.cwd) await assertSessionCwdExists(summary.cwd);
-    // Enforce folder/connection before reading messages or committing any
-    // internal state, so a rejected switch leaves the active session untouched.
-    if (summary.cwd !== this.input.cwd) {
-      throw new Error('Session belongs to a different folder; run Maka in that folder to resume it.');
+    const availability = await inspectSessionResumeAvailability(summary);
+    if (!availability.available) {
+      if (!summary.cwd) throw new Error('Session has no working directory and cannot be resumed.');
+      throw new Error(`Session cwd no longer exists: ${summary.cwd}`);
     }
-    if (summary.llmConnectionSlug !== this.llmConnectionSlug) {
-      throw new Error('Session uses a different connection; run Maka with that connection to resume it.');
-    }
+    const sessionCwd = summary.cwd!;
     const messages = await this.input.runtime.getMessages(summary.id);
     this.sessionId = summary.id;
+    this.cwd = sessionCwd;
     this.model = summary.model;
     this.llmConnectionSlug = summary.llmConnectionSlug;
     this.thinkingLevel = summary.thinkingLevel;
@@ -264,7 +292,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private async ensureSession(prompt: string): Promise<string> {
     if (this.sessionId) return this.sessionId;
     const session = await this.input.runtime.createSession({
-      cwd: this.input.cwd,
+      cwd: this.cwd,
       name: prompt.slice(0, 42) || '新建对话',
       backend: 'ai-sdk',
       llmConnectionSlug: this.llmConnectionSlug,
@@ -285,16 +313,4 @@ function cwdRank(session: SessionSummary, cwd: string): number {
 function firstLine(text: string): string {
   const line = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0);
   return line ?? '(empty prompt)';
-}
-
-async function assertSessionCwdExists(cwd: string): Promise<void> {
-  try {
-    await realpath(cwd);
-  } catch (error) {
-    const code = (error as { code?: unknown }).code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') {
-      throw new Error(`Session cwd no longer exists: ${cwd}`);
-    }
-    throw error;
-  }
 }

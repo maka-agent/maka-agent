@@ -8,6 +8,8 @@ import {
   generalizedErrorMessage,
   generalizedErrorMessageChinese,
   redactSecrets,
+  filterModelVisibleTaskLedgerTasks,
+  sanitizeTaskLedgerTask,
   buildHealthSnapshot,
   healthSignalFromCapability,
   healthSignalFromConnection,
@@ -18,6 +20,8 @@ import {
   thinkingVariantsForModel,
   resolveModelVisionSupport,
   DEEP_RESEARCH_SESSION_LABEL,
+  expertTeamIdFromLabels,
+  expertTeamLabel,
   botDisplayLabel,
 } from '@maka/core';
 import type {
@@ -55,7 +59,7 @@ import {
 } from './permission-response-guard.js';
 import { turnFailureMessageFromSessionEvent } from './turn-stream-outcome.js';
 import { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
-import { CodexSubscriptionService } from './oauth/codex-subscription-service.js';
+import { OpenAiCodexService } from './oauth/openai-codex-service.js';
 import { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
@@ -76,11 +80,16 @@ import {
   buildBuiltinTools,
   buildAskUserQuestionTool,
   createBuiltinSandboxManager,
+  createFilesystemWorkerLaunchSpecProvider,
+  FilesystemWorkerClient,
   buildChildAgentTools,
+  buildExpertDispatchToolForTeamId,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
   buildSubagentToolGroup,
   getAIModel,
+  getExpertTeam,
+  listExpertTeams,
   buildProviderOptions,
   recordLlmCall,
   recordToolInvocation,
@@ -128,10 +137,12 @@ import {
 import { createFileCredentialStore, migrateLegacyCredentials } from './credential-store.js';
 import { bindOnboardingDeps, createOnboardingService } from './onboarding-service.js';
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
+import { handleExpertTeamStart as runExpertTeamStart } from './expert-team-start.js';
 import { probeOfficeCli } from './officecli-probe.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
 import { listLocalBranches, checkoutBranch } from './git-branch.js';
+import { searchWorkspaceFiles } from './workspace-file-search.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { botTestErrorMessage, buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 import {
@@ -165,11 +176,9 @@ import {
   buildLlmHistorySummarizer,
   cleanupLegacyHistoryCompactArtifacts,
   loadHistoryCompactBlocksFromArtifacts,
-} from '@maka/runtime';
-import {
   loadSynthesisCacheBlocksFromArtifacts,
   persistSynthesisCacheBlocksToArtifacts,
-} from './synthesis-cache-artifacts.js';
+} from '@maka/runtime';
 import { buildBrowserTools } from './browser/browser-tools.js';
 import {
   computerUseServiceHealth,
@@ -180,6 +189,10 @@ import {
   applyComputerUseRealModelPolicy,
   parseComputerUseRealModelPolicy,
 } from './computer-use-real-model-policy.js';
+import {
+  computerUseAvailabilityForModel,
+  computerUseToolsForModel,
+} from './computer-use-model-tools.js';
 import { createComputerUseOverlayHook } from '@maka/computer-use';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
@@ -297,7 +310,7 @@ const claudeSubscription = new ClaudeSubscriptionService({
 // IPC payloads never carry tokens, each gated behind its own
 // MAKA_*_EXPERIMENTAL env var. Antigravity is a `preview` placeholder
 // until the Google client_id question is resolved.
-const codexSubscription = new CodexSubscriptionService({
+const openAiCodex = new OpenAiCodexService({
   userDataDir: app.getPath('userData'),
   credentialStore,
 });
@@ -309,18 +322,18 @@ const oauthModelConnections = createOAuthModelConnectionsMainService({
   connectionStore,
   credentialStore,
   claudeSubscription,
-  codexSubscription,
+  openAiCodex,
   githubCopilotSubscription,
 });
 const isClaudeSubscriptionAuthenticatedState = oauthModelConnections.isClaudeSubscriptionAuthenticatedState;
-const isCodexSubscriptionAuthenticatedState = oauthModelConnections.isCodexSubscriptionAuthenticatedState;
+const isOpenAiCodexAuthenticatedState = oauthModelConnections.isOpenAiCodexAuthenticatedState;
 
 function syncClaudeSubscriptionConnection(): Promise<LlmConnection | null> {
   return oauthModelConnections.syncClaudeSubscriptionConnection();
 }
 
-function syncCodexSubscriptionConnection(): Promise<LlmConnection | null> {
-  return oauthModelConnections.syncCodexSubscriptionConnection();
+function syncOpenAiCodexConnection(): Promise<LlmConnection | null> {
+  return oauthModelConnections.syncOpenAiCodexConnection();
 }
 
 function syncGitHubCopilotConnection(): Promise<LlmConnection | null> {
@@ -468,6 +481,34 @@ const goalWiring = createMainGoalWiring({
   // Surface every goal transition to the renderer so an active autonomous loop
   // is visible (badge + clear affordance) — never a silent token burn.
   onGoalChange: (goal) => emitSessionsChanged('goal-change', goal.sessionId),
+  listActionableTaskKeys: async (sessionId) => {
+    const tasks = await taskLedgerStore.list(sessionId, {
+      includeTerminal: false,
+      includeArchived: false,
+    });
+    return filterModelVisibleTaskLedgerTasks(tasks)
+      .filter((task) => task.status === 'pending' || task.status === 'in_progress')
+      .map((task) => task.key);
+  },
+  recordTaskGateDecision: async (trace) => {
+    const runs = await runStore.listSessionRuns(trace.sessionId);
+    const run = runs.find((candidate) => candidate.turnId === trace.turnId);
+    if (!run) return;
+    await runStore.appendEvent(trace.sessionId, run.runId, {
+      type: 'task_gate_decided',
+      id: randomUUID(),
+      runId: run.runId,
+      sessionId: trace.sessionId,
+      turnId: trace.turnId,
+      ts: Date.now(),
+      message: `Task gate: ${trace.decision}`,
+      data: {
+        goalId: trace.goalId,
+        decision: trace.decision,
+        taskKeys: trace.taskKeys,
+      },
+    });
+  },
 });
 
 async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
@@ -518,6 +559,7 @@ function focusOrCreateMainWindow(): void {
 }
 app.on('second-instance', focusOrCreateMainWindow);
 const safeSendToRenderer = mainWindowController.send;
+taskLedgerStore.subscribe((event) => safeSendToRenderer('tasks:changed', event));
 const openGateway = new OpenGatewayService({
   getSettings: () => settingsStore.get(),
   listSessions: () => runtime.listSessions(),
@@ -553,6 +595,18 @@ const shellRuns = new ShellRunProcessManager({
   },
 });
 const sandboxManager = createBuiltinSandboxManager();
+const filesystemWorker = process.platform === 'darwin' && sandboxManager
+  ? new FilesystemWorkerClient({
+      sandboxManager,
+      getLaunchSpec: createFilesystemWorkerLaunchSpecProvider({
+        runtime: 'electron',
+        executable: process.execPath,
+        resourceLocation: app.isPackaged
+          ? { kind: 'desktop-packaged', resourcesPath: process.resourcesPath }
+          : { kind: 'runtime' },
+      }),
+    })
+  : undefined;
 // Unified tool availability (issue #37). Deferred capability groups (Rive,
 // Office, browser, agent orchestration) are withheld from the
 // per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
@@ -610,7 +664,10 @@ const computerUseTools = applyComputerUseRealModelPolicy(
       )
     : undefined,
 );
-const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
+const agentTools: MakaTool[] = [
+  buildSubagentSpawnTool({ taskLedger: taskLedgerStore }),
+  ...buildSubagentProjectionTools(),
+];
 const deferredTools: MakaTool[] = [
   ...riveTools,
   ...officeTools,
@@ -647,6 +704,11 @@ const builtinTools: MakaTool[] = [
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
     ...(sandboxManager ? { sandboxManager } : {}),
+    ...(filesystemWorker ? {
+      filesystemWorker,
+      enableBashAdditionalPermissions: true,
+      enableFileToolAdditionalPermissions: true,
+    } : {}),
   }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
@@ -677,6 +739,11 @@ const builtinTools: MakaTool[] = [
 const childAgentTools = buildChildAgentTools([
   ...buildBuiltinTools({
     ...(sandboxManager ? { sandboxManager } : {}),
+    ...(filesystemWorker ? {
+      filesystemWorker,
+      enableBashAdditionalPermissions: true,
+      enableFileToolAdditionalPermissions: true,
+    } : {}),
   }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   webSearchTool,
 ]);
@@ -834,12 +901,27 @@ backends.register('ai-sdk', async (ctx) => {
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryProjection = await localMemory.captureAgentMemoryProjection();
   const supportsVision = modelSupportsVision(connection, model);
-  const backendTools = isComputerUseRealModelE2e
+  const candidateTools = isComputerUseRealModelE2e
     ? computerUseTools
     : [...(ctx.tools ?? builtinTools)];
-  const backendToolAvailability = isComputerUseRealModelE2e
+  const candidateToolAvailability = isComputerUseRealModelE2e
     ? { economy: false, groups: [] }
     : toolAvailability;
+  // Expert-team lead: a main session (ctx.tools undefined) labeled
+  // `mode:expert-team:<teamId>` gets the team-bound expert_dispatch tool.
+  // Child turns receive scoped `ctx.tools` and inherit the label, but must NOT
+  // get expert_dispatch — members cannot spawn nested teams.
+  const expertTeamId = ctx.tools ? undefined : expertTeamIdFromLabels(ctx.header.labels);
+  const expertDispatchTool = expertTeamId ? buildExpertDispatchToolForTeamId(expertTeamId) : undefined;
+  const backendTools = computerUseToolsForModel(
+    candidateTools,
+    computerUseTools,
+    supportsVision,
+  );
+  const backendToolAvailability = computerUseAvailabilityForModel(
+    candidateToolAvailability,
+    supportsVision,
+  );
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -850,7 +932,7 @@ backends.register('ai-sdk', async (ctx) => {
     modelId: model,
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
-    tools: backendTools,
+    tools: expertDispatchTool ? [...backendTools, expertDispatchTool] : backendTools,
     toolAvailability: backendToolAvailability,
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
@@ -907,6 +989,7 @@ backends.register('ai-sdk', async (ctx) => {
     }),
     recordRunTrace: ctx.recordRunTrace,
     recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
+    loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
     recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
     recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
     newId: randomUUID,
@@ -1214,6 +1297,18 @@ function registerIpc(): void {
       return checkoutBranch(projectPath, branch);
     },
   );
+  // Composer `@` mention popup: list workspace files under the same project
+  // root that app:info reports. Git repos honor .gitignore + untracked via
+  // `git ls-files`; other trees fall back to a bounded walk. See
+  // workspace-file-search.ts.
+  ipcMain.handle(
+    'workspace:searchFiles',
+    async (_event, input: unknown) => {
+      const request = (input ?? {}) as { query?: unknown; limit?: unknown };
+      const projectPath = await currentProjectRoot();
+      return searchWorkspaceFiles(projectPath, { query: request.query, limit: request.limit });
+    },
+  );
   registerMemoryIpc({ localMemory });
   registerConfigIpc({ connectionStore, settingsStore, credentialStore, workspaceRoot });
   registerNotificationsIpc({ settingsStore, mainWindowController, e2e: isE2e });
@@ -1301,6 +1396,15 @@ function registerIpc(): void {
   );
   registerPlanReminderIpc({ planReminders, getWorkspacePrivacyContext });
   ipcMain.handle('shell-runs:list', (_event, sessionId: string) => runtime.listShellRunUpdates(sessionId));
+  ipcMain.handle('tasks:list', async (_event, sessionId: string) => {
+    const tasks = await taskLedgerStore.list(sessionId, {
+      includeTerminal: true,
+      includeArchived: false,
+      classifyResumeTrust: true,
+      ...(visualSmokeFixture ? { now: getVisualSmokeState(visualSmokeFixture)?.now ?? Date.now() } : {}),
+    });
+    return tasks.map(sanitizeTaskLedgerTask);
+  });
   ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
   ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {
     const cwd = input?.cwd ?? (await currentProjectRoot());
@@ -1389,14 +1493,14 @@ function registerIpc(): void {
   registerSubscriptionIpc({
     connectionStore,
     claudeSubscription,
-    codexSubscription,
+    openAiCodex,
     githubCopilotSubscription,
     cursorSubscription,
     antigravitySubscription,
     isClaudeSubscriptionAuthenticatedState,
-    isCodexSubscriptionAuthenticatedState,
+    isOpenAiCodexAuthenticatedState,
     syncClaudeSubscriptionConnection,
-    syncCodexSubscriptionConnection,
+    syncOpenAiCodexConnection,
     syncGitHubCopilotConnection,
     emitConnectionListChanged,
   });
@@ -1627,6 +1731,52 @@ function registerIpc(): void {
   // model-picker UI is ready.
   ipcMain.handle('quickChat:start', async (_event, input: unknown) => {
     return handleQuickChatStart(input, currentProjectRoot);
+  });
+
+  // Expert teams: list the built-in teams and start a labeled team session.
+  // A team session is a normal session tagged `mode:expert-team:<teamId>`; the
+  // label activates the lead persona + expert_dispatch tool (see the backend
+  // factory). The lead runs read-only (explore) and dispatches read-only members.
+  ipcMain.handle('expertTeam:list', async () => ({
+    teams: listExpertTeams().map((team) => ({
+      id: team.id,
+      name: team.name,
+      description: team.description,
+      members: team.members.map((member) => ({
+        id: member.id,
+        name: member.name,
+        description: member.description,
+        ...(member.whenToUse ? { whenToUse: member.whenToUse } : {}),
+      })),
+    })),
+  }));
+  ipcMain.handle('expertTeam:start', async (_event, input: unknown) => {
+    return runExpertTeamStart(input, {
+      isKnownTeam: (teamId) => getExpertTeam(teamId) !== undefined,
+      getOnboardingState: async () => (await onboardingService.getSnapshot()).state,
+      createSession: async ({ teamId, defaultConnectionSlug, defaultModel }) => {
+        const ready = await getReadyConnection(defaultConnectionSlug, defaultModel);
+        const team = getExpertTeam(teamId);
+        return runtime.createSession({
+          cwd: await currentProjectRoot(),
+          backend: 'ai-sdk',
+          llmConnectionSlug: ready.connection.slug,
+          model: ready.model,
+          // Shipped teams are read-only review crews: the lead reads + dispatches
+          // read-only members, so the whole session stays in explore mode.
+          permissionMode: 'explore',
+          name: team ? team.name : 'Expert Team',
+          labels: [expertTeamLabel(teamId)],
+        });
+      },
+      emitCreated: (sessionId) => emitSessionsChanged('created', sessionId),
+      ensureCanSend: (sessionId) => ensureSessionCanSend(sessionId),
+      sendFirstMessage: async (sessionId, text) => {
+        const turnId = randomUUID();
+        const iterator = runtime.sendMessage(sessionId, { turnId, text });
+        void streamEvents(sessionId, iterator, turnId);
+      },
+    });
   });
 
   ipcMain.handle('permissions:getSnapshot', () => buildPermissionSnapshot());
@@ -1884,7 +2034,7 @@ async function streamEvents(
     // re-injecting into a failing connection would spin ~maxIterations failing
     // turns. Failures never surface to the turn.
     if (!turnAborted && !turnError) {
-      void handleGoalContinuation(goalWiring.continuationDeps, sessionId).catch(() => {});
+      void handleGoalContinuation(goalWiring.continuationDeps, sessionId, turnId).catch(() => {});
     }
     return { turnId, ok: !turnAborted && !turnError, ...(turnError ? { error: turnError } : {}) };
   } catch (error) {
@@ -1939,6 +2089,7 @@ async function ensureSessionCanSend(sessionId: string): Promise<void> {
     result = await ensureSessionCanSendOrRebind(sessionId, header, {
       readyConnectionDeps,
       getDefaultSlug: () => connectionStore.getDefault(),
+      listConnectionSlugs: async () => (await connectionStore.list()).map((connection) => connection.slug),
       updateSession: (_sessionId, patch) => runtime.updateSession(_sessionId, {
         ...patch,
         status: 'active',

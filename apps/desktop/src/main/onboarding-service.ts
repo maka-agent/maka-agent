@@ -245,7 +245,7 @@ export function bindOnboardingDeps(input: {
   /**
    * Read-only credential-presence check, covering both API-key
    * connections (credential store) and OAuth-subscription connections
-   * (claude-subscription / codex-subscription stored tokens). Callers
+   * (claude-subscription / openai-codex stored tokens). Callers
    * must pass a resolver that NEVER refreshes an OAuth token or
    * otherwise mutates credential state — see `hasConnectionSecret` in
    * main.ts, which deliberately does not reuse the send-path's

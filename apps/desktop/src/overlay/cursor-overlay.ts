@@ -127,7 +127,8 @@ window.cursorOverlay?.onComplete((p) => {
 });
 window.cursorOverlay?.onCancel((p) => {
   if (!activeActionId || p.actionId !== activeActionId) return;
+  engine.cancel();
+  readySent = true;
   waitForNativeCompletion = false;
-  reportPhase('finished');
-  activeActionId = null;
+  kick();
 });

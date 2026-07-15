@@ -51,10 +51,19 @@ export interface ModelAdapterInput {
 export interface PrepareStepLike {
   steps: ReadonlyArray<{
     toolCalls?: ReadonlyArray<{ toolCallId?: string; toolName: string; input?: unknown }>;
+    /** Real provider usage the SDK recorded for this finished step. */
+    usage?: AiSdkUsageLike;
   }>;
   stepNumber: number;
   model: unknown;
   messages: ModelMessage[];
+  /**
+   * Active tool subset for this step. The SDK does not pass it; the composed
+   * prepareStep pipeline threads an earlier hook's `activeTools` result through
+   * so later hooks (and the final-request estimate owner) can measure the
+   * provider-visible tool schema for the step.
+   */
+  activeTools?: readonly string[];
   experimental_context: unknown;
 }
 
@@ -104,6 +113,14 @@ export interface ModelAdapterStreamInput {
    * on the next step without mutating the cached tools prefix.
    */
   prepareStep?: PrepareStepFunctionLike;
+  /**
+   * Per-call step budget override. The step limit is a SEND-level cap owned by
+   * the backend: a reactive overflow retry re-invokes startStream mid-send and
+   * must pass only the remaining budget (configured maxSteps minus the steps
+   * already completed), or every retry would silently reset the cap. Defaults
+   * to the adapter's configured maxSteps.
+   */
+  maxSteps?: number;
 }
 
 export interface ModelAdapterStreamCallbacks {
@@ -154,6 +171,7 @@ export class ModelAdapter {
       isLoopFinished: () => unknown;
     };
 
+    const maxSteps = input.maxSteps ?? this.input.maxSteps;
     return streamText({
       model: input.model,
       messages: input.messages,
@@ -165,9 +183,9 @@ export class ModelAdapter {
       providerOptions: this.input.providerOptions,
       // streamText defaults to one step when stopWhen is omitted. Its exported
       // non-stopping condition is required for an unbounded tool loop.
-      stopWhen: this.input.maxSteps === undefined
+      stopWhen: maxSteps === undefined
         ? isLoopFinished()
-        : stepCountIs(this.input.maxSteps),
+        : stepCountIs(maxSteps),
       abortSignal: input.abortSignal,
     });
   }
@@ -409,6 +427,7 @@ export interface AiSdkUsageLike {
     reasoningTokens?: number;
   };
   outputTokenDetails?: {
+    textTokens?: number;
     reasoningTokens?: number;
   };
   raw?: AiSdkRawUsageFields;
@@ -434,19 +453,28 @@ export function normalizeAiSdkUsage(
   options: { rawFinishReason?: unknown } = {},
 ): NormalizedAiSdkUsage | undefined {
   if (!usage) return undefined;
-  const inputTokens =
+  const reportedInputTokens =
     finiteTokenFromValueOrBreakdown(usage.inputTokens, 'total')
+    ?? finiteTokenBreakdownSum(usage.inputTokens, ['noCache', 'cacheRead', 'cacheWrite'])
     ?? finiteToken(usage.promptTokens)
     ?? finiteToken(usage.raw?.prompt_tokens)
     ?? finiteToken(usage.prompt_tokens)
-    ?? 0;
-  const outputTokens =
+    ?? finiteTokenSum([
+      usage.inputTokenDetails?.noCacheTokens,
+      usage.inputTokenDetails?.cacheReadTokens,
+      usage.inputTokenDetails?.cacheWriteTokens,
+    ]);
+  const reportedOutputTokens =
     finiteTokenFromValueOrBreakdown(usage.outputTokens, 'total')
+    ?? finiteTokenBreakdownSum(usage.outputTokens, ['text', 'reasoning'])
     ?? finiteToken(usage.completionTokens)
     ?? finiteToken(usage.raw?.completion_tokens)
     ?? finiteToken(usage.completion_tokens)
-    ?? 0;
-  const cacheHitInputTokens =
+    ?? finiteTokenSum([
+      usage.outputTokenDetails?.textTokens,
+      usage.outputTokenDetails?.reasoningTokens,
+    ]);
+  const reportedCacheHitInputTokens =
     finiteToken(usage.cacheHitInputTokens)
     ?? finiteToken(usage.cachedInputTokens)
     ?? finiteToken(usage.cacheReadInputTokens)
@@ -456,14 +484,12 @@ export function normalizeAiSdkUsage(
     ?? finiteToken(usage.prompt_tokens_details?.cached_tokens)
     ?? finiteTokenFromBreakdown(usage.inputTokens, 'cacheRead')
     ?? finiteToken(usage.inputTokenDetails?.cacheReadTokens)
-    ?? finiteToken(usage.inputTokenDetails?.cachedTokens)
-    ?? 0;
-  const cacheWriteInputTokens =
+    ?? finiteToken(usage.inputTokenDetails?.cachedTokens);
+  const reportedCacheWriteInputTokens =
     finiteToken(usage.cacheWriteInputTokens)
     ?? finiteToken(usage.cacheCreationInputTokens)
     ?? finiteTokenFromBreakdown(usage.inputTokens, 'cacheWrite')
-    ?? finiteToken(usage.inputTokenDetails?.cacheWriteTokens)
-    ?? 0;
+    ?? finiteToken(usage.inputTokenDetails?.cacheWriteTokens);
   const explicitCacheMissInputTokens =
     finiteToken(usage.cacheMissInputTokens)
     ?? finiteToken(usage.raw?.prompt_cache_miss_tokens)
@@ -471,24 +497,42 @@ export function normalizeAiSdkUsage(
     ?? finiteTokenFromBreakdown(usage.inputTokens, 'noCache')
     ?? finiteToken(usage.inputTokenDetails?.noCacheTokens)
     ?? finiteToken(usage.inputTokenDetails?.cacheMissTokens);
-  const cacheMissInputTokens =
-    explicitCacheMissInputTokens
-    ?? Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
-  const cacheMissInputSource: CacheMissInputSource =
-    explicitCacheMissInputTokens !== undefined ? 'explicit' : 'derived';
-  const reasoningTokens =
+  const reportedReasoningTokens =
     finiteToken(usage.reasoningTokens)
     ?? finiteTokenFromBreakdown(usage.outputTokens, 'reasoning')
     ?? finiteToken(usage.outputTokenDetails?.reasoningTokens)
     ?? finiteToken(usage.raw?.completion_tokens_details?.reasoning_tokens)
     ?? finiteToken(usage.completion_tokens_details?.reasoning_tokens)
-    ?? finiteToken(usage.inputTokenDetails?.reasoningTokens)
-    ?? 0;
-  const totalTokens =
+    ?? finiteToken(usage.inputTokenDetails?.reasoningTokens);
+  const reportedTotalTokens =
     finiteToken(usage.totalTokens)
     ?? finiteToken(usage.raw?.total_tokens)
-    ?? finiteToken(usage.total_tokens)
-    ?? inputTokens + outputTokens;
+    ?? finiteToken(usage.total_tokens);
+  const inputTokens = reportedInputTokens ?? (
+    reportedTotalTokens !== undefined
+    && reportedOutputTokens !== undefined
+    && reportedTotalTokens >= reportedOutputTokens
+      ? reportedTotalTokens - reportedOutputTokens
+      : undefined
+  );
+  const outputTokens = reportedOutputTokens ?? (
+    reportedTotalTokens !== undefined
+    && reportedInputTokens !== undefined
+    && reportedTotalTokens >= reportedInputTokens
+      ? reportedTotalTokens - reportedInputTokens
+      : undefined
+  );
+  if (inputTokens === undefined || outputTokens === undefined) return undefined;
+  const cacheHitInputTokens = reportedCacheHitInputTokens ?? 0;
+  const cacheWriteInputTokens = reportedCacheWriteInputTokens ?? 0;
+  const cacheMissInputTokens =
+    explicitCacheMissInputTokens
+    ?? Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
+  const cacheMissInputSource: CacheMissInputSource =
+    explicitCacheMissInputTokens !== undefined ? 'explicit' : 'derived';
+  const reasoningTokens = reportedReasoningTokens ?? 0;
+  const totalTokens =
+    reportedTotalTokens ?? inputTokens + outputTokens;
   const raw = rawUsageFields(usage);
   const rawFinishReason = rawFinishReasonString(options.rawFinishReason);
   return {
@@ -523,6 +567,24 @@ function finiteTokenFromValueOrBreakdown(
   key: keyof TokenCountBreakdown,
 ): number | undefined {
   return finiteToken(value) ?? finiteTokenFromBreakdown(value, key);
+}
+
+function finiteTokenBreakdownSum(
+  value: number | TokenCountBreakdown | undefined,
+  keys: readonly (keyof TokenCountBreakdown)[],
+): number | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const parts = keys.map((key) => finiteToken(value[key]));
+  return parts.every((part) => part === undefined)
+    ? undefined
+    : parts.reduce<number>((sum, part) => sum + (part ?? 0), 0);
+}
+
+function finiteTokenSum(values: readonly unknown[]): number | undefined {
+  const tokens = values.map(finiteToken);
+  return tokens.every((token) => token === undefined)
+    ? undefined
+    : tokens.reduce<number>((sum, token) => sum + (token ?? 0), 0);
 }
 
 function rawUsageFields(usage: AiSdkUsageLike): AiSdkRawUsageFields | undefined {

@@ -1,0 +1,118 @@
+import assert from 'node:assert/strict';
+import { describe, test } from 'node:test';
+import type { LlmConnection } from '@maka/core';
+import { buildDefaultContextBudgetPolicy } from '../context-budget-policy.js';
+
+describe('mid-turn history compact policy env plumbing', () => {
+  test('defaults on: the runtime derives midTurn with the shared reserve when history compaction is enabled', () => {
+    const policy = buildDefaultContextBudgetPolicy(connection(), {
+      env: { MAKA_CONTEXT_HISTORY_COMPACT: 'on' },
+    });
+    assert.equal(policy?.historyCompact?.enabled, true);
+    assert.deepEqual(policy?.historyCompact?.midTurn, { enabled: true, reserveTokens: 16_384 });
+  });
+
+  test('defaults on with no compaction env at all (the runtime, not the surface, owns it)', () => {
+    const policy = buildDefaultContextBudgetPolicy(connection(), { env: {} });
+    assert.equal(policy?.historyCompact?.enabled, true);
+    assert.deepEqual(policy?.historyCompact?.midTurn, { enabled: true, reserveTokens: 16_384 });
+  });
+
+  test('honors explicit reserve and tail-event overrides', () => {
+    const policy = buildDefaultContextBudgetPolicy(connection(), {
+      env: {
+        MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS: '8000',
+        MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN_TAIL_EVENTS: '2',
+      },
+    });
+    assert.deepEqual(policy?.historyCompact?.midTurn, {
+      enabled: true,
+      reserveTokens: 8_000,
+      reserveTailEvents: 2,
+    });
+  });
+
+  test('MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN=off is the escape hatch even with history compact on', () => {
+    const policy = buildDefaultContextBudgetPolicy(connection(), {
+      env: {
+        MAKA_CONTEXT_HISTORY_COMPACT: 'on',
+        MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN: 'off',
+      },
+    });
+    assert.equal(policy?.historyCompact?.enabled, true);
+    assert.equal(policy?.historyCompact?.midTurn, undefined);
+  });
+
+  test('an explicit MAKA_CONTEXT_HISTORY_COMPACT=off disables history compaction and midTurn with it', () => {
+    const policy = buildDefaultContextBudgetPolicy(connection(), {
+      env: { MAKA_CONTEXT_HISTORY_COMPACT: 'off' },
+    });
+    assert.equal(policy?.historyCompact, undefined);
+  });
+});
+
+describe('window-bounded reserve derivation (issue #882 PR 3 review P2)', () => {
+  test('caps the derived reserve on a small-window model instead of degrading to a 1-token budget', () => {
+    // gpt-4 has an 8192-token window. A flat 16384 reserve used to derive
+    // maxHistoryEstimatedTokens = max(1, 8192 - 16384) = 1, and a mid_turn
+    // high water clamped to 1 token — every multi-step turn ran the
+    // summarizer for a checkpoint that could never pass the replay gate.
+    // The default reserve must be bounded by the KNOWN window: a quarter of
+    // the window, capped at the classic 16384.
+    const policy = buildDefaultContextBudgetPolicy(gpt4Connection(), { env: {}, modelId: 'gpt-4' });
+    assert.equal(policy?.maxHistoryEstimatedTokens, 8192 - 2048);
+    assert.deepEqual(policy?.historyCompact?.midTurn, { enabled: true, reserveTokens: 2048 });
+  });
+
+  test('keeps the classic 16384 reserve for large windows (>= 64K unchanged)', () => {
+    const policy = buildDefaultContextBudgetPolicy(connection(), { env: {} });
+    // claude-sonnet-4-5 metadata window is 200_000: 200_000 / 4 caps at 16_384.
+    assert.equal(policy?.maxHistoryEstimatedTokens, 200_000 - 16_384);
+    assert.deepEqual(policy?.historyCompact?.midTurn, { enabled: true, reserveTokens: 16_384 });
+  });
+
+  test('keeps the classic 16384 reserve when the window is unknown (metadata-less model)', () => {
+    const policy = buildDefaultContextBudgetPolicy({
+      ...gpt4Connection(),
+      defaultModel: 'custom-model',
+      models: [{ id: 'custom-model' }],
+    } as LlmConnection, { env: {}, modelId: 'custom-model' });
+    // No window: the flat 32_000 fallback budget and the classic reserve.
+    assert.equal(policy?.maxHistoryEstimatedTokens, 32_000);
+    assert.deepEqual(policy?.historyCompact?.midTurn, { enabled: true, reserveTokens: 16_384 });
+  });
+
+  test('respects an explicit reserve override verbatim even on a small window', () => {
+    const policy = buildDefaultContextBudgetPolicy(gpt4Connection(), {
+      env: { MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS: '6000' },
+      modelId: 'gpt-4',
+    });
+    assert.equal(policy?.maxHistoryEstimatedTokens, 8192 - 6000);
+    assert.deepEqual(policy?.historyCompact?.midTurn, { enabled: true, reserveTokens: 6000 });
+  });
+});
+
+function gpt4Connection(): LlmConnection {
+  return {
+    slug: 'openai-main',
+    name: 'OpenAI',
+    providerType: 'openai',
+    defaultModel: 'gpt-4',
+    models: [{ id: 'gpt-4' }],
+    enabled: true,
+    createdAt: 1,
+    updatedAt: 1,
+  } as LlmConnection;
+}
+
+function connection(): LlmConnection {
+  return {
+    slug: 'anthropic-main',
+    name: 'Anthropic',
+    providerType: 'anthropic',
+    defaultModel: 'claude-sonnet-4-5-20250929',
+    enabled: true,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}

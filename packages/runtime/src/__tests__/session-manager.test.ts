@@ -42,6 +42,11 @@ import {
   WEB_RESEARCH_AGENT_DEFINITION,
   WEB_RESEARCH_AGENT_ID,
 } from '../agent-catalog.js';
+import {
+  buildExpertAgentId,
+  getExpertTeam,
+  materializeExpertAgentDefinition,
+} from '../expert-catalog.js';
 
 describe('SessionManager manual compaction', () => {
   test('runs backend history compaction as a runtime turn and persists diagnostics', async () => {
@@ -2857,6 +2862,62 @@ describe('SessionManager permission mode updates', () => {
     expect(childMessages).toEqual([]);
   });
 
+  test('startChildTurn resolves an expert member id to a tool-scoped, persona-injected child', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const contexts: BackendFactoryContext[] = [];
+    backends.register('fake', (ctx) => {
+      contexts.push(ctx);
+      return new TestBackend(ctx);
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      // The full same-workspace child tool surface; the expert must be scoped
+      // down to just its archetype's tools (Read/Glob/Grep for local_read).
+      childTools: [
+        testTool('Read'),
+        testTool('Bash'),
+        testTool('Glob'),
+        testTool('WebSearch'),
+        testTool('Grep'),
+      ],
+      newId: nextId(),
+      now: nextNow(7_200),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+
+    await drain(manager.sendMessage(session.id, { turnId: 'parent-turn', text: 'parent context' }));
+    const [parentRun] = await runStore.listSessionRuns(session.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+
+    const team = getExpertTeam('code-review');
+    if (!team) throw new Error('code-review team missing');
+    const member = team.members[0]!;
+    const expertId = buildExpertAgentId(team.id, member.id);
+    const expected = materializeExpertAgentDefinition(team, member);
+
+    await drain(manager.startChildTurn(session.id, {
+      turnId: 'child-turn',
+      parentRunId: parentRun.runId,
+      spec: { id: expertId, name: 'ignored', systemPrompt: 'ignored' },
+      prompt: 'review src/foo.ts',
+    }));
+
+    // The resolver flowed the materialized expert definition through the child
+    // turn: read-only archetype scope + composed persona + explore permission.
+    expect(contexts.map((ctx) => ctx.header.permissionMode)).toEqual(['ask', 'explore']);
+    expect(contexts[1]?.tools?.map((tool) => tool.name)).toEqual(['Read', 'Glob', 'Grep']);
+    expect(contexts[1]?.systemPrompt).toBe(expected.systemPrompt);
+
+    const childRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'child-turn');
+    expect(childRun?.agentId).toBe(expertId);
+    expect(childRun?.agentName).toBe(member.name);
+    expect(childRun?.permissionMode).toBe('explore');
+  });
+
   test('startChildTurn uses only WebSearch for the web research child definition', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -2948,6 +3009,67 @@ describe('SessionManager permission mode updates', () => {
     expect(result.agentId).toBe(LOCAL_READ_AGENT_ID);
     expect(result.agentName).toBe(LOCAL_READ_AGENT_DEFINITION.name);
     expect(result.artifactIds).toEqual(['artifact-1']);
+  });
+
+  test('the durable turn-ledger seam reaches parent runs but is withheld from child sessions', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const contexts: BackendFactoryContext[] = [];
+    const seamReads: Array<{ turnId: string; eventIds: string[] } | undefined> = [];
+    class SeamProbeBackend extends TestBackend {
+      constructor(private readonly probeCtx: BackendFactoryContext) {
+        super(probeCtx);
+      }
+
+      override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+        seamReads.push(this.probeCtx.loadTurnRuntimeEvents
+          ? {
+              turnId: input.turnId,
+              eventIds: (await this.probeCtx.loadTurnRuntimeEvents(input.turnId)).map((event) => event.id),
+            }
+          : undefined);
+        yield* super.send(input);
+      }
+    }
+    backends.register('fake', (ctx) => {
+      contexts.push(ctx);
+      return new SeamProbeBackend(ctx);
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(6_850),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    await drain(manager.sendMessage(session.id, { turnId: 'parent-turn', text: 'parent context' }));
+    const [parentRun] = await runStore.listSessionRuns(session.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+    await manager.spawnChildAgent(session.id, {
+      turnId: 'child-turn',
+      parentRunId: parentRun.runId,
+      spec: { id: LOCAL_READ_AGENT_ID, name: 'Reader', systemPrompt: 'read only' },
+      prompt: 'inspect',
+    });
+
+    // The parent (main-session) backend can read its turn's durable ledger —
+    // the seam resolves the active run and returns the persisted events.
+    expect(seamReads.length).toBe(2);
+    expect(seamReads[0]?.turnId).toBe('parent-turn');
+    expect((seamReads[0]?.eventIds.length ?? 0) > 0).toBe(true);
+
+    // The child factory context is NOT given the seam: a child run has no
+    // top-level prior context, so a mid-turn checkpoint built from its
+    // child-only ledger would claim session-prefix coverage and poison the
+    // session-global checkpoint stream for the parent projection. Without
+    // the seam, child mid-turn capacity compaction cannot arm.
+    expect(contexts.length).toBe(2);
+    expect(typeof contexts[0]?.loadTurnRuntimeEvents).toBe('function');
+    expect(contexts[1]?.loadTurnRuntimeEvents).toBe(undefined);
+    expect(seamReads[1]).toBe(undefined);
   });
 
   test('spawnChildAgent returns the terminal RuntimeEvent status when the child header commit fails', async () => {
@@ -3749,7 +3871,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new EventBackend(ctx, [
-      { type: 'permission_request', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {} },
+      { type: 'permission_request', kind: 'tool_permission', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {}, rememberForTurnAllowed: true },
       { type: 'complete', stopReason: 'permission_handoff' },
     ]));
     const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(9_000) });
@@ -3773,7 +3895,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new EventBackend(ctx, [
-      { type: 'permission_request', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {} },
+      { type: 'permission_request', kind: 'tool_permission', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {}, rememberForTurnAllowed: true },
       { type: 'complete', stopReason: 'permission_handoff' },
     ]));
     const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(9_010) });
@@ -3801,7 +3923,7 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new EventBackend(ctx, [
-      { type: 'permission_request', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {} },
+      { type: 'permission_request', kind: 'tool_permission', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {}, rememberForTurnAllowed: true },
       { type: 'complete', stopReason: 'permission_handoff' },
     ]));
     const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(9_500) });

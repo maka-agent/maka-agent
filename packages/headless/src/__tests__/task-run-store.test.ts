@@ -104,6 +104,10 @@ describe('TaskRunStore', () => {
     for (const event of events) await store.appendEvent(event.taskRunId, event);
 
     assert.deepEqual(await store.readEvents('tr-1'), events);
+    assert.deepEqual((await store.readEventRecords('tr-1')).slice(0, 2).map((record) => record.cursor), [
+      { ledger: 'task_event', streamId: 'tr-1', sequence: 0, eventId: 'e-1' },
+      { ledger: 'task_event', streamId: 'tr-1', sequence: 1, eventId: 'e-2' },
+    ]);
   });
 
   test('projects status, attempts, observations, verifier, and score from replay', async () => {
@@ -529,6 +533,123 @@ describe('TaskRunStore', () => {
     assert.match(projection.warnings.join('\n'), /source guard did not accept/);
   });
 
+  test('replays Self-check source binding and invalidates freshness after later workspace mutations', () => {
+    const taskRunId = 'tr-self-check-freshness';
+    const attemptId = 'attempt-1';
+    const selfCheck = {
+      ...acceptedSelfCheck(taskRunId, 'self-check-1', 'pass', 'npm test passed.'),
+      attemptId,
+      source: {
+        kind: 'model_tool' as const,
+        toolCallId: 'self-check-call',
+        sessionId: 'session-1',
+        agentRunId: 'run-1',
+        turnId: 'turn-1',
+      },
+    };
+    const revision = { kind: 'manifest' as const, ref: 'sha256:workspace-1', dirty: false };
+    const workspaceObservation: Extract<TaskEvent, { type: 'heavy_task_workspace_observation_recorded' }>['observation'] = {
+      schemaVersion: 1,
+      observationId: 'workspace-1',
+      taskRunId,
+      ts: 3,
+      roots: ['/app/project'],
+      entries: [{ path: '/app/project/result.txt', kind: 'file', sizeBytes: 2, sha256: 'aa' }],
+      status: 'ok',
+      command: 'observe',
+      revision,
+      source: { kind: 'system', label: 'isolated workspace observation' },
+    };
+    const prefix: TaskEvent[] = [
+      { type: 'task_run_created', id: 'created', taskRunId, ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      { type: 'heavy_task_self_check_recorded', id: 'self-check-event', taskRunId, ts: 2, selfCheck },
+      {
+        type: 'heavy_task_workspace_observation_recorded',
+        id: 'workspace-event-1',
+        taskRunId,
+        ts: 3,
+        observation: workspaceObservation,
+      },
+      {
+        type: 'heavy_task_self_check_evidence_linked',
+        id: 'self-check-link',
+        taskRunId,
+        ts: 4,
+        selfCheckId: selfCheck.selfCheckId,
+        attemptId,
+        workspaceObservationId: 'workspace-1',
+        provenance: {
+          schemaVersion: 'maka.execution_evidence_ref.v1',
+          execution: { sessionId: 'session-1', invocationId: 'invocation-1', agentRunId: 'run-1', turnId: 'turn-1' },
+          task: { taskRunId, attemptId },
+          runtimeCoverage: {
+            lowWater: { ledger: 'runtime_event', streamId: 'run-1', sequence: 2, eventId: 'runtime-call' },
+            highWater: { ledger: 'runtime_event', streamId: 'run-1', sequence: 3, eventId: 'runtime-result' },
+            eventCount: 2,
+          },
+          taskCoverage: {
+            highWater: { ledger: 'task_event', streamId: taskRunId, sequence: 1, eventId: 'self-check-event' },
+            eventCount: 2,
+          },
+          workspace: revision,
+        },
+      },
+    ];
+
+    const current = projectTaskRun(prefix, taskRunId);
+    assert.equal(current.latestHeavyTaskSelfCheck?.freshness, 'current');
+    assert.equal(current.latestHeavyTaskSelfCheck?.provenance?.taskCoverage?.highWater.eventId, 'self-check-event');
+
+    const mutationBase = heavyTaskEvidenceEvent(
+      taskRunId,
+      'mutation',
+      'write-evidence',
+      'Bash',
+      5,
+    ) as Extract<TaskEvent, { type: 'heavy_task_evidence_recorded' }>;
+    const mutation: Extract<TaskEvent, { type: 'heavy_task_evidence_recorded' }> = {
+      ...mutationBase,
+      evidence: { ...mutationBase.evidence, attemptId },
+    };
+    const mutated = projectTaskRun([...prefix, mutation], taskRunId);
+    assert.equal(mutated.latestHeavyTaskSelfCheck?.freshness, 'stale');
+    assert.deepEqual(mutated.latestHeavyTaskSelfCheck?.freshnessReasons, ['later_workspace_mutation']);
+
+    const reobserved = projectTaskRun([
+      ...mutated.events,
+      {
+        type: 'heavy_task_workspace_observation_recorded',
+        id: 'workspace-event-2',
+        taskRunId,
+        ts: 6,
+        observation: {
+          ...workspaceObservation,
+          observationId: 'workspace-2',
+          ts: 6,
+        },
+      } as TaskEvent,
+    ], taskRunId);
+    assert.equal(reobserved.latestHeavyTaskSelfCheck?.freshness, 'current');
+
+    const changed = projectTaskRun([
+      ...reobserved.events,
+      {
+        type: 'heavy_task_workspace_observation_recorded',
+        id: 'workspace-event-3',
+        taskRunId,
+        ts: 7,
+        observation: {
+          ...workspaceObservation,
+          observationId: 'workspace-3',
+          ts: 7,
+          revision: { kind: 'manifest', ref: 'sha256:workspace-2', dirty: false },
+        },
+      } as TaskEvent,
+    ], taskRunId);
+    assert.equal(changed.latestHeavyTaskSelfCheck?.freshness, 'stale');
+    assert.deepEqual(changed.latestHeavyTaskSelfCheck?.freshnessReasons, ['workspace_revision_changed']);
+  });
+
   test('derives heavy-task completion from accepted self-checks and latest todos', () => {
     const taskRunId = 'tr-heavy-completion';
     const projection = projectTaskRun([
@@ -926,6 +1047,9 @@ describe('TaskRunStore', () => {
       assert.equal(replayed.length, 2);
       assert.equal(replayed[1]?.type, 'event_corrupt');
       assert.match((replayed[1] as { error?: string }).error ?? '', /Unexpected/);
+      const records = await store.readEventRecords('tr-corrupt');
+      assert.deepEqual(records.map((record) => record.cursor.sequence), [0, 1]);
+      assert.equal(records[1]?.cursor.eventId, 'corrupt-2');
     } finally {
       await rm(storageRoot, { recursive: true, force: true });
     }

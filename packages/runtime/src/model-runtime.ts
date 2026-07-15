@@ -13,9 +13,14 @@ export interface ResolvedModelRuntime {
 
 export function resolveModelRuntime(connection: LlmConnection, modelId: string): ResolvedModelRuntime {
   const override = lookupModelProviderOverride(connection.providerType, modelId);
-  const adapter = override
-    ? runtimeAdapterOverride(override.npm)
-    : PROVIDER_DEFAULTS[connection.providerType].runtimeAdapter;
+  const defaults = PROVIDER_DEFAULTS[connection.providerType];
+  // Unknown providerType with no per-model override → can't resolve an adapter.
+  // Throw a clear error rather than crashing on `.runtimeAdapter`. Mirrors
+  // `isFakeBackend` in @maka/core/connection-readiness.ts.
+  if (!override && !defaults) {
+    throw new Error(`Unknown provider type "${connection.providerType}"; cannot resolve model runtime.`);
+  }
+  const adapter = override ? runtimeAdapterOverride(override.npm) : defaults.runtimeAdapter;
   const configuredBaseUrl = connection.baseUrl?.trim();
   return {
     adapter,

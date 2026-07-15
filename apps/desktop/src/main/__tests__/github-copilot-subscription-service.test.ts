@@ -147,7 +147,7 @@ describe('GitHubCopilotSubscriptionService', () => {
     );
     const syncBody = source.slice(
       source.indexOf('async function syncGitHubCopilotConnection'),
-      source.indexOf('async function syncCodexSubscriptionConnection'),
+      source.indexOf('async function syncOpenAiCodexConnection'),
     );
     const failureBody = syncBody.slice(syncBody.indexOf('} catch {'), syncBody.indexOf('const enabledIds'));
     assert.match(syncBody, /const failDiscovery = \(\) => \{[\s\S]*if \(!existing\) return null;[\s\S]*enabled: false,[\s\S]*lastTestStatus: 'error'/);

@@ -156,6 +156,12 @@ export function projectRuntimeEventsToStoredMessages(
       projected = true;
     }
 
+    if (event.actions?.userQuestionRequest) {
+      // The matching function_call/function_response own the legacy rows;
+      // this request is live interaction state only.
+      projected = true;
+    }
+
     if (event.actions?.permissionDecision) {
       projected = projectPermissionDecision(event, state, messages) || projected;
     }

@@ -1,22 +1,42 @@
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import {
+  EXECUTION_EVIDENCE_REF_SCHEMA_VERSION,
+  validateExecutionEvidenceRef,
+  type ExecutionEvidenceRef,
+  type ExecutionLogCoverage,
+} from '@maka/core/execution-evidence';
+import type { RuntimeEvent } from '@maka/core/runtime-event';
+import type { AgentRunInspectDocument } from '@maka/runtime';
+import {
+  MAKA_AHE_EXECUTION_LINEAGE_SCHEMA_VERSION,
   MAKA_AHE_CURRENT_COMPONENTS,
+  MAKA_AHE_RUN_RESULT_SCHEMA_VERSION,
   MAKA_AHE_TARGET_PROTOCOL_VERSION,
   MAKA_AHE_TARGET_SOURCE_LABEL,
   type MakaAheArtifactRef,
+  type MakaAheExecutionLineage,
+  type MakaAheExecutionLineageAgentRun,
+  type MakaAheExecutionLineageGap,
   type MakaAheHarnessResults,
   type MakaAheResultStatus,
   type MakaAheRunResult,
   type MakaAheScoreAuthority,
   type MakaAheSnapshotIdentity,
+  type MakaAheSourceManifest,
+  type MakaAheSourceManifestEntry,
   type MakaAheTargetComponent,
   type MakaAheTargetSnapshot,
   type MakaAheTraceIndex,
   type MakaAheTraceIndexEntry,
   type MakaAheValidationIssue,
+  makaAheSourceManifestDigest,
+  makaAheTargetSnapshotId,
   validateMakaAheRunResult,
+  validateMakaAheExecutionLineage,
   validateMakaAheTargetComponents,
+  validateMakaAheTargetSnapshot,
 } from './ahe-target-protocol.js';
 import {
   exportableTaskEvents,
@@ -36,7 +56,7 @@ import {
 import type { AutonomousResultTaxonomy, HeavyTaskSelfCheckExecutionHygiene, HeavyTaskSelfCheckPlanAuditSummary, ScoreResult, TaskRunArtifact, VerifierResult } from './task-contracts.js';
 import type { TaskRunProjection } from './task-run-store.js';
 
-export const MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL = 'ahe-evidence-export-20260701' as const;
+export const MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL = 'ahe-evidence-export-20260714' as const;
 
 export interface BuildMakaAheTargetSnapshotOptions {
   repoRoot: string;
@@ -53,6 +73,7 @@ export interface MakaAheRunEvidenceOptions {
   traceBaseRef?: string;
   includeEvents?: boolean;
   officialResults?: MakaAheOfficialResultOverlays;
+  generatedRefs?: MakaAheGeneratedRefsByTaskRun;
 }
 
 export interface MakaAheRunEvidence {
@@ -68,6 +89,7 @@ export interface WriteMakaAheEvidenceExportOptions {
   includeEvents?: boolean;
   officialResults?: MakaAheOfficialResultOverlays;
   sessionMessages?: MakaAheSessionMessagesByTaskRun;
+  agentRunEvidence?: MakaAheAgentRunEvidenceByTaskRun;
 }
 
 export interface MakaAheOfficialResultOverlay {
@@ -84,6 +106,36 @@ export type MakaAheOfficialResultOverlays =
   | ReadonlyMap<string, MakaAheOfficialResultOverlay>
   | Record<string, MakaAheOfficialResultOverlay>;
 
+export interface MakaAheAgentRunEvidenceSource {
+  sessionId: string;
+  agentRunId: string;
+  inspect?: AgentRunInspectDocument;
+  /** Immutable Runtime Event rows only. Mutable partial snapshots must not be supplied. */
+  runtimeEvents?: readonly RuntimeEvent[];
+  inspectError?: string;
+  runtimeEventsError?: string;
+}
+
+export type MakaAheAgentRunEvidenceByTaskRun =
+  | ReadonlyMap<string, readonly MakaAheAgentRunEvidenceSource[]>
+  | Record<string, readonly MakaAheAgentRunEvidenceSource[]>;
+
+export interface MakaAheGeneratedTaskRefs {
+  taskRun: MakaAheArtifactRef;
+  transcript: MakaAheArtifactRef;
+  messages: MakaAheArtifactRef;
+  taskEvents: MakaAheArtifactRef;
+  executionLineage: MakaAheArtifactRef;
+  agentRunInspections: readonly MakaAheArtifactRef[];
+  runtimeEventSources: readonly MakaAheArtifactRef[];
+  officialResult?: MakaAheArtifactRef;
+  failureDigest?: MakaAheArtifactRef;
+}
+
+export type MakaAheGeneratedRefsByTaskRun =
+  | ReadonlyMap<string, MakaAheGeneratedTaskRefs>
+  | Record<string, MakaAheGeneratedTaskRefs>;
+
 export interface WriteMakaAheEvidenceExportResult extends MakaAheRunEvidence {
   targetSnapshot: MakaAheTargetSnapshot;
   files: {
@@ -91,6 +143,8 @@ export interface WriteMakaAheEvidenceExportResult extends MakaAheRunEvidence {
     harnessResultsJson: string;
     traceIndexJson: string;
     traceDirs: Record<string, string>;
+    executionLineageJson: Record<string, string>;
+    agentRunDirs: Record<string, Record<string, string>>;
     failureDigests: Record<string, string>;
   };
 }
@@ -164,7 +218,10 @@ export interface MakaAheFailureDigest {
     taskRun: MakaAheArtifactRef;
     messages: MakaAheArtifactRef;
     transcript: MakaAheArtifactRef;
-    runtimeEventsJsonl?: MakaAheArtifactRef;
+    executionLineage: MakaAheArtifactRef;
+    taskEventsJsonl: MakaAheArtifactRef;
+    agentRunInspections: MakaAheArtifactRef[];
+    runtimeEventSources: MakaAheArtifactRef[];
     officialHarborResult?: MakaAheArtifactRef;
   };
 }
@@ -237,16 +294,10 @@ export async function validateMakaAheSourceRefs(
       errors.push({ path, message: issue });
       return;
     }
-    const root = resolve(repoRoot);
-    const resolved = resolve(root, sourceRef.path);
-    if (!isWithinRoot(root, resolved)) {
-      errors.push({ path, message: `source ref "${sourceRef.path}" resolves outside the repo root` });
-      return;
-    }
     try {
-      await stat(resolved);
-    } catch {
-      errors.push({ path, message: `source ref "${sourceRef.path}" does not exist under repo root` });
+      await resolveMakaAheSourceFile(repoRoot, sourceRef.path);
+    } catch (error) {
+      errors.push({ path, message: (error as Error).message });
     }
   })));
 
@@ -263,20 +314,16 @@ export async function buildMakaAheTargetSnapshot(
   }
 
   const sourceLabel = options.sourceLabel ?? MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL;
-  const identity = {
-    protocolVersion: MAKA_AHE_TARGET_PROTOCOL_VERSION,
-    sourceLabel,
-    ...(options.git ? { git: options.git } : {}),
-    components,
-  };
+  const sourceManifest = await buildMakaAheSourceManifest(options.repoRoot, components);
 
   return {
     protocolVersion: MAKA_AHE_TARGET_PROTOCOL_VERSION,
     sourceLabel,
-    snapshotId: `maka-ahe-${shortHash(identity)}`,
+    snapshotId: makaAheTargetSnapshotId(components, sourceManifest),
     createdAt: options.createdAt ?? new Date().toISOString(),
     ...(options.git ? { git: options.git } : {}),
     components,
+    sourceManifest,
   };
 }
 
@@ -298,11 +345,13 @@ export function makaAheEvidenceFromTaskRunProjections(
     const official = officialResultFor(options.officialResults, projection.taskRunId);
     const effectiveExport = official ? taskRunExportWithOfficialOverlay(exported, official) : exported;
     const taskRunRef = `${traceBaseRef}/${safePathSegment(projection.taskRunId)}`;
+    const generatedRefs = generatedRefsFor(options.generatedRefs, projection.taskRunId);
     const result = runResultFromProjection(projection, effectiveExport, {
       snapshotId: options.snapshotId,
       runId,
       taskRunRef,
       officialResultRef: official ? `${taskRunRef}/official-harbor-result.json` : undefined,
+      generatedRefs,
     });
     const validation = validateMakaAheRunResult(result);
     if (!validation.ok) {
@@ -313,8 +362,8 @@ export function makaAheEvidenceFromTaskRunProjections(
       snapshotId: options.snapshotId,
       runId,
       taskRunRef,
-      includeEvents: options.includeEvents,
       officialResultRef: official ? `${taskRunRef}/official-harbor-result.json` : undefined,
+      generatedRefs,
     }));
   }
 
@@ -338,52 +387,120 @@ export async function writeMakaAheEvidenceExport(
   outDir: string,
   options: WriteMakaAheEvidenceExportOptions,
 ): Promise<WriteMakaAheEvidenceExportResult> {
+  const snapshotValidation = validateMakaAheTargetSnapshot(options.snapshot);
+  if (!snapshotValidation.ok) {
+    throw new Error(`invalid Maka AHE target snapshot:\n${snapshotValidation.errors.map((error) => `- ${error.path}: ${error.message}`).join('\n')}`);
+  }
   await mkdir(outDir, { recursive: true });
-  const evidence = makaAheEvidenceFromTaskRunProjections(options.projections, {
-    snapshotId: options.snapshot.snapshotId,
-    runId: options.runId,
-    exportedAt: options.exportedAt,
-    includeEvents: options.includeEvents,
-    officialResults: options.officialResults,
-  });
+  const exportedAt = options.exportedAt ?? new Date().toISOString();
+  const generatedRefs: Record<string, MakaAheGeneratedTaskRefs> = {};
   const files: WriteMakaAheEvidenceExportResult['files'] = {
     targetSnapshotJson: join(outDir, 'target-snapshot.json'),
     harnessResultsJson: join(outDir, 'harness-results.json'),
     traceIndexJson: join(outDir, 'trace-index.json'),
     traceDirs: {},
+    executionLineageJson: {},
+    agentRunDirs: {},
     failureDigests: {},
   };
 
   await writeStableJson(files.targetSnapshotJson, options.snapshot);
-  await writeStableJson(files.harnessResultsJson, evidence.harnessResults);
-  await writeStableJson(files.traceIndexJson, evidence.traceIndex);
 
   for (const projection of sortProjections(options.projections)) {
     const traceDir = join(outDir, 'traces', safePathSegment(projection.taskRunId));
+    const taskRunRef = `traces/${safePathSegment(projection.taskRunId)}`;
     files.traceDirs[projection.taskRunId] = traceDir;
-    await writeTaskRunExport(traceDir, projection, {
-      includeEvents: options.includeEvents,
-      exportedAt: options.exportedAt,
+    files.agentRunDirs[projection.taskRunId] = {};
+    const taskRunWrite = await writeTaskRunExport(traceDir, projection, {
+      includeEvents: true,
+      eventsFileName: 'task-events.jsonl',
+      exportedAt,
     });
-    const exported = taskRunExportFromProjection(projection, { exportedAt: options.exportedAt });
+    const exported = taskRunWrite.export;
     const official = officialResultFor(options.officialResults, projection.taskRunId);
     const effectiveExport = official ? taskRunExportWithOfficialOverlay(exported, official) : exported;
     const sessionMessages = sessionMessagesFor(options.sessionMessages, projection.taskRunId);
-    await writeStableJson(join(traceDir, 'messages.json'), aheAgentRunMessages(projection, exported, official, sessionMessages));
+    const messagesPath = join(traceDir, 'messages.json');
+    await writeStableJson(messagesPath, aheAgentRunMessages(projection, exported, official, sessionMessages));
+    const officialResultPath = official ? join(traceDir, 'official-harbor-result.json') : undefined;
     if (official) {
-      await writeStableJson(join(traceDir, 'official-harbor-result.json'), official);
+      await writeStableJson(officialResultPath!, official);
     }
+
+    const materializedAgentRuns = await materializeAgentRunEvidence(
+      traceDir,
+      taskRunRef,
+      linkedAgentRunEvidence(
+        projection,
+        agentRunEvidenceFor(options.agentRunEvidence, projection.taskRunId),
+      ),
+      options.includeEvents === true,
+      files.agentRunDirs[projection.taskRunId]!,
+    );
+    const lineage = executionLineageFromProjection(
+      projection,
+      options.snapshot,
+      options.includeEvents === true,
+      materializedAgentRuns,
+    );
+    const lineageValidation = validateMakaAheExecutionLineage(lineage);
+    if (!lineageValidation.ok) {
+      throw new Error(`invalid Maka AHE execution lineage for ${projection.taskRunId}:\n${lineageValidation.errors.map((error) => `- ${error.path}: ${error.message}`).join('\n')}`);
+    }
+    const lineagePath = join(traceDir, 'execution-lineage.json');
+    files.executionLineageJson[projection.taskRunId] = lineagePath;
+    await writeStableJson(lineagePath, lineage);
+
+    const taskRefs: MakaAheGeneratedTaskRefs = {
+      taskRun: await localFileRef(taskRunWrite.files.taskRunJson, `${taskRunRef}/task-run.json`, 'application/json'),
+      transcript: await localFileRef(taskRunWrite.files.resultMd, `${taskRunRef}/result.md`, 'text/markdown'),
+      messages: await localFileRef(messagesPath, `${taskRunRef}/messages.json`, 'application/json'),
+      taskEvents: await localFileRef(
+        taskRunWrite.files.eventsJsonl!,
+        `${taskRunRef}/task-events.jsonl`,
+        'application/jsonl',
+        'payload-safe Task Event projection; source coverage refers to the canonical Task Event ledger',
+      ),
+      executionLineage: await localFileRef(lineagePath, `${taskRunRef}/execution-lineage.json`, 'application/json'),
+      agentRunInspections: materializedAgentRuns.flatMap((source) => source.inspectRef ? [source.inspectRef] : []),
+      runtimeEventSources: materializedAgentRuns.flatMap((source) => source.runtimeEventsRef ? [source.runtimeEventsRef] : []),
+      ...(officialResultPath
+        ? { officialResult: await localFileRef(officialResultPath, `${taskRunRef}/official-harbor-result.json`, 'application/json') }
+        : {}),
+    };
     const failureDigest = failureDigestFromProjection(projection, effectiveExport, {
       official,
-      exportedAt: options.exportedAt,
-      includeEvents: options.includeEvents,
+      exportedAt,
+      generatedRefs: taskRefs,
     });
     if (failureDigest) {
       const failureDigestPath = join(traceDir, 'failure-digest.json');
       files.failureDigests[projection.taskRunId] = failureDigestPath;
       await writeStableJson(failureDigestPath, failureDigest);
+      taskRefs.failureDigest = await localFileRef(
+        failureDigestPath,
+        `${taskRunRef}/failure-digest.json`,
+        'application/json',
+      );
     }
+    generatedRefs[projection.taskRunId] = taskRefs;
   }
+
+  const evidence = makaAheEvidenceFromTaskRunProjections(options.projections, {
+    snapshotId: options.snapshot.snapshotId,
+    runId: options.runId,
+    exportedAt,
+    includeEvents: options.includeEvents,
+    officialResults: options.officialResults,
+    generatedRefs,
+  });
+  await writeStableJson(files.traceIndexJson, evidence.traceIndex);
+  evidence.harnessResults.traceIndexRef = await localFileRef(
+    files.traceIndexJson,
+    'trace-index.json',
+    'application/json',
+  );
+  await writeStableJson(files.harnessResultsJson, evidence.harnessResults);
 
   return { targetSnapshot: options.snapshot, ...evidence, files };
 }
@@ -391,22 +508,39 @@ export async function writeMakaAheEvidenceExport(
 function runResultFromProjection(
   projection: TaskRunProjection,
   exported: TaskRunExport,
-  ids: { snapshotId: string; runId: string; taskRunRef: string; officialResultRef?: string },
+  ids: {
+    snapshotId: string;
+    runId: string;
+    taskRunRef: string;
+    officialResultRef?: string;
+    generatedRefs?: MakaAheGeneratedTaskRefs;
+  },
 ): MakaAheRunResult {
   const authority = scoreAuthority(exported.score, exported.verifier, projection);
   const status = resultStatus(exported, projection, authority);
   const normalized = normalizedScore(exported.score, exported.verifier);
   const warnings = resultWarnings(exported, projection, status, authority);
   return {
+    schemaVersion: MAKA_AHE_RUN_RESULT_SCHEMA_VERSION,
     protocolVersion: MAKA_AHE_TARGET_PROTOCOL_VERSION,
     runId: ids.runId,
     snapshotId: ids.snapshotId,
+    taskRunId: projection.taskRunId,
     taskId: exported.taskRun.taskId,
     status,
     scoreAuthority: authority,
     ...(normalized !== undefined ? { score: normalized } : {}),
-    ...(exported.verifier ? { verifierRef: verifierRef(exported.verifier, ids.taskRunRef, ids.officialResultRef) } : {}),
-    traceRef: { kind: 'file', ref: `${ids.taskRunRef}/task-run.json`, mediaType: 'application/json' },
+    ...(exported.verifier ? {
+      verifierRef: ids.generatedRefs?.officialResult
+        ?? (ids.generatedRefs?.taskRun
+          ? { ...ids.generatedRefs.taskRun, description: `${exported.verifier.kind} verifier result ${exported.verifier.id}` }
+          : undefined)
+        ?? verifierRef(exported.verifier, ids.taskRunRef, ids.officialResultRef),
+    } : {}),
+    traceRef: ids.generatedRefs?.taskRun
+      ?? { kind: 'file', ref: `${ids.taskRunRef}/task-run.json`, mediaType: 'application/json' },
+    executionLineageRef: ids.generatedRefs?.executionLineage
+      ?? { kind: 'file', ref: `${ids.taskRunRef}/execution-lineage.json`, mediaType: 'application/json' },
     ...(status === 'official_pass' ? {} : { failureTaxonomy: failureTaxonomy(exported) }),
     ...(warnings.length > 0 ? { warnings } : {}),
   };
@@ -415,37 +549,48 @@ function runResultFromProjection(
 function traceIndexEntryFromProjection(
   projection: TaskRunProjection,
   exported: TaskRunExport,
-  ids: { snapshotId: string; runId: string; taskRunRef: string; includeEvents?: boolean; officialResultRef?: string },
+  ids: {
+    snapshotId: string;
+    runId: string;
+    taskRunRef: string;
+    officialResultRef?: string;
+    generatedRefs?: MakaAheGeneratedTaskRefs;
+  },
 ): MakaAheTraceIndexEntry {
   const artifacts = [
     ...(ids.officialResultRef ? [{
-      kind: 'file' as const,
-      ref: ids.officialResultRef,
-      mediaType: 'application/json',
+      ...(ids.generatedRefs?.officialResult ?? {
+        kind: 'file' as const,
+        ref: ids.officialResultRef,
+        mediaType: 'application/json',
+      }),
       description: 'Harbor post-exit official verifier result imported for AHE scoring',
     }] : []),
     ...(shouldWriteFailureDigest(projection, exported) ? [{
-      kind: 'file' as const,
-      ref: `${ids.taskRunRef}/failure-digest.json`,
-      mediaType: 'application/json',
+      ...(ids.generatedRefs?.failureDigest ?? {
+        kind: 'file' as const,
+        ref: `${ids.taskRunRef}/failure-digest.json`,
+        mediaType: 'application/json',
+      }),
       description: 'AHE failure digest with official verifier excerpts, self-check blocks, and final artifact state',
     }] : []),
     ...exported.artifacts.items.map(artifactRefFromTaskRunArtifact),
   ];
   return {
+    taskRunId: projection.taskRunId,
     taskId: exported.taskRun.taskId,
     runId: ids.runId,
     snapshotId: ids.snapshotId,
-    ...(ids.includeEvents || (exported.runtime.trajectoryRefs.runtimeEventIds && exported.runtime.trajectoryRefs.runtimeEventIds.length > 0)
-      ? { runtimeEventsJsonl: { kind: 'file', ref: `${ids.taskRunRef}/events.jsonl`, mediaType: 'application/jsonl' } }
-      : {}),
-    agentRun: {
-      kind: 'file',
-      ref: `${ids.taskRunRef}/messages.json`,
-      mediaType: 'application/json',
-      ...(exported.runtime.agentRunId ? { description: `normalized AHE messages for maka-agent-run:${exported.runtime.agentRunId}` } : {}),
-    },
-    transcript: { kind: 'file', ref: `${ids.taskRunRef}/result.md`, mediaType: 'text/markdown' },
+    executionLineage: ids.generatedRefs?.executionLineage
+      ?? { kind: 'file', ref: `${ids.taskRunRef}/execution-lineage.json`, mediaType: 'application/json' },
+    taskEventsJsonl: ids.generatedRefs?.taskEvents
+      ?? { kind: 'file', ref: `${ids.taskRunRef}/task-events.jsonl`, mediaType: 'application/jsonl' },
+    agentRunInspections: ids.generatedRefs?.agentRunInspections ?? [],
+    runtimeEventSources: ids.generatedRefs?.runtimeEventSources ?? [],
+    messages: ids.generatedRefs?.messages
+      ?? { kind: 'file', ref: `${ids.taskRunRef}/messages.json`, mediaType: 'application/json' },
+    transcript: ids.generatedRefs?.transcript
+      ?? { kind: 'file', ref: `${ids.taskRunRef}/result.md`, mediaType: 'text/markdown' },
     toolResults: projection.artifacts.filter((artifact) => artifact.kind === 'runtime_trace').map(artifactRefFromTaskRunArtifact),
     artifacts,
   };
@@ -462,7 +607,11 @@ function shouldWriteFailureDigest(
 function failureDigestFromProjection(
   projection: TaskRunProjection,
   exported: TaskRunExport,
-  options: { official?: MakaAheOfficialResultOverlay; exportedAt?: string; includeEvents?: boolean },
+  options: {
+    official?: MakaAheOfficialResultOverlay;
+    exportedAt?: string;
+    generatedRefs?: MakaAheGeneratedTaskRefs;
+  },
 ): MakaAheFailureDigest | undefined {
   const authority = scoreAuthority(exported.score, exported.verifier, projection);
   const status = resultStatus(exported, projection, authority);
@@ -507,11 +656,22 @@ function failureDigestFromProjection(
       recentEvidence: projection.heavyTaskEvidence.slice(-20).map(compactHeavyTaskEvidence),
     },
     debugRefs: {
-      taskRun: { kind: 'file', ref: `${taskRunRef}/task-run.json`, mediaType: 'application/json' },
-      messages: { kind: 'file', ref: `${taskRunRef}/messages.json`, mediaType: 'application/json' },
-      transcript: { kind: 'file', ref: `${taskRunRef}/result.md`, mediaType: 'text/markdown' },
-      ...(options.includeEvents ? { runtimeEventsJsonl: { kind: 'file', ref: `${taskRunRef}/events.jsonl`, mediaType: 'application/jsonl' } } : {}),
-      ...(options.official ? { officialHarborResult: { kind: 'file', ref: `${taskRunRef}/official-harbor-result.json`, mediaType: 'application/json' } } : {}),
+      taskRun: options.generatedRefs?.taskRun
+        ?? { kind: 'file', ref: `${taskRunRef}/task-run.json`, mediaType: 'application/json' },
+      messages: options.generatedRefs?.messages
+        ?? { kind: 'file', ref: `${taskRunRef}/messages.json`, mediaType: 'application/json' },
+      transcript: options.generatedRefs?.transcript
+        ?? { kind: 'file', ref: `${taskRunRef}/result.md`, mediaType: 'text/markdown' },
+      executionLineage: options.generatedRefs?.executionLineage
+        ?? { kind: 'file', ref: `${taskRunRef}/execution-lineage.json`, mediaType: 'application/json' },
+      taskEventsJsonl: options.generatedRefs?.taskEvents
+        ?? { kind: 'file', ref: `${taskRunRef}/task-events.jsonl`, mediaType: 'application/jsonl' },
+      agentRunInspections: [...(options.generatedRefs?.agentRunInspections ?? [])],
+      runtimeEventSources: [...(options.generatedRefs?.runtimeEventSources ?? [])],
+      ...(options.official ? {
+        officialHarborResult: options.generatedRefs?.officialResult
+          ?? { kind: 'file', ref: `${taskRunRef}/official-harbor-result.json`, mediaType: 'application/json' },
+      } : {}),
     },
   };
 }
@@ -1063,6 +1223,397 @@ function artifactRefKind(ref: string, artifact: TaskRunArtifact): MakaAheArtifac
 
 function sortProjections(projections: readonly TaskRunProjection[]): TaskRunProjection[] {
   return [...projections].sort((a, b) => a.taskId.localeCompare(b.taskId) || a.taskRunId.localeCompare(b.taskRunId));
+}
+
+interface MaterializedAgentRunEvidence {
+  source: MakaAheAgentRunEvidenceSource;
+  inspectRef?: MakaAheArtifactRef;
+  runtimeEventsRef?: MakaAheArtifactRef;
+  inspectError?: string;
+  runtimeEventsError?: string;
+}
+
+async function materializeAgentRunEvidence(
+  traceDir: string,
+  taskRunRef: string,
+  sources: readonly MakaAheAgentRunEvidenceSource[],
+  includeRuntimeEvents: boolean,
+  outputDirs: Record<string, string>,
+): Promise<MaterializedAgentRunEvidence[]> {
+  const unique = new Map<string, MakaAheAgentRunEvidenceSource>();
+  for (const source of sources) {
+    const key = agentRunEvidenceKey(source.sessionId, source.agentRunId);
+    if (!unique.has(key)) unique.set(key, source);
+  }
+  const runSegmentCounts = new Map<string, number>();
+  for (const source of unique.values()) {
+    const segment = safePathSegment(source.agentRunId);
+    runSegmentCounts.set(segment, (runSegmentCounts.get(segment) ?? 0) + 1);
+  }
+  const materialized: MaterializedAgentRunEvidence[] = [];
+  for (const source of [...unique.values()].sort((a, b) =>
+    a.agentRunId.localeCompare(b.agentRunId) || a.sessionId.localeCompare(b.sessionId))) {
+    const baseRunSegment = safePathSegment(source.agentRunId);
+    const runSegment = runSegmentCounts.get(baseRunSegment)! > 1
+      ? `${baseRunSegment}-${shortHash({ sessionId: source.sessionId, agentRunId: source.agentRunId })}`
+      : baseRunSegment;
+    const runDir = join(traceDir, 'agent-runs', runSegment);
+    const runRef = `${taskRunRef}/agent-runs/${runSegment}`;
+    const outputKey = `${source.sessionId}/${source.agentRunId}`;
+    outputDirs[outputKey] = runDir;
+    await mkdir(runDir, { recursive: true });
+    const row: MaterializedAgentRunEvidence = {
+      source,
+      ...(source.inspectError ? { inspectError: source.inspectError } : {}),
+      ...(source.runtimeEventsError ? { runtimeEventsError: source.runtimeEventsError } : {}),
+    };
+
+    if (source.inspect) {
+      if (source.inspect.agentRun.sessionId !== source.sessionId
+        || source.inspect.agentRun.agentRunId !== source.agentRunId) {
+        row.inspectError = 'AgentRun inspect identity does not match the supplied source identity';
+      } else {
+        const inspectPath = join(runDir, 'inspect.json');
+        await writeStableJson(inspectPath, source.inspect);
+        row.inspectRef = await localFileRef(
+          inspectPath,
+          `${runRef}/inspect.json`,
+          'application/json',
+          `payload-safe inspect for maka-agent-run:${source.agentRunId}`,
+        );
+      }
+    }
+
+    if (includeRuntimeEvents && source.runtimeEvents) {
+      const identityMismatch = source.runtimeEvents.find((event) =>
+        event.sessionId !== source.sessionId || event.runId !== source.agentRunId);
+      if (identityMismatch) {
+        row.runtimeEventsError = `RuntimeEvent ${identityMismatch.id} identity does not match the supplied AgentRun`;
+      } else {
+        const runtimeEventsPath = join(runDir, 'runtime-events.jsonl');
+        await writeFile(
+          runtimeEventsPath,
+          source.runtimeEvents.map((event) => JSON.stringify(event)).join('\n') + (source.runtimeEvents.length > 0 ? '\n' : ''),
+          'utf8',
+        );
+        row.runtimeEventsRef = await localFileRef(
+          runtimeEventsPath,
+          `${runRef}/runtime-events.jsonl`,
+          'application/jsonl',
+          `canonical immutable Runtime Events for maka-agent-run:${source.agentRunId}`,
+        );
+      }
+    }
+    materialized.push(row);
+  }
+  return materialized;
+}
+
+function executionLineageFromProjection(
+  projection: TaskRunProjection,
+  snapshot: MakaAheTargetSnapshot,
+  includeRuntimeEvents: boolean,
+  materialized: readonly MaterializedAgentRunEvidence[],
+): MakaAheExecutionLineage {
+  const target = { snapshotId: snapshot.snapshotId, sourceLabel: snapshot.sourceLabel };
+  const taskCoverage = coverageForTaskEvents(projection);
+  const sourceByAgentRun = new Map(materialized.map((source) => [
+    agentRunEvidenceKey(source.source.sessionId, source.source.agentRunId),
+    source,
+  ]));
+  const gaps: MakaAheExecutionLineageGap[] = [];
+  if (projection.attempts.length === 0) {
+    gaps.push({
+      code: 'attempt_execution_missing',
+      message: 'TaskRun has no projected attempts; execution lineage is unavailable.',
+    });
+  }
+  const attempts = projection.attempts.map((attempt) => {
+    const attemptGaps: MakaAheExecutionLineageGap[] = [];
+    if (attempt.executionLineage.length === 0) {
+      attemptGaps.push({
+        code: 'attempt_execution_missing',
+        message: 'Attempt has no durable AgentRun execution link.',
+        attemptId: attempt.attemptId,
+      });
+    }
+    const executions = attempt.executionLineage.map((sourceEvidence): MakaAheExecutionLineageAgentRun => {
+      const evidence: ExecutionEvidenceRef = {
+        ...sourceEvidence,
+        schemaVersion: EXECUTION_EVIDENCE_REF_SCHEMA_VERSION,
+        task: { taskRunId: projection.taskRunId, attemptId: attempt.attemptId },
+        ...(taskCoverage ? { taskCoverage } : {}),
+        target,
+      };
+      const validation = validateExecutionEvidenceRef(evidence);
+      if (!validation.ok) {
+        throw new Error(`invalid projected AHE execution evidence: ${validation.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ')}`);
+      }
+      const executionGaps: MakaAheExecutionLineageGap[] = [];
+      const identity = evidence.execution;
+      if (!identity?.sessionId || !identity.agentRunId) {
+        executionGaps.push({
+          code: 'execution_identity_missing',
+          message: 'Execution link does not identify an AgentRun.',
+          attemptId: attempt.attemptId,
+        });
+      }
+      if (!evidence.runtimeCoverage) {
+        executionGaps.push({
+          code: 'runtime_coverage_missing',
+          message: 'Execution link has no immutable Runtime Event coverage.',
+          attemptId: attempt.attemptId,
+          ...(identity?.sessionId ? { sessionId: identity.sessionId } : {}),
+          ...(identity?.agentRunId ? { agentRunId: identity.agentRunId } : {}),
+        });
+      }
+      const source = identity?.sessionId && identity.agentRunId
+        ? sourceByAgentRun.get(agentRunEvidenceKey(identity.sessionId, identity.agentRunId))
+        : undefined;
+      if (!source?.inspectRef) {
+        executionGaps.push({
+          code: 'agent_run_inspect_missing',
+          message: source?.inspectError
+            ? `Payload-safe AgentRun inspect is unavailable: ${source.inspectError}`
+            : 'Payload-safe AgentRun inspect was not supplied.',
+          attemptId: attempt.attemptId,
+          ...(identity?.sessionId ? { sessionId: identity.sessionId } : {}),
+          ...(identity?.agentRunId ? { agentRunId: identity.agentRunId } : {}),
+        });
+      } else if (evidence.runtimeCoverage
+        && source.source.inspect?.sources.runtimeCoverage
+        && !sameCoverage(evidence.runtimeCoverage, source.source.inspect.sources.runtimeCoverage)) {
+        executionGaps.push({
+          code: 'runtime_coverage_mismatch',
+          message: 'AgentRun inspect coverage does not match the TaskRun execution-link coverage.',
+          attemptId: attempt.attemptId,
+          ...(identity?.sessionId ? { sessionId: identity.sessionId } : {}),
+          ...(identity?.agentRunId ? { agentRunId: identity.agentRunId } : {}),
+        });
+      }
+      if (includeRuntimeEvents) {
+        const runtimeEvents = source?.source.runtimeEvents;
+        if (!source?.runtimeEventsRef || !runtimeEvents || runtimeEvents.length === 0) {
+          executionGaps.push({
+            code: 'runtime_events_missing',
+            message: source?.runtimeEventsError
+              ? `Canonical Runtime Events are unavailable: ${source.runtimeEventsError}`
+              : 'Canonical Runtime Events were requested but not supplied.',
+            attemptId: attempt.attemptId,
+            ...(identity?.sessionId ? { sessionId: identity.sessionId } : {}),
+            ...(identity?.agentRunId ? { agentRunId: identity.agentRunId } : {}),
+          });
+        } else {
+          const observed = coverageForRuntimeEvents(identity!.agentRunId!, runtimeEvents);
+          if ((!evidence.runtimeCoverage || !sameCoverage(evidence.runtimeCoverage, observed))
+            && !executionGaps.some((gap) => gap.code === 'runtime_coverage_mismatch')) {
+            executionGaps.push({
+              code: 'runtime_coverage_mismatch',
+              message: 'Exported Runtime Event rows do not match the TaskRun execution-link coverage.',
+              attemptId: attempt.attemptId,
+              sessionId: identity!.sessionId,
+              agentRunId: identity!.agentRunId!,
+            });
+          }
+        }
+      }
+      gaps.push(...executionGaps);
+      return {
+        evidence: validation.value,
+        ...(source?.inspectRef ? { inspectRef: source.inspectRef } : {}),
+        ...(includeRuntimeEvents && source?.runtimeEventsRef ? { runtimeEventsRef: source.runtimeEventsRef } : {}),
+        gaps: executionGaps,
+      };
+    });
+    gaps.push(...attemptGaps);
+    return {
+      attemptId: attempt.attemptId,
+      status: attempt.status,
+      executions,
+      gaps: attemptGaps,
+    };
+  });
+  return {
+    schemaVersion: MAKA_AHE_EXECUTION_LINEAGE_SCHEMA_VERSION,
+    target,
+    task: {
+      taskRunId: projection.taskRunId,
+      taskId: projection.taskId,
+      ...(taskCoverage ? { coverage: taskCoverage } : {}),
+    },
+    rawRuntimeEvents: !includeRuntimeEvents
+      ? 'omitted_by_policy'
+      : attempts.some((attempt) => attempt.executions.length > 0)
+        && !gaps.some((gap) => gap.code === 'runtime_events_missing')
+        ? 'included'
+        : 'requested_with_gaps',
+    attempts,
+    gaps,
+  };
+}
+
+function coverageForTaskEvents(projection: TaskRunProjection): ExecutionLogCoverage | undefined {
+  const first = projection.events[0];
+  const last = projection.events.at(-1);
+  if (!first || !last) return undefined;
+  return {
+    lowWater: { ledger: 'task_event', streamId: projection.taskRunId, sequence: 0, eventId: first.id },
+    highWater: {
+      ledger: 'task_event',
+      streamId: projection.taskRunId,
+      sequence: projection.events.length - 1,
+      eventId: last.id,
+    },
+    eventCount: projection.events.length,
+  };
+}
+
+function coverageForRuntimeEvents(agentRunId: string, events: readonly RuntimeEvent[]): ExecutionLogCoverage | undefined {
+  const first = events[0];
+  const last = events.at(-1);
+  if (!first || !last) return undefined;
+  return {
+    lowWater: { ledger: 'runtime_event', streamId: agentRunId, sequence: 0, eventId: first.id },
+    highWater: {
+      ledger: 'runtime_event',
+      streamId: agentRunId,
+      sequence: events.length - 1,
+      eventId: last.id,
+    },
+    eventCount: events.length,
+  };
+}
+
+function sameCoverage(left: ExecutionLogCoverage, right: ExecutionLogCoverage | undefined): boolean {
+  if (!right) return false;
+  return left.lowWater?.ledger === right.lowWater?.ledger
+    && left.lowWater?.streamId === right.lowWater?.streamId
+    && left.lowWater?.sequence === right.lowWater?.sequence
+    && left.lowWater?.eventId === right.lowWater?.eventId
+    && left.highWater.ledger === right.highWater.ledger
+    && left.highWater.streamId === right.highWater.streamId
+    && left.highWater.sequence === right.highWater.sequence
+    && left.highWater.eventId === right.highWater.eventId
+    && left.eventCount === right.eventCount;
+}
+
+async function localFileRef(
+  path: string,
+  ref: string,
+  mediaType: string,
+  description?: string,
+): Promise<MakaAheArtifactRef> {
+  const content = await readFile(path);
+  return {
+    kind: 'file',
+    ref,
+    mediaType,
+    ...(description ? { description } : {}),
+    digest: `sha256:${createHash('sha256').update(content).digest('hex')}`,
+    sizeBytes: content.byteLength,
+  };
+}
+
+function agentRunEvidenceKey(sessionId: string, agentRunId: string): string {
+  return `${sessionId}\u0000${agentRunId}`;
+}
+
+function agentRunEvidenceFor(
+  sources: MakaAheAgentRunEvidenceByTaskRun | undefined,
+  taskRunId: string,
+): readonly MakaAheAgentRunEvidenceSource[] {
+  if (!sources) return [];
+  return isReadonlyMap(sources) ? sources.get(taskRunId) ?? [] : sources[taskRunId] ?? [];
+}
+
+function linkedAgentRunEvidence(
+  projection: TaskRunProjection,
+  sources: readonly MakaAheAgentRunEvidenceSource[],
+): MakaAheAgentRunEvidenceSource[] {
+  const linked = new Set(projection.executionLineage.flatMap((evidence) => {
+    const identity = evidence.execution;
+    return identity?.sessionId && identity.agentRunId
+      ? [agentRunEvidenceKey(identity.sessionId, identity.agentRunId)]
+      : [];
+  }));
+  return sources.filter((source) => linked.has(agentRunEvidenceKey(source.sessionId, source.agentRunId)));
+}
+
+function generatedRefsFor(
+  refs: MakaAheGeneratedRefsByTaskRun | undefined,
+  taskRunId: string,
+): MakaAheGeneratedTaskRefs | undefined {
+  if (!refs) return undefined;
+  return isReadonlyMap(refs) ? refs.get(taskRunId) : refs[taskRunId];
+}
+
+async function buildMakaAheSourceManifest(
+  repoRoot: string,
+  components: readonly MakaAheTargetComponent[],
+): Promise<MakaAheSourceManifest> {
+  const sourceDigests = new Map<string, Promise<{ digest: string; sizeBytes: number }>>();
+  const digestFor = (sourceRefPath: string): Promise<{ digest: string; sizeBytes: number }> => {
+    const existing = sourceDigests.get(sourceRefPath);
+    if (existing) return existing;
+    const pending = (async () => {
+      const sourcePath = await resolveMakaAheSourceFile(repoRoot, sourceRefPath);
+      const content = await readFile(sourcePath);
+      return {
+        digest: `sha256:${createHash('sha256').update(content).digest('hex')}`,
+        sizeBytes: content.byteLength,
+      };
+    })();
+    sourceDigests.set(sourceRefPath, pending);
+    return pending;
+  };
+  const entries = await Promise.all(components.flatMap((component) => component.sourceRefs.map(async (sourceRef) => {
+    const source = await digestFor(sourceRef.path);
+    return {
+      componentId: component.id,
+      path: sourceRef.path,
+      ...(sourceRef.exportName ? { exportName: sourceRef.exportName } : {}),
+      digest: source.digest,
+      sizeBytes: source.sizeBytes,
+    } satisfies MakaAheSourceManifestEntry;
+  })));
+  entries.sort((a, b) => a.componentId.localeCompare(b.componentId)
+    || a.path.localeCompare(b.path)
+    || (a.exportName ?? '').localeCompare(b.exportName ?? ''));
+  return {
+    algorithm: 'sha256',
+    digest: makaAheSourceManifestDigest(entries),
+    entries,
+  };
+}
+
+async function resolveMakaAheSourceFile(repoRoot: string, sourcePath: string): Promise<string> {
+  const root = resolve(repoRoot);
+  const lexicalPath = resolve(root, sourcePath);
+  if (!isWithinRoot(root, lexicalPath)) {
+    throw new Error(`source ref "${sourcePath}" resolves outside the repo root`);
+  }
+
+  let canonicalRoot: string;
+  try {
+    canonicalRoot = await realpath(root);
+  } catch {
+    throw new Error(`repo root "${repoRoot}" does not exist`);
+  }
+
+  let canonicalPath: string;
+  try {
+    canonicalPath = await realpath(lexicalPath);
+  } catch {
+    throw new Error(`source ref "${sourcePath}" does not exist under repo root`);
+  }
+  if (!isWithinRoot(canonicalRoot, canonicalPath)) {
+    throw new Error(`source ref "${sourcePath}" resolves outside the repo root through a symbolic link`);
+  }
+  const sourceStat = await stat(canonicalPath);
+  if (!sourceStat.isFile()) {
+    throw new Error(`source ref "${sourcePath}" must resolve to a regular file`);
+  }
+  return canonicalPath;
 }
 
 function unsafeRepoPathReason(path: string): string | undefined {

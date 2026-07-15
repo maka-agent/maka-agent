@@ -4,7 +4,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { BackendKind, ProviderType } from '@maka/core';
-import { PROVIDER_DEFAULTS } from '@maka/core';
+import { PROVIDER_DEFAULTS, normalizeProviderType } from '@maka/core';
 import type { Config, Task } from './contracts.js';
 import { runAutonomousTask } from './autonomous-agent-loop.js';
 import type { BenchmarkAdapterRegistry } from './benchmark-adapters.js';
@@ -581,10 +581,14 @@ export function applyConnectionDefaults(env: Record<string, string | undefined>)
     if (!file.defaultSlug || !Array.isArray(file.connections)) return;
     const conn = file.connections.find(c => c.slug === file.defaultSlug && c.enabled !== false);
     if (!conn?.providerType || !conn.defaultModel) return;
-    // Validate providerType against known providers
-    if (!(conn.providerType in PROVIDER_DEFAULTS)) return;
+    // Normalize legacy persisted providerType ids (e.g. codex-subscription ->
+    // openai-codex) so connections stored before a rename keep resolving.
+    // applyConnectionDefaults reads llm-connections.json directly, bypassing
+    // ConnectionStore's on-read normalization.
+    const providerType = normalizeProviderType(conn.providerType);
+    if (!(providerType in PROVIDER_DEFAULTS)) return;
 
-    env.MAKA_MODEL = `${conn.providerType}/${conn.defaultModel}`;
+    env.MAKA_MODEL = `${providerType}/${conn.defaultModel}`;
     if (env.MAKA_LLM_CONNECTION_SLUG === undefined) env.MAKA_LLM_CONNECTION_SLUG = conn.slug;
     if (env.MAKA_BASE_URL === undefined && conn.baseUrl) env.MAKA_BASE_URL = conn.baseUrl;
     // credentials.json lives next to llm-connections.json in the workspace;

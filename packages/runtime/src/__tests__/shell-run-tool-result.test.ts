@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import type { PtyShellOutput } from '@maka/core';
+import type { PtyShellOutput, ShellRunRecord } from '@maka/core';
 
-import { projectPtyOutputForModel } from '../shell-run-tool-result.js';
+import { projectPtyOutputForModel, terminalContent } from '../shell-run-tool-result.js';
 
 describe('PTY model output projection', () => {
   test('shares one UTF-8 budget in screen, alternate, then latest scrollback priority', () => {
@@ -28,6 +28,35 @@ describe('PTY model output projection', () => {
     assert.equal(screenOnly.lastAlternateScreen, undefined);
     assert.equal(screenOnly.scrollback, '');
     assert.equal(screenOnly.screen.includes('\uFFFD'), false);
+  });
+});
+
+describe('shell run sandbox denial projection', () => {
+  test('offers escalation recovery only for a failed sandboxed process', () => {
+    const base: ShellRunRecord = {
+      shellRunId: 'shell-1', sessionId: 'session-1', sourceTurnId: 'turn-1',
+      sourceToolCallId: 'tool-1', cwd: '/workspace', command: 'write outside',
+      status: 'failed', startedAt: 1, updatedAt: 2, completedAt: 2, exitCode: 1,
+      revision: 2,
+      output: {
+        mode: 'pipes', stdout: '', stderr: 'Operation not permitted',
+        stdoutTruncated: false, stderrTruncated: false, redacted: false,
+      },
+    };
+
+    assert.equal(terminalContent(base).sandboxDenial, undefined);
+    assert.deepEqual(terminalContent({
+      ...base,
+      sandboxExecution: { type: 'macos-seatbelt', enforced: true },
+    }).sandboxDenial, {
+      likely: true,
+      backend: 'macos-seatbelt',
+      recovery: 'require_escalated',
+    });
+    assert.equal(terminalContent({
+      ...base,
+      sandboxExecution: { type: 'none', enforced: false },
+    }).sandboxDenial, undefined);
   });
 });
 

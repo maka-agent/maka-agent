@@ -25,6 +25,7 @@ import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 
 export type ConnectionUiStatus =
   | 'disabled'
+  | 'unsupported_provider'
   | 'not_configured'
   | 'configured'
   | 'verified'
@@ -69,12 +70,15 @@ export function connectionUiStatusFromRecord(
   connection: LlmConnection,
   hasSecret: boolean,
 ): ConnectionUiStatus {
+  const defaults = PROVIDER_DEFAULTS[connection.providerType];
+  // Unknown providerType → not configurable on this build, but not incomplete.
+  if (!defaults) return connection.enabled ? 'unsupported_provider' : 'disabled';
   return deriveConnectionUiStatus({
     enabled: connection.enabled,
     hasSecret,
     defaultModel: connection.defaultModel,
     lastTestStatus: connection.lastTestStatus,
-    authKind: PROVIDER_DEFAULTS[connection.providerType].authKind,
+    authKind: defaults.authKind,
   });
 }
 
@@ -89,6 +93,11 @@ const STATUS_PRESENTATION: Record<ConnectionUiStatus, StatusPresentation> = {
     label: '已禁用',
     detail: '不会用于聊天或代理调用，直到在设置里启用。',
     tone: 'neutral',
+  },
+  unsupported_provider: {
+    label: '当前版本不支持',
+    detail: '此模型服务商未在当前版本注册。连接配置和凭据已保留；请切换到支持它的版本，或改用其他连接。',
+    tone: 'warning',
   },
   not_configured: {
     label: '待补齐',

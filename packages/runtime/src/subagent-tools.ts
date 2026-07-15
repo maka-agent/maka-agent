@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ToolResultContent } from '@maka/core';
+import { TASK_ID_MAX_CHARS, isSafeTaskId, type TaskLedgerStore, type ToolResultContent } from '@maka/core';
 import type { MakaTool } from './tool-runtime.js';
 import {
   AGENT_WORKSPACE_SAME_WORKSPACE,
@@ -48,12 +48,13 @@ export function buildChildAgentTools(tools: readonly MakaTool[]): MakaTool[] {
   return out;
 }
 
-export function buildSubagentSpawnTool(): MakaTool<
+export function buildSubagentSpawnTool(deps: { taskLedger?: TaskLedgerStore } = {}): MakaTool<
   {
     profile: string;
     task: string;
     write_back?: string;
     isolation?: string;
+    task_id?: string;
   },
   unknown
 > {
@@ -68,6 +69,8 @@ export function buildSubagentSpawnTool(): MakaTool<
         .describe('Requested child write-back mode. Each built-in profile declares its supported modes.'),
       isolation: z.enum(AGENT_SPAWN_ISOLATION_MODES).optional()
         .describe('Requested child workspace isolation. Worktree profiles fail closed until a worktree child executor is available.'),
+      task_id: z.string().min(1).max(TASK_ID_MAX_CHARS).refine(isSafeTaskId)
+        .optional().describe('Existing task UUID or short key to bind to this child run.'),
     }).superRefine((input, ctx) => {
       const definition = requireBuiltinAgentDefinitionByProfile(input.profile);
       const requestedWriteBack = input.write_back ?? definition.contract.defaultWriteBack;
@@ -111,14 +114,69 @@ export function buildSubagentSpawnTool(): MakaTool<
       if (!ctx.spawnChildAgent) {
         throw new Error('spawnChildAgent capability is unavailable in this runtime context');
       }
-      const result = await ctx.spawnChildAgent({
-        spec: {
-          id: definition.id,
-          name: definition.name,
-          systemPrompt: definition.systemPrompt,
-        },
-        prompt: input.task,
-      }) as Omit<SubagentToolResult, 'kind'>;
+      const boundTask = input.task_id
+        ? await deps.taskLedger?.get(ctx.sessionId, input.task_id)
+        : undefined;
+      if (input.task_id && !deps.taskLedger) throw new Error('Task binding is unavailable in this runtime');
+      if (input.task_id && !boundTask) throw new Error(`No such task in this session: ${input.task_id}`);
+      let claimedOwner: { actor: 'child_agent'; agentId: string; turnId: string } | undefined;
+      let result: Omit<SubagentToolResult, 'kind'>;
+      try {
+        result = await ctx.spawnChildAgent({
+          spec: {
+            id: definition.id,
+            name: definition.name,
+            systemPrompt: definition.systemPrompt,
+          },
+          prompt: input.task,
+          ...(boundTask ? {
+            onReady: async ({ turnId, agentId }) => {
+              const owner = { actor: 'child_agent' as const, agentId, turnId };
+              await deps.taskLedger!.claim(ctx.sessionId, boundTask.id, owner, {
+                runId: ctx.runId,
+                turnId: ctx.turnId,
+                toolCallId: ctx.toolCallId,
+                source: 'system',
+                actor: 'main_agent',
+                reason: `assigned to child agent ${agentId}`,
+              });
+              claimedOwner = owner;
+            },
+          } : {}),
+        }) as Omit<SubagentToolResult, 'kind'>;
+      } catch (error) {
+        if (boundTask && claimedOwner) {
+          await deps.taskLedger!.settleAgentOutcome(ctx.sessionId, boundTask.id, {
+            status: 'failed',
+            owner: claimedOwner,
+            reason: error instanceof Error ? error.message : 'Child agent failed before returning a result',
+          }, {
+            turnId: claimedOwner.turnId,
+            toolCallId: ctx.toolCallId,
+            source: 'system',
+            actor: 'child_agent',
+          });
+        }
+        throw error;
+      }
+      if (boundTask && claimedOwner) {
+        const owner = {
+          ...claimedOwner,
+          ...(result.runId ? { runId: result.runId } : {}),
+          turnId: result.turnId,
+        };
+        await deps.taskLedger!.settleAgentOutcome(ctx.sessionId, boundTask.id, {
+          status: result.status,
+          owner,
+          reason: result.failureClass ?? result.summary,
+        }, {
+          runId: result.runId,
+          turnId: result.turnId,
+          toolCallId: ctx.toolCallId,
+          source: 'system',
+          actor: 'child_agent',
+        });
+      }
       return {
         kind: 'subagent',
         ...result,

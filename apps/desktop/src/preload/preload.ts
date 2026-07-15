@@ -60,6 +60,8 @@ import type {
   BrowserState,
   BrowserViewRect,
   ThemePreference,
+  Task,
+  TaskLedgerChangedEvent,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -94,6 +96,26 @@ import type {
 // anchor.
 export type QuickChatResult =
   | { ok: true; sessionId: string }
+  | { ok: false; reason: 'setup_required'; state: OnboardingState }
+  | { ok: false; reason: 'send_failed'; message: string };
+
+// Expert-team IPC shapes. Duplicated (not imported from main) so preload stays
+// free of main-process deps; keep in sync with `global.d.ts` + `main.ts`.
+export interface ExpertTeamMemberSummary {
+  id: string;
+  name: string;
+  description: string;
+  whenToUse?: string;
+}
+export interface ExpertTeamSummary {
+  id: string;
+  name: string;
+  description: string;
+  members: ExpertTeamMemberSummary[];
+}
+export type ExpertTeamStartResult =
+  | { ok: true; sessionId: string }
+  | { ok: false; reason: 'unknown_team'; teamId: string }
   | { ok: false; reason: 'setup_required'; state: OnboardingState }
   | { ok: false; reason: 'send_failed'; message: string };
 
@@ -135,6 +157,16 @@ export interface WorkspaceInstructionsState {
 }
 
 contextBridge.exposeInMainWorld('maka', {
+  tasks: {
+    list(sessionId: string): Promise<Task[]> {
+      return ipcRenderer.invoke('tasks:list', sessionId);
+    },
+    subscribeChanges(handler: (event: TaskLedgerChangedEvent) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: TaskLedgerChangedEvent) => handler(payload);
+      ipcRenderer.on('tasks:changed', listener);
+      return () => ipcRenderer.off('tasks:changed', listener);
+    },
+  },
   sessions: {
     list(filter?: SessionListFilter): Promise<SessionSummary[]> {
       return ipcRenderer.invoke('sessions:list', filter);
@@ -314,6 +346,14 @@ contextBridge.exposeInMainWorld('maka', {
       return ipcRenderer.invoke('quickChat:start', input);
     },
   },
+  expertTeam: {
+    list(): Promise<{ teams: ExpertTeamSummary[] }> {
+      return ipcRenderer.invoke('expertTeam:list');
+    },
+    start(input: { teamId: string; prompt?: string }): Promise<ExpertTeamStartResult> {
+      return ipcRenderer.invoke('expertTeam:start', input);
+    },
+  },
   permissions: {
     getSnapshot(): Promise<PermissionSnapshot> {
       return ipcRenderer.invoke('permissions:getSnapshot');
@@ -490,24 +530,24 @@ contextBridge.exposeInMainWorld('maka', {
   // service's state snapshot is provider-specific because the
   // upstream auth claims differ (Codex carries JWT account_id /
   // plan; Cursor has no public profile; Antigravity is preview-only).
-  codexSubscription: {
+  openAiCodex: {
     isExperimentalEnabled(): Promise<boolean> {
-      return ipcRenderer.invoke('codex-subscription:is-experimental-enabled');
+      return ipcRenderer.invoke('openai-codex:is-experimental-enabled');
     },
     getAuthUrl(): Promise<AuthorizationUrlPayload | SubscriptionActionResult> {
-      return ipcRenderer.invoke('codex-subscription:get-auth-url');
+      return ipcRenderer.invoke('openai-codex:get-auth-url');
     },
     openAuthUrl(authRequestId: string): Promise<SubscriptionActionResult> {
-      return ipcRenderer.invoke('codex-subscription:open-auth-url', authRequestId);
+      return ipcRenderer.invoke('openai-codex:open-auth-url', authRequestId);
     },
     completeAuthorization(authRequestId: string): Promise<SubscriptionActionResult> {
-      return ipcRenderer.invoke('codex-subscription:complete-authorization', authRequestId);
+      return ipcRenderer.invoke('openai-codex:complete-authorization', authRequestId);
     },
     cancelAuthorization(authRequestId?: string): Promise<{ ok: true }> {
-      return ipcRenderer.invoke('codex-subscription:cancel-authorization', authRequestId);
+      return ipcRenderer.invoke('openai-codex:cancel-authorization', authRequestId);
     },
     getAccountState(): Promise<{
-      provider: 'codex-subscription';
+      provider: 'openai-codex';
       runtimeState: 'not_logged_in' | 'authorizing' | 'authenticated' | 'refreshing' | 'refresh_failed';
       accountId?: string;
       email?: string;
@@ -515,13 +555,13 @@ contextBridge.exposeInMainWorld('maka', {
       picture?: string;
       errorMessage?: string;
     }> {
-      return ipcRenderer.invoke('codex-subscription:get-account-state');
+      return ipcRenderer.invoke('openai-codex:get-account-state');
     },
     refreshTokens(): Promise<SubscriptionActionResult> {
-      return ipcRenderer.invoke('codex-subscription:refresh-tokens');
+      return ipcRenderer.invoke('openai-codex:refresh-tokens');
     },
     logout(): Promise<SubscriptionActionResult> {
-      return ipcRenderer.invoke('codex-subscription:logout');
+      return ipcRenderer.invoke('openai-codex:logout');
     },
   },
   githubCopilotSubscription: {
@@ -912,6 +952,18 @@ contextBridge.exposeInMainWorld('maka', {
       return ipcRenderer.invoke('app:saveArtifactAs', artifactId);
     },
   },
+  workspace: {
+    /** Composer `@` mention popup: list workspace files matching `query`. */
+    searchFiles(
+      query: string,
+      limit?: number,
+    ): Promise<
+      | { ok: true; files: Array<{ relativePath: string }> }
+      | { ok: false; reason: 'no_project' | 'search_failed' }
+    > {
+      return ipcRenderer.invoke('workspace:searchFiles', { query, limit });
+    },
+  },
   visualSmoke: {
     getState(): Promise<VisualSmokeState | null> {
       return ipcRenderer.invoke('visualSmoke:getState');
@@ -1008,10 +1060,16 @@ contextBridge.exposeInMainWorld('maka', {
       return ipcRenderer.invoke('skills:setEnabled', skillId, enabled);
     },
     createStarter(): Promise<
-      | { ok: true; skill: SkillEntry; filePath: string }
+      | { ok: true; created: boolean; skill: SkillEntry; filePath: string }
       | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }
     > {
       return ipcRenderer.invoke('skills:createStarter');
+    },
+    delete(id: string): Promise<
+      | { ok: true }
+      | { ok: false; reason: 'not_found' | 'blocked_path' | 'delete_failed' }
+    > {
+      return ipcRenderer.invoke('skills:delete', id);
     },
     open(id: string, target: 'file' | 'directory' = 'file'): Promise<
       | { ok: true; target: 'file' | 'directory' }

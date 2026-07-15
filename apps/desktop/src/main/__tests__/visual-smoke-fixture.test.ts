@@ -313,6 +313,30 @@ describe('visual smoke fixture mode', () => {
     assert.equal(Object.hasOwn(permission.args as object, 'cmd'), false, 'fixture must match the current Bash input schema');
   });
 
+  it('task-ledger fixture seeds the hierarchical desktop read model', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-task-ledger-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('task-ledger', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+      assert.equal(getVisualSmokeState(fixture)?.activeSessionId, 'visual-smoke-turn');
+      const tasks = JSON.parse(await readFile(
+        join(workspaceRoot, 'sessions', 'visual-smoke-turn', 'tasks.json'),
+        'utf8',
+      )) as Array<{ key: string; parentId?: string; status: string; owner?: { actor: string } }>;
+      assert.deepEqual(tasks.map((task) => task.key), ['T1', 'T1.1', 'T1.2', 'T1.2.1', 'T2', 'T3']);
+      assert.equal(tasks.find((task) => task.key === 'T1.2')?.owner?.actor, 'child_agent');
+      assert.equal(tasks.find((task) => task.key === 'T1.2.1')?.parentId, 'task-child-ui');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('fixture source does not seed visible placeholder chat copy', async () => {
     const src = await readFile(join(process.cwd(), 'src', 'main', 'visual-smoke-fixture.ts'), 'utf8');
     assert.doesNotMatch(src, /占位用户消息|占位回复/, 'visual smoke screenshots must use product-like chat copy, not placeholder text');

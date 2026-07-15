@@ -10,6 +10,7 @@ import {
   applyMakaSessionEventToTranscript,
   applyShellRunUpdateToTranscript,
   createMakaPiTranscriptState,
+  renderMakaPiStatusLine,
   renderMakaPiTranscript,
   refreshRunningShellRunElapsed,
   replaceTranscriptWithStoredMessages,
@@ -17,6 +18,7 @@ import {
   submitPromptToTranscript,
   toggleAllThinkingExpansion,
   toggleAllToolExpansion,
+  togglePendingPermissionDetails,
 } from '../pi-transcript.js';
 
 describe('Maka Pi TUI transcript', () => {
@@ -112,26 +114,41 @@ describe('Maka Pi TUI transcript', () => {
   // Goal kill-switch (B1): the turn outcome must distinguish a clean end from a
   // user-stop / abort / error so the runner can skip goal auto-continuation and
   // never re-inject after the user interrupts (or after a failing turn).
-  test('reports a clean turn as not aborted / not errored', async () => {
+  test('reports a clean turn with the terminal event identity', async () => {
     const state = createMakaPiTranscriptState();
     const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'end_turn' })]);
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
-    assert.deepEqual(outcome, { aborted: false, errored: false });
+    assert.deepEqual(outcome, { kind: 'completed', turnId: 'turn-1' });
+  });
+
+  test('treats EOF without a terminal event as an errored turn', async () => {
+    const state = createMakaPiTranscriptState();
+    const outcome = await submitPromptToTranscript({
+      state,
+      driver: new RecordingDriver([]),
+      prompt: 'hi',
+    });
+
+    assert.deepEqual(outcome, { kind: 'errored' });
+    assert.ok(state.entries.some(
+      (entry) => entry.kind === 'notice'
+        && entry.level === 'error'
+        && entry.text === 'Session turn ended without a completion event',
+    ));
   });
 
   test('reports a user_stop completion as aborted (Stop affordance)', async () => {
     const state = createMakaPiTranscriptState();
     const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'user_stop' })]);
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
-    assert.equal(outcome.aborted, true);
-    assert.equal(outcome.errored, false);
+    assert.deepEqual(outcome, { kind: 'aborted', turnId: 'turn-1' });
   });
 
   test('reports an abort event as aborted', async () => {
     const state = createMakaPiTranscriptState();
     const driver = new RecordingDriver([event({ type: 'abort', reason: 'user_stop' })]);
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
-    assert.equal(outcome.aborted, true);
+    assert.deepEqual(outcome, { kind: 'aborted', turnId: 'turn-1' });
   });
 
   test('reports a stream error event as errored', async () => {
@@ -139,7 +156,7 @@ describe('Maka Pi TUI transcript', () => {
     const driver = new RecordingDriver([event({ type: 'error', recoverable: false, message: 'boom' })]);
     let errorRaised = false;
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi', onError: () => { errorRaised = true; } });
-    assert.equal(outcome.errored, true);
+    assert.deepEqual(outcome, { kind: 'errored', turnId: 'turn-1' });
     assert.equal(errorRaised, true);
   });
 
@@ -147,8 +164,7 @@ describe('Maka Pi TUI transcript', () => {
     const state = createMakaPiTranscriptState();
     const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'error' })]);
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
-    assert.equal(outcome.errored, true);
-    assert.equal(outcome.aborted, false);
+    assert.deepEqual(outcome, { kind: 'errored', turnId: 'turn-1' });
   });
 
   test('shows a fixed system notice when the configured step limit is reached', () => {
@@ -183,7 +199,7 @@ describe('Maka Pi TUI transcript', () => {
 
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
 
-    assert.deepEqual(outcome, { aborted: false, errored: true });
+    assert.deepEqual(outcome, { kind: 'errored', turnId: 'turn-1' });
   });
 
   test('reports a thrown sendPrompt as errored', async () => {
@@ -198,8 +214,7 @@ describe('Maka Pi TUI transcript', () => {
       },
     };
     const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
-    assert.equal(outcome.errored, true);
-    assert.equal(outcome.aborted, false);
+    assert.equal(outcome.kind, 'errored');
     assert.equal(state.pendingInteraction, undefined);
     assert.deepEqual(state.queuedInteractions, []);
   });
@@ -433,7 +448,7 @@ describe('Maka Pi TUI transcript', () => {
           operation: {
             kind: 'pty_control',
             failed: false,
-            input: { bytes: Buffer.byteLength(rawInput, 'utf8'), applied: true },
+            input: { bytes: Buffer.byteLength(rawInput, 'utf8'), queued: true },
             resize: { cols: 100, rows: 30, applied: true, changed: true },
           },
         }),
@@ -452,7 +467,7 @@ describe('Maka Pi TUI transcript', () => {
 
     assert.equal(toggleAllToolExpansion(state), true);
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /Sent: echo hello\\r/);
+    assert.match(rendered, /Queued: echo hello\\r/);
     assert.match(rendered, /Resized to 100x30/);
     assert.equal(rendered.split('UNIQUE-PTY-FRAME').length - 1, 1);
   });
@@ -492,7 +507,7 @@ describe('Maka Pi TUI transcript', () => {
     ] satisfies StoredMessage[]);
 
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /Tool Bash \$ npm test done 5s/);
+    assert.match(rendered, /Tool Bash done 5000ms \$ npm test/);
   });
 
   test('rebuilds automatic context compaction notes from stored session messages', () => {
@@ -667,6 +682,118 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(visibleLines.some((line) => line.includes('npm test')));
     assert.ok(visibleLines.some((line) => line.includes('y/Enter allow')));
     assert.ok(visibleLines.some((line) => line.includes('n/Esc deny')));
+  });
+
+  test('renders one-call additional permission paths and risks without turn-wide approval', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'permission_request',
+      kind: 'additional_permissions',
+      requestId: 'permission-additional',
+      toolUseId: 'tool-write',
+      toolName: 'Write',
+      category: 'file_write',
+      reason: 'additional_permissions',
+      args: undefined,
+      cwd: '/workspace',
+      justification: 'Write requires access to the requested path.',
+      intentHash: `sha256:${'1'.repeat(64)}`,
+      permissionsHash: `sha256:${'2'.repeat(64)}`,
+      additionalPermissions: {
+        fileSystem: { entries: [{ path: '/outside/file.txt', access: 'write', scope: 'exact' }] },
+      },
+      risk: { outsideWorkspace: true, protectedMetadata: false, networkEnabled: false },
+      alsoApprovesToolExecution: true,
+      availableDecisions: ['allow_once', 'deny'],
+      rememberForTurnAllowed: false,
+    }));
+
+    const visible = renderMakaPiTranscript(state, {
+      title: 'Maka', cwd: '/workspace', model: 'model', connectionSlug: 'connection', permissionMode: 'ask',
+    }, 120).map(stripAnsi).join('\n');
+    assert.match(visible, /Additional permission required/);
+    assert.match(visible, /write exact \/outside\/file\.txt/);
+    assert.match(visible, /risk: outside workspace/);
+    assert.doesNotMatch(visible, /allow for turn/);
+  });
+
+  test('renders one-call unsandboxed execution details without turn-wide approval', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'permission_request',
+      kind: 'sandbox_escalation',
+      requestId: 'permission-escalation',
+      toolUseId: 'tool-bash',
+      toolName: 'Bash',
+      category: 'shell_unsafe',
+      reason: 'sandbox_escalation',
+      args: undefined,
+      command: 'printf retry-ok > /tmp/retry.txt',
+      cwd: '/workspace',
+      justification: 'The exact command must write outside the workspace.',
+      intentHash: `sha256:${'3'.repeat(64)}`,
+      commandHash: `sha256:${'4'.repeat(64)}`,
+      trigger: 'sandbox_denial',
+      risk: {
+        unsandboxedExecution: true,
+        unrestrictedFileSystem: true,
+        unrestrictedNetwork: true,
+        protectedMetadataExposed: true,
+      },
+      alsoApprovesToolExecution: true,
+      availableDecisions: ['allow_once', 'deny'],
+      rememberForTurnAllowed: false,
+    }));
+
+    const visible = renderMakaPiTranscript(state, {
+      title: 'Maka', cwd: '/workspace', model: 'model', connectionSlug: 'connection', permissionMode: 'ask',
+    }, 120).map(stripAnsi).join('\n');
+    assert.match(visible, /Unsandboxed execution approval required/);
+    assert.match(visible, /cwd: \/workspace/);
+    assert.match(visible, /printf retry-ok > \/tmp\/retry\.txt/);
+    assert.match(visible, /unrestricted filesystem, network, and protected metadata/);
+    assert.doesNotMatch(visible, /allow for turn/);
+  });
+
+  test('keeps WriteStdin permission details bounded until explicitly expanded', () => {
+    const state = createMakaPiTranscriptState();
+    const hiddenSuffix = '\u001b[31mrm -rf /tmp/hidden-suffix\r';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'permission_request',
+      requestId: 'permission-stdin',
+      toolUseId: 'tool-stdin',
+      toolName: 'WriteStdin',
+      category: 'shell_unsafe',
+      reason: 'shell_dangerous',
+      args: {
+        ref: 'maka://runtime/background-tasks/pty-1',
+        input: `password=super-secret ${'x'.repeat(200)}${hiddenSuffix}`,
+        size: { cols: 120, rows: 40 },
+      },
+      rememberForTurnAllowed: false,
+    }));
+
+    const collapsed = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
+    assert.match(collapsed, /maka:\/\/runtime\/background-tasks\/pty-1/);
+    assert.match(collapsed, /size: 120x40/);
+    assert.doesNotMatch(collapsed, /super-secret/);
+    assert.doesNotMatch(collapsed, /hidden-suffix/);
+
+    assert.equal(togglePendingPermissionDetails(state), true);
+    const rawExpanded = renderMakaPiTranscript(state, meta(), 120).join('\n');
+    const expanded = stripAnsi(rawExpanded);
+    assert.match(expanded, /super-secret/);
+    assert.match(expanded, /\\u\{001B\}\[31mrm -rf/);
+    assert.match(expanded, /\/tmp\/hidden-suffix\\r/);
+    assert.doesNotMatch(rawExpanded, /\u001b\[31mrm -rf/);
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'permission_decision_ack',
+      requestId: 'permission-stdin',
+      toolUseId: 'tool-stdin',
+      decision: 'allow',
+    }));
+    assert.equal(state.expandedPermissionRequestId, undefined);
   });
 
   test('queues permission and user-question requests in arrival order', () => {
@@ -845,7 +972,7 @@ describe('Maka Pi TUI transcript', () => {
 
     // Compact cards are at most two lines (plus the leading blank separator).
     assert.equal(compactLines.length, 3);
-    assert.match(compact, /Tool Bash \$ npm test done/);
+    assert.match(compact, /Tool Bash done \$ npm test/);
     assert.match(compact, /\(31 lines\) row-29 \(Ctrl\+O\)/);
     assert.doesNotMatch(compact, /head-line/);
 
@@ -922,7 +1049,7 @@ describe('Maka Pi TUI transcript', () => {
     const lines = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi);
     assert.equal(lines.length, 3);
     const compact = lines.join('\n');
-    assert.match(compact, /Tool Bash \$ npm run build running/);
+    assert.match(compact, /Tool Bash running \$ npm run build/);
     assert.match(compact, /step two \(Ctrl\+O\)/);
     assert.doesNotMatch(compact, /step one/);
   });
@@ -946,7 +1073,7 @@ describe('Maka Pi TUI transcript', () => {
     const tool = state.entries.find((entry) => entry.kind === 'tool');
     assert.equal(tool?.kind === 'tool' ? tool.status : undefined, 'running');
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /Tool Bash \$ sleep 30 running/);
+    assert.match(rendered, /Tool Bash running 10000ms \$ sleep 30/);
     assert.doesNotMatch(rendered, /Tool Bash .* done/);
     assert.equal(rendered.split('$ sleep 30').length - 1, 1);
   });
@@ -964,7 +1091,7 @@ describe('Maka Pi TUI transcript', () => {
 
     assert.equal(refreshRunningShellRunElapsed(state, 13_500), true);
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /running 12s/);
+    assert.match(rendered, /running 12500ms/);
     assert.match(rendered, /Ask Maka to stop this task/);
   });
 
@@ -1147,7 +1274,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(tools.length, 1);
     assert.equal(tools[0]?.status, 'aborted');
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /Tool Bash \$ sleep 30 aborted/);
+    assert.match(rendered, /Tool Bash aborted 7000ms \$ sleep 30/);
     assert.doesNotMatch(rendered, /Tool StopBackgroundTask/);
   });
 
@@ -1167,7 +1294,7 @@ describe('Maka Pi TUI transcript', () => {
 
     assert.equal(applied, true);
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /Tool Bash \$ build done 4s/);
+    assert.match(rendered, /Tool Bash done 4000ms \$ build/);
     assert.match(rendered, /done/);
   });
 
@@ -1483,7 +1610,7 @@ describe('Maka Pi TUI transcript', () => {
     const compactLines = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi);
     assert.equal(compactLines.length, 3);
     const compact = compactLines.join('\n');
-    assert.match(compact, /Tool Glob \*\*\/\*\.ts in packages done/);
+    assert.match(compact, /Tool Glob done \*\*\/\*\.ts in packages/);
     assert.match(compact, /3 files \(Ctrl\+O\)/);
     assert.doesNotMatch(compact, /src\/a\.ts/);
 
@@ -1563,7 +1690,7 @@ describe('Maka Pi TUI transcript', () => {
     const lines = renderMakaPiTranscript(state, meta(), 200).map(stripAnsi);
     // Never more than two card lines: multi-line JSON must not split the header.
     assert.equal(lines.length, 3);
-    assert.match(lines[1] ?? '', /Tool Frobnicate input: \{"alpha":1,"beta":"two"\} done/);
+    assert.match(lines[1] ?? '', /Tool Frobnicate done input: \{"alpha":1,"beta":"two"\}/);
     assert.match(lines[2] ?? '', /\{"gamma":3,"delta":"four"\}/);
   });
 
@@ -1705,7 +1832,7 @@ describe('Maka Pi TUI transcript', () => {
 
     const lines = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi);
     assert.equal(lines.length, 3);
-    assert.match(lines.join('\n'), /wrote 42 bytes out\.txt/);
+    assert.match(lines.join('\n'), /Wrote 42 bytes to out\.txt/);
     assert.doesNotMatch(lines.join('\n'), /\(Ctrl\+O\)/);
   });
 
@@ -2111,6 +2238,40 @@ describe('transcript entry render memoization', () => {
     const after = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.match(after, /BBBB/);
     assert.doesNotMatch(after, /AAAA/);
+  });
+});
+
+describe('Maka Pi TUI status line', () => {
+  test('shows thinking:high when thinkingLevel is set', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+      thinkingLevel: 'high',
+      thinkingLevels: ['off', 'low', 'medium', 'high', 'max'],
+    }, 100));
+    assert.match(line, /thinking:high/);
+  });
+
+  test('shows thinking:default when thinkingLevel is unset but levels are available', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+      thinkingLevels: ['off', 'low', 'medium', 'high', 'max'],
+    }, 100));
+    assert.match(line, /thinking:default/);
+  });
+
+  test('omits thinking segment when no levels are available', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+    }, 100));
+    assert.doesNotMatch(line, /thinking/);
+  });
+
+  test('omits thinking segment when thinkingLevels is empty', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+      thinkingLevels: [],
+    }, 100));
+    assert.doesNotMatch(line, /thinking/);
   });
 });
 

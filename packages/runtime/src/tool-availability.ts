@@ -160,7 +160,10 @@ export class ToolAvailabilityRuntime {
     const seedGroups = this.seedLoadedGroups(priorEvents);
     // Turn-local snapshot the guard / repair / diagnostics read; recomputed
     // before every step by `prepareStep`. No cross-turn mutable state — a load
-    // survives turns only via the ledger seed above (durable by construction).
+    // survives turns only via the ledger seed above (durable by construction),
+    // and within one send the backend's translation point hands every hook a
+    // send-global `steps` view spanning overflow-retry attempts, so activation
+    // stays monotonic per send without a bespoke set here.
     const turn = { active: new Set<string>() };
     const computeActive = (steps: ReadonlyArray<StepLike> | undefined): string[] => {
       const loaded = new Set<string>([...seedGroups, ...this.loadedGroupsFromSteps(steps)]);

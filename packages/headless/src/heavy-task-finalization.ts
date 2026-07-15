@@ -4,6 +4,7 @@ import type {
   AutonomousResultTaxonomy,
   HeavyTaskModeFacts,
   HeavyTaskSelfCheckPlanState,
+  HeavyTaskSelfCheckFreshness,
   HeavyTaskSelfCheckStatus,
   HeavyTaskSemanticSelfCheckState,
   HeavyTaskTodoItem,
@@ -63,7 +64,7 @@ export interface HeavyTaskCompletionInput {
   heavyTaskMode?: HeavyTaskModeFacts;
   latestHeavyTaskTodos?: HeavyTaskTodoState;
   latestHeavyTaskSelfCheckPlan?: HeavyTaskSelfCheckPlanState;
-  latestHeavyTaskSelfCheck?: HeavyTaskSemanticSelfCheckState;
+  latestHeavyTaskSelfCheck?: HeavyTaskSemanticSelfCheckState & { freshness?: HeavyTaskSelfCheckFreshness };
   decisions?: readonly AutonomousDecision[];
 }
 
@@ -120,6 +121,9 @@ function semanticStatusFromInput(input: HeavyTaskCompletionInput): HeavyTaskComp
   }
   if (!isAcceptedHeavyTaskSelfCheck(selfCheck)) {
     return { ...base, status: 'incomplete', reason: 'latest self-check evidence was not accepted as public' };
+  }
+  if (selfCheck.freshness === 'stale') {
+    return { ...base, status: 'incomplete', reason: 'latest self-check evidence is stale' };
   }
   if (selfCheck.status !== 'pass') {
     return { ...base, status: 'incomplete', reason: `latest self-check status is ${selfCheck.status}` };

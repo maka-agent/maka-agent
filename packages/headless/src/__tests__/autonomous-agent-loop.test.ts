@@ -35,6 +35,7 @@ class PermissionRequestBackend implements AgentBackend {
     const ts = Date.now();
     yield {
       type: 'permission_request',
+      kind: 'tool_permission',
       id: 'permission-request-event',
       turnId: input.turnId,
       ts,
@@ -44,6 +45,7 @@ class PermissionRequestBackend implements AgentBackend {
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
       args: { command: 'rm -rf /tmp/example' },
+      rememberForTurnAllowed: true,
     };
     yield { type: 'complete', id: 'permission-complete', turnId: input.turnId, ts, stopReason: 'permission_handoff' };
   }
