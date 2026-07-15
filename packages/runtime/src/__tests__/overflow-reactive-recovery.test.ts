@@ -31,14 +31,22 @@ const OVERFLOW_MESSAGE = 'prompt is too long: 213462 tokens > 200000 maximum';
  *  - 'overflow' → the provider rejects with a context-length 400 (doStream
  *                 throws; the SDK surfaces it as a fullStream error chunk and
  *                 rejects finishReason — the fake-end_turn latent-bug path)
- *  - 'overflowPart' → the provider emits the overflow INSIDE the SSE stream as
- *                 a real error part whose `error` is the provider's parsed
- *                 plain object (OpenAI Responses shape: the whole error chunk
- *                 with a structured code and a generic message), never an
- *                 Error instance — the round-8 P1-1 end-to-end shape
+ *  - 'overflowPart' → OpenAI CHAT in-stream failure exactly as the locked
+ *                 provider transform produces it: the error part value is the
+ *                 INNER parsed error object (never an Error instance) and the
+ *                 flush trailer is a finish part with finishReason 'error'
+ *                 (openai-chat-language-model.ts:478-479 + flush) — the
+ *                 round-8 P1-1 end-to-end shape
+ *  - 'overflowPartResponses' → OpenAI RESPONSES in-stream failure: the error
+ *                 part value is the WHOLE {type:'error', error:{...}} chunk
+ *                 and the flush trailer keeps finishReason 'other' (the
+ *                 isErrorChunk branch never reassigns it) — locks recovery
+ *                 against per-family trailer drift
  *  - 'error500' → a non-overflow provider failure (never a recovery trigger)
  */
-type CallKind = 'tool' | 'bigtool' | 'bigread' | 'load' | 'gated' | 'done' | 'overflow' | 'overflowPart' | 'error500';
+type CallKind =
+  | 'tool' | 'bigtool' | 'bigread' | 'load' | 'gated' | 'done'
+  | 'overflow' | 'overflowPart' | 'overflowPartResponses' | 'error500';
 
 const RETRY_STEP_TEXT_SENTINEL = 'RETRY_STEP_TEXT_SENTINEL reasoning before the big read';
 const BIG_RESULT = 'BIG_RESULT_'.repeat(200);
@@ -143,24 +151,28 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     if (kind === 'error500') {
       throw Object.assign(new Error('internal server error'), { name: 'AI_APICallError', statusCode: 500 });
     }
-    if (kind === 'overflowPart') {
+    if (kind === 'overflowPart' || kind === 'overflowPartResponses') {
       // The 200 response starts streaming, then the provider sends the error
-      // inside the SSE stream. The AI SDK enqueues the parsed error VALUE
-      // (a plain object, not an Error) as the fullStream error part, and the
-      // provider transform's flush still emits a finish part with
-      // finishReason 'error' (openai-chat-language-model.ts:479 + flush).
+      // inside the SSE stream. Each shape below is exactly what the locked
+      // provider transform enqueues — no cross-family mixing:
+      // Chat forwards the INNER error object and its flush emits a finish
+      // part with finishReason 'error'; Responses forwards the WHOLE error
+      // chunk and its flush keeps the initial finishReason 'other'.
+      const errorValue = kind === 'overflowPart'
+        ? { message: 'Bad Request', type: 'invalid_request_error', param: null, code: 'context_length_exceeded' }
+        : {
+            type: 'error',
+            sequence_number: 1,
+            error: { type: 'invalid_request_error', code: 'context_length_exceeded', message: 'Bad Request', param: null },
+          };
+      const trailerReason = kind === 'overflowPart'
+        ? { unified: 'error' as const, raw: undefined }
+        : { unified: 'other' as const, raw: undefined };
       return simulateReadableStream({
         chunks: [
           { type: 'stream-start', warnings: [] },
-          {
-            type: 'error',
-            error: {
-              type: 'error',
-              sequence_number: 1,
-              error: { type: 'invalid_request_error', code: 'context_length_exceeded', message: 'Bad Request', param: null },
-            },
-          },
-          { type: 'finish', finishReason: { unified: 'error', raw: undefined }, usage: usage(0, 0) },
+          { type: 'error', error: errorValue },
+          { type: 'finish', finishReason: trailerReason, usage: usage(0, 0) },
         ] satisfies LanguageModelV3StreamPart[],
         initialDelayInMs: null,
         chunkDelayInMs: null,
@@ -409,6 +421,21 @@ describe('reactive overflow recovery in the streaming backend', () => {
     // the real shape; an instanceof Error gate silently downgraded every
     // genuine in-stream overflow to an unrecoverable terminal error.
     const fixture = buildReactiveFixture({ script: ['tool', 'overflowPart', 'done'], bigPriors: true });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    assert.equal(fixture.events.some((event) => event.type === 'error'), false);
+    assert.equal(fixture.recorded.length, 1);
+    assert.equal(fixture.recorded[0]!.phase, 'mid_turn');
+  });
+
+  test('recovers from the Responses-family in-stream error shape with its non-error finish trailer (review round-9 P3)', async () => {
+    // Same failure, different family: the error part value is the WHOLE
+    // {type:'error', error:{...}} chunk and the trailer finish keeps
+    // finishReason 'other'. The recovery decision truncates at the error part,
+    // so trailer drift across provider families must not change the outcome.
+    const fixture = buildReactiveFixture({ script: ['tool', 'overflowPartResponses', 'done'], bigPriors: true });
     await runTurn(fixture);
 
     assert.equal(fixture.model.doStreamCalls.length, 3);

@@ -1137,22 +1137,26 @@ function normalizeErrorEvidence(error: unknown): ProviderErrorEvidence | undefin
       : 'status' in error
         ? String((error as { status?: unknown }).status)
         : '';
+    const rawBody = (error as { responseBody?: unknown }).responseBody;
+    const body = typeof rawBody === 'string' ? rawBody : '';
     const structuredCodes: string[] = [];
     collectStructuredCodes((error as { data?: unknown }).data, structuredCodes);
-    if (structuredCodes.length === 0) {
+    if (structuredCodes.length === 0 && body) {
       // The failed-response handler keeps the raw body even when the provider
       // JSON failed the schema (which is exactly when `data` is absent).
-      const body = (error as { responseBody?: unknown }).responseBody;
-      if (typeof body === 'string') {
-        try {
-          collectStructuredCodes(JSON.parse(body), structuredCodes);
-        } catch {
-          // Not JSON — no structured evidence.
-        }
+      try {
+        collectStructuredCodes(JSON.parse(body), structuredCodes);
+      } catch {
+        // Not JSON — no structured evidence.
       }
     }
     return {
-      text: `${error.name} ${code} ${statusCode} ${error.message}`.toLowerCase(),
+      // The raw body joins the text evidence: when the provider JSON fails
+      // the error schema, `message` degrades to the statusText and the body
+      // is the ONLY carrier of the provider's wording (e.g. an
+      // OpenAI-compatible `{error: string}` overflow). Positives and vetoes
+      // both run over the same full text.
+      text: `${error.name} ${code} ${statusCode} ${error.message}${body ? ` ${body}` : ''}`.toLowerCase(),
       statusCode,
       code,
       structuredCodes,

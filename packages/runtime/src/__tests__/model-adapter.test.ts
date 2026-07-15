@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { createJsonErrorResponseHandler } from '@ai-sdk/provider-utils';
 import type { SessionEvent } from '@maka/core/events';
+import { z } from 'zod/v4';
 
 import { AsyncEventQueue } from '../async-queue.js';
 import {
@@ -418,6 +420,36 @@ describe('ModelAdapter stream and error normalization', () => {
       'ContextLength',
     );
     assert.equal(adapter.classifyError(Object.assign(new Error('401 Authorization'), { statusCode: 401 })), 'Auth');
+  });
+
+  test('classifies overflow wording that only survives in a schema-invalid responseBody (review round-9 P2)', async () => {
+    const adapter = newAdapter();
+    // The REAL failed-response handler, with the OpenAI-family error schema
+    // (error must be an OBJECT with a message). When the provider body does
+    // not match — `{error: string}` genuinely exists among OpenAI-compatible
+    // providers — the handler degrades `message` to the statusText and keeps
+    // the provider's wording ONLY in `responseBody`.
+    const handler = createJsonErrorResponseHandler({
+      errorSchema: z.object({ error: z.object({ message: z.string() }) }),
+      errorToMessage: (data) => data.error.message,
+    });
+    const errorFromBody = async (body: string) => (await handler({
+      response: new Response(body, { status: 400, statusText: 'Bad Request' }),
+      url: 'https://api.example.test/v1/chat/completions',
+      requestBodyValues: {},
+    })).value;
+
+    const overflowError = await errorFromBody('{"error":"Your input exceeds the context window of this model"}');
+    // Prove the degradation is real before asserting on classification.
+    assert.equal(overflowError.message, 'Bad Request');
+    assert.equal(overflowError.data, undefined);
+    assert.equal(adapter.classifyError(overflowError), 'ContextLength');
+    // The veto layer runs on the same full text: an output-cap relation in the
+    // body must not classify even with a capacity statement next to it.
+    const outputCapError = await errorFromBody(
+      '{"error":"Too many completion tokens were requested. This endpoint\'s maximum context length is 262144 tokens."}',
+    );
+    assert.notEqual(adapter.classifyError(outputCapError), 'ContextLength');
   });
 
   test('normalizes cache and reasoning usage variants in the adapter module', () => {
