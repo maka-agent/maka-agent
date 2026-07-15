@@ -64,7 +64,7 @@ import {
   terminalRunStatusFromRuntimeEvent,
 } from './terminal-run-commit.js';
 
-import type { AgentBackend } from '@maka/core/backend-types';
+import type { AgentBackend, BackendStopMode } from '@maka/core/backend-types';
 import type { MakaTool } from './tool-runtime.js';
 import type { RunTraceRecorder } from './run-trace.js';
 import type { ShellRunProcessManager } from './shell-run-manager.js';
@@ -92,6 +92,7 @@ import { requireResolvedAgentDefinition } from './expert-catalog.js';
 
 export interface StopSessionInput {
   source?: 'stop_button' | 'benchmark_deadline';
+  mode?: BackendStopMode;
 }
 
 export interface CompactSessionInput {

@@ -793,6 +793,7 @@ export class AiSdkBackend implements AgentBackend {
   private abortController: AbortController | null = null;
   private historyCompactAbortController: AbortController | null = null;
   private currentTurnId: string | null = null;
+  private stopAfterStepRequested = false;
   private currentRunId: string | null = null;
   /** Side-channel for tool.execute() callbacks to push events into the iterator. */
   private currentQueue: AsyncEventQueue<SessionEvent> | null = null;
@@ -1473,6 +1474,7 @@ export class AiSdkBackend implements AgentBackend {
             },
             system: systemPrompt,
             abortSignal: this.abortController!.signal,
+            stopAfterStep: () => this.stopAfterStepRequested,
             ...(sendScopedPrepareStep ? { prepareStep: sendScopedPrepareStep } : {}),
             ...(remainingStepBudget !== undefined ? { maxSteps: remainingStepBudget } : {}),
           });
@@ -1894,7 +1896,12 @@ export class AiSdkBackend implements AgentBackend {
   // Helpers
   // --------------------------------------------------------------------------
 
-  async stop(_reason: 'user_stop' | 'redirect'): Promise<void> {
+  async stop(_reason: 'user_stop' | 'redirect', mode: 'immediate' | 'after_step' = 'immediate'): Promise<void> {
+    if (mode === 'after_step') {
+      this.stopAfterStepRequested = true;
+      this.currentRunTrace?.abortRequested(_reason);
+      return;
+    }
     this.aborted = true;
     this.abortController?.abort();
     this.historyCompactAbortController?.abort();
@@ -3981,6 +3988,7 @@ export class AiSdkBackend implements AgentBackend {
     this.currentRunTrace = null;
     this.currentUserIntent = undefined;
     this.currentStepMessageId = null;
+    this.stopAfterStepRequested = false;
     this.toolRuntime.endTurn(turnId, this.aborted ? 'aborted' : 'completed');
     this.aborted = false;
   }

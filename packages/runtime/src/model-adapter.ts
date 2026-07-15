@@ -121,6 +121,8 @@ export interface ModelAdapterStreamInput {
    * to the adapter's configured maxSteps.
    */
   maxSteps?: number;
+  /** Stop the SDK tool loop after the current provider step completes. */
+  stopAfterStep?: () => boolean;
 }
 
 export interface ModelAdapterStreamCallbacks {
@@ -172,6 +174,10 @@ export class ModelAdapter {
     };
 
     const maxSteps = input.maxSteps ?? this.input.maxSteps;
+    const configuredStop = maxSteps === undefined
+      ? isLoopFinished()
+      : stepCountIs(maxSteps);
+    const stopAfterStep = input.stopAfterStep;
     return streamText({
       model: input.model,
       messages: input.messages,
@@ -183,9 +189,9 @@ export class ModelAdapter {
       providerOptions: this.input.providerOptions,
       // streamText defaults to one step when stopWhen is omitted. Its exported
       // non-stopping condition is required for an unbounded tool loop.
-      stopWhen: maxSteps === undefined
-        ? isLoopFinished()
-        : stepCountIs(maxSteps),
+      stopWhen: stopAfterStep
+        ? [configuredStop, () => stopAfterStep()]
+        : configuredStop,
       abortSignal: input.abortSignal,
     });
   }

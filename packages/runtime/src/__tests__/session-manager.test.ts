@@ -17,7 +17,7 @@ import type {
   StoredMessage,
   TurnRecord,
 } from '@maka/core';
-import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
+import type { BackendSendInput, BackendStopMode, PermissionDecision } from '@maka/core/backend-types';
 import { expect } from '../test-helpers.js';
 import {
   BackendRegistry,
@@ -3308,6 +3308,50 @@ describe('SessionManager permission mode updates', () => {
     )).toHaveLength(1);
   });
 
+  test('stopSession waits for a turn that is still registering', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    let backend: TestBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new TestBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_847),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    const readStarted = makeGate();
+    const releaseRead = makeGate();
+    store.nextReadHeaderGate = { started: readStarted, release: releaseRead };
+    const turn = manager.sendMessage(session.id, { turnId: 'turn-registering', text: 'hello' })[Symbol.asyncIterator]();
+    const firstEvent = turn.next();
+    await readStarted.promise;
+
+    let stopSettled = false;
+    const stop = manager.stopSession(session.id, {
+      source: 'benchmark_deadline',
+      mode: 'after_step',
+    }).finally(() => {
+      stopSettled = true;
+    });
+    await Promise.resolve();
+    expect(stopSettled).toBe(false);
+    releaseRead.release();
+    await stop;
+    await firstEvent;
+    while (!(await turn.next()).done) {}
+
+    expect(backend?.stopCalls).toBe(1);
+    expect(backend?.stopModes).toEqual(['after_step']);
+  });
+
   test('stopSession retries only backends that failed in a multi-session stop', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -5773,6 +5817,7 @@ class TestBackend implements AgentBackend {
   readonly sessionId: string;
   readonly sendInputs: BackendSendInput[] = [];
   stopCalls = 0;
+  readonly stopModes: BackendStopMode[] = [];
 
   constructor(private readonly ctx: BackendFactoryContext, private readonly gate?: Gate) {
     this.sessionId = ctx.sessionId;
@@ -5785,8 +5830,9 @@ class TestBackend implements AgentBackend {
     yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 2, stopReason: 'end_turn' };
   }
 
-  async stop(): Promise<void> {
+  async stop(_reason: 'user_stop' | 'redirect', mode: BackendStopMode = 'immediate'): Promise<void> {
     this.stopCalls += 1;
+    this.stopModes.push(mode);
   }
   async respondToPermission(_decision: PermissionDecision): Promise<void> {}
 
@@ -6691,6 +6737,7 @@ class MemorySessionStore implements SessionStore {
   failNextAppendMessage: ((message: StoredMessage) => boolean) | undefined;
   failAfterNextAppendMessage: ((message: StoredMessage) => boolean) | undefined;
   disposeCount = 0;
+  nextReadHeaderGate: { started: Gate; release: Gate } | undefined;
 
   async create(input: CreateSessionInput): Promise<SessionHeader> {
     const header: SessionHeader = {
@@ -6727,6 +6774,12 @@ class MemorySessionStore implements SessionStore {
   }
 
   async readHeader(sessionId: string): Promise<SessionHeader> {
+    const gate = this.nextReadHeaderGate;
+    if (gate) {
+      this.nextReadHeaderGate = undefined;
+      gate.started.release();
+      await gate.release.promise;
+    }
     const header = this.headers.get(sessionId);
     if (!header) {
       const error = new Error(`Unknown session ${sessionId}`) as NodeJS.ErrnoException;

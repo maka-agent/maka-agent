@@ -2473,6 +2473,50 @@ describe('AiSdkBackend model history', () => {
     );
   });
 
+  test('after-step stop preserves the current provider step usage and prevents another step', async () => {
+    const loop = countingToolLoopModel();
+    let backend!: AiSdkBackend;
+    let stopRequested = false;
+    const stoppingTool: MakaTool = {
+      name: 'Read',
+      description: 'Read description',
+      parameters: z.object({ path: z.string() }),
+      permissionRequired: false,
+      impl: async () => {
+        stopRequested = true;
+        await (backend.stop as unknown as (
+          reason: 'user_stop',
+          mode: 'after_step',
+        ) => Promise<void>)('user_stop', 'after_step');
+        return { ok: true };
+      },
+    };
+    backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => loop.model,
+      tools: [stoppingTool],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    const events: SessionEvent[] = [];
+
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    assert.equal(stopRequested, true);
+    assert.equal(loop.callCount(), 1);
+    assert.equal(events.some((event) => event.type === 'abort'), false);
+    const usage = events.find((event) => event.type === 'token_usage');
+    assert.equal(usage?.type === 'token_usage' ? usage.total : undefined, 2);
+  });
+
   test('aborting during post-stream persistence wins over step-limit completion', async () => {
     const loop = countingToolLoopModel();
     const gate = makeGate();

@@ -55,12 +55,14 @@ export interface BackendCompactHistoryResult {
   contextBudget?: ContextBudgetDiagnostic;
 }
 
+export type BackendStopMode = 'immediate' | 'after_step';
+
 export interface AgentBackend {
   readonly kind: BackendKind;
   readonly sessionId: string;
   send(input: BackendSendInput): AsyncIterable<SessionEvent>;
   compactHistory?(input: BackendCompactHistoryInput): Promise<BackendCompactHistoryResult>;
-  stop(reason: 'user_stop' | 'redirect'): Promise<void>;
+  stop(reason: 'user_stop' | 'redirect', mode?: BackendStopMode): Promise<void>;
   respondToPermission(decision: PermissionDecision): Promise<void>;
   respondToUserQuestion?(response: UserQuestionResponse): Promise<void>;
   dispose(): Promise<void>;

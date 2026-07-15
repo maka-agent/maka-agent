@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { BackendKind, LlmConnection, SessionEvent, SessionHeader } from '@maka/core';
-import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
+import type { BackendSendInput, BackendStopMode, PermissionDecision } from '@maka/core/backend-types';
 import {
   BackendRegistry,
   PermissionEngine,
@@ -123,6 +123,7 @@ const registerThrowingBackend = (registry: BackendRegistry): void => {
 
 class DeadlineSettlingBackend implements AgentBackend {
   readonly sessionId: string;
+  readonly stopModes: BackendStopMode[] = [];
   private releaseStop!: () => void;
   private readonly stopped = new Promise<void>((resolve) => {
     this.releaseStop = resolve;
@@ -133,6 +134,7 @@ class DeadlineSettlingBackend implements AgentBackend {
   }
 
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    await this.stopped;
     const ts = Date.now();
     yield {
       type: 'token_usage',
@@ -144,17 +146,17 @@ class DeadlineSettlingBackend implements AgentBackend {
       total: 18,
       costUsd: 0.004,
     };
-    await this.stopped;
     yield {
-      type: 'abort',
-      id: 'deadline-abort',
+      type: 'complete',
+      id: 'deadline-complete',
       turnId: input.turnId,
       ts: Date.now(),
-      reason: 'user_stop',
+      stopReason: 'end_turn',
     };
   }
 
-  async stop(): Promise<void> {
+  async stop(_reason: 'user_stop' | 'redirect', mode: BackendStopMode = 'immediate'): Promise<void> {
+    this.stopModes.push(mode);
     this.releaseStop();
   }
 
@@ -212,6 +214,41 @@ class StepCapThenCompleteBackend implements AgentBackend {
   async stop(): Promise<void> {}
   async respondToPermission(_decision: PermissionDecision): Promise<void> {}
   async dispose(): Promise<void> {}
+}
+
+class DeadlineStepCapBackend extends StepCapThenCompleteBackend {
+  private releaseStop!: () => void;
+  private readonly stopped = new Promise<void>((resolve) => {
+    this.releaseStop = resolve;
+  });
+
+  override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    if (this.prompts.length > 0) {
+      yield* super.send(input);
+      return;
+    }
+    this.prompts.push(input.text);
+    this.cwds.push(this.ctx.header.cwd);
+    await this.stopped;
+    const ts = Date.now();
+    yield {
+      type: 'token_usage',
+      id: 'usage-deadline-step-cap',
+      turnId: input.turnId,
+      ts,
+      input: 10,
+      output: 1,
+      total: 11,
+      costUsd: 0.01,
+      rawFinishReason: 'tool-calls',
+      runtimeSteps: 50,
+    };
+    yield { type: 'complete', id: 'complete-deadline-step-cap', turnId: input.turnId, ts, stopReason: 'end_turn' };
+  }
+
+  override async stop(): Promise<void> {
+    this.releaseStop();
+  }
 }
 
 function registerStepCapThenCompleteBackend(seen: { backend?: StepCapThenCompleteBackend }) {
@@ -476,6 +513,7 @@ describe('runHarborCell', () => {
   test('settles the active session before its hard deadline and writes final usage', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const deadline = { settleAfterMs: 1_000 };
+      let backend: DeadlineSettlingBackend | undefined;
       const result = await withTimeout(runHarborCell({
         config,
         instruction: 'keep working until stopped',
@@ -484,16 +522,49 @@ describe('runHarborCell', () => {
         storageRoot,
         ...deadline,
         registerBackends: (registry) => {
-          registry.register('fake', (ctx) => new DeadlineSettlingBackend(ctx.sessionId));
+          registry.register('fake', (ctx) => {
+            backend = new DeadlineSettlingBackend(ctx.sessionId);
+            return backend;
+          });
         },
       }), 10_000, 'Harbor cell did not settle before the hard deadline');
 
       assert.equal(result.settledByDeadline, true);
+      assert.deepEqual(backend?.stopModes, ['after_step']);
       assert.equal(result.output.tokenSummary?.total, 18);
       assert.deepEqual(
         JSON.parse(await readFile(join(outputDir, HARBOR_CELL_OUTPUT_FILENAME), 'utf8')),
         result.output,
       );
+    });
+  });
+
+  test('does not start a continuation turn after the settlement deadline latches', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      let backend: DeadlineStepCapBackend | undefined;
+      const result = await withTimeout(runHarborCell({
+        config,
+        instruction: 'stop at the deadline',
+        cwd: workspaceDir,
+        outputDir,
+        storageRoot,
+        settleAfterMs: 25,
+        continuationPolicy: {
+          enabled: true,
+          maxTurns: 2,
+          maxTotalRuntimeSteps: 100,
+          prompt: 'continue after the deadline',
+        },
+        registerBackends: (registry) => {
+          registry.register('fake', (ctx) => {
+            backend = new DeadlineStepCapBackend({ sessionId: ctx.sessionId, header: ctx.header });
+            return backend;
+          });
+        },
+      }), 5_000, 'Harbor cell did not settle its capped turn');
+
+      assert.equal(result.settledByDeadline, true);
+      assert.deepEqual(backend?.prompts, ['stop at the deadline']);
     });
   });
 

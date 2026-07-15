@@ -96,11 +96,21 @@ interface StopOperation {
   targets: Map<ActiveSession, StopTarget>;
 }
 
+interface PendingStopAttempt {
+  input: StopSessionInput;
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+  delivery: Promise<void>;
+}
+
 export class RuntimeKernel implements RuntimeKernelLike {
   private readonly active = new Map<string, ActiveSession>();
   private readonly childActive = new Map<string, ActiveSession>();
   private readonly stopOperations = new Map<string, StopOperation>();
   private readonly stopAttempts = new Map<string, Promise<void>>();
+  private readonly pendingTurnStarts = new Map<string, number>();
+  private readonly pendingStops = new Map<string, PendingStopAttempt>();
   private readonly historyCompactCheckpoints = new Map<string, HistoryCompactCheckpoint | undefined>();
   private readonly historyCompactCheckpointLoads = new Map<string, Promise<HistoryCompactCheckpoint | undefined>>();
   private readonly historyCompactCheckpointWrites = new Map<string, Promise<void>>();
@@ -116,30 +126,42 @@ export class RuntimeKernel implements RuntimeKernelLike {
     sessionId: string,
     input: UserMessageInput,
   ): AsyncIterable<SessionEvent> {
-    const header = await this.deps.store.readHeader(sessionId);
-    const run = new AgentRun({
-      sessionId,
-      header,
-      userInput: input,
-      store: this.deps.store,
-      runStore: this.deps.runStore,
-      runtimeEventStore: this.deps.runtimeEventStore,
-      repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
-      newId: this.deps.newId,
-      now: this.deps.now,
-      hooks: {
-        ensureActive: (targetSessionId, nextHeader) => this.ensureActive(targetSessionId, nextHeader),
-        registerRun: (active, activeRun) => this.registerRun(active, activeRun),
-        unregisterRun: (active, activeRun) => this.unregisterRun(active, activeRun),
-        updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
-        updateStatus: (targetSessionId, status, blockedReason, ts) =>
-          this.updateStatus(targetSessionId, status, blockedReason, ts),
-        appendTurnState: (targetSessionId, turnId, status, lineage, options) =>
-          this.appendTurnState(targetSessionId, turnId, status, lineage, options),
-      },
-    });
+    this.pendingTurnStarts.set(sessionId, (this.pendingTurnStarts.get(sessionId) ?? 0) + 1);
+    let pending = true;
+    try {
+      const header = await this.deps.store.readHeader(sessionId);
+      const run = new AgentRun({
+        sessionId,
+        header,
+        userInput: input,
+        store: this.deps.store,
+        runStore: this.deps.runStore,
+        runtimeEventStore: this.deps.runtimeEventStore,
+        repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
+        newId: this.deps.newId,
+        now: this.deps.now,
+        hooks: {
+          ensureActive: (targetSessionId, nextHeader) => this.ensureActive(targetSessionId, nextHeader),
+          registerRun: (active, activeRun) => {
+            this.registerRun(active, activeRun);
+            if (pending) {
+              pending = false;
+              this.finishPendingTurnStart(sessionId, true);
+            }
+          },
+          unregisterRun: (active, activeRun) => this.unregisterRun(active, activeRun),
+          updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
+          updateStatus: (targetSessionId, status, blockedReason, ts) =>
+            this.updateStatus(targetSessionId, status, blockedReason, ts),
+          appendTurnState: (targetSessionId, turnId, status, lineage, options) =>
+            this.appendTurnState(targetSessionId, turnId, status, lineage, options),
+        },
+      });
 
-    yield* this.runAgentTurn(sessionId, input, run);
+      yield* this.runAgentTurn(sessionId, input, run);
+    } finally {
+      if (pending) this.finishPendingTurnStart(sessionId, false);
+    }
   }
 
   async *compactSession(
@@ -422,6 +444,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
   private async stopSessionAttempt(sessionId: string, input: StopSessionInput): Promise<void> {
     const activeSessions = this.activeSessionsFor(sessionId);
+    if (activeSessions.length === 0 && (this.pendingTurnStarts.get(sessionId) ?? 0) > 0) {
+      await this.waitForPendingStop(sessionId, input);
+      return;
+    }
     let operation = this.stopOperations.get(sessionId);
     if (!operation) {
       const abortSource = normalizeStopSessionSource(input.source);
@@ -461,7 +487,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     this.stopOperations.set(sessionId, operation);
 
     const undelivered = [...operation.targets.values()].filter((target) => !target.delivered);
-    const results = await Promise.allSettled(undelivered.map((target) => target.active.backend.stop('user_stop')));
+    const results = await Promise.allSettled(undelivered.map((target) => target.active.backend.stop('user_stop', input.mode)));
     let stopError: unknown;
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') undelivered[index]!.delivered = true;
@@ -494,6 +520,39 @@ export class RuntimeKernel implements RuntimeKernelLike {
     }
     for (const run of stoppedRuns) run.completeStop();
     this.stopOperations.delete(sessionId);
+  }
+
+  private waitForPendingStop(sessionId: string, input: StopSessionInput): Promise<void> {
+    const existing = this.pendingStops.get(sessionId);
+    if (existing) return existing.promise;
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    this.pendingStops.set(sessionId, {
+      input,
+      promise,
+      resolve,
+      reject,
+      delivery: Promise.resolve(),
+    });
+    return promise;
+  }
+
+  private finishPendingTurnStart(sessionId: string, registered: boolean): void {
+    const remaining = Math.max(0, (this.pendingTurnStarts.get(sessionId) ?? 1) - 1);
+    if (remaining === 0) this.pendingTurnStarts.delete(sessionId);
+    else this.pendingTurnStarts.set(sessionId, remaining);
+    const pendingStop = this.pendingStops.get(sessionId);
+    if (!pendingStop) return;
+    if (registered) {
+      pendingStop.delivery = pendingStop.delivery.then(() => this.stopSessionAttempt(sessionId, pendingStop.input));
+    }
+    if (remaining > 0) return;
+    this.pendingStops.delete(sessionId);
+    pendingStop.delivery.then(pendingStop.resolve, pendingStop.reject);
   }
 
   private async appendStopProjection(sessionId: string, message: StoredMessage): Promise<void> {

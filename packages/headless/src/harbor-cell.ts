@@ -386,7 +386,10 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     ? undefined
     : setTimeout(() => {
         settledByDeadline = true;
-        settlementAttempt = manager.stopSession(session.id, { source: 'benchmark_deadline' }).catch((error) => {
+        settlementAttempt = manager.stopSession(session.id, {
+          source: 'benchmark_deadline',
+          mode: 'after_step',
+        }).catch((error) => {
           settlementError = error;
         });
       }, input.settleAfterMs);
@@ -404,6 +407,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   let attemptedTurnId: string | undefined;
   try {
     for (let turnIndex = 0; turnIndex < continuationPolicy.maxTurns; turnIndex += 1) {
+      if (settledByDeadline) break;
       const turnId = newId();
       attemptedTurnId = turnId;
       invocation = undefined;
@@ -415,6 +419,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
       }
       if (!invocation) throw new Error('Harbor cell turn finished without a runtime invocation result');
       invocations.push(invocation);
+      if (settledByDeadline) break;
       if (!isToolCallStepCap(invocation)) break;
       stepCapHits += 1;
       if (totalRuntimeSteps(invocations) >= continuationPolicy.maxTotalRuntimeSteps) break;
