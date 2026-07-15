@@ -7,6 +7,73 @@ import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { createConnectionStore } from '../connection-store.js';
 
 describe('FileConnectionStore', () => {
+  test('seeds a new connection with only its default model enabled', async () => {
+    await withConnectionStore(async (store) => {
+      const created = await store.create({
+        slug: 'openrouter-main',
+        name: 'OpenRouter',
+        providerType: 'openrouter',
+        defaultModel: 'openrouter/auto',
+      });
+
+      assert.deepEqual(created.enabledModelIds, ['openrouter/auto']);
+    });
+  });
+
+  test('migrates a legacy connection to only its default model enabled', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await writeFile(join(dir, 'llm-connections.json'), JSON.stringify({
+        defaultSlug: 'openrouter-main',
+        connections: [{
+          slug: 'openrouter-main',
+          name: 'OpenRouter',
+          providerType: 'openrouter',
+          defaultModel: 'openrouter/auto',
+          enabled: true,
+          models: [{ id: 'openrouter/auto' }, { id: 'anthropic/claude-opus-4.8' }],
+          createdAt: 1,
+          updatedAt: 1,
+        }],
+      }), 'utf8');
+
+      const migrated = await store.get('openrouter-main');
+
+      assert.deepEqual(migrated?.enabledModelIds, ['openrouter/auto']);
+    });
+  });
+
+  test('normalizes an updated enabled-model list and keeps the default enabled', async () => {
+    await withConnectionStore(async (store) => {
+      const created = await store.create({
+        slug: 'openai-main',
+        name: 'OpenAI',
+        providerType: 'openai',
+        defaultModel: 'gpt-4o-mini',
+      });
+
+      const updated = await store.update(created.slug, {
+        enabledModelIds: [' gpt-5 ', 'gpt-5', ''],
+      });
+
+      assert.deepEqual(updated.enabledModelIds, ['gpt-4o-mini', 'gpt-5']);
+    });
+  });
+
+  test('automatically enables a model when it becomes the default', async () => {
+    await withConnectionStore(async (store) => {
+      const created = await store.create({
+        slug: 'openai-main',
+        name: 'OpenAI',
+        providerType: 'openai',
+        defaultModel: 'gpt-4o-mini',
+      });
+
+      const updated = await store.update(created.slug, { defaultModel: 'gpt-5' });
+
+      assert.deepEqual(updated.enabledModelIds, ['gpt-5', 'gpt-4o-mini']);
+    });
+  });
+
   test('persists distinct OpenCode Zen and Go ids with exact selected models', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({
@@ -698,6 +765,7 @@ describe('FileConnectionStore', () => {
 
       const next = await store.get(created.slug);
       assert.deepEqual(next?.models, [{ id: 'glm-5' }, { id: 'glm-5.1' }]);
+      assert.deepEqual(next?.enabledModelIds, ['glm-4.7']);
       assert.equal(next?.modelSource, 'fetched');
       assert.equal(next?.modelsFetchedAt, 1_800_000_000_000);
     });

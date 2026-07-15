@@ -84,7 +84,14 @@ test('adds a catalog provider through the canonical API-key dialog', async ({ wi
   const detailMark = detailDialog.locator('.providerLogo[data-provider="cerebras"] img');
   await expect(detailMark).toBeVisible();
   expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(detailDialog.getByText('gpt-oss-120b', { exact: true }).first()).toBeVisible();
+  await expect(detailDialog.getByText('GPT OSS 120B', { exact: true })).toBeHidden();
+  await detailDialog.getByText('高级设置', { exact: true }).click();
+  await expect(detailDialog.getByText('GPT OSS 120B', { exact: true }).first()).toBeVisible();
+  const enabledModels = detailDialog.getByRole('list', { name: '已启用模型' });
+  await expect(enabledModels.getByRole('button')).toHaveCount(0);
+  await detailDialog.getByLabel('搜索并添加模型').fill('gemma-4-31b');
+  await detailDialog.getByRole('list', { name: '可添加模型' }).getByRole('button', { name: '添加' }).click();
+  await expect(enabledModels).toContainText('Gemma');
   await expect(detailDialog.getByRole('textbox', { name: /模型密钥/ })).toHaveAttribute('placeholder', '••••••••');
 });
 
@@ -119,6 +126,7 @@ test('derives an account-scoped endpoint from the Cloudflare account-id field', 
   const connection = page.getByRole('button', { name: /模型连接：Cloudflare Workers AI/ });
   await connection.click();
   const dialog = page.getByRole('dialog', { name: 'Cloudflare Workers AI' });
+  await dialog.getByText('高级设置', { exact: true }).click();
   await expect(dialog.getByRole('textbox', { name: '服务地址', exact: true })).toHaveValue(baseUrl);
   await expect(dialog.getByRole('textbox', { name: /模型密钥/ })).toHaveAttribute('placeholder', '••••••••');
 });
@@ -142,7 +150,7 @@ test('adds a no-auth local runtime with no key field and a currentColor mask mar
 
   await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('lm-studio');
   await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('http://localhost:1234/v1');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('');
+  await expect(page.getByLabel('模型供应商默认模型')).toHaveCount(0);
   await expect(page.getByLabel(/LM Studio 模型密钥/)).toHaveCount(0);
   await page.getByRole('button', { name: '保存供应商' }).click();
 

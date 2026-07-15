@@ -60,6 +60,7 @@ function connection(overrides: Partial<LlmConnection> & Pick<LlmConnection, 'slu
     name: overrides.slug,
     defaultModel: '',
     enabled: true,
+    enabledModelIds: overrides.enabledModelIds ?? overrides.models?.map((model) => model.id),
     createdAt: 1,
     updatedAt: 1,
     ...overrides,
@@ -67,6 +68,31 @@ function connection(overrides: Partial<LlmConnection> & Pick<LlmConnection, 'slu
 }
 
 describe('model catalog picker helpers', () => {
+  it('exposes only enabled models to Chat while retaining the full connection catalog', async () => {
+    const { buildCatalogChatModelChoices, buildCatalogModelChoices } = await importModelCatalogChoices();
+    const openrouter = connection({
+      slug: 'openrouter-main',
+      providerType: 'openrouter',
+      defaultModel: 'openrouter/auto',
+      enabledModelIds: ['openrouter/auto', 'anthropic/claude-sonnet-4.6'],
+      models: [
+        { id: 'openrouter/auto' },
+        { id: 'anthropic/claude-sonnet-4.6' },
+        { id: 'openai/gpt-5.5' },
+      ],
+      modelSource: 'fetched',
+    });
+
+    assert.deepEqual(
+      buildCatalogChatModelChoices([openrouter]).map((choice) => choice.model),
+      ['openrouter/auto', 'anthropic/claude-sonnet-4.6'],
+    );
+    assert.deepEqual(
+      buildCatalogModelChoices(openrouter).map((choice) => choice.id),
+      ['openrouter/auto', 'anthropic/claude-sonnet-4.6', 'openai/gpt-5.5'],
+    );
+  });
+
   it('keeps an Ollama cloud alias distinct and selects it unchanged', async () => {
     const { buildCatalogChatModelChoices, pickCatalogDefaultChatModel } = await importModelCatalogChoices();
     const ollama = connection({

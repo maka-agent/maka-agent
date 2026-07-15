@@ -78,9 +78,8 @@ describe('Settings theme page contract', () => {
     // navigation, focus management, and roving tabindex for free, so
     // the hand-rolled `onSettingsRadioGroupKeyDown` /
     // `focusRadioValue` / `radioTabIndex` helpers are gone from
-    // SettingsModal.tsx. `nextRadioId` still lives in
-    // `model-table-keyboard.ts` for ProvidersPanel's model default
-    // picker.
+    // SettingsModal.tsx. The provider connection dialog no longer
+    // contains a hand-rolled default-model radiogroup.
     assert.doesNotMatch(src, /function onSettingsRadioGroupKeyDown/);
     assert.doesNotMatch(src, /function focusRadioValue/);
     assert.doesNotMatch(src, /function radioTabIndex/);

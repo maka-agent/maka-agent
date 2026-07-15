@@ -369,7 +369,7 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
-  it('scenario seed focuses the relevant provider state for ModelTable screenshots', async () => {
+  it('scenario seed focuses the relevant provider state for connection-dialog screenshots', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-provider-'));
     try {
       const fixture = resolveVisualSmokeFixture('fallback-source', false);

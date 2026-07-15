@@ -27,7 +27,6 @@ export function AddProviderForm(props: {
   const [name, setName] = useState(display.name);
   const [baseUrl, setBaseUrl] = useState(defaults.baseUrl);
   const [cloudflareAccountId, setCloudflareAccountId] = useState('');
-  const [defaultModel, setDefaultModel] = useState(recommendedDefaultModel);
   const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,7 +79,7 @@ export function AddProviderForm(props: {
         name: name || display.name,
         providerType: props.providerType,
         baseUrl: resolvedBaseUrl,
-        defaultModel,
+        defaultModel: recommendedDefaultModel,
         ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
       });
       if (!addProviderMountedRef.current) return;
@@ -186,16 +185,6 @@ export function AddProviderForm(props: {
           />
         </label>
       )}
-      <label>
-        <span>默认模型</span>
-        <Input
-          value={defaultModel}
-          onChange={(event) => setDefaultModel(event.currentTarget.value)}
-          placeholder={recommendedDefaultModel || 'model-id'}
-          disabled={isExperimental || busy}
-          aria-label="模型供应商默认模型"
-        />
-      </label>
       {error && <p className="providerError" role="alert">{error}</p>}
       <div className="providerActions">
         <Button variant="ghost" type="button" disabled={busy} onClick={props.onCancel}>取消</Button>

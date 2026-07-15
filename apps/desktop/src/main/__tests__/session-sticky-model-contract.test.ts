@@ -65,7 +65,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(renderer, /normalizeActiveChatModel\(activeSession, activeConnection, chatModelChoices\)/);
     assert.match(ui, /本会话固定模型：\$\{props\.activeConnectionLabel\} · \$\{props\.activeModelLabel\}/);
     assert.match(ui, /设置里的默认模型只影响新建会话/);
-    assert.match(providers, /默认模型只用于新建会话；已有会话会保留创建时的模型选择/);
+    assert.match(providers, /仅这些模型会出现在模型选择器中/);
   });
 
   it('lets the user explicitly switch the current session model from the chat header', async () => {

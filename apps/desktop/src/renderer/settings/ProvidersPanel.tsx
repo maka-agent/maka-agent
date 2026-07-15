@@ -307,7 +307,7 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
       {selected && (
         <ProviderConnectionDialog
           title={selected.name}
-          subtitle={`${providerDisplay(selected.providerType).name}${selected.slug === defaultSlug ? ' · 默认连接' : ''}`}
+          subtitle={connectionDialogSubtitle(selected, selected.slug === defaultSlug)}
           providerType={selected.providerType}
           onClose={closeDialog}
           finalFocus={() => providerFocusElement(providersPanelRef.current, { kind: 'connection', slug: selected.slug })}
@@ -327,6 +327,13 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
       )}
     </div>
   );
+}
+
+function connectionDialogSubtitle(connection: LlmConnection, isDefault: boolean): string {
+  const providerName = providerDisplay(connection.providerType).name;
+  const parts = providerName === connection.name ? [] : [providerName];
+  parts.push(isDefault ? '默认连接' : '模型连接');
+  return parts.join(' · ');
 }
 
 type ProviderFocusTarget =

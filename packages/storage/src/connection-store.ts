@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   PROVIDER_DEFAULTS,
+  connectionEnabledModelIds,
   migrateConnectionV1ToV2,
   persistedBaseUrl,
   validateSlug,
@@ -65,13 +66,15 @@ class FileConnectionStore implements ConnectionStore {
       }
       const now = Date.now();
       const baseUrl = persistedBaseUrl(input.providerType, input.baseUrl);
+      const defaultModel = input.defaultModel || defaults.fallbackModels[0] || '';
       const next: LlmConnection = {
         slug: input.slug,
         name: input.name || defaults.label,
         providerType: input.providerType,
         ...(baseUrl ? { baseUrl } : {}),
-        defaultModel: input.defaultModel || defaults.fallbackModels[0] || '',
+        defaultModel,
         enabled: true,
+        enabledModelIds: connectionEnabledModelIds({ defaultModel }),
         createdAt: now,
         updatedAt: now,
       };
@@ -113,14 +116,19 @@ class FileConnectionStore implements ConnectionStore {
           || patch.defaultModel !== undefined
           || patch.models !== undefined
         );
+      const defaultModel = patch.defaultModel ?? current.defaultModel;
       const next: LlmConnection = {
         ...current,
         name: patch.name ?? current.name,
         baseUrl: patch.baseUrl !== undefined
           ? persistedBaseUrl(current.providerType, patch.baseUrl)
           : current.baseUrl,
-        defaultModel: patch.defaultModel ?? current.defaultModel,
+        defaultModel,
         enabled: patch.enabled ?? current.enabled,
+        enabledModelIds: connectionEnabledModelIds({
+          defaultModel,
+          enabledModelIds: patch.enabledModelIds ?? current.enabledModelIds,
+        }),
         models: updatesModelCache ? patch.models : (clearsModelCache ? undefined : current.models),
         modelSource: updatesModelCache ? patch.modelSource : (clearsModelCache ? undefined : current.modelSource),
         modelsFetchedAt: updatesModelCache ? patch.modelsFetchedAt : (clearsModelCache ? undefined : current.modelsFetchedAt),
@@ -159,6 +167,7 @@ class FileConnectionStore implements ConnectionStore {
         ...rest,
         ...(baseUrl ? { baseUrl } : {}),
         enabled: connection.enabled ?? true,
+        enabledModelIds: connectionEnabledModelIds(connection),
         createdAt: connection.createdAt ?? now,
         updatedAt: connection.updatedAt ?? now,
       };

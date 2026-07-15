@@ -127,7 +127,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   it('provider detail actions localize and sanitize model-test / model-fetch failures', async () => {
     const providers = await readProviderSettingsCombinedSource();
     const main = await readMainProcessCombinedSource();
-    const detail = providers.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = providers.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
     const addForm = providers.match(/function AddProviderForm[\s\S]*?function nextSlug/)?.[0] ?? '';
 
     assert.match(
@@ -147,37 +147,37 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /const busyRef = useRef\(false\)[\s\S]*const testingRef = useRef\(false\)[\s\S]*const fetchingModelsRef = useRef\(false\)[\s\S]*const settingDefaultRef = useRef\(false\)[\s\S]*const deletingRef = useRef\(false\)/,
+      /const busyRef = useRef\(false\)[\s\S]*const testingRef = useRef\(false\)[\s\S]*const fetchingModelsRef = useRef\(false\)[\s\S]*const savingEnabledModelsRef = useRef\(false\)[\s\S]*const settingDefaultRef = useRef\(false\)[\s\S]*const deletingRef = useRef\(false\)/,
       'ConnectionDetail actions must have synchronous duplicate-action guards, not only React state',
     );
     assert.match(
       detail,
-      /async function save\(\) \{[\s\S]*if \(busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\) return;[\s\S]*busyRef\.current = true;[\s\S]*props\.bridge\.update\(/,
+      /async function save\(\) \{[\s\S]*if \(busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| savingEnabledModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\) return;[\s\S]*busyRef\.current = true;[\s\S]*props\.bridge\.update\(/,
       'ConnectionDetail save must set its duplicate-submit guard before awaiting bridge.update()',
     );
     assert.match(
       detail,
-      /async function runTest\(\) \{[\s\S]*if \(testingRef\.current \|\| busyRef\.current \|\| fetchingModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\) return;[\s\S]*testingRef\.current = true;[\s\S]*props\.bridge\.test\(/,
+      /async function runTest\(\) \{[\s\S]*if \(testingRef\.current \|\| busyRef\.current \|\| fetchingModelsRef\.current \|\| savingEnabledModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\) return;[\s\S]*testingRef\.current = true;[\s\S]*props\.bridge\.test\(/,
       'ConnectionDetail test must be gated synchronously before awaiting bridge.test()',
     );
     assert.match(
       detail,
-      /async function refreshModels\(opts: \{ silent\?: boolean \} = \{\}\) \{[\s\S]*if \(fetchingModelsRef\.current\) return;[\s\S]*if \(!opts\.silent && \(busyRef\.current \|\| testingRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\)\) return;[\s\S]*fetchingModelsRef\.current = true;[\s\S]*props\.bridge\.fetchModels\(/,
+      /async function refreshModels\(opts: \{ silent\?: boolean \} = \{\}\) \{[\s\S]*if \(fetchingModelsRef\.current\) return;[\s\S]*if \(!opts\.silent && \(busyRef\.current \|\| testingRef\.current \|\| savingEnabledModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\)\) return;[\s\S]*fetchingModelsRef\.current = true;[\s\S]*props\.bridge\.fetchModels\(/,
       'ConnectionDetail model refresh must be duplicate-gated while preserving the post-save silent refresh',
     );
     assert.match(
       detail,
-      /async function setAsDefault\(\) \{[\s\S]*if \(settingDefaultRef\.current \|\| busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| deletingRef\.current\) return;[\s\S]*settingDefaultRef\.current = true;[\s\S]*props\.bridge\.setDefault\(/,
+      /async function setAsDefault\(\) \{[\s\S]*if \(settingDefaultRef\.current \|\| busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| savingEnabledModelsRef\.current \|\| deletingRef\.current\) return;[\s\S]*settingDefaultRef\.current = true;[\s\S]*props\.bridge\.setDefault\(/,
       'ConnectionDetail default-switch must be gated synchronously before awaiting bridge.setDefault()',
     );
     assert.match(
       detail,
-      /async function remove\(\) \{[\s\S]*if \(deletingRef\.current \|\| busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| settingDefaultRef\.current\) return;[\s\S]*deletingRef\.current = true;[\s\S]*props\.bridge\.delete\(/,
+      /async function remove\(\) \{[\s\S]*if \(deletingRef\.current \|\| busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| savingEnabledModelsRef\.current \|\| settingDefaultRef\.current\) return;[\s\S]*deletingRef\.current = true;[\s\S]*props\.bridge\.delete\(/,
       'ConnectionDetail delete must be gated synchronously before awaiting bridge.delete()',
     );
     assert.match(
       detail,
-      /const detailActionBusy = busy \|\| testing \|\| fetchingModels \|\| settingDefault \|\| deleting/,
+      /const detailActionBusy = busy \|\| testing \|\| fetchingModels \|\| savingEnabledModels \|\| settingDefault \|\| deleting/,
       'ConnectionDetail must expose one visible busy state that freezes payload-affecting controls',
     );
     assert.match(
@@ -192,13 +192,18 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /<ModelTable[\s\S]*canRefresh=\{!detailActionBusy && hasUsableCredential\}[\s\S]*disabled=\{detailActionBusy\}/,
-      'ConnectionDetail model picker must freeze while any detail action is in flight',
+      /<EnabledModelManager[\s\S]*disabled=\{detailActionBusy\}/,
+      'ConnectionDetail enabled-model editor must freeze while any detail action is in flight',
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy \|\| !hasSaveChanges\} onClick=\{save\}[\s\S]*\{busy \? '保存中…' : '保存修改'\}/,
-      'ConnectionDetail save button must show visible pending feedback and disable all peer actions',
+      /\{hasApiKeyChange && \([\s\S]*disabled=\{detailActionBusy\} onClick=\{save\}[\s\S]*\{busy \? '保存中…' : '更新密钥'\}/,
+      'ConnectionDetail key save button must appear only when the key draft is dirty',
+    );
+    assert.match(
+      detail,
+      /\{hasBaseUrlChange && \([\s\S]*className="providerEndpointActions"[\s\S]*disabled=\{detailActionBusy\} onClick=\{save\}[\s\S]*\{busy \? '保存中…' : '保存服务地址'\}/,
+      'ConnectionDetail endpoint save button must remain available to providers without API keys',
     );
     assert.match(
       detail,
@@ -207,12 +212,12 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy\} onClick=\{setAsDefault\}[\s\S]*\{settingDefault \? '设置中…' : '设为默认'\}/,
+      /disabled=\{detailActionBusy\} onClick=\{setAsDefault\}[\s\S]*\{settingDefault \? '设置中…' : '设为默认连接'\}/,
       'ConnectionDetail default button must show visible pending feedback and disable all peer actions',
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy\} onClick=\{remove\}[\s\S]*\{deleting \? '删除中…' : '删除'\}/,
+      /disabled=\{detailActionBusy\} onClick=\{remove\}[\s\S]*\{deleting \? '删除中…' : '删除连接'\}/,
       'ConnectionDetail delete button must show visible pending feedback and disable all peer actions',
     );
     assert.match(
@@ -402,7 +407,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     const src = await readProviderSettingsCombinedSource();
     const addForm = src.match(/function AddProviderForm[\s\S]*?function ConnectionDetail/)?.[0] ?? '';
     const detail = src.match(/function ConnectionDetail[\s\S]*?function connectionDetailSnapshot/)?.[0] ?? '';
-    const modelTable = src.match(/function ModelTable[\s\S]*?function ModelCapabilityChips/)?.[0] ?? '';
+    const enabledModels = src.match(/function EnabledModelManager[\s\S]*?function modelDisplayLabel/)?.[0] ?? '';
 
     assert.match(addForm, /<span>连接标识<\/span>/);
     assert.match(addForm, /aria-label="模型供应商连接标识"/);
@@ -417,8 +422,6 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // Chinese-first; the parenthetical state hints split into their own
     // FieldDescription lines. AddProviderForm is intentionally left on the
     // legacy <label><span/> markup this round (single-page pilot).
-    assert.match(detail, /<Label[^>]*>连接标识<\/Label>/);
-    assert.match(detail, /aria-label="模型连接标识"/);
     assert.match(detail, /<Label[^>]*>服务地址<\/Label>/);
     assert.match(detail, /props\.fixedOAuth && <FieldDescription>OAuth 固定<\/FieldDescription>/);
     assert.match(detail, /<Label[^>]*>模型密钥<\/Label>/);
@@ -428,16 +431,16 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(detail, /获取模型密钥/);
     assert.match(detail, /模型密钥 \/ 服务地址 \/ 代理设置/);
 
-    assert.match(modelTable, /刷新模型列表/);
-    assert.match(modelTable, /先配置模型密钥/);
-    assert.match(modelTable, /该供应商的真实模型清单/);
+    assert.match(enabledModels, /启用模型/);
+    assert.match(enabledModels, /仅这些模型会出现在模型选择器中/);
+    assert.match(enabledModels, /搜索并添加模型/);
     assert.match(src, /网络错误，请检查服务地址或代理设置后重试。/);
     // Provider descriptions are version-agnostic (provider + access path,
     // never a model generation that goes stale).
     assert.match(src, /Anthropic 官方接入/);
     assert.match(src, /OpenAI 官方接入/);
 
-    for (const block of [addForm, detail, modelTable]) {
+    for (const block of [addForm, detail, enabledModels]) {
       assert.doesNotMatch(block, />Slug</);
       assert.doesNotMatch(block, /Base URL|\(required\)|API key|从 API 刷新|粘贴 API key|获取 API key|该 provider 的真实模型清单/);
     }
@@ -580,7 +583,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('OAuth model connection detail treats Base URL as fixed provider metadata, not an editable endpoint', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -609,16 +612,17 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('connection management dialogs lead with actionable issues and model tasks before advanced fields', async () => {
+  it('connection management dialogs lead with credentials and keep model visibility in advanced settings', async () => {
     const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetailInner[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
-    const issue = detail.indexOf('className="providerConnectionIssue"');
-    const models = detail.indexOf('<ModelTable');
+    const credential = detail.indexOf('<PasswordInput');
     const advanced = detail.indexOf('<details className="providerAdvancedSettings"');
+    const models = detail.indexOf('<EnabledModelManager');
 
-    assert.ok(issue >= 0, 'an abnormal connection must explain the latest actionable issue');
-    assert.ok(models > issue, 'model selection must follow the issue recovery context');
-    assert.ok(advanced > models, 'connection id and endpoint must come after primary model tasks');
+    assert.ok(credential >= 0, 'API-key connection detail must expose its credential field');
+    assert.ok(advanced > credential, 'credentials must remain the primary task before advanced settings');
+    assert.ok(models > advanced, 'enabled-model management must stay inside advanced settings');
+    assert.doesNotMatch(detail, /<ModelTable/, 'connection detail must not render a default-model picker');
     assert.match(detail, /connectionLastTestMessageDisplay\(connection\.lastTestMessage\)/);
     assert.match(detail, /<RelativeTime ts=\{lastTestAtMs\}/);
     assert.doesNotMatch(detail, /<header>[\s\S]*\{connection\.name\}/, 'the shared DialogHeader must be the only title header');
@@ -626,7 +630,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('does not let disabled OAuth connections become the default model', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -635,51 +639,64 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /!\s*props\.isDefault && connection\.enabled && \([\s\S]*<Button variant="secondary" type="button" disabled=\{detailActionBusy\} onClick=\{setAsDefault\}>[\s\S]*\{settingDefault \? '设置中…' : '设为默认'\}[\s\S]*<\/Button>/,
+      /!\s*props\.isDefault && connection\.enabled && \([\s\S]*<Button variant="secondary" type="button" disabled=\{detailActionBusy\} onClick=\{setAsDefault\}>[\s\S]*\{settingDefault \? '设置中…' : '设为默认连接'\}[\s\S]*<\/Button>/,
       'disabled connections must not render the set-default action',
     );
   });
 
-  it('does not leave Save enabled when an existing connection has no draft changes', async () => {
+  it('does not render Save when an existing connection has no draft changes', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
       detail,
-      /const hasSaveChanges =[\s\S]*apiKey\.length > 0[\s\S]*draftBaseUrl !== savedBaseUrl[\s\S]*defaultModel !== connection\.defaultModel/,
-      'ConnectionDetail must compute dirty state from the fields that Save actually writes',
+      /const hasApiKeyChange = apiKey\.length > 0;[\s\S]*const hasBaseUrlChange = draftBaseUrl !== savedBaseUrl;/,
+      'ConnectionDetail must compute dirty state separately for each field it writes',
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy \|\| !hasSaveChanges\}/,
-      'Save must be disabled until the user changes a writable field',
+      /\{hasApiKeyChange && \([\s\S]*<Button type="button" disabled=\{detailActionBusy\} onClick=\{save\}>[\s\S]*\{hasBaseUrlChange && \([\s\S]*<Button type="button" disabled=\{detailActionBusy\} onClick=\{save\}>/,
+      'each Save action must stay beside its field and out of the default visual hierarchy until that field changes',
     );
   });
 
-  it('keeps the model picker radiogroup free of nested listitem semantics', async () => {
+  it('uses native list semantics for enabled and searchable models', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const modelTable = src.match(/function ModelTable[\s\S]*?function ModelCapabilityChips/)?.[0] ?? '';
+    const enabledModels = src.match(/function EnabledModelManager[\s\S]*?function modelDisplayLabel/)?.[0] ?? '';
 
     assert.match(
-      modelTable,
-      /<ul[\s\S]*className="modelTableList"[\s\S]*role="radiogroup"[\s\S]*aria-label="默认模型"/,
-      'ModelTable must expose the default-model picker as a named radiogroup',
+      enabledModels,
+      /<ul className="providerModelSearchResults" aria-label="可添加模型">/,
+      'search results must use a named native list',
     );
     assert.match(
-      modelTable,
-      /<li key=\{model\.id\} role="none">[\s\S]*role="radio"/,
-      'structural list items inside the radiogroup must be presentational so assistive tech reaches the radio options directly',
+      enabledModels,
+      /<ul className="providerEnabledModelList" aria-label="已启用模型">/,
+      'enabled models must use a named native list',
     );
     assert.doesNotMatch(
-      modelTable,
-      /<li key=\{model\.id\}>\s*<Button[\s\S]*role="radio"/,
-      'ModelTable must not wrap radio options in exposed listitem semantics',
+      enabledModels,
+      /role="radio"|role="list"|role="listitem"/,
+      'native list markup must not add redundant or incorrect ARIA roles',
     );
+  });
+
+  it('automatically persists enabled-model edits without a second Save action', async () => {
+    const src = await readProviderSettingsCombinedSource();
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const enabledModels = src.match(/function EnabledModelManager[\s\S]*?function modelDisplayLabel/)?.[0] ?? '';
+
+    assert.match(
+      detail,
+      /async function updateEnabledModels\(nextIds: string\[\]\)[\s\S]*connectionEnabledModelIds\([\s\S]*props\.bridge\.update\(connection\.slug, \{ enabledModelIds: next \}\)[\s\S]*await props\.onChanged\(\)/,
+    );
+    assert.match(enabledModels, /isDefault \? \([\s\S]*providerEnabledModelMeta">默认<[\s\S]*\) : \([\s\S]*aria-label=\{`移除/);
+    assert.doesNotMatch(enabledModels, /保存/);
   });
 
   it('surfaces provider detail save/delete failures instead of leaking rejected promises from actions', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -693,14 +710,14 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /<Button variant="destructive" type="button" disabled=\{detailActionBusy\} onClick=\{remove\}>[\s\S]*\{deleting \? '删除中…' : '删除'\}[\s\S]*<\/Button>/,
+      /<Button className="providerAdvancedDanger" variant="destructive" type="button" disabled=\{detailActionBusy\} onClick=\{remove\}>[\s\S]*\{deleting \? '删除中…' : '删除连接'\}[\s\S]*<\/Button>/,
       'Delete should be disabled while provider detail actions are busy and show its own pending copy',
     );
   });
 
   it('surfaces provider detail credential-presence probe failures', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(src, /type CredentialPresenceStatus = boolean \| 'loading' \| 'error'/);
     assert.match(detail, /useState<CredentialPresenceStatus>\([\s\S]*defaults\.authKind === 'none' \? true : 'loading'/);
@@ -717,7 +734,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'credential-presence probe failures must not be downgraded to missing credentials',
     );
     assert.match(detail, /role="alert"[\s\S]*模型凭据状态暂时没刷新成功，已避免把未知状态显示成未登录或未配置/);
-    assert.match(detail, /canRefresh=\{!detailActionBusy && hasUsableCredential\}/);
+    assert.match(detail, /disabled=\{detailActionBusy \|\| !hasUsableCredential\} onClick=\{\(\) => void refreshModels\(\)\}/);
     assert.match(detail, /disabled=\{detailActionBusy \|\| !hasUsableCredential\}/);
     assert.doesNotMatch(
       detail,
@@ -728,7 +745,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('shows but does not require LocalAI optional credentials', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(detail, /const supportsApiKey = providerAuthSupportsApiKey\(connection\.providerType\)/);
     assert.match(detail, /const requiresCredential = providerAuthRequiresSecret\(connection\.providerType\)/);
@@ -737,7 +754,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('provider detail async actions stop writing UI after the detail sheet is closed or switched', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -787,7 +804,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // props via useState would otherwise keep showing stale models /
     // defaultModel until the sheet is closed and reopened.
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
       src,
@@ -816,7 +833,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /setBaseUrl\(nextSnapshot\.baseUrl\)[\s\S]*setDefaultModel\(nextSnapshot\.defaultModel\)[\s\S]*setModels\(nextSnapshot\.models\)[\s\S]*setModelSource\(nextSnapshot\.modelSource\)/,
+      /setBaseUrl\(nextSnapshot\.baseUrl\)[\s\S]*setModels\(nextSnapshot\.models\)[\s\S]*setModelSource\(nextSnapshot\.modelSource\)/,
       'prop refresh must update every draft field derived from connection props',
     );
     assert.match(

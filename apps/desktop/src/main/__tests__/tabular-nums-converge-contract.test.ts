@@ -60,7 +60,7 @@ const TABULAR_NUMS_SELECTORS = [
   '.maka-search-modal-result-summary',
   // provider counts
   '.providerRootHeader > span',
-  '.modelTableHeaderText small',
+  '.providerEnabledModelsHeader strong',
   // plan search count
   '.maka-plan-search-summary',
 ];

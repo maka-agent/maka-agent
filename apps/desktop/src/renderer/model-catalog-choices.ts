@@ -2,6 +2,7 @@ import {
   CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS,
   PROVIDER_DEFAULTS,
   buildConnectionModelCatalogEntries,
+  connectionEnabledModelIds,
   type LlmConnection,
   type ModelCatalogEntry,
   type ProviderType,
@@ -39,7 +40,9 @@ export function buildCatalogChatModelChoices(connections: readonly LlmConnection
     const connectionName = PROVIDER_DEFAULTS[connection.providerType].authKind === 'oauth_token'
       ? undefined
       : connection.name;
+    const enabledModelIds = new Set(connectionEnabledModelIds(connection));
     for (const entry of selectableCatalogEntries(connection)) {
+      if (!enabledModelIds.has(entry.id)) continue;
       choices.push({
         connectionSlug: connection.slug,
         providerType: connection.providerType,
