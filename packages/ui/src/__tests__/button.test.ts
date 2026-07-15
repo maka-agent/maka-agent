@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buttonVariants } from '../ui.js';
+import { cn } from '../utils.js';
 
 test('Button exposes only the governed 32px and 28px geometry tiers', () => {
   const medium = buttonVariants({ size: 'md' });
@@ -53,4 +54,16 @@ test('aria-disabled Button variants keep their resting tone during hover and act
   assert.match(quiet, /aria-disabled:hover:text-foreground-secondary/);
   assert.match(primary, /aria-disabled:hover:bg-primary/);
   assert.match(primary, /aria-disabled:active:bg-primary/);
+});
+
+test('Button pill shape lands on the governed pill radius tier', () => {
+  const pill = cn(buttonVariants({ size: 'icon', shape: 'pill' }));
+  const resting = cn(buttonVariants({ size: 'icon' }));
+
+  // rounded-full resolves to --radius-pill (999px) per the radius-converge
+  // contract; tailwind-merge must drop the base rounded-sm so the pill wins.
+  assert.match(pill, /\brounded-full\b/);
+  assert.ok(!pill.includes('rounded-sm'), 'pill shape must override the base rounded-sm');
+  assert.match(resting, /\brounded-sm\b/);
+  assert.ok(!resting.includes('rounded-full'));
 });

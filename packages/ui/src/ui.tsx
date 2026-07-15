@@ -89,6 +89,17 @@ export const buttonVariants = cva(
         icon: 'h-8 w-8 px-0 text-sm',
         'icon-sm': 'h-7 w-7 px-0 text-sm',
       },
+      // #901 follow-up: circular affordance for round icon actions (composer
+      // "+" / send). #901 retired the consumer-layer pill CSS
+      // (maka-composer-send-button & friends) onto the shared Button but
+      // offered no governed replacement for the circle, silently squaring
+      // those buttons. The `shape` axis keeps the pill tier on the governed
+      // primitive instead of in per-surface CSS. `rounded-full` resolves to
+      // --radius-pill per the radius-converge contract.
+      shape: {
+        default: '',
+        pill: 'rounded-full',
+      },
     },
     compoundVariants: [
       {
@@ -111,6 +122,7 @@ export const buttonVariants = cva(
     defaultVariants: {
       variant: 'default',
       size: 'md',
+      shape: 'default',
     },
   },
 );
@@ -122,13 +134,13 @@ interface ButtonProps
 }
 
 export const Button = forwardRef<HTMLElement, ButtonProps>(function Button(
-  { className, variant, size, ...props },
+  { className, variant, size, shape, ...props },
   ref,
 ) {
   return (
     <BaseButton
       ref={ref}
-      className={cn(buttonVariants({ variant, size }), className)}
+      className={cn(buttonVariants({ variant, size, shape }), className)}
       data-slot="button"
       {...props}
     />

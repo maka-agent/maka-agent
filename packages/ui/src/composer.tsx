@@ -828,6 +828,7 @@ export const Composer = forwardRef<
                       {...triggerRest}
                       variant="quiet"
                       size="icon-sm"
+                      shape="pill"
                       type="button"
                       disabled={props.disabled || importActionBusy}
                       onClick={(e) => { menuToggleClick?.(e); }}
@@ -980,6 +981,7 @@ export const Composer = forwardRef<
               <UiButton
                 variant="default"
                 size="icon"
+                shape="pill"
                 type="submit"
                 disabled={sendDisabled}
                 aria-label={buttonCopy.sendLabel}

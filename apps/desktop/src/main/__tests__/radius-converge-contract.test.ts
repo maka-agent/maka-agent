@@ -24,7 +24,10 @@
  *   5. Components must use the correct tier: control→rounded-sm, surface→rounded-md,
  *      modal→rounded-xl, pill→rounded-full/rounded-[var(--radius-pill)].
  *      Every --radius-* reference inside a component block must belong to the
- *      expected tier's alias set.
+ *      expected tier's alias set. A component that legitimately serves more
+ *      than one tier declares `alsoTiers` (e.g. buttonVariants is a control
+ *      that also offers the governed pill shape via shape="pill"); every
+ *      declared tier must then be present, and other tiers stay forbidden.
  *   6. Token values are pinned: control=6px, surface=8px, modal=12px, pill=999px.
  *   7. `--radius-button` is deleted; no stale references may remain.
  */
@@ -143,6 +146,8 @@ interface ComponentRadiusCheck {
   file: string;
   name: string;
   tier: Tier;
+  /** Additional tiers the component legitimately serves (see rule 5). */
+  alsoTiers?: Tier[];
 }
 
 /** The expected radius class for each tier. */
@@ -162,15 +167,14 @@ const TIER_TOKENS: Record<Tier, Set<string>> = {
   pill: new Set(['--radius-pill']),
 };
 
-/** Classes that belong to a *different* tier — must not appear. */
+/** Every tier-attributed class — a component block must only contain classes
+ *  from its declared tier(s); anything else from this list is forbidden. */
 const ALL_TIER_CLASSES = ['rounded-sm', 'rounded-md', 'rounded-lg', 'rounded-xl', 'rounded-full', 'rounded-[var(--radius-pill)]', 'rounded-[var(--radius-control)]', 'rounded-[var(--radius-surface)]', 'rounded-[var(--radius-modal)]'];
 
-function classesForOtherTiers(tier: Tier): string[] {
-  return ALL_TIER_CLASSES.filter((c) => !TIER_CLASS[tier].includes(c));
-}
-
 const COMPONENT_RADIUS: ComponentRadiusCheck[] = [
-  { file: 'packages/ui/src/ui.tsx', name: 'buttonVariants', tier: 'control' },
+  // shape="pill" (the composer "+" / send affordance) is a governed pill-tier
+  // shape on the control-tier Button — both tiers must stay present.
+  { file: 'packages/ui/src/ui.tsx', name: 'buttonVariants', tier: 'control', alsoTiers: ['pill'] },
   { file: 'packages/ui/src/primitives/input.tsx', name: 'inputClasses', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'SelectItem', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'Toggle', tier: 'control' },
@@ -294,25 +298,27 @@ function checkComponentTier(src: string, check: ComponentRadiusCheck): string[] 
     offenders.push(`${check.file}: ${check.name} not found in source — stale contract entry or renamed component`);
     return offenders;
   }
-  const expected = TIER_CLASS[check.tier];
-  const expectedTokens = TIER_TOKENS[check.tier];
-  const forbidden = classesForOtherTiers(check.tier);
-  const hasExpected = expected.some((c) => block.includes(c));
-  if (!hasExpected) {
-    offenders.push(`${check.file}: ${check.name} must use ${expected.join(' or ')} (${check.tier}), found none`);
+  const tiers: Tier[] = [check.tier, ...(check.alsoTiers ?? [])];
+  for (const tier of tiers) {
+    const expected = TIER_CLASS[tier];
+    if (!expected.some((c) => block.includes(c))) {
+      offenders.push(`${check.file}: ${check.name} must use ${expected.join(' or ')} (${tier}), found none`);
+    }
   }
+  const forbidden = ALL_TIER_CLASSES.filter((c) => !tiers.some((tier) => TIER_CLASS[tier].includes(c)));
   for (const bad of forbidden) {
     if (block.includes(bad)) {
-      offenders.push(`${check.file}: ${check.name} must not use ${bad} (wrong tier for ${check.tier})`);
+      offenders.push(`${check.file}: ${check.name} must not use ${bad} (wrong tier for ${tiers.join(' + ')})`);
     }
   }
   // Extract every --radius-* reference in the block and verify it belongs
   // to the expected tier. Catches calc() and arbitrary value paths that
   // the class-based check misses.
+  const expectedTokens = new Set(tiers.flatMap((tier) => [...TIER_TOKENS[tier]]));
   const blockTokens = [...block.matchAll(/--radius-[\w-]+/g)].map((t) => t[0]);
   for (const tok of blockTokens) {
     if (!expectedTokens.has(tok)) {
-      offenders.push(`${check.file}: ${check.name} references ${tok} which is not a ${check.tier} tier token`);
+      offenders.push(`${check.file}: ${check.name} references ${tok} which is not a ${tiers.join(' + ')} tier token`);
     }
   }
   return offenders;
