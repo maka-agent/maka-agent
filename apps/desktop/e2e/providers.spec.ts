@@ -30,7 +30,6 @@ test('adds a catalog provider through the canonical API-key dialog', async ({ wi
   await expect(page.getByLabel('设置内容')).toBeVisible();
 
   await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
 
   await expect(page.getByPlaceholder('搜索服务商')).toBeVisible();
   await page.getByRole('tab', { name: 'API', exact: true }).click();
@@ -49,16 +48,14 @@ test('adds a catalog provider through the canonical API-key dialog', async ({ wi
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel('API Key')).toBeFocused();
   await expect(dialog.getByLabel('API Key')).toHaveAttribute('type', 'password');
-  const intro = dialog.getByText('输入 API Key 即可连接；密钥仅保存在本机。');
-  await expect(intro).toBeVisible();
-  await expect(intro).toHaveCSS('white-space', 'nowrap');
-  expect(await intro.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect(dialog.getByText('完成必要配置后，连接会出现在模型页上方。')).toBeVisible();
+  await expect(dialog.locator('[data-slot="dialog-header"]')).toHaveCSS('border-bottom-width', '0px');
   await expect(dialog.getByLabel('API Key')).toHaveAttribute('placeholder', '输入或粘贴 API Key');
   await expect(dialog.getByLabel('模型供应商连接标识')).toHaveCount(0);
   await expect(dialog.getByLabel('模型供应商服务地址')).toHaveCount(0);
   await expect(dialog.getByLabel('模型供应商默认模型')).toHaveCount(0);
   const dialogBox = await dialog.boundingBox();
-  expect(dialogBox?.width).toBeLessThanOrEqual(420);
+  expect(dialogBox?.width).toBeLessThanOrEqual(520);
   await expect(dialog.locator('.providerLogo')).toHaveCSS('width', '24px');
   await expect(dialog.locator('.providerLogo')).toHaveCSS('height', '24px');
   const keyInput = dialog.getByLabel('API Key');
@@ -79,14 +76,23 @@ test('adds a catalog provider through the canonical API-key dialog', async ({ wi
   await dialog.getByRole('button', { name: '连接并使用', exact: true }).click();
 
   await expect(dialog).toBeHidden();
+  await expect(page.getByRole('button', { name: /添加模型供应商：Cerebras/ })).toBeFocused();
   const connection = page.getByRole('button', { name: /模型连接：Cerebras/ });
-  await expect(connection).toBeFocused();
   await connection.click();
-  const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="cerebras"] img');
+  const detailDialog = page.getByRole('dialog', { name: 'Cerebras' });
+  await expect(detailDialog).toBeVisible();
+  const detailMark = detailDialog.locator('.providerLogo[data-provider="cerebras"] img');
   await expect(detailMark).toBeVisible();
   expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
-  await expect(page.getByText('gpt-oss-120b', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toHaveAttribute('placeholder', '••••••••');
+  await expect(detailDialog.getByText('GPT OSS 120B', { exact: true })).toBeHidden();
+  await detailDialog.getByText('高级设置', { exact: true }).click();
+  await expect(detailDialog.getByText('GPT OSS 120B', { exact: true }).first()).toBeVisible();
+  const enabledModels = detailDialog.getByRole('list', { name: '已启用模型' });
+  await expect(enabledModels.getByRole('button')).toHaveCount(0);
+  await detailDialog.getByLabel('搜索并添加模型').fill('gemma-4-31b');
+  await detailDialog.getByRole('list', { name: '可添加模型' }).getByRole('button', { name: '添加' }).click();
+  await expect(enabledModels).toContainText('Gemma');
+  await expect(detailDialog.getByRole('textbox', { name: /模型密钥/ })).toHaveAttribute('placeholder', '••••••••');
 });
 
 // Distinct form behavior: an account-scoped provider has no fixed base URL —
@@ -97,7 +103,6 @@ test('derives an account-scoped endpoint from the Cloudflare account-id field', 
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();
   await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
 
   await page.getByRole('tab', { name: 'API', exact: true }).click();
   await page.getByPlaceholder('搜索服务商').fill('Cloudflare Workers AI');
@@ -118,9 +123,12 @@ test('derives an account-scoped endpoint from the Cloudflare account-id field', 
   await page.getByLabel('Cloudflare Workers AI API Key').fill('e2e-cloudflare-key');
   await page.getByRole('button', { name: '保存供应商' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Cloudflare Workers AI', exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '服务地址', exact: true })).toHaveValue(baseUrl);
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toHaveAttribute('placeholder', '••••••••');
+  const connection = page.getByRole('button', { name: /模型连接：Cloudflare Workers AI/ });
+  await connection.click();
+  const dialog = page.getByRole('dialog', { name: 'Cloudflare Workers AI' });
+  await dialog.getByText('高级设置', { exact: true }).click();
+  await expect(dialog.getByRole('textbox', { name: '服务地址', exact: true })).toHaveValue(baseUrl);
+  await expect(dialog.getByRole('textbox', { name: /模型密钥/ })).toHaveAttribute('placeholder', '••••••••');
 });
 
 // Distinct form behavior: a no-auth local runtime shows no API-key field at all
@@ -130,7 +138,6 @@ test('adds a no-auth local runtime with no key field and a currentColor mask mar
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();
   await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-  await page.getByRole('button', { name: '添加服务商' }).click();
 
   await page.getByRole('tab', { name: '本地' }).click();
   await page.getByPlaceholder('搜索服务商').fill('LM Studio');
@@ -143,28 +150,23 @@ test('adds a no-auth local runtime with no key field and a currentColor mask mar
 
   await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('lm-studio');
   await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('http://localhost:1234/v1');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('');
+  await expect(page.getByLabel('模型供应商默认模型')).toHaveCount(0);
   await expect(page.getByLabel(/LM Studio 模型密钥/)).toHaveCount(0);
   await page.getByRole('button', { name: '保存供应商' }).click();
 
-  await expect(page.getByRole('heading', { name: 'LM Studio', exact: true }).first()).toBeVisible();
-  const detailMark = page.locator(
-    '.providerSubpageHeader .providerLogo[data-provider="lm-studio"] .providerAssetMask',
-  );
+  const connection = page.getByRole('button', { name: /模型连接：LM Studio/ });
+  await connection.click();
+  const dialog = page.getByRole('dialog', { name: 'LM Studio' });
+  const detailMark = dialog.locator('.providerLogo[data-provider="lm-studio"] .providerAssetMask');
   await expect(detailMark).toBeVisible();
   expect(await detailMark.evaluate(maskRenderContract)).toEqual({ usesAssetMask: true, followsForeground: true });
-  await expect(page.getByLabel(/LM Studio 模型密钥/)).toHaveCount(0);
+  await expect(dialog.getByLabel(/LM Studio 模型密钥/)).toHaveCount(0);
 });
 
-test('restores keyboard focus across provider child pages', async ({ window: page }) => {
+test('restores keyboard focus across provider dialogs', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();
   await page.locator('[aria-label="设置分组"]').getByText('模型', { exact: true }).click();
-
-  const addProvider = page.getByRole('button', { name: '添加服务商' });
-  await addProvider.focus();
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('button', { name: '返回模型连接' })).toBeFocused();
 
   await page.getByPlaceholder('搜索服务商').fill('SiliconFlow');
   const siliconFlow = page.getByRole('button', { name: /添加模型供应商：SiliconFlow/ });
@@ -175,16 +177,11 @@ test('restores keyboard focus across provider child pages', async ({ window: pag
   await page.keyboard.press('Escape');
   await expect(siliconFlow).toBeFocused();
 
-  const catalogBack = page.getByRole('button', { name: '返回模型连接' });
-  await catalogBack.focus();
-  await page.keyboard.press('Enter');
-  await expect(addProvider).toBeFocused();
-
   const existingConnection = page.getByRole('button', { name: /模型连接：E2E/ });
   await existingConnection.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('button', { name: '返回模型连接' })).toBeFocused();
-  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'E2E' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(existingConnection).toBeFocused();
 });
 

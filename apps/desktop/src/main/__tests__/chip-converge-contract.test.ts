@@ -43,7 +43,7 @@ test('chip converge (#520 PR9)', async () => {
   const CHIP_IMPORT_RE =
     /import\s+\{[^}]*\bChip\b[^}]*\}\s+from\s+['"][^'"]*?(?:@maka\/ui|primitives\/chip\.js)['"]/;
   const settingsChipFiles = [
-    'apps/desktop/src/renderer/settings/provider-connection-detail.tsx',
+    'apps/desktop/src/renderer/settings/ProvidersPanel.tsx',
     'apps/desktop/src/renderer/settings/provider-add-form.tsx',
     'apps/desktop/src/renderer/settings/web-search-settings-page.tsx',
     'apps/desktop/src/renderer/settings/memory-settings-page.tsx',

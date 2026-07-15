@@ -2,6 +2,7 @@ import {
   CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS,
   PROVIDER_DEFAULTS,
   buildConnectionModelCatalogEntries,
+  connectionEnabledModelIds,
   type LlmConnection,
   type ModelCatalogEntry,
   type ProviderType,
@@ -39,7 +40,9 @@ export function buildCatalogChatModelChoices(connections: readonly LlmConnection
     const connectionName = PROVIDER_DEFAULTS[connection.providerType].authKind === 'oauth_token'
       ? undefined
       : connection.name;
+    const enabledModelIds = new Set(connectionEnabledModelIds(connection));
     for (const entry of selectableCatalogEntries(connection)) {
+      if (!enabledModelIds.has(entry.id)) continue;
       choices.push({
         connectionSlug: connection.slug,
         providerType: connection.providerType,
@@ -107,14 +110,25 @@ export function buildCatalogDailyReviewModelOptions(
 function dailyReviewCatalogEntries(
   connection: Pick<
     LlmConnection,
-    'slug' | 'providerType' | 'defaultModel' | 'models' | 'modelSource' | 'modelsFetchedAt'
+    'slug' | 'providerType' | 'defaultModel' | 'enabledModelIds' | 'models' | 'modelSource' | 'modelsFetchedAt'
   >,
   savedModelIds: Iterable<SavedModelChoice | undefined | null>,
 ): ModelCatalogEntry[] {
+  const savedChoices = Array.from(savedModelIds);
+  const enabledIds = new Set(connectionEnabledModelIds(connection));
+  const visibleIds = new Set(enabledIds);
+  for (const choice of savedChoices) {
+    const id = typeof choice === 'string' ? choice.trim() : choice?.id.trim();
+    if (id) visibleIds.add(id);
+  }
   return filterUnsupportedCodexModels(
     connection.providerType,
-    buildConnectionModelCatalogEntries({ connection, savedModelIds }),
-  ).filter((entry) => entry.canUseAsChatDefault || entry.provenance.sources?.userChoice?.includes('daily_review_model'));
+    buildConnectionModelCatalogEntries({ connection, savedModelIds: savedChoices }),
+  )
+    .filter((entry) => visibleIds.has(entry.id) && (
+      entry.canUseAsChatDefault || entry.provenance.sources?.userChoice?.includes('daily_review_model')
+    ))
+    .map((entry) => enabledIds.has(entry.id) ? entry : { ...entry, canUseAsChatDefault: false });
 }
 
 function selectableCatalogEntries(
@@ -170,7 +184,8 @@ function isModelConsumerConnection(connection: Pick<LlmConnection, 'enabled' | '
   if (
     defaults.authKind === 'oauth_token' &&
     connection.providerType !== 'claude-subscription' &&
-    connection.providerType !== 'openai-codex'
+    connection.providerType !== 'openai-codex' &&
+    connection.providerType !== 'github-copilot'
   ) {
     return false;
   }

@@ -8,15 +8,17 @@ const SETTINGS_SURFACE = resolve(import.meta.dirname, '../../../src/renderer/set
 const PROVIDER_CSS = resolve(import.meta.dirname, '../../../src/renderer/styles/settings/provider-editor.css');
 
 describe('Settings model provider page hierarchy', () => {
-  test('uses in-pane catalog, add, and detail pages instead of a config Sheet', async () => {
+  test('keeps connected models and the add catalog on one root page, with dialogs for create and manage', async () => {
     const source = await readFile(PANEL, 'utf8');
 
-    assert.match(source, /type ProviderPage\s*=/, 'ProvidersPanel must own an explicit child-page state');
-    assert.match(source, /kind:\s*'catalog'/, 'the provider catalog must be an independent child page');
-    assert.match(source, /kind:\s*'add'/, 'provider configuration must be an independent child page');
-    assert.match(source, /kind:\s*'detail'/, 'connection detail must be an independent child page');
-    assert.match(source, /aria-label="返回模型连接"/, 'child pages must expose a keyboard-accessible back action');
-    assert.doesNotMatch(source, /ProviderConfigSheetOverlay/, 'provider configuration must not remain in a right Sheet');
+    assert.match(source, /type ProviderDialogState\s*=/, 'ProvidersPanel must own one dialog selection state');
+    assert.match(source, /kind:\s*'create'/, 'the dialog state must represent a provider being created');
+    assert.match(source, /kind:\s*'manage'/, 'the dialog state must represent an existing connection being managed');
+    assert.doesNotMatch(source, /type ProviderPage\s*=/, 'catalog/add/detail child-page routing must be removed');
+    const connected = source.indexOf('className="enabledStrip"');
+    const catalog = source.indexOf('className="providerCatalogSection"');
+    assert.ok(connected >= 0 && catalog > connected, 'the add catalog must render below connected models on the same page');
+    assert.doesNotMatch(source, /<ProviderPageHeader/, 'the root page must not navigate through provider child pages');
   });
 
   test('catalog supports search and the five user-intent categories', async () => {
@@ -28,17 +30,21 @@ describe('Settings model provider page hierarchy', () => {
     }
   });
 
-  test('catalog is a reversible child pane with standard search chrome below its category tabs', async () => {
+  test('recommended catalog mixes runnable account connections and hides unavailable providers', async () => {
+    const source = await readFile(PANEL, 'utf8');
+
+    assert.match(source, /catalogCategory === 'recommended'[\s\S]*<ModelOAuthSection/);
+    assert.match(source, /PROVIDER_DEFAULTS\[type\]\.status !== 'ready'/);
+    assert.match(source, /id:\s*'accounts'/, 'runnable account connections remain directly browseable');
+  });
+
+  test('inline catalog keeps standard search chrome below its category tabs', async () => {
     const [source, css] = await Promise.all([
       readFile(PANEL, 'utf8'),
       readFile(PROVIDER_CSS, 'utf8'),
     ]);
 
-    assert.match(
-      source,
-      /if \(page\.kind === 'catalog' \|\| \(page\.kind === 'add' && usesQuickApiKeyDialog\(page\.providerType\)\)\)[\s\S]*<ProviderPageHeader[\s\S]*title="添加服务商"[\s\S]*onBack=\{\(\) => navigate\(\{ kind: 'connections' \}, \{ kind: 'add-provider' \}\)\}/,
-      'the catalog must provide a way back to model connections',
-    );
+    assert.match(source, /className="providerCatalogSection"[\s\S]*id="provider-catalog-title">添加新连接/);
     assert.match(
       source,
       /<PrimitiveTabsList[\s\S]*<InputGroup className="providerCatalogSearch">[\s\S]*<InputGroupAddon>[\s\S]*<Search[\s\S]*<InputGroupInput/,

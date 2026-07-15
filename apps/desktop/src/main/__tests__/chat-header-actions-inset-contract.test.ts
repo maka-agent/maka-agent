@@ -54,7 +54,7 @@ async function workspaceTopActionButtonCount(): Promise<number> {
   const start = source.indexOf('export function AppShellWorkspaceTopActions');
   assert.notEqual(start, -1, 'AppShellWorkspaceTopActions should exist');
   const block = source.slice(start);
-  return [...block.matchAll(/render=\{<UiButton variant="quiet" size="icon-sm" \/>\}/g)].length;
+  return [...block.matchAll(/render=\{<UiButton variant="quiet" size="icon-sm"(?: disabled=\{[^}]+\})? \/>\}/g)].length;
 }
 
 describe('chat header actions inset contract', () => {
@@ -102,7 +102,7 @@ describe('chat header actions inset contract', () => {
     const gap = pxDeclaration(toolbarBody, 'gap');
     const insetAddend = workspaceTopActionsInsetAddend(css);
 
-    assert.equal(buttonCount, 4, 'current top-actions toolbar renders four icon buttons');
+    assert.equal(buttonCount, 5, 'current top-actions toolbar renders five icon buttons');
     assert.equal(buttonSize, 28, 'top-actions use the governed compact Button tier');
     assert.equal(gap, 6, 'top-actions icon buttons use a 6px gap');
     assert.equal(

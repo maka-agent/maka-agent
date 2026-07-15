@@ -101,6 +101,22 @@ describe('syncOpenAiCodexConnection live discovery behavior', () => {
     assert.equal(saved.lastTestStatus, 'verified');
   });
 
+  it('preserves the user-enabled model allowlist during OAuth synchronization', async () => {
+    const existing = makeExisting({
+      enabledModelIds: ['gpt-5.6-sol', 'gpt-5.5'],
+      models: [{ id: 'gpt-5.6-sol' }, { id: 'gpt-5.5' }],
+    });
+    const { sync, getSaved } = makeService({
+      existing,
+      token: 'tok',
+      fetchModels: async () => existing.models!,
+    });
+
+    await sync();
+
+    assert.deepEqual(getSaved()!.enabledModelIds, ['gpt-5.6-sol', 'gpt-5.5']);
+  });
+
   it('disables the connection with lastTestStatus=error when /models returns an empty list', async () => {
     const { sync, getSaved } = makeService({
       existing: makeExisting(),
@@ -203,5 +219,64 @@ describe('syncOpenAiCodexConnection live discovery behavior', () => {
     assert.equal(saved.lastTestStatus, 'error');
     assert.deepEqual(saved.models, []);
     assert.equal(saved.modelSource, 'fetched');
+  });
+});
+
+describe('OAuth model connection user settings', () => {
+  it('preserves the Claude user-enabled model allowlist during synchronization', async () => {
+    const defaults = PROVIDER_DEFAULTS['claude-subscription'];
+    const existing = makeExisting({
+      slug: 'claude-subscription',
+      providerType: 'claude-subscription',
+      defaultModel: defaults.fallbackModels[0],
+      enabledModelIds: defaults.fallbackModels.slice(0, 2),
+      models: defaults.fallbackModels.map((id) => ({ id })),
+    });
+    let saved: LlmConnection | null = null;
+    const service = createOAuthModelConnectionsMainService({
+      connectionStore: {
+        get: async () => existing,
+        save: async (value: LlmConnection) => {
+          saved = value;
+          return value;
+        },
+      },
+      claudeSubscription: {
+        getAccountState: async () => ({ runtimeState: 'authenticated' }),
+      },
+    } as never);
+
+    await service.syncClaudeSubscriptionConnection();
+
+    assert.deepEqual(saved!.enabledModelIds, defaults.fallbackModels.slice(0, 2));
+  });
+
+  it('preserves the GitHub Copilot user-enabled model allowlist during synchronization', async () => {
+    const existing = makeExisting({
+      slug: 'github-copilot',
+      providerType: 'github-copilot',
+      defaultModel: 'gpt-5.4',
+      enabledModelIds: ['gpt-5.4', 'claude-sonnet-4.6'],
+      models: [{ id: 'gpt-5.4' }, { id: 'claude-sonnet-4.6' }],
+    });
+    let saved: LlmConnection | null = null;
+    const service = createOAuthModelConnectionsMainService({
+      connectionStore: {
+        get: async () => existing,
+        save: async (value: LlmConnection) => {
+          saved = value;
+          return value;
+        },
+      },
+      githubCopilotSubscription: {
+        getAccountState: async () => ({ runtimeState: 'authenticated' }),
+        getTokensInternal: async () => ({ access_token: 'tok', base_url: 'https://api.githubcopilot.com' }),
+      },
+      fetchModels: async () => existing.models!,
+    } as never);
+
+    await service.syncGitHubCopilotConnection();
+
+    assert.deepEqual(saved!.enabledModelIds, ['gpt-5.4', 'claude-sonnet-4.6']);
   });
 });

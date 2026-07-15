@@ -15,26 +15,20 @@
  *  3. **Failure-state coverage** (delegated to ArtifactPreview): all five
  *     `ArtifactReadFailureReason`s have explicit Chinese copy.
  *
- *  4. **Smoke fixture compatibility**: the pane mounts when `sessionId` is
- *     defined AND at least one live artifact exists. The
- *     `MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane` scenario seeds
- *     3 artifacts, so the pane is visible during the smoke.
+ *  4. **Workbar ownership**: the component owns artifact data and content,
+ *     while SessionWorkbar owns visibility, width, tabs, and collapse state.
  *
  *  5. **Copy/export policy**: only the text-based kinds (`file`, `diff`,
  *     `html`) expose a Copy button. `image` / `pdf` rows do NOT — those are
  *     binary, and silently base64-stuffing a multi-MB PDF into the clipboard
  *     is a footgun. Both kinds still get「在 Finder 中打开」and「另存为」.
  *
- * Layout: collapsible aside. Width is fixed (~360px expanded, ~32px
- * collapsed) — adjustable in the future; the contract gate is that the
- * pane returns `null` when it shouldn't take space.
+ * Layout: fills the Files tab and reports its authoritative filtered count.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Button as BaseButton } from '@base-ui/react/button';
 import {
   AlertTriangle,
-  ChevronLeft,
-  ChevronRight,
   FileCode,
   FileImage,
   FileText,
@@ -80,18 +74,18 @@ import {
 import { ArtifactPreview } from './artifact-preview';
 import { nextArtifactListAction } from './artifact-list-keyboard';
 import { filterUserVisibleArtifacts } from './artifact-visibility';
-import { safeLocalStorageGet, safeLocalStorageSet } from './browser-storage';
 import { openPathFailureCopy } from './open-path';
 
-const COLLAPSE_KEY = 'maka-artifact-pane-collapsed-v1';
-
-export function ArtifactPane(props: { sessionId: string | undefined }) {
+export function ArtifactPane(props: {
+  sessionId: string;
+  onCountChange?: (count: number) => void;
+  onDismiss?: () => void;
+}) {
   const { sessionId } = props;
   const toast = useToast();
   const [records, setRecords] = useState<ArtifactRecord[]>([]);
   const [recordsSessionId, setRecordsSessionId] = useState<string | undefined>(undefined);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsed());
   const [listError, setListError] = useState<{ sessionId: string; message: string } | null>(null);
   const [pendingArtifactListRetry, setPendingArtifactListRetry] = useState(false);
   const [pendingArtifactAction, setPendingArtifactAction] = useState<string | null>(null);
@@ -164,14 +158,14 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
     };
   }, [sessionId, refresh]);
 
-  useEffect(() => {
-    safeLocalStorageSet(COLLAPSE_KEY, collapsed ? '1' : '0');
-  }, [collapsed]);
-
   const activeRecords = useMemo(
     () => (recordsSessionId === sessionId ? filterUserVisibleArtifacts(records) : []),
     [records, recordsSessionId, sessionId],
   );
+
+  useEffect(() => {
+    props.onCountChange?.(activeRecords.length);
+  }, [activeRecords.length, props.onCountChange]);
 
   // 已删除墓碑记录保持可选，用于展示明确失败态；只有选中 id 彻底消失时才回退到最新 live artifact。
   useEffect(() => {
@@ -191,16 +185,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   const listRef = useRef<HTMLUListElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const activeListError = listError && listError.sessionId === sessionId ? listError.message : null;
-  const hasLiveArtifact = activeRecords.some((record) => record.status !== 'deleted');
   const artifactActionBusy = pendingArtifactAction !== null;
-
-  // Default hidden until the session has a live artifact. Returning
-  // `null` keeps the chat surface flush with the right window edge until
-  // the runtime actually produces an artifact. A current-session list error is
-  // also visible; otherwise "list failed" is indistinguishable from "no files".
-  if (!sessionId || (!hasLiveArtifact && !activeListError)) {
-    return null;
-  }
 
   // ---- actions -----------------------------------------------------------
 
@@ -338,7 +323,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   }
 
   function dismissPaneToComposer() {
-    setCollapsed(true);
+    props.onDismiss?.();
     focusComposer();
   }
 
@@ -377,42 +362,12 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   }
 
   return (
-    <aside
+    <div
       className="maka-artifact-pane"
-      data-collapsed={collapsed ? 'true' : 'false'}
-      data-layout="responsive-bottom-sheet"
       aria-label="生成文件预览面板"
       onKeyDown={handlePaneKeyDown}
     >
-      <header className="maka-artifact-pane-header">
-        <Tooltip>
-          <TooltipTrigger
-            render={<Button variant="quiet" size="icon-sm" />}
-            type="button"
-            onClick={() => setCollapsed((current) => !current)}
-            // @kenji a11y gate #3: aria-expanded reflects the actual visible
-            // content state (true when pane shows list + preview + toolbar,
-            // false when collapsed to chevron rail). aria-pressed retained
-            // since this is still a toggle button (a screen reader announces
-            // both "pressed" + "expanded" meaningfully).
-            aria-pressed={collapsed}
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? '展开生成文件面板' : '折叠生成文件面板'}
-          >
-            {collapsed ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-          </TooltipTrigger>
-          <TooltipContent>{collapsed ? '展开生成文件面板' : '折叠生成文件面板'}</TooltipContent>
-        </Tooltip>
-        {!collapsed && (
-          <>
-            <span className="maka-artifact-pane-title">生成文件</span>
-            <span className="maka-artifact-pane-count">{activeRecords.length}</span>
-          </>
-        )}
-      </header>
-      {!collapsed && (
-        <>
-          {activeListError && (
+      {activeListError && (
             <Alert variant="error" className="maka-artifact-list-error">
               <AlertTriangle size={14} aria-hidden="true" />
               <AlertTitle>生成文件列表载入失败</AlertTitle>
@@ -501,8 +456,8 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   <EmptyMedia variant="icon">
                     <FileText aria-hidden="true" />
                   </EmptyMedia>
-                  <EmptyTitle>暂未选中文件</EmptyTitle>
-                  <EmptyDescription>选择左侧生成文件查看预览。</EmptyDescription>
+                  <EmptyTitle>{activeRecords.length > 0 ? '暂未选中文件' : '暂无生成文件'}</EmptyTitle>
+                  <EmptyDescription>{activeRecords.length > 0 ? '从上方列表选择文件查看预览。' : '助手生成文件后会显示在这里。'}</EmptyDescription>
                 </EmptyHeader>
               </Empty>
             )}
@@ -573,9 +528,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               </ToolbarGroup>
             </Toolbar>
           )}
-        </>
-      )}
-    </aside>
+    </div>
   );
 }
 
@@ -621,10 +574,6 @@ function KindIcon(props: { kind: ArtifactKind }) {
     case 'pdf':
       return <FileType size={14} />;
   }
-}
-
-function readCollapsed(): boolean {
-  return safeLocalStorageGet(COLLAPSE_KEY) === '1';
 }
 
 /* PR-FORMAT-BYTES-DEDUP-0 (round 21/30): the local `formatBytes`

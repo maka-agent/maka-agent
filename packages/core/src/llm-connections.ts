@@ -75,6 +75,8 @@ export interface LlmConnection {
   baseUrl?: string;
   defaultModel: string;
   enabled: boolean;
+  /** Model ids shown in model pickers. Legacy connections omit this and enable only their default model. */
+  enabledModelIds?: string[];
   models?: ModelInfo[];
   modelSource?: ModelDiscoverySource;
   /** Unix ms timestamp for the last successful model discovery result. */
@@ -87,6 +89,28 @@ export interface LlmConnection {
   createdAt: number;
   updatedAt: number;
   extras?: Record<string, unknown>;
+}
+
+/**
+ * Return the model ids exposed by a connection, preserving the invariant that
+ * its default model is always enabled. Missing legacy state intentionally
+ * resolves to the default model only, never the full discovered catalog.
+ */
+export function connectionEnabledModelIds(connection: {
+  defaultModel?: unknown;
+  enabledModelIds?: unknown;
+}): string[] {
+  const candidates = [
+    connection.defaultModel,
+    ...(Array.isArray(connection.enabledModelIds) ? connection.enabledModelIds : []),
+  ];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const id = candidate.trim();
+    if (id) seen.add(id);
+  }
+  return [...seen];
 }
 
 export type ConnectionTestErrorClass =
@@ -317,6 +341,7 @@ export interface UpdateConnectionInput {
   baseUrl?: string;
   defaultModel?: string;
   enabled?: boolean;
+  enabledModelIds?: string[];
   apiKey?: string;
   models?: ModelInfo[];
   modelSource?: ModelDiscoverySource;
@@ -337,7 +362,11 @@ export function migrateConnectionV1ToV2(old: unknown): LlmConnection {
     createdAt?: number;
   };
   if (value.providerType) {
-    return { ...value, providerType: normalizeProviderType(value.providerType) } as LlmConnection;
+    return {
+      ...value,
+      providerType: normalizeProviderType(value.providerType),
+      enabledModelIds: connectionEnabledModelIds(value),
+    } as LlmConnection;
   }
   if (!value.slug) throw new Error('Cannot migrate connection without slug');
 
@@ -350,6 +379,7 @@ export function migrateConnectionV1ToV2(old: unknown): LlmConnection {
       ...(value.baseUrl ? { baseUrl: value.baseUrl } : {}),
       defaultModel: value.defaultModel || 'claude-sonnet-4-5-20250929',
       enabled: false,
+      enabledModelIds: [value.defaultModel || 'claude-sonnet-4-5-20250929'],
       createdAt: value.createdAt ?? now,
       updatedAt: now,
     };
@@ -363,6 +393,7 @@ export function migrateConnectionV1ToV2(old: unknown): LlmConnection {
       ...(value.baseUrl ? { baseUrl: value.baseUrl } : {}),
       defaultModel: value.defaultModel || 'claude-sonnet-4-5-20250929',
       enabled: true,
+      enabledModelIds: [value.defaultModel || 'claude-sonnet-4-5-20250929'],
       createdAt: value.createdAt ?? now,
       updatedAt: now,
     };

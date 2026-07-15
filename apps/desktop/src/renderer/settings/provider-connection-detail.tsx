@@ -1,14 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { Button as BaseButton } from '@base-ui/react/button';
-import {
-  canPickDefaultModel,
-  canSaveDefaultModelChange,
-  nextRadioId,
-  selectableDefaultModelIds,
-  tabbableRadioId,
-} from './model-table-keyboard';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   PROVIDER_DEFAULTS,
+  connectionEnabledModelIds,
   generalizedErrorMessageChinese,
   type ConnectionTestResult,
   type LlmConnection,
@@ -17,21 +10,21 @@ import {
   type ProviderType,
 } from '@maka/core';
 import { providerAuthRequiresSecret, providerAuthSupportsApiKey } from '@maka/core/llm-connections';
-import { formatRelativeTimestamp } from '@maka/core';
-import { Button, Chip, FieldDescription, FieldRoot, Input, Label, useMountedRef, useToast } from '@maka/ui';
+import { Button, FieldDescription, FieldRoot, Input, Label, RelativeTime, useMountedRef, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { buildCatalogModelChoices } from '../model-catalog-choices';
 import { providerDisplay } from './provider-display';
+import { connectionChipStatus } from './provider-connection-status';
 import { useOAuthLoginFlow, type OAuthLoginFlowBridge } from './use-oauth-login-flow';
 import {
-  categoryLabel,
+  connectionLastTestMessageDisplay,
   providerPanelActionErrorMessage,
   type ConnectionsBridge,
   type CredentialPresenceStatus,
 } from './provider-panel-shared';
 
 // Maps an OAuth model-connection provider type to the browser-loopback login
-// service that can re-run its authorization from inside the detail sheet. Only
+// service that can re-run its authorization from inside the connection dialog. Only
 // the loopback / polling services (Codex, Antigravity) are one-button-drivable
 // here; Claude's paste-code flow and plain API-key providers return null so the
 // notice falls back to prose instead of rendering a dead button.
@@ -55,11 +48,6 @@ function oauthLoginServiceFor(providerType: ProviderType): OAuthLoginService | n
     default:
       return null;
   }
-}
-
-function formatFetchedAtSuffix(modelsFetchedAt: number | undefined): string {
-  if (modelsFetchedAt === undefined) return '';
-  return `（${formatRelativeTimestamp(modelsFetchedAt)}拉取）`;
 }
 
 function connectionTestFailureMessage(result: ConnectionTestResult, troubleshootingCopy: string): string {
@@ -147,8 +135,8 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     defaults.authKind === 'none' ? true : 'loading',
   );
   const [baseUrl, setBaseUrl] = useState(connection.baseUrl ?? defaults.baseUrl ?? '');
-  const [defaultModel, setDefaultModel] = useState(connection.defaultModel);
   const [models, setModels] = useState<ModelInfo[]>(connection.models ?? []);
+  const [enabledModelIds, setEnabledModelIds] = useState(() => connectionEnabledModelIds(connection));
   // Backend persists the model-list source alongside the model cache, so a
   // Settings restart no longer has to infer "fetched" from a non-empty array.
   // A successful provider response may legitimately contain 0 models; source
@@ -160,11 +148,13 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
+  const [savingEnabledModels, setSavingEnabledModels] = useState(false);
   const [settingDefault, setSettingDefault] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const busyRef = useRef(false);
   const testingRef = useRef(false);
   const fetchingModelsRef = useRef(false);
+  const savingEnabledModelsRef = useRef(false);
   const settingDefaultRef = useRef(false);
   const deletingRef = useRef(false);
   const connectionDetailMountedRef = useMountedRef();
@@ -184,11 +174,12 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     : '模型密钥 / 服务地址 / 代理设置';
   const savedBaseUrl = connection.baseUrl ?? defaults.baseUrl;
   const draftBaseUrl = baseUrl;
-  const hasSaveChanges =
-    apiKey.length > 0 ||
-    draftBaseUrl !== savedBaseUrl ||
-    defaultModel !== connection.defaultModel;
-  const detailActionBusy = busy || testing || fetchingModels || settingDefault || deleting;
+  const hasApiKeyChange = apiKey.length > 0;
+  const hasBaseUrlChange = draftBaseUrl !== savedBaseUrl;
+  const detailActionBusy = busy || testing || fetchingModels || savingEnabledModels || settingDefault || deleting;
+  const issue = connectionChipStatus(connection);
+  const lastTestMessage = connectionLastTestMessageDisplay(connection.lastTestMessage);
+  const lastTestAtMs = connection.lastTestAt ? Date.parse(connection.lastTestAt) : NaN;
 
   useEffect(() => {
     connectionDetailLifecycleRef.current += 1;
@@ -197,6 +188,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
       busyRef.current = false;
       testingRef.current = false;
       fetchingModelsRef.current = false;
+      savingEnabledModelsRef.current = false;
       settingDefaultRef.current = false;
       deletingRef.current = false;
     };
@@ -229,17 +221,16 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     const nextSnapshot = connectionDetailSnapshot(connection, defaults.baseUrl);
     const previousSnapshot = syncedConnectionSnapshotRef.current;
     const localStillSynced = connectionDetailDraftMatchesSnapshot(
-      { baseUrl, defaultModel, models, modelSource },
+      { baseUrl, models, modelSource },
       previousSnapshot,
     );
     const localAlreadyMatchesNext = connectionDetailDraftMatchesSnapshot(
-      { baseUrl, defaultModel, models, modelSource },
+      { baseUrl, models, modelSource },
       nextSnapshot,
     );
 
     if (connection.slug !== previousSnapshot.slug || (apiKey.length === 0 && localStillSynced)) {
       setBaseUrl(nextSnapshot.baseUrl);
-      setDefaultModel(nextSnapshot.defaultModel);
       setModels(nextSnapshot.models);
       setModelSource(nextSnapshot.modelSource);
       syncedConnectionSnapshotRef.current = nextSnapshot;
@@ -253,41 +244,35 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     apiKey.length,
     baseUrl,
     connection,
-    defaultModel,
     defaults.baseUrl,
     modelSource,
     models,
   ]);
+
+  useEffect(() => {
+    setEnabledModelIds(connectionEnabledModelIds(connection));
+  }, [connection.defaultModel, connection.enabledModelIds, connection.slug]);
 
   // Picker entries come from the same catalog merge path as Chat and Daily
   // Review, but use the local unsaved editor draft for model/default changes.
   const modelChoices = buildCatalogModelChoices({
     slug: connection.slug,
     providerType: connection.providerType,
-    defaultModel,
+    defaultModel: connection.defaultModel,
     models: modelSource === 'fetched' || models.length > 0 ? models : undefined,
     modelSource,
     modelsFetchedAt: connection.modelsFetchedAt,
   });
-  const catalogFallbackCount = modelChoices.filter((choice) => choice.source === 'static_catalog').length;
 
   async function save() {
-    if (busyRef.current || testingRef.current || fetchingModelsRef.current || settingDefaultRef.current || deletingRef.current) return;
-    if (!canSaveDefaultModelChange(connection.defaultModel, defaultModel, modelChoices)) {
-      toast.error(
-        '默认模型不可用',
-        '请选择一个当前可用于聊天的模型后再保存。',
-      );
-      return;
-    }
+    if (busyRef.current || testingRef.current || fetchingModelsRef.current || savingEnabledModelsRef.current || settingDefaultRef.current || deletingRef.current) return;
     const lifecycle = connectionDetailLifecycleRef.current;
     busyRef.current = true;
     setBusy(true);
     let saved = false;
     try {
       await props.bridge.update(connection.slug, {
-        baseUrl: baseUrl || undefined,
-        defaultModel,
+        baseUrl,
         ...(apiKey ? { apiKey } : {}),
       });
       saved = true;
@@ -322,13 +307,44 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     }
   }
 
+  async function updateEnabledModels(nextIds: string[]) {
+    if (savingEnabledModelsRef.current || detailActionBusy) return;
+    const next = connectionEnabledModelIds({
+      defaultModel: connection.defaultModel,
+      enabledModelIds: nextIds,
+    });
+    if (modelIdListsEqual(next, enabledModelIds)) return;
+    const previous = enabledModelIds;
+    const lifecycle = connectionDetailLifecycleRef.current;
+    savingEnabledModelsRef.current = true;
+    setSavingEnabledModels(true);
+    setEnabledModelIds(next);
+    let saved = false;
+    try {
+      await props.bridge.update(connection.slug, { enabledModelIds: next });
+      saved = true;
+      if (!isConnectionDetailCurrent(lifecycle)) return;
+      await props.onChanged();
+    } catch (error) {
+      if (!isConnectionDetailCurrent(lifecycle)) return;
+      if (!saved) setEnabledModelIds(previous);
+      toast.error(
+        saved ? '刷新模型连接失败' : '保存启用模型失败',
+        providerPanelActionErrorMessage(error),
+      );
+    } finally {
+      savingEnabledModelsRef.current = false;
+      if (isConnectionDetailCurrent(lifecycle)) setSavingEnabledModels(false);
+    }
+  }
+
   async function runTest() {
-    if (testingRef.current || busyRef.current || fetchingModelsRef.current || settingDefaultRef.current || deletingRef.current) return;
+    if (testingRef.current || busyRef.current || fetchingModelsRef.current || savingEnabledModelsRef.current || settingDefaultRef.current || deletingRef.current) return;
     const lifecycle = connectionDetailLifecycleRef.current;
     testingRef.current = true;
     setTesting(true);
     try {
-      const result: ConnectionTestResult = await props.bridge.test(connection.slug, { model: defaultModel });
+      const result: ConnectionTestResult = await props.bridge.test(connection.slug, { model: connection.defaultModel });
       if (!isConnectionDetailCurrent(lifecycle)) return;
       if (result.ok) {
         toast.success(
@@ -353,7 +369,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
 
   async function refreshModels(opts: { silent?: boolean } = {}) {
     if (fetchingModelsRef.current) return;
-    if (!opts.silent && (busyRef.current || testingRef.current || settingDefaultRef.current || deletingRef.current)) return;
+    if (!opts.silent && (busyRef.current || testingRef.current || savingEnabledModelsRef.current || settingDefaultRef.current || deletingRef.current)) return;
     const lifecycle = connectionDetailLifecycleRef.current;
     fetchingModelsRef.current = true;
     setFetchingModels(true);
@@ -391,7 +407,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
   }
 
   async function setAsDefault() {
-    if (settingDefaultRef.current || busyRef.current || testingRef.current || fetchingModelsRef.current || deletingRef.current) return;
+    if (settingDefaultRef.current || busyRef.current || testingRef.current || fetchingModelsRef.current || savingEnabledModelsRef.current || deletingRef.current) return;
     if (!connection.enabled) {
       toast.error('无法设为默认', '这个模型连接已禁用，请重新登录或启用后再设为默认。');
       return;
@@ -415,7 +431,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
   }
 
   async function remove() {
-    if (deletingRef.current || busyRef.current || testingRef.current || fetchingModelsRef.current || settingDefaultRef.current) return;
+    if (deletingRef.current || busyRef.current || testingRef.current || fetchingModelsRef.current || savingEnabledModelsRef.current || settingDefaultRef.current) return;
     const lifecycle = connectionDetailLifecycleRef.current;
     deletingRef.current = true;
     setDeleting(true);
@@ -450,7 +466,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     }
   }
 
-  // After a successful in-sheet OAuth re-login, re-probe the credential
+  // After a successful in-dialog OAuth re-login, re-probe the credential
   // presence (an expired token still read hasSecret===true, so we must
   // refresh it) and reload the connection so its status leaves 需要重新登录.
   async function refreshAfterRelogin() {
@@ -468,48 +484,47 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
   }
 
   return (
-    <div className="providerEditor">
-      <header>
-        <div>
-          <h3>{connection.name}</h3>
-          <p>{display.name}</p>
-        </div>
-        <span className="providerHeaderBadges">
-          {props.isDefault && <Chip variant="neutral" size="sm">默认</Chip>}
-          <Chip variant="neutral" size="sm">{categoryLabel(defaults.category)}</Chip>
-        </span>
-      </header>
-      <FieldRoot className="grid gap-1.5">
-        <Label className="text-xs text-foreground-secondary">连接标识</Label>
-        <Input value={connection.slug} disabled aria-label="模型连接标识" />
-      </FieldRoot>
-      <FieldRoot className="grid gap-1.5">
-        <Label className="text-xs text-foreground-secondary">服务地址</Label>
-        {hasFixedOAuthBaseUrl && <FieldDescription>OAuth 固定</FieldDescription>}
-        <Input
-          value={baseUrl}
-          onChange={(event) => setBaseUrl(event.currentTarget.value)}
-          placeholder={defaults.baseUrl}
-          readOnly={hasFixedOAuthBaseUrl}
-          disabled={detailActionBusy}
-          aria-readonly={hasFixedOAuthBaseUrl ? 'true' : undefined}
-          aria-label={hasFixedOAuthBaseUrl ? '模型连接服务地址，OAuth 固定' : '模型连接服务地址'}
-        />
-      </FieldRoot>
+    <div className="providerEditor providerConnectionManager">
       {supportsApiKey && (
-        <FieldRoot className="grid gap-1.5">
-          <Label className="text-xs text-foreground-secondary">模型密钥</Label>
-          {hasSecret === true && <FieldDescription>已设置，粘贴新值可替换</FieldDescription>}
-          {hasSecret === 'loading' && <FieldDescription>正在读取状态</FieldDescription>}
-          {hasSecret === 'error' && <FieldDescription>凭据状态未知</FieldDescription>}
-          <PasswordInput
-            value={apiKey}
-            onChange={setApiKey}
-            placeholder={hasSecret === true ? '••••••••' : '粘贴模型密钥'}
-            ariaLabel={`${display.name} 模型密钥`}
-            disabled={detailActionBusy}
-          />
-        </FieldRoot>
+        <div className="providerCredentialTask">
+          <FieldRoot className="grid gap-1.5">
+            <Label className="text-xs text-foreground-secondary">模型密钥</Label>
+            {hasSecret === true && <FieldDescription>已设置，粘贴新值可替换</FieldDescription>}
+            {hasSecret === 'loading' && <FieldDescription>正在读取状态</FieldDescription>}
+            {hasSecret === 'error' && <FieldDescription>凭据状态未知</FieldDescription>}
+            <PasswordInput
+              value={apiKey}
+              onChange={setApiKey}
+              placeholder={hasSecret === true ? '••••••••' : '粘贴模型密钥'}
+              ariaLabel={`${display.name} 模型密钥`}
+              disabled={detailActionBusy}
+            />
+          </FieldRoot>
+          <div className="providerCredentialActions">
+            {defaults.signupUrl && (
+              <a className="providerExternalLink" href={defaults.signupUrl} target="_blank" rel="noreferrer noopener">
+                获取模型密钥
+              </a>
+            )}
+            {hasApiKeyChange && (
+              <Button type="button" disabled={detailActionBusy} onClick={save}>
+                {busy ? '保存中…' : '更新密钥'}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      {issue && (
+        <div className="providerConnectionIssue" data-tone={issue.tone} role="status">
+          <strong>{issue.label}</strong>
+          {(lastTestMessage || Number.isFinite(lastTestAtMs)) && (
+            <span>
+              {lastTestMessage && lastTestMessage !== issue.label ? lastTestMessage : null}
+              {lastTestMessage && lastTestMessage !== issue.label && Number.isFinite(lastTestAtMs) ? ' · ' : null}
+              {Number.isFinite(lastTestAtMs) && <RelativeTime ts={lastTestAtMs} />}
+            </span>
+          )}
+        </div>
       )}
       {needsOAuth && (
         usesGitHubCopilotLogin ? (
@@ -550,40 +565,75 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
             : '模型凭据状态暂时没刷新成功，已避免把未知状态显示成未登录或未配置。'}
         </p>
       )}
-      <ModelTable
-        modelChoices={modelChoices}
-        defaultModel={defaultModel}
-        onPickDefault={(id) => setDefaultModel(id)}
-        modelSource={modelSource}
-        modelsFetchedAt={connection.modelsFetchedAt}
-        fallbackCount={catalogFallbackCount}
-        canRefresh={!detailActionBusy && hasUsableCredential}
-        fetchingModels={fetchingModels}
-        disabled={detailActionBusy}
-        onRefresh={() => void refreshModels()}
-      />
-      {defaults.signupUrl && (
-        <a className="providerExternalLink" href={defaults.signupUrl} target="_blank" rel="noreferrer noopener">
-          获取模型密钥
-        </a>
-      )}
-      <div className="providerActions">
-        <Button type="button" disabled={detailActionBusy || !hasSaveChanges} onClick={save}>
-          {busy ? '保存中…' : '保存修改'}
-        </Button>
-        <Button variant="secondary" type="button" disabled={detailActionBusy || !hasUsableCredential} onClick={runTest}>
-          {testing ? '测试中…' : '测试连接'}
-        </Button>
-        {!props.isDefault && connection.enabled && (
-          <Button variant="secondary" type="button" disabled={detailActionBusy} onClick={setAsDefault}>
-            {settingDefault ? '设置中…' : '设为默认'}
-          </Button>
-        )}
-        <Button variant="destructive" type="button" disabled={detailActionBusy} onClick={remove}>
-          {deleting ? '删除中…' : '删除'}
-        </Button>
-      </div>
+      <details className="providerAdvancedSettings">
+        <summary>高级设置</summary>
+        <div className="providerAdvancedSettingsBody">
+          <EnabledModelManager
+            modelChoices={modelChoices}
+            enabledModelIds={enabledModelIds}
+            defaultModel={connection.defaultModel}
+            disabled={detailActionBusy}
+            onChange={(next) => void updateEnabledModels(next)}
+          />
+          <div className="providerEndpointSettings">
+            <ConnectionEndpointField
+              baseUrl={baseUrl}
+              defaultsBaseUrl={defaults.baseUrl}
+              fixedOAuth={hasFixedOAuthBaseUrl}
+              disabled={detailActionBusy}
+              onChange={setBaseUrl}
+            />
+            {hasBaseUrlChange && (
+              <div className="providerEndpointActions">
+                <Button type="button" disabled={detailActionBusy} onClick={save}>
+                  {busy ? '保存中…' : '保存服务地址'}
+                </Button>
+              </div>
+            )}
+          </div>
+          <div className="providerAdvancedActions">
+            <Button variant="secondary" type="button" disabled={detailActionBusy || !hasUsableCredential} onClick={runTest}>
+              {testing ? '测试中…' : '测试连接'}
+            </Button>
+            <Button variant="quiet" type="button" disabled={detailActionBusy || !hasUsableCredential} onClick={() => void refreshModels()}>
+              {fetchingModels ? '更新中…' : '更新模型目录'}
+            </Button>
+            {!props.isDefault && connection.enabled && (
+              <Button variant="quiet" type="button" disabled={detailActionBusy} onClick={setAsDefault}>
+                {settingDefault ? '设置中…' : '设为默认连接'}
+              </Button>
+            )}
+            <Button className="providerAdvancedDanger" variant="quiet" type="button" disabled={detailActionBusy} onClick={remove}>
+              {deleting ? '删除中…' : '删除连接'}
+            </Button>
+          </div>
+        </div>
+      </details>
     </div>
+  );
+}
+
+function ConnectionEndpointField(props: {
+  baseUrl: string;
+  defaultsBaseUrl: string | undefined;
+  fixedOAuth: boolean;
+  disabled: boolean;
+  onChange(value: string): void;
+}) {
+  return (
+    <FieldRoot className="grid gap-1.5">
+      <Label className="text-xs text-foreground-secondary">服务地址</Label>
+      {props.fixedOAuth && <FieldDescription>OAuth 固定</FieldDescription>}
+      <Input
+        value={props.baseUrl}
+        onChange={(event) => props.onChange(event.currentTarget.value)}
+        placeholder={props.defaultsBaseUrl}
+        readOnly={props.fixedOAuth}
+        disabled={props.disabled}
+        aria-readonly={props.fixedOAuth ? 'true' : undefined}
+        aria-label={props.fixedOAuth ? '模型连接服务地址，OAuth 固定' : '模型连接服务地址'}
+      />
+    </FieldRoot>
   );
 }
 
@@ -685,7 +735,6 @@ function OAuthReloginNotice(props: {
 type ConnectionDetailSnapshot = {
   slug: string;
   baseUrl: string;
-  defaultModel: string;
   models: ModelInfo[];
   modelSource: 'fetched' | 'fallback';
 };
@@ -697,7 +746,6 @@ function connectionDetailSnapshot(
   return {
     slug: connection.slug,
     baseUrl: connection.baseUrl ?? defaultBaseUrl ?? '',
-    defaultModel: connection.defaultModel,
     models: connection.models ?? [],
     modelSource: connection.modelSource ?? 'fallback',
   };
@@ -706,14 +754,12 @@ function connectionDetailSnapshot(
 function connectionDetailDraftMatchesSnapshot(
   draft: {
     baseUrl: string;
-    defaultModel: string;
     models: ModelInfo[];
     modelSource: 'fetched' | 'fallback';
   },
   snapshot: ConnectionDetailSnapshot,
 ): boolean {
   return draft.baseUrl === snapshot.baseUrl &&
-    draft.defaultModel === snapshot.defaultModel &&
     draft.modelSource === snapshot.modelSource &&
     modelListsEqual(draft.models, snapshot.models);
 }
@@ -736,222 +782,102 @@ function modelListsEqual(left: ModelInfo[], right: ModelInfo[]): boolean {
 }
 
 /**
- * UI-02 provider model workspace (per @kenji backlog item):
- *
- *   - Source/fetchedAt header (driven by persisted backend metadata)
- *   - Search box to filter long catalogs
- *   - Per-row default radio + capability chips (vision / reasoning /
- *     function calling) when present
- *   - Default model gets a tinted background + "默认" badge
- *   - Empty state distinguishes "fetched 0" from "haven't fetched yet"
- *   - Refresh button anchored to the header
- *
- * Replaces the dropdown + "刷新模型列表" pair the editor used to ship
- * with. The picker is now a workspace, not a form field.
+ * Compact allowlist editor. The complete provider catalog appears only after
+ * the user searches; the persistent rows are the short enabled list.
  */
-function ModelTable(props: {
+function EnabledModelManager(props: {
   modelChoices: ModelCatalogEntry[];
+  enabledModelIds: string[];
   defaultModel: string;
-  onPickDefault(id: string): void;
-  modelSource: 'fetched' | 'fallback';
-  modelsFetchedAt?: number;
-  fallbackCount: number;
-  canRefresh: boolean;
-  fetchingModels: boolean;
-  disabled?: boolean;
-  onRefresh(): void;
+  disabled: boolean;
+  onChange(ids: string[]): void;
 }) {
   const [query, setQuery] = useState('');
-  const listRef = useRef<HTMLUListElement>(null);
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return props.modelChoices;
-    return props.modelChoices.filter((m) => {
-      const displayName = modelTableDisplayLabel(m).toLowerCase();
-      return m.id.toLowerCase().includes(q) || displayName.includes(q);
-    });
-  }, [props.modelChoices, query]);
-  const selectableModelIds = useMemo(() => selectableDefaultModelIds(filtered), [filtered]);
-  const tabbableModelId = tabbableRadioId(props.defaultModel || undefined, selectableModelIds);
-
-  const headerLine =
-    props.modelSource === 'fetched'
-      ? props.modelChoices.length > 0
-        ? `实时拉取的 ${props.modelChoices.length} 个模型${formatFetchedAtSuffix(props.modelsFetchedAt)}`
-        : '已成功调用供应商接口，但返回 0 个模型 — 该供应商可能未对当前模型密钥开放任何模型。'
-      : `静态备用列表（${props.fallbackCount} 项）。点「刷新模型列表」拉取该供应商的真实模型清单。`;
-
-  // ARIA radiogroup keyboard pattern: arrow keys move focus AND select.
-  // Space/Enter on a focused radio just trigger the native button click.
-  // The pure `nextRadioId` helper is unit-tested in
-  // `apps/desktop/src/main/__tests__/model-table-keyboard.test.ts`.
-  function onListKeyDown(event: ReactKeyboardEvent<HTMLUListElement>) {
-    if (props.disabled) return;
-    const list = listRef.current;
-    if (!list) return;
-    const radios = Array.from(list.querySelectorAll<HTMLButtonElement>('button[role="radio"]'));
-    if (radios.length === 0) return;
-    const focusedRadio = (document.activeElement as HTMLElement | null)?.closest<HTMLButtonElement>('button[role="radio"]');
-    const currentId = focusedRadio?.dataset.modelId;
-    const nextId = nextRadioId(currentId, selectableModelIds, event.key);
-    if (nextId === null || nextId === currentId) return;
-    event.preventDefault();
-    const next = radios.find((radio) => radio.dataset.modelId === nextId);
-    next?.focus({ preventScroll: false });
-    next?.scrollIntoView({ block: 'nearest' });
-    // ARIA radiogroup pattern (per @xuan PR92 follow-up): arrow keys move
-    // focus AND select. Safe because `onPickDefault` updates local form
-    // state only — persistence happens on "保存修改", so scanning models
-    // with the arrow keys doesn't write to disk on every keystroke.
-    props.onPickDefault(nextId);
-  }
-
-  // @kenji PR91 follow-up #2: when search filters out the currently-selected
-  // default, surface a one-line hint so the user doesn't lose track of which
-  // model is in effect. Click the hint to clear the search.
-  const defaultHidden =
-    query.trim().length > 0 &&
-    props.defaultModel.length > 0 &&
-    filtered.every((m) => m.id !== props.defaultModel);
+  const enabled = useMemo(() => new Set(props.enabledModelIds), [props.enabledModelIds]);
+  const matches = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return [];
+    return props.modelChoices
+      .filter((model) => {
+        if (enabled.has(model.id) || !model.canUseAsChatDefault) return false;
+        const label = modelDisplayLabel(model).toLowerCase();
+        return model.id.toLowerCase().includes(normalizedQuery) || label.includes(normalizedQuery);
+      })
+      .slice(0, 20);
+  }, [enabled, props.modelChoices, query]);
 
   return (
-    <div className="modelTable" data-source={props.modelSource}>
-      <header className="modelTableHeader">
-        <div className="modelTableHeaderText">
-          <strong>模型</strong>
-          <small>{headerLine}</small>
-          <small className="modelTableStickyHint">
-            默认模型只用于新建会话；已有会话会保留创建时的模型选择。
-          </small>
-        </div>
-        <Button
-          type="button"
-          disabled={!props.canRefresh}
-          onClick={props.onRefresh}
-        >
-          {props.fetchingModels ? '拉取中…' : '刷新模型列表'}
-        </Button>
-      </header>
-
-      {props.modelChoices.length > 6 && (
-        <Input
-          type="search"
-          className="modelTableSearch"
-          placeholder={`在 ${props.modelChoices.length} 个模型中搜索…`}
-          value={query}
-          onChange={(event) => setQuery(event.currentTarget.value)}
-          autoComplete="off"
-          spellCheck={false}
-          aria-label="搜索模型"
-        />
-      )}
-
-      {defaultHidden && (
-        <BaseButton
-          type="button"
-          className="modelTableDefaultHint"
-          onClick={() => setQuery('')}
-          title="清空搜索"
-        >
-          当前默认 <code>{props.defaultModel}</code> 不在搜索结果中 · 点这里清空搜索
-        </BaseButton>
-      )}
-
-      {props.modelChoices.length === 0 ? (
-        <div className="modelTableEmpty">
-          {props.modelSource === 'fetched'
-            ? '拉取返回 0 个模型。请检查账号方案或重新拉取。'
-            : '尚无模型。点「刷新模型列表」拉取或先配置模型密钥。'}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="modelTableEmpty">没有匹配 “{query}” 的模型。</div>
-      ) : (
-        <ul
-          ref={listRef}
-          className="modelTableList"
-          role="radiogroup"
-          aria-label="默认模型"
-          onKeyDown={onListKeyDown}
-        >
-          {filtered.map((model) => {
-            const isDefault = model.id === props.defaultModel;
-            const displayName = modelTableDisplayLabel(model);
-            const showRawId = displayName !== model.id;
-            const warning = modelTableEntryWarning(model);
-            const canPickDefault = canPickDefaultModel(model);
-            return (
-              <li key={model.id} role="none">
-                <BaseButton
-                  type="button"
-                  className="modelTableRow"
-                  role="radio"
-                  aria-checked={isDefault}
-                  aria-disabled={!canPickDefault || props.disabled ? true : undefined}
-                  data-default={isDefault ? 'true' : undefined}
-                  data-disabled={!canPickDefault ? 'true' : undefined}
-                  data-model-id={model.id}
-                  disabled={props.disabled || !canPickDefault}
-                  // Only the active radio is in the tab order; arrow keys
-                  // move focus inside the group. Standard ARIA radiogroup.
-                  tabIndex={tabbableModelId === model.id ? 0 : -1}
-                  onClick={() => {
-                    if (!canPickDefault) return;
-                    props.onPickDefault(model.id);
-                  }}
-                >
-                  <span className="modelTableRowRadio" aria-hidden="true" />
-                  <span className="modelTableRowText">
-                    <span className="modelTableRowName">{displayName}</span>
-                    {showRawId && <code className="modelTableRowId">{model.id}</code>}
-                    {warning && <span className="modelTableRowWarning">{warning}</span>}
-                  </span>
-                  <ModelCapabilityChips model={model} />
-                  {isDefault && <span className="modelTableDefaultBadge">默认</span>}
-                </BaseButton>
-              </li>
-            );
-          })}
+    <section className="providerEnabledModels" aria-labelledby="provider-enabled-models-title">
+      <div className="providerEnabledModelsHeader">
+        <strong id="provider-enabled-models-title">启用模型 {props.enabledModelIds.length}</strong>
+        <span>仅这些模型会出现在模型选择器中。</span>
+      </div>
+      <Input
+        type="search"
+        value={query}
+        onChange={(event) => setQuery(event.currentTarget.value)}
+        placeholder="搜索并添加模型"
+        autoComplete="off"
+        spellCheck={false}
+        disabled={props.disabled}
+        aria-label="搜索并添加模型"
+      />
+      {query.trim() && (
+        <ul className="providerModelSearchResults" aria-label="可添加模型">
+          {matches.length === 0 ? (
+            <li className="providerModelSearchEmpty">没有可添加的匹配模型。</li>
+          ) : matches.map((model) => (
+            <li className="providerModelSearchRow" key={model.id}>
+              <span>{modelDisplayLabel(model)}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={props.disabled}
+                onClick={() => {
+                  props.onChange([...props.enabledModelIds, model.id]);
+                  setQuery('');
+                }}
+              >
+                添加
+              </Button>
+            </li>
+          ))}
         </ul>
       )}
-    </div>
+      <ul className="providerEnabledModelList" aria-label="已启用模型">
+        {props.enabledModelIds.map((id) => {
+          const model = props.modelChoices.find((candidate) => candidate.id === id);
+          const isDefault = id === props.defaultModel;
+          return (
+            <li key={id}>
+              <span>{model ? modelDisplayLabel(model) : id}</span>
+              {isDefault ? (
+                <span className="providerEnabledModelMeta">默认</span>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  disabled={props.disabled}
+                  aria-label={`移除 ${model ? modelDisplayLabel(model) : id}`}
+                  onClick={() => props.onChange(props.enabledModelIds.filter((candidate) => candidate !== id))}
+                >
+                  ×
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
-function modelTableDisplayLabel(model: Pick<ModelCatalogEntry, 'id' | 'displayName'>): string {
+function modelDisplayLabel(model: Pick<ModelCatalogEntry, 'id' | 'displayName'>): string {
   return model.displayName?.trim() || model.id;
 }
 
-function modelTableEntryWarning(model: Pick<ModelCatalogEntry, 'unavailableReason' | 'availability'>): string | null {
-  if (model.unavailableReason === 'not_in_live_list') {
-    return '已保存，但当前模型列表未返回，可能不可用。';
-  }
-  if (model.availability === 'blocked') return '当前不可用。';
-  if (model.availability === 'warning') return '模型列表可能已过期。';
-  return null;
-}
-
-function ModelCapabilityChips(props: { model: Pick<ModelCatalogEntry, 'capabilities' | 'contextWindow'> }) {
-  const caps = props.model.capabilities;
-  const chips: string[] = [];
-  if (caps.vision) chips.push('vision');
-  if (caps.reasoning) chips.push('reasoning');
-  if (caps.functionCalling) chips.push('tools');
-  if (props.model.contextWindow) {
-    // 200_000 → "200K", 1_000_000 → "1M". Compact for the row.
-    chips.push(formatContextWindow(props.model.contextWindow));
-  }
-  if (chips.length === 0) return null;
-  return (
-    <span className="modelTableChips">
-      {chips.map((c) => (
-        <span key={c} className="modelTableChip">{c}</span>
-      ))}
-    </span>
-  );
-}
-
-function formatContextWindow(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens % 1_000_000 === 0 ? 0 : 1)}M ctx`;
-  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K ctx`;
-  return `${tokens} ctx`;
+function modelIdListsEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
 }

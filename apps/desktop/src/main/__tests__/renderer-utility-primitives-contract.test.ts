@@ -106,7 +106,6 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.doesNotMatch(source, /role="toolbar"/, 'ArtifactPane toolbar semantics must come from shared primitive Toolbar');
     assert.match(source, /<Toolbar className="maka-artifact-toolbar" aria-label="生成文件操作">/);
     assert.match(source, /<ToolbarSeparator className="maka-artifact-toolbar-separator" orientation="vertical" \/>/);
-    assert.match(source, /render=\{<Button variant="quiet" size="icon-sm" \/>\}/);
     assert.match(source, /<Button\s+variant="secondary"\s+size="sm"[\s\S]*retryArtifactListRefresh/);
     assert.match(source, /<BaseButton[\s\S]*className="maka-artifact-row"/);
   });
@@ -299,8 +298,8 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.doesNotMatch(rendererCss, /\.settingsWechatQrSecondary\b/);
 
     const providerDetail = await readFile(join(process.cwd(), 'src/renderer/settings/provider-connection-detail.tsx'), 'utf8');
-    assert.match(providerDetail, /<BaseButton\s+type="button"\s+className="modelTableRow"/);
-    assert.doesNotMatch(providerDetail, /<Button\b[^>]*className="modelTableRow"/);
+    assert.match(providerDetail, /<Button[\s\S]*variant="ghost"[\s\S]*aria-label=\{`移除/);
+    assert.doesNotMatch(providerDetail, /<BaseButton|modelTableRow/);
   });
 
   it('keeps representative shared Button consumers on governed variants and sizes', async () => {

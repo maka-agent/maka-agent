@@ -90,28 +90,76 @@
   gap: var(--space-3);
 }
 
-.providerKeyDialog {
-  width: min(420px, calc(100vw - 32px));
+.providerConnectionDialog {
+  width: min(520px, calc(100vw - 32px));
 }
 
-.providerKeyDialog [data-slot="dialog-header"] {
+.providerConnectionDialog [data-slot="dialog-header"] {
   align-items: center;
+  border-bottom: 0;
+  padding-bottom: var(--space-2);
 }
 
-.providerKeyDialog [data-slot="dialog-header-subtitle"] {
-  white-space: nowrap;
-}
-
-.providerKeyDialog [data-slot="dialog-header-icon"],
-.providerKeyDialog .providerLogo[data-compact="true"] {
+.providerConnectionDialog [data-slot="dialog-header-icon"],
+.providerConnectionDialog .providerLogo[data-compact="true"] {
   width: 24px;
   height: 24px;
+}
+
+.providerConnectionDialogBody {
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-4) var(--space-4);
+}
+
+.providerConnectionManager {
+  gap: var(--space-4);
+}
+
+.providerConnectionIssue {
+  display: grid;
+  gap: var(--space-1);
+  border-radius: var(--radius-surface);
+  background: oklch(from var(--destructive) l c h / 0.09);
+  color: var(--destructive-text);
+  padding: var(--space-3);
+}
+
+.providerConnectionIssue[data-tone="info"] {
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+}
+
+.providerConnectionIssue[data-tone="neutral"] {
+  background: var(--foreground-5);
+  color: var(--foreground-secondary);
+}
+
+.providerConnectionIssue span {
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-normal);
+}
+
+.providerAdvancedSettings {
+  border-top: var(--border-width-hairline) solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.providerAdvancedSettings summary {
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
+}
+
+.providerAdvancedSettingsBody {
+  display: grid;
+  gap: var(--space-5);
+  padding-top: var(--space-3);
 }
 
 .providerKeyDialogForm {
   display: grid;
   gap: var(--space-3);
-  padding: var(--space-4);
 }
 
 .providerKeyDialogForm label {
@@ -126,6 +174,16 @@
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
+}
+
+.providerEndpointSettings {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.providerEndpointActions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .providerUnavailableNotice {
@@ -211,7 +269,7 @@
   width: fit-content;
   color: var(--link);
   font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
   text-decoration: none;
   /* PR-UI-LAYOUT-33: explicit padding + radius so the focus halo
    * has a defined shape. Was a borderless inline link with no
@@ -232,258 +290,112 @@
   box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
-/* UI-02 model table: per-row default radio, capability chips, search box,
- * source/fetchedAt header. Replaces the legacy <select> + refresh button
- * pair. The whole block is itself a "workspace" inside the connection
- * editor, not a form field. */
-.modelTable {
+.providerCredentialTask {
   display: grid;
-  /* Single column that fills the card. Without an explicit 1fr the
-   * implicit `auto` track sizes to content and the header row stops
-   * short of the card edge, so the right-aligned refresh button never
-   * reaches the right margin. */
-  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2);
-  padding: var(--space-3);
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-surface);
-  background: var(--foreground-2);
-  box-shadow: 0 1px 3px oklch(from var(--foreground) l c h / 0.03);
 }
 
-.modelTableHeader {
+.providerCredentialActions,
+.providerAdvancedActions {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.providerCredentialActions {
   justify-content: space-between;
-  gap: var(--space-3);
 }
 
-.modelTableHeader > button {
-  flex: 0 0 auto;
+.providerAdvancedActions {
+  flex-wrap: wrap;
+  gap: var(--space-1);
 }
 
-.modelTableHeaderText {
+.providerAdvancedDanger {
+  margin-left: auto;
+  color: var(--destructive-text);
+}
+
+.providerEnabledModels {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.providerEnabledModelsHeader {
   display: grid;
   gap: var(--space-0-5);
-  min-width: 0;
 }
 
-.modelTableHeaderText strong {
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-bold);
+.providerEnabledModelsHeader strong {
   color: var(--foreground);
-}
-
-.modelTableHeaderText small {
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
-  font-size: var(--font-size-caption);
-  line-height: var(--leading-normal);
+}
+
+.providerEnabledModelsHeader span,
+.providerEnabledModelMeta,
+.providerModelSearchEmpty {
   color: var(--foreground-secondary);
-  overflow-wrap: anywhere;
+  font-size: var(--font-size-caption);
 }
 
-.modelTable[data-source="fetched"] .modelTableHeaderText small {
-  color: var(--success-text);
-}
-
-.modelTable[data-source="fallback"] .modelTableHeaderText small {
-  color: var(--info-text);
-}
-
-.modelTableHeaderText .modelTableStickyHint {
-  color: var(--muted-foreground);
-}
-
-.modelTableSearch {
-  width: 100%;
-  padding: var(--space-1-5) var(--space-3);
+.providerModelSearchResults {
+  margin: 0;
+  padding: 0;
   border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
-  background: var(--background);
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-  font-family: var(--font-mono);
-  transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong);
+  background: var(--background-elevated);
+  overflow: hidden;
+  list-style: none;
 }
 
-.modelTableSearch:focus {
-  outline: none;
-  /* PR-UI-LAYOUT-22: brought into the focus-ring family — was
-   * border-color only, now 3px accent halo to match the rest. */
-  border-color: oklch(from var(--focus-ring) l c h / 0.42);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.10);
+.providerModelSearchRow {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  gap: var(--space-2);
+  border-top: var(--border-width-hairline) solid var(--border);
 }
 
-.modelTableEmpty {
-  padding: var(--space-4);
-  border-radius: var(--radius-surface);
-  background: var(--background);
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-normal);
-  text-align: center;
+.providerModelSearchRow:first-child {
+  border-top: 0;
 }
 
-/* Surfaced when a search filter hides the currently-selected default
- * (per @kenji PR91 follow-up). Click to clear the search. */
-.modelTableDefaultHint {
+.providerModelSearchRow {
+  padding: 0 var(--space-2);
+}
+
+.providerModelSearchRow > span,
+.providerEnabledModelList > li > span:first-child {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.providerModelSearchEmpty {
   display: block;
-  text-align: left;
-  padding: var(--space-1-5) var(--space-3);
-  border-radius: var(--radius-surface);
-  border: var(--border-width-hairline) solid oklch(from var(--focus-ring) l c h / 0.22);
-  background: oklch(from var(--focus-ring) l c h / 0.06);
-  color: var(--foreground);
-  font-size: var(--font-size-caption);
-  line-height: var(--leading-normal);
-  width: 100%;
+  padding: var(--space-3);
 }
 
-.modelTableDefaultHint:hover {
-  background: oklch(from var(--nav-active) l c h / 0.10);
-}
-
-.modelTableDefaultHint code {
-  font-family: var(--font-mono);
-  background: transparent;
-  color: var(--link);
-  font-weight: var(--font-weight-semibold);
-}
-
-.modelTableList {
+.providerEnabledModelList {
+  display: grid;
+  gap: var(--space-1);
   margin: 0;
   padding: 0;
   list-style: none;
-  display: grid;
-  gap: var(--space-1);
-  max-height: 280px;
-  overflow: auto;
 }
 
-.modelTableRow {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) minmax(0, auto) auto;
+.providerEnabledModelList > li {
+  display: flex;
   align-items: center;
+  min-height: 32px;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-2-5);
-  border: var(--border-width-hairline) solid transparent;
-  border-radius: var(--radius-surface);
-  background: transparent;
-  color: var(--foreground);
-  text-align: left;
-  transition: background var(--duration-base) var(--ease-out-strong), border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong);
-  /* PR-MODEL-ROW-HEIGHT-FIX-0 (WAWQAQ msg c71b4dcb 2026-06-30): the
-     Button primitive ships size=md = `h-9` (36px fixed), but each row
-     now has TWO lines (display name + raw id when shown). The fixed
-     height clipped the second line's lower descender (gpt-5.4 → "ant
-     5.4"). Override to auto height with a comfortable min-height; the
-     padding above plus the inner 2px gap leaves room for the second
-     line without breaking single-line rows. */
-  height: auto;
-  min-height: 44px;
+  padding: 0 var(--space-0-5);
 }
 
-.modelTableRow:hover {
-  background: var(--background);
-  border-color: var(--border);
-}
-
-.modelTableRow:focus-visible {
-  outline: none;
-  background: var(--background);
-  border-color: oklch(from var(--focus-ring) l c h / 0.42);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
-}
-
-.modelTableRow[data-default="true"] {
-  background: oklch(from var(--control) l c h / 0.06);
-  border-color: oklch(from var(--control) l c h / 0.30);
-}
-
-.modelTableRowRadio {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: var(--border-width-hairline) solid var(--muted-foreground);
-  background: transparent;
-  position: relative;
-}
-
-.modelTableRow[data-default="true"] .modelTableRowRadio {
-  border-color: var(--control);
-}
-
-.modelTableRow[data-default="true"] .modelTableRowRadio::after {
-  content: "";
-  position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  background: var(--control);
-}
-
-.modelTableRowText {
-  min-width: 0;
-  display: grid;
-  gap: var(--space-0-5);
-}
-
-.modelTableRowName {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--foreground);
-}
-
-.modelTableRowId {
-  min-width: 0;
-  background: transparent;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-ui);
-  color: var(--foreground-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.modelTableRowWarning {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--warning-text);
-  font-size: var(--font-size-ui);
-}
-
-.modelTableChips {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  justify-self: end;
-  min-width: 0;
-}
-
-.modelTableChip {
-  padding: 1px var(--space-1-5);
-  border-radius: var(--radius-control);
-  background: var(--foreground-5);
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-normal);
-  text-transform: uppercase;
-}
-
-.modelTableDefaultBadge {
-  padding: 1px var(--space-1-5);
-  border-radius: var(--radius-control);
-  background: oklch(from var(--nav-active) l c h / 0.14);
-  color: var(--nav-active);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-bold);
-  letter-spacing: var(--tracking-normal);
-}
 
 .providerError {
   color: var(--destructive-text);
@@ -557,8 +469,8 @@
   gap: var(--space-6);
 }
 
-/* OAuth is an account connection, not a provider transport category. It
-   stays on the connection page while preserving its modal login flow. */
+/* Account connections and provider transports share the same inline catalog
+   and centered connection-dialog flow. */
 .providerOAuthCatalog {
   min-height: 0;
   display: grid;
@@ -574,50 +486,33 @@
   gap: var(--space-4);
 }
 
-.providerRootHeader h3,
-.providerSubpageHeader h3,
-.providerAccountSectionHeader h3 {
+.providerCatalogSection {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-5);
+  border-top: var(--border-width-hairline) solid var(--border-subtle);
+}
+
+.providerRootHeader h3 {
   margin: 0;
   color: var(--foreground);
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-bold);
 }
 
-.providerRootHeader p,
-.providerSubpageHeader p,
-.providerAccountSectionHeader p {
+.providerRootHeader p {
   margin: var(--space-1) 0 0;
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   line-height: var(--leading-normal);
 }
 
-.providersPanel.providerChildPage,
-.settingsSurface[data-modal="true"] .providersPanel.providerChildPage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-content: start;
-  gap: var(--space-5);
-  width: min(100%, 760px);
-  min-height: 500px;
-}
-
-.providerSubpageHeader {
-  display: grid;
-  gap: var(--space-4);
-  padding-bottom: var(--space-4);
-  border-bottom: var(--border-width-hairline) solid var(--border-subtle);
-}
-
-.providerSubpageBack {
-  justify-self: start;
-  margin-left: calc(var(--space-2) * -1);
-}
-
-.providerSubpageIdentity {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+.providerRootHeader > span {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-normal);
 }
 
 .providerCatalogSearch {
@@ -631,17 +526,6 @@
   font-size: var(--font-size-ui);
   padding: var(--space-8) var(--space-2);
   text-align: center;
-}
-
-.providerInlineEditor {
-  min-width: 0;
-}
-
-.providerAccountSection {
-  display: grid;
-  gap: var(--space-3);
-  padding-top: var(--space-5);
-  border-top: var(--border-width-hairline) solid var(--border-subtle);
 }
 
 @media (max-width: 620px) {
@@ -694,36 +578,13 @@
   gap: var(--space-2-5);
 }
 
-.enabledStripHeader {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-}
-
-.enabledStripHeader h3,
-.providerAccountSectionHeader h3 {
-  margin: 0;
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-bold);
-}
-
-.enabledStripHeader span,
-.providerAccountSectionHeader p {
-  font-variant-numeric: tabular-nums;
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-  line-height: var(--leading-snug);
-}
-
 /* Empty / load-error CTA shown when there are no connections yet. */
 .enabledEmptyChip {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-1-5);
-  border: var(--border-width-hairline) solid var(--border-subtle);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background-elevated);
   color: var(--foreground);

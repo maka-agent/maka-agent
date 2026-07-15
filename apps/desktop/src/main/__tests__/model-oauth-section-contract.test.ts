@@ -3,8 +3,8 @@
  * the provider settings source files
  * (PR-MODEL-OAUTH-ALL-0).
  *
- * Pins the user-visible OAuth login surface: five cards
- * (claude / codex / GitHub Copilot / antigravity / cursor), each marked
+ * Pins the user-visible OAuth login surface: three runnable cards
+ * (Claude / Codex / GitHub Copilot), each marked
  * `status: 'available'`, and each click wires through to its
  * matching `window.maka.<provider>Subscription` bridge namespace.
  *
@@ -34,21 +34,21 @@ const OAUTH_LOGIN_FLOW_HOOK_SOURCE = resolve(
 );
 
 describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MOVE-0)', () => {
-  it('keeps OAuth account connections on the connection page, outside the provider transport catalog', async () => {
+  it('keeps runnable OAuth accounts inside the inline add catalog', async () => {
     const src = await readProviderSettingsCombinedSource();
     const tabs = src.match(/const CATALOG_TABS:[\s\S]*?\];/);
     assert.ok(tabs, 'CATALOG_TABS literal must exist');
-    assert.doesNotMatch(tabs[0], /id:\s*'oauth'/, 'OAuth is an account connection, not a provider transport category');
+    assert.match(tabs[0], /id:\s*'accounts'/, 'account connections need a direct catalog category');
     assert.match(
       src,
-      /<section className="providerAccountSection" aria-label="账号连接">[\s\S]*<ModelOAuthSection onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\} \/>[\s\S]*<\/section>/,
-      'OAuth login UI must render as account connections and refresh enabled models',
+      /\(catalogCategory === 'recommended' \|\| catalogCategory === 'accounts'\)[\s\S]*<ModelOAuthSection[\s\S]*onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\}/,
+      'runnable OAuth accounts must appear in both recommended and account catalog views',
     );
     const marketStart = src.indexOf('<section className="providerMarket">');
     const firstOAuthRender = src.indexOf('<ModelOAuthSection');
     assert.ok(marketStart !== -1, 'provider market section must exist');
     assert.ok(firstOAuthRender > marketStart, 'ModelOAuthSection must stay inside the provider connection surface');
-    assert.match(src, /<h3>账号连接<\/h3>/, 'OAuth account connections need an explicit section label');
+    assert.doesNotMatch(src, /className="providerAccountSection"/, 'account cards must not remain a permanent root-page section');
   });
 
   it('catalog tabs use the shared primitive Tabs primitive as a real tablist', async () => {
@@ -84,7 +84,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.ok(reloadMatch, 'ProvidersPanel reload() must exist');
     assert.match(
       panel,
-      /const providersPanelMountedRef = useMountedRef\(\);[\s\S]*const providersReloadTicketRef = useRef\(0\);[\s\S]*const providerPageLifecycleRef = useRef\(0\);/,
+      /const providersPanelMountedRef = useMountedRef\(\);[\s\S]*const providersReloadTicketRef = useRef\(0\);[\s\S]*const providerDialogLifecycleRef = useRef\(0\);/,
       'ProvidersPanel reloads must track mounted state and latest request ownership',
     );
     assert.match(
@@ -109,25 +109,25 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       src,
-      /function navigate\(nextPage: ProviderPage, focusTarget: ProviderFocusTarget\) \{[\s\S]*providerPageLifecycleRef\.current \+= 1;[\s\S]*pendingFocusRef\.current = focusTarget;[\s\S]*setPage\(nextPage\);[\s\S]*\}/,
-      'navigating away must invalidate pending page-scoped continuations',
+      /function closeDialog\(\) \{[\s\S]*providerDialogLifecycleRef\.current \+= 1;[\s\S]*setDialogState\(null\);[\s\S]*\}/,
+      'closing a dialog must invalidate pending dialog-scoped continuations',
     );
     assert.match(
       src,
-      /onCreated=\{async \(slug\) => \{[\s\S]*const lifecycle = providerPageLifecycleRef\.current;[\s\S]*const reloaded = await reload\(\);[\s\S]*providerPageLifecycleRef\.current !== lifecycle[\s\S]*\) return;[\s\S]*navigate\(\{ kind: 'detail', slug \}, \{ kind: 'child-back' \}\);/,
-      'AddProviderForm completion must not navigate a stale page after ProvidersPanel unmounts or back navigation',
+      /onCreated=\{async \(\) => \{[\s\S]*const lifecycle = providerDialogLifecycleRef\.current;[\s\S]*const reloaded = await reload\(\);[\s\S]*providerDialogLifecycleRef\.current !== lifecycle[\s\S]*\) return;[\s\S]*closeDialog\(\);/,
+      'AddProviderForm completion must not close a newer dialog after the original dialog was dismissed',
     );
     assert.match(
       src,
-      /onDeleted=\{async \(\) => \{[\s\S]*if \(!providersPanelMountedRef\.current\) return;[\s\S]*navigate\(\{ kind: 'connections' \}, \{ kind: 'add-provider' \}\);[\s\S]*await reload\(\);/,
-      'Connection delete completion must not write ProvidersPanel state after unmount',
+      /onDeleted=\{async \(\) => \{[\s\S]*closeDialog\(\);[\s\S]*const reloaded = await reload\(\);[\s\S]*providerCatalogRef\.current\?\.querySelector<HTMLInputElement>\('\[type="search"\]'\)\?\.focus\(\);/,
+      'Connection delete completion must restore focus to the stable provider search after refreshing the root list',
     );
   });
 
   it('provider detail actions localize and sanitize model-test / model-fetch failures', async () => {
     const providers = await readProviderSettingsCombinedSource();
     const main = await readMainProcessCombinedSource();
-    const detail = providers.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = providers.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
     const addForm = providers.match(/function AddProviderForm[\s\S]*?function nextSlug/)?.[0] ?? '';
 
     assert.match(
@@ -147,42 +147,42 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /const busyRef = useRef\(false\)[\s\S]*const testingRef = useRef\(false\)[\s\S]*const fetchingModelsRef = useRef\(false\)[\s\S]*const settingDefaultRef = useRef\(false\)[\s\S]*const deletingRef = useRef\(false\)/,
+      /const busyRef = useRef\(false\)[\s\S]*const testingRef = useRef\(false\)[\s\S]*const fetchingModelsRef = useRef\(false\)[\s\S]*const savingEnabledModelsRef = useRef\(false\)[\s\S]*const settingDefaultRef = useRef\(false\)[\s\S]*const deletingRef = useRef\(false\)/,
       'ConnectionDetail actions must have synchronous duplicate-action guards, not only React state',
     );
     assert.match(
       detail,
-      /async function save\(\) \{[\s\S]*if \(busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\) return;[\s\S]*busyRef\.current = true;[\s\S]*props\.bridge\.update\(/,
+      /async function save\(\) \{[\s\S]*if \(busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| savingEnabledModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\) return;[\s\S]*busyRef\.current = true;[\s\S]*props\.bridge\.update\(/,
       'ConnectionDetail save must set its duplicate-submit guard before awaiting bridge.update()',
     );
     assert.match(
       detail,
-      /async function runTest\(\) \{[\s\S]*if \(testingRef\.current \|\| busyRef\.current \|\| fetchingModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\) return;[\s\S]*testingRef\.current = true;[\s\S]*props\.bridge\.test\(/,
+      /async function runTest\(\) \{[\s\S]*if \(testingRef\.current \|\| busyRef\.current \|\| fetchingModelsRef\.current \|\| savingEnabledModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\) return;[\s\S]*testingRef\.current = true;[\s\S]*props\.bridge\.test\(/,
       'ConnectionDetail test must be gated synchronously before awaiting bridge.test()',
     );
     assert.match(
       detail,
-      /async function refreshModels\(opts: \{ silent\?: boolean \} = \{\}\) \{[\s\S]*if \(fetchingModelsRef\.current\) return;[\s\S]*if \(!opts\.silent && \(busyRef\.current \|\| testingRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\)\) return;[\s\S]*fetchingModelsRef\.current = true;[\s\S]*props\.bridge\.fetchModels\(/,
+      /async function refreshModels\(opts: \{ silent\?: boolean \} = \{\}\) \{[\s\S]*if \(fetchingModelsRef\.current\) return;[\s\S]*if \(!opts\.silent && \(busyRef\.current \|\| testingRef\.current \|\| savingEnabledModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\)\) return;[\s\S]*fetchingModelsRef\.current = true;[\s\S]*props\.bridge\.fetchModels\(/,
       'ConnectionDetail model refresh must be duplicate-gated while preserving the post-save silent refresh',
     );
     assert.match(
       detail,
-      /async function setAsDefault\(\) \{[\s\S]*if \(settingDefaultRef\.current \|\| busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| deletingRef\.current\) return;[\s\S]*settingDefaultRef\.current = true;[\s\S]*props\.bridge\.setDefault\(/,
+      /async function setAsDefault\(\) \{[\s\S]*if \(settingDefaultRef\.current \|\| busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| savingEnabledModelsRef\.current \|\| deletingRef\.current\) return;[\s\S]*settingDefaultRef\.current = true;[\s\S]*props\.bridge\.setDefault\(/,
       'ConnectionDetail default-switch must be gated synchronously before awaiting bridge.setDefault()',
     );
     assert.match(
       detail,
-      /async function remove\(\) \{[\s\S]*if \(deletingRef\.current \|\| busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| settingDefaultRef\.current\) return;[\s\S]*deletingRef\.current = true;[\s\S]*props\.bridge\.delete\(/,
+      /async function remove\(\) \{[\s\S]*if \(deletingRef\.current \|\| busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| savingEnabledModelsRef\.current \|\| settingDefaultRef\.current\) return;[\s\S]*deletingRef\.current = true;[\s\S]*props\.bridge\.delete\(/,
       'ConnectionDetail delete must be gated synchronously before awaiting bridge.delete()',
     );
     assert.match(
       detail,
-      /const detailActionBusy = busy \|\| testing \|\| fetchingModels \|\| settingDefault \|\| deleting/,
+      /const detailActionBusy = busy \|\| testing \|\| fetchingModels \|\| savingEnabledModels \|\| settingDefault \|\| deleting/,
       'ConnectionDetail must expose one visible busy state that freezes payload-affecting controls',
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy\}[\s\S]*aria-label=\{hasFixedOAuthBaseUrl \? '模型连接服务地址，OAuth 固定' : '模型连接服务地址'\}/,
+      /<ConnectionEndpointField[\s\S]*disabled=\{detailActionBusy\}[\s\S]*function ConnectionEndpointField[\s\S]*disabled=\{props\.disabled\}/,
       'ConnectionDetail service-address draft must freeze while any detail action is in flight',
     );
     assert.match(
@@ -192,13 +192,18 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /<ModelTable[\s\S]*canRefresh=\{!detailActionBusy && hasUsableCredential\}[\s\S]*disabled=\{detailActionBusy\}/,
-      'ConnectionDetail model picker must freeze while any detail action is in flight',
+      /<EnabledModelManager[\s\S]*disabled=\{detailActionBusy\}/,
+      'ConnectionDetail enabled-model editor must freeze while any detail action is in flight',
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy \|\| !hasSaveChanges\} onClick=\{save\}[\s\S]*\{busy \? '保存中…' : '保存修改'\}/,
-      'ConnectionDetail save button must show visible pending feedback and disable all peer actions',
+      /\{hasApiKeyChange && \([\s\S]*disabled=\{detailActionBusy\} onClick=\{save\}[\s\S]*\{busy \? '保存中…' : '更新密钥'\}/,
+      'ConnectionDetail key save button must appear only when the key draft is dirty',
+    );
+    assert.match(
+      detail,
+      /\{hasBaseUrlChange && \([\s\S]*className="providerEndpointActions"[\s\S]*disabled=\{detailActionBusy\} onClick=\{save\}[\s\S]*\{busy \? '保存中…' : '保存服务地址'\}/,
+      'ConnectionDetail endpoint save button must remain available to providers without API keys',
     );
     assert.match(
       detail,
@@ -207,12 +212,12 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy\} onClick=\{setAsDefault\}[\s\S]*\{settingDefault \? '设置中…' : '设为默认'\}/,
+      /disabled=\{detailActionBusy\} onClick=\{setAsDefault\}[\s\S]*\{settingDefault \? '设置中…' : '设为默认连接'\}/,
       'ConnectionDetail default button must show visible pending feedback and disable all peer actions',
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy\} onClick=\{remove\}[\s\S]*\{deleting \? '删除中…' : '删除'\}/,
+      /disabled=\{detailActionBusy\} onClick=\{remove\}[\s\S]*\{deleting \? '删除中…' : '删除连接'\}/,
       'ConnectionDetail delete button must show visible pending feedback and disable all peer actions',
     );
     assert.match(
@@ -287,52 +292,28 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('standard API providers use the shared key dialog while special configuration stays in-pane', async () => {
+  it('all API provider creation uses the shared connection dialog', async () => {
     const src = await readProviderSettingsCombinedSource();
-    assert.match(src, /type ProviderPage =[\s\S]*kind: 'add'[\s\S]*kind: 'detail'/);
-    assert.match(src, /function ProviderPageHeader[\s\S]*aria-label="返回模型连接"/);
+    assert.match(src, /type ProviderDialogState =[\s\S]*kind: 'create'[\s\S]*kind: 'manage'/);
     assert.match(src, /usesQuickApiKeyDialog[\s\S]*defaults\.authKind === 'api_key' && Boolean\(defaults\.baseUrl\)/);
     assert.match(src, /const supportsApiKey = providerAuthSupportsApiKey\(props\.providerType\)/);
     assert.match(src, /const requiresApiKey = providerAuthRequiresSecret\(props\.providerType\) && supportsApiKey/);
-    assert.match(src, /<DialogContent[\s\S]*initialFocus=\{apiKeyInputRef\}[\s\S]*finalFocus=\{props\.finalFocus\}/);
+    assert.match(src, /<ProviderConnectionDialog[\s\S]*<AddProviderForm/);
+    assert.match(src, /<DialogContent[\s\S]*className="maka-modal providerConnectionDialog"/);
+    assert.match(src, /initialFocus=\{\(\) =>[\s\S]*summary[\s\S]*\?\? true\}/, 'connection dialogs must focus the visible Advanced summary when no form control precedes it');
     assert.match(src, /ariaLabel="API Key"/);
     assert.match(src, /\.\.\.\(normalizedApiKey \? \{ apiKey: normalizedApiKey \} : \{\}\)/);
-    assert.match(src, /<div className="providerInlineEditor">[\s\S]*<AddProviderForm/);
-    assert.doesNotMatch(src, /ProviderConfigSheetOverlay/, 'API provider configuration must not use the OAuth modal infrastructure');
+    assert.doesNotMatch(src, /ProviderPageHeader|providerInlineEditor/, 'creation must not retain an in-pane child editor');
   });
 
-  it('OAuth login sheets route through Base UI Dialog nested in the settings surface', async () => {
+  it('OAuth login uses the same centered connection dialog as API providers', async () => {
     const src = await readProviderSettingsCombinedSource();
 
-    // ProviderSheet wraps Base UI Dialog so the nested modal layer handles
-    // focus trap / Esc / aria-hidden on the settings nav, replacing the old
-    // useModalA11y + useProviderSheetBackgroundInert DOM walker.
-    assert.match(src, /export function ProviderSheet/, 'ProviderSheet primitive must exist');
-    assert.match(src, /BaseDialog\.Root/, 'uses Base UI Dialog.Root');
-    assert.match(src, /BaseDialog\.Portal/, 'uses Dialog.Portal');
-    assert.match(src, /BaseDialog\.Backdrop/, 'uses Dialog.Backdrop');
-    assert.match(src, /BaseDialog\.Popup/, 'uses Dialog.Popup');
-    assert.match(
-      src,
-      /querySelector<HTMLElement>\('\.settingsSurface'\)/,
-      'Portal container must be the settings surface (nested visual: scrim covers the surface, not the viewport)',
-    );
-    assert.match(
-      src,
-      /Backdrop[\s\S]{0,80}forceRender/,
-      'nested backdrop must forceRender (Base UI skips nested backdrops by default; provider sheets want the scrim)',
-    );
-    assert.match(src, /<ProviderSheet/, 'OAuth sheets must render via ProviderSheet');
-    assert.doesNotMatch(
-      src,
-      /\buseProviderSheetBackgroundInert\(/,
-      'useProviderSheetBackgroundInert removed (Base UI nested modal handles aria-hidden)',
-    );
-    assert.doesNotMatch(
-      src,
-      /import[^}]*\buseModalA11y\b/,
-      'useModalA11y removed from provider sheets (Base UI Dialog owns focus/Esc)',
-    );
+    assert.match(src, /function ClaudeSubscriptionModal[\s\S]*<ProviderConnectionDialog/);
+    assert.match(src, /function SubscriptionLoginModal[\s\S]*<ProviderConnectionDialog/);
+    assert.match(src, /function GitHubCopilotSubscriptionModal[\s\S]*<ProviderConnectionDialog/);
+    assert.doesNotMatch(src, /ProviderSheet|providerConfigSheet/, 'the retired right-sheet path must be deleted');
+    assert.match(src, /DialogRoot[\s\S]*DialogContent[\s\S]*DialogHeader/, 'the shared dialog must retain modal focus and labelling primitives');
   });
 
   it('does not auto-open the first provider detail page after loading connections', async () => {
@@ -344,8 +325,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     const src = await readProviderSettingsCombinedSource();
     const reloadBlock = src.match(/async function reload\(\)[\s\S]*?^\s*\}/m)?.[0] ?? '';
 
-    assert.match(reloadBlock, /setPage\(\(current\) => current\.kind === 'detail' && !list\.some\(\(connection\) => connection\.slug === current\.slug\)/);
-    assert.match(reloadBlock, /\? \{ kind: 'connections' \}\s*:\s*current/);
+    assert.match(reloadBlock, /setDialogState\(\(current\) => current\?\.kind === 'manage' && !list\.some\(\(connection\) => connection\.slug === current\.slug\)/);
+    assert.match(reloadBlock, /\? null\s*:\s*current/);
     assert.doesNotMatch(reloadBlock, /list\[0\]\?\.slug/, 'reload must not auto-select the first provider');
   });
 
@@ -427,7 +408,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     const src = await readProviderSettingsCombinedSource();
     const addForm = src.match(/function AddProviderForm[\s\S]*?function ConnectionDetail/)?.[0] ?? '';
     const detail = src.match(/function ConnectionDetail[\s\S]*?function connectionDetailSnapshot/)?.[0] ?? '';
-    const modelTable = src.match(/function ModelTable[\s\S]*?function ModelCapabilityChips/)?.[0] ?? '';
+    const enabledModels = src.match(/function EnabledModelManager[\s\S]*?function modelDisplayLabel/)?.[0] ?? '';
 
     assert.match(addForm, /<span>连接标识<\/span>/);
     assert.match(addForm, /aria-label="模型供应商连接标识"/);
@@ -442,10 +423,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // Chinese-first; the parenthetical state hints split into their own
     // FieldDescription lines. AddProviderForm is intentionally left on the
     // legacy <label><span/> markup this round (single-page pilot).
-    assert.match(detail, /<Label[^>]*>连接标识<\/Label>/);
-    assert.match(detail, /aria-label="模型连接标识"/);
     assert.match(detail, /<Label[^>]*>服务地址<\/Label>/);
-    assert.match(detail, /hasFixedOAuthBaseUrl && <FieldDescription>OAuth 固定<\/FieldDescription>/);
+    assert.match(detail, /props\.fixedOAuth && <FieldDescription>OAuth 固定<\/FieldDescription>/);
     assert.match(detail, /<Label[^>]*>模型密钥<\/Label>/);
     assert.match(detail, /hasSecret === true && <FieldDescription>已设置，粘贴新值可替换<\/FieldDescription>/);
     assert.match(detail, /placeholder=\{hasSecret === true \? '••••••••' : '粘贴模型密钥'\}/);
@@ -453,25 +432,25 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(detail, /获取模型密钥/);
     assert.match(detail, /模型密钥 \/ 服务地址 \/ 代理设置/);
 
-    assert.match(modelTable, /刷新模型列表/);
-    assert.match(modelTable, /先配置模型密钥/);
-    assert.match(modelTable, /该供应商的真实模型清单/);
+    assert.match(enabledModels, /启用模型/);
+    assert.match(enabledModels, /仅这些模型会出现在模型选择器中/);
+    assert.match(enabledModels, /搜索并添加模型/);
     assert.match(src, /网络错误，请检查服务地址或代理设置后重试。/);
     // Provider descriptions are version-agnostic (provider + access path,
     // never a model generation that goes stale).
     assert.match(src, /Anthropic 官方接入/);
     assert.match(src, /OpenAI 官方接入/);
 
-    for (const block of [addForm, detail, modelTable]) {
+    for (const block of [addForm, detail, enabledModels]) {
       assert.doesNotMatch(block, />Slug</);
       assert.doesNotMatch(block, /Base URL|\(required\)|API key|从 API 刷新|粘贴 API key|获取 API key|该 provider 的真实模型清单/);
     }
   });
 
-  it('exposes exactly five equal OAuth cards including GitHub Copilot', async () => {
+  it('exposes only runnable OAuth cards', async () => {
     // WAWQAQ msg 8bb7e186: Claude must not be a huge standalone
     // inline card while the other OAuth providers are compact
-    // cards. All five login entries live in the same grid.
+    // cards. All runnable login entries live in the same grid.
     const src = await readProviderSettingsCombinedSource();
     const match = src.match(/MODEL_OAUTH_CARDS:\s*ReadonlyArray<ModelOAuthCard>\s*=\s*\[([\s\S]*?)\];/);
     assert.ok(match, 'MODEL_OAUTH_CARDS literal must exist');
@@ -479,8 +458,25 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     const ids = [...body.matchAll(/id:\s*'([a-z-]+)'/g)].map((m) => m[1]);
     assert.deepEqual(
       ids.sort(),
-      ['antigravity', 'claude', 'codex', 'cursor', 'github-copilot'],
-      'grid must include exactly claude / codex / github-copilot / antigravity / cursor',
+      ['claude', 'codex', 'github-copilot'],
+      'the catalog must hide account logins that cannot create a runnable model connection',
+    );
+
+    const section = src.match(/function ModelOAuthSection[\s\S]*?function providerOAuthAriaLabel/)?.[0] ?? '';
+    assert.match(
+      section,
+      /const \[claudeCatalogEnabled, setClaudeCatalogEnabled\] = useState<boolean \| null>\(null\)/,
+      'Claude must remain hidden until the experimental availability check resolves',
+    );
+    assert.match(
+      section,
+      /window\.maka\.claudeSubscription\s*\.isExperimentalEnabled\(\)/,
+      'the catalog must use the main-process experimental gate as the Claude availability authority',
+    );
+    assert.match(
+      section,
+      /card\.id !== 'claude' \|\| claudeCatalogEnabled === true/,
+      'the catalog must not expose the Claude entry when its experimental send path is disabled or unknown',
     );
   });
 
@@ -555,7 +551,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.ok(match, 'MODEL_OAUTH_CARDS literal must exist');
     const body = match[1]!;
     const statuses = [...body.matchAll(/status:\s*'([a-z_]+)'/g)].map((m) => m[1]);
-    assert.equal(statuses.length, 5, 'each card must declare a status');
+    assert.equal(statuses.length, 3, 'each visible runnable card must declare a status');
     for (const s of statuses) {
       assert.equal(s, 'available', `card status must be 'available', got '${s}'`);
     }
@@ -588,7 +584,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('OAuth model connection detail treats Base URL as fixed provider metadata, not an editable endpoint', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -597,29 +593,45 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /baseUrl:\s*baseUrl \|\| undefined/,
+      /props\.bridge\.update\(connection\.slug, \{[\s\S]*?baseUrl,/,
       'saving an OAuth connection must submit the read-only endpoint loaded from the connection',
     );
     assert.match(
       detail,
-      /value=\{baseUrl\}/,
+      /<ConnectionEndpointField[\s\S]*baseUrl=\{baseUrl\}/,
       'OAuth Base URL input must display the main-owned connection endpoint',
     );
     assert.match(
       detail,
-      /readOnly=\{hasFixedOAuthBaseUrl\}/,
+      /readOnly=\{props\.fixedOAuth\}/,
       'OAuth Base URL must be read-only in the provider detail sheet',
     );
     assert.match(
       detail,
-      /aria-readonly=\{hasFixedOAuthBaseUrl \? 'true' : undefined\}/,
+      /aria-readonly=\{props\.fixedOAuth \? 'true' : undefined\}/,
       'the fixed OAuth Base URL state must be exposed to assistive tech',
     );
   });
 
+  it('connection management dialogs lead with credentials and keep model visibility in advanced settings', async () => {
+    const src = await readProviderSettingsCombinedSource();
+    const detail = src.match(/function ConnectionDetailInner[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const credential = detail.indexOf('<PasswordInput');
+    const advanced = detail.indexOf('<details className="providerAdvancedSettings"');
+    const models = detail.indexOf('<EnabledModelManager');
+
+    assert.ok(credential >= 0, 'API-key connection detail must expose its credential field');
+    assert.ok(advanced > credential, 'credentials must remain the primary task before advanced settings');
+    assert.ok(models > advanced, 'enabled-model management must stay inside advanced settings');
+    assert.doesNotMatch(detail, /<ModelTable/, 'connection detail must not render a default-model picker');
+    assert.match(detail, /connectionLastTestMessageDisplay\(connection\.lastTestMessage\)/);
+    assert.match(detail, /<RelativeTime ts=\{lastTestAtMs\}/);
+    assert.doesNotMatch(detail, /<header>[\s\S]*\{connection\.name\}/, 'the shared DialogHeader must be the only title header');
+  });
+
   it('does not let disabled OAuth connections become the default model', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -628,51 +640,80 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /!\s*props\.isDefault && connection\.enabled && \([\s\S]*<Button variant="secondary" type="button" disabled=\{detailActionBusy\} onClick=\{setAsDefault\}>[\s\S]*\{settingDefault \? '设置中…' : '设为默认'\}[\s\S]*<\/Button>/,
+      /!\s*props\.isDefault && connection\.enabled && \([\s\S]*<Button variant="quiet" type="button" disabled=\{detailActionBusy\} onClick=\{setAsDefault\}>[\s\S]*\{settingDefault \? '设置中…' : '设为默认连接'\}[\s\S]*<\/Button>/,
       'disabled connections must not render the set-default action',
     );
   });
 
-  it('does not leave Save enabled when an existing connection has no draft changes', async () => {
+  it('does not render Save when an existing connection has no draft changes', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
       detail,
-      /const hasSaveChanges =[\s\S]*apiKey\.length > 0[\s\S]*draftBaseUrl !== savedBaseUrl[\s\S]*defaultModel !== connection\.defaultModel/,
-      'ConnectionDetail must compute dirty state from the fields that Save actually writes',
+      /const hasApiKeyChange = apiKey\.length > 0;[\s\S]*const hasBaseUrlChange = draftBaseUrl !== savedBaseUrl;/,
+      'ConnectionDetail must compute dirty state separately for each field it writes',
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy \|\| !hasSaveChanges\}/,
-      'Save must be disabled until the user changes a writable field',
+      /\{hasApiKeyChange && \([\s\S]*<Button type="button" disabled=\{detailActionBusy\} onClick=\{save\}>[\s\S]*\{hasBaseUrlChange && \([\s\S]*<Button type="button" disabled=\{detailActionBusy\} onClick=\{save\}>/,
+      'each Save action must stay beside its field and out of the default visual hierarchy until that field changes',
     );
   });
 
-  it('keeps the model picker radiogroup free of nested listitem semantics', async () => {
+  it('forwards an empty service-address draft so the stored override can be cleared', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const modelTable = src.match(/function ModelTable[\s\S]*?function ModelCapabilityChips/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
-      modelTable,
-      /<ul[\s\S]*className="modelTableList"[\s\S]*role="radiogroup"[\s\S]*aria-label="默认模型"/,
-      'ModelTable must expose the default-model picker as a named radiogroup',
-    );
-    assert.match(
-      modelTable,
-      /<li key=\{model\.id\} role="none">[\s\S]*role="radio"/,
-      'structural list items inside the radiogroup must be presentational so assistive tech reaches the radio options directly',
+      detail,
+      /props\.bridge\.update\(connection\.slug, \{[\s\S]*?baseUrl,[\s\S]*?\.\.\.\(apiKey/,
+      'ConnectionDetail must send an empty string as an explicit service-address clear',
     );
     assert.doesNotMatch(
-      modelTable,
-      /<li key=\{model\.id\}>\s*<Button[\s\S]*role="radio"/,
-      'ModelTable must not wrap radio options in exposed listitem semantics',
+      detail,
+      /baseUrl:\s*baseUrl\s*\|\|\s*undefined/,
+      'ConnectionDetail must not turn an explicit empty service address into an omitted patch field',
     );
+  });
+
+  it('uses native list semantics for enabled and searchable models', async () => {
+    const src = await readProviderSettingsCombinedSource();
+    const enabledModels = src.match(/function EnabledModelManager[\s\S]*?function modelDisplayLabel/)?.[0] ?? '';
+
+    assert.match(
+      enabledModels,
+      /<ul className="providerModelSearchResults" aria-label="可添加模型">/,
+      'search results must use a named native list',
+    );
+    assert.match(
+      enabledModels,
+      /<ul className="providerEnabledModelList" aria-label="已启用模型">/,
+      'enabled models must use a named native list',
+    );
+    assert.doesNotMatch(
+      enabledModels,
+      /role="radio"|role="list"|role="listitem"/,
+      'native list markup must not add redundant or incorrect ARIA roles',
+    );
+  });
+
+  it('automatically persists enabled-model edits without a second Save action', async () => {
+    const src = await readProviderSettingsCombinedSource();
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const enabledModels = src.match(/function EnabledModelManager[\s\S]*?function modelDisplayLabel/)?.[0] ?? '';
+
+    assert.match(
+      detail,
+      /async function updateEnabledModels\(nextIds: string\[\]\)[\s\S]*connectionEnabledModelIds\([\s\S]*props\.bridge\.update\(connection\.slug, \{ enabledModelIds: next \}\)[\s\S]*await props\.onChanged\(\)/,
+    );
+    assert.match(enabledModels, /isDefault \? \([\s\S]*providerEnabledModelMeta">默认<[\s\S]*\) : \([\s\S]*aria-label=\{`移除/);
+    assert.doesNotMatch(enabledModels, /保存/);
   });
 
   it('surfaces provider detail save/delete failures instead of leaking rejected promises from actions', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -686,14 +727,14 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /<Button variant="destructive" type="button" disabled=\{detailActionBusy\} onClick=\{remove\}>[\s\S]*\{deleting \? '删除中…' : '删除'\}[\s\S]*<\/Button>/,
+      /<Button className="providerAdvancedDanger" variant="quiet" type="button" disabled=\{detailActionBusy\} onClick=\{remove\}>[\s\S]*\{deleting \? '删除中…' : '删除连接'\}[\s\S]*<\/Button>/,
       'Delete should be disabled while provider detail actions are busy and show its own pending copy',
     );
   });
 
   it('surfaces provider detail credential-presence probe failures', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(src, /type CredentialPresenceStatus = boolean \| 'loading' \| 'error'/);
     assert.match(detail, /useState<CredentialPresenceStatus>\([\s\S]*defaults\.authKind === 'none' \? true : 'loading'/);
@@ -710,7 +751,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'credential-presence probe failures must not be downgraded to missing credentials',
     );
     assert.match(detail, /role="alert"[\s\S]*模型凭据状态暂时没刷新成功，已避免把未知状态显示成未登录或未配置/);
-    assert.match(detail, /canRefresh=\{!detailActionBusy && hasUsableCredential\}/);
+    assert.match(detail, /disabled=\{detailActionBusy \|\| !hasUsableCredential\} onClick=\{\(\) => void refreshModels\(\)\}/);
     assert.match(detail, /disabled=\{detailActionBusy \|\| !hasUsableCredential\}/);
     assert.doesNotMatch(
       detail,
@@ -721,7 +762,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('shows but does not require LocalAI optional credentials', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(detail, /const supportsApiKey = providerAuthSupportsApiKey\(connection\.providerType\)/);
     assert.match(detail, /const requiresCredential = providerAuthRequiresSecret\(connection\.providerType\)/);
@@ -730,7 +771,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('provider detail async actions stop writing UI after the detail sheet is closed or switched', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -780,7 +821,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // props via useState would otherwise keep showing stale models /
     // defaultModel until the sheet is closed and reopened.
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
     assert.match(
       src,
@@ -809,7 +850,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /setBaseUrl\(nextSnapshot\.baseUrl\)[\s\S]*setDefaultModel\(nextSnapshot\.defaultModel\)[\s\S]*setModels\(nextSnapshot\.models\)[\s\S]*setModelSource\(nextSnapshot\.modelSource\)/,
+      /setBaseUrl\(nextSnapshot\.baseUrl\)[\s\S]*setModels\(nextSnapshot\.models\)[\s\S]*setModelSource\(nextSnapshot\.modelSource\)/,
       'prop refresh must update every draft field derived from connection props',
     );
     assert.match(
@@ -1011,15 +1052,11 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('SubscriptionLoginModal picks the right service bridge per id', async () => {
+  it('SubscriptionLoginModal keeps only the runnable Codex catalog bridge', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const fnMatch = src.match(/function pickSubscriptionBridge\(serviceId:[\s\S]*?^\}/m);
-    assert.ok(fnMatch, 'pickSubscriptionBridge helper must exist');
-    const body = fnMatch[0];
-    assert.doesNotMatch(body, /case 'claude'/, 'Claude has a paste-code modal and must not use the loopback generic bridge');
-    assert.match(body, /case 'codex'[\s\S]*?window\.maka\.openAiCodex/);
-    assert.match(body, /case 'cursor'[\s\S]*?window\.maka\.cursorSubscription/);
-    assert.match(body, /case 'antigravity'[\s\S]*?window\.maka\.antigravitySubscription/);
+    const modal = src.match(/function SubscriptionLoginModal[\s\S]*?function ClaudeSubscriptionCard/)?.[0] ?? '';
+    assert.match(modal, /window\.maka\.openAiCodex/);
+    assert.doesNotMatch(modal, /pickSubscriptionBridge|cursorSubscription|antigravitySubscription/, 'hidden non-runnable catalog services must not retain unreachable modal branches');
   });
 
   it('shared login flow calls getAuthUrl → openAuthUrl → completeAuthorization on the bridge', async () => {

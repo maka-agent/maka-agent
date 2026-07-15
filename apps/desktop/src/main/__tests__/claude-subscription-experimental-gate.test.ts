@@ -281,8 +281,8 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
     assert.doesNotMatch(src, /\{\s*id:\s*'oauth'/, 'model provider transport catalog must not classify OAuth as a provider category');
     assert.match(
       src,
-      /<section className="providerAccountSection" aria-label="账号连接">[\s\S]*<ModelOAuthSection onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\} \/>[\s\S]*<\/section>/,
-      'account connections must render the real OAuth login cards, not an empty roadmap tile',
+      /catalogCategory === 'recommended' \|\| catalogCategory === 'accounts'[\s\S]*<ModelOAuthSection[\s\S]*query=\{catalogQuery\}[\s\S]*onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\}/,
+      'the inline recommended/account catalog must render the real OAuth login cards, not an empty roadmap tile',
     );
     assert.doesNotMatch(
       src,
@@ -405,7 +405,7 @@ describe('Claude OAuth model connection bridge', () => {
     );
     assert.match(
       src,
-      /async function normalizeUpdateConnectionInput\([\s\S]*Promise<UpdateConnectionInput>[\s\S]*const defaults = providerType \? PROVIDER_DEFAULTS\[providerType\] : undefined;[\s\S]*defaults\?\.authKind === 'oauth_token'[\s\S]*baseUrl:\s*existing\?\.baseUrl \?\? defaults\.baseUrl/,
+      /async function normalizeUpdateConnectionInput\([\s\S]*Promise<UpdateConnectionInput>[\s\S]*const defaults = providerType \? PROVIDER_DEFAULTS\[providerType\] : undefined;[\s\S]*defaults\?\.authKind === 'oauth_token'[\s\S]*hasOwnProperty\.call\(normalizedPatch, 'baseUrl'\)[\s\S]*baseUrl:\s*existing\?\.baseUrl \?\? defaults\.baseUrl/,
       'update must preserve the existing main-owned OAuth endpoint',
     );
     assert.match(

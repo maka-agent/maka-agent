@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
+import { readProviderSettingsSources } from './provider-contract-source-helpers.js';
 import {
   deriveProviderAuthContract,
   type ProviderAuthContract,
@@ -289,16 +290,19 @@ describe('Account settings credential probe UI', () => {
   });
 
   it('normalizes legacy persisted connection-test messages before display', async () => {
-    const source = await readSettingsCombinedSource();
-    const helper = source.match(/function accountLastTestMessageDisplay\(message: string \| undefined\): string \| undefined \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const [source, providerSources] = await Promise.all([
+      readSettingsCombinedSource(),
+      readProviderSettingsSources(),
+    ]);
+    const helper = providerSources.shared.match(/function connectionLastTestMessageDisplay\(message: string \| undefined\): string \| undefined \{[\s\S]*?\n\}/)?.[0] ?? '';
     const row = source.match(/function AccountConnectionRow[\s\S]*?function AccountAuthActionView/)?.[0] ?? '';
 
-    assert.match(helper, /normalized === 'connection verified'[\s\S]*连接已验证/);
-    assert.match(helper, /normalized === 'authentication failed'[\s\S]*鉴权失败/);
-    assert.match(helper, /normalized === 'request timed out'[\s\S]*请求超时/);
-    assert.match(helper, /normalized === 'network error'[\s\S]*网络错误/);
-    assert.match(helper, /normalized === 'provider returned an error'[\s\S]*模型服务返回错误/);
-    assert.match(helper, /normalized === 'connection test failed'[\s\S]*连接测试失败/);
+    assert.match(helper, /'connection verified': '连接已验证'/);
+    assert.match(helper, /'authentication failed': '鉴权失败'/);
+    assert.match(helper, /'request timed out': '请求超时'/);
+    assert.match(helper, /'network error': '网络错误'/);
+    assert.match(helper, /'provider returned an error': '模型服务返回错误'/);
+    assert.match(helper, /'connection test failed': '连接测试失败'/);
     assert.match(
       helper,
       /generalizedErrorMessageChinese\(new Error\(trimmed\), ''\)/,
@@ -306,7 +310,7 @@ describe('Account settings credential probe UI', () => {
     );
     assert.match(
       row,
-      /const lastTestMessage = accountLastTestMessageDisplay\(props\.connection\.lastTestMessage\)/,
+      /const lastTestMessage = connectionLastTestMessageDisplay\(props\.connection\.lastTestMessage\)/,
       'Account connection rows must not render persisted lastTestMessage directly',
     );
     assert.doesNotMatch(

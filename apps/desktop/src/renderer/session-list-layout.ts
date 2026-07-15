@@ -1,4 +1,4 @@
-import { safeLocalStorageGet } from './browser-storage';
+import { safeLocalStorageGet } from './browser-storage.js';
 
 export const SESSION_LIST_COLLAPSED_WIDTH = 0;
 export const SESSION_LIST_EXPANDED_DEFAULT_WIDTH = 210;

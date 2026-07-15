@@ -122,25 +122,3 @@
   mask-repeat: no-repeat;
   mask-size: contain;
 }
-
-
-.providerConfigOverlay {
-  position: absolute;
-  inset: 0;
-  background: oklch(from var(--background) calc(l - 0.05) c h / 0.64);
-  backdrop-filter: blur(2px);
-  border-radius: var(--radius-modal);
-}
-
-.providerConfigSheet {
-  position: absolute;
-  inset: var(--space-3) var(--space-3) var(--space-3) auto;
-  width: min(430px, calc(100% - (var(--space-3) * 2)));
-  min-height: 0;
-  overflow: auto;
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-modal);
-  background: var(--background);
-  box-shadow: 0 18px 46px oklch(from var(--foreground) l c h / 0.14);
-  padding: var(--space-4);
-}

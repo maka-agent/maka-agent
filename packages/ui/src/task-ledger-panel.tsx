@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import type { Task, TaskStatus } from '@maka/core';
 import {
   AlertCircle,
@@ -7,7 +7,6 @@ import {
   ChevronDown,
   CircleGauge,
   Clock,
-  ListTodo,
   RefreshCcw,
   X,
 } from './icons.js';
@@ -60,74 +59,48 @@ export function deriveTaskLedgerPanelModel(tasks: readonly Task[]): TaskLedgerPa
 }
 
 export function TaskLedgerPanel(props: TaskLedgerPanelProps) {
-  const [open, setOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
-  const userToggledRef = useRef(false);
   const model = useMemo(() => deriveTaskLedgerPanelModel(props.tasks), [props.tasks]);
-  useEffect(() => {
-    if (model.activeCount > 0 && !userToggledRef.current) setOpen(true);
-  }, [model.activeCount]);
 
   return (
-    <Collapsible
-      className="maka-task-ledger-band"
-      open={open}
-      onOpenChange={(nextOpen) => {
-        userToggledRef.current = true;
-        setOpen(nextOpen);
-      }}
-      data-has-active={model.activeCount > 0 ? 'true' : 'false'}
-    >
-      <CollapsibleTrigger className="maka-task-ledger-trigger" aria-label={`${open ? '收起' : '展开'}会话任务`}>
-        <span className="maka-task-ledger-heading">
-          <ListTodo size={15} aria-hidden="true" />
-          <span>会话任务</span>
-          {model.activeCount > 0 && <span className="maka-task-ledger-count">{model.activeCount}</span>}
-        </span>
-        <span className="maka-task-ledger-summary">
-          {props.loading ? '载入中' : props.error ? '载入失败' : model.activeCount > 0 ? `${model.activeCount} 项待推进` : '暂无活跃任务'}
-          <ChevronDown size={15} aria-hidden="true" data-open={open ? 'true' : 'false'} />
-        </span>
-      </CollapsibleTrigger>
-      <CollapsiblePanel className="maka-task-ledger-panel">
-        {props.error ? (
-          <div className="maka-task-ledger-message" role="alert">
-            <span>{props.error}</span>
-            {props.onRetry && (
-              <button type="button" className="maka-task-ledger-retry" onClick={props.onRetry} title="重新载入任务">
-                <RefreshCcw size={14} aria-hidden="true" />
-                <span className="sr-only">重新载入任务</span>
-              </button>
-            )}
-          </div>
-        ) : props.loading && props.tasks.length === 0 ? (
-          <div className="maka-task-ledger-message" role="status">正在载入任务…</div>
-        ) : (
-          <>
-            {model.activeCount > 0 ? (
-              <div className="maka-task-ledger-tree" role="tree" aria-label="活跃会话任务">
-                {model.activeTree.map((task) => <TaskLedgerRow key={task.id} task={task} />)}
-              </div>
-            ) : (
-              <div className="maka-task-ledger-message">当前会话没有待推进任务</div>
-            )}
-            {model.recentTerminalCount > 0 && (
-              <Collapsible className="maka-task-ledger-terminal" open={terminalOpen} onOpenChange={setTerminalOpen}>
-                <CollapsibleTrigger className="maka-task-ledger-terminal-trigger">
-                  <span>最近结束</span>
-                  <span>{model.recentTerminalCount}<ChevronDown size={14} aria-hidden="true" data-open={terminalOpen ? 'true' : 'false'} /></span>
-                </CollapsibleTrigger>
-                <CollapsiblePanel>
-                  <div className="maka-task-ledger-tree" role="tree" aria-label="最近结束的会话任务">
-                    {model.recentTerminalTree.map((task) => <TaskLedgerRow key={task.id} task={task} />)}
-                  </div>
-                </CollapsiblePanel>
-              </Collapsible>
-            )}
-          </>
-        )}
-      </CollapsiblePanel>
-    </Collapsible>
+    <section className="maka-task-ledger-panel" aria-label="会话任务">
+      {props.error ? (
+        <div className="maka-task-ledger-message" role="alert">
+          <span>{props.error}</span>
+          {props.onRetry && (
+            <button type="button" className="maka-task-ledger-retry" onClick={props.onRetry} title="重新载入任务">
+              <RefreshCcw size={14} aria-hidden="true" />
+              <span className="sr-only">重新载入任务</span>
+            </button>
+          )}
+        </div>
+      ) : props.loading && props.tasks.length === 0 ? (
+        <div className="maka-task-ledger-message" role="status">正在载入任务…</div>
+      ) : (
+        <>
+          {model.activeCount > 0 ? (
+            <div className="maka-task-ledger-tree" role="tree" aria-label="活跃会话任务">
+              {model.activeTree.map((task) => <TaskLedgerRow key={task.id} task={task} />)}
+            </div>
+          ) : (
+            <div className="maka-task-ledger-message">当前会话没有待推进任务</div>
+          )}
+          {model.recentTerminalCount > 0 && (
+            <Collapsible className="maka-task-ledger-terminal" open={terminalOpen} onOpenChange={setTerminalOpen}>
+              <CollapsibleTrigger className="maka-task-ledger-terminal-trigger">
+                <span>最近结束</span>
+                <span>{model.recentTerminalCount}<ChevronDown size={14} aria-hidden="true" data-open={terminalOpen ? 'true' : 'false'} /></span>
+              </CollapsibleTrigger>
+              <CollapsiblePanel>
+                <div className="maka-task-ledger-tree" role="tree" aria-label="最近结束的会话任务">
+                  {model.recentTerminalTree.map((task) => <TaskLedgerRow key={task.id} task={task} />)}
+                </div>
+              </CollapsiblePanel>
+            </Collapsible>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

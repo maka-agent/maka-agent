@@ -908,6 +908,7 @@ export {
   RECOMMENDED_PROVIDER_TYPES,
   READY_PROVIDER_TYPES,
   backendKindOf,
+  connectionEnabledModelIds,
   effectiveBaseUrl,
   migrateConnectionV1ToV2,
   normalizeConnectionBaseUrl,

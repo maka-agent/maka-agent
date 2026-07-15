@@ -18,33 +18,13 @@ describe('renderer lazy fallback contract', () => {
     assert.match(overlays, /<Suspense fallback=\{<SettingsModalFallback \/>\}>/);
     assert.doesNotMatch(overlays, /settingsOpen[\s\S]{0,120}<Suspense fallback=\{null\}>/);
 
-    assert.match(appShell, /function BrowserPanelFallback/, 'Browser panel must reserve a loading shell');
+    assert.match(appShell, /function SessionWorkbarFallback/, 'Session workbar must reserve a loading shell');
     assert.match(
       appShell,
-      /\{activeId && liveBrowserSessionIds\.includes\(activeId\) && \([\s\S]*?<Suspense fallback=\{<BrowserPanelFallback \/>\}>[\s\S]*?<BrowserPanel sessionId=\{activeId\} hidden=\{hasModalOpen\} \/>[\s\S]*?<\/Suspense>[\s\S]*?\)\}/,
-      'Browser panel fallback is safe because AppShell already knows this session owns a live browser view',
+      /\{navSelection\.section === 'sessions' && activeId && !workbarCollapsed && \([\s\S]*?<Suspense fallback=\{<SessionWorkbarFallback \/>\}>[\s\S]*?<SessionWorkbar[\s\S]*?<\/Suspense>[\s\S]*?\)\}/,
+      'The persisted shell-owned workbar state makes its visible fallback deterministic',
     );
-    assert.match(appShell, /<Suspense fallback=\{<BrowserPanelFallback \/>\}>/);
-  });
-
-  it('keeps ArtifactPane hidden while its lazy chunk loads without artifact evidence', async () => {
-    const appShell = await readFile(APP_SHELL_PATH, 'utf8');
-
-    assert.doesNotMatch(
-      appShell,
-      /function ArtifactPaneFallback/,
-      'ArtifactPane must not fake the right-side generated-file pane while it is still loading',
-    );
-    assert.match(
-      appShell,
-      /<Suspense fallback=\{null\}>\s*<ArtifactPane sessionId=\{activeId\} \/>\s*<\/Suspense>/,
-      'AppShell does not know live artifacts or list errors, so ArtifactPane lazy loading must preserve the default hidden layout',
-    );
-    assert.doesNotMatch(
-      appShell,
-      /fallback=\{<[^}]*Artifact[^}]*>\}/,
-      'ArtifactPane may only show a fallback after AppShell owns an explicit artifact/list-error visibility gate',
-    );
+    assert.match(appShell, /<Suspense fallback=\{<SessionWorkbarFallback \/>\}>/);
   });
 
   it('keeps module lazy chunks on compact non-null fallbacks', async () => {

@@ -123,13 +123,12 @@ describe('issue #499 P0-3 tab spec contract', () => {
       /PrimitiveTabsList[^>]*variant="pill"/,
       'catalog TabsList must pass variant="pill"',
     );
-    // Every provider transport category is generated from CATALOG_TABS and
-    // receives a matching panel. OAuth account connections intentionally live
-    // outside this transport catalog.
+    // The active category owns one panel so hidden tabs do not mount duplicate
+    // OAuth controllers or run background account probes.
     assert.match(
       panel,
-      /PrimitiveTabsPanel key=\{tab\.id\} value=\{tab\.id\}/,
-      'catalog must map one TabsPanel per provider category',
+      /<PrimitiveTabsPanel value=\{catalogCategory\}>/,
+      'catalog must bind its single mounted panel to the active category',
     );
     assert.match(
       panel,

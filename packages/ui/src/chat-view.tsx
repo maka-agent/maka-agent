@@ -26,7 +26,6 @@ import {
   type TurnLineageBadge,
 } from './chat-turn.js';
 import { useChatScroll } from './use-chat-scroll.js';
-import { TaskLedgerPanel, type TaskLedgerPanelProps } from './task-ledger-panel.js';
 
 export function ChatView(props: {
   messages: StoredMessage[];
@@ -93,8 +92,6 @@ export function ChatView(props: {
     maxIterations: number;
     onClear: () => void;
   };
-  /** Session-owned task read model. Rendered as a full-width band above messages. */
-  taskLedger?: TaskLedgerPanelProps;
   /** Error from loading the active session's persisted message log. */
   messageLoadError?: string;
   messageLoadRetryPending?: boolean;
@@ -341,7 +338,6 @@ export function ChatView(props: {
             composer left-controls. Header keeps the per-session status
             chips only. */}
       </header>
-      {props.taskLedger && <TaskLedgerPanel key={props.activeSession?.id} {...props.taskLedger} />}
       <div className="maka-chat-shell">
         {props.branchBanner && (
           <SessionBranchBanner

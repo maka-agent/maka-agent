@@ -21,17 +21,16 @@ test('boots to registry recommendations and browses the shared provider catalog'
   await page.getByRole('button', { name: '浏览全部服务商' }).click();
 
   await expect(page.getByLabel('设置内容')).toBeVisible();
-  await expect(page.getByRole('heading', { name: '添加服务商' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '已连接' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '添加新连接' })).toBeVisible();
   await expect(page.getByRole('tablist', { name: '模型供应商分类' })).toBeVisible();
   await expect(page.getByPlaceholder('搜索服务商')).toBeVisible();
-
-  await page.getByRole('button', { name: '返回模型连接' }).click();
-  await expect(page.getByRole('button', { name: '添加服务商' })).toBeVisible();
+  await expect(page.getByText('还没有模型连接')).toBeVisible();
 
   const settingsNav = page.locator('[aria-label="设置分组"]');
   await settingsNav.getByText('外观', { exact: true }).click();
   await settingsNav.getByText('模型', { exact: true }).click();
 
-  await expect(page.getByRole('button', { name: '添加服务商' })).toBeVisible();
-  await expect(page.getByPlaceholder('搜索服务商')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '添加新连接' })).toBeVisible();
+  await expect(page.getByPlaceholder('搜索服务商')).toBeVisible();
 });

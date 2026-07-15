@@ -30,7 +30,7 @@ const ICONS_FILE = resolve(REPO_ROOT, 'packages/ui/src/icons.tsx');
 const SIDEBAR_NAV_FILE = resolve(REPO_ROOT, 'packages/ui/src/session-sidebar-nav.tsx');
 const PROVIDER_BRAND_MARKS_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/provider-brand-marks.tsx');
 const PROVIDER_CATALOG_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/provider-catalog.tsx');
-const PROVIDERS_PANEL_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/ProvidersPanel.tsx');
+const PROVIDER_CONNECTION_DIALOG_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/provider-connection-dialog.tsx');
 const MINIMAX_BRAND_ASSET_FILE = resolve(
   REPO_ROOT,
   'apps/desktop/src/renderer/assets/provider-brands/minimax-logo-only-vertical-color-bg-white-text.svg',
@@ -214,10 +214,10 @@ describe('icon + typography governance contract', () => {
   });
 
   it('uses the unmodified upstream xAI mark across catalog and provider detail surfaces', async () => {
-    const [marks, catalog, providersPanel, xaiMark] = await Promise.all([
+    const [marks, catalog, providerDialog, xaiMark] = await Promise.all([
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
       readFile(PROVIDER_CATALOG_FILE, 'utf8'),
-      readFile(PROVIDERS_PANEL_FILE, 'utf8'),
+      readFile(PROVIDER_CONNECTION_DIALOG_FILE, 'utf8'),
       readFile(XAI_BRAND_MARK_FILE),
     ]);
 
@@ -234,8 +234,8 @@ describe('icon + typography governance contract', () => {
     assert.match(marks, /case 'xai':\s*return <XAI \/>/, 'the stable xai provider id must resolve to the upstream mark');
     assert.match(catalog, /<ProviderLogo type=\{props\.type\} \/>/, 'catalog cards must consume the shared provider logo seam');
     assert.match(
-      providersPanel,
-      /kind === 'detail' && selected[\s\S]*<ProviderPageHeader[\s\S]*providerType=\{selected\.providerType\}/,
+      providerDialog,
+      /<DialogHeader[\s\S]*icon=\{<ProviderLogo type=\{props\.providerType\} compact \/>\}/,
       'saved connection detail must consume the shared provider logo seam',
     );
   });
@@ -371,12 +371,12 @@ describe('icon + typography governance contract', () => {
   });
 
   it('vendors and routes the byte-exact Vercel SVG through the shared provider logo seam', async () => {
-    const [marks, asset, notices, catalog, providersPanel, onboardingHero] = await Promise.all([
+    const [marks, asset, notices, catalog, providerDialog, onboardingHero] = await Promise.all([
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
       readFile(VERCEL_BRAND_MARK_FILE),
       readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
       readFile(PROVIDER_CATALOG_FILE, 'utf8'),
-      readFile(PROVIDERS_PANEL_FILE, 'utf8'),
+      readFile(PROVIDER_CONNECTION_DIALOG_FILE, 'utf8'),
       readFile(ONBOARDING_HERO_FILE, 'utf8'),
     ]);
 
@@ -396,7 +396,7 @@ describe('icon + typography governance contract', () => {
       /apps\/desktop\/src\/renderer\/assets\/provider-brands\/vercel\.svg[\s\S]*32f4083f7a20b67ecdc7b29c0af031ada5a29c52[\s\S]*packages\/static-svg\/icons\/vercel\.svg[\s\S]*4874d52d8b2ce7c309cbd10c424fee123b2c9483e76d76ad0dca41794483eb24/,
     );
     assert.match(catalog, /<ProviderLogo type=\{props\.type\} \/>/);
-    assert.match(providersPanel, /<ProviderLogo type=\{props\.providerType\} compact \/>/);
+    assert.match(providerDialog, /<ProviderLogo type=\{props\.providerType\} compact \/>/);
     assert.match(onboardingHero, /<ProviderLogo type=\{type\} compact \/>/);
   });
 
@@ -518,10 +518,10 @@ describe('icon + typography governance contract', () => {
   });
 
   it('keeps the verified Ollama mark and routes it through catalog, detail, and first-run surfaces', async () => {
-    const [marks, catalog, providersPanel, onboardingHero, notices] = await Promise.all([
+    const [marks, catalog, providerDialog, onboardingHero, notices] = await Promise.all([
       readFile(PROVIDER_BRAND_MARKS_FILE, 'utf8'),
       readFile(PROVIDER_CATALOG_FILE, 'utf8'),
-      readFile(PROVIDERS_PANEL_FILE, 'utf8'),
+      readFile(PROVIDER_CONNECTION_DIALOG_FILE, 'utf8'),
       readFile(ONBOARDING_HERO_FILE, 'utf8'),
       readFile(THIRD_PARTY_NOTICES_FILE, 'utf8'),
     ]);
@@ -554,8 +554,8 @@ describe('icon + typography governance contract', () => {
     );
     assert.match(catalog, /<ProviderLogo type=\{props\.type\} \/>/);
     assert.match(
-      providersPanel,
-      /providerType=\{selected\.providerType\}[\s\S]*function ProviderPageHeader[\s\S]*<ProviderLogo type=\{props\.providerType\} compact \/>/,
+      providerDialog,
+      /<DialogHeader[\s\S]*<ProviderLogo type=\{props\.providerType\} compact \/>/,
       'the connection detail header must render the same provider mark as the catalog',
     );
     assert.match(onboardingHero, /<ProviderLogo type=\{type\} compact \/>/);

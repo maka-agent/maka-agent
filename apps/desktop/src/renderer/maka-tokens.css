@@ -518,14 +518,14 @@
   --maka-workspace-top-actions-top: calc(var(--maka-titlebar-control-safe-top) - 16px); /* pixel-measured lockstep with sidebar rail — lights' optical center is 20.75 */
   --maka-workspace-top-actions-right: 24px;
   /* Horizontal footprint the absolutely-positioned .maka-workspace-top-actions
-     toolbar occupies in the top-right corner: its right offset + four governed
-     28px compact icon buttons with 6px gaps (130px) + a 12px clearance gap. Right-aligned
+     toolbar occupies in the top-right corner: its right offset + five governed
+     28px compact icon buttons with 6px gaps (164px) + a 12px clearance gap. Right-aligned
      chat-header content (model switcher, .maka-chat-header-mode-pill, memory
      pill) and the chat-header drag strip reserve this footprint so neither
      content nor titlebar hit regions sit underneath the toolbar. Companion to
      PR-CHAT-HEADER-STATUS-CLUSTER-0, which only relocated the status cluster and
      left the in-header pills overlapping. */
-  --maka-workspace-top-actions-inset: calc(var(--maka-workspace-top-actions-right) + 142px);
+  --maka-workspace-top-actions-inset: calc(var(--maka-workspace-top-actions-right) + 176px);
 
   /* PR-WINDOW-TITLEBAR-0: Electron exposes the titlebar safe area through
      `titlebar-area-*` CSS env vars. The safe area is the usable titlebar

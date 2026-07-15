@@ -119,6 +119,7 @@ export const test = base.extend<{
   emptyWindow: Page;
   longTranscriptWindow: Page;
   permissionWindow: Page;
+  sessionWorkbarWindow: Page;
 }>({
   // Seeded: a pre-staged connection clears onboarding so the composer is ready.
   // Used by chat / session / settings / attachment specs.
@@ -148,6 +149,14 @@ export const test = base.extend<{
   permissionWindow: async ({}, use) => {
     await withE2eWindow(
       { seed: false, readinessSelector: '.maka-permission-prompt', visualSmokeScenario: 'permission-destructive' },
+      use,
+    );
+  },
+  // Session workbar: seeds a task tree and opens the unified auxiliary
+  // workspace so its shell controls and peer tabs run against real IPC data.
+  sessionWorkbarWindow: async ({}, use) => {
+    await withE2eWindow(
+      { seed: false, readinessSelector: 'aside[aria-label="会话工作栏"]', visualSmokeScenario: 'task-ledger' },
       use,
     );
   },

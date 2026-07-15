@@ -67,11 +67,8 @@ describe('Settings form accessibility labels', () => {
     // table cells which carry the same border-radius family.
     const providerIcon = '';
     const providerCatalogBadge = styles.match(/\.providerCatalogBadge\s*\{[\s\S]*?\}/)?.[0] ?? '';
-    const modelTable = styles.match(/\.modelTable\s*\{[\s\S]*?\}/)?.[0] ?? '';
-    const modelTableRow = styles.match(/\.modelTableRow\s*\{[\s\S]*?\}/)?.[0] ?? '';
-    const modelTableEmpty = styles.match(/\.modelTableEmpty\s*\{[\s\S]*?\}/)?.[0] ?? '';
-    const modelTableChip = styles.match(/\.modelTableChip\s*\{[\s\S]*?\}/)?.[0] ?? '';
-    const modelTableDefaultBadge = styles.match(/\.modelTableDefaultBadge\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    const enabledModelList = styles.match(/\.providerEnabledModelList\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    const modelSearchResults = styles.match(/\.providerModelSearchResults\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const settingsRow = styles.match(/\.settingsRow\s*\{[\s\S]*?\}/g)?.at(-1) ?? '';
     const settingsRowValue = styles.match(/\.settingsRow > span\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const settingsRowTitle = styles.match(/\.settingsRow strong\s*\{[\s\S]*?\}/)?.[0] ?? '';
@@ -87,18 +84,15 @@ describe('Settings form accessibility labels', () => {
     assert.match(providerMarketGridRule, /grid-template-columns:\s*1fr;/, 'Settings provider catalog should render as a seamless single-column row list, not a card grid');
     assert.ok(providerCatalogRow, 'Settings provider catalog rows should be governed by the shared .providerCatalogRow (Item) class');
     // PR-DELETE-ORPHAN-CSS: providerIcon assertion removed (orphan).
-    assert.match(modelTable, /border-radius:\s*var\(--radius-surface\);/, 'Settings model table should use the same 8px secondary-surface radius');
-    assert.match(modelTable, /box-shadow:\s*0 1px 3px oklch\(from var\(--foreground\) l c h \/ 0\.03\);/, 'Settings model table should stay near-flat instead of returning to legacy panel shadows');
-    assert.match(modelTableRow, /border-radius:\s*var\(--radius-surface\);/, 'Settings model rows should use compact 8px row geometry');
-    assert.match(modelTableEmpty, /border-radius:\s*var\(--radius-surface\);/, 'Settings model table empty state should align with the same 8px geometry');
+    assert.match(enabledModelList, /display:\s*grid;/, 'Enabled models should group plain rows with layout, not container chrome');
+    assert.match(enabledModelList, /gap:\s*var\(--space-1\);/, 'Enabled model rows should use whitespace as their persistent grouping cue');
+    assert.doesNotMatch(enabledModelList, /border-(?:top|bottom):/, 'Enabled models should not add separators around an already-bordered search field');
+    assert.match(modelSearchResults, /border-radius:\s*var\(--radius-surface\);/, 'Search results may use the standard secondary-surface radius');
     assert.match(providerCatalogBadge, /border-radius:\s*var\(--radius-control\);/, 'Provider catalog badges (category / preview / login) should use compact squared target-layout style corners, not pills');
-    assert.match(modelTableChip, /border-radius:\s*var\(--radius-control\);/, 'Settings model capability chips should use compact squared target-layout style corners, not pills');
-    assert.match(modelTableDefaultBadge, /border-radius:\s*var\(--radius-control\);/, 'Settings model default badge should use compact squared target-layout style corners, not pills');
     assert.match(connectionBadge, /rounded-\[var\(--radius-control\)\]/, 'Settings status badges (Chip primitive) should use compact squared target-layout style corners, not pills');
     assert.match(settingsBadge, /rounded-\[var\(--radius-control\)\]/, 'Generic Settings badges (Chip primitive) should use compact squared target-layout style corners, not pills');
     assert.doesNotMatch(providerCatalogBadge, /border-radius:\s*var\(--radius-pill\);/, 'Provider catalog badges must not regress to pill-shaped chrome');
-    assert.doesNotMatch(modelTableChip, /border-radius:\s*var\(--radius-pill\);/, 'Settings model capability chips must not regress to pill-shaped chrome');
-    assert.doesNotMatch(modelTableDefaultBadge, /border-radius:\s*var\(--radius-pill\);/, 'Settings model default badge must not regress to pill-shaped chrome');
+    assert.doesNotMatch(enabledModelList, /border-radius|box-shadow|background:/, 'Enabled model rows must stay visually flat');
     assert.doesNotMatch(connectionBadge, /rounded-\[var\(--radius-pill\)\]/, 'Settings connection badges (Chip primitive) must not regress to pill-shaped chrome');
     assert.doesNotMatch(settingsBadge, /rounded-\[var\(--radius-pill\)\]/, 'Generic Settings badges (Chip primitive) must not regress to pill-shaped chrome');
     assert.match(settingsRow, /display:\s*grid;/, 'Settings rows should use a stable label/value grid instead of flex auto sizing');
@@ -173,16 +167,8 @@ describe('Settings form accessibility labels', () => {
     assert.doesNotMatch(providersPanel, /<textarea\b/, 'ProvidersPanel must use the shared Textarea primitive for Settings text areas');
     assert.doesNotMatch(providersPanel, /<select\b/, 'ProvidersPanel must use the Base UI Select primitive for Settings selects');
     assert.doesNotMatch(providersPanel, /className="maka-button/, 'ProvidersPanel governed Buttons must not layer the legacy maka-button class (inert under the @maka/ui Button utilities, so it is dead weight)');
-    assert.match(
-      providersPanel,
-      /const tabbableModelId = tabbableRadioId\(props\.defaultModel \|\| undefined, selectableModelIds\);/,
-      'ModelTable must keep one selectable visible model row tabbable when the selected default is filtered out',
-    );
-    assert.doesNotMatch(
-      providersPanel,
-      /tabIndex=\{isDefault \|\| \(!props\.defaultModel && filtered\[0\]\?\.id === model\.id\) \? 0 : -1\}/,
-      'ModelTable must not regress to zero tabbable radios when search hides the selected default model',
-    );
+    assert.match(providersPanel, /aria-label="搜索并添加模型"/);
+    assert.match(providersPanel, /<ul className="providerEnabledModelList" aria-label="已启用模型">/);
     // `Item` rows become real buttons through Base UI's polymorphic
     // `render={<button .../>}` prop, which is a primitive render target rather
     // than a hand-rolled control. Strip those before asserting no raw <button>
@@ -268,9 +254,7 @@ describe('Settings form accessibility labels', () => {
       '模型供应商连接标识',
       '模型供应商显示名称',
       '模型供应商服务地址',
-      '模型供应商默认模型',
-      '模型连接标识',
-      '搜索模型',
+      '搜索并添加模型',
     ]) {
       assert.ok(providers.includes(`aria-label="${label}"`), `ProvidersPanel must label ${label}`);
     }

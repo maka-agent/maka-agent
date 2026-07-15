@@ -1,66 +1,8 @@
-.maka-task-ledger-band {
-  flex: 0 0 auto;
-  width: 100%;
-  border-block: var(--border-width-hairline) solid color-mix(in srgb, var(--border) 72%, transparent);
-  background: color-mix(in srgb, var(--background-elevated) 88%, transparent);
-}
-
-.maka-task-ledger-trigger {
-  min-height: 36px;
-  padding: var(--space-1-5) var(--space-5);
-  justify-content: space-between;
-  gap: var(--space-4);
-  color: var(--foreground-dimmed);
-}
-
-.maka-task-ledger-heading,
-.maka-task-ledger-summary,
-.maka-task-ledger-meta,
-.maka-task-ledger-terminal-trigger > span {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  min-width: 0;
-}
-
-.maka-task-ledger-heading {
-  color: var(--foreground);
-  font-size: var(--font-size-base);
-  font-weight: var(--font-weight-semibold);
-}
-
-.maka-task-ledger-summary {
-  justify-content: flex-end;
-  font-size: var(--font-size-caption);
-  white-space: nowrap;
-}
-
-.maka-task-ledger-summary svg,
-.maka-task-ledger-terminal-trigger svg {
-  transition: transform var(--duration-base) var(--ease-out-strong);
-}
-
-.maka-task-ledger-summary svg[data-open="true"],
-.maka-task-ledger-terminal-trigger svg[data-open="true"] {
-  transform: rotate(180deg);
-}
-
-.maka-task-ledger-count {
-  min-width: var(--space-5);
-  height: var(--space-5);
-  padding-inline: var(--space-1);
-  border-radius: var(--radius-control);
-  background: var(--control);
-  color: var(--control-foreground);
-  font-size: var(--font-size-caption);
-  line-height: var(--leading-none);
-  text-align: center;
-}
-
 .maka-task-ledger-panel {
-  max-height: min(34vh, 320px);
+  height: 100%;
+  min-height: 0;
   overflow-y: auto;
-  padding: var(--space-1) var(--space-5) var(--space-2-5);
+  padding: var(--space-2);
 }
 
 .maka-task-ledger-tree {
@@ -70,7 +12,7 @@
 
 .maka-task-ledger-row {
   display: grid;
-  grid-template-columns: 14px minmax(34px, auto) minmax(120px, 1fr) auto;
+  grid-template-columns: 14px minmax(34px, auto) minmax(100px, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   min-height: 30px;
@@ -80,10 +22,7 @@
   font-size: var(--font-size-caption);
 }
 
-.maka-task-ledger-row:hover {
-  background: color-mix(in srgb, var(--foreground) 5%, transparent);
-}
-
+.maka-task-ledger-row:hover { background: color-mix(in srgb, var(--foreground) 5%, transparent); }
 .maka-task-ledger-row[data-status="in_progress"] > svg { color: var(--status-running); }
 .maka-task-ledger-row[data-status="blocked"] > svg { color: var(--warning); }
 .maka-task-ledger-row[data-status="completed"] > svg { color: var(--success); }
@@ -104,26 +43,10 @@
   white-space: nowrap;
 }
 
-.maka-task-ledger-subject {
-  color: var(--foreground);
-  font-size: var(--font-size-base);
-}
-
-.maka-task-ledger-meta {
-  justify-content: flex-end;
-  white-space: nowrap;
-}
-
-.maka-task-ledger-meta > span + span::before {
-  content: "·";
-  margin-right: var(--space-1-5);
-}
-
-.maka-task-ledger-detail {
-  grid-column: 3 / -1;
-  color: var(--foreground-dimmed);
-  font-size: var(--font-size-caption);
-}
+.maka-task-ledger-subject { color: var(--foreground); font-size: var(--font-size-base); }
+.maka-task-ledger-meta { display: inline-flex; justify-content: flex-end; gap: var(--space-1-5); white-space: nowrap; }
+.maka-task-ledger-meta > span + span::before { content: "·"; margin-right: var(--space-1-5); }
+.maka-task-ledger-detail { grid-column: 3 / -1; color: var(--foreground-dimmed); font-size: var(--font-size-caption); }
 
 .maka-task-ledger-terminal {
   margin-top: var(--space-1);
@@ -137,6 +60,10 @@
   color: var(--foreground-dimmed);
   font-size: var(--font-size-caption);
 }
+
+.maka-task-ledger-terminal-trigger > span { display: inline-flex; align-items: center; gap: var(--space-1-5); }
+.maka-task-ledger-terminal-trigger svg { transition: transform var(--duration-base) var(--ease-out-strong); }
+.maka-task-ledger-terminal-trigger svg[data-open="true"] { transform: rotate(180deg); }
 
 .maka-task-ledger-message {
   display: flex;
@@ -161,18 +88,12 @@
 
 .maka-task-ledger-retry:hover { background: color-mix(in srgb, var(--foreground) 7%, transparent); }
 
-@media (max-width: 720px) {
-  .maka-task-ledger-trigger,
-  .maka-task-ledger-panel { padding-inline: var(--space-3); }
-  .maka-task-ledger-row {
-    grid-template-columns: 14px minmax(32px, auto) minmax(0, 1fr);
-  }
+@media (max-width: 620px) {
+  .maka-task-ledger-row { grid-template-columns: 14px minmax(32px, auto) minmax(0, 1fr); }
   .maka-task-ledger-meta { grid-column: 3; justify-content: flex-start; }
   .maka-task-ledger-detail { grid-column: 3; white-space: normal; overflow-wrap: anywhere; }
-  .maka-task-ledger-summary { max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .maka-task-ledger-summary svg,
   .maka-task-ledger-terminal-trigger svg { transition: none; }
 }

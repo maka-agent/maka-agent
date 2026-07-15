@@ -72,6 +72,7 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       baseUrl: defaults.baseUrl,
       defaultModel: existing?.defaultModel || defaults.fallbackModels[0] || '',
       enabled: true,
+      enabledModelIds: existing?.enabledModelIds,
       models: existing?.models?.length ? existing.models : fallbackModels,
       modelSource: existing?.modelSource ?? 'fallback',
       lastTestStatus: 'verified',
@@ -123,6 +124,7 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       baseUrl,
       defaultModel: existing?.defaultModel || defaults.fallbackModels[0] || '',
       enabled: true,
+      enabledModelIds: existing?.enabledModelIds,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -290,6 +292,7 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       baseUrl: defaults.baseUrl,
       defaultModel: normalizedDefaultModel,
       enabled: true,
+      enabledModelIds: existing?.enabledModelIds,
       models,
       modelSource,
       modelsFetchedAt,

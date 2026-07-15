@@ -57,9 +57,8 @@ type AccountSecretProbeResult =
 // Segmented migrated to the Base UI `ToggleGroup`-backed
 // `SettingsSegmented` primitive in PR yuejing/settings-segmented-primitive.
 // Both primitives now provide the same keyboard contract for free, so
-// these helpers are gone. `nextRadioId` still lives in
-// `./model-table-keyboard.ts` because the provider detail model
-// default picker keeps its hand-rolled radiogroup.
+// these helpers are gone. The provider detail dialog also dropped its
+// hand-rolled default-model radiogroup in favor of a native enabled-model list.
 
 // `SettingsSelect` moved to `packages/ui/src/primitives/settings-select.tsx`
 // in PR round-AB-shared-select (yuejing 2026-06-25). The Plan Reminder

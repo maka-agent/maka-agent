@@ -20,7 +20,7 @@ import {
 } from '@maka/ui';
 import { type StatusTone } from './settings-status-badge';
 import { ProviderLogo } from './provider-display';
-import { ProviderSheet } from './provider-config-sheet';
+import { ProviderConnectionDialog } from './provider-connection-dialog';
 import {
   useOAuthLoginFlow,
   subscriptionActionErrorMessage,
@@ -29,9 +29,8 @@ import {
   type SubscriptionSnapshot,
 } from './use-oauth-login-flow';
 
-type OAuthCardId = 'claude' | 'codex' | 'github-copilot' | 'antigravity' | 'cursor';
+type OAuthCardId = 'claude' | 'codex' | 'github-copilot';
 type OAuthServiceId = OAuthCardId;
-type BrowserOAuthServiceId = Exclude<OAuthServiceId, 'claude' | 'github-copilot'>;
 
 interface ModelOAuthCard {
   id: OAuthCardId;
@@ -67,26 +66,11 @@ const MODEL_OAUTH_CARDS: ReadonlyArray<ModelOAuthCard> = [
     status: 'available',
     statusLabel: '可用',
   },
-  {
-    id: 'antigravity',
-    providerType: 'gemini-cli',
-    name: 'Google Antigravity',
-    description: 'Google 账号登录 Gemini。',
-    status: 'available',
-    statusLabel: '预览',
-  },
-  {
-    id: 'cursor',
-    providerType: 'openai-compatible',
-    name: 'Cursor',
-    description: 'Cursor 订阅账号登录。',
-    status: 'available',
-    statusLabel: '可用',
-  },
 ];
 
-export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void> }) {
+export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(): Promise<void> }) {
   const [openModal, setOpenModal] = useState<OAuthServiceId | null>(null);
+  const [claudeCatalogEnabled, setClaudeCatalogEnabled] = useState<boolean | null>(null);
   const toast = useToast();
   const modelOAuthMountedRef = useMountedRef();
   const modelOAuthRefreshTicketRef = useRef(0);
@@ -102,16 +86,30 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
     claude: null,
     codex: null,
     'github-copilot': null,
-    cursor: null,
-    antigravity: null,
   });
   const [cardRefreshError, setCardRefreshError] = useState<string | null>(null);
+  const normalizedQuery = props.query?.trim().toLocaleLowerCase() ?? '';
+  const visibleCards = MODEL_OAUTH_CARDS
+    .filter((card) => card.id !== 'claude' || claudeCatalogEnabled === true)
+    .filter((card) => !normalizedQuery || [card.id, card.name, card.description]
+      .some((value) => value.toLocaleLowerCase().includes(normalizedQuery)));
 
   async function refreshAllCards() {
     const ticket = modelOAuthRefreshTicketRef.current + 1;
     modelOAuthRefreshTicketRef.current = ticket;
+    const claudeGate = await window.maka.claudeSubscription
+      .isExperimentalEnabled()
+      .then((enabled) => ({ enabled } as const))
+      .catch((error: unknown) => ({ error } as const));
+    const claudeEnabledForRefresh = 'enabled' in claudeGate
+      ? claudeGate.enabled
+      : claudeCatalogEnabled === true;
+    const cardsToRefresh = MODEL_OAUTH_CARDS
+      .filter((card) => card.id !== 'claude' || claudeEnabledForRefresh)
+      .filter((card) => !normalizedQuery || [card.id, card.name, card.description]
+        .some((value) => value.toLocaleLowerCase().includes(normalizedQuery)));
     const results = await Promise.all(
-      MODEL_OAUTH_CARDS.map(async (card) => {
+      cardsToRefresh.map(async (card) => {
         try {
           const snapshot = await getSubscriptionSnapshot(card.id);
           return { id: card.id, snapshot } as const;
@@ -121,6 +119,7 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
       }),
     );
     if (!modelOAuthMountedRef.current || modelOAuthRefreshTicketRef.current !== ticket) return false;
+    if ('enabled' in claudeGate) setClaudeCatalogEnabled(claudeGate.enabled);
     const failures = results.filter((result) => 'error' in result);
     setCardStates((prev) => {
       const next = { ...prev };
@@ -129,10 +128,15 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
       }
       return next;
     });
-    if (failures.length > 0) {
+    if ('error' in claudeGate || failures.length > 0) {
       const firstFailure = failures[0];
-      const message = firstFailure && 'error' in firstFailure
-        ? subscriptionActionErrorMessage(firstFailure.error)
+      const error = 'error' in claudeGate
+        ? claudeGate.error
+        : firstFailure && 'error' in firstFailure
+          ? firstFailure.error
+          : undefined;
+      const message = error
+        ? subscriptionActionErrorMessage(error)
         : '登录服务暂时不可用，请检查网络后重试。';
       setCardRefreshError(message);
       toast.error('刷新 OAuth 登录状态失败', message);
@@ -168,7 +172,7 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
         </div>
       )}
       <div className="providerOAuthGrid">
-        {MODEL_OAUTH_CARDS.map((card) => {
+        {visibleCards.map((card) => {
           const snapshot = cardStates[card.id];
           const runtimeState = snapshot?.runtimeState ?? 'unknown';
           const isLoggedIn =
@@ -223,9 +227,8 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
           }}
         />
       )}
-      {openModal !== null && openModal !== 'claude' && openModal !== 'github-copilot' && (
+      {openModal === 'codex' && (
         <SubscriptionLoginModal
-          serviceId={openModal}
           onClose={() => {
             setOpenModal(null);
             // Always re-fetch after the modal closes — the user may
@@ -242,68 +245,42 @@ function providerOAuthAriaLabel(card: ModelOAuthCard, badge: string, description
   return `打开 OAuth 登录：${card.name}，状态：${badge}，${description.replace(/[。.!！？?]+$/u, '')}`;
 }
 
-/**
- * Inline modal that drives a Codex / Cursor / Antigravity OAuth
- * flow against the matching `window.maka.<service>Subscription`
- * bridge. Mirrors the ClaudeSubscriptionCard pattern (Settings →
- * 账号) but does NOT expose a paste-code field — these flows are
- * loopback (Codex / Antigravity) or polling (Cursor) so the
- * browser handoff is enough.
- *
- * Tokens never enter the renderer; this component reads only
- * account-state snapshots returned by getAccountState().
- */
 function ClaudeSubscriptionModal(props: { onClose(): void }) {
   return (
-    <ProviderSheet onClose={props.onClose} ariaLabel="Claude Code 登录" dataSubscription="claude">
-        <header className="providerConfigHeader">
-          <div>
-            <h3>Claude Code</h3>
-            <p>登录 Claude Pro / Max 后，会同步成模型连接。</p>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={props.onClose}
-            aria-label="关闭"
-          >
-            ×
-          </Button>
-        </header>
-        <ClaudeSubscriptionCard />
-      </ProviderSheet>
-    );
+    <ProviderConnectionDialog
+      title="连接 Claude Code"
+      subtitle="登录 Claude Pro / Max 后，会同步成模型连接。"
+      providerType="claude-subscription"
+      onClose={props.onClose}
+    >
+      <ClaudeSubscriptionCard />
+    </ProviderConnectionDialog>
+  );
 }
 
-function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClose(): void }) {
-  const bridge = pickSubscriptionBridge(props.serviceId);
-  const display = subscriptionDisplay(props.serviceId);
+function SubscriptionLoginModal(props: { onClose(): void }) {
+  const display: SubscriptionDisplay = {
+    name: 'OpenAI Codex',
+    shortName: 'Codex',
+    detail: '点击下方按钮打开浏览器登录，授权完成后会自动回写到本机（127.0.0.1:1455）。',
+  };
   // The whole browser-loopback login/logout controller (getAuthUrl ->
   // openAuthUrl -> refresh -> completeAuthorization, one authRequestId
   // lifecycle, synchronous pending-action guard, cancellation on unmount,
   // localized toast copy) lives in useOAuthLoginFlow so the model connection
-  // detail sheet can drive the exact same flow behind its relogin button.
+  // connection dialog can drive the exact same flow behind its relogin button.
   const flow = useOAuthLoginFlow({
-    bridge,
+    bridge: window.maka.openAiCodex as unknown as OAuthLoginFlowBridge,
     display: { name: display.name, shortName: display.shortName },
   });
 
   return (
-    <ProviderSheet onClose={props.onClose} ariaLabel={`${display.name} 登录`} dataSubscription={props.serviceId}>
-        <header className="providerConfigHeader">
-          <div>
-            <h3>{display.name}</h3>
-            <p>{display.detail}</p>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={props.onClose}
-            aria-label="关闭"
-          >
-            ×
-          </Button>
-        </header>
+    <ProviderConnectionDialog
+      title={`连接 ${display.name}`}
+      subtitle={display.detail}
+      providerType="openai-codex"
+      onClose={props.onClose}
+    >
         <div className="settingsConnectionRow" data-status={flow.runtimeState}>
           <p className="settingsConnectionDetail">
             {presentSnapshotDetail(flow.state, display)}
@@ -335,8 +312,8 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
             )}
           </div>
         </div>
-      </ProviderSheet>
-    );
+    </ProviderConnectionDialog>
+  );
 }
 
 async function getSubscriptionSnapshot(serviceId: OAuthServiceId): Promise<SubscriptionSnapshot> {
@@ -351,7 +328,7 @@ async function getSubscriptionSnapshot(serviceId: OAuthServiceId): Promise<Subsc
   if (serviceId === 'github-copilot') {
     return window.maka.githubCopilotSubscription.getAccountState();
   }
-  return (await pickSubscriptionBridge(serviceId).getAccountState()) as SubscriptionSnapshot;
+  return (await window.maka.openAiCodex.getAccountState()) as SubscriptionSnapshot;
 }
 
 function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
@@ -390,14 +367,12 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
 
   const loggedIn = state?.runtimeState === 'authenticated' || state?.runtimeState === 'refreshing';
   return (
-    <ProviderSheet onClose={props.onClose} ariaLabel="GitHub Copilot 登录" dataSubscription="github-copilot">
-      <header className="providerConfigHeader">
-        <div>
-          <h3>GitHub Copilot</h3>
-          <p>优先读取 COPILOT_GITHUB_TOKEN，也可尝试兼容的 GitHub CLI 登录；token 不会暴露给渲染进程。</p>
-        </div>
-        <Button type="button" variant="ghost" onClick={props.onClose} aria-label="关闭">×</Button>
-      </header>
+    <ProviderConnectionDialog
+      title="连接 GitHub Copilot"
+      subtitle="导入兼容的 GitHub 登录；token 不会暴露给渲染进程。"
+      providerType="github-copilot"
+      onClose={props.onClose}
+    >
       <div className="settingsConnectionRow" data-status={state?.runtimeState ?? 'loading'}>
         <p className="settingsConnectionDetail">
           {loggedIn
@@ -422,57 +397,14 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
           )}
         </div>
       </div>
-    </ProviderSheet>
+    </ProviderConnectionDialog>
   );
-}
-
-function pickSubscriptionBridge(serviceId: BrowserOAuthServiceId): OAuthLoginFlowBridge {
-  switch (serviceId) {
-    case 'codex':
-      return window.maka.openAiCodex as unknown as OAuthLoginFlowBridge;
-    case 'cursor':
-      return window.maka.cursorSubscription as unknown as OAuthLoginFlowBridge;
-    case 'antigravity':
-      return window.maka.antigravitySubscription as unknown as OAuthLoginFlowBridge;
-  }
 }
 
 interface SubscriptionDisplay {
   name: string;
   shortName: string;
   detail: string;
-}
-
-function subscriptionDisplay(serviceId: BrowserOAuthServiceId): SubscriptionDisplay {
-  switch (serviceId) {
-    case 'codex':
-      return {
-        name: 'OpenAI Codex',
-        shortName: 'Codex',
-        detail: '点击下方按钮打开浏览器登录，授权完成后会自动回写到本机（127.0.0.1:1455）。',
-      };
-    case 'cursor':
-      return {
-        name: 'Cursor',
-        shortName: 'Cursor',
-        detail: '点击下方按钮打开浏览器登录；Maka 会自动等待 Cursor 后端确认凭据。',
-      };
-    case 'antigravity':
-      return {
-        name: 'Google Antigravity',
-        shortName: 'Antigravity',
-        // OAuth flow + token persistence + IPC handlers ARE wired
-        // and tested; the only thing gating real login is the
-        // Google client_id constant (no public upstream plugin source
-        // exposes it). When the user clicks 登录 the service surfaces
-        // that exact reason via its envelope, so this card-level
-        // copy stays factual without claiming the whole thing is
-        // unimplemented.
-        detail: '使用 Google 账号登录给 Gemini 模型。当前为预览状态：需要 Google client_id 后才能完成登录。',
-      };
-  }
-  const _exhaustive: never = serviceId;
-  return _exhaustive;
 }
 
 function presentSnapshotDetail(state: SubscriptionSnapshot | null, display: SubscriptionDisplay): string {

@@ -1,11 +1,9 @@
-/* Chat detail surface — artifact pane + browser panel + turn search-highlight +
+/* Chat detail surface — unified session workbar + turn search-highlight +
    session-branch banner. Relocated from settings/models.css (was misplaced in the
    model-catalog file) — issue #546 PR1, zero visual change. */
 /* ──────────────────────────────────────────────────────────────────────── */
-/* ArtifactPane — right-side preview for assistant-produced files.          */
-/* Sits inside the existing detail panel; flex-row keeps the chat column    */
-/* flush with the composer while the pane occupies a fixed right strip.    */
-/* Returns null when no live artifacts → the row collapses gracefully.     */
+/* SessionWorkbar — resizable Tasks / Browser / Files auxiliary workspace.  */
+/* The shell owns its visibility and width; tab contents fill this surface. */
 /* ──────────────────────────────────────────────────────────────────────── */
 
 .maka-detail-with-artifacts {
@@ -23,16 +21,93 @@
   min-width: 0;
 }
 
-/* P3 BrowserPanel — a right-side split: a chrome toolbar (address bar + nav)
-   over a strip the native WebContentsView floats above. The strip itself is
-   empty by design (the native layer paints there); only the empty state shows
-   when no page is loaded. */
-.maka-browser-panel {
+.maka-session-workbar {
   flex: 0 0 auto;
-  width: 520px;
+  width: var(--maka-session-workbar-width, 400px);
+  min-width: 320px;
+  max-width: 600px;
+  min-height: 0;
+  padding-top: var(--h-titlebar);
+  overflow: hidden;
+  border-left: var(--border-width-hairline) solid var(--border);
+  background: var(--background);
+}
+
+.maka-workbar-resize-handle {
+  position: relative;
+  flex: 0 0 0;
+  width: 0;
+  outline: none;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.maka-workbar-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: -4px;
+  width: 8px;
+  border-left: var(--border-width-hairline) solid transparent;
+}
+
+.maka-workbar-resize-handle:hover::after,
+.maka-workbar-resize-handle:focus-visible::after,
+.isResizingWorkbar .maka-workbar-resize-handle::after { border-left-color: var(--ring); }
+
+.isResizingWorkbar {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.maka-session-workbar-tabs {
+  height: 100%;
+  min-height: 0;
+  gap: 0;
+}
+
+.maka-session-workbar-tab-list {
+  width: 100%;
+  flex: 0 0 auto;
+  border-bottom: var(--border-width-hairline) solid var(--border);
+}
+
+.maka-session-workbar-tab-list > [data-slot="tabs-tab"] { flex: 1 1 0; }
+
+.maka-session-workbar-count {
+  min-width: var(--space-4);
+  padding-inline: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--control);
+  color: var(--foreground-dimmed);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.maka-session-workbar-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.maka-session-workbar-panel[hidden] { display: none; }
+
+.maka-session-workbar .maka-browser-panel,
+.maka-session-workbar .maka-artifact-pane {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+/* Browser and artifact contents fill their active workbar tab. */
+.maka-browser-panel {
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  border-left: var(--border-width-hairline) solid var(--border);
   background: var(--background);
   overflow: hidden;
   min-width: 0;
@@ -74,54 +149,18 @@
 }
 
 .maka-artifact-pane {
-  flex: 0 0 auto;
-  width: 320px;
+  width: 100%;
+  height: 100%;
   display: grid;
-  /* Row 2 (file list): content-sized but never past 40% of the pane.
+  /* File list: content-sized but never past 40% of the pane.
      fit-content(40%) resolves against the pane's definite height —
      unlike max-height:40% on the list itself, which Chromium resolved
      against the auto track's content height and collapsed the list to
      40% of its own rows (#443). minmax(auto,40%) is wrong too: the
      maximize-tracks step inflates it to the full 40% even for one row. */
-  grid-template-rows: auto fit-content(40%) minmax(0, 1fr) auto;
-  border-left: var(--border-width-hairline) solid var(--border);
+  grid-template-rows: fit-content(40%) minmax(0, 1fr) auto;
   background: var(--background);
   overflow: hidden;
-}
-
-.maka-artifact-pane[data-collapsed="true"] {
-  width: 28px;
-  grid-template-rows: auto;
-}
-
-.maka-artifact-pane-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  padding: var(--space-1) var(--space-2);
-  border-bottom: var(--border-width-hairline) solid var(--border);
-  min-height: 28px;
-}
-
-.maka-artifact-pane[data-collapsed="true"] .maka-artifact-pane-header {
-  border-bottom: 0;
-}
-
-.maka-artifact-pane-title {
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-normal);
-  text-transform: none;
-  color: var(--foreground);
-}
-
-.maka-artifact-pane-count {
-  font-size: var(--font-size-caption);
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-pill);
-  background: oklch(from var(--foreground) l c h / 0.05);
-  color: var(--foreground-secondary);
-  font-variant-numeric: tabular-nums;
 }
 
 .maka-artifact-list-error {
@@ -506,80 +545,34 @@
   background: oklch(from var(--destructive) l c h / 0.10);
 }
 
-/* Narrow window: ArtifactPane and BrowserPanel become bottom sheets
-   below the composer instead of continuing to squeeze the chat column,
-   preserving artifact and embedded-browser access on small windows.
-
-   BrowserPanel previously had no narrow rule. Its grid auto row sized to the
-   panel's max-content (toolbar height): the strip's `flex: 1 1 auto`
-   contributes 0 height without a definite container height, so the rAF loop
-   mirrored a ~zero-height rect to main and the native WebContentsView was
-   sized to nothing — the embedded browser disappeared beside a ~470px gap.
-   `min-height` below forces the auto row (and thus the strip) to a usable,
-   bounded size; `width: 100%` turns the 520px right rail into a bottom sheet.
-   BrowserPanel is always the second grid child (chat / browser / artifact),
-   so it already occupies the explicit `auto` row; ArtifactPane as the third
-   child uses an implicit `auto` row (grid-auto-rows defaults to auto), so no
-   extra explicit row is needed. With both auxiliary panels open on a very
-   short window the two 220px minima would squeeze the chat row to 0; the
-   both-present shared-height rule below (#824) scales each panel to a dvh
-   slice so the chat row keeps a usable remainder down to the 320px restore
-   minimum. */
+/* Narrow windows place the single workbar below the conversation. */
 @media (max-width: 990px) {
   .maka-detail-with-artifacts {
     display: grid;
     grid-template-rows: minmax(0, 1fr) auto;
   }
 
-  .maka-browser-panel {
+  .maka-session-workbar {
     width: 100%;
-    min-height: 220px;
+    min-width: 0;
+    max-width: none;
+    min-height: min(220px, 42dvh);
     max-height: min(42dvh, 360px);
-    border-left: 0;
-    border-top: var(--border-width-hairline) solid var(--border);
-    box-shadow: 0 -8px 24px oklch(from var(--foreground) l c h / 0.08);
-  }
-  .maka-artifact-pane {
-    width: 100%;
-    min-height: 220px;
-    max-height: min(42dvh, 360px);
-    grid-template-rows: auto minmax(82px, 0.8fr) minmax(0, 1fr) auto;
+    padding-top: 0;
     border-left: 0;
     border-top: var(--border-width-hairline) solid var(--border);
     box-shadow: 0 -8px 24px oklch(from var(--foreground) l c h / 0.08);
   }
 
-  .maka-artifact-pane[data-collapsed="true"] {
-    width: 100%;
-    min-height: 34px;
-    max-height: 34px;
-    grid-template-rows: auto;
-  }
+  .maka-workbar-resize-handle { display: none; }
 
-  /* #824: both auxiliary panels present at narrow width — scale each
-     panel's min-height to min(22dvh, 220px) so the chat row keeps the
-     remainder instead of two fixed 220px minima squeezing `minmax(0, 1fr)`
-     to 0. The chat row becomes 56% of the content viewport (1 - 2x22dvh),
-     so the composer (~164px + 8px margin) stays usable while the content
-     viewport is >=~307px. min(22dvh, 220px) shrinks below 220px at short
-     heights and never grows above 220px at tall heights, so >=1000px tall
-     (where 22dvh == 220px) is unchanged; below that the panels yield
-     proportionally. Single-panel (or a collapsed ArtifactPane) keeps the
-     fixed 220px / 34px floor above, so this rule scopes to both-present
-     via :has() and skips the collapsed artifact. BrowserWindow minHeight
-     (SAFE_MIN_HEIGHT = 320) enforces the 320px WINDOW floor aligned with
-     the sanitizeBounds restore floor; on macOS (hiddenInset titlebar) the
-     content viewport ~= the window, so the composer-usable floor is
-     ~320px, while on Windows (titleBarOverlay) and Linux (default frame)
-     the frame reduces the content viewport, so the effective floor is a
-     slightly larger window. That window-vs-content gap is the pre-existing
-     relationship inherited from sanitizeBounds; a content-size-semantic
-     migration is out of scope. Recovery (close browser / collapse
-     artifact) stays reachable because each panel's toolbar sits at the
-     top of a non-zero-height row. */
-  .maka-detail-with-artifacts:has(.maka-browser-panel):has(.maka-artifact-pane:not([data-collapsed="true"])) .maka-browser-panel,
-  .maka-detail-with-artifacts:has(.maka-browser-panel):has(.maka-artifact-pane:not([data-collapsed="true"])) .maka-artifact-pane {
-    min-height: min(22dvh, 220px);
+  .maka-session-workbar .maka-browser-panel,
+  .maka-session-workbar .maka-artifact-pane {
+    width: 100%;
+    min-height: 0;
+    max-height: none;
+    border: 0;
+    box-shadow: none;
   }
 
   .maka-artifact-list {

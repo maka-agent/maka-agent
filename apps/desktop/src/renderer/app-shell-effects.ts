@@ -25,6 +25,7 @@ import {
   recordSessionEventStreamEvent,
 } from './session-event-health';
 import { settledSessionTransientIds } from './settled-session-transients.js';
+import type { SessionWorkbarTab } from './session-workbar-layout.js';
 import {
   mergeShellRunNotification,
   mergeShellRunUpdates,
@@ -104,6 +105,9 @@ export function useAppShellPersistenceEffects(options: {
   navSelection: NavSelection;
   sessionListCollapsed: boolean;
   sessionListWidth: number;
+  workbarCollapsed: boolean;
+  workbarWidth: number;
+  workbarTab: SessionWorkbarTab;
   themePalette: ThemePalette;
   themePref: ThemePreference;
 }) {
@@ -141,6 +145,21 @@ export function useAppShellPersistenceEffects(options: {
   useEffect(() => {
     safeLocalStorageSet('maka-chat-list-collapsed-v1', options.sessionListCollapsed ? 'true' : 'false');
   }, [options.sessionListCollapsed]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      safeLocalStorageSet('maka-session-workbar-width-v1', String(options.workbarWidth));
+    }, 200);
+    return () => window.clearTimeout(handle);
+  }, [options.workbarWidth]);
+
+  useEffect(() => {
+    safeLocalStorageSet('maka-session-workbar-collapsed-v1', options.workbarCollapsed ? 'true' : 'false');
+  }, [options.workbarCollapsed]);
+
+  useEffect(() => {
+    safeLocalStorageSet('maka-session-workbar-tab-v1', options.workbarTab);
+  }, [options.workbarTab]);
 
   // Persist sidebar nav selection so the app remembers what bucket the user
   // had open (Chats / Pinned / Archived / Skills) across restarts. Strict

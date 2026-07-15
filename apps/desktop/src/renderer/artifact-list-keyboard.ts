@@ -2,7 +2,7 @@
  * Pure ARIA listbox keyboard helpers for the ArtifactPane artifact list.
  *
  * Extracted from `artifact-pane.tsx` so the transition logic is testable
- * without a DOM (mirrors `model-table-keyboard.ts` pattern). Per @kenji's
+ * without a DOM. Per @kenji's
  * a11y review on PR108b: the artifact list MUST be a single tab stop with
  * ArrowUp/Down navigation + Enter to focus the preview area. Without this
  * helper the list would either (a) tab through every artifact row, or (b)
