@@ -52,6 +52,8 @@ export interface CuDispatchEvidence {
   path?: string;
   effect?: ComputerUseEffect;
   reason?: string;
+  changed?: boolean;
+  readbackValue?: string;
 }
 
 export type CuDispatchOutcome =
