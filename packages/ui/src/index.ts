@@ -12,6 +12,7 @@ export * from './chat-input-behavior.js';
 export * from './input-history.js';
 export * from './daily-review-helpers.js';
 export * from './locale-helpers.js';
+export * from './locale-context.js';
 export * from './markdown.js';
 export * from './maka-uri.js';
 export * from './materialize.js';

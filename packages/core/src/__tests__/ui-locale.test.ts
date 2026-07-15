@@ -11,6 +11,10 @@ import {
   type UiCatalog,
 } from '../index.js';
 
+// @ts-expect-error Every catalog must include English; no implicit fallback.
+const missingEnglishCatalog: UiCatalog<string> = { zh: '中文' };
+void missingEnglishCatalog;
+
 describe('UI locale contract', () => {
   it('exposes the complete supported locale and preference sets', () => {
     assert.deepEqual([...UI_LOCALES], ['zh', 'en']);

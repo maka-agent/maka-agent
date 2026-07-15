@@ -5,8 +5,8 @@
  *
  * PR-UI-LIB-EXTRACT-4 (round 5/10) introduced this module with a
  * deliberate ESM circular import on `./components.js` for
- * `detectUiLocale`. PR-UI-LIB-EXTRACT-5 (round 6/10) broke the
- * cycle by lifting `detectUiLocale` into a new `locale-helpers`
+ * locale resolution. PR-UI-LIB-EXTRACT-5 (round 6/10) broke the
+ * cycle by lifting locale helpers into a new `locale-helpers`
  * leaf module; this file now depends on that leaf instead.
  *
  * Why this seam: duration formatting has ms→s→m bucket rules, and
@@ -21,35 +21,35 @@
  * sites.
  */
 
-import { detectUiLocale } from './locale-helpers.js';
+import { uiLocaleToIntlLocale, type UiLocale } from '@maka/core';
 
-function createAbsoluteTimeFormat(): Intl.DateTimeFormat {
+function createAbsoluteTimeFormat(locale: UiLocale): Intl.DateTimeFormat {
   if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
     return { format: (d: Date) => d.toISOString() } as unknown as Intl.DateTimeFormat;
   }
   return new Intl.DateTimeFormat(
-    detectUiLocale() === 'en' ? 'en' : 'zh-CN',
+    uiLocaleToIntlLocale(locale),
     { dateStyle: 'medium', timeStyle: 'short' },
   );
 }
 
-export function formatAbsoluteTimestamp(ts: number): string {
-  return createAbsoluteTimeFormat().format(new Date(ts));
+export function formatAbsoluteTimestamp(ts: number, locale: UiLocale): string {
+  return createAbsoluteTimeFormat(locale).format(new Date(ts));
 }
 
-function createClockTimeFormat(): Intl.DateTimeFormat {
+function createClockTimeFormat(locale: UiLocale): Intl.DateTimeFormat {
   if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
     return { format: (d: Date) => d.toISOString().slice(11, 16) } as unknown as Intl.DateTimeFormat;
   }
   return new Intl.DateTimeFormat(
-    detectUiLocale() === 'en' ? 'en' : 'zh-CN',
+    uiLocaleToIntlLocale(locale),
     { hour: '2-digit', minute: '2-digit', hour12: false },
   );
 }
 
 /** Wall-clock `HH:mm` (24-hour), for the always-absolute user-message time. */
-export function formatClockTime(ts: number): string {
-  return createClockTimeFormat().format(new Date(ts));
+export function formatClockTime(ts: number, locale: UiLocale): string {
+  return createClockTimeFormat(locale).format(new Date(ts));
 }
 
 export function formatTurnDuration(ms: number): string {

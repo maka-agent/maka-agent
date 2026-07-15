@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { formatAbsoluteTimestamp } from './chat-display-helpers.js';
 import { formatRelativeTimestamp, nextRelativeRefreshDelay } from '@maka/core';
 import { cn } from './utils.js';
+import { useUiLocale } from './locale-context.js';
 
 /**
  * PR-RELATIVE-TIME-0: a self-refreshing relative-time label. Sidebar +
@@ -12,6 +13,7 @@ import { cn } from './utils.js';
  * past the 7-day horizon we stop ticking and show the absolute date.
  */
 export function RelativeTime(props: { ts: number; className?: string; suppressTitle?: boolean }) {
+  const locale = useUiLocale();
   const [, setTick] = useState(0);
   useEffect(() => {
     const delay = nextRelativeRefreshDelay(props.ts);
@@ -23,9 +25,9 @@ export function RelativeTime(props: { ts: number; className?: string; suppressTi
     <small
       className={cn('tabular-nums', props.className ?? 'maka-message-time')}
       aria-hidden="true"
-      title={props.suppressTitle ? undefined : formatAbsoluteTimestamp(props.ts)}
+      title={props.suppressTitle ? undefined : formatAbsoluteTimestamp(props.ts, locale)}
     >
-      {formatRelativeTimestamp(props.ts)}
+      {formatRelativeTimestamp(props.ts, Date.now(), locale)}
     </small>
   );
 }

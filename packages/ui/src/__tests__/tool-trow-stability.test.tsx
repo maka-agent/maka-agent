@@ -1,12 +1,20 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { createElement, type ReactNode } from 'react';
+import { renderToStaticMarkup as renderReactToStaticMarkup } from 'react-dom/server';
+import { LocaleProvider } from '../locale-context.js';
 import type { ToolActivityItem } from '../materialize.js';
 import { ToolTrow } from '../tool-activity.js';
 
 function runningTool(id: string, name: string): ToolActivityItem {
   return { toolUseId: id, toolName: name, status: 'running', args: {} };
+}
+
+function renderToStaticMarkup(node: ReactNode): string {
+  return renderReactToStaticMarkup(createElement(LocaleProvider, {
+    preference: 'zh',
+    children: node,
+  }));
 }
 
 describe('ToolTrow stable structure', () => {

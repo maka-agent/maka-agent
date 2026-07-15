@@ -1,17 +1,29 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { createElement, type ReactNode } from 'react';
+import { renderToStaticMarkup as renderReactToStaticMarkup } from 'react-dom/server';
 import type { StoredMessage, ToolResultContent } from '@maka/core';
 import { ToolActivity, ToolTrow } from '../tool-activity.js';
 import { ToolResultPreview } from '../tool-activity/tool-result-preview.js';
 import {
   createToolDisclosureState,
-  deriveToolActivityPresentation,
+  deriveToolActivityPresentation as derivePresentation,
   setToolDisclosureOpen,
   syncToolDisclosureState,
 } from '../tool-activity/presentation.js';
 import { materializeTools, type ToolActivityItem } from '../materialize.js';
+import { LocaleProvider } from '../locale-context.js';
+
+function renderToStaticMarkup(node: ReactNode): string {
+  return renderReactToStaticMarkup(createElement(LocaleProvider, {
+    preference: 'zh',
+    children: node,
+  }));
+}
+
+function deriveToolActivityPresentation(item: ToolActivityItem) {
+  return derivePresentation(item, 'zh');
+}
 
 function renderTool(item: ToolActivityItem): string {
   return renderToStaticMarkup(createElement(ToolTrow, { items: [item] }));

@@ -17,7 +17,7 @@ import {
   type LucideProps,
 } from './icons.js';
 import { useClipboardCopyFeedback } from './clipboard-feedback.js';
-import { detectUiLocale } from './locale-helpers.js';
+import { useUiLocale } from './locale-context.js';
 import { type ToolActivityItem, type ToolOutputChunk } from './materialize.js';
 import {
   isTrowRunning,
@@ -56,7 +56,8 @@ import {
 
 /** Friendly card for a `load_tools` result; falls back to JSON on unexpected shapes. */
 function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
-  const desc = describeLoadToolResult(props.args, props.value, detectUiLocale());
+  const locale = useUiLocale();
+  const desc = describeLoadToolResult(props.args, props.value, locale);
   if (!desc) {
     return <ToolResultPreview content={{ kind: 'json', value: props.value }} />;
   }
@@ -342,12 +343,13 @@ export function ToolActivity(props: {
 }
 
 function ToolActivityCard({ item, open: openProp }: { item: ToolActivityItem; open?: boolean }) {
+  const locale = useUiLocale();
   // Ordinary work stays summarized. A new permission prompt opens the
   // diagnostics (it is actionable); an errored tool stays collapsed — the
   // failure signal lives on the summary line. An explicit user toggle survives
   // later ordinary status changes. See disclosure-collapsible-contract:
   // defaultOpen is banned here.
-  const presentation = deriveToolActivityPresentation(item);
+  const presentation = deriveToolActivityPresentation(item, locale);
   const disclosure = useToolDisclosure(presentation);
   const open = openProp ?? disclosure.open;
   const duration = formatDuration(item.durationMs);
@@ -361,7 +363,7 @@ function ToolActivityCard({ item, open: openProp }: { item: ToolActivityItem; op
     >
       <CollapsibleTrigger className={toolVariants({ part: 'header' })}>
         <span className={toolVariants({ part: 'dot' })} data-status={item.status} aria-hidden="true" />
-        <span className={toolVariants({ part: 'name' })}>{resolveToolDisplayName(item)}</span>
+        <span className={toolVariants({ part: 'name' })}>{resolveToolDisplayName(item, locale)}</span>
         <span className={toolVariants({ part: 'meta' })}>
           {duration && <span className={toolVariants({ part: 'duration' })}>{duration}</span>}
           <span className={toolVariants({ part: 'status-label' })}>{toolStatusLabel(item)}</span>
@@ -533,6 +535,7 @@ export function ToolTrow({ items }: { items: ToolActivityItem[] }) {
 }
 
 function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
+  const locale = useUiLocale();
   const running = isTrowRunning(items);
   const attention = trowNeedsAttention(items);
   // The group's presentation follows the first item (the first-seen bucket the
@@ -540,7 +543,7 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   // running group shows the whole-group aggregation, a single-tool group's
   // active tool is items[0] anyway, and disclosure attention is overridden by
   // the whole-group trowNeedsAttention below.
-  const firstPresentation = deriveToolActivityPresentation(items[0]!);
+  const firstPresentation = deriveToolActivityPresentation(items[0]!, locale);
   // Groups share the same disclosure state as a single row: ordinary work is
   // summarized; a new permission prompt opens diagnostics (errors stay
   // collapsed — the summary line carries the failure signal); manual choice
@@ -605,7 +608,8 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
  * (`toolVariants({item})`), per the flat trow visual language.
  */
 function ToolTrowRow({ item }: { item: ToolActivityItem }) {
-  const presentation = deriveToolActivityPresentation(item);
+  const locale = useUiLocale();
+  const presentation = deriveToolActivityPresentation(item, locale);
   const disclosure = useToolDisclosure(presentation);
   const duration = formatDuration(item.durationMs);
   // #tool-jitter: a row settles by its shimmer stopping — the same seam as the
@@ -623,7 +627,7 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
   const summaryTone = errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]';
   // An errored row stays collapsed, so the destructive tint is not enough —
   // the failure is spelled out as a word on the row label.
-  const rowLabel = item.intent ? formatToolIntent(item.intent) : resolveToolDisplayName(item);
+  const rowLabel = item.intent ? formatToolIntent(item.intent) : resolveToolDisplayName(item, locale);
   return (
     <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} data-settled={settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">

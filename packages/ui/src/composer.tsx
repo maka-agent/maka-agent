@@ -14,7 +14,8 @@ import {
 import { useMountedRef } from './use-mounted-ref.js';
 import { ArrowUp, Blocks, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Paperclip, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
-import { type UiLocale, detectUiLocale } from './locale-helpers.js';
+import type { UiCatalog } from '@maka/core';
+import { useUiLocale } from './locale-context.js';
 import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js';
 import {
   type ComposerHistoryState,
@@ -57,7 +58,7 @@ const COMPOSER_MAX_HEIGHT = 240;
  * OnboardingHero gets a separate `<small>` example hint below the
  * textarea so first-run users still know what to type.
  */
-const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
+const COMPOSER_COPY_BY_LOCALE: UiCatalog<{
   placeholder: string;
   textareaAriaLabel: string;
   awaitingPermission: string;
@@ -105,7 +106,7 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
   },
 };
 
-const COMPOSER_BUTTON_COPY_BY_LOCALE: Record<UiLocale, { sendLabel: string; stopLabel: string }> = {
+const COMPOSER_BUTTON_COPY_BY_LOCALE: UiCatalog<{ sendLabel: string; stopLabel: string }> = {
   zh: { sendLabel: '发送', stopLabel: '停止' },
   en: { sendLabel: 'Send', stopLabel: 'Stop' },
 };
@@ -280,11 +281,7 @@ export const Composer = forwardRef<
   const recomputeMentionRef = useRef<() => void>(() => {});
   const mentionPopupOpen = mention !== null;
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
-  // detect once per render (cheap) rather than memoizing — the locale
-  // is effectively constant for the lifetime of the renderer but the
-  // few ns of detection cost beats wiring up a context provider just
-  // for this bundle.
-  const locale = detectUiLocale();
+  const locale = useUiLocale();
   const copy = COMPOSER_COPY_BY_LOCALE[locale];
   const buttonCopy = COMPOSER_BUTTON_COPY_BY_LOCALE[locale];
 

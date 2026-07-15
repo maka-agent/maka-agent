@@ -2,7 +2,7 @@
  * UI locale detection + prompt-suggestion copy.
  *
  * PR-UI-LIB-EXTRACT-5 (WAWQAQ msg `510fef52`, round 6/10): pulled
- * out of `components.tsx`. `detectUiLocale`, `UiLocale`, and
+ * out of `components.tsx`. Locale types and
  * `getPromptSuggestions` were already public exports from
  * `@maka/ui` (consumed by the renderer's main.tsx, OnboardingHero,
  * theme.ts, visual-smoke fixture, and the
@@ -18,21 +18,18 @@
  *      onboarding hero, Intl.DateTimeFormat language) that giving
  *      it its own home is the natural cut.
  *   2. Round 5 introduced a deliberate ESM circular import — the
- *      new `chat-display-helpers.ts` needed `detectUiLocale` from
+ *      new `chat-display-helpers.ts` needed locale state from
  *      `components.tsx`, while `components.tsx` imports its time
  *      formatters from `chat-display-helpers.ts`. Safe but ugly.
- *      Moving `detectUiLocale` here breaks the cycle: both
+ *      Moving locale helpers here broke the cycle: both
  *      `components.tsx` and `chat-display-helpers.ts` now depend on
  *      this leaf module, with no edges between them in this
  *      dimension.
  */
 
-/**
- * Internal locale family used by prompt-suggestion mapping. Kept
- * private to this module; consumers use the public `UiLocale`
- * alias below.
- */
-type PromptSuggestionLocale = 'zh' | 'en';
+import type { UiCatalog, UiLocale } from '@maka/core';
+
+export type { UiLocale } from '@maka/core';
 
 export type PromptSuggestion = { label: string; prompt: string };
 
@@ -46,14 +43,14 @@ export type PromptSuggestion = { label: string; prompt: string };
  *      universally relevant — the chips read as "Maka is only for
  *      programmers".
  *
- * Fix: detect locale family (zh / en) via `navigator.language` and
+ * Fix: select a complete catalog from the LocaleProvider value and
  * return a balanced mix of dev + general starting points. Each locale
  * keeps 3 dev chips (codebase summary / explain code / Code review)
  * for the power-user path and adds 3 general chips (read a long doc,
  * translate, draft a message) so the empty-chat surface reads as a
  * general assistant first, a coding assistant second.
  */
-const PROMPT_SUGGESTIONS_BY_LOCALE: Record<PromptSuggestionLocale, PromptSuggestion[]> = {
+const PROMPT_SUGGESTIONS_BY_LOCALE: UiCatalog<PromptSuggestion[]> = {
   zh: [
     { label: '总结代码库', prompt: '帮我总结当前代码库的目录结构和关键模块。' },
     { label: '解释这段代码', prompt: '我贴一段代码进来，请帮我逐行解释它做什么、有没有坑：\n\n```\n\n```' },
@@ -72,39 +69,6 @@ const PROMPT_SUGGESTIONS_BY_LOCALE: Record<PromptSuggestionLocale, PromptSuggest
   ],
 };
 
-/**
- * Detects the renderer-side UI locale family. Used by EmptyChatHero
- * chips + hero copy (PR-UI-14) and Composer / OnboardingHero quickChat
- * placeholders (PR-UI-15). Centralized here so all UI surfaces fall
- * onto the same `zh` / `en` split — there's no per-component drift.
- */
-export type UiLocale = PromptSuggestionLocale;
-
-export function detectUiLocale(): UiLocale {
-  if (typeof document !== 'undefined') {
-    // Precedence (highest to lowest), per kenji `7e532892` +
-    // xuan `54b56858` acceptance criteria:
-    //   1. visual-smoke fixture override (deterministic baselines).
-    //   2. user preference (PR-LANG-PREF-0): persisted in
-    //      `personalization.uiLocale`; the renderer mirrors a
-    //      resolved-value attribute (`data-maka-locale="zh|en"`)
-    //      to `<html>` on mount and on every settings save so we
-    //      can read it synchronously here without an async
-    //      settings round-trip.
-    //   3. Chinese-first product fallback. Most app chrome is already
-    //      Chinese, and Electron's `navigator.language` can be `en-US`
-    //      on this dev machine, which produced a visibly mixed shell.
-    //
-    // Real users can still choose English explicitly in Settings; `auto`
-    // should not make the default Chinese shell read half-English.
-    const smokeOverride = document.documentElement.dataset.makaVisualSmokeLocale;
-    if (smokeOverride === 'zh' || smokeOverride === 'en') return smokeOverride;
-    const userPref = document.documentElement.dataset.makaLocale;
-    if (userPref === 'zh' || userPref === 'en') return userPref;
-  }
-  return 'zh';
-}
-
-export function getPromptSuggestions(locale?: UiLocale): PromptSuggestion[] {
-  return PROMPT_SUGGESTIONS_BY_LOCALE[locale ?? detectUiLocale()];
+export function getPromptSuggestions(locale: UiLocale): PromptSuggestion[] {
+  return PROMPT_SUGGESTIONS_BY_LOCALE[locale];
 }

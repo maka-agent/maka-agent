@@ -1,4 +1,4 @@
-import { detectUiLocale } from '../locale-helpers.js';
+import type { UiLocale } from '@maka/core';
 import type { ToolActivityItem } from '../materialize.js';
 import { loadToolDisplayName } from '../tool-format.js';
 import { formatUserVisibleToolText } from './preview-utils.js';
@@ -21,16 +21,19 @@ export function isConnectorTool(name: string): boolean {
   return CONNECTOR_TOOL_NAMES.has(name);
 }
 
-export function resolveToolDisplayName(item: ToolActivityItem): string {
+export function resolveToolDisplayName(item: ToolActivityItem, locale: UiLocale): string {
   if (item.displayName) return item.displayName;
-  if (isConnectorTool(item.toolName)) return loadToolDisplayName(detectUiLocale());
+  if (isConnectorTool(item.toolName)) return loadToolDisplayName(locale);
   return item.toolName;
 }
 
-export function deriveToolActivityPresentation(item: ToolActivityItem): ToolActivityPresentation {
+export function deriveToolActivityPresentation(
+  item: ToolActivityItem,
+  locale: UiLocale,
+): ToolActivityPresentation {
   return {
     kind: trowActivityKind(item.toolName, item.activityKind),
-    summary: formatUserVisibleToolText(item.intent ?? '') || resolveToolDisplayName(item),
+    summary: formatUserVisibleToolText(item.intent ?? '') || resolveToolDisplayName(item, locale),
     // Only a permission prompt is an attention state: it is actionable and a
     // collapsed row would hide it. An errored tool stays collapsed — the trow
     // summary line keeps the failure signal (「N 个失败」 in destructive

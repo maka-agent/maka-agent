@@ -3,8 +3,9 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { createElement, type ReactNode } from 'react';
+import { renderToStaticMarkup as renderReactToStaticMarkup } from 'react-dom/server';
+import { LocaleProvider } from '../locale-context.js';
 import { ToolTrow } from '../tool-activity.js';
 import { summarizeTrowTools } from '../tool-activity/trow-summary.js';
 import type { ToolActivityItem } from '../materialize.js';
@@ -13,6 +14,13 @@ const toolActivitySource = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'tool-activity.tsx'),
   'utf8',
 );
+
+function renderToStaticMarkup(node: ReactNode): string {
+  return renderReactToStaticMarkup(createElement(LocaleProvider, {
+    preference: 'zh',
+    children: node,
+  }));
+}
 
 describe('tool trow summary aggregation', () => {
   it('multi-tool running summary shows aggregated bucket with 正在 prefix, not the active tool description', () => {

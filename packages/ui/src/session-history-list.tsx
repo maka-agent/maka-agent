@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import { useMountedRef } from './use-mounted-ref.js';
-import type { SessionSummary } from '@maka/core';
+import type { SessionSummary, UiLocale } from '@maka/core';
 import { formatCompactTimestamp } from '@maka/core';
 import {
   Archive,
@@ -26,6 +26,7 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primiti
 import { Button as UiButton } from './ui.js';
 import { Button as BaseButton } from '@base-ui/react/button';
 import { describeBlockedReason, presentSessionStatus } from './session-status-presentation.js';
+import { useUiLocale } from './locale-context.js';
 
 type SessionRowActionId = 'flag' | 'archive' | 'rename' | 'delete';
 type SessionHistoryGroupVariant = 'status' | 'project';
@@ -473,6 +474,7 @@ const SessionRow = memo(function SessionRow(props: {
   actions?: SessionRowActions;
 }) {
   const { session, active, streaming, stale, actions, onSelect } = props;
+  const locale = useUiLocale();
   const [editing, setEditing] = useState(false);
   const [actionsVisible, setActionsVisible] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -600,7 +602,7 @@ const SessionRow = memo(function SessionRow(props: {
               autoComplete="off"
               spellCheck={false}
             />
-            <div className="maka-list-row-meta">{formatSessionMeta(session)}</div>
+            <div className="maka-list-row-meta">{formatSessionMeta(session, locale)}</div>
           </div>
         </form>
       ) : (
@@ -688,7 +690,7 @@ const SessionRow = memo(function SessionRow(props: {
           {shouldShowSessionUnreadDot(session, Boolean(streaming), active) ? (
             <span className="maka-list-row-unread" aria-label="未读消息" />
           ) : (
-            <span className="maka-list-row-meta">{formatSessionMeta(session)}</span>
+            <span className="maka-list-row-meta">{formatSessionMeta(session, locale)}</span>
           )}
         </BaseButton>
       )}
@@ -808,7 +810,7 @@ function groupSessionsByTime(sessions: SessionSummary[]): SessionGroup[] {
   return buckets.filter((group) => group.sessions.length > 0);
 }
 
-function formatSessionMeta(session: SessionSummary): string {
+function formatSessionMeta(session: SessionSummary, locale: UiLocale): string {
   if (!session.lastMessageAt) return noMessagesYet;
-  return formatCompactTimestamp(session.lastMessageAt);
+  return formatCompactTimestamp(session.lastMessageAt, Date.now(), locale);
 }

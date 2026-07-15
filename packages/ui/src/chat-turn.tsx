@@ -15,6 +15,7 @@ import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/
 import { Bubble, Marker, markerVariants, Message, TextShimmer } from './primitives/chat.js';
 import { Tooltip, TooltipTrigger, TooltipContent } from './primitives/tooltip.js';
 import { ToolTrow } from './tool-activity.js';
+import { useUiLocale } from './locale-context.js';
 
 
 /**
@@ -85,6 +86,7 @@ function AttachmentImage(props: { attachment: AttachmentRef }) {
 }
 
 const MessageBody = memo(function MessageBody(props: { role: string; text: string; ts?: number; attachments?: readonly AttachmentRef[] }) {
+  const locale = useUiLocale();
   if (props.role === 'user') {
     // User turn: the message sits in a tinted, width-capped block aligned to
     // the right (so the right-anchor reads even for long messages), with an
@@ -125,9 +127,9 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
             <small
               className="maka-message-time-inline tabular-nums"
               aria-hidden="true"
-              title={formatAbsoluteTimestamp(props.ts)}
+              title={formatAbsoluteTimestamp(props.ts, locale)}
             >
-              {formatClockTime(props.ts)}
+              {formatClockTime(props.ts, locale)}
             </small>
           )}
           <MessageCopyButton text={props.text} footerStyle />
@@ -283,6 +285,7 @@ export const TurnView = memo(function TurnView(props: {
     continuingIndicator?: boolean;
   };
 }) {
+  const locale = useUiLocale();
   const { turn } = props;
   const forwardBadges = props.lineageBadges?.filter((b) => b.direction === 'forward') ?? [];
   const reverseBadges = props.lineageBadges?.filter((b) => b.direction === 'reverse') ?? [];
@@ -341,7 +344,7 @@ export const TurnView = memo(function TurnView(props: {
         <Message
           variant="user"
           aria-label="你发送的消息"
-          title={turn.user.ts ? formatAbsoluteTimestamp(turn.user.ts) : undefined}
+          title={turn.user.ts ? formatAbsoluteTimestamp(turn.user.ts, locale) : undefined}
           className="group/usermsg"
         >
           <MessageBody role="user" text={turn.user.text} ts={turn.user.ts} attachments={turn.user.attachments} />
@@ -351,7 +354,7 @@ export const TurnView = memo(function TurnView(props: {
         <Message
           key={note.id}
           variant="system"
-          title={note.ts ? formatAbsoluteTimestamp(note.ts) : undefined}
+          title={note.ts ? formatAbsoluteTimestamp(note.ts, locale) : undefined}
         >
           <MessageBody role="system" text={note.text} ts={note.ts} />
         </Message>

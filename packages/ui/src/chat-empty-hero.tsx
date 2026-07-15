@@ -31,10 +31,11 @@ import {
   DEEP_RESEARCH_SCOPE_OPTIONS,
   DEEP_RESEARCH_STARTER_PROMPTS,
   DEEP_RESEARCH_WORKFLOW_STEPS,
+  type UiCatalog,
 } from '@maka/core';
 import { Button as BaseButton } from '@base-ui/react/button';
 
-import { detectUiLocale, type UiLocale } from './locale-helpers.js';
+import { useUiLocale } from './locale-context.js';
 
 export type DayPeriod = 'morning' | 'noon' | 'afternoon' | 'evening';
 
@@ -62,7 +63,7 @@ export function detectDayPeriod(nowMs: number = Date.now()): DayPeriod {
   return 'evening';
 }
 
-const EMPTY_HERO_COPY_BY_LOCALE: Record<UiLocale, {
+const EMPTY_HERO_COPY_BY_LOCALE: UiCatalog<{
   ariaLabel: string;
   /** Time-of-day prefix: "早上好" / "Good morning" etc. */
   greeting: Record<DayPeriod, string>;
@@ -130,7 +131,7 @@ export function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void
   // that still pass it, but the generic empty-chat surface no longer
   // renders suggestions; Deep Research keeps its specialized starters.
   const label = props.userLabel?.trim();
-  const locale = detectUiLocale();
+  const locale = useUiLocale();
   const copy = EMPTY_HERO_COPY_BY_LOCALE[locale];
   // PR-UI-LAYOUT-4: time-of-day greeting prefix. `detectDayPeriod`
   // reads the user's local clock at render time; we don't memo

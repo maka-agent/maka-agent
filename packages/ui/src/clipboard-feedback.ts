@@ -26,7 +26,7 @@
  *      both `markdown.tsx` and `components.tsx` depend on it,
  *      with no edges between them in this dimension. Same cycle-
  *      breaking pattern PR-UI-LIB-EXTRACT-5 used for round 5's
- *      `detectUiLocale` cycle.
+ *      earlier locale-helper cycle.
  */
 
 import { useEffect, useRef, useState } from 'react';
