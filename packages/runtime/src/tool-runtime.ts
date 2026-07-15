@@ -1081,6 +1081,65 @@ export function formatSyntheticToolErrorText(error: unknown): string {
   return `${redacted.slice(0, TOOL_ERROR_RESULT_MAX_CHARS - 1)}…`;
 }
 
+/**
+ * Provider context-length overflow signatures. A request-level 400/413 whose
+ * message matches one of these means the input exceeded the model's context
+ * window — the reactive-recovery trigger (issue #882 PR 2). The set is ported
+ * from pi's battle-tested table and covers the providers Maka ships in its
+ * registry (Anthropic, OpenAI/-compatible, Google, xAI, Groq, OpenRouter,
+ * Mistral, MiniMax, Kimi/Moonshot, Together, llama.cpp/LM Studio/Ollama, …).
+ * Matched against the RAW provider error message, never the generalized string.
+ */
+const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
+  /prompt is too long/i, // Anthropic token overflow
+  /request_too_large/i, // Anthropic request byte-size overflow (HTTP 413)
+  /input is too long for requested model/i, // Amazon Bedrock
+  /exceeds the context window/i, // OpenAI (Completions & Responses)
+  /exceeds (?:the )?(?:model'?s )?maximum context length(?: of [\d,]+ tokens?|\s*\([\d,]+\))?/i, // OpenAI-compatible proxies (LiteLLM)
+  /input token count.*exceeds the maximum/i, // Google (Gemini)
+  /maximum prompt length is \d+/i, // xAI (Grok)
+  /reduce the length of the messages/i, // Groq
+  /maximum context length is \d+ tokens/i, // OpenRouter (most backends)
+  /exceeds (?:the )?maximum allowed input length of [\d,]+ tokens?/i, // OpenRouter/Poolside
+  /input \(\d+ tokens\) is longer than the model'?s context length \(\d+ tokens\)/i, // Together AI
+  /exceeds the limit of \d+/i, // GitHub Copilot
+  /exceeds the available context size/i, // llama.cpp server
+  /greater than the context length/i, // LM Studio
+  /context window exceeds limit/i, // MiniMax
+  /exceeded model token limit/i, // Kimi For Coding
+  /too large for model with \d+ maximum context length/i, // Mistral
+  /prompt has [\d,]+ tokens?, but the configured context size is [\d,]+ tokens?/i, // DS4 server
+  /model_context_window_exceeded/i, // z.ai non-standard finish_reason surfaced as error text
+  /prompt too long; exceeded (?:max )?context length/i, // Ollama explicit overflow error
+  /context[_ ]length[_ ]exceeded/i, // Generic fallback
+  /too many tokens/i, // Generic fallback
+  /token limit exceeded/i, // Generic fallback
+];
+
+/**
+ * Wording that looks token-shaped but is NOT an overflow (throttling / quota /
+ * rate limiting). Checked first: any match here excludes the message from
+ * overflow classification even when it also matches an overflow pattern (e.g.
+ * "ThrottlingException: Too many tokens, please wait" would otherwise match
+ * `/too many tokens/`).
+ */
+const NON_CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
+  /rate limit/i,
+  /too many requests/i,
+  /throttl/i,
+  /quota/i,
+];
+
+/**
+ * Exclusion-first overflow detection on a raw provider error message: excluded
+ * throttling/quota wording never counts, then any overflow signature does.
+ */
+export function isContextOverflowErrorMessage(message: string): boolean {
+  if (!message) return false;
+  if (NON_CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(message))) return false;
+  return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(message));
+}
+
 export function classifyError(error: unknown): string {
   if (!(error instanceof Error)) return 'Other';
   const code = 'code' in error ? String((error as { code?: unknown }).code) : '';
@@ -1095,6 +1154,10 @@ export function classifyError(error: unknown): string {
   if (text.includes('rate') || statusCode === '429' || code === '429') return 'RateLimit';
   if (text.includes('auth') || statusCode === '401' || statusCode === '403' || code === '401' || code === '403') return 'Auth';
   if (/^5\d\d$/.test(statusCode) || /^5\d\d$/.test(code)) return 'ProviderUnavailable';
+  // Context-length overflow is a request-level 400/413: classified from the raw
+  // message after the status-based classes so an explicit 429/5xx never lands
+  // here, and exclusion-first so throttling that mentions tokens does not.
+  if (isContextOverflowErrorMessage(error.message)) return 'ContextLength';
   if (text.includes('timeout')) return 'Timeout';
   if (text.includes('network') || text.includes('fetch')) return 'Network';
   return error.name || 'Other';

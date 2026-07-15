@@ -211,6 +211,33 @@ describe('ModelAdapter stream and error normalization', () => {
     assert.equal(adapter.mapFinishReason('provider-new-reason'), 'end_turn');
   });
 
+  test('classifies provider context-length overflow errors as ContextLength', () => {
+    const adapter = newAdapter();
+    const overflow = (message: string, extra: Record<string, unknown> = {}) =>
+      adapter.classifyError(Object.assign(new Error(message), { name: 'AI_APICallError', ...extra }));
+
+    // A representative sample across the providers Maka supports.
+    assert.equal(overflow('prompt is too long: 213462 tokens > 200000 maximum', { statusCode: 400 }), 'ContextLength'); // Anthropic
+    assert.equal(overflow('413 request_too_large: Request exceeds the maximum size', { statusCode: 413 }), 'ContextLength'); // Anthropic 413
+    assert.equal(overflow('Your input exceeds the context window of this model', { statusCode: 400 }), 'ContextLength'); // OpenAI
+    assert.equal(overflow("Requested token count exceeds the model's maximum context length of 131072 tokens", { statusCode: 400 }), 'ContextLength'); // LiteLLM
+    assert.equal(overflow('The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)', { statusCode: 400 }), 'ContextLength'); // Google
+    assert.equal(overflow("This model's maximum prompt length is 131072 but the request contains 537812 tokens", { statusCode: 400 }), 'ContextLength'); // xAI
+    assert.equal(overflow('Please reduce the length of the messages or completion', { statusCode: 400 }), 'ContextLength'); // Groq
+    assert.equal(overflow("This endpoint's maximum context length is 262144 tokens", { statusCode: 400 }), 'ContextLength'); // OpenRouter
+    assert.equal(overflow('Prompt contains 5000 tokens; too large for model with 4096 maximum context length', { statusCode: 400 }), 'ContextLength'); // Mistral
+    assert.equal(overflow('invalid params, context window exceeds limit', { statusCode: 400 }), 'ContextLength'); // MiniMax
+    assert.equal(overflow('Your request exceeded model token limit: 200000 (requested: 260000)', { statusCode: 400 }), 'ContextLength'); // Kimi
+
+    // Exclusion-first: throttling/rate-limit wording must NOT be read as overflow
+    // even when it superficially mentions tokens.
+    assert.equal(overflow('Rate limit reached: too many tokens, please wait before trying again', { statusCode: 429 }), 'RateLimit');
+    assert.notEqual(overflow('ThrottlingException: too many tokens, please wait before trying again', { statusCode: 400 }), 'ContextLength');
+    // Unrelated 400s stay in their own buckets, never ContextLength.
+    assert.notEqual(overflow('invalid request: missing required field', { statusCode: 400 }), 'ContextLength');
+    assert.equal(adapter.classifyError(Object.assign(new Error('401 Authorization'), { statusCode: 401 })), 'Auth');
+  });
+
   test('normalizes cache and reasoning usage variants in the adapter module', () => {
     assert.deepEqual(
       normalizeAiSdkUsage({
