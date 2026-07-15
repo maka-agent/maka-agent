@@ -20,13 +20,20 @@ const OVERFLOW_MESSAGE = 'prompt is too long: 213462 tokens > 200000 maximum';
 /**
  * Per-provider-request script. Each entry drives one `doStream` invocation:
  *  - 'tool'     → a Read tool call (completes a step, appends a durable pair)
+ *  - 'bigtool'  → assistant text (sentinel) + a Read with a huge result, so the
+ *                 proactive capacity trigger fires at this step's boundary
+ *  - 'load'     → a `load_tools` call activating the gated 'big' group
+ *  - 'gated'    → a call to the gated `Big` tool
  *  - 'done'     → final assistant text, finish stop
  *  - 'overflow' → the provider rejects with a context-length 400 (doStream
  *                 throws; the SDK surfaces it as a fullStream error chunk and
  *                 rejects finishReason — the fake-end_turn latent-bug path)
  *  - 'error500' → a non-overflow provider failure (never a recovery trigger)
  */
-type CallKind = 'tool' | 'done' | 'overflow' | 'error500';
+type CallKind = 'tool' | 'bigtool' | 'load' | 'gated' | 'done' | 'overflow' | 'error500';
+
+const RETRY_STEP_TEXT_SENTINEL = 'RETRY_STEP_TEXT_SENTINEL reasoning before the big read';
+const BIG_RESULT = 'BIG_RESULT_'.repeat(200);
 
 interface ReactiveFixtureOptions {
   script: CallKind[];
@@ -40,6 +47,15 @@ interface ReactiveFixtureOptions {
   maxSteps?: number;
   /** The FIRST tool step reports an unusable usage object (no token counts). */
   firstStepUsageMissing?: boolean;
+  /** Economy tool availability with the gated `Big` tool behind `load_tools`. */
+  gatedToolGroup?: boolean;
+  /**
+   * appendMessage yields several macrotasks before resolving, so the pump
+   * genuinely lags inside flushStep (text_complete not yet enqueued,
+   * flushedSteps not yet incremented) while the SDK's loop advances to the
+   * next prepareStep — the P1-A race window.
+   */
+  slowAppendMessage?: boolean;
 }
 
 interface ReactiveLlmCall {
@@ -60,6 +76,8 @@ interface ReactiveFixture {
   priorEvents: RuntimeEvent[];
   events: SessionEvent[];
   llmCalls: ReactiveLlmCall[];
+  /** JSON of each summarizer call's folded runtime events (coverage evidence). */
+  summarizedSources: string[];
   persist: (event: SessionEvent) => void;
 }
 
@@ -75,9 +93,21 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 },
     outputTokens: { total: output, text: output, reasoning: 0 },
   });
-  const toolCallChunks = (id: string, call: number): LanguageModelV3StreamPart[] => [
+  const toolCallChunks = (
+    call: number,
+    toolName: string,
+    args: object,
+    leadingText?: string,
+  ): LanguageModelV3StreamPart[] => [
     { type: 'stream-start', warnings: [] },
-    { type: 'tool-call', toolCallId: id, toolName: 'Read', input: JSON.stringify({ path: 'one.md' }) },
+    ...(leadingText
+      ? ([
+          { type: 'text-start', id: `step-text-${call}` },
+          { type: 'text-delta', id: `step-text-${call}`, delta: leadingText },
+          { type: 'text-end', id: `step-text-${call}` },
+        ] satisfies LanguageModelV3StreamPart[])
+      : []),
+    { type: 'tool-call', toolCallId: `tool-${call}`, toolName, input: JSON.stringify(args) },
     {
       type: 'finish',
       finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
@@ -103,7 +133,12 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     if (kind === 'error500') {
       throw Object.assign(new Error('internal server error'), { name: 'AI_APICallError', statusCode: 500 });
     }
-    const chunks = kind === 'tool' ? toolCallChunks(`tool-${call}`, call) : doneChunks();
+    const chunks =
+      kind === 'tool' ? toolCallChunks(call, 'Read', { path: 'one.md' })
+      : kind === 'bigtool' ? toolCallChunks(call, 'Read', { path: 'big.md' }, RETRY_STEP_TEXT_SENTINEL)
+      : kind === 'load' ? toolCallChunks(call, 'load_tools', { group: 'big' })
+      : kind === 'gated' ? toolCallChunks(call, 'Big', { q: 'run' })
+      : doneChunks();
     return simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null });
   };
   const model = new MockLanguageModelV3({
@@ -145,10 +180,12 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
   };
 
   const midTurnEnabled = options.midTurnEnabled ?? true;
+  const summarizedSources: string[] = [];
   const seams = midTurnEnabled
     ? {
-        summarizeHistoryCompact: async () => {
+        summarizeHistoryCompact: async (input: { source: { foldedRuntimeEvents: RuntimeEvent[] } }) => {
           counters.summarizerCalls += 1;
+          summarizedSources.push(JSON.stringify(input.source.foldedRuntimeEvents));
           return options.summarize ? await options.summarize() : 'REACTIVE_SUMMARY_SENTINEL';
         },
         recordHistoryCompactCheckpoint: (checkpoint: HistoryCompactCheckpoint) => { recorded.push(checkpoint); },
@@ -162,7 +199,10 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
   const backend = new AiSdkBackend({
     sessionId: 'session-1',
     header: header(),
-    appendMessage: async () => {},
+    appendMessage: async () => {
+      if (!options.slowAppendMessage) return;
+      for (let i = 0; i < 5; i += 1) await flushMacrotask();
+    },
     connection: { ...connection(), models: [{ id: 'mock-model-id', contextWindow }] },
     apiKey: 'sk-test',
     modelId: 'mock-model-id',
@@ -177,10 +217,25 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
         permissionRequired: false,
         impl: async (args: { path: string }) => {
           toolExecutions.push(args.path);
-          return { body: RAW_SPAN_ONE };
+          return { body: args.path === 'big.md' ? BIG_RESULT : RAW_SPAN_ONE };
         },
       },
+      ...(options.gatedToolGroup
+        ? [{
+            name: 'Big',
+            description: 'Gated capability behind the big group',
+            parameters: z.object({ q: z.string() }),
+            permissionRequired: false,
+            impl: async () => {
+              toolExecutions.push('BIG_EXEC');
+              return { ok: true };
+            },
+          }]
+        : []),
     ],
+    ...(options.gatedToolGroup
+      ? { toolAvailability: { economy: true, groups: [{ id: 'big', toolNames: ['Big'] }] } }
+      : {}),
     contextBudget: {
       name: 'reactive-test',
       maxHistoryEstimatedTokens: 100_000,
@@ -207,11 +262,12 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     priorEvents,
     events,
     llmCalls,
+    summarizedSources,
     persist,
   };
 }
 
-async function runTurn(fixture: ReactiveFixture): Promise<void> {
+async function runTurn(fixture: ReactiveFixture, consumer: 'immediate' | 'slow' = 'immediate'): Promise<void> {
   for await (const event of fixture.backend.send({
     runId: 'run-1',
     turnId: 'turn-1',
@@ -220,6 +276,14 @@ async function runTurn(fixture: ReactiveFixture): Promise<void> {
     context: [],
     runtimeContext: [...fixture.priorEvents],
   })) {
+    if (consumer === 'slow') {
+      // Scheduling perturbation (same as the mid-turn suite): hold the durable
+      // write back across several macrotasks so the ledger genuinely lags the
+      // SDK's step progression.
+      await flushMacrotask();
+      await flushMacrotask();
+      await flushMacrotask();
+    }
     // The consumer persists every non-partial event to the durable ledger,
     // exactly like AgentRun, so the reactive compaction pool can span the
     // completed steps.
@@ -352,6 +416,73 @@ describe('reactive overflow recovery in the streaming backend', () => {
     assert.equal(fixture.model.doStreamCalls.length, 3);
     assert.deepEqual(fixture.toolExecutions, ['one.md', 'one.md']);
     assert.equal(complete(fixture)?.stopReason, 'step_limit');
+  });
+
+  test('a completed retry step\'s assistant text is never dropped by a post-retry compaction (review P1-A)', async () => {
+    // Review round-2 P1-A repro: the SDK numbers prepareStep steps per
+    // streamText call, but flushedSteps / replacedStepNumber / lastShapeFailure
+    // are SEND-level. After a retry, attempt-local step 1 satisfies the
+    // durability wait with attempt 1's flushed boundary, so a capacity
+    // compaction at the retry's own step boundary can read the ledger BEFORE
+    // the pump has flushed the retry step's text_complete — and because the
+    // replacement projection replaces the whole message list, that streamed
+    // assistant text silently vanishes from both the covered span and the
+    // preserved tail. Same shape as PR 1's finding B, re-opened across the
+    // attempt boundary. The lag lever is a slow appendMessage: the pump gets
+    // stuck INSIDE flushStep (text_complete not yet enqueued, flushedSteps not
+    // yet incremented) while the immediate consumer has drained everything
+    // already pushed — so `consumed >= pushed` holds and only the send-global
+    // flushedSteps bound can still hold the ledger read back.
+    const fixture = buildReactiveFixture({
+      // High water 400: the first attempt's boundary (~usage 100 + small
+      // delta) stays under it, the retry step's huge result (~BIG_RESULT/4)
+      // crosses it, so the capacity trigger fires exactly at the retry's own
+      // step boundary.
+      script: ['tool', 'overflow', 'bigtool', 'done'],
+      bigPriors: true,
+      contextWindow: 2_000,
+      reserveTokens: 1_600,
+      slowAppendMessage: true,
+    });
+    await runTurn(fixture);
+
+    // The turn completes on the compacted projections (recovery fold + the
+    // post-retry capacity fold), with the retry's step text streamed out.
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    assert.equal(
+      fixture.events.some((event) => event.type === 'text_complete' && event.text.includes('RETRY_STEP_TEXT_SENTINEL')),
+      true,
+    );
+    // The projection accounts for that text: it survives either verbatim in
+    // the final request or inside a summarized covered span — never silently
+    // dropped from both.
+    const finalPrompt = JSON.stringify(fixture.model.doStreamCalls.at(-1)?.prompt);
+    const inTail = finalPrompt.includes('RETRY_STEP_TEXT_SENTINEL');
+    const inCoveredSpan = fixture.summarizedSources.join('\n').includes('RETRY_STEP_TEXT_SENTINEL');
+    assert.equal(inTail || inCoveredSpan, true);
+  });
+
+  test('a same-turn load_tools activation survives the retry (review P1-B)', async () => {
+    // Review round-2 P1-B repro: active tools were re-derived per streamText
+    // call from seed groups + that call's own steps. The retry's steps start
+    // empty, so a group loaded before the overflow was silently revoked — the
+    // gated tool disappeared from the provider request and the execute
+    // boundary rejected it. Activation must accumulate monotonically in the
+    // availability owner for the whole send.
+    const fixture = buildReactiveFixture({
+      script: ['load', 'overflow', 'gated', 'done'],
+      bigPriors: true,
+      gatedToolGroup: true,
+    });
+    await runTurn(fixture);
+
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    assert.equal(fixture.events.some((event) => event.type === 'error'), false);
+    // The retry request still advertises the gated tool...
+    const retryRequestTools = JSON.stringify(fixture.model.doStreamCalls[2]?.tools ?? []);
+    assert.equal(retryRequestTools.includes('"Big"') || retryRequestTools.includes("'Big'"), true);
+    // ...and it executes for real after the retry.
+    assert.equal(fixture.toolExecutions.includes('BIG_EXEC'), true);
   });
 
   test('a second overflow after the single retry ends as a real error', async () => {

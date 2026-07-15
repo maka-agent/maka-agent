@@ -1361,6 +1361,21 @@ export class AiSdkBackend implements AgentBackend {
         // as an error. Never fall through to the success path, which
         // historically caught the rejected finishReason as `stop` and
         // fabricated an end_turn completion with success telemetry.
+        //
+        // Step-number clock (review P1-A): the SDK numbers prepareStep steps
+        // per streamText call, but every per-step consumer downstream — the
+        // capacity hook's durability wait (flushedSteps), replacedStepNumber,
+        // lastShapeFailure, the semantic-compact yield — keeps SEND-level
+        // state. This single translation point rebases each attempt's local
+        // step numbers onto the send-global clock (completed steps when the
+        // attempt started), so a retry never resets those clocks: an
+        // attempt-local wait bound satisfied by a PREVIOUS attempt's flushed
+        // boundary would let a post-retry compaction read the ledger before
+        // this attempt's step content is durable and silently drop it.
+        let attemptStepBase = 0;
+        const sendScopedPrepareStep: PrepareStepFunctionLike | undefined = prepareStep
+          ? async (options) => prepareStep({ ...options, stepNumber: attemptStepBase + options.stepNumber })
+          : undefined;
         let attemptMessages: ModelMessage[] = messages;
         let overflowRetryUsed = false;
         let result!: StreamTextResult;
@@ -1368,6 +1383,10 @@ export class AiSdkBackend implements AgentBackend {
           // The step limit is a SEND-level cap: `runtimeSteps` (this send's
           // completed steps across attempts) is its single counter, so a retry
           // attempt gets only the remaining budget — never a fresh full one.
+          // It is also the attempt's step base: the pump has consumed every
+          // prior attempt's finish-step before the error chunk that ended it,
+          // so at this point the counter equals the send's completed steps.
+          attemptStepBase = runtimeSteps;
           const remainingStepBudget = this.maxSteps === undefined
             ? undefined
             : Math.max(0, this.maxSteps - runtimeSteps);
@@ -1387,7 +1406,7 @@ export class AiSdkBackend implements AgentBackend {
             },
             system: systemPrompt,
             abortSignal: this.abortController!.signal,
-            ...(prepareStep ? { prepareStep } : {}),
+            ...(sendScopedPrepareStep ? { prepareStep: sendScopedPrepareStep } : {}),
             ...(remainingStepBudget !== undefined ? { maxSteps: remainingStepBudget } : {}),
           });
 
