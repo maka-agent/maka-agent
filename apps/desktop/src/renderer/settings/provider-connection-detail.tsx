@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
   PROVIDER_DEFAULTS,
   connectionEnabledModelIds,
@@ -825,6 +825,14 @@ function EnabledModelManager(props: {
   onChange(ids: string[]): void;
 }) {
   const [query, setQuery] = useState('');
+  // Roving tabindex (composite-widget keyboard pattern): the whole list is ONE
+  // Tab stop. Without this every row button is a Tab stop, and a large catalog
+  // (OpenRouter's fallback list is 260+ rows) walls off everything below the
+  // list for keyboard users. Only the active row has tabIndex=0; ArrowUp/Down
+  // + Home/End move activity (focus scrolls the row into view), Space/Enter
+  // toggle via the button's native activation.
+  const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const modelListRef = useRef<HTMLUListElement>(null);
   const enabled = useMemo(() => new Set(props.enabledModelIds), [props.enabledModelIds]);
   const rows = useMemo(() => {
     const byId = new Map(props.modelChoices.map((model) => [model.id, model] as const));
@@ -863,6 +871,42 @@ function EnabledModelManager(props: {
     props.onChange(next);
   }
 
+  // The default-model row is disabled (natively unfocusable), so arrow-key
+  // traversal skips it — consistent with Tab behavior.
+  const focusableRows = visibleRows.filter((row) => row.id !== props.defaultModel);
+  const resolvedActiveRowId = activeRowId !== null && focusableRows.some((row) => row.id === activeRowId)
+    ? activeRowId
+    : focusableRows[0]?.id ?? null;
+
+  function onModelListKeyDown(event: KeyboardEvent<HTMLUListElement>) {
+    if (focusableRows.length === 0) return;
+    const currentIndex = Math.max(0, focusableRows.findIndex((row) => row.id === resolvedActiveRowId));
+    let nextIndex: number;
+    switch (event.key) {
+      case 'ArrowDown':
+        nextIndex = Math.min(currentIndex + 1, focusableRows.length - 1);
+        break;
+      case 'ArrowUp':
+        nextIndex = Math.max(currentIndex - 1, 0);
+        break;
+      case 'Home':
+        nextIndex = 0;
+        break;
+      case 'End':
+        nextIndex = focusableRows.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    const next = focusableRows[nextIndex];
+    setActiveRowId(next.id);
+    // Focus scrolls the row into view inside the fixed-height scroll region.
+    modelListRef.current
+      ?.querySelector<HTMLElement>(`[data-model-id="${CSS.escape(next.id)}"]`)
+      ?.focus();
+  }
+
   return (
     <section className="providerEnabledModels" aria-labelledby="provider-enabled-models-title">
       <div className="providerEnabledModelsHeader">
@@ -880,7 +924,12 @@ function EnabledModelManager(props: {
         aria-label="搜索模型"
       />
       <OverlayScrollArea className="providerModelChoiceScroll">
-        <ul className="providerModelChoiceList" aria-label="模型列表">
+        <ul
+          ref={modelListRef}
+          className="providerModelChoiceList"
+          aria-label="模型列表"
+          onKeyDown={onModelListKeyDown}
+        >
           {visibleRows.length === 0 ? (
             <li className="providerModelChoiceEmpty">
               {rows.length === 0 ? '暂无可选模型，请先更新模型目录。' : '没有匹配的模型。'}
@@ -894,14 +943,16 @@ function EnabledModelManager(props: {
                   <Item
                     className="providerModelChoiceRow"
                     size="sm"
-                    data-enabled={isEnabled ? 'true' : undefined}
                     render={
                       <button
                         type="button"
                         role="checkbox"
                         aria-checked={isEnabled}
+                        data-model-id={row.id}
+                        tabIndex={row.id === resolvedActiveRowId ? 0 : -1}
                         disabled={props.disabled || isDefault}
                         onClick={() => toggle(row.id)}
+                        onFocus={() => setActiveRowId(row.id)}
                       />
                     }
                   >

@@ -116,6 +116,39 @@ test('adds a catalog provider through the canonical API-key dialog', async ({ wi
   expect((await detailDialog.boundingBox())?.height).toBe(advancedHeightBefore);
   await gemmaRow.click();
   await expect(gemmaRow).toBeChecked();
+
+  // Roving tabindex: the whole model list is ONE Tab stop. Tab from the search
+  // field lands on the active row, a second Tab leaves the list entirely (no
+  // per-row Tab stops even with hundreds of rows), and ArrowDown + Space move
+  // activity and toggle the focused row.
+  await detailDialog.getByLabel('搜索模型').fill('');
+  await detailDialog.getByLabel('搜索模型').click();
+  await page.keyboard.press('Tab');
+  const firstStop = await page.evaluate(() => ({
+    role: document.activeElement?.getAttribute('role') ?? null,
+    inList: Boolean(document.activeElement?.closest('.providerModelChoiceList')),
+  }));
+  expect(firstStop).toEqual({ role: 'checkbox', inList: true });
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => Boolean(document.activeElement?.closest('.providerModelChoiceList')))).toBe(false);
+  await page.keyboard.press('Shift+Tab');
+  const beforeArrow = await page.evaluate(() => document.activeElement?.getAttribute('data-model-id') ?? null);
+  await page.keyboard.press('ArrowDown');
+  const afterArrow = await page.evaluate(() => ({
+    id: document.activeElement?.getAttribute('data-model-id') ?? null,
+    checked: document.activeElement?.getAttribute('aria-checked') ?? null,
+  }));
+  expect(afterArrow.id).not.toBeNull();
+  expect(afterArrow.id).not.toBe(beforeArrow);
+  await page.keyboard.press('Space');
+  const toggledRow = detailDialog.locator(`[data-model-id="${afterArrow.id}"]`);
+  await expect(toggledRow).toHaveAttribute('aria-checked', afterArrow.checked === 'true' ? 'false' : 'true');
+  // Restore the row's original state (rows freeze while the save is in
+  // flight — the existing busy-freeze contract — so wait until re-enabled).
+  await expect(toggledRow).toBeEnabled();
+  await toggledRow.click();
+  await expect(toggledRow).toHaveAttribute('aria-checked', afterArrow.checked!);
+
   await expect(detailDialog.getByRole('textbox', { name: /模型密钥/ })).toHaveAttribute('placeholder', '••••••••');
 
   // Short-viewport invariant: when the expanded detail content outgrows the
