@@ -10,7 +10,23 @@ import {
   type ProviderType,
 } from '@maka/core';
 import { providerAuthRequiresSecret, providerAuthSupportsApiKey } from '@maka/core/llm-connections';
-import { Button, FieldDescription, FieldRoot, Input, Label, RelativeTime, useMountedRef, useToast } from '@maka/ui';
+import {
+  Button,
+  FieldDescription,
+  FieldRoot,
+  Input,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemMedia,
+  ItemTitle,
+  Label,
+  OverlayScrollArea,
+  RelativeTime,
+  useMountedRef,
+  useToast,
+} from '@maka/ui';
+import { Check } from '@maka/ui/icons';
 import { PasswordInput } from './password-input';
 import { buildCatalogModelChoices } from '../model-catalog-choices';
 import { providerDisplay } from './provider-display';
@@ -792,8 +808,14 @@ function modelListsEqual(left: ModelInfo[], right: ModelInfo[]): boolean {
 }
 
 /**
- * Compact allowlist editor. The complete provider catalog appears only after
- * the user searches; the persistent rows are the short enabled list.
+ * Enabled-model editor. The full candidate catalog (live-fetched merged with
+ * the static fallback, via buildCatalogModelChoices) is shown persistently
+ * inside a fixed-height scroll region; enabled models read as checked. Clicking
+ * a row toggles it through the shared `enabledModelIds` path, so a newly
+ * enabled model reaches the chat model picker with no side state. The default
+ * model stays checked and locked (`connectionEnabledModelIds` always keeps it
+ * enabled). Search filters the same list in place, so neither the provider's
+ * model count nor an active filter changes the dialog height.
  */
 function EnabledModelManager(props: {
   modelChoices: ModelCatalogEntry[];
@@ -804,82 +826,103 @@ function EnabledModelManager(props: {
 }) {
   const [query, setQuery] = useState('');
   const enabled = useMemo(() => new Set(props.enabledModelIds), [props.enabledModelIds]);
-  const matches = useMemo(() => {
+  const rows = useMemo(() => {
+    const byId = new Map(props.modelChoices.map((model) => [model.id, model] as const));
+    const seen = new Set<string>();
+    const list: Array<{ id: string; label: string }> = [];
+    for (const model of props.modelChoices) {
+      if (!model.canUseAsChatDefault) continue;
+      seen.add(model.id);
+      list.push({ id: model.id, label: modelDisplayLabel(model) });
+    }
+    // Always surface an already-enabled model even if it is not a current
+    // chat-default candidate (a stale id, or a model dropped from the latest
+    // catalog), so the user can still toggle it off.
+    for (const id of props.enabledModelIds) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const model = byId.get(id);
+      list.push({ id, label: model ? modelDisplayLabel(model) : id });
+    }
+    return list;
+  }, [props.modelChoices, props.enabledModelIds]);
+
+  const visibleRows = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return [];
-    return props.modelChoices
-      .filter((model) => {
-        if (enabled.has(model.id) || !model.canUseAsChatDefault) return false;
-        const label = modelDisplayLabel(model).toLowerCase();
-        return model.id.toLowerCase().includes(normalizedQuery) || label.includes(normalizedQuery);
-      })
-      .slice(0, 20);
-  }, [enabled, props.modelChoices, query]);
+    if (!normalizedQuery) return rows;
+    return rows.filter(
+      (row) => row.id.toLowerCase().includes(normalizedQuery) || row.label.toLowerCase().includes(normalizedQuery),
+    );
+  }, [rows, query]);
+
+  function toggle(id: string) {
+    if (props.disabled || id === props.defaultModel) return;
+    const next = enabled.has(id)
+      ? props.enabledModelIds.filter((candidate) => candidate !== id)
+      : [...props.enabledModelIds, id];
+    props.onChange(next);
+  }
 
   return (
     <section className="providerEnabledModels" aria-labelledby="provider-enabled-models-title">
       <div className="providerEnabledModelsHeader">
         <strong id="provider-enabled-models-title">启用模型 {props.enabledModelIds.length}</strong>
-        <span>仅这些模型会出现在模型选择器中。</span>
+        <span>勾选的模型会出现在模型选择器中。</span>
       </div>
       <Input
         type="search"
         value={query}
         onChange={(event) => setQuery(event.currentTarget.value)}
-        placeholder="搜索并添加模型"
+        placeholder="搜索模型"
         autoComplete="off"
         spellCheck={false}
         disabled={props.disabled}
-        aria-label="搜索并添加模型"
+        aria-label="搜索模型"
       />
-      {query.trim() && (
-        <ul className="providerModelSearchResults" aria-label="可添加模型">
-          {matches.length === 0 ? (
-            <li className="providerModelSearchEmpty">没有可添加的匹配模型。</li>
-          ) : matches.map((model) => (
-            <li className="providerModelSearchRow" key={model.id}>
-              <span>{modelDisplayLabel(model)}</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={props.disabled}
-                onClick={() => {
-                  props.onChange([...props.enabledModelIds, model.id]);
-                  setQuery('');
-                }}
-              >
-                添加
-              </Button>
+      <OverlayScrollArea className="providerModelChoiceScroll">
+        <ul className="providerModelChoiceList" aria-label="模型列表">
+          {visibleRows.length === 0 ? (
+            <li className="providerModelChoiceEmpty">
+              {rows.length === 0 ? '暂无可选模型，请先更新模型目录。' : '没有匹配的模型。'}
             </li>
-          ))}
+          ) : (
+            visibleRows.map((row) => {
+              const isEnabled = enabled.has(row.id);
+              const isDefault = row.id === props.defaultModel;
+              return (
+                <li key={row.id}>
+                  <Item
+                    className="providerModelChoiceRow"
+                    size="sm"
+                    data-enabled={isEnabled ? 'true' : undefined}
+                    render={
+                      <button
+                        type="button"
+                        role="checkbox"
+                        aria-checked={isEnabled}
+                        disabled={props.disabled || isDefault}
+                        onClick={() => toggle(row.id)}
+                      />
+                    }
+                  >
+                    <ItemMedia className="providerModelChoiceCheck" aria-hidden="true">
+                      {isEnabled ? <Check size={14} /> : null}
+                    </ItemMedia>
+                    <ItemContent>
+                      <ItemTitle className="providerModelChoiceLabel">{row.label}</ItemTitle>
+                    </ItemContent>
+                    {isDefault && (
+                      <ItemActions>
+                        <span className="providerEnabledModelMeta">默认</span>
+                      </ItemActions>
+                    )}
+                  </Item>
+                </li>
+              );
+            })
+          )}
         </ul>
-      )}
-      <ul className="providerEnabledModelList" aria-label="已启用模型">
-        {props.enabledModelIds.map((id) => {
-          const model = props.modelChoices.find((candidate) => candidate.id === id);
-          const isDefault = id === props.defaultModel;
-          return (
-            <li key={id}>
-              <span>{model ? modelDisplayLabel(model) : id}</span>
-              {isDefault ? (
-                <span className="providerEnabledModelMeta">默认</span>
-              ) : (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={props.disabled}
-                  aria-label={`移除 ${model ? modelDisplayLabel(model) : id}`}
-                  onClick={() => props.onChange(props.enabledModelIds.filter((candidate) => candidate !== id))}
-                >
-                  ×
-                </Button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      </OverlayScrollArea>
     </section>
   );
 }

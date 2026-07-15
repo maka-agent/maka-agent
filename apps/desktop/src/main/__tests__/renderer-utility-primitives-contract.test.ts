@@ -298,7 +298,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.doesNotMatch(rendererCss, /\.settingsWechatQrSecondary\b/);
 
     const providerDetail = await readFile(join(process.cwd(), 'src/renderer/settings/provider-connection-detail.tsx'), 'utf8');
-    assert.match(providerDetail, /<Button[\s\S]*variant="ghost"[\s\S]*aria-label=\{`移除/);
+    assert.match(providerDetail, /<Button variant="secondary" type="button" disabled=\{detailActionBusy \|\| !hasUsableCredential\} onClick=\{runTest\}>/);
     assert.doesNotMatch(providerDetail, /<BaseButton|modelTableRow/);
   });
 

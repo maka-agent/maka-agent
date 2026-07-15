@@ -444,8 +444,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(detail, /模型密钥 \/ 服务地址 \/ 代理设置/);
 
     assert.match(enabledModels, /启用模型/);
-    assert.match(enabledModels, /仅这些模型会出现在模型选择器中/);
-    assert.match(enabledModels, /搜索并添加模型/);
+    assert.match(enabledModels, /勾选的模型会出现在模型选择器中/);
+    assert.match(enabledModels, /搜索模型/);
     assert.match(src, /网络错误，请检查服务地址或代理设置后重试。/);
     // Provider descriptions are version-agnostic (provider + access path,
     // never a model generation that goes stale).
@@ -691,19 +691,26 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('uses native list semantics for enabled and searchable models', async () => {
+  it('renders the full model catalog as one named checkbox list', async () => {
     const src = await readProviderSettingsCombinedSource();
     const enabledModels = src.match(/function EnabledModelManager[\s\S]*?function modelDisplayLabel/)?.[0] ?? '';
 
+    // One persistent list of every candidate model; enabled state is a checkbox
+    // reflecting `enabledModelIds`, not a separate search-only "add" surface.
     assert.match(
       enabledModels,
-      /<ul className="providerModelSearchResults" aria-label="可添加模型">/,
-      'search results must use a named native list',
+      /<ul className="providerModelChoiceList" aria-label="模型列表">/,
+      'the model catalog must use a single named native list',
     );
     assert.match(
       enabledModels,
-      /<ul className="providerEnabledModelList" aria-label="已启用模型">/,
-      'enabled models must use a named native list',
+      /role="checkbox"\s+aria-checked=\{isEnabled\}/,
+      'each model row is a checkbox reflecting its enabled state',
+    );
+    assert.match(
+      enabledModels,
+      /<OverlayScrollArea className="providerModelChoiceScroll">/,
+      'the list scrolls inside a fixed-height region so filtering never resizes the dialog',
     );
     assert.doesNotMatch(
       enabledModels,
@@ -721,7 +728,10 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       detail,
       /async function updateEnabledModels\(nextIds: string\[\]\)[\s\S]*connectionEnabledModelIds\([\s\S]*props\.bridge\.update\(connection\.slug, \{ enabledModelIds: next \}\)[\s\S]*await props\.onChanged\(\)/,
     );
-    assert.match(enabledModels, /isDefault \? \([\s\S]*providerEnabledModelMeta">默认<[\s\S]*\) : \([\s\S]*aria-label=\{`移除/);
+    // The default model row is checked and locked (disabled), never toggled off,
+    // and there is no second Save action inside the editor.
+    assert.match(enabledModels, /disabled=\{props\.disabled \|\| isDefault\}/);
+    assert.match(enabledModels, /isDefault && \([\s\S]*providerEnabledModelMeta">默认</);
     assert.doesNotMatch(enabledModels, /保存/);
   });
 

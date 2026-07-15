@@ -98,12 +98,24 @@ test('adds a catalog provider through the canonical API-key dialog', async ({ wi
 
   await expect(detailDialog.getByText('GPT OSS 120B', { exact: true })).toBeHidden();
   await detailDialog.getByText('高级设置', { exact: true }).click();
-  await expect(detailDialog.getByText('GPT OSS 120B', { exact: true }).first()).toBeVisible();
-  const enabledModels = detailDialog.getByRole('list', { name: '已启用模型' });
-  await expect(enabledModels.getByRole('button')).toHaveCount(0);
-  await detailDialog.getByLabel('搜索并添加模型').fill('gemma-4-31b');
-  await detailDialog.getByRole('list', { name: '可添加模型' }).getByRole('button', { name: '添加' }).click();
-  await expect(enabledModels).toContainText('Gemma');
+
+  // The full candidate catalog is shown persistently as one checkbox list; the
+  // default model is checked and locked, and toggling a candidate flows through
+  // the shared enabledModelIds path (no search-only "add" surface).
+  const modelList = detailDialog.getByRole('list', { name: '模型列表' });
+  await expect(modelList).toBeVisible();
+  const defaultRow = modelList.getByRole('checkbox', { name: /GPT OSS 120B/ });
+  await expect(defaultRow).toBeChecked();
+  await expect(defaultRow).toBeDisabled();
+
+  const gemmaRow = modelList.getByRole('checkbox', { name: /Gemma/ }).first();
+  await expect(gemmaRow).not.toBeChecked();
+  // Dialog height stays fixed as the list is filtered to a subset.
+  const advancedHeightBefore = (await detailDialog.boundingBox())?.height;
+  await detailDialog.getByLabel('搜索模型').fill('gemma');
+  expect((await detailDialog.boundingBox())?.height).toBe(advancedHeightBefore);
+  await gemmaRow.click();
+  await expect(gemmaRow).toBeChecked();
   await expect(detailDialog.getByRole('textbox', { name: /模型密钥/ })).toHaveAttribute('placeholder', '••••••••');
 });
 
