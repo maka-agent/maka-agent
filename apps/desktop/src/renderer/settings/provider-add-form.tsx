@@ -118,14 +118,14 @@ export function AddProviderForm(props: {
             icon={<ProviderLogo type={props.providerType} compact />}
             title={`连接 ${display.name}`}
             titleId={titleId}
-            subtitle={`输入 ${display.name} API Key 即可完成连接。`}
+            subtitle="粘贴服务商提供的 API Key，凭据仅保存在本机。"
             onClose={() => {
               if (!busy) props.onCancel();
             }}
           />
           <form className="providerKeyDialogForm" onSubmit={submitApiKey}>
             <label>
-              <span>{display.name} API Key</span>
+              <span>API Key</span>
               <PasswordInput
                 value={apiKey}
                 onChange={(next) => {
@@ -133,7 +133,7 @@ export function AddProviderForm(props: {
                   if (error) setError(null);
                 }}
                 placeholder="粘贴 API Key"
-                ariaLabel={`${display.name} API Key`}
+                ariaLabel="API Key"
                 ariaDescribedBy={error ? errorId : undefined}
                 inputRef={apiKeyInputRef}
                 disabled={busy}
@@ -143,7 +143,7 @@ export function AddProviderForm(props: {
             <div className="providerKeyDialogActions">
               <Button variant="ghost" type="button" disabled={busy} onClick={props.onCancel}>取消</Button>
               <Button type="submit" disabled={busy}>
-                {busy ? '连接中…' : `连接 ${display.name}`}
+                {busy ? '连接中…' : '连接'}
               </Button>
             </div>
           </form>

@@ -91,7 +91,17 @@
 }
 
 .providerKeyDialog {
-  width: min(460px, calc(100vw - 48px));
+  width: min(420px, calc(100vw - 32px));
+}
+
+.providerKeyDialog [data-slot="dialog-header"] {
+  align-items: center;
+}
+
+.providerKeyDialog [data-slot="dialog-header-icon"],
+.providerKeyDialog .providerLogo[data-compact="true"] {
+  width: 24px;
+  height: 24px;
 }
 
 .providerKeyDialogForm {
@@ -112,7 +122,6 @@
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
-  padding-top: var(--space-1);
 }
 
 .providerUnavailableNotice {

@@ -47,13 +47,23 @@ test('adds a catalog provider through the canonical API-key dialog', async ({ wi
   await page.getByRole('button', { name: /添加模型供应商：Cerebras/ }).click();
   const dialog = page.getByRole('dialog', { name: '连接 Cerebras' });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByLabel('Cerebras API Key')).toBeFocused();
-  await expect(dialog.getByLabel('Cerebras API Key')).toHaveAttribute('type', 'password');
+  await expect(dialog.getByLabel('API Key')).toBeFocused();
+  await expect(dialog.getByLabel('API Key')).toHaveAttribute('type', 'password');
+  await expect(dialog.getByText('输入 Cerebras API Key 即可完成连接。')).toHaveCount(0);
+  await expect(dialog.getByText('粘贴服务商提供的 API Key，凭据仅保存在本机。')).toBeVisible();
+  await expect(dialog.getByText('Cerebras API Key', { exact: true })).toHaveCount(0);
   await expect(dialog.getByLabel('模型供应商连接标识')).toHaveCount(0);
   await expect(dialog.getByLabel('模型供应商服务地址')).toHaveCount(0);
   await expect(dialog.getByLabel('模型供应商默认模型')).toHaveCount(0);
-  await dialog.getByLabel('Cerebras API Key').fill('e2e-cerebras-key');
-  await dialog.getByRole('button', { name: '连接 Cerebras' }).click();
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox?.width).toBeLessThanOrEqual(420);
+  expect(dialogBox?.height).toBeGreaterThanOrEqual(190);
+  expect(dialogBox?.height).toBeLessThanOrEqual(210);
+  await expect(dialog.locator('.providerLogo')).toHaveCSS('width', '24px');
+  await expect(dialog.locator('.providerLogo')).toHaveCSS('height', '24px');
+  expect((await dialog.getByRole('button', { name: '连接', exact: true }).boundingBox())?.width).toBeLessThan(96);
+  await dialog.getByLabel('API Key').fill('e2e-cerebras-key');
+  await dialog.getByRole('button', { name: '连接', exact: true }).click();
 
   await expect(dialog).toBeHidden();
   const connection = page.getByRole('button', { name: /模型连接：Cerebras/ });
@@ -142,7 +152,7 @@ test('restores keyboard focus across provider child pages', async ({ window: pag
   const siliconFlow = page.getByRole('button', { name: /添加模型供应商：SiliconFlow/ });
   await siliconFlow.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByLabel('SiliconFlow API Key')).toBeFocused();
+  await expect(page.getByLabel('API Key')).toBeFocused();
 
   await page.keyboard.press('Escape');
   await expect(siliconFlow).toBeFocused();
