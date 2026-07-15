@@ -10,7 +10,17 @@ import {
   createSessionStore,
   createShellRunStore,
 } from '@maka/storage';
-import { BackendRegistry, type AiSdkBackendInput, type SessionStore, type ShellRunUpdate } from '@maka/runtime';
+import {
+  BackendRegistry,
+  GOAL_CLEAR_TOOL_NAME,
+  GOAL_PAUSE_TOOL_NAME,
+  GOAL_RESUME_TOOL_NAME,
+  GOAL_SET_TOOL_NAME,
+  GOAL_STATUS_TOOL_NAME,
+  type AiSdkBackendInput,
+  type SessionStore,
+  type ShellRunUpdate,
+} from '@maka/runtime';
 import {
   createMakaCliRuntimeContext,
   getOrCreateCliClaudeDeviceId,
@@ -184,7 +194,7 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
-  test('registers AskUserQuestion only for the interactive TUI surface', async () => {
+  test('registers interactive-only tools exclusively on the TUI surface', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const connectionStore = createConnectionStore(workspaceRoot);
       await connectionStore.create({
@@ -209,6 +219,21 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.ok(tool);
         assert.equal(tool.permissionRequired, false);
         assert.equal(run.tools.some((candidate) => candidate.name === 'AskUserQuestion'), false);
+        const goalToolNames = [
+          GOAL_SET_TOOL_NAME,
+          GOAL_CLEAR_TOOL_NAME,
+          GOAL_STATUS_TOOL_NAME,
+          GOAL_PAUSE_TOOL_NAME,
+          GOAL_RESUME_TOOL_NAME,
+        ];
+        assert.deepEqual(
+          goalToolNames.filter((name) => tui.tools.some((candidate) => candidate.name === name)),
+          goalToolNames,
+        );
+        assert.equal(
+          run.tools.some((candidate) => goalToolNames.includes(candidate.name)),
+          false,
+        );
       } finally {
         await tui.close();
         await run.close();

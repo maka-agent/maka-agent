@@ -29,7 +29,6 @@ import {
   persistArchivedToolResultToArtifacts,
   readArchivedToolResultFromArtifacts,
 } from './tool-result-archive-artifacts.js';
-import { turnFailureMessageFromSessionEvent } from './turn-stream-outcome.js';
 import { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
 import { OpenAiCodexService } from './oauth/openai-codex-service.js';
 import { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
@@ -63,11 +62,14 @@ import {
   BotRegistry,
   setActiveProxy,
   ShellRunProcessManager,
+  SessionActivityRegistry,
 } from '@maka/runtime';
 import type {
   BotIncomingMessage,
   BotStatus,
+  GoalTurnOutcome,
   MakaTool,
+  SessionActivityLease,
   ToolAvailabilityConfig,
   ToolArtifactRecorderInput,
   ToolResultArchiveReaderInput,
@@ -146,7 +148,7 @@ import { createSystemPromptMainService } from './system-prompt-main.js';
 import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
 import { createMainAutomationWiring, evaluateAutomationCanFire } from './automation-wiring.js';
 import { createMainGoalWiring } from './goal-wiring.js';
-import { handleGoalContinuation } from '@maka/runtime';
+import { startDesktopSessionTurn, type SessionGoalBoundary } from './session-turn-stream.js';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
 import {
   maskNetworkSettings,
@@ -331,6 +333,22 @@ const planReminderStore = createPlanReminderStore(workspaceRoot);
 const taskLedgerWiring = createMainTaskLedgerWiring(workspaceRoot);
 const taskLedgerStore = taskLedgerWiring.store;
 
+interface StreamEventsOptions {
+  turnId: string;
+  goalBoundary: SessionGoalBoundary;
+  activity?: SessionActivityLease;
+  observeEvent?: (event: SessionEvent) => void;
+}
+
+interface StreamEventsResult {
+  turnId: string;
+  ok: boolean;
+  error?: string;
+  outcome: GoalTurnOutcome;
+}
+
+const sessionActivities = new SessionActivityRegistry();
+
 // Unified Automation — single "Automation" tool for heartbeat + cron.
 // Deps are resolved lazily since runtime/store aren't ready at this point.
 const automationWiring = createMainAutomationWiring({
@@ -350,7 +368,10 @@ const automationWiring = createMainAutomationWiring({
     const iterator = runtime.sendMessage(sessionId, {
       turnId, text: prompt, origin: { kind: 'automation', automationId },
     });
-    const r = await streamEvents(sessionId, iterator, turnId);
+    const r = await streamEvents(sessionId, iterator, {
+      turnId,
+      goalBoundary: 'external',
+    });
     return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
   },
   // Cron: spawn a FRESH session (explore mode — no unapproved side effects) and
@@ -374,12 +395,17 @@ const automationWiring = createMainAutomationWiring({
     const iterator = runtime.sendMessage(session.id, {
       turnId, text: prompt, origin: { kind: 'automation', automationId },
     });
-    const r = await streamEvents(session.id, iterator, turnId);
+    const r = await streamEvents(session.id, iterator, {
+      turnId,
+      goalBoundary: 'external',
+    });
     // Archive the fresh cron session after its run finalizes so recurring crons
     // do not accumulate an unbounded pile of active sessions. The session (with
     // its run/trace) is preserved under the archive, labelled automation/cron.
-    await runtime.archive(session.id).catch(() => {});
-    emitSessionsChanged('archived', session.id);
+    try {
+      await goalWiring.archiveSession(session.id, () => runtime.archive(session.id));
+      emitSessionsChanged('archived', session.id);
+    } catch {}
     return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
   },
 });
@@ -417,38 +443,53 @@ const goalWiring = createMainGoalWiring({
     }
     return total;
   },
-  injectTurn: (sessionId, text) => {
+  admitTurn: (sessionId, text, bindTurn) => {
+    const whenIdle = sessionActivities.whenIdle(sessionId);
+    if (whenIdle) return { kind: 'busy', whenIdle };
+    const reservation = sessionActivities.reserve(sessionId);
     const turnId = randomUUID();
-    const iterator = runtime.sendMessage(sessionId, { turnId, text });
-    void streamEvents(sessionId, iterator, turnId);
-  },
-  canContinue: async (sessionId) => {
-    const header = await store.readHeader(sessionId);
-    if (!header || header.archivedAt) return false;
-    // Never auto-continue into a session that is running (mid-turn), aborted,
-    // blocked, or parked waiting on the user — injecting a turn there would
-    // race the live turn or override the human the agent is waiting on.
-    if (
-      header.status === 'running' ||
-      header.status === 'blocked' ||
-      header.status === 'aborted' ||
-      header.status === 'waiting_for_user'
-    ) return false;
-    try {
-      await ensureSessionCanSend(sessionId);
-      return true;
-    } catch {
-      return false;
+    const binding = bindTurn(turnId);
+    if (binding.kind !== 'bound') {
+      reservation.release();
+      return {
+        kind: 'unavailable',
+        reason: binding.kind === 'duplicate'
+          ? `Goal continuation turn ${turnId} is already registered.`
+          : binding.reason,
+      };
     }
+    return {
+      kind: 'started',
+      completion: (async (): Promise<GoalTurnOutcome> => {
+        try {
+          await ensureSessionCanSend(sessionId);
+          const iterator = runtime.sendMessage(sessionId, { turnId, text });
+          return (await streamEvents(sessionId, iterator, {
+            turnId,
+            goalBoundary: 'coordinator',
+            activity: reservation,
+          })).outcome;
+        } catch (error) {
+          reservation.release();
+          return {
+            kind: 'errored',
+            turnId,
+            reason: `Goal continuation could not start: ${errorMessage(error)}`,
+          };
+        }
+      })(),
+    };
   },
   // Surface every goal transition to the renderer so an active autonomous loop
   // is visible (badge + clear affordance) — never a silent token burn.
   onGoalChange: (goal) => emitSessionsChanged('goal-change', goal.sessionId),
-  listActionableTaskKeys: async (sessionId) => {
+  listActionableTaskKeys: async (sessionId, signal) => {
+    signal.throwIfAborted();
     const tasks = await taskLedgerStore.list(sessionId, {
       includeTerminal: false,
       includeArchived: false,
     });
+    signal.throwIfAborted();
     return filterModelVisibleTaskLedgerTasks(tasks)
       .filter((task) => task.status === 'pending' || task.status === 'in_progress')
       .map((task) => task.key);
@@ -533,7 +574,10 @@ const openGateway = new OpenGatewayService({
       turnId,
       text: input.text,
     });
-    void streamEvents(sessionId, iterator, turnId);
+    void streamEvents(sessionId, iterator, {
+      turnId,
+      goalBoundary: 'external',
+    });
     return { turnId };
   },
   searchThread: (query) =>
@@ -1009,9 +1053,11 @@ botIncoming = createBotIncomingMainService({
   readSessionHeader: (sessionId) => store.readHeader(sessionId),
   ensureSessionCanSend,
   emitSessionsChanged,
-  sendToRenderer: safeSendToRenderer,
-  isStatusChangingSessionEvent,
-  isTurnStatusChangingSessionEvent,
+  runAgentTurn: ({ sessionId, iterator, turnId, onEvent }) => streamEvents(sessionId, iterator, {
+    turnId,
+    goalBoundary: 'external',
+    observeEvent: onEvent,
+  }),
 });
 
 // PR110b: onboarding service composes existing stores + runtime to
@@ -1060,7 +1106,7 @@ function registerIpc(): void {
     runtime,
     store,
     taskLedgerStore,
-    goalManager: goalWiring.manager,
+    goalWiring,
     automationManager: automationWiring.manager,
     computerUseOverlay,
     computerUseTools,
@@ -1204,26 +1250,28 @@ async function handleExternalSettingsChange(): Promise<void> {
   safeSendToRenderer('settings:externalChanged', { ts: Date.now() });
 }
 
-async function streamEvents(
+function streamEvents(
   sessionId: string,
   iterator: AsyncIterable<SessionEvent>,
-  fallbackTurnId?: string,
-): Promise<{ turnId: string; ok: boolean; error?: string }> {
+  options: StreamEventsOptions,
+): Promise<StreamEventsResult> {
   let userAppendBroadcasted = false;
   let finalAppendBroadcasted = false;
-  let turnAborted = false;
-  let turnError: string | undefined;
-  const turnId = fallbackTurnId ?? randomUUID();
-  try {
-    for await (const event of iterator) {
+  const turnId = options.turnId;
+  const started = startDesktopSessionTurn({
+    sessionId,
+    events: iterator,
+    turnId,
+    goalBoundary: options.goalBoundary,
+    activities: sessionActivities,
+    ...(options.activity ? { activity: options.activity } : {}),
+    beginExternalTurn: (externalSessionId, externalTurnId) =>
+      goalWiring.coordinator.beginExternalTurn(externalSessionId, externalTurnId),
+    onEvent: (event) => {
       if (!userAppendBroadcasted) {
         emitSessionsChanged('message-appended', sessionId);
         userAppendBroadcasted = true;
       }
-      if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
-        turnAborted = true;
-      }
-      turnError = turnError ?? turnFailureMessageFromSessionEvent(event);
       safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
       if (isStatusChangingSessionEvent(event)) {
@@ -1234,43 +1282,45 @@ async function streamEvents(
         computerUseOverlay.clearForSession(sessionId);
         computerUseTools.clearSession(sessionId);
       }
-    }
-    if (!finalAppendBroadcasted) {
-      emitSessionsChanged('message-appended', sessionId);
-      finalAppendBroadcasted = true;
-    }
-    // Goal auto-continuation: after a turn completes cleanly, evaluate the
-    // active goal and continue, hand off to polling, or stop. Skip on a
-    // user-abort (the Stop button must halt the loop) OR an errored turn —
-    // re-injecting into a failing connection would spin ~maxIterations failing
-    // turns. Failures never surface to the turn.
-    if (!turnAborted && !turnError) {
-      void handleGoalContinuation(goalWiring.continuationDeps, sessionId, turnId).catch(() => {});
-    }
-    return { turnId, ok: !turnAborted && !turnError, ...(turnError ? { error: turnError } : {}) };
-  } catch (error) {
-    const event = {
-      type: 'error',
-      id: randomUUID(),
-      turnId: fallbackTurnId ?? randomUUID(),
-      ts: Date.now(),
-      recoverable: false,
-      code: errorCode(error),
-      reason: errorReason(error),
-      message: errorMessage(error),
-    } satisfies SessionEvent;
-    safeSendToRenderer(`sessions:event:${sessionId}`, event);
-    openGateway.publishSessionEvent(sessionId, event);
-    emitSessionsChanged('status-change', sessionId);
-    emitSessionsChanged('turn-status-change', sessionId);
-    computerUseOverlay.clearForSession(sessionId);
-    computerUseTools.clearSession(sessionId);
-    if (!finalAppendBroadcasted) {
-      emitSessionsChanged('message-appended', sessionId);
-      finalAppendBroadcasted = true;
-    }
-    return { turnId, ok: false, error: errorMessage(error) };
-  }
+      options.observeEvent?.(event);
+    },
+    onStreamError: (error) => {
+      const event = {
+        type: 'error',
+        id: randomUUID(),
+        turnId,
+        ts: Date.now(),
+        recoverable: false,
+        code: errorCode(error),
+        reason: errorReason(error),
+        message: errorMessage(error),
+      } satisfies SessionEvent;
+      safeSendToRenderer(`sessions:event:${sessionId}`, event);
+      openGateway.publishSessionEvent(sessionId, event);
+      emitSessionsChanged('status-change', sessionId);
+      emitSessionsChanged('turn-status-change', sessionId);
+      computerUseOverlay.clearForSession(sessionId);
+      computerUseTools.clearSession(sessionId);
+    },
+    onDrained: () => {
+      if (!finalAppendBroadcasted) {
+        emitSessionsChanged('message-appended', sessionId);
+        finalAppendBroadcasted = true;
+      }
+    },
+  });
+  if (started.kind === 'unavailable') throw new Error(started.reason);
+  return started.completion.then(({ outcome }) => {
+    const failureReason = outcome.kind === 'errored' || outcome.kind === 'suspended'
+      ? outcome.reason
+      : undefined;
+    return {
+      turnId,
+      ok: outcome.kind === 'completed',
+      ...(failureReason ? { error: failureReason } : {}),
+      outcome,
+    };
+  });
 }
 
 function isStatusChangingSessionEvent(event: SessionEvent): boolean {
@@ -1383,7 +1433,10 @@ async function handleQuickChatStart(
       // id is generated inside `runtime.sendMessage()`.
       const turnId = randomUUID();
       const iterator = runtime.sendMessage(sessionId, { turnId, text });
-      void streamEvents(sessionId, iterator, turnId);
+      void streamEvents(sessionId, iterator, {
+        turnId,
+        goalBoundary: 'external',
+      });
     },
   });
 }
@@ -1602,6 +1655,7 @@ app.on('before-quit', (event) => {
 
 async function runBeforeQuitCleanup(): Promise<void> {
   automationWiring.scheduler.dispose();
+  goalWiring.coordinator.dispose();
   goalWiring.manager.dispose();
   configWatcher?.stop();
   planReminders.stopTimers();

@@ -91,7 +91,10 @@ export async function buildCliTurnTailPrompt(input: {
 
 function buildGoalTailFragment(sessionId: string, manager: GoalManager): string | undefined {
   const goal = manager.get(sessionId);
-  if (!goal || (goal.status !== 'active' && goal.status !== 'paused')) return undefined;
+  if (
+    !goal
+    || (goal.status !== 'active' && goal.status !== 'waiting' && goal.status !== 'paused')
+  ) return undefined;
   const spent = Math.max(0, goal.tokensNow - goal.tokensAtStart);
   const lines = [
     'Active goal (autonomous execution; system evaluates progress each turn):',
@@ -99,7 +102,7 @@ function buildGoalTailFragment(sessionId: string, manager: GoalManager): string 
     `condition="${redactSecrets(goal.condition)}"`,
     `status=${goal.status} turns=${goal.iterations}/${goal.maxIterations} no_progress=${goal.consecutiveNoProgress}/${goal.blockCap}`
       + `${goal.tokenBudget ? ` tokens=${spent}/${goal.tokenBudget}` : ''}`,
-    ...(goal.lastReason ? [`last_evaluation="${redactSecrets(goal.lastReason)}"`] : []),
+    ...(goal.lastReason ? [`last_reason="${redactSecrets(goal.lastReason)}"`] : []),
     '</goal-execution>',
   ];
   return lines.join('\n');

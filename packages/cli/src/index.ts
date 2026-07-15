@@ -42,11 +42,17 @@ export {
   type MakaPiTuiInput,
 } from './pi-tui-runner.js';
 export {
+  runMakaPiTuiTurn,
+  type MakaPiTuiTurnLifecycle,
+  type MakaPiTuiTurnRequest,
+  type RunMakaPiTuiTurnInput,
+} from './pi-tui-turn.js';
+export {
   appendUserPrompt,
+  appendTurnFailureToTranscript,
   applyMakaSessionEventToTranscript,
   createMakaPiTranscriptState,
   renderMakaPiTranscript,
-  submitPromptToTranscript,
   type MakaPiTranscriptEntry,
   type MakaPiTranscriptMetadata,
   type MakaPiTranscriptState,

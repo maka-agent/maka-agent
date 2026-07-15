@@ -34,12 +34,8 @@ describe('bot incoming new-session cwd', () => {
       readSessionHeader: async () => ({ permissionMode: 'ask' }),
       ensureSessionCanSend: async () => {},
       emitSessionsChanged() {},
-      sendToRenderer() {},
-      isStatusChangingSessionEvent() {
-        return false;
-      },
-      isTurnStatusChangingSessionEvent() {
-        return false;
+      async runAgentTurn() {
+        throw new Error('runAgentTurn must not be reached');
       },
     });
 

@@ -25,7 +25,10 @@ export interface SessionEntryIpcDeps {
   streamEvents: (
     sessionId: string,
     iterator: AsyncIterable<SessionEvent>,
-    fallbackTurnId?: string,
+    options: {
+      turnId: string;
+      goalBoundary: 'external';
+    },
   ) => Promise<{ turnId: string; ok: boolean; error?: string }>;
   /** Quick Chat entry — thin adapter over the extracted `quick-chat.ts` helper. */
   quickChatStart: (rawInput: unknown) => Promise<QuickChatResult>;
@@ -81,7 +84,7 @@ export function registerSessionEntryIpc(deps: SessionEntryIpcDeps): void {
       sendFirstMessage: async (sessionId, text) => {
         const turnId = randomUUID();
         const iterator = deps.runtime.sendMessage(sessionId, { turnId, text });
-        void deps.streamEvents(sessionId, iterator, turnId);
+        void deps.streamEvents(sessionId, iterator, { turnId, goalBoundary: 'external' });
       },
     });
   });

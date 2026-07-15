@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GoalManager, goalCheckpoint } from '../goal-state.js';
+import { GoalContinuationCoordinator } from '../goal-continuation.js';
 import {
   buildGoalTools,
   GOAL_SET_TOOL_NAME,
@@ -13,8 +14,8 @@ import type { MakaTool, MakaToolContext } from '../tool-runtime.js';
 
 const SESSION = 'sess-1';
 
-function ctx(): MakaToolContext {
-  return { sessionId: SESSION, turnId: 't', cwd: '/', toolCallId: 'tc', abortSignal: new AbortController().signal, emitOutput: () => {} };
+function ctx(turnId = 't'): MakaToolContext {
+  return { sessionId: SESSION, turnId, cwd: '/', toolCallId: 'tc', abortSignal: new AbortController().signal, emitOutput: () => {} };
 }
 
 function findTool(tools: MakaTool[], name: string): MakaTool {
@@ -25,8 +26,20 @@ function findTool(tools: MakaTool[], name: string): MakaTool {
 
 function makeTools(getTokenCount?: (s: string) => number) {
   const mgr = new GoalManager({ generateId: () => 'g-1', now: () => 5000 });
-  const tools = buildGoalTools({ goalManager: mgr, getTokenCount, now: () => 5000 });
-  return { mgr, tools };
+  const goalContinuation = new GoalContinuationCoordinator({
+    goalManager: mgr,
+    evaluator: { evaluate: async () => '{"met":false,"reason":"not evaluated"}' },
+    getRecentContext: async () => '',
+    admitTurn: () => ({ kind: 'unavailable', reason: 'tool test' }),
+  });
+  assert.equal(goalContinuation.beginExternalTurn(SESSION, 't').kind, 'registered');
+  const tools = buildGoalTools({
+    goalManager: mgr,
+    goalContinuation,
+    getTokenCount,
+    now: () => 5000,
+  });
+  return { mgr, tools, goalContinuation };
 }
 
 describe('goal tools', () => {
@@ -78,14 +91,15 @@ describe('goal tools', () => {
   });
 
   test('GoalPause / GoalResume lifecycle', async () => {
-    const { mgr, tools } = makeTools();
+    const { mgr, tools, goalContinuation } = makeTools();
     await findTool(tools, GOAL_SET_TOOL_NAME).impl({ condition: 'x' }, ctx());
 
     const pauseOut = await findTool(tools, GOAL_PAUSE_TOOL_NAME).impl({}, ctx()) as string;
     assert.ok(pauseOut.includes('paused'));
     assert.equal(mgr.get(SESSION)?.status, 'paused');
 
-    const resumeOut = await findTool(tools, GOAL_RESUME_TOOL_NAME).impl({}, ctx()) as string;
+    assert.equal(goalContinuation.beginExternalTurn(SESSION, 'resume-turn').kind, 'registered');
+    const resumeOut = await findTool(tools, GOAL_RESUME_TOOL_NAME).impl({}, ctx('resume-turn')) as string;
     assert.ok(resumeOut.includes('resumed'));
     assert.equal(mgr.get(SESSION)?.status, 'active');
   });

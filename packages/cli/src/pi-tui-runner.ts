@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
 import {
   Key,
@@ -21,6 +22,7 @@ import {
   projectShellRunUpdateForSession,
   type ShellRunUpdate,
 } from '@maka/core';
+import type { GoalTurnOutcome } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
 import type { MakaCliSkillSurface } from './runtime-bootstrap.js';
 import {
@@ -32,12 +34,16 @@ import {
 } from '@maka/runtime';
 import { MakaSkillHighlightEditor } from './skill-highlight-editor.js';
 import { parseSkillInvocationTokens, stripSkillInvocationTokens } from './skill-token.js';
+import type { CliGoalTurnHost } from './cli-goal-continuation.js';
 import {
   inspectSessionResumeAvailability,
   type MakaSessionDriver,
   type MakaSessionSwitchResult,
 } from './session-driver.js';
 import {
+  appendTurnFailureToTranscript,
+  appendUserPrompt,
+  applyMakaSessionEventToTranscript,
   createMakaPiTranscriptState,
   activePermissionRequest,
   activeUserQuestionRequest,
@@ -45,13 +51,16 @@ import {
   applyShellRunViewUpdateToTranscript,
   replaceTranscriptWithStoredMessages,
   submitCompactToTranscript,
-  submitPromptToTranscript,
   toggleAllThinkingExpansion,
   toggleAllToolExpansion,
   togglePendingPermissionDetails,
   type MakaPiTranscriptMetadata,
-  type TurnOutcome,
 } from './pi-transcript.js';
+import {
+  runMakaPiTuiTurn,
+  type MakaPiTuiTurnLifecycle,
+  type MakaPiTuiTurnRequest,
+} from './pi-tui-turn.js';
 import { editorTheme, selectListTheme } from './tui-ansi.js';
 import { MakaAutocompleteAboveEditorComponent } from './tui-autocomplete-layout.js';
 import { createShellRunElapsedTicker } from './shell-run-elapsed-ticker.js';
@@ -80,6 +89,10 @@ import {
   thinkingLevelPickerItems,
   type MakaSlashCommand,
 } from './pi-tui-pickers.js';
+
+export interface MakaPiTuiGoalLifecycle extends MakaPiTuiTurnLifecycle {
+  bindHost: (host: CliGoalTurnHost) => () => void;
+}
 
 export interface MakaPiTuiInput {
   title: string;
@@ -111,18 +124,14 @@ export interface MakaPiTuiInput {
   subscribeShellRunUpdates?: (listener: (update: ShellRunUpdate) => void) => () => void;
   listShellRunUpdates?: (sessionId: string) => Promise<ShellRunUpdate[]>;
   /**
-   * Called after each agent turn settles. Receives an `injectTurn` that runs a
-   * new turn rendered in the transcript — used for goal auto-continuation so
-   * continuation turns are visible and chain correctly.
-   */
-  onTurnComplete?: (turnId: string, injectTurn: (text: string) => void) => void;
-  /**
    * Explicit skill invocation surface (issue #1148). When present, `/skill:<name>`
    * tokens are highlighted in the editor, completed by autocomplete, listed by
    * `/skill`, and resolved + injected by the CLI at submit time. Omitting it
    * disables the whole feature (tests, minimal hosts).
    */
   skills?: MakaCliSkillSurface;
+  /** Mandatory turn ownership shared with CLI Automation and Goal continuation. */
+  goalLifecycle: MakaPiTuiGoalLifecycle;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -144,7 +153,22 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let sessionListScope: 'current' | 'all' = 'current';
   let busy = false;
   let closed = false;
+  let currentActivityCompletion: Promise<void> | undefined;
   let permissionResponseInFlightRequestId: string | null = null;
+  const beginActivity = () => {
+    let finish!: () => void;
+    const completion = new Promise<void>((resolve) => { finish = resolve; });
+    currentActivityCompletion = completion;
+    let finished = false;
+    return {
+      finish: () => {
+        if (finished) return;
+        finished = true;
+        if (currentActivityCompletion === completion) currentActivityCompletion = undefined;
+        finish();
+      },
+    };
+  };
   let userQuestionInFlight = false;
   let userQuestionOverlay: OverlayHandle | undefined;
   let userQuestionProgress: {
@@ -158,6 +182,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
   let lastIdleCtrlCAt = 0;
+  let unbindGoalHost: (() => void) | undefined;
   let resolveClosed: () => void;
   let rejectClosed: (error: Error) => void;
   const closedPromise = new Promise<void>((resolve, reject) => {
@@ -420,6 +445,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // so without this guard a switch could start while a prompt is still running.
     if (busy) return;
     busy = true;
+    const activity = beginActivity();
     editor.disableSubmit = true;
     terminal.setProgress(true);
     attention.controlStarted();
@@ -430,6 +456,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       reportError(error);
     } finally {
       busy = false;
+      activity.finish();
       editor.disableSubmit = false;
       terminal.setProgress(false);
       attention.controlEnded();
@@ -447,6 +474,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const restoreTerminal = () => {
     removeProcessHandlers();
+    unbindGoalHost?.();
+    unbindGoalHost = undefined;
     unsubscribeShellRunUpdates?.();
     resetShellRunSessionState();
     shellRunElapsedTicker.dispose();
@@ -580,6 +609,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     }
     editor.addToHistory(prompt);
     if (handleSlashCommand(prompt)) return;
+    if (!input.skills || parseSkillInvocationTokens(prompt).length === 0) {
+      void runAgentTurn({
+        kind: 'external',
+        prompt,
+        sessionId: input.driver.getSessionId(),
+      });
+      return;
+    }
     void submitPreparedUserPrompt(prompt);
   };
 
@@ -591,7 +628,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // mid-turn Enter can still steer.
   const submitPreparedUserPrompt = async (prompt: string) => {
     busy = true;
+    const preparationActivity = beginActivity();
     editor.disableSubmit = true;
+    let handedOff = false;
     try {
       const prepared = await prepareSkillInvocation(prompt);
       // Prep is async (skill scan). If the TUI closed mid-scan (double Ctrl-C /
@@ -610,12 +649,25 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // Hand off to the turn: runAgentTurn re-asserts busy and re-enables
       // submit so mid-turn Enter can steer. Clearing disableSubmit only there
       // keeps the prep window closed until the turn owns the flags.
-      runAgentTurn(prompt, prepared.sendText === prompt ? undefined : { sendText: prepared.sendText });
+      void runAgentTurn({
+        kind: 'external',
+        prompt,
+        sessionId: input.driver.getSessionId(),
+        ...(prepared.sendText !== prompt ? { sendText: prepared.sendText } : {}),
+      });
+      handedOff = true;
     } catch (error) {
       if (closed) return;
-      busy = false;
-      editor.disableSubmit = false;
       reportError(error);
+    } finally {
+      if (!handedOff) {
+        busy = false;
+        editor.disableSubmit = false;
+        requestRender();
+      }
+      // A successful handoff already installed the turn's activity as current;
+      // releasing preparation now wakes observers into that new busy period.
+      preparationActivity.finish();
     }
   };
 
@@ -734,12 +786,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     submitPrompt(prompt);
   };
 
-  // Runs one agent turn rendered in the transcript, then lets the host decide
-  // whether to auto-continue (goal). Shared by user submits and goal injections.
-  // `options.sendText` differs from `prompt` only when skill invocation
-  // composed an injectable message: the transcript shows what the user typed.
-  function runAgentTurn(prompt: string, options?: { sendText?: string }): void {
+  // Runs one agent turn through the shared activity/drain lifecycle. Shared by
+  // user submits, queued follow-ups, and coordinator-owned goal injections.
+  function runAgentTurn(request: MakaPiTuiTurnRequest): Promise<GoalTurnOutcome> {
     busy = true;
+    const activity = beginActivity();
     turnRunning = true;
     turnStartedAt = Date.now();
     startTurnElapsedTicker();
@@ -753,16 +804,28 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
 
     let permissionAlerted = false;
-    let turnOutcome: TurnOutcome | undefined;
-    void submitPromptToTranscript({
-      state,
+    const finishTurnUi = () => {
+      turnRunning = false;
+      turnStartedAt = undefined;
+      stopTurnElapsedTicker();
+      interruptRequested = false;
+      editor.disableSubmit = false;
+      terminal.setProgress(false);
+      attention.promptTurnEnded();
+    };
+
+    return runMakaPiTuiTurn({
       driver: input.driver,
-      prompt,
-      ...(options?.sendText !== undefined ? { sendText: options.sendText } : {}),
-      // A turn failing is worth pulling the user back, regardless of how long it
-      // ran — a quick failure in a background tab would otherwise stay silent.
-      onError: () => attention.attentionNeeded(),
-      onChange: () => {
+      lifecycle: input.goalLifecycle,
+      request,
+      shouldAbort: () => closed || interruptRequested,
+      onStart: () => {
+        appendUserPrompt(state, request.prompt);
+        requestRender();
+      },
+      onEvent: (event) => {
+        applyMakaSessionEventToTranscript(state, event);
+        if (event.type === 'error') attention.attentionNeeded();
         if (
           permissionResponseInFlightRequestId !== null
           && activePermissionRequest(state)?.requestId !== permissionResponseInFlightRequestId
@@ -784,19 +847,23 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         syncUserQuestionOverlay();
         requestRender();
       },
+      // A turn failing is worth pulling the user back, regardless of how long it
+      // ran — a quick failure in a background tab would otherwise stay silent.
+      onFailure: (error) => {
+        appendTurnFailureToTranscript(state, error);
+        attention.attentionNeeded();
+        shellRunElapsedTicker.sync();
+        syncUserQuestionOverlay();
+        requestRender();
+      },
     }).then((outcome) => {
-      turnOutcome = outcome;
-    }).finally(() => {
-      busy = false;
-      turnRunning = false;
-      turnStartedAt = undefined;
-      stopTurnElapsedTicker();
-      interruptRequested = false;
-      editor.disableSubmit = false;
-      terminal.setProgress(false);
-      attention.promptTurnEnded();
-      requestRender();
-      if (closed) return;
+      finishTurnUi();
+      if (closed) {
+        busy = false;
+        activity.finish();
+        return outcome;
+      }
+
       // Turn boundary flush: CLI-held fallback texts that never reached the
       // runtime (the enqueue retry never found a live owner) are delivered
       // FIRST, then queued followups (alt+Enter) — both open the next turn
@@ -808,26 +875,91 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       if (nextPrompt) {
         state.steering = [];
         state.followup = [];
-        if (turnOutcome?.kind !== 'completed') {
+        if (outcome.kind !== 'completed') {
           // The turn was aborted or errored: auto-opening a turn would defeat
           // the interrupt (or hammer a failure). Keep the undelivered text as
           // an editable draft instead, merged ahead of any current draft.
           refillEditorFromQueues(nextPrompt);
-          requestRender();
-          return;
+        } else {
+          // Install the next local activity before resolving the previous one.
+          // A Goal admission woken by the old activity therefore observes the
+          // user follow-up as busy instead of racing it for the session.
+          void runAgentTurn({
+            kind: 'external',
+            prompt: nextPrompt,
+            sessionId: input.driver.getSessionId(),
+          });
+          activity.finish();
+          return outcome;
         }
-        requestRender();
-        runAgentTurn(nextPrompt);
-        return;
       }
-      // Do not auto-continue (goal) if the user interrupted the turn
-      // (double-Escape → driver.stop() → user_stop/abort) or it ended in error.
-      // An autonomous loop MUST halt on the Stop affordance and must not hammer
-      // a failing turn — mirrors the desktop `turnAborted` guard.
-      if (turnOutcome?.kind === 'completed') {
-        input.onTurnComplete?.(turnOutcome.turnId, (text) => runAgentTurn(text));
-      }
+
+      busy = false;
+      activity.finish();
+      requestRender();
+      return outcome;
+    }, (error) => {
+      finishTurnUi();
+      busy = false;
+      activity.finish();
+      requestRender();
+      throw error;
     });
+  }
+
+  try {
+    unbindGoalHost = input.goalLifecycle.bindHost({
+      admitTurn: (sessionId, text, bindTurn) => {
+        if (closed) return { kind: 'unavailable', reason: 'TUI is closed.' };
+        if (input.driver.getSessionId() !== sessionId) {
+          return { kind: 'unavailable', reason: 'TUI is attached to a different session.' };
+        }
+        if (busy) {
+          return currentActivityCompletion
+            ? { kind: 'busy', whenIdle: currentActivityCompletion }
+            : { kind: 'unavailable', reason: 'TUI activity cannot be observed.' };
+        }
+        const sessionActivity = input.goalLifecycle.activities.reserveIfIdle(sessionId);
+        if (!sessionActivity) {
+          const whenIdle = input.goalLifecycle.activities.whenIdle(sessionId);
+          return whenIdle
+            ? { kind: 'busy', whenIdle }
+            : { kind: 'unavailable', reason: 'TUI session activity cannot be observed.' };
+        }
+        const turnId = randomUUID();
+        const binding = bindTurn(turnId);
+        if (binding.kind !== 'bound') {
+          sessionActivity.release();
+          return {
+            kind: 'unavailable',
+            reason: binding.kind === 'duplicate'
+              ? `TUI Goal turn ${turnId} is already registered.`
+              : binding.reason,
+          };
+        }
+        try {
+          return {
+            kind: 'started',
+            completion: runAgentTurn({
+              kind: 'coordinator',
+              prompt: text,
+              sessionId,
+              turnId,
+              activity: sessionActivity,
+            }),
+          };
+        } catch (error) {
+          sessionActivity.release();
+          return {
+            kind: 'unavailable',
+            reason: `TUI Goal turn could not start: ${error instanceof Error ? error.message : String(error)}`,
+          };
+        }
+      },
+    });
+  } catch (error) {
+    beginClose(error instanceof Error ? error : new Error(String(error)));
+    return closedPromise;
   }
 
   const setModel = async (nextModel: string) => {

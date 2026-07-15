@@ -27,7 +27,9 @@ describe('Maka session driver', () => {
       newId: nextId('turn'),
     });
 
-    const events = await collect(driver.sendPrompt('please inspect this workspace'));
+    const turn = await driver.preparePrompt('please inspect this workspace');
+    assert.equal(runtime.sent.length, 0, 'turn ownership must be available before runtime starts');
+    const events = await collect(turn.events);
 
     assert.equal(driver.getSessionId(), 'session-1');
     assert.deepEqual(runtime.created, [{
@@ -42,6 +44,10 @@ describe('Maka session driver', () => {
       sessionId: 'session-1',
       input: { turnId: 'turn-1', text: 'please inspect this workspace' },
     }]);
+    assert.deepEqual({ sessionId: turn.sessionId, turnId: turn.turnId }, {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+    });
     assert.deepEqual(events.map((event) => event.type), ['text_delta', 'complete']);
   });
 
@@ -57,7 +63,8 @@ describe('Maka session driver', () => {
 
     const typed = '/skill:alpha 帮我整理';
     const composed = 'The user explicitly invoked…\n\n<user-message>\n帮我整理\n</user-message>';
-    await collect(driver.sendPrompt(typed, { modelText: composed }));
+    const turn = await driver.preparePrompt(typed, { modelText: composed });
+    await collect(turn.events);
 
     assert.equal(runtime.created[0]?.name, typed);
     assert.deepEqual(runtime.sent[0]?.input, {
@@ -78,7 +85,7 @@ describe('Maka session driver', () => {
       newId: nextId('turn'),
     });
 
-    await collect(driver.sendPrompt('ship fast'));
+    await collectPrompt(driver, 'ship fast');
 
     assert.equal(runtime.created[0]?.permissionMode, 'bypass');
   });
@@ -93,7 +100,7 @@ describe('Maka session driver', () => {
     });
 
     await driver.setPermissionMode('execute');
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
 
     assert.equal(runtime.created[0]?.permissionMode, 'execute');
   });
@@ -107,7 +114,7 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
     await driver.setPermissionMode('execute');
 
     assert.deepEqual(runtime.permissionModes, [{
@@ -126,7 +133,7 @@ describe('Maka session driver', () => {
     });
 
     await driver.setModel('claude-opus-4-1');
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
 
     assert.equal(runtime.created[0]?.model, 'claude-opus-4-1');
   });
@@ -140,7 +147,7 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
     await driver.setModel('claude-opus-4-1');
 
     assert.deepEqual(runtime.sessionUpdates, [{
@@ -158,7 +165,7 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
     await driver.setModel('glm-5.2', 'zai');
 
     // The connection rides in the same updateSession patch, so the next turn
@@ -178,7 +185,7 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
     await driver.setModel('claude-opus-4-1', 'anthropic');
 
     assert.deepEqual(runtime.sessionUpdates, [{
@@ -197,7 +204,7 @@ describe('Maka session driver', () => {
     });
 
     await driver.setModel('glm-5.2', 'zai');
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
 
     assert.equal(runtime.created[0]?.llmConnectionSlug, 'zai');
     assert.equal(runtime.created[0]?.model, 'glm-5.2');
@@ -212,7 +219,7 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
     await driver.renameSession('watcher 根目录事件风暴修复');
 
     assert.deepEqual(runtime.sessionUpdates, [{
@@ -265,7 +272,7 @@ describe('Maka session driver', () => {
       });
 
       const summary = await driver.switchSession('session-2');
-      await collect(driver.sendPrompt('continue'));
+      await collectPrompt(driver, 'continue');
 
       assert.equal(summary.summary.id, 'session-2');
       assert.deepEqual(summary.messages.map((message) => message.id), ['user-1', 'assistant-1']);
@@ -287,14 +294,14 @@ describe('Maka session driver', () => {
         llmConnectionSlug: 'anthropic',
         model: 'claude-sonnet-4-5',
       });
-      await collect(driver.sendPrompt('hi'));
+      await collectPrompt(driver, 'hi');
 
       await assert.rejects(
         driver.switchSession('no-cwd'),
         /Session has no working directory/,
       );
 
-      await collect(driver.sendPrompt('again'));
+      await collectPrompt(driver, 'again');
       assert.equal(runtime.sent[0]?.sessionId, 'session-1');
       assert.equal(runtime.sent[1]?.sessionId, 'session-1');
     } finally {
@@ -338,11 +345,11 @@ describe('Maka session driver', () => {
         llmConnectionSlug: 'anthropic',
         model: 'claude-sonnet-4-5',
       });
-      await collect(driver.sendPrompt('hi'));
+      await collectPrompt(driver, 'hi');
 
       const resumed = await driver.switchSession('other-folder');
       driver.startNewSession();
-      await collect(driver.sendPrompt('new work here'));
+      await collectPrompt(driver, 'new work here');
 
       assert.equal(resumed.summary.cwd, elsewhere);
       assert.equal(runtime.sent[0]?.sessionId, 'session-1');
@@ -366,11 +373,11 @@ describe('Maka session driver', () => {
         llmConnectionSlug: 'anthropic',
         model: 'claude-sonnet-4-5',
       });
-      await collect(driver.sendPrompt('hi'));
+      await collectPrompt(driver, 'hi');
 
       await driver.switchSession('other-conn');
       driver.startNewSession();
-      await collect(driver.sendPrompt('new work here'));
+      await collectPrompt(driver, 'new work here');
 
       assert.equal(runtime.created[1]?.llmConnectionSlug, 'other-connection');
       assert.equal(runtime.created[1]?.model, 'claude-sonnet-4-5');
@@ -411,7 +418,7 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
-    await collect(driver.sendPrompt('hi'));
+    await collectPrompt(driver, 'hi');
 
     assert.match(runtime.sent[0]?.input.turnId ?? '', /^[0-9a-f-]{36}$/);
   });
@@ -426,7 +433,7 @@ describe('Maka session driver', () => {
       newId: fixedIds('turn-1', 'turn-compact'),
     });
 
-    await collect(driver.sendPrompt('hello'));
+    await collectPrompt(driver, 'hello');
     const events = await collect(driver.compactSession());
 
     assert.deepEqual(runtime.compacted, [{ sessionId: 'session-1', input: { turnId: 'turn-compact' } }]);
@@ -444,7 +451,7 @@ describe('Maka session driver', () => {
       newId: nextId('turn'),
     });
 
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
     await driver.respondToPermission({
       requestId: 'permission-1',
       decision: 'allow',
@@ -471,7 +478,7 @@ describe('Maka session driver', () => {
       newId: nextId('turn'),
     });
 
-    await collect(driver.sendPrompt('choose'));
+    await collectPrompt(driver, 'choose');
     await driver.respondToUserQuestion?.({ requestId: 'question-1', answers: ['A', null] });
 
     assert.deepEqual(runtime.userQuestionResponses, [{
@@ -488,7 +495,7 @@ describe('Maka session driver', () => {
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
     });
-    await collect(driver.sendPrompt('first question'));
+    await collectPrompt(driver, 'first question');
     runtime.sessionMessages.set('session-1', [
       storedUserMessage('user-1', 'turn-1', '  first question\nmore detail'),
       storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
@@ -521,7 +528,7 @@ describe('Maka session driver', () => {
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
     });
-    await collect(driver.sendPrompt('first question'));
+    await collectPrompt(driver, 'first question');
     runtime.sessionMessages.set('session-1', [
       storedUserMessage('user-1', 'turn-1', 'first question'),
       storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
@@ -543,7 +550,7 @@ describe('Maka session driver', () => {
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
     });
-    await collect(driver.sendPrompt('first question'));
+    await collectPrompt(driver, 'first question');
     // A /compact turn has no user message, so it never becomes a target itself;
     // the prompted turns around it stay listed unchanged.
     runtime.sessionMessages.set('session-1', [
@@ -570,7 +577,7 @@ describe('Maka session driver', () => {
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
     });
-    await collect(driver.sendPrompt('only question'));
+    await collectPrompt(driver, 'only question');
     runtime.sessionMessages.set('session-1', [
       storedUserMessage('user-1', 'turn-1', 'only question'),
       storedAssistantMessage('assistant-1', 'turn-1', 'only answer'),
@@ -592,7 +599,7 @@ describe('Maka session driver', () => {
     });
     assert.deepEqual(await driver.listRewindTargets(), []);
 
-    await collect(driver.sendPrompt('only question'));
+    await collectPrompt(driver, 'only question');
     runtime.sessionMessages.set('session-1', [
       storedUserMessage('user-1', 'turn-1', 'only question'),
       storedAssistantMessage('assistant-1', 'turn-1', 'only answer'),
@@ -644,7 +651,7 @@ describe('Maka session driver', () => {
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
     });
-    await collect(driver.sendPrompt('first question'));
+    await collectPrompt(driver, 'first question');
     runtime.sessionMessages.set('session-1', [
       storedUserMessage('user-1', 'turn-1', 'first question'),
       storedContextCompactedNote('note-1', 'turn-compact'),
@@ -675,13 +682,13 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
     await driver.setModel('claude-opus-4-1');
-    await collect(driver.sendPrompt('first'));
+    await collectPrompt(driver, 'first');
     assert.equal(driver.getSessionId(), 'session-1');
 
     driver.startNewSession();
     assert.equal(driver.getSessionId(), null);
 
-    await collect(driver.sendPrompt('second'));
+    await collectPrompt(driver, 'second');
     // A second createSession call — the prompt started a new session rather than
     // reusing the old one — and it kept the current model.
     assert.equal(runtime.created.length, 2);
@@ -697,7 +704,7 @@ describe('Maka session driver', () => {
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
     });
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
 
     runtime.steerOutcome = { kind: 'queued' };
     assert.deepEqual(driver.steer?.('x'), { kind: 'queued' });
@@ -978,4 +985,11 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const out: T[] = [];
   for await (const item of iterable) out.push(item);
   return out;
+}
+
+async function collectPrompt(
+  driver: ReturnType<typeof createMakaSessionDriver>,
+  prompt: string,
+): Promise<SessionEvent[]> {
+  return collect((await driver.preparePrompt(prompt)).events);
 }

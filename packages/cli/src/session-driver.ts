@@ -60,16 +60,30 @@ export interface MakaSessionSwitchResult {
   messages: StoredMessage[];
 }
 
+export interface MakaSessionTurnStart {
+  sessionId: string;
+  turnId: string;
+}
+
+export interface MakaPreparedSessionTurn extends MakaSessionTurnStart {
+  events: AsyncIterable<SessionEvent>;
+}
+
+export interface MakaPreparePromptOptions {
+  /** Caller-owned identity used when Goal admission reserves a turn synchronously. */
+  turnId?: string;
+  /** Model-facing text when it differs from the prompt shown to the user. */
+  modelText?: string;
+}
+
 export interface MakaSessionDriver {
   listSessions(): Promise<SessionSummary[]>;
   getSessionResumeAvailability?(session: SessionSummary): Promise<SessionResumeAvailability>;
   /**
-   * Open a turn with `prompt` as the human-facing text (session title on first
-   * turn, rewind refill, transcript). When `options.modelText` differs, the
-   * runtime stores that as model-facing `text` and persists `prompt` as
-   * `displayText` (explicit skill invocation, #1148).
+   * Prepare a turn without consuming its event stream. `prompt` remains the
+   * human-facing text; a distinct `modelText` is persisted with `displayText`.
    */
-  sendPrompt(prompt: string, options?: { modelText?: string }): AsyncIterable<SessionEvent>;
+  preparePrompt(prompt: string, options?: MakaPreparePromptOptions): Promise<MakaPreparedSessionTurn>;
   compactSession(): AsyncIterable<SessionEvent>;
   /**
    * Queue the text for mid-turn injection at the next step boundary. Returns
@@ -156,18 +170,24 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     this.permissionMode = input.permissionMode ?? 'ask';
   }
 
-  async *sendPrompt(prompt: string, options?: { modelText?: string }): AsyncIterable<SessionEvent> {
-    // Session title and human surfaces always use the typed prompt; the model
-    // may receive a composed envelope via modelText.
+  async preparePrompt(
+    prompt: string,
+    options: MakaPreparePromptOptions = {},
+  ): Promise<MakaPreparedSessionTurn> {
     const sessionId = await this.ensureSession(prompt);
-    const modelText = options?.modelText ?? prompt;
-    yield* this.input.runtime.sendMessage(sessionId, {
-      turnId: this.newId(),
-      text: modelText,
-      ...(options?.modelText !== undefined && options.modelText !== prompt
-        ? { displayText: prompt }
-        : {}),
-    });
+    const turnId = options.turnId ?? this.newId();
+    const modelText = options.modelText ?? prompt;
+    return {
+      sessionId,
+      turnId,
+      events: this.input.runtime.sendMessage(sessionId, {
+        turnId,
+        text: modelText,
+        ...(options.modelText !== undefined && modelText !== prompt
+          ? { displayText: prompt }
+          : {}),
+      }),
+    };
   }
 
   async *compactSession(): AsyncIterable<SessionEvent> {

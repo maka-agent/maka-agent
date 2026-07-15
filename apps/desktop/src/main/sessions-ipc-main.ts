@@ -62,7 +62,7 @@ export interface SessionsIpcDeps {
   runtime: SessionManager;
   store: SessionStore;
   taskLedgerStore: MainTaskLedgerWiring['store'];
-  goalManager: MainGoalWiring['manager'];
+  goalWiring: MainGoalWiring;
   automationManager: MainAutomationWiring['manager'];
   computerUseOverlay: SessionOverlayCleanup;
   computerUseTools: SessionToolCleanup;
@@ -87,7 +87,10 @@ export interface SessionsIpcDeps {
   streamEvents: (
     sessionId: string,
     iterator: AsyncIterable<SessionEvent>,
-    fallbackTurnId?: string,
+    options: {
+      turnId: string;
+      goalBoundary: 'external' | 'none';
+    },
   ) => Promise<{ turnId: string; ok: boolean; error?: string }>;
   getCurrentProjectRoot: () => Promise<string>;
   getWorkspacePrivacyContext: () => Promise<WorkspacePrivacyContext>;
@@ -139,7 +142,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     runtime,
     store,
     taskLedgerStore,
-    goalManager,
+    goalWiring,
     automationManager,
     computerUseOverlay,
     computerUseTools,
@@ -228,9 +231,9 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
   // session running an autonomous loop, and clears it to stop the loop. `get`
   // returns null when no goal is set; `clear` settles it (continuation stops
   // after the current turn). Both are pure local state, so no permission gate.
-  ipcMain.handle('goal:get', (_event, sessionId: string) => goalManager.get(sessionId) ?? null);
+  ipcMain.handle('goal:get', (_event, sessionId: string) => goalWiring.manager.get(sessionId) ?? null);
   ipcMain.handle('goal:clear', (_event, sessionId: string) => {
-    goalManager.clear(sessionId);
+    goalWiring.clearGoal(sessionId);
   });
   // PR-SEARCH-2: local thread search. Renderer-facing channel; the pure
   // helper in `./search/thread-search.ts` enforces all gates (G1 snippet
@@ -297,7 +300,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
       text: sendCommand.text,
       ...(attachments.length > 0 ? { attachments } : {}),
     });
-    void streamEvents(sessionId, iterator, turnId);
+    void streamEvents(sessionId, iterator, { turnId, goalBoundary: 'external' });
     return { turnId, attachments };
   });
   ipcMain.handle(
@@ -335,13 +338,19 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
   ipcMain.handle('sessions:compact', async (_event, sessionId: string) => {
     await ensureSessionCanSend(sessionId);
     const turnId = randomUUID();
-    void streamEvents(sessionId, runtime.compactSession(sessionId, { turnId }), turnId);
+    void streamEvents(sessionId, runtime.compactSession(sessionId, { turnId }), {
+      turnId,
+      goalBoundary: 'none',
+    });
   });
   ipcMain.handle('sessions:regenerateTurn', async (_event, sessionId: string, input: unknown) => {
     await ensureSessionCanSend(sessionId);
     const normalized = normalizeRegenerateTurnInput(input);
     const turnId = normalized.turnId ?? randomUUID();
-    void streamEvents(sessionId, runtime.regenerateTurn(sessionId, { ...normalized, turnId }), turnId);
+    void streamEvents(sessionId, runtime.regenerateTurn(sessionId, { ...normalized, turnId }), {
+      turnId,
+      goalBoundary: 'external',
+    });
   });
   ipcMain.handle('sessions:branchFromTurn', async (_event, sessionId: string, input: unknown) => {
     return handleBranchFromTurn(sessionId, input, {
@@ -353,17 +362,17 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
   ipcMain.handle('sessions:archive', async (_event, sessionId: string) => {
     computerUseOverlay.clearForSession(sessionId);
     computerUseTools.clearSession(sessionId);
-    await runtime.archive(sessionId);
+    await goalWiring.archiveSession(sessionId, () => runtime.archive(sessionId));
     // An archived conversation is no longer shown: drop its browser connection
     // and view so it does not keep a live Chromium page in the background.
     await releaseBrowserSession(sessionId);
-    // Stop any autonomous loops tied to the session (goal + polling heartbeats).
-    goalManager.remove(sessionId);
+    // Stop autonomous polling heartbeats tied to the session. Goal ownership is
+    // revoked transactionally with the archive above.
     automationManager.removeAllForSession(sessionId);
     emitSessionsChanged('archived', sessionId);
   });
   ipcMain.handle('sessions:unarchive', async (_event, sessionId: string) => {
-    await runtime.unarchive(sessionId);
+    await goalWiring.unarchiveSession(sessionId, () => runtime.unarchive(sessionId));
     emitSessionsChanged('updated', sessionId);
   });
   ipcMain.handle('sessions:setFlagged', async (_event, sessionId: string, isFlagged: boolean) => {
@@ -430,13 +439,13 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
   ipcMain.handle('sessions:remove', async (_event, sessionId: string) => {
     computerUseOverlay.clearForSession(sessionId);
     computerUseTools.clearSession(sessionId);
-    await runtime.remove(sessionId);
+    await goalWiring.removeSession(sessionId, () => runtime.remove(sessionId));
     // Drop the conversation's browser connection and destroy its view (no-op
     // if it never opened one). releaseBrowserSession disposes the view via the
     // host, covering both agent-driven and hand-opened views.
     await releaseBrowserSession(sessionId);
-    // Stop any autonomous loops tied to the session (goal + polling heartbeats).
-    goalManager.remove(sessionId);
+    // Stop autonomous polling heartbeats tied to the session. Goal ownership is
+    // revoked transactionally with the removal above.
     automationManager.removeAllForSession(sessionId);
     emitSessionsChanged('deleted', sessionId);
   });

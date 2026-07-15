@@ -4,16 +4,16 @@
  * Reads the session's goal via the preload bridge and re-fetches whenever the
  * main process emits a `goal-change` session event (goal set / continue /
  * terminal / clear). Only surfaces goals that are still running (active or
- * paused); a settled goal returns null so the header pill disappears.
+ * waiting, or paused); a settled goal returns null so the header pill disappears.
  *
  * Kept as a tiny standalone hook (no app-shell coupling) so an autonomous,
  * token-burning loop always has a visible indicator and a one-click stop,
  * regardless of where the chat surface renders it.
  */
 import { useEffect, useState } from 'react';
-import type { GoalState } from '@maka/runtime';
+import type { GoalState, GoalStatus } from '@maka/runtime';
 
-const RUNNING_GOAL_STATUSES = new Set(['active', 'paused']);
+const RUNNING_GOAL_STATUSES: ReadonlySet<GoalStatus> = new Set(['active', 'waiting', 'paused']);
 
 export function useSessionGoal(sessionId: string | undefined): GoalState | null {
   const [goal, setGoal] = useState<GoalState | null>(null);

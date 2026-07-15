@@ -6,7 +6,6 @@ import type {
   ToolOutputStream,
   ToolResultContent,
 } from '@maka/core/events';
-import { failureClassFromCompleteStopReason } from '@maka/core/events';
 import { STEP_LIMIT_NOTICE_TEXT, type StoredMessage, type SystemNoteMessage } from '@maka/core/session';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
@@ -18,7 +17,11 @@ import {
   type ShellRunUpdate,
 } from '@maka/core';
 import { homedir } from 'node:os';
-import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
+import {
+  materializeSession,
+  type ChatItem,
+  type ToolActivityItem,
+} from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
 import { BoundedChunkBuffer } from './bounded-chunk-buffer.js';
 import { ansi } from './tui-ansi.js';
@@ -218,6 +221,18 @@ export function appendUserPrompt(state: MakaPiTranscriptState, text: string): vo
   state.entries.push({ kind: 'user', text });
 }
 
+export function appendTurnFailureToTranscript(
+  state: MakaPiTranscriptState,
+  error: unknown,
+): void {
+  clearPendingInteractions(state);
+  state.entries.push({
+    kind: 'notice',
+    level: 'error',
+    text: error instanceof Error ? error.message : String(error),
+  });
+}
+
 export function refreshRunningShellRunElapsed(
   state: MakaPiTranscriptState,
   now = Date.now(),
@@ -401,82 +416,6 @@ export function togglePendingPermissionDetails(state: MakaPiTranscriptState): bo
     ? undefined
     : request.requestId;
   return true;
-}
-
-export type TurnOutcome =
-  | {
-      kind: 'completed';
-      /** Stable identity from the runtime's terminal event. */
-      turnId: string;
-    }
-  | { kind: 'aborted'; turnId?: string }
-  | { kind: 'errored'; turnId?: string };
-
-export async function submitPromptToTranscript(input: {
-  state: MakaPiTranscriptState;
-  driver: Pick<MakaSessionDriver, 'sendPrompt'>;
-  prompt: string;
-  /**
-   * Text actually sent to the runtime when it differs from the displayed
-   * prompt — used by explicit skill invocation (#1148), where the transcript
-   * shows what the user typed (`/skill:` tokens and all) while the runtime
-   * receives the composed message with skill instructions injected.
-   */
-  sendText?: string;
-  onChange?: () => void;
-  /**
-   * An error surfaced during the turn — either a stream `error` event or a
-   * thrown `sendPrompt` failure. Distinct from `onChange` so a caller can raise
-   * attention on failures without diffing transcript entries every render.
-   */
-  onError?: () => void;
-}): Promise<TurnOutcome> {
-  appendUserPrompt(input.state, input.prompt);
-  input.onChange?.();
-
-  // A single terminal outcome gates goal auto-continuation. Error outranks
-  // abort, which outranks success if a malformed stream emits several terminal
-  // events; well-formed runtime streams emit exactly one.
-  let outcome: TurnOutcome | undefined;
-  try {
-    for await (const event of input.driver.sendPrompt(
-      input.prompt,
-      input.sendText !== undefined && input.sendText !== input.prompt
-        ? { modelText: input.sendText }
-        : undefined,
-    )) {
-      const failed = event.type === 'complete'
-        && failureClassFromCompleteStopReason(event.stopReason) !== undefined;
-      if (event.type === 'error' || failed) {
-        outcome = { kind: 'errored', turnId: event.turnId };
-      } else if (
-        outcome?.kind !== 'errored'
-        && (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop'))
-      ) {
-        outcome = { kind: 'aborted', turnId: event.turnId };
-      } else if (outcome === undefined && event.type === 'complete') {
-        outcome = { kind: 'completed', turnId: event.turnId };
-      }
-
-      applyMakaSessionEventToTranscript(input.state, event);
-      if (event.type === 'error') {
-        input.onError?.();
-      }
-      input.onChange?.();
-    }
-    if (!outcome) throw new Error('Session turn ended without a completion event');
-    return outcome;
-  } catch (error) {
-    clearPendingInteractions(input.state);
-    input.state.entries.push({
-      kind: 'notice',
-      level: 'error',
-      text: error instanceof Error ? error.message : String(error),
-    });
-    input.onError?.();
-    input.onChange?.();
-    return { kind: 'errored', ...(outcome?.turnId ? { turnId: outcome.turnId } : {}) };
-  }
 }
 
 export async function submitCompactToTranscript(input: {

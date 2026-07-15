@@ -1,31 +1,41 @@
 import { randomUUID } from 'node:crypto';
 import {
+  GoalContinuationCoordinator,
   GoalManager,
   buildGoalTools,
   type GoalContinuationDeps,
   type GoalState,
   type GoalStatus,
   type GoalTaskGateTrace,
+  type GoalTurnAdmission,
+  type GoalTurnBinder,
   type MakaTool,
 } from '@maka/runtime';
 import type { LlmConnection } from '@maka/core';
 
 /**
  * Goal execution wiring for the main process. Owns the GoalManager, the goal
- * tools, and the turn-boundary continuation deps (evaluator + injection).
+ * tools, and the turn-boundary continuation coordinator.
  *
- * The evaluator uses the session's default connection model with a tiny
- * (~250-token) budget — a full judge model is heavier than ideal, but the
- * request/response is small and this avoids a fragile cheap-model mapping.
+ * The evaluator uses the session's default connection model with a small,
+ * bounded output budget. A dedicated judge model would be cheaper, but reusing
+ * the session model avoids a fragile provider-specific model mapping.
  *
- * "Waiting on an external event" is handled inside the continuation controller
- * (neutral progress + normal re-check), so the wiring needs no automation
- * coupling — a goal is self-contained and bounded by its own caps.
+ * Waiting is owned by the coordinator's in-memory backoff; it does not couple a
+ * Goal to Automation and does not immediately spend another model turn.
  */
 export interface MainGoalWiring {
   manager: GoalManager;
   tools: MakaTool[];
-  continuationDeps: GoalContinuationDeps;
+  coordinator: GoalContinuationCoordinator;
+  /** Clear the current Goal generation without closing the session to future turns. */
+  clearGoal: (sessionId: string) => GoalState | undefined;
+  /** Persist archive, then discard Goal execution while retaining turn idempotency. */
+  archiveSession: (sessionId: string, persist: () => Promise<unknown>) => Promise<void>;
+  /** Persist unarchive, then clear only the durable archive admission fence. */
+  unarchiveSession: (sessionId: string, persist: () => Promise<unknown>) => Promise<void>;
+  /** Persist deletion, then release every in-memory Goal owner for the session. */
+  removeSession: (sessionId: string, persist: () => Promise<unknown>) => Promise<void>;
 }
 
 export interface CreateMainGoalWiringDeps {
@@ -44,10 +54,9 @@ export interface CreateMainGoalWiringDeps {
   getRecentMessages: (sessionId: string) => Promise<Array<{ type: string; text?: string }>>;
   /** Cumulative token count for a session (summed from token_usage messages). */
   getTokenCount: (sessionId: string) => Promise<number>;
-  injectTurn: (sessionId: string, text: string) => void;
-  canContinue: (sessionId: string) => Promise<boolean>;
+  admitTurn: (sessionId: string, text: string, bindTurn: GoalTurnBinder) => GoalTurnAdmission;
   /** Pending/in-progress task keys used by the bounded Goal stop reminder. */
-  listActionableTaskKeys?: (sessionId: string) => Promise<string[]>;
+  listActionableTaskKeys?: (sessionId: string, signal: AbortSignal) => Promise<string[]>;
   /** Persist the task gate decision against the completed AgentRun. */
   recordTaskGateDecision?: (trace: GoalTaskGateTrace) => void | Promise<void>;
   /**
@@ -68,16 +77,8 @@ export function createMainGoalWiring(deps: CreateMainGoalWiringDeps): MainGoalWi
   // Synchronous best-effort token snapshot cache, refreshed each continuation.
   const tokenCache = new Map<string, number>();
 
-  const tools = buildGoalTools({
-    goalManager: manager,
-    getTokenCount: (sessionId) => tokenCache.get(sessionId) ?? 0,
-  });
-
-  const inFlight = new Set<string>();
-
   const continuationDeps: GoalContinuationDeps = {
     goalManager: manager,
-    inFlight,
     evaluator: {
       async evaluate(prompt: string, sessionId: string): Promise<string> {
         // Judge on the SESSION's own connection + model (fall back to the
@@ -118,8 +119,7 @@ export function createMainGoalWiring(deps: CreateMainGoalWiringDeps): MainGoalWi
         .join('\n');
     },
     getTokenCount: (sessionId) => tokenCache.get(sessionId) ?? 0,
-    injectTurn: deps.injectTurn,
-    canContinue: deps.canContinue,
+    admitTurn: deps.admitTurn,
     ...(deps.listActionableTaskKeys ? {
       taskGate: {
         listActionableTaskKeys: deps.listActionableTaskKeys,
@@ -129,5 +129,52 @@ export function createMainGoalWiring(deps: CreateMainGoalWiringDeps): MainGoalWi
     } : {}),
   };
 
-  return { manager, tools, continuationDeps };
+  const coordinator = new GoalContinuationCoordinator(continuationDeps);
+  const tools = buildGoalTools({
+    goalManager: manager,
+    goalContinuation: coordinator,
+    getTokenCount: (sessionId) => tokenCache.get(sessionId) ?? 0,
+  });
+
+  async function closeSession(
+    sessionId: string,
+    kind: 'archive' | 'remove',
+    persist: () => Promise<unknown>,
+    releaseGoalState: () => void,
+  ): Promise<void> {
+    const operation = coordinator.beginSessionClose(sessionId, kind);
+    try {
+      await persist();
+    } catch (error) {
+      operation.rollback();
+      throw error;
+    }
+    operation.commit();
+    releaseGoalState();
+  }
+
+  return {
+    manager,
+    tools,
+    coordinator,
+    clearGoal(sessionId) {
+      const cleared = manager.clear(sessionId);
+      if (cleared) coordinator.invalidateSession(sessionId);
+      return cleared;
+    },
+    archiveSession(sessionId, persist) {
+      return closeSession(sessionId, 'archive', persist, () => {
+        manager.removeGoal(sessionId);
+      });
+    },
+    async unarchiveSession(sessionId, persist) {
+      await persist();
+      coordinator.unarchiveSession(sessionId);
+    },
+    removeSession(sessionId, persist) {
+      return closeSession(sessionId, 'remove', persist, () => {
+        manager.removeSession(sessionId);
+      });
+    },
+  };
 }

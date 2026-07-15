@@ -315,25 +315,6 @@ describe('permission response IPC boundary', () => {
     );
   });
 
-  it('broadcasts the final message-appended refresh only after the runtime iterator drains', async () => {
-    const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
-    const main = await readMainProcessCombinedSource();
-    const streamEvents = main.match(/async function streamEvents\([\s\S]*?\n\}/)?.[0] ?? '';
-    const collectBotReply = main.match(/async function collectBotReply\([\s\S]*?\n\}/)?.[0] ?? '';
-
-    assert.match(streamEvents, /for await \(const event of iterator\) \{[\s\S]*safeSendToRenderer\(`sessions:event:\$\{sessionId\}`, event\);/);
-    assert.match(
-      streamEvents,
-      /for await \(const event of iterator\) \{[\s\S]*\n    \}\n    if \(!finalAppendBroadcasted\) \{\n      emitSessionsChanged\('message-appended', sessionId\);\n      finalAppendBroadcasted = true;\n    \}/,
-      'post-drain refresh lets active renderer reads clear the hasUnread=true written by finalize()',
-    );
-    assert.doesNotMatch(
-      collectBotReply,
-      /event\.type === 'error'[\s\S]*return `Maka 处理失败：\$\{event\.message\}`/,
-      'bot error replies must drain before returning so the final refresh follows finalize()',
-    );
-  });
-
   it('scopes session event error feedback to the active chat surface', async () => {
     const renderer = await readRendererShellSources([
       'app-shell-session-events.ts',

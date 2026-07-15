@@ -18,13 +18,9 @@ import type {
 import type {
   BotIncomingMessage,
   BotRegistry,
+  GoalTurnOutcome,
   SessionManager,
 } from '@maka/runtime';
-import {
-  errorCode,
-  errorMessage,
-  errorReason,
-} from './chat-readiness.js';
 import { isSessionWorkspaceUnavailableError } from './project-context-root.js';
 
 const BOT_RECENT_SOURCE_EVENT_LIMIT = 1_000;
@@ -63,9 +59,12 @@ interface BotIncomingMainServiceDeps {
     sessionId?: string,
     extra?: Pick<SessionChangedEvent, 'connectionSlug' | 'modelId'>,
   ): void;
-  sendToRenderer(channel: string, ...args: unknown[]): void;
-  isStatusChangingSessionEvent(event: SessionEvent): boolean;
-  isTurnStatusChangingSessionEvent(event: SessionEvent): boolean;
+  runAgentTurn(input: {
+    sessionId: string;
+    iterator: AsyncIterable<SessionEvent>;
+    turnId: string;
+    onEvent: (event: SessionEvent) => void;
+  }): Promise<{ outcome: GoalTurnOutcome; error?: string }>;
 }
 
 export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): BotIncomingMainService {
@@ -369,57 +368,24 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
   async function collectBotReply(
     sessionId: string,
     iterator: AsyncIterable<SessionEvent>,
-    fallbackTurnId: string,
+    turnId: string,
   ): Promise<string> {
-    let userAppendBroadcasted = false;
-    let finalAppendBroadcasted = false;
     let latestText = '';
-    let earlyReply: string | undefined;
-    try {
-      for await (const event of iterator) {
-        if (!userAppendBroadcasted) {
-          deps.emitSessionsChanged('message-appended', sessionId);
-          userAppendBroadcasted = true;
-        }
-        deps.sendToRenderer(`sessions:event:${sessionId}`, event);
+    const result = await deps.runAgentTurn({
+      sessionId,
+      iterator,
+      turnId,
+      onEvent: (event) => {
         if (event.type === 'text_complete') latestText = event.text;
-        if (event.type === 'permission_request') {
-          return '这条请求需要在 Maka 桌面端审批后才能继续。';
-        }
-        if (event.type === 'error') {
-          earlyReply = `Maka 处理失败：${event.message}`;
-        }
-        if (deps.isStatusChangingSessionEvent(event)) {
-          deps.emitSessionsChanged('status-change', sessionId);
-        }
-        if (deps.isTurnStatusChangingSessionEvent(event)) {
-          deps.emitSessionsChanged('turn-status-change', sessionId);
-        }
-      }
-      if (!finalAppendBroadcasted) {
-        deps.emitSessionsChanged('message-appended', sessionId);
-        finalAppendBroadcasted = true;
-      }
-    } catch (error) {
-      deps.sendToRenderer(`sessions:event:${sessionId}`, {
-        type: 'error',
-        id: randomUUID(),
-        turnId: fallbackTurnId,
-        ts: Date.now(),
-        recoverable: false,
-        code: errorCode(error),
-        reason: errorReason(error),
-        message: errorMessage(error),
-      } satisfies SessionEvent);
-      deps.emitSessionsChanged('status-change', sessionId);
-      deps.emitSessionsChanged('turn-status-change', sessionId);
-      if (!finalAppendBroadcasted) {
-        deps.emitSessionsChanged('message-appended', sessionId);
-        finalAppendBroadcasted = true;
-      }
-      return `Maka 处理失败：${errorMessage(error)}`;
+      },
+    });
+    if (result.outcome.kind === 'suspended') {
+      return '这条请求需要在 Maka 桌面端审批后才能继续。';
     }
-    return earlyReply ?? latestText;
+    if (result.outcome.kind === 'errored') {
+      return `Maka 处理失败：${result.error ?? result.outcome.reason}`;
+    }
+    return latestText;
   }
 
   return { handleBotIncomingMessage };
