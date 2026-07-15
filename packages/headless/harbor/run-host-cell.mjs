@@ -10,6 +10,7 @@ import {
   buildHarborCellContinuationPolicy,
   buildHarborCellTaskLedgerExperimentPolicy,
   harborCellMaxStepsFromEnv,
+  harborCellSoftTimeoutMsFromEnv,
   normalizeHarborCellContextEnv,
   providerApiKeyEnvName,
   reasoningEffortFromEnv,
@@ -42,6 +43,7 @@ export async function main(options = {}) {
   const economyTaskMode = economyTaskModeFromEnv(env.MAKA_ECONOMY_TASK_MODE);
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(env);
   const maxSteps = harborCellMaxStepsFromEnv(env);
+  const settleAfterMs = harborCellSoftTimeoutMsFromEnv(env);
   const reasoningEffort = reasoningEffortFromEnv(env.MAKA_REASONING_EFFORT);
   const now = Date.now;
   const newId = randomId;
@@ -64,6 +66,7 @@ export async function main(options = {}) {
     ...(contextBudgetPolicy ? { contextBudgetPolicy } : {}),
     ...(continuationPolicy ? { continuationPolicy } : {}),
     ...(taskLedgerExperimentPolicy ? { taskToolSummaryEnabled: true } : {}),
+    ...(settleAfterMs !== undefined ? { settleAfterMs } : {}),
     registerBackends: options.registerBackends ?? buildAiSdkCellBackendRegistration({
       provider,
       model,
@@ -87,7 +90,9 @@ export async function main(options = {}) {
     errorClass: result.output.errorClass,
     outputPath: result.outputPath,
     runtimeEventsPath: result.runtimeEventsPath,
+    settledByDeadline: result.settledByDeadline,
   }));
+  return result;
 }
 
 function economyTaskModeFromEnv(value) {
@@ -174,10 +179,18 @@ function randomId() {
   return globalThis.crypto?.randomUUID?.() ?? `host_cell_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
+export function hostCellExitCode(result) {
+  return result.settledByDeadline ? 124 : 0;
+}
+
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  main().catch((error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`maka run-host-cell failed: ${message}`);
-    process.exitCode = 1;
-  });
+  main()
+    .then((result) => {
+      process.exitCode = hostCellExitCode(result);
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`maka run-host-cell failed: ${message}`);
+      process.exitCode = 1;
+    });
 }

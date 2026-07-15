@@ -66,10 +66,11 @@ export function turnHasRetainedOutput(
 }
 
 export function normalizeStopSessionSource(
-  source: 'stop_button' | undefined,
+  source: 'stop_button' | 'benchmark_deadline' | undefined,
 ): string | undefined {
   switch (source) {
     case 'stop_button': return 'renderer.stop_button';
+    case 'benchmark_deadline': return 'benchmark.deadline';
     case undefined: return undefined;
   }
 }

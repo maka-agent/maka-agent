@@ -91,7 +91,7 @@ import {
 import { requireResolvedAgentDefinition } from './expert-catalog.js';
 
 export interface StopSessionInput {
-  source?: 'stop_button';
+  source?: 'stop_button' | 'benchmark_deadline';
 }
 
 export interface CompactSessionInput {

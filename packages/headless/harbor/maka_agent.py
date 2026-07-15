@@ -202,6 +202,7 @@ class MakaAgent(BaseInstalledAgent):
         return (Path(maka_repo) / "packages" / "headless" / "harbor" / "run-host-cell.mjs").as_posix()
 
     _DEFAULT_CELL_TIMEOUT_SEC = 900
+    _DEFAULT_CELL_SETTLEMENT_GRACE_SEC = 30
 
     def _cell_timeout_sec(self) -> int:
         """Wall-clock budget for the in-container cell. A hard-coded value turns
@@ -215,6 +216,25 @@ class MakaAgent(BaseInstalledAgent):
         except (TypeError, ValueError):
             return self._DEFAULT_CELL_TIMEOUT_SEC
         return value if value > 0 else self._DEFAULT_CELL_TIMEOUT_SEC
+
+    def _cell_settlement_grace_sec(self) -> int:
+        raw = self._get_env("MAKA_CELL_SETTLEMENT_GRACE_SEC")
+        if not raw:
+            return self._DEFAULT_CELL_SETTLEMENT_GRACE_SEC
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return self._DEFAULT_CELL_SETTLEMENT_GRACE_SEC
+        return value if value > 0 else self._DEFAULT_CELL_SETTLEMENT_GRACE_SEC
+
+    def _cell_soft_timeout_ms(self) -> int:
+        timeout_sec = self._cell_timeout_sec()
+        grace_sec = self._cell_settlement_grace_sec()
+        if grace_sec >= timeout_sec:
+            raise RuntimeError(
+                "MAKA_CELL_SETTLEMENT_GRACE_SEC must be smaller than MAKA_CELL_TIMEOUT_SEC"
+            )
+        return (timeout_sec - grace_sec) * 1000
 
     def _host_side_llm_enabled(self) -> bool:
         return bool(
@@ -253,6 +273,8 @@ class MakaAgent(BaseInstalledAgent):
                     raise RuntimeError(f"Maka host cell exceeded {self._cell_timeout_sec()}s") from error
                 raise
             run_log_path.write_bytes(stdout + stderr)
+            if process.returncode == 124:
+                raise RuntimeError(f"Maka host cell exceeded {self._cell_timeout_sec()}s")
             if process.returncode != 0:
                 message = (stderr or stdout).decode("utf-8", errors="replace").strip()
                 raise RuntimeError(f"Maka host cell exited {process.returncode}: {message}")
@@ -270,6 +292,7 @@ class MakaAgent(BaseInstalledAgent):
         env["MAKA_WORKDIR"] = container_cwd
         env["MAKA_HARBOR_TOOL_EXECUTOR_URL"] = executor.url
         env["MAKA_HARBOR_TOOL_EXECUTOR_TOKEN"] = executor.token
+        env["MAKA_CELL_SOFT_TIMEOUT_MS"] = str(self._cell_soft_timeout_ms())
         for key in ("MAKA_HOST_API_KEY", "MAKA_HOST_API_KEY_FILE", "MAKA_HOST_API_KEY_ENV_NAME", "MAKA_HOST_BASE_URL"):
             value = self._get_env(key)
             if value:

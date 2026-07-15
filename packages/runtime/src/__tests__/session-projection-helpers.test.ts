@@ -94,4 +94,8 @@ describe('session projection helpers', () => {
     expect(normalizeStopSessionSource('stop_button')).toBe('renderer.stop_button');
     expect(normalizeStopSessionSource(undefined)).toBeUndefined();
   });
+
+  test('normalizeStopSessionSource preserves benchmark deadline provenance', () => {
+    expect(normalizeStopSessionSource('benchmark_deadline')).toBe('benchmark.deadline');
+  });
 });
