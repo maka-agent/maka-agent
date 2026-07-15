@@ -6,15 +6,14 @@ import {
   PrimitiveTabsTrigger,
   TaskLedgerPanel,
   deriveTaskLedgerPanelModel,
-  type TaskLedgerPanelProps,
 } from '@maka/ui';
 import { ArtifactPane } from './artifact-pane';
 import { BrowserPanel } from './browser-panel';
 import type { SessionWorkbarTab } from './session-workbar-layout';
+import { useSessionTasks } from './use-session-tasks';
 
 export function SessionWorkbar(props: {
   sessionId: string;
-  tasks: TaskLedgerPanelProps;
   browserLive: boolean;
   hidden: boolean;
   width: number;
@@ -22,7 +21,8 @@ export function SessionWorkbar(props: {
   activeTab: SessionWorkbarTab;
   onActiveTabChange: (tab: SessionWorkbarTab) => void;
 }) {
-  const taskCount = deriveTaskLedgerPanelModel(props.tasks.tasks).activeCount;
+  const sessionTasks = useSessionTasks(props.sessionId);
+  const taskCount = deriveTaskLedgerPanelModel(sessionTasks.tasks).activeCount;
   const [artifactCount, setArtifactCount] = useState(0);
 
   useEffect(() => {
@@ -43,7 +43,6 @@ export function SessionWorkbar(props: {
           </PrimitiveTabsTrigger>
           <PrimitiveTabsTrigger value="browser" disabled={!props.browserLive}>
             <span>浏览器</span>
-            <span className="maka-session-workbar-count">{props.browserLive ? 1 : 0}</span>
           </PrimitiveTabsTrigger>
           <PrimitiveTabsTrigger value="files">
             <span>文件</span>
@@ -51,7 +50,12 @@ export function SessionWorkbar(props: {
           </PrimitiveTabsTrigger>
         </PrimitiveTabsList>
         <PrimitiveTabsPanel value="tasks" className="maka-session-workbar-panel" keepMounted>
-          <TaskLedgerPanel {...props.tasks} />
+          <TaskLedgerPanel
+            tasks={sessionTasks.tasks}
+            loading={sessionTasks.loading}
+            error={sessionTasks.error}
+            onRetry={sessionTasks.retry}
+          />
         </PrimitiveTabsPanel>
         <PrimitiveTabsPanel value="browser" className="maka-session-workbar-panel" keepMounted>
           {props.browserLive && <BrowserPanel sessionId={props.sessionId} hidden={props.hidden || props.activeTab !== 'browser'} />}

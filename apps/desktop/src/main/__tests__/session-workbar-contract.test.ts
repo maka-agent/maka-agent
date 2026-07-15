@@ -15,6 +15,7 @@ describe('session workbar contract', () => {
     assert.match(source, /<TaskLedgerPanel\b/);
     assert.match(source, /<BrowserPanel\b/);
     assert.match(source, /<ArtifactPane\b/);
+    assert.doesNotMatch(source, /browserLive \? 1 : 0/, 'Browser availability must not masquerade as an item count');
   });
 
   it('is the only shell owner of tasks, browser, and files', async () => {
@@ -27,6 +28,16 @@ describe('session workbar contract', () => {
     assert.doesNotMatch(appShell, /<BrowserPanel\b/);
     assert.doesNotMatch(appShell, /<ArtifactPane\b/);
     assert.doesNotMatch(chatView, /<TaskLedgerPanel\b/);
+  });
+
+  it('loads task data only with the lazy workbar', async () => {
+    const [appShell, workbar] = await Promise.all([
+      readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/app-shell.tsx'), 'utf8'),
+      readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/session-workbar.tsx'), 'utf8'),
+    ]);
+
+    assert.doesNotMatch(appShell, /useSessionTasks/);
+    assert.match(workbar, /useSessionTasks\(props\.sessionId\)/);
   });
 
   it('only renders beside an active session inside the sessions module', async () => {

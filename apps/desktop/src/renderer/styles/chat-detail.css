@@ -102,10 +102,6 @@
   box-shadow: none;
 }
 
-.maka-session-workbar .maka-artifact-pane {
-  grid-template-rows: fit-content(40%) minmax(0, 1fr) auto;
-}
-
 /* Browser and artifact contents fill their active workbar tab. */
 .maka-browser-panel {
   width: 100%;
