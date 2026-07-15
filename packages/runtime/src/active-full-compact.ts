@@ -53,6 +53,13 @@ export interface ActiveCompactionSafeSpanPolicy {
   highWaterRatio?: number;
   maxActiveEstimatedTokens?: number;
   minSafePrefixEstimatedTokens?: number;
+  /**
+   * Number of most-recent completed provider episodes that must remain
+   * verbatim after the compacted middle span. Capacity fallback leaves this
+   * unset; attention compaction uses one episode to preserve execution
+   * momentum in addition to any open protocol tail.
+   */
+  preserveRecentCompletedEpisodes?: number;
   archiveRequired?: boolean;
 }
 
@@ -512,22 +519,19 @@ export function selectActiveCompactionSafeSpan(input: {
     (input.afterMessageIndex ?? headAnchor.messageIndex) + 1,
   );
   let cursor = firstCandidateMessageIndex;
-  let completedEnd = firstCandidateMessageIndex - 1;
+  const completedEpisodes: Array<{ startMessageIndex: number; endMessageIndex: number }> = [];
   while (cursor < index.providerMessageCount) {
+    const episodeStart = cursor;
     const messageEntries = entriesAtMessageIndex(index.entries, cursor);
     const role = providerMessageRole(messages[cursor], messageEntries);
     if (role === 'user' || role === 'system') {
       return safeSpanSkipped('failedOpen', 'unexpected_user_after_head_anchor');
     }
     if (role === 'tool') {
-      return completedEnd >= firstCandidateMessageIndex
-        ? safeSpanSelected(index, firstCandidateMessageIndex, completedEnd, policy)
-        : safeSpanSkipped('failedOpen', 'no_safe_completed_span');
+      break;
     }
     if (role !== 'assistant') {
-      return completedEnd >= firstCandidateMessageIndex
-        ? safeSpanSelected(index, firstCandidateMessageIndex, completedEnd, policy)
-        : safeSpanSkipped('failedOpen', 'no_safe_completed_span');
+      break;
     }
 
     // One provider episode may materialize reasoning/text and tool calls as
@@ -546,7 +550,7 @@ export function selectActiveCompactionSafeSpan(input: {
       .map((entry) => entry.toolCallId)
       .filter(nonEmpty));
     if (toolCallIds.length === 0) {
-      completedEnd = assistantEnd;
+      completedEpisodes.push({ startMessageIndex: episodeStart, endMessageIndex: assistantEnd });
       cursor = assistantEnd + 1;
       continue;
     }
@@ -567,13 +571,19 @@ export function selectActiveCompactionSafeSpan(input: {
       tailCursor += 1;
     }
     if (!toolCallIds.every((id) => resultIds.has(id))) break;
-    completedEnd = tailCursor - 1;
+    completedEpisodes.push({ startMessageIndex: episodeStart, endMessageIndex: tailCursor - 1 });
     cursor = tailCursor;
   }
 
-  if (completedEnd < firstCandidateMessageIndex) {
+  const preserveRecentCompletedEpisodes = Math.max(
+    0,
+    Math.floor(policy.preserveRecentCompletedEpisodes ?? 0),
+  );
+  const compactableEpisodeCount = completedEpisodes.length - preserveRecentCompletedEpisodes;
+  if (compactableEpisodeCount <= 0) {
     return safeSpanSkipped('unchanged', 'no_safe_completed_span');
   }
+  const completedEnd = completedEpisodes[compactableEpisodeCount - 1]!.endMessageIndex;
   return safeSpanSelected(index, firstCandidateMessageIndex, completedEnd, policy);
 }
 

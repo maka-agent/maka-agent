@@ -39,8 +39,7 @@ const DEFAULT_MAX_CONSECUTIVE_INVALID_SUMMARIES = 2;
 const DEFAULT_INVALID_SUMMARY_COOLDOWN_STEPS = 8;
 const PRIVATE_VERIFIER_PATTERN = /\b(hidden|private|official)\s+(verifier|evaluation|eval|test|assertion|oracle)\b/i;
 const SUMMARY_FIELD_LABELS = {
-  objective: ['current_objective', 'current objective'],
-  nextAction: ['next_action', 'next action'],
+  actionInProgress: ['action_in_progress', 'action in progress'],
 } as const;
 
 export interface SemanticCompactPolicy {
@@ -103,17 +102,11 @@ export interface SemanticCompactStateCard {
 }
 
 export interface SemanticCompactStructuredSummary {
-  currentObjective: string;
-  userConstraints: string[];
-  importantFilesAndArtifacts: string[];
-  commandsAndResults: string[];
-  errorsAndFixes: string[];
-  failedHypotheses: string[];
-  operationalState: string[];
-  publicVerificationState: string;
-  remainingWork: string[];
-  nextAction: string;
-  archiveRefsToRereadIfNeeded: string[];
+  establishedFindings: string[];
+  decisions: string[];
+  failedPaths: string[];
+  partialWorkProduct: string[];
+  actionInProgress: string;
 }
 
 export interface SemanticCompactBlock {
@@ -576,7 +569,7 @@ export function semanticCompactBlockToCompactionBoundary(
 export function renderSemanticCompactBlock(block: SemanticCompactBlock): string {
   return [
     `<maka_semantic_compact_block id="${escapeAttribute(block.blockId)}" high_water="${escapeAttribute(block.highWaterName)}" seq="${block.highWaterSeq}" version="${block.version}">`,
-    'continuation_contract: This is my LLM-authored projection of completed work. Continue the same task from the exact user anchor, treat the findings below as established unless new evidence contradicts them, and execute next_action instead of restarting task discovery. The verbatim protocol tail, when present, follows this block.',
+    'continuation_contract: This is my LLM-authored continuation delta for completed work. Continue the same task from the exact user anchor, treat the findings below as established unless new evidence contradicts them, and resume action_in_progress instead of restarting task discovery. The newest completed execution episode and any open protocol tail follow this block verbatim.',
     'summary:',
     block.summary.text,
     '</maka_semantic_compact_block>',
@@ -586,7 +579,10 @@ export function renderSemanticCompactBlock(block: SemanticCompactBlock): string 
 function policyForSemanticSelection(
   policy: SemanticCompactPolicy,
   successor: boolean,
-): ActiveFullCompactPolicy & { minSafePrefixEstimatedTokens: number } {
+): ActiveFullCompactPolicy & {
+  minSafePrefixEstimatedTokens: number;
+  preserveRecentCompletedEpisodes: number;
+} {
   return {
     enabled: true,
     minStepNumber: policy.minStepNumber,
@@ -595,6 +591,10 @@ function policyForSemanticSelection(
     minSafePrefixEstimatedTokens: successor
       ? policy.minNewPrefixEstimatedTokens ?? DEFAULT_MIN_NEW_PREFIX_TOKENS
       : policy.minSafePrefixEstimatedTokens ?? DEFAULT_MIN_SAFE_PREFIX_TOKENS,
+    // Attention compaction must not collapse the request to only an anchor and
+    // a state-like projection. Keep the latest completed provider episode
+    // verbatim so the next inference retains immediate execution momentum.
+    preserveRecentCompletedEpisodes: 1,
     maxSummaryEstimatedTokens: policy.maxSummaryEstimatedTokens,
     archiveRequired: policy.archiveRequired,
     highWaterName: policy.highWaterName,
@@ -618,28 +618,24 @@ function buildSummarizerMessages(input: {
     durableArchiveRefCount: input.selection.entries.filter((entry) => entry.archiveRef).length,
   };
   const schema = {
-    current_objective: 'string, required, one sentence',
-    user_constraints: ['strings, public constraints only'],
-    important_files_and_artifacts: ['strings, paths/artifacts that matter'],
-    commands_and_results: ['strings, only commands/results needed for continuity'],
-    errors_and_fixes: ['strings'],
-    failed_hypotheses: ['strings'],
-    operational_state: ['strings, process/build/vm/service state'],
-    public_verification_state: 'string, public verifier/test state only',
-    remaining_work: ['strings'],
-    next_action: 'string, required, exact next action',
-    archive_refs_to_reread_if_needed: ['strings, names/descriptions only'],
+    established_findings: ['strings, facts established by completed work'],
+    decisions: ['strings, decisions made during completed work'],
+    failed_paths: ['strings, attempted paths that failed and why'],
+    partial_work_product: ['strings, concrete edits or artifacts already produced'],
+    action_in_progress: 'string, required, exact action currently in progress',
   };
   const request = [
-    'Create a concise semantic compact summary for the Maka agent to continue this same task.',
+    'Create a concise continuation delta for the Maka agent to continue this same task.',
     'Return ONLY a valid JSON object. Do not wrap it in markdown. Do not add prose before or after JSON.',
     `JSON schema: ${JSON.stringify(schema)}`,
-    'The current_objective and next_action string fields are required and must be non-empty.',
+    'The action_in_progress string field is required and must be non-empty.',
     'Use arrays for list fields. Keep each list to at most 6 short items.',
     'Use only the public provider-visible messages above.',
     'Do not invent command results, file contents, process state, credentials, verifier results, or hidden/private evaluation facts.',
-    'Summarize continuity only. Durable source refs, hashes, and archive audit metadata are stored outside this provider-visible summary.',
-    'Preserve objective, constraints, decisions, failed attempts, commands/results that matter, files/artifacts, active process/build state, public verification state, and exact next action.',
+    'The exact original user head anchor is already preserved. Do not repeat or paraphrase its objective or constraints.',
+    'Do not emit a state card, task checklist, archive inventory, or generic restatement of the request.',
+    'Preserve only established findings, decisions, failed paths, partial work product, and the action currently in progress.',
+    'Durable source refs, hashes, and archive audit metadata are stored outside this provider-visible projection.',
     `Prefer concise JSON around ${input.policy.maxAcceptedProjectionEstimatedTokens ?? input.policy.maxSummaryEstimatedTokens ?? DEFAULT_MAX_SUMMARY_TOKENS} estimated tokens when possible; complete valid JSON is more important than brevity.`,
     `context_boundary: ${JSON.stringify(contextBoundary)}`,
   ].join('\n');
@@ -659,8 +655,9 @@ function semanticCompactSystemPrompt(policy: SemanticCompactPolicy): string {
   return [
     'You compress a Maka agent session for current-turn context compaction.',
     'No tools are available. Return only valid JSON matching the requested schema.',
+    'The original user instruction is preserved separately; do not restate its objective or constraints.',
     'Do not include hidden/private verifier material unless it was explicitly present in public provider-visible input.',
-    `Prompt version: ${policy.promptVersion ?? 'maka-semantic-compact-json-v2'}.`,
+    `Prompt version: ${policy.promptVersion ?? 'maka-semantic-compact-continuation-v3'}.`,
   ].join('\n');
 }
 
@@ -710,8 +707,8 @@ function buildSemanticCompactBlock(input: {
     turnId: input.input.turnId,
     coverage,
     predecessorBlockId: input.predecessorBlock?.blockId,
-    summaryText: input.structuredSummary.currentObjective,
-    nextAction: input.structuredSummary.nextAction,
+    summaryText: input.summaryText,
+    actionInProgress: input.structuredSummary.actionInProgress,
     highWaterSeq: input.input.stepNumber,
   };
   const block: SemanticCompactBlock = {
@@ -754,10 +751,10 @@ function buildSemanticCompactBlock(input: {
       sourceIds: uniqueSorted(preservedTailEntries.map((entry) => entry.sourceId)),
     },
     summary: {
-      promptVersion: policy.promptVersion ?? 'maka-semantic-compact-json-v2',
+      promptVersion: policy.promptVersion ?? 'maka-semantic-compact-continuation-v3',
       text: input.summaryText,
       limitations: ['LLM semantic compact summary is bounded by public provider-visible context.'],
-      nextAction: input.structuredSummary.nextAction,
+      nextAction: input.structuredSummary.actionInProgress,
     },
     projection: {
       format: input.projectionFormat,
@@ -1012,36 +1009,24 @@ function fallbackSemanticCompactSummary(
   const fallbackText = boundedFallbackText(rawText, Math.min(FALLBACK_RAW_SUMMARY_MAX_CHARS, maxChars));
   if (!fallbackText) return undefined;
   return {
-    currentObjective: 'Continue the current task from the semantic compact fallback summary and preserved recent context.',
-    userConstraints: [],
-    importantFilesAndArtifacts: [],
-    commandsAndResults: [],
-    errorsAndFixes: [],
-    failedHypotheses: [],
-    operationalState: [
+    establishedFindings: [
       `continuation_notes: ${fallbackText}`,
       `Semantic compact summarizer output did not satisfy the requested structure (${reason}); using bounded text fallback.`,
     ],
-    publicVerificationState: 'No public verification state claimed by structured summary.',
-    remainingWork: ['Continue from the preserved recent messages after this compact block.'],
-    nextAction: 'Continue from the preserved recent context.',
-    archiveRefsToRereadIfNeeded: [],
+    decisions: [],
+    failedPaths: [],
+    partialWorkProduct: [],
+    actionInProgress: 'Continue from the preserved recent execution episode.',
   };
 }
 
 function renderStructuredSemanticSummary(summary: SemanticCompactStructuredSummary): string {
   return [
-    `current_objective: ${summary.currentObjective}`,
-    ...renderSummaryList('user_constraints', summary.userConstraints),
-    ...renderSummaryList('operational_state', summary.operationalState),
-    `public_verification_state: ${summary.publicVerificationState || 'No public verification state claimed.'}`,
-    ...renderSummaryList('important_files_and_artifacts', summary.importantFilesAndArtifacts),
-    ...renderSummaryList('commands_and_results', summary.commandsAndResults),
-    ...renderSummaryList('errors_and_fixes', summary.errorsAndFixes),
-    ...renderSummaryList('failed_hypotheses', summary.failedHypotheses),
-    ...renderSummaryList('archive_refs_to_reread_if_needed', summary.archiveRefsToRereadIfNeeded),
-    ...renderSummaryList('remaining_work', summary.remainingWork),
-    `next_action: ${summary.nextAction}`,
+    ...renderSummaryList('established_findings', summary.establishedFindings),
+    ...renderSummaryList('decisions', summary.decisions),
+    ...renderSummaryList('failed_paths', summary.failedPaths),
+    ...renderSummaryList('partial_work_product', summary.partialWorkProduct),
+    `action_in_progress: ${summary.actionInProgress}`,
   ].join('\n').trim();
 }
 
@@ -1100,18 +1085,14 @@ function fitSemanticCompactBlockToAcceptedBudget(
   const maxTokens = Math.max(1, Math.floor(maxEstimatedTokens));
   const fitted: SemanticCompactStructuredSummary = {
     ...source,
-    userConstraints: [...source.userConstraints],
-    importantFilesAndArtifacts: [...source.importantFilesAndArtifacts],
-    commandsAndResults: [...source.commandsAndResults],
-    errorsAndFixes: [...source.errorsAndFixes],
-    failedHypotheses: [...source.failedHypotheses],
-    operationalState: [...source.operationalState],
-    remainingWork: [...source.remainingWork],
-    archiveRefsToRereadIfNeeded: [...source.archiveRefsToRereadIfNeeded],
+    establishedFindings: [...source.establishedFindings],
+    decisions: [...source.decisions],
+    failedPaths: [...source.failedPaths],
+    partialWorkProduct: [...source.partialWorkProduct],
   };
   const update = () => {
     block.summary.text = renderStructuredSemanticSummary(fitted);
-    block.summary.nextAction = fitted.nextAction;
+    block.summary.nextAction = fitted.actionInProgress;
   };
   const fits = () => estimateTokens(renderSemanticCompactBlock(block).length, charsPerToken) <= maxTokens;
   const acceptFit = () => {
@@ -1124,31 +1105,10 @@ function fitSemanticCompactBlockToAcceptedBudget(
   update();
   if (fits() && acceptFit()) return true;
 
-  const lowerPriorityLists: Array<keyof Pick<
-    SemanticCompactStructuredSummary,
-    | 'archiveRefsToRereadIfNeeded'
-    | 'failedHypotheses'
-    | 'errorsAndFixes'
-    | 'commandsAndResults'
-    | 'importantFilesAndArtifacts'
-  >> = [
-    'archiveRefsToRereadIfNeeded',
-    'failedHypotheses',
-    'errorsAndFixes',
-    'commandsAndResults',
-    'importantFilesAndArtifacts',
-  ];
-  for (const key of lowerPriorityLists) {
-    fitted[key] = [];
-    update();
-    if (fits() && acceptFit()) return true;
-  }
-
-  fitted.publicVerificationState = '';
   const boundedListKeys: Array<keyof Pick<
     SemanticCompactStructuredSummary,
-    'userConstraints' | 'operationalState' | 'remainingWork'
-  >> = ['userConstraints', 'operationalState', 'remainingWork'];
+    'establishedFindings' | 'decisions' | 'failedPaths' | 'partialWorkProduct'
+  >> = ['establishedFindings', 'decisions', 'failedPaths', 'partialWorkProduct'];
   for (const key of boundedListKeys) {
     fitted[key] = fitted[key]
       .slice(0, 4)
@@ -1157,8 +1117,7 @@ function fitSemanticCompactBlockToAcceptedBudget(
         : boundedCompleteText(value, 240))
       .filter(nonEmpty);
   }
-  fitted.currentObjective = boundedCompleteText(fitted.currentObjective, 320);
-  fitted.nextAction = boundedCompleteText(fitted.nextAction, 320);
+  fitted.actionInProgress = boundedCompleteText(fitted.actionInProgress, 320);
   update();
   if (fits() && acceptFit()) return true;
 
@@ -1214,24 +1173,16 @@ function normalizeStructuredSummary(value: unknown): {
   reason: string;
 } {
   if (!isRecord(value)) return { ok: false, reason: 'summary_schema_invalid' };
-  const currentObjective = stringField(value, 'current_objective');
-  if (!currentObjective) return { ok: false, reason: 'summary_missing_current_objective' };
-  const nextAction = stringField(value, 'next_action');
-  if (!nextAction) return { ok: false, reason: 'summary_missing_next_action' };
+  const actionInProgress = stringField(value, 'action_in_progress');
+  if (!actionInProgress) return { ok: false, reason: 'summary_missing_action_in_progress' };
   return {
     ok: true,
     summary: {
-      currentObjective,
-      userConstraints: stringListField(value, 'user_constraints'),
-      importantFilesAndArtifacts: stringListField(value, 'important_files_and_artifacts'),
-      commandsAndResults: stringListField(value, 'commands_and_results'),
-      errorsAndFixes: stringListField(value, 'errors_and_fixes'),
-      failedHypotheses: stringListField(value, 'failed_hypotheses'),
-      operationalState: stringListField(value, 'operational_state'),
-      publicVerificationState: stringField(value, 'public_verification_state') ?? '',
-      remainingWork: stringListField(value, 'remaining_work'),
-      nextAction,
-      archiveRefsToRereadIfNeeded: stringListField(value, 'archive_refs_to_reread_if_needed'),
+      establishedFindings: stringListField(value, 'established_findings'),
+      decisions: stringListField(value, 'decisions'),
+      failedPaths: stringListField(value, 'failed_paths'),
+      partialWorkProduct: stringListField(value, 'partial_work_product'),
+      actionInProgress,
     },
   };
 }
@@ -1243,24 +1194,16 @@ function parseLegacyLabeledSummary(raw: string): {
   ok: false;
   reason: string;
 } {
-  const currentObjective = extractSummaryField(raw, SUMMARY_FIELD_LABELS.objective);
-  if (!currentObjective) return { ok: false, reason: 'summary_missing_current_objective' };
-  const nextAction = extractSummaryField(raw, SUMMARY_FIELD_LABELS.nextAction);
-  if (!nextAction) return { ok: false, reason: 'summary_missing_next_action' };
+  const actionInProgress = extractSummaryField(raw, SUMMARY_FIELD_LABELS.actionInProgress);
+  if (!actionInProgress) return { ok: false, reason: 'summary_missing_action_in_progress' };
   return {
     ok: true,
     summary: {
-      currentObjective,
-      userConstraints: fieldListFromLegacy(raw, ['user_constraints', 'user constraints']),
-      importantFilesAndArtifacts: fieldListFromLegacy(raw, ['important_files_and_artifacts', 'important files and artifacts']),
-      commandsAndResults: fieldListFromLegacy(raw, ['commands_and_results', 'commands and results']),
-      errorsAndFixes: fieldListFromLegacy(raw, ['errors_and_fixes', 'errors and fixes']),
-      failedHypotheses: fieldListFromLegacy(raw, ['failed_hypotheses', 'failed hypotheses']),
-      operationalState: fieldListFromLegacy(raw, ['operational_state', 'operational state']),
-      publicVerificationState: extractSummaryField(raw, ['public_verification_state', 'public verification state']) ?? '',
-      remainingWork: fieldListFromLegacy(raw, ['remaining_work', 'remaining work']),
-      nextAction,
-      archiveRefsToRereadIfNeeded: fieldListFromLegacy(raw, ['archive_refs_to_reread_if_needed', 'archive refs to reread if needed']),
+      establishedFindings: fieldListFromLegacy(raw, ['established_findings', 'established findings']),
+      decisions: fieldListFromLegacy(raw, ['decisions']),
+      failedPaths: fieldListFromLegacy(raw, ['failed_paths', 'failed paths']),
+      partialWorkProduct: fieldListFromLegacy(raw, ['partial_work_product', 'partial work product']),
+      actionInProgress,
     },
   };
 }

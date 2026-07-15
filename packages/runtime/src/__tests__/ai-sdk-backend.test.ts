@@ -4300,17 +4300,11 @@ describe('AiSdkBackend usage telemetry', () => {
         content: [{
           type: 'text',
           text: JSON.stringify({
-            current_objective: 'Finish the benchmark task.',
-            user_constraints: ['Continue from public provider-visible context only.'],
-            important_files_and_artifacts: [],
-            commands_and_results: ['Read returned a large raw tool output.'],
-            errors_and_fixes: [],
-            failed_hypotheses: [],
-            operational_state: ['Continue in the same session.'],
-            public_verification_state: 'No verifier result claimed.',
-            remaining_work: ['Continue after compact.'],
-            next_action: 'Use the preserved recent tail to continue.',
-            archive_refs_to_reread_if_needed: [],
+            established_findings: ['Read returned a large raw tool output.'],
+            decisions: [],
+            failed_paths: [],
+            partial_work_product: [],
+            action_in_progress: 'Use the preserved recent execution episode to continue.',
           }),
         }],
         finishReason: { unified: 'stop', raw: 'stop' },
@@ -4389,6 +4383,8 @@ describe('AiSdkBackend usage telemetry', () => {
           minRecentMessages: 0,
           maxActiveEstimatedTokens: 1,
           highWaterRatio: 0.1,
+          minSafePrefixEstimatedTokens: 1,
+          minNewPrefixEstimatedTokens: 1,
           maxSummaryEstimatedTokens: 1024,
           minSavingsTokens: 1,
           minSavingsRatio: 0,
@@ -4427,9 +4423,10 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(model.doGenerateCalls.length, 1);
     assert.match(
       JSON.stringify(model.doGenerateCalls[0]?.prompt),
-      /SEMANTIC_COMPACT_RAW_TOOL_OUTPUT/,
-      'the summarizer must see a fresh result before active pruning can archive it',
+      /archived-covered-semantic-result/,
+      'the summarizer must accept an active-pruned result in an older completed episode',
     );
+    assert.doesNotMatch(JSON.stringify(model.doGenerateCalls[0]?.prompt), /SEMANTIC_COMPACT_RAW_TOOL_OUTPUT/);
     assert.equal(archiveCalls, 1, 'covered raw results may become archived without invalidating projection lineage');
     assert.equal(recordedBlocks.length, 1);
     assert.equal(recordedActiveFullBlocks.length, 0, 'one step must accept at most one compaction replacement');
@@ -4438,11 +4435,13 @@ describe('AiSdkBackend usage telemetry', () => {
       role: message.role,
       content: message.content,
     })));
-    assert.match(secondPrompt, /maka_semantic_compact_block/);
-    assert.doesNotMatch(secondPrompt, /SEMANTIC_COMPACT_RAW_TOOL_OUTPUT/);
+    assert.doesNotMatch(secondPrompt, /maka_semantic_compact_block/);
+    assert.match(secondPrompt, /SEMANTIC_COMPACT_RAW_TOOL_OUTPUT/);
+    assert.doesNotMatch(secondPrompt, /archived-covered-semantic-result/);
     const secondPromptMessages = model.doStreamCalls[1]?.prompt ?? [];
     assert.equal(secondPromptMessages[0]?.role, 'user', 'the exact user anchor stays at the head');
-    const semanticProjection = secondPromptMessages.find((message) =>
+    const thirdPromptMessages = model.doStreamCalls[2]?.prompt ?? [];
+    const semanticProjection = thirdPromptMessages.find((message) =>
       JSON.stringify(message.content).includes('maka_semantic_compact_block')
     );
     assert.equal(
@@ -4451,7 +4450,7 @@ describe('AiSdkBackend usage telemetry', () => {
       "the provider-facing projection is the model's own continuation checkpoint",
     );
     assert.equal(
-      secondPromptMessages.filter((message) => message.role === 'user').length,
+      thirdPromptMessages.filter((message) => message.role === 'user').length,
       1,
       'semantic replacement must not append a second user instruction',
     );
@@ -4471,7 +4470,7 @@ describe('AiSdkBackend usage telemetry', () => {
 
     const semanticRecord = llmRecords.find((record) => record.callKind === 'semantic_compact');
     assert.ok(semanticRecord, 'expected semantic compact LLM record');
-    assert.match(semanticRecord.callId ?? '', /^semantic_compact_turn-1_1_/);
+    assert.match(semanticRecord.callId ?? '', /^semantic_compact_turn-1_2_/);
     assert.equal(semanticRecord.inputTokens, 21);
     assert.equal(semanticRecord.outputTokens, 13);
     assert.equal(semanticRecord.cacheHitInputTokens, 2);
