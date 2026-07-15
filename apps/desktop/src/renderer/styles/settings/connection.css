@@ -72,7 +72,6 @@
     color: var(--foreground);
     font-family: var(--font-mono);
     font-size: var(--font-size-ui);
-    resize: vertical;
   }
 .settingsErrorText {
     color: var(--destructive-text, var(--destructive, red));

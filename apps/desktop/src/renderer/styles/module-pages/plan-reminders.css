@@ -531,13 +531,6 @@
   font-weight: var(--font-weight-medium);
   padding: var(--space-1-5) var(--space-2);
   outline: none;
-  resize: vertical;
-}
-
-.maka-plan-field input:focus,
-.maka-plan-field textarea:focus {
-  border-color: oklch(from var(--focus-ring) l c h / 0.55);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.12);
 }
 
 .maka-plan-presets {
@@ -625,11 +618,6 @@
   font-weight: var(--font-weight-medium);
   outline: none;
   padding: var(--space-1-5) var(--space-2);
-}
-
-.maka-plan-search input:focus {
-  border-color: oklch(from var(--focus-ring) l c h / 0.55);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.12);
 }
 
 .maka-plan-search-summary {

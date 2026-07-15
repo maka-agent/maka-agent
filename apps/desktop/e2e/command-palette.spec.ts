@@ -21,6 +21,24 @@ async function expectPaletteHeaderGeometry(dialog: Locator): Promise<void> {
   expect(firstCommandBox.height).toBeGreaterThanOrEqual(32);
 }
 
+async function expectCompactShortcutHints(dialog: Locator): Promise<void> {
+  const keys = dialog.locator('.maka-palette-footer kbd');
+  await expect(keys).toHaveCount(4);
+  for (const key of await keys.all()) {
+    const style = await key.evaluate((element) => {
+      const computed = getComputedStyle(element);
+      return {
+        height: element.getBoundingClientRect().height,
+        borderWidth: computed.borderWidth,
+        boxShadow: computed.boxShadow,
+      };
+    });
+    expect(style.height).toBe(16);
+    expect(style.borderWidth).toBe('0px');
+    expect(style.boxShadow).toBe('none');
+  }
+}
+
 test('command palette header geometry and dismissal stay intact', async ({ window: page }) => {
   const openButton = page.getByRole('button', { name: '打开命令面板' });
   const dialog = page.getByRole('dialog', { name: '命令面板' });
@@ -28,6 +46,7 @@ test('command palette header geometry and dismissal stay intact', async ({ windo
   await openButton.click();
   await expect(dialog).toBeVisible();
   await expectPaletteHeaderGeometry(dialog);
+  await expectCompactShortcutHints(dialog);
 
   await page.setViewportSize({ width: 520, height: 700 });
   await expect(dialog).toBeVisible();

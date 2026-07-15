@@ -57,11 +57,6 @@ const ALLOWLIST: ImportantAllowance[] = [
     reason: 'shared ghost button layout override',
   },
   {
-    fileSuffix: 'apps/desktop/src/renderer/styles/field-focus.css',
-    anchor: ':where(input, select, textarea):focus',
-    reason: 'shared field ring shadow override',
-  },
-  {
     fileSuffix: 'apps/desktop/src/renderer/styles/empty-state.css',
     anchor: '.maka-session-list .maka-session-empty-state',
     reason: 'shared empty-state card reset (relocated from onboarding.css — issue #546 PR3)',
@@ -171,14 +166,14 @@ describe('renderer !important audit contract', () => {
     );
   });
 
-  it('keeps embedded bare fields off page-level important ring resets', async () => {
+  it('keeps canonical and embedded bare fields off the legacy renderer focus rule', async () => {
     const fieldFocus = stripCssComments(await readFile(`${REPO_ROOT}/apps/desktop/src/renderer/styles/field-focus.css`, 'utf8'));
     const fieldFocusSelector = findFieldFocusSelector(fieldFocus);
-    assert.equal(
-      fieldFocusSelector,
-      ':where(input, select, textarea):focus:not(:where([data-maka-field-chrome="none"]))',
-      'the global renderer field focus rule must skip explicit bare fields without increasing selector specificity',
-    );
+    assert.notEqual(fieldFocusSelector, null, 'the legacy renderer focus rule must stay discoverable');
+    assert.match(fieldFocusSelector ?? '', /\[data-maka-field-chrome="none"\]/, 'explicit bare fields delegate focus chrome to their wrapper');
+    assert.match(fieldFocusSelector ?? '', /\[data-slot="input"\]/, 'canonical Input owns its focus chrome');
+    assert.match(fieldFocusSelector ?? '', /\[data-slot="textarea"\]/, 'canonical Textarea owns its focus chrome');
+    assert.doesNotMatch(fieldFocus, /!important/, 'the legacy renderer focus rule must not override component owners');
 
     for (const entry of RETIRED_RING_RESET_BLOCKS) {
       const file = `${REPO_ROOT}/${entry.fileSuffix}`;

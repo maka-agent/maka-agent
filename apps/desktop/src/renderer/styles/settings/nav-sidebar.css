@@ -624,9 +624,6 @@
   background: oklch(from var(--focus-ring) l c h / 0.04);
 }
 
-.settingsField input:focus-visible,
-.settingsField textarea:focus-visible,
-.settingsFormGrid input:focus-visible,
 .settingsFormGrid select:focus-visible {
   outline: none;
   border-color: var(--focus-ring);
@@ -675,13 +672,6 @@
   margin-top: var(--space-1);
   color: var(--warning-text, var(--info-text));
 }
-
-/* PR-USE-SHADCN-BASE-UI-SWITCH (2026-06-22): the bespoke .settingsSwitch
-   rules were removed because the local `Switch(...)` adapter now renders
-   the shared `BaseUiSwitch` (Base UI Switch.Root) which carries its own
-   Tailwind utility styling (h-5 w-9 track, h-4 w-4 thumb, data-checked
-   bg-control, focus ring tied to --ring). Same external API shape;
-   ~50 lines of duplicate CSS deleted. */
 
 .settingsFormGrid {
   display: grid;

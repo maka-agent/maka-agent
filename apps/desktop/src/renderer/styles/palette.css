@@ -75,14 +75,6 @@
   box-shadow: none;
 }
 
-/* Justified: a11y focus reset — palette input uses the global outline ring;
-   suppress inherited box-shadow so the ring reads alone. */
-.maka-palette-input-wrap input:focus,
-.maka-palette-input-wrap input:focus-visible {
-  outline: none;
-  box-shadow: none;
-}
-
 .maka-palette-input::placeholder {
   color: var(--muted-foreground);
 }

@@ -344,11 +344,6 @@
   white-space: nowrap;
 }
 
-.settingsMemoryFilter input:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: var(--focus-ring-offset);
-}
-
 .settingsMemoryFilterEmpty,
   .settingsMemoryListEmpty {
     display: grid;
@@ -414,14 +409,7 @@
 }
 
 .settingsMemoryManualAddGrid textarea {
-  resize: vertical;
   min-height: 74px;
-}
-
-.settingsMemoryManualAddGrid input:focus-visible,
-.settingsMemoryManualAddGrid textarea:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: var(--focus-ring-offset);
 }
 
 .settingsMemoryDraftWarning {
@@ -458,7 +446,6 @@
 .settingsMemoryEditor textarea {
   width: 100%;
   min-height: 220px;
-  resize: vertical;
   border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   padding: var(--space-4);
@@ -471,11 +458,6 @@
   tab-size: 2;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-.settingsMemoryEditor textarea:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: var(--focus-ring-offset);
 }
 
 .settingsMemoryEditor textarea:disabled {

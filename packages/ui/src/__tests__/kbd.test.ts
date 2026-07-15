@@ -18,13 +18,9 @@ test('KbdGroup groups physical keys without drawing a third outer keycap', () =>
   assert.equal((markup.match(/<kbd\b/g) ?? []).length, 2);
 });
 
-test('Kbd owns one compact flat keycap recipe', () => {
+test('Kbd renders one semantic key element', () => {
   const markup = renderToStaticMarkup(createElement(Kbd, null, 'Esc'));
 
-  assert.match(markup, /\bh-4\b/);
-  assert.match(markup, /\bmin-w-4\b/);
-  assert.match(markup, /\bbg-foreground\/4\b/);
-  assert.match(markup, /\bfont-sans\b/);
-  assert.doesNotMatch(markup, /\bborder\b/);
-  assert.doesNotMatch(markup, /shadow/);
+  assert.match(markup, /^<kbd\b[^>]*data-slot="kbd"/);
+  assert.match(markup, />Esc<\/kbd>$/);
 });

@@ -60,6 +60,23 @@ test('settings textarea grows with content and scrolls only at its shared cap', 
   }));
   expect(capped.height).toBeLessThanOrEqual(320);
   expect(capped.scrollHeight).toBeGreaterThan(capped.clientHeight);
+
+  await page.getByRole('main', { name: '设置内容' }).getByRole('button', { name: '记忆', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: '记忆内容' })).toHaveCSS('resize', 'none');
+  await expect(page.getByRole('textbox', { name: 'MEMORY.md 内容' })).toHaveCSS('resize', 'none');
+});
+
+test('shared settings input owns its desktop focus chrome', async ({ window: page }) => {
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.getByRole('main', { name: '设置内容' }).getByRole('button', { name: '通用', exact: true }).click();
+
+  const displayName = page.getByRole('textbox', { name: '显示名称' });
+  await expect(displayName).toHaveCSS('box-shadow', 'none');
+  await displayName.focus();
+  const focusShadow = await displayName.evaluate((element) => getComputedStyle(element).boxShadow);
+  expect(focusShadow).not.toBe('none');
+  expect(focusShadow).not.toContain('inset');
 });
 
 test('remote access opens a channel detail from the overview and returns', async ({ window: page }) => {

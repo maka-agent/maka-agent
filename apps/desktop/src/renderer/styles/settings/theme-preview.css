@@ -1,7 +1,4 @@
-/* PR-SETTINGS-INPUT-POLISH-0 (round 6/15, WAWQAQ msg `f7e9d166`):
-   tight 0/8 padding — visibly thin against the now-bigger row
-   typography (15px label / 13px hint / 26×46 switch). Bump to a
-   14px input with 34px min-height and proper padding. */
+/* Settings forms keep a 34px minimum so controls align with roomy rows. */
 .settingsField input,
 .settingsField textarea,
 .settingsFormGrid input,
@@ -30,11 +27,7 @@
   font-size: var(--font-size-ui);
 }
 
-.settingsField input:focus,
-.settingsField textarea:focus,
-.settingsFormGrid input:focus,
 .settingsFormGrid select:focus,
-.settingsUsageFilters input:focus,
 .settingsUsageFilters select:focus {
   /* PR-UI-LAYOUT-21: was border-only at 0.3 accent — keyboard
    * focus was hard to see. Added a 3px accent halo (matches the

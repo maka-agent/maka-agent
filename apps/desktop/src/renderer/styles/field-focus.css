@@ -1,9 +1,7 @@
-/* Justified: renderer form fields and input-group wrappers ship their own
-   focus ring shadow. This global chrome rule collapses that into the
-   converged inset accent line, while explicit bare fields opt out through
-   `data-maka-field-chrome="none"`. */
-:where(input, select, textarea):focus:not(:where([data-maka-field-chrome="none"])) {
+/* Legacy native fields still need renderer focus chrome. Canonical Input and
+   Textarea own theirs through @maka/ui; bare fields delegate to their wrapper. */
+:where(input, select, textarea):focus:not(:where([data-maka-field-chrome="none"], [data-slot="input"], [data-slot="textarea"])) {
   outline: none;
   border-color: oklch(from var(--focus-ring) l c h / 0.48);
-  box-shadow: inset 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.22) !important;
+  box-shadow: inset 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.22);
 }

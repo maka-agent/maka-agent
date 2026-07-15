@@ -149,7 +149,6 @@
   transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong), background var(--duration-base) var(--ease-out-strong);
 }
 
-.providerEditor input:focus,
 .providerEditor select:focus {
   border-color: oklch(from var(--focus-ring) l c h / 0.42);
   background: var(--background);
