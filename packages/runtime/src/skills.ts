@@ -353,6 +353,7 @@ async function scanSkillDir(
     const [rootReal, dirReal] = await Promise.all([realpath(containmentRoot), realpath(dir)]);
     if (!isContainedPath(rootReal, dirReal)) return { skills: [], diagnostics: [] };
     entries = await readdir(dir, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
   } catch {
     return { skills: [], diagnostics: [] };
   }
@@ -615,21 +616,31 @@ export function validateSkillMetadata(text: string): SkillMetadataValidationResu
 
   let rawManifest: unknown;
   try {
-    const document = parseDocument(extracted.frontmatter, {
-      merge: false,
-      strict: true,
-      uniqueKeys: true,
-    });
-    if (document.errors.length > 0 || document.warnings.length > 0) throw new Error('invalid yaml');
-    rawManifest = document.toJS({ maxAliasCount: 0 });
+    rawManifest = parseStrictSkillManifest(extracted.frontmatter);
   } catch {
-    issues.push({
-      code: 'malformed_frontmatter',
-      severity: 'error',
-      field: 'frontmatter',
-      message: 'SKILL.md frontmatter is not valid YAML.',
-    });
-    return { manifest, body: extracted.body, issues, valid: false };
+    const repaired = repairLegacySkillFrontmatter(extracted.frontmatter);
+    if (repaired) {
+      try {
+        rawManifest = parseStrictSkillManifest(repaired);
+        issues.push({
+          code: 'malformed_frontmatter',
+          severity: 'warning',
+          field: 'frontmatter',
+          message: 'SKILL.md frontmatter used legacy syntax and was loaded after a compatibility repair.',
+        });
+      } catch {
+        // The constrained compatibility repair was insufficient; fail closed.
+      }
+    }
+    if (rawManifest === undefined) {
+      issues.push({
+        code: 'malformed_frontmatter',
+        severity: 'error',
+        field: 'frontmatter',
+        message: 'SKILL.md frontmatter is not valid YAML.',
+      });
+      return { manifest, body: extracted.body, issues, valid: false };
+    }
   }
 
   if (!isRecord(rawManifest)) {
@@ -932,6 +943,45 @@ function extractSkillDocument(text: string):
   };
 }
 
+function parseStrictSkillManifest(frontmatter: string): unknown {
+  const document = parseDocument(frontmatter, {
+    merge: false,
+    strict: true,
+    uniqueKeys: true,
+  });
+  if (document.errors.length > 0 || document.warnings.length > 0) throw new Error('invalid yaml');
+  return document.toJS({ maxAliasCount: 0 });
+}
+
+/**
+ * Repair only the two legacy forms accepted by Maka's former line parser:
+ * unquoted colons in required scalar fields and tab-indented list items.
+ * The repaired document must still pass the strict YAML parser and the full
+ * typed validator, so this cannot bypass required-tools/capability checks.
+ */
+function repairLegacySkillFrontmatter(frontmatter: string): string | undefined {
+  let changed = false;
+  const repaired = frontmatter.split(/\r?\n/).map((line) => {
+    let next = line;
+    const leading = next.match(/^[ \t]+/)?.[0];
+    if (leading?.includes('\t')) {
+      next = leading.replace(/\t/g, '  ') + next.slice(leading.length);
+    }
+
+    const scalar = next.match(/^(name|description):[ \t]*(.*)$/);
+    if (scalar) {
+      const value = scalar[2].trim();
+      if (value.includes(': ') && !value.startsWith('"') && !value.startsWith("'")) {
+        next = `${scalar[1]}: ${JSON.stringify(value)}`;
+      }
+    }
+
+    if (next !== line) changed = true;
+    return next;
+  });
+  return changed ? repaired.join('\n') : undefined;
+}
+
 function readRequiredSkillString(
   value: unknown,
   field: 'name' | 'description',
@@ -998,7 +1048,7 @@ function readSkillStringList(
 ): string[] {
   if (value === undefined || value === null || value === '') return [];
   const candidates = typeof value === 'string'
-    ? value.trim().split(/\s+/)
+    ? value.trim().split(/[\s,]+/)
     : Array.isArray(value)
       ? value
       : null;
@@ -1007,7 +1057,7 @@ function readSkillStringList(
       code,
       severity,
       field,
-      message: `Skill field ${field} must be a space-separated string or a string list.`,
+      message: `Skill field ${field} must be a space- or comma-separated string or a string list.`,
     });
     return [];
   }

@@ -66,8 +66,8 @@ Use concise prose.`);
     assert.deepEqual(missingFrontmatter.issues.map((issue) => issue.code), ['missing_frontmatter']);
 
     const malformed = validateSkillMetadata(`---
-name: broken
-description: value: is not quoted
+name: [broken
+description: invalid collection syntax
 ---
 body`);
     assert.equal(malformed.valid, false);
@@ -85,6 +85,26 @@ body`);
       missingRequired.issues.map((issue) => issue.code),
       ['missing_name', 'missing_description', 'invalid_required_tools', 'invalid_required_capabilities'],
     );
+  });
+
+  it('recovers legacy scalar colons and tab-indented lists with an explicit warning', () => {
+    const result = validateSkillMetadata(`---
+name: Legacy Writer
+description: Use when: the user asks for writing help.
+allowed-tools: Read, Write
+required-tools:
+\t- Bash
+---
+# Legacy Writer`);
+
+    assert.equal(result.valid, true);
+    assert.equal(result.manifest.description, 'Use when: the user asks for writing help.');
+    assert.deepEqual(result.manifest.allowedTools, ['Read', 'Write']);
+    assert.deepEqual(result.manifest.requiredTools, ['Bash']);
+    assert.deepEqual(result.issues.map((issue) => ({
+      code: issue.code,
+      severity: issue.severity,
+    })), [{ code: 'malformed_frontmatter', severity: 'warning' }]);
   });
 
   it('keeps compatible skills loadable while reporting non-blocking metadata warnings', () => {
@@ -133,7 +153,7 @@ name: Missing Description
 # Missing`);
       await writeSkill(workspaceRoot, 'malformed', `---
 name: Malformed
-description: value: is not quoted
+description: [invalid collection syntax
 ---
 # Malformed`);
 
