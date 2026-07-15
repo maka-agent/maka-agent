@@ -1192,6 +1192,60 @@ describe('Maka Pi TUI runner', () => {
     assert.deepEqual(filtered.lines.slice(4), ['────────', '/s ', '────────']);
   });
 
+  test('navigates submitted prompt history and restores the unsent draft', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    const submit = async (prompt: string, expectedPromptCount: number) => {
+      terminal.input(prompt);
+      terminal.input('\r');
+      await waitFor(() => driver.prompts.length === expectedPromptCount);
+      await waitFor(() => terminal.progressStates.at(-1) === false);
+    };
+
+    try {
+      await submit('first prompt', 1);
+      await submit('second prompt', 2);
+
+      terminal.input('\x1b[A');
+      await waitFor(() => editorInputText(terminal) === 'second prompt');
+
+      terminal.input('\x1b[A');
+      await waitFor(() => editorInputText(terminal) === 'first prompt');
+
+      terminal.input('\x1b[B');
+      await waitFor(() => editorInputText(terminal) === 'second prompt');
+
+      terminal.input('\x1b[B');
+      await waitFor(() => editorInputText(terminal) === '');
+
+      terminal.input('unsent draft');
+      terminal.input('\x01');
+      terminal.input('\x1b[A');
+      await waitFor(() => editorInputText(terminal) === 'second prompt');
+
+      terminal.input('\x1b[B');
+      await waitFor(() => editorInputText(terminal) === 'unsent draft');
+    } finally {
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    }
+  });
+
   test('handles /exit without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -3166,6 +3220,12 @@ describe('Maka Pi TUI runner', () => {
 /** Count the standalone BEL bytes the attention layer wrote. */
 function bellCount(terminal: FakeTerminal): number {
   return terminal.writes.filter((write) => write === '\x07').length;
+}
+
+function editorInputText(terminal: FakeTerminal): string {
+  const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+  const [topEditorBorderIndex, bottomEditorBorderIndex] = inputSurfaceRows(lines);
+  return lines.slice(topEditorBorderIndex + 1, bottomEditorBorderIndex).join('\n').trim();
 }
 
 function exitMaka(_terminal: FakeTerminal): void {

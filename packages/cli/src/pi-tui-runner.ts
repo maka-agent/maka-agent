@@ -400,6 +400,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       requestRender();
       return;
     }
+    editor.addToHistory(prompt);
     if (handleSlashCommand(prompt)) return;
 
     runAgentTurn(prompt);
