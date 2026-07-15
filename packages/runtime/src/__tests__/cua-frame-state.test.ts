@@ -122,7 +122,8 @@ describe('CuaFrameState', () => {
         sourceBoundsPx: { x: 0, y: 0, width: 800, height: 600 },
       },
       elements: [{
-        nodeIdentity: 'node:field',
+        elementToken: 'snapshot:7',
+        elementIndex: 7,
         role: 'AXTextField',
         label: 'Name',
         value: '',
@@ -140,7 +141,8 @@ describe('CuaFrameState', () => {
     assert.deepEqual(bound?.windowCoordinate, { x: 25, y: 30 });
     assert.equal(bound?.coordinateSpace, 'window-screenshot-local');
     assert.deepEqual(bound?.sourceElement, {
-      nodeIdentity: 'node:field',
+      elementToken: 'snapshot:7',
+      elementIndex: 7,
       role: 'AXTextField',
       label: 'Name',
       value: '',
@@ -162,7 +164,8 @@ describe('CuaFrameState', () => {
         sourceBoundsPx: { x: 0, y: 0, width: 800, height: 600 },
       },
       elements: [{
-        nodeIdentity: 'node:button',
+        elementToken: 'snapshot:7',
+        elementIndex: 7,
         role: 'AXButton',
         label: 'Delete',
         frame: { x: 120, y: 220, width: 100, height: 40 },

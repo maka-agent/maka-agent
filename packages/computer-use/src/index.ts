@@ -4,8 +4,6 @@ export type { CuBackendId, SelectedComputerUseBackend } from './select-backend.j
 export { createCuaDriverBackend } from './cua-driver-backend.js';
 export type {
   CuaDriverBackendOptions,
-  CuaDriverStableNode,
-  CuaDriverStableNodeAdapter,
   CuaDriverTraceEvent,
 } from './cua-driver-backend.js';
 export { normalizeCuaDriverOutcome } from './cua-driver-result.js';

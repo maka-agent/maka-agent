@@ -99,7 +99,8 @@ export interface ComputerUseWindowIdentity {
 }
 
 export interface ComputerUseElementTargetIdentity {
-  nodeIdentity?: string;
+  elementToken?: string;
+  elementIndex: number;
   role: string;
   label?: string;
   value?: string;

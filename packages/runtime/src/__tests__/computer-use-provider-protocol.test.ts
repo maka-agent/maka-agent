@@ -138,6 +138,7 @@ function fakeSemanticBackend(value: { current: string }): CuDispatchBackend {
       label: 'CUA Lab Set Value Field',
       value: value.current,
       identity: {
+        elementIndex: 7,
         role: 'AXTextField',
         label: 'CUA Lab Set Value Field',
         value: value.current,

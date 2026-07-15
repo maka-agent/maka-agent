@@ -39,7 +39,8 @@ function fixtureObservation(overrides: Partial<CuObservation> = {}): CuObservati
       role: 'AXButton',
       label: 'Commit target',
       identity: {
-        token: 'target-button-token',
+        elementToken: 'target-button-token',
+        elementIndex: 5,
         role: 'AXButton',
         label: 'Commit target',
       },

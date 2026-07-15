@@ -28,28 +28,29 @@ Evidence:
 The consolidated implementation:
 
 - keeps the window fingerprint structural, while Runtime binds the smallest
-  actionable source element's role, label, value, frame, and stable
-  `nodeIdentity` into the action fingerprint; backend re-resolution must match
-  every field or return `target_changed`;
+  actionable source element's `elementToken`, `elementIndex`, role, label,
+  value, and frame into the action fingerprint;
 - validates Electron page identity before every compatibility pointer fallback
   and refuses pixel fallback when process classification is `unknown`;
-- establishes native keyboard ownership only from the stable AX node focused
-  after the click, requires that node to contain the resolved click point, and
-  uses the same identity for resolution, `set_value`, and readback;
+- refreshes an actionable coordinate against `get_window_state`, requires one
+  exact role/label/value/frame match, and dispatches AX click with that fresh
+  element's opaque token; token absence or ambiguity fails closed without pixel
+  fallback;
 - installs and reads the Electron element helper through one bootstrap, with
   tokens leased to Maka session, session generation, document fingerprint, and
   navigation generation; reload invalidates the lease before insertion;
-- does not reinterpret snapshot-local `element_token` or role/label/value as a
-  stable identity. `CuaDriverStableNodeAdapter` is the fail-closed integration
-  contract for the future driver interface.
+- sends the fresh `element_token` for semantic `click_element` and `set_value`,
+  requires `set_value` structured `changed`, `verified`, and `readback_value`,
+  and carries the readback value into the returned fresh observation;
+- keeps native type unsupported until the driver can return the actual focused
+  element token. The executor does not synthesize a resolver from mutable AX
+  attributes.
 
 Remaining driver dependency:
 
-- pinned `cua-driver` must expose stable AX node identity operations for
-  snapshot identification, focused-node capture, and identity re-resolution.
-  Until the host supplies that adapter, actionable coordinate validation and
-  native text ownership refuse to claim stable-node success. Existing semantic
-  AX actions continue to use their separately reviewed fresh-snapshot contract.
+- pinned `cua-driver` must emit opaque `elements[].element_token` values from
+  `get_window_state` and accept them on AX click and `set_value`. Native type
+  remains unavailable until a real focused-token surface exists.
 
 ## Fixed In This Follow-Up
 

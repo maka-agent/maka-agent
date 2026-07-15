@@ -141,7 +141,6 @@ export interface CuaDriverBackendOptions {
       ReturnType<typeof normalizeCuaSnapshotElement>
     >[],
   ) => string;
-  stableNodeAdapter?: CuaDriverStableNodeAdapter;
   resolveDisplays?: (input: {
     screenshotWidthPx: number;
     screenshotHeightPx: number;
@@ -168,37 +167,6 @@ export interface CuaDriverBackendOptions {
     reason: CuaDriverReleaseEvent['reason'];
     outcomeUnknown: boolean;
   }) => void;
-}
-
-export interface CuaDriverStableNode {
-  nodeIdentity: string;
-  elementIndex: number;
-  elementToken?: string;
-  role: string;
-  label?: string;
-  value?: string;
-  depth: number;
-  frame: { x: number; y: number; w: number; h: number };
-}
-
-export interface CuaDriverStableNodeAdapter {
-  identifySnapshotElements(input: {
-    pid: number;
-    windowId: number;
-    elements: readonly CuaSnapshotElement[];
-    signal: AbortSignal;
-  }): Promise<ReadonlyArray<{ elementIndex: number; nodeIdentity: string }>>;
-  focusedNode(input: {
-    pid: number;
-    windowId: number;
-    signal: AbortSignal;
-  }): Promise<CuaDriverStableNode | undefined>;
-  resolveNode(input: {
-    pid: number;
-    windowId: number;
-    nodeIdentity: string;
-    signal: AbortSignal;
-  }): Promise<CuaDriverStableNode | undefined>;
 }
 
 export type CuaDriverTraceEvent =
@@ -332,7 +300,6 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   interface KeyboardTarget {
     window: CuaResolvedWindow;
     editable: boolean;
-    nativeNode?: CuaDriverStableNode;
     pageElement?: CuaPageElementTokenLease;
     pageIdentity?: ComputerUsePageIdentity;
     pageTarget?: CuaResolvedPageTextTarget;
@@ -984,34 +951,6 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     if (!outcome.ok) throw new Error(outcome.message);
     const structured = state?.structuredContent ?? {};
     const candidates = (structured.elements ?? []) as CuaSnapshotElement[];
-    const stableBindings = opts.stableNodeAdapter
-      ? await opts.stableNodeAdapter.identifySnapshotElements({
-          pid: window.pid,
-          windowId: window.windowId,
-          elements: candidates,
-          signal,
-        }).catch(() => [])
-      : [];
-    const stableIdentityCounts = new Map<string, number>();
-    const stableIndexCounts = new Map<number, number>();
-    for (const binding of stableBindings) {
-      stableIdentityCounts.set(
-        binding.nodeIdentity,
-        (stableIdentityCounts.get(binding.nodeIdentity) ?? 0) + 1,
-      );
-      stableIndexCounts.set(
-        binding.elementIndex,
-        (stableIndexCounts.get(binding.elementIndex) ?? 0) + 1,
-      );
-    }
-    const stableIdentityByIndex = new Map(
-      stableBindings.flatMap((binding) =>
-        binding.nodeIdentity.length > 0
-        && stableIdentityCounts.get(binding.nodeIdentity) === 1
-        && stableIndexCounts.get(binding.elementIndex) === 1
-          ? [[binding.elementIndex, binding.nodeIdentity] as const]
-          : []),
-    );
     const elements = new Map<string, NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>>();
     for (const candidate of candidates) {
       const element = normalizeCuaSnapshotElement(candidate);
@@ -1083,10 +1022,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           height: element.frame.h,
         },
         identity: {
-          ...(element.element_token ? { token: element.element_token } : {}),
-          ...(stableIdentityByIndex.get(element.element_index)
-            ? { nodeIdentity: stableIdentityByIndex.get(element.element_index) }
-            : {}),
+          ...(element.element_token ? { elementToken: element.element_token } : {}),
+          elementIndex: element.element_index,
           role: element.role,
           ...(element.label ? { label: element.label } : {}),
           ...(element.value !== undefined ? { value: element.value } : {}),
@@ -1345,55 +1282,17 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     };
   }
 
-  async function validateBoundSourceElement(
-    bound: CuaBoundAction,
-    window: CuaResolvedWindow,
-    signal: AbortSignal,
-  ): Promise<CuRunResult | undefined> {
-    const source = bound.sourceElement;
-    if (!source) return undefined;
-    if (!source.nodeIdentity || !opts.stableNodeAdapter) {
-      return {
-        outcome: {
-          ok: false,
-          error: 'target_changed',
-          message: 'source actionable element has no stable driver node identity',
-        },
-      };
-    }
-    const current = await opts.stableNodeAdapter.resolveNode({
-      pid: window.pid,
-      windowId: window.windowId,
-      nodeIdentity: source.nodeIdentity,
-      signal,
-    }).catch(() => undefined);
-    if (
-      !current
-      || current.nodeIdentity !== source.nodeIdentity
-      || current.role !== source.role
-      || current.label !== source.label
-      || current.value !== source.value
-      || current.frame.x !== source.frame.x
-      || current.frame.y !== source.frame.y
-      || current.frame.w !== source.frame.width
-      || current.frame.h !== source.frame.height
-    ) {
-      return {
-        outcome: {
-          ok: false,
-          error: 'target_changed',
-          message: 'source actionable element identity changed after observation',
-        },
-      };
-    }
-    return undefined;
-  }
-
   async function validateBoundCoordinate(
     bound: CuaBoundAction | undefined,
     signal: AbortSignal,
     start = false,
-  ): Promise<CuaResolvedWindow | CuRunResult | undefined> {
+  ): Promise<
+    | (CuaResolvedWindow & {
+        freshElement?: NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>;
+      })
+    | CuRunResult
+    | undefined
+  > {
     if (!bound?.target) return undefined;
     if (!bound.target.contentFingerprint) {
       return {
@@ -1428,8 +1327,6 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       'coordinate',
     );
     if ('outcome' in validated) return validated;
-    const sourceFailure = await validateBoundSourceElement(bound, validated, signal);
-    if (sourceFailure) return sourceFailure;
     const currentState = await actionClient.callTool('get_window_state', {
       pid: validated.pid,
       window_id: validated.windowId,
@@ -1471,8 +1368,43 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         },
       };
     }
-    if (!bound.sourceElement) {
-      const currentElements = (currentStructured.elements ?? []) as CuaSnapshotElement[];
+    const currentElements = (currentStructured.elements ?? []) as CuaSnapshotElement[];
+    let freshElement: NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>> | undefined;
+    if (bound.sourceElement) {
+      const matches = currentElements.flatMap((candidate) => {
+        const element = normalizeCuaSnapshotElement(candidate);
+        if (
+          !element
+          || element.role !== bound.sourceElement!.role
+          || element.label !== bound.sourceElement!.label
+          || element.value !== bound.sourceElement!.value
+          || element.frame.x !== bound.sourceElement!.frame.x
+          || element.frame.y !== bound.sourceElement!.frame.y
+          || element.frame.w !== bound.sourceElement!.frame.width
+          || element.frame.h !== bound.sourceElement!.frame.height
+        ) return [];
+        return [element];
+      });
+      if (matches.length !== 1) {
+        return {
+          outcome: {
+            ok: false,
+            error: 'target_changed',
+            message: 'source actionable element identity changed after observation',
+          },
+        };
+      }
+      freshElement = matches[0];
+      if (!freshElement?.element_token) {
+        return {
+          outcome: {
+            ok: false,
+            error: 'target_changed',
+            message: 'fresh actionable element is missing an AX element token',
+          },
+        };
+      }
+    } else {
       if (
         editableElementAtScreenPoint(currentElements, point.screenPoint)
         || elementAtScreenPoint(currentElements, point.screenPoint)
@@ -1543,6 +1475,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     return {
       ...validated,
       screenPoint: point.screenPoint,
+      ...(freshElement ? { freshElement } : {}),
     };
   }
 
@@ -1551,7 +1484,13 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     fallback: { x: number; y: number },
     signal: AbortSignal,
     start = false,
-  ): Promise<CuaResolvedWindow | CuRunResult | undefined> {
+  ): Promise<
+    | (CuaResolvedWindow & {
+        freshElement?: NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>;
+      })
+    | CuRunResult
+    | undefined
+  > {
     if (bound) return validateBoundCoordinate(bound, signal, start);
     return resolveWindowAt(fallback.x, fallback.y, signal);
   }
@@ -1584,7 +1523,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const identity = action.elementIdentity ?? (
       original
         ? {
-            ...(original.element_token ? { token: original.element_token } : {}),
+            ...(original.element_token ? { elementToken: original.element_token } : {}),
+            elementIndex: original.element_index,
             role: original.role,
             ...(original.label ? { label: original.label } : {}),
             ...(original.value !== undefined ? { value: original.value } : {}),
@@ -1669,91 +1609,11 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         message: 'background text input requires an AX-addressable editable field',
       };
     }
-    const nativeNode = target.nativeNode;
-    if (!nativeNode || !opts.stableNodeAdapter) {
-      return {
-        ok: false,
-        error: 'unsupported_action',
-        message: 'background text input requires a stable focused AX node identity',
-      };
-    }
-    const current = await opts.stableNodeAdapter.resolveNode({
-      pid: target.window.pid,
-      windowId: target.window.windowId,
-      nodeIdentity: nativeNode.nodeIdentity,
-      signal,
-    }).catch(() => undefined);
-    if (
-      !current
-      || current.nodeIdentity !== nativeNode.nodeIdentity
-      || !isEditableRole(current.role)
-    ) {
-      return {
-        ok: false,
-        error: 'unsupported_action',
-        message: 'focused AX node identity changed before text input',
-      };
-    }
-    if (current.value && current.value !== text) {
-      return {
-        ok: false,
-        error: 'unsupported_action',
-        message: 'background AX fill refuses to overwrite a non-empty field',
-      };
-    }
-    if (current.value === text) {
-      target.nativeNode = current;
-      return {
-        ok: true,
-        tier: 'ax',
-        verified: true,
-        evidence: { path: 'ax', effect: 'confirmed' },
-      };
-    }
-    const intervention = await physicalInputFailure();
-    if (intervention) return intervention.outcome;
-    const setResult = await actionClient.callTool(
-      'set_value',
-      {
-        pid: target.window.pid,
-        window_id: target.window.windowId,
-        element_index: current.elementIndex,
-        ...(current.elementToken ? { element_token: current.elementToken } : {}),
-        value: text,
-      },
-      signal,
-    );
-    if (setResult?.isError) return normalizeCuaDriverOutcome(setResult);
-    let after: CuaDriverStableNode | undefined;
-    try {
-      after = await opts.stableNodeAdapter.resolveNode({
-        pid: target.window.pid,
-        windowId: target.window.windowId,
-        nodeIdentity: nativeNode.nodeIdentity,
-        signal,
-      });
-    } catch {
-      return deliveredVerificationFailure(
-        'AXValue write',
-        'ax',
-      ).outcome;
-    }
-    const verified = after?.nodeIdentity === nativeNode.nodeIdentity
-      && after.value === text;
-    if (verified) target.nativeNode = after;
-    return verified
-      ? {
-          ok: true,
-          tier: 'ax',
-          verified: true,
-          evidence: { path: 'ax', effect: 'confirmed' },
-        }
-      : {
-          ok: false,
-          error: 'outcome_unknown',
-          message: 'AXValue write could not be confirmed by a fresh snapshot',
-          evidence: { path: 'ax', effect: 'unverifiable' },
-        };
+    return {
+      ok: false,
+      error: 'unsupported_action',
+      message: 'background native text input requires an actual focused AX element token',
+    };
   }
 
   function isEditableRole(role: string): boolean {
@@ -1761,16 +1621,6 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       || role === 'AXSearchField'
       || role === 'AXTextArea'
       || role === 'AXTextField';
-  }
-
-  function stableNodeContainsPoint(
-    node: CuaDriverStableNode,
-    point: { x: number; y: number },
-  ): boolean {
-    return point.x >= node.frame.x
-      && point.x < node.frame.x + node.frame.w
-      && point.y >= node.frame.y
-      && point.y < node.frame.y + node.frame.h;
   }
 
   async function fillElectronPageTarget(
@@ -2283,8 +2133,17 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           pid: validated.pid,
           window_id: validated.windowId,
           element_index: refetched.element_index,
-          ...(refetched.element_token ? { element_token: refetched.element_token } : {}),
+          element_token: refetched.element_token,
         };
+        if (!refetched.element_token) {
+          return {
+            outcome: {
+              ok: false,
+              error: 'stale_frame',
+              message: 'fresh semantic element is missing an AX element token',
+            },
+          };
+        }
         const intervention = await physicalInputFailure();
         if (intervention) return intervention;
         trace({
@@ -2306,6 +2165,17 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         }
         const outcome = normalizeCuaDriverOutcome(result);
         if (!outcome.ok) return { outcome };
+        const structured = result?.structuredContent ?? {};
+        if (
+          action.type === 'set_value'
+          && (
+            typeof structured.changed !== 'boolean'
+            || structured.verified !== true
+            || typeof structured.readback_value !== 'string'
+          )
+        ) {
+          return deliveredVerificationFailure(action.type, 'ax');
+        }
         let fresh: CuObservation;
         try {
           fresh = await observeResolvedWindow(
@@ -2316,6 +2186,19 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           );
         } catch {
           return deliveredVerificationFailure(action.type, 'ax');
+        }
+        if (action.type === 'set_value') {
+          const updated = fresh.elements.find((element) =>
+            element.identity?.elementToken === refetched.element_token
+            || (
+              element.identity?.elementIndex === refetched.element_index
+              && element.role === refetched.role
+            ));
+          if (updated) {
+            const readbackValue = String(structured.readback_value);
+            updated.value = readbackValue;
+            if (updated.identity) updated.identity.value = readbackValue;
+          }
         }
         return {
           outcome,
@@ -2449,6 +2332,47 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               return { outcome: semantic.outcome, resolvedScreenPoint: win.screenPoint };
             }
           }
+          if (
+            action.type === 'left_click'
+            && context.boundAction?.sourceElement
+          ) {
+            const freshElement = win.freshElement;
+            if (!freshElement?.element_token) {
+              return {
+                outcome: {
+                  ok: false,
+                  error: 'target_changed',
+                  message: 'fresh actionable element is missing an AX element token',
+                },
+              };
+            }
+            const intervention = await physicalInputFailure();
+            if (intervention) return intervention;
+            trace({
+              type: 'dispatch',
+              toolCallId: context.toolCallId,
+              actionType: action.type,
+              tool: 'click',
+              pid: win.pid,
+              windowId: win.windowId,
+              address: 'ax',
+            });
+            const result = await actionClient.callTool('click', {
+              pid: win.pid,
+              window_id: win.windowId,
+              element_index: freshElement.element_index,
+              element_token: freshElement.element_token,
+            }, signal);
+            const outcome = normalizeCuaDriverOutcome(result);
+            trace({
+              type: 'outcome',
+              toolCallId: context.toolCallId,
+              actionType: action.type,
+              tool: 'click',
+              outcome: traceOutcome(outcome),
+            });
+            return { outcome, resolvedScreenPoint: win.screenPoint };
+          }
           if (action.type === 'middle_click' || action.type === 'triple_click') {
             const boundaryFailure = await compatibilityPointerBoundary(
               win,
@@ -2552,35 +2476,6 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               tool: toolName,
               outcome: traceOutcome(outcome),
             });
-            if (
-              outcome.ok
-              && action.type === 'left_click'
-              && (sessionGenerations.get(context.sessionId) ?? 0) === sessionGeneration
-            ) {
-              const processKind = await (opts.classifyProcess ?? classifyMacProcess)(win.pid);
-              const focused = processKind === 'native' && opts.stableNodeAdapter
-                ? await opts.stableNodeAdapter.focusedNode({
-                    pid: win.pid,
-                    windowId: win.windowId,
-                    signal,
-                  }).catch(() => undefined)
-                : undefined;
-              if (
-                focused
-                && focused.nodeIdentity.length > 0
-                && isEditableRole(focused.role)
-                && stableNodeContainsPoint(focused, win.screenPoint)
-              ) {
-                targetsBySession.set(context.sessionId, {
-                  turnId: context.turnId,
-                  target: {
-                    window: win,
-                    editable: true,
-                    nativeNode: focused,
-                  },
-                });
-              }
-            }
             return { outcome, resolvedScreenPoint: win.screenPoint };
           }
         }
