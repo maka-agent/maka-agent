@@ -25,3 +25,4 @@ export * from './task-ledger-store.js';
 export * from './agent-mailbox-store.js';
 export * from './config-transfer.js';
 export * from './automation-store.js';
+export * from './mcp-config-store.js';

@@ -71,6 +71,12 @@ import type {
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
+import type {
+  McpConfigFile,
+  McpServerConfig,
+  McpServerStatus,
+  McpTestResult,
+} from '@maka/core/mcp';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
 import type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
 import type { ConfigCategory } from '@maka/storage';
@@ -207,6 +213,15 @@ declare global {
         fetchModels(slug: string): Promise<ModelDiscoveryResult>;
         hasSecret(slug: string): Promise<boolean>;
         subscribeEvents(handler: (event: ConnectionEvent) => void): () => void;
+      };
+      mcp: {
+        getConfig(): Promise<McpConfigFile>;
+        listStatuses(): Promise<McpServerStatus[]>;
+        upsert(serverId: string, config: McpServerConfig): Promise<McpConfigFile>;
+        remove(serverId: string): Promise<McpConfigFile>;
+        test(serverId: string): Promise<McpTestResult>;
+        reconnect(serverId: string): Promise<McpServerStatus>;
+        subscribeChanges(handler: (statuses: McpServerStatus[]) => void): () => void;
       };
       settings: {
         get(): Promise<AppSettings>;

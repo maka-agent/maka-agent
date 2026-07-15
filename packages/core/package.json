@@ -52,6 +52,7 @@
     "./redaction": "./dist/redaction.js",
     "./display-redaction": "./dist/display-redaction.js",
     "./settings": "./dist/settings.js",
+    "./mcp": "./dist/mcp.js",
     "./settings/network-settings": "./dist/settings/network-settings.js",
     "./settings/result": "./dist/settings/result.js",
     "./usage-stats/types": "./dist/usage-stats/types.js",

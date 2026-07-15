@@ -322,6 +322,12 @@ export class SessionManager {
     return this.deps.store.list(filter);
   }
 
+  /** Invalidate backend snapshots now, or immediately after active turns settle. */
+  async refreshIdleBackends(): Promise<void> {
+    const sessions = await this.deps.store.list();
+    await Promise.all(sessions.map((session) => this.runtimeKernel.invalidateBackend(session.id)));
+  }
+
   async getMessages(sessionId: string): Promise<StoredMessage[]> {
     return (await this.getSessionView(sessionId)).messages;
   }

@@ -79,6 +79,12 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type {
+  McpConfigFile,
+  McpServerConfig,
+  McpServerStatus,
+  McpTestResult,
+} from '@maka/core/mcp';
+import type {
   AttachmentRef,
   OnboardingMilestone,
   OnboardingMilestoneId,
@@ -315,6 +321,31 @@ contextBridge.exposeInMainWorld('maka', {
       const listener = (_event: Electron.IpcRendererEvent, payload: ConnectionEvent) => handler(payload);
       ipcRenderer.on('connections:event', listener);
       return () => ipcRenderer.off('connections:event', listener);
+    },
+  },
+  mcp: {
+    getConfig(): Promise<McpConfigFile> {
+      return ipcRenderer.invoke('mcp:getConfig');
+    },
+    listStatuses(): Promise<McpServerStatus[]> {
+      return ipcRenderer.invoke('mcp:listStatuses');
+    },
+    upsert(serverId: string, config: McpServerConfig): Promise<McpConfigFile> {
+      return ipcRenderer.invoke('mcp:upsert', serverId, config);
+    },
+    remove(serverId: string): Promise<McpConfigFile> {
+      return ipcRenderer.invoke('mcp:remove', serverId);
+    },
+    test(serverId: string): Promise<McpTestResult> {
+      return ipcRenderer.invoke('mcp:test', serverId);
+    },
+    reconnect(serverId: string): Promise<McpServerStatus> {
+      return ipcRenderer.invoke('mcp:reconnect', serverId);
+    },
+    subscribeChanges(handler: (statuses: McpServerStatus[]) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: McpServerStatus[]) => handler(payload);
+      ipcRenderer.on('mcp:changed', listener);
+      return () => ipcRenderer.off('mcp:changed', listener);
     },
   },
   // PR110b: onboarding snapshot + milestone IPCs. Renderer polls

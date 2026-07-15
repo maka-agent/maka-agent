@@ -7,6 +7,8 @@
  * explicit.
  */
 
+export * from './mcp.js';
+
 // events.ts
 export type {
   SessionEvent,

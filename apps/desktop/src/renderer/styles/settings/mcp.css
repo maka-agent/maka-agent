@@ -1,0 +1,31 @@
+.mcpSettingsPage { gap: var(--space-4); }
+.mcpPageToolbar, .mcpServerHeader, .mcpEditorHeading, .mcpServerActions, .mcpEditorActions, .mcpServerHeaderActions, .mcpServerIdentity { display: flex; align-items: center; }
+.mcpPageToolbar, .mcpServerHeader, .mcpEditorHeading { justify-content: space-between; gap: var(--space-4); }
+.mcpPageToolbar { min-height: 48px; }
+.mcpPageToolbar > div, .mcpServerIdentity > div, .mcpEditorHeading > div:first-child { display: grid; gap: var(--space-1); }
+.mcpPageToolbar small, .mcpServerIdentity small, .mcpEditorHeading small, .mcpToolShelf small { color: var(--muted-foreground); }
+.mcpServerCard, .mcpEditorCard { padding: var(--space-5) var(--space-6); }
+.mcpServerCard { display: grid; gap: var(--space-4); }
+.mcpServerIdentity, .mcpServerHeaderActions, .mcpServerActions, .mcpEditorActions { gap: var(--space-2); }
+.mcpStatusDot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted-foreground); box-shadow: 0 0 0 4px oklch(from var(--muted-foreground) l c h / 0.1); }
+.mcpStatusDot[data-tone="success"] { background: var(--success); box-shadow: 0 0 0 4px oklch(from var(--success) l c h / 0.12); }
+.mcpStatusDot[data-tone="info"] { background: var(--info); }
+.mcpStatusDot[data-tone="destructive"] { background: var(--destructive); box-shadow: 0 0 0 4px oklch(from var(--destructive) l c h / 0.12); }
+.mcpServerEndpoint, .mcpStderrTail { font-family: var(--font-mono); font-size: var(--font-size-caption); }
+.mcpServerEndpoint { min-width: 0; padding: var(--space-3); overflow: hidden; color: var(--muted-foreground); background: var(--muted); border-radius: var(--radius-control); text-overflow: ellipsis; white-space: nowrap; }
+.mcpServerError { color: var(--destructive); font-size: var(--font-size-ui); }
+.mcpStderrTail { max-height: 140px; margin: 0; padding: var(--space-3); overflow: auto; white-space: pre-wrap; color: var(--destructive); background: oklch(from var(--destructive) l c h / 0.06); border-radius: var(--radius-control); }
+.mcpToolShelf { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.mcpToolShelf > span { padding: var(--space-1) var(--space-2); font-family: var(--font-mono); font-size: var(--font-size-caption); color: var(--muted-foreground); border: var(--border-width-hairline) solid var(--border); border-radius: var(--radius-pill); background: var(--background); }
+.mcpServerActions { justify-content: flex-end; }
+.mcpEditorCard form { display: grid; gap: var(--space-5); }
+.mcpKindPicker { display: flex; gap: var(--space-1); padding: var(--space-1); background: var(--muted); border-radius: var(--radius-control); }
+.mcpEditorGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.mcpFieldWide { grid-column: 1 / -1; }
+.mcpEditorGrid .settingsField { display: grid; gap: var(--space-2); }
+.mcpEditorGrid textarea { min-height: 104px; font-family: var(--font-mono); }
+.mcpEditorGrid select { min-height: 40px; width: 100%; padding: 0 var(--space-3); color: var(--foreground); border: var(--border-width-hairline) solid var(--border); border-radius: var(--radius-control); background: var(--background); }
+.mcpEditorActions { justify-content: flex-end; }
+.mcpEmptyState { min-height: 190px; padding: var(--space-8); display: grid; place-items: center; align-content: center; gap: var(--space-3); text-align: center; color: var(--muted-foreground); }
+.mcpEmptyState strong { color: var(--foreground); }
+@media (max-width: 760px) { .mcpEditorGrid { grid-template-columns: 1fr; } .mcpFieldWide { grid-column: auto; } .mcpPageToolbar, .mcpServerHeader { align-items: flex-start; } }

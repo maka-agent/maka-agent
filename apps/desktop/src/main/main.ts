@@ -1,4 +1,4 @@
-import { app, nativeImage, powerMonitor, safeStorage, shell } from 'electron';
+import { app, ipcMain, nativeImage, powerMonitor, safeStorage, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -45,6 +45,7 @@ import {
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
+  buildMcpTools,
   buildAskUserQuestionTool,
   createBuiltinSandboxManager,
   createFilesystemWorkerLaunchSpecProvider,
@@ -90,9 +91,12 @@ import {
   createRuntimeEventStore,
   createSessionStore,
   createSettingsStore,
+  createMcpConfigStore,
   createShellRunStore,
   createTelemetryRepo,
 } from '@maka/storage';
+import { McpClientManager } from '@maka/mcp';
+import { registerMcpIpcMain } from './mcp-ipc-main.js';
 import {
   ensureSessionCanSendOrRebind,
   errorCode,
@@ -256,6 +260,19 @@ const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
 const shellRunStore = createShellRunStore(workspaceRoot);
 const connectionStore = createConnectionStore(workspaceRoot);
 const settingsStore = createSettingsStore(workspaceRoot);
+const mcpConfigStore = createMcpConfigStore(workspaceRoot);
+const mcpManager = new McpClientManager({ clientName: 'maka-desktop', clientVersion: app.getVersion() });
+let mcpStartup: Promise<void> | undefined;
+function ensureMcpReady(): Promise<void> {
+  if (!mcpStartup) {
+    const startup = mcpConfigStore.get().then((config) => mcpManager.sync(config));
+    mcpStartup = startup;
+    void startup.catch(() => {
+      if (mcpStartup === startup) mcpStartup = undefined;
+    });
+  }
+  return mcpStartup;
+}
 const telemetryRepo = createTelemetryRepo(workspaceRoot);
 const dailyReviewArchiveStore = createDailyReviewArchiveStore(workspaceRoot);
 const artifactStore = createArtifactStore(workspaceRoot);
@@ -927,13 +944,18 @@ function modelSupportsVision(connection: LlmConnection, model: string): boolean 
 }
 
 backends.register('ai-sdk', async (ctx) => {
+  // MCP is optional. A corrupt mcp.json remains visible through Settings,
+  // but must not prevent builtin-only conversations from creating a backend.
+  await ensureMcpReady().catch(() => {});
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
   const candidateTools = isComputerUseRealModelE2e
     ? computerUseTools
-    : [...(ctx.tools ?? builtinTools)];
+    : ctx.tools
+      ? [...ctx.tools]
+      : [...builtinTools, ...buildMcpTools(mcpManager)];
   const candidateToolAvailability = isComputerUseRealModelE2e
     ? { economy: false, groups: [] }
     : toolAvailability;
@@ -1071,6 +1093,16 @@ const runtime = new SessionManager({
   newId: randomUUID,
   now: Date.now,
 });
+let mcpToolSnapshot = JSON.stringify(mcpManager.tools());
+mcpManager.onChange(() => {
+  safeSendToRenderer('mcp:changed', mcpManager.statuses());
+  const nextSnapshot = JSON.stringify(mcpManager.tools());
+  if (nextSnapshot === mcpToolSnapshot) return;
+  mcpToolSnapshot = nextSnapshot;
+  void runtime.refreshIdleBackends().catch((error) => {
+    console.warn('[mcp] failed to refresh backend tool snapshots:', error);
+  });
+});
 const dailyReview = createDailyReviewMainService({
   archiveStore: dailyReviewArchiveStore,
   connectionStore,
@@ -1121,6 +1153,14 @@ const onboardingService = createOnboardingService(
 
 function registerIpc(): void {
   const currentProjectRoot = resolveCurrentProjectRoot;
+  registerMcpIpcMain({
+    ipcMain,
+    store: mcpConfigStore,
+    manager: mcpManager,
+    ensureReady: ensureMcpReady,
+    refreshIdleBackends: () => runtime.refreshIdleBackends(),
+    emitChanged: (statuses) => safeSendToRenderer('mcp:changed', statuses),
+  });
 
   registerAppIpc({
     mainWindowController,
@@ -1715,6 +1755,7 @@ async function runBeforeQuitCleanup(): Promise<void> {
     openGateway.stop(),
     Promise.resolve(mainWindowController.disposeBrowserViews()),
     shellRuns.terminateAll(),
+    mcpManager.close(),
   ]);
   for (const result of results) {
     if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);

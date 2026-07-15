@@ -237,6 +237,36 @@ describe('SessionManager manual compaction', () => {
     sendGate.release();
     await sendPromise;
   });
+
+  test('backend refresh waits for an active turn and rebuilds on the following turn', async () => {
+    const store = new MemorySessionStore();
+    const sendGate = makeGate();
+    const turnStarted = makeGate();
+    let builds = 0;
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => {
+      builds += 1;
+      return new ActiveTurnBackend(ctx, { turnStarted, sendGate, compactCalls: [] });
+    });
+    const manager = new SessionManager({
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(26_000),
+    });
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    const firstTurn = drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hi' }));
+    await turnStarted.promise;
+    await manager.refreshIdleBackends();
+    expect(store.disposeCount).toBe(0);
+
+    sendGate.release();
+    await firstTurn;
+    expect(store.disposeCount).toBe(1);
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'again' }));
+    expect(builds).toBe(2);
+  });
 });
 
 describe('SessionManager permission mode updates', () => {
@@ -6608,6 +6638,10 @@ class DelegatingRuntimeKernel implements RuntimeKernelLike {
 
   updateCachedHeader(_sessionId: string, header: SessionHeader): void {
     this.cachedHeaders.push(header);
+  }
+
+  async invalidateBackend(sessionId: string): Promise<void> {
+    if (!this.activeRuns) this.disposed.push(sessionId);
   }
 
   async disposeBackend(sessionId: string): Promise<void> {

@@ -68,6 +68,7 @@ export interface RuntimeKernelLike {
   retractQueue(sessionId: string): string;
   hasActiveRuns(sessionId: string): boolean;
   updateCachedHeader(sessionId: string, header: SessionHeader): void;
+  invalidateBackend(sessionId: string): Promise<void>;
   disposeBackend(sessionId: string): Promise<void>;
 }
 
@@ -186,6 +187,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   private readonly historyCompactCheckpointWrites = new Map<string, Promise<void>>();
   private readonly historyCompactCleanupWrites = new Map<string, Promise<void>>();
   private readonly steeringBySession = new Map<string, SessionSteeringState>();
+  private readonly backendInvalidations = new Set<string>();
 
   constructor(private readonly deps: RuntimeKernelDeps) {
     if (deps.runStore && !deps.runtimeEventStore) {
@@ -224,7 +226,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
               this.finishPendingTurnStart(sessionId, true);
             }
           },
-          unregisterRun: (active, activeRun) => this.unregisterRun(active, activeRun),
+          unregisterRun: (active, activeRun) => this.unregisterParentRun(active, activeRun),
           updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
           updateStatus: (targetSessionId, status, blockedReason, ts) =>
             this.updateStatus(targetSessionId, status, blockedReason, ts),
@@ -232,7 +234,6 @@ export class RuntimeKernel implements RuntimeKernelLike {
             this.appendTurnState(targetSessionId, turnId, status, lineage, options),
         },
       });
-
       yield* this.runAgentTurn(sessionId, input, run, true, options.onRunStarted);
     } finally {
       if (pending) this.finishPendingTurnStart(sessionId, false);
@@ -265,7 +266,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       hooks: {
         ensureActive: (targetSessionId, nextHeader) => this.ensureActive(targetSessionId, nextHeader),
         registerRun: (active, activeRun) => this.registerRun(active, activeRun),
-        unregisterRun: (active, activeRun) => this.unregisterRun(active, activeRun),
+        unregisterRun: (active, activeRun) => this.unregisterParentRun(active, activeRun),
         updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
         updateStatus: (targetSessionId, status, blockedReason, ts) =>
           this.updateStatus(targetSessionId, status, blockedReason, ts),
@@ -901,7 +902,13 @@ export class RuntimeKernel implements RuntimeKernelLike {
     if (active) active.cachedHeader = header;
   }
 
+  async invalidateBackend(sessionId: string): Promise<void> {
+    this.backendInvalidations.add(sessionId);
+    await this.flushBackendInvalidation(sessionId);
+  }
+
   async disposeBackend(sessionId: string): Promise<void> {
+    this.backendInvalidations.delete(sessionId);
     const activeSessions = this.activeSessionsFor(sessionId);
     this.active.delete(sessionId);
     this.steeringBySession.delete(sessionId);
@@ -1166,6 +1173,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
     }
   }
 
+  private async unregisterParentRun(active: AgentRunActiveSession, run: AgentRun): Promise<void> {
+    this.unregisterRun(active, run);
+    await this.flushBackendInvalidation(active.sessionId);
+  }
+
   private async unregisterChildRun(
     activeKey: string,
     active: AgentRunActiveSession,
@@ -1179,6 +1191,12 @@ export class RuntimeKernel implements RuntimeKernelLike {
     } catch {
       // best-effort
     }
+    await this.flushBackendInvalidation(active.sessionId);
+  }
+
+  private async flushBackendInvalidation(sessionId: string): Promise<void> {
+    if (!this.backendInvalidations.has(sessionId) || this.hasActiveRuns(sessionId)) return;
+    await this.disposeBackend(sessionId);
   }
 
   private async updateStatus(

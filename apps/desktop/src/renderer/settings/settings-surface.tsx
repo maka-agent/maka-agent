@@ -25,6 +25,7 @@ import { DataSettingsPage } from './data-settings-page';
 import { GeneralSettingsPage } from './general-settings-page';
 import { HealthCenterPage } from './health-center-page';
 import { MemorySettingsPage } from './memory-settings-page';
+import { McpSettingsPage } from './mcp-settings-page';
 import { OpenGatewaySettingsPage } from './open-gateway-settings-page';
 import { PermissionCenterPage } from './permission-center-page';
 import { SettingsSkeleton } from './settings-skeleton';
@@ -342,6 +343,8 @@ function SettingsPage(props: {
           onOpenSession={props.onOpenSession}
         />
       );
+    case 'mcp':
+      return <McpSettingsPage />;
     case 'bot-chat':
       return (
         <BotChatSettingsPage

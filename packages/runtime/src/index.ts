@@ -103,6 +103,8 @@ export type {
 
 export { AiSdkBackend } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
+export { buildMcpTools, mcpProxyToolName } from './mcp-tools.js';
+export type { McpToolProvider, BuildMcpToolsOptions } from './mcp-tools.js';
 export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
 export { terminateChildProcessTree } from './process-tree-terminator.js';
 export type { AttachmentByteReader } from '@maka/core/attachments';
