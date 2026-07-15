@@ -108,4 +108,32 @@ describe('UI locale settings update gate', () => {
     );
     assert.deepEqual(applied, ['zh']);
   });
+
+  it('accepts an older pending save after the newer save fails', () => {
+    const gate = createUiLocaleUpdateGate();
+    const firstSaveTicket = gate.begin(true);
+    const failedSaveTicket = gate.begin(true);
+    const applied: string[] = [];
+
+    gate.cancel(failedSaveTicket);
+    assert.equal(
+      gate.commit(firstSaveTicket, 'en', (next) => applied.push(next)),
+      true,
+    );
+    assert.deepEqual(applied, ['en']);
+  });
+
+  it('restores an older successful save when the newer save fails later', () => {
+    const gate = createUiLocaleUpdateGate();
+    const firstSaveTicket = gate.begin(true);
+    const failedSaveTicket = gate.begin(true);
+    const applied: string[] = [];
+
+    assert.equal(
+      gate.commit(firstSaveTicket, 'en', (next) => applied.push(next)),
+      false,
+    );
+    gate.cancel(failedSaveTicket);
+    assert.deepEqual(applied, ['en']);
+  });
 });

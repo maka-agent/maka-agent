@@ -42,7 +42,7 @@ describe('renderer startup fail-soft contract', () => {
     assert.match(mountEffect, /void (?:options\.|latest\.)?refreshShellSettings\(\)/);
     assert.match(
       refreshShellSettings,
-      /try \{[\s\S]*window\.maka\.settings\.get\(\)[\s\S]*setUiLocalePreference\(uiLocale\)[\s\S]*setUiLocaleOverride\(smoke\?\.locale \?\? null\)[\s\S]*applyTheme\(pref\)[\s\S]*applyThemePalette\(palette\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('载入外观设置失败', generalizedErrorMessageChinese\(error, '外观设置暂时无法载入，请稍后重试。'\)\)/,
+      /try \{[\s\S]*window\.maka\.settings\.get\(\)[\s\S]*uiLocaleUpdateGate\.commitHydration\([\s\S]*setUiLocalePreference\(preference\)[\s\S]*setUiLocaleOverride\(smoke\?\.locale \?\? null\)[\s\S]*applyTheme\(pref\)[\s\S]*applyThemePalette\(palette\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('载入外观设置失败', generalizedErrorMessageChinese\(error, '外观设置暂时无法载入，请稍后重试。'\)\)/,
       'startup shell settings load failures must surface visibly without exposing raw storage/system details',
     );
     assert.doesNotMatch(refreshShellSettings, /toastApi\.error\('载入外观设置失败', cleanErrorMessage\(error\)\)/);

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { ToastProvider } from '@maka/ui';
 import type {
@@ -12,6 +12,7 @@ import type {
 } from '@maka/core';
 import { createDefaultSettings, DEFAULT_DAILY_REVIEW_CONFIG, mergeSettings } from '@maka/core';
 import { SettingsSurface } from '../../src/renderer/settings/settings-surface';
+import { createUiLocaleUpdateGate } from '../../src/renderer/settings/ui-locale-update-gate';
 import type { ConnectionsBridge } from '../../src/renderer/settings/ProvidersPanel';
 import { withScopedMakaBridge } from '../maka-bridge';
 
@@ -189,6 +190,7 @@ const withSettingsBridge = withScopedMakaBridge(makaBridge);
 
 function SettingsStory(props: { section: SettingsSection }) {
   const initialFocusRef = useRef<HTMLButtonElement>(null);
+  const [uiLocaleUpdateGate] = useState(createUiLocaleUpdateGate);
 
   return (
     <ToastProvider>
@@ -210,6 +212,7 @@ function SettingsStory(props: { section: SettingsSection }) {
           themePalette={'default' as ThemePalette}
           onThemePaletteChange={noop}
           onUiLocalePreferenceChange={noop}
+          uiLocaleUpdateGate={uiLocaleUpdateGate}
           requestedSection={props.section}
           initialFocusRef={initialFocusRef}
           onOpenDailyReview={noop}
