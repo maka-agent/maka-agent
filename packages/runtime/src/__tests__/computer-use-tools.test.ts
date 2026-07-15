@@ -1272,6 +1272,74 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.equal(tools.sessionEvents.snapshot('s1').status, 'reobserve_required');
   });
 
+  for (const semantic of [false, true]) {
+    test(`clearSession cannot mask a delivered ${semantic ? 'semantic ' : ''}mutation outcome`, async () => {
+      let release!: () => void;
+      let started!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const entered = new Promise<void>((resolve) => { started = resolve; });
+      const backend = fakeBackend() as CuDispatchBackend & {
+        observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+        runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+      };
+      backend.observeApp = async () => observation();
+      backend.run = async () => {
+        started();
+        await gate;
+        return {
+          outcome: {
+            ok: false,
+            error: 'outcome_unknown',
+            message: 'coordinate delivery may have occurred',
+          },
+        };
+      };
+      backend.runSemantic = async () => {
+        started();
+        await gate;
+        return {
+          outcome: {
+            ok: false,
+            error: 'capture_failed',
+            message: 'semantic verification failed after delivery',
+            completedSubSteps: 1,
+          },
+        };
+      };
+      const tools = buildComputerUseTools({ backend });
+      const [tool] = tools;
+      const observed = await tool.impl(
+        { action: 'observe', app: 'Fixture' } as never,
+        ctx(),
+      ) as { text: string };
+      const observationId = JSON.parse(observed.text).observation_id as string;
+      const pending = tool.impl(
+        semantic
+          ? {
+              action: 'click_element',
+              observation_id: observationId,
+              element_id: '5',
+            } as never
+          : {
+              action: 'left_click',
+              observation_id: observationId,
+              coordinate: [25, 30],
+            } as never,
+        ctx(),
+      );
+      await entered;
+
+      tools.clearSession('s1');
+      release();
+
+      const result = await pending as { text: string; error?: string };
+      assert.equal(result.error, 'outcome_unknown');
+      assert.match(result.text, /outcome_unknown/);
+      assert.doesNotMatch(result.text, /user_stopped|no_active_frame/);
+      assert.equal(tools.sessionEvents.snapshot('s1').status, 'user_stopped');
+    });
+  }
+
   test('a queued keyboard mutation cannot silently target a newer frame', async () => {
     let releaseClick!: () => void;
     const clickGate = new Promise<void>((resolve) => {

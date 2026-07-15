@@ -2666,10 +2666,7 @@ describe('cua-driver backend', () => {
     backend.clearSession('session-a');
     await pendingA;
 
-    assert.deepEqual(
-      [...new Set(invalidated)].sort(),
-      ['session-a', 'session-b'],
-    );
+    assert.deepEqual(invalidated.sort(), ['session-a', 'session-b']);
     const staleB = await backend.runSemantic?.({
       type: 'click_element',
       observationId: observedB.observationId,
@@ -2707,6 +2704,7 @@ describe('cua-driver backend', () => {
 
     backend.clearSession('session-a');
 
+    assert.deepEqual(invalidated, ['session-a']);
     assert.ok(!invalidated.includes('session-b'));
     const reusedObservationB = await backend.runSemantic?.({
       type: 'click_element',

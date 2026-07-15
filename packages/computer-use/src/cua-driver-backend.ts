@@ -317,6 +317,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   const observations = new Map<string, StoredObservation>();
   const observationIdsBySession = new Map<string, string[]>();
   const operationQueues = new Map<string, Promise<void>>();
+  let sessionClearReleaseEvents: CuaDriverReleaseEvent[] | undefined;
   let disposed = false;
 
   async function physicalInputFailure(): Promise<CuRunResult | undefined> {
@@ -455,13 +456,13 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     );
   }
 
-  function onServiceRelease(event: CuaDriverReleaseEvent): void {
-    if (event.reason === 'disposed') return;
+  function applyServiceRelease(events: readonly CuaDriverReleaseEvent[]): void {
+    const generationReleased = events.some((event) => event.generationReleased);
     const sessions = [
       ...new Set([
-        ...event.sessionIds,
-        ...(event.generationReleased ? targetsBySession.keys() : []),
-        ...(event.generationReleased
+        ...events.flatMap((event) => event.sessionIds),
+        ...(generationReleased ? targetsBySession.keys() : []),
+        ...(generationReleased
           ? [...observations.values()].map(
               (observation) => observation.context.sessionId,
             )
@@ -473,13 +474,22 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       try {
         opts.onSessionInvalidated?.({
           sessionId,
-          reason: event.reason,
-          outcomeUnknown: event.outcomeUnknown,
+          reason: events[0]!.reason,
+          outcomeUnknown: events.some((event) => event.outcomeUnknown),
         });
       } catch {
         // Host lifecycle observers cannot change service recovery.
       }
     }
+  }
+
+  function onServiceRelease(event: CuaDriverReleaseEvent): void {
+    if (event.reason === 'disposed') return;
+    if (event.reason === 'session_cleared' && sessionClearReleaseEvents) {
+      sessionClearReleaseEvents.push(event);
+      return;
+    }
+    applyServiceRelease([event]);
   }
 
   const actionClient = new CuaDriverService({
@@ -2653,9 +2663,19 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     },
 
     clearSession(sessionId) {
-      clearLocalSession(sessionId);
-      actionClient.clearSession(sessionId);
-      captureClient.clearSession(sessionId);
+      const releases: CuaDriverReleaseEvent[] = [];
+      sessionClearReleaseEvents = releases;
+      try {
+        actionClient.clearSession(sessionId);
+        captureClient.clearSession(sessionId);
+      } finally {
+        sessionClearReleaseEvents = undefined;
+      }
+      if (releases.length > 0) {
+        applyServiceRelease(releases);
+      } else {
+        clearLocalSession(sessionId);
+      }
     },
 
     dispose() {

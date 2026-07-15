@@ -779,6 +779,17 @@ export function buildComputerUseTools(deps: {
     };
   }
 
+  function hasUncertainDeliveredOutcome(
+    result: CuRunResult | undefined,
+  ): result is CuRunResult {
+    return result !== undefined
+      && !result.outcome.ok
+      && (
+        result.outcome.error === 'outcome_unknown'
+        || (result.outcome.completedSubSteps ?? 0) > 0
+      );
+  }
+
   function deliveredWithoutFreshObservation(
     action: CuAction,
     result: CuRunResult,
@@ -1463,7 +1474,7 @@ export function buildComputerUseTools(deps: {
               state.reobserveRequired();
             }
           }
-          if (consumeFailure) {
+          if (consumeFailure && !hasUncertainDeliveredOutcome(result)) {
             presentation?.finish();
             return consumeFailure;
           }
@@ -1578,7 +1589,10 @@ export function buildComputerUseTools(deps: {
               const validated = state.validateObservationLease(
                 observationLease.lease,
               );
-              if (!validated.ok) {
+              if (
+                !validated.ok
+                && !hasUncertainDeliveredOutcome(result)
+              ) {
                 presentation.finish();
                 return sessionFailure(validated.reason);
               }
@@ -1603,7 +1617,7 @@ export function buildComputerUseTools(deps: {
           // bounded frame never bloats history.
           let bindingResult: ComputerToolResult | undefined;
           if (boundAction) bindingResult = consumeBoundAction(record, boundAction);
-          if (bindingResult) {
+          if (bindingResult && !hasUncertainDeliveredOutcome(result)) {
             presentation?.finish();
             return bindingResult;
           }
