@@ -8,7 +8,9 @@ import type { HarborCellExecutionIdentity, HarborCellOutput } from '../cell-outp
 import { FixedPromptBudgetExhaustedError, type HarborTaskRunInput } from '../fixed-prompt-controller.js';
 import {
   buildHarborJobConfig,
+  createHarborOracleQualifier,
   createHarborTaskRunner,
+  HARBOR_VERIFIER_POLICY_FINGERPRINT,
   HarborInfraError,
   type HarborProcessRunner,
   type HarborRunResult,
@@ -70,6 +72,7 @@ interface FakeOptions {
   exitCode?: number;
   events?: string;
   verifierStdout?: string;
+  verifierOutcome?: Record<string, unknown>;
   trialResult?: Record<string, unknown>;
   captured?: { config?: Record<string, unknown> };
 }
@@ -91,6 +94,13 @@ function fakeRunner(opts: FakeOptions): HarborProcessRunner {
     }
     if (opts.verifierStdout !== undefined) {
       await writeFile(join(trialDir, 'verifier', 'test-stdout.txt'), opts.verifierStdout, 'utf8');
+    }
+    if (opts.verifierOutcome !== undefined) {
+      await writeFile(
+        join(trialDir, 'verifier', 'maka-verifier-outcome.json'),
+        JSON.stringify(opts.verifierOutcome),
+        'utf8',
+      );
     }
     if (opts.cell !== null) {
       await writeFile(join(trialDir, 'agent', 'maka-cell-output.json'), JSON.stringify(opts.cell ?? cellOutput()), 'utf8');
@@ -793,6 +803,35 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
+  test('uses structured verifier timeout outcome instead of stdout infrastructure heuristics', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        runHarbor: fakeRunner({
+          reward: '0\n',
+          verifierStdout: 'APT 502 Failed to fetch archive',
+          verifierOutcome: {
+            schemaVersion: 1,
+            outcome: 'candidate_timeout',
+            attempts: [
+              { attempt: 1, classification: 'timeout', durationMs: 600_000 },
+              { attempt: 2, classification: 'timeout', durationMs: 600_000 },
+            ],
+          },
+        }),
+      });
+
+      const output = await runner(runInput());
+
+      assert.equal(output.harbor.verifierFailureSummary, 'candidate_timeout');
+      assert.equal(output.harbor.verifier?.outcome, 'candidate_timeout');
+      assert.equal(output.harbor.verifier?.attempts.length, 2);
+      assert.notEqual(output.cell.errorClass, 'infra_failed');
+    });
+  });
+
   test('summarizes verifier assertion failures without raw expected output', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       const runner = createHarborTaskRunner({
@@ -866,6 +905,37 @@ describe('createHarborTaskRunner', () => {
   });
 });
 
+describe('createHarborOracleQualifier', () => {
+  test('runs the built-in Oracle with the same structured verifier policy', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const captured: FakeOptions['captured'] = {};
+      const qualify = createHarborOracleQualifier({
+        makaRepoPath: repo,
+        jobsDir,
+        dockerPlatform: 'linux/amd64',
+        runHarbor: fakeRunner({
+          captured,
+          reward: '1\n',
+          cell: null,
+          verifierOutcome: {
+            schemaVersion: 1,
+            outcome: 'passed',
+            attempts: [{ attempt: 1, classification: 'passed', durationMs: 12, reward: 1 }],
+          },
+        }),
+      });
+
+      const result = await qualify({ id: 'task-1', path: '/tasks/cobol-modernization' }, 'run-1');
+      const config = captured.config!;
+      const verifier = config.verifier as Record<string, unknown>;
+      assert.deepEqual(result, { outcome: 'passed', reward: 1, attempts: 1 });
+      assert.deepEqual(config.agents, [{ name: 'oracle' }]);
+      assert.equal(verifier.import_path, 'maka_verifier:MakaVerifier');
+      assert.match(HARBOR_VERIFIER_POLICY_FINGERPRINT, /^sha256:[a-f0-9]{64}$/);
+    });
+  });
+});
+
 describe('buildHarborJobConfig', () => {
   test('pins the OpenCode adapter and max model variant without serializing credentials', () => {
     const toolchain = {
@@ -888,6 +958,7 @@ describe('buildHarborJobConfig', () => {
     const env = agent.env as Record<string, string>;
     const mounts = (config.environment as { mounts: Array<Record<string, unknown>> }).mounts;
     const extraDockerCompose = (config.environment as { extra_docker_compose?: string[] }).extra_docker_compose;
+    const verifier = config.verifier as Record<string, unknown>;
 
     // Harbor resolves built-in names before import_path, so setting both would
     // silently bypass MakaOpenCodeAgent and its host-side auth proxy.
@@ -905,6 +976,9 @@ describe('buildHarborJobConfig', () => {
       && mount.read_only === true
     )));
     assert.deepEqual(extraDockerCompose, ['/repo/packages/headless/harbor/docker-compose-linux-amd64.yaml']);
+    assert.equal(verifier.import_path, 'maka_verifier:MakaVerifier');
+    assert.deepEqual(verifier.kwargs, { attempt_timeout_sec: 600, max_attempts: 2 });
+    assert.equal(verifier.override_timeout_sec, 1_320);
     assert.equal(env.ZAI_API_KEY, undefined);
     assert.equal(env.ZAI_API_KEY_FILE, undefined);
   });
@@ -1086,7 +1160,7 @@ describe('createHarborTaskRunner timeout', () => {
           metadata: { agentTimeoutSec: 7_200, verifierTimeoutSec: 600 },
         },
       }));
-      assert.equal(seenTimeout, (7_200 + 600 + 15 * 60) * 1_000);
+      assert.equal(seenTimeout, (7_200 + 1_320 + 15 * 60) * 1_000);
     });
   });
 

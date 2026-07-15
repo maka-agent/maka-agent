@@ -175,6 +175,12 @@ export interface HarnessAbRunManifestInput {
   subjectFingerprint: string;
   taskSourceFingerprint: string;
   toolchainFingerprint: string;
+  qualification?: {
+    agent: 'oracle';
+    evidenceFingerprint: string;
+    verifierPolicyFingerprint: string;
+    inspectedTaskIds: readonly string[];
+  };
 }
 
 export type HarnessAbRunManifest = AbRunManifest & {
@@ -189,6 +195,7 @@ export type HarnessAbRunManifest = AbRunManifest & {
     };
     model: HarnessAbRunManifestInput['model'];
     pricing: HarnessAbRunManifestInput['pricing'];
+    qualification?: NonNullable<HarnessAbRunManifestInput['qualification']>;
   };
   pilotTaskIds: string[];
 };
@@ -225,6 +232,12 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
     },
     model: { ...input.model },
     pricing: { ...input.pricing },
+    ...(input.qualification ? {
+      qualification: {
+        ...input.qualification,
+        inspectedTaskIds: [...input.qualification.inspectedTaskIds],
+      },
+    } : {}),
   };
   const manifest = buildAbRunManifest({
     experimentKind: 'harness',

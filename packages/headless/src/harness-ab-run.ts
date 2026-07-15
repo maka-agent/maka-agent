@@ -73,6 +73,7 @@ export async function runHarnessAbComparisonUnlocked(
         resultsJsonlPath: input.resultsJsonlPath,
         tasks: [task],
         infraFailurePolicy: 'terminal',
+        protectPassAtOne: true,
         requireExecutionIdentity: true,
         expectedPricingProfile: runtimeArm.expectedPricingProfile,
         resumeFingerprint: input.resumeFingerprint,

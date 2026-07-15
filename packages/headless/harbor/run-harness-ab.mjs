@@ -11,7 +11,12 @@ import {
   fingerprintFixedPromptTaskTree,
   resolveFixedPromptRunRoot,
 } from '#fixed-prompt-task-source';
-import { createHarborTaskRunner } from '#harbor-task-runner';
+import {
+  createHarborOracleQualifier,
+  createHarborTaskRunner,
+  HARBOR_VERIFIER_POLICY_FINGERPRINT,
+} from '#harbor-task-runner';
+import { ensureHarnessOracleQualification } from '#harness-qualification';
 import {
   OPENCODE_TOOLCHAIN_FINGERPRINT,
   OPENCODE_TOOLCHAIN_SPEC,
@@ -21,6 +26,7 @@ import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
   buildHarnessAbRunManifest,
+  deterministicHarnessTaskOrder,
   HARNESS_MAKA_CONTEXT_BUDGET,
   TERMINAL_BENCH_2_1_REVISION,
   TERMINAL_BENCH_2_1_TASK_IDS,
@@ -40,8 +46,9 @@ import {
   buildToolchainFingerprint,
 } from './run-prompt-ab.mjs';
 
-const EXPECTED_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
-export const DEFAULT_HARNESS_AB_RUN_ID = 'glm-5.2-maka-vs-opencode-tbench-2.1';
+const EXPECTED_SOURCE_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
+const EXPECTED_EVALUATION_TASKS = 30;
+export const DEFAULT_HARNESS_AB_RUN_ID = 'glm-5.2-maka-vs-opencode-tbench-2.1-qualified';
 const CANARY_TASKS = 2;
 const PILOT_TASKS = 30;
 const PROVIDER = 'zai-coding-plan';
@@ -72,8 +79,8 @@ function envPath(name, fallback) {
 
 function runLimit(raw) {
   const parsed = Number(raw ?? PILOT_TASKS);
-  if (parsed !== CANARY_TASKS && parsed !== PILOT_TASKS && parsed !== EXPECTED_TASKS) {
-    throw new Error(`MAKA_HARNESS_AB_LIMIT must be ${CANARY_TASKS}, ${PILOT_TASKS}, or ${EXPECTED_TASKS}`);
+  if (parsed !== CANARY_TASKS && parsed !== PILOT_TASKS) {
+    throw new Error(`MAKA_HARNESS_AB_LIMIT must be ${CANARY_TASKS} or ${PILOT_TASKS}`);
   }
   return parsed;
 }
@@ -102,6 +109,8 @@ export function buildHarnessAbManifest({
   subjectFingerprint,
   taskSourceFingerprint,
   toolchainFingerprint,
+  taskIds = TERMINAL_BENCH_2_1_TASK_IDS,
+  qualification,
 }) {
   return buildHarnessAbRunManifest({
     benchmark: {
@@ -112,7 +121,7 @@ export function buildHarnessAbManifest({
       timeoutMultiplier: 1,
       outerTimeoutGraceSec: HARBOR_SETUP_TEARDOWN_GRACE_SEC,
     },
-    taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
+    taskIds,
     orderSeed: ORDER_SEED,
     pilotTaskCount: PILOT_TASKS,
     model: { provider: PROVIDER, id: MODEL, reasoningEffort: REASONING_EFFORT },
@@ -148,6 +157,7 @@ export function buildHarnessAbManifest({
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,
+    ...(qualification ? { qualification } : {}),
   });
 }
 
@@ -189,6 +199,30 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
   const taskSourceFingerprint = await fingerprintFixedPromptTaskTree(allTasks);
   assertTerminalBench21TaskTreeFingerprint(taskSourceFingerprint);
 
+  if (process.env.MAKA_HARNESS_AB_DRY_RUN === '1') {
+    console.log(`dry-run: Oracle qualification will select ${EXPECTED_EVALUATION_TASKS}/${EXPECTED_SOURCE_TASKS} frozen tasks before ${limit} paired Pass@1 cells`);
+    return;
+  }
+
+  const tasksById = new Map(allTasks.map((task) => [task.id, task]));
+  const orderedTasks = deterministicHarnessTaskOrder(allTasks.map((task) => task.id), ORDER_SEED)
+    .map((taskId) => tasksById.get(taskId));
+  if (orderedTasks.some((task) => !task)) throw new Error('frozen task order contains a task absent from the task source');
+  const qualification = await ensureHarnessOracleQualification(
+    join(runRoot, 'oracle-qualification.json'),
+    {
+      candidateTasks: orderedTasks,
+      targetCount: EXPECTED_EVALUATION_TASKS,
+      taskSourceFingerprint,
+      verifierPolicyFingerprint: HARBOR_VERIFIER_POLICY_FINGERPRINT,
+      runOracle: createHarborOracleQualifier({
+        makaRepoPath,
+        jobsDir: join(runRoot, 'qualification-jobs'),
+        dockerPlatform: 'linux/amd64',
+      }),
+    },
+  );
+
   const subjectFingerprint = await buildSubjectFingerprint(
     makaRepoPath,
     process.env.MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT,
@@ -206,17 +240,18 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,
+    taskIds: qualification.selectedTaskIds,
+    qualification: {
+      agent: 'oracle',
+      evidenceFingerprint: qualification.fingerprint,
+      verifierPolicyFingerprint: qualification.verifierPolicyFingerprint,
+      inspectedTaskIds: qualification.candidates.map((candidate) => candidate.taskId),
+    },
   });
   const manifestPath = join(runRoot, 'harness-ab-manifest.json');
   await ensureAbRunManifest(manifestPath, manifest);
-  const tasksById = new Map(allTasks.map((task) => [task.id, task]));
   const evaluationTasks = manifest.evaluationTaskIds.slice(0, limit).map((taskId) => tasksById.get(taskId));
   if (evaluationTasks.some((task) => !task)) throw new Error('manifest contains a task absent from the frozen task source');
-
-  if (process.env.MAKA_HARNESS_AB_DRY_RUN === '1') {
-    console.log(`dry-run: ${limit}/${EXPECTED_TASKS} paired Pass@1 cells planned -> ${manifestPath}`);
-    return;
-  }
 
   const opencodeToolchainPath = process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN
     ? resolve(process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN)

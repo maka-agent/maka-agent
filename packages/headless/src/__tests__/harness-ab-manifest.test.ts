@@ -84,6 +84,30 @@ describe('harness A/B manifest', () => {
     assert.notEqual(changed.arms[1].fingerprint, original.arms[1].fingerprint);
   });
 
+  test('binds Oracle qualification evidence into the run identity', () => {
+    const original = buildHarnessAbRunManifest({
+      ...manifestInput(['a', 'b', 'c']),
+      qualification: {
+        agent: 'oracle',
+        evidenceFingerprint: 'sha256:evidence-a',
+        verifierPolicyFingerprint: 'sha256:verifier',
+        inspectedTaskIds: ['a', 'b', 'c'],
+      },
+    });
+    const changed = buildHarnessAbRunManifest({
+      ...manifestInput(['a', 'b', 'c']),
+      qualification: {
+        agent: 'oracle',
+        evidenceFingerprint: 'sha256:evidence-b',
+        verifierPolicyFingerprint: 'sha256:verifier',
+        inspectedTaskIds: ['a', 'b', 'c'],
+      },
+    });
+
+    assert.equal(original.metadata.qualification?.evidenceFingerprint, 'sha256:evidence-a');
+    assert.notEqual(changed.fingerprint, original.fingerprint);
+  });
+
   test('rejects duplicate tasks and a pilot longer than the full run', () => {
     assert.throws(
       () => deterministicHarnessTaskOrder(['a', 'a'], 'seed'),

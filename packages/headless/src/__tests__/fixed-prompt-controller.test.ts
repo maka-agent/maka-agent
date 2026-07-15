@@ -27,6 +27,29 @@ const config: Config = {
 };
 
 describe('fixed prompt controller', () => {
+  test('persists structured verifier attempts in the terminal WAL event', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const verifier = {
+        outcome: 'passed' as const,
+        attempts: [{ attempt: 1, classification: 'passed' as const, durationMs: 12, reward: 1 }],
+      };
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => harborOutput({ taskId: 'task-a', verifier }),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      if (result.events[0]?.type === 'task_completed') assert.deepEqual(result.events[0].harbor.verifier, verifier);
+    });
+  });
+
   test('rejects an execution identity with the wrong reasoning effort', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -493,6 +516,78 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.scored, false);
       assert.equal(result.events[0]?.errorClass, 'infra_error');
       assert.match(await readFile(resultsJsonlPath, 'utf8'), /"type":"task_infra_failed"/);
+    });
+  });
+
+  test('persists attempt admission before invoking Harbor', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        protectPassAtOne: true,
+        harborRunner: async ({ task }) => {
+          const wal = await readFile(`${resultsJsonlPath}.attempts.jsonl`, 'utf8');
+          assert.match(wal, /"type":"task_attempt_started"/);
+          assert.doesNotMatch(wal, /"type":"task_completed"/);
+          return harborOutput({ taskId: task.id });
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      const types = (await readFile(`${resultsJsonlPath}.attempts.jsonl`, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => (JSON.parse(line) as { type: string }).type);
+      assert.deepEqual(types, ['task_attempt_started']);
+    });
+  });
+
+  test('fails loud instead of resampling an orphaned admitted attempt', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      await appendFixedPromptWalEvent(`${resultsJsonlPath}.attempts.jsonl`, {
+        schemaVersion: 1,
+        type: 'task_attempt_started',
+        id: 'attempt-1',
+        ts: 1,
+        runId: 'run-1',
+        roundId: 'round-1',
+        taskId: 'task-a',
+        promptHash: hashSystemPrompt('fixed prompt\n'),
+      });
+      let harborCalls = 0;
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        infraFailurePolicy: 'terminal',
+        protectPassAtOne: true,
+        harborRunner: async ({ task }) => {
+          harborCalls += 1;
+          return harborOutput({ taskId: task.id });
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(harborCalls, 0);
+      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
+      assert.equal(result.events[0]?.errorClass, 'orphaned_sampled_attempt');
     });
   });
 
@@ -1986,9 +2081,10 @@ function harborOutput(input: {
   errorClass?: string;
   status?: HarborTaskRunOutput['cell']['status'];
   executionIdentity?: HarborTaskRunOutput['cell']['executionIdentity'];
+  verifier?: HarborTaskRunOutput['harbor']['verifier'];
 }): HarborTaskRunOutput {
   return {
-    harbor: { reward: input.reward ?? 1 },
+    harbor: { reward: input.reward ?? 1, ...(input.verifier ? { verifier: input.verifier } : {}) },
     cell: {
       schemaVersion: 1,
       status: input.status ?? 'completed',
