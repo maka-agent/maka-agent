@@ -22,6 +22,9 @@ const OVERFLOW_MESSAGE = 'prompt is too long: 213462 tokens > 200000 maximum';
  *  - 'tool'     → a Read tool call (completes a step, appends a durable pair)
  *  - 'bigtool'  → assistant text (sentinel) + a Read with a huge result, so the
  *                 proactive capacity trigger fires at this step's boundary
+ *  - 'bigread'  → a pure Read with a huge result and NO step text, so the
+ *                 durable pair is the trailing span a recovery fold must keep
+ *                 verbatim in the tail (the prune-resurrection shape)
  *  - 'load'     → a `load_tools` call activating the gated 'big' group
  *  - 'gated'    → a call to the gated `Big` tool
  *  - 'done'     → final assistant text, finish stop
@@ -30,7 +33,7 @@ const OVERFLOW_MESSAGE = 'prompt is too long: 213462 tokens > 200000 maximum';
  *                 rejects finishReason — the fake-end_turn latent-bug path)
  *  - 'error500' → a non-overflow provider failure (never a recovery trigger)
  */
-type CallKind = 'tool' | 'bigtool' | 'load' | 'gated' | 'done' | 'overflow' | 'error500';
+type CallKind = 'tool' | 'bigtool' | 'bigread' | 'load' | 'gated' | 'done' | 'overflow' | 'error500';
 
 const RETRY_STEP_TEXT_SENTINEL = 'RETRY_STEP_TEXT_SENTINEL reasoning before the big read';
 const BIG_RESULT = 'BIG_RESULT_'.repeat(200);
@@ -56,6 +59,8 @@ interface ReactiveFixtureOptions {
    * next prepareStep — the P1-A race window.
    */
   slowAppendMessage?: boolean;
+  /** Enable the active tool-result prune with a small threshold + archive seam. */
+  activeToolResultPrune?: boolean;
 }
 
 interface ReactiveLlmCall {
@@ -136,6 +141,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     const chunks =
       kind === 'tool' ? toolCallChunks(call, 'Read', { path: 'one.md' })
       : kind === 'bigtool' ? toolCallChunks(call, 'Read', { path: 'big.md' }, RETRY_STEP_TEXT_SENTINEL)
+      : kind === 'bigread' ? toolCallChunks(call, 'Read', { path: 'big.md' })
       : kind === 'load' ? toolCallChunks(call, 'load_tools', { group: 'big' })
       : kind === 'gated' ? toolCallChunks(call, 'Big', { q: 'run' })
       : doneChunks();
@@ -245,7 +251,13 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
         mode: 'read_write',
         ...(midTurnEnabled ? { midTurn: { enabled: true, reserveTokens } } : {}),
       },
+      ...(options.activeToolResultPrune
+        ? { activeToolResultPrune: { enabled: true, maxCurrentResultEstimatedTokens: 100 } }
+        : {}),
     },
+    ...(options.activeToolResultPrune
+      ? { archiveToolResult: () => ({ artifactId: 'artifact-archived-1' }) }
+      : {}),
     ...seams,
     recordLlmCall: (record) => { llmCalls.push(record as (typeof llmCalls)[number]); },
     newId: idGenerator(),
@@ -483,6 +495,39 @@ describe('reactive overflow recovery in the streaming backend', () => {
     assert.equal(retryRequestTools.includes('"Big"') || retryRequestTools.includes("'Big'"), true);
     // ...and it executes for real after the retry.
     assert.equal(fixture.toolExecutions.includes('BIG_EXEC'), true);
+  });
+
+  test('an actively pruned tool result stays a placeholder in the retry request (review round-3 P1)', async () => {
+    // Review round-3 P1 repro: the active tool-result prune derives its
+    // eligible tool-call IDs from `options.steps` and early-returns on an
+    // empty set. The retry's fresh streamText starts with empty steps, while
+    // the recovery projection is rebuilt from the durable ledger — which holds
+    // the ORIGINAL raw result, not the provider-only placeholder. The retry
+    // request therefore resurrected the archived raw body, breaking the
+    // active-prune invariant (an archived result never re-enters provider
+    // context) and inviting a second overflow. Third instance of the same
+    // disease: attempt-local `steps` consumed as send-level state.
+    //
+    // 'bigread' keeps the step text-free so the durable pair is the POOL'S
+    // trailing span: the safe boundary cannot split the pair, retreats before
+    // the call, and the fold re-materializes the pair verbatim in the tail —
+    // from the ledger, which holds the raw body, not the placeholder.
+    const fixture = buildReactiveFixture({
+      script: ['bigread', 'overflow', 'done'],
+      bigPriors: true,
+      activeToolResultPrune: true,
+    });
+    await runTurn(fixture);
+
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    // The rejected request had already pruned the big result to a placeholder.
+    const overflowPrompt = JSON.stringify(fixture.model.doStreamCalls[1]?.prompt);
+    assert.equal(overflowPrompt.includes('BIG_RESULT_'), false);
+    assert.equal(overflowPrompt.includes('artifact-archived-1'), true);
+    // The retry request must keep the placeholder — never the raw body.
+    const retryPrompt = JSON.stringify(fixture.model.doStreamCalls[2]?.prompt);
+    assert.equal(retryPrompt.includes('BIG_RESULT_'), false);
+    assert.equal(retryPrompt.includes('artifact-archived-1'), true);
   });
 
   test('a second overflow after the single retry ends as a real error', async () => {

@@ -157,20 +157,16 @@ export class ToolAvailabilityRuntime {
       };
     }
 
-    // Send-scoped monotonic activation set, seeded from the durable ledger:
-    // within one send a group loads and never unloads. The availability owner
-    // holds this state itself instead of re-deriving it from the SDK's `steps`,
-    // which are scoped to one streamText call — a reactive overflow retry
-    // starts a fresh call with empty steps and would silently revoke a
-    // same-turn activation (hide the tool AND reject it at the execute
-    // boundary). No cross-turn mutable state — the plan (and this set) is
-    // rebuilt per send, and a load survives turns only via the ledger seed.
-    const loaded = new Set<string>(this.seedLoadedGroups(priorEvents));
+    const seedGroups = this.seedLoadedGroups(priorEvents);
     // Turn-local snapshot the guard / repair / diagnostics read; recomputed
-    // before every step by `prepareStep`.
+    // before every step by `prepareStep`. No cross-turn mutable state — a load
+    // survives turns only via the ledger seed above (durable by construction),
+    // and within one send the backend's translation point hands every hook a
+    // send-global `steps` view spanning overflow-retry attempts, so activation
+    // stays monotonic per send without a bespoke set here.
     const turn = { active: new Set<string>() };
     const computeActive = (steps: ReadonlyArray<StepLike> | undefined): string[] => {
-      for (const id of this.loadedGroupsFromSteps(steps)) loaded.add(id);
+      const loaded = new Set<string>([...seedGroups, ...this.loadedGroupsFromSteps(steps)]);
       const active = canonicalizeToolSet(
         this.allTools,
         this.invalidTool,

@@ -1362,19 +1362,42 @@ export class AiSdkBackend implements AgentBackend {
         // historically caught the rejected finishReason as `stop` and
         // fabricated an end_turn completion with success telemetry.
         //
-        // Step-number clock (review P1-A): the SDK numbers prepareStep steps
-        // per streamText call, but every per-step consumer downstream — the
+        // Attempt→send translation (reviews P1-A and round-3 P1): the SDK
+        // scopes BOTH `stepNumber` and `steps` to one streamText call, but
+        // every per-step consumer downstream works in SEND units — the
         // capacity hook's durability wait (flushedSteps), replacedStepNumber,
-        // lastShapeFailure, the semantic-compact yield — keeps SEND-level
-        // state. This single translation point rebases each attempt's local
-        // step numbers onto the send-global clock (completed steps when the
-        // attempt started), so a retry never resets those clocks: an
-        // attempt-local wait bound satisfied by a PREVIOUS attempt's flushed
-        // boundary would let a post-retry compaction read the ledger before
-        // this attempt's step content is durable and silently drop it.
+        // lastShapeFailure, the semantic-compact yield, the availability
+        // runtime's same-turn `load_tools` activations, and the active
+        // tool-result prune's eligible tool-call IDs. This single translation
+        // point (a) rebases each attempt's local step numbers onto the
+        // send-global clock (completed steps when the attempt started), and
+        // (b) presents the send-global steps view: completed steps archived
+        // from every prior attempt, then the current attempt's own. Without
+        // it a retry resets those clocks/views — an attempt-local wait bound
+        // already satisfied by a previous attempt let a post-retry compaction
+        // drop not-yet-durable step content, a fresh empty `steps` revoked
+        // same-turn tool activations, and the prune's empty eligible set
+        // resurrected archived raw tool results from the ledger-rebuilt
+        // recovery projection. Consumers stay untouched; any future steps
+        // consumer is send-correct by construction. Steps folded into a
+        // checkpoint stay in the view: ID-based consumers only act on
+        // messages actually present in the projection, so a folded step's
+        // entry is inert.
         let attemptStepBase = 0;
+        const completedAttemptSteps: PrepareStepLike['steps'][number][] = [];
+        let attemptObservedSteps: PrepareStepLike['steps'] = [];
         const sendScopedPrepareStep: PrepareStepFunctionLike | undefined = prepareStep
-          ? async (options) => prepareStep({ ...options, stepNumber: attemptStepBase + options.stepNumber })
+          ? async (options) => {
+              // prepareStep sees every completed step of its own attempt, so
+              // the latest observation is the whole attempt when it dies (the
+              // rejected request completes no step after it).
+              attemptObservedSteps = options.steps;
+              return prepareStep({
+                ...options,
+                stepNumber: attemptStepBase + options.stepNumber,
+                steps: [...completedAttemptSteps, ...options.steps],
+              });
+            }
           : undefined;
         let attemptMessages: ModelMessage[] = messages;
         let overflowRetryUsed = false;
@@ -1493,6 +1516,10 @@ export class AiSdkBackend implements AgentBackend {
             if (recovered) {
               overflowRetryUsed = true;
               attemptMessages = recovered.messages;
+              // Archive the dead attempt's completed steps into the send view
+              // before the next attempt resets the SDK's local `steps`.
+              completedAttemptSteps.push(...attemptObservedSteps);
+              attemptObservedSteps = [];
               continue;
             }
             // Unrecoverable (not context-length, latch spent, no seam, or no
@@ -2489,9 +2516,19 @@ export class AiSdkBackend implements AgentBackend {
       // non-positive input count is unusable for estimation, so clear the
       // baseline and let the estimate fall back to the whole-payload cold
       // start instead of "0 + delta".
+      //
+      // The usage anchor is only meaningful PAIRED with the payload baseline
+      // of the request it was reported for (`lastRequestPayloadChars`). A
+      // successful overflow recovery restructures the request and resets that
+      // baseline to undefined: the send-global steps view still carries the
+      // dead attempt's last usage, but anchoring on it against the rejected
+      // request's chars would under-estimate the retry by the whole previous
+      // step growth — so a missing baseline forces the whole-payload cold
+      // start, exactly like a missing usage sample.
       const lastStepInputTokens = normalizeAiSdkUsage(options.steps.at(-1)?.usage)?.inputTokens;
       state.lastRequestInputTokens =
-        lastStepInputTokens !== undefined && Number.isFinite(lastStepInputTokens) && lastStepInputTokens > 0
+        state.lastRequestPayloadChars !== undefined
+        && lastStepInputTokens !== undefined && Number.isFinite(lastStepInputTokens) && lastStepInputTokens > 0
           ? lastStepInputTokens
           : undefined;
 
@@ -2898,6 +2935,13 @@ export class AiSdkBackend implements AgentBackend {
       estimatedTokensAfter: outcome.estimatedTokensAfter,
       reason: 'overflow',
     }));
+    // A successful recovery restructures the request, so the rejected
+    // request's payload measure no longer describes what the retry sends.
+    // Reset the baseline: the capacity hook's usage anchor is only coherent
+    // paired with the payload chars of the SAME request, and a missing
+    // baseline forces the whole-payload cold-start estimate instead of a
+    // stale pairing against the dead attempt.
+    state.lastRequestPayloadChars = undefined;
     return { messages: outcome.replacementMessages };
   }
 
