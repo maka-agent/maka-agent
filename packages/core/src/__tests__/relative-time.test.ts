@@ -37,6 +37,18 @@ describe('formatRelativeTimestamp', () => {
     assert.match(out, /5.*minute|分钟/i);
   });
 
+  it('formats against the explicitly resolved English locale', () => {
+    const out = formatRelativeTimestamp(NOW - 5 * 60_000, NOW, 'en');
+    assert.match(out, /5 minutes ago/i);
+    assert.doesNotMatch(out, /分钟/);
+  });
+
+  it('formats against the explicitly resolved Chinese locale', () => {
+    const out = formatRelativeTimestamp(NOW - 5 * 60_000, NOW, 'zh');
+    assert.match(out, /5.*分钟/);
+    assert.doesNotMatch(out, /minutes ago/i);
+  });
+
   it('formats a 3-hour age in hours', () => {
     const out = formatRelativeTimestamp(NOW - 3 * 60 * 60_000, NOW);
     assert.match(out, /3.*hour|小时/i);

@@ -19,6 +19,8 @@
  * the locale date string.
  */
 
+import { uiLocaleToIntlLocale, type UiLocale } from './ui-locale.js';
+
 /** Maximum age (ms) that still gets a relative bucket. Older → absolute. */
 const RELATIVE_HORIZON_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -26,20 +28,8 @@ let cachedRelativeFormat: Intl.RelativeTimeFormat | null = null;
 let cachedAbsoluteFormat: Intl.DateTimeFormat | null = null;
 let cachedLocale: string | null = null;
 
-function resolveLocale(): string {
-  if (typeof document !== 'undefined') {
-    const explicit = document.documentElement.getAttribute('data-maka-locale');
-    if (explicit === 'en') return 'en';
-    if (explicit === 'zh') return 'zh-CN';
-    const smoke = document.documentElement.getAttribute('data-maka-visual-smoke-locale');
-    if (smoke === 'en') return 'en';
-    if (smoke === 'zh') return 'zh-CN';
-  }
-  return 'zh-CN';
-}
-
-function getRelativeFormat(): Intl.RelativeTimeFormat {
-  const locale = resolveLocale();
+function getRelativeFormat(uiLocale: UiLocale): Intl.RelativeTimeFormat {
+  const locale = uiLocaleToIntlLocale(uiLocale);
   if (!cachedRelativeFormat || cachedLocale !== locale) {
     cachedRelativeFormat = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
     cachedAbsoluteFormat = null;
@@ -48,8 +38,8 @@ function getRelativeFormat(): Intl.RelativeTimeFormat {
   return cachedRelativeFormat;
 }
 
-function getAbsoluteFormat(): Intl.DateTimeFormat {
-  const locale = resolveLocale();
+function getAbsoluteFormat(uiLocale: UiLocale): Intl.DateTimeFormat {
+  const locale = uiLocaleToIntlLocale(uiLocale);
   if (!cachedAbsoluteFormat || cachedLocale !== locale) {
     cachedAbsoluteFormat = new Intl.DateTimeFormat(locale, {
       dateStyle: 'medium',
@@ -70,34 +60,38 @@ function getAbsoluteFormat(): Intl.DateTimeFormat {
  * don't want sidebar rows showing "in 2 minutes" when a tab's clock
  * drifts.
  */
-export function formatRelativeTimestamp(ts: number, now: number = Date.now()): string {
+export function formatRelativeTimestamp(
+  ts: number,
+  now: number = Date.now(),
+  locale: UiLocale = 'zh',
+): string {
   const diffMs = now - ts;
   if (diffMs < 0) {
     // Clock skew or future-dated record. Snap to "刚刚".
-    return getRelativeFormat().format(-1, 'second');
+    return getRelativeFormat(locale).format(-1, 'second');
   }
   if (diffMs > RELATIVE_HORIZON_MS) {
-    return getAbsoluteFormat().format(new Date(ts));
+    return getAbsoluteFormat(locale).format(new Date(ts));
   }
   const diffSeconds = Math.round(diffMs / 1000);
   if (diffSeconds < 60) {
     // Clamp to >=1 so we never produce "0 seconds ago".
-    return getRelativeFormat().format(-Math.max(1, diffSeconds), 'second');
+    return getRelativeFormat(locale).format(-Math.max(1, diffSeconds), 'second');
   }
   const diffMinutes = Math.round(diffSeconds / 60);
-  if (diffMinutes < 60) return getRelativeFormat().format(-diffMinutes, 'minute');
+  if (diffMinutes < 60) return getRelativeFormat(locale).format(-diffMinutes, 'minute');
   const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return getRelativeFormat().format(-diffHours, 'hour');
+  if (diffHours < 24) return getRelativeFormat(locale).format(-diffHours, 'hour');
   const diffDays = Math.round(diffHours / 24);
-  return getRelativeFormat().format(-diffDays, 'day');
+  return getRelativeFormat(locale).format(-diffDays, 'day');
 }
 
 let cachedCompactSameYearFormat: Intl.DateTimeFormat | null = null;
 let cachedCompactOtherYearFormat: Intl.DateTimeFormat | null = null;
 let cachedCompactLocale: string | null = null;
 
-function getCompactFormats(): { sameYear: Intl.DateTimeFormat; otherYear: Intl.DateTimeFormat } {
-  const locale = resolveLocale();
+function getCompactFormats(uiLocale: UiLocale): { sameYear: Intl.DateTimeFormat; otherYear: Intl.DateTimeFormat } {
+  const locale = uiLocaleToIntlLocale(uiLocale);
   if (!cachedCompactSameYearFormat || !cachedCompactOtherYearFormat || cachedCompactLocale !== locale) {
     cachedCompactSameYearFormat = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' });
     cachedCompactOtherYearFormat = new Intl.DateTimeFormat(locale, {
@@ -119,13 +113,17 @@ function getCompactFormats(): { sameYear: Intl.DateTimeFormat; otherYear: Intl.D
  * session title next to it to ~2 characters. Minute precision belongs
  * in tooltips/detail surfaces, not scan-level list rows.
  */
-export function formatCompactTimestamp(ts: number, now: number = Date.now()): string {
+export function formatCompactTimestamp(
+  ts: number,
+  now: number = Date.now(),
+  locale: UiLocale = 'zh',
+): string {
   const diffMs = now - ts;
   if (diffMs >= 0 && diffMs <= RELATIVE_HORIZON_MS) {
-    return formatRelativeTimestamp(ts, now);
+    return formatRelativeTimestamp(ts, now, locale);
   }
-  if (diffMs < 0) return formatRelativeTimestamp(ts, now);
-  const { sameYear, otherYear } = getCompactFormats();
+  if (diffMs < 0) return formatRelativeTimestamp(ts, now, locale);
+  const { sameYear, otherYear } = getCompactFormats(locale);
   const date = new Date(ts);
   const nowDate = new Date(now);
   return date.getFullYear() === nowDate.getFullYear() ? sameYear.format(date) : otherYear.format(date);
