@@ -199,6 +199,27 @@
   box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.30);
 }
 
+/* Docked-over-stream lift. Layout already keeps the composer in its own bottom
+   row; this only adds elevation so the card reads as lifted off the floor
+   rather than a flat band welded to the bottom edge.
+   Light mode: the card's own ring plus a restrained, foreground-derived drop
+   (warm shadow recipe — never pure black, per PR-BOX-SHADOW-CONVERGE-0).
+   The empty new-task surface keeps the flat resting card. */
+.mainColumn:not([data-home-surface="true"]) .composer .maka-composer-inner {
+  box-shadow:
+    0 0 0 1px oklch(from var(--foreground) l c h / var(--composer-ring-alpha, 0.035)),
+    0 2px 6px -3px oklch(from var(--foreground) l c h / 0.06),
+    0 10px 22px -12px oklch(from var(--foreground) l c h / 0.05);
+}
+
+/* Dark mode: elevation collapses to the card's own ring. On a dark shell a
+   blur drop reads as a dirty halo (pure black) or a glow (foreground-derived),
+   so the design system carries dark elevation as a border ring, not a shadow
+   (see the --shadow-medium dark override in maka-tokens.css). */
+.dark .mainColumn:not([data-home-surface="true"]) .composer .maka-composer-inner {
+  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / var(--composer-ring-alpha, 0.035));
+}
+
 /* D6 spectrum #2 (Command Input processing): while the assistant is
    streaming, a slow top-edge light sweep on the composer shell keeps
    "working" visible at the exact place the user's attention returns
