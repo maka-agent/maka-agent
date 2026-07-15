@@ -18,7 +18,7 @@ describe('BrowserPanel workbar layout contract', () => {
   it('gives the active browser tab a non-zero bounded bottom-workspace height', async () => {
     const css = await readRendererContractCss();
 
-    assert.match(css, /@media\s*\(max-width:\s*990px\)[\s\S]*?\.maka-session-workbar\s*\{[\s\S]*?min-height:\s*220px[\s\S]*?max-height:\s*min\(42dvh,\s*360px\)/);
+    assert.match(css, /@media\s*\(max-width:\s*990px\)[\s\S]*?\.maka-session-workbar\s*\{[\s\S]*?min-height:\s*min\(220px,\s*42dvh\)[\s\S]*?max-height:\s*min\(42dvh,\s*360px\)/);
     assert.match(css, /\.maka-session-workbar \.maka-browser-panel[\s\S]*?height:\s*100%[\s\S]*?min-height:\s*0/);
   });
 });

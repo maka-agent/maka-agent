@@ -1273,6 +1273,7 @@ export function AppShell({
           }
         >
           <AppShellWorkspaceTopActions
+            workbarAvailable={navSelection.section === 'sessions' && Boolean(activeId)}
             workbarCollapsed={workbarCollapsed}
             onToggleWorkbar={() => setWorkbarCollapsed((current) => !current)}
             onOpenFeedback={() => openSettingsSection('about')}
@@ -1575,7 +1576,7 @@ export function AppShell({
                 onPermissionModeChange={(mode) => setPermissionMode(mode)}
               />
             </div>
-            {activeId && !workbarCollapsed && (
+            {navSelection.section === 'sessions' && activeId && !workbarCollapsed && (
               <>
                 <div
                   className="maka-workbar-resize-handle"

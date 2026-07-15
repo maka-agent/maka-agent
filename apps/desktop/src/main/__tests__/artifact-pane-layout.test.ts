@@ -21,7 +21,7 @@ describe('session workbar narrow layout CSS contract', () => {
     );
     assert.match(
       css,
-      /@media\s*\(max-width:\s*990px\)\s*\{[\s\S]*?\.maka-session-workbar\s*\{[\s\S]*?width:\s*100%[\s\S]*?max-height:\s*min\(42dvh,\s*360px\)[\s\S]*?border-top:\s*var\(--border-width-hairline\) solid var\(--border\)/,
+      /@media\s*\(max-width:\s*990px\)\s*\{[\s\S]*?\.maka-session-workbar\s*\{[\s\S]*?width:\s*100%[\s\S]*?min-height:\s*min\(220px,\s*42dvh\)[\s\S]*?max-height:\s*min\(42dvh,\s*360px\)[\s\S]*?border-top:\s*var\(--border-width-hairline\) solid var\(--border\)/,
       'expected the session workbar to become a bounded full-width bottom workspace',
     );
   });
@@ -33,5 +33,10 @@ describe('session workbar narrow layout CSS contract', () => {
       /@media\s*\(max-width:\s*990px\)\s*\{[\s\S]*?\.maka-workbar-resize-handle\s*\{\s*display:\s*none/,
       'expected the desktop workbar resize handle to disappear in bottom-workspace mode',
     );
+  });
+
+  it('keeps the resize cursor and text selection lock while dragging', async () => {
+    const css = await readRendererContractCss();
+    assert.match(css, /\.isResizingWorkbar\s*\{[\s\S]*?cursor:\s*col-resize[\s\S]*?user-select:\s*none/);
   });
 });

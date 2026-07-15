@@ -62,6 +62,7 @@ export function AppShellTopbarActions(props: {
 }
 
 export function AppShellWorkspaceTopActions(props: {
+  workbarAvailable: boolean;
   workbarCollapsed: boolean;
   onToggleWorkbar(): void;
   onOpenFeedback(): void;
@@ -69,6 +70,12 @@ export function AppShellWorkspaceTopActions(props: {
   onOpenHelp(): void;
   onOpenHealth(): void;
 }) {
+  const workbarLabel = !props.workbarAvailable
+    ? '暂无可用的会话工作栏'
+    : props.workbarCollapsed
+      ? '展开会话工作栏'
+      : '收起会话工作栏';
+
   return (
     <div className="maka-workspace-top-actions" role="toolbar" aria-label="工作区辅助操作">
       <Tooltip>
@@ -125,12 +132,13 @@ export function AppShellWorkspaceTopActions(props: {
           type="button"
           className="maka-titlebar-action"
           onClick={props.onToggleWorkbar}
-          aria-label={props.workbarCollapsed ? '展开会话工作栏' : '收起会话工作栏'}
-          aria-expanded={!props.workbarCollapsed}
+          disabled={!props.workbarAvailable}
+          aria-label={workbarLabel}
+          aria-expanded={props.workbarAvailable && !props.workbarCollapsed}
         >
           {props.workbarCollapsed ? <PanelRightOpen aria-hidden="true" /> : <PanelRightClose aria-hidden="true" />}
         </TooltipTrigger>
-        <TooltipContent>{props.workbarCollapsed ? '展开会话工作栏' : '收起会话工作栏'}</TooltipContent>
+        <TooltipContent>{workbarLabel}</TooltipContent>
       </Tooltip>
     </div>
   );

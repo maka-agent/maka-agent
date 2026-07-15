@@ -29,6 +29,16 @@ describe('session workbar contract', () => {
     assert.doesNotMatch(chatView, /<TaskLedgerPanel\b/);
   });
 
+  it('only renders beside an active session inside the sessions module', async () => {
+    const appShell = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/app-shell.tsx'), 'utf8');
+
+    assert.match(
+      appShell,
+      /navSelection\.section === 'sessions' && activeId && !workbarCollapsed && \(/,
+      'module pages must not inherit the active session workbar',
+    );
+  });
+
   it('starts its tabs below the shared titlebar action row', async () => {
     const css = await readRendererContractCss();
     assert.match(

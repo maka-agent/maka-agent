@@ -21,7 +21,7 @@ describe('renderer lazy fallback contract', () => {
     assert.match(appShell, /function SessionWorkbarFallback/, 'Session workbar must reserve a loading shell');
     assert.match(
       appShell,
-      /\{activeId && !workbarCollapsed && \([\s\S]*?<Suspense fallback=\{<SessionWorkbarFallback \/>\}>[\s\S]*?<SessionWorkbar[\s\S]*?<\/Suspense>[\s\S]*?\)\}/,
+      /\{navSelection\.section === 'sessions' && activeId && !workbarCollapsed && \([\s\S]*?<Suspense fallback=\{<SessionWorkbarFallback \/>\}>[\s\S]*?<SessionWorkbar[\s\S]*?<\/Suspense>[\s\S]*?\)\}/,
       'The persisted shell-owned workbar state makes its visible fallback deterministic',
     );
     assert.match(appShell, /<Suspense fallback=\{<SessionWorkbarFallback \/>\}>/);

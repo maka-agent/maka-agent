@@ -53,7 +53,16 @@ describe('app shell chrome contract', () => {
 
     assert.match(combined, /PanelRightClose/, 'expanded workbar must expose its collapse action');
     assert.match(combined, /PanelRightOpen/, 'collapsed workbar must expose its expand action');
-    assert.match(combined, /aria-label=\{props\.workbarCollapsed \? '展开会话工作栏' : '收起会话工作栏'\}/);
-    assert.match(combined, /aria-expanded=\{!props\.workbarCollapsed\}/);
+    assert.match(combined, /'展开会话工作栏'/);
+    assert.match(combined, /'收起会话工作栏'/);
+    assert.match(combined, /aria-label=\{workbarLabel\}/);
+  });
+
+  it('keeps the workbar toggle unavailable until a session is active', async () => {
+    const combined = await readRendererShellCombinedSource();
+
+    assert.match(combined, /workbarAvailable: boolean/);
+    assert.match(combined, /disabled=\{!props\.workbarAvailable\}/);
+    assert.match(combined, /aria-expanded=\{props\.workbarAvailable && !props\.workbarCollapsed\}/);
   });
 });

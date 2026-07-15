@@ -56,6 +56,11 @@
 .maka-workbar-resize-handle:focus-visible::after,
 .isResizingWorkbar .maka-workbar-resize-handle::after { border-left-color: var(--ring); }
 
+.isResizingWorkbar {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .maka-session-workbar-tabs {
   height: 100%;
   min-height: 0;
@@ -555,7 +560,7 @@
     width: 100%;
     min-width: 0;
     max-width: none;
-    min-height: 220px;
+    min-height: min(220px, 42dvh);
     max-height: min(42dvh, 360px);
     padding-top: 0;
     border-left: 0;
