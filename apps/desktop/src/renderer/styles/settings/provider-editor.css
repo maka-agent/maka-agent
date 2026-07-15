@@ -153,7 +153,7 @@
 
 .providerAdvancedSettingsBody {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-5);
   padding-top: var(--space-3);
 }
 
@@ -173,6 +173,11 @@
 .providerKeyDialogActions {
   display: flex;
   justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.providerEndpointSettings {
+  display: grid;
   gap: var(--space-2);
 }
 
@@ -303,10 +308,12 @@
 
 .providerAdvancedActions {
   flex-wrap: wrap;
+  gap: var(--space-1);
 }
 
 .providerAdvancedDanger {
   margin-left: auto;
+  color: var(--destructive-text);
 }
 
 .providerEnabledModels {
@@ -343,8 +350,7 @@
   list-style: none;
 }
 
-.providerModelSearchRow,
-.providerEnabledModelList > li {
+.providerModelSearchRow {
   display: flex;
   align-items: center;
   min-height: 40px;
@@ -352,8 +358,7 @@
   border-top: var(--border-width-hairline) solid var(--border);
 }
 
-.providerModelSearchRow:first-child,
-.providerEnabledModelList > li:first-child {
+.providerModelSearchRow:first-child {
   border-top: 0;
 }
 
@@ -376,15 +381,19 @@
 }
 
 .providerEnabledModelList {
+  display: grid;
+  gap: var(--space-1);
   margin: 0;
   padding: 0;
-  border-top: var(--border-width-hairline) solid var(--border);
-  border-bottom: var(--border-width-hairline) solid var(--border);
   list-style: none;
 }
 
 .providerEnabledModelList > li {
-  padding-left: var(--space-0-5);
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  gap: var(--space-2);
+  padding: 0 var(--space-0-5);
 }
 
 

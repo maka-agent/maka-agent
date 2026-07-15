@@ -575,33 +575,35 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
             disabled={detailActionBusy}
             onChange={(next) => void updateEnabledModels(next)}
           />
-          <ConnectionEndpointField
-            baseUrl={baseUrl}
-            defaultsBaseUrl={defaults.baseUrl}
-            fixedOAuth={hasFixedOAuthBaseUrl}
-            disabled={detailActionBusy}
-            onChange={setBaseUrl}
-          />
-          {hasBaseUrlChange && (
-            <div className="providerEndpointActions">
-              <Button type="button" disabled={detailActionBusy} onClick={save}>
-                {busy ? '保存中…' : '保存服务地址'}
-              </Button>
-            </div>
-          )}
+          <div className="providerEndpointSettings">
+            <ConnectionEndpointField
+              baseUrl={baseUrl}
+              defaultsBaseUrl={defaults.baseUrl}
+              fixedOAuth={hasFixedOAuthBaseUrl}
+              disabled={detailActionBusy}
+              onChange={setBaseUrl}
+            />
+            {hasBaseUrlChange && (
+              <div className="providerEndpointActions">
+                <Button type="button" disabled={detailActionBusy} onClick={save}>
+                  {busy ? '保存中…' : '保存服务地址'}
+                </Button>
+              </div>
+            )}
+          </div>
           <div className="providerAdvancedActions">
             <Button variant="secondary" type="button" disabled={detailActionBusy || !hasUsableCredential} onClick={runTest}>
               {testing ? '测试中…' : '测试连接'}
             </Button>
-            <Button variant="secondary" type="button" disabled={detailActionBusy || !hasUsableCredential} onClick={() => void refreshModels()}>
+            <Button variant="quiet" type="button" disabled={detailActionBusy || !hasUsableCredential} onClick={() => void refreshModels()}>
               {fetchingModels ? '更新中…' : '更新模型目录'}
             </Button>
             {!props.isDefault && connection.enabled && (
-              <Button variant="secondary" type="button" disabled={detailActionBusy} onClick={setAsDefault}>
+              <Button variant="quiet" type="button" disabled={detailActionBusy} onClick={setAsDefault}>
                 {settingDefault ? '设置中…' : '设为默认连接'}
               </Button>
             )}
-            <Button className="providerAdvancedDanger" variant="destructive" type="button" disabled={detailActionBusy} onClick={remove}>
+            <Button className="providerAdvancedDanger" variant="quiet" type="button" disabled={detailActionBusy} onClick={remove}>
               {deleting ? '删除中…' : '删除连接'}
             </Button>
           </div>
@@ -807,7 +809,7 @@ function EnabledModelManager(props: {
   return (
     <section className="providerEnabledModels" aria-labelledby="provider-enabled-models-title">
       <div className="providerEnabledModelsHeader">
-        <strong id="provider-enabled-models-title">启用模型（{props.enabledModelIds.length}）</strong>
+        <strong id="provider-enabled-models-title">启用模型 {props.enabledModelIds.length}</strong>
         <span>仅这些模型会出现在模型选择器中。</span>
       </div>
       <Input

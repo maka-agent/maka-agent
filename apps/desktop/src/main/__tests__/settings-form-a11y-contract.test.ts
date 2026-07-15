@@ -84,8 +84,9 @@ describe('Settings form accessibility labels', () => {
     assert.match(providerMarketGridRule, /grid-template-columns:\s*1fr;/, 'Settings provider catalog should render as a seamless single-column row list, not a card grid');
     assert.ok(providerCatalogRow, 'Settings provider catalog rows should be governed by the shared .providerCatalogRow (Item) class');
     // PR-DELETE-ORPHAN-CSS: providerIcon assertion removed (orphan).
-    assert.match(enabledModelList, /border-top:\s*var\(--border-width-hairline\) solid var\(--border\);/, 'Enabled models should use one flat separator language instead of a nested card');
-    assert.match(enabledModelList, /border-bottom:\s*var\(--border-width-hairline\) solid var\(--border\);/, 'Enabled models should close with the same flat separator');
+    assert.match(enabledModelList, /display:\s*grid;/, 'Enabled models should group plain rows with layout, not container chrome');
+    assert.match(enabledModelList, /gap:\s*var\(--space-1\);/, 'Enabled model rows should use whitespace as their persistent grouping cue');
+    assert.doesNotMatch(enabledModelList, /border-(?:top|bottom):/, 'Enabled models should not add separators around an already-bordered search field');
     assert.match(modelSearchResults, /border-radius:\s*var\(--radius-surface\);/, 'Search results may use the standard secondary-surface radius');
     assert.match(providerCatalogBadge, /border-radius:\s*var\(--radius-control\);/, 'Provider catalog badges (category / preview / login) should use compact squared target-layout style corners, not pills');
     assert.match(connectionBadge, /rounded-\[var\(--radius-control\)\]/, 'Settings status badges (Chip primitive) should use compact squared target-layout style corners, not pills');

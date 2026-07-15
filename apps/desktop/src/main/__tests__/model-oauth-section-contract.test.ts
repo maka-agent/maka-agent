@@ -639,7 +639,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /!\s*props\.isDefault && connection\.enabled && \([\s\S]*<Button variant="secondary" type="button" disabled=\{detailActionBusy\} onClick=\{setAsDefault\}>[\s\S]*\{settingDefault \? '设置中…' : '设为默认连接'\}[\s\S]*<\/Button>/,
+      /!\s*props\.isDefault && connection\.enabled && \([\s\S]*<Button variant="quiet" type="button" disabled=\{detailActionBusy\} onClick=\{setAsDefault\}>[\s\S]*\{settingDefault \? '设置中…' : '设为默认连接'\}[\s\S]*<\/Button>/,
       'disabled connections must not render the set-default action',
     );
   });
@@ -726,7 +726,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /<Button className="providerAdvancedDanger" variant="destructive" type="button" disabled=\{detailActionBusy\} onClick=\{remove\}>[\s\S]*\{deleting \? '删除中…' : '删除连接'\}[\s\S]*<\/Button>/,
+      /<Button className="providerAdvancedDanger" variant="quiet" type="button" disabled=\{detailActionBusy\} onClick=\{remove\}>[\s\S]*\{deleting \? '删除中…' : '删除连接'\}[\s\S]*<\/Button>/,
       'Delete should be disabled while provider detail actions are busy and show its own pending copy',
     );
   });
