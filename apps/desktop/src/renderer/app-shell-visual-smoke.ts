@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { SettingsSection, ThemePreference } from '@maka/core';
-import type { LiveTurnProjection, PermissionQueues } from '@maka/ui';
+import type { InteractionQueues, LiveTurnProjection } from '@maka/ui';
 import type { NavSelection } from '@maka/ui';
 import { applyTheme } from './theme';
 
@@ -15,9 +15,10 @@ export function createAppShellVisualSmokeActions(options: {
   openSettingsSection: (section: SettingsSection) => void;
   refreshSessions: () => Promise<unknown>;
   setActiveId: (sessionId: string | undefined) => void;
+  setLiveBrowserSessionIds: Dispatch<SetStateAction<string[]>>;
   setLiveTurnBySession: StateUpdater<Record<string, LiveTurnProjection>>;
   setNavSelection: Dispatch<SetStateAction<NavSelection>>;
-  setPermissionBySession: StateUpdater<PermissionQueues>;
+  setInteractionBySession: StateUpdater<InteractionQueues>;
   setSearchModalOpen: Dispatch<SetStateAction<boolean>>;
   setSessionListCollapsed: Dispatch<SetStateAction<boolean>>;
   setThemePref: Dispatch<SetStateAction<ThemePreference>>;
@@ -27,9 +28,10 @@ export function createAppShellVisualSmokeActions(options: {
     openSettingsSection,
     refreshSessions,
     setActiveId,
+    setLiveBrowserSessionIds,
     setLiveTurnBySession,
     setNavSelection,
-    setPermissionBySession,
+    setInteractionBySession,
     setSearchModalOpen,
     setSessionListCollapsed,
     setThemePref,
@@ -50,11 +52,11 @@ export function createAppShellVisualSmokeActions(options: {
       setLiveTurnBySession((current) => ({ ...current, ...state.liveTurnBySession }));
     }
     if (state.permissionBySession) {
-      const seeded: PermissionQueues = {};
+      const seeded: InteractionQueues = {};
       for (const [seedSessionId, request] of Object.entries(state.permissionBySession)) {
         if (request) seeded[seedSessionId] = [request];
       }
-      setPermissionBySession((current) => ({ ...current, ...seeded }));
+      setInteractionBySession((current) => ({ ...current, ...seeded }));
     }
     // PR-IR-01b: theme override applied BEFORE the persisted user pref so
     // the screenshot variant matches `<theme>-<viewport>-<motion>.png`
@@ -102,6 +104,13 @@ export function createAppShellVisualSmokeActions(options: {
     await refreshSessions();
     if (state.activeSessionId) {
       setActiveId(state.activeSessionId);
+    }
+    // #819: seed live browser session ids so BrowserPanel mounts for the
+    // active session (app-shell gates on `activeId &&
+    // liveBrowserSessionIds.includes(activeId)`). Only the `browser-empty`
+    // scenario sets this; real users never receive a visual smoke state.
+    if (state.liveBrowserSessionIds) {
+      setLiveBrowserSessionIds(state.liveBrowserSessionIds);
     }
     if (state.sidebarCollapsed !== undefined) {
       setSessionListCollapsed(state.sidebarCollapsed);

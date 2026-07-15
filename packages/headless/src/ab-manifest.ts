@@ -10,6 +10,7 @@ export function buildAbRunManifest(input: AbRunManifestInput): AbRunManifest {
   const manifestWithoutFingerprint = withoutUndefined({
     schemaVersion: 'maka.ab.run_manifest.v1' as const,
     experimentKind: input.experimentKind,
+    metadata: input.metadata,
     arms: input.arms.map((arm) => withoutUndefined({
       id: arm.id,
       kind: arm.kind,

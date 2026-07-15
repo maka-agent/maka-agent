@@ -29,6 +29,7 @@ export type FeatureEnablementState = typeof FEATURE_ENABLEMENT_STATES[number];
 export const ACTION_APPROVAL_STATES = [
   'not_required',
   'required_per_action',
+  'required_scoped_lease',
   'pending',
   'approved',
   'denied',

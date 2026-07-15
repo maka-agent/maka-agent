@@ -262,26 +262,3 @@ export function normalizeHits(results: SearchResult[]): NormalizedThreadHit[] {
   }
   return hits;
 }
-
-/**
- * UI-facing helper: turn a `ThreadSearchState` into a fixed Chinese
- * blocked / error label. Used by the Command Palette to render a single
- * disabled entry when the backend returns `incognito_active`.
- *
- * Per xuan `6e7372c5`: fixed Chinese main text, generalized hint, no
- * result count.
- */
-export function blockedStateLabel(state: ThreadSearchState): string | undefined {
-  if (state.kind !== 'blocked') return undefined;
-  return '搜索已在隐私模式下停用';
-}
-
-export function blockedStateHint(state: ThreadSearchState): string | undefined {
-  if (state.kind !== 'blocked') return undefined;
-  // Generalized hint — the message text from the IPC distinguishes
-  // active vs malformed-context internally, but the UI shows a single
-  // blocked state. Caller can pass through `state.message` verbatim
-  // (it's already a generalized sentence from the backend) but should
-  // NOT expose result counts or session ids.
-  return state.message;
-}

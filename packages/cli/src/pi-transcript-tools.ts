@@ -1,4 +1,13 @@
 import type { ToolOutputStream, ToolResultContent } from '@maka/core/events';
+import {
+  ptyCompactTerminalLine,
+  ptyTuiTerminalRows,
+  ptyTuiTerminalView,
+  readWriteStdinInputPreview,
+  type PtyShellOutput,
+  type ShellRunOperation,
+} from '@maka/core';
+import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import { ansi } from './tui-ansi.js';
 import { colorDiff, diffLineKind } from './tui-diff.js';
 import {
@@ -22,12 +31,14 @@ function toolStatusText(entry: MakaPiToolEntry): string {
     ? ansi.yellow('running')
     : entry.status === 'detached'
       ? ansi.dim('detached')
+      : entry.status === 'unavailable'
+        ? ansi.dim('source unavailable')
       : entry.status === 'done'
         ? ansi.green('done')
         : ansi.red(entry.status);
   const duration = entry.durationMs === undefined
     ? ''
-    : entry.result?.kind === 'shell_run'
+    : entry.toolName === 'Bash' && entry.result?.kind === 'shell_run'
       ? ansi.dim(` ${Math.floor(entry.durationMs / 1_000)}s`)
       : ansi.dim(` ${entry.durationMs}ms`);
   return `${status}${duration}`;
@@ -50,7 +61,7 @@ function renderCompactToolBlock(entry: MakaPiToolEntry, width: number): string[]
     const hint = summary.expandable ? ansi.dim(' (Ctrl+O)') : '';
     lines.push(fitLine(`  ${collapseToSingleLine(summary.text)}${hint}`, width));
   }
-  if (entry.status === 'running' && entry.result?.kind === 'shell_run') {
+  if (entry.toolName === 'Bash' && entry.status === 'running' && entry.result?.kind === 'shell_run') {
     lines.push(fitLine(ansi.dim('  Ask Maka to stop this task'), width));
   }
   return lines;
@@ -83,7 +94,7 @@ function renderExpandedToolBlock(entry: MakaPiToolEntry, width: number): string[
   if (entry.result || entry.output) {
     lines.push(...renderToolResult(entry, width));
   }
-  if (entry.status === 'running' && entry.result?.kind === 'shell_run') {
+  if (entry.toolName === 'Bash' && entry.status === 'running' && entry.result?.kind === 'shell_run') {
     lines.push(...renderIndented(ansi.dim('Ask Maka to stop this task'), width, 2));
   }
   return lines.map((line) => fitLine(line, width));
@@ -99,13 +110,25 @@ function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolS
   const hasLiveOutput = entry.outputDeltas.length > 0 || entry.progress.length > 0;
   const result = entry.result;
   if (result?.kind === 'shell_run') {
-    const latest = result.latestOutputStream
-      ? lastNonEmptyLine(result[result.latestOutputStream])
-      : lastNonEmptyLine([result.stdout, result.stderr].filter(Boolean).join('\n'));
+    if (entry.toolName === 'WriteStdin') {
+      return {
+        text: formatPtyControlOperation(result.operation, entry.input),
+        expandable: result.operation?.kind === 'pty_control' && result.operation.failed,
+      };
+    }
+    const latest = result.output?.mode === 'pty'
+      ? ptyCompactTerminalLine(result.output)
+      : result.output?.mode === 'pipes'
+        ? result.output.latestStream
+          ? lastNonEmptyLine(result.output[result.output.latestStream])
+          : lastNonEmptyLine([result.output.stdout, result.output.stderr].filter(Boolean).join('\n'))
+        : '';
     if (latest) return { text: latest, expandable: true };
     return {
       text: entry.status === 'detached'
         ? ansi.dim('(owned by source session)')
+        : entry.status === 'unavailable'
+          ? ansi.dim('(source session unavailable)')
         : result.status === 'running'
           ? ansi.dim('(waiting for output)')
           : ansi.dim('(no output)'),
@@ -170,16 +193,26 @@ function compactTerminalSummary(
   content: Extract<ToolResultContent, { kind: 'terminal' }>,
   hasLiveOutput: boolean,
 ): CompactToolSummary {
-  const hasOutput = Boolean(content.stdout || content.stderr);
-  if (content.exitCode !== 0) {
-    const stderrLine = lastNonEmptyLine(content.stderr);
-    const exit = ansi.red(`exit ${content.exitCode}`);
+  const hasOutput = content.output.mode === 'pty'
+    ? Boolean(ptyCompactTerminalLine(content.output))
+    : Boolean(content.output.stdout || content.output.stderr);
+  if (content.status !== 'completed') {
+    const detail = content.output.mode === 'pipes'
+      ? lastNonEmptyLine(content.output.stderr)
+      : ptyCompactTerminalLine(content.output);
+    const status = ansi.red(content.exitCode === undefined ? content.status : `exit ${content.exitCode}`);
     return {
-      text: stderrLine ? `${exit} ${stderrLine}` : exit,
+      text: detail ? `${status} ${detail}` : status,
       expandable: hasOutput || hasLiveOutput,
     };
   }
-  const combined = [content.stdout, content.stderr].filter(Boolean).join('\n').replace(/\n+$/, '');
+  if (content.output.mode === 'pty') {
+    const latest = ptyCompactTerminalLine(content.output);
+    return latest
+      ? { text: latest, expandable: true }
+      : { text: ansi.dim('(no output)'), expandable: hasLiveOutput };
+  }
+  const combined = [content.output.stdout, content.output.stderr].filter(Boolean).join('\n').replace(/\n+$/, '');
   if (!combined) return { text: ansi.dim('(no output)'), expandable: hasLiveOutput };
   const totalLines = combined.split('\n').length;
   const prefix = totalLines > 1 ? ansi.dim(`(${totalLines} lines) `) : '';
@@ -311,15 +344,22 @@ function readInputPath(entry: MakaPiToolEntry): string | undefined {
   return typeof path === 'string' && path.length > 0 ? path : undefined;
 }
 
-/** A Read whose path is a real file, not a `maka://runtime/...` resource. */
-function isFilesystemReadPath(entry: MakaPiToolEntry): boolean {
-  const path = readInputPath(entry);
-  return path !== undefined && !path.startsWith('maka://runtime/');
+function readInputRef(entry: MakaPiToolEntry): string | undefined {
+  const input = entry.input;
+  const ref = input !== null && typeof input === 'object'
+    ? (input as { ref?: unknown }).ref
+    : undefined;
+  return typeof ref === 'string' && ref.length > 0 ? ref : undefined;
 }
 
-/** A Read of a `maka://runtime/...` resource (background-task output, etc.). */
-function isRuntimeResourceReadPath(entry: MakaPiToolEntry): boolean {
-  return readInputPath(entry)?.startsWith('maka://runtime/') ?? false;
+/** A Read using the filesystem branch. */
+function isFilesystemReadPath(entry: MakaPiToolEntry): boolean {
+  return readInputPath(entry) !== undefined;
+}
+
+/** A Read using the runtime-resource branch (background-task output, etc.). */
+function isRuntimeResourceRead(entry: MakaPiToolEntry): boolean {
+  return readInputRef(entry)?.startsWith('maka://runtime/') ?? false;
 }
 
 /**
@@ -384,7 +424,7 @@ function renderToolResult(entry: MakaPiToolEntry, width: number): string[] {
   // metadata + stdout/stderr) that only lives in the transcript. Its body opens
   // with several metadata/separator lines, so a head/tail cap would hide the very
   // output the user expanded to see — render it in full.
-  if (entry.toolName === 'Read' && isRuntimeResourceReadPath(entry)) {
+  if (entry.toolName === 'Read' && isRuntimeResourceRead(entry)) {
     return renderToolText(plainResultText(entry), width);
   }
   // A successful filesystem Read that returned real file content pulled it into
@@ -404,7 +444,12 @@ function renderToolResult(entry: MakaPiToolEntry, width: number): string[] {
   // head/tail cap must never hide — otherwise a failed or timed-out background
   // command looks the same as a successful one. Render the status in full and
   // cap only the stdout/stderr stream bodies.
-  if (result?.kind === 'shell_run') return renderShellRunResult(entry, result, width);
+  if (result?.kind === 'shell_run') {
+    if (entry.toolName === 'WriteStdin') {
+      return renderIndented(formatPtyControlOperation(result.operation, entry.input), width, 2);
+    }
+    return renderShellRunResult(entry, result, width);
+  }
   // Diffs are the deliberate exception to the head/tail cap: the whole change
   // is what the user is expanding to see.
   if (result?.kind === 'file_diff') return renderDiffResult(result.diff, width);
@@ -452,15 +497,46 @@ function renderTerminalResult(
   width: number,
 ): string[] {
   const lines: string[] = [];
-  if (content.exitCode !== 0) {
-    lines.push(...renderIndented(ansi.red(`exit ${content.exitCode}`), width, 2));
+  if (content.status !== 'completed') {
+    const status = content.exitCode === undefined ? content.status : `exit ${content.exitCode}`;
+    lines.push(...renderIndented(ansi.red(status), width, 2));
+    if (content.failureMessage) lines.push(...renderIndented(ansi.red(content.failureMessage), width, 2));
   }
-  if (content.stdout) {
-    lines.push(...renderCappedResultText(content.stdout, width));
+  if (content.output.mode === 'pty') {
+    lines.push(...renderPtyTerminalRows(content.output, width));
+  } else {
+    if (content.output.stdout) lines.push(...renderCappedResultText(content.output.stdout, width));
+    if (content.output.stderr) {
+      lines.push(...renderIndented(ansi.dim('[stderr]'), width, 2));
+      lines.push(...renderCappedResultText(content.output.stderr, width, ansi.dim));
+    }
   }
-  if (content.stderr) {
+  return lines;
+}
+
+function renderPtyTerminalRows(output: PtyShellOutput, width: number): string[] {
+  const view = ptyTuiTerminalView(output);
+  const lines = view.rows.map((row) => {
+    const available = Math.max(0, width - 2);
+    const body = visibleWidth(row) > available ? truncateToWidth(row, available, '…') : row;
+    return `  ${body}`;
+  });
+  if (output.truncated || view.rowsOmitted) {
+    lines.push(...renderIndented(ansi.dim('terminal output truncated'), width, 2));
+  }
+  if (output.redacted) lines.push(...renderIndented(ansi.dim('terminal output redacted'), width, 2));
+  return lines;
+}
+
+function renderPipeShellOutput(
+  output: Extract<NonNullable<Extract<ToolResultContent, { kind: 'shell_run' }>['output']>, { mode: 'pipes' }>,
+  width: number,
+): string[] {
+  const lines: string[] = [];
+  if (output.stdout) lines.push(...renderCappedResultText(output.stdout, width));
+  if (output.stderr) {
     lines.push(...renderIndented(ansi.dim('[stderr]'), width, 2));
-    lines.push(...renderCappedResultText(content.stderr, width, ansi.dim));
+    lines.push(...renderCappedResultText(output.stderr, width, ansi.dim));
   }
   return lines;
 }
@@ -503,12 +579,14 @@ function renderShellRunResult(
   // inside the other would let the inner reset terminate the outer color early.
   const statusLine = `${settled ? ansi.red(head) : ansi.dim(head)} ${ansi.dim(`(${content.ref})`)}`;
   lines.push(...renderIndented(statusLine, width, 2));
-  if (content.stdout) {
-    lines.push(...renderCappedResultText(content.stdout, width));
-  }
-  if (content.stderr) {
-    lines.push(...renderIndented(ansi.dim('[stderr]'), width, 2));
-    lines.push(...renderCappedResultText(content.stderr, width, ansi.dim));
+  if (content.output?.mode === 'pty') {
+    const hasTerminalView = ptyTuiTerminalRows(content.output).length > 0;
+    lines.push(...renderPtyTerminalRows(content.output, width));
+    if (!hasTerminalView && (content.status === 'failed' || content.status === 'orphaned')) {
+      lines.push(...renderIndented(ansi.dim('No terminal view available'), width, 2));
+    }
+  } else if (content.output?.mode === 'pipes') {
+    lines.push(...renderPipeShellOutput(content.output, width));
   }
   return lines;
 }
@@ -519,6 +597,30 @@ function renderDiffResult(diff: string, width: number): string[] {
 
 function byteLength(text: string): number {
   return Buffer.byteLength(text, 'utf8');
+}
+
+function formatPtyControlOperation(operation: ShellRunOperation | undefined, args: unknown): string {
+  if (operation?.kind !== 'pty_control') return 'Background terminal interaction failed';
+  const parts: string[] = [];
+  if (operation.input) {
+    const preview = readWriteStdinInputPreview(args);
+    const action = operation.input.applied ? 'Sent' : 'Did not send';
+    if (preview) {
+      parts.push(preview.truncated
+        ? `${action}: ${preview.text}… · ${operation.input.bytes} bytes total`
+        : `${action}: ${preview.text}`);
+    } else {
+      parts.push(`${action} ${operation.input.bytes} bytes`);
+    }
+  }
+  if (operation.resize) {
+    const size = `${operation.resize.cols}x${operation.resize.rows}`;
+    if (!operation.resize.applied) parts.push(`Did not resize to ${size}`);
+    else if (operation.resize.changed) parts.push(`Resized to ${size}`);
+    else if (!operation.input) parts.push(`Size already ${size}`);
+  }
+  if (operation.failed) parts.push('Background terminal interaction failed');
+  return parts.join(' · ') || 'Background terminal interaction completed';
 }
 
 function toolInputSummary(entry: MakaPiToolEntry): string {
@@ -540,6 +642,20 @@ function toolInputSummary(entry: MakaPiToolEntry): string {
         if (typeof obj?.limit === 'number') parts.push(`limit ${obj.limit}`);
         return parts.join(' ');
       }
+      break;
+    }
+    case 'WriteStdin': {
+      const parts: string[] = [];
+      const input = readWriteStdinInputPreview(obj);
+      if (input) parts.push(input.truncated ? `${input.text}… · ${input.bytes} bytes` : input.text);
+      if (obj?.size && typeof obj.size === 'object') {
+        const size = obj.size as { cols?: unknown; rows?: unknown };
+        if (typeof size.cols === 'number' && typeof size.rows === 'number') {
+          parts.push(`${size.cols}x${size.rows}`);
+        }
+      }
+      if (parts.length > 0) return parts.join(' · ');
+      if (typeof obj?.ref === 'string') return obj.ref;
       break;
     }
     case 'Write':

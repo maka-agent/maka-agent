@@ -6,17 +6,27 @@
 // Bash / Write / Edit go through PermissionEngine.
 
 import { z } from 'zod';
+import { tmpdir } from 'node:os';
 import { isAbsolute } from 'node:path';
+import {
+  compilePermissionProfile,
+  type PermissionProfile,
+} from '@maka/core';
 import { computeEditedSource } from './edit-replace.js';
 import {
   buildManagedBashTool,
   buildStopBackgroundTaskTool,
+  buildWriteStdinTool,
   shapeTerminalResult,
   withShellGuidance,
 } from './shell-tools.js';
-import type { ShellRunToolController } from './shell-tools.js';
+import type { ShellRunLauncher } from './shell-tools.js';
 import { defaultShellPlan, type ShellPlan } from './shell-detect.js';
-import { isShellRunResourceRef } from './shell-run-manager.js';
+import type {
+  BackgroundTaskStopper,
+  PtyControlWriter,
+  RuntimeResourceReader,
+} from './shell-run-contract.js';
 import {
   createLocalWorkspaceExecutor,
   type WorkspaceExecResult,
@@ -29,6 +39,10 @@ import {
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export type { MakaTool, MakaToolContext };
 import { withFileWriteLock } from './file-write-lock.js';
+import type { SandboxManager } from './sandbox/sandbox-manager.js';
+import { linuxExecutableRoots } from './sandbox/linux-sandbox.js';
+import type { SandboxPlatform } from './sandbox/types.js';
+import type { ChildFdInput } from './child-fd-input.js';
 
 // Generous wall-clock cap for the ripgrep-backed Grep tool. A search should be
 // near-instant; this only bounds a pathological hang now that the stream
@@ -36,43 +50,97 @@ import { withFileWriteLock } from './file-write-lock.js';
 const GREP_TIMEOUT_MS = 120_000;
 
 export interface BuildBuiltinToolsOptions {
-  shellRuns?: ShellRunToolController;
+  shellRuns?: ShellRunLauncher;
+  runtimeResources?: RuntimeResourceReader;
+  backgroundTasks?: BackgroundTaskStopper;
+  ptyControls?: PtyControlWriter;
   executor?: WorkspaceExecutor;
   /** Shell that runs Bash commands. Defaults to the process-wide detected shell. */
   shell?: ShellPlan;
+  permissionProfile?: PermissionProfile;
+  sandboxManager?: SandboxManager;
+  /** Test/embedding override. Production callers use the current process platform. */
+  sandboxPlatform?: SandboxPlatform;
 }
 
 export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaTool[] {
   const executor = options.executor ?? createLocalWorkspaceExecutor();
   const executionFacts = executor.facts;
-  const readDescription = options.shellRuns
-    ? 'Read a file from disk by path relative to session cwd, or read a runtime background task ref.'
+  const readDescription = options.runtimeResources
+    ? 'Read a file from disk using path relative to session cwd, or read a whole runtime resource using ref.'
     : 'Read a file from disk by path relative to session cwd.';
+  const fileReadParameters = z.object({
+    path: z.string().describe('A file path relative to the session cwd'),
+    offset: z.number().int().nonnegative().describe('Zero-based file line offset').optional(),
+    limit: z.number().int().positive().describe('Maximum file lines to read').optional(),
+  }).strict();
+  const runtimeResourceReadParameters = z.object({
+    ref: z.string().describe('A runtime resource ref returned by another tool'),
+  }).strict();
+  const readParameters = options.runtimeResources
+    ? z.object({
+        ...fileReadParameters.shape,
+        ...runtimeResourceReadParameters.shape,
+      }).partial().strict()
+        .describe('Read a file with path, or a whole runtime resource with ref; provide exactly one')
+        .pipe(z.union([fileReadParameters, runtimeResourceReadParameters]))
+    : fileReadParameters;
   const shell = options.shell ?? defaultShellPlan();
+  const sandboxPlatform = options.sandboxPlatform ?? process.platform;
   const bashTools = options.shellRuns
-    ? [
-      buildManagedBashTool(options.shellRuns, { executionFacts, shell }),
-      buildStopBackgroundTaskTool(options.shellRuns),
-    ]
-    : [buildExecutorBashTool(executor, shell)];
+    ? [buildManagedBashTool(options.shellRuns, {
+        executionFacts,
+        shell,
+        ...(options.sandboxManager ? {
+          sandbox: sandboxAvailabilityResolver(
+            options.sandboxManager,
+            options.permissionProfile,
+            sandboxPlatform,
+          ),
+          transformCommand: ({ command, pty, ctx }) => sandboxCommand(
+            options.sandboxManager!,
+            options.permissionProfile,
+            sandboxPlatform,
+            command,
+            pty,
+            ctx,
+          ),
+        } : {}),
+      })]
+    : [buildExecutorBashTool(executor, shell, {
+        ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
+        ...(options.sandboxManager ? { sandboxManager: options.sandboxManager } : {}),
+        sandboxPlatform,
+      })];
+  const backgroundTools = [
+    ...(options.backgroundTasks ? [buildStopBackgroundTaskTool(options.backgroundTasks)] : []),
+    ...(options.ptyControls ? [buildWriteStdinTool(options.ptyControls)] : []),
+  ];
   return [
     ...bashTools,
+    ...backgroundTools,
     {
       name: 'Read',
       activityKind: 'read',
       description: readDescription,
-      parameters: z.object({
-        path: z.string(),
-        offset: z.number().int().nonnegative().optional(),
-        limit: z.number().int().positive().optional(),
-      }),
+      parameters: readParameters,
       permissionRequired: false,
       executionFacts,
-      impl: async ({ path, offset, limit }, { cwd, sessionId }) => {
-        if (path.startsWith('maka://runtime/')) {
-          if (!isShellRunResourceRef(path)) throw new Error(`Unsupported runtime resource ref: ${path}`);
-          if (!options.shellRuns) throw new Error('Runtime background task resources are not available in this toolset');
-          return await options.shellRuns.readResource(sessionId, path);
+      impl: async (input, { cwd, sessionId, abortSignal }) => {
+        if ('ref' in input) {
+          const { ref } = input;
+          if (classifyRuntimeResourceRef(ref) !== 'runtime') {
+            throw new Error(`Unsupported runtime resource ref: ${ref}`);
+          }
+          if (!options.runtimeResources) throw new Error('Runtime resources are not available in this toolset');
+          return await options.runtimeResources.readRuntimeResource(sessionId, ref, abortSignal);
+        }
+
+        const { path, offset, limit } = input;
+        const runtimeRef = classifyRuntimeResourceRef(path);
+        if (runtimeRef === 'unsupported') throw new Error(`Unsupported runtime resource ref: ${path}`);
+        if (runtimeRef === 'runtime') {
+          throw new Error('Runtime resources must be read with the ref parameter, not path');
         }
         const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Read' });
         return await executor.readFile({
@@ -241,7 +309,17 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   ];
 }
 
-function buildExecutorBashTool(executor: WorkspaceExecutor, shell: ShellPlan): MakaTool {
+interface ExecutorBashSandboxOptions {
+  permissionProfile?: PermissionProfile;
+  sandboxManager?: SandboxManager;
+  sandboxPlatform: SandboxPlatform;
+}
+
+function buildExecutorBashTool(
+  executor: WorkspaceExecutor,
+  shell: ShellPlan,
+  sandboxOptions: ExecutorBashSandboxOptions,
+): MakaTool {
   return {
     name: 'Bash',
     activityKind: 'command',
@@ -253,11 +331,32 @@ function buildExecutorBashTool(executor: WorkspaceExecutor, shell: ShellPlan): M
     }),
     permissionRequired: true,
     executionFacts: executor.facts,
-    impl: async ({ command, timeout_ms }, { cwd, abortSignal, emitOutput }) => {
+    ...(sandboxOptions.sandboxManager ? {
+      sandbox: sandboxAvailabilityResolver(
+        sandboxOptions.sandboxManager,
+        sandboxOptions.permissionProfile,
+        sandboxOptions.sandboxPlatform,
+      ),
+    } : {}),
+    impl: async ({ command, timeout_ms }, ctx) => {
+      const { cwd, abortSignal, emitOutput } = ctx;
       const timeout = timeout_ms ?? 120_000;
+      const transformed = sandboxOptions.sandboxManager
+        ? sandboxCommand(
+            sandboxOptions.sandboxManager,
+            sandboxOptions.permissionProfile,
+            sandboxOptions.sandboxPlatform,
+            command,
+            false,
+            ctx,
+          )
+        : undefined;
       const result = await executor.exec({
         command,
-        cwd,
+        cwd: transformed?.cwd ?? cwd,
+        ...(transformed ? { argv: transformed.argv } : {}),
+        ...(transformed?.env ? { env: transformed.env } : {}),
+        ...(transformed?.fdInputs ? { fdInputs: transformed.fdInputs } : {}),
         timeoutMs: timeout,
         ...(abortSignal ? { abortSignal } : {}),
         emitOutput,
@@ -271,6 +370,91 @@ function buildExecutorBashTool(executor: WorkspaceExecutor, shell: ShellPlan): M
       return shapeTerminalResult({ cwd, command, result });
     },
   };
+}
+
+function sandboxAvailabilityResolver(
+  manager: SandboxManager,
+  explicitProfile: PermissionProfile | undefined,
+  platform: SandboxPlatform,
+): NonNullable<MakaTool['sandbox']> {
+  return ({ permissionMode, cwd, args }) => {
+    if (isPtyBashArgs(args)) return { platformSandboxAvailable: false };
+    const effective = effectivePermissionProfile(explicitProfile, permissionMode, cwd);
+    return {
+      platformSandboxAvailable: manager.canEnforce({
+        profile: effective.profile,
+        platform,
+      }),
+    };
+  };
+}
+
+function sandboxCommand(
+  manager: SandboxManager,
+  explicitProfile: PermissionProfile | undefined,
+  platform: SandboxPlatform,
+  command: string,
+  pty: boolean,
+  ctx: MakaToolContext,
+): {
+  argv: readonly string[];
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+  fdInputs?: readonly ChildFdInput[];
+} | undefined {
+  if (pty) return undefined;
+  const effective = effectivePermissionProfile(
+    explicitProfile,
+    ctx.permissionMode ?? 'ask',
+    ctx.cwd,
+  );
+  if (!manager.canEnforce({ profile: effective.profile, platform })) return undefined;
+
+  const env = { ...process.env };
+  const result = manager.transform({
+    platform,
+    command: {
+      program: '/bin/sh',
+      args: ['-lc', command],
+      cwd: ctx.cwd,
+      env,
+      profile: effective.profile,
+      pathContext: {
+        workspaceRoots: effective.workspaceRoots,
+        tmpdir: tmpdir(),
+        slashTmp: '/tmp',
+        ...(platform === 'linux' ? {
+          minimalRoots: linuxExecutableRoots({
+            execPath: process.execPath,
+            path: env.PATH,
+          }),
+        } : {}),
+      },
+    },
+  });
+  if (!result.ok) {
+    throw new Error(result.message ?? `Sandbox transform failed: ${result.reason}`);
+  }
+  return {
+    argv: result.exec.argv,
+    cwd: result.exec.cwd,
+    ...(result.exec.env ? { env: { ...result.exec.env } } : {}),
+    ...(result.exec.fdInputs ? { fdInputs: result.exec.fdInputs } : {}),
+  };
+}
+
+function effectivePermissionProfile(
+  explicitProfile: PermissionProfile | undefined,
+  permissionMode: NonNullable<MakaToolContext['permissionMode']>,
+  cwd: string,
+): { profile: PermissionProfile; workspaceRoots: readonly string[] } {
+  if (explicitProfile) return { profile: explicitProfile, workspaceRoots: [cwd] };
+  const compiled = compilePermissionProfile({ mode: permissionMode, cwd });
+  return { profile: compiled.profile, workspaceRoots: compiled.workspaceRoots };
+}
+
+function isPtyBashArgs(args: unknown): boolean {
+  return typeof args === 'object' && args !== null && (args as { pty?: unknown }).pty === true;
 }
 
 function terminalError(
@@ -293,6 +477,27 @@ function assertRelativeGlobPattern(pattern: string): void {
   if (isAbsolute(pattern) || pattern.split(/[\\/]+/).includes('..')) {
     throw new Error('Glob pattern must stay inside session cwd');
   }
+}
+
+export function classifyRuntimeResourceRef(path: string): 'runtime' | 'file' | 'unsupported' {
+  let url: URL;
+  try {
+    url = new URL(path);
+  } catch {
+    return path.trimStart().toLowerCase().startsWith('maka:') ? 'unsupported' : 'file';
+  }
+  if (url.protocol !== 'maka:') return 'file';
+  if (
+    url.hostname !== 'runtime'
+    || url.username
+    || url.password
+    || url.port
+    || !url.pathname
+    || url.pathname === '/'
+  ) {
+    return 'unsupported';
+  }
+  return 'runtime';
 }
 
 // Object.fromEntries creates own data properties, so special keys like

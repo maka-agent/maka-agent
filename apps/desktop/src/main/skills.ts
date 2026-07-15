@@ -5,6 +5,7 @@ import {
   isContainedPath,
   isRecord,
   isSafeSkillId,
+  parseSkillFrontMatter,
   readContainedRegularTextFile,
   readSkillRuntimeState,
   scanWorkspaceSkills,
@@ -15,9 +16,12 @@ import {
   type SkillRuntimeStatus,
 } from '@maka/runtime';
 import {
+  MANAGED_SKILL_CATEGORIES,
+  type ManagedSkillCategory,
   readManagedSkillSource,
   resolveManagedSkillSourcesRoot,
 } from './managed-skill-sources.js';
+import { BUNDLED_REVERSE_ENGINEERED_SKILLS } from './bundled-skill-catalog.generated.js';
 
 // Re-export runtime-facing skill exports so existing call sites and tests
 // keep importing from './skills.js' unchanged. Governance (lock, provenance,
@@ -166,6 +170,19 @@ const BUNDLED_OFFICE_SKILL_HASH_BY_ID = new Map(
 
 const BUNDLED_OFFICE_SKILL_SOURCE_NAME = 'maka-officecli';
 const BUNDLED_OFFICE_SKILL_SOURCE_VERSION = '1';
+
+// Reverse-engineered built-in skills (shipped, install-on-demand). Distinct
+// from the auto-seeded Office skills above: these never auto-install — the 内置
+// tab offers a per-skill install action (installBundledSkill). Their installed
+// copies carry a trusted `bundled` lock (sourceName maka-bundled) validated
+// against these hashes.
+const BUNDLED_CATALOG_SOURCE_NAME = 'maka-bundled';
+const BUNDLED_CATALOG_SOURCE_VERSION = '1';
+const BUNDLED_CATALOG_BODY_BY_ID = new Map(BUNDLED_REVERSE_ENGINEERED_SKILLS.map((skill) => [skill.id, skill.body]));
+const BUNDLED_CATALOG_HASH_BY_ID = new Map(
+  BUNDLED_REVERSE_ENGINEERED_SKILLS.map((skill) => [skill.id, `sha256:${sha256(skill.body)}`]),
+);
+const BUNDLED_CATALOG_CATEGORY_DEFAULT: ManagedSkillCategory = '效率工具';
 
 const LEGACY_BUNDLED_OFFICE_SKILL_SHA256: Record<string, string[]> = {
   // v1 (legacy `officecli open/close` template) — migrated by the first tool-routed release.
@@ -495,6 +512,128 @@ export async function installManagedSkill(
     const skill = installed.find((candidate) => candidate.id === sourceId);
     if (!skill) {
       if (createdSkillDir) await rm(skillDir, { recursive: true, force: true }).catch(() => {});
+      return { ok: false, reason: 'write_failed' };
+    }
+    return { ok: true, skill };
+  } catch (error) {
+    if (createdSkillDir) await rm(skillDir, { recursive: true, force: true }).catch(() => {});
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return { ok: false, reason: 'already_exists' };
+    return { ok: false, reason: 'write_failed' };
+  }
+}
+
+export interface BundledSkillCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  category: ManagedSkillCategory;
+  declaredTools: string[];
+  installed: boolean;
+}
+
+export type InstallBundledSkillResult =
+  | { ok: true; skill: InstalledSkill }
+  | { ok: false; reason: 'not_found' | 'already_exists' | 'blocked_path' | 'write_failed' };
+
+function parseBundledSkillCategory(body: string): ManagedSkillCategory {
+  if (!body.startsWith('---')) return BUNDLED_CATALOG_CATEGORY_DEFAULT;
+  const close = body.indexOf('\n---', 3);
+  if (close < 0) return BUNDLED_CATALOG_CATEGORY_DEFAULT;
+  for (const raw of body.slice(3, close).split(/\r?\n/)) {
+    const match = raw.match(/^category:\s*(.*)$/);
+    if (!match) continue;
+    const value = match[1].trim().replace(/^['"]|['"]$/g, '');
+    return (MANAGED_SKILL_CATEGORIES as readonly string[]).includes(value)
+      ? (value as ManagedSkillCategory)
+      : BUNDLED_CATALOG_CATEGORY_DEFAULT;
+  }
+  return BUNDLED_CATALOG_CATEGORY_DEFAULT;
+}
+
+/**
+ * The built-in (内置) catalog: the auto-seeded Office skills plus the
+ * reverse-engineered skills. `installed` reflects whether the current workspace
+ * already has skills/<id>. The renderer surfaces this under the 内置 tab with a
+ * per-entry install action that calls `installBundledSkill`.
+ */
+export async function listBundledSkillCatalog(root: string): Promise<BundledSkillCatalogEntry[]> {
+  const installedIds = new Set((await listInstalledSkills(root)).map((skill) => skill.id));
+  return [...BUNDLED_OFFICE_SKILLS, ...BUNDLED_REVERSE_ENGINEERED_SKILLS]
+    .map(({ id, body }) => {
+      const { name, description, allowedTools } = parseSkillFrontMatter(body);
+      return {
+        id,
+        name: name ?? id,
+        description: description ?? '',
+        category: parseBundledSkillCategory(body),
+        declaredTools: allowedTools,
+        installed: installedIds.has(id),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function writeBundledCatalogLock(skillDir: string, id: string, body: string): Promise<boolean> {
+  const contentSha256 = BUNDLED_CATALOG_HASH_BY_ID.get(id) ?? `sha256:${sha256(body)}`;
+  return writeSkillLock(skillDir, {
+    schemaVersion: 1,
+    id,
+    sourceType: 'bundled',
+    sourceName: BUNDLED_CATALOG_SOURCE_NAME,
+    sourceVersion: BUNDLED_CATALOG_SOURCE_VERSION,
+    contentSha256,
+    installedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Install a built-in catalog skill into {root}/skills/<id> on demand. Mirrors
+ * installManagedSkill's hardened write path (containment checks, fail-if-exists)
+ * but sources the body from the shipped catalog. Office ids get the Office
+ * bundled lock; reverse-engineered ids get the maka-bundled catalog lock.
+ */
+export async function installBundledSkill(root: string, id: string): Promise<InstallBundledSkillResult> {
+  if (!isSafeSkillId(id)) return { ok: false, reason: 'not_found' };
+  const officeBody = BUNDLED_OFFICE_SKILLS.find((skill) => skill.id === id)?.body;
+  const body = officeBody ?? BUNDLED_CATALOG_BODY_BY_ID.get(id);
+  if (body === undefined) return { ok: false, reason: 'not_found' };
+
+  const skillsDir = join(root, 'skills');
+  let skillsReal: string;
+  try {
+    await mkdir(skillsDir, { recursive: true, mode: 0o700 });
+    const skillsStat = await lstat(skillsDir);
+    if (!skillsStat.isDirectory() || skillsStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const rootReal = await realpath(root);
+    skillsReal = await realpath(skillsDir);
+    if (!isContainedPath(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
+  } catch {
+    return { ok: false, reason: 'write_failed' };
+  }
+
+  const skillDir = join(skillsDir, id);
+  const skillFile = join(skillDir, 'SKILL.md');
+  let createdSkillDir = false;
+  try {
+    await mkdir(skillDir, { mode: 0o700 });
+    createdSkillDir = true;
+    const skillReal = await realpath(skillDir);
+    if (!isContainedPath(skillsReal, skillReal)) {
+      await rm(skillDir, { recursive: true, force: true }).catch(() => {});
+      return { ok: false, reason: 'blocked_path' };
+    }
+    await writeFile(skillFile, body, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    const lockWritten = officeBody !== undefined
+      ? await writeBundledSkillLock(skillDir, id, body)
+      : await writeBundledCatalogLock(skillDir, id, body);
+    if (!lockWritten) {
+      await rm(skillDir, { recursive: true, force: true }).catch(() => {});
+      return { ok: false, reason: 'write_failed' };
+    }
+    const installed = await listInstalledSkills(root);
+    const skill = installed.find((candidate) => candidate.id === id);
+    if (!skill) {
+      await rm(skillDir, { recursive: true, force: true }).catch(() => {});
       return { ok: false, reason: 'write_failed' };
     }
     return { ok: true, skill };
@@ -1029,20 +1168,29 @@ async function managedStatusForLock(
 }
 
 function isTrustedBundledSkillLockSource(lock: Record<string, unknown>, id: string): boolean {
-  if (lock.sourceType !== 'bundled' || !BUNDLED_OFFICE_SKILL_IDS.has(id)) return false;
-  if (lock.sourceName !== BUNDLED_OFFICE_SKILL_SOURCE_NAME || lock.sourceVersion !== BUNDLED_OFFICE_SKILL_SOURCE_VERSION) return false;
-  if (typeof lock.contentSha256 !== 'string') return false;
-  // A bundled lock is trusted if its content hash matches the current bundled
-  // template or any legacy bundled template that desktop still migrates from.
-  // This keeps user-modified legacy skills at validationStatus 'modified'
-  // instead of 'metadata_error' across a template bump.
+  if (lock.sourceType !== 'bundled' || typeof lock.contentSha256 !== 'string') return false;
   const lockHash = lock.contentSha256.replace(/^sha256:/i, '').toLowerCase();
-  const newHash = BUNDLED_OFFICE_SKILL_HASH_BY_ID.get(id)?.replace(/^sha256:/i, '').toLowerCase();
-  const trusted = new Set<string>([
-    ...(newHash ? [newHash] : []),
-    ...(LEGACY_BUNDLED_OFFICE_SKILL_SHA256[id] ?? []),
-  ]);
-  return trusted.has(lockHash);
+
+  if (BUNDLED_OFFICE_SKILL_IDS.has(id)) {
+    if (lock.sourceName !== BUNDLED_OFFICE_SKILL_SOURCE_NAME || lock.sourceVersion !== BUNDLED_OFFICE_SKILL_SOURCE_VERSION) return false;
+    // A bundled lock is trusted if its content hash matches the current bundled
+    // template or any legacy bundled template that desktop still migrates from.
+    // This keeps user-modified legacy skills at validationStatus 'modified'
+    // instead of 'metadata_error' across a template bump.
+    const newHash = BUNDLED_OFFICE_SKILL_HASH_BY_ID.get(id)?.replace(/^sha256:/i, '').toLowerCase();
+    const trusted = new Set<string>([
+      ...(newHash ? [newHash] : []),
+      ...(LEGACY_BUNDLED_OFFICE_SKILL_SHA256[id] ?? []),
+    ]);
+    return trusted.has(lockHash);
+  }
+
+  // Reverse-engineered built-in catalog skills.
+  const catalogHash = BUNDLED_CATALOG_HASH_BY_ID.get(id)?.replace(/^sha256:/i, '').toLowerCase();
+  if (!catalogHash) return false;
+  return lock.sourceName === BUNDLED_CATALOG_SOURCE_NAME &&
+    lock.sourceVersion === BUNDLED_CATALOG_SOURCE_VERSION &&
+    lockHash === catalogHash;
 }
 
 function metadataError(validationCodes: SkillValidationCode[], message: string): Pick<

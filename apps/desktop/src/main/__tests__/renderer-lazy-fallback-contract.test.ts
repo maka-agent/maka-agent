@@ -7,7 +7,7 @@ const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const RENDERER_ROOT = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer');
 const APP_SHELL_PATH = resolve(RENDERER_ROOT, 'app-shell.tsx');
 const APP_SHELL_OVERLAYS_PATH = resolve(RENDERER_ROOT, 'app-shell-overlays.tsx');
-const CHAT_VIEW_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-view.tsx');
+const MODULE_PAGES_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'module-pages.tsx');
 
 describe('renderer lazy fallback contract', () => {
   it('keeps visible shell lazy chunks on compact non-null fallbacks', async () => {
@@ -48,13 +48,13 @@ describe('renderer lazy fallback contract', () => {
   });
 
   it('keeps module lazy chunks on compact non-null fallbacks', async () => {
-    const chatView = await readFile(CHAT_VIEW_PATH, 'utf8');
+    const modulePages = await readFile(MODULE_PAGES_PATH, 'utf8');
 
-    assert.match(chatView, /function ModulePageFallback/, 'whole-page modules must reserve a module loading shell');
-    assert.match(chatView, /function ModulePanelFallback/, 'daily review content must reserve a panel loading shell');
-    assert.match(chatView, /<Suspense fallback=\{<ModulePageFallback label="技能" message="正在加载技能…" \/>\}>/);
-    assert.match(chatView, /<Suspense fallback=\{<ModulePageFallback label="定时任务" message="正在加载定时任务…" \/>\}>/);
-    assert.match(chatView, /<Suspense fallback=\{<ModulePanelFallback message="正在加载每日回顾…" \/>\}>/);
-    assert.doesNotMatch(chatView, /<Suspense fallback=\{null\}>/);
+    assert.match(modulePages, /function ModulePageFallback/, 'whole-page modules must reserve a module loading shell');
+    assert.match(modulePages, /function ModulePanelFallback/, 'daily review content must reserve a panel loading shell');
+    assert.match(modulePages, /<Suspense fallback=\{<ModulePageFallback label="技能" message="正在加载技能…" \/>\}>/);
+    assert.match(modulePages, /<Suspense fallback=\{<ModulePageFallback label="定时任务" message="正在加载定时任务…" \/>\}>/);
+    assert.match(modulePages, /<Suspense fallback=\{<ModulePanelFallback message="正在加载每日回顾…" \/>\}>/);
+    assert.doesNotMatch(modulePages, /<Suspense fallback=\{null\}>/);
   });
 });

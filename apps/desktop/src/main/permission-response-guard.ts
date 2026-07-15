@@ -2,6 +2,7 @@ import type {
   BranchFromTurnInput,
   PermissionResponse,
   RegenerateTurnInput,
+  UserQuestionResponse,
 } from '@maka/core';
 
 const MAX_PERMISSION_REQUEST_ID_LENGTH = 128;
@@ -40,6 +41,24 @@ export function normalizePermissionResponse(input: unknown): PermissionResponse 
     decision: value.decision,
     ...(value.rememberForTurn !== undefined ? { rememberForTurn: value.rememberForTurn } : {}),
   };
+}
+
+export function normalizeUserQuestionResponse(input: unknown): UserQuestionResponse {
+  const value = requireObject(input, 'Invalid user question response');
+  const requestId = normalizeRequiredString(
+    value.requestId,
+    'Invalid user question response requestId',
+    MAX_PERMISSION_REQUEST_ID_LENGTH,
+  );
+  if (
+    !Array.isArray(value.answers) ||
+    value.answers.length < 1 ||
+    value.answers.length > 3 ||
+    value.answers.some((answer) => answer !== null && typeof answer !== 'string')
+  ) {
+    throw new Error('Invalid user question response answers');
+  }
+  return { requestId, answers: [...value.answers] as Array<string | null> };
 }
 
 export function normalizeRegenerateTurnInput(input: unknown): RegenerateTurnInput {

@@ -1,361 +1,180 @@
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, test } from 'node:test';
-import type { ShellRunRecord, ShellRunStore } from '@maka/core';
-import { ShellRunProcessManager, type ShellRunUpdate } from '../shell-run-manager.js';
-import type { ShellPlan } from '../shell-detect.js';
+import { after, describe, test } from 'node:test';
+import type { ShellRunRecord, ShellRunStore, ShellRunUpdate, ToolResultContent } from '@maka/core';
+import { createShellRunStore } from '@maka/storage';
+
+import { ShellRunProcessManager } from '../shell-run-manager.js';
+import { defaultShellPlan, type ShellPlan } from '../shell-detect.js';
+import { PTY_PROTOCOL_REPLY_MAX_BYTES } from '../pty-screen-collector.js';
+
+const NO_ABORT = new AbortController().signal;
+const TEMPORARY_WORKSPACES = new Set<string>();
+
+after(async () => {
+  await Promise.all([...TEMPORARY_WORKSPACES].map((path) => rm(path, { recursive: true, force: true })));
+});
 
 describe('ShellRunProcessManager', () => {
-  test('persists every Bash run and returns observed terminal results for quick commands', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore();
+  test('keeps the default pipe path separated, durable, redacted, and observed', async () => {
+    const cwd = await workspace();
+    const store = createShellRunStore(cwd);
     const manager = createManager(store);
-
     const result = await manager.runForegroundBash(shellInput({
       cwd,
-      command: 'printf "hello"',
+      command: 'printf "hello"; printf "warning" >&2',
     }));
 
     assert.equal(result.kind, 'terminal');
     assert.equal(result.status, 'completed');
     assert.equal(result.exitCode, 0);
-    assert.equal(result.stdout, 'hello');
+    assert.equal(result.output.mode, 'pipes');
+    if (result.output.mode !== 'pipes') throw new Error('expected pipes output');
+    assert.equal(result.output.stdout, 'hello');
+    assert.equal(result.output.stderr, 'warning');
+    assert.equal(result.output.latestStream, 'stderr');
 
     const record = await store.readShellRun('session-1', 'shell-run-1');
+    assert.equal(record.output.mode, 'pipes');
     assert.equal(record.status, 'completed');
-    assert.equal(record.stdoutTail, 'hello');
+    assert.ok(record.revision >= 2);
     assert.ok(record.observedAt !== undefined);
     assert.equal(manager.liveCount(), 0);
   });
 
-  test('spawns a detected PowerShell explicitly with non-interactive flags (not via shell:true)', async () => {
-    // /bin/echo stands in for pwsh.exe: honouring the spawn plan means the
-    // "shell" receives the flags plus the command as argv and echoes them back.
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore();
-    const manager = createManager(store);
-
+  test('uses the existing explicit PowerShell pipe plan unchanged', async () => {
+    const manager = await createTestManager();
     const result = await manager.runForegroundBash(shellInput({
-      cwd,
+      cwd: await workspace(),
       command: 'echo wired-marker',
       shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
     }));
 
     assert.equal(result.kind, 'terminal');
-    assert.equal(result.exitCode, 0);
-    assert.ok(
-      result.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'),
-      `flags then verbatim command, got: ${result.stdout}`,
-    );
-    assert.ok(result.stdout.includes('exit $LASTEXITCODE'), 'exit-code wrapper is part of the command argument');
+    assert.equal(result.output.mode, 'pipes');
+    if (result.output.mode !== 'pipes') throw new Error('expected pipes output');
+    assert.ok(result.output.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'));
+    assert.ok(result.output.stdout.includes('exit $LASTEXITCODE'));
   });
 
-  test('does not leak live slots when a process exits before durable create resolves', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore({ createDelayMs: 100 });
-    const manager = createManager(store);
-
+  test('runs explicit argv and supplies inherited fd payloads on the pipe path', async () => {
+    const manager = await createTestManager();
     const result = await manager.runForegroundBash(shellInput({
-      cwd,
-      command: 'printf "done"',
+      cwd: await workspace(),
+      command: 'sandbox display command',
+      argv: [
+        process.execPath,
+        '-e',
+        'process.stdout.write(require("node:fs").readFileSync(3, "utf8"))',
+      ],
+      fdInputs: [{ fd: 3, data: Buffer.from('seccomp-payload') }],
     }));
 
     assert.equal(result.kind, 'terminal');
     assert.equal(result.status, 'completed');
-    assert.equal(manager.liveCount(), 0);
+    assert.equal(result.output.mode, 'pipes');
+    if (result.output.mode !== 'pipes') throw new Error('expected pipes output');
+    assert.equal(result.output.stdout, 'seccomp-payload');
   });
 
-  test('foreground commands default to a two-minute timeout', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore();
+  test('keeps foreground execution bounded and rejects PTY promotion', async () => {
+    const cwd = await workspace();
+    const store = createShellRunStore(await workspace());
     const manager = createManager(store);
     const abort = new AbortController();
-
     const running = manager.runForegroundBash(shellInput({
       cwd,
-      command: 'sleep 5',
+      command: waitForeverCommand(),
       abortSignal: abort.signal,
     }));
-    await sleep(20);
 
-    assert.equal((await store.readShellRun('session-1', 'shell-run-1')).timeoutMs, 120_000);
+    await waitUntil(async () => {
+      try {
+        return (await store.readShellRun('session-1', 'shell-run-1')).timeoutMs === 120_000;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+        throw error;
+      }
+    });
     abort.abort();
     assert.equal((await running).status, 'cancelled');
-  });
-
-  test('foreground commands reject timeouts above ten minutes', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const manager = createManager(new MemoryShellRunStore());
-
     await assert.rejects(
-      manager.runForegroundBash(shellInput({ cwd, command: 'true', timeoutMs: 600_001 })),
+      () => manager.runForegroundBash(shellInput({ cwd, command: 'true', timeoutMs: 600_001 })),
       /Foreground Bash timeout/,
     );
-    assert.equal(manager.liveCount(), 0);
+    await assert.rejects(
+      () => manager.runForegroundBash(shellInput({ cwd, command: 'true', pty: true })),
+      /does not support PTY mode/,
+    );
   });
 
-  test('starts background commands as running ShellRuns without a yield window', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore();
-    const manager = createManager(store);
-
+  test('hands off a long pipe command without output and publishes monotonic revisions', async () => {
+    const updates: ShellRunUpdate[] = [];
+    const store = createShellRunStore(await workspace());
+    const manager = createManager(store, (update) => updates.push(update));
     const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: 'printf "start"; sleep 0.5; printf "done"',
+      cwd: await workspace(),
+      command: 'printf "start"; sleep 0.4; printf "done"',
     }));
 
     assert.equal(initial.kind, 'shell_run');
-    assert.equal(initial.status, 'running');
-    assert.equal(initial.ref, 'maka://runtime/background-tasks/shell-run-1');
-    assert.equal(initial.stdout, '');
-    assert.equal(manager.liveCount(), 1);
+    assert.equal(initial.mode, 'pipes');
+    assert.equal(initial.output, undefined);
     assert.equal((await store.readShellRun('session-1', 'shell-run-1')).timeoutMs, undefined);
-    if (!initial.ref) throw new Error('expected ShellRun resource ref');
+    await waitForShellRun(manager, initial.ref, (result) => (
+      result.output?.mode === 'pipes' && result.output.stdout === 'start'
+    ));
+    const runningUpdate = updates.find((update) => (
+      update.result.status === 'running'
+      && update.result.output?.mode === 'pipes'
+      && update.result.output.stdout === 'start'
+    ));
+    assert.ok(runningUpdate);
+    const running = await manager.readRuntimeResource('session-1', initial.ref, NO_ABORT);
+    assertShellRun(running);
+    assert.equal(running.output?.mode, 'pipes');
+    if (running.output?.mode !== 'pipes') throw new Error('expected pipes output');
+    assert.equal(running.output.stdout, 'start');
 
-    const detail = await manager.readResource('session-1', initial.ref);
-    assert.equal(detail.kind, 'shell_run');
-    assert.equal(detail.status, 'running');
-
-    const summary = await manager.buildContextSummary('session-1');
-    assert.match(summary ?? '', /ref=maka:\/\/runtime\/background-tasks\/shell-run-1/);
-
-    await sleep(600);
-    const completed = await manager.readResource('session-1', initial.ref);
-    assert.equal(completed.kind, 'shell_run');
-    assert.equal(completed.status, 'completed');
-    assert.equal(completed.stdout, 'startdone');
-    assert.equal(manager.liveCount(), 0);
-
-    assert.equal(await manager.buildContextSummary('session-1'), undefined);
+    await waitUntil(() => updates.some((update) => update.result.status === 'completed'));
+    const terminal = updates.find((update) => update.result.status === 'completed')?.result;
+    assert.equal(terminal?.output?.mode, 'pipes');
+    if (terminal?.output?.mode !== 'pipes') throw new Error('expected terminal pipe update');
+    assert.equal(terminal.output.stdout, 'startdone');
+    assert.deepEqual(
+      updates.map((update) => update.result.revision),
+      [...updates.map((update) => update.result.revision)].sort((a, b) => a - b),
+    );
   });
 
-  test('publishes terminal state when a background command exits during startup', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore({ createDelayMs: 100 });
-    const updates: ShellRunUpdate[] = [];
-    const manager = createManager(store, (update) => updates.push(update));
+  test('applies only explicit background timeouts and enforces their upper bound', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: waitForeverCommand(),
+      timeoutMs: 50,
+    }));
 
-    const initial = await manager.runBackgroundBash(shellInput({ cwd, command: 'printf "done"' }));
-    await sleep(20);
-
-    assert.equal(initial.kind, 'shell_run');
-    assert.equal(initial.status, 'completed');
-    assert.equal(initial.stdout, 'done');
-    assert.equal(initial.exitCode, 0);
-    assert.equal(updates.at(-1)?.result.status, 'completed');
-    assert.equal(updates.at(-1)?.result.stdout, 'done');
-  });
-
-  test('background commands honor an explicit timeout', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const manager = createManager(new MemoryShellRunStore());
-
-    const initial = await manager.runBackgroundBash(shellInput({ cwd, command: 'sleep 5', timeoutMs: 50 }));
-    await sleep(100);
-
-    assert.ok(initial.ref);
-    assert.equal((await manager.readResource('session-1', initial.ref)).status, 'timed_out');
-    assert.equal(manager.liveCount(), 0);
-  });
-
-  test('background commands reject timeouts above twenty-four hours', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const manager = createManager(new MemoryShellRunStore());
-
+    const timedOut = await waitForTerminalShellRun(manager, initial.ref);
+    assert.equal(timedOut.status, 'timed_out');
+    assert.equal(timedOut.exitCode, 124);
     await assert.rejects(
-      manager.runBackgroundBash(shellInput({ cwd, command: 'true', timeoutMs: 86_400_001 })),
+      () => manager.runBackgroundBash(shellInput({
+        cwd: process.cwd(),
+        command: 'true',
+        timeoutMs: 86_400_001,
+      })),
       /Background Bash timeout/,
     );
-    assert.equal(manager.liveCount(), 0);
   });
 
-  test('publishes the terminal state when a background ShellRun settles without a resource read', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore();
-    const updates: ShellRunUpdate[] = [];
-    const manager = createManager(store, (update) => updates.push(update));
-
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: 'printf "start"; sleep 0.5; printf "done"',
-    }));
-    assert.equal(initial.kind, 'shell_run');
-    assert.equal(initial.status, 'running');
-
-    await sleep(600);
-    const terminal = updates.find((update) => update.result.status === 'completed');
-    assert.equal(terminal?.sessionId, 'session-1');
-    assert.equal(terminal?.sourceToolCallId, 'tool-1');
-    assert.equal(terminal?.result.stdout, 'startdone');
-    assert.equal(terminal?.result.exitCode, 0);
-  });
-
-  test('keeps terminal updatedAt after queued running flushes', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore({ updateDelayMs: 300 });
-    const updates: ShellRunUpdate[] = [];
-    const manager = createManager(store, (update) => updates.push(update));
-
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: 'printf "start"; sleep 0.1; printf "middle"; sleep 0.1',
-    }));
-    assert.equal(initial.kind, 'shell_run');
-
-    await sleep(1_300);
-    const latestRunning = updates.filter((update) => update.result.status === 'running').at(-1);
-    const terminal = updates.find((update) => update.result.status === 'completed');
-    assert.ok(latestRunning);
-    assert.ok(terminal);
-    assert.ok(terminal.result.updatedAt >= latestRunning.result.updatedAt);
-  });
-
-  test('persists stdout as the latest output stream when it follows stderr', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore();
-    const updates: ShellRunUpdate[] = [];
-    const manager = createManager(store, (update) => updates.push(update));
-
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: 'printf "warning\\n" >&2; sleep 0.5; printf "99%%\\n"',
-    }));
-    assert.equal(initial.kind, 'shell_run');
-
-    await sleep(600);
-    const terminal = updates.find((update) => update.result.status === 'completed');
-    assert.equal(terminal?.result.latestOutputStream, 'stdout');
-    assert.equal(
-      (await store.readShellRun('session-1', 'shell-run-1')).latestOutputStream,
-      'stdout',
-    );
-  });
-
-  test('persists stderr as the latest output stream when it follows stdout', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore();
-    const updates: ShellRunUpdate[] = [];
-    const manager = createManager(store, (update) => updates.push(update));
-
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: 'printf "99%%\\n"; sleep 0.5; printf "warning\\n" >&2',
-    }));
-    assert.equal(initial.kind, 'shell_run');
-
-    await sleep(600);
-    const terminal = updates.find((update) => update.result.status === 'completed');
-    assert.equal(terminal?.result.latestOutputStream, 'stderr');
-  });
-
-  test('publishes retained output after a ShellRun starts in the background', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore();
-    const updates: ShellRunUpdate[] = [];
-    const manager = createManager(store, (update) => updates.push(update));
-
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: 'printf "start"; sleep 5',
-    }));
-    assert.equal(initial.kind, 'shell_run');
-    await sleep(50);
-    const running = updates.filter((update) => update.result.status === 'running').at(-1);
-    assert.equal(running?.result.stdout, 'start');
-
-    await manager.terminateAll();
-  });
-
-  test('stops running ShellRuns by runtime ref only after the process has exited', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore();
-    const manager = createManager(store);
-
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: 'printf "start"; sleep 5',
-    }));
-    assert.equal(initial.kind, 'shell_run');
-    if (!initial.ref) throw new Error('expected ShellRun resource ref');
-
-    const cancelled = await manager.stopResource('session-1', initial.ref);
-    assert.equal(cancelled.status, 'cancelled');
-    assert.equal(cancelled.cancelled, true);
-    assert.equal(cancelled.exitCode, 130);
-    assert.ok(cancelled.completedAt !== undefined);
-    assert.equal(manager.liveCount(), 0);
-  });
-
-  test('reads a just-finished ShellRun without orphaning its durable record', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore({ updateDelayMs: 300 });
-    const manager = createManager(store);
-
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: 'printf "start"; sleep 0.2; printf "done"',
-    }));
-    assert.equal(initial.kind, 'shell_run');
-    assert.equal(initial.ref, 'maka://runtime/background-tasks/shell-run-1');
-
-    const detail = await manager.readResource('session-1', initial.ref);
-    assert.equal(detail.status, 'completed');
-    assert.equal(detail.stdout, 'startdone');
-
-    const stored = await store.readShellRun('session-1', 'shell-run-1');
-    assert.equal(stored.status, 'completed');
-    assert.equal(stored.orphanedReason, undefined);
-  });
-
-  test('stopping a just-finished ShellRun observes completion instead of orphaning it', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore({ updateDelayMs: 300 });
-    const manager = createManager(store);
-
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: 'sleep 0.2',
-    }));
-    assert.equal(initial.kind, 'shell_run');
-    assert.equal(initial.ref, 'maka://runtime/background-tasks/shell-run-1');
-
-    const stopped = await manager.stopResource('session-1', initial.ref);
-    assert.equal(stopped.status, 'completed');
-    assert.equal(stopped.cancelled, false);
-
-    const stored = await store.readShellRun('session-1', 'shell-run-1');
-    assert.equal(stored.status, 'completed');
-    assert.equal(stored.orphanedReason, undefined);
-  });
-
-  test('rejects list and malformed runtime resource refs', async () => {
-    const store = new MemoryShellRunStore();
-    const manager = createManager(store);
-
-    await assert.rejects(
-      manager.readResource('session-1', 'maka://runtime/background-tasks'),
-      /Unsupported runtime resource ref/,
-    );
-    await assert.rejects(
-      manager.readResource('session-1', 'maka://runtime/background-tasks/shell-run-1?view=tail'),
-      /Unsupported runtime resource ref/,
-    );
-    await assert.rejects(
-      manager.readResource('session-1', 'maka://runtime/background-tasks/shell-run-1#tail'),
-      /Unsupported runtime resource ref/,
-    );
-  });
-
-  test('aborting a foreground command cancels it without backgrounding', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
-    const store = new MemoryShellRunStore();
-    const manager = createManager(store);
+  test('aborting foreground Bash terminates the process without leaking a ref', async () => {
     const abort = new AbortController();
-
+    const manager = await createTestManager();
     const result = await manager.runForegroundBash(shellInput({
-      cwd,
+      cwd: await workspace(),
       command: 'printf "start"; sleep 5',
       abortSignal: abort.signal,
       emitOutput: () => abort.abort(),
@@ -364,143 +183,1393 @@ describe('ShellRunProcessManager', () => {
     assert.equal(result.kind, 'terminal');
     assert.equal(result.status, 'cancelled');
     assert.equal(result.exitCode, 130);
-    assert.equal(result.stdout, 'start');
     assert.equal(manager.liveCount(), 0);
-
-    assert.equal(await manager.buildContextSummary('session-1'), undefined);
   });
 
-  test('marks durable running records without live handles as orphaned', async () => {
-    const store = new MemoryShellRunStore();
-    const manager = createManager(store);
-    await store.createShellRun(record({
-      shellRunId: 'orphan-1',
-      command: 'sleep 10',
-      status: 'running',
+  test('fences PTY starts admitted before session close and runtime shutdown', async () => {
+    const cwd = await workspace();
+    const sessionManager = await createTestManager();
+    const sessionStart = assert.rejects(
+      sessionManager.runBackgroundBash(shellInput({
+        cwd,
+        command: waitForeverCommand(),
+        pty: true,
+      })),
+      /session lifecycle changed/,
+    );
+
+    await sessionManager.terminateSession('session-1');
+    await sessionStart;
+    await assert.rejects(
+      () => sessionManager.runBackgroundBash(shellInput({
+        cwd,
+        command: nodeCommand("process.stdout.write('blocked')"),
+      })),
+      /session lifecycle changed/,
+    );
+    sessionManager.resumeSession('session-1');
+    const resumed = await sessionManager.runForegroundBash(shellInput({
+      cwd,
+      command: nodeCommand("process.stdout.write('RESUMED')"),
     }));
+    assert.equal(resumed.kind, 'terminal');
+    if (resumed.kind !== 'terminal') throw new Error('expected terminal result');
+    assert.equal(resumed.output.mode, 'pipes');
+    if (resumed.output.mode !== 'pipes') throw new Error('expected pipe output');
+    assert.equal(resumed.output.stdout, 'RESUMED');
 
-    const recovered = await manager.recoverOrphanedSession('session-1');
-    assert.equal(recovered, 1);
+    const runtimeManager = await createTestManager();
+    const runtimeStart = assert.rejects(
+      runtimeManager.runBackgroundBash(shellInput({
+        cwd,
+        command: waitForeverCommand(),
+        pty: true,
+      })),
+      /shell runtime is shutting down/,
+    );
+    await runtimeManager.terminateAll();
+    await runtimeStart;
+    await assert.rejects(
+      () => runtimeManager.runBackgroundBash(shellInput({
+        cwd,
+        command: nodeCommand("process.stdout.write('blocked')"),
+      })),
+      /shell runtime is shutting down/,
+    );
+    assert.equal(sessionManager.liveCount(), 0);
+    assert.equal(runtimeManager.liveCount(), 0);
+  });
 
-    const detail = await manager.readResource('session-1', 'maka://runtime/background-tasks/orphan-1');
+  test('keeps overlapping session close leases isolated through rollback and commit', async () => {
+    const cwd = await workspace();
+    const manager = await createTestManager();
+    const first = await manager.terminateSession('session-1');
+    const second = await manager.terminateSession('session-1');
+
+    manager.rollbackSessionClose(first);
+    await assert.rejects(
+      () => manager.runBackgroundBash(shellInput({
+        cwd,
+        command: nodeCommand("process.stdout.write('blocked')"),
+      })),
+      /session lifecycle changed/,
+    );
+
+    manager.rollbackSessionClose(second);
+    const reopened = await manager.runForegroundBash(shellInput({
+      cwd,
+      command: nodeCommand("process.stdout.write('REOPENED')"),
+    }));
+    assert.equal(reopened.kind, 'terminal');
+    if (reopened.kind !== 'terminal') throw new Error('expected terminal result');
+    assert.equal(reopened.output.mode, 'pipes');
+    if (reopened.output.mode !== 'pipes') throw new Error('expected pipe output');
+    assert.equal(reopened.output.stdout, 'REOPENED');
+
+    const committed = await manager.terminateSession('session-1');
+    manager.resumeSession('session-1');
+    const admittedDuringReopen = await manager.runBackgroundBash(shellInput({
+      cwd,
+      command: waitForeverCommand(),
+    }));
+    assert.equal(admittedDuringReopen.kind, 'shell_run');
+    await manager.commitSessionClose(committed);
+    assert.equal(manager.liveCount(), 0);
+    await assert.rejects(
+      () => manager.runBackgroundBash(shellInput({
+        cwd,
+        command: nodeCommand("process.stdout.write('blocked')"),
+      })),
+      /session lifecycle changed/,
+    );
+    manager.resumeSession('session-1');
+  });
+
+  test('gives exactly one concurrent StopBackgroundTask call termination ownership', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: 'printf "ready"; sleep 5',
+    }));
+    assert.equal(initial.kind, 'shell_run');
+
+    const [left, right] = await Promise.all([
+      manager.stopBackgroundTask('session-1', initial.ref, NO_ABORT),
+      manager.stopBackgroundTask('session-1', initial.ref, NO_ABORT),
+    ]);
+    assertShellRun(left);
+    assertShellRun(right);
+    assert.equal(left.status, 'cancelled');
+    assert.equal(right.status, 'cancelled');
+    assert.deepEqual(
+      [left.operation, right.operation]
+        .map((operation) => operation?.kind === 'stop' && operation.applied)
+        .sort(),
+      [false, true],
+    );
+    assert.equal(manager.liveCount(), 0);
+  });
+
+  test('ignores a Stop abort that occurs after another admitted Stop commits termination', {
+    skip: process.platform === 'win32' ? 'Windows termination has no asynchronous POSIX snapshot window' : false,
+  }, async () => {
+    const cwd = await workspace();
+    const committedPath = join(cwd, 'termination-committed');
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd,
+      command: `exec ${nodeCommand(`
+        const { writeFileSync } = require('node:fs');
+        process.once('SIGTERM', () => {
+          writeFileSync(${JSON.stringify(committedPath)}, 'committed');
+          setTimeout(() => process.exit(0), 100);
+        });
+        process.stdout.write('READY\\n');
+        setInterval(() => {}, 1000);
+      `)}`,
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    await waitForPtyText(manager, initial.ref, /READY/);
+
+    const laterAbort = new AbortController();
+    const first = manager.stopBackgroundTask('session-1', initial.ref, NO_ABORT);
+    const second = manager.stopBackgroundTask('session-1', initial.ref, laterAbort.signal);
+    await waitUntil(async () => {
+      try {
+        await readFile(committedPath, 'utf8');
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+        throw error;
+      }
+    });
+    laterAbort.abort();
+
+    const [owner, joined] = await Promise.all([first, second]);
+    assertShellRun(owner);
+    assertShellRun(joined);
+    assert.deepEqual(owner.operation, { kind: 'stop', applied: true });
+    assert.deepEqual(joined.operation, { kind: 'stop', applied: false });
+    assert.equal(owner.status, 'cancelled');
+    assert.equal(joined.status, 'cancelled');
+  });
+
+  test('closes PTY control admission synchronously when Stop is admitted', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: waitForeverCommand('READY\n'),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    await waitForPtyText(manager, initial.ref, /READY/);
+
+    const stopping = manager.stopBackgroundTask('session-1', initial.ref, NO_ABORT);
+    await assert.rejects(
+      () => manager.writeStdin({
+        sessionId: 'session-1',
+        ref: initial.ref,
+        input: 'late input',
+        abortSignal: NO_ABORT,
+      }),
+      /stopping and no longer accepts input/,
+    );
+    const stopped = await stopping;
+    assertShellRun(stopped);
+    assert.deepEqual(stopped.operation, { kind: 'stop', applied: true });
+  });
+
+  test('reopens PTY control only after every pre-commit Stop has aborted', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: rawLineReaderCommand({ prompt: 'READY\n', label: 'VALUE:', lines: 1 }),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    await waitForPtyText(manager, initial.ref, /READY/);
+
+    const firstAbort = new AbortController();
+    const secondAbort = new AbortController();
+    const first = assert.rejects(
+      manager.stopBackgroundTask('session-1', initial.ref, firstAbort.signal),
+      /aborted before termination was committed/,
+    );
+    const second = assert.rejects(
+      manager.stopBackgroundTask('session-1', initial.ref, secondAbort.signal),
+      /aborted before termination was committed/,
+    );
+    firstAbort.abort();
+    const blocked = assert.rejects(
+      manager.writeStdin({
+        sessionId: 'session-1',
+        ref: initial.ref,
+        input: 'blocked',
+        abortSignal: NO_ABORT,
+      }),
+      /stopping and no longer accepts input/,
+    );
+    secondAbort.abort();
+    await Promise.all([first, blocked, second]);
+    const control = await manager.writeStdin({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      input: 'resumed\r',
+      abortSignal: NO_ABORT,
+    });
+    assert.deepEqual(control.operation, {
+      kind: 'pty_control',
+      failed: false,
+      input: { bytes: 8, applied: true },
+    });
+    const completed = await waitForTerminalShellRun(manager, initial.ref);
+    assertShellRunSnapshot(completed);
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.output.mode, 'pty');
+    if (completed.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(terminalText(completed.output), /VALUE:resumed/);
+  });
+
+  test('keeps a pipe task alive when Stop aborts during process-tree preparation', {
+    skip: process.platform === 'win32' ? 'Windows termination does not take a POSIX process snapshot' : false,
+  }, async () => {
+    const cwd = await workspace();
+    const childPidPath = join(cwd, 'child.pid');
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd,
+      command: nodeCommand(`
+        const { spawn } = require('node:child_process');
+        const { writeFileSync } = require('node:fs');
+        const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.unref();
+        writeFileSync(${JSON.stringify(childPidPath)}, String(child.pid));
+        process.stdout.write('READY\\n');
+        setInterval(() => {}, 1000);
+      `),
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    await waitUntil(async () => {
+      try {
+        await readFile(childPidPath, 'utf8');
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+        throw error;
+      }
+    });
+    const childPid = Number.parseInt(await readFile(childPidPath, 'utf8'), 10);
+    assert.ok(Number.isSafeInteger(childPid) && childPid > 0);
+
+    const abort = new AbortController();
+    const rejected = assert.rejects(
+      manager.stopBackgroundTask('session-1', initial.ref, abort.signal),
+      /aborted before termination was committed/,
+    );
+    // The pipe path starts its asynchronous process-table read before returning.
+    abort.abort();
+    await rejected;
+
+    const running = await manager.inspectResource('session-1', initial.ref);
+    assert.equal(running.status, 'running');
+    assert.equal(isProcessAlive(childPid), true);
+    const stopped = await manager.stopBackgroundTask('session-1', initial.ref, NO_ABORT);
+    assertShellRun(stopped);
+    assert.deepEqual(stopped.operation, { kind: 'stop', applied: true });
+    await waitUntil(() => !isProcessAlive(childPid));
+  });
+
+  test('keeps a PTY task controllable when Stop aborts during process-tree preparation', {
+    skip: process.platform === 'win32' ? 'Windows termination does not take a POSIX process snapshot' : false,
+  }, async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: rawLineReaderCommand({ prompt: 'READY\n', label: 'VALUE:', lines: 1 }),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    await waitForPtyText(manager, initial.ref, /READY/);
+
+    const abort = new AbortController();
+    const rejected = assert.rejects(
+      manager.stopBackgroundTask('session-1', initial.ref, abort.signal),
+      /aborted before termination was committed/,
+    );
+    // Let the sequenced mutation enter its asynchronous process-table read.
+    await Promise.resolve();
+    abort.abort();
+    const completion = manager.writeStdin({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      input: 'resumed\r',
+      abortSignal: NO_ABORT,
+    });
+    const [, control] = await Promise.all([rejected, completion]);
+    assert.deepEqual(control.operation, {
+      kind: 'pty_control',
+      failed: false,
+      input: { bytes: 8, applied: true },
+    });
+    const completed = await waitForTerminalShellRun(manager, initial.ref);
+    assertShellRunSnapshot(completed);
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.output.mode, 'pty');
+    if (completed.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(terminalText(completed.output), /VALUE:resumed/);
+  });
+
+  test('recovers a durable running record without a live handle as orphaned', async () => {
+    const store = createShellRunStore(await workspace());
+    await store.createShellRun(record({ shellRunId: 'orphan-1', status: 'running' }));
+    const manager = createManager(store);
+
+    assert.equal(await manager.recoverOrphanedSession('session-1'), 1);
+    const detail = await manager.readRuntimeResource(
+      'session-1',
+      'maka://runtime/background-tasks/orphan-1',
+      NO_ABORT,
+    );
+    assertShellRun(detail);
     assert.equal(detail.status, 'orphaned');
-    assert.match(detail.orphanedReason ?? '', /runtime restarted/);
+    assert.match(detail.failureMessage ?? '', /Runtime restarted/);
+    assert.equal(detail.exitCode, undefined);
   });
 
-  test('context summary lists metadata without stdout or stderr tails', async () => {
-    const store = new MemoryShellRunStore();
+  test('keeps unauthorized refs non-disclosing and rejects malformed selectors before storage', async () => {
+    const store = createShellRunStore(await workspace());
+    await store.createShellRun({
+      ...record({ shellRunId: 'owned-by-another-session', status: 'running' }),
+      sessionId: 'session-2',
+    });
     const manager = createManager(store);
-    await store.createShellRun(record({
-      shellRunId: 'running-1',
-      command: 'printf "visible-command"',
-      status: 'running',
-      stdoutTail: 'stdout-secret',
-      stderrTail: 'stderr-secret',
-    }));
+    const refs = [
+      'maka://runtime/background-tasks/unknown',
+      'maka://runtime/background-tasks/owned-by-another-session',
+    ];
 
-    const summary = await manager.buildContextSummary('session-1');
-    assert.ok(summary?.includes('ref=maka://runtime/background-tasks/running-1'));
-    assert.ok(summary?.includes('visible-command'));
-    assert.ok(!summary?.includes('stdout-secret'));
-    assert.ok(!summary?.includes('stderr-secret'));
-    assert.ok(summary?.includes('Use Read'));
+    for (const ref of refs) {
+      await assert.rejects(
+        () => manager.readRuntimeResource('session-1', ref, NO_ABORT),
+        (error: unknown) => error instanceof Error
+          && (error as NodeJS.ErrnoException).code === 'ENOENT'
+          && error.message === 'Runtime background task not found in this session',
+      );
+    }
+
+    await assert.rejects(
+      () => manager.readRuntimeResource(
+        'session-1',
+        'maka://runtime/background-tasks/%2Funsafe',
+        NO_ABORT,
+      ),
+      /Unsupported runtime resource ref/,
+    );
   });
 
-  test('observing terminal ShellRuns does not compact the durable output tail', async () => {
-    const store = new MemoryShellRunStore();
+  test('runs with real TTY stdin/stdout at 80x24 and preserves the shell exit code', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand(`
+        const stdin = process.stdin.isTTY ? 'tty' : 'notty';
+        const stdout = process.stdout.isTTY ? 'tty' : 'notty';
+        process.stdout.write(
+          'stdin=' + stdin + ' stdout=' + stdout + ' size=' + process.stdout.rows + ' ' + process.stdout.columns + '\\n',
+          () => process.exit(23),
+        );
+      `),
+      pty: true,
+    }));
+    const result = await waitForTerminalShellRun(manager, initial.ref);
+
+    assertShellRunSnapshot(result);
+    assert.equal(result.status, 'failed');
+    assert.equal(result.exitCode, 23);
+    assert.equal(result.output.mode, 'pty');
+    if (result.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(terminalText(result.output), /stdin=tty stdout=tty size=24 80/);
+    assert.equal(result.output.cols, 80);
+    assert.equal(result.output.rows, 24);
+    assert.equal(manager.livePtyCount(), 0);
+  });
+
+  test('writes Unicode exactly, adds no newline, and treats carriage return as Enter', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: rawLineReaderCommand({ prompt: 'name? ', label: '\nhello:', lines: 1 }),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    assert.equal(initial.mode, 'pty');
+    await waitForPtyText(manager, initial.ref, /name\?/);
+
+    const partial = await manager.writeStdin({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      input: '\u96ea\u{1F642}',
+      abortSignal: NO_ABORT,
+    });
+    assert.equal(partial.status, 'running');
+    assert.equal(partial.output?.mode, 'pty');
+    if (partial.output?.mode !== 'pty') throw new Error('expected pty output');
+    assert.doesNotMatch(terminalText(partial.output), /hello:/);
+    assert.deepEqual(partial.operation, {
+      kind: 'pty_control',
+      failed: false,
+      input: { bytes: 7, applied: true },
+    });
+
+    const control = await manager.writeStdin({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      input: '\r',
+      abortSignal: NO_ABORT,
+    });
+    assert.deepEqual(control.operation, {
+      kind: 'pty_control',
+      failed: false,
+      input: { bytes: 1, applied: true },
+    });
+    const result = await waitForTerminalShellRun(manager, initial.ref);
+    assertShellRunSnapshot(result);
+    assert.equal(result.output.mode, 'pty');
+    if (result.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(terminalText(result.output), /hello:\u96ea\u{1F642}/u);
+  });
+
+  test('rejects malformed PTY controls before commit without poisoning later input', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: rawLineReaderCommand({ prompt: 'READY\n', label: 'VALUE:', lines: 1 }),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    await waitForPtyText(manager, initial.ref, /READY/);
+    const base = {
+      sessionId: 'session-1',
+      ref: initial.ref,
+      abortSignal: NO_ABORT,
+    };
+
+    await assert.rejects(() => manager.writeStdin(base), /requires input and\/or size/);
+    await assert.rejects(() => manager.writeStdin({ ...base, input: '' }), /must not be empty/);
+    await assert.rejects(
+      () => manager.writeStdin({ ...base, input: '\uD800' }),
+      /well-formed Unicode/,
+    );
+    await assert.rejects(
+      () => manager.writeStdin({ ...base, input: 'x'.repeat(64 * 1024 + 1) }),
+      /exceeds the 65536-byte limit/,
+    );
+    await assert.rejects(
+      () => manager.writeStdin({ ...base, size: { cols: 1, rows: 101 } }),
+      /cols must be between 2 and 240/,
+    );
+    const control = await manager.writeStdin({
+      ...base,
+      input: 'ok\r',
+    });
+    assert.deepEqual(control.operation, {
+      kind: 'pty_control',
+      failed: false,
+      input: { bytes: 3, applied: true },
+    });
+    const completed = await waitForTerminalShellRun(manager, initial.ref);
+    assertShellRunSnapshot(completed);
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.output.mode, 'pty');
+    if (completed.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(terminalText(completed.output), /VALUE:ok/);
+  });
+
+  test('delivers Ctrl-C and Ctrl-D as terminal control characters', async () => {
+    const manager = await createTestManager();
+    const interrupted = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: controlCharacterCommand('\u0003', 'INT-SEEN'),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(interrupted.kind, 'shell_run');
+    await waitForPtyText(manager, interrupted.ref, /READY/);
+
+    const ctrlCControl = await manager.writeStdin({
+      sessionId: 'session-1',
+      ref: interrupted.ref,
+      input: '\u0003',
+      abortSignal: NO_ABORT,
+    });
+    assert.deepEqual(ctrlCControl.operation, {
+      kind: 'pty_control', failed: false, input: { bytes: 1, applied: true },
+    });
+    const ctrlC = await waitForTerminalShellRun(manager, interrupted.ref);
+    assertShellRunSnapshot(ctrlC);
+    assert.equal(ctrlC.status, 'completed');
+    assert.equal(ctrlC.output.mode, 'pty');
+    if (ctrlC.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(terminalText(ctrlC.output), /INT-SEEN/);
+
+    const awaitingEof = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: controlCharacterCommand('\u0004', 'EOF-SEEN'),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(awaitingEof.kind, 'shell_run');
+    await waitForPtyText(manager, awaitingEof.ref, /READY/);
+
+    const ctrlDControl = await manager.writeStdin({
+      sessionId: 'session-1',
+      ref: awaitingEof.ref,
+      input: '\u0004',
+      abortSignal: NO_ABORT,
+    });
+    assert.deepEqual(ctrlDControl.operation, {
+      kind: 'pty_control', failed: false, input: { bytes: 1, applied: true },
+    });
+    const ctrlD = await waitForTerminalShellRun(manager, awaitingEof.ref);
+    assertShellRunSnapshot(ctrlD);
+    assert.equal(ctrlD.status, 'completed');
+    assert.equal(ctrlD.output.mode, 'pty');
+    if (ctrlD.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(terminalText(ctrlD.output), /EOF-SEEN/);
+  });
+
+  test('keeps concurrent PTY controls FIFO without an output-observation wait', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: rawLineReaderCommand({ prompt: 'READY\n', label: 'SEEN:', lines: 3 }),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    await waitForPtyText(manager, initial.ref, /READY/);
+
+    const first = manager.writeStdin({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      input: 'one\r',
+      size: { cols: 81, rows: 25 },
+      abortSignal: NO_ABORT,
+    });
+    const second = manager.writeStdin({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      input: 'two\r',
+      size: { cols: 82, rows: 26 },
+      abortSignal: NO_ABORT,
+    });
+    const third = manager.writeStdin({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      input: 'three\r',
+      size: { cols: 83, rows: 27 },
+      abortSignal: NO_ABORT,
+    });
+    const controls = await Promise.all([first, second, third]);
+    assert.deepEqual(
+      controls.map((result) => result.operation),
+      [
+        {
+          kind: 'pty_control', failed: false,
+          input: { bytes: 4, applied: true },
+          resize: { cols: 81, rows: 25, applied: true, changed: true },
+        },
+        {
+          kind: 'pty_control', failed: false,
+          input: { bytes: 4, applied: true },
+          resize: { cols: 82, rows: 26, applied: true, changed: true },
+        },
+        {
+          kind: 'pty_control', failed: false,
+          input: { bytes: 6, applied: true },
+          resize: { cols: 83, rows: 27, applied: true, changed: true },
+        },
+      ],
+    );
+    const snapshots = controls.map((control) => {
+      assertShellRunSnapshot(control);
+      return control;
+    });
+    assert.deepEqual(
+      snapshots.map((control) => control.output.mode === 'pty'
+        ? [control.output.cols, control.output.rows]
+        : undefined),
+      [[81, 25], [82, 26], [83, 27]],
+    );
+    assert.ok(snapshots[0]!.revision < snapshots[1]!.revision);
+    assert.ok(snapshots[1]!.revision < snapshots[2]!.revision);
+    const completed = await waitForTerminalShellRun(manager, initial.ref);
+    assertShellRunSnapshot(completed);
+    assert.equal(completed.output.mode, 'pty');
+    if (completed.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.deepEqual([completed.output.cols, completed.output.rows], [83, 27]);
+    assert.match(terminalText(completed.output), /SEEN:one\nSEEN:two\nSEEN:three/);
+  });
+
+  test('keeps concurrent PTY control and Read persistence in parser-cut order', async () => {
+    const updates: ShellRunUpdate[] = [];
+    const store = createShellRunStore(await workspace());
+    const manager = createManager(store, (update) => updates.push(update));
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand(`
+        process.stdout.write('READY\\n');
+        setInterval(() => {}, 1000);
+      `),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+
+    try {
+      await waitForPtyText(manager, initial.ref, /READY/);
+      const first = manager.writeStdin({
+        sessionId: 'session-1',
+        ref: initial.ref,
+        size: { cols: 81, rows: 25 },
+        abortSignal: NO_ABORT,
+      });
+      const second = manager.writeStdin({
+        sessionId: 'session-1',
+        ref: initial.ref,
+        size: { cols: 82, rows: 26 },
+        abortSignal: NO_ABORT,
+      });
+      const read = manager.inspectResource('session-1', initial.ref);
+      const [firstControl, secondControl, observed] = await Promise.all([first, second, read]);
+
+      assertShellRunSnapshot(firstControl);
+      assertShellRunSnapshot(secondControl);
+      assertShellRunSnapshot(observed);
+      assert.equal(firstControl.output.mode, 'pty');
+      assert.equal(secondControl.output.mode, 'pty');
+      assert.equal(observed.output.mode, 'pty');
+      if (
+        firstControl.output.mode !== 'pty'
+        || secondControl.output.mode !== 'pty'
+        || observed.output.mode !== 'pty'
+      ) throw new Error('expected pty output');
+      assert.deepEqual([firstControl.output.cols, firstControl.output.rows], [81, 25]);
+      assert.deepEqual([secondControl.output.cols, secondControl.output.rows], [82, 26]);
+      assert.deepEqual([observed.output.cols, observed.output.rows], [82, 26]);
+      assert.ok(firstControl.revision < secondControl.revision);
+      assert.equal(secondControl.revision, observed.revision);
+
+      const controlSizes = updates.flatMap(({ result }) => (
+        result.output?.mode === 'pty' && result.output.cols >= 81
+          ? [[result.output.cols, result.output.rows]]
+          : []
+      ));
+      assert.deepEqual(controlSizes, [[81, 25], [82, 26]]);
+      const durable = await store.readShellRun('session-1', 'shell-run-1');
+      assert.equal(durable.output.mode, 'pty');
+      if (durable.output.mode !== 'pty') throw new Error('expected durable pty output');
+      assert.deepEqual([durable.output.cols, durable.output.rows], [82, 26]);
+    } finally {
+      await manager.stopBackgroundTask('session-1', initial.ref, NO_ABORT);
+    }
+  });
+
+  test('joins finalization when a real PTY exits before a queued control cut', async () => {
+    const cwd = await workspace();
+    const dsrSeen = join(cwd, 'dsr-seen');
+    const exitGate = join(cwd, 'exit-gate');
+    const sizeBeforeExit = join(cwd, 'size-before-exit');
+    const store = createShellRunStore(await workspace());
     const manager = createManager(store);
-    const largeStdout = 'x'.repeat(80_000);
-    await store.createShellRun(record({
-      shellRunId: 'done-1',
-      command: 'printf large',
-      status: 'completed',
-      exitCode: 0,
-      completedAt: 2,
-      stdoutTail: largeStdout,
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd,
+      command: nodeCommand(`
+        const { readFileSync, writeFileSync } = require('node:fs');
+        process.stdin.setRawMode?.(true);
+        process.stdin.resume();
+        let received = Buffer.alloc(0);
+        let started = false;
+        let armed = false;
+
+        const exitWhenReleased = () => {
+          try {
+            readFileSync(${JSON.stringify(exitGate)});
+          } catch (error) {
+            if (error.code !== 'ENOENT') throw error;
+            setImmediate(exitWhenReleased);
+            return;
+          }
+          writeFileSync(
+            ${JSON.stringify(sizeBeforeExit)},
+            process.stdout.columns + 'x' + process.stdout.rows,
+          );
+          process.exit(0);
+        };
+
+        process.stdin.on('data', (chunk) => {
+          received = Buffer.concat([received, chunk]);
+          if (!started && received.includes(Buffer.from('START'))) {
+            started = true;
+            process.stdout.write(
+              '\\u001b[5n' + '\\u001b[2K\\r.'.repeat(256 * 1024),
+            );
+          }
+          if (!armed && received.includes(Buffer.from('\\u001b[0n'))) {
+            armed = true;
+            writeFileSync(${JSON.stringify(dsrSeen)}, '1b5b306e');
+            exitWhenReleased();
+          }
+        });
+
+        process.stdout.write(
+          'READY:' + process.stdout.columns + 'x' + process.stdout.rows + '\\n',
+        );
+      `),
+      pty: true,
+      timeoutMs: 15_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+
+    try {
+      await waitForPtyText(manager, initial.ref, /READY:80x24/);
+      const prime = await manager.writeStdin({
+        sessionId: 'session-1',
+        ref: initial.ref,
+        input: 'START',
+        abortSignal: NO_ABORT,
+      });
+      assert.deepEqual(prime.operation, {
+        kind: 'pty_control', failed: false,
+        input: { bytes: 5, applied: true },
+      });
+      await waitUntil(async () => {
+        try {
+          return await readFile(dsrSeen, 'utf8') === '1b5b306e';
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+          throw error;
+        }
+      }, 15_000);
+
+      const pending = manager.writeStdin({
+        sessionId: 'session-1',
+        ref: initial.ref,
+        size: { cols: 81, rows: 25 },
+        abortSignal: NO_ABORT,
+      });
+      await writeFile(exitGate, 'exit');
+      const control = await pending;
+
+      assert.equal(await readFile(sizeBeforeExit, 'utf8'), '80x24');
+      assertShellRunSnapshot(control);
+      assert.equal(control.status, 'completed');
+      assert.equal(control.exitCode, 0);
+      assert.deepEqual(control.operation, {
+        kind: 'pty_control', failed: false,
+        resize: { cols: 81, rows: 25, applied: false, changed: false },
+      });
+      assert.equal(control.output.mode, 'pty');
+      if (control.output.mode !== 'pty') throw new Error('expected pty output');
+      assert.deepEqual([control.output.cols, control.output.rows], [80, 24]);
+
+      const durable = await store.readShellRun('session-1', 'shell-run-1');
+      assert.equal(durable.status, 'completed');
+      assert.equal(durable.revision, control.revision);
+      assert.equal(manager.liveCount(), 0);
+    } finally {
+      if (manager.liveCount() > 0) {
+        await manager.stopBackgroundTask('session-1', initial.ref, NO_ABORT);
+      }
+    }
+  });
+
+  test('rejects WriteStdin aborted before commit without stopping the PTY', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand(`
+        process.stdin.setRawMode?.(true);
+        process.stdin.setEncoding('utf8');
+        process.stdout.write('READY\\n');
+        process.stdin.once('data', (chunk) => process.stdout.write('SEEN:' + chunk + '\\n'));
+        setInterval(() => {}, 1000);
+      `),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    await waitForPtyText(manager, initial.ref, /READY/);
+
+    const abortedBeforeCommit = new AbortController();
+    abortedBeforeCommit.abort();
+    await assert.rejects(
+      () => manager.writeStdin({
+        sessionId: 'session-1',
+        ref: initial.ref,
+        input: 'discarded',
+        abortSignal: abortedBeforeCommit.signal,
+      }),
+      /aborted before the control operation was committed/,
+    );
+
+    assert.equal((await manager.inspectResource('session-1', initial.ref)).status, 'running');
+    await manager.stopBackgroundTask('session-1', initial.ref, NO_ABORT);
+  });
+
+  test('restores the trailing PTY flush after a queued control aborts before commit', async () => {
+    const cwd = await workspace();
+    const dirtyWritten = join(cwd, 'dirty-written');
+    const store = createShellRunStore(await workspace());
+    const manager = createManager(store, undefined, { flushIntervalMs: 1_000 });
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd,
+      command: nodeCommand(`
+        const { writeFileSync } = require('node:fs');
+        process.stdin.setRawMode?.(true);
+        process.stdin.resume();
+        process.stdout.write('READY\\n');
+        let controlReceived = false;
+        let protocolReply = Buffer.alloc(0);
+        process.stdin.on('data', (chunk) => {
+          if (!controlReceived) {
+            controlReceived = true;
+            process.stdout.write('DIRTY\\n\\u001b[5n');
+            return;
+          }
+          protocolReply = Buffer.concat([protocolReply, chunk]);
+          if (protocolReply.includes(Buffer.from('\\u001b[0n'))) {
+            writeFileSync(${JSON.stringify(dirtyWritten)}, 'written');
+          }
+        });
+        setInterval(() => {}, 1000);
+      `),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+
+    try {
+      await waitForPtyText(manager, initial.ref, /READY/);
+      const beforeDirty = await store.readShellRun('session-1', 'shell-run-1');
+      await manager.writeStdin({
+        sessionId: 'session-1',
+        ref: initial.ref,
+        input: 'emit',
+        abortSignal: NO_ABORT,
+      });
+      await waitUntil(async () => {
+        try {
+          return await readFile(dirtyWritten, 'utf8') === 'written';
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+          throw error;
+        }
+      });
+      const beforeAbort = await store.readShellRun('session-1', 'shell-run-1');
+      assert.equal(beforeAbort.revision, beforeDirty.revision);
+      assert.equal(beforeAbort.output.mode, 'pty');
+      if (beforeAbort.output.mode !== 'pty') throw new Error('expected durable pty output');
+      assert.doesNotMatch(terminalText(beforeAbort.output), /DIRTY/);
+
+      const abort = new AbortController();
+      const control = manager.writeStdin({
+        sessionId: 'session-1',
+        ref: initial.ref,
+        size: { cols: 81, rows: 25 },
+        abortSignal: abort.signal,
+      });
+      abort.abort();
+      await assert.rejects(control, /aborted before the control operation was committed/);
+
+      await waitUntil(async () => {
+        const durable = await store.readShellRun('session-1', 'shell-run-1');
+        return durable.revision > beforeDirty.revision
+          && durable.output.mode === 'pty'
+          && /DIRTY/.test(terminalText(durable.output));
+      });
+    } finally {
+      await manager.stopBackgroundTask('session-1', initial.ref, NO_ABORT);
+    }
+  });
+
+  test('linearizes native resize, collector resize, input, and snapshot on a real PTY', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand(`
+        process.stdin.setRawMode?.(true);
+        process.stdin.resume();
+        process.stdout.write('ready\\n');
+        process.stdin.once('data', () => setTimeout(() => {
+          process.stdout.write(process.stdout.rows + ' ' + process.stdout.columns + '\\n', () => process.exit(0));
+        }, 20));
+      `),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    await waitForPtyText(manager, initial.ref, /ready/i);
+
+    const unchanged = await manager.writeStdin({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      size: { cols: 80, rows: 24 },
+      abortSignal: NO_ABORT,
+    });
+    assert.deepEqual(unchanged.operation, {
+      kind: 'pty_control',
+      failed: false,
+      resize: { cols: 80, rows: 24, applied: true, changed: false },
+    });
+
+    const result = await manager.writeStdin({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      size: { cols: 100, rows: 30 },
+      input: '\r',
+      abortSignal: NO_ABORT,
+    });
+    assert.equal(result.output?.mode, 'pty');
+    if (result.output?.mode !== 'pty') throw new Error('expected pty output');
+    assert.equal(result.output.cols, 100);
+    assert.equal(result.output.rows, 30);
+    assert.deepEqual(result.operation, {
+      kind: 'pty_control',
+      failed: false,
+      input: { bytes: 1, applied: true },
+      resize: { cols: 100, rows: 30, applied: true, changed: true },
+    });
+    const completed = await waitForTerminalShellRun(manager, initial.ref);
+    assertShellRunSnapshot(completed);
+    assert.equal(completed.output.mode, 'pty');
+    if (completed.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(terminalText(completed.output), /30 100/);
+  });
+
+  test('uses Unicode 11 cell widths for CJK, combining marks, and emoji', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand("process.stdout.write('A\\u754ce\\u0301\\u{1F642}')"),
+      pty: true,
+    }));
+    const result = await waitForTerminalShellRun(manager, initial.ref);
+
+    assertShellRunSnapshot(result);
+    assert.equal(result.output.mode, 'pty');
+    if (result.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.equal(result.output.screen, 'A\u754ce\u0301\u{1F642}');
+    assert.deepEqual(result.output.cursor, { x: 6, y: 0, visible: true });
+  });
+
+  test('joins soft-wrapped scrollback into logical lines', async () => {
+    const manager = await createTestManager();
+    const script = "for (let i = 0; i < 30; i += 1) process.stdout.write(String(i).padStart(2, '0') + ':' + 'x'.repeat(90) + '\\n');";
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand(script),
+      pty: true,
+    }));
+    const result = await waitForTerminalShellRun(manager, initial.ref);
+
+    assertShellRunSnapshot(result);
+    assert.equal(result.output.mode, 'pty');
+    if (result.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(result.output.scrollback, new RegExp(`00:${'x'.repeat(90)}`));
+  });
+
+  test('drains the final frame after parser backpressure and drops an evicted wrapped prefix', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand("process.stdout.write('x'.repeat(1536 * 1024)); process.stdout.write('\\nFINAL-DRAIN\\n');"),
+      pty: true,
+      timeoutMs: 15_000,
+    }));
+    const result = await waitForTerminalShellRun(manager, initial.ref, 15_000);
+
+    assertShellRunSnapshot(result);
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output.mode, 'pty');
+    if (result.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.equal(result.output.truncated, true);
+    assert.match(terminalText(result.output), /FINAL-DRAIN/);
+    assert.doesNotMatch(result.output.scrollback, /x{80}/);
+  });
+
+  test('returns the redrawn screen rather than stale pre-clear text', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand(`
+        process.stdin.setRawMode?.(true);
+        process.stdin.resume();
+        process.stdout.write('stale-screen');
+        process.stdin.once('data', () => {
+          process.stdout.write('\\u001b[2J\\u001b[HABCDE\\rXY\\u001b[K\\n', () => process.exit(0));
+        });
+      `),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    await waitForPtyText(manager, initial.ref, /stale-screen/);
+    const control = await manager.writeStdin({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      input: '\r',
+      abortSignal: NO_ABORT,
+    });
+    assert.deepEqual(control.operation, {
+      kind: 'pty_control', failed: false, input: { bytes: 1, applied: true },
+    });
+    const result = await waitForTerminalShellRun(manager, initial.ref);
+    assertShellRunSnapshot(result);
+    assert.equal(result.output.mode, 'pty');
+    if (result.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(result.output.screen, /^XY$/m);
+    assert.doesNotMatch(result.output.screen, /stale-screen|ABCDE/);
+  });
+
+  test('captures only the latest alternate-screen epoch when a real PTY program leaves it', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand("process.stdout.write('\\u001b[?1049hOLD-ALT\\u001b[?1049l\\u001b[?1049hNEW-ALT\\u001b[?1049lNORMAL-FRAME\\n')"),
+      pty: true,
+    }));
+    const result = await waitForTerminalShellRun(manager, initial.ref);
+    assertShellRunSnapshot(result);
+    assert.equal(result.output.mode, 'pty');
+    if (result.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(result.output.screen, /NORMAL-FRAME/);
+    assert.match(result.output.lastAlternateScreen ?? '', /NEW-ALT/);
+    assert.doesNotMatch(result.output.lastAlternateScreen ?? '', /OLD-ALT/);
+  });
+
+  test('consumes terminal side channels while preserving visible hyperlink text', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand("process.stdout.write('\\u001b]0;HIDDEN-TITLE-0\\u0007\\u001b]1;HIDDEN-TITLE-1\\u0007\\u001b]2;HIDDEN-TITLE-2\\u0007\\u001b]7;file:///HIDDEN-CWD\\u0007\\u001b]52;c;Q0xJUEJPQVJE\\u0007\\u001b]8;;https://hidden.example\\u0007VISIBLE-LINK\\u001b]8;;\\u0007\\u001b]9;HIDDEN-NOTICE-9\\u0007\\u001b]777;HIDDEN-NOTICE-777\\u0007\\u0007\\n')"),
+      pty: true,
+    }));
+    const result = await waitForTerminalShellRun(manager, initial.ref);
+    assertShellRunSnapshot(result);
+    assert.equal(result.output.mode, 'pty');
+    if (result.output.mode !== 'pty') throw new Error('expected pty output');
+    const text = terminalText(result.output);
+    assert.match(text, /VISIBLE-LINK/);
+    assert.doesNotMatch(text, /HIDDEN-|Q0xJUEJPQVJE|hidden\.example/);
+  });
+
+  test('writes xterm protocol replies back to the real PTY synchronously', async () => {
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand(`
+        process.stdin.setRawMode?.(true);
+        let reply = Buffer.alloc(0);
+        process.stdin.on('data', (chunk) => {
+          reply = Buffer.concat([reply, chunk]);
+          if (reply.length >= 4) {
+            process.stdout.write('DSR:' + reply.subarray(0, 4).toString('hex') + '\\n', () => process.exit(0));
+          }
+        });
+        process.stdout.write('\\u001b[5n');
+      `),
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    const result = await waitForTerminalShellRun(manager, initial.ref);
+    assertShellRunSnapshot(result);
+    assert.equal(result.output.mode, 'pty');
+    if (result.output.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(terminalText(result.output), /DSR:1b5b306e/);
+  });
+
+  test('fails closed before terminal protocol replies can form an unbounded native write queue', async () => {
+    const manager = await createTestManager();
+    const queries = Math.floor(PTY_PROTOCOL_REPLY_MAX_BYTES / 4) + 1;
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand(`
+        process.stdin.setRawMode?.(true);
+        process.stdin.pause();
+        const query = '\\u001b[5n'.repeat(${queries});
+        process.stdout.write(query);
+        setInterval(() => {}, 1000);
+      `),
+      pty: true,
+      timeoutMs: 10_000,
+    }));
+    const result = await waitForTerminalShellRun(manager, initial.ref, 10_000);
+    assertShellRunSnapshot(result);
+    assert.equal(result.status, 'failed');
+    assert.match(result.failureMessage ?? '', /protocol replies exceeded/);
+    assert.equal(manager.liveCount(), 0);
+    assert.equal(manager.livePtyCount(), 0);
+  });
+
+  test('redacts a secret across a soft wrap and the scrollback/screen boundary', async () => {
+    const secret = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const manager = await createTestManager();
+    const initial = await manager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: nodeCommand(`
+        process.stdout.write(${JSON.stringify(`${'x'.repeat(73)} ${secret}\n`)});
+        for (let line = 1; line <= 22; line += 1) process.stdout.write('line-' + line + '\\n');
+      `),
+      pty: true,
+    }));
+    const result = await waitForTerminalShellRun(manager, initial.ref);
+    assertShellRunSnapshot(result);
+    assert.equal(result.output.mode, 'pty');
+    if (result.output.mode !== 'pty') throw new Error('expected pty output');
+    const text = terminalText(result.output);
+    assert.equal(result.output.redacted, true);
+    assert.match(text, /\[redacted\]/);
+    assert.doesNotMatch(text, new RegExp(secret));
+  });
+
+  test('stops descendants that detach from the real PTY process group', async () => {
+    const cwd = await workspace();
+    const childPidPath = join(cwd, 'child.pid');
+    const manager = await createTestManager();
+    const result = await manager.runBackgroundBash(shellInput({
+      cwd,
+      command: nodeCommand(`
+        const { spawn } = require('node:child_process');
+        const { writeFileSync } = require('node:fs');
+        const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.unref();
+        writeFileSync(${JSON.stringify(childPidPath)}, String(child.pid));
+        process.stdout.write('READY\\n');
+        setInterval(() => {}, 1000);
+      `),
+      pty: true,
+      timeoutMs: 5_000,
     }));
 
-    const detail = await manager.readResource('session-1', 'maka://runtime/background-tasks/done-1');
-    assert.equal(detail.status, 'completed');
-    assert.ok(detail.stdout.length < largeStdout.length);
+    assert.equal(result.kind, 'shell_run');
+    await waitUntil(async () => {
+      try {
+        await readFile(childPidPath, 'utf8');
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+        throw error;
+      }
+    });
+    const childPid = Number.parseInt(await readFile(childPidPath, 'utf8'), 10);
+    assert.ok(Number.isSafeInteger(childPid) && childPid > 0);
+    const stopped = await manager.stopBackgroundTask('session-1', result.ref, NO_ABORT);
+    assertShellRun(stopped);
+    assert.equal(stopped.status, 'cancelled');
+    assert.equal(stopped.exitCode, 130);
+    await waitUntil(() => !isProcessAlive(childPid));
+    assert.equal(manager.liveCount(), 0);
+    assert.equal(manager.livePtyCount(), 0);
+  });
 
-    const stored = await store.readShellRun('session-1', 'done-1');
-    assert.equal(stored.stdoutTail, largeStdout);
-    assert.ok(stored.observedAt !== undefined);
+  test('keeps the first committed lifecycle cause across Stop and timeout races', {
+    skip: process.platform === 'win32' ? 'Windows tree termination has no graceful SIGTERM phase' : false,
+  }, async () => {
+    const cancelledManager = await createTestManager(undefined, { killGraceMs: 500 });
+    const cancelledRun = await cancelledManager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: 'trap "" TERM; printf "READY\\n"; while :; do sleep 1; done',
+      pty: true,
+      timeoutMs: 350,
+    }));
+    assert.equal(cancelledRun.kind, 'shell_run');
+    const cancelled = await cancelledManager.stopBackgroundTask('session-1', cancelledRun.ref, NO_ABORT);
+    assertShellRun(cancelled);
+    assert.equal(cancelled.status, 'cancelled');
+    assert.deepEqual(cancelled.operation, { kind: 'stop', applied: true });
+
+    const timedOutManager = await createTestManager(undefined, { killGraceMs: 500 });
+    const timedOutRun = await timedOutManager.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: 'trap "" TERM; stty -echo; printf "READY\\n"; while :; do sleep 1; done',
+      pty: true,
+      timeoutMs: 350,
+    }));
+    assert.equal(timedOutRun.kind, 'shell_run');
+    await waitUntil(async () => {
+      try {
+        await timedOutManager.writeStdin({
+          sessionId: 'session-1',
+          ref: timedOutRun.ref,
+          input: 'x',
+          abortSignal: NO_ABORT,
+        });
+        return false;
+      } catch (error) {
+        if (/stopping and no longer accepts input/.test(String(error))) return true;
+        throw error;
+      }
+    });
+    const timedOut = await timedOutManager.stopBackgroundTask('session-1', timedOutRun.ref, NO_ABORT);
+    assertShellRun(timedOut);
+    assert.equal(timedOut.status, 'timed_out');
+    assert.deepEqual(timedOut.operation, { kind: 'stop', applied: false });
+  });
+
+  test('releases failed startup slots and enforces total and PTY capacities independently', async () => {
+    const cwd = await workspace();
+    const storageRoot = await workspace();
+    const sessionsPath = join(storageRoot, 'sessions');
+    await writeFile(sessionsPath, 'blocks durable ShellRun creation', 'utf8');
+    const store = createShellRunStore(storageRoot);
+    const manager = createManager(store, undefined, { maxLiveShellRuns: 2, maxLivePtyRuns: 1 });
+    try {
+      await assert.rejects(
+        () => manager.runBackgroundBash(shellInput({
+          cwd,
+          command: waitForeverCommand('STARTED\n'),
+          pty: true,
+        })),
+      );
+      assert.equal(manager.liveCount(), 0);
+      assert.equal(manager.livePtyCount(), 0);
+      await rm(sessionsPath, { force: true });
+      assert.deepEqual(await store.listSessionShellRuns('session-1'), []);
+
+      const ptyRun = await manager.runBackgroundBash(shellInput({
+        cwd,
+        command: waitForeverCommand('PTY-READY\n'),
+        pty: true,
+        timeoutMs: 10_000,
+      }));
+      assert.equal(ptyRun.kind, 'shell_run');
+      await assert.rejects(
+        () => manager.runBackgroundBash(shellInput({
+          cwd,
+          command: waitForeverCommand(),
+          pty: true,
+        })),
+        /Live PTY capacity is full \(1\)/,
+      );
+
+      const pipeRun = await manager.runBackgroundBash(shellInput({
+        cwd,
+        command: waitForeverCommand('PIPE-READY\n'),
+        timeoutMs: 10_000,
+      }));
+      assert.equal(pipeRun.kind, 'shell_run');
+      assert.equal(manager.liveCount(), 2);
+      assert.equal(manager.livePtyCount(), 1);
+      await assert.rejects(
+        () => manager.runBackgroundBash(shellInput({
+          cwd,
+          command: waitForeverCommand(),
+        })),
+        /Live background task capacity is full \(2\)/,
+      );
+
+      await manager.stopBackgroundTask('session-1', ptyRun.ref, NO_ABORT);
+      await manager.stopBackgroundTask('session-1', pipeRun.ref, NO_ABORT);
+      assert.equal(manager.liveCount(), 0);
+      assert.equal(manager.livePtyCount(), 0);
+    } finally {
+      await manager.terminateAll();
+    }
+  });
+
+  test('keeps SIGTERM final output and escalates an ignored SIGTERM without leaking slots', {
+    skip: process.platform === 'win32' ? 'Windows tree termination has no graceful SIGTERM phase' : false,
+  }, async () => {
+    const graceful = await createTestManager();
+    const gracefulRun = await graceful.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: 'trap \'printf "\\nFINAL-SENTINEL\\n"; exit 0\' TERM; printf "ready\\n"; while :; do sleep 1; done',
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(gracefulRun.kind, 'shell_run');
+    const stopped = await graceful.stopBackgroundTask('session-1', gracefulRun.ref, NO_ABORT);
+    assertShellRun(stopped);
+    assert.equal(stopped.output?.mode, 'pty');
+    if (stopped.output?.mode !== 'pty') throw new Error('expected pty output');
+    assert.match(terminalText(stopped.output), /FINAL-SENTINEL/);
+    assert.equal(graceful.liveCount(), 0);
+
+    const forced = await createTestManager();
+    const forcedRun = await forced.runBackgroundBash(shellInput({
+      cwd: await workspace(),
+      command: 'trap "" TERM; printf "ready\\n"; while :; do sleep 1; done',
+      pty: true,
+      timeoutMs: 5_000,
+    }));
+    assert.equal(forcedRun.kind, 'shell_run');
+    const forcedStop = await forced.stopBackgroundTask('session-1', forcedRun.ref, NO_ABORT);
+    assertShellRun(forcedStop);
+    assert.equal(forcedStop.status, 'cancelled');
+    assert.equal(forcedStop.exitCode, 130);
+    assert.equal(forced.liveCount(), 0);
+    assert.equal(forced.livePtyCount(), 0);
   });
 });
-
-class MemoryShellRunStore implements ShellRunStore {
-  private readonly records = new Map<string, Map<string, ShellRunRecord>>();
-
-  constructor(private readonly options: { createDelayMs?: number; updateDelayMs?: number } = {}) {}
-
-  async createShellRun(record: ShellRunRecord): Promise<ShellRunRecord> {
-    if (this.options.createDelayMs) await sleep(this.options.createDelayMs);
-    const session = this.session(record.sessionId);
-    if (session.has(record.shellRunId)) throw new Error(`ShellRun already exists: ${record.shellRunId}`);
-    session.set(record.shellRunId, cloneRecord(record));
-    return cloneRecord(record);
-  }
-
-  async updateShellRun(
-    sessionId: string,
-    shellRunId: string,
-    patch: Partial<ShellRunRecord>,
-  ): Promise<ShellRunRecord> {
-    if (this.options.updateDelayMs) await sleep(this.options.updateDelayMs);
-    const session = this.session(sessionId);
-    const current = session.get(shellRunId);
-    if (!current) throw new Error(`ShellRun not found: ${shellRunId}`);
-    const next = {
-      ...current,
-      ...patch,
-      sessionId,
-      shellRunId,
-    };
-    session.set(shellRunId, cloneRecord(next));
-    return cloneRecord(next);
-  }
-
-  async readShellRun(sessionId: string, shellRunId: string): Promise<ShellRunRecord> {
-    const current = this.session(sessionId).get(shellRunId);
-    if (!current) throw new Error(`ShellRun not found: ${shellRunId}`);
-    return cloneRecord(current);
-  }
-
-  async listSessionShellRuns(sessionId: string): Promise<ShellRunRecord[]> {
-    return [...this.session(sessionId).values()].map(cloneRecord);
-  }
-
-  private session(sessionId: string): Map<string, ShellRunRecord> {
-    let session = this.records.get(sessionId);
-    if (!session) {
-      session = new Map();
-      this.records.set(sessionId, session);
-    }
-    return session;
-  }
-}
 
 function createManager(
   store: ShellRunStore,
   onShellRunUpdate?: (update: ShellRunUpdate) => void,
+  options: {
+    maxLiveShellRuns?: number;
+    maxLivePtyRuns?: number;
+    killGraceMs?: number;
+    flushIntervalMs?: number;
+  } = {},
 ): ShellRunProcessManager {
   let id = 0;
   let now = 1_000;
-  const input = {
+  return new ShellRunProcessManager({
     store,
     newId: () => `shell-run-${++id}`,
     now: () => ++now,
     flushIntervalMs: 10,
-    killGraceMs: 50,
+    killGraceMs: 100,
+    exitAcknowledgementMs: 500,
     ...(onShellRunUpdate ? { onShellRunUpdate } : {}),
-  };
-  return new ShellRunProcessManager(input);
+    ...options,
+  });
+}
+
+async function createTestManager(
+  onShellRunUpdate?: (update: ShellRunUpdate) => void,
+  options?: {
+    maxLiveShellRuns?: number;
+    maxLivePtyRuns?: number;
+    killGraceMs?: number;
+    flushIntervalMs?: number;
+  },
+): Promise<ShellRunProcessManager> {
+  return createManager(createShellRunStore(await workspace()), onShellRunUpdate, options);
 }
 
 function shellInput(input: {
   cwd: string;
   command: string;
+  argv?: readonly string[];
+  env?: NodeJS.ProcessEnv;
+  fdInputs?: readonly { fd: number; data: Uint8Array }[];
+  pty?: boolean;
   timeoutMs?: number;
   abortSignal?: AbortSignal;
   emitOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
@@ -513,22 +1582,18 @@ function shellInput(input: {
     sourceToolCallId: 'tool-1',
     cwd: input.cwd,
     command: input.command,
+    ...(input.argv !== undefined ? { argv: input.argv } : {}),
+    ...(input.env !== undefined ? { env: input.env } : {}),
+    ...(input.fdInputs !== undefined ? { fdInputs: input.fdInputs } : {}),
+    ...(input.pty !== undefined ? { pty: input.pty } : {}),
     ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
     ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
     ...(input.shell !== undefined ? { shell: input.shell } : {}),
-    emitOutput: input.emitOutput ?? (() => {}),
+    emitOutput: input.emitOutput ?? (() => undefined),
   };
 }
 
-function record(input: {
-  shellRunId: string;
-  command: string;
-  status: ShellRunRecord['status'];
-  exitCode?: number;
-  completedAt?: number;
-  stdoutTail?: string;
-  stderrTail?: string;
-}): ShellRunRecord {
+function record(input: { shellRunId: string; status: ShellRunRecord['status'] }): ShellRunRecord {
   return {
     shellRunId: input.shellRunId,
     sessionId: 'session-1',
@@ -536,23 +1601,164 @@ function record(input: {
     sourceTurnId: 'turn-1',
     sourceToolCallId: 'tool-1',
     cwd: '/workspace',
-    command: input.command,
+    command: 'sleep 10',
     status: input.status,
-    ...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
     startedAt: 1,
     updatedAt: 1,
-    ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
-    stdoutTail: input.stdoutTail ?? '',
-    stderrTail: input.stderrTail ?? '',
-    stdoutTruncated: false,
-    stderrTruncated: false,
+    timeoutMs: 120_000,
+    revision: 1,
+    output: {
+      mode: 'pipes',
+      stdout: '',
+      stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      redacted: false,
+    },
   };
 }
 
-function cloneRecord(record: ShellRunRecord): ShellRunRecord {
-  return { ...record };
+function assertShellRun(
+  content: ToolResultContent,
+): asserts content is Extract<ToolResultContent, { kind: 'shell_run' }> {
+  assert.equal(content.kind, 'shell_run');
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function assertShellRunSnapshot(
+  content: ToolResultContent,
+): asserts content is Extract<ToolResultContent, { kind: 'shell_run' }> & { output: ShellRunRecord['output'] } {
+  assertShellRun(content);
+  assert.ok(content.output);
+}
+
+type ShellRunResult = Extract<ToolResultContent, { kind: 'shell_run' }>;
+
+async function waitForShellRun(
+  manager: ShellRunProcessManager,
+  ref: string,
+  predicate: (result: ShellRunResult) => boolean,
+  timeoutMs = 3_000,
+): Promise<ShellRunResult> {
+  let result: ShellRunResult | undefined;
+  await waitUntil(async () => {
+    result = await manager.inspectResource('session-1', ref);
+    return predicate(result);
+  }, timeoutMs);
+  if (!result) throw new Error('ShellRun observation completed without a result');
+  return result;
+}
+
+function waitForTerminalShellRun(
+  manager: ShellRunProcessManager,
+  ref: string,
+  timeoutMs = 3_000,
+): Promise<ShellRunResult> {
+  return waitForShellRun(manager, ref, (result) => result.status !== 'running', timeoutMs);
+}
+
+function waitForPtyText(
+  manager: ShellRunProcessManager,
+  ref: string,
+  pattern: RegExp,
+  timeoutMs = 3_000,
+): Promise<ShellRunResult> {
+  return waitForShellRun(manager, ref, (result) => (
+    result.output?.mode === 'pty' && pattern.test(terminalText(result.output))
+  ), timeoutMs);
+}
+
+function terminalText(output: Extract<ShellRunRecord['output'], { mode: 'pty' }>): string {
+  return [output.scrollback, output.screen, output.lastAlternateScreen].filter(Boolean).join('\n');
+}
+
+async function workspace(): Promise<string> {
+  const path = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+  TEMPORARY_WORKSPACES.add(path);
+  return path;
+}
+
+async function waitUntil(predicate: () => boolean | Promise<boolean>, timeoutMs = 3_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await predicate())) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for ShellRun state');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+function nodeCommand(script: string): string {
+  const payload = Buffer.from(script, 'utf8').toString('base64');
+  const bootstrap = `eval(Buffer.from('${payload}','base64').toString('utf8'))`;
+  const shell = defaultShellPlan();
+  if (shell.kind === 'pwsh' || shell.kind === 'powershell') {
+    return `& ${powerShellQuote(process.execPath)} -e ${powerShellQuote(bootstrap)}`;
+  }
+  if (shell.kind === 'cmd') {
+    return `${cmdQuote(process.execPath)} -e ${cmdQuote(bootstrap)}`;
+  }
+  return `${shellQuote(process.execPath)} -e ${shellQuote(bootstrap)}`;
+}
+
+function waitForeverCommand(ready = ''): string {
+  return nodeCommand(`
+    process.stdout.write(${JSON.stringify(ready)});
+    setInterval(() => {}, 1000);
+  `);
+}
+
+function rawLineReaderCommand(input: { prompt?: string; label: string; lines: number }): string {
+  return nodeCommand(`
+    process.stdin.setRawMode?.(true);
+    process.stdin.setEncoding('utf8');
+    let current = '';
+    let remaining = ${input.lines};
+    process.stdout.write(${JSON.stringify(input.prompt ?? '')});
+    process.stdin.on('data', (chunk) => {
+      for (const character of chunk) {
+        if (character !== '\\r' && character !== '\\n') {
+          current += character;
+          continue;
+        }
+        if (character === '\\n' && current.length === 0) continue;
+        const line = ${JSON.stringify(input.label)} + current + '\\n';
+        current = '';
+        remaining -= 1;
+        if (remaining === 0) process.stdout.write(line, () => process.exit(0));
+        else process.stdout.write(line);
+      }
+    });
+  `);
+}
+
+function controlCharacterCommand(character: string, marker: string): string {
+  return nodeCommand(`
+    process.stdin.setRawMode?.(true);
+    process.stdin.setEncoding('utf8');
+    process.stdout.write('READY\\n');
+    process.stdin.on('data', (chunk) => {
+      if (chunk.includes(${JSON.stringify(character)})) {
+        process.stdout.write(${JSON.stringify(`${marker}\n`)}, () => process.exit(0));
+      }
+    });
+  `);
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function powerShellQuote(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function cmdQuote(value: string): string {
+  return `"${value.replaceAll('"', '\\"')}"`;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
 }

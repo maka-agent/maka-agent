@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import type { SessionSummary } from '@maka/core';
 import { formatCompactTimestamp } from '@maka/core';
 import {
@@ -23,6 +24,8 @@ import { EmptyState } from './empty-state.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';
 import { Button as UiButton } from './ui.js';
+import { Button as BaseButton } from '@base-ui/react/button';
+import { describeBlockedReason, presentSessionStatus } from './session-status-presentation.js';
 
 type SessionRowActionId = 'flag' | 'archive' | 'rename' | 'delete';
 type SessionHistoryGroupVariant = 'status' | 'project';
@@ -268,14 +271,11 @@ function SessionListGroups(props: {
             {group.collapsible ? (
               /* PR-LIST-GROUP-TOGGLE-PRIMITIVE-0 (round 10/30):
                  disclosure-pattern toggle (aria-expanded +
-                 aria-controls). Routed through UiButton so the
-                 collapsible group header shares the same
-                 focus-visible + `:active` contract as every
-                 other interactive surface in the session list. */
-              <UiButton
+                 aria-controls). Base UI supplies the button semantics while
+                 this row seam owns layout and the shared focus-visible +
+                 `:active` contract for the session list. */
+              <BaseButton
                 type="button"
-                variant="quiet"
-                size="nav"
                 className="maka-list-group-label maka-list-group-toggle"
                 onClick={toggle}
                 aria-expanded={expanded}
@@ -294,7 +294,7 @@ function SessionListGroups(props: {
                   can tell whether expanding the group is worth it. Open
                   groups intentionally omit counts to keep the rail flat. */}
                 <span className="maka-list-group-count">（{group.sessions.length}）</span>
-              </UiButton>
+              </BaseButton>
             ) : (
               <div className="maka-list-group-label">
                 <span>{group.label}</span>
@@ -345,10 +345,8 @@ function ProjectSessionGroup(props: {
 
   return (
     <div className="maka-list-group" data-variant="project">
-      <UiButton
+      <BaseButton
         type="button"
-        variant="quiet"
-        size="nav"
         className="maka-list-project-heading"
         onClick={() => setExpanded((current) => !current)}
         aria-expanded={expanded}
@@ -356,7 +354,7 @@ function ProjectSessionGroup(props: {
       >
         <FolderOpen size={14} aria-hidden="true" />
         <span>{props.label}</span>
-      </UiButton>
+      </BaseButton>
       {expanded && (
         <>
           <div id={`maka-list-group-body-${props.groupKey}`}>
@@ -373,16 +371,14 @@ function ProjectSessionGroup(props: {
             ))}
           </div>
           {hiddenCount > 0 && (
-            <UiButton
+            <BaseButton
               type="button"
-              variant="quiet"
-              size="nav"
               className="maka-list-project-more"
               onClick={() => setRevealed(true)}
               aria-label={`显示 ${hiddenCount} 条更多对话`}
             >
               显示更多
-            </UiButton>
+            </BaseButton>
           )}
         </>
       )}
@@ -392,7 +388,7 @@ function ProjectSessionGroup(props: {
 
 /**
  * Small inline icon next to the session name representing its
- * lifecycle status (PR109b, design-system §9.8). Hidden for `active`
+ * lifecycle status. Hidden for `active`
  * since that's the default and would add visual noise to most rows.
  *
  * `aborted` is rendered as muted history: not an error, not active,
@@ -411,15 +407,13 @@ function SessionStatusIcon(props: { session: SessionSummary }) {
   if (status === 'active') return null;
   const Icon = STATUS_ICON_BY_STATUS[status as keyof typeof STATUS_ICON_BY_STATUS];
   if (!Icon) return null;
-  const label = STATUS_LABEL_BY_STATUS[status as keyof typeof STATUS_LABEL_BY_STATUS];
-  const tone = STATUS_TONE_BY_STATUS[status as keyof typeof STATUS_TONE_BY_STATUS];
+  const { label, tone } = presentSessionStatus(status);
   // `blocked` may attach a reason; we surface the generalized text in
   // the tooltip without exposing the raw enum identifier (per @kenji
-  // i18n contract). The reason mapping lives in the renderer side; this
-  // file knows only the status itself, so the tooltip is just the
-  // status label.
+  // i18n contract). The shared presentation module owns the mapping so
+  // sidebar and renderer surfaces cannot drift.
   const blockedDetail = status === 'blocked' && session.blockedReason
-    ? BLOCKED_REASON_TOOLTIP[session.blockedReason as keyof typeof BLOCKED_REASON_TOOLTIP] ?? null
+    ? describeBlockedReason(session.blockedReason)
     : null;
   const title = blockedDetail ? `${label} · ${blockedDetail}` : label;
   return (
@@ -454,10 +448,6 @@ const SIDEBAR_UNREAD_SUPPRESSED_STATUSES = new Set<string>([
   'blocked',
 ]);
 
-// Keep these maps in sync with `apps/desktop/src/renderer/session-status-presentation.ts`.
-// The presentation helper is the authoritative source; we duplicate the
-// minimum subset here to keep @maka/ui independent of the renderer
-// workspace.
 const STATUS_ICON_BY_STATUS = {
   running: Loader2,
   waiting_for_user: Hourglass,
@@ -466,43 +456,6 @@ const STATUS_ICON_BY_STATUS = {
   done: CircleCheckBig,
   archived: Archive,
   aborted: Ban,
-} as const;
-
-const STATUS_LABEL_BY_STATUS = {
-  running: '进行中',
-  waiting_for_user: '等你确认',
-  blocked: '已阻塞',
-  review: '待审核',
-  done: '已完成',
-  archived: '已归档',
-  aborted: '已中止',
-} as const;
-
-// `blocked` was 'destructive' (red), which read as a hard error in the
-// chat header even when the session was just waiting on permission or a
-// connection retry. The chat top-right cluster sits visually alongside
-// monochrome quiet-icon buttons, so the bright red pill clashed. Most
-// blocked sessions are recoverable (permission_required, auth retry,
-// missing connection), so 'warning' (warm yellow) is the honest tone —
-// "you need to do something" rather than "this failed". The destructive
-// red is reserved for hard failures (e.g. permanent connection / auth
-// rejection), which surface through ChatHeaderAlertBadge instead.
-const STATUS_TONE_BY_STATUS = {
-  running: 'accent',
-  waiting_for_user: 'warning',
-  blocked: 'warning',
-  review: 'info',
-  done: 'success',
-  archived: 'muted',
-  aborted: 'muted',
-} as const;
-
-const BLOCKED_REASON_TOOLTIP = {
-  NO_REAL_CONNECTION: '等待配置可用模型连接',
-  auth: '需要重新登录',
-  permission_required: '等待权限确认',
-  tool_failed: '工具调用失败',
-  unknown: '运行中断，可重试',
 } as const;
 
 const SessionRow = memo(function SessionRow(props: {
@@ -524,7 +477,7 @@ const SessionRow = memo(function SessionRow(props: {
   const [actionsVisible, setActionsVisible] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<SessionRowActionId | null>(null);
-  const rowMountedRef = useRef(true);
+  const rowMountedRef = useMountedRef();
   const pendingActionRef = useRef<SessionRowActionId | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // PR-FE-BUG-HUNT-11: Escape on the rename input has to suppress the
@@ -537,9 +490,7 @@ const SessionRow = memo(function SessionRow(props: {
   const actionTriggerVisible = actionsVisible || menuOpen;
 
   useEffect(() => {
-    rowMountedRef.current = true;
     return () => {
-      rowMountedRef.current = false;
       pendingActionRef.current = null;
     };
   }, []);
@@ -672,16 +623,10 @@ const SessionRow = memo(function SessionRow(props: {
         // "current" without a heavy full-bg pill.
         /* PR-SESSION-ROW-MAIN-PRIMITIVE-0 (round 14/30): the
            single most-clicked button in the app — every session
-           row's main click target. Routed through UiButton with
-           size="nav" (round-12 enabler) so the bespoke
-           `.maka-list-row-main` density (32-40px height, custom
-           padding, grid layout with text/meta columns) stays the
-           source of truth, while the primitive contributes the
-           shared `:active scale`, focus-visible, and
-           disabled-state contract. */
-        <UiButton
-          variant="quiet"
-          size="nav"
+           row's main click target. This composite navigation row keeps its
+           grid layout and multi-line density in the semantic row seam rather
+           than masquerading as a shared Button size. */
+        <BaseButton
           className="maka-list-row-main"
           type="button"
           data-session-id={session.id}
@@ -745,7 +690,7 @@ const SessionRow = memo(function SessionRow(props: {
           ) : (
             <span className="maka-list-row-meta">{formatSessionMeta(session)}</span>
           )}
-        </UiButton>
+        </BaseButton>
       )}
       {actions && !editing && (
         <Menu open={menuOpen} onOpenChange={setMenuOpen}>

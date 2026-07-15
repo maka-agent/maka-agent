@@ -404,6 +404,11 @@ export function ExploreAgentPreview(props: {
   );
 }
 
+/**
+ * @knipignore Consumed via dynamic `await import(uiModuleUrl)` from the built
+ * dist in tool-activity-result-preview-contract.test.ts, which knip cannot
+ * trace through the runtime module URL.
+ */
 export function buildExploreAgentCopyPayloads(result: ExploreAgentResult): Record<'summary' | 'process' | 'evidence' | 'report' | 'candidate' | 'matches' | 'continuation', string> {
   return buildExploreAgentPreviewModel(result).copyPayloads;
 }

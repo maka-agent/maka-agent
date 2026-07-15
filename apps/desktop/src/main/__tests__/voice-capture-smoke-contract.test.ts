@@ -101,7 +101,7 @@ describe('voice capture smoke Settings contract', () => {
     assert.ok(voicePage, 'voice settings page source must be discoverable');
     assert.match(
       voicePage!,
-      /const voicePageMountedRef = useRef\(false\);[\s\S]*const activeVoiceCaptureStreamRef = useRef<MediaStream \| null>\(null\);[\s\S]*voicePageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*voicePageMountedRef\.current = false;[\s\S]*activeVoiceCaptureStreamRef\.current\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);[\s\S]*activeVoiceCaptureStreamRef\.current = null;[\s\S]*captureSmokeBusyRef\.current = false;/,
+      /const voicePageMountedRef = useMountedRef\(\);[\s\S]*const activeVoiceCaptureStreamRef = useRef<MediaStream \| null>\(null\);[\s\S]*return \(\) => \{[\s\S]*activeVoiceCaptureStreamRef\.current\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);[\s\S]*activeVoiceCaptureStreamRef\.current = null;[\s\S]*captureSmokeBusyRef\.current = false;/,
       'voice capture smoke must track page ownership and release the pending owner when Settings closes',
     );
     assert.match(
@@ -190,7 +190,8 @@ describe('voice capture smoke Settings contract', () => {
     assert.match(settings, /case\s+'not_available':\s*return\s+'未开放'/, 'not_available label should be product-facing copy');
     assert.doesNotMatch(settings, /尚未实现/, 'Settings capability UI must not render not_available as unfinished implementation copy');
     assert.doesNotMatch(snapshot, /not implemented|missing_token|local gateway disabled|未接入|尚未接入|helper/, 'capability reasons must not leak internal placeholder/error identifiers');
-    assert.match(snapshot, /本机控制需要独立权限确认与审计/, 'Computer Use must keep a clear product boundary reason');
+    assert.match(snapshot, /未找到通过完整性检查的 cua-driver artifact/, 'Computer Use unavailable copy must name the failed artifact integrity boundary');
+    assert.match(snapshot, /按目标与动作类别授权后可操作本机应用/, 'Computer Use enabled copy must keep scoped approval visible');
     assert.match(snapshot, /本地 Gateway 已关闭/, 'Open Gateway disabled state must use user-facing copy');
     assert.match(snapshot, /等待生成访问 token/, 'Open Gateway missing token state must use actionable waiting copy');
     assert.doesNotMatch(snapshot, /缺少访问 token/, 'Open Gateway missing token state should not read like a raw missing-field error');

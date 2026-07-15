@@ -1,0 +1,22 @@
+import Cocoa
+import CoreGraphics
+
+let eventTypes: [CGEventType] = [
+    .keyDown,
+    .leftMouseDown,
+    .rightMouseDown,
+    .otherMouseDown,
+    .mouseMoved,
+    .leftMouseDragged,
+    .rightMouseDragged,
+    .otherMouseDragged,
+]
+
+let age = eventTypes.map { eventType in
+    CGEventSource.secondsSinceLastEventType(
+        .hidSystemState,
+        eventType: eventType
+    )
+}.min() ?? .infinity
+
+print(age)

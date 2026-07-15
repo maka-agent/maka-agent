@@ -13,6 +13,7 @@ import type {
   SessionHeader,
   SessionListFilter,
   SessionSummary,
+  ShellRunSnapshotResult,
   StoredMessage,
   TurnRecord,
 } from '@maka/core';
@@ -29,6 +30,7 @@ import type { RuntimeKernelLike } from '../runtime-kernel.js';
 import { RuntimeReadModel } from '../runtime-read-model.js';
 import type { AgentBackend } from '@maka/core/backend-types';
 import type { MakaTool } from '../tool-runtime.js';
+import type { ShellRunProcessManager } from '../shell-run-manager.js';
 import type { InvocationResult } from '../invocation-context.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
 import { buildHistoryCompactCheckpoint, type HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
@@ -5361,6 +5363,127 @@ describe('SessionManager permission mode updates', () => {
     expect(childMessages.some((message) => message.type === 'turn_state')).toBe(false);
   });
 
+  test('hydrates an inherited running ShellRun with its source-session owner', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const ref = 'maka://runtime/background-tasks/pty-parent';
+    const sourceSnapshot: ShellRunSnapshotResult = {
+      kind: 'shell_run',
+      ref,
+      mode: 'pty',
+      status: 'running',
+      cwd: '/tmp/workspace',
+      cmd: 'interactive',
+      startedAt: 1,
+      updatedAt: 2,
+      revision: 2,
+      output: {
+        mode: 'pty',
+        screen: 'ready',
+        scrollback: '',
+        cols: 80,
+        rows: 24,
+        cursor: { x: 5, y: 0, visible: true },
+        alternateScreen: false,
+        truncated: false,
+        redacted: false,
+      },
+    };
+    let ownerAvailable = true;
+    const shellRuns = {
+      async listSessionUpdates() { return []; },
+      async inspectResource(sessionId: string, candidateRef: string) {
+        if (ownerAvailable && candidateRef === ref && sessionId === 'session-1') return sourceSnapshot;
+        const error = new Error('missing') as NodeJS.ErrnoException;
+        error.code = 'ENOENT';
+        throw error;
+      },
+    } as unknown as ShellRunProcessManager;
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      shellRuns,
+      newId: nextId(),
+      now: nextNow(15_250),
+    });
+    const parent = await manager.createSession(makeInput({ name: 'Parent' }));
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: parent.id,
+      runId: 'source-run',
+      turnId: 'source',
+      status: 'completed',
+      createdAt: 1,
+      updatedAt: 4,
+      completedAt: 4,
+    }), [
+      runtimeEvent({
+        id: 'user-1', sessionId: parent.id, runId: 'source-run', turnId: 'source', ts: 1,
+        role: 'user', author: 'user', content: { kind: 'text', text: 'start' },
+      }),
+      runtimeEvent({
+        id: 'call-1', sessionId: parent.id, runId: 'source-run', turnId: 'source', ts: 2,
+        role: 'model', author: 'agent',
+        content: {
+          kind: 'function_call', id: 'bash-1', name: 'Bash',
+          args: { command: 'interactive', run_in_background: true, pty: true },
+        },
+        refs: { toolCallId: 'bash-1' },
+      }),
+      runtimeEvent({
+        id: 'result-1', sessionId: parent.id, runId: 'source-run', turnId: 'source', ts: 3,
+        role: 'tool', author: 'tool',
+        content: {
+          kind: 'function_response', id: 'bash-1', name: 'Bash',
+          result: {
+            kind: 'shell_run',
+            ref,
+            mode: 'pty',
+            status: 'running',
+            cwd: '/tmp/workspace',
+            cmd: 'interactive',
+            startedAt: 1,
+            updatedAt: 1,
+            revision: 1,
+          },
+          isError: false,
+        },
+        refs: { toolCallId: 'bash-1' },
+      }),
+      runtimeEvent({
+        id: 'complete-1', sessionId: parent.id, runId: 'source-run', turnId: 'source', ts: 4,
+        role: 'system', author: 'system', status: 'completed', actions: { endInvocation: true },
+      }),
+    ]);
+    const child = await manager.branchFromTurn(parent.id, { sourceTurnId: 'source', name: 'Child' });
+
+    const updates = await manager.listShellRunUpdates(child.id);
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.sessionId).toBe(child.id);
+    expect(updates[0]?.ownership).toEqual({
+      kind: 'source_owned',
+      sourceSessionId: parent.id,
+      ownerSessionId: parent.id,
+    });
+    expect(updates[0]?.sourceToolCallId).toBe('bash-1');
+    expect(updates[0]?.result).toEqual(sourceSnapshot);
+
+    ownerAvailable = false;
+    await store.remove(parent.id);
+    const danglingUpdates = await manager.listShellRunUpdates(child.id);
+    expect(danglingUpdates).toHaveLength(1);
+    expect(danglingUpdates[0]?.sessionId).toBe(child.id);
+    expect(danglingUpdates[0]?.ownership).toEqual({
+      kind: 'source_unavailable',
+      sourceSessionId: parent.id,
+    });
+    expect(danglingUpdates[0]?.result.status).toBe('running');
+    expect(danglingUpdates[0]?.result.output).toBe(undefined);
+  });
+
   test('branchFromTurn preserves the parent thinking level for future turns', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -6483,7 +6606,11 @@ class MemorySessionStore implements SessionStore {
 
   async readHeader(sessionId: string): Promise<SessionHeader> {
     const header = this.headers.get(sessionId);
-    if (!header) throw new Error(`Unknown session ${sessionId}`);
+    if (!header) {
+      const error = new Error(`Unknown session ${sessionId}`) as NodeJS.ErrnoException;
+      error.code = 'ENOENT';
+      throw error;
+    }
     await this.runMarkSessionReadInterleave(sessionId);
     return header;
   }

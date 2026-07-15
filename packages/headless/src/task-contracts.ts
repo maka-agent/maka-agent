@@ -1,3 +1,4 @@
+import type { ExecutionEvidenceRef } from '@maka/core/execution-evidence';
 import type { ResultRecord, TaskVerification, VerifierSpec } from './contracts.js';
 
 export type TaskRunStatus =
@@ -154,6 +155,8 @@ export interface TaskAttempt {
   status: TaskAttemptStatus;
   sessionId?: string;
   agentRunId?: string;
+  /** Ordered references to every AgentRun that contributed to this attempt. */
+  executionLineage: ExecutionEvidenceRef[];
   error?: TaskRunError;
 }
 
@@ -294,6 +297,8 @@ export interface HeavyTaskProgressSource {
   kind: 'model_tool';
   toolCallId: string;
   sessionId?: string;
+  /** AgentRun that executed the tool. Optional only for legacy evidence. */
+  agentRunId?: string;
   turnId?: string;
 }
 
@@ -537,6 +542,8 @@ export interface HeavyTaskCompactEvidenceEnvelope {
     runtimeEventId?: string;
     toolName?: HeavyTaskToolEvidenceName;
   };
+  /** Runtime source range that proves where this compact evidence came from. */
+  provenance?: ExecutionEvidenceRef;
   tool?: {
     name: HeavyTaskToolEvidenceName;
     inputSummary: Record<string, unknown>;
@@ -738,6 +745,13 @@ export interface TaskAttemptStartedEvent extends BaseTaskEvent {
   agentRunId?: string;
 }
 
+export interface TaskAttemptExecutionLinkedEvent extends BaseTaskEvent {
+  type: 'task_attempt_execution_linked';
+  attemptId: string;
+  /** Cross-ledger identity and Runtime source coverage; never copied Runtime facts. */
+  evidence: ExecutionEvidenceRef;
+}
+
 export interface SelfCheckObservedEvent extends BaseTaskEvent {
   type: 'self_check_observed';
   observation: SelfCheckObservation;
@@ -816,6 +830,14 @@ export interface HeavyTaskWorkspaceObservationRecordedEvent extends BaseTaskEven
 export interface HeavyTaskEvidenceRecordedEvent extends BaseTaskEvent {
   type: 'heavy_task_evidence_recorded';
   evidence: HeavyTaskCompactEvidenceEnvelope;
+}
+
+export interface HeavyTaskEvidenceProvenanceLinkedEvent extends BaseTaskEvent {
+  type: 'heavy_task_evidence_provenance_linked';
+  evidenceId: string;
+  attemptId: string;
+  /** Reference to canonical Runtime facts; never a copy of their payloads. */
+  provenance: ExecutionEvidenceRef;
 }
 
 export interface WorkspaceLeaseRecordedEvent extends BaseTaskEvent {
@@ -935,6 +957,7 @@ export type TaskEvent =
   | TaskRunStartedEvent
   | TaskRunVerifyingEvent
   | TaskAttemptStartedEvent
+  | TaskAttemptExecutionLinkedEvent
   | SelfCheckObservedEvent
   | FeedbackObservedEvent
   | AutonomousDecisionRecordedEvent
@@ -950,6 +973,7 @@ export type TaskEvent =
   | HeavyTaskSelfCheckGateRecordedEvent
   | HeavyTaskWorkspaceObservationRecordedEvent
   | HeavyTaskEvidenceRecordedEvent
+  | HeavyTaskEvidenceProvenanceLinkedEvent
   | IsolationPolicyRecordedEvent
   | WorkspaceLeaseRecordedEvent
   | ToolExecutorIdentityRecordedEvent

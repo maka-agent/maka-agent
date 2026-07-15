@@ -75,21 +75,6 @@ export function openSkillFailureCopy(
   return '系统打开文件失败。';
 }
 
-export function droppedTextFilePreflightFailureCopy(reason: TextFileImportPreflightFailureReason): string {
-  switch (reason) {
-    case 'missing':
-      return '没有可导入的文件。';
-    case 'too-large':
-      return '文件过大；请先截取需要讨论的部分。';
-    case 'too-many-files':
-      return '一次最多导入 5 个文件。';
-    case 'office-file':
-      return 'Office 文档请点导入文件按钮选择；拖放或粘贴拿不到可授权的本地路径。';
-    case 'unsupported-type':
-      return '只支持拖放或粘贴文本文件；Office 文档请点导入文件按钮选择。';
-  }
-}
-
 export const permissionModeDescriptions: Record<PermissionMode, string> = {
   explore: '只读工具直通，写入或网络仍需确认。',
   ask: '所有敏感工具调用前都会停下来征求允许或拒绝。',

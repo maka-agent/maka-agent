@@ -8,10 +8,19 @@ import { bashToolShellGuidance, defaultShellPlan, type ShellPlan } from './shell
 import { truncateToolOutput } from './tool-output.js';
 import {
   DEFAULT_BASH_TIMEOUT_MS,
-  MAX_SHELL_RUN_TIMEOUT_MS,
+  MAX_PTY_COLS,
+  MAX_PTY_ROWS,
   MAX_FOREGROUND_BASH_TIMEOUT_MS,
+  MAX_SHELL_RUN_TIMEOUT_MS,
+  MAX_WRITE_STDIN_INPUT_BYTES,
+  MIN_PTY_COLS,
+  MIN_PTY_ROWS,
+  type BackgroundTaskStopper,
+  type PtyControlWriter,
   type ShellRunBashInput,
-} from './shell-run-manager.js';
+  isWellFormedTerminalInput,
+} from './shell-run-contract.js';
+import type { ChildFdInput } from './child-fd-input.js';
 
 export interface ForegroundBashExecuteInput {
   command: string;
@@ -47,14 +56,9 @@ export interface BuildForegroundBashToolOptions {
 type TerminalToolResult = Extract<ToolResultContent, { kind: 'terminal' }>;
 type ShellRunToolResult = Extract<ToolResultContent, { kind: 'shell_run' }>;
 
-export interface ShellRunToolController {
+export interface ShellRunLauncher {
   runForegroundBash(input: ShellRunBashInput): Promise<TerminalToolResult>;
   runBackgroundBash(input: ShellRunBashInput): Promise<ShellRunToolResult>;
-  readResource(
-    sessionId: string,
-    ref: string,
-  ): Promise<ShellRunToolResult>;
-  stopResource(sessionId: string, ref: string): Promise<ShellRunToolResult>;
 }
 
 export function buildForegroundBashTool(options: BuildForegroundBashToolOptions): MakaTool {
@@ -106,8 +110,22 @@ export function buildLocalForegroundBashTool(
 }
 
 export function buildManagedBashTool(
-  shellRuns: ShellRunToolController,
-  options: { executionFacts?: ToolExecutionFacts; shell?: ShellPlan } = {},
+  shellRuns: ShellRunLauncher,
+  options: {
+    executionFacts?: ToolExecutionFacts;
+    shell?: ShellPlan;
+    sandbox?: MakaTool['sandbox'];
+    transformCommand?: (input: {
+      command: string;
+      pty: boolean;
+      ctx: MakaToolContext;
+    }) => {
+      argv: readonly string[];
+      cwd: string;
+      env?: NodeJS.ProcessEnv;
+      fdInputs?: readonly ChildFdInput[];
+    } | undefined;
+  } = {},
 ): MakaTool {
   const shell = options.shell ?? defaultShellPlan();
   return {
@@ -116,12 +134,14 @@ export function buildManagedBashTool(
     description:
       withShellGuidance('Run a shell command in the session cwd.', shell)
       + ` Foreground is the default (timeout ${DEFAULT_BASH_TIMEOUT_MS}ms, maximum ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms).`
-      + ` Set run_in_background=true only when the command should continue as a tracked runtime background task; background commands have no default timeout (maximum explicit timeout ${MAX_SHELL_RUN_TIMEOUT_MS}ms). Use the returned ref with Read to inspect it. Subject to permission policy.`,
+      + ` Set run_in_background=true only when the command should continue as a tracked runtime background task; background commands have no default timeout (maximum explicit timeout ${MAX_SHELL_RUN_TIMEOUT_MS}ms).`
+      + ' Set pty=true together with run_in_background=true only for terminal semantics or later input; use the returned ref with Read or WriteStdin. Subject to permission policy.',
     parameters: z.object({
       command: z.string().describe('The shell command to execute'),
       timeout_ms: z.number().int().positive().max(MAX_SHELL_RUN_TIMEOUT_MS).optional(),
       run_in_background: z.boolean().optional(),
-    }).strict().superRefine(({ timeout_ms, run_in_background }, ctx) => {
+      pty: z.boolean().optional(),
+    }).strict().superRefine(({ timeout_ms, run_in_background, pty }, ctx) => {
       if (!run_in_background && timeout_ms !== undefined && timeout_ms > MAX_FOREGROUND_BASH_TIMEOUT_MS) {
         ctx.addIssue({
           code: 'too_big',
@@ -132,23 +152,35 @@ export function buildManagedBashTool(
           message: `Foreground Bash timeout may not exceed ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms`,
         });
       }
+      if (pty && !run_in_background) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['pty'],
+          message: 'PTY Bash requires run_in_background=true',
+        });
+      }
     }),
     permissionRequired: true,
     ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
-    impl: async ({ command, timeout_ms, run_in_background }, ctx) => shellRuns[
-      run_in_background ? 'runBackgroundBash' : 'runForegroundBash'
-    ]({
-      sessionId: ctx.sessionId,
-      ...(ctx.runId ? { sourceRunId: ctx.runId } : {}),
-      sourceTurnId: ctx.turnId,
-      sourceToolCallId: ctx.toolCallId,
-      cwd: ctx.cwd,
-      command,
-      shell,
-      ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),
-      abortSignal: ctx.abortSignal,
-      emitOutput: ctx.emitOutput,
-    }),
+    ...(options.sandbox ? { sandbox: options.sandbox } : {}),
+    impl: async ({ command, timeout_ms, run_in_background, pty }, ctx) => {
+      const transformed = options.transformCommand?.({ command, pty: pty === true, ctx });
+      return shellRuns[run_in_background ? 'runBackgroundBash' : 'runForegroundBash']({
+        sessionId: ctx.sessionId,
+        ...(ctx.runId ? { sourceRunId: ctx.runId } : {}),
+        sourceTurnId: ctx.turnId,
+        sourceToolCallId: ctx.toolCallId,
+        cwd: transformed?.cwd ?? ctx.cwd,
+        command,
+        ...(pty !== undefined ? { pty } : {}),
+        ...(transformed ? { argv: transformed.argv } : { shell }),
+        ...(transformed?.env ? { env: transformed.env } : {}),
+        ...(transformed?.fdInputs ? { fdInputs: transformed.fdInputs } : {}),
+        ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),
+        abortSignal: ctx.abortSignal,
+        emitOutput: ctx.emitOutput,
+      });
+    },
   };
 }
 
@@ -157,7 +189,7 @@ export function withShellGuidance(lead: string, shell: ShellPlan): string {
   return guidance ? `${lead} ${guidance}` : lead;
 }
 
-export function buildStopBackgroundTaskTool(shellRuns: ShellRunToolController): MakaTool {
+export function buildStopBackgroundTaskTool(backgroundTasks: BackgroundTaskStopper): MakaTool {
   return {
     name: 'StopBackgroundTask',
     activityKind: 'command',
@@ -167,7 +199,44 @@ export function buildStopBackgroundTaskTool(shellRuns: ShellRunToolController): 
       ref: z.string().describe('The runtime background task ref, for example maka://runtime/background-tasks/<id>'),
     }),
     permissionRequired: false,
-    impl: ({ ref }, ctx) => shellRuns.stopResource(ctx.sessionId, ref),
+    impl: ({ ref }, ctx) => backgroundTasks.stopBackgroundTask(ctx.sessionId, ref, ctx.abortSignal),
+  };
+}
+
+export function buildWriteStdinTool(ptyControls: PtyControlWriter): MakaTool {
+  const parameters = z.object({
+    ref: z.string().describe('The runtime ref returned by a PTY Bash task'),
+    input: z.string()
+      .refine((value) => value.length > 0, 'input must not be empty; omit it for a resize-only call')
+      .refine(isWellFormedTerminalInput, 'input must be well-formed Unicode')
+      .refine(
+        (value) => Buffer.byteLength(value, 'utf8') <= MAX_WRITE_STDIN_INPUT_BYTES,
+        `input must not exceed ${MAX_WRITE_STDIN_INPUT_BYTES} UTF-8 bytes`,
+      )
+      .optional(),
+    size: z.object({
+      cols: z.number().int().min(MIN_PTY_COLS).max(MAX_PTY_COLS),
+      rows: z.number().int().min(MIN_PTY_ROWS).max(MAX_PTY_ROWS),
+    }).strict().optional(),
+  }).strict().refine((value) => value.input !== undefined || value.size !== undefined, {
+    message: 'input and/or size is required',
+  });
+  return {
+    name: 'WriteStdin',
+    activityKind: 'command',
+    description:
+      'Send exact characters to a background PTY and/or resize it, then return the terminal state at the next parser cut. '
+      + 'No newline is added: use \\r for Enter and \\u0003 for Ctrl-C. Input is ordinary audited tool-call data, not a secure secret channel. '
+      + 'The returned output is the terminal state at that cut, not output attributed to this input; use Read on the ref to observe later output.',
+    parameters,
+    permissionRequired: true,
+    impl: ({ ref, input, size }, ctx) => ptyControls.writeStdin({
+      sessionId: ctx.sessionId,
+      ref,
+      ...(input !== undefined ? { input } : {}),
+      ...(size !== undefined ? { size } : {}),
+      abortSignal: ctx.abortSignal,
+    }),
   };
 }
 
@@ -186,10 +255,14 @@ export function shapeTerminalResult(input: {
     cmd: redactSecrets(input.command),
     status: terminalStatus(input.result),
     exitCode: input.result.exitCode,
-    stdout: stdoutView.content,
-    stderr: stderrView.content,
-    stdoutTruncated: Boolean(input.result.stdoutTruncated) || stdoutView.truncated,
-    stderrTruncated: Boolean(input.result.stderrTruncated) || stderrView.truncated,
+    output: {
+      mode: 'pipes',
+      stdout: stdoutView.content,
+      stderr: stderrView.content,
+      stdoutTruncated: Boolean(input.result.stdoutTruncated) || stdoutView.truncated,
+      stderrTruncated: Boolean(input.result.stderrTruncated) || stderrView.truncated,
+      redacted: stdout !== input.result.stdout || stderr !== input.result.stderr,
+    },
   };
 }
 

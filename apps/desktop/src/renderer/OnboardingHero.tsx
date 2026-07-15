@@ -21,7 +21,7 @@
 
 import { ArrowRight, ArrowUp, ChevronRight, RotateCcw, Sparkles, KeyRound, Settings as SettingsIcon, Cpu, AlertCircle, FolderOpen, Paperclip, X } from '@maka/ui/icons';
 import { Fragment, useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
-import type { LlmConnection, OnboardingState, ProviderType, QuickChatMode, SettingsSection } from '@maka/core';
+import { RECOMMENDED_PROVIDER_TYPES, type LlmConnection, type OnboardingState, type QuickChatMode, type SettingsSection } from '@maka/core';
 import {
   Button,
   Item,
@@ -32,7 +32,13 @@ import {
   ItemTitle,
   Textarea,
   appendPromptContextDraft,
+  createChatInputActionOwner,
   detectUiLocale,
+  fileTransferContainsFiles,
+  focusTextInputAtEnd,
+  isChatInputComposing,
+  useMountedRef,
+  type ChatInputActionOwner,
   type UiLocale,
 } from '@maka/ui';
 import { ProviderLogo, providerDisplay } from './settings/provider-display';
@@ -85,23 +91,12 @@ const READY_HERO_COPY_BY_LOCALE: Record<UiLocale, {
   },
 };
 
-// Titles are PROVIDER-forward and version-free (no `GPT-4o` / `DeepSeek-V3`
-// — those go stale). The row description comes from `providerDisplay` so
-// copy has a single source of truth shared with Settings · 模型.
-const FEATURED: Array<{ type: ProviderType; tag: string; recommended?: boolean }> = [
-  { type: 'anthropic', tag: 'Claude · Anthropic', recommended: true },
-  { type: 'openai', tag: 'OpenAI' },
-  { type: 'zai-coding-plan', tag: 'GLM Coding Plan · Z.ai' },
-  { type: 'MiniMax', tag: 'MiniMax M-series' },
-  { type: 'kimi-coding-plan', tag: 'Kimi · Moonshot' },
-  { type: 'deepseek', tag: 'DeepSeek' },
-  { type: 'ollama', tag: 'Ollama' },
-];
-
 export interface OnboardingHeroProps {
   state: OnboardingState;
   /** Open Settings with a specific section preselected. */
   onOpenSettings: (section?: SettingsSection) => void;
+  /** Open the shared Settings provider catalog. */
+  onBrowseProviders: () => void;
   /**
    * Quick Chat submit handler (PR110b `quickChat:start`). Only
    * called from the `ready_empty` branch. The caller is responsible
@@ -142,13 +137,11 @@ export interface OnboardingHeroProps {
 export function OnboardingHero(props: OnboardingHeroProps) {
   const { state } = props;
   const [refreshConnectionsPending, setRefreshConnectionsPending] = useState(false);
-  const onboardingMountedRef = useRef(true);
+  const onboardingMountedRef = useMountedRef();
   const refreshConnectionsPendingRef = useRef(false);
 
   useEffect(() => {
-    onboardingMountedRef.current = true;
     return () => {
-      onboardingMountedRef.current = false;
       refreshConnectionsPendingRef.current = false;
     };
   }, []);
@@ -170,6 +163,7 @@ export function OnboardingHero(props: OnboardingHeroProps) {
       return (
         <NeedsConnectionHero
           onOpenSettings={props.onOpenSettings}
+          onBrowseProviders={props.onBrowseProviders}
           onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
           refreshConnectionsPending={refreshConnectionsPending}
           onSkip={props.onSkip}
@@ -256,6 +250,7 @@ function connectionLabel(
 
 function NeedsConnectionHero(props: {
   onOpenSettings: (section?: SettingsSection) => void;
+  onBrowseProviders: () => void;
   onRefreshConnections?: () => void;
   refreshConnectionsPending?: boolean;
   onSkip?: () => Promise<void> | void;
@@ -280,10 +275,10 @@ function NeedsConnectionHero(props: {
           providers are added without pushing the footer off-screen. */}
       <div className="maka-firstrun-list">
         <ul role="list">
-          {FEATURED.map((entry) => {
-            const display = providerDisplay(entry.type);
+          {RECOMMENDED_PROVIDER_TYPES.map((type) => {
+            const display = providerDisplay(type);
             return (
-              <li key={entry.type}>
+              <li key={type}>
                 <Item
                   className="maka-firstrun-row px-3.5 py-2"
                   render={
@@ -294,15 +289,10 @@ function NeedsConnectionHero(props: {
                   }
                 >
                   <ItemMedia>
-                    <ProviderLogo type={entry.type} compact />
+                    <ProviderLogo type={type} compact />
                   </ItemMedia>
                   <ItemContent>
-                    <ItemTitle>
-                      {entry.tag}
-                      {entry.recommended && (
-                        <span className="maka-firstrun-tag">常用</span>
-                      )}
-                    </ItemTitle>
+                    <ItemTitle>{display.name}</ItemTitle>
                     <ItemDescription>{display.description}</ItemDescription>
                   </ItemContent>
                   <ItemActions>
@@ -318,12 +308,15 @@ function NeedsConnectionHero(props: {
       {/* Designer audit P2-15: the footer's primary 打开设置·模型 button
           duplicated what clicking any provider row above already does (the
           list header even says 点一个进入设置). One affordance per action —
-          the footer keeps only the two genuinely distinct paths. */}
+          the footer keeps only genuinely distinct paths. */}
       <footer className="maka-onboarding-footer">
+        <Button type="button" variant="secondary" onClick={props.onBrowseProviders}>
+          浏览全部服务商
+        </Button>
         {props.onRefreshConnections && (
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
             onClick={props.onRefreshConnections}
             disabled={props.refreshConnectionsPending === true}
             aria-busy={props.refreshConnectionsPending === true ? 'true' : undefined}
@@ -542,16 +535,20 @@ function ReadyEmptyHero(props: {
   const [submitPending, setSubmitPending] = useState(false);
   const [pendingImportAction, setPendingImportAction] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const readyHeroMountedRef = useRef(true);
+  const readyHeroMountedRef = useMountedRef();
   const submitPendingRef = useRef(false);
-  const pendingImportActionRef = useRef<string | null>(null);
+  const compositionActiveRef = useRef(false);
+  const importActionOwnerRef = useRef<ChatInputActionOwner<string> | null>(null);
+  if (!importActionOwnerRef.current) {
+    importActionOwnerRef.current = createChatInputActionOwner((action) => {
+      if (readyHeroMountedRef.current) setPendingImportAction(action);
+    });
+  }
 
   useEffect(() => {
-    readyHeroMountedRef.current = true;
     return () => {
-      readyHeroMountedRef.current = false;
       submitPendingRef.current = false;
-      pendingImportActionRef.current = null;
+      importActionOwnerRef.current?.reset();
     };
   }, []);
 
@@ -588,10 +585,10 @@ function ReadyEmptyHero(props: {
       // Composer's IME composition guard. Without this, a Chinese /
       // Japanese / Korean user committing an IME composition with
       // Enter immediately fires `submit()` and sends the unfinished
-      // draft. The same guard at packages/ui/src/components.tsx:5640
-      // already covers the main chat input; the onboarding-hero clone
+      // draft. The same guard in packages/ui/src/composer.tsx already
+      // covers the main chat input; the onboarding-hero clone
       // had drifted.
-      if (event.nativeEvent.isComposing || event.key === 'Process') return;
+      if (isChatInputComposing(event, compositionActiveRef.current)) return;
       // Enter (without modifier) → submit. Shift+Enter inserts newline.
       if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
         event.preventDefault();
@@ -615,8 +612,7 @@ function ReadyEmptyHero(props: {
     window.requestAnimationFrame(() => {
       const input = inputRef.current;
       if (!input) return;
-      input.focus();
-      input.setSelectionRange(nextDraft.length, nextDraft.length);
+      focusTextInputAtEnd(input);
     });
   }, [quickChatBusy]);
 
@@ -631,8 +627,7 @@ function ReadyEmptyHero(props: {
     window.requestAnimationFrame(() => {
       const input = inputRef.current;
       if (!input) return;
-      input.focus();
-      input.setSelectionRange(nextDraft.length, nextDraft.length);
+      focusTextInputAtEnd(input);
     });
   }, []);
 
@@ -640,18 +635,12 @@ function ReadyEmptyHero(props: {
     actionKey: string,
     action: () => Promise<string | undefined>,
   ) => {
-    if (pendingImportActionRef.current !== null || quickChatBusy) return;
-    pendingImportActionRef.current = actionKey;
-    setPendingImportAction(actionKey);
-    try {
+    if (quickChatBusy) return;
+    const prompt = await importActionOwnerRef.current?.run(actionKey, async () => {
       const prompt = await action();
-      if (prompt && readyHeroMountedRef.current) appendImportedPrompt(prompt);
-    } finally {
-      if (pendingImportActionRef.current === actionKey) {
-        pendingImportActionRef.current = null;
-        if (readyHeroMountedRef.current) setPendingImportAction(null);
-      }
-    }
+      return prompt;
+    });
+    if (prompt && readyHeroMountedRef.current) appendImportedPrompt(prompt);
   }, [appendImportedPrompt, quickChatBusy]);
 
   const importActionBusy = pendingImportAction !== null;
@@ -661,11 +650,11 @@ function ReadyEmptyHero(props: {
   ), [importActionBusy, props.onImportDroppedTextFiles, quickChatBusy]);
 
   const hasDraggedFiles = useCallback((event: DragEvent<HTMLElement>) => (
-    Array.from(event.dataTransfer.types).includes('Files')
+    fileTransferContainsFiles(event.dataTransfer.types, event.dataTransfer.files.length)
   ), []);
 
   const hasPastedFiles = useCallback((event: ClipboardEvent<HTMLTextAreaElement>) => (
-    Array.from(event.clipboardData.types).includes('Files') || event.clipboardData.files.length > 0
+    fileTransferContainsFiles(event.clipboardData.types, event.clipboardData.files.length)
   ), []);
 
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
@@ -704,6 +693,7 @@ function ReadyEmptyHero(props: {
   }, [dragActive]);
 
   const handlePaste = useCallback((event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (isChatInputComposing(event, compositionActiveRef.current)) return;
     if (!hasPastedFiles(event)) return;
     if (!canAcceptDroppedTextFiles()) return;
     const files = Array.from(event.clipboardData.files);
@@ -742,6 +732,8 @@ function ReadyEmptyHero(props: {
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={handleKey}
             onPaste={handlePaste}
+            onCompositionStart={() => { compositionActiveRef.current = true; }}
+            onCompositionEnd={() => { compositionActiveRef.current = false; }}
             disabled={quickChatBusy}
             aria-label={copy.quickChatAria}
           />
@@ -765,6 +757,8 @@ function ReadyEmptyHero(props: {
         <Button
           type="button"
           className="maka-onboarding-quickchat-submit"
+          variant="default"
+          size="icon"
           onClick={submit}
           disabled={quickChatBusy}
           aria-busy={quickChatBusy ? 'true' : undefined}
@@ -786,9 +780,8 @@ function ReadyEmptyHero(props: {
                 <div key={suggestion.id} className="maka-first-run-task-suggestion-chip">
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
-                    className="maka-first-run-task-suggestion"
                     onClick={() => prefillSuggestion(suggestion.prompt, suggestion.mode)}
                     disabled={quickChatBusy}
                   >
@@ -806,11 +799,7 @@ function ReadyEmptyHero(props: {
 
 function SkipButton(props: { onSkip: () => Promise<void> | void; label?: string }) {
   const [pending, setPending] = useState(false);
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const mountedRef = useMountedRef();
   const onClick = useCallback(async () => {
     if (pending) return;
     setPending(true);
@@ -823,7 +812,7 @@ function SkipButton(props: { onSkip: () => Promise<void> | void; label?: string 
   return (
     <Button
       type="button"
-      variant="outline"
+      variant="secondary"
       onClick={onClick}
       disabled={pending}
       aria-busy={pending ? 'true' : undefined}
@@ -892,7 +881,7 @@ function SetupHero(props: SetupHeroProps) {
         {props.secondaryCta && (
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
             onClick={props.secondaryCta.onClick}
             disabled={props.secondaryCta.disabled === true}
             aria-busy={props.secondaryCta.busy === true ? 'true' : undefined}

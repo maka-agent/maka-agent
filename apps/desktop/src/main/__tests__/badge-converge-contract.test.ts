@@ -30,7 +30,6 @@ const MIGRATED_FILES = [
   'apps/desktop/src/renderer/settings/permission-center-page.tsx',
   'apps/desktop/src/renderer/artifact-pane.tsx',
   'packages/ui/src/plan-reminder-panel.tsx',
-  'packages/ui/src/permission-dialog.tsx',
 ];
 
 const BADGE_PRIMITIVE = 'packages/ui/src/primitives/badge.tsx';

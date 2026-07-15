@@ -10,6 +10,34 @@ import {
 } from '../model-adapter.js';
 
 describe('ModelAdapter stream and error normalization', () => {
+  test('resolves optional-key LocalAI without fabricating a credential', () => {
+    const model = {};
+    let observedApiKey: string | undefined;
+    const adapter = new ModelAdapter({
+      connection: {
+        slug: 'localai',
+        name: 'LocalAI',
+        providerType: 'localai',
+        defaultModel: 'qwen3-8b',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: '',
+      modelId: 'qwen3-8b',
+      modelFactory: (input) => {
+        observedApiKey = input.apiKey;
+        return model;
+      },
+      maxSteps: 2,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    assert.equal(adapter.resolveModel(), model);
+    assert.equal(observedApiKey, '');
+  });
+
   test('normalizes provider text, reasoning, ignored tool chunks, and errors into SessionEvents', () => {
     const events: SessionEvent[] = [];
     const queue = new AsyncEventQueue<SessionEvent>();

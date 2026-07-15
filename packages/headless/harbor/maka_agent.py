@@ -212,7 +212,11 @@ class MakaAgent(BaseInstalledAgent):
         return value if value > 0 else self._DEFAULT_CELL_TIMEOUT_SEC
 
     def _host_side_llm_enabled(self) -> bool:
-        return bool(self._get_env("MAKA_HOST_API_KEY_FILE") or self._get_env("MAKA_HOST_API_KEY"))
+        return bool(
+            self._get_env("MAKA_HOST_API_KEY_FILE")
+            or self._get_env("MAKA_HOST_API_KEY")
+            or self._get_env("MAKA_HOST_NO_AUTH") == "true"
+        )
 
     def _harbor_backend(self) -> str:
         backend = self._resolved_flags.get("backend", "") or self._get_env("MAKA_BACKEND") or "ai-sdk"
@@ -235,11 +239,14 @@ class MakaAgent(BaseInstalledAgent):
             )
             try:
                 stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self._cell_timeout_sec())
-            except asyncio.TimeoutError:
-                process.kill()
+            except BaseException as error:
+                if process.returncode is None:
+                    process.kill()
                 stdout, stderr = await process.communicate()
                 run_log_path.write_bytes(stdout + stderr)
-                raise RuntimeError(f"Maka host cell exceeded {self._cell_timeout_sec()}s")
+                if isinstance(error, asyncio.TimeoutError):
+                    raise RuntimeError(f"Maka host cell exceeded {self._cell_timeout_sec()}s") from error
+                raise
             run_log_path.write_bytes(stdout + stderr)
             if process.returncode != 0:
                 message = (stderr or stdout).decode("utf-8", errors="replace").strip()
@@ -273,7 +280,7 @@ class MakaAgent(BaseInstalledAgent):
         economy_task_env = self._get_env("MAKA_ECONOMY_TASK_MODE")
         economy_task_mode = True if economy_task_flag is True else economy_task_env == "true"
         if backend == "ai-sdk" and not self._host_side_llm_enabled():
-            raise RuntimeError("backend=ai-sdk requires MAKA_HOST_API_KEY or MAKA_HOST_API_KEY_FILE")
+            raise RuntimeError("backend=ai-sdk requires host-side provider configuration")
         env = {
             "MAKA_BACKEND": backend,
             "MAKA_MODEL": model,
@@ -299,6 +306,7 @@ class MakaAgent(BaseInstalledAgent):
             "MAKA_TRIAL_CACHE_READ_USD_PER_1M",
             "MAKA_TRIAL_CACHE_WRITE_USD_PER_1M",
             "MAKA_TRIAL_PRICING_SOURCE",
+            "MAKA_REASONING_EFFORT",
             # Default per-command timeout floor for the in-container Bash tool, so
             # long builds/tests do not hit a hard-coded 2-minute ceiling.
             "MAKA_CELL_COMMAND_TIMEOUT_MS",

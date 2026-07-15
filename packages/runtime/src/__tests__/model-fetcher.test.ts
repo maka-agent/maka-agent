@@ -11,6 +11,223 @@ after(async () => {
 });
 
 describe('fetchProviderModels', () => {
+  test('OpenCode Zen and Go discover exact account model ids with their shared API-key auth shape', async () => {
+    const requests: Array<{ url: string; authorization: string | undefined }> = [];
+    const server = await startJsonServer((request, response) => {
+      requests.push({ url: request.url ?? '', authorization: request.headers.authorization });
+      respondJson(response, 200, {
+        data: [{ id: request.url?.includes('/go/') ? 'minimax-m3' : 'gpt-5.5' }],
+      });
+    });
+    const base = {
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    } as const;
+
+    const zen = await fetchProviderModels({
+      ...base,
+      slug: 'opencode',
+      name: 'OpenCode Zen',
+      providerType: 'opencode',
+      baseUrl: `${server.url}/zen/v1`,
+      defaultModel: 'gpt-5.5',
+    }, 'opencode-test-key');
+    const go = await fetchProviderModels({
+      ...base,
+      slug: 'opencode-go',
+      name: 'OpenCode Go',
+      providerType: 'opencode-go',
+      baseUrl: `${server.url}/zen/go/v1`,
+      defaultModel: 'minimax-m3',
+    }, 'opencode-test-key');
+
+    assert.deepEqual(zen, [{ id: 'gpt-5.5' }]);
+    assert.deepEqual(go, [{ id: 'minimax-m3' }]);
+    assert.deepEqual(requests, [
+      { url: '/zen/v1/models', authorization: 'Bearer opencode-test-key' },
+      { url: '/zen/go/v1/models', authorization: 'Bearer opencode-test-key' },
+    ]);
+  });
+
+  test('Vercel AI Gateway discovers the complete public language-model list without exposing its inference key', async () => {
+    const modelId = 'anthropic/claude-opus-4.8';
+    const server = await startJsonServer((request, response) => {
+      assert.equal(request.method, 'GET');
+      assert.equal(request.url, '/v1/models');
+      assert.equal(request.headers.authorization, undefined);
+      respondJson(response, 200, {
+        object: 'list',
+        data: [
+          {
+            id: modelId,
+            object: 'model',
+            name: 'Claude Opus 4.8',
+            type: 'language',
+            context_window: 1_000_000,
+            max_tokens: 128_000,
+            tags: ['reasoning', 'tool-use', 'vision'],
+          },
+          {
+            id: 'openai/text-embedding-3-small',
+            object: 'model',
+            name: 'Text Embedding 3 Small',
+            type: 'embedding',
+          },
+        ],
+      });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'vercel',
+      name: 'Vercel AI Gateway',
+      providerType: 'vercel',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'vercel-inference-key');
+
+    assert.deepEqual(models, [{
+      id: modelId,
+      displayName: 'Claude Opus 4.8',
+      contextWindow: 1_000_000,
+      maxOutputTokens: 128_000,
+      capabilities: { vision: true, reasoning: true, functionCalling: true },
+    }]);
+  });
+
+  test('ZenMux intersects its public directory with the tool-capable snapshot without exposing its inference key', async () => {
+    const modelId = 'moonshotai/kimi-k2.5';
+    const server = await startJsonServer((request, response) => {
+      assert.equal(request.method, 'GET');
+      assert.equal(request.url, '/v1/models');
+      assert.equal(request.headers.authorization, undefined);
+      respondJson(response, 200, {
+        object: 'list',
+        data: [
+          {
+            id: modelId,
+            object: 'model',
+            display_name: 'Kimi K2.5',
+            context_length: 262_000,
+            input_modalities: ['text', 'image', 'video'],
+            output_modalities: ['text'],
+            capabilities: { reasoning: true },
+          },
+          {
+            id: 'new-provider/new-model',
+            object: 'model',
+            display_name: 'Unreviewed Model',
+            context_length: 128_000,
+            input_modalities: ['text'],
+            output_modalities: ['text'],
+            capabilities: { reasoning: false },
+          },
+          {
+            id: 'anthropic/claude-sonnet-4.6',
+            object: 'model',
+            display_name: 'Claude Sonnet 4.6',
+            context_length: 1_000_000,
+            input_modalities: ['text', 'image'],
+            output_modalities: ['text'],
+            capabilities: { reasoning: true },
+          },
+        ],
+      });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'zenmux',
+      name: 'ZenMux',
+      providerType: 'zenmux',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'zenmux-inference-key');
+
+    assert.deepEqual(models, [{
+      id: modelId,
+      displayName: 'Kimi K2.5',
+      contextWindow: 262_000,
+      capabilities: { vision: true, reasoning: true },
+    }]);
+  });
+
+  test('LocalAI discovers exact model aliases without sending empty authorization', async () => {
+    const modelId = 'localai/Qwen3-8B-Instruct-GGUF:Q4_K_M';
+    const server = await startJsonServer((request, response) => {
+      assert.equal(request.method, 'GET');
+      assert.equal(request.url, '/v1/models');
+      assert.equal(request.headers.authorization, undefined);
+      respondJson(response, 200, { data: [{ id: modelId }] });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'localai',
+      name: 'LocalAI',
+      providerType: 'localai',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: modelId,
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, '');
+
+    assert.deepEqual(models, [{ id: modelId }]);
+  });
+
+  test('LocalAI sends a user-supplied API key as Bearer during discovery', async () => {
+    const server = await startJsonServer((request, response) => {
+      assert.equal(request.headers.authorization, 'Bearer localai-user-key');
+      respondJson(response, 200, { data: [{ id: 'qwen3-8b' }] });
+    });
+
+    await fetchProviderModels({
+      slug: 'localai-keyed',
+      name: 'LocalAI protected',
+      providerType: 'localai',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: 'qwen3-8b',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'localai-user-key');
+  });
+
+  test('LM Studio discovers exact local model ids without authentication', async () => {
+    const server = await startJsonServer((request, response) => {
+      assert.equal(request.method, 'GET');
+      assert.equal(request.url, '/v1/models');
+      assert.equal(request.headers.authorization, undefined);
+      respondJson(response, 200, {
+        data: [
+          { id: 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF' },
+          { id: 'mlx-community/Qwen3-4B-Instruct-4bit' },
+        ],
+      });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'lm-studio',
+      name: 'LM Studio',
+      providerType: 'lm-studio',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: '',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, '');
+
+    assert.deepEqual(models, [
+      { id: 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF' },
+      { id: 'mlx-community/Qwen3-4B-Instruct-4bit' },
+    ]);
+  });
+
   test('Z.ai fetches live /models results, including IDs outside fallback defaults', async () => {
     let observedAuth = '';
     let observedContentType = '';
@@ -51,6 +268,42 @@ describe('fetchProviderModels', () => {
 
     assert.equal(observedPath, '/models');
     assert.deepEqual(models, [{ id: 'glm-live' }]);
+  });
+
+  test('provider model capability fields are preserved when present', async () => {
+    const server = await startJsonServer((_request, response) => {
+      respondJson(response, 200, {
+        data: [
+          {
+            id: 'kimi-k2.7',
+            supports_image_in: true,
+            supports_reasoning: true,
+            context_length: 262_144,
+          },
+          { id: 'moonshot-v1-8k', supports_image_in: false },
+        ],
+      });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'moonshot',
+      name: 'Moonshot',
+      providerType: 'moonshot',
+      baseUrl: server.url,
+      defaultModel: 'kimi-k2.7',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'moonshot-secret');
+
+    assert.deepEqual(models, [
+      {
+        id: 'kimi-k2.7',
+        contextWindow: 262_144,
+        capabilities: { vision: true, reasoning: true },
+      },
+      { id: 'moonshot-v1-8k', capabilities: { vision: false } },
+    ]);
   });
 
   test('provider fetch failures throw generalized errors instead of returning fallback models', async () => {
@@ -183,6 +436,100 @@ describe('fetchProviderModels', () => {
     assert.deepEqual(models, [{ id: 'claude-haiku-4-5-20251001' }]);
   });
 
+  test('GitHub Copilot discovers only account-enabled tool models and preserves each exact endpoint wire', async () => {
+    const server = await startJsonServer((request, response) => {
+      assert.equal(request.method, 'GET');
+      assert.equal(request.url, '/models');
+      assert.equal(request.headers.authorization, 'Bearer github-account-token');
+      assert.equal(request.headers['user-agent'], 'GitHubCopilotChat/0.35.0');
+      assert.equal(request.headers['editor-version'], 'vscode/1.107.0');
+      assert.equal(request.headers['editor-plugin-version'], 'copilot-chat/0.35.0');
+      assert.equal(request.headers['copilot-integration-id'], 'vscode-chat');
+      assert.equal(request.headers['x-github-api-version'], '2026-06-01');
+      respondJson(response, 200, {
+        data: [
+          copilotModel('gpt-5.4', ['/responses']),
+          copilotModel('claude-sonnet-4.6', ['/v1/messages']),
+          copilotModel('gemini-3.1-pro-preview', ['/chat/completions']),
+          { ...copilotModel('disabled-by-policy', ['/chat/completions']), policy: { state: 'disabled' } },
+          { ...copilotModel('hidden-from-picker', ['/chat/completions']), model_picker_enabled: false },
+          { ...copilotModel('no-tools', ['/chat/completions']), capabilities: { supports: { tool_calls: false } } },
+          copilotModel('unsupported-wire', ['/embeddings']),
+        ],
+      });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'github-copilot',
+      name: 'GitHub Copilot',
+      providerType: 'github-copilot',
+      baseUrl: server.url,
+      defaultModel: 'gpt-5.4',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'github-account-token');
+
+    assert.deepEqual(models, [
+      {
+        id: 'gpt-5.4',
+        displayName: 'gpt-5.4 display',
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
+        apiProtocol: 'openai-responses',
+        capabilities: { vision: true, reasoning: true, functionCalling: true },
+      },
+      {
+        id: 'claude-sonnet-4.6',
+        displayName: 'claude-sonnet-4.6 display',
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
+        apiProtocol: 'anthropic-messages',
+        capabilities: { vision: true, reasoning: true, functionCalling: true },
+      },
+      {
+        id: 'gemini-3.1-pro-preview',
+        displayName: 'gemini-3.1-pro-preview display',
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
+        apiProtocol: 'openai-chat',
+        capabilities: { vision: true, reasoning: true, functionCalling: true },
+      },
+    ]);
+  });
+
+  test('MiniMax Coding Plan discovers exact model ids with Anthropic API-key authentication', async () => {
+    let observedAuthorization = '';
+    let observedApiKey = '';
+    const server = await startJsonServer((request, response) => {
+      observedAuthorization = request.headers.authorization ?? '';
+      observedApiKey = (request.headers['x-api-key'] as string | undefined) ?? '';
+      assert.equal(request.method, 'GET');
+      assert.equal(request.url, '/anthropic/v1/models');
+      respondJson(response, 200, {
+        data: [
+          { id: 'MiniMax-M3' },
+          { id: 'MiniMax-M2.7-highspeed' },
+        ],
+      });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'minimax-plan',
+      name: 'MiniMax Coding Plan',
+      providerType: 'minimax-coding-plan',
+      baseUrl: `${server.url}/anthropic`,
+      defaultModel: 'MiniMax-M3',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'minimax-plan-secret');
+
+    assert.equal(observedAuthorization, '');
+    assert.equal(observedApiKey, 'minimax-plan-secret');
+    assert.deepEqual(models, [{ id: 'MiniMax-M3' }, { id: 'MiniMax-M2.7-highspeed' }]);
+  });
+
   test('Codex subscription model fetch uses the pinned subscription model list', async () => {
     const models = await fetchProviderModels({
       slug: 'codex-subscription',
@@ -236,6 +583,27 @@ async function startJsonServer(
 function respondJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, { 'content-type': 'application/json' });
   response.end(JSON.stringify(body));
+}
+
+function copilotModel(id: string, supportedEndpoints: string[]): Record<string, unknown> {
+  return {
+    id,
+    name: `${id} display`,
+    model_picker_enabled: true,
+    supported_endpoints: supportedEndpoints,
+    policy: { state: 'enabled' },
+    capabilities: {
+      limits: {
+        max_prompt_tokens: 400_000,
+        max_output_tokens: 128_000,
+      },
+      supports: {
+        tool_calls: true,
+        vision: true,
+        reasoning_effort: ['low', 'medium', 'high'],
+      },
+    },
+  };
 }
 
 function zaiConnection(): LlmConnection {

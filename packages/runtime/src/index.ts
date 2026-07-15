@@ -1,16 +1,8 @@
 /**
- * @maka/runtime — barrel export.
+ * @maka/runtime public exports.
  *
- * Surface in V0.1 (Sprint 0):
- *  - SessionManager    — top-level Runtime entry point (createSession, sendMessage, ...)
- *  - BackendRegistry   — factory dispatch by BackendKind
- *  - PermissionEngine  — wraps core's pure preToolUse() with state + parking
- *  - AiSdkBackend      — AgentBackend over Vercel AI SDK providers
- *  - Materializer      — JSONL → ChatItem[] for UI render
- *  - AsyncEventQueue   — internal helper, also useful for FakeBackend
- *
- * Not yet implemented:
- *  - FakeBackend       — text-only stub for UI development
+ * Keep supported cross-package integration on this barrel. See the
+ * package README and root ARCHITECTURE.md for responsibility boundaries.
  */
 
 export { SessionManager, BackendRegistry, headerToSummary, changesBackendConfig } from './session-manager.js';
@@ -33,6 +25,7 @@ export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './perm
 
 export { AiSdkBackend, ProviderReplayProjectionError } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
+export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
 export type {
   AgentBackend,
   BackendCompactHistoryInput,
@@ -78,37 +71,91 @@ export type {
   MakaTool as BuiltinMakaTool,
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
+export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
+export type {
+  ComputerUseToolSet,
+  CuAppSummary,
+  CuDispatchBackend,
+  CuDispatchEvidence,
+  CuDispatchOutcome,
+  CuObservedElement,
+  CuObservation,
+  CuOverlayHook,
+  CuOverlayHookContext,
+  CuPresentationFence,
+  CuRunContext,
+  CuRunResult,
+  CuScreenshot,
+  CuSemanticAction,
+} from './computer-use-tools.js';
+export {
+  bindCuaAction,
+  bindCuaActionToObservation,
+  bindCuaSemanticActionToObservation,
+  CuaFrameState,
+  fingerprintCuaAction,
+  fingerprintCuaSemanticAction,
+} from './cua-frame-state.js';
+export type {
+  CuaActionClaimResult,
+  CuaActionConfirmationResult,
+  CuaActionRejectionReason,
+  CuaBoundAction,
+  CuaFrameIdentity,
+  CuaObservation,
+  CuaObservationSnapshot,
+} from './cua-frame-state.js';
+export { CUA_SESSION_STATUSES, CuaSessionState } from './cua-session-state.js';
+export type {
+  CuaActionLease,
+  CuaActionLeaseResult,
+  CuaSessionActionBlockReason,
+  CuaSessionSnapshot,
+  CuaSessionStatus,
+} from './cua-session-state.js';
 export {
   buildManagedBashTool,
   buildForegroundBashTool,
   buildLocalForegroundBashTool,
   buildStopBackgroundTaskTool,
+  buildWriteStdinTool,
   shapeTerminalResult,
 } from './shell-tools.js';
 export type {
   BuildForegroundBashToolOptions,
   ForegroundBashExecuteInput,
   ForegroundBashResult,
-  ShellRunToolController,
+  ShellRunLauncher,
 } from './shell-tools.js';
 export {
   DEFAULT_BASH_TIMEOUT_MS,
   DEFAULT_MAX_LIVE_SHELL_RUNS,
+  DEFAULT_MAX_LIVE_PTY_RUNS,
   DEFAULT_SHELL_RUN_FLUSH_BYTES,
   DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS,
   MAX_FOREGROUND_BASH_TIMEOUT_MS,
+  MAX_PTY_COLS,
+  MAX_PTY_ROWS,
   MAX_SHELL_RUN_TIMEOUT_MS,
+  MAX_WRITE_STDIN_INPUT_BYTES,
+  MIN_PTY_COLS,
+  MIN_PTY_ROWS,
   SHELL_RUN_CONTEXT_SUMMARY_LIMIT,
   SHELL_RUN_RESOURCE_PREFIX,
-  ShellRunProcessManager,
+  isWellFormedTerminalInput,
   isShellRunResourceRef,
   shellRunResourceRef,
-} from './shell-run-manager.js';
+} from './shell-run-contract.js';
 export type {
+  BackgroundTaskStopper,
+  PtyControlWriter,
+  RuntimeResourceReader,
   ShellRunBashInput,
   ShellRunProcessManagerInput,
-  ShellRunUpdate,
-} from './shell-run-manager.js';
+  ShellRunWriteInput,
+} from './shell-run-contract.js';
+export { ShellRunProcessManager } from './shell-run-manager.js';
+export type { ShellRunUpdate } from '@maka/core';
 export {
   LOCAL_WORKSPACE_EXECUTOR_FACTS,
   LocalWorkspaceExecutor,
@@ -156,8 +203,9 @@ export { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from './edit-rep
 export type { EditMatch, EditMatchStrategy } from './edit-replace.js';
 export { truncateToolOutput } from './tool-output.js';
 export type { TruncateToolOutputOptions, TruncatedToolOutput } from './tool-output.js';
-export { runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
+export { runProcessWithBoundedTail, runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
 export type { BoundedShellOptions, BoundedShellResult } from './shell-exec.js';
+export type { ChildFdInput } from './child-fd-input.js';
 export { detectShell, defaultShellPlan, buildShellSpawnPlan, bashToolShellGuidance } from './shell-detect.js';
 export type { ShellPlan, ShellKind, ShellSpawnPlan, DetectShellInput } from './shell-detect.js';
 export {
@@ -165,16 +213,26 @@ export {
   MACOS_SEATBELT_EXECUTABLE,
   MACOS_SEATBELT_PLATFORM_DEFAULTS_POLICY,
   MacosSeatbeltBackend,
+  LinuxBubblewrapBackend,
   SandboxManager,
+  buildBubblewrapArgv,
+  buildNetworkSeccompFilter,
+  discoverNestedProtectedMetadataPaths,
   buildSeatbeltPolicy,
   createDefaultSandboxManager,
+  createBuiltinSandboxManager,
   createSeatbeltExecArgs,
   escapeSeatbeltRegex,
+  detectLinuxSandboxCapability,
 } from './sandbox/index.js';
 export type {
   BuildSeatbeltPolicyInput,
   BuildSeatbeltPolicyResult,
+  BuildBubblewrapArgvInput,
   CreateSeatbeltExecArgsInput,
+  DetectLinuxSandboxCapabilityInput,
+  LinuxBubblewrapBackendOptions,
+  LinuxSandboxCapability,
 } from './sandbox/index.js';
 export type {
   SandboxBackend,
@@ -285,6 +343,9 @@ export {
   parseOAuthSubscriptionTokens,
   resolveOAuthSubscriptionAccessToken,
   resolveOAuthSubscriptionTokens,
+  createGitHubCopilotAccountTokens,
+  GITHUB_COPILOT_DEFAULT_API_ENDPOINT,
+  isSupportedGitHubCopilotAccountToken,
   serializeOAuthSubscriptionTokens,
 } from './subscription-credentials.js';
 export type {
@@ -462,7 +523,7 @@ export type {
   ProviderReplayProjectionResult,
 } from './provider-replay-projection.js';
 export { testConnection } from './test-connection.js';
-export { fetchProviderModels } from './model-fetcher.js';
+export { fetchGitHubCopilotModels, fetchProviderModels } from './model-fetcher.js';
 
 export {
   materializeSession,
@@ -472,7 +533,7 @@ export {
 export type { ToolActivityItem, ChatItem, SessionViewModel } from './materializer.js';
 
 export { AsyncEventQueue } from './async-queue.js';
-export { FakeBackend } from './fake-backend.js';
+export { FAKE_ASK_USER_QUESTION_PROMPT, FakeBackend } from './fake-backend.js';
 
 export {
   BUILTIN_PRICING,
@@ -517,7 +578,7 @@ export type {
 } from './bots/index.js';
 
 // ───────────────────────────────────────────────────────────────────────────
-// Runtime v2 seam (Phase 1–4 increments).
+// Runtime event and recovery public seam.
 //
 // Subpath imports (e.g. `@maka/runtime/runtime-runner`) remain canonical;
 // the barrel re-exports below are for convenience. `InvocationContext` is the

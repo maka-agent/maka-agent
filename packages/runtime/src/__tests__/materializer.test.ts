@@ -156,10 +156,10 @@ describe('materializeSession', () => {
         cmd: 'sleep 99',
         status: 'cancelled',
         exitCode: 130,
-        stdout: '',
-        stderr: '',
-        stdoutTruncated: false,
-        stderrTruncated: false,
+        output: {
+          mode: 'pipes', stdout: '', stderr: '',
+          stdoutTruncated: false, stderrTruncated: false, redacted: false,
+        },
       },
     };
     const vm = materializeSession([toolCall('t-cancel', 'Bash'), cancelled]);
@@ -189,16 +189,19 @@ describe('materializeSession', () => {
       content: {
         kind: 'shell_run',
         ref: 'maka://runtime/background-tasks/bg',
+        mode: 'pipes',
         status: 'cancelled',
         cwd: '/repo',
         cmd: 'sleep 99',
         startedAt: 1,
         updatedAt: 2,
         exitCode: 130,
-        stdout: '',
-        stderr: '',
-        stdoutTruncated: false,
-        stderrTruncated: false,
+        revision: 2,
+        output: {
+          mode: 'pipes', stdout: '', stderr: '',
+          stdoutTruncated: false, stderrTruncated: false, redacted: false,
+        },
+        operation: { kind: 'stop', applied: true },
       },
     };
     const vm = materializeSession([

@@ -1,4 +1,4 @@
-/* Daily Review page-card chrome — atlas §4 + Phase 2A recipe parity with
+/* Daily Review page-card chrome — recipe parity with
    Skills + Plan shells (1px hairline border + 6px radius + 4% lift + inner
    highlight). Was flat (transparent) which felt orphaned next to the other
    module pages. */
@@ -59,12 +59,7 @@
 }
 
 .maka-daily-review-quick-run {
-  font-size: var(--font-size-ui);
   white-space: nowrap;
-}
-
-.maka-daily-review-quick-run[data-pending="true"] {
-  opacity: var(--opacity-muted);
 }
 
 .maka-daily-review-archives {
@@ -293,7 +288,6 @@
 .maka-daily-review-copy,
 .maka-daily-review-append,
 .maka-daily-review-save {
-  font-size: var(--font-size-ui);
   white-space: nowrap;
 }
 
@@ -316,7 +310,6 @@
 
 .maka-daily-review-alert-retry {
   flex: none;
-  font-size: var(--font-size-ui);
 }
 
 @media (max-width: 720px) {

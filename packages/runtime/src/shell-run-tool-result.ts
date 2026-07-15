@@ -1,0 +1,203 @@
+import type {
+  PtyShellOutput,
+  ShellRunCompactResult,
+  ShellOutput,
+  ShellRunOperation,
+  ShellRunRecord,
+  ShellRunSnapshotResult,
+  ShellRunStateResult,
+  ShellRunStatus,
+  ShellRunUpdate,
+  ToolResultContent,
+} from '@maka/core';
+
+import { shellRunResourceRef, type ShellRunWriteInput } from './shell-run-contract.js';
+import { truncateToolOutput } from './tool-output.js';
+
+export const PTY_MODEL_TEXT_BUDGET_BYTES = 50 * 1024;
+
+const TRUNCATED_MARKER = '[terminal snapshot truncated to fit the output limit]';
+
+export type TerminalToolResult = Extract<ToolResultContent, { kind: 'terminal' }>;
+export type ShellRunToolResult = Extract<ToolResultContent, { kind: 'shell_run' }>;
+
+export function shellRunUpdate(record: ShellRunRecord): ShellRunUpdate {
+  return {
+    sessionId: record.sessionId,
+    ownership: { kind: 'local' },
+    sourceTurnId: record.sourceTurnId,
+    sourceToolCallId: record.sourceToolCallId,
+    result: shellRunSnapshotContent(record),
+  };
+}
+
+export function terminalContent(record: ShellRunRecord): TerminalToolResult {
+  if (record.status === 'running' || record.status === 'orphaned') {
+    throw new Error(`ShellRun status ${record.status} cannot be returned as a terminal result`);
+  }
+  return {
+    kind: 'terminal',
+    cwd: record.cwd,
+    cmd: record.command,
+    status: terminalResultStatus(record.status),
+    ...(record.exitCode !== undefined ? { exitCode: record.exitCode } : {}),
+    ...(record.failureMessage !== undefined ? { failureMessage: record.failureMessage } : {}),
+    output: projectShellOutputForModel(record.output),
+  };
+}
+
+export function shellRunContent(
+  record: ShellRunRecord,
+  operation?: ShellRunOperation,
+): ShellRunToolResult {
+  const state = shellRunSnapshotContent(record);
+  if (!operation) return state;
+  if (operation.kind === 'stop') return { ...state, operation };
+  if (state.mode !== 'pty') {
+    throw new Error('PTY control operation requires PTY ShellRun state');
+  }
+  return { ...state, operation };
+}
+
+export function compactShellRunContent(record: ShellRunRecord): ShellRunToolResult {
+  return shellRunStateContent(record);
+}
+
+export function ptyControlOperation(
+  input: ShellRunWriteInput,
+  outcome: {
+    inputApplied: boolean;
+    resizeApplied: boolean;
+    resizeChanged: boolean;
+    failed?: boolean;
+  },
+): Extract<ShellRunOperation, { kind: 'pty_control' }> {
+  return {
+    kind: 'pty_control',
+    failed: outcome.failed === true,
+    ...(input.input !== undefined
+      ? { input: { bytes: Buffer.byteLength(input.input, 'utf8'), applied: outcome.inputApplied } }
+      : {}),
+    ...(input.size
+      ? {
+          resize: {
+            cols: input.size.cols,
+            rows: input.size.rows,
+            applied: outcome.resizeApplied,
+            changed: outcome.resizeChanged,
+          },
+        }
+      : {}),
+  };
+}
+
+function terminalResultStatus(status: ShellRunStatus): TerminalToolResult['status'] {
+  switch (status) {
+    case 'completed':
+    case 'failed':
+    case 'timed_out':
+    case 'cancelled':
+      return status;
+    case 'running':
+    case 'orphaned':
+      throw new Error(`ShellRun status ${status} cannot be returned as a terminal result`);
+  }
+}
+
+function shellRunStateContent(record: ShellRunRecord): ShellRunCompactResult {
+  const state = {
+    kind: 'shell_run',
+    ref: shellRunResourceRef(record.shellRunId),
+    status: record.status,
+    cwd: record.cwd,
+    cmd: record.command,
+    startedAt: record.startedAt,
+    updatedAt: record.updatedAt,
+    ...(record.completedAt !== undefined ? { completedAt: record.completedAt } : {}),
+    ...(record.timeoutMs !== undefined ? { timeoutMs: record.timeoutMs } : {}),
+    ...(record.exitCode !== undefined ? { exitCode: record.exitCode } : {}),
+    ...(record.failureMessage !== undefined ? { failureMessage: record.failureMessage } : {}),
+    revision: record.revision,
+  } as const;
+  return record.output.mode === 'pipes'
+    ? { ...state, mode: 'pipes' }
+    : { ...state, mode: 'pty' };
+}
+
+function shellRunSnapshotContent(record: ShellRunRecord): ShellRunSnapshotResult {
+  const state = shellRunStateContent(record);
+  const output = projectShellOutputForModel(record.output);
+  return output.mode === 'pipes'
+    ? { ...state, mode: 'pipes', output }
+    : { ...state, mode: 'pty', output };
+}
+
+function projectShellOutputForModel(output: ShellOutput): ShellOutput {
+  if (output.mode === 'pty') return projectPtyOutputForModel(output);
+  const stdout = truncateToolOutput(output.stdout, { direction: 'tail' });
+  const stderr = truncateToolOutput(output.stderr, { direction: 'tail' });
+  return {
+    ...output,
+    stdout: stdout.content,
+    stderr: stderr.content,
+    stdoutTruncated: output.stdoutTruncated || stdout.truncated,
+    stderrTruncated: output.stderrTruncated || stderr.truncated,
+  };
+}
+
+export function projectPtyOutputForModel(
+  output: PtyShellOutput,
+  maxBytes = PTY_MODEL_TEXT_BUDGET_BYTES,
+): PtyShellOutput {
+  let remaining = Math.max(0, Math.trunc(maxBytes));
+  let truncated = output.truncated;
+  const screen = takePrioritizedText(output.screen, remaining);
+  remaining = screen.truncated ? 0 : remaining - Buffer.byteLength(screen.text, 'utf8');
+  truncated ||= screen.truncated;
+
+  const alternate = output.lastAlternateScreen === undefined
+    ? undefined
+    : takePrioritizedText(output.lastAlternateScreen, remaining);
+  if (alternate) {
+    remaining = alternate.truncated ? 0 : remaining - Buffer.byteLength(alternate.text, 'utf8');
+    truncated ||= alternate.truncated;
+  }
+
+  const scrollback = takeTailText(output.scrollback, remaining);
+  truncated ||= scrollback.truncated;
+  return {
+    ...output,
+    screen: screen.text,
+    scrollback: scrollback.text,
+    ...(alternate?.text ? { lastAlternateScreen: alternate.text } : { lastAlternateScreen: undefined }),
+    truncated,
+  };
+}
+
+function takePrioritizedText(text: string, budget: number): { text: string; truncated: boolean } {
+  if (Buffer.byteLength(text, 'utf8') <= budget) return { text, truncated: false };
+  return takeTailText(text, budget);
+}
+
+function takeTailText(text: string, budget: number): { text: string; truncated: boolean } {
+  if (Buffer.byteLength(text, 'utf8') <= budget) return { text, truncated: false };
+  if (budget <= 0) return { text: '', truncated: text.length > 0 };
+  const markerBytes = Buffer.byteLength(TRUNCATED_MARKER, 'utf8');
+  if (budget <= markerBytes) return { text: '', truncated: true };
+  const tail = sliceUtf8Tail(text, budget - markerBytes - 1);
+  return { text: `${TRUNCATED_MARKER}\n${tail}`, truncated: true };
+}
+
+function sliceUtf8Tail(text: string, budget: number): string {
+  const characters = Array.from(text);
+  let result = '';
+  let bytes = 0;
+  for (let index = characters.length - 1; index >= 0; index -= 1) {
+    const character = characters[index];
+    const size = Buffer.byteLength(character, 'utf8');
+    if (bytes + size > budget) break;
+    result = character + result;
+    bytes += size;
+  }
+  return result;
+}

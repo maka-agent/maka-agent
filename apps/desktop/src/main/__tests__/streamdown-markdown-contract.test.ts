@@ -13,7 +13,7 @@ it('uses Streamdown streaming mode for live answers without a second fade owner'
   const [body, wrapper, chat] = await Promise.all([
     uiSource('markdown-body.tsx'),
     uiSource('markdown.tsx'),
-    uiSource('chat-view.tsx'),
+    uiSource('chat-turn.tsx'),
   ]);
 
   assert.match(body, /import \{[^}]*Streamdown[^}]*\} from 'streamdown';/);

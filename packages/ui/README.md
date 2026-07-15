@@ -13,7 +13,7 @@ Four export surfaces, in the order to look:
 | `src/primitives/` | One file per primitive (e.g. `accordion`, `badge`, `chip`, `dialog-header`, `input`, `page-header`, `tabs`, `textarea`, `toolbar`, `tooltip`, …). **New primitives go here.** | target layer |
 | `src/ui.tsx` | Earlier Base UI wrappers + `buttonVariants` (cva) in one file (Button, Checkbox, Dialog/AlertDialog, Select, Switch, Toggle, Radio, Progress, Separator, Field/Label). | transitional — wrappers migrate into `primitives/` as touched (Badge moved to `primitives/badge.tsx` earlier; Button/Select/etc. still live here) |
 | `src/*.tsx` / `src/*.ts` (top-level) | Feature components + pure logic (e.g. `chat-view.tsx`, `composer.tsx`, `permission-dialog.tsx`, `session-list-panel.tsx`, plus pure helpers like `materialize.ts`, `redact.ts`, `smooth-stream.ts`). | stable |
-| `src/components.tsx` | Re-export barrel for the feature components above (ChatView, Composer, PermissionDialog, …). | stable |
+| `src/components.tsx` | Re-export barrel for the feature components above (ChatView, Composer, PermissionPrompt, …). | stable |
 
 `src/index.ts` is the package barrel. It follows an **off-barrel convention**: some styling tables and per-surface helpers are deliberately *not* re-exported, so they stay renamable/removable without a public-API break. A symbol earns barrel export when it has a **cross-package consumer or an explicit public-API need** — not merely a second in-package consumer (`attachment-file-card` has two in-package consumers, `chat-view` and `composer`, but stays off-barrel). Don't add to the barrel speculatively. This README is the source of truth for the barrel promotion rule.
 
@@ -46,6 +46,8 @@ Acknowledged transitional states — not TODOs; track actual work in issues/PRs.
 
 ## Contracts & guardrails
 
-Component contracts (5-state, ARIA, keyboard, tone/token per component), the token registry, and anti-patterns live in `docs/design-system.md`. Where that doc disagrees with the code or the contract tests (`*-converge-contract.test.ts`, `state-token-governance-*`, …), the code and the tests are the source of truth.
+Product design intent lives in `DESIGN.md`.
+
+Component behavior, ARIA, keyboard, tone, and token contracts are enforced by source and the focused contract tests (`*-converge-contract.test.ts`, `state-token-governance-*`, and related suites). `docs/frontend-css-governance.md` owns the remaining cross-cutting CSS rules.
 
 Selected primitives and features have stories (`stories/`) and unit tests (`src/__tests__/`); coverage is partial, not exhaustive. Build/test entry points are the npm scripts in the root `package.json` (see the top-level `README.md`).

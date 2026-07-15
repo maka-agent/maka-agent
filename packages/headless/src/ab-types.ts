@@ -1,7 +1,7 @@
 import type { FixedPromptTask, FixedPromptTaskWalEvent } from './fixed-prompt-controller.js';
 import type { HarborCellContextBudgetPolicySnapshot } from './cell-output.js';
 
-export type AbExperimentKind = 'prompt' | 'tools' | 'provider' | 'runtime';
+export type AbExperimentKind = 'prompt' | 'tools' | 'provider' | 'runtime' | 'harness';
 
 export interface AbArmSpec {
   id: string;
@@ -28,6 +28,7 @@ export interface RunAbComparisonInput {
   evaluationTasks: readonly FixedPromptTask[];
   reps?: number;
   maxConcurrency?: number;
+  armExecution?: 'parallel' | 'sequential';
   observedCostStopUsd?: number;
   roundIdPrefix?: string;
   budgetMs?: number;
@@ -194,6 +195,10 @@ export interface AbAttemptPairSummary {
   pairs: number;
   observedPairs: number;
   evaluatedPairs: number;
+  baselinePassed: number;
+  candidatePassed: number;
+  baselineTokenCostSummary: AbTokenCostSummary;
+  candidateTokenCostSummary: AbTokenCostSummary;
   wins: number;
   losses: number;
   ties: number;
@@ -259,8 +264,9 @@ export interface AbComparisonSummary {
 export interface AbRunManifestInput {
   experimentKind: AbExperimentKind;
   arms: readonly [AbArmSpec, AbArmSpec];
-  taskBudgetSec: number;
-  harborTimeoutMs: number;
+  metadata?: Record<string, unknown>;
+  taskBudgetSec: number | null;
+  harborTimeoutMs: number | null;
   subjectFingerprint: string;
   taskSourceFingerprint: string;
   toolchainFingerprint: string;

@@ -22,8 +22,14 @@ export type {
   ToolProgressEvent,
   ToolResultEvent,
   ToolResultContent,
+  ShellRunSnapshotResult,
+  ShellRunCompactResult,
+  ShellRunStateResult,
+  ShellRunUpdateOwnership,
+  ShellRunUpdate,
   PermissionRequestEvent,
   PermissionDecisionAckEvent,
+  UserQuestionRequestEvent,
   PlanSubmittedEvent,
   PlanStep,
   TokenUsageEvent,
@@ -35,6 +41,13 @@ export type {
   AttachmentIngestItem,
   CompleteStopReason,
 } from './events.js';
+export type {
+  UserQuestion,
+  UserQuestionOption,
+  UserQuestionRequest,
+  UserQuestionResponse,
+  UserQuestionResult,
+} from './user-question.js';
 export {
   failureClassFromCompleteStopReason,
   TOOL_ACTIVITY_KINDS,
@@ -84,6 +97,33 @@ export {
   runtimeEventHasModelVisibleContent,
   createRuntimeEventId,
 } from './runtime-event.js';
+
+// execution-evidence.ts — shared cross-ledger identity and source coverage.
+// This contract references canonical facts; it does not create another fact
+// authority. Subpath `@maka/core/execution-evidence` is preferred.
+export type {
+  ExecutionIdentityRef,
+  TaskIdentityRef,
+  ExecutionLogCursor,
+  ExecutionLogCoverage,
+  WorkspaceRevisionRef,
+  TargetSnapshotRef,
+  ExecutionEvidenceRef,
+  ExecutionLogLedger,
+  ExecutionLogCursorComparison,
+  WorkspaceRevisionKind,
+  ExecutionEvidenceValidationIssue,
+  ExecutionEvidenceValidationResult,
+} from './execution-evidence.js';
+export {
+  EXECUTION_EVIDENCE_REF_SCHEMA_VERSION,
+  EXECUTION_LOG_LEDGERS,
+  WORKSPACE_REVISION_KINDS,
+  executionLogCursorsShareStream,
+  compareExecutionLogCursors,
+  validateExecutionEvidenceRef,
+  isExecutionEvidenceRef,
+} from './execution-evidence.js';
 
 // runtime-event-store.ts
 export type {
@@ -144,15 +184,58 @@ export { AGENT_RUN_STATUSES } from './agent-run.js';
 
 // shell-run.ts
 export type {
+  PipeShellOutput,
+  PtyShellOutput,
+  ShellMode,
+  ShellOutput,
+  ShellRunOperation,
+  ShellRunPatch,
   ShellRunRecord,
   ShellRunStatus,
   ShellRunStore,
   ShellRunTerminalStatus,
 } from './shell-run.js';
+export type {
+  ShellRunMergeDiagnostic,
+  ShellRunMergeDiagnosticReporter,
+  ShellRunStateMerge,
+  ShellRunUpdateBufferDrain,
+  ShellRunUpdateMerge,
+  ShellRunToolResult,
+} from './shell-run-result.js';
+export {
+  SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES,
+  ShellRunUpdateBuffer,
+  mergeShellRunState,
+  mergeShellRunStateWithDiagnostics,
+  mergeShellRunUpdate,
+  projectShellRunUpdateForSession,
+  isValidLegacyShellRunState,
+  normalizeShellToolResultContent,
+  shellRunStateProjection,
+} from './shell-run-result.js';
+export type { ShellToolResultNormalization } from './shell-run-result.js';
+export {
+  ptyCompactTerminalLine,
+  ptyHumanTerminalText,
+  ptyTuiTerminalView,
+  ptyTuiTerminalRows,
+} from './pty-output-view.js';
+export type { PtyTuiTerminalView } from './pty-output-view.js';
+export {
+  projectToolActivityArgs,
+  projectWriteStdinInput,
+  readWriteStdinInputPreview,
+  WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS,
+  type WriteStdinInputPreview,
+} from './tool-activity-args.js';
 export {
   SHELL_RUN_STATUSES,
   SHELL_RUN_TERMINAL_STATUSES,
+  isShellOutput,
+  isShellRunId,
   isShellRunStatus,
+  isValidShellRunState,
   isTerminalShellRunStatus,
 } from './shell-run.js';
 
@@ -214,6 +297,44 @@ export {
   matchToolPermissionRules,
   preToolUse,
 } from './permission.js';
+
+// computer-use.ts
+export type {
+  ComputerUseActionOutcome,
+  ComputerUseApprovalClass,
+  ComputerUseApprovalSummary,
+  ComputerUseDispatchEvidence,
+  ComputerUseDispatchTier,
+  ComputerUseDisplayIdentity,
+  ComputerUseEffect,
+  ComputerUseErrorCode,
+  ComputerUseBoundAction,
+  ComputerUseFrameIdentity,
+  ComputerUseFrameSourceKind,
+  ComputerUseObservationIdentity,
+  ComputerUsePageIdentity,
+  ComputerUseRect,
+  ComputerUseScreenFrame,
+  ComputerUseWindowIdentity,
+  CuAction,
+  CuActionType,
+  CuPoint,
+  CuRegion,
+  CuScrollDirection,
+} from './computer-use.js';
+export {
+  COMPUTER_USE_ACTION_TYPES,
+  COMPUTER_USE_APPROVAL_CLASSES,
+  COMPUTER_USE_DISPATCH_TIERS,
+  COMPUTER_USE_EFFECTS,
+  COMPUTER_USE_ERROR_CODES,
+  COMPUTER_USE_FRAME_SOURCE_KINDS,
+  CU_ACTION_TYPES,
+  CU_SCROLL_DIRECTIONS,
+  computerUseApprovalScopeKey,
+  computerUseApprovalSummary,
+  isComputerUseErrorCode,
+} from './computer-use.js';
 
 // permission-profile.ts
 export type {
@@ -462,7 +583,7 @@ export {
   pkceCodeChallenge,
 } from './oauth-subscription.js';
 
-// incognito.ts (PR-INCOGNITO-0) — cross-lane privacy contract; no IPC/storage/UI.
+// incognito.ts — cross-cutting workspace privacy contract.
 export type {
   WorkspacePrivacyContext,
   WorkspacePrivacyContextInvalidReason,
@@ -735,14 +856,18 @@ export type {
   ModelDiscoverySource,
   ModelInfo,
   ProviderCategory,
+  ProviderCatalogGroup,
   ProviderDefaults,
+  ProviderRuntimeAdapter,
   ProviderType,
   UpdateConnectionInput,
 } from './llm-connections.js';
 export {
   CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS,
+  PROVIDER_REGISTRY,
   PROVIDER_DEFAULTS,
   CATALOG_PROVIDER_TYPES,
+  RECOMMENDED_PROVIDER_TYPES,
   READY_PROVIDER_TYPES,
   backendKindOf,
   effectiveBaseUrl,
@@ -877,6 +1002,7 @@ export {
   CHAT_DEFAULT_PERMISSION_MODES,
   DEFAULT_PROXY_BYPASS_DOMAINS,
   MAX_ALLOWED_USER_IDS,
+  SETTINGS_SECTIONS,
   THEME_PALETTES,
   createDefaultBotChannel,
   createDefaultSettings,

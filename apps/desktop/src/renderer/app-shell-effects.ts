@@ -5,13 +5,16 @@ import type {
   SessionEvent,
   SessionEventStreamSnapshot,
   SessionSummary,
-  PermissionRequestEvent,
   StoredMessage,
   ThemePalette,
   ThemePreference,
 } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
-import type { LiveTurnProjection, NavSelection, PermissionQueues } from '@maka/ui';
+import {
+  ShellRunUpdateBuffer,
+  generalizedErrorMessageChinese,
+  type ShellRunUpdate,
+} from '@maka/core';
+import type { LiveTurnProjection, NavSelection } from '@maka/ui';
 import { messageReadErrorMessage } from './app-shell-copy';
 import { applyTheme, applyThemePalette } from './theme';
 import { safeLocalStorageSet } from './browser-storage';
@@ -22,6 +25,11 @@ import {
   recordSessionEventStreamEvent,
 } from './session-event-health';
 import { settledSessionTransientIds } from './settled-session-transients.js';
+import {
+  mergeShellRunNotification,
+  mergeShellRunUpdates,
+  type ShellRunUpdatesBySession,
+} from './shell-run-update-state.js';
 
 type RefBox<T> = { current: T };
 type SessionEventHealthUpdater = (
@@ -40,25 +48,13 @@ type ToastApi = {
   }): void;
 };
 
-export function useAppShellRefSync(options: {
-  activeId: string | undefined;
-  activeIdRef: RefBox<string | undefined>;
+export function useAppShellNavRefSync(options: {
   navSelection: NavSelection;
   navSelectionRef: RefBox<NavSelection>;
-  sessions: SessionSummary[];
-  sessionsRef: RefBox<SessionSummary[]>;
 }) {
-  useEffect(() => {
-    options.activeIdRef.current = options.activeId;
-  }, [options.activeId]);
-
   useEffect(() => {
     options.navSelectionRef.current = options.navSelection;
   }, [options.navSelection]);
-
-  useEffect(() => {
-    options.sessionsRef.current = options.sessions;
-  }, [options.sessions]);
 }
 
 export function useAppShellHostEffects(options: {
@@ -67,7 +63,7 @@ export function useAppShellHostEffects(options: {
   setLiveBrowserSessionIds: (sessionIds: string[]) => void;
 }) {
   // Tag the document with the host OS so glass-material CSS rules
-  // (sidebar vibrancy passthrough — see notes/reference-atlas.md §1 + §12.1)
+  // (sidebar vibrancy passthrough)
   // can light up only on macOS, where `BrowserWindow({ vibrancy: 'sidebar' })`
   // paints the native blur material behind the renderer. Other platforms
   // keep their opaque chrome since vibrancy is a no-op there.
@@ -178,6 +174,7 @@ export function useAppShellBootstrapSubscriptions(options: {
   refreshShellSettings: () => Promise<void>;
   refreshSkills: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshManagedSkillSources: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
+  refreshBundledSkillCatalog: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshSessions: () => Promise<SessionSummary[]>;
   rendererMountedRef: RefBox<boolean>;
   setActiveId: (sessionId: string | undefined) => void;
@@ -191,6 +188,7 @@ export function useAppShellBootstrapSubscriptions(options: {
     void options.refreshMemoryActive('载入本地记忆状态失败');
     void options.refreshSkills();
     void options.refreshManagedSkillSources();
+    void options.refreshBundledSkillCatalog();
     void options.refreshPlanReminders();
     void options.applyVisualSmokeFixture();
   });
@@ -403,9 +401,87 @@ export function useActiveSessionEvents(options: {
   }, [activeId]);
 }
 
+export function useShellRunUpdates(options: {
+  activeId: string | undefined;
+  setShellRunUpdatesBySession: (
+    updater: (current: ShellRunUpdatesBySession) => ShellRunUpdatesBySession,
+  ) => void;
+}) {
+  const applyUpdates = useEffectEvent((
+    sessionId: string,
+    updates: Awaited<ReturnType<typeof window.maka.shellRuns.list>>,
+  ) => {
+    options.setShellRunUpdatesBySession((current) => {
+      const active = current[sessionId];
+      const retained = active ? { [sessionId]: active } : {};
+      return mergeShellRunUpdates(
+        retained,
+        updates.filter((update) => update.sessionId === sessionId),
+      );
+    });
+  });
+
+  useEffect(() => {
+    const sessionId = options.activeId;
+    options.setShellRunUpdatesBySession((current) => {
+      if (!sessionId) return {};
+      const active = current[sessionId];
+      return active ? { [sessionId]: active } : {};
+    });
+    if (!sessionId) return;
+
+    let disposed = false;
+    let hydrated = false;
+    let retryTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+    let retryDelayMs = 250;
+    const pending = new ShellRunUpdateBuffer('desktop.shell-run-hydration-buffer');
+    const unsubscribe = window.maka.shellRuns.subscribeUpdates((update) => {
+      if (disposed) return;
+      if (!hydrated) {
+        pending.add(update);
+        return;
+      }
+      options.setShellRunUpdatesBySession((current) => (
+        mergeShellRunNotification(current, sessionId, update)
+      ));
+    });
+    const hydrate = () => {
+      void window.maka.shellRuns.list(sessionId).then((updates) => {
+        if (disposed) return;
+        applyUpdates(sessionId, updates);
+        retryDelayMs = 250;
+        const buffered = pending.drain();
+        for (const update of buffered.updates) {
+          options.setShellRunUpdatesBySession((current) => (
+            mergeShellRunNotification(current, sessionId, update)
+          ));
+        }
+        if (buffered.overflowed) {
+          hydrate();
+          return;
+        }
+        hydrated = true;
+      }).catch(() => {
+        if (disposed) return;
+        retryTimer = globalThis.setTimeout(() => {
+          retryTimer = undefined;
+          hydrate();
+        }, retryDelayMs);
+        retryDelayMs = Math.min(retryDelayMs * 2, 5_000);
+      });
+    };
+    hydrate();
+    return () => {
+      disposed = true;
+      if (retryTimer !== undefined) globalThis.clearTimeout(retryTimer);
+      unsubscribe();
+    };
+  }, [options.activeId]);
+}
+
 export function useSessionEventHealthPolling(options: {
   activeId: string | undefined;
-  activePermission: PermissionRequestEvent | undefined;
+  activeInteraction: { requestId: string } | undefined;
   activeSession: SessionSummary | undefined;
   activeStreamingLive: boolean;
   hasInFlightLiveTools: boolean;
@@ -416,7 +492,7 @@ export function useSessionEventHealthPolling(options: {
 }) {
   const {
     activeId,
-    activePermission,
+    activeInteraction,
     activeSession,
     activeStreamingLive,
     hasInFlightLiveTools,
@@ -428,7 +504,7 @@ export function useSessionEventHealthPolling(options: {
 
   useEffect(() => {
     if (!activeId) return;
-    const hasLiveActivity = activeStreamingLive || hasInFlightLiveTools || Boolean(activePermission);
+    const hasLiveActivity = activeStreamingLive || hasInFlightLiveTools || Boolean(activeInteraction);
     const evaluate = () => {
       const result = evaluateSessionEventStreamSnapshot({
         previous: sessionEventHealthBySessionRef.current[activeId],
@@ -456,7 +532,7 @@ export function useSessionEventHealthPolling(options: {
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [activeId, activeSession?.status, activeStreamingLive, hasInFlightLiveTools, activePermission?.requestId]);
+  }, [activeId, activeSession?.status, activeStreamingLive, hasInFlightLiveTools, activeInteraction?.requestId]);
 }
 
 // #646: transient live state is only

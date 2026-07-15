@@ -9,11 +9,8 @@
  * failure and recovers its reason, tolerating both the bare CLI form and the
  * `NO_REAL_CONNECTION:<reason>: <message>` form that IPC wrapping produces.
  *
- * The desktop renderer (`apps/desktop/src/renderer/model-connection-errors.ts`)
- * still carries its own copy of these strings and its own parser, so this is the
- * canonical home for the CLI path only; delegating the desktop copy+parser here
- * (and converting its source-snapshot boundary test to a behavior test) is a
- * tracked follow-up in the PR description. Until then the desktop copy can drift.
+ * This module is the canonical parser and copy table for both CLI and desktop;
+ * surfaces adapt their local event shape here instead of duplicating the rules.
  */
 
 import type { ChatConfigurationReason } from './connection-readiness.js';
@@ -54,8 +51,10 @@ const KNOWN_CHAT_CONFIGURATION_REASONS: ReadonlySet<string> = new Set(CHAT_CONFI
  * unrecognized reason) returns the generic fallback; every known reason has its
  * own line, guaranteed present by the `Record` type above.
  */
-export function describeChatConfigurationReason(reason: ChatConfigurationReason | undefined): string {
-  return reason === undefined ? GENERIC_FIX_COPY : REASON_FIX_COPY[reason];
+export function describeChatConfigurationReason(reason: string | undefined): string {
+  return reason !== undefined && KNOWN_CHAT_CONFIGURATION_REASONS.has(reason)
+    ? REASON_FIX_COPY[reason as ChatConfigurationReason]
+    : GENERIC_FIX_COPY;
 }
 
 // `\bNO_REAL_CONNECTION\b` pins the whole code: the trailing boundary stops it

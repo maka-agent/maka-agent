@@ -47,6 +47,24 @@ describe('LocalWorkspaceExecutor exec', () => {
     expect(result.aborted).toBe(false);
   });
 
+  test('runs argv commands without routing through the host shell', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-workspace-exec-argv-'));
+    const executor = new LocalWorkspaceExecutor();
+
+    const result = await executor.exec({
+      command: 'ignored display command',
+      argv: [process.execPath, '-e', 'process.stdout.write(process.argv[1])', 'literal $HOME && ok'],
+      cwd,
+      timeoutMs: 5_000,
+    });
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: 'literal $HOME && ok',
+      stderr: '',
+    });
+  });
+
   test('reports timeout with captured output', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-workspace-exec-'));
     const executor = new LocalWorkspaceExecutor();

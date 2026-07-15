@@ -47,6 +47,21 @@ function runInput(overrides: Partial<HarborTaskRunInput> = {}): HarborTaskRunInp
   };
 }
 
+function copilotModelsResponse(): Response {
+  return Response.json({
+    data: [{
+      id: 'gpt-5.4',
+      model_picker_enabled: true,
+      supported_endpoints: ['/responses'],
+      policy: { state: 'enabled' },
+      capabilities: {
+        limits: { max_prompt_tokens: 128_000, max_output_tokens: 16_000 },
+        supports: { tool_calls: true },
+      },
+    }],
+  });
+}
+
 interface FakeOptions {
   reward?: string;
   cell?: HarborCellOutput | null;
@@ -221,6 +236,294 @@ describe('createHarborTaskRunner', () => {
       assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'DEEPSEEK_API_KEY');
       assert.equal(harborEnv?.MAKA_HOST_BASE_URL, 'https://api.deepseek.com');
       assert.deepEqual(config.tasks, [{ path: '/tasks/cobol-modernization', overwrite: false }]);
+    });
+  });
+
+  test('discovers the selected GitHub Copilot model on the host before a Harbor cell starts', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      await writeFile(keyFile, 'gho_account-token\n', 'utf8');
+      let harborEnv: Record<string, string> | undefined;
+      let discoveryAuthorization = '';
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'github-copilot/gpt-5.4',
+        provider: 'github-copilot',
+        apiKeyFile: keyFile,
+        copilotFetch: async (_url, init) => {
+          discoveryAuthorization = new Headers(init?.headers).get('authorization') ?? '';
+          return copilotModelsResponse();
+        },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n' })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(discoveryAuthorization, 'Bearer gho_account-token');
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY, 'gho_account-token');
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, undefined);
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'COPILOT_GITHUB_TOKEN');
+      assert.equal(harborEnv?.MAKA_HOST_BASE_URL, 'https://api.githubcopilot.com');
+      assert.equal(harborEnv?.MAKA_HOST_MODEL_API_PROTOCOL, 'openai-responses');
+    });
+  });
+
+  test('consumes a Copilot GitHub token env on the host without copying it into the task container', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      let harborEnv: Record<string, string> | undefined;
+      const captured: { config?: Record<string, unknown> } = {};
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'github-copilot/gpt-5.4',
+        provider: 'github-copilot',
+        agentEnv: { GH_TOKEN: 'ghu_account-token' },
+        copilotFetch: async () => copilotModelsResponse(),
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY, 'ghu_account-token');
+      assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, undefined);
+      assert.equal(harborEnv?.MAKA_HOST_MODEL_API_PROTOCOL, 'openai-responses');
+      assert.doesNotMatch(JSON.stringify(captured.config), /GH_TOKEN|ghu_account-token/);
+    });
+  });
+
+  test('rejects the unsupported OpenCode Harbor route before creating a Copilot auth proxy', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        agent: 'opencode',
+        model: 'github-copilot/gpt-5.4',
+        provider: 'github-copilot',
+        apiKeyFile: keyFile,
+      });
+
+      await assert.rejects(runner(runInput()), (error: unknown) => {
+        assert.ok(error instanceof HarborInfraError);
+        assert.match(error.detail ?? '', /OpenCode Harbor adapter does not support this provider/);
+        return true;
+      });
+    });
+  });
+
+  test('gives OpenCode an ephemeral host proxy without exposing the provider key file', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      const captured: { config?: Record<string, unknown> } = {};
+      let harborEnv: Record<string, string> | undefined;
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        agent: 'opencode',
+        agentVersion: '1.17.18',
+        model: 'zai-coding-plan/glm-5.2',
+        provider: 'zai-coding-plan',
+        reasoningEffort: 'max',
+        apiKeyFile: keyFile,
+        agentEnv: { ZAI_BASE_URL: 'https://api.z.ai/api/coding/paas/v4' },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(harborEnv?.ZAI_API_KEY_FILE, undefined);
+      assert.match(harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_URL ?? '', /^http:\/\/host\.docker\.internal:\d+$/);
+      assert.match(harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_TOKEN ?? '', /^[a-f0-9]{64}$/);
+      assert.notEqual(harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_TOKEN, keyFile);
+      assert.doesNotMatch(JSON.stringify(harborEnv), /deepseek-key|sk-secret/);
+      assert.doesNotMatch(JSON.stringify(captured.config), /ZAI_API_KEY|deepseek-key|sk-secret/);
+      const closedProxyUrl = harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_URL?.replace('host.docker.internal', '127.0.0.1');
+      assert.ok(closedProxyUrl);
+      await assert.rejects(fetch(closedProxyUrl));
+    });
+  });
+
+  test('keeps no-auth providers on the existing OpenCode direct path', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      let harborEnv: Record<string, string> | undefined;
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        agent: 'opencode',
+        model: 'ollama/qwen2.5-coder:7b',
+        provider: 'ollama',
+        agentEnv: { MAKA_BASE_URL: 'http://host.docker.internal:11434/v1' },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n' })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, undefined);
+      assert.equal(harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_URL, undefined);
+    });
+  });
+
+  test('routes SiliconFlow key files and base URLs through the host-side cell', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      let harborEnv: Record<string, string> | undefined;
+      const captured: { config?: Record<string, unknown> } = {};
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'siliconflow/moonshotai/Kimi-K2.6',
+        provider: 'siliconflow',
+        apiKeyFile: keyFile,
+        agentEnv: { SILICONFLOW_BASE_URL: 'https://api.siliconflow.cn/v1' },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'SILICONFLOW_API_KEY');
+      assert.equal(harborEnv?.MAKA_HOST_BASE_URL, 'https://api.siliconflow.cn/v1');
+      const agent = (captured.config?.agents as Array<{ env: Record<string, string> }>)[0]!;
+      assert.equal(agent.env.SILICONFLOW_BASE_URL, undefined);
+    });
+  });
+
+  test('routes Vercel Gateway key files and base URLs through the host-side cell', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      let harborEnv: Record<string, string> | undefined;
+      const captured: { config?: Record<string, unknown> } = {};
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'vercel/xai/grok-4.3',
+        provider: 'vercel',
+        apiKeyFile: keyFile,
+        agentEnv: { AI_GATEWAY_BASE_URL: 'https://ai-gateway.vercel.sh/v1' },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'AI_GATEWAY_API_KEY');
+      assert.equal(harborEnv?.MAKA_HOST_BASE_URL, 'https://ai-gateway.vercel.sh/v1');
+      const agent = (captured.config?.agents as Array<{ env: Record<string, string> }>)[0]!;
+      assert.equal(agent.env.AI_GATEWAY_BASE_URL, undefined);
+    });
+  });
+
+  test('builds the Cloudflare Workers AI host base URL from the non-secret account id', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      const captured: { config?: Record<string, unknown> } = {};
+      let harborEnv: Record<string, string> | undefined;
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'cloudflare-workers-ai/@cf/moonshotai/kimi-k2.6',
+        provider: 'cloudflare-workers-ai',
+        apiKeyFile: keyFile,
+        agentEnv: { CLOUDFLARE_ACCOUNT_ID: 'account-123' },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      const agent = (captured.config!.agents as Array<Record<string, unknown>>)[0]!;
+      const agentEnv = agent.env as Record<string, string>;
+      assert.equal(agent.model_name, '@cf/moonshotai/kimi-k2.6');
+      assert.equal(agentEnv.MAKA_MODEL, '@cf/moonshotai/kimi-k2.6');
+      assert.equal(agentEnv.CLOUDFLARE_ACCOUNT_ID, 'account-123');
+      assert.equal(agentEnv.CLOUDFLARE_API_KEY, undefined);
+      assert.equal(agentEnv.CLOUDFLARE_API_KEY_FILE, undefined);
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'CLOUDFLARE_API_KEY');
+      assert.equal(
+        harborEnv?.MAKA_HOST_BASE_URL,
+        'https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1',
+      );
+    });
+  });
+
+  for (const model of [
+    'hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M',
+    'qwen3.5:cloud',
+  ]) {
+    test(`routes no-auth Ollama model ${model} through the host-side cell without exposing credentials`, async () => {
+      await withRun(async ({ jobsDir, repo }) => {
+        let harborEnv: Record<string, string> | undefined;
+        const captured: { config?: Record<string, unknown> } = {};
+        const baseUrl = 'http://127.0.0.1:11434/v1';
+        const runner = createHarborTaskRunner({
+          makaRepoPath: repo,
+          jobsDir,
+          model: `ollama/${model}`,
+          provider: 'ollama',
+          agentEnv: { MAKA_BASE_URL: baseUrl },
+          runHarbor: async (request) => {
+            harborEnv = request.env;
+            return fakeRunner({ reward: '1\n', captured })(request);
+          },
+        });
+
+        await runner(runInput());
+
+        assert.equal(harborEnv?.MAKA_HOST_REPO_ROOT, repo);
+        assert.equal(harborEnv?.MAKA_HOST_BASE_URL, baseUrl);
+        assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, 'true');
+        assert.equal(harborEnv?.MAKA_HOST_API_KEY, undefined);
+        assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, undefined);
+        const agent = (captured.config?.agents as Array<{ model_name: string; env: Record<string, string> }>)[0]!;
+        assert.equal(agent.model_name, model);
+        assert.equal(agent.env.MAKA_MODEL, model);
+        assert.equal(agent.env.MAKA_BASE_URL, undefined);
+        assert.doesNotMatch(JSON.stringify(captured.config), /API_KEY|127\.0\.0\.1:11434/);
+      });
+    });
+  }
+
+  test('routes keyless LocalAI through the host-side cell without rewriting its exact alias', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      let harborEnv: Record<string, string> | undefined;
+      const captured: { config?: Record<string, unknown> } = {};
+      const model = 'localai/Qwen3-8B-Instruct-GGUF:Q4_K_M';
+      const baseUrl = 'http://127.0.0.1:8080/v1';
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: `localai/${model}`,
+        provider: 'localai',
+        agentEnv: { LOCALAI_BASE_URL: baseUrl },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.equal(harborEnv?.MAKA_HOST_BASE_URL, baseUrl);
+      assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, 'true');
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, undefined);
+      const agent = (captured.config?.agents as Array<{ model_name: string; env: Record<string, string> }>)[0]!;
+      assert.equal(agent.model_name, model);
+      assert.equal(agent.env.MAKA_MODEL, model);
+      assert.equal(agent.env.LOCALAI_BASE_URL, undefined);
+      assert.doesNotMatch(JSON.stringify(captured.config), /API_KEY|127\.0\.0\.1:8080/);
     });
   });
 
@@ -536,6 +839,32 @@ describe('createHarborTaskRunner', () => {
 });
 
 describe('buildHarborJobConfig', () => {
+  test('pins the OpenCode adapter and max model variant without serializing credentials', () => {
+    const config = buildHarborJobConfig(runInput(), {
+      makaRepoPath: '/repo',
+      jobsDir: '/jobs/x',
+      jobName: 'trial',
+      agent: 'opencode',
+      model: 'zai-coding-plan/glm-5.2',
+      provider: 'zai-coding-plan',
+      reasoningEffort: 'max',
+      agentVersion: '1.17.18',
+      pricing: { inputUsdPer1M: 1.4, cacheReadUsdPer1M: 0.26, outputUsdPer1M: 4.4 },
+    });
+    const agent = (config.agents as Array<Record<string, unknown>>)[0]!;
+    const env = agent.env as Record<string, string>;
+
+    assert.equal(agent.name, 'opencode');
+    assert.equal(agent.import_path, 'opencode_agent:MakaOpenCodeAgent');
+    assert.equal(agent.model_name, 'zai-coding-plan/glm-5.2');
+    assert.deepEqual(agent.kwargs, { version: '1.17.18' });
+    assert.equal(env.MAKA_OPENCODE_VARIANT, 'max');
+    assert.equal(env.MAKA_LLM_CONNECTION_SLUG, 'zai-coding-plan');
+    assert.equal(env.MAKA_REASONING_EFFORT, 'max');
+    assert.equal(env.ZAI_API_KEY, undefined);
+    assert.equal(env.ZAI_API_KEY_FILE, undefined);
+  });
+
   test('rejects experiment identity overrides in extra agent env', () => {
     assert.throws(
       () => buildHarborJobConfig(runInput(), {
@@ -591,6 +920,25 @@ describe('buildHarborJobConfig', () => {
     assert.equal(agent.max_timeout_sec, 1800);
   });
 
+  test('uses each Terminal-Bench task native agent timeout when no override is set', () => {
+    const config = buildHarborJobConfig(runInput({
+      task: {
+        id: 'task-1',
+        path: '/tasks/task-1',
+        metadata: { agentTimeoutSec: 1234 },
+      },
+    }), {
+      makaRepoPath: '/repo',
+      jobsDir: '/jobs/x',
+      jobName: 'trial',
+      model: 'zai-coding-plan/glm-5.2',
+      provider: 'zai-coding-plan',
+    });
+    const agent = (config.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>)[0]!;
+    assert.equal(agent.env.MAKA_CELL_TIMEOUT_SEC, '1234');
+    assert.equal(agent.max_timeout_sec, 1234);
+  });
+
   test('merges per-attempt agent env into the Harbor agent config', () => {
     const config = buildHarborJobConfig(runInput({
       agentEnv: {
@@ -642,6 +990,30 @@ describe('createHarborTaskRunner timeout', () => {
     });
   });
 
+  test('derives the outer Harbor timeout from task-native agent and verifier limits', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      let seenTimeout: number | undefined;
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'zai-coding-plan/glm-5.2',
+        provider: 'zai-coding-plan',
+        runHarbor: async (request) => {
+          seenTimeout = request.timeoutMs;
+          return fakeRunner({ reward: '1\n' })(request);
+        },
+      });
+      await runner(runInput({
+        task: {
+          id: 'task-1',
+          path: '/tasks/task-1',
+          metadata: { agentTimeoutSec: 7_200, verifierTimeoutSec: 600 },
+        },
+      }));
+      assert.equal(seenTimeout, (7_200 + 600 + 15 * 60) * 1_000);
+    });
+  });
+
   test('puts the adapter dir on PYTHONPATH so harbor can import maka_agent', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       let seenEnv: Record<string, string> | undefined;
@@ -677,7 +1049,7 @@ describe('createHarborTaskRunner timeout', () => {
     });
   });
 
-  test('throws a budget exhaustion error when the harbor process times out', async () => {
+  test('classifies the outer Harbor watchdog as infrastructure failure', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       const runner = createHarborTaskRunner({
         makaRepoPath: repo,
@@ -692,11 +1064,11 @@ describe('createHarborTaskRunner timeout', () => {
           signal: 'SIGKILL',
         }),
       });
-      await assert.rejects(runner(runInput()), FixedPromptBudgetExhaustedError);
+      await assert.rejects(runner(runInput()), HarborInfraError);
     });
   });
 
-  test('recovers cell usage and identity after the harbor process wall timeout', async () => {
+  test('keeps an outer watchdog timeout infrastructural after cell output exists', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       const writeArtifacts = fakeRunner({ cell: cellOutput({
         executionIdentity: {
@@ -716,16 +1088,11 @@ describe('createHarborTaskRunner timeout', () => {
         },
       });
 
-      await assert.rejects(runner(runInput()), (error: unknown) => {
-        assert.ok(error instanceof FixedPromptBudgetExhaustedError);
-        assert.equal(error.artifactRefs?.tokenSummary?.total, 150);
-        assert.equal(error.artifactRefs?.cellOutput?.executionIdentity?.model, 'deepseek-v4-flash');
-        return true;
-      });
+      await assert.rejects(runner(runInput()), HarborInfraError);
     });
   });
 
-  test('recovers early execution identity when wall timeout precedes cell output', async () => {
+  test('keeps an outer watchdog timeout infrastructural after early identity exists', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       const executionIdentity = {
         llmConnectionSlug: 'deepseek',
@@ -744,14 +1111,7 @@ describe('createHarborTaskRunner timeout', () => {
         },
       });
 
-      await assert.rejects(runner(runInput()), (error: unknown) => {
-        assert.ok(error instanceof FixedPromptBudgetExhaustedError);
-        assert.deepEqual(
-          (error.artifactRefs as { executionIdentity?: HarborCellExecutionIdentity } | undefined)?.executionIdentity,
-          executionIdentity,
-        );
-        return true;
-      });
+      await assert.rejects(runner(runInput()), HarborInfraError);
     });
   });
 });

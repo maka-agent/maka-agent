@@ -80,7 +80,7 @@
   animation: maka-toast-enter var(--duration-large) var(--ease-out-strong);
 }
 
-/* Exit = enter x 75% (roadmap §4.1), ease-in per the enter-out/exit-in
+/* Exit = enter x 75%, ease-in per the enter-out/exit-in
    rule — the toast shrinks away instead of vanishing mid-glance. */
 @keyframes maka-toast-exit {
   0%   { opacity: 1; transform: translateY(0) scale(1); }
@@ -124,48 +124,4 @@
   font-size: var(--font-size-caption);
   line-height: var(--leading-snug);
   text-wrap: pretty;
-}
-
-.maka-toast-action {
-  align-self: center;
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--background);
-  color: var(--toast-accent);
-  padding: var(--space-0-5) var(--space-2);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  transition:
-    background-color var(--duration-base) var(--ease-out-strong);
-}
-
-.maka-toast-action:hover {
-  background: var(--state-hover-bg);
-}
-
-.maka-toast-action:active {
-  background: var(--state-selected-bg);
-}
-
-.maka-toast-close {
-  width: 20px;
-  height: 20px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--muted-foreground);
-  transition:
-    background-color var(--duration-base) var(--ease-out-strong),
-    color var(--duration-base) var(--ease-out-strong);
-}
-
-.maka-toast-close:hover {
-  color: var(--foreground);
-  background: var(--state-hover-bg);
-}
-
-.maka-toast-close:active {
-  background: var(--state-selected-bg);
 }

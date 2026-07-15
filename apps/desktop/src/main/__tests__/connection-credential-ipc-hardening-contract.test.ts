@@ -144,12 +144,24 @@ describe('connection credential IPC hardening contract', () => {
     );
     assert.match(
       mainSource,
-      /async function normalizeUpdateConnectionInput\([\s\S]*PROVIDER_DEFAULTS\[providerType\]\.authKind === 'oauth_token'[\s\S]*baseUrl: PROVIDER_DEFAULTS\[providerType\]\.baseUrl/,
-      'update must continue forcing canonical OAuth provider baseUrl',
+      /async function normalizeUpdateConnectionInput\([\s\S]*PROVIDER_DEFAULTS\[providerType\]\.authKind === 'oauth_token'[\s\S]*baseUrl: existing\?\.baseUrl \?\? PROVIDER_DEFAULTS\[providerType\]\.baseUrl/,
+      'update must preserve the main-owned account endpoint for OAuth providers',
     );
     assert.match(mainSource, /connections:test[\s\S]*const apiKey = await resolveConnectionSecret\(slug\)/);
     assert.match(mainSource, /connections:fetchModels[\s\S]*const apiKey = await resolveConnectionSecret\(slug\)/);
     assert.match(mainSource, /connections:hasSecret[\s\S]*return Boolean\(await resolveConnectionSecret\(slug\)\)/);
+  });
+
+  it('lets optional-auth providers test and discover models without a saved key', () => {
+    const testHandler = handlerBlock('connections:test');
+    const fetchHandler = handlerBlock('connections:fetchModels');
+    assert.match(testHandler, /providerAuthRequiresSecret\(connection\.providerType\)[\s\S]*!apiKey/);
+    assert.match(fetchHandler, /providerAuthRequiresSecret\(connection\.providerType\)[\s\S]*!apiKey/);
+    assert.match(
+      mainSource,
+      /async function resolveModelContext[\s\S]*providerAuthRequiresSecret\(connection\.providerType\)[\s\S]*!apiKey/,
+      'Daily Review must share the same optional-auth boundary as chat and connection discovery',
+    );
   });
 
   it('does not echo cleartext API keys in thrown errors or IPC return values', () => {

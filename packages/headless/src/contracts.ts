@@ -134,7 +134,7 @@ export interface Config {
   llmConnectionSlug: string;
   /** Falls back to the connection's default model when omitted. */
   model?: string;
-  /** Uses Maka's existing provider-specific mapping; `default` records an explicit benchmark baseline. */
+  /** Provider-native reasoning depth; `default` records an explicit benchmark baseline. */
   thinkingLevel?: ThinkingLevel | 'default';
   /** `probe` explicitly permits uncatalogued custom gateways to receive the requested level. */
   thinkingLevelMode?: 'catalog' | 'probe';

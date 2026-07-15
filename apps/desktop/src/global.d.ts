@@ -9,6 +9,7 @@ import type {
   ModelDiscoveryResult,
   ModelInfo,
   PermissionResponse,
+  UserQuestionResponse,
   PermissionMode,
   SearchErrorReason,
   SearchRequest,
@@ -19,6 +20,7 @@ import type {
   SessionEvent,
   SessionListFilter,
   SessionSummary,
+  ShellRunUpdate,
   StoredMessage,
   ThinkingLevel,
   UpdateConnectionInput,
@@ -69,11 +71,10 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
-
 type LocalMemoryMutationResult =
   | { ok: true; state: LocalMemoryState; entry?: LocalMemoryEntryPreview; proposal?: LocalMemoryEntryPreview }
   | { ok: false; state: LocalMemoryState; reason: string; message: string };
-import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
+import type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
 import type { ConfigCategory } from '@maka/storage';
 import type {
   OnboardingMilestone,
@@ -144,6 +145,7 @@ declare global {
         regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void>;
         branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
         respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
+        respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void>;
         saveConversationToFile(input: {
           markdown: string;
           defaultName: string;
@@ -160,6 +162,10 @@ declare global {
         setModel(sessionId: string, input: { llmConnectionSlug: string; model: string }): Promise<SessionSummary>;
         setThinkingLevel(sessionId: string, level: ThinkingLevel | undefined | null): Promise<SessionSummary>;
         remove(sessionId: string): Promise<void>;
+      };
+      shellRuns: {
+        list(sessionId: string): Promise<ShellRunUpdate[]>;
+        subscribeUpdates(handler: (update: ShellRunUpdate) => void): () => void;
       };
       goal: {
         /** The session's current goal (null when none is set). */
@@ -328,6 +334,16 @@ declare global {
           email?: string;
           plan?: string;
           picture?: string;
+          errorMessage?: string;
+        }>;
+        refreshTokens(): Promise<SubscriptionActionResult>;
+        logout(): Promise<SubscriptionActionResult>;
+      };
+      githubCopilotSubscription: {
+        connectExistingLogin(): Promise<SubscriptionActionResult>;
+        getAccountState(): Promise<{
+          provider: 'github-copilot';
+          runtimeState: 'not_logged_in' | 'authenticated' | 'refreshing' | 'refresh_failed' | 'storage_failed';
           errorMessage?: string;
         }>;
         refreshTokens(): Promise<SubscriptionActionResult>;
@@ -555,6 +571,13 @@ declare global {
       };
       skills: {
         list(): Promise<SkillEntry[]>;
+        catalog: {
+          list(): Promise<BundledSkillCatalogEntry[]>;
+          install(id: string): Promise<
+            | { ok: true; skill: SkillEntry }
+            | { ok: false; reason: 'not_found' | 'already_exists' | 'blocked_path' | 'write_failed' }
+          >;
+        };
         sources: {
           list(): Promise<ManagedSkillSourceEntry[]>;
           importLocalFile(): Promise<

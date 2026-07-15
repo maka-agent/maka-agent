@@ -3,7 +3,7 @@ doc_id: architecture.memory-markdown-compatibility
 title: "第七章：Legacy Is Not Approval——MEMORY.md 兼容边界"
 language: zh-CN
 source_language: zh-CN
-counterpart: ./memory-markdown-compatibility-draft.en.md
+counterpart: ./memory-markdown-compatibility-draft.md
 implementation_status: current
 document_status: draft
 translation_status: synced

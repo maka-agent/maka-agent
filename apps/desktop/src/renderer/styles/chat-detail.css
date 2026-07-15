@@ -2,7 +2,7 @@
    session-branch banner. Relocated from settings/models.css (was misplaced in the
    model-catalog file) — issue #546 PR1, zero visual change. */
 /* ──────────────────────────────────────────────────────────────────────── */
-/* §9.1 ArtifactPane — right-side preview for assistant-produced files.     */
+/* ArtifactPane — right-side preview for assistant-produced files.          */
 /* Sits inside the existing detail panel; flex-row keeps the chat column    */
 /* flush with the composer while the pane occupies a fixed right strip.    */
 /* Returns null when no live artifacts → the row collapses gracefully.     */
@@ -45,31 +45,6 @@
   gap: var(--space-1);
   padding: var(--space-1-5) var(--space-2);
   border-bottom: var(--border-width-hairline) solid var(--border);
-}
-
-.maka-browser-navbtn {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: var(--border-width-hairline) solid transparent;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--foreground);
-  /* Glyph size for the 26px nav button, not body text — stays 15. */
-  font-size: var(--font-size-heading);
-  line-height: var(--leading-none);
-}
-
-.maka-browser-navbtn:hover:not(:disabled) {
-  background: var(--state-hover-bg);
-}
-
-.maka-browser-navbtn:disabled {
-  opacity: var(--opacity-disabled);
-  cursor: default;
 }
 
 .maka-browser-address {
@@ -132,33 +107,6 @@
   border-bottom: 0;
 }
 
-.maka-artifact-pane-collapse {
-  flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  color: var(--foreground-secondary);
-  border-radius: var(--radius-control);
-  padding: 0;
-  transition: background var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
-}
-
-.maka-artifact-pane-collapse:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-  border-color: oklch(from var(--foreground) l c h / 0.08);
-}
-
-.maka-artifact-pane-collapse:focus-visible {
-  outline: none;
-  border-color: oklch(from var(--focus-ring) l c h / 0.42);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
-}
-
 .maka-artifact-pane-title {
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
@@ -205,42 +153,6 @@
   margin: 0;
   color: var(--foreground-secondary);
   overflow-wrap: anywhere;
-}
-
-.maka-artifact-error-retry {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-height: 26px;
-  padding: 0 var(--space-2);
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-surface);
-  background: var(--background);
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-}
-
-.maka-artifact-error-retry:hover {
-  background: var(--state-hover-bg);
-}
-
-.maka-artifact-error-retry:disabled {
-  cursor: default;
-  opacity: var(--opacity-disabled);
-}
-
-.maka-artifact-error-retry:disabled:hover {
-  background: var(--background);
-}
-
-.maka-artifact-error-retry[data-pending="true"] {
-  opacity: var(--opacity-pending);
-}
-
-.maka-artifact-error-retry:focus-visible {
-  outline: none;
-  border-color: oklch(from var(--focus-ring) l c h / 0.42);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
 .maka-artifact-list {
@@ -576,44 +488,6 @@
   background: var(--border);
 }
 
-.maka-artifact-toolbar-button {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  border: var(--border-width-hairline) solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
-  border-radius: var(--radius-control);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--font-size-caption);
-}
-
-.maka-artifact-toolbar-button:hover {
-  background: var(--state-hover-bg);
-}
-
-.maka-artifact-toolbar-button:disabled {
-  cursor: default;
-  opacity: var(--opacity-disabled);
-}
-
-.maka-artifact-toolbar-button:disabled:hover {
-  background: var(--background);
-}
-
-.maka-artifact-toolbar-button[data-pending="true"] {
-  opacity: var(--opacity-pending);
-}
-
-.maka-artifact-toolbar-destructive {
-  color: var(--destructive-text);
-  border-color: oklch(from var(--destructive) l c h / 0.32);
-  /* Icon-only footprint (see artifact-pane.tsx destructive label note):
-     square-ish hit area, no text gap. */
-  gap: 0;
-  padding: var(--space-1) var(--space-1-5);
-}
-
 /* Visually hidden, still announced: the 删除/删除中… label only exists
    for assistive tech. Keeping it in-flow reintroduces the toolbar wrap
    this exists to prevent. */
@@ -632,15 +506,39 @@
   background: oklch(from var(--destructive) l c h / 0.10);
 }
 
-/* Narrow window: ArtifactPane becomes a bottom sheet below the composer
-   instead of continuing to shrink the chat column. This keeps the send path
-   visible and usable while preserving artifact access on small windows. */
+/* Narrow window: ArtifactPane and BrowserPanel become bottom sheets
+   below the composer instead of continuing to squeeze the chat column,
+   preserving artifact and embedded-browser access on small windows.
+
+   BrowserPanel previously had no narrow rule. Its grid auto row sized to the
+   panel's max-content (toolbar height): the strip's `flex: 1 1 auto`
+   contributes 0 height without a definite container height, so the rAF loop
+   mirrored a ~zero-height rect to main and the native WebContentsView was
+   sized to nothing — the embedded browser disappeared beside a ~470px gap.
+   `min-height` below forces the auto row (and thus the strip) to a usable,
+   bounded size; `width: 100%` turns the 520px right rail into a bottom sheet.
+   BrowserPanel is always the second grid child (chat / browser / artifact),
+   so it already occupies the explicit `auto` row; ArtifactPane as the third
+   child uses an implicit `auto` row (grid-auto-rows defaults to auto), so no
+   extra explicit row is needed. With both auxiliary panels open on a very
+   short window the two 220px minima would squeeze the chat row to 0; the
+   both-present shared-height rule below (#824) scales each panel to a dvh
+   slice so the chat row keeps a usable remainder down to the 320px restore
+   minimum. */
 @media (max-width: 990px) {
   .maka-detail-with-artifacts {
     display: grid;
     grid-template-rows: minmax(0, 1fr) auto;
   }
 
+  .maka-browser-panel {
+    width: 100%;
+    min-height: 220px;
+    max-height: min(42dvh, 360px);
+    border-left: 0;
+    border-top: var(--border-width-hairline) solid var(--border);
+    box-shadow: 0 -8px 24px oklch(from var(--foreground) l c h / 0.08);
+  }
   .maka-artifact-pane {
     width: 100%;
     min-height: 220px;
@@ -656,6 +554,32 @@
     min-height: 34px;
     max-height: 34px;
     grid-template-rows: auto;
+  }
+
+  /* #824: both auxiliary panels present at narrow width — scale each
+     panel's min-height to min(22dvh, 220px) so the chat row keeps the
+     remainder instead of two fixed 220px minima squeezing `minmax(0, 1fr)`
+     to 0. The chat row becomes 56% of the content viewport (1 - 2x22dvh),
+     so the composer (~164px + 8px margin) stays usable while the content
+     viewport is >=~307px. min(22dvh, 220px) shrinks below 220px at short
+     heights and never grows above 220px at tall heights, so >=1000px tall
+     (where 22dvh == 220px) is unchanged; below that the panels yield
+     proportionally. Single-panel (or a collapsed ArtifactPane) keeps the
+     fixed 220px / 34px floor above, so this rule scopes to both-present
+     via :has() and skips the collapsed artifact. BrowserWindow minHeight
+     (SAFE_MIN_HEIGHT = 320) enforces the 320px WINDOW floor aligned with
+     the sanitizeBounds restore floor; on macOS (hiddenInset titlebar) the
+     content viewport ~= the window, so the composer-usable floor is
+     ~320px, while on Windows (titleBarOverlay) and Linux (default frame)
+     the frame reduces the content viewport, so the effective floor is a
+     slightly larger window. That window-vs-content gap is the pre-existing
+     relationship inherited from sanitizeBounds; a content-size-semantic
+     migration is out of scope. Recovery (close browser / collapse
+     artifact) stays reachable because each panel's toolbar sits at the
+     top of a non-zero-height row. */
+  .maka-detail-with-artifacts:has(.maka-browser-panel):has(.maka-artifact-pane:not([data-collapsed="true"])) .maka-browser-panel,
+  .maka-detail-with-artifacts:has(.maka-browser-panel):has(.maka-artifact-pane:not([data-collapsed="true"])) .maka-artifact-pane {
+    min-height: min(22dvh, 220px);
   }
 
   .maka-artifact-list {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { PROVIDER_DEFAULTS, validateSlug, type ProviderType } from '@maka/core';
-import { Button, Chip, Input } from '@maka/ui';
+import { Button, Chip, Input, useMountedRef } from '@maka/ui';
 import { buildCatalogRecommendedDefaultModel } from '../model-catalog-choices';
 import { providerDisplay } from './provider-display';
 import {
@@ -24,20 +24,20 @@ export function AddProviderForm(props: {
   const [slug, setSlug] = useState(() => nextSlug(props.providerType, props.existingSlugs));
   const [name, setName] = useState(display.name);
   const [baseUrl, setBaseUrl] = useState(defaults.baseUrl);
+  const [cloudflareAccountId, setCloudflareAccountId] = useState('');
   const [defaultModel, setDefaultModel] = useState(recommendedDefaultModel);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  const addProviderMountedRef = useRef(false);
+  const addProviderMountedRef = useMountedRef();
 
-  const requiresBaseUrl = !defaults.baseUrl;
+  const isCloudflareWorkersAi = props.providerType === 'cloudflare-workers-ai';
+  const requiresBaseUrl = !defaults.baseUrl && !isCloudflareWorkersAi;
   const isExperimental = defaults.status === 'phase3-experimental';
   const isWiredOAuth = isWiredOAuthProvider(props.providerType);
 
   useEffect(() => {
-    addProviderMountedRef.current = true;
     return () => {
-      addProviderMountedRef.current = false;
       busyRef.current = false;
     };
   }, []);
@@ -48,20 +48,30 @@ export function AddProviderForm(props: {
     const slugError = validateSlug(slug);
     if (slugError) return setError(slugError);
     if (props.existingSlugs.includes(slug)) return setError('连接标识已存在');
+    const normalizedCloudflareAccountId = cloudflareAccountId.trim();
+    if (isCloudflareWorkersAi && !normalizedCloudflareAccountId) {
+      return setError('请填写 Cloudflare Account ID');
+    }
     if (requiresBaseUrl && !baseUrl.trim()) return setError('这个供应商需要填写服务地址');
     if (isExperimental) {
       return setError(isWiredOAuth
-        ? '请到 OAuth 分类完成账号登录；登录成功后会自动创建模型连接。'
+        ? '请到账号连接完成登录；登录成功后会自动创建模型连接。'
         : '该账号登录暂未接入聊天发送；请先使用同一家厂商的模型密钥。');
     }
     busyRef.current = true;
     setBusy(true);
     try {
+      const resolvedBaseUrl = isCloudflareWorkersAi
+        ? defaults.baseUrlTemplate?.replace(
+            '${CLOUDFLARE_ACCOUNT_ID}',
+            encodeURIComponent(normalizedCloudflareAccountId),
+          )
+        : baseUrl || undefined;
       const connection = await props.bridge.create({
         slug,
         name: name || display.name,
         providerType: props.providerType,
-        baseUrl: baseUrl || undefined,
+        baseUrl: resolvedBaseUrl,
         defaultModel,
       });
       if (!addProviderMountedRef.current) return;
@@ -87,9 +97,9 @@ export function AddProviderForm(props: {
       </header>
       {isExperimental && (
         <div className="providerUnavailableNotice">
-          <strong>{isWiredOAuth ? '使用 OAuth 分类登录' : '账号登录暂未接入'}</strong>
+          <strong>{isWiredOAuth ? '使用账号连接登录' : '账号登录暂未接入'}</strong>
           <span>{isWiredOAuth
-            ? '不要在这里手动添加；请回到 OAuth 分类完成登录，Maka 会自动创建并刷新模型连接。'
+            ? '不要在这里手动添加；请回到模型连接页的账号连接完成登录，Maka 会自动创建并刷新模型连接。'
             : '这类账号登录暂未接入聊天发送。当前请先使用同一家厂商的模型密钥。'}</span>
         </div>
       )}
@@ -101,16 +111,29 @@ export function AddProviderForm(props: {
         <span>显示名称</span>
         <Input value={name} onChange={(event) => setName(event.currentTarget.value)} placeholder={display.name} disabled={isExperimental || busy} aria-label="模型供应商显示名称" />
       </label>
-      <label>
-        <span>服务地址 {requiresBaseUrl ? '（必填）' : ''}</span>
-        <Input
-          value={baseUrl}
-          onChange={(event) => setBaseUrl(event.currentTarget.value)}
-          placeholder={defaults.baseUrl || 'https://…'}
-          disabled={isExperimental || busy}
-          aria-label="模型供应商服务地址"
-        />
-      </label>
+      {isCloudflareWorkersAi ? (
+        <label>
+          <span>Cloudflare Account ID（必填）</span>
+          <Input
+            value={cloudflareAccountId}
+            onChange={(event) => setCloudflareAccountId(event.currentTarget.value)}
+            placeholder="填写账户 ID"
+            disabled={busy}
+            aria-label="Cloudflare 账户 ID"
+          />
+        </label>
+      ) : (
+        <label>
+          <span>服务地址 {requiresBaseUrl ? '（必填）' : ''}</span>
+          <Input
+            value={baseUrl}
+            onChange={(event) => setBaseUrl(event.currentTarget.value)}
+            placeholder={defaults.baseUrl || 'https://…'}
+            disabled={isExperimental || busy}
+            aria-label="模型供应商服务地址"
+          />
+        </label>
+      )}
       <label>
         <span>默认模型</span>
         <Input

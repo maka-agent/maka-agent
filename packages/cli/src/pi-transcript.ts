@@ -1,6 +1,7 @@
 import { Markdown } from '@earendil-works/pi-tui';
 import type {
   PermissionRequestEvent,
+  UserQuestionRequestEvent,
   SessionEvent,
   ToolOutputStream,
   ToolResultContent,
@@ -9,6 +10,12 @@ import { failureClassFromCompleteStopReason } from '@maka/core/events';
 import { STEP_LIMIT_NOTICE_TEXT, type StoredMessage, type SystemNoteMessage } from '@maka/core/session';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
+import {
+  mergeShellRunStateWithDiagnostics,
+  projectToolActivityArgs,
+  readWriteStdinInputPreview,
+  type ShellRunUpdate,
+} from '@maka/core';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
 import { BoundedChunkBuffer } from './bounded-chunk-buffer.js';
@@ -26,7 +33,8 @@ import { renderToolBlock } from './pi-transcript-tools.js';
 export interface MakaPiTranscriptState {
   entries: MakaPiTranscriptEntry[];
   sawTextDeltaMessageIds: Set<string>;
-  pendingPermission?: PermissionRequestEvent;
+  pendingInteraction?: MakaPiPendingInteraction;
+  queuedInteractions: MakaPiPendingInteraction[];
   /**
    * Global expansion toggles: one Ctrl+O press expands every tool card in the
    * transcript, one Ctrl+T press expands every thinking entry; pressing again
@@ -36,6 +44,8 @@ export interface MakaPiTranscriptState {
   expandAllTools: boolean;
   expandAllThinking: boolean;
 }
+
+export type MakaPiPendingInteraction = PermissionRequestEvent | UserQuestionRequestEvent;
 
 /** A single live output chunk from a `tool_output_delta` event. */
 export interface MakaPiToolOutputDelta {
@@ -67,7 +77,7 @@ export type MakaPiTranscriptEntry =
       progress: BoundedChunkBuffer<string>;
       outputDeltas: BoundedChunkBuffer<MakaPiToolOutputDelta>;
       durationMs?: number;
-      status: 'running' | 'done' | 'error' | 'failed' | 'aborted' | 'detached';
+      status: 'running' | 'done' | 'error' | 'failed' | 'aborted' | 'detached' | 'unavailable';
     }
   | { kind: 'notice'; level: 'info' | 'error'; text: string };
 
@@ -87,6 +97,7 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
   return {
     entries: [],
     sawTextDeltaMessageIds: new Set(),
+    queuedInteractions: [],
     expandAllTools: false,
     expandAllThinking: false,
   };
@@ -109,31 +120,22 @@ export function refreshRunningShellRunElapsed(
   return found;
 }
 
-export function runningShellRunsInTranscript(
+export function applyShellRunViewUpdateToTranscript(
   state: MakaPiTranscriptState,
-): Array<{ sourceToolCallId: string; ref: string }> {
-  return state.entries.flatMap((entry) => entry.kind === 'tool'
-    && entry.toolName === 'Bash'
-    && entry.status === 'running'
-    && entry.result?.kind === 'shell_run'
-    && entry.result.status === 'running'
-    ? [{ sourceToolCallId: entry.toolUseId, ref: entry.result.ref }]
-    : []);
-}
-
-export function applyDetachedShellRunToTranscript(
-  state: MakaPiTranscriptState,
-  sourceToolCallId: string,
-  update: Extract<ToolResultContent, { kind: 'shell_run' }>,
+  update: ShellRunUpdate,
 ): boolean {
-  const applied = applyShellRunUpdateToTranscript(state, sourceToolCallId, update);
-  const tool = findToolEntry(state, sourceToolCallId);
+  const applied = applyShellRunUpdateToTranscript(state, update.sourceToolCallId, update.result);
+  const tool = findToolEntry(state, update.sourceToolCallId);
   if (!tool
     || tool.toolName !== 'Bash'
     || tool.result?.kind !== 'shell_run'
-    || tool.result.ref !== update.ref
+    || tool.result.ref !== update.result.ref
     || tool.result.status !== 'running') return applied;
-  tool.status = 'detached';
+  const status = update.ownership.kind === 'local'
+    ? 'running'
+    : update.ownership.kind === 'source_owned' ? 'detached' : 'unavailable';
+  if (tool.status === status) return applied;
+  tool.status = status;
   return true;
 }
 
@@ -159,7 +161,7 @@ export function replaceTranscriptWithStoredMessages(
       .filter((entry): entry is Extract<MakaPiTranscriptEntry, { kind: 'assistant' }> => entry.kind === 'assistant')
       .map((entry) => entry.messageId),
   );
-  state.pendingPermission = undefined;
+  clearPendingInteractions(state);
   state.expandAllTools = false;
   state.expandAllThinking = false;
 }
@@ -233,6 +235,7 @@ export async function submitPromptToTranscript(input: {
     }
   } catch (error) {
     errored = true;
+    clearPendingInteractions(input.state);
     input.state.entries.push({
       kind: 'notice',
       level: 'error',
@@ -306,7 +309,7 @@ export function applyMakaSessionEventToTranscript(
         toolUseId: event.toolUseId,
         toolName: event.toolName,
         ...(event.displayName ? { title: event.displayName } : {}),
-        input: event.args,
+        input: projectToolActivityArgs(event.toolName, event.args),
         resultVersion: 0,
         progress: createProgressBuffer(),
         outputDeltas: createOutputBuffer(),
@@ -315,6 +318,7 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'tool_result': {
+      completePendingPermissionsForToolUseId(state, event.toolUseId);
       const tool = findToolEntry(state, event.toolUseId);
       const shellRun = event.content.kind === 'shell_run' ? event.content : undefined;
       const parent = shellRun
@@ -322,12 +326,20 @@ export function applyMakaSessionEventToTranscript(
         : undefined;
       if (tool && parent && shellRun) {
         applyShellRunResult(parent, shellRun);
-        state.entries.splice(state.entries.indexOf(tool), 1);
+        if (tool.toolName === 'Read' || tool.toolName === 'StopBackgroundTask') {
+          state.entries.splice(state.entries.indexOf(tool), 1);
+        } else {
+          applyOwnShellRunResult(tool, shellRun, event.durationMs);
+        }
         break;
       }
       if (tool) {
         if (shellRun) {
-          applyShellRunResult(tool, shellRun);
+          if (tool.toolName === 'Bash') {
+            applyShellRunResult(tool, shellRun);
+          } else {
+            applyOwnShellRunResult(tool, shellRun, event.durationMs);
+          }
         } else {
           tool.status = event.isError ? 'error' : 'done';
           tool.result = event.content;
@@ -380,18 +392,22 @@ export function applyMakaSessionEventToTranscript(
     }
 
     case 'permission_request':
-      state.pendingPermission = event;
+    case 'user_question_request':
+      enqueuePendingInteraction(state, event);
       break;
 
     case 'permission_decision_ack':
-      if (state.pendingPermission?.requestId === event.requestId) {
-        const toolName = state.pendingPermission.toolName;
-        state.pendingPermission = undefined;
+      {
+        const request = findPendingInteraction(state, event.requestId);
+        if (request?.type === 'permission_request') {
+          completePendingInteraction(state, event.requestId);
+          const toolName = request.toolName;
         state.entries.push({
           kind: 'notice',
           level: 'info',
           text: `Permission ${event.decision}ed for ${toolName}`,
         });
+      }
       }
       break;
 
@@ -416,7 +432,7 @@ export function applyMakaSessionEventToTranscript(
     }
 
     case 'error':
-      state.pendingPermission = undefined;
+      clearPendingInteractions(state);
       state.entries.push({
         kind: 'notice',
         level: 'error',
@@ -425,7 +441,7 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'abort':
-      state.pendingPermission = undefined;
+      clearPendingInteractions(state);
       state.entries.push({
         kind: 'notice',
         level: 'info',
@@ -435,7 +451,7 @@ export function applyMakaSessionEventToTranscript(
 
     case 'complete':
       // The turn is over; any unresolved permission request is no longer actionable.
-      state.pendingPermission = undefined;
+      clearPendingInteractions(state);
       if (event.stopReason === 'max_tokens') {
         state.entries.push({
           kind: 'notice',
@@ -493,7 +509,7 @@ function toolActivityToTranscriptEntry(item: ToolActivityItem): MakaPiToolEntry 
     ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
     status: transcriptToolStatus(item.status),
   };
-  if (item.result?.kind === 'shell_run') applyShellRunResult(entry, item.result);
+  if (item.result?.kind === 'shell_run') applyOwnShellRunResult(entry, item.result);
   return entry;
 }
 
@@ -510,7 +526,7 @@ function foldStoredShellRunChildren(entries: MakaPiTranscriptEntry[]): MakaPiTra
           && candidate.result.ref === shellRun.ref);
       if (parent) {
         applyShellRunResult(parent, shellRun);
-        continue;
+        if (entry.toolName === 'Read' || entry.toolName === 'StopBackgroundTask') continue;
       }
     }
     folded.push(entry);
@@ -553,24 +569,36 @@ function applyShellRunResult(
   entry: MakaPiToolEntry,
   result: Extract<ToolResultContent, { kind: 'shell_run' }>,
 ): boolean {
-  if (entry.result?.kind === 'shell_run' && shellRunUpdateIsStale(entry.result, result)) return false;
-  entry.status = shellRunTranscriptStatus(result.status);
-  entry.result = result;
-  entry.output = formatToolResultContent(result);
-  entry.durationMs = Math.max(0, (result.completedAt ?? result.updatedAt) - result.startedAt);
+  const current = entry.result?.kind === 'shell_run' ? entry.result : undefined;
+  const merged = mergeShellRunStateWithDiagnostics(current, result, 'cli.transcript');
+  if (!merged.changed) return false;
+  entry.status = shellRunTranscriptStatus(merged.result.status);
+  entry.result = merged.result;
+  entry.output = formatToolResultContent(merged.result);
+  entry.durationMs = Math.max(
+    0,
+    (merged.result.completedAt ?? merged.result.updatedAt) - merged.result.startedAt,
+  );
   entry.resultVersion += 1;
   return true;
 }
 
-function shellRunUpdateIsStale(
-  current: Extract<ToolResultContent, { kind: 'shell_run' }>,
-  next: Extract<ToolResultContent, { kind: 'shell_run' }>,
-): boolean {
-  if (current.updatedAt !== next.updatedAt) return current.updatedAt > next.updatedAt;
-  if (current.status !== 'running' || next.status !== 'running') {
-    return current.status !== 'running' && next.status === 'running';
+function applyOwnShellRunResult(
+  entry: MakaPiToolEntry,
+  result: Extract<ToolResultContent, { kind: 'shell_run' }>,
+  operationDurationMs = entry.durationMs,
+): void {
+  entry.status = entry.toolName === 'WriteStdin'
+    ? result.operation?.kind === 'pty_control' && result.operation.failed ? 'error' : 'done'
+    : shellRunTranscriptStatus(result.status);
+  entry.result = result;
+  entry.output = formatToolResultContent(result);
+  if (entry.toolName === 'WriteStdin') {
+    entry.durationMs = operationDurationMs;
+  } else {
+    entry.durationMs = Math.max(0, (result.completedAt ?? result.updatedAt) - result.startedAt);
   }
-  return current.stdout.length + current.stderr.length > next.stdout.length + next.stderr.length;
+  entry.resultVersion += 1;
 }
 
 function systemNoteToTranscriptEntry(message: SystemNoteMessage): MakaPiTranscriptEntry | undefined {
@@ -655,7 +683,7 @@ export function renderMakaPiTranscript(
   // A fresh session (no history, nothing pending) opens on a welcome block so the
   // first screen greets and orients instead of showing an empty pane. Once the
   // first prompt lands, entries take over and it never renders again.
-  if (state.entries.length === 0 && !state.pendingPermission) {
+  if (state.entries.length === 0 && !state.pendingInteraction) {
     return renderWelcomeBlock(metadata, safeWidth);
   }
 
@@ -665,12 +693,70 @@ export function renderMakaPiTranscript(
     lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, state.expandAllTools, state.expandAllThinking));
   }
 
-  if (state.pendingPermission) {
+  if (state.pendingInteraction?.type === 'permission_request') {
     lines.push('');
-    lines.push(...renderPermissionPrompt(state.pendingPermission, safeWidth));
+    lines.push(...renderPermissionPrompt(state.pendingInteraction, safeWidth));
   }
 
   return lines;
+}
+
+export function completePendingInteraction(
+  state: MakaPiTranscriptState,
+  requestId: string,
+): boolean {
+  if (state.pendingInteraction?.requestId === requestId) {
+    state.pendingInteraction = state.queuedInteractions.shift();
+    return true;
+  }
+  const index = state.queuedInteractions.findIndex((request) => request.requestId === requestId);
+  if (index < 0) return false;
+  state.queuedInteractions.splice(index, 1);
+  return true;
+}
+
+export function activePermissionRequest(state: MakaPiTranscriptState): PermissionRequestEvent | undefined {
+  return state.pendingInteraction?.type === 'permission_request' ? state.pendingInteraction : undefined;
+}
+
+export function activeUserQuestionRequest(state: MakaPiTranscriptState): UserQuestionRequestEvent | undefined {
+  return state.pendingInteraction?.type === 'user_question_request' ? state.pendingInteraction : undefined;
+}
+
+function enqueuePendingInteraction(
+  state: MakaPiTranscriptState,
+  request: MakaPiPendingInteraction,
+): void {
+  if (findPendingInteraction(state, request.requestId)) return;
+  if (!state.pendingInteraction) state.pendingInteraction = request;
+  else state.queuedInteractions.push(request);
+}
+
+function completePendingPermissionsForToolUseId(
+  state: MakaPiTranscriptState,
+  toolUseId: string,
+): void {
+  const requestIds = [state.pendingInteraction, ...state.queuedInteractions]
+    .filter(
+      (request): request is PermissionRequestEvent => (
+        request?.type === 'permission_request' && request.toolUseId === toolUseId
+      ),
+    )
+    .map((request) => request.requestId);
+  for (const requestId of requestIds) completePendingInteraction(state, requestId);
+}
+
+function findPendingInteraction(
+  state: MakaPiTranscriptState,
+  requestId: string,
+): MakaPiPendingInteraction | undefined {
+  if (state.pendingInteraction?.requestId === requestId) return state.pendingInteraction;
+  return state.queuedInteractions.find((request) => request.requestId === requestId);
+}
+
+function clearPendingInteractions(state: MakaPiTranscriptState): void {
+  state.pendingInteraction = undefined;
+  state.queuedInteractions = [];
 }
 
 /**
@@ -917,7 +1003,10 @@ function renderPermissionPrompt(request: PermissionRequestEvent, width: number):
   const summary = permissionRequestSummary(request);
   if (summary) lines.push(...renderIndented(summary, width, 2));
   if (request.hint) lines.push(...renderIndented(request.hint, width, 2).map(ansi.dim));
-  lines.push(fitLine(ansi.dim('y/Enter allow  n/Esc deny'), width));
+  const actions = request.rememberForTurnAllowed === true
+    ? 'y/Enter allow once  a allow for turn  n/Esc deny'
+    : 'y/Enter allow once  n/Esc deny';
+  lines.push(fitLine(ansi.dim(actions), width));
   return lines;
 }
 
@@ -926,6 +1015,10 @@ function permissionRequestSummary(request: PermissionRequestEvent): string {
   if (request.toolName === 'Bash' && args !== null && typeof args === 'object') {
     const command = (args as { command?: unknown }).command;
     if (typeof command === 'string' && command.trim()) return `$ ${command}`;
+  }
+  if (request.toolName === 'WriteStdin') {
+    const input = readWriteStdinInputPreview(args);
+    if (input) return input.truncated ? `${input.text}… · ${input.bytes} bytes total` : input.text;
   }
   if ((request.toolName === 'Write' || request.toolName === 'Edit') && args !== null && typeof args === 'object') {
     const path = (args as { path?: unknown }).path;

@@ -16,7 +16,7 @@ function blockBetween(source: string, start: string, end: string): string {
 describe('Daily Review copy feedback contract', () => {
   it('lets the app shell own clipboard success and failure feedback', async () => {
     const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/daily-review-panel.tsx'), 'utf8');
-    const chatView = await readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-view.tsx'), 'utf8');
+    const modulePages = await readFile(resolve(REPO_ROOT, 'packages/ui/src/module-pages.tsx'), 'utf8');
     const main = await readRendererShellSources([
       'daily-review-actions.ts',
       'app-shell-daily-review-actions.ts',
@@ -24,14 +24,14 @@ describe('Daily Review copy feedback contract', () => {
       'app-shell.tsx',
     ]);
 
-    assert.match(chatView, /onCopyDailyReviewMarkdown\?: \(input:/);
-    assert.match(chatView, /onCopyMarkdown=\{props\.onCopyDailyReviewMarkdown\}/);
+    assert.match(modulePages, /onCopyMarkdown\?: \(input:/);
+    assert.match(modulePages, /<DailyReviewPanel \{\.\.\.props\} bridge=\{props\.bridge\}/);
     assert.match(ui, /onCopyMarkdown\?: \(input:/);
     assert.match(ui, /props\.onCopyMarkdown\?\.\(\{\s*markdown:\s*md,\s*label:\s*dayLabel,\s*summary: visibleSummary\s*\}\)/);
     assert.match(ui, /const hasDailyReviewActions = Boolean\(props\.onCopyMarkdown \|\| props\.onAppendMarkdown \|\| props\.onSaveMarkdown\)/);
     assert.match(ui, /visibleSummary && visibleSummary\.totals\.sessionCount \+ visibleSummary\.totals\.requestCount > 0 && hasDailyReviewActions/);
     assert.doesNotMatch(ui, /navigator\.clipboard\.writeText\(md\)\.catch\(\(\) => \{\}\)/);
-    assert.match(main, /onCopyDailyReviewMarkdown=\{\(input\) => copyDailyReviewMarkdown\(input, \{ shouldShowFeedback: isDailyReviewSurfaceActive \}\)\}/);
+    assert.match(main, /onCopyMarkdown=\{\(input\) => copyDailyReviewMarkdown\(input, \{ shouldShowFeedback: isDailyReviewSurfaceActive \}\)\}/);
     assert.match(main, /async function copyDailyReviewMarkdown\([\s\S]*?await navigator\.clipboard\.writeText\(input\.markdown\)/);
     assert.match(
       main,
@@ -75,16 +75,16 @@ describe('Daily Review copy feedback contract', () => {
 
   it('lets the Daily Review main panel append the current range to the composer', async () => {
     const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/daily-review-panel.tsx'), 'utf8');
-    const chatView = await readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-view.tsx'), 'utf8');
+    const modulePages = await readFile(resolve(REPO_ROOT, 'packages/ui/src/module-pages.tsx'), 'utf8');
     const main = await readRendererShellCombinedSource();
     const panelBlock = extractFunctionBlock(ui, 'DailyReviewPanel');
     const appendBlock = main.match(/function appendDailyReviewMarkdown\(input: DailyReviewMarkdownInput\): void \{[\s\S]*?^\s*}/m)?.[0] ?? '';
 
-    assert.match(chatView, /onAppendDailyReviewMarkdown\?: \(input:/);
-    assert.match(chatView, /onAppendMarkdown=\{props\.onAppendDailyReviewMarkdown\}/);
+    assert.match(modulePages, /onAppendMarkdown\?: \(input:/);
+    assert.match(modulePages, /<DailyReviewPanel \{\.\.\.props\} bridge=\{props\.bridge\}/);
     assert.match(panelBlock, /props\.onAppendMarkdown\?\.\(\{\s*markdown:\s*md,\s*label:\s*dayLabel,\s*summary: visibleSummary\s*\}\)/);
     assert.match(panelBlock, /pendingDailyReviewAction === 'append' \? '追加中…' : '粘到输入框'/);
-    assert.match(main, /onAppendDailyReviewMarkdown=\{appendDailyReviewMarkdown\}/);
+    assert.match(main, /onAppendMarkdown=\{appendDailyReviewMarkdown\}/);
     assert.match(appendBlock, /composerRef\.current\?\.appendText\(input\.markdown\)/);
     assert.match(appendBlock, /toastApi\.success\(\s*`已追加\$\{input\.label\}回顾到输入框`/);
     assert.doesNotMatch(appendBlock, /composerRef\.current\?\.setText\(input\.markdown\)/);
@@ -120,11 +120,11 @@ describe('Daily Review copy feedback contract', () => {
     assert.ok(gateBlock, 'runDailyReviewAction gate not found in DailyReviewPanel');
 
     assert.match(panelBlock, /const \[pendingDailyReviewAction, setPendingDailyReviewAction\] = useState<string \| null>\(null\)/);
-    assert.match(panelBlock, /const dailyReviewMountedRef = useRef\(true\)/);
+    assert.match(panelBlock, /const dailyReviewMountedRef = useMountedRef\(\)/);
     assert.match(panelBlock, /const pendingDailyReviewActionRef = useRef<string \| null>\(null\)/);
     assert.match(
       panelBlock,
-      /useEffect\(\(\) => \{\s*dailyReviewMountedRef\.current = true;[\s\S]*?return \(\) => \{\s*dailyReviewMountedRef\.current = false;\s*pendingDailyReviewActionRef\.current = null;\s*(?:archiveLoadRequestRef\.current \+= 1;\s*)?\};\s*\}, \[\]\)/,
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*pendingDailyReviewActionRef\.current = null;\s*(?:archiveLoadRequestRef\.current \+= 1;\s*)?\};\s*\}, \[\]\)/,
       'Daily Review export pending ownership must be released when the main panel unmounts or StrictMode replays cleanup',
     );
     assert.match(panelBlock, /const dailyReviewActionBusy = pendingDailyReviewAction !== null/);
@@ -144,12 +144,12 @@ describe('Daily Review copy feedback contract', () => {
     assert.match(panelBlock, /保存中…/);
     assert.doesNotMatch(
       main,
-      /onSaveDailyReviewMarkdown=\{\(input\) => void saveDailyReviewMarkdown\(input\)\}/,
+      /onSaveMarkdown=\{\(input\) => void saveDailyReviewMarkdown\(input\)\}/,
       'renderer must return the save Promise to the Daily Review pending gate',
     );
     assert.match(
       main,
-      /onSaveDailyReviewMarkdown=\{\(input\) => saveDailyReviewMarkdown\(input, \{ shouldShowFeedback: isDailyReviewSurfaceActive \}\)\}/,
+      /onSaveMarkdown=\{\(input\) => saveDailyReviewMarkdown\(input, \{ shouldShowFeedback: isDailyReviewSurfaceActive \}\)\}/,
       'Daily Review save feedback must be gated to the active Daily Review surface',
     );
   });
@@ -194,7 +194,7 @@ describe('Daily Review copy feedback contract', () => {
     assert.match(panelBlock, /const archiveLoadRequestRef = useRef\(0\)/);
     assert.match(
       panelBlock,
-      /return \(\) => \{\s*dailyReviewMountedRef\.current = false;\s*pendingDailyReviewActionRef\.current = null;\s*archiveLoadRequestRef\.current \+= 1;\s*\};/,
+      /return \(\) => \{\s*pendingDailyReviewActionRef\.current = null;\s*archiveLoadRequestRef\.current \+= 1;\s*\};/,
       'Daily Review archive loads must be invalidated when the panel unmounts',
     );
     assert.match(
@@ -276,7 +276,7 @@ describe('Daily Review copy feedback contract', () => {
     assert.match(pageBlock, /const runningModeRef = useRef<DailyReviewMode \| null>\(null\)/);
     assert.match(
       pageBlock,
-      /return \(\) => \{\s*mountedRef\.current = false;\s*savingKeyRef\.current = null;\s*runningModeRef\.current = null;\s*\};/,
+      /return \(\) => \{\s*savingKeyRef\.current = null;\s*runningModeRef\.current = null;\s*\};/,
       'Daily Review Settings async owners must be invalidated when Settings closes',
     );
     assert.match(

@@ -4,13 +4,19 @@
  * Runtime backends normalize their provider-native streams to
  * this `SessionEvent` union. The UI never imports SDK types directly.
  *
- * Source: V0.1_TECH_SPEC.md §4.1
- *
  * Connection-setup events live in ./connections.ts (separate channel).
  */
 
 import type { PermissionMode, PermissionRequest, PermissionResponse, ToolCategory } from './permission.js';
-import type { ShellRunStatus, ShellRunTerminalStatus } from './shell-run.js';
+import type { UserQuestionRequest } from './user-question.js';
+import type {
+  PipeShellOutput,
+  PtyShellOutput,
+  ShellOutput,
+  ShellRunOperation,
+  ShellRunStatus,
+  ShellRunTerminalStatus,
+} from './shell-run.js';
 import type {
   CacheMissInputSource,
   ContextBudgetDiagnostic,
@@ -75,6 +81,7 @@ export type SessionEvent =
   | ToolResultEvent
   | PermissionRequestEvent
   | PermissionDecisionAckEvent
+  | UserQuestionRequestEvent
   | PlanSubmittedEvent
   | TokenUsageEvent
   | ErrorEvent
@@ -163,6 +170,43 @@ export interface ToolResultEvent extends BaseEvent {
   durationMs?: number;
 }
 
+type ShellRunResultMetadata = {
+  kind: 'shell_run';
+  ref: string;
+  status: ShellRunStatus;
+  cwd: string;
+  cmd: string;
+  startedAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  exitCode?: number;
+  failureMessage?: string;
+  revision: number;
+  timeoutMs?: number;
+};
+
+export type ShellRunCompactResult = ShellRunResultMetadata & (
+  | { mode: 'pipes'; output?: never }
+  | { mode: 'pty'; output?: never }
+);
+
+export type ShellRunSnapshotResult = ShellRunResultMetadata & (
+  | { mode: 'pipes'; output: PipeShellOutput }
+  | { mode: 'pty'; output: PtyShellOutput }
+);
+
+export type ShellRunStateResult = ShellRunCompactResult | ShellRunSnapshotResult;
+
+type ShellRunStopOperation = Extract<ShellRunOperation, { kind: 'stop' }>;
+type ShellRunPtyControlOperation = Extract<ShellRunOperation, { kind: 'pty_control' }>;
+type ShellRunToolResultContent =
+  | (ShellRunCompactResult & { operation?: never })
+  | (ShellRunSnapshotResult & (
+      | { operation?: never }
+      | { operation: ShellRunStopOperation }
+      | { mode: 'pty'; output: PtyShellOutput; operation: ShellRunPtyControlOperation }
+    ));
+
 export type ToolResultContent =
   | { kind: 'text'; text: string }
   | { kind: 'json'; value: unknown }
@@ -186,33 +230,11 @@ export type ToolResultContent =
       cwd: string;
       cmd: string;
       status: TerminalToolResultStatus;
-      exitCode: number;
-      stdout: string;
-      stderr: string;
-      stdoutTruncated: boolean;
-      stderrTruncated: boolean;
-    }
-  | {
-      kind: 'shell_run';
-      ref: string;
-      status: ShellRunStatus;
-      cwd: string;
-      cmd: string;
-      startedAt: number;
-      updatedAt: number;
-      completedAt?: number;
       exitCode?: number;
       failureMessage?: string;
-      stdout: string;
-      stderr: string;
-      latestOutputStream?: 'stdout' | 'stderr';
-      stdoutTruncated: boolean;
-      stderrTruncated: boolean;
-      timeoutMs?: number;
-      observedAt?: number;
-      orphanedReason?: string;
-      cancelled?: boolean;
+      output: ShellOutput;
     }
+  | ShellRunToolResultContent
   | { kind: 'image'; mimeType: string; ref: StorageRef }
   | { kind: 'summary'; original: string; summarized: string; reason: 'too_large' }
   /**
@@ -352,6 +374,22 @@ export type ToolResultContent =
       };
     };
 
+/** Durable ShellRun state updates use a separate observer channel from model turns. */
+export type ShellRunUpdateOwnership =
+  | { kind: 'local' }
+  | { kind: 'source_owned'; sourceSessionId: string; ownerSessionId: string }
+  | { kind: 'source_unavailable'; sourceSessionId: string };
+
+export interface ShellRunUpdate {
+  /** Session whose conversation view should consume this projection. */
+  sessionId: string;
+  /** Whether the process is local or inherited, and whether its real owner is still resolvable. */
+  ownership: ShellRunUpdateOwnership;
+  sourceTurnId: string;
+  sourceToolCallId: string;
+  result: ShellRunStateResult;
+}
+
 export interface PermissionRequestEvent extends BaseEvent {
   type: 'permission_request';
   requestId: string;
@@ -366,9 +404,15 @@ export interface PermissionRequestEvent extends BaseEvent {
     | 'git_destructive'
     | 'privileged'
     | 'browser'
+    | 'computer_use'
     | 'custom';
   args: unknown;
   hint?: string;
+  rememberForTurnAllowed?: boolean;
+}
+
+export interface UserQuestionRequestEvent extends BaseEvent, UserQuestionRequest {
+  type: 'user_question_request';
 }
 
 /**

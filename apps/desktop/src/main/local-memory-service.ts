@@ -1141,7 +1141,6 @@ function isProcessAlive(pid: number): boolean {
 export function localMemoryDirForWorkspace(workspaceRoot: string): string {
   return dirname(join(workspaceRoot, 'memory', 'MEMORY.md'));
 }
-
 function backupRestoreFailureMessage(error: unknown): string {
   if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
     return '没有找到上一版 MEMORY.md 备份。';

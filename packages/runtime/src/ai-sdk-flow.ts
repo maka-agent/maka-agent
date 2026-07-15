@@ -1,8 +1,7 @@
 /**
  * AiSdkFlow — the default long-term AgentFlow implementation.
  *
- * Source: docs/runtime-v2-architecture-evolution.md §Target Architecture
- * and §Migration Plan › Phase 4 (AiSdkFlow Formalization).
+ * Architecture: docs/architecture/runtime-core-architecture-draft.md
  *
  * Design intent (preserved by this node):
  *   - The AI SDK remains Maka's first-class long-term flow engine. This
@@ -37,6 +36,7 @@ import {
   type SessionEvent,
 } from '@maka/core/events';
 import type { PermissionDecision } from '@maka/core/backend-types';
+import type { UserQuestionResponse } from '@maka/core/user-question';
 import { isTerminalRuntimeEvent, type RuntimeEvent, type RuntimeEventStatus } from '@maka/core/runtime-event';
 
 import type { AgentBackend } from '@maka/core/backend-types';
@@ -187,7 +187,7 @@ export function mapSessionEventToRuntimeEvent(
           kind: 'function_call',
           id: event.toolUseId,
           name: event.toolName,
-          args: event.args,
+          args: structuredClone(event.args),
         },
         refs: {
           toolCallId: event.toolUseId,
@@ -256,7 +256,7 @@ export function mapSessionEventToRuntimeEvent(
             toolName: event.toolName,
             category: event.category,
             reason: event.reason,
-            args: event.args,
+            args: structuredClone(event.args),
             ...(event.hint !== undefined ? { hint: event.hint } : {}),
           },
         },
@@ -272,6 +272,20 @@ export function mapSessionEventToRuntimeEvent(
             requestId: event.requestId,
             decision: event.decision,
             ...(event.rememberForTurn !== undefined ? { rememberForTurn: event.rememberForTurn } : {}),
+          },
+        },
+        refs: { toolCallId: event.toolUseId },
+      };
+    case 'user_question_request':
+      return {
+        ...base,
+        role: 'system',
+        author: 'system',
+        actions: {
+          userQuestionRequest: {
+            requestId: event.requestId,
+            toolUseId: event.toolUseId,
+            questions: event.questions,
           },
         },
         refs: { toolCallId: event.toolUseId },
@@ -542,6 +556,10 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
 
   async respondToPermission(decision: PermissionDecision): Promise<void> {
     await this.backend.respondToPermission(decision);
+  }
+
+  async respondToUserQuestion(response: UserQuestionResponse): Promise<void> {
+    await this.backend.respondToUserQuestion?.(response);
   }
 
   async dispose(): Promise<void> {

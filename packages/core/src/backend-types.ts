@@ -1,8 +1,6 @@
 /**
  * AgentBackend contract types.
  *
- * Source: V0.1_TECH_SPEC.md §13 + §6.1
- *
  * The `AgentBackend` port interface and the request/response shapes that
  * cross the runtime boundary live here in @maka/core so that every backend
  * implementation (AiSdkBackend / PiAgentBackend / FakeBackend) and their
@@ -14,6 +12,7 @@ import type { AttachmentRef, SessionEvent } from './events.js';
 import type { RuntimeEvent } from './runtime-event.js';
 import type { StoredMessage, BackendKind } from './session.js';
 import type { PermissionResponse } from './permission.js';
+import type { UserQuestionResponse } from './user-question.js';
 import type { ContextBudgetDiagnostic } from './usage-stats/types.js';
 
 export interface BackendSendInput {
@@ -57,5 +56,6 @@ export interface AgentBackend {
   compactHistory?(input: BackendCompactHistoryInput): Promise<BackendCompactHistoryResult>;
   stop(reason: 'user_stop' | 'redirect'): Promise<void>;
   respondToPermission(decision: PermissionDecision): Promise<void>;
+  respondToUserQuestion?(response: UserQuestionResponse): Promise<void>;
   dispose(): Promise<void>;
 }

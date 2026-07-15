@@ -62,7 +62,7 @@ describe('bot readiness settings contract', () => {
    * PR-HEALTH-1 (xuan msg `e4887ffd`, I1) — write-path single-authority
    * gate: persisted `readiness` must be coerced to be consistent with
    * current credential state. Locks F1 / F3 from the audit catalog
-   * (`notes/pr-health-0-audit-report.md`).
+   * (the original health audit).
    *
    * Without this gate, a `mergeSettings({channels:{telegram:{token:''}}})`
    * over `{readiness:'credentials_valid', token:'X'}` would persist

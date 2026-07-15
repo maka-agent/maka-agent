@@ -1,6 +1,6 @@
 /**
  * PR-BOX-SHADOW-CONVERGE-0 (issue #520 PR4 item 13, 2026-07-05):
- * box-shadow color must derive from --foreground (P-SHADOW, roadmap §1.2),
+ * box-shadow color must derive from --foreground,
  * not pure black. A pure-black rgba()/oklch() shadow on maka's warm shell
  * reads as a dirty smudge — the design system's shadow recipe comments spell
  * the rule: "blur layers were pure-black rgba — on a light warm-gray shell

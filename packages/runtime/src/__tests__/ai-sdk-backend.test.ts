@@ -3569,10 +3569,14 @@ describe('AiSdkBackend error surfaces', () => {
       cmd: 'printf out; printf err >&2; exit 2',
       status: 'failed',
       exitCode: 2,
-      stdout: 'stdout before failure\nAuthorization: Bearer [redacted]',
-      stderr: 'stderr before failure',
-      stdoutTruncated: false,
-      stderrTruncated: false,
+      output: {
+        mode: 'pipes',
+        stdout: 'stdout before failure\nAuthorization: Bearer [redacted]',
+        stderr: 'stderr before failure',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        redacted: true,
+      },
     });
   });
 
@@ -6179,10 +6183,14 @@ describe('AiSdkBackend tool permission category hints', () => {
           cmd: 'sleep 300',
           status: 'completed',
           exitCode: 0,
-          stdout: '',
-          stderr: '',
-          stdoutTruncated: false,
-          stderrTruncated: false,
+          output: {
+            mode: 'pipes',
+            stdout: '',
+            stderr: '',
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            redacted: false,
+          },
         });
       }),
     };
@@ -6774,7 +6782,16 @@ describe('AiSdkBackend thinking persistence', () => {
     assert.equal(assistantItem.message.thinking?.text, 'silent thought');
   });
 
-  test('signed thinking survives to the provider-native replay request on the next turn', async () => {
+  test('OpenCode Claude signed thinking survives to the provider-native replay request on the next turn', async () => {
+    const openCodeClaudeConnection: LlmConnection = {
+      slug: 'opencode',
+      name: 'OpenCode Zen',
+      providerType: 'opencode',
+      defaultModel: 'claude-opus-4-8',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
     // Turn 1: produce a signed thinking + text turn through the real backend.
     const firstChunks: LanguageModelV3StreamPart[] = [
       { type: 'stream-start', warnings: [] },
@@ -6803,9 +6820,9 @@ describe('AiSdkBackend thinking persistence', () => {
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
-      connection: connection(),
+      connection: openCodeClaudeConnection,
       apiKey: 'sk-test',
-      modelId: 'mock-model-id',
+      modelId: 'claude-opus-4-8',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => firstModel,
       tools: [],
@@ -6836,9 +6853,9 @@ describe('AiSdkBackend thinking persistence', () => {
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
-      connection: connection(),
+      connection: openCodeClaudeConnection,
       apiKey: 'sk-test',
-      modelId: 'mock-model-id',
+      modelId: 'claude-opus-4-8',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => secondModel,
       tools: [],

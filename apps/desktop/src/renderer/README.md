@@ -20,11 +20,11 @@ For the main/preload/renderer split and the IPC contract, see `apps/desktop/READ
 
 | File | Role |
 |---|---|
-| `maka-tokens.css` | The main source of CSS tokens (color / shadow / typography / radius / spacing / motion / z / layout), plus a large recipe section at the tail (base styles, utilities, component recipes, animations). Transitional: tokens and recipes coexist in one file. Its `@theme inline` block holds color aliases. |
+| `maka-tokens.css` | The main source of CSS tokens (color / shadow / typography / radius / spacing / motion / z / layout), plus a large recipe section at the tail (base styles, utilities, component recipes, animations). Transitional: tokens and recipes coexist in one file. |
 | `reference-shell.css` | A target-layout shell rebuild, hand-authored from a reference-implementation extract (its header comment documents the provenance). **Transitional** — meant to be folded back into the token/style system and removed. |
 | `styles/*.css` | Per-surface hand-written recipes (e.g. `chat-*`, `sidebar`, `composer`, `palette`, `settings/*`, `module-pages/*`). |
 
-Token authoring rule: custom CSS variables go in `maka-tokens.css`. The `@theme inline` Tailwind bridge is **not** cleanly split — both `maka-tokens.css` and `styles.css` carry one, and their color aliases overlap (e.g. `--color-background`, `--color-accent`, `--color-muted` appear in both, and `--color-muted` maps to `--foreground-5` in `styles.css` but to `--muted` in `maka-tokens.css`); `styles.css`'s block also carries the typography / line-height / font-weight / tracking / spacing / radius / shadow bridges. Some bridge values are contract-pinned to a file — spacing / letter-spacing / typography contracts pin theirs to `styles.css`, `foreground-tier` pins `--color-muted-foreground` to `maka-tokens.css`, `design-system-governance-406` pins `--color-control` to `styles.css` — but other overlapping color aliases (e.g. `--color-background`, `--color-accent`, `--color-muted`) aren't pinned to a file; check the owning contract before moving one. New component-local vars should carry `/* local: ... */` (existing ones don't all have it yet). No new hardcoded color / radius / z-index.
+Token authoring rule: custom CSS variables go in `maka-tokens.css`; the single `@theme inline` Tailwind bridge lives in `styles.css` and only maps those product tokens into Tailwind namespaces. New component-local vars should carry `/* local: ... */` (existing ones don't all have it yet). No new hardcoded color / radius / z-index.
 
 Note the `--foreground-N` split: the wash stops (`-2/-3/-5/-8/-10`) are surface fills for backgrounds and borders, **not** text. The 3-tier semantic aliases (`--foreground` / `--foreground-secondary` / `--muted-foreground`) are the text-color vocabulary. They are separate concerns — don't collapse the wash stops into the text aliases.
 
@@ -38,12 +38,13 @@ Note the `--foreground-N` split: the wash stops (`-2/-3/-5/-8/-10`) are surface 
 
 Acknowledged transitional states — not TODOs; track work in issues/PRs.
 
-- Hand-written `styles/*.css` recipes + overrides on `@maka/ui` primitives: end state is structure carried by primitives, renderer CSS left only with layout primitives can't cover. Per-recipe retirement is tracked in `notes/ui-convergence-map-2026-07-09.md`.
+- Hand-written `styles/*.css` recipes + overrides on `@maka/ui` primitives: end state is structure carried by primitives, renderer CSS left only with layout primitives can't cover. Track concrete retirement work in GitHub issues and PRs.
 - `reference-shell.css`: end state is folded into the token/style system and the file removed.
 - `maka-tokens.css` mixing tokens + recipes: end state is tokens-only here, recipes living on primitives / `styles/`.
 
 ## Contracts & guardrails
 
+- Product design intent: `DESIGN.md`.
 - CSS cascade / layer / `!important` / dead-CSS / token rules: `docs/frontend-css-governance.md`. The dead-CSS check runs from the repo root via `check:release` (`scripts/check-dead-css.mjs --check`); its baseline is `scripts/check-dead-css-baseline.json`.
-- Component 5-state / ARIA / token / copy contracts: `docs/design-system.md`.
-- Where either doc disagrees with the code or the contract tests, the code and the tests are the source of truth. Key guardrail tests live in `apps/desktop/src/main/__tests__/` (style-layer-cascade, important-audit, typography / spacing / radius / state-token / foreground-tier governance). Build/test entry points are the npm scripts in the root `package.json` (see the top-level `README.md`).
+- Component state, ARIA, token, and copy behavior is owned by source and focused contract tests.
+- Where prose disagrees with the code or contract tests, the code and tests are the source of truth. Key guardrail tests live in `apps/desktop/src/main/__tests__/` (style-layer-cascade, important-audit, typography / spacing / radius / state-token / foreground-tier governance). Build/test entry points are the npm scripts in the root `package.json` (see the top-level `README.md`).

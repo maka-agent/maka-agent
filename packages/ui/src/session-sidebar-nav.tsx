@@ -1,8 +1,9 @@
 import type { PlanReminder } from '@maka/core';
 import { Blocks, CalendarCheck, Settings, SquarePen, Timer } from './icons.js';
 import type { NavSelection } from './nav-selection.js';
-import { Button as UiButton, cn } from './ui.js';
+import { cn } from './ui.js';
 import { cva } from 'class-variance-authority';
+import { Button as BaseButton } from '@base-ui/react/button';
 
 const navRowVariants = cva(
   [
@@ -65,9 +66,7 @@ export function SessionSidebarNav(props: {
 
   return (
     <nav className="maka-sidebar-modules" aria-label="主导航">
-      <UiButton
-        variant="quiet"
-        size="nav"
+      <BaseButton
         className={cn('maka-nav-row maka-nav-new-task', navRowVariants({ tone: 'newTask' }))}
         aria-label="新任务"
         type="button"
@@ -76,10 +75,8 @@ export function SessionSidebarNav(props: {
         <SquarePen className="maka-nav-icon" aria-hidden="true" />
         <span>新任务</span>
         <kbd className="maka-nav-kbd" aria-hidden="true">⌘ N</kbd>
-      </UiButton>
-      <UiButton
-        variant="quiet"
-        size="nav"
+      </BaseButton>
+      <BaseButton
         className={cn('maka-nav-row', navRowVariants())}
         data-active={isModuleActive('daily-review')}
         aria-current={isModuleActive('daily-review') ? 'page' : undefined}
@@ -89,10 +86,8 @@ export function SessionSidebarNav(props: {
       >
         <CalendarCheck className="maka-nav-icon" aria-hidden="true" />
         <span>{MODULE_NAV_LABEL['daily-review']}</span>
-      </UiButton>
-      <UiButton
-        variant="quiet"
-        size="nav"
+      </BaseButton>
+      <BaseButton
         className={cn('maka-nav-row', navRowVariants())}
         data-active={isModuleActive('skills')}
         aria-current={isModuleActive('skills') ? 'page' : undefined}
@@ -102,10 +97,8 @@ export function SessionSidebarNav(props: {
       >
         <Blocks className="maka-nav-icon" aria-hidden="true" />
         <span>{MODULE_NAV_LABEL.skills}</span>
-      </UiButton>
-      <UiButton
-        variant="quiet"
-        size="nav"
+      </BaseButton>
+      <BaseButton
         className={cn('maka-nav-row', navRowVariants())}
         data-active={isModuleActive('automations')}
         aria-current={isModuleActive('automations') ? 'page' : undefined}
@@ -118,7 +111,7 @@ export function SessionSidebarNav(props: {
         {activePlanReminderCount > 0 && (
           <small className="maka-nav-count" aria-hidden="true">{activePlanReminderCount}</small>
         )}
-      </UiButton>
+      </BaseButton>
     </nav>
   );
 }
@@ -126,10 +119,8 @@ export function SessionSidebarNav(props: {
 export function SessionSidebarFooter(props: { onOpenSettings(): void }) {
   return (
     <footer className="maka-session-panel-footer">
-      <UiButton
+      <BaseButton
         className={cn('maka-sidebar-settings-button', settingsButtonClass)}
-        variant="quiet"
-        size="nav"
         type="button"
         onClick={props.onOpenSettings}
         aria-label="设置"
@@ -137,7 +128,7 @@ export function SessionSidebarFooter(props: { onOpenSettings(): void }) {
       >
         <Settings className="maka-nav-icon" aria-hidden="true" />
         <span>设置</span>
-      </UiButton>
+      </BaseButton>
     </footer>
   );
 }

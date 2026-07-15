@@ -50,12 +50,12 @@ async function evalCommand(args: string[]): Promise<number> {
   try {
     ({ positional, flags } = parseArgs(args, ['out']));
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless eval <spec.json> [--out <dir>]`);
+    console.error(`${(error as Error).message}\nusage: maka eval run <spec.json> [--out <dir>]`);
     return 1;
   }
   const specPath = positional[0];
   if (!specPath) {
-    console.error('usage: maka-headless eval <spec.json> [--out <dir>]');
+    console.error('usage: maka eval run <spec.json> [--out <dir>]');
     return 1;
   }
 
@@ -67,7 +67,7 @@ async function evalCommand(args: string[]): Promise<number> {
     spec = JSON.parse(await readFile(specPath, 'utf8')) as ExperimentSpec;
     validateEvalSpec(spec);
   } catch (error) {
-    console.error(`maka-headless: ${(error as Error).message}`);
+    console.error(`maka eval run: ${(error as Error).message}`);
     return 1;
   }
 
@@ -107,7 +107,7 @@ async function evalCommand(args: string[]): Promise<number> {
 async function compareCommand(args: string[]): Promise<number> {
   const path = args[0];
   if (!path) {
-    console.error('usage: maka-headless compare <results.jsonl>');
+    console.error('usage: maka eval compare <results.jsonl>');
     return 1;
   }
   process.stdout.write(toComparisonTable(await readResults(path)));
@@ -130,12 +130,12 @@ async function taskRunCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['task', 'config', 'out', 'task-run-id', 'max-attempts'], ['autonomous', 'include-events']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless task run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]`);
+    console.error(`${(error as Error).message}\nusage: maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]`);
     return 1;
   }
   const specPath = parsed.positional[0];
   if (!specPath || !parsed.flags.task || !parsed.flags.config) {
-    console.error('usage: maka-headless task run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]');
+    console.error('usage: maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]');
     return 1;
   }
 
@@ -163,7 +163,7 @@ async function taskRunCommand(args: string[]): Promise<number> {
     console.log(`taskRunId: ${run.taskRunId}\nstatus: ${run.projection.status}\nexport: ${exportDir}`);
     return run.resultRecord.error ? 1 : 0;
   } catch (error) {
-    console.error(`maka-headless task run: ${(error as Error).message}`);
+    console.error(`maka eval task-run run: ${(error as Error).message}`);
     return 1;
   }
 }
@@ -173,12 +173,12 @@ async function taskInspectCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['store'], ['json']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless task inspect <taskRunId> --store <out>/runs [--json]`);
+    console.error(`${(error as Error).message}\nusage: maka eval task-run inspect <taskRunId> --store <out>/runs [--json]`);
     return 1;
   }
   const taskRunId = parsed.positional[0];
   if (!taskRunId || !parsed.flags.store) {
-    console.error('usage: maka-headless task inspect <taskRunId> --store <out>/runs [--json]');
+    console.error('usage: maka eval task-run inspect <taskRunId> --store <out>/runs [--json]');
     return 1;
   }
   const projection = await createTaskRunStore(resolve(parsed.flags.store)).project(taskRunId);
@@ -195,12 +195,12 @@ async function taskExportCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['store', 'out'], ['include-events']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless task export <taskRunId> --store <out>/runs --out <dir> [--include-events]`);
+    console.error(`${(error as Error).message}\nusage: maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]`);
     return 1;
   }
   const taskRunId = parsed.positional[0];
   if (!taskRunId || !parsed.flags.store || !parsed.flags.out) {
-    console.error('usage: maka-headless task export <taskRunId> --store <out>/runs --out <dir> [--include-events]');
+    console.error('usage: maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]');
     return 1;
   }
   const projection = await createTaskRunStore(resolve(parsed.flags.store)).project(taskRunId);
@@ -214,8 +214,8 @@ async function taskExportCommand(args: string[]): Promise<number> {
 async function aheCommand(args: string[]): Promise<number> {
   const [subcommand, ...rest] = args;
   if (subcommand === 'export') return aheExportCommand(rest);
-  console.error('maka-headless ahe commands:\n');
-  console.error('  ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]');
+  console.error('maka eval ahe commands:\n');
+  console.error('  maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]');
   return 1;
 }
 
@@ -224,11 +224,11 @@ async function aheExportCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['store', 'repo', 'out', 'run-id', 'source-label', 'harbor-trial-dir'], ['include-events']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]`);
+    console.error(`${(error as Error).message}\nusage: maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]`);
     return 1;
   }
   if (parsed.positional.length === 0 || !parsed.flags.store || !parsed.flags.repo || !parsed.flags.out) {
-    console.error('usage: maka-headless ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]');
+    console.error('usage: maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]');
     return 1;
   }
   try {
@@ -257,7 +257,7 @@ async function aheExportCommand(args: string[]): Promise<number> {
     console.log(`traceIndex: ${result.files.traceIndexJson}`);
     return 0;
   } catch (error) {
-    console.error(`maka-headless ahe export: ${(error as Error).message}`);
+    console.error(`maka eval ahe export: ${(error as Error).message}`);
     return 1;
   }
 }
@@ -331,12 +331,12 @@ async function taskResumeCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['spec', 'out', 'grant-file']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless task resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]`);
+    console.error(`${(error as Error).message}\nusage: maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]`);
     return 1;
   }
   const taskRunId = parsed.positional[0];
   if (!taskRunId || !parsed.flags.spec || !parsed.flags.out) {
-    console.error('usage: maka-headless task resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]');
+    console.error('usage: maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]');
     return 1;
   }
   try {
@@ -369,9 +369,9 @@ async function taskResumeCommand(args: string[]): Promise<number> {
         status: 'resolved',
         resolution: {
           decision: grants.length > 0 ? 'granted' : 'resume_requested',
-          actorId: 'maka-headless-cli',
+          actorId: 'maka-eval-cli',
           resolvedAt,
-          reason: 'resumed by maka-headless task resume',
+          reason: 'resumed by maka eval task-run resume',
         },
       });
     }
@@ -389,7 +389,7 @@ async function taskResumeCommand(args: string[]): Promise<number> {
     console.log(`resumed: ${taskRunId}\nstatus: ${run.projection.status}`);
     return run.resultRecord.error ? 1 : 0;
   } catch (error) {
-    console.error(`maka-headless task resume: ${(error as Error).message}`);
+    console.error(`maka eval task-run resume: ${(error as Error).message}`);
     return 1;
   }
 }
@@ -399,12 +399,12 @@ async function taskRetryFailedCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['spec', 'out', 'only-taxonomy']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless task retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]`);
+    console.error(`${(error as Error).message}\nusage: maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]`);
     return 1;
   }
   const priorPath = parsed.positional[0];
   if (!priorPath || !parsed.flags.spec || !parsed.flags.out) {
-    console.error('usage: maka-headless task retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]');
+    console.error('usage: maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]');
     return 1;
   }
 
@@ -433,7 +433,7 @@ async function taskRetryFailedCommand(args: string[]): Promise<number> {
     await writeFile(join(outDir, 'comparison.md'), toComparisonTable(records), 'utf8');
     return records.some((record) => record.error && !prior.includes(record)) ? 1 : 0;
   } catch (error) {
-    console.error(`maka-headless task retry-failed: ${(error as Error).message}`);
+    console.error(`maka eval task-run retry-failed: ${(error as Error).message}`);
     return 1;
   }
 }
@@ -492,12 +492,12 @@ function printUnifiedUsage(): void {
 }
 
 function printTaskUsage(): void {
-  console.error('maka-headless task commands:\n');
-  console.error('  task run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]');
-  console.error('  task inspect <taskRunId> --store <out>/runs [--json]');
-  console.error('  task resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]');
-  console.error('  task retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]');
-  console.error('  task export <taskRunId> --store <out>/runs --out <dir> [--include-events]');
+  console.error('maka eval task-run commands:\n');
+  console.error('  maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]');
+  console.error('  maka eval task-run inspect <taskRunId> --store <out>/runs [--json]');
+  console.error('  maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]');
+  console.error('  maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]');
+  console.error('  maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]');
 }
 
 /** Canonical router shared by `maka eval` and the legacy compatibility bin. */

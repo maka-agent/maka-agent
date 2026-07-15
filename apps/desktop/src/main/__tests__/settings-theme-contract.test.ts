@@ -52,12 +52,12 @@ describe('Settings theme page contract', () => {
 
     assert.match(
       themePage,
-      /const themePageMountedRef = useRef\(false\);[\s\S]*const themePersistTicketRef = useRef\(0\);/,
+      /const themePageMountedRef = useMountedRef\(\);[\s\S]*const themePersistTicketRef = useRef\(0\);/,
       'Theme page must track mounted state and the newest persistence request',
     );
     assert.match(
       themePage,
-      /useEffect\(\(\) => \{[\s\S]*themePageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*themePageMountedRef\.current = false;[\s\S]*themePersistTicketRef\.current \+= 1;/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*themePersistTicketRef\.current \+= 1;/,
       'Theme page cleanup must invalidate in-flight appearance persistence requests',
     );
     assert.match(

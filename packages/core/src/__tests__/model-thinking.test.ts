@@ -58,6 +58,28 @@ describe('deriveThinkingChoices', () => {
 });
 
 describe('thinkingOptionsForModel', () => {
+  test('StepFun Step Plan declares official effort levels per exact model id', () => {
+    assert.deepEqual(thinkingOptionsForModel('stepfun-step-plan', 'step-3.7-flash'), {
+      efforts: ['low', 'medium', 'high'],
+    });
+    assert.deepEqual(thinkingOptionsForModel('stepfun-step-plan', 'step-3.5-flash-2603'), {
+      efforts: ['low', 'high'],
+    });
+    assert.equal(thinkingOptionsForModel('stepfun-step-plan', 'step-router-v1'), undefined);
+  });
+
+  test('StepFun Step Plan Global declares official effort levels per exact model id', () => {
+    assert.deepEqual(thinkingOptionsForModel('stepfun-ai-step-plan', 'step-3.7-flash'), {
+      efforts: ['low', 'medium', 'high'],
+    });
+    assert.deepEqual(thinkingOptionsForModel('stepfun-ai-step-plan', 'step-3.5-flash-2603'), {
+      efforts: ['low', 'high'],
+    });
+    assert.deepEqual(thinkingOptionsForModel('stepfun-ai-step-plan', 'step-3.5-flash'), {
+      efforts: ['low', 'high'],
+    });
+  });
+
   test('openai gpt-5.5 exposes none/low/medium/high/xhigh; gpt-5 exposes minimal/low/medium/high', () => {
     assert.deepEqual(thinkingOptionsForModel('openai', 'gpt-5.5'), { efforts: ['none', 'low', 'medium', 'high', 'xhigh'] });
     assert.deepEqual(thinkingOptionsForModel('openai', 'gpt-5'), { efforts: ['minimal', 'low', 'medium', 'high'] });
@@ -100,6 +122,44 @@ describe('thinkingOptionsForModel', () => {
     assert.deepEqual(thinkingOptionsForModel('deepseek', 'deepseek-v4-flash'), { efforts: ['high', 'max'], toggle: true });
   });
 
+  test('Cohere reasoning models expose only the native disabled override', () => {
+    assert.deepEqual(thinkingOptionsForModel('cohere', 'command-a-plus-05-2026'), {
+      toggle: true,
+      offBehavior: 'cohere-thinking-disabled',
+    });
+    assert.deepEqual(thinkingOptionsForModel('cohere', 'command-a-reasoning-08-2025'), {
+      toggle: true,
+      offBehavior: 'cohere-thinking-disabled',
+    });
+  });
+
+  test('Vercel Gateway keeps the exact creator/model id for Grok reasoning controls', () => {
+    assert.deepEqual(thinkingOptionsForModel('vercel', 'xai/grok-4.3'), { efforts: ['none', 'low', 'medium', 'high'] });
+    assert.equal(thinkingOptionsForModel('vercel', 'grok-4.3'), undefined);
+  });
+
+  test('Cloudflare Workers AI Kimi K2.6 exposes only its documented effort and off wires', () => {
+    assert.deepEqual(
+      thinkingOptionsForModel('cloudflare-workers-ai', '@cf/moonshotai/kimi-k2.6'),
+      {
+        efforts: ['low', 'medium', 'high'],
+        toggle: true,
+        offBehavior: 'cloudflare-chat-template-thinking-false',
+      },
+    );
+  });
+
+  test('Ollama Cloud exposes the documented OpenAI-compatible reasoning effort values', () => {
+    assert.deepEqual(
+      thinkingOptionsForModel('ollama-cloud', 'qwen3.5:397b'),
+      { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
+    );
+    assert.deepEqual(
+      [...thinkingVariantsForModel('ollama-cloud', 'qwen3.5:397b')],
+      ['off', 'low', 'medium', 'high'],
+    );
+  });
+
   test('claude-subscription inherits anthropic thinking options (displayMetadataOnly preserves them)', () => {
     assert.deepEqual(thinkingOptionsForModel('claude-subscription', 'claude-opus-4-8'), { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] });
     assert.deepEqual(thinkingOptionsForModel('claude-subscription', 'claude-haiku-4-5'), { toggle: true, offBehavior: 'anthropic-thinking-disabled' });
@@ -136,6 +196,22 @@ describe('thinkingVariantsForModel', () => {
   test('deepseek-v4-flash exposes high/max only because openai-compatible has no off wire; deepseek-chat none', () => {
     assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-v4-flash')], ['high', 'max']);
     assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-chat')], []);
+  });
+
+  test('Cohere exposes off for native thinking models and no invented effort levels', () => {
+    assert.deepEqual([...thinkingVariantsForModel('cohere', 'command-a-plus-05-2026')], ['off']);
+    assert.deepEqual([...thinkingVariantsForModel('cohere', 'command-a-reasoning-08-2025')], ['off']);
+    assert.deepEqual([...thinkingVariantsForModel('cohere', 'command-a-03-2025')], []);
+  });
+
+  test('Tencent Token Plan HY 3 models expose the documented low/medium/high efforts', () => {
+    assert.deepEqual([...thinkingVariantsForModel('tencent-token-plan', 'hy3')], ['low', 'medium', 'high']);
+    assert.deepEqual([...thinkingVariantsForModel('tencent-token-plan', 'hy3-preview')], ['low', 'medium', 'high']);
+  });
+
+  test('Vercel Gateway exposes the models.dev Grok reasoning efforts under its exact id', () => {
+    assert.deepEqual([...thinkingVariantsForModel('vercel', 'xai/grok-4.3')], ['off', 'low', 'medium', 'high']);
+    assert.deepEqual([...thinkingVariantsForModel('vercel', 'grok-4.3')], []);
   });
 
   test('zai glm-5.2 high/max; toggle-only GLM models expose none until an off wire is declared', () => {

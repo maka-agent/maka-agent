@@ -62,7 +62,7 @@ describe('chat status cluster layout contract', () => {
     // live tail's derived status is `completed`, so a real footer would offer
     // a clickable regenerate/branch on a still-streaming answer. Reserving the
     // box keeps the live→settled swap height-neutral on the one node.
-    const src = await readRepo('packages/ui/src/chat-view.tsx');
+    const src = `${await readRepo('packages/ui/src/chat-view.tsx')}\n${await readRepo('packages/ui/src/chat-turn.tsx')}`;
     assert.doesNotMatch(
       src,
       /maka-turn-streaming/,

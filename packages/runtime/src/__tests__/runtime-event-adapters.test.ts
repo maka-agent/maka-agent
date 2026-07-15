@@ -884,6 +884,91 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
     ]);
   });
 
+  test('runtime replay plan normalizes an exact legacy terminal result', () => {
+    const events: RuntimeEvent[] = [
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: { command: 'printf ok' } },
+      }),
+      ev({
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-1',
+          name: 'Bash',
+          result: {
+            kind: 'terminal',
+            cwd: '/tmp/work',
+            cmd: 'printf ok',
+            status: 'completed',
+            exitCode: 0,
+            stdout: 'ok',
+            stderr: '',
+            stdoutTruncated: false,
+            stderrTruncated: false,
+          },
+          isError: false,
+        },
+      }),
+    ];
+
+    const result = buildRuntimeEventModelReplayPlan(events).items.find((item) => item.kind === 'tool_result');
+    expect(result?.kind === 'tool_result' ? result.output : undefined).toEqual({
+      kind: 'terminal',
+      cwd: '/tmp/work',
+      cmd: 'printf ok',
+      status: 'completed',
+      exitCode: 0,
+      output: {
+        mode: 'pipes', stdout: 'ok', stderr: '',
+        stdoutTruncated: false, stderrTruncated: false, redacted: false,
+      },
+    });
+  });
+
+  test('runtime replay plan rejects a mixed legacy/current shell result', () => {
+    const events: RuntimeEvent[] = [
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: { command: 'printf bad' } },
+      }),
+      ev({
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-1',
+          name: 'Bash',
+          result: {
+            kind: 'terminal',
+            cwd: '/tmp/work',
+            cmd: 'printf bad',
+            status: 'completed',
+            exitCode: 0,
+            stdout: 'bad',
+            stderr: '',
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            output: {
+              mode: 'pipes', stdout: 'bad', stderr: '',
+              stdoutTruncated: false, stderrTruncated: false, redacted: false,
+            },
+          },
+          isError: false,
+        },
+      }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+    expect(plan.items.some((item) => item.kind === 'tool_result')).toBe(false);
+    expect(plan.items.some((item) => item.kind === 'tool_call')).toBe(false);
+    expect(plan.hasProviderNativeSemantics).toBe(false);
+    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toContain('unsupported_content');
+  });
+
   test('runtime replay plan carries thinking separately and text replay never leaks it', () => {
     const events: RuntimeEvent[] = [
       ev({

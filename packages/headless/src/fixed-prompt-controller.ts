@@ -299,11 +299,12 @@ export interface RunFixedPromptControllerInput {
   config: Config;
   systemPromptPath: string;
   resultsJsonlPath: string;
-  resultsTsvPath: string;
+  resultsTsvPath?: string;
   tasks: readonly FixedPromptTask[];
   maxInfraFailureRate?: number;
   costCeilingUsd?: number;
   maxConcurrency?: number;
+  infraFailurePolicy?: 'retry-once' | 'terminal';
   resumeFingerprint?: string;
   requireExecutionIdentity?: boolean;
   expectedPricingProfile?: string;
@@ -322,7 +323,7 @@ export interface FixedPromptControllerResult {
   events: FixedPromptTaskWalEvent[];
   totalTokens: number;
   totalCostUsd: number;
-  resultsTsvPath: string;
+  resultsTsvPath?: string;
   stopReason?: FixedPromptControllerStopReason;
 }
 
@@ -341,7 +342,14 @@ export async function runFixedPromptController(
   const expectedPromptHash = hashSystemPrompt(systemPrompt);
   const config = { ...input.config, systemPrompt };
   const events = await readFixedPromptWal(input.resultsJsonlPath);
-  const completed = terminalTaskEvents(events, input.runId, input.roundId, expectedPromptHash, input.resumeFingerprint);
+  const completed = terminalTaskEvents(
+    events,
+    input.runId,
+    input.roundId,
+    expectedPromptHash,
+    input.resumeFingerprint,
+    input.infraFailurePolicy === 'terminal',
+  );
   const stopEvidence = roundTaskEvents(events, input.runId, input.roundId, expectedPromptHash, input.resumeFingerprint);
   let stopReason = controllerStopReason({
     events: [...stopEvidence.values()],
@@ -416,14 +424,16 @@ export async function runFixedPromptController(
   const resultEvents = input.tasks
     .map((task) => resultByTask.get(task.id))
     .filter((event): event is FixedPromptTaskWalEvent => event !== undefined);
-  await writeFixedPromptResultsTsv(input.resultsTsvPath, resultEvents);
+  if (input.resultsTsvPath !== undefined) {
+    await writeFixedPromptResultsTsv(input.resultsTsvPath, resultEvents);
+  }
 
   return {
     taskIds: resultEvents.map((event) => event.taskId),
     events: resultEvents,
     totalTokens: sum(resultEvents.map((event) => eventTokenSummary(event)?.total ?? 0)),
     totalCostUsd: sum(resultEvents.map((event) => eventTokenSummary(event)?.costUsd ?? 0)),
-    resultsTsvPath: input.resultsTsvPath,
+    ...(input.resultsTsvPath !== undefined ? { resultsTsvPath: input.resultsTsvPath } : {}),
     ...(stopReason ? { stopReason } : {}),
   };
 }
@@ -546,6 +556,17 @@ async function runTaskAndBuildEvent(input: {
         expectedConfig: input.config,
         requireExecutionIdentity: input.requireExecutionIdentity,
         expectedPricingProfile: input.expectedPricingProfile,
+        resumeFingerprint: input.resumeFingerprint,
+        id: input.id,
+        ts: input.ts,
+      });
+    }
+    if (input.input.infraFailurePolicy === 'terminal') {
+      return taskInfraFailedEvent({
+        error,
+        taskId: input.task.id,
+        runId: input.input.runId,
+        roundId: input.input.roundId,
         resumeFingerprint: input.resumeFingerprint,
         id: input.id,
         ts: input.ts,
@@ -812,6 +833,7 @@ function classifyExecutionIdentityFailure(
     if (
       identity.llmConnectionSlug !== expectedConfig.llmConnectionSlug
       || identity.model !== expectedModel
+      || identity.reasoningEffort !== expectedConfig.thinkingLevel
       || identity.systemPromptHash !== expectedPromptHash
       || (expectedPricingProfile !== undefined && identity.pricingProfile !== expectedPricingProfile)
     ) {
@@ -1023,6 +1045,7 @@ function terminalTaskEvents(
   roundId: string,
   expectedPromptHash: string,
   resumeFingerprint: string | undefined,
+  includeInfraFailure: boolean,
 ): Map<string, FixedPromptTaskWalEvent> {
   const byTask = new Map<string, FixedPromptTaskWalEvent>();
   for (const event of events) {
@@ -1033,6 +1056,7 @@ function terminalTaskEvents(
       event.type === 'task_completed'
       || event.type === 'task_budget_exhausted'
       || event.type === 'task_plumbing_failed'
+      || (includeInfraFailure && event.type === 'task_infra_failed')
     ) {
       byTask.set(event.taskId, event);
     }

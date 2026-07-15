@@ -3,7 +3,7 @@ doc_id: architecture.llm-compaction-events-log-projection
 title: "第三章：Compaction Is a Projection——Maka 如何让 LLM 忘记而不丢失历史"
 language: zh-CN
 source_language: zh-CN
-counterpart: ./llm-compaction-events-log-projection-draft.en.md
+counterpart: ./llm-compaction-events-log-projection-draft.md
 implementation_status: current
 document_status: draft
 translation_status: synced

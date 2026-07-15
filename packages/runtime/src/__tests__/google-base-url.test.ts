@@ -63,7 +63,7 @@ describe('model-factory Google chat wiring', () => {
     const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
     const caseIdx = src.indexOf("case 'google'");
     assert.notEqual(caseIdx, -1, 'Google case must exist in model-factory');
-    const caseRegion = src.slice(caseIdx, src.indexOf("case 'deepseek'", caseIdx));
+    const caseRegion = src.slice(caseIdx, src.indexOf("case 'openai-compatible'", caseIdx));
     assert.match(
       caseRegion,
       /baseURL:\s*googleV1BetaBaseUrl\(baseURL\)/,

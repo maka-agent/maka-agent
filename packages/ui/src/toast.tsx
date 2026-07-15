@@ -239,12 +239,10 @@ function ToastViewport() {
             {entry.actionProps && (
               <BaseToast.Action
                 {...entry.actionProps}
-                className="maka-toast-action"
-                render={<Button type="button" variant="ghost" size="sm" />}
+                render={<Button type="button" variant="secondary" size="sm" />}
               />
             )}
             <BaseToast.Close
-              className="maka-toast-close"
               aria-label="关闭通知"
               render={<Button type="button" variant="quiet" size="icon-sm" />}
             >

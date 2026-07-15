@@ -2,7 +2,7 @@
  * Local thread / session search — bounded scan, no FTS5.
  *
  * Anchors:
- *   - Plan: `notes/pr-search-1-report.md` (yuejing; xuan sign-off `038d7196`).
+ *   - Current behavior is pinned by the focused thread-search tests.
  *   - Contract: `@maka/core/search` (PR-SEARCH-0 + PR-SEARCH-1.5 `SearchResultTarget`).
  *   - Implementation lane greenlight: xuan msg `074714c7`.
  *

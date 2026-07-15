@@ -1,7 +1,6 @@
 // packages/ui/src/primitives/stat-tile.tsx
 //
-// Convergence round 4 (notes/ui-convergence-map-2026-07-09.md): the ONE
-// implementation for "big number + label (+ detail)" stat tiles. Before
+// The shared implementation for "big number + label (+ detail)" stat tiles. Before
 // this, four near-identical recipes lived in page CSS (permission summary,
 // health summary — literal twins — plus the filled MetricCard and the
 // daily-review totals cell).

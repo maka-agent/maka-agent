@@ -219,7 +219,7 @@ const statusGroups: StatusGroup[] = [
   },
   {
     id: 'blocked',
-    label: '已阻塞',
+    label: '需要处理',
     sessions: statusSessions.filter((session) => session.status === 'blocked'),
     collapsible: false,
     defaultExpanded: true,

@@ -75,7 +75,7 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // PR109f (g): turn-control-history — seeds a primary session whose
   // turn list covers the four TurnStatus values plus retry + regenerate
   // lineage, alongside two branch sessions (visible-parent vs missing-
-  // parent) so smoke Path 15 can verify the banner contract end-to-end.
+  // parent) so deterministic screenshots cover the banner contract end-to-end.
   // Three variants share the same on-disk seed and only differ in
   // active session selection, so auto-capture produces three
   // deterministic screenshots:
@@ -117,6 +117,16 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // Captures the overflow-trigger state so reviewers can verify
   // the time meta + unread dot are hidden underneath (no overlap).
   'sidebar-row-actions-visible',
+  // Scroll-geometry contract seed: 24 tall turns opened as the active
+  // session on boot, so off-screen turns mount as content-visibility
+  // placeholders (see e2e/scroll-geometry.spec.ts).
+  'long-transcript',
+  // #819: BrowserPanel renderer-chrome fixture. Seeds `liveBrowserSessionIds`
+  // with the active turn session so `BrowserPanel` mounts; with no native
+  // `WebContentsView` in visual-smoke mode, `browser.getState` resolves null
+  // → `EMPTY_STATE` → the empty-state chrome (toolbar all-nav-disabled +
+  // `<Empty>` strip) the #818 narrow-layout defect regressed against.
+  'browser-empty',
 ]);
 
 // Fixed clock for screenshot fixtures. All seeded timestamps and
@@ -321,6 +331,16 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: ARTIFACT_SESSION_ID };
     case 'turn-narrative':
       return { ...state, activeSessionId: TURN_SESSION_ID };
+    case 'browser-empty':
+      // #819: the active turn session is also seeded as a live browser
+      // session so BrowserPanel mounts over the chat. No native
+      // WebContentsView exists in visual-smoke mode, so browser.getState
+      // resolves null → BrowserPanel renders EMPTY_STATE → the empty-state
+      // chrome is what screenshots capture (the #818 defect surface).
+      // Loaded / loading / nav chrome states are locked by the
+      // `browser-panel-chrome` source contract; their screenshots add no
+      // layout value over this empty-state baseline.
+      return { ...state, activeSessionId: TURN_SESSION_ID, liveBrowserSessionIds: [TURN_SESSION_ID] };
     case 'streaming-sidebar':
       return {
         ...state,
@@ -426,8 +446,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'turn-control-branch-orphan':
       // Active = orphan branch session (parentSessionId points to a
       // session that is intentionally NOT seeded on disk). Chat header
-      // must render NO branch banner and NO dead-link button. Path 15
-      // asserts the absence of `.maka-session-branch-banner` here.
+      // must render NO branch banner and NO dead-link button.
       return { ...state, activeSessionId: TURN_CONTROL_BRANCH_ORPHAN_SESSION_ID };
     case 'sidebar-long-sessions':
       // PR-SIDEBAR-IA-0 Phase 1: active = the FIRST session in the seed
@@ -474,6 +493,11 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
         sidebarCollapsed: false,
         focusActiveRow: true,
       };
+    case 'long-transcript':
+      // Scroll-geometry contract: boot straight into the 24-turn session so
+      // above-viewport turns mount render-skipped (never rendered), the
+      // exact state the warm-up + pinned-bottom invariants protect.
+      return { ...state, activeSessionId: LONG_TRANSCRIPT_SESSION_ID };
     case 'all':
       return {
         ...state,
@@ -485,6 +509,9 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
         },
       };
   }
+  // Fallback so the function is total over the scenario union (TS2366); the
+  // base state is the safe default for any scenario without a bespoke mapping.
+  return state;
 }
 
 export async function seedVisualSmokeFixture(input: {
@@ -526,6 +553,12 @@ export async function seedVisualSmokeFixture(input: {
     for (const seed of workstationStatusSessions(now)) {
       await writeSession(input.workspaceRoot, seed.header, seed.messages);
     }
+  }
+  // Scroll-geometry contract (e2e/scroll-geometry.spec.ts): a session tall
+  // enough that most turns mount as render-skipped content-visibility
+  // placeholders — the state the warm-up and pinned-bottom invariants cover.
+  if (input.fixture.scenario === 'long-transcript') {
+    await writeSession(input.workspaceRoot, longTranscriptSession(now), longTranscriptMessages(now));
   }
   // PR109f (g): all three turn-control-* scenarios share the same
   // on-disk seed; only the active session selection differs. Seeding
@@ -663,6 +696,7 @@ const TURN_CONTROL_SCENARIOS = new Set<VisualSmokeScenario>([
 ]);
 
 const TURN_SESSION_ID = 'visual-smoke-turn';
+const LONG_TRANSCRIPT_SESSION_ID = 'visual-smoke-long-transcript';
 const PROCESSING_SESSION_ID = 'visual-smoke-processing';
 const STREAMING_SESSION_ID = 'visual-smoke-streaming';
 // PR-STREAM-TURN-CENTER: realistic multi-block markdown (heading + paragraph +
@@ -701,7 +735,7 @@ const HEALTHY_SESSION_ID = 'visual-smoke-healthy';
 // `BRANCH_ORPHAN` session's `parentSessionId` intentionally references
 // a session id that is NEVER written to disk so the renderer's
 // `deriveBranchBanner()` resolves the parent as missing and renders no
-// banner (Path 15 negative case).
+// banner in the negative screenshot case.
 const TURN_CONTROL_PRIMARY_SESSION_ID = 'visual-smoke-turn-control-primary';
 const TURN_CONTROL_BRANCH_VISIBLE_SESSION_ID = 'visual-smoke-turn-control-branch-visible';
 const TURN_CONTROL_BRANCH_ORPHAN_SESSION_ID = 'visual-smoke-turn-control-branch-orphan';
@@ -1018,6 +1052,51 @@ function turnSession(now: number): SessionHeader {
   });
 }
 
+function longTranscriptSession(now: number): SessionHeader {
+  return header({
+    id: LONG_TRANSCRIPT_SESSION_ID,
+    name: '超长会话滚动几何',
+    connection: 'zai-live',
+    model: 'glm-5.1',
+    now,
+    lastMessageAt: now - 5 * 60_000,
+  });
+}
+
+/**
+ * 24 turns, each ~1300px tall once rendered, so the transcript is ~25x the
+ * 250px contain-intrinsic-size placeholder per turn and dozens of viewports
+ * tall overall. Plain text on purpose: the contract under test is scroll
+ * geometry, not markdown rendering.
+ */
+function longTranscriptMessages(now: number): StoredMessage[] {
+  const filler = Array.from(
+    { length: 60 },
+    (_, line) => `第 ${line + 1} 行 — 用于撑高单个 turn 的占位正文内容。`,
+  ).join('  \n');
+  const messages: StoredMessage[] = [];
+  const base = now - 60 * 60_000;
+  for (let turn = 0; turn < 24; turn++) {
+    const turnId = `long-transcript-turn-${turn}`;
+    messages.push({
+      type: 'user',
+      id: `long-transcript-user-${turn}`,
+      turnId,
+      ts: base + turn * 60_000,
+      text: `长会话问题 ${turn + 1}`,
+    });
+    messages.push({
+      type: 'assistant',
+      id: `long-transcript-assistant-${turn}`,
+      turnId,
+      ts: base + turn * 60_000 + 30_000,
+      text: `长会话回答 ${turn + 1}\n\n${filler}`,
+      modelId: 'glm-5.1',
+    });
+  }
+  return messages;
+}
+
 function turnMessages(now: number): StoredMessage[] {
   const turnId = 'turn-fixture-1';
   return [
@@ -1046,10 +1125,14 @@ function turnMessages(now: number): StoredMessage[] {
         cmd: 'npm test --workspaces --if-present',
         status: 'completed',
         exitCode: 0,
-        stdout: 'core 41 passing\nstorage 17 passing\nruntime 70 passing\ndesktop 74 passing\n',
-        stderr: '',
-        stdoutTruncated: false,
-        stderrTruncated: false,
+        output: {
+          mode: 'pipes',
+          stdout: 'core 41 passing\nstorage 17 passing\nruntime 70 passing\ndesktop 74 passing\n',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          redacted: false,
+        },
       },
     },
     {
@@ -1197,10 +1280,14 @@ function multiStepTurnMessages(now: number): StoredMessage[] {
         cmd: 'node --test dist/main/__tests__/stream-fade.test.js',
         status: 'completed',
         exitCode: 0,
-        stdout: 'tests 13\npass 13\nfail 0\n',
-        stderr: '',
-        stdoutTruncated: false,
-        stderrTruncated: false,
+        output: {
+          mode: 'pipes',
+          stdout: 'tests 13\npass 13\nfail 0\n',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          redacted: false,
+        },
       },
     },
     {
@@ -1257,7 +1344,7 @@ function permissionMessages(now: number): StoredMessage[] {
       id: 'permission-user',
       turnId: 'turn-permission',
       ts: now - 4 * 60_000,
-      text: '模拟一个需要 destructive 权限确认的操作，但不要真的执行。',
+      text: '模拟一个需要不可恢复操作权限确认的场景，但不要真的执行。',
     },
     {
       type: 'tool_call',
@@ -1266,8 +1353,8 @@ function permissionMessages(now: number): StoredMessage[] {
       ts: now - 4 * 60_000 + 1_000,
       toolName: 'Bash',
       displayName: '模拟删除命令',
-      intent: '触发 PermissionDialog destructive UI',
-      args: { cmd: 'rm -rf ./dist', cwd: '/workspace/maka' },
+      intent: '清理构建产物目录',
+      args: { command: 'rm -rf ./dist', cwd: '/workspace/maka' },
     },
   ];
 }
@@ -1455,7 +1542,7 @@ function workstationStatusSessions(now: number): Array<{ header: SessionHeader; 
  *    active.
  *  - `branch-orphan` — parentSessionId points to a session id that is
  *    NOT seeded; renderer's `deriveBranchBanner()` returns undefined
- *    and no banner is rendered (Path 15 negative case).
+ *    and no banner is rendered (negative screenshot case).
  *
  * The three are interchangeable for screenshot purposes — only the
  * active session selection in `applyScenarioOverrides` decides which
@@ -1494,7 +1581,7 @@ function turnControlSessions(now: number): Array<{ header: SessionHeader; messag
     status: 'active',
   });
   // Intentionally references a session id never written to disk so the
-  // renderer must render no banner (negative case for Path 15).
+  // renderer must render no banner (negative screenshot case).
   branchOrphanHeader.parentSessionId = TURN_CONTROL_ORPHAN_PARENT_ID;
   branchOrphanHeader.branchOfTurnId = 'turn-deleted-origin';
 
@@ -2329,7 +2416,7 @@ function permissionRequest(now: number): PermissionRequestEvent {
     toolName: 'Bash',
     category: 'fs_destructive',
     reason: 'fs_destructive',
-    args: { cmd: 'rm -rf ./dist', cwd: '/workspace/maka' },
-    hint: '模拟/拦截 permission request：不要实际执行 rm。',
+    args: { command: 'rm -rf ./dist', cwd: '/workspace/maka' },
+    hint: '这会删除构建产物目录；允许前请确认当前工作区。',
   };
 }

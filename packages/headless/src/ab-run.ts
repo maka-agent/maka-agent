@@ -90,6 +90,16 @@ async function runComparisonPair(
   input: RunAbComparisonInput,
   pair: { rep: number; taskIndex: number; task: FixedPromptTask },
 ): Promise<{ rep: number; baseline: FixedPromptTaskWalEvent; candidate: FixedPromptTaskWalEvent }> {
+  if (input.armExecution === 'sequential') {
+    if ((pair.rep + pair.taskIndex) % 2 === 0) {
+      const baseline = await runComparisonTaskArm(input, input.arms[0], pair);
+      const candidate = await runComparisonTaskArm(input, input.arms[1], pair);
+      return { rep: pair.rep, baseline, candidate };
+    }
+    const candidate = await runComparisonTaskArm(input, input.arms[1], pair);
+    const baseline = await runComparisonTaskArm(input, input.arms[0], pair);
+    return { rep: pair.rep, baseline, candidate };
+  }
   if ((pair.rep + pair.taskIndex) % 2 === 0) {
     const [baseline, candidate] = await Promise.all([
       runComparisonTaskArm(input, input.arms[0], pair),

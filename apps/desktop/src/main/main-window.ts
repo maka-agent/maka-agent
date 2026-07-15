@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { AppSettings } from '@maka/core';
 import { isExternalUrl } from './external-link-guard.js';
 import { errorMessage } from './chat-readiness.js';
-import { readSavedBounds, writeSavedBounds, type SavedBounds } from './window-state.js';
+import { readSavedBounds, writeSavedBounds, SAFE_MIN_HEIGHT, SAFE_MIN_WIDTH, type SavedBounds } from './window-state.js';
 import { BrowserViewController } from './browser/controller.js';
 import { BrowserViewManager } from './browser/view-manager.js';
 import type { VisualSmokeFixture } from './visual-smoke-fixture.js';
@@ -44,6 +44,7 @@ interface MainWindowControllerDeps {
   // main.ts computes this from the same isE2e gate that also guards userData
   // and the fake backend, so main-window.ts owns no env policy of its own.
   startHidden: boolean;
+  onClose?: () => void;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -215,6 +216,12 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // (see `app-region-hygiene-contract.test.ts`) cover the
       // renderer side of the same gate.
       resizable: true,
+      // #824: enforce the sanitizeBounds restore floor at runtime resize too,
+      // so the both-present dvh layout fix can't be defeated by dragging the
+      // window shorter than the 320px restore minimum. Shares SAFE_MIN_HEIGHT
+      // with sanitizeBounds so the resize floor and the restore floor can't
+      // drift apart (locked by app-region-hygiene-contract.test.ts).
+      minHeight: SAFE_MIN_HEIGHT,
       backgroundColor: initialBg,
       // PR-SHOW-AFTER-FIRST-COMMIT: create hidden on every run so the OS never
       // flashes the index.html `.maka-preload` skeleton before React paints.
@@ -226,10 +233,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // `paintWhenInitiallyHidden` defaults to true and the app must never take
       // foreground while the developer keeps working in another app.
       show: false,
-      // Glass material — reference-atlas §1 + §12.1 documents the upstream
-      // reference layout's `light-glass` / `dark-glass` themes that paint
-      // the sidebar against native macOS vibrancy material. Enabling
-      // `vibrancy: 'sidebar'` here lets the CSS-side sidebar render
+      // Native sidebar vibrancy lets the CSS-side sidebar render
       // transparent and inherit the system's blurred window material
       // (Big Sur+). Renderer CSS gates the transparency on
       // `[data-vibrancy="active"]` so non-macOS builds (where vibrancy is
@@ -336,6 +340,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     mainWindow.on('unmaximize', scheduleSave);
     mainWindow.on('close', () => {
       clearShowFallbackTimer();
+      deps.onClose?.();
       if (saveTimer) clearTimeout(saveTimer);
       // The window owns the embedded-browser views (children of its contentView);
       // tear them down so their WebContents close with it instead of leaking.
@@ -476,8 +481,8 @@ function visualSmokeWindowBounds(
   if (
     Number.isFinite(width) &&
     Number.isFinite(height) &&
-    width >= 480 &&
-    height >= 320
+    width >= SAFE_MIN_WIDTH &&
+    height >= SAFE_MIN_HEIGHT
   ) {
     return { width: Math.floor(width), height: Math.floor(height) };
   }

@@ -3,12 +3,14 @@ export { CapabilityAuditStrip } from './capability-audit-strip.js';
 export { SearchModal } from './search-modal.js';
 export { SessionListPanel } from './session-list-panel.js';
 export type { SessionViewMode } from './session-list-panel.js';
-export type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from './module-panel-types.js';
+export type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from './module-panel-types.js';
 export { describeLoadToolResult, formatRedactedJson, formatToolIntent, loadToolDisplayName } from './tool-format.js';
 export { formatBytes, OverlayHost, ToolActivity, ToolErrorDetails } from './tool-activity.js';
-export { PermissionDialog } from './permission-dialog.js';
+export { PermissionPrompt } from './permission-dialog.js';
 export { ChatView } from './chat-view.js';
-export type { ChatHeaderAlert, TurnFooterActionMeta, TurnLineageBadge } from './chat-view.js';
+export type { ChatHeaderAlert } from './chat-view.js';
+export type { TurnFooterActionMeta, TurnLineageBadge } from './chat-turn.js';
+export { AutomationsPage, DailyReviewPage, SkillsPage } from './module-pages.js';
 export { Composer } from './composer.js';
 export type { ComposerHandle } from './composer.js';
 export {

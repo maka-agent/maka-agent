@@ -1,12 +1,9 @@
 /**
  * Session disk format: JSONL with SessionHeader as line 1 + append-only
  * StoredMessage lines.
- *
- * Source: V0.1_TECH_SPEC.md §4.2
- *
  * Storage layer enforces append-only for messages and read-rewrite-write
  * (atomic temp + rename) for header. Per-session write queue invariant
- * documented in spec §5.2.
+ * is enforced by the storage implementation.
  */
 
 import type { AttachmentRef, ToolActivityKind, ToolResultContent } from './events.js';

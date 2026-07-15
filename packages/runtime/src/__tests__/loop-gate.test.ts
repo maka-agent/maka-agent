@@ -8,6 +8,7 @@ import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import {
   ToolRuntime,
   formatLoopGateText,
+  formatAmbiguousComputerLoopGateText,
   formatDeferredNotLoadedText,
   LOOP_GATE_IDENTICAL_THRESHOLD,
   type MakaTool,
@@ -138,10 +139,14 @@ function makeTerminalTool(name: string, impl: string[], exitCode: number): MakaT
         cmd: 'cmd',
         status: exitCode === 0 ? 'completed' : 'failed',
         exitCode,
-        stdout: '',
-        stderr: exitCode === 0 ? '' : 'boom\n',
-        stdoutTruncated: false,
-        stderrTruncated: false,
+        output: {
+          mode: 'pipes',
+          stdout: '',
+          stderr: exitCode === 0 ? '' : 'boom\n',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          redacted: false,
+        },
       };
     },
   };
@@ -158,6 +163,7 @@ function makeShellRunTool(name: string, impl: string[], status: ObservedShellRun
       return {
         kind: 'shell_run',
         ref: 'maka://runtime/background-tasks/shell-run-1',
+        mode: 'pipes',
         status,
         cwd: '/tmp/maka',
         cmd: 'cmd',
@@ -165,7 +171,7 @@ function makeShellRunTool(name: string, impl: string[], status: ObservedShellRun
         updatedAt: 2,
         completedAt: 2,
         ...(status === 'orphaned'
-          ? { orphanedReason: 'missing live shell process handle' }
+          ? { failureMessage: 'missing live shell process handle' }
           : {
               exitCode: status === 'timed_out' ? 124 : status === 'cancelled' ? 130 : 1,
               failureMessage: status === 'timed_out'
@@ -174,12 +180,37 @@ function makeShellRunTool(name: string, impl: string[], status: ObservedShellRun
                   ? 'Command cancelled'
                   : 'Command failed',
             }),
-        stdout: '',
-        stderr: status === 'failed' ? 'boom\n' : '',
-        stdoutTruncated: false,
-        stderrTruncated: false,
-        observedAt: 2,
+        revision: 2,
+        output: {
+          mode: 'pipes',
+          stdout: '',
+          stderr: status === 'failed' ? 'boom\n' : '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          redacted: false,
+        },
       } satisfies ShellRunToolResult;
+    },
+  };
+}
+
+function makeComputerFailureTool(
+  impl: string[],
+  failureClass?: 'ambiguous_target',
+): MakaTool {
+  return {
+    name: 'maka_computer',
+    description: 'computer',
+    parameters: z.object({}).passthrough(),
+    permissionRequired: false,
+    categoryHint: 'computer_use',
+    impl: (args) => {
+      impl.push(JSON.stringify(args));
+      return {
+        text: 'maka_computer failed: stale_frame',
+        error: 'stale_frame',
+        ...(failureClass ? { failureClass } : {}),
+      };
     },
   };
 }
@@ -376,6 +407,42 @@ describe('loop-gate for repeated identical FAILING tool calls', () => {
       assert.equal(event?.type === 'tool_result' ? event.isError : true, false, status);
       assert.equal(h.invocations[0]?.status, 'success', status);
     }
+  });
+
+  test('a returned top-level error is classified as a failed tool result', async () => {
+    const h = makeHarness();
+    const tool = makeComputerFailureTool(h.impl);
+    const result = await call(h, tool, {
+      action: 'click_element',
+      observation_id: 'obs-1',
+      element_id: 'duplicate',
+    });
+    assert.deepEqual(result, {
+      text: 'maka_computer failed: stale_frame',
+      error: 'stale_frame',
+    });
+    const event = h.pushed.find((candidate) => candidate.type === 'tool_result');
+    assert.equal(event?.type === 'tool_result' ? event.isError : false, true);
+    assert.equal(h.invocations[0]?.status, 'error');
+  });
+
+  test('an ambiguous semantic target is gated across fresh observation ids', async () => {
+    const h = makeHarness();
+    const tool = makeComputerFailureTool(h.impl, 'ambiguous_target');
+    const first = await call(h, tool, {
+      action: 'click_element',
+      observation_id: 'obs-1',
+      element_id: 'duplicate',
+    });
+    assert.equal((first as { error?: string }).error, 'stale_frame');
+
+    const second = await call(h, tool, {
+      action: 'click_element',
+      observation_id: 'obs-2',
+      element_id: 'duplicate',
+    });
+    assert.deepEqual(second, { error: formatAmbiguousComputerLoopGateText() });
+    assert.equal(h.impl.length, 1, 'second ambiguous attempt never reaches the backend');
   });
 
   test('repeated shell_run observations are not loop-gated by process status', async () => {

@@ -1,5 +1,9 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import {
+  validateExecutionEvidenceRef,
+  type ExecutionEvidenceRef,
+} from '@maka/core/execution-evidence';
 import type { ResultRecord } from './contracts.js';
 import { compactArtifactEvidence, compactSelfCheckEvidence } from './heavy-task-evidence.js';
 import { evaluateHeavyTaskCompletionStatus, type HeavyTaskCompletionStatus } from './heavy-task-finalization.js';
@@ -37,6 +41,7 @@ import type {
 export interface TaskRunProjection extends TaskRun {
   events: TaskEvent[];
   attempts: TaskAttempt[];
+  executionLineage: ExecutionEvidenceRef[];
   selfChecks: SelfCheckObservation[];
   feedback: FeedbackObservation[];
   decisions: AutonomousDecision[];
@@ -96,6 +101,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
     status: 'queued',
     events: [],
     attempts: [],
+    executionLineage: [],
     selfChecks: [],
     feedback: [],
     decisions: [],
@@ -147,6 +153,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
         projection.status = 'verifying';
         break;
       case 'task_attempt_started': {
+        const previous = attempts.get(event.attemptId);
         const attempt: TaskAttempt = {
           attemptId: event.attemptId,
           taskRunId: event.taskRunId,
@@ -154,9 +161,37 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
           status: 'running',
           ...(event.sessionId ? { sessionId: event.sessionId } : {}),
           ...(event.agentRunId ? { agentRunId: event.agentRunId } : {}),
+          executionLineage: previous?.executionLineage ?? [],
         };
         attempts.set(event.attemptId, attempt);
         setOptionalRefs(projection, event.sessionId, event.agentRunId);
+        break;
+      }
+      case 'task_attempt_execution_linked': {
+        const evidence = validTaskAttemptExecutionEvidence(event, projection.warnings);
+        if (!evidence) break;
+        projection.executionLineage.push(evidence);
+        const previous = attempts.get(event.attemptId);
+        attempts.set(event.attemptId, {
+          ...(previous ?? {
+            attemptId: event.attemptId,
+            taskRunId: event.taskRunId,
+            startedAt: event.ts,
+            status: 'running',
+            executionLineage: [],
+          }),
+          ...(evidence.execution?.sessionId ? { sessionId: evidence.execution.sessionId } : {}),
+          ...(!previous?.agentRunId && evidence.execution?.agentRunId
+            ? { agentRunId: evidence.execution.agentRunId }
+            : {}),
+          executionLineage: [...(previous?.executionLineage ?? []), evidence],
+        });
+        if (!projection.sessionId && evidence.execution?.sessionId) {
+          projection.sessionId = evidence.execution.sessionId;
+        }
+        if (!projection.agentRunId && evidence.execution?.agentRunId) {
+          projection.agentRunId = evidence.execution.agentRunId;
+        }
         break;
       }
       case 'self_check_observed':
@@ -236,6 +271,30 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
           projection.warnings.push(`ignored heavy-task evidence ${event.evidence.evidenceId}: evidence must be public and match taskRunId`);
         }
         break;
+      case 'heavy_task_evidence_provenance_linked': {
+        const matchingIndexes = projection.heavyTaskEvidence.flatMap((item, index) => (
+          item.evidenceId === event.evidenceId ? [index] : []
+        ));
+        if (matchingIndexes.length !== 1) {
+          const reason = matchingIndexes.length === 0 ? 'was not recorded first' : 'is ambiguous';
+          projection.warnings.push(`ignored evidence provenance ${event.id}: evidence ${event.evidenceId} ${reason}`);
+          break;
+        }
+        const index = matchingIndexes[0]!;
+        const evidence = projection.heavyTaskEvidence[index]!;
+        const provenance = validHeavyTaskEvidenceProvenance(event, evidence, projection.warnings);
+        if (!provenance) break;
+        if (evidence.provenance) {
+          projection.warnings.push(`ignored evidence provenance ${event.id}: evidence ${event.evidenceId} is already linked`);
+          break;
+        }
+        const linked = { ...evidence, provenance };
+        projection.heavyTaskEvidence[index] = linked;
+        if (projection.latestHeavyTaskEvidence?.evidenceId === event.evidenceId) {
+          projection.latestHeavyTaskEvidence = linked;
+        }
+        break;
+      }
       case 'isolation_policy_recorded':
         projection.isolation = event.facts;
         break;
@@ -277,7 +336,12 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
           if (event.attemptId) {
             const previous = attempts.get(event.attemptId);
             attempts.set(event.attemptId, {
-              ...(previous ?? { attemptId: event.attemptId, taskRunId: event.taskRunId, startedAt: event.ts }),
+              ...(previous ?? {
+                attemptId: event.attemptId,
+                taskRunId: event.taskRunId,
+                startedAt: event.ts,
+                executionLineage: [],
+              }),
               status: 'needs_approval',
               finishedAt: event.ts,
             });
@@ -290,6 +354,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
             attemptId: event.attemptId,
             taskRunId: event.taskRunId,
             startedAt: event.ts,
+            executionLineage: [],
           }),
           status: event.status,
           finishedAt: event.finishedAt ?? event.ts,
@@ -477,6 +542,69 @@ function setOptionalRefs(projection: TaskRunProjection, sessionId: string | unde
   if (agentRunId) projection.agentRunId = agentRunId;
 }
 
+function validTaskAttemptExecutionEvidence(
+  event: Extract<TaskEvent, { type: 'task_attempt_execution_linked' }>,
+  warnings: string[],
+): ExecutionEvidenceRef | undefined {
+  const validation = validateExecutionEvidenceRef(event.evidence);
+  if (!validation.ok) {
+    warnings.push(`ignored execution lineage ${event.id}: ${validation.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ')}`);
+    return undefined;
+  }
+  const evidence = validation.value;
+  if (evidence.task?.taskRunId !== event.taskRunId || evidence.task.attemptId !== event.attemptId) {
+    warnings.push(`ignored execution lineage ${event.id}: task identity does not match the owning attempt`);
+    return undefined;
+  }
+  if (!evidence.execution?.agentRunId) {
+    warnings.push(`ignored execution lineage ${event.id}: execution.agentRunId is required`);
+    return undefined;
+  }
+  return evidence;
+}
+
+function validHeavyTaskEvidenceProvenance(
+  event: Extract<TaskEvent, { type: 'heavy_task_evidence_provenance_linked' }>,
+  subject: HeavyTaskCompactEvidenceEnvelope,
+  warnings: string[],
+): ExecutionEvidenceRef | undefined {
+  const validation = validateExecutionEvidenceRef(event.provenance);
+  if (!validation.ok) {
+    warnings.push(
+      `ignored evidence provenance ${event.id}: ${validation.errors
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join('; ')}`,
+    );
+    return undefined;
+  }
+  const provenance = validation.value;
+  if (provenance.task?.taskRunId !== event.taskRunId) {
+    warnings.push(`ignored evidence provenance ${event.id}: task identity does not match the owning TaskRun`);
+    return undefined;
+  }
+  const attemptId = event.attemptId;
+  if (
+    (subject.attemptId && event.attemptId !== subject.attemptId)
+    || provenance.task?.attemptId !== attemptId
+  ) {
+    warnings.push(`ignored evidence provenance ${event.id}: attempt identity does not match the evidence`);
+    return undefined;
+  }
+  if (!provenance.execution?.agentRunId || !provenance.runtimeCoverage) {
+    warnings.push(`ignored evidence provenance ${event.id}: AgentRun identity and Runtime coverage are required`);
+    return undefined;
+  }
+  if (
+    (subject.source.sessionId && subject.source.sessionId !== provenance.execution.sessionId)
+    || (subject.source.agentRunId && subject.source.agentRunId !== provenance.execution.agentRunId)
+    || (subject.source.turnId && subject.source.turnId !== provenance.execution.turnId)
+  ) {
+    warnings.push(`ignored evidence provenance ${event.id}: Runtime identity does not match the evidence source`);
+    return undefined;
+  }
+  return provenance;
+}
+
 function resultFromScore(score: ScoreResult | undefined, verifier: VerifierResult | undefined): TaskRunResult | undefined {
   if (!score) return undefined;
   return {
@@ -531,8 +659,14 @@ function appendCompactEvidence(projection: TaskRunProjection, ...evidence: Heavy
       ok = false;
       continue;
     }
-    projection.heavyTaskEvidence.push(item);
-    projection.latestHeavyTaskEvidence = item;
+    if (item.provenance) {
+      projection.warnings.push(
+        `ignored embedded provenance on heavy-task evidence ${item.evidenceId}: a provenance link event is required`,
+      );
+    }
+    const { provenance: _embeddedProvenance, ...unlinked } = item;
+    projection.heavyTaskEvidence.push(unlinked);
+    projection.latestHeavyTaskEvidence = unlinked;
   }
   return ok;
 }

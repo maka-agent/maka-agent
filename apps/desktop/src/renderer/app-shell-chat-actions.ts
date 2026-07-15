@@ -1,6 +1,12 @@
-import type { PermissionResponse, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
+import type { PermissionResponse, SessionSummary, StoredMessage, ThinkingLevel, UserQuestionResponse } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
-import { armLiveTurn, type LiveTurnProjection, type NavSelection } from '@maka/ui';
+import {
+  armLiveTurn,
+  dequeueInteractionByRequestId,
+  type InteractionQueues,
+  type LiveTurnProjection,
+  type NavSelection,
+} from '@maka/ui';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
 import { preflightAttachmentItems } from './attachment-preflight.js';
 
@@ -31,6 +37,7 @@ type BooleanRecordUpdater = (updater: (current: Record<string, boolean>) => Reco
 type LiveTurnRecordUpdater = (updater: (current: Record<string, LiveTurnProjection>) => Record<string, LiveTurnProjection>) => void;
 type MessageListUpdater = (next: StoredMessage[] | ((current: StoredMessage[]) => StoredMessage[])) => void;
 type MessageLoadErrorUpdater = (updater: (current: Record<string, string>) => Record<string, string>) => void;
+type InteractionQueueUpdater = (updater: (current: InteractionQueues) => InteractionQueues) => void;
 
 type PendingNewChatModel = {
   llmConnectionSlug: string;
@@ -83,6 +90,7 @@ async function readMessagesForRefresh(
 export interface AppShellChatActions {
   send(text: string, pending?: readonly PendingAttachment[]): Promise<boolean>;
   respondToPermission(response: PermissionResponse): Promise<void>;
+  respondToUserQuestion(response: UserQuestionResponse): Promise<void>;
   refreshMessages(sessionId: string, options?: RefreshMessagesOptions): Promise<boolean>;
   retryMessages(sessionId: string): Promise<void>;
 }
@@ -123,6 +131,7 @@ export function createAppShellChatActions(deps: {
   /** #646: arm the "正在处理…" indicator locally at send() — the model-wait
    * window opens before any SessionEvent arrives (turn_started is not one). */
   setLiveTurnBySession: LiveTurnRecordUpdater;
+  setInteractionBySession: InteractionQueueUpdater;
   showModelSetupToast: (description: string, reason?: string) => void;
   toastApi: ToastApi;
   upsertSessionSummary: (session: SessionSummary) => void;
@@ -145,6 +154,7 @@ export function createAppShellChatActions(deps: {
     setMessages,
     setNavSelection,
     setLiveTurnBySession,
+    setInteractionBySession,
     showModelSetupToast,
     toastApi,
     upsertSessionSummary,
@@ -305,6 +315,17 @@ export function createAppShellChatActions(deps: {
     }
   }
 
+  async function respondToUserQuestion(response: UserQuestionResponse) {
+    const sessionId = activeIdRef.current;
+    if (!sessionId) return;
+    try {
+      await window.maka.sessions.respondToUserQuestion(sessionId, response);
+      setInteractionBySession((current) => dequeueInteractionByRequestId(current, sessionId, response.requestId));
+    } catch (error) {
+      if (activeIdRef.current === sessionId) toastApi.error('响应失败', generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。'));
+    }
+  }
+
   async function refreshMessages(sessionId: string, options: RefreshMessagesOptions = {}): Promise<boolean> {
     try {
       const result = await readMessagesForRefresh(sessionId, options);
@@ -371,6 +392,7 @@ export function createAppShellChatActions(deps: {
   return {
     send,
     respondToPermission,
+    respondToUserQuestion,
     refreshMessages,
     retryMessages,
   };

@@ -1,33 +1,19 @@
 /* target-layout shell rebuild.
-   Hand-authored from notes/reference-css-extract-2026-06-19.md; do not paste
+   Hand-authored from a historical reference implementation extract; do not paste
    reference implementation compiled CSS or brand assets here. */
 
 :root {
-  --color-bg-base: var(--background);
-  --color-bg-container: var(--background);
-  --color-bg-elevated: var(--background-elevated);
-  --color-bg-layout: var(--surface-canvas);
-  --color-bg-spotlight: oklch(from var(--background) calc(l - 0.03) c h);
-  --color-text-base: var(--foreground);
-  --color-text: var(--foreground);
-  --color-text-secondary: var(--foreground-secondary);
-  --color-text-tertiary: var(--muted-foreground);
-  --color-text-quaternary: var(--muted-foreground);
-  --color-border: var(--border);
-  --color-border-secondary: var(--border);
-  --color-fill: var(--foreground-8);
-  --color-fill-secondary: var(--foreground-10);
-  --color-fill-tertiary: var(--foreground-3);
-  --color-fill-quaternary: var(--foreground-2);
-  /* PR-UI-ALIGN-2 (2026-06-21): card/container hairlines must be clearly
-     visible (≈#e6e6e6) so the floating content card, skill list and task cards
-     read as distinct surfaces like 参考实现 — the old 60% washed them out. */
-  --color-border-tertiary: color-mix(in srgb, var(--border) 92%, transparent);
+  /* Agents layout-shell locals only. The color-system tokens this shell once
+     referenced (--color-bg-container / --color-border-tertiary /
+     --color-text-quaternary) were consolidated into maka-tokens.css alongside
+     the --background family they alias; the dead --color-* / --color-fill-* /
+     settings-nav strata were removed (Round C, zero consumers). See the token
+     README at the top of maka-tokens.css. */
+
   /* Flat neutral shell/backplate. This must never be a gradient; the
      white content surface reads through radius + shadow on top. */
   --agents-layout-bg: var(--surface-canvas);
   --agents-content-area-bg: var(--color-bg-container);
-  --agents-fade-bg: var(--agents-content-area-bg);
   /* reference layout-derived values (2026-06-20 WAWQAQ ef6b2852).
      The original 8px/12px we shipped at 7013f0f read too loose vs the
      real bundle's 4px gap + 6px radius.
@@ -36,7 +22,6 @@
      6px was geometrically present but optically invisible against a
      same-color shell. */
   --agents-content-area-gap: 4px;
-  --settings-nav-row-selected-bg: var(--color-fill-secondary);
 }
 
 [data-agents-page] {

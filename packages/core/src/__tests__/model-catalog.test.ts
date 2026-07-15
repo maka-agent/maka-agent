@@ -9,6 +9,413 @@ import { isConnectionReady } from '../connection-readiness.js';
 import type { LlmConnection, ModelInfo, ProviderType } from '../llm-connections.js';
 
 describe('ModelCatalogEntry', () => {
+  it('uses the official StepFun Step Plan snapshot without inventing live model discovery', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'stepfun-step-plan',
+        providerType: 'stepfun-step-plan',
+        defaultModel: 'step-3.7-flash',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), [
+      'step-3.7-flash',
+      'step-3.5-flash-2603',
+      'step-3.5-flash',
+      'step-router-v1',
+    ]);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 256_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.equal(entries[3]?.displayName, 'Step Router V1');
+    assert.deepEqual(entries[3]?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
+  it('uses the official StepFun Step Plan Global snapshot without inventing live model discovery', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'stepfun-ai-step-plan',
+        providerType: 'stepfun-ai-step-plan',
+        defaultModel: 'step-3.7-flash',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), [
+      'step-3.7-flash',
+      'step-3.5-flash-2603',
+      'step-3.5-flash',
+    ]);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 256_000);
+    assert.equal(entries[0]?.maxOutputTokens, 256_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
+  it('uses the checked-in StepFun Global snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'stepfun-ai',
+        providerType: 'stepfun-ai',
+        defaultModel: 'step-3.7-flash',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), [
+      'step-3.7-flash',
+      'step-3.5-flash-2603',
+      'step-3.5-flash',
+    ]);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 256_000);
+    assert.equal(entries[0]?.maxOutputTokens, 256_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
+  it('uses the official Volcengine Ark snapshot without inventing live model discovery', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'volcengine-ark',
+        providerType: 'volcengine-ark',
+        defaultModel: 'doubao-seed-2-0-pro-260215',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), ['doubao-seed-2-0-pro-260215']);
+    assert.equal(entries[0]?.displayName, 'Doubao Seed 2.0 Pro');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
+  it('uses the checked-in StepFun China snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'stepfun',
+        providerType: 'stepfun',
+        defaultModel: 'step-3.7-flash',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), [
+      'step-3.7-flash',
+      'step-3.5-flash-2603',
+      'step-3.5-flash',
+      'step-1-32k',
+      'step-2-16k',
+    ]);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 256_000);
+    assert.equal(entries[0]?.maxOutputTokens, 256_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
+  it('uses the checked-in Tencent TokenHub snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'tencent-tokenhub',
+        providerType: 'tencent-tokenhub',
+        defaultModel: 'hy3',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), ['hy3', 'hy3-preview']);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 256_000);
+    assert.equal(entries[0]?.maxOutputTokens, 64_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
+  it('uses the checked-in Mistral snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'mistral',
+        providerType: 'mistral',
+        defaultModel: 'mistral-large-latest',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'mistral-large-latest');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      functionCalling: true,
+    });
+    assert.ok(!entries.some((entry) => entry.id === 'mistral-embed'));
+  });
+
+  it('uses Cohere tool-capable snapshot models until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'cohere',
+        providerType: 'cohere',
+        defaultModel: 'command-a-plus-05-2026',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'command-a-plus-05-2026');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 128_000);
+    assert.equal(entries[0]?.maxOutputTokens, 64_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'command-a-reasoning-08-2025'));
+    assert.ok(!entries.some((entry) => entry.id === 'c4ai-aya-expanse-32b'));
+  });
+
+  it('uses Hugging Face tool-capable snapshot models until router discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'huggingface',
+        providerType: 'huggingface',
+        defaultModel: 'openai/gpt-oss-120b',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'openai/gpt-oss-120b');
+    assert.equal(entries[0]?.displayName, 'GPT OSS 120B');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 131_072);
+    assert.equal(entries[0]?.maxOutputTokens, 32_768);
+    assert.deepEqual(entries[0]?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'meta-llama/Llama-3.3-70B-Instruct'));
+    assert.ok(!entries.some((entry) => entry.id === 'sentence-transformers/all-MiniLM-L6-v2'));
+  });
+
+  it('uses the checked-in Together AI snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'together',
+        providerType: 'togetherai',
+        defaultModel: 'MiniMaxAI/MiniMax-M3',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'MiniMaxAI/MiniMax-M3');
+    assert.equal(entries[0]?.displayName, 'MiniMax-M3');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'Qwen/Qwen3.5-9B'));
+  });
+
+  it('uses the checked-in DeepInfra snapshot until live discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'deepinfra',
+        providerType: 'deepinfra',
+        defaultModel: 'moonshotai/Kimi-K2.7-Code',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'moonshotai/Kimi-K2.7-Code');
+    assert.equal(entries[0]?.displayName, 'Kimi K2.7 Code');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'moonshotai/Kimi-K2.6'));
+    assert.ok(!entries.some((entry) => entry.id === 'BAAI/bge-m3'));
+  });
+
+  it('uses the checked-in Ollama Cloud snapshot with exact model ids until discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'ollama-cloud',
+        providerType: 'ollama-cloud',
+        defaultModel: 'qwen3.5:397b',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'qwen3.5:397b');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 262_144);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'gpt-oss:120b'));
+  });
+
+  it('uses the checked-in Fireworks snapshot until live discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'fireworks-ai',
+        providerType: 'fireworks-ai',
+        defaultModel: 'accounts/fireworks/models/kimi-k2p6',
+      },
+    });
+
+    assert.equal(entries[0]?.id, 'accounts/fireworks/models/kimi-k2p6');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 262_000);
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
+  it('uses the checked-in xAI snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'xai',
+        providerType: 'xai',
+        defaultModel: 'grok-4.5',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), [
+      'grok-4.5',
+      'grok-4.20-0309-non-reasoning',
+      'grok-4.20-0309-reasoning',
+      'grok-4.3',
+      'grok-build-0.1',
+    ]);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
+  it('uses the checked-in Cerebras snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'cerebras',
+        providerType: 'cerebras',
+        defaultModel: 'gpt-oss-120b',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), [
+      'gpt-oss-120b',
+      'gemma-4-31b',
+      'zai-glm-4.7',
+    ]);
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.deepEqual(entries[0]?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
+  it('uses the checked-in NVIDIA snapshot until account discovery succeeds', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'nvidia',
+        providerType: 'nvidia',
+        defaultModel: 'nvidia/nemotron-3-super-120b-a12b',
+      },
+    });
+
+    const recommended = entries[0];
+    assert.equal(recommended?.id, 'nvidia/nemotron-3-super-120b-a12b');
+    assert.equal(recommended?.source, 'static_catalog');
+    assert.equal(recommended?.provenance.modelSource, 'fallback');
+    assert.deepEqual(recommended?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+    assert.ok(entries.some((entry) => entry.id === 'openai/gpt-oss-120b'));
+  });
+
+  for (const provider of [
+    { type: 'xiaomi', modelId: 'mimo-v2.5', vision: true },
+    { type: 'zai', modelId: 'glm-5.2', vision: undefined },
+  ] as const) {
+    it(`uses the checked-in ${provider.type} snapshot until account discovery succeeds`, () => {
+      const entries = buildConnectionModelCatalogEntries({
+        connection: {
+          slug: provider.type,
+          providerType: provider.type,
+          defaultModel: provider.modelId,
+        },
+      });
+
+      assert.equal(entries[0]?.id, provider.modelId);
+      assert.equal(entries[0]?.source, 'static_catalog');
+      assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+      assert.equal(entries[0]?.capabilities.vision, provider.vision);
+      assert.equal(entries[0]?.capabilities.reasoning, true);
+      assert.equal(entries[0]?.capabilities.functionCalling, true);
+    });
+  }
+
+  it('uses models.dev fallback metadata for a SiliconFlow connection before live discovery', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'siliconflow',
+        providerType: 'siliconflow',
+        defaultModel: 'moonshotai/Kimi-K2.6',
+      },
+    });
+
+    const kimi = entries.find((entry) => entry.id === 'moonshotai/Kimi-K2.6');
+    assert.ok(kimi, 'the exact models.dev id must remain selectable');
+    assert.equal(kimi.source, 'static_catalog');
+    assert.equal(kimi.capabilitySource, 'static_catalog');
+    assert.equal(kimi.contextWindow, 262_000);
+    assert.equal(kimi.maxOutputTokens, 262_000);
+    assert.deepEqual(kimi.capabilities, {
+      chat: true,
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
   it('normalizes Z.ai fetched models as provider_api facts without guessing unknown capabilities', () => {
     const models: ModelInfo[] = [
       { id: 'glm-4.5' },
@@ -124,9 +531,9 @@ describe('ModelCatalogEntry', () => {
 
   it('marks deprecated metadata without blocking live availability', () => {
     const [entry] = buildModelCatalogEntries({
-      providerType: 'deepseek',
-      defaultModel: 'deepseek-chat',
-      models: [{ id: 'deepseek-chat' }],
+      providerType: 'anthropic',
+      defaultModel: 'claude-opus-4-1-20250805',
+      models: [{ id: 'claude-opus-4-1-20250805' }],
       modelSource: 'fetched',
     });
 
@@ -378,7 +785,7 @@ describe('ModelCatalogEntry', () => {
     assert.equal(entry?.unavailableReason, 'unsupported_for_chat');
     assert.equal(entry?.availability, 'blocked');
     assert.equal(entry?.canUseAsChatDefault, false);
-    assert.deepEqual(entry?.capabilities, { imageGeneration: true });
+    assert.deepEqual(entry?.capabilities, { vision: true, imageGeneration: true });
 
     const validation = validateChatDefaultModel(input);
     assert.deepEqual(
@@ -579,7 +986,6 @@ describe('ModelCatalogEntry', () => {
       ([
         ['google', 'gemini-1.5-pro'],
         ['moonshot', 'moonshot-v1-8k'],
-        ['kimi-coding-plan', 'kimi-for-coding'],
       ] as const).map(([providerType, model]) => {
         const [entry] = buildModelCatalogEntries({
           providerType,
@@ -600,7 +1006,6 @@ describe('ModelCatalogEntry', () => {
       [
         ['gemini-1.5-pro', undefined, undefined, undefined, 'unknown', {}],
         ['moonshot-v1-8k', undefined, undefined, undefined, 'unknown', {}],
-        ['kimi-for-coding', undefined, undefined, undefined, 'unknown', {}],
       ],
     );
   });

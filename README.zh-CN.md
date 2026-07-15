@@ -4,11 +4,11 @@
 
 [![CI](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml)
 
+![Maka——你的工作，你的 Agent。](./.github/assets/maka-hero.zh-CN.png)
+
 **一个为真实工作而生的本地优先 Agent 工作台。**
 
 Maka 不只回答问题。它可以在受控权限下阅读项目、执行工具、生成产物，并把模型消息、工具调用和长程任务进度保存为可恢复的运行事实。你可以从桌面应用、终端 TUI、非交互 CLI 或 Headless runner 使用同一套 Runtime。
-
-![Maka desktop artifact workflow](./apps/desktop/tests/screenshots-baseline/artifact-pane/dark-1280-motion.png)
 
 > [!IMPORTANT]
 > Maka 仍在活跃开发中，当前主要面向从源码运行和参与开发的用户。数据格式、CLI 和实验能力仍可能变化。
@@ -21,7 +21,7 @@ Maka 不只回答问题。它可以在受控权限下阅读项目、执行工具
 - **任务可以长于一个 Turn**：Headless 使用 TaskRun、Task Event Log、预算和 continuation 机制推进可中断、可检查的长程任务。
 - **反馈不等于事实 authority**：Self-check 可以产生证据和一次受限修复机会，但不能把“我检查过了”变成系统事实。
 
-完整设计见 [Maka Backend Architecture](./ARCHITECTURE.md)。
+完整设计见 [Maka Backend Architecture](./ARCHITECTURE.zh-CN.md)。
 
 ## 运行形态
 
@@ -29,7 +29,7 @@ Maka 不只回答问题。它可以在受控权限下阅读项目、执行工具
 |---|---|---|
 | **Desktop** | 日常交互、文件与 Artifact 工作流、模型和权限配置 | Electron + React，支持流式会话、工具时间线、分支、搜索和恢复 |
 | **TUI / CLI** | 在当前工程目录中使用 Maka，或执行单次非交互 Turn | `maka`、`maka run`，复用 Desktop 的 workspace 和模型连接 |
-| **Headless** | 长程任务、可恢复 TaskRun、实验和评估 | `maka eval` / `maka-headless`，支持任务日志、导出、恢复和对比 |
+| **Headless** | 长程任务、可恢复 TaskRun、实验和评估 | `maka eval`，支持任务日志、导出、恢复和对比 |
 
 ## 当前能力
 
@@ -127,7 +127,7 @@ Runtime Event Log → Context / Session / UI projections
 Task Event Log → TaskRun → Self-check / AHE evidence
 ```
 
-从 [ARCHITECTURE.md](./ARCHITECTURE.md) 开始阅读。它提供总体架构图、代码边界、按问题组织的阅读路径，以及六篇中英双语深度文章。
+从 [ARCHITECTURE.zh-CN.md](./ARCHITECTURE.zh-CN.md) 开始阅读。它提供总体架构图、代码边界、按问题组织的阅读路径，以及六篇中英双语深度文章。
 
 ## 仓库结构
 
@@ -161,11 +161,11 @@ Maka 默认把 workspace 数据放在 Electron `userData` 下：
 
 - 会话和连接元数据保存在本地文件系统；
 - API key、bot token、proxy password 等运行凭据当前保存在本地 plaintext `credentials.json`，依赖 OS 账号边界，并在 POSIX 上强制目录 `0700`、文件 `0600`；
-- 已接通的 subscription OAuth token 使用 Electron `safeStorage`；不可用时 fail closed；
+- Claude 和 Codex 在 Electron `safeStorage` 中保留桌面副本，同时为纯 Node runtime best-effort 导出一份 plaintext `oauth_token` 到 `credentials.json`；Cursor 和 Antigravity 仍是不可用的 preview integration；
 - Renderer 不接收明文凭据；文件写入、Shell 和危险工具调用需要经过 permission engine；
 - Headless real-model eval 默认 fail closed，要求调用方显式提供外部隔离边界。
 
-安全问题请阅读 [SECURITY.md](./SECURITY.md)。更细的隐私与 threat model 位于 `docs/`。
+安全问题请阅读 [SECURITY.md](./SECURITY.md)，当前隐私和 sandbox contract 见 [docs/README.md](./docs/README.md)。
 
 ## 开发与验证
 
@@ -186,6 +186,14 @@ npm --workspace @maka/headless test
 npm --workspace @maka/desktop test
 ```
 
+用以下命令从 models.dev 更新 `packages/core/src/model-metadata.generated.ts`，并运行相关测试。访问路径特有的 override 写在 `model-metadata.ts`，不要手动修改生成文件。
+
+```sh
+npm run sync:model-metadata
+npm run test:scripts
+npm --workspace @maka/core test
+```
+
 Desktop 的真实窗口与视觉验证：
 
 ```sh
@@ -199,10 +207,7 @@ npm --workspace @maka/desktop run smoke:real-window
 
 ## 文档入口
 
-- [后端架构总览](./ARCHITECTURE.md)
-- [Headless 使用与隔离边界](./packages/headless/README.md)
-- [设计系统](./docs/design-system.md)
-- [产品测试计划](./docs/full-product-test-plan.md)
-- [Workspace 隐私上下文](./docs/workspace-privacy-context.md)
-- [能力成熟度审计](./docs/maka-capability-audit-v1.md)
+- [文档索引与权威来源说明](./docs/README.md)
+- [后端架构总览](./ARCHITECTURE.zh-CN.md)
+- [产品设计](./DESIGN.md)
 - [安全政策](./SECURITY.md)

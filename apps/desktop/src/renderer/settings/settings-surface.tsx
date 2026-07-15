@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ArrowLeft } from '@maka/ui/icons';
+import { Button as BaseButton } from '@base-ui/react/button';
 import type {
   AppSettings,
   LlmConnection,
@@ -11,7 +12,7 @@ import type {
   UsageStats,
 } from '@maka/core';
 import { createDefaultSettings } from '@maka/core/settings';
-import { Button, OverlayScrollArea, useToast } from '@maka/ui';
+import { OverlayScrollArea, useMountedRef, useToast } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
 import { safeLocalStorageSet } from '../browser-storage';
 import { AccountSettingsPage } from './account-settings-page';
@@ -44,11 +45,13 @@ export function SettingsSurface(props: {
   onThemePaletteChange(palette: ThemePalette): void;
   onUserLabelChange?(label: string): void;
   requestedSection?: SettingsSection;
+  openProviderCatalog?: boolean;
   initialFocusRef: RefObject<HTMLButtonElement | null>;
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
 }) {
   const [section, setSection] = useState<SettingsSection>(() => props.requestedSection ?? readLastSettingsSection());
+  const [providerCatalogRequested, setProviderCatalogRequested] = useState(props.openProviderCatalog === true);
 
   // When the parent updates requestedSection (e.g. the palette opens
   // Settings with a different section while it's already mounted), reflect
@@ -102,16 +105,20 @@ export function SettingsSurface(props: {
   const [settings, setSettings] = useState<AppSettings>(() => createDefaultSettings());
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const settingsModalMountedRef = useRef(false);
+  const settingsModalMountedRef = useMountedRef();
   const settingsReloadTicketRef = useRef(0);
   const settingsUpdateTicketRef = useRef(0);
   const usageReloadTicketRef = useRef(0);
   const toast = useToast();
 
   useEffect(() => {
-    settingsModalMountedRef.current = true;
+    if (!loading && section === 'models' && providerCatalogRequested) {
+      setProviderCatalogRequested(false);
+    }
+  }, [loading, providerCatalogRequested, section]);
+
+  useEffect(() => {
     return () => {
-      settingsModalMountedRef.current = false;
       settingsReloadTicketRef.current += 1;
       settingsUpdateTicketRef.current += 1;
       usageReloadTicketRef.current += 1;
@@ -181,22 +188,21 @@ export function SettingsSurface(props: {
           {/* PR-SETTINGS-NO-PANE-BORDER-0 (WAWQAQ msg `8effe691`):
               reference sidebar has just `← 返回应用` then straight
               into the nav — no big "设置" brand label. Match it. */}
-          <Button
+          <BaseButton
             className="settingsBackButton"
-            variant="quiet"
             type="button"
             aria-label="返回应用"
             onClick={props.onClose}
           >
             <ArrowLeft size={16} aria-hidden="true" />
             <span>返回应用</span>
-          </Button>
+          </BaseButton>
           <nav aria-label="设置分组">
             {groupedNav().map(({ group, items }) => (
               <div key={group} className="settingsNavGroup" role="group" aria-label={group}>
                 <div className="settingsNavGroupLabel">{group}</div>
                 {items.map((item) => (
-                  <Button
+                  <BaseButton
                     key={item.id}
                     className="settingsNavItem"
                     data-active={section === item.id}
@@ -215,7 +221,7 @@ export function SettingsSurface(props: {
                         {item.badge}
                       </span>
                     )}
-                  </Button>
+                  </BaseButton>
                 ))}
               </div>
             ))}
@@ -257,6 +263,7 @@ export function SettingsSurface(props: {
               onThemePaletteChange={props.onThemePaletteChange}
               onOpenDailyReview={props.onOpenDailyReview}
               onOpenSession={props.onOpenSession}
+              openProviderCatalog={providerCatalogRequested}
             />
           )}
         </OverlayScrollArea>
@@ -281,6 +288,7 @@ function SettingsPage(props: {
   onThemePaletteChange(palette: ThemePalette): void;
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
+  openProviderCatalog?: boolean;
 }) {
   // PR-FE-BUG-HUNT-0 (kenji bug-hunt 2026-06-24): the inline `void
   // props.onUpdateSettings(...)` at the privacy toggle below
@@ -292,7 +300,10 @@ function SettingsPage(props: {
     case 'models':
       return (
         <div className="settingsStructuredPage settingsModelsPage">
-          <ProvidersPanel bridge={window.maka.connections} />
+          <ProvidersPanel
+            bridge={window.maka.connections}
+            initialPage={props.openProviderCatalog ? 'catalog' : 'connections'}
+          />
         </div>
       );
     case 'usage':

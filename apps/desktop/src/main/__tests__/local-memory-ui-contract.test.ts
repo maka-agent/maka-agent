@@ -1,18 +1,52 @@
 import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
-const REPO_ROOT = join(process.cwd(), '..', '..');
+const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
 async function readRepo(path: string): Promise<string> {
-  return readFile(join(REPO_ROOT, path), 'utf8');
+  return readFile(resolve(REPO_ROOT, path), 'utf8');
 }
 
 describe('local MEMORY.md Settings UI contract', () => {
+  it('wires every behavior-bearing controller output at the page composition root', async () => {
+    const page = await readRepo('apps/desktop/src/renderer/settings/memory-settings-page.tsx');
+
+    assert.match(page, /<WorkspaceInstructionsSection[\s\S]*state=\{workspaceInstructions\.state\}[\s\S]*disabled=\{memoryControlsDisabled\}[\s\S]*isActionPending=\{workspaceInstructions\.isActionPending\}[\s\S]*onOpen=\{workspaceInstructions\.openFile\}[\s\S]*onCreate=\{workspaceInstructions\.createFile\}/);
+    assert.match(page, /<MemoryPromptPreviewSection[\s\S]*active=\{promptPreviewWillInject\}[\s\S]*preview=\{localMemoryPromptPreview\}[\s\S]*budgetLabel=\{localMemoryPromptPreviewBudgetLabel\}[\s\S]*blockedReason=\{promptPreviewBlockedReason\}[\s\S]*safeMode=\{effective\.status === 'safe_mode'\}[\s\S]*copyPending=\{isMemoryActionPending\('memory:prompt-preview:copy'\)\}[\s\S]*onCopy=\{copyLocalMemoryPromptPreview\}/);
+
+    const entryLists = [...page.matchAll(/<MemoryEntryList[\s\S]*?\/>/g)].map((match) => match[0]);
+    assert.equal(entryLists.length, 4, 'active, archived, compatibility, and malformed lists must be wired');
+    for (const list of entryLists.slice(0, 2)) {
+      assert.match(list, /filtered=\{normalizedMemoryEntryQuery\.length > 0\}/);
+      assert.match(list, /draftDirty=\{memoryDraftDirty\}/);
+      assert.match(list, /busy=\{memoryControlsDisabled \|\| effective\.status === 'incognito_blocked' \|\| !effective\.enabled\}/);
+      assert.match(list, /pendingCopyIds=\{pendingMemoryActions\}/);
+      assert.match(list, /onCopyReference=\{copyMemoryEntryReference\}/);
+      assert.match(list, /onFocusDraft=\{focusMemoryEntryInDraft\}/);
+      assert.match(list, /onStatusChange=\{updateMemoryEntryStatus\}/);
+    }
+    const [activeList, archivedList, compatibilityList, malformedList] = entryLists;
+    assert.match(activeList, /title="生效记忆"/);
+    assert.match(activeList, /entries=\{filteredActiveEntries\}/);
+    assert.doesNotMatch(activeList, /\n\s+archived(?:\s|\n)/);
+    assert.match(archivedList, /title="已归档记忆"/);
+    assert.match(archivedList, /entries=\{filteredArchivedEntries\}/);
+    assert.match(archivedList, /\n\s+archived(?:\s|\n)/);
+    assert.match(compatibilityList, /title="兼容只读记忆"/);
+    assert.match(compatibilityList, /entries=\{filteredCompatibilityEntries\}/);
+    assert.match(compatibilityList, /\n\s+compatibility(?:\s|\n)/);
+    assert.doesNotMatch(compatibilityList, /onStatusChange/);
+    assert.match(malformedList, /title="需要修复的记忆"/);
+    assert.match(malformedList, /entries=\{filteredMalformedEntries\}/);
+    assert.match(malformedList, /\n\s+malformed(?:\s|\n)/);
+    assert.doesNotMatch(malformedList, /onStatusChange/);
+  });
+
   it('renders active and archived memory entries as separate visible groups', async () => {
     const src = await readSettingsCombinedSource();
 
@@ -84,12 +118,13 @@ describe('local MEMORY.md Settings UI contract', () => {
 
   it('previews the send-time memory prompt context from the core helper', async () => {
     const src = await readSettingsCombinedSource();
+    const page = await readRepo('apps/desktop/src/renderer/settings/memory-settings-page.tsx');
     const css = await readRendererContractCss();
     const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
 
     assert.match(src, /LOCAL_MEMORY_PROMPT_MAX_CHARS/);
     assert.match(src, /buildLocalMemoryPromptBody/);
-    assert.match(pageBlock, /const localMemoryPromptPreview = useMemo\(\(\) => buildLocalMemoryPromptBody\(draft\) \?\? '', \[draft\]\)/);
+    assert.match(pageBlock, /const localMemoryPromptPreview = buildLocalMemoryPromptBody\(input\.draft\) \?\? ''/);
     assert.match(pageBlock, /localMemoryPromptPreviewBlockedReason\(effective\)/);
     assert.match(pageBlock, /localMemoryPromptPreviewTruncated/);
     assert.match(pageBlock, /localMemoryPromptPreviewBudgetLabel/);
@@ -101,13 +136,15 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /只展示生效记忆会进入 prompt/);
     assert.match(pageBlock, /已归档条目不会注入/);
     assert.match(pageBlock, /疑似密钥会遮蔽/);
-    assert.match(pageBlock, /<pre>\{localMemoryPromptPreview\}<\/pre>/);
+    assert.match(pageBlock, /<pre>\{props\.preview\}<\/pre>/);
     assert.match(pageBlock, /async function copyLocalMemoryPromptPreview/);
     assert.match(pageBlock, /runMemoryAction\('memory:prompt-preview:copy'/);
     assert.match(pageBlock, /navigator\.clipboard\.writeText\(localMemoryPromptPreview\)/);
     assert.match(pageBlock, /已复制模型上下文预览/);
-    assert.match(pageBlock, /isMemoryActionPending\('memory:prompt-preview:copy'\) \? '复制中…' : '复制上下文'/);
-    assert.match(pageBlock, /disabled=\{!localMemoryPromptPreview \|\| isMemoryActionPending\('memory:prompt-preview:copy'\)\}/);
+    assert.match(pageBlock, /props\.copyPending \? '复制中…' : '复制上下文'/);
+    assert.match(pageBlock, /disabled=\{!props\.preview \|\| props\.copyPending\}/);
+    assert.match(page, /preview=\{localMemoryPromptPreview\}/);
+    assert.match(page, /onCopy=\{copyLocalMemoryPromptPreview\}/);
     assert.match(css, /\.settingsMemoryPromptPreview/);
     assert.match(css, /\.settingsMemoryPromptPreviewBudget/);
   });
@@ -186,12 +223,15 @@ describe('local MEMORY.md Settings UI contract', () => {
 
   it('gives repeated workspace-instruction row actions file-specific accessible names', async () => {
     const src = await readSettingsCombinedSource();
+    const page = await readRepo('apps/desktop/src/renderer/settings/memory-settings-page.tsx');
     const memoryPage = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
 
     assert.match(memoryPage, /aria-label=\{`打开项目指令文件 \$\{file\.file\}`\}/);
     assert.match(memoryPage, /aria-label=\{`创建项目指令文件 \$\{file\.file\}`\}/);
-    assert.match(memoryPage, /openWorkspaceInstructionFile\(file\.file\)/);
-    assert.match(memoryPage, /createWorkspaceInstructionFile\(file\.file\)/);
+    assert.match(memoryPage, /props\.onOpen\(file\.file\)/);
+    assert.match(memoryPage, /props\.onCreate\(file\.file\)/);
+    assert.match(page, /onOpen=\{workspaceInstructions\.openFile\}/);
+    assert.match(page, /onCreate=\{workspaceInstructions\.createFile\}/);
   });
 
   it('gates local memory file actions with visible per-action pending feedback', async () => {
@@ -205,8 +245,8 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(memoryPage, /pendingMemoryActionKeysRef\.current\.delete\(key\)/);
     assert.match(memoryPage, /const isMemoryActionPending = \(key: string\) => pendingMemoryActions\.has\(key\)/);
 
-    assert.match(memoryPage, /runMemoryAction\(`instruction:\$\{file\}:open`/);
-    assert.match(memoryPage, /runMemoryAction\(`instruction:\$\{file\}:create`/);
+    assert.match(memoryPage, /runAction\(`instruction:\$\{file\}:open`/);
+    assert.match(memoryPage, /runWriteAction\(`instruction:\$\{file\}:create`/);
     assert.match(memoryPage, /runMemoryAction\(`backup:\$\{backup\.kind\}:open`/);
     assert.match(memoryPage, /runMemoryAction\(`backup:\$\{backup\.kind\}:restore`/);
     assert.match(memoryPage, /runMemoryAction\(`backup:\$\{backup\.kind\}:copy`/);
@@ -218,9 +258,9 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(memoryPage, /<div className="settingsActionRow" role="group" aria-label="MEMORY\.md 文件操作">/);
     assert.doesNotMatch(memoryPage, /<div className="settingsActionRow">\s*<button type="button" className="maka-button" disabled=\{memoryControlsDisabled \|\| !effective\.enabled \|\| !memoryDraftDirty\}/);
 
-    assert.match(memoryPage, /disabled=\{memoryControlsDisabled \|\| isMemoryActionPending\(`instruction:\$\{file\.file\}:open`\)\}/);
-    assert.match(memoryPage, /isMemoryActionPending\(`instruction:\$\{file\.file\}:open`\) \? '打开中…' : '打开'/);
-    assert.match(memoryPage, /isMemoryActionPending\(`instruction:\$\{file\.file\}:create`\) \? '创建中…' : '创建'/);
+    assert.match(memoryPage, /disabled=\{props\.disabled \|\| props\.isActionPending\(`instruction:\$\{file\.file\}:open`\)\}/);
+    assert.match(memoryPage, /props\.isActionPending\(`instruction:\$\{file\.file\}:open`\) \? '打开中…' : '打开'/);
+    assert.match(memoryPage, /props\.isActionPending\(`instruction:\$\{file\.file\}:create`\) \? '创建中…' : '创建'/);
     assert.match(memoryPage, /isMemoryActionPending\(`backup:\$\{backup\.kind\}:open`\) \? '打开中…' : '打开'/);
     assert.match(memoryPage, /isMemoryActionPending\(`backup:\$\{backup\.kind\}:restore`\) \? '恢复中…' : '恢复'/);
     assert.match(memoryPage, /isMemoryActionPending\(`backup:\$\{backup\.kind\}:copy`\) \? '复制中…' : '复制引用'/);
@@ -232,7 +272,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     const src = await readSettingsCombinedSource();
     const memoryPage = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
 
-    assert.match(memoryPage, /type MemoryWriteAction =[\s\S]*'save'[\s\S]*'reset'[\s\S]*'restore'[\s\S]*'entry-status'[\s\S]*'instruction-create'/);
+    assert.match(memoryPage, /type MemoryWriteAction =[\s\S]*'save'[\s\S]*'reset'[\s\S]*'restore'[\s\S]*'entry-status'/);
     assert.match(memoryPage, /const \[pendingMemoryWriteAction, setPendingMemoryWriteAction\] = useState<MemoryWriteAction \| null>\(null\)/);
     assert.match(memoryPage, /const memoryWriteBusyRef = useRef\(false\)/);
     assert.match(
@@ -248,12 +288,11 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(memoryPage, /await runMemoryWriteAction\('reload'/);
     assert.match(memoryPage, /await runMemoryWriteAction\('enable'/);
     assert.match(memoryPage, /await runMemoryWriteAction\('agent-read'/);
-    assert.match(memoryPage, /await runMemoryWriteAction\('workspace-instructions'/);
     assert.match(memoryPage, /await runMemoryWriteAction\('save'/);
     assert.match(memoryPage, /await runMemoryWriteAction\('reset'/);
     assert.match(memoryPage, /await runMemoryWriteAction\('restore'/);
     assert.match(memoryPage, /await runMemoryWriteAction\('entry-status'/);
-    assert.match(memoryPage, /await runMemoryWriteAction\('instruction-create'/);
+    assert.match(memoryPage, /useWorkspaceInstructionsController/);
     assert.match(memoryPage, /pendingMemoryWriteAction === 'save' \? '保存中…' : memoryDraftDirty \? '保存' : '已保存'/);
     assert.match(memoryPage, /pendingMemoryWriteAction === 'reload' \? '载入中…' : '重新载入'/);
     assert.match(memoryPage, /pendingMemoryWriteAction === 'reset' \? '重置中…' : '重置并备份'/);
@@ -264,7 +303,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     const memoryPage = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
     const reloadBlock = memoryPage.match(/async function reload\(\)[\s\S]*?async function reloadDraftFromDisk/)?.[0] ?? '';
     const enableBlock = memoryPage.match(/async function setEnabled\(enabled: boolean\)[\s\S]*?async function setAgentReadEnabled/)?.[0] ?? '';
-    const agentReadBlock = memoryPage.match(/async function setAgentReadEnabled[\s\S]*?async function setWorkspaceInstructionsEnabled/)?.[0] ?? '';
+    const agentReadBlock = memoryPage.match(/async function setAgentReadEnabled[\s\S]*?async function save/)?.[0] ?? '';
     const saveBlock = memoryPage.match(/async function save\(\)[\s\S]*?async function reset/)?.[0] ?? '';
     const resetBlock = memoryPage.match(/async function reset\(\)[\s\S]*?async function restoreLatestBackup/)?.[0] ?? '';
     const restoreLatestBlock = memoryPage.match(/async function restoreLatestBackup\(\)[\s\S]*?async function restoreBackupCandidate/)?.[0] ?? '';
@@ -272,14 +311,14 @@ describe('local MEMORY.md Settings UI contract', () => {
     const openFileBlock = memoryPage.match(/async function openFile\(\)[\s\S]*?async function openLatestBackup/)?.[0] ?? '';
     const openLatestBlock = memoryPage.match(/async function openLatestBackup\(\)[\s\S]*?async function openBackupCandidate/)?.[0] ?? '';
     const openCandidateBlock = memoryPage.match(/async function openBackupCandidate[\s\S]*?async function openFolder/)?.[0] ?? '';
-    const openFolderBlock = memoryPage.match(/async function openFolder\(\)[\s\S]*?async function openWorkspaceInstructionFile/)?.[0] ?? '';
-    const openInstructionBlock = memoryPage.match(/async function openWorkspaceInstructionFile[\s\S]*?async function createWorkspaceInstructionFile/)?.[0] ?? '';
-    const createInstructionBlock = memoryPage.match(/async function createWorkspaceInstructionFile[\s\S]*?async function copyPath/)?.[0] ?? '';
+    const openFolderBlock = memoryPage.match(/async function openFolder\(\)[\s\S]*?async function copyPath/)?.[0] ?? '';
+    const openInstructionBlock = memoryPage.match(/async function openFile\(file: string\)[\s\S]*?async function createFile/)?.[0] ?? '';
+    const createInstructionBlock = memoryPage.match(/async function createFile[\s\S]*?return \{/)?.[0] ?? '';
     const copyPathBlock = memoryPage.match(/async function copyPath\(\)[\s\S]*?async function copyBackupReference/)?.[0] ?? '';
     const copyBackupBlock = memoryPage.match(/async function copyBackupReference[\s\S]*?async function copyLatestBackupReference/)?.[0] ?? '';
     const copyEntryBlock = memoryPage.match(/async function copyMemoryEntryReference[\s\S]*?function focusMemoryEntryInDraft/)?.[0] ?? '';
-    const updateStatusBlock = memoryPage.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const effective =/)?.[0] ?? '';
-    const promptPreviewCopyBlock = memoryPage.match(/async function copyLocalMemoryPromptPreview\(\)[\s\S]*?return \(/)?.[0] ?? '';
+    const updateStatusBlock = memoryPage.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const viewModel =/)?.[0] ?? '';
+    const promptPreviewCopyBlock = memoryPage.match(/async function copyLocalMemoryPromptPreview\(\)[\s\S]*?return \{/)?.[0] ?? '';
     const writeActionBlock = memoryPage.match(/async function runMemoryWriteAction<T>[\s\S]*?async function runMemoryAction/)?.[0] ?? '';
     const actionBlock = memoryPage.match(/async function runMemoryAction<T>[\s\S]*?async function reload/)?.[0] ?? '';
 
@@ -298,7 +337,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     );
     assert.match(
       reloadBlock,
-      /const lifecycle = memoryPageLifecycleRef\.current;[\s\S]*const ticket = \+\+memoryReloadTicketRef\.current;[\s\S]*await Promise\.all\([\s\S]*if \(!isMemoryPageCurrent\(lifecycle\) \|\| ticket !== memoryReloadTicketRef\.current\) return false;[\s\S]*setState\(next\);/,
+      /const lifecycle = memoryPageLifecycleRef\.current;[\s\S]*const ticket = \+\+memoryReloadTicketRef\.current;[\s\S]*await window\.maka\.memory\.getState\(\);[\s\S]*if \(!isMemoryPageCurrent\(lifecycle\) \|\| ticket !== memoryReloadTicketRef\.current\) return false;[\s\S]*setState\(next\);/,
       'Local memory reload must not write loaded state after unmount or a stale reload ticket',
     );
     assert.match(
@@ -322,7 +361,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(resetBlock, /await runMemoryWriteAction\('reset', async \(isCurrent\) => \{[\s\S]*const next = await window\.maka\.memory\.reset\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*setState\(next\);/);
     assert.match(restoreLatestBlock, /await runMemoryWriteAction\('restore', async \(isCurrent\) => \{[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*const result = await window\.maka\.memory\.restoreLatestBackup\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*setState\(result\.state\);/);
     assert.match(restoreCandidateBlock, /await runMemoryWriteAction\('restore', async \(isCurrent\) => \{[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*const result = await window\.maka\.memory\.restoreBackup\(backup\.kind\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*setState\(result\.state\);/);
-    assert.match(createInstructionBlock, /await runMemoryWriteAction\('instruction-create', async \(isCurrent\) => \{[\s\S]*const result = await window\.maka\.workspaceInstructions\.createFile\(file\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*const instructions = await window\.maka\.workspaceInstructions\.getState\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*setWorkspaceInstructionState\(instructions\);/);
+    assert.match(createInstructionBlock, /await runWriteAction\(`instruction:\$\{file\}:create`, async \(isActionCurrent\) => \{[\s\S]*const result = await window\.maka\.workspaceInstructions\.createFile\(file\);[\s\S]*if \(!isActionCurrent\(\)\) return;[\s\S]*const refreshed = await reload\(\);/);
     assert.match(updateStatusBlock, /await runMemoryWriteAction\('entry-status', async \(isCurrent\) => \{[\s\S]*const next = await window\.maka\.memory\.save\(result\.draft\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*setState\(next\);/);
     assert.match(
       actionBlock,
@@ -333,8 +372,8 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(openLatestBlock, /await runMemoryAction\('backup:latest:open', async \(isCurrent\) => \{[\s\S]*const result = await window\.maka\.memory\.openLatestBackup\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*if \(!result\.ok\) toast\.error/);
     assert.match(openCandidateBlock, /await runMemoryAction\(`backup:\$\{backup\.kind\}:open`, async \(isCurrent\) => \{[\s\S]*const result = await window\.maka\.memory\.openBackup\(backup\.kind\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*if \(!result\.ok\)/);
     assert.match(openFolderBlock, /await runMemoryAction\('memory:folder:open', async \(isCurrent\) => \{[\s\S]*const result = await window\.maka\.app\.openPath\('memory'\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*if \(!result\.ok\)/);
-    assert.match(openInstructionBlock, /await runMemoryAction\(`instruction:\$\{file\}:open`, async \(isCurrent\) => \{[\s\S]*const result = await window\.maka\.workspaceInstructions\.openFile\(file\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*if \(!result\.ok\)/);
-    assert.match(createInstructionBlock, /await runMemoryAction\(`instruction:\$\{file\}:create`, async \(isActionCurrent\) => \{[\s\S]*catch \(error\) \{[\s\S]*if \(isActionCurrent\(\)\) toast\.error\('创建项目指令失败', settingsActionErrorMessage\(error\)\);/);
+    assert.match(openInstructionBlock, /await runAction\(`instruction:\$\{file\}:open`, async \(isActionCurrent\) => \{[\s\S]*const result = await window\.maka\.workspaceInstructions\.openFile\(file\);[\s\S]*if \(isActionCurrent\(\) && !result\.ok\)/);
+    assert.match(createInstructionBlock, /await runWriteAction\(`instruction:\$\{file\}:create`, async \(isActionCurrent\) => \{[\s\S]*catch \(error\) \{[\s\S]*if \(isActionCurrent\(\)\) toast\.error\('创建项目指令失败', settingsActionErrorMessage\(error\)\);/);
     assert.match(copyPathBlock, /await navigator\.clipboard\.writeText\(state\.path\);[\s\S]*if \(isCurrent\(\)\) toast\.success\('已复制路径', state\.path\);[\s\S]*catch \{[\s\S]*if \(isCurrent\(\)\) toast\.error\('复制失败'/);
     assert.match(copyBackupBlock, /await navigator\.clipboard\.writeText\(reference\);[\s\S]*if \(isCurrent\(\)\) toast\.success\('已复制上一版引用'/);
     assert.match(copyEntryBlock, /await navigator\.clipboard\.writeText\(reference\);[\s\S]*if \(isCurrent\(\)\) toast\.success\('已复制记忆引用', entry\.id\);/);
@@ -368,7 +407,7 @@ describe('local MEMORY.md Settings UI contract', () => {
   it('keeps archive and restore draft-only when MEMORY.md has unsaved edits', async () => {
     const src = await readSettingsCombinedSource();
     const css = await readRendererContractCss();
-    const updateBlock = src.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const effective =/)?.[0] ?? '';
+    const updateBlock = src.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const viewModel =/)?.[0] ?? '';
     const listBlock = src.match(/function MemoryEntryList\([\s\S]*?function filterLocalMemoryEntries/)?.[0] ?? '';
 
     assert.match(updateBlock, /if \(memoryDraftDirty\) \{/);
@@ -408,7 +447,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(saveBlock, /const redacted = next\.content !== draft/);
     assert.match(saveBlock, /已保存并遮蔽敏感字段/);
     assert.match(saveBlock, /token、API key 或密码/);
-    assert.match(pageBlock, /const memoryDraftHasSensitiveFields = useMemo\(\(\) => redactSecrets\(draft\) !== draft, \[draft\]\)/);
+    assert.match(pageBlock, /memoryDraftHasSensitiveFields: redactSecrets\(input\.draft\) !== input\.draft/);
     assert.match(pageBlock, /settingsMemoryDraftWarning/);
     assert.match(pageBlock, /role="status"/);
     assert.match(pageBlock, /草稿含疑似敏感字段/);
@@ -446,7 +485,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     const css = await readRendererContractCss();
     const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
 
-    assert.match(pageBlock, /const memoryDraftDirty = draft !== effective\.content/);
+    assert.match(pageBlock, /const memoryDraftDirty = input\.draft !== effective\.content/);
     assert.match(pageBlock, /settingsMemoryDirtyState/);
     assert.match(pageBlock, /有未保存修改/);
     assert.match(pageBlock, /草稿已保存/);
@@ -460,7 +499,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
 
     assert.match(src, /parseLocalMemoryMarkdown/);
-    assert.match(pageBlock, /const draftMemoryEntries = useMemo\(\(\) => parseLocalMemoryMarkdown\(draft\), \[draft\]\)/);
+    assert.match(pageBlock, /const draftMemoryEntries = parseLocalMemoryMarkdown\(input\.draft\)/);
     assert.match(pageBlock, /const visibleMemoryEntries = memoryDraftDirty \? draftMemoryEntries : effective/);
     assert.match(pageBlock, /visibleMemoryEntries\.activeEntries/);
     assert.match(pageBlock, /visibleMemoryEntries\.archivedEntries/);
@@ -518,10 +557,10 @@ describe('local MEMORY.md Settings UI contract', () => {
     const openFileBlock = pageBlock.match(/async function openFile\(\)[\s\S]*?async function openLatestBackup/)?.[0] ?? '';
     const openLatestBlock = pageBlock.match(/async function openLatestBackup\(\)[\s\S]*?async function openBackupCandidate/)?.[0] ?? '';
     const openCandidateBlock = pageBlock.match(/async function openBackupCandidate[\s\S]*?async function openFolder/)?.[0] ?? '';
-    const openFolderBlock = pageBlock.match(/async function openFolder\(\)[\s\S]*?async function openWorkspaceInstructionFile/)?.[0] ?? '';
-    const openInstructionBlock = pageBlock.match(/async function openWorkspaceInstructionFile[\s\S]*?async function createWorkspaceInstructionFile/)?.[0] ?? '';
-    const createInstructionBlock = pageBlock.match(/async function createWorkspaceInstructionFile[\s\S]*?async function copyPath/)?.[0] ?? '';
-    const updateStatusBlock = pageBlock.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const effective =/)?.[0] ?? '';
+    const openFolderBlock = pageBlock.match(/async function openFolder\(\)[\s\S]*?async function copyPath/)?.[0] ?? '';
+    const openInstructionBlock = pageBlock.match(/async function openFile\(file: string\)[\s\S]*?async function createFile/)?.[0] ?? '';
+    const createInstructionBlock = pageBlock.match(/async function createFile[\s\S]*?return \{/)?.[0] ?? '';
+    const updateStatusBlock = pageBlock.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const viewModel =/)?.[0] ?? '';
 
     assert.match(src, /function settingsActionErrorMessage\(error: unknown\)/);
     assert.match(reloadBlock, /catch \(error\) \{[\s\S]*toast\.error\('载入本地记忆失败', settingsActionErrorMessage\(error\)\)/);

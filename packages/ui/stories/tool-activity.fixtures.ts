@@ -11,10 +11,7 @@ const terminalResult = {
   cmd: 'npm run -w @maka/desktop build-storybook',
   status: 'completed',
   exitCode: 0,
-  stdout: longStdout,
-  stderr: 'storybook build completed with a large output preview\n',
-  stdoutTruncated: false,
-  stderrTruncated: false,
+  output: pipeOutput(longStdout, 'storybook build completed with a large output preview\n'),
 } satisfies ToolResultContent;
 
 const terminalFailureResult = {
@@ -23,14 +20,22 @@ const terminalFailureResult = {
   cmd: 'npm run -w @maka/headless test',
   status: 'failed',
   exitCode: 1,
-  stdout: 'running headless tests\n',
-  stderr: [
-    'Error: expected verifier to receive task-run.json',
-    'at packages/headless/src/verifier.ts:42:11',
-  ].join('\n'),
-  stdoutTruncated: false,
-  stderrTruncated: false,
+  output: pipeOutput('running headless tests\n', [
+      'Error: expected verifier to receive task-run.json',
+      'at packages/headless/src/verifier.ts:42:11',
+    ].join('\n')),
 } satisfies ToolResultContent;
+
+function pipeOutput(stdout = '', stderr = '') {
+  return {
+    mode: 'pipes' as const,
+    stdout,
+    stderr,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    redacted: false,
+  };
+}
 
 const fileDiffResult = {
   kind: 'file_diff',

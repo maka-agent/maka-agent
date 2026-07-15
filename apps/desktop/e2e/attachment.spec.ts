@@ -1,5 +1,36 @@
 import { test, expect } from './fixtures';
 
+test('chat input preserves an IME composition when a file paste arrives', async ({ window: page }) => {
+  const quickChat = page.locator('.maka-onboarding-quickchat-input');
+  await quickChat.fill('ime-paste-test');
+  await quickChat.press('Enter');
+  await expect(page.getByText(/Fake backend received: ime-paste-test/)).toBeVisible();
+
+  const composer = page.locator('.maka-composer');
+  await expect(composer).toHaveAttribute('data-maka-file-drop-target', 'true');
+  const textarea = composer.locator('textarea');
+
+  const pasteResults = await textarea.evaluate((input) => {
+    const dispatchFilePaste = () => {
+      const clipboardData = new DataTransfer();
+      clipboardData.items.add(new File(['content'], 'note.txt', { type: 'text/plain' }));
+      const event = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', { value: clipboardData });
+      input.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    const duringComposition = dispatchFilePaste();
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    const afterComposition = dispatchFilePaste();
+
+    return { duringComposition, afterComposition };
+  });
+
+  expect(pasteResults).toEqual({ duringComposition: false, afterComposition: true });
+});
+
 /**
  * Attachment upload + ingest: enter the chat view, drop a file onto the main
  * composer, confirm it shows as a pending card, then send the message and
@@ -16,6 +47,10 @@ test('dropping a file onto the composer delivers it to the backend on send', asy
   // Drop a file onto the main composer
   const composer = page.locator('.maka-composer');
   await expect(composer).toBeVisible();
+  // Assistant text becomes visible before the turn's terminal event can clear
+  // the streaming state. The composer intentionally rejects attachments until
+  // that happens, so synchronize on its actual file-drop readiness contract.
+  await expect(composer).toHaveAttribute('data-maka-file-drop-target', 'true');
   const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
   await dataTransfer.evaluate((dt: DataTransfer) => {
     dt.items.add(new File(['hello attachment content'], 'note.txt', { type: 'text/plain' }));

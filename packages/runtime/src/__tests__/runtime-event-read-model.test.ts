@@ -286,6 +286,80 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.diagnostics.map((diag) => diag.code)).toEqual(['context_remaining_unsupported']);
   });
 
+  test('normalizes an exact legacy terminal result at RuntimeEvent restore', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-legacy-terminal',
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-legacy-terminal',
+          name: 'Bash',
+          result: {
+            kind: 'terminal',
+            cwd: '/tmp/work',
+            cmd: 'printf ok',
+            status: 'completed',
+            exitCode: 0,
+            stdout: 'ok',
+            stderr: '',
+            stdoutTruncated: false,
+            stderrTruncated: false,
+          },
+        },
+        refs: { toolCallId: 'tool-legacy-terminal' },
+      }),
+    ], { runHeaders: [header] });
+
+    const result = out.messages.find((message) => message.type === 'tool_result');
+    expect(result?.type === 'tool_result' ? result.content : undefined).toEqual({
+      kind: 'terminal',
+      cwd: '/tmp/work',
+      cmd: 'printf ok',
+      status: 'completed',
+      exitCode: 0,
+      output: {
+        mode: 'pipes', stdout: 'ok', stderr: '',
+        stdoutTruncated: false, stderrTruncated: false, redacted: false,
+      },
+    });
+  });
+
+  test('diagnoses a mixed legacy/current shell result instead of restoring it', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-mixed-terminal',
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-mixed-terminal',
+          name: 'Bash',
+          result: {
+            kind: 'terminal',
+            cwd: '/tmp/work',
+            cmd: 'printf bad',
+            status: 'completed',
+            exitCode: 0,
+            stdout: 'bad',
+            stderr: '',
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            output: {
+              mode: 'pipes', stdout: 'bad', stderr: '',
+              stdoutTruncated: false, stderrTruncated: false, redacted: false,
+            },
+          },
+        },
+        refs: { toolCallId: 'tool-mixed-terminal' },
+      }),
+    ], { runHeaders: [header] });
+
+    expect(out.messages.some((message) => message.type === 'tool_result')).toBe(false);
+    expect(out.diagnostics.map((diagnostic) => diagnostic.code)).toContain('incomplete_event');
+  });
+
   test('projects first-observed step content order for stable live handoff', () => {
     const out = projectRuntimeEventsToStoredMessages([
       ev({

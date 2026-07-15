@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { buildLocalForegroundBashTool, buildManagedBashTool } from '../shell-tools.js';
+import {
+  buildLocalForegroundBashTool,
+  buildManagedBashTool,
+  type ShellRunLauncher,
+} from '../shell-tools.js';
 import type { ShellPlan } from '../shell-detect.js';
 
 const pwshPlan: ShellPlan = { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: 'C:\\pf\\pwsh.exe' };
@@ -42,23 +46,34 @@ describe('Bash tool shell is threaded through to execution, not just the descrip
     const tool = buildLocalForegroundBashTool({
       shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
     });
-    const result = await tool.impl({ command: 'echo wired-marker' }, fakeToolContext()) as { stdout: string };
+    const result = await tool.impl(
+      { command: 'echo wired-marker' },
+      fakeToolContext(),
+    ) as { output: { stdout: string } };
     assert.ok(
-      result.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'),
-      `expected declared shell to execute, got: ${result.stdout}`,
+      result.output.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'),
+      `expected declared shell to execute, got: ${result.output.stdout}`,
     );
   });
 
   test('background tool forwards its shell to the shell-run controller', async () => {
     const captured: unknown[] = [];
-    const controller = {
+    const controller: ShellRunLauncher = {
       runForegroundBash: () => Promise.reject(new Error('not used')),
       runBackgroundBash: (input: unknown) => {
         captured.push(input);
-        return Promise.resolve({ kind: 'terminal', cwd: '.', cmd: '', status: 'completed', exitCode: 0, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false } as never);
+        return Promise.resolve({
+          kind: 'shell_run',
+          ref: 'maka://runtime/background-tasks/sr_test',
+          mode: 'pipes',
+          status: 'running',
+          cwd: '.',
+          cmd: '',
+          startedAt: 1,
+          updatedAt: 1,
+          revision: 1,
+        });
       },
-      readResource: () => Promise.reject(new Error('not used')),
-      stopResource: () => Promise.reject(new Error('not used')),
     };
     const tool = buildManagedBashTool(controller, { shell: pwshPlan });
     await tool.impl({ command: 'echo hi', run_in_background: true }, fakeToolContext());
@@ -81,7 +96,5 @@ function fakeShellRuns() {
   return {
     runForegroundBash: () => Promise.reject(new Error('not used')),
     runBackgroundBash: () => Promise.reject(new Error('not used')),
-    readResource: () => Promise.reject(new Error('not used')),
-    stopResource: () => Promise.reject(new Error('not used')),
   };
 }

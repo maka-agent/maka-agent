@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import os
+import hashlib
+import json
 import shlex
-from contextlib import contextmanager
+import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from harbor.agents.installed.base import NonZeroAgentExitCodeError, with_prompt_template
 from harbor.agents.installed.opencode import OpenCode
@@ -19,14 +20,6 @@ from trial_pricing import estimate_cost, pricing_from_env
 class MakaOpenCodeAgent(OpenCode):
     """Run Harbor's OpenCode agent while normalizing trial cost fields."""
 
-    _BRIDGED_ENV_KEYS = (
-        "OPENAI_API_KEY",
-        "OPENAI_BASE_URL",
-        "XDG_DATA_HOME",
-        "XDG_CONFIG_HOME",
-        "XDG_STATE_HOME",
-    )
-
     @staticmethod
     def name() -> str:
         return "opencode"
@@ -38,34 +31,23 @@ class MakaOpenCodeAgent(OpenCode):
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
-        with self._bridged_env():
+        self._started_at_ms = int(time.time() * 1000)
+        try:
             await self._run_with_stop_sentinel(instruction, environment)
-        if messages := self._error_messages():
-            raise NonZeroAgentExitCodeError(
-                "OpenCode emitted error event(s): " + "; ".join(messages[:3])
-            )
+            if messages := self._error_messages():
+                raise NonZeroAgentExitCodeError(
+                    "OpenCode emitted error event(s): " + "; ".join(messages[:3])
+                )
+        except Exception as error:
+            self._failure_class = self._classify_failure(error)
+            raise
+        finally:
+            self._finished_at_ms = int(time.time() * 1000)
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         super().populate_context_post_run(context)
         self._apply_cost_metadata(context)
-
-    @contextmanager
-    def _bridged_env(self) -> Iterator[None]:
-        previous: dict[str, str | None] = {}
-        for key in self._BRIDGED_ENV_KEYS:
-            value = self._get_env(key)
-            if value is None:
-                continue
-            previous[key] = os.environ.get(key)
-            os.environ[key] = value
-        try:
-            yield
-        finally:
-            for key, old_value in previous.items():
-                if old_value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = old_value
+        self._write_cell_output(context)
 
     def _apply_cost_metadata(self, context: AgentContext) -> None:
         totals = self._token_totals(context)
@@ -92,6 +74,21 @@ class MakaOpenCodeAgent(OpenCode):
             "opencode_pricing_source": pricing_source or "missing_pricing",
         }
 
+    @staticmethod
+    def _classify_failure(error: Exception) -> str:
+        text = str(error).lower()
+        if any(marker in text for marker in ("401", "403", "unauthorized", "authentication", "invalid api key")):
+            return "auth"
+        if any(marker in text for marker in ("429", "rate limit", "too many requests")):
+            return "rate_limit"
+        if any(marker in text for marker in ("billing", "insufficient credit", "quota exceeded")):
+            return "provider_billing"
+        if any(marker in text for marker in ("connection", "network", "dns", "socket")):
+            return "network"
+        if any(marker in text for marker in ("500", "502", "503", "504", "unavailable")):
+            return "provider_unavailable"
+        return "infra_failed"
+
     async def _run_with_stop_sentinel(
         self,
         instruction: str,
@@ -104,7 +101,15 @@ class MakaOpenCodeAgent(OpenCode):
             raise ValueError("Model name must be in the format provider/model_name")
 
         provider, _ = self.model_name.split("/", 1)
+        if provider != "zai-coding-plan":
+            raise ValueError(f"Unsupported Maka OpenCode benchmark provider: {provider}")
+        proxy_url = self._get_env("MAKA_OPENCODE_PROVIDER_PROXY_URL")
+        proxy_token = self._get_env("MAKA_OPENCODE_PROVIDER_PROXY_TOKEN")
+        if not proxy_url or not proxy_token:
+            raise ValueError("zai-coding-plan requires the host provider proxy")
         env = self._provider_env(provider)
+        env["ZAI_BASE_URL"] = proxy_url
+        env["ZAI_API_KEY"] = proxy_token
         env["OPENCODE_FAKE_VCS"] = "git"
 
         skills_command = self._build_register_skills_command()
@@ -117,6 +122,10 @@ class MakaOpenCodeAgent(OpenCode):
 
         cli_flags = self.build_cli_flags()
         cli_flags_arg = (cli_flags + " ") if cli_flags else ""
+        variant = self._get_env("MAKA_OPENCODE_VARIANT")
+        if variant not in (None, "high", "max"):
+            raise ValueError(f"Unsupported OpenCode variant: {variant}")
+        variant_arg = f"--variant={shlex.quote(variant)} " if variant else ""
         runner_path = self._stop_runner_path()
         grace_ms = self._stop_grace_ms()
         command = (
@@ -125,8 +134,8 @@ class MakaOpenCodeAgent(OpenCode):
             "--output /logs/agent/opencode.txt "
             f"--grace-ms {grace_ms} "
             "-- "
-            f"opencode --model={shlex.quote(self.model_name)} run --format=json "
-            f"{cli_flags_arg}--thinking --dangerously-skip-permissions -- "
+            f"opencode --model={shlex.quote(self.model_name)} run --format=json --pure "
+            f"{cli_flags_arg}{variant_arg}--thinking --auto -- "
             f"{escaped_instruction}"
         )
         await self.exec_as_agent(environment, command=command, env=env)
@@ -152,48 +161,8 @@ class MakaOpenCodeAgent(OpenCode):
         return max(0, value)
 
     def _provider_env(self, provider: str) -> dict[str, str]:
-        keys: list[str] = []
-        if provider == "amazon-bedrock":
-            keys.extend(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"])
-        elif provider == "anthropic":
-            keys.append("ANTHROPIC_API_KEY")
-        elif provider == "azure":
-            keys.extend(["AZURE_RESOURCE_NAME", "AZURE_API_KEY"])
-        elif provider == "deepseek":
-            keys.append("DEEPSEEK_API_KEY")
-        elif provider == "github-copilot":
-            keys.append("GITHUB_TOKEN")
-        elif provider == "google":
-            keys.extend(
-                [
-                    "GEMINI_API_KEY",
-                    "GOOGLE_GENERATIVE_AI_API_KEY",
-                    "GOOGLE_APPLICATION_CREDENTIALS",
-                    "GOOGLE_CLOUD_PROJECT",
-                    "GOOGLE_CLOUD_LOCATION",
-                    "GOOGLE_GENAI_USE_VERTEXAI",
-                    "GOOGLE_API_KEY",
-                ]
-            )
-        elif provider == "groq":
-            keys.append("GROQ_API_KEY")
-        elif provider == "huggingface":
-            keys.append("HF_TOKEN")
-        elif provider == "llama":
-            keys.append("LLAMA_API_KEY")
-        elif provider == "mistral":
-            keys.append("MISTRAL_API_KEY")
-        elif provider == "openai":
-            keys.extend(["OPENAI_API_KEY", "OPENAI_BASE_URL"])
-        elif provider == "opencode":
-            keys.append("OPENCODE_API_KEY")
-        elif provider == "xai":
-            keys.append("XAI_API_KEY")
-        elif provider == "openrouter":
-            keys.append("OPENROUTER_API_KEY")
-
         env: dict[str, str] = {}
-        for key in keys:
+        for key in ("XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
             value = self._get_env(key)
             if value:
                 env[key] = value
@@ -214,6 +183,7 @@ class MakaOpenCodeAgent(OpenCode):
             "cache_read": cache_read,
             "cache_write": 0,
             "cache_miss": cache_miss,
+            "reasoning": 0,
         }
 
     def _token_totals_from_stdout(self) -> dict[str, int] | None:
@@ -227,6 +197,7 @@ class MakaOpenCodeAgent(OpenCode):
         output_tokens = 0
         cache_read = 0
         cache_write = 0
+        reasoning = 0
         saw_tokens = False
         for event in events:
             if event.get("type") != "step_finish":
@@ -240,6 +211,7 @@ class MakaOpenCodeAgent(OpenCode):
             saw_tokens = True
             step_input = _int_value(tokens.get("input"))
             step_output = _int_value(tokens.get("output"))
+            step_reasoning = _int_value(tokens.get("reasoning"))
             cache = tokens.get("cache")
             step_cache_read = (
                 _int_value(cache.get("read")) if isinstance(cache, dict) else 0
@@ -251,6 +223,7 @@ class MakaOpenCodeAgent(OpenCode):
             output_tokens += step_output
             cache_read += step_cache_read
             cache_write += step_cache_write
+            reasoning += step_reasoning
 
         if not saw_tokens:
             return None
@@ -261,7 +234,88 @@ class MakaOpenCodeAgent(OpenCode):
             "cache_read": cache_read,
             "cache_write": cache_write,
             "cache_miss": max(0, input_tokens - cache_read - cache_write),
+            "reasoning": reasoning,
         }
+
+    def _write_cell_output(self, context: AgentContext) -> None:
+        totals = self._token_totals(context)
+        started_at = getattr(self, "_started_at_ms", int(time.time() * 1000))
+        finished_at = getattr(self, "_finished_at_ms", started_at)
+        provider, model = self.model_name.split("/", 1)
+        system_prompt = self._get_env("MAKA_SYSTEM_PROMPT") or ""
+        prompt_hash = "sha256:" + hashlib.sha256(
+            json.dumps(system_prompt, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        pricing_profile = self._get_env("MAKA_TRIAL_PRICING_SOURCE") or "unconfigured"
+        reasoning_effort = self._get_env("MAKA_REASONING_EFFORT")
+        execution_identity = {
+            "llmConnectionSlug": self._get_env("MAKA_LLM_CONNECTION_SLUG") or provider,
+            "model": model,
+            **({"reasoningEffort": reasoning_effort} if reasoning_effort else {}),
+            "systemPromptHash": prompt_hash,
+            "pricingProfile": pricing_profile,
+        }
+        events = self._parse_stdout() if hasattr(self, "_parse_stdout") else []
+        tool_call_counts: dict[str, int] = {}
+        for event in events or []:
+            part = event.get("part")
+            if not isinstance(part, dict) or part.get("type") not in ("tool", "tool-invocation"):
+                continue
+            tool_name = part.get("tool")
+            if tool_name:
+                name = str(tool_name)
+                tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
+        tool_names = sorted(tool_call_counts)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        runtime_events_path = self.logs_dir / "runtime-events.jsonl"
+        source_events_path = self.logs_dir / "opencode.txt"
+        runtime_events_path.write_text(
+            source_events_path.read_text(encoding="utf-8") if source_events_path.exists() else "",
+            encoding="utf-8",
+        )
+        output = {
+            "schemaVersion": 1,
+            "status": "failed" if hasattr(self, "_failure_class") else "completed",
+            **({"errorClass": self._failure_class} if hasattr(self, "_failure_class") else {}),
+            "runtimeEventsPath": "/logs/agent/runtime-events.jsonl",
+            "promptHash": prompt_hash,
+            "executionIdentity": execution_identity,
+            "tokenSummary": {
+                "input": totals["input"],
+                "cachedInput": totals["cache_read"],
+                "cacheHitInput": totals["cache_read"],
+                "cacheMissInput": totals["cache_miss"],
+                "cacheWriteInput": totals["cache_write"],
+                "cacheMissInputSource": "explicit",
+                "output": totals["output"],
+                "reasoning": totals["reasoning"],
+                "total": totals["input"] + totals["output"],
+                "costUsd": float(context.cost_usd or 0),
+                "pricingSource": "runtime",
+            },
+            "toolSummary": {
+                "providerVisibleToolCount": 0,
+                "actualToolCalls": sum(tool_call_counts.values()),
+                "actualToolNames": tool_names,
+                "actualToolCallCounts": tool_call_counts,
+            },
+            "steps": sum(1 for event in events or [] if event.get("type") == "step_finish"),
+            "durationMs": max(0, finished_at - started_at),
+            "startedAt": started_at,
+            "finishedAt": finished_at,
+            "runtimeRefs": {
+                "invocationId": "opencode",
+                "sessionId": "opencode",
+                "runId": "opencode",
+                "turnId": "opencode",
+            },
+        }
+        (self.logs_dir / "maka-cell-output.json").write_text(
+            json.dumps(output, indent=2) + "\n", encoding="utf-8"
+        )
+        (self.logs_dir / "maka-cell-execution-identity.json").write_text(
+            json.dumps(execution_identity, indent=2) + "\n", encoding="utf-8"
+        )
 
 def _int_value(value: Any) -> int:
     return (

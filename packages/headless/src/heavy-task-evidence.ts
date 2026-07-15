@@ -433,6 +433,7 @@ function sourceFromContext(ctx: MakaToolContext, toolName: HeavyTaskToolEvidence
     kind: 'model_tool',
     toolCallId: ctx.toolCallId,
     ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+    ...(ctx.runId ? { agentRunId: ctx.runId } : {}),
     ...(ctx.turnId ? { turnId: ctx.turnId } : {}),
     toolName,
   };
@@ -443,6 +444,7 @@ function sourceFromPartialContext(ctx: Partial<MakaToolContext> | undefined): He
     kind: 'model_tool',
     toolCallId: ctx?.toolCallId ?? 'system-artifact',
     ...(ctx?.sessionId ? { sessionId: ctx.sessionId } : {}),
+    ...(ctx?.runId ? { agentRunId: ctx.runId } : {}),
     ...(ctx?.turnId ? { turnId: ctx.turnId } : {}),
   };
 }

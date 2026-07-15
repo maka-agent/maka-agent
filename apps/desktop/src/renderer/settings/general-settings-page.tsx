@@ -21,6 +21,7 @@ import {
   modelChoiceValue,
   modelMenuGroups,
   parseModelChoiceValue,
+  useMountedRef,
   useToast,
 } from '@maka/ui';
 import { ProviderLogo } from './ProvidersPanel';
@@ -117,16 +118,14 @@ function GeneralDefaultsCard(props: {
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
 }) {
   const toast = useToast();
-  const mountedRef = useRef(true);
+  const mountedRef = useMountedRef();
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const savingPermissionModeRef = useRef(false);
   const [savingPermissionMode, setSavingPermissionMode] = useState(false);
 
   useEffect(() => {
-    mountedRef.current = true;
     return () => {
-      mountedRef.current = false;
       savingRef.current = false;
       savingPermissionModeRef.current = false;
     };
@@ -252,13 +251,11 @@ function NetworkProxySection(props: {
   const proxyPendingSaveCountRef = useRef(0);
   const proxySaveTicketRef = useRef(0);
   const proxyTestRunningRef = useRef(false);
-  const networkPageMountedRef = useRef(false);
+  const networkPageMountedRef = useMountedRef();
   const toast = useToast();
 
   useEffect(() => {
-    networkPageMountedRef.current = true;
     return () => {
-      networkPageMountedRef.current = false;
       proxySaveTicketRef.current += 1;
       proxyTestRunningRef.current = false;
     };

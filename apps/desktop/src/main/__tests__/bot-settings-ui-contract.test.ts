@@ -14,44 +14,37 @@ async function readRepo(path: string): Promise<string> {
 }
 
 describe('Bot settings UI contract', () => {
-  it('keeps platform rows scannable with brand badges and status dots', async () => {
-    const [settings, botBrand] = await Promise.all([
-      readSettingsCombinedSource(),
+  it('presents remote access as an overview of active and available channels', async () => {
+    const [page, nav, botBrand] = await Promise.all([
+      readRepo('apps/desktop/src/renderer/settings/bot-chat-settings-page.tsx'),
+      readRepo('apps/desktop/src/renderer/settings/settings-nav.ts'),
       readRepo('packages/ui/src/bot-brand.ts'),
     ]);
-    const styles = await readRendererContractCss();
 
-    assert.match(settings, /BOT_BRAND/, 'Bot settings must import shared per-platform brand presentation metadata');
-    assert.match(settings, /BotBrandLogo as BotBrandMark/, 'Bot settings must render the shared provider-based brand logo component');
-    assert.match(settings, /<BotBrandMark[\s\S]*provider=\{props\.provider\}/, 'Bot settings must pass provider directly to the local brand logo renderer');
+    assert.match(nav, /id: 'bot-chat', label: '远程接入'/, 'The product-facing settings label must describe the user goal, not the implementation object');
+    assert.match(page, /BOT_BRAND/, 'Bot settings must import shared per-platform brand presentation metadata');
+    assert.match(page, /BotBrandLogo as BotBrandMark/, 'Bot settings must render the shared provider-based brand logo component');
+    assert.match(page, /<BotBrandMark[\s\S]*provider=\{props\.provider\}/, 'Bot settings must pass provider directly to the local brand logo renderer');
+    assert.match(page, /<Item\b/, 'Remote access rows must use the shared Item primitive');
     assert.match(botBrand, /export const BOT_BRAND:/, 'Shared bot brand metadata must stay exported from @maka/ui');
     for (const provider of ['telegram', 'feishu', 'wecom', 'wechat', 'discord', 'dingtalk', 'qq']) {
       assert.match(botBrand, new RegExp(`${provider}:\\s*\\{[\\s\\S]*?configDocUrl:`), `${provider} needs a visible configuration-document link target`);
-      assert.match(styles, new RegExp(`\\.settingsBotHero\\[data-provider="${provider}"\\]`), `${provider} hero must export a brand color CSS variable`);
     }
-    assert.match(settings, /function BotBrandLogo\b/, 'Bot settings must use the shared brand-logo component');
-    assert.match(settings, /className="settingsBotLogo"[\s\S]*aria-hidden="true"/, 'Bot brand monograms are decorative and must not be read as part of channel names');
-    assert.match(settings, /className="settingsBotLogoStatusDot"/, 'Platform logo must include the bottom-right status dot');
-    assert.match(settings, /data-active=\{selected === provider\}[\s\S]*aria-current=\{selected === provider \? 'page' : undefined\}/, 'The active bot platform must be exposed to assistive technology');
-    assert.match(styles, /\.settingsBotLogoStatusDot\s*\{[\s\S]*position:\s*absolute/, 'Status dot must be visually attached to the platform logo');
-    assert.match(styles, /\.settingsBotLogoStatusDot\[data-tone="success"\]/, 'Status dot tone mapping must include the connected state');
+    assert.match(page, /function BotBrandLogo\b/, 'Bot settings must use the shared brand-logo component');
+    assert.match(page, /className="settingsBotLogo"[\s\S]*aria-hidden="true"/, 'Bot brand logos are decorative and must not be read as part of channel names');
+    assert.doesNotMatch(page, /settingsBotLogoStatusDot/, 'Status must be carried by text and Chip rather than a redundant logo dot');
   });
 
-  it('keeps the detail hero as a branded current-state surface with external docs link', async () => {
-    const settings = await readSettingsCombinedSource();
-    const styles = await readRendererContractCss();
+  it('puts channel diagnosis before an always-visible configuration form', async () => {
+    const [page, styles] = await Promise.all([
+      readRepo('apps/desktop/src/renderer/settings/bot-chat-settings-page.tsx'),
+      readRepo('apps/desktop/src/renderer/styles/settings/bot.css'),
+    ]);
 
-    assert.match(settings, /className="settingsBotHero"\s+data-provider=\{selected\}\s+data-support=\{support\}/, 'Selected platform detail must render the brand-aware hero card');
-    assert.match(settings, /<BotStatusPill tone=\{copy\.tone\} label=\{copy\.label\}/, 'Hero title must include an inline current-state pill');
-    assert.match(settings, /className="settingsBotConfigDocLink"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"[\s\S]*查看配置文档 →/, 'Configuration docs link must be visible and external-link safe');
-    assert.doesNotMatch(settings, /iframe|webview|dangerouslySetInnerHTML/, 'Bot docs must not be embedded into the renderer');
-    assert.match(styles, /\.settingsBotHero\s*\{[\s\S]*background:\s*color-mix/, 'Hero card must use a subtle brand-color tint');
-    // Round 1 convergence (#520 follow-up): the hero current-state pill is now
-    // the Chip primitive with a leading tone dot (was a hand-rolled
-    // .settingsBotStatusPill + .settingsBotStatusPillDot recipe). The dotted
-    // Chip carries the tone via its variant; the bespoke pill CSS is retired.
-    assert.match(settings, /<Chip\s+dot\s+variant=\{props\.tone\}\s+className="settingsBotStatusPill"/, 'Hero current-state pill must render a dotted Chip');
-    assert.doesNotMatch(styles, /\.settingsBotStatusPill\s*\{/, 'Hand-rolled hero pill CSS must be retired (Chip is the tone authority)');
+    assert.match(page, /<Chip\s+dot\b/, 'The detail header must expose current state with the shared Chip primitive');
+    assert.match(page, /className="settingsBotConfigDocLink"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"[\s\S]*查看配置文档/, 'Configuration docs link must be visible and external-link safe');
+    assert.doesNotMatch(page, /iframe|webview|dangerouslySetInnerHTML/, 'Bot docs must not be embedded into the renderer');
+    assert.doesNotMatch(styles, /--bot-brand-color|\.settingsBotHero/, 'The detail page must not introduce a provider-tinted hero surface');
   });
 
   it('names the selected platform runtime status grid', async () => {
@@ -79,7 +72,7 @@ describe('Bot settings UI contract', () => {
     const restartProviderBlock = settings.match(/async function restartBotProvider\(provider: BotProvider\)[\s\S]*?\n\s*async function restartChannel/)?.[0] ?? '';
     const restartChannelBlock = settings.match(/async function restartChannel\(\)[\s\S]*?\n\s*async function refreshBotStatuses/)?.[0] ?? '';
     const actionRowBlock = settings.match(/<div className="settingsBotActionStack"[\s\S]*?<\/div>/)?.[0] ?? '';
-    const switchBlock = settings.match(/<Switch\s+ariaLabel=\{`启用\$\{BOT_LABELS\[selected\]\.label\}机器人`\}[\s\S]*?\/>/)?.[0] ?? '';
+    const switchBlock = settings.match(/<Switch\s+ariaLabel=\{`启用\$\{BOT_LABELS\[selected\]\.label\}渠道`\}[\s\S]*?\/>/)?.[0] ?? '';
 
     assert.match(settings, /type BotPendingActionName = 'test' \| 'connect' \| 'restart' \| 'disconnect'/, 'Bot async actions must use a closed pending-action enum');
     assert.match(settings, /const \[pendingBotAction, setPendingBotAction\] = useState<BotPendingAction \| null>\(null\)/, 'Bot async action pending state must be explicit');
@@ -96,7 +89,6 @@ describe('Bot settings UI contract', () => {
     assert.match(styles, /\.settingsBotEnableHint\s*\{[\s\S]*display:\s*block/, 'Enable-lock hint needs a stable visible style');
     assert.match(switchBlock, /ariaDescribedBy=\{enableSwitchHint \? enableSwitchHintId : undefined\}/, 'Disabled enable switch must point assistive tech at the reason');
     assert.match(switchBlock, /disabled=\{enableSwitchDisabled \|\| botActionBusy\}/, 'Bot enable switch must be disabled while an owned bot action is pending');
-    assert.match(settings, /disabled=\{botActionBusy\}[\s\S]*onClick=\{\(\) => \{[\s\S]*setSelected\(provider\)/, 'Platform switching must be disabled while a provider-owned bot action is pending');
     assert.match(testChannelBlock, /const provider = selected;[\s\S]*if \(!beginBotAction\(provider, 'test'\)\) return;[\s\S]*testBotChannel\(provider\)/, 'Separate tests must capture the provider and gate duplicate clicks before IPC');
     assert.match(testAndConnectBlock, /const provider = selected;[\s\S]*const providerChannel = props\.settings\.botChat\.channels\[provider\];[\s\S]*const providerSupport = BOT_LABELS\[provider\]\.support;[\s\S]*if \(!beginBotAction\(provider, 'connect'\)\) return;[\s\S]*testBotChannel\(provider\)/, 'Combined action must capture provider/channel/support and gate duplicate clicks before IPC');
     assert.match(testChannelBlock, /catch \(error\) \{[\s\S]*toast\.error\(`\$\{BOT_LABELS\[provider\]\.label\} 测试出错`, settingsActionErrorMessage\(error\)\)/, 'Separate bot credential tests must scrub thrown IPC failures against the captured provider');
@@ -110,7 +102,7 @@ describe('Bot settings UI contract', () => {
     assert.match(actionRowBlock, /support === 'runtime' && !selectedStatus\?\.running/, 'Runtime channels that are not listening must use the combined onboarding path');
     assert.match(
       actionRowBlock,
-      /<div className="settingsBotActionStack" role="group" aria-label=\{`\$\{BOT_LABELS\[selected\]\.label\}机器人操作`\}>/,
+      /<div className="settingsBotActionStack" role="group" aria-label=\{`\$\{BOT_LABELS\[selected\]\.label\}渠道操作`\}>/,
       'Selected bot platform actions must expose a platform-specific accessible group name',
     );
     assert.doesNotMatch(
@@ -166,10 +158,10 @@ describe('Bot settings UI contract', () => {
     const refreshBlock = pageBlock.match(/async function refreshBotStatuses\(\)[\s\S]*?async function disconnectWechatLogin/)?.[0] ?? '';
     const disconnectBlock = pageBlock.match(/async function disconnectWechatLogin\(\)[\s\S]*?const support =/)?.[0] ?? '';
 
-    assert.match(pageBlock, /const botPageMountedRef = useRef\(false\)/);
+    assert.match(pageBlock, /const botPageMountedRef = useMountedRef\(\)/);
     assert.match(
       pageBlock,
-      /useEffect\(\(\) => \{[\s\S]*botPageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*botPageMountedRef\.current = false;[\s\S]*pendingBotActionRef\.current = null;/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*pendingBotActionRef\.current = null;/,
       'Bot settings page cleanup must release owned async actions when Settings closes',
     );
     assert.match(
@@ -234,7 +226,7 @@ describe('Bot settings UI contract', () => {
     );
     assert.match(
       refreshBlock,
-      /catch \(error\) \{[\s\S]*if \(!botPageMountedRef\.current\) return false;[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\('刷新机器人运行状态失败', message\);/,
+      /catch \(error\) \{[\s\S]*if \(!botPageMountedRef\.current\) return false;[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\('刷新远程接入状态失败', message\);/,
       'Bot status refresh errors must not toast after unmount',
     );
     assert.match(
@@ -257,11 +249,11 @@ describe('Bot settings UI contract', () => {
     assert.match(settings, /const fetchingQrRef = useRef\(false\)/, 'Direct WeChat scan-login refresh must keep a synchronous pending guard');
     assert.match(settings, /const scanLoginPollingRef = useRef\(false\)/, 'Direct WeChat scan-login status polling must keep a synchronous in-flight guard');
     assert.match(settings, /const scanLoginConfirmingRef = useRef\(false\)/, 'Direct WeChat scan-login confirmation must keep a synchronous owner guard');
-    assert.match(settings, /const scanLoginMountedRef = useRef\(false\)/, 'Direct WeChat scan-login modal must track mounted ownership');
+    assert.match(settings, /const scanLoginMountedRef = useMountedRef\(\)/, 'Direct WeChat scan-login modal must track mounted ownership');
     assert.match(settings, /const scanLoginFetchTicketRef = useRef\(0\)/, 'Direct WeChat scan-login modal must invalidate stale QR fetches across remounts');
     assert.match(
       settings,
-      /useEffect\(\(\) => \{[\s\S]*scanLoginMountedRef\.current = true;[\s\S]*void fetchQr\(\);[\s\S]*return \(\) => \{[\s\S]*scanLoginMountedRef\.current = false;[\s\S]*scanLoginFetchTicketRef\.current \+= 1;[\s\S]*fetchingQrRef\.current = false;[\s\S]*scanLoginPollingRef\.current = false;[\s\S]*scanLoginConfirmingRef\.current = false;/,
+      /useEffect\(\(\) => \{[\s\S]*void fetchQr\(\);[\s\S]*return \(\) => \{[\s\S]*scanLoginFetchTicketRef\.current \+= 1;[\s\S]*fetchingQrRef\.current = false;[\s\S]*scanLoginPollingRef\.current = false;[\s\S]*scanLoginConfirmingRef\.current = false;/,
       'Direct WeChat scan-login modal must release QR, poll, and confirmation ownership when closed',
     );
     assert.match(settings, /if \(fetchingQrRef\.current\) return;[\s\S]*fetchingQrRef\.current = true;[\s\S]*const ticket = \+\+scanLoginFetchTicketRef\.current;[\s\S]*setStatus\('fetching'\)/, 'Direct WeChat scan-login QR fetch must block rapid duplicate refreshes before React rerenders');
@@ -315,8 +307,8 @@ describe('Bot settings UI contract', () => {
     assert.match(settings, /window\.setInterval\(\(\) => \{[\s\S]*reloadQrCode\(\)/, 'WeChat bridge QR polling must not bypass the reload guard');
     assert.match(settings, /setResult\(\{[\s\S]*ok: false,[\s\S]*error: settingsActionErrorMessage\(error\),[\s\S]*hint: '读取本机 wechat-bridge 二维码失败，请确认 bridge 已启动。'/, 'WeChat bridge QR thrown failures must use the Settings scrubber before rendering');
     assert.doesNotMatch(settings, /error: error instanceof Error \? error\.message : String\(error\)/, 'WeChat bridge QR modal must not render raw thrown Error.message');
-    assert.match(settings, /className="settingsWechatQrSecondary" disabled=\{loading\} onClick=\{reloadQrCode\}/, 'WeChat bridge QR refresh buttons must disable while a QR reload is in flight');
-    assert.match(styles, /\.settingsWechatQrSecondary:disabled\s*\{[\s\S]*cursor:\s*progress/, 'WeChat bridge QR reload buttons must have a visible pending state');
+    assert.match(settings, /variant="secondary" size="sm" disabled=\{loading\} onClick=\{reloadQrCode\}/, 'WeChat bridge QR refresh buttons must use the governed compact tier and disable while a QR reload is in flight');
+    assert.doesNotMatch(styles, /\.settingsWechatQrSecondary\b/, 'WeChat QR actions must not restore consumer-owned Button states');
     assert.match(settings, /window\.maka\.settings\.bots\.wechatQrCode\(\)/, 'QR modal must call the bridge QR IPC');
     assert.match(settings, /<img src=\{qrDataUrl\} alt="微信扫码登录二维码"/, 'QR modal must render a visible QR image');
     assert.match(settings, /setWechatQrOpen\(true\)/, 'Scan-login button must open the QR modal');

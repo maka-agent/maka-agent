@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import type { SearchErrorReason, SearchRequest, SearchResult } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import { Autocomplete } from '@base-ui/react/autocomplete';
@@ -116,14 +117,12 @@ export function SearchModal(props: {
   const [pending, setPending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const ticketRef = useRef(0);
-  const searchMountedRef = useRef(true);
+  const searchMountedRef = useMountedRef();
   const searchThread = props.deps?.searchThread;
   const suppressFocusRestoreRef = useRef(false);
 
   useEffect(() => {
-    searchMountedRef.current = true;
     return () => {
-      searchMountedRef.current = false;
       ticketRef.current += 1;
     };
   }, []);
@@ -294,7 +293,6 @@ export function SearchModal(props: {
                   variant="quiet"
                   size="icon-sm"
                   type="button"
-                  className="maka-search-modal-clear"
                   aria-label="清空搜索"
                   onClick={clearSearchQuery}
                 >

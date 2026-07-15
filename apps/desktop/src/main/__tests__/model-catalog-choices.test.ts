@@ -67,6 +67,71 @@ function connection(overrides: Partial<LlmConnection> & Pick<LlmConnection, 'slu
 }
 
 describe('model catalog picker helpers', () => {
+  it('keeps an Ollama cloud alias distinct and selects it unchanged', async () => {
+    const { buildCatalogChatModelChoices, pickCatalogDefaultChatModel } = await importModelCatalogChoices();
+    const ollama = connection({
+      slug: 'ollama-local',
+      providerType: 'ollama',
+      defaultModel: 'qwen3.5:cloud',
+      models: [{ id: 'qwen3.5' }, { id: 'qwen3.5:cloud' }],
+      modelSource: 'fetched',
+      modelsFetchedAt: 1_800_000_000_000,
+    });
+
+    assert.deepEqual(
+      buildCatalogChatModelChoices([ollama]).map(({ connectionSlug, providerType, model }) => ({
+        connectionSlug,
+        providerType,
+        model,
+      })),
+      [
+        { connectionSlug: 'ollama-local', providerType: 'ollama', model: 'qwen3.5' },
+        { connectionSlug: 'ollama-local', providerType: 'ollama', model: 'qwen3.5:cloud' },
+      ],
+    );
+    assert.deepEqual(pickCatalogDefaultChatModel(ollama), {
+      llmConnectionSlug: 'ollama-local',
+      model: 'qwen3.5:cloud',
+    });
+  });
+
+  it('keeps the remote Ollama Cloud connection distinct from local cloud aliases', async () => {
+    const { buildCatalogChatModelChoices, pickCatalogDefaultChatModel } = await importModelCatalogChoices();
+    const remote = connection({
+      slug: 'ollama-cloud',
+      providerType: 'ollama-cloud',
+      defaultModel: 'qwen3.5:397b',
+      models: [{ id: 'qwen3.5:397b' }, { id: 'gpt-oss:120b' }],
+      modelSource: 'fetched',
+      modelsFetchedAt: 1_800_000_000_000,
+    });
+    const local = connection({
+      slug: 'ollama-local',
+      providerType: 'ollama',
+      defaultModel: 'qwen3.5:cloud',
+      models: [{ id: 'qwen3.5:cloud' }],
+      modelSource: 'fetched',
+      modelsFetchedAt: 1_800_000_000_000,
+    });
+
+    assert.deepEqual(
+      buildCatalogChatModelChoices([remote, local]).map(({ connectionSlug, providerType, model }) => ({
+        connectionSlug,
+        providerType,
+        model,
+      })),
+      [
+        { connectionSlug: 'ollama-cloud', providerType: 'ollama-cloud', model: 'qwen3.5:397b' },
+        { connectionSlug: 'ollama-cloud', providerType: 'ollama-cloud', model: 'gpt-oss:120b' },
+        { connectionSlug: 'ollama-local', providerType: 'ollama', model: 'qwen3.5:cloud' },
+      ],
+    );
+    assert.deepEqual(pickCatalogDefaultChatModel(remote), {
+      llmConnectionSlug: 'ollama-cloud',
+      model: 'qwen3.5:397b',
+    });
+  });
+
   it('keeps Chat choices on send-wired providers and filters unsupported Codex ChatGPT models', async () => {
     const { buildCatalogChatModelChoices } = await importModelCatalogChoices();
 
@@ -232,7 +297,55 @@ describe('model catalog picker helpers', () => {
     const { buildCatalogRecommendedDefaultModel } = await importModelCatalogChoices();
 
     assert.equal(buildCatalogRecommendedDefaultModel('deepseek'), 'deepseek-v4-flash');
+    assert.equal(buildCatalogRecommendedDefaultModel('siliconflow'), 'moonshotai/Kimi-K2.6');
+    assert.equal(buildCatalogRecommendedDefaultModel('vercel'), 'anthropic/claude-opus-4.8');
+    assert.equal(buildCatalogRecommendedDefaultModel('zenmux'), 'moonshotai/kimi-k2.5');
+    assert.equal(buildCatalogRecommendedDefaultModel('opencode'), 'gpt-5.5');
+    assert.equal(buildCatalogRecommendedDefaultModel('opencode-go'), 'minimax-m3');
     assert.equal(buildCatalogRecommendedDefaultModel('openai-compatible'), '');
+  });
+
+  it('keeps ZenMux creator/model ids exact across add, detail, and Chat selection helpers', async () => {
+    const {
+      buildCatalogChatModelChoices,
+      buildCatalogModelChoices,
+      pickCatalogDefaultChatModel,
+    } = await importModelCatalogChoices();
+    const zenmux = connection({
+      slug: 'zenmux',
+      name: 'ZenMux',
+      providerType: 'zenmux',
+      defaultModel: 'moonshotai/kimi-k2.5',
+      models: [
+        { id: 'moonshotai/kimi-k2.5', displayName: 'Kimi K2.5' },
+        { id: 'moonshotai/kimi-k2.7-code', displayName: 'Kimi K2.7 Code' },
+      ],
+      modelSource: 'fetched',
+      modelsFetchedAt: 1_800_000_000_000,
+    });
+
+    assert.deepEqual(
+      buildCatalogModelChoices(zenmux).map(({ id, source, isDefault }) => ({ id, source, isDefault })),
+      [
+        { id: 'moonshotai/kimi-k2.5', source: 'provider_api', isDefault: true },
+        { id: 'moonshotai/kimi-k2.7-code', source: 'provider_api', isDefault: false },
+      ],
+    );
+    assert.deepEqual(
+      buildCatalogChatModelChoices([zenmux]).map(({ connectionSlug, providerType, model }) => ({
+        connectionSlug,
+        providerType,
+        model,
+      })),
+      [
+        { connectionSlug: 'zenmux', providerType: 'zenmux', model: 'moonshotai/kimi-k2.5' },
+        { connectionSlug: 'zenmux', providerType: 'zenmux', model: 'moonshotai/kimi-k2.7-code' },
+      ],
+    );
+    assert.deepEqual(pickCatalogDefaultChatModel(zenmux), {
+      llmConnectionSlug: 'zenmux',
+      model: 'moonshotai/kimi-k2.5',
+    });
   });
 
   it('picks the new-chat default from the normalized catalog default entry', async () => {

@@ -8,8 +8,6 @@
  *   keyed by requestId)
  * - response routing back to the awaiting adapter
  *
- * Source: V0.1_TECH_SPEC.md §6.1, §6.2
- *
  * Adapter contract (see AiSdkBackend tool execute wrapper):
  *
  *   const decision = await engine.evaluate({ sessionId, turnId, toolUseId, toolName, args, mode });
@@ -22,6 +20,7 @@
  *   }
  */
 
+import { projectToolActivityArgs } from '@maka/core';
 import {
   classifyToolUse,
   matchToolPermissionRules,
@@ -35,6 +34,7 @@ import {
   type ToolPermissionRule,
 } from '@maka/core/permission';
 import type { PermissionDecisionAckEvent, PermissionRequestEvent } from '@maka/core/events';
+import { TurnScopedAwaitRegistry } from './turn-scoped-await-registry.js';
 
 // ============================================================================
 // Per-turn state
@@ -44,17 +44,13 @@ interface TurnState {
   turnId: string;
   /** Tool-intent scopes granted with `rememberForTurn: true` in this turn. */
   remembered: Set<string>;
-  /** Outstanding parked permission requests, keyed by requestId. */
-  parked: Map<string, ParkedRequest>;
 }
 
-interface ParkedRequest {
-  requestId: string;
+interface ParkedPermission {
   toolUseId: string;
   category: ToolCategory;
   scopeKey: string;
-  resolve(response: PermissionResponse): void;
-  reject(err: Error): void;
+  rememberForTurnAllowed: boolean;
 }
 
 // ============================================================================
@@ -98,6 +94,10 @@ export interface EvaluateInput {
   permissionRequired?: boolean;
   /** Invocation-local rules. Explicit deny wins over allow, then base mode applies. */
   permissionRules?: readonly ToolPermissionRule[];
+  /** Optional trusted platform sandbox availability for sandbox-aware policy. */
+  sandbox?: {
+    platformSandboxAvailable: boolean;
+  };
 }
 
 // ============================================================================
@@ -113,25 +113,26 @@ export interface PermissionEngineDeps {
 
 export class PermissionEngine {
   private readonly turns = new Map<string, TurnState>();
+  private readonly parked = new TurnScopedAwaitRegistry<PermissionResponse, ParkedPermission>();
 
   constructor(private readonly deps: PermissionEngineDeps) {}
 
   /** Begin tracking a new turn. Idempotent. */
   beginTurn(turnId: string): void {
     if (!this.turns.has(turnId)) {
-      this.turns.set(turnId, { turnId, remembered: new Set(), parked: new Map() });
+      this.turns.set(turnId, { turnId, remembered: new Set() });
     }
+    this.parked.beginTurn(turnId);
   }
 
   /** End tracking, rejecting any still-parked requests as user_stop. */
   endTurn(turnId: string, reason: 'completed' | 'aborted' = 'completed'): void {
     const state = this.turns.get(turnId);
     if (!state) return;
-    for (const parked of state.parked.values()) {
-      parked.reject(
-        new Error(`Turn ${turnId} ${reason} before permission request ${parked.requestId} was answered`),
-      );
-    }
+    this.parked.endTurn(
+      turnId,
+      (requestId) => new Error(`Turn ${turnId} ${reason} before permission request ${requestId} was answered`),
+    );
     this.turns.delete(turnId);
   }
 
@@ -142,15 +143,16 @@ export class PermissionEngine {
    */
   evaluate(input: EvaluateInput): EvaluateResult {
     const state = this.requireTurn(input.turnId);
+    const args = snapshotPermissionArgs(input.args);
 
     const category = classifyToolUse({
       toolName: input.toolName,
-      args: input.args,
+      args,
       ...(input.categoryHint !== undefined ? { categoryHint: input.categoryHint } : {}),
     });
     const ruleDecision = matchToolPermissionRules({
       toolName: input.toolName,
-      args: input.args,
+      args,
       category,
       rules: input.permissionRules ?? [],
     });
@@ -178,9 +180,10 @@ export class PermissionEngine {
 
     const pre: PreToolUseResult = preToolUse({
       toolName: input.toolName,
-      args: input.args,
+      args,
       ...(input.categoryHint !== undefined ? { categoryHint: input.categoryHint } : {}),
       ...(input.executionFacts !== undefined ? { executionFacts: input.executionFacts } : {}),
+      ...(input.sandbox !== undefined ? { sandbox: input.sandbox } : {}),
       mode: input.mode,
       turnRemembered: state.remembered,
     });
@@ -213,24 +216,19 @@ export class PermissionEngine {
       toolName: pre.partialRequest.toolName,
       category: pre.partialRequest.category,
       reason: pre.partialRequest.reason,
-      args: pre.partialRequest.args,
+      args: projectToolActivityArgs(
+        pre.partialRequest.toolName,
+        pre.partialRequest.args,
+      ),
+      rememberForTurnAllowed: pre.partialRequest.rememberForTurnAllowed,
       ...(input.hint !== undefined ? { hint: input.hint } : {}),
     };
 
-    let resolveFn: (r: PermissionResponse) => void = () => {};
-    let rejectFn: (e: Error) => void = () => {};
-    const parked = new Promise<PermissionResponse>((res, rej) => {
-      resolveFn = res;
-      rejectFn = rej;
-    });
-
-    state.parked.set(requestId, {
-      requestId,
+    const parked = this.parked.park(input.turnId, requestId, {
       toolUseId: input.toolUseId,
       category: pre.category,
       scopeKey: pre.scopeKey,
-      resolve: resolveFn,
-      reject: rejectFn,
+      rememberForTurnAllowed: pre.partialRequest.rememberForTurnAllowed !== false,
     });
 
     return { kind: 'prompt', category: pre.category, event, parked };
@@ -258,28 +256,35 @@ export class PermissionEngine {
     }
     const state = this.turns.get(turnId);
     if (!state) return null;
-    const parked = state.parked.get(response.requestId);
+    const parked = this.parked.entries(turnId).find(([requestId]) => requestId === response.requestId)?.[1];
     if (!parked) return null;
 
-    state.parked.delete(response.requestId);
-
-    if (response.decision === 'allow' && response.rememberForTurn) {
+    if (
+      response.decision === 'allow'
+      && response.rememberForTurn
+      && parked.rememberForTurnAllowed
+    ) {
       state.remembered.add(parked.scopeKey);
       // The user allowed this scope for the whole turn, so other requests
       // already parked under the same scope (e.g. the rest of a parallel
       // browser_* batch) must not each re-prompt. Resolve them now — each
       // tool's own coroutine then emits its own permission_decision_ack, so the
       // UI queue drains without a second click. The current request was already
-      // deleted above, so the snapshot never re-resolves it.
-      for (const [otherId, other] of [...state.parked]) {
-        if (other.scopeKey === parked.scopeKey) {
-          state.parked.delete(otherId);
-          other.resolve({ requestId: otherId, decision: 'allow', rememberForTurn: true });
+      // selected explicitly, so the snapshot must not auto-resolve it.
+      for (const [otherId, other] of this.parked.entries(turnId)) {
+        if (otherId !== response.requestId && other.scopeKey === parked.scopeKey) {
+          this.parked.resolve(turnId, otherId, { requestId: otherId, decision: 'allow', rememberForTurn: true });
         }
       }
     }
 
-    parked.resolve(response);
+    this.parked.resolve(
+      turnId,
+      response.requestId,
+      parked.rememberForTurnAllowed
+        ? response
+        : { ...response, rememberForTurn: false },
+    );
     return { category: parked.category, toolUseId: parked.toolUseId };
   }
 
@@ -289,29 +294,53 @@ export class PermissionEngine {
    * resolve a tool call that has already failed closed.
    */
   expireRequest(turnId: string, requestId: string, reason: string): { category: ToolCategory; toolUseId: string } | null {
-    const state = this.turns.get(turnId);
-    if (!state) return null;
-    const parked = state.parked.get(requestId);
+    const parked = this.parked.reject(turnId, requestId, new Error(reason));
     if (!parked) return null;
-    state.parked.delete(requestId);
-    parked.reject(new Error(reason));
     return { category: parked.category, toolUseId: parked.toolUseId };
   }
 
   /** Test/debug accessor. */
   pendingCount(turnId: string): number {
-    return this.turns.get(turnId)?.parked.size ?? 0;
+    return this.parked.pendingCount(turnId);
   }
 
   private requireTurn(turnId: string): TurnState {
     let state = this.turns.get(turnId);
     if (!state) {
       // Auto-begin: callers may forget. This is a soft guarantee.
-      state = { turnId, remembered: new Set(), parked: new Map() };
+      state = { turnId, remembered: new Set() };
       this.turns.set(turnId, state);
+      this.parked.beginTurn(turnId);
     }
     return state;
   }
+}
+
+function snapshotPermissionArgs(value: unknown): unknown {
+  return snapshotPermissionValue(value, new WeakSet<object>());
+}
+
+function snapshotPermissionValue(
+  value: unknown,
+  seen: WeakSet<object>,
+): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) throw new Error('Permission arguments must not contain cycles');
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return Object.freeze(
+      value.map((entry) => snapshotPermissionValue(entry, seen)),
+    );
+  }
+  const output: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !('value' in descriptor)) {
+      throw new Error(`Permission argument ${key} must be a plain data property`);
+    }
+    output[key] = snapshotPermissionValue(descriptor.value, seen);
+  }
+  return Object.freeze(output);
 }
 
 // ============================================================================

@@ -3,6 +3,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { providerAuthRequiresSecret, providerAuthSupportsApiKey } from '@maka/core/llm-connections';
 import {
   buildAiSdkCellBackendRegistration,
   buildHarborCellContextBudgetPolicySnapshot,
@@ -12,6 +13,8 @@ import {
   harborCellThinkingLevelFromEnv,
   harborCellThinkingLevelModeFromEnv,
   normalizeHarborCellContextEnv,
+  providerApiKeyEnvName,
+  reasoningEffortFromEnv,
   runHarborCell,
 } from '#harbor-cell';
 
@@ -26,6 +29,9 @@ const HOST_BACKEND_ENV_KEYS = [
   ...TRIAL_PRICING_ENV,
   'MAKA_OUTPUT_DIR',
   'MAKA_STORAGE_ROOT',
+  'MAKA_REASONING_EFFORT',
+  'MAKA_THINKING_LEVEL',
+  'MAKA_THINKING_LEVEL_MODE',
 ];
 export async function main(options = {}) {
   const env = process.env;
@@ -39,8 +45,10 @@ export async function main(options = {}) {
   const economyTaskMode = economyTaskModeFromEnv(env.MAKA_ECONOMY_TASK_MODE);
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(env);
   const maxSteps = harborCellMaxStepsFromEnv(env);
-  const thinkingLevel = harborCellThinkingLevelFromEnv(env.MAKA_THINKING_LEVEL);
+  const legacyThinkingLevel = harborCellThinkingLevelFromEnv(env.MAKA_THINKING_LEVEL);
   const thinkingLevelMode = harborCellThinkingLevelModeFromEnv(env.MAKA_THINKING_LEVEL_MODE);
+  const reasoningEffort = reasoningEffortFromEnv(env.MAKA_REASONING_EFFORT);
+  const thinkingLevel = resolveThinkingLevel(legacyThinkingLevel, reasoningEffort);
   const now = Date.now;
   const newId = randomId;
 
@@ -50,6 +58,7 @@ export async function main(options = {}) {
       backend: 'ai-sdk',
       llmConnectionSlug: env.MAKA_LLM_CONNECTION_SLUG || provider,
       model,
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
       ...(env.MAKA_SYSTEM_PROMPT !== undefined ? { systemPrompt: env.MAKA_SYSTEM_PROMPT } : {}),
       ...(economyTaskMode !== undefined ? { economyTaskMode } : {}),
       ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
@@ -59,6 +68,7 @@ export async function main(options = {}) {
     cwd: env.MAKA_WORKDIR || process.cwd(),
     outputDir,
     storageRoot,
+    pricingProfile: env.MAKA_TRIAL_PRICING_SOURCE || 'unconfigured',
     ...(contextBudgetPolicy ? { contextBudgetPolicy } : {}),
     ...(continuationPolicy ? { continuationPolicy } : {}),
     ...(taskLedgerExperimentPolicy ? { taskToolSummaryEnabled: true } : {}),
@@ -87,6 +97,17 @@ export async function main(options = {}) {
   }));
 }
 
+function resolveThinkingLevel(legacyThinkingLevel, reasoningEffort) {
+  if (
+    legacyThinkingLevel !== undefined
+    && reasoningEffort !== undefined
+    && legacyThinkingLevel !== reasoningEffort
+  ) {
+    throw new Error('MAKA_THINKING_LEVEL and MAKA_REASONING_EFFORT must agree when both are set');
+  }
+  return legacyThinkingLevel ?? reasoningEffort;
+}
+
 function economyTaskModeFromEnv(value) {
   if (value === 'true') return true;
   if (value === 'false') return false;
@@ -94,14 +115,17 @@ function economyTaskModeFromEnv(value) {
 }
 
 export async function backendEnv(env, provider) {
-  const keyEnvName = env.MAKA_HOST_API_KEY_ENV_NAME || defaultKeyEnvName(provider);
-  const apiKey = await hostApiKey(env);
   const contextEnv = normalizeHarborCellContextEnv(env);
   const result = {
     MAKA_LLM_CONNECTION_SLUG: env.MAKA_LLM_CONNECTION_SLUG || provider,
-    [keyEnvName]: apiKey,
   };
+  const hasHostApiKey = Boolean(env.MAKA_HOST_API_KEY || env.MAKA_HOST_API_KEY_FILE);
+  if (providerAuthRequiresSecret(provider) || (providerAuthSupportsApiKey(provider) && hasHostApiKey)) {
+    const keyEnvName = env.MAKA_HOST_API_KEY_ENV_NAME || providerApiKeyEnvName(provider);
+    result[keyEnvName] = await hostApiKey(env);
+  }
   if (env.MAKA_HOST_BASE_URL) result.MAKA_BASE_URL = env.MAKA_HOST_BASE_URL;
+  if (env.MAKA_HOST_MODEL_API_PROTOCOL) result.MAKA_MODEL_API_PROTOCOL = env.MAKA_HOST_MODEL_API_PROTOCOL;
   for (const key of HOST_BACKEND_ENV_KEYS) {
     if (env[key] !== undefined) result[key] = env[key];
   }
@@ -156,27 +180,6 @@ function providerFromModel(rawModel) {
 function stripProvider(rawModel, provider) {
   const prefix = `${provider}/`;
   return rawModel.startsWith(prefix) ? rawModel.slice(prefix.length) : rawModel;
-}
-
-function defaultKeyEnvName(provider) {
-  switch (provider) {
-    case 'deepseek':
-      return 'DEEPSEEK_API_KEY';
-    case 'moonshot':
-      return 'MOONSHOT_API_KEY';
-    case 'google':
-      return 'GOOGLE_API_KEY';
-    case 'anthropic':
-    case 'kimi-coding-plan':
-    case 'claude-subscription':
-      return 'ANTHROPIC_API_KEY';
-    case 'zai-coding-plan':
-      return 'ZAI_API_KEY';
-    case 'openai':
-    case 'openai-compatible':
-    default:
-      return 'OPENAI_API_KEY';
-  }
 }
 
 function requiredEnv(env, name) {

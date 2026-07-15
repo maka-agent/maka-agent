@@ -104,14 +104,15 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     const gateBlock = readyBlock.match(/const runImportAction = useCallback[\s\S]*?const importActionBusy/)?.[0] ?? '';
 
     assert.match(readyBlock, /const \[pendingImportAction, setPendingImportAction\] = useState<string \| null>\(null\)/);
-    assert.match(readyBlock, /const readyHeroMountedRef = useRef\(true\)/);
-    assert.match(readyBlock, /const pendingImportActionRef = useRef<string \| null>\(null\)/);
+    assert.match(readyBlock, /const readyHeroMountedRef = useMountedRef\(\)/);
+    assert.match(readyBlock, /const importActionOwnerRef = useRef<ChatInputActionOwner<string> \| null>\(null\)/);
+    assert.match(readyBlock, /importActionOwnerRef\.current = createChatInputActionOwner/);
     assert.match(readyBlock, /const importActionBusy = pendingImportAction !== null/);
     assert.match(readyBlock, /const appendImportedPrompt = useCallback\(\(prompt: string\) => \{[\s\S]*if \(!readyHeroMountedRef\.current\) return;[\s\S]*setDraft\(/);
     assert.match(
       gateBlock,
-      /if \(pendingImportActionRef\.current !== null \|\| quickChatBusy\) return;[\s\S]*pendingImportActionRef\.current = actionKey[\s\S]*setPendingImportAction\(actionKey\)[\s\S]*const prompt = await action\(\)[\s\S]*if \(prompt && readyHeroMountedRef\.current\) appendImportedPrompt\(prompt\)[\s\S]*pendingImportActionRef\.current = null[\s\S]*if \(readyHeroMountedRef\.current\) setPendingImportAction\(null\)/,
-      'first-run import actions must use a ref-backed pending gate and append only through one shared path',
+      /if \(quickChatBusy\) return;[\s\S]*const prompt = await importActionOwnerRef\.current\?\.run\(actionKey,[\s\S]*const prompt = await action\(\)[\s\S]*if \(prompt && readyHeroMountedRef\.current\) appendImportedPrompt\(prompt\)/,
+      'first-run import actions must use the shared synchronous pending owner and append only through one path',
     );
     assert.match(readyBlock, /runImportAction\('drop', async \(\) => props\.onImportDroppedTextFiles\?\.\(files\)\)/);
     assert.match(readyBlock, /runImportAction\('paste', async \(\) => props\.onImportDroppedTextFiles\?\.\(files\)\)/);
@@ -129,12 +130,12 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     const setupBlock = hero.match(/interface SetupHeroProps[\s\S]*?function assertNever/)?.[0] ?? '';
 
     assert.match(rootBlock, /const \[refreshConnectionsPending, setRefreshConnectionsPending\] = useState\(false\)/);
-    assert.match(rootBlock, /const onboardingMountedRef = useRef\(true\)/);
+    assert.match(rootBlock, /const onboardingMountedRef = useMountedRef\(\)/);
     assert.match(rootBlock, /const refreshConnectionsPendingRef = useRef\(false\)/);
     assert.match(
       rootBlock,
-      /useEffect\(\(\) => \{[\s\S]*onboardingMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*onboardingMountedRef\.current = false;[\s\S]*refreshConnectionsPendingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
-      'first-run setup refresh must release pending ownership on unmount and restore mounted state during StrictMode replay',
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*refreshConnectionsPendingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
+      'first-run setup refresh must release pending ownership on unmount; the mounted flag is owned by the shared useMountedRef hook',
     );
     assert.match(
       rootBlock,
@@ -180,11 +181,11 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(refreshBlock, /workspaceInstructions\.getState\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*setWorkspaceInstructionCount\(null\);[\s\S]*handleProbeFailure\(error\)/);
     assert.doesNotMatch(refreshBlock, /catch[\s\S]*setSettings\(null\)|catch[\s\S]*setPlanReminders\(\[\]\)|catch[\s\S]*setWorkspaceInstructionCount\(0\)/);
     assert.match(source, /const \[statusRefreshPending, setStatusRefreshPending\] = useState\(false\)/);
-    assert.match(source, /const checklistMountedRef = useRef\(true\)/);
+    assert.match(source, /const checklistMountedRef = useMountedRef\(\)/);
     assert.match(source, /const statusRefreshPendingRef = useRef\(false\)/);
     assert.match(
       source,
-      /useEffect\(\(\) => \{[\s\S]*checklistMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*checklistMountedRef\.current = false;[\s\S]*statusRefreshPendingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*statusRefreshPendingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
       'first-run checklist must restore mounted state during StrictMode replay and release refresh ownership on unmount',
     );
     assert.match(source, /const isChecklistUnmounted = useCallback\(\(\) => !checklistMountedRef\.current, \[\]\)/);
@@ -205,8 +206,9 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(source, /部分状态暂时没刷新成功，已避免把未知状态计成未完成/);
     assert.match(source, /role="alert"/);
     assert.match(styles, /\.maka-first-run-checklist-error\s*\{/);
-    assert.match(styles, /\.maka-first-run-checklist-error-action\s*\{/);
-    assert.match(styles, /\.maka-first-run-checklist-error-action:disabled\s*\{/);
+    assert.match(source, /variant="secondary"\s+size="sm"[\s\S]*refreshChecklistStatus/);
+    assert.doesNotMatch(source, /className="maka-first-run-checklist-error-action"/);
+    assert.doesNotMatch(styles, /\.maka-first-run-checklist-error-action/);
   });
 
   it('starts the shipped plan reminder form from the first-run checklist', async () => {

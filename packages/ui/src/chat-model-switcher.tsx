@@ -9,6 +9,7 @@
  */
 
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 import { Button as UiButton } from './ui.js';
 import { ModelPicker } from './model-picker.js';
@@ -124,6 +125,7 @@ export function ChatModelSwitcher(props: {
   activeModel?: string;
   activeConnectionLabel?: string;
   activeModelLabel?: string;
+  currentProviderType?: ProviderType;
   choices: ChatModelChoice[];
   pending?: boolean;
   disabledReason?: string;
@@ -135,7 +137,7 @@ export function ChatModelSwitcher(props: {
 }) {
   const [localPending, setLocalPending] = useState(false);
   const pendingRef = useRef(false);
-  const modelSwitcherMountedRef = useRef(true);
+  const modelSwitcherMountedRef = useMountedRef();
   const pendingModelChangeRef = useRef<{ sessionId: string; token: number } | null>(null);
   const pendingModelChangeTokenRef = useRef(0);
   const currentModel = props.activeModel ?? props.activeSession.model;
@@ -153,9 +155,7 @@ export function ChatModelSwitcher(props: {
     : props.disabledReason ?? `${currentSessionModelTitle}。设置里的默认模型只影响新建会话；这里会更新当前会话。`;
 
   useEffect(() => {
-    modelSwitcherMountedRef.current = true;
     return () => {
-      modelSwitcherMountedRef.current = false;
       pendingModelChangeRef.current = null;
       pendingModelChangeTokenRef.current += 1;
       pendingRef.current = false;
@@ -228,6 +228,11 @@ export function ChatModelSwitcher(props: {
           />
         )}
       >
+        {props.currentProviderType && props.renderProviderMark && (
+          <span className="maka-composer-provider-mark" data-provider={props.currentProviderType} aria-hidden="true">
+            {props.renderProviderMark(props.currentProviderType)}
+          </span>
+        )}
         <span className="maka-model-switcher-label">{pending ? '切换中' : '模型'}</span>
         <span className="maka-model-switcher-value">
           {displayLabel}
@@ -252,6 +257,7 @@ export function NewChatModelPicker(props: {
   label: string;
   choices: ChatModelChoice[];
   currentValue?: string;
+  currentProviderType?: ProviderType;
   renderProviderMark?(type: ProviderType): ReactNode;
   onPick(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
   thinkingLevels?: readonly ThinkingLevel[];
@@ -281,6 +287,11 @@ export function NewChatModelPicker(props: {
         />
       )}
     >
+      {props.currentProviderType && props.renderProviderMark && (
+        <span className="maka-composer-provider-mark" data-provider={props.currentProviderType} aria-hidden="true">
+          {props.renderProviderMark(props.currentProviderType)}
+        </span>
+      )}
       <span className="maka-composer-model-chip-text">{props.label}</span>
       {props.thinkingLevel && <span className="maka-thinking-level-tag">{thinkingLevelLabel(props.thinkingLevel)}</span>}
       {/* ModelPicker's trigger already renders a chevron — no manual one. */}
@@ -302,8 +313,7 @@ export function ModelChipStatic(props: { label: string; onOpenSettings?: () => v
       <UiButton
         type="button"
         variant="quiet"
-        size="nav"
-        className="maka-composer-model-chip maka-composer-model-chip-action"
+        size="sm"
         onClick={props.onOpenSettings}
         aria-label={`配置模型连接，当前 ${props.label}`}
         title="配置模型连接"

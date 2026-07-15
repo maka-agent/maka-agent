@@ -214,10 +214,14 @@ describe('applyLiveTurnEvent', () => {
         cmd: 'sleep 99',
         status: 'cancelled',
         exitCode: 130,
-        stdout: '',
-        stderr: '',
-        stdoutTruncated: false,
-        stderrTruncated: false,
+        output: {
+          mode: 'pipes',
+          stdout: '',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          redacted: false,
+        },
       },
       ts: 101,
     });
@@ -573,15 +577,13 @@ describe('reconcileTerminalLiveTurn', () => {
     const emptyContent = {
       kind: 'shell_run' as const,
       ref: 'maka://runtime/background-tasks/bg',
+      mode: 'pipes' as const,
       status: 'running' as const,
       cwd: '/repo',
       cmd: 'npm test',
       startedAt: 1,
       updatedAt: 2,
-      stdout: '',
-      stderr: '',
-      stdoutTruncated: false,
-      stderrTruncated: false,
+      revision: 1,
     };
     const emptyShellRun = [
       { type: 'tool_call' as const, id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash', args: {} },
@@ -607,7 +609,17 @@ describe('reconcileTerminalLiveTurn', () => {
         ts: 2,
         toolUseId: 'tool-1',
         isError: false,
-        content: { ...emptyContent, stdout: 'starting-live-output\n' },
+        content: {
+          ...emptyContent,
+          output: {
+            mode: 'pipes' as const,
+            stdout: 'starting-live-output\n',
+            stderr: '',
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            redacted: false,
+          },
+        },
       },
     ];
     assert.equal(reconcileTerminalLiveTurn(withOutput, filled), undefined);

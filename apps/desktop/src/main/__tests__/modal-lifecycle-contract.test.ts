@@ -1,7 +1,7 @@
 /**
  * Static-analysis contract test for ALL renderer modals
  * (PR-MODAL-LIFECYCLE-0, kenji boundary 2 from
- * `notes/maka-code-health-2026-05-27.md`).
+ * the modal lifecycle audit).
  *
  * Background: WAWQAQ hit React #310 (rules-of-hooks) in
  * SearchModal because hooks sat BEFORE an `if (!open) return null`
@@ -11,8 +11,9 @@
  * `onClose` (no `open` prop, no internal early return).
  *
  * This file extends the SearchModal-specific gate to ALL modals so
- * the same foot-gun cannot re-introduce itself in PermissionDialog,
- * SettingsModal, CommandPalette, or KeyboardHelpModal. If a new
+ * the same foot-gun cannot re-introduce itself in SettingsModal,
+ * CommandPalette, or KeyboardHelpModal. PermissionPrompt is intentionally
+ * absent because it is an in-flow composer surface, not a modal. If a new
  * modal lands, add it to MODAL_DECLS below.
  *
  * Grep-style gate; no React mount required.
@@ -45,11 +46,6 @@ const MODAL_DECLS: readonly ModalDecl[] = [
     name: 'KeyboardHelpModal',
     source: join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'keyboard-help.tsx'),
     parentMountPattern: /\{helpOpen\s*&&\s*<KeyboardHelpModal\s+onClose=/,
-  },
-  {
-    name: 'PermissionDialog',
-    source: join(REPO_ROOT, 'packages', 'ui', 'src', 'permission-dialog.tsx'),
-    parentMountPattern: /\{activePermission\s*&&\s*\(?\s*<PermissionDialog/,
   },
   {
     name: 'SettingsModal',

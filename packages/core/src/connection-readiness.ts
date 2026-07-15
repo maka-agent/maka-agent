@@ -23,7 +23,11 @@
  * chat must call this helper rather than reimplementing the criteria.
  */
 
-import { PROVIDER_DEFAULTS, type LlmConnection } from './llm-connections.js';
+import {
+  PROVIDER_DEFAULTS,
+  providerAuthRequiresSecret,
+  type LlmConnection,
+} from './llm-connections.js';
 import { isModelExplicitlyUnsupportedForChat } from './model-catalog.js';
 
 /**
@@ -104,11 +108,12 @@ export function isConnectionReady(input: IsConnectionReadyInput): IsConnectionRe
   if (
     authKind === 'oauth_token' &&
     connection.providerType !== 'claude-subscription' &&
-    connection.providerType !== 'codex-subscription'
+    connection.providerType !== 'codex-subscription' &&
+    connection.providerType !== 'github-copilot'
   ) {
     return { ready: false, reason: 'oauth_subscription_not_wired' };
   }
-  if (authKind !== 'none' && !hasSecret) {
+  if (providerAuthRequiresSecret(connection.providerType) && !hasSecret) {
     return { ready: false, reason: 'missing_api_key' };
   }
   const model = (requestedModel || connection.defaultModel)?.trim();

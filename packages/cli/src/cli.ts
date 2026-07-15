@@ -110,6 +110,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
       let context;
       try {
         context = await createMakaCliRuntimeContext({
+          surface: 'tui',
           workspaceRoot,
           cwd: process.cwd(),
         });
@@ -142,7 +143,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           providerType: context.target.connection.providerType,
           permissionMode: 'ask',
           subscribeShellRunUpdates: context.subscribeShellRunUpdates,
-          readShellRun: context.readShellRun,
+          listShellRunUpdates: context.listShellRunUpdates,
           onProcessExit: handleMakaCliProcessExit,
           onTurnComplete: (injectTurn) => {
             const sessionId = driver.getSessionId();

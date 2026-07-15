@@ -1,6 +1,6 @@
 import type { SessionEvent, StoredMessage } from '@maka/core';
 import { applyAssistantComplete, applyAssistantDelta } from './assistant-stream.js';
-import { toolResultActivityStatus } from '@maka/core';
+import { projectToolActivityArgs, toolResultActivityStatus } from '@maka/core';
 import type { ToolActivityItem } from './materialize.js';
 import { applyThinkingComplete, applyThinkingDelta } from './thinking-stream.js';
 import { applyToolOutputChunk } from './tool-output-stream.js';
@@ -176,7 +176,7 @@ export function applyLiveTurnEvent(
       ...(event.intent !== undefined ? { intent: event.intent } : {}),
       ...(event.stepId !== undefined ? { stepId: event.stepId } : {}),
       status: 'pending',
-      args: event.args,
+      args: projectToolActivityArgs(event.toolName, event.args),
     };
     const existingTool = existingToolStep?.tools.find((candidate) => candidate.toolUseId === event.toolUseId);
     const tool: ToolActivityItem = existingTool
@@ -238,7 +238,9 @@ export function applyLiveTurnEvent(
           toolUseId: event.toolUseId,
           toolName: event.type === 'permission_request' ? event.toolName : 'Tool',
           status: 'pending',
-          args: event.type === 'permission_request' ? event.args : undefined,
+          args: event.type === 'permission_request'
+            ? projectToolActivityArgs(event.toolName, event.args)
+            : undefined,
         };
     const tool: ToolActivityItem = {
       ...base,
@@ -296,7 +298,7 @@ export function applyLiveTurnEvent(
  * Text smoother handoff: drop the committed text/thinking slots for `stepId`.
  * Tools that still carry live stream evidence (outputChunks) stay — empty
  * shell_run durable results do not cover them, and co-located Bash+answer
- * steps must not lose pre-yield output when the answer settles.
+ * steps must not lose pre-handoff output when the answer settles.
  */
 export function settleLiveTurnStep(
   current: LiveTurnProjection,
@@ -325,7 +327,7 @@ export function settleLiveTurnStep(
 /**
  * True when a persisted tool_result can replace live stream evidence for the
  * same toolUseId. Empty shell_run/terminal bodies do not cover live chunks —
- * background Bash yields an empty shell_run while live output is the only
+ * background Bash returns an empty shell_run while live output is the only
  * evidence the user already saw.
  */
 function durableStreamEvidence(
@@ -337,10 +339,15 @@ function durableStreamEvidence(
     const content = message.content;
     if (!content || typeof content !== 'object') return true;
     if (content.kind === 'terminal' || content.kind === 'shell_run') {
-      return (content.stdout?.length ?? 0) > 0
-        || (content.stderr?.length ?? 0) > 0
-        || content.stdoutTruncated === true
-        || content.stderrTruncated === true;
+      const output = content.output;
+      if (!output) return false;
+      return output.mode === 'pty'
+        ? true
+        : output.stdout.length > 0
+          || output.stderr.length > 0
+          || output.stdoutTruncated
+          || output.stderrTruncated
+          || output.redacted;
     }
     return true;
   }

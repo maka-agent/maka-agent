@@ -48,6 +48,7 @@ describe('maka run argument parsing', () => {
       'run tools',
       '--permission-mode', 'execute',
       '--allow', 'category:file_write',
+      '--allow', 'tool:WriteStdin',
       '--deny', 'Bash(npm  test)',
       '--allow', 'Bash(npm test)',
     ]), {
@@ -58,6 +59,7 @@ describe('maka run argument parsing', () => {
         permissionMode: 'execute',
         permissionRules: [
           { effect: 'allow', kind: 'category', category: 'file_write' },
+          { effect: 'allow', kind: 'tool', toolName: 'WriteStdin' },
           { effect: 'deny', kind: 'bash_exact', command: 'npm  test' },
           { effect: 'allow', kind: 'bash_exact', command: 'npm test' },
         ],
@@ -68,6 +70,8 @@ describe('maka run argument parsing', () => {
   test('rejects interactive ask mode and malformed permission rules', () => {
     assert.equal(parseMakaRunArgs(['x', '--permission-mode', 'ask']).kind, 'error');
     assert.equal(parseMakaRunArgs(['x', '--allow', 'category:not-real']).kind, 'error');
+    assert.equal(parseMakaRunArgs(['x', '--allow', 'tool:']).kind, 'error');
+    assert.equal(parseMakaRunArgs(['x', '--allow', 'tool: WriteStdin']).kind, 'error');
     assert.equal(parseMakaRunArgs(['x', '--deny', 'Bash()']).kind, 'error');
     assert.equal(parseMakaRunArgs(['x', '--allow', 'Write(*)']).kind, 'error');
   });

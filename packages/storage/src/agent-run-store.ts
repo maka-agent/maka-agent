@@ -369,6 +369,12 @@ class FileRuntimeEventStore implements RuntimeEventStore {
     return mergeRuntimePartialSnapshots(events, visiblePartials);
   }
 
+  async readImmutableRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
+    assertSafeId(sessionId, 'Invalid session id');
+    assertSafeId(runId, 'Invalid run id');
+    return readRuntimeEventJsonl(this.runtimeEventsPath(sessionId, runId), runId);
+  }
+
   async readSessionRuntimeEvents(sessionId: string): Promise<RuntimeEvent[]> {
     assertSafeId(sessionId, 'Invalid session id');
     const runsRoot = this.runsRoot(sessionId);
@@ -622,6 +628,7 @@ function normalizeAgentRunHeader(value: unknown, sessionId: string, runId: strin
     record.cwd,
   ];
   const optionalStrings = [
+    record.invocationId,
     record.parentRunId,
     record.agentId,
     record.agentName,

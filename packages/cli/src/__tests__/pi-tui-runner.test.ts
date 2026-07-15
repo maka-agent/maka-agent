@@ -4,7 +4,16 @@ import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import { visibleWidth } from '@earendil-works/pi-tui';
-import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
+import {
+  SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES,
+  type PermissionMode,
+  type PermissionResponse,
+  type SessionEvent,
+  type SessionSummary,
+  type StoredMessage,
+  type ThinkingLevel,
+  type UserQuestionResponse,
+} from '@maka/core';
 import type { ShellRunUpdate } from '@maka/runtime';
 import type { MakaSessionDriver, MakaSessionRewindResult, MakaSessionSwitchResult, RewindTarget } from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
@@ -185,6 +194,44 @@ describe('Maka Pi TUI runner', () => {
     assert.deepEqual(driver.permissionResponses, [{
       requestId: 'permission-1',
       decision: 'allow',
+      rememberForTurn: false,
+    }]);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('allows a pending permission request for the turn with a', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionPromptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('u');
+    terminal.input('n');
+    terminal.input('\r');
+
+    await waitFor(() => driver.permissionRequests === 1);
+    await delay(20);
+    terminal.input('a');
+    await waitFor(() => driver.permissionResponses.length === 1);
+
+    assert.deepEqual(driver.permissionResponses, [{
+      requestId: 'permission-1',
+      decision: 'allow',
       rememberForTurn: true,
     }]);
 
@@ -232,6 +279,123 @@ describe('Maka Pi TUI runner', () => {
         throw new Error('TUI did not close during test cleanup');
       }),
     ]);
+  });
+
+  test('waits for permission acknowledgement before advancing concurrent requests', async () => {
+    const terminal = new FakeTerminal();
+    let releaseFirstAck!: () => void;
+    const firstAck = new Promise<void>((resolve) => {
+      releaseFirstAck = resolve;
+    });
+    const driver = new PermissionPromptDriver(
+      ['printf first', 'printf second'],
+      async (index) => {
+        if (index === 0) await firstAck;
+      },
+    );
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('u');
+    terminal.input('n');
+    terminal.input('\r');
+
+    await waitFor(() => driver.permissionRequests === 2);
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('printf first'));
+    assert.doesNotMatch(plainTerminalOutput(terminal.screenOutput()), /printf second/);
+
+    terminal.input('n');
+    await waitFor(() => driver.permissionResponses.length === 1);
+    terminal.input('y');
+    await delay(0);
+    assert.equal(driver.permissionResponses.length, 1);
+    assert.match(plainTerminalOutput(terminal.screenOutput()), /printf first/);
+    assert.doesNotMatch(plainTerminalOutput(terminal.screenOutput()), /printf second/);
+
+    releaseFirstAck();
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('printf second'));
+
+    terminal.input('y');
+    await waitFor(() => driver.permissionResponses.length === 2);
+    assert.deepEqual(driver.permissionResponses, [
+      { requestId: 'permission-1', decision: 'deny' },
+      { requestId: 'permission-2', decision: 'allow', rememberForTurn: false },
+    ]);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('answers sequential questions with a choice, Escape, and Other input', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new UserQuestionPromptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('choose');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Choose an approach'));
+    assertBottomPickerPlacement(
+      terminal,
+      'Choose an approach',
+      'Maka claude-sonnet-4-5 claude-subscription ask /repo',
+    );
+    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('Ctrl+C stop'));
+
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Keep the default'));
+    terminal.input('\x1b');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Anything else'));
+    terminal.input('\x1b[B');
+    terminal.input('\x1b[B');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Type another answer'));
+    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('Ctrl+C stop'));
+    terminal.input('Use the existing seam');
+    terminal.input('\r');
+
+    await waitFor(() => driver.responses.length === 1);
+    assert.deepEqual(driver.responses, [{
+      requestId: 'question-1',
+      answers: ['Extend', null, 'Use the existing seam'],
+    }]);
+
+    exitMaka(terminal);
+    await run;
+  });
+
+  test('Ctrl-C stops a turn while a user-question overlay is open', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new UserQuestionPromptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('choose');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Choose an approach'));
+    terminal.input('\x03');
+
+    await waitFor(() => driver.stopCalls === 1);
+    assert.deepEqual(driver.responses, []);
+    exitMaka(terminal);
+    await run;
   });
 
   test('toggles tool detail globally with Ctrl-O', async () => {
@@ -290,12 +454,14 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('running'));
     assert.ok(listener);
     listener({
-      sessionId: 'session-1', sourceToolCallId: 'tool-bg',
+      sessionId: 'session-1', ownership: { kind: 'local' }, sourceTurnId: 'turn-1', sourceToolCallId: 'tool-bg',
       result: {
         kind: 'shell_run', ref: 'maka://runtime/background-tasks/bg-1',
+        mode: 'pipes',
         status: 'completed', cwd: '/repo', cmd: 'build',
         startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
-        stdout: 'done\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+        revision: 5_000,
+        output: pipeOutput('done\n'),
       },
     });
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('done 4s'));
@@ -1581,28 +1747,33 @@ describe('Maka Pi TUI runner', () => {
             type: 'tool_result', id: 'result-bg', turnId: 'turn-1', ts: 2,
             toolUseId: 'tool-bg', isError: false,
             content: {
-              kind: 'shell_run', ref, status: 'running', cwd: '/repo', cmd: 'build',
+              kind: 'shell_run', ref, mode: 'pipes', status: 'running', cwd: '/repo', cmd: 'build',
               startedAt: 1_000, updatedAt: 2_000,
-              stdout: 'starting\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+              revision: 2_000,
+              output: pipeOutput('starting\n'),
             },
           },
         ] satisfies StoredMessage[]],
       ]),
     );
-    const reads: Array<{ sessionId: string; ref: string }> = [];
+    const reads: string[] = [];
     const run = runMakaPiTui({
       title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
       connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
-      readShellRun: async (sessionId, requestedRef) => {
-        reads.push({ sessionId, ref: requestedRef });
-        return {
-          ownerSessionId: sessionId,
+      listShellRunUpdates: async (sessionId) => {
+        reads.push(sessionId);
+        return [{
+          sessionId,
+          ownership: { kind: 'local' },
+          sourceTurnId: 'turn-1',
+          sourceToolCallId: 'tool-bg',
           result: {
-            kind: 'shell_run', ref, status: 'completed', cwd: '/repo', cmd: 'build',
+            kind: 'shell_run', ref, mode: 'pipes', status: 'completed', cwd: '/repo', cmd: 'build',
             startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
-            stdout: 'starting\ndone\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+            revision: 5_000,
+            output: pipeOutput('starting\ndone\n'),
           },
-        };
+        }];
       },
     });
 
@@ -1610,7 +1781,7 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\r');
 
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('done 4s'));
-    assert.deepEqual(reads, [{ sessionId: 'session-2', ref }]);
+    assert.deepEqual(reads, ['session-2']);
 
     exitMaka(terminal);
     await run;
@@ -1799,6 +1970,38 @@ describe('Maka Pi TUI runner', () => {
         throw new Error('TUI did not close during test cleanup');
       }),
     ]);
+  });
+
+  test('/new cancels hydration retries owned by the previous session', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RewindDriver([{ turnId: 'turn-2', label: 'second question' }]);
+    let hydrationAttempts = 0;
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+      listShellRunUpdates: async () => {
+        hydrationAttempts += 1;
+        throw new Error('transient hydration failure');
+      },
+    });
+
+    terminal.input('/rewind');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('回到选定轮次'));
+    terminal.input('\r');
+    await waitFor(() => hydrationAttempts === 1);
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('refilled: turn-2'));
+
+    terminal.input('\x03');
+    terminal.input('/new');
+    terminal.input('\r');
+    await waitFor(() => driver.startNewSessionCalls === 1);
+    const attemptsAfterReset = hydrationAttempts;
+    await delay(300);
+    assert.equal(hydrationAttempts, attemptsAfterReset);
+
+    exitMaka(terminal);
+    await run;
   });
 
   test('blocks prompt submission while a control command is in flight', async () => {
@@ -2014,9 +2217,10 @@ describe('Maka Pi TUI runner', () => {
         type: 'tool_result', id: 'result-bg', turnId: 'turn-1', ts: 2,
         toolUseId: 'tool-bg', isError: false,
         content: {
-          kind: 'shell_run', ref, status: 'running', cwd: '/repo', cmd: 'build',
+          kind: 'shell_run', ref, mode: 'pipes', status: 'running', cwd: '/repo', cmd: 'build',
           startedAt: 1_000, updatedAt: 2_000,
-          stdout: 'still running\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+          revision: 2_000,
+          output: pipeOutput('still running\n'),
         },
       },
     ] satisfies StoredMessage[];
@@ -2025,17 +2229,21 @@ describe('Maka Pi TUI runner', () => {
       branchMessages,
       { ...fakeSessionSummary('session-branch'), parentSessionId: 'session-1' },
     );
+    let listener: ((update: ShellRunUpdate) => void) | undefined;
+    let hydrationAttempts = 0;
+    let resolveHydration: ((updates: ShellRunUpdate[]) => void) | undefined;
     const run = runMakaPiTui({
       title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
       connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
-      readShellRun: async () => ({
-        ownerSessionId: 'session-1',
-        result: {
-          kind: 'shell_run', ref, status: 'running', cwd: '/repo', cmd: 'build',
-          startedAt: 1_000, updatedAt: 3_000,
-          stdout: 'still running\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
-        },
-      }),
+      subscribeShellRunUpdates: (next) => {
+        listener = next;
+        return () => { listener = undefined; };
+      },
+      listShellRunUpdates: () => {
+        hydrationAttempts += 1;
+        if (hydrationAttempts === 1) return Promise.reject(new Error('transient hydration failure'));
+        return new Promise((resolve) => { resolveHydration = resolve; });
+      },
     });
 
     terminal.input('/rewind');
@@ -2043,8 +2251,175 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('回到选定轮次'));
     terminal.input('\r');
 
+    await waitFor(() => hydrationAttempts === 1);
+    assert.ok(listener);
+    listener({
+      sessionId: 'session-1',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'tool-bg',
+      result: {
+        kind: 'shell_run', ref, mode: 'pipes', status: 'running', cwd: '/repo', cmd: 'build',
+        startedAt: 1_000, updatedAt: 4_000, revision: 4_000,
+        output: pipeOutput('still running\nbuffered owner revision\n'),
+      },
+    });
+    await waitFor(() => resolveHydration !== undefined);
+    assert.ok(resolveHydration);
+    resolveHydration([{
+      sessionId: 'session-branch',
+      ownership: {
+        kind: 'source_owned',
+        sourceSessionId: 'session-1',
+        ownerSessionId: 'session-1',
+      },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'tool-bg',
+      result: {
+        kind: 'shell_run', ref, mode: 'pipes', status: 'running', cwd: '/repo', cmd: 'build',
+        startedAt: 1_000, updatedAt: 3_000, revision: 3_000,
+        output: pipeOutput('still running\n'),
+      },
+    }]);
+
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('detached'));
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('buffered owner revision'));
     assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('Ask Maka to stop this task'), false);
+
+    assert.ok(listener);
+    listener({
+      sessionId: 'session-1',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'tool-bg',
+      result: {
+        kind: 'shell_run', ref, mode: 'pipes', status: 'completed', cwd: '/repo', cmd: 'build',
+        startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
+        revision: 5_000,
+        output: pipeOutput('still running\nbuffered owner revision\ndone\n'),
+      },
+    });
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('done'));
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('detached'), false);
+
+    exitMaka(terminal);
+    await run;
+  });
+
+  test('rehydrates after buffer overflow instead of losing an evicted terminal update', async () => {
+    const terminal = new FakeTerminal();
+    const ref = 'maka://runtime/background-tasks/bg-overflow';
+    const branchMessages = [
+      {
+        type: 'tool_call', id: 'tool-bg', turnId: 'turn-1', ts: 1,
+        toolName: 'Bash', args: { command: 'build' },
+      },
+      {
+        type: 'tool_result', id: 'result-bg', turnId: 'turn-1', ts: 2,
+        toolUseId: 'tool-bg', isError: false,
+        content: {
+          kind: 'shell_run', ref, mode: 'pipes', status: 'running', cwd: '/repo', cmd: 'build',
+          startedAt: 1_000, updatedAt: 2_000, revision: 2_000,
+          output: pipeOutput('still running\n'),
+        },
+      },
+    ] satisfies StoredMessage[];
+    const driver = new RewindDriver(
+      [{ turnId: 'turn-2', label: 'second question' }],
+      branchMessages,
+      { ...fakeSessionSummary('session-branch'), parentSessionId: 'session-1' },
+    );
+    let listener: ((update: ShellRunUpdate) => void) | undefined;
+    const hydrationResolvers: Array<(updates: ShellRunUpdate[]) => void> = [];
+    let hydrationAttempts = 0;
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+      subscribeShellRunUpdates: (next) => {
+        listener = next;
+        return () => { listener = undefined; };
+      },
+      listShellRunUpdates: () => {
+        hydrationAttempts += 1;
+        return new Promise((resolve) => { hydrationResolvers.push(resolve); });
+      },
+    });
+
+    terminal.input('/rewind');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('回到选定轮次'));
+    terminal.input('\r');
+    await waitFor(() => hydrationAttempts === 1);
+    assert.ok(listener);
+    listener({
+      sessionId: 'session-1',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'tool-bg',
+      result: {
+        kind: 'shell_run', ref, mode: 'pipes', status: 'completed', cwd: '/repo', cmd: 'build',
+        startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
+        revision: 5_000,
+        output: pipeOutput('done but evicted\n'),
+      },
+    });
+    for (let index = 0; index < SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES; index += 1) {
+      listener({
+        sessionId: `unrelated-owner-${index}`,
+        ownership: { kind: 'local' },
+        sourceTurnId: 'turn-unrelated',
+        sourceToolCallId: `tool-unrelated-${index}`,
+        result: {
+          kind: 'shell_run',
+          ref: `maka://runtime/background-tasks/unrelated-${index}`,
+          mode: 'pipes', status: 'running', cwd: '/repo', cmd: 'sleep 1',
+          startedAt: 1_000, updatedAt: 3_000, revision: 3_000,
+          output: pipeOutput(''),
+        },
+      });
+    }
+
+    const firstHydration = hydrationResolvers.shift();
+    assert.ok(firstHydration);
+    firstHydration([{
+      sessionId: 'session-branch',
+      ownership: {
+        kind: 'source_owned',
+        sourceSessionId: 'session-1',
+        ownerSessionId: 'session-1',
+      },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'tool-bg',
+      result: {
+        kind: 'shell_run', ref, mode: 'pipes', status: 'running', cwd: '/repo', cmd: 'build',
+        startedAt: 1_000, updatedAt: 3_000, revision: 3_000,
+        output: pipeOutput('stale snapshot\n'),
+      },
+    }]);
+    await waitFor(() => hydrationAttempts === 2);
+
+    const authoritativeHydration = hydrationResolvers.shift();
+    assert.ok(authoritativeHydration);
+    authoritativeHydration([{
+      sessionId: 'session-branch',
+      ownership: {
+        kind: 'source_owned',
+        sourceSessionId: 'session-1',
+        ownerSessionId: 'session-1',
+      },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'tool-bg',
+      result: {
+        kind: 'shell_run', ref, mode: 'pipes', status: 'completed', cwd: '/repo', cmd: 'build',
+        startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
+        revision: 5_000,
+        output: pipeOutput('authoritative terminal state\n'),
+      },
+    }]);
+
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('authoritative terminal state'));
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('detached'), false);
+    assert.equal(hydrationAttempts, 2);
 
     exitMaka(terminal);
     await run;
@@ -2652,7 +3027,12 @@ class PermissionPromptDriver implements MakaSessionDriver {
   readonly permissionResponses: PermissionResponse[] = [];
   permissionRequests = 0;
   stopCalls = 0;
-  private continueAfterPermission: (() => void) | null = null;
+  private permissionResponseWaiter: (() => void) | null = null;
+
+  constructor(
+    private readonly commands: readonly string[] = ['npm test'],
+    private readonly beforePermissionAck: (index: number) => Promise<void> = async () => {},
+  ) {}
 
   async listSessions(): Promise<SessionSummary[]> {
     return [];
@@ -2661,37 +3041,48 @@ class PermissionPromptDriver implements MakaSessionDriver {
   async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
-    this.permissionRequests += 1;
-    yield {
-      type: 'permission_request',
-      id: 'event-permission',
-      turnId: 'turn-1',
-      ts: 1,
-      requestId: 'permission-1',
-      toolUseId: 'tool-1',
-      toolName: 'Bash',
-      category: 'shell_unsafe',
-      reason: 'shell_dangerous',
-      args: { command: 'npm test' },
-    };
-    await new Promise<void>((resolve) => {
-      this.continueAfterPermission = resolve;
-    });
-    yield {
-      type: 'permission_decision_ack',
-      id: 'event-decision',
-      turnId: 'turn-1',
-      ts: 2,
-      requestId: 'permission-1',
-      toolUseId: 'tool-1',
-      decision: 'allow',
-      rememberForTurn: true,
-    };
+    for (const [index, command] of this.commands.entries()) {
+      this.permissionRequests += 1;
+      yield {
+        type: 'permission_request',
+        id: `event-permission-${index + 1}`,
+        turnId: 'turn-1',
+        ts: index + 1,
+        requestId: `permission-${index + 1}`,
+        toolUseId: `tool-${index + 1}`,
+        toolName: 'Bash',
+        category: 'shell_unsafe',
+        reason: 'shell_dangerous',
+        args: { command },
+        rememberForTurnAllowed: true,
+      };
+    }
+    for (const index of this.commands.keys()) {
+      while (this.permissionResponses.length <= index) {
+        await new Promise<void>((resolve) => {
+          this.permissionResponseWaiter = resolve;
+        });
+      }
+      const response = this.permissionResponses[index]!;
+      await this.beforePermissionAck(index);
+      yield {
+        type: 'permission_decision_ack',
+        id: `event-decision-${index + 1}`,
+        turnId: 'turn-1',
+        ts: this.commands.length + index + 1,
+        requestId: response.requestId,
+        toolUseId: `tool-${index + 1}`,
+        decision: response.decision,
+        ...(response.rememberForTurn !== undefined
+          ? { rememberForTurn: response.rememberForTurn }
+          : {}),
+      };
+    }
     yield {
       type: 'complete',
       id: 'event-complete',
       turnId: 'turn-1',
-      ts: 3,
+      ts: this.commands.length * 2 + 1,
       stopReason: 'end_turn',
     };
   }
@@ -2702,7 +3093,9 @@ class PermissionPromptDriver implements MakaSessionDriver {
 
   async respondToPermission(response: PermissionResponse): Promise<void> {
     this.permissionResponses.push(response);
-    this.continueAfterPermission?.();
+    const waiter = this.permissionResponseWaiter;
+    this.permissionResponseWaiter = null;
+    waiter?.();
   }
   async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
@@ -2722,6 +3115,43 @@ class PermissionPromptDriver implements MakaSessionDriver {
   getSessionId(): string {
     return 'session-1';
   }
+}
+
+class UserQuestionPromptDriver implements MakaSessionDriver {
+  readonly responses: UserQuestionResponse[] = [];
+  stopCalls = 0;
+  private release: (() => void) | undefined;
+
+  async listSessions(): Promise<SessionSummary[]> { return []; }
+  async *compactSession(): AsyncIterable<never> {}
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'user_question_request', id: 'event-question', turnId: 'turn-1', ts: 1,
+      requestId: 'question-1', toolUseId: 'tool-1',
+      questions: [
+        { question: 'Choose an approach', options: [{ label: 'Extend', description: 'Reuse the seam' }, { label: 'Separate' }] },
+        { question: 'Keep the default', options: [{ label: 'Yes' }, { label: 'No' }] },
+        { question: 'Anything else', options: [{ label: 'Nothing' }, { label: 'More detail' }] },
+      ],
+    };
+    await new Promise<void>((resolve) => { this.release = resolve; });
+    yield { type: 'complete', id: 'complete-1', turnId: 'turn-1', ts: 2, stopReason: 'end_turn' };
+  }
+  async respondToUserQuestion(response: UserQuestionResponse): Promise<void> {
+    this.responses.push(response);
+    this.release?.();
+  }
+  async stop(): Promise<void> { this.stopCalls += 1; this.release?.(); }
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> { return switchResult(fakeSessionSummary(sessionId)); }
+  async listRewindTargets(): Promise<RewindTarget[]> { return []; }
+  async rewindToTurn(): Promise<MakaSessionRewindResult> { throw new Error('rewind not supported'); }
+  startNewSession(): void {}
+  getSessionId(): string { return 'session-1'; }
 }
 
 class InterruptibleTurnDriver implements MakaSessionDriver {
@@ -2917,10 +3347,7 @@ class ToolOutputDriver implements MakaSessionDriver {
         exitCode: 0,
         // `expanded-tail` is the FIRST line, so the compact tail (last ~5 lines)
         // hides it; expanding reveals the full output including this head line.
-        stdout: `expanded-tail\n${Array.from({ length: 30 }, (_, i) => `row-${i}`).join('\n')}`,
-        stderr: '',
-        stdoutTruncated: false,
-        stderrTruncated: false,
+        output: pipeOutput(`expanded-tail\n${Array.from({ length: 30 }, (_, i) => `row-${i}`).join('\n')}`),
       },
     };
     yield {
@@ -2964,13 +3391,26 @@ class BackgroundShellRunDriver extends ToolOutputDriver {
       toolUseId: 'tool-bg', isError: false,
       content: {
         kind: 'shell_run', ref: 'maka://runtime/background-tasks/bg-1',
+        mode: 'pipes',
         status: 'running', cwd: '/repo', cmd: 'build',
         startedAt: 1_000, updatedAt: 2_000,
-        stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+        revision: 2_000,
+        output: pipeOutput(),
       },
     };
     yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 3, stopReason: 'end_turn' };
   }
+}
+
+function pipeOutput(stdout = '', stderr = '') {
+  return {
+    mode: 'pipes' as const,
+    stdout,
+    stderr,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    redacted: false,
+  };
 }
 
 class SlashCommandDriver implements MakaSessionDriver {

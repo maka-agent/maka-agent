@@ -21,13 +21,8 @@ import { base64urlEncode } from '@maka/core';
 export const STATUS = 'preview' as const;
 
 // =============================================================
-// Endpoints — Google OAuth2. Spec lives in
-// docs/30-plugins.md §11.1 (antigravity-auth plugin). Token
-// endpoint is the standard Google OAuth2 token endpoint; the
-// loopback port (51121) matches the spec exactly. spec-only:
-// these are the canonical Google OAuth values; the missing piece
-// is the client_id (and possibly client_secret) the upstream
-// antigravity-auth plugin uses.
+// Endpoints — canonical Google OAuth2 values. The service remains
+// preview-only because the required client id is not bundled.
 // =============================================================
 const GOOGLE_AUTHORIZE_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';

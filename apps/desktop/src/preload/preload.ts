@@ -11,6 +11,7 @@ import type {
   ModelDiscoveryResult,
   ModelInfo,
   PermissionResponse,
+  UserQuestionResponse,
   PermissionMode,
   SearchErrorReason,
   SearchRequest,
@@ -21,6 +22,7 @@ import type {
   SessionEvent,
   SessionListFilter,
   SessionSummary,
+  ShellRunUpdate,
   StoredMessage,
   ThinkingLevel,
   UpdateConnectionInput,
@@ -69,7 +71,7 @@ import type {
 } from '@maka/core/usage-stats/types';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
 import type { GoalState } from '@maka/runtime';
-import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
+import type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
 import type { ConfigCategory } from '@maka/storage';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
@@ -173,6 +175,9 @@ contextBridge.exposeInMainWorld('maka', {
     respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
       return ipcRenderer.invoke('sessions:respondToPermission', sessionId, response);
     },
+    respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void> {
+      return ipcRenderer.invoke('sessions:respondToUserQuestion', sessionId, response);
+    },
     /**
      * PR-CMD-PALETTE-SAVE-CONVERSATION-FILE-0: write the renderer-formatted
      * conversation markdown to a user-chosen file. Renderer owns the
@@ -221,6 +226,16 @@ contextBridge.exposeInMainWorld('maka', {
     },
     remove(sessionId: string): Promise<void> {
       return ipcRenderer.invoke('sessions:remove', sessionId);
+    },
+  },
+  shellRuns: {
+    list(sessionId: string): Promise<ShellRunUpdate[]> {
+      return ipcRenderer.invoke('shell-runs:list', sessionId);
+    },
+    subscribeUpdates(handler: (update: ShellRunUpdate) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, update: ShellRunUpdate) => handler(update);
+      ipcRenderer.on('shell-runs:update', listener);
+      return () => ipcRenderer.off('shell-runs:update', listener);
     },
   },
   goal: {
@@ -507,6 +522,24 @@ contextBridge.exposeInMainWorld('maka', {
     },
     logout(): Promise<SubscriptionActionResult> {
       return ipcRenderer.invoke('codex-subscription:logout');
+    },
+  },
+  githubCopilotSubscription: {
+    connectExistingLogin(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('github-copilot:connect-existing-login');
+    },
+    getAccountState(): Promise<{
+      provider: 'github-copilot';
+      runtimeState: 'not_logged_in' | 'authenticated' | 'refreshing' | 'refresh_failed' | 'storage_failed';
+      errorMessage?: string;
+    }> {
+      return ipcRenderer.invoke('github-copilot:get-account-state');
+    },
+    refreshTokens(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('github-copilot:refresh-tokens');
+    },
+    logout(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('github-copilot:logout');
     },
   },
   cursorSubscription: {
@@ -921,6 +954,17 @@ contextBridge.exposeInMainWorld('maka', {
   skills: {
     list(): Promise<SkillEntry[]> {
       return ipcRenderer.invoke('skills:list');
+    },
+    catalog: {
+      list(): Promise<BundledSkillCatalogEntry[]> {
+        return ipcRenderer.invoke('skills:catalog:list');
+      },
+      install(id: string): Promise<
+        | { ok: true; skill: SkillEntry }
+        | { ok: false; reason: 'not_found' | 'already_exists' | 'blocked_path' | 'write_failed' }
+      > {
+        return ipcRenderer.invoke('skills:catalog:install', id);
+      },
     },
     sources: {
       list(): Promise<ManagedSkillSourceEntry[]> {

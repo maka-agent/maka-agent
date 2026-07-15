@@ -138,11 +138,12 @@ describe('PR-COMPOSER-CONSTANT-FOOTPRINT-0 contract (issue #740)', () => {
     assert.doesNotMatch(textareaLine!, /min-h-[a-z0-9]+/i, '.maka-composer-textarea className must not carry a Tailwind min-h-* utility (CSS min-height: var(--h-composer-min) is the single source)');
   });
 
-  it('stop button uses an h-8 size (icon-sm or sm, 32px) — streaming toolbar height matches send (icon-sm/32px, locked by control-height-converge-contract), no 4px chat-boundary jump', async () => {
+  it('stop and send use the governed 32px tier so streaming does not change toolbar height', async () => {
     const source = await readFile(COMPOSER_TSX, 'utf8');
     const stopBlock = source.match(/props\.streaming\s*\?\s*\(\s*<UiButton[\s\S]*?<\/UiButton>/);
     assert.ok(stopBlock, 'stop button block (streaming branch) not found');
-    assert.match(stopBlock[0], /size="(?:icon-sm|sm)"/, 'stop button must use size="icon-sm" or size="sm" (h-8/32px), NOT default md (h-9/36px) which jumps the chat boundary 4px when streaming swaps send→stop; send is locked to 32px by control-height-converge-contract (.maka-composer-send-button height = --h-control-lg = 32px)');
+    assert.match(stopBlock[0], /size="md"/);
+    assert.match(source, /variant="default"\s+size="icon"[\s\S]*aria-label=\{buttonCopy\.sendLabel\}/);
   });
 
   it('negative cases: same-block duplicate, selector-list companion, compound .maka-composer.composer padding return, .maka-composer padding return, textarea min-h-* return, stop md return', () => {

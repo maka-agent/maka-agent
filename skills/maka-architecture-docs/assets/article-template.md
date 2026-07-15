@@ -1,8 +1,11 @@
 ---
 doc_id: architecture.<subject>
+title: "<Reader-oriented title>"
 language: <zh-CN|en>
 source_language: <zh-CN|en>
-status: <current|planned|exploratory|deprecated|historical>
+counterpart: ./<counterpart-filename>.md
+implementation_status: <current|planned|exploratory|deprecated|historical>
+document_status: <draft|stable|deprecated|historical>
 translation_status: <synced|needs-update|source-only>
 last_verified: YYYY-MM-DD
 owners:

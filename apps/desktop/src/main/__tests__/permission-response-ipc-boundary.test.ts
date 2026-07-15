@@ -14,9 +14,42 @@ import {
   normalizeRegenerateTurnInput,
   normalizeSessionSendCommand,
   normalizeStopSessionInput,
+  normalizeUserQuestionResponse,
 } from '../permission-response-guard.js';
 
 describe('permission response IPC boundary', () => {
+  it('normalizes bounded user-question answers without coercing nulls', () => {
+    assert.deepEqual(
+      normalizeUserQuestionResponse({ requestId: 'question-1', answers: ['Option A', null], extra: true }),
+      { requestId: 'question-1', answers: ['Option A', null] },
+    );
+    assert.throws(() => normalizeUserQuestionResponse({ requestId: '', answers: ['A'] }), /requestId/);
+    assert.throws(() => normalizeUserQuestionResponse({ requestId: 'q', answers: [] }), /answers/);
+    assert.throws(() => normalizeUserQuestionResponse({ requestId: 'q', answers: ['A', 'B', 'C', 'D'] }), /answers/);
+    assert.throws(() => normalizeUserQuestionResponse({ requestId: 'q', answers: [1] }), /answers/);
+  });
+
+  it('registers AskUserQuestion only on the Desktop root tool surface and routes its response', async () => {
+    const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
+    const main = await readFile(mainPath, 'utf8');
+    const rootTools = main.match(/const builtinTools: MakaTool\[\] = \[[\s\S]*?\n\];/)?.[0] ?? '';
+    const childTools = main.match(/const childAgentTools = buildChildAgentTools\([\s\S]*?\n\]\);/)?.[0] ?? '';
+    const handler = main.match(/ipcMain\.handle\('sessions:respondToUserQuestion'[\s\S]*?\n  \);/)?.[0] ?? '';
+
+    assert.match(rootTools, /buildAskUserQuestionTool\(\)/);
+    assert.doesNotMatch(childTools, /buildAskUserQuestionTool\(\)/);
+    assert.match(handler, /runtime\.respondToUserQuestion\(sessionId, normalizeUserQuestionResponse\(response\)\)/);
+  });
+
+  it('exposes the user-question response through preload and the renderer type boundary', async () => {
+    const preload = await readFile(fileURLToPath(new URL('../../../src/preload/preload.ts', import.meta.url)), 'utf8');
+    const globalTypes = await readFile(fileURLToPath(new URL('../../../src/global.d.ts', import.meta.url)), 'utf8');
+
+    assert.match(preload, /respondToUserQuestion\(sessionId: string, response: UserQuestionResponse\)/);
+    assert.match(preload, /ipcRenderer\.invoke\('sessions:respondToUserQuestion', sessionId, response\)/);
+    assert.match(globalTypes, /respondToUserQuestion\(sessionId: string, response: UserQuestionResponse\): Promise<void>/);
+  });
+
   it('normalizes valid allow / deny responses into the core shape', () => {
     assert.deepEqual(
       normalizePermissionResponse({
@@ -147,6 +180,7 @@ describe('permission response IPC boundary', () => {
       'app-shell.tsx',
       'app-shell-stop-action.ts',
       'app-shell-chat-actions.ts',
+      'use-app-shell-session-workspace.ts',
     ]);
     // Match `async function stop()` body up to its closing brace.
     const stop = renderer.match(/async function stop\(\)\s*\{[\s\S]*?\n  \}/);
@@ -191,10 +225,30 @@ describe('permission response IPC boundary', () => {
     );
   });
 
-  it('renderer clears permission overlay when a session completes (PR-PERMISSION-UI-CLEANUP-0)', async () => {
+  it('renderer responds to a user question for its source session and dequeues only after success', async () => {
+    const renderer = await readRendererShellSource('app-shell-chat-actions.ts');
+    const respond = renderer.match(/async function respondToUserQuestion\([\s\S]*?\n  \}/)?.[0] ?? '';
+
+    assert.match(respond, /const sessionId = activeIdRef\.current;/);
+    assert.match(respond, /await window\.maka\.sessions\.respondToUserQuestion\(sessionId, response\);/);
+    assert.match(
+      respond,
+      /setInteractionBySession\(\(current\) => dequeueInteractionByRequestId\(current, sessionId, response\.requestId\)\);/,
+    );
+    assert.match(respond, /catch \(error\)[\s\S]*activeIdRef\.current === sessionId/);
+  });
+
+  it('renderer lets either interaction type take over the mounted composer slot', async () => {
+    const shell = await readRendererShellSource('app-shell.tsx');
+    assert.match(shell, /activeQuestion = activeInteraction\?\.type === 'user_question_request'/);
+    assert.match(shell, /<UserQuestionPrompt[\s\S]*request=\{activeQuestion\}/);
+    assert.match(shell, /hidden=\{[^}]*Boolean\(activeInteraction\)[^}]*\}/);
+  });
+
+  it('renderer clears the permission prompt when a session completes (PR-PERMISSION-UI-CLEANUP-0)', async () => {
     // Without this, a session that finishes for a reason other than
     // permission_handoff would leave a stranded permission entry in
-    // `permissionBySession[sessionId]`, keeping the overlay visible
+    // `interactionBySession[sessionId]`, keeping the prompt visible
     // and blocking the session UI until the user manually navigates
     // away. Mirrors the existing `abort` cleanup.
     const renderer = await readRendererShellSource('app-shell-session-events.ts');
@@ -205,21 +259,21 @@ describe('permission response IPC boundary', () => {
     assert.ok(completeCase, "'complete' case must exist in renderer event handler");
     assert.match(
       completeCase[0],
-      /setPermissionBySession\(\(current\) => clearPermissions\(current, sessionId\)\)/,
+      /setInteractionBySession\(\(current\) => clearInteractions\(current, sessionId\)\)/,
       "'complete' case must clear the session's permission queue — mirrors the abort handler",
     );
   });
 
-  it('PermissionDialog submit() awaits onRespond and resets pending in finally (PR-PERMISSION-UI-CLEANUP-0)', async () => {
+  it('PermissionPrompt submit() awaits onRespond and resets pending in finally (PR-PERMISSION-UI-CLEANUP-0)', async () => {
     // Critical interaction with PR-STOP-ERROR-SURFACE-0: the parent
     // respondToPermission now swallows IPC errors via toast. If
     // submit() doesn't reset pending on resolve OR catch, the
-    // dialog buttons lock up forever after a failed IPC.
+    // prompt buttons lock up forever after a failed IPC.
     const componentsPath = fileURLToPath(new URL('../../../../../packages/ui/src/permission-dialog.tsx', import.meta.url));
     const components = await readFile(componentsPath, 'utf8');
     const submit = components.match(/async function submit\(decision:[\s\S]*?\n  \}/);
-    assert.ok(submit, 'PermissionDialog submit() must be async');
-    assert.match(components, /const permissionMountedRef = useRef\(true\);/);
+    assert.ok(submit, 'PermissionPrompt submit() must be async');
+    assert.match(components, /const permissionMountedRef = useMountedRef\(\);/);
     assert.match(components, /const activePermissionRequestIdRef = useRef\(props\.request\.requestId\);/);
     assert.match(components, /activePermissionRequestIdRef\.current = props\.request\.requestId;/);
     assert.match(submit[0], /const requestId = props\.request\.requestId;/);
@@ -289,7 +343,7 @@ describe('permission response IPC boundary', () => {
 
     assert.match(
       errorBranch,
-      /setPermissionBySession[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*if \(isNoRealConnectionEvent\(event\)\) \{[\s\S]*const reason = noRealConnectionReasonFromEvent\(event\);[\s\S]*showModelSetupToast\(noRealConnectionSetupDescription\(reason\), reason\);[\s\S]*\} else \{[\s\S]*toastApi\.error\('对话出错', sessionEventErrorMessage\(event\)\);[\s\S]*\}[\s\S]*\}[\s\S]*refreshSessions\(\);[\s\S]*refreshMessages\(sessionId, terminalRefreshOptions\(before\)\);/,
+      /setInteractionBySession[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*if \(isNoRealConnectionEvent\(event\)\) \{[\s\S]*const reason = noRealConnectionReasonFromEvent\(event\);[\s\S]*showModelSetupToast\(noRealConnectionSetupDescription\(reason\), reason\);[\s\S]*\} else \{[\s\S]*toastApi\.error\('对话出错', sessionEventErrorMessage\(event\)\);[\s\S]*\}[\s\S]*\}[\s\S]*refreshSessions\(\);[\s\S]*refreshMessages\(sessionId, terminalRefreshOptions\(before\)\);/,
       'background session error events may update stored state, but must not show toasts or open Settings on the active chat surface',
     );
     assert.doesNotMatch(errorBranch, /clearLiveTurn\(sessionId\)/, 'error must retain live evidence until refresh confirms handoff');
@@ -310,6 +364,8 @@ describe('permission response IPC boundary', () => {
       'app-shell-quick-chat-actions.ts',
       'app-shell.tsx',
       'app-shell-effects.ts',
+      'use-app-shell-session-list.ts',
+      'use-app-shell-session-workspace.ts',
     ]);
     const setActiveId = renderer.match(/function setActiveId\(next: string \| undefined\): void \{[\s\S]*?\n  \}/);
     const refreshSessions = renderer.match(/async function refreshSessions\(\)(?:: Promise<SessionSummary\[]>)? \{[\s\S]*?\n  \}/);
@@ -342,8 +398,8 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       bootstrapSessions[0],
-      /if \(!activeIdRef\.current && next\[0\] && next\[0\]\.lastMessageAt\) setActiveId\(next\[0\]\.id\)/,
-      'only bootstrapSessions() may auto-select the first existing chat on app startup',
+      /bootstrapSelectionLease\.reconcile\(next\);[\s\S]*bootstrapSelectionLease\.release\(\)/,
+      'the fallback bootstrap must share and then release the session owner\'s selection lease',
     );
     assert.match(
       renderer,
@@ -422,6 +478,40 @@ describe('permission response IPC boundary', () => {
     );
   });
 
+  it('reconciles the first mounted onboarding pull after the pre-mount snapshot seed', async () => {
+    const renderer = await readRendererShellSource('app-shell.tsx');
+    const onboardingSnapshotHook = await readFile(
+      fileURLToPath(new URL('../../../src/renderer/use-onboarding-snapshot.ts', import.meta.url)),
+      'utf8',
+    );
+
+    assert.match(
+      onboardingSnapshotHook,
+      /firstMountedSnapshot:\s*OnboardingSnapshot \| null/,
+      'the snapshot owner must latch the first successful mounted pull separately from the pre-mount seed',
+    );
+    assert.match(
+      renderer,
+      /snapshot = onboarding\.firstMountedSnapshot/,
+      'AppShell must consume the latched mounted snapshot instead of inferring it from a cumulative generation',
+    );
+    assert.doesNotMatch(
+      renderer,
+      /const seededRef = useRef\(false\)/,
+      'a one-shot seed drops a newer snapshot returned by the first mounted pull',
+    );
+    assert.match(
+      renderer,
+      /const next = seedSessions\(snapshot\.sessions\)/,
+      'the mounted pull must replace the session owner even when the latest list is empty',
+    );
+    assert.match(
+      renderer,
+      /setConnections\(snapshot\.connections\)/,
+      'the mounted pull must replace the connection owner even when the latest list is empty',
+    );
+  });
+
   it('keeps normal Composer first-send visible in the newly created session', async () => {
     const renderer = await readRendererShellSources([
       'app-shell-chat-actions.ts',
@@ -491,8 +581,8 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       renderer,
-      /function noRealConnectionSetupDescription\(reason: string \| undefined\): string \{[\s\S]*case 'missing_default_connection':[\s\S]*等待配置默认模型[\s\S]*case 'missing_api_key':[\s\S]*当前模型连接还没有可用凭据[\s\S]*case 'fake_backend':[\s\S]*当前会话来自旧的本地模拟连接/,
-      'model-setup send failures should use reason-driven Chinese copy instead of backend exception text',
+      /function noRealConnectionSetupDescription\(reason: string \| undefined\): string \{[\s\S]*return describeChatConfigurationReason/,
+      'model-setup send failures should use the shared reason-driven copy instead of backend exception text',
     );
     const modelSetupToast = renderer.match(/function showModelSetupToast\(description: string, reason\?: string\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     assert.match(

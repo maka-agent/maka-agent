@@ -1,6 +1,7 @@
 import { useReducer, useRef } from 'react';
 import type { SessionEventStreamSnapshot } from '@maka/core';
-import type { LiveTurnProjection, PermissionQueues } from '@maka/ui';
+import type { InteractionQueues, LiveTurnProjection } from '@maka/ui';
+import type { ShellRunUpdatesBySession } from './shell-run-update-state.js';
 
 type StateUpdater<T> = (updater: (current: T) => T) => void;
 
@@ -9,7 +10,8 @@ export interface AppShellSessionUiState {
   messageRetryPendingBySession: Record<string, boolean>;
   stopPendingBySession: Record<string, boolean>;
   liveTurnBySession: Record<string, LiveTurnProjection>;
-  permissionBySession: PermissionQueues;
+  shellRunUpdatesBySession: ShellRunUpdatesBySession;
+  interactionBySession: InteractionQueues;
   sessionEventHealthBySession: Record<string, SessionEventStreamSnapshot>;
   pendingPermissionModeBySession: Record<string, boolean>;
   pendingSessionModelBySession: Record<string, boolean>;
@@ -22,7 +24,8 @@ const SESSION_UI_MAP_KEYS = [
   'messageRetryPendingBySession',
   'stopPendingBySession',
   'liveTurnBySession',
-  'permissionBySession',
+  'shellRunUpdatesBySession',
+  'interactionBySession',
   'sessionEventHealthBySession',
   'pendingPermissionModeBySession',
   'pendingSessionModelBySession',
@@ -136,7 +139,8 @@ export function createAppShellSessionUiStateController(
     setMessageRetryPendingBySession: createMapSetter('messageRetryPendingBySession'),
     setStopPendingBySession: createMapSetter('stopPendingBySession'),
     setLiveTurnBySession: createMapSetter('liveTurnBySession'),
-    setPermissionBySession: createMapSetter('permissionBySession'),
+    setShellRunUpdatesBySession: createMapSetter('shellRunUpdatesBySession'),
+    setInteractionBySession: createMapSetter('interactionBySession'),
     setSessionEventHealthBySession: createMapSetter('sessionEventHealthBySession'),
     setPendingPermissionModeBySession: createMapSetter('pendingPermissionModeBySession'),
     setPendingSessionModelBySession: createMapSetter('pendingSessionModelBySession'),
@@ -170,7 +174,8 @@ export function useAppShellSessionUiState() {
     setMessageRetryPendingBySession: controller.setMessageRetryPendingBySession,
     setStopPendingBySession: controller.setStopPendingBySession,
     setLiveTurnBySession: controller.setLiveTurnBySession,
-    setPermissionBySession: controller.setPermissionBySession,
+    setShellRunUpdatesBySession: controller.setShellRunUpdatesBySession,
+    setInteractionBySession: controller.setInteractionBySession,
     setSessionEventHealthBySession: controller.setSessionEventHealthBySession,
     setPendingPermissionModeBySession: controller.setPendingPermissionModeBySession,
     setPendingSessionModelBySession: controller.setPendingSessionModelBySession,

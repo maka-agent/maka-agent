@@ -214,6 +214,394 @@ describe('PiAgentBackend skeleton', () => {
     assert.equal(third.value?.type === 'tool_result' ? third.value.isError : false, true);
   });
 
+  test('isolates canonical Pi args from transport, storage, permission, and event owners', async () => {
+    const initialArgs = {
+      command: 'printf password=super-secret',
+      options: { columns: 120 },
+    };
+    const projectedArgs = {
+      command: 'printf password=[redacted]',
+      options: { columns: 120 },
+    };
+    const permissionArgs = structuredClone(initialArgs);
+    const toolStartArgs = structuredClone(initialArgs);
+    let storedArgs: unknown;
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'ask' }),
+      appendMessage: async (message) => {
+        if (message.type !== 'tool_call') return;
+        storedArgs = structuredClone(message.args);
+        mutatePiArgs(message.args, 'storage');
+      },
+      permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(4_100) }),
+      transport: frames([
+        {
+          type: 'permission_request',
+          toolUseId: 'tool-1',
+          toolName: 'Bash',
+          args: permissionArgs,
+          categoryHint: 'shell_unsafe',
+        },
+        { type: 'tool_start', toolUseId: 'tool-1', toolName: 'Bash', args: toolStartArgs },
+        { type: 'tool_result', toolUseId: 'tool-1', content: { kind: 'text', text: 'executed' } },
+        { type: 'complete' },
+      ]),
+      newId: nextId('id'),
+      now: nextNow(4_200),
+    });
+
+    const iterator = backend.send({ turnId: 'turn-1', text: 'run command', context: [] })[Symbol.asyncIterator]();
+    const permission = await iterator.next();
+    assert.equal(permission.value?.type, 'permission_request');
+    if (permission.value?.type !== 'permission_request') return;
+    assert.deepEqual(permission.value.args, initialArgs);
+    mutatePiArgs(permissionArgs, 'transport');
+
+    await backend.respondToPermission({ requestId: permission.value.requestId, decision: 'allow' });
+    assert.equal((await iterator.next()).value?.type, 'permission_decision_ack');
+    const toolStart = await iterator.next();
+    assert.equal(toolStart.value?.type, 'tool_start');
+    assert.deepEqual(toolStart.value?.type === 'tool_start' ? toolStart.value.args : undefined, projectedArgs);
+    if (toolStart.value?.type === 'tool_start') mutatePiArgs(toolStart.value.args, 'event');
+
+    while (!(await iterator.next()).done) {
+      // Drain the turn so the backend releases its permission state.
+    }
+
+    assert.deepEqual(storedArgs, projectedArgs);
+    assert.equal(permissionArgs.command, 'transport');
+    assert.deepEqual(toolStartArgs, initialArgs);
+  });
+
+  test('snapshots a Pi tool-start frame before awaiting assistant persistence', async () => {
+    const approvedArgs = { command: 'printf approved' };
+    const driftingArgs = { command: 'rm -rf workspace' };
+    let signalAssistantAppend!: () => void;
+    const assistantAppendStarted = new Promise<void>((resolve) => { signalAssistantAppend = resolve; });
+    let releaseAssistantAppend!: () => void;
+    const assistantAppendReleased = new Promise<void>((resolve) => { releaseAssistantAppend = resolve; });
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'ask' }),
+      appendMessage: async (message) => {
+        if (message.type !== 'assistant') return;
+        signalAssistantAppend();
+        await assistantAppendReleased;
+      },
+      permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(4_250) }),
+      transport: frames([
+        {
+          type: 'permission_request',
+          toolUseId: 'tool-1',
+          toolName: 'Bash',
+          args: approvedArgs,
+          categoryHint: 'shell_unsafe',
+        },
+        { type: 'text_delta', text: 'running now' },
+        { type: 'tool_start', toolUseId: 'tool-1', toolName: 'Bash', args: driftingArgs },
+        { type: 'complete' },
+      ]),
+      newId: nextId('id'),
+      now: nextNow(4_275),
+    });
+
+    const iterator = backend.send({ turnId: 'turn-1', text: 'run command', context: [] })[Symbol.asyncIterator]();
+    const permission = await iterator.next();
+    assert.equal(permission.value?.type, 'permission_request');
+    if (permission.value?.type !== 'permission_request') return;
+    await backend.respondToPermission({ requestId: permission.value.requestId, decision: 'allow' });
+    assert.equal((await iterator.next()).value?.type, 'permission_decision_ack');
+    assert.equal((await iterator.next()).value?.type, 'text_delta');
+
+    const terminal = iterator.next();
+    await assistantAppendStarted;
+    driftingArgs.command = approvedArgs.command;
+    releaseAssistantAppend();
+
+    const error = await terminal;
+    assert.equal(error.value?.type, 'error');
+    assert.equal(error.value?.type === 'error' ? error.value.reason : undefined, 'pi_agent_transport_error');
+    assert.equal((await iterator.next()).value?.type, 'complete');
+  });
+
+  test('fails closed when a later Pi frame changes the canonical invocation', async (t) => {
+    const cases = [
+      {
+        name: 'tool name',
+        first: {
+          toolName: 'Bash',
+          args: { command: 'printf approved' },
+          categoryHint: 'shell_unsafe' as const,
+        },
+        later: { toolName: 'Write', args: { command: 'printf approved' } },
+        expectedStoredArgs: { command: 'printf approved' },
+      },
+      {
+        name: 'arguments',
+        first: {
+          toolName: 'Bash',
+          args: { command: 'printf approved' },
+          categoryHint: 'shell_unsafe' as const,
+        },
+        later: { toolName: 'Bash', args: { command: 'printf changed' } },
+        expectedStoredArgs: { command: 'printf approved' },
+      },
+      {
+        name: 'private Computer Use arguments with the same approval summary',
+        first: {
+          toolName: 'maka_computer',
+          args: {
+            action: 'type',
+            app: 'Example',
+            observation_id: 'frame-1',
+            text: 'first secret',
+            coordinate: [10, 20],
+          },
+          categoryHint: 'computer_use' as const,
+        },
+        later: {
+          toolName: 'maka_computer',
+          args: {
+            action: 'type',
+            app: 'Example',
+            observation_id: 'frame-1',
+            text: 'second secret',
+            coordinate: [30, 40],
+          },
+        },
+        expectedStoredArgs: {
+          action: 'type',
+          approvalClass: 'keyboard_mutation',
+          rememberForTurnAllowed: true,
+          app: 'Example',
+          observationId: 'frame-1',
+        },
+      },
+    ];
+
+    for (const drift of cases) {
+      await t.test(drift.name, async () => {
+        const messages: StoredMessage[] = [];
+        const backend = new PiAgentBackend({
+          sessionId: 'session-1',
+          header: header({ permissionMode: 'ask' }),
+          appendMessage: async (message) => { messages.push(message); },
+          permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(4_300) }),
+          transport: frames([
+            {
+              type: 'permission_request',
+              toolUseId: 'tool-1',
+              toolName: drift.first.toolName,
+              args: drift.first.args,
+              categoryHint: drift.first.categoryHint,
+            },
+            {
+              type: 'tool_start',
+              toolUseId: 'tool-1',
+              toolName: drift.later.toolName,
+              args: drift.later.args,
+            },
+            { type: 'tool_result', toolUseId: 'tool-1', content: { kind: 'text', text: 'executed' } },
+            { type: 'complete' },
+          ]),
+          newId: nextId('id'),
+          now: nextNow(4_400),
+        });
+
+        const iterator = backend.send({ turnId: 'turn-1', text: 'run command', context: [] })[Symbol.asyncIterator]();
+        const permission = await iterator.next();
+        assert.equal(permission.value?.type, 'permission_request');
+        if (permission.value?.type !== 'permission_request') return;
+        await backend.respondToPermission({ requestId: permission.value.requestId, decision: 'allow' });
+
+        const remaining: SessionEvent[] = [];
+        for (;;) {
+          const next = await iterator.next();
+          if (next.done) break;
+          remaining.push(next.value);
+        }
+
+        assert.deepEqual(remaining.map((event) => event.type), [
+          'permission_decision_ack',
+          'error',
+          'complete',
+        ]);
+        assert.equal(remaining.some((event) => event.type === 'tool_start' || event.type === 'tool_result'), false);
+        const storedCall = messages.find((message) => message.type === 'tool_call');
+        assert.deepEqual(
+          storedCall?.type === 'tool_call' ? storedCall.args : undefined,
+          drift.expectedStoredArgs,
+        );
+        if (drift.first.categoryHint === 'computer_use') {
+          assert.doesNotMatch(JSON.stringify(messages), /first secret|10|20/);
+        }
+      });
+    }
+  });
+
+  test('fails closed on Pi frame drift after permission suppression', async (t) => {
+    const cases = [
+      {
+        name: 'policy block',
+        permissionMode: 'explore' as const,
+        expectedTypes: ['tool_result', 'error', 'complete'],
+      },
+      {
+        name: 'user denial',
+        permissionMode: 'ask' as const,
+        expectedTypes: ['permission_request', 'permission_decision_ack', 'tool_result', 'error', 'complete'],
+      },
+    ];
+
+    for (const scenario of cases) {
+      await t.test(scenario.name, async () => {
+        const backend = new PiAgentBackend({
+          sessionId: 'session-1',
+          header: header({ permissionMode: scenario.permissionMode }),
+          appendMessage: async () => {},
+          permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(4_500) }),
+          transport: frames([
+            {
+              type: 'permission_request',
+              toolUseId: 'tool-1',
+              toolName: 'Bash',
+              args: { command: 'printf approved' },
+              categoryHint: 'shell_unsafe',
+            },
+            { type: 'tool_start', toolUseId: 'tool-1', toolName: 'Bash', args: { command: 'printf changed' } },
+            { type: 'complete' },
+          ]),
+          newId: nextId('id'),
+          now: nextNow(4_600),
+        });
+
+        const iterator = backend.send({ turnId: 'turn-1', text: 'run command', context: [] })[Symbol.asyncIterator]();
+        const events: SessionEvent[] = [];
+        const first = await iterator.next();
+        if (!first.done) events.push(first.value);
+        if (first.value?.type === 'permission_request') {
+          await backend.respondToPermission({ requestId: first.value.requestId, decision: 'deny' });
+        }
+        for (;;) {
+          const next = await iterator.next();
+          if (next.done) break;
+          events.push(next.value);
+        }
+
+        assert.deepEqual(events.map((event) => event.type), scenario.expectedTypes);
+        assert.equal(events.some((event) => event.type === 'tool_start'), false);
+        const error = events.find((event) => event.type === 'error');
+        assert.equal(error?.type === 'error' ? error.reason : undefined, 'pi_agent_transport_error');
+      });
+    }
+  });
+
+  test('preserves the computer_use category and redacts Computer Use permission args', async () => {
+    const messages: StoredMessage[] = [];
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'ask' }),
+      appendMessage: async (message) => { messages.push(message); },
+      permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(4_200) }),
+      transport: frames([
+        {
+          type: 'permission_request',
+          toolUseId: 'tool-1',
+          toolName: 'maka_computer',
+          args: {
+            action: 'type',
+            app: 'Example',
+            observation_id: 'frame-1',
+            text: 'secret text',
+            coordinate: [123, 456],
+          },
+          categoryHint: 'computer_use',
+        },
+        { type: 'complete' },
+      ]),
+      newId: nextId('id'),
+      now: nextNow(4_300),
+    });
+
+    const iterator = backend.send({ turnId: 'turn-1', text: 'type', context: [] })[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    assert.equal(first.value?.type, 'permission_request');
+    if (first.value?.type !== 'permission_request') return;
+    assert.equal(first.value.category, 'computer_use');
+    assert.equal(first.value.reason, 'computer_use');
+    assert.deepEqual(first.value.args, {
+      action: 'type',
+      approvalClass: 'keyboard_mutation',
+      rememberForTurnAllowed: true,
+      app: 'Example',
+      observationId: 'frame-1',
+    });
+    const toolCall = messages.find((message) => message.type === 'tool_call');
+    assert.deepEqual(
+      toolCall?.type === 'tool_call' ? toolCall.args : undefined,
+      first.value.args,
+    );
+    assert.doesNotMatch(JSON.stringify(messages), /secret text|123|456/);
+  });
+
+  test('projects raw Computer Use tool_start args before persistence or emission', async () => {
+    const messages: StoredMessage[] = [];
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'bypass' }),
+      appendMessage: async (message) => { messages.push(message); },
+      permissionEngine: new PermissionEngine({
+        newId: nextId('permission'),
+        now: nextNow(4_400),
+      }),
+      transport: frames([
+        {
+          type: 'tool_start',
+          toolUseId: 'tool-1',
+          toolName: 'maka_computer',
+          args: {
+            action: 'type',
+            app: 'Example',
+            window_id: 42,
+            observation_id: 'frame-1',
+            text: 'secret text',
+            coordinate: [123, 456],
+          },
+        },
+        { type: 'complete' },
+      ]),
+      newId: nextId('id'),
+      now: nextNow(4_450),
+    });
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({
+      turnId: 'turn-1',
+      text: 'type',
+      context: [],
+    })) {
+      events.push(event);
+    }
+    const start = events.find((event) => event.type === 'tool_start');
+    const expected = {
+      action: 'type',
+      approvalClass: 'keyboard_mutation',
+      rememberForTurnAllowed: true,
+      app: 'Example',
+      windowId: 42,
+      observationId: 'frame-1',
+    };
+    assert.deepEqual(start?.type === 'tool_start' ? start.args : undefined, expected);
+    const toolCall = messages.find((message) => message.type === 'tool_call');
+    assert.deepEqual(
+      toolCall?.type === 'tool_call' ? toolCall.args : undefined,
+      expected,
+    );
+    assert.doesNotMatch(JSON.stringify(events), /secret text|123|456/);
+    assert.doesNotMatch(JSON.stringify(messages), /secret text|123|456/);
+  });
+
   test('suppresses later child output for a denied permission request', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({
@@ -442,4 +830,10 @@ function nextNow(start: number): () => number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function mutatePiArgs(value: unknown, owner: string): void {
+  const mutable = value as { command: string; options: { columns: number } };
+  mutable.command = owner;
+  mutable.options.columns = owner.length;
 }

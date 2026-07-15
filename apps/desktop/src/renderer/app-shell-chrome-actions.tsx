@@ -17,7 +17,7 @@ export function AppShellTopbarActions(props: {
         <TooltipTrigger
           render={<UiButton variant="quiet" size="icon-sm" />}
           type="button"
-          className="maka-shell-topbar-button"
+          className="maka-titlebar-action"
           data-maka-search-trigger="true"
           onClick={props.onOpenSearchModal}
           aria-label="搜索对话"
@@ -30,7 +30,7 @@ export function AppShellTopbarActions(props: {
         <TooltipTrigger
           render={<UiButton variant="quiet" size="icon-sm" />}
           type="button"
-          className="maka-shell-topbar-button"
+          className="maka-titlebar-action"
           onClick={props.sidebarCollapsed ? props.onExpandSidebar : props.onCollapseSidebar}
           aria-label={props.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
           aria-expanded={!props.sidebarCollapsed}
@@ -48,7 +48,7 @@ export function AppShellTopbarActions(props: {
           <TooltipTrigger
             render={<UiButton variant="quiet" size="icon-sm" />}
             type="button"
-            className="maka-shell-topbar-button"
+            className="maka-titlebar-action"
             onClick={props.onCreateSession}
             aria-label="新任务"
           >
@@ -73,7 +73,7 @@ export function AppShellWorkspaceTopActions(props: {
         <TooltipTrigger
           render={<UiButton variant="quiet" size="icon-sm" />}
           type="button"
-          className="maka-workspace-icon-action"
+          className="maka-titlebar-action"
           onClick={props.onOpenFeedback}
           aria-label="问题反馈"
         >
@@ -85,7 +85,7 @@ export function AppShellWorkspaceTopActions(props: {
         <TooltipTrigger
           render={<UiButton variant="quiet" size="icon-sm" />}
           type="button"
-          className="maka-workspace-icon-action"
+          className="maka-titlebar-action"
           onClick={props.onOpenPalette}
           aria-label="打开命令面板"
         >
@@ -97,7 +97,7 @@ export function AppShellWorkspaceTopActions(props: {
         <TooltipTrigger
           render={<UiButton variant="quiet" size="icon-sm" />}
           type="button"
-          className="maka-workspace-icon-action"
+          className="maka-titlebar-action"
           onClick={props.onOpenHelp}
           aria-label="打开帮助"
         >
@@ -109,7 +109,7 @@ export function AppShellWorkspaceTopActions(props: {
         <TooltipTrigger
           render={<UiButton variant="quiet" size="icon-sm" />}
           type="button"
-          className="maka-workspace-icon-action"
+          className="maka-titlebar-action"
           onClick={props.onOpenHealth}
           aria-label="打开健康中心"
         >

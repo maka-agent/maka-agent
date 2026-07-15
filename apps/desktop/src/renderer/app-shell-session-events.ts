@@ -1,14 +1,14 @@
 import type { SessionEvent, StoredMessage } from '@maka/core';
 import {
   applyLiveTurnEvent,
-  clearPermissions,
-  dequeuePermission,
-  dequeuePermissionByToolUseId,
-  enqueuePermission,
+  clearInteractions,
+  dequeueInteractionByRequestId,
+  dequeueInteractionByToolUseId,
+  enqueueInteraction,
   reconcileTerminalLiveTurn,
   settleLiveTurnStep,
   type LiveTurnProjection,
-  type PermissionQueues,
+  type InteractionQueues,
 } from '@maka/ui';
 import type { RefreshMessagesOptions } from './app-shell-chat-actions.js';
 import {
@@ -37,7 +37,7 @@ export function createAppShellSessionEventHandlers(options: {
   refreshMessages: (sessionId: string, options?: RefreshMessagesOptions) => Promise<boolean>;
   refreshSessions: () => Promise<unknown>;
   setLiveTurnBySession: StateUpdater<Record<string, LiveTurnProjection>>;
-  setPermissionBySession: StateUpdater<PermissionQueues>;
+  setInteractionBySession: StateUpdater<InteractionQueues>;
   showModelSetupToast: (description: string, reason?: string) => void;
   toastApi: ToastApi;
   notifyRunEnded?: (payload: { kind: 'completed' | 'errored'; sessionId: string; body?: string }) => void;
@@ -48,7 +48,7 @@ export function createAppShellSessionEventHandlers(options: {
     refreshMessages,
     refreshSessions,
     setLiveTurnBySession,
-    setPermissionBySession,
+    setInteractionBySession,
     showModelSetupToast,
     toastApi,
     notifyRunEnded,
@@ -115,17 +115,18 @@ export function createAppShellSessionEventHandlers(options: {
         void refreshMessages(sessionId, { requiredAssistantMessageId: event.messageId }).catch(() => false);
         break;
       case 'permission_request':
-        setPermissionBySession((current) => enqueuePermission(current, sessionId, event));
+      case 'user_question_request':
+        setInteractionBySession((current) => enqueueInteraction(current, sessionId, event));
         break;
       case 'permission_decision_ack':
-        setPermissionBySession((current) => dequeuePermission(current, sessionId, event.requestId));
+        setInteractionBySession((current) => dequeueInteractionByRequestId(current, sessionId, event.requestId));
         break;
       case 'tool_result':
-        setPermissionBySession((current) => dequeuePermissionByToolUseId(current, sessionId, event.toolUseId));
+        setInteractionBySession((current) => dequeueInteractionByToolUseId(current, sessionId, event.toolUseId));
         void refreshMessages(sessionId);
         break;
       case 'error':
-        setPermissionBySession((current) => clearPermissions(current, sessionId));
+        setInteractionBySession((current) => clearInteractions(current, sessionId));
         if (activeIdRef.current === sessionId) {
           if (isNoRealConnectionEvent(event)) {
             const reason = noRealConnectionReasonFromEvent(event);
@@ -139,13 +140,13 @@ export function createAppShellSessionEventHandlers(options: {
         void refreshMessages(sessionId, terminalRefreshOptions(before));
         break;
       case 'abort':
-        setPermissionBySession((current) => clearPermissions(current, sessionId));
+        setInteractionBySession((current) => clearInteractions(current, sessionId));
         void refreshSessions();
         void refreshMessages(sessionId, terminalRefreshOptions(before));
         break;
       case 'complete': {
         if (event.stopReason !== 'permission_handoff') {
-          setPermissionBySession((current) => clearPermissions(current, sessionId));
+          setInteractionBySession((current) => clearInteractions(current, sessionId));
           if (event.stopReason === 'end_turn' || event.stopReason === 'max_tokens') {
             const body = [...(before?.steps ?? [])].reverse().find((step) => step.text?.text)?.text?.text;
             notifyRunEnded?.({ kind: 'completed', sessionId, body });

@@ -1,10 +1,7 @@
 @import "tailwindcss";
 @source "../../../../packages/ui/src";
 
-/* Variable-axis Geist Sans + Mono — replaces system-ui as the primary
-   typeface per the taste-skill / redesign-skill recommendations
-   ("Inter and system fonts banned for premium aesthetic"). System fallback
-   remains so the app stays legible even if the font fails to load. */
+/* Bundled Geist fallbacks; maka-tokens.css owns the product font stacks. */
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 @import "overlayscrollbars/overlayscrollbars.css";
@@ -41,26 +38,33 @@
 @import "./styles/prompt-rail.css";
 
 @theme inline {
-  --font-sans: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-
   --color-background: var(--background);
+  --color-background-elevated: var(--background-elevated);
   --color-foreground: var(--foreground);
+  --color-foreground-dimmed: var(--foreground-dimmed);
   --color-card: var(--background);
   --color-card-foreground: var(--foreground);
   --color-popover: var(--background-elevated);
   --color-popover-foreground: var(--foreground);
   --color-primary: var(--action);
   --color-primary-foreground: var(--action-foreground);
+  --color-action: var(--action);
+  --color-action-foreground: var(--action-foreground);
   --color-secondary: var(--foreground-5);
   --color-secondary-foreground: var(--foreground);
   --color-muted: var(--foreground-5);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: oklch(from var(--accent) 0.985 min(c, 0.003) h);
+  --color-link: var(--link);
+  --color-focus-ring: var(--focus-ring);
+  --color-status-running: var(--status-running);
+  --color-nav-active: var(--nav-active);
+  --color-toast-accent: var(--toast-accent);
   --color-control: var(--control);
   --color-control-foreground: var(--control-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-text: var(--destructive-text);
   --color-destructive-foreground: oklch(from var(--destructive) 0.985 min(c, 0.003) h);
   --color-info: var(--info);
   --color-info-foreground: var(--info-text);
@@ -69,8 +73,18 @@
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-text);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--border-strong);
   --color-ring: var(--ring);
+  --color-foreground-2: var(--foreground-2);
+  --color-foreground-3: var(--foreground-3);
+  --color-foreground-5: var(--foreground-5);
+  --color-foreground-8: var(--foreground-8);
+  --color-foreground-10: var(--foreground-10);
+  --color-foreground-secondary: var(--foreground-secondary);
+  --color-hover: var(--state-hover-bg);
+  --color-active: var(--state-selected-bg);
+  --color-user-message-bubble: var(--user-message-bubble);
 
   --radius-sm: var(--radius-control);
   --radius-md: var(--radius-surface);
@@ -99,22 +113,20 @@
   --leading-snug: var(--leading-snug);
   --leading-normal: var(--leading-normal);
 
-  /* PR-FONT-WEIGHT-CONVERGE-0 (#520 PR1): bridge --font-weight-* to
-     Tailwind font-* utilities (font-normal/medium/semibold/bold). */
+  /* Bridge --font-weight-* to Tailwind font-* utilities. */
   --font-weight-normal: var(--font-weight-normal);
   --font-weight-medium: var(--font-weight-medium);
   --font-weight-semibold: var(--font-weight-semibold);
   --font-weight-bold: var(--font-weight-bold);
 
-  /* PR-TRACKING-CONVERGE-0 (#520 PR1): bridge --tracking-* to Tailwind
-     tracking-* utilities (tracking-normal/wide/wider/widest). No tight
-     (CJK-first, roadmap §1.6 bans tightening CJK). */
+  /* Bridge --tracking-* to Tailwind utilities. No tight tier: Maka is
+     CJK-first and does not tighten CJK letter spacing. */
   --tracking-normal: var(--tracking-normal);
   --tracking-wide: var(--tracking-wide);
   --tracking-wider: var(--tracking-wider);
   --tracking-widest: var(--tracking-widest);
 
-  /* PR-SPACING-CONVERGE-0: export the 4px ruler to Tailwind so the p-N,
+  /* Export the 4px ruler to Tailwind so the p-N,
      gap-N, m-N utilities share one source with hand-written var(--space-N).
      Without this, Tailwind default --spacing 0.25rem (3.75px under 15px
      root) would keep p-2 at 7.5px while var(--space-2) is 8px — two scales. */

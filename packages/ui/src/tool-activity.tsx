@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
-import { type ToolResultContent } from '@maka/core';
+import { isShellOutput, type ToolResultContent } from '@maka/core';
 import {
   AlertOctagon,
   Check,
@@ -187,8 +187,14 @@ function extractErrorText(result: ToolActivityItem['result']): string {
       const quiet = formatQuietJsonValue(result.value);
       return quiet.headline ? `${quiet.headline}\n${quiet.body}` : quiet.body;
     }
-    case 'terminal':
-      return result.stderr || result.stdout || `exit ${result.exitCode}`;
+    case 'terminal': {
+      const output = isShellOutput(result.output) ? result.output : undefined;
+      return result.failureMessage
+        || (output?.mode === 'pipes'
+          ? output.stderr || output.stdout
+          : output?.screen || output?.scrollback)
+        || (result.exitCode === undefined ? result.status : `exit ${result.exitCode}`);
+    }
     case 'file_diff':
       return result.diff;
     case 'rive_workflow':
@@ -240,13 +246,17 @@ function isCancelledToolResult(result: ToolActivityItem['result']): boolean {
 function resultHasCapturedStreams(result: ToolActivityItem['result']): boolean {
   if (!result) return false;
   if (result.kind === 'terminal' || result.kind === 'shell_run') {
-    return (result.stdout?.length ?? 0) > 0 || (result.stderr?.length ?? 0) > 0;
+    const output = isShellOutput(result.output) ? result.output : undefined;
+    if (output === undefined) return false;
+    return output.mode === 'pty'
+      ? output.screen.length > 0 || output.scrollback.length > 0 || Boolean(output.lastAlternateScreen)
+      : output.stdout.length > 0 || output.stderr.length > 0;
   }
   return true;
 }
 
 /**
- * Background Bash yields an empty shell_run body; keep the live chunks the
+ * Background Bash returns an empty shell_run body; keep the live chunks the
  * user already saw by filling empty stdout/stderr from outputChunks. Also
  * forward truncation / redaction hints so settled preview matches live.
  */
@@ -257,6 +267,12 @@ function withLiveStreamFallback(
 ): NonNullable<ToolActivityItem['result']> {
   if (result.kind !== 'terminal' && result.kind !== 'shell_run') return result;
   if (resultHasCapturedStreams(result)) return result;
+  const existing = isShellOutput(result.output) ? result.output : undefined;
+  if (result.kind === 'terminal') {
+    if (existing?.mode !== 'pipes') return result;
+  } else if (result.mode !== 'pipes') {
+    return result;
+  }
 
   let stdout = '';
   let stderr = '';
@@ -266,7 +282,8 @@ function withLiveStreamFallback(
     if (chunk.stream === 'stderr') stderr += chunk.text;
     else stdout += chunk.text;
   }
-  const truncated = result.stdoutTruncated === true || options?.truncated === true;
+  const truncated = existing?.mode === 'pipes' && existing.stdoutTruncated === true
+    || options?.truncated === true;
   // Empty redacted/truncated live buffer still carries diagnosis — do not
   // early-return and drop "已脱敏" / "输出已截断".
   if (!stdout && !stderr && !anyRedacted && !truncated) return result;
@@ -278,12 +295,16 @@ function withLiveStreamFallback(
     else if (stderr.length > 0) stderr = `${stderr}${stderr.endsWith('\n') ? '' : '\n'}[已脱敏]`;
     else stdout = '[已脱敏]';
   }
-  return {
-    ...result,
+  const output = {
+    mode: 'pipes' as const,
     stdout,
     stderr,
     stdoutTruncated: truncated,
+    stderrTruncated: existing?.mode === 'pipes' && existing.stderrTruncated === true,
+    redacted: anyRedacted || (existing?.mode === 'pipes' && existing.redacted),
   };
+  if (result.kind === 'shell_run') return { ...result, output };
+  return { ...result, output };
 }
 
 function toolStatusLabel(item: ToolActivityItem): string {
@@ -356,9 +377,10 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
   const errored = item.status === 'errored' && !cancelled;
   const permissionDenied = isPermissionDeniedToolResult(item.result);
   const running = item.status === 'running' || item.status === 'pending';
+  const ptyControlResult = item.toolName === 'WriteStdin' && item.result?.kind === 'shell_run';
   // Rich kinds + tool-specific cards own their chrome — never nest in the shared well.
   const ownsPanel = resultOwnsOwnPanel(item);
-  const showErrorBanner = errored;
+  const showErrorBanner = errored && !ptyControlResult;
   // Every tool: human invocation line from args — never pretty-printed JSON.
   // Skip when the result panel already prints the command (terminal/shell_run).
   const invocationLine = !permissionDenied && !ownsPanel
@@ -366,7 +388,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
     : undefined;
   // While running the live stream is the output; once a structured result
   // preview exists it is the single quiet output block — never render both.
-  // Owned terminal/shell_run panels absorb empty-body yield via
+  // Owned terminal/shell_run panels absorb an empty-body handoff via
   // withLiveStreamFallback (never a second live panel).
   const showLiveStream = !!item.outputChunks
     && item.outputChunks.length > 0
@@ -409,7 +431,12 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
         ) : isAutomationTool(item.toolName) && displayResult.kind === 'text' ? (
           <AutomationResultPreview text={displayResult.text} />
         ) : (
-          <ToolResultPreview content={displayResult} />
+          <ToolResultPreview
+            content={displayResult}
+            toolName={item.toolName}
+            args={item.args}
+            shellRunSource={item.shellRunSource}
+          />
         )
       )}
       {hasSharedPanelContent && (
@@ -440,7 +467,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
             quietJson ? (
               <pre className={TOOL_OUTPUT_BODY_CLASS}>{quietJson.body}</pre>
             ) : (
-              <ToolResultPreview content={displayResult} />
+              <ToolResultPreview content={displayResult} toolName={item.toolName} />
             )
           )}
         </div>
@@ -725,7 +752,7 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
             type="button"
             variant="ghost"
             size="sm"
-            className="maka-button [align-self:start] data-[pending=true]:cursor-progress data-[copy-feedback=copied]:text-[color:var(--link)] data-[copy-feedback=copied]:border-[oklch(from_var(--link)_l_c_h_/_0.35)] data-[copy-feedback=failed]:text-[color:var(--destructive)] data-[copy-feedback=failed]:border-[oklch(from_var(--destructive)_l_c_h_/_0.35)]"
+            className="[align-self:start] data-[pending=true]:cursor-progress data-[copy-feedback=copied]:text-[color:var(--link)] data-[copy-feedback=copied]:border-[oklch(from_var(--link)_l_c_h_/_0.35)] data-[copy-feedback=failed]:text-[color:var(--destructive)] data-[copy-feedback=failed]:border-[oklch(from_var(--destructive)_l_c_h_/_0.35)]"
             data-pending={copyPending ? 'true' : undefined}
             data-copy-feedback={copyPhase ?? undefined}
             aria-label={`${copyLabel}错误信息`}
@@ -790,9 +817,10 @@ export function OverlayHost(props: { content?: ToolResultContent; onClose(): voi
   return (
     <div className="maka-modal-backdrop overlay">
       <UiButton
-        className={cn('maka-button', previewVariants({ part: 'close' }))}
+        className={previewVariants({ part: 'close' })}
         type="button"
         variant="ghost"
+        size="sm"
         onClick={props.onClose}
         aria-label="关闭预览"
       >

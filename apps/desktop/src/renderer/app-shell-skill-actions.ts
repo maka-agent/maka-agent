@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { generalizedErrorMessageChinese } from '@maka/core';
-import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry } from '@maka/ui';
+import type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry } from '@maka/ui';
 import { createSkillFailureCopy, openSkillFailureCopy } from './app-shell-copy';
 import { createOpenSkillAction } from './app-shell-open-skill-action';
 
@@ -12,9 +12,11 @@ type ToastApi = {
 export interface AppShellSkillActions {
   refreshSkills(options?: { shouldShowError?: () => boolean }): Promise<void>;
   refreshManagedSkillSources(options?: { shouldShowError?: () => boolean }): Promise<void>;
+  refreshBundledSkillCatalog(options?: { shouldShowError?: () => boolean }): Promise<void>;
   createSkillTemplate(): Promise<void>;
   importManagedSkillSource(): Promise<void>;
   installManagedSkill(sourceId: string): Promise<void>;
+  installBundledSkill(id: string): Promise<void>;
   previewManagedSkillUpdate(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
   updateManagedSkill(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): Promise<boolean>;
   setSkillEnabled(skillId: string, enabled: boolean): Promise<void>;
@@ -25,9 +27,10 @@ export function createAppShellSkillActions(deps: {
   isSkillsSurfaceActive: () => boolean;
   setSkills: Dispatch<SetStateAction<SkillEntry[]>>;
   setManagedSkillSources: Dispatch<SetStateAction<ManagedSkillSourceEntry[]>>;
+  setBundledSkillCatalog: Dispatch<SetStateAction<BundledSkillCatalogEntry[]>>;
   toastApi: ToastApi;
 }): AppShellSkillActions {
-  const { isSkillsSurfaceActive, setManagedSkillSources, setSkills, toastApi } = deps;
+  const { isSkillsSurfaceActive, setBundledSkillCatalog, setManagedSkillSources, setSkills, toastApi } = deps;
   const openSkill = createOpenSkillAction({ isSkillsSurfaceActive, toastApi });
 
   async function refreshSkills(options: { shouldShowError?: () => boolean } = {}) {
@@ -48,6 +51,34 @@ export function createAppShellSkillActions(deps: {
     } catch (error) {
       if (options.shouldShowError?.() ?? true) {
         toastApi.error('刷新来源库失败', generalizedErrorMessageChinese(error, '刷新来源库失败，请稍后重试。'));
+      }
+    }
+  }
+
+  async function refreshBundledSkillCatalog(options: { shouldShowError?: () => boolean } = {}) {
+    try {
+      const next = await window.maka.skills.catalog.list();
+      setBundledSkillCatalog(next);
+    } catch (error) {
+      if (options.shouldShowError?.() ?? true) {
+        toastApi.error('刷新内置技能失败', generalizedErrorMessageChinese(error, '刷新内置技能失败，请稍后重试。'));
+      }
+    }
+  }
+
+  async function installBundledSkill(id: string) {
+    try {
+      const result = await window.maka.skills.catalog.install(id);
+      if (!result.ok) {
+        if (isSkillsSurfaceActive()) toastApi.error('无法安装内置 Skill', managedInstallFailureCopy(result.reason));
+        return;
+      }
+      await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
+      await refreshBundledSkillCatalog({ shouldShowError: isSkillsSurfaceActive });
+      if (isSkillsSurfaceActive()) toastApi.success('已安装内置 Skill', `${result.skill.id}/SKILL.md 已放到当前工作区。`);
+    } catch (error) {
+      if (isSkillsSurfaceActive()) {
+        toastApi.error('无法安装内置 Skill', generalizedErrorMessageChinese(error, '无法安装内置 Skill，请稍后重试。'));
       }
     }
   }
@@ -165,9 +196,11 @@ export function createAppShellSkillActions(deps: {
   return {
     refreshSkills,
     refreshManagedSkillSources,
+    refreshBundledSkillCatalog,
     createSkillTemplate,
     importManagedSkillSource,
     installManagedSkill,
+    installBundledSkill,
     previewManagedSkillUpdate,
     updateManagedSkill,
     setSkillEnabled,

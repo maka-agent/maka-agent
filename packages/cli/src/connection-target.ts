@@ -97,7 +97,7 @@ async function resolveReadyTargetForConnection(
   });
   if (!verdict.ready) throw noRealConnection(verdict.reason);
   return {
-    connection,
+    connection: oauthTokens?.base_url ? { ...connection, baseUrl: oauthTokens.base_url } : connection,
     apiKey: apiKey ?? '',
     model: verdict.model,
     ...(oauthTokens ? { oauthTokens } : {}),

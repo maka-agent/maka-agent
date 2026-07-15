@@ -3,10 +3,37 @@ import { describe, test } from 'node:test';
 import { existsSync, promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runShellWithBoundedTail, killWindowsTree } from '../shell-exec.js';
+import { killWindowsTree } from '../process-tree-terminator.js';
+import { runShellWithBoundedTail } from '../shell-exec.js';
 
 const base = (over: Record<string, unknown> = {}) => ({ cwd: process.cwd(), timeoutMs: 30_000, ...over });
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function readWhenAvailable(path: string, timeoutMs = 5_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      return await fs.readFile(path, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || Date.now() >= deadline) throw error;
+      await delay(20);
+    }
+  }
+}
+
+async function waitForProcessExit(pid: number, timeoutMs = 3_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return;
+      throw error;
+    }
+    if (Date.now() >= deadline) throw new Error(`Detached descendant ${pid} is still running`);
+    await delay(20);
+  }
+}
 
 function findPwsh(): string | undefined {
   const exeNames = process.platform === 'win32' ? ['pwsh.exe'] : ['pwsh', 'pwsh-preview'];
@@ -84,26 +111,41 @@ describe('runShellWithBoundedTail', () => {
     }
   });
 
-  test('on timeout, kills the whole process tree so a child holding the pipe cannot hang the runner', async () => {
-    // The shell spawns a grandchild (node) that inherits stdout and never exits.
-    // Killing only the shell PID would leave it holding the pipe, so 'close'
-    // would never fire and this test would HANG. Killing the process group lets
-    // 'close' fire and the grandchild is actually gone.
+  test('on abort, kills descendants that detach from the shell process group', async () => {
     const dir = await fs.mkdtemp(join(tmpdir(), 'shell-exec-tree-'));
     const pidFile = join(dir, 'child.pid');
+    const parentFile = join(dir, 'parent.cjs');
     const runtime = JSON.stringify(process.execPath);
-    const script = JSON.stringify(`require("fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)`);
-    const cmd =
-      `${runtime} -e ${script}`;
+    const childScript = 'setInterval(() => {}, 1000)';
+    await fs.writeFile(parentFile, `
+      const { spawn } = require('node:child_process');
+      const { writeFileSync } = require('node:fs');
+      const child = spawn(process.execPath, ['-e', ${JSON.stringify(childScript)}], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+      writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));
+      setInterval(() => {}, 1000);
+    `);
+    const cmd = `${runtime} ${JSON.stringify(parentFile)}`;
+    const abort = new AbortController();
+    const running = runShellWithBoundedTail(cmd, base({
+      timeoutMs: 10_000,
+      killGraceMs: 150,
+      abortSignal: abort.signal,
+    }));
     try {
-      const r = await runShellWithBoundedTail(cmd, base({ timeoutMs: 200, killGraceMs: 150 }));
-      assert.equal(r.timedOut, true);
-      assert.equal(r.exitCode, 124);
-      await delay(150); // let the OS reap the killed tree
-      const childPid = Number((await fs.readFile(pidFile, 'utf8')).trim());
-      assert.ok(Number.isInteger(childPid) && childPid > 0, 'grandchild recorded its pid');
-      assert.throws(() => process.kill(childPid, 0), /ESRCH/, 'grandchild was killed with the tree');
+      const childPid = Number((await readWhenAvailable(pidFile)).trim());
+      assert.ok(Number.isInteger(childPid) && childPid > 0, 'detached descendant recorded its pid');
+      abort.abort();
+      const r = await running;
+      assert.equal(r.aborted, true);
+      assert.equal(r.exitCode, 130);
+      await waitForProcessExit(childPid);
     } finally {
+      abort.abort();
+      await running.catch(() => undefined);
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
@@ -200,14 +242,12 @@ describe('runShellWithBoundedTail', () => {
     assert.ok(r.stdout.includes('TAIL'), 'retained tail keeps the command output');
   });
 
-  test('killWindowsTree swallows a taskkill spawn failure instead of crashing', async () => {
+  test('killWindowsTree resolves false when taskkill cannot act on the target', async () => {
     // On non-Windows hosts `taskkill` is absent, so spawn emits an async 'error'
     // (ENOENT). Without the error listener that would be an unhandled 'error'
-    // event and crash the process — so this exercises the exact safety path the
-    // Windows branch relies on. Reaching the assertion means it was swallowed.
-    killWindowsTree(999_999); // bogus pid; taskkill is missing here regardless
-    await delay(150); // let the async spawn-failure 'error' fire
-    assert.ok(true, 'no unhandled error propagated from the taskkill spawn failure');
+    // event and crash the process. Awaiting the real child outcome also pins the
+    // ordering needed before a caller may fall back to killing only the root.
+    assert.equal(await killWindowsTree(999_999), false);
   });
 
 });

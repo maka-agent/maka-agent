@@ -203,6 +203,7 @@ function BootstrapSubscriptionProbe(props: {
     refreshShellSettings: async () => {},
     refreshSkills: async () => {},
     refreshManagedSkillSources: async () => {},
+    refreshBundledSkillCatalog: async () => {},
     refreshSessions: async () => [],
     rendererMountedRef: props.refs.rendererMountedRef,
     setActiveId: () => {},

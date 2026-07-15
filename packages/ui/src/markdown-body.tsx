@@ -16,12 +16,12 @@
 
 import { useContext, type ReactNode } from 'react';
 import * as React from 'react';
+import { Button as BaseButton } from '@base-ui/react/button';
 import { defaultRehypePlugins, defaultRemarkPlugins, Streamdown, type ExtraProps } from 'streamdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkBreaks from 'remark-breaks';
 import { Check, Copy } from './icons.js';
 
-import { Button as UiButton } from './ui.js';
 import {
   isMakaUriCandidate,
   isSafeExternalScheme,
@@ -125,8 +125,7 @@ export function MarkdownBody(props: { text: string; streaming?: boolean }) {
           </code>
         ),
         // Wrap block code with a language pill header + copy affordance.
-        // The pill is from an external design reference (40-markdown-deep §7a) — surfaces the
-        // detected language so users can verify hljs got it right.
+        // Surface the detected language so users can verify highlighting.
         pre: ({ children, ...rest }) => <CodeBlock {...rest}>{children}</CodeBlock>,
         // #618 item 5: the horizontal scroller for over-wide tables lives on
         // a wrapper div. Scrolling on the table itself requires
@@ -248,11 +247,9 @@ function CodeBlock({ children, ...rest }: { children?: ReactNode }) {
     <div className="maka-code-block">
       <div className="maka-code-block-header">
         <span className="maka-code-block-lang">{lang ?? 'code'}</span>
-        <UiButton
+        <BaseButton
           type="button"
           className="maka-code-block-copy"
-          variant="quiet"
-          size="icon-sm"
           onClick={() => void copy()}
           aria-label={copyPhase === 'pending' ? '复制代码中' : copyPhase === 'copied' ? '已复制代码' : copyPhase === 'failed' ? '复制代码失败' : '复制代码'}
           aria-busy={copyPending ? 'true' : undefined}
@@ -264,7 +261,7 @@ function CodeBlock({ children, ...rest }: { children?: ReactNode }) {
           {copied
             ? <Check size={12} aria-hidden="true" />
             : <Copy size={12} aria-hidden="true" />}
-        </UiButton>
+        </BaseButton>
       </div>
       <pre {...rest}>{children}</pre>
     </div>

@@ -6,6 +6,7 @@
  * headline + body text. Primary fields win the main body, but remaining fields
  * are always appended so diagnostics (error/ok/truncated) cannot disappear.
  */
+import { readWriteStdinInputPreview } from '@maka/core';
 import { redactSecrets } from '../redact.js';
 import type { ToolActivityItem } from '../materialize.js';
 import { extractToolCommand } from './tool-command.js';
@@ -149,6 +150,17 @@ export function formatToolInvocationLine(
   const query = stringField(args, 'query');
   const name = item.toolName;
 
+  if (name === 'WriteStdin') {
+    const parts: string[] = ['后台终端交互'];
+    const input = readWriteStdinInputPreview(args);
+    if (input) parts.push(input.truncated ? `${input.text}… · 共 ${input.bytes} 字节` : input.text);
+    const size = asRecord(args.size);
+    const cols = size ? numberField(size, 'cols') : undefined;
+    const rows = size ? numberField(size, 'rows') : undefined;
+    if (cols !== undefined && rows !== undefined) parts.push(`${cols}x${rows}`);
+    return parts.join(' · ');
+  }
+
   if (name === 'Grep' || (pattern && (name === 'Glob' || path))) {
     if (pattern) {
       const scope = path ? ` in ${path}` : '';
@@ -265,11 +277,6 @@ export function formatQuietJsonValue(value: unknown): QuietPreview {
   }
 
   return { body: formatAsKeyValueLines(record) || '（空）' };
-}
-
-/** @deprecated Use formatQuietJsonValue — kept name for call-site clarity with toolName. */
-export function formatBuiltinJsonResult(_toolName: string, value: unknown): QuietPreview {
-  return formatQuietJsonValue(value);
 }
 
 function pickHeadline(

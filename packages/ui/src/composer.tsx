@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { useMountedRef } from './use-mounted-ref.js';
 import { ArrowUp, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import { type UiLocale, detectUiLocale } from './locale-helpers.js';
@@ -24,6 +25,13 @@ import {
   rememberComposerHistoryEntry,
 } from './composer-helpers.js';
 import { readGlobalInputHistory, saveGlobalInputHistoryEntry } from './input-history.js';
+import {
+  createChatInputActionOwner,
+  fileTransferContainsFiles,
+  focusTextInputAtEnd,
+  isChatInputComposing,
+  type ChatInputActionOwner,
+} from './chat-input-behavior.js';
 import type { AttachmentRef, PermissionMode, ProviderType, SessionSummary } from '@maka/core';
 import { Button as UiButton } from './ui.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
@@ -149,6 +157,7 @@ export const Composer = forwardRef<
     activeConnectionLabel?: string;
     activeModel?: string;
     activeModelLabel?: string;
+    activeProviderType?: ProviderType;
     modelChoices?: ChatModelChoice[];
     /** Renders the provider brand mark on each group heading of the model menus;
      *  injected by the desktop app to keep the provider SVG library out of @maka/ui. */
@@ -169,6 +178,7 @@ export const Composer = forwardRef<
      * choose the new-chat model inline instead of only via Settings · 模型.
      */
     newChatModel?: { llmConnectionSlug: string; model: string };
+    newChatProviderType?: ProviderType;
     onPickNewChatModel?(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
     /**
      * Empty-state only: no models are configured yet, so the model chip is a
@@ -221,9 +231,15 @@ export const Composer = forwardRef<
   const [hasDraftText, setHasDraftText] = useState(false);
   const draftStoreRef = useRef<Map<string, string>>(new Map());
   const activeDraftKeyRef = useRef<string | undefined>(props.draftKey);
-  const composerMountedRef = useRef(true);
+  const composerMountedRef = useMountedRef();
   const sendPendingRef = useRef(false);
-  const pendingImportActionRef = useRef<ComposerImportActionId | null>(null);
+  const compositionActiveRef = useRef(false);
+  const importActionOwnerRef = useRef<ChatInputActionOwner<ComposerImportActionId> | null>(null);
+  if (!importActionOwnerRef.current) {
+    importActionOwnerRef.current = createChatInputActionOwner((action) => {
+      if (composerMountedRef.current) setPendingImportAction(action);
+    });
+  }
   const promptHistoryRef = useRef<ComposerHistoryState>({ entries: readGlobalInputHistory() ?? [], index: -1, savedDraft: '' });
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   // detect once per render (cheap) rather than memoizing — the locale
@@ -235,11 +251,9 @@ export const Composer = forwardRef<
   const buttonCopy = COMPOSER_BUTTON_COPY_BY_LOCALE[locale];
 
   useEffect(() => {
-    composerMountedRef.current = true;
     return () => {
-      composerMountedRef.current = false;
       sendPendingRef.current = false;
-      pendingImportActionRef.current = null;
+      importActionOwnerRef.current?.reset();
     };
   }, []);
 
@@ -298,10 +312,8 @@ export const Composer = forwardRef<
         el.value = text;
         saveCurrentDraft(text);
         autoResize();
-        el.focus();
         // Move caret to end so the user can keep typing.
-        const length = el.value.length;
-        el.setSelectionRange(length, length);
+        focusTextInputAtEnd(el);
       },
       appendText(text: string) {
         const el = textareaRef.current;
@@ -310,9 +322,7 @@ export const Composer = forwardRef<
         el.value = appendPromptContextDraft(el.value, text);
         saveCurrentDraft(el.value);
         autoResize();
-        el.focus();
-        const length = el.value.length;
-        el.setSelectionRange(length, length);
+        focusTextInputAtEnd(el);
       },
       focus() {
         textareaRef.current?.focus();
@@ -322,7 +332,7 @@ export const Composer = forwardRef<
   );
 
   async function sendCurrent() {
-    if (props.disabled || sendPendingRef.current || pendingImportActionRef.current) return;
+    if (props.disabled || sendPendingRef.current || importActionOwnerRef.current?.pending) return;
     const textarea = textareaRef.current;
     const form = formRef.current;
     const text = (textarea?.value ?? '').trim();
@@ -364,22 +374,15 @@ export const Composer = forwardRef<
   }
 
   async function runImportAction(actionId: ComposerImportActionId, action: (() => void | Promise<void>) | undefined) {
-    if (!action || props.disabled || props.streaming || pendingImportActionRef.current) return;
-    pendingImportActionRef.current = actionId;
-    setPendingImportAction(actionId);
-    try {
+    if (!action || props.disabled || props.streaming) return;
+    await importActionOwnerRef.current?.run(actionId, async () => {
       await action();
-    } finally {
-      if (pendingImportActionRef.current === actionId) {
-        pendingImportActionRef.current = null;
-        if (composerMountedRef.current) setPendingImportAction(null);
-      }
-    }
+    });
   }
 
   function onTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     // Skip when an IME composition is active so CJK input isn't interrupted.
-    if (event.nativeEvent.isComposing || event.key === 'Process') return;
+    if (isChatInputComposing(event, compositionActiveRef.current)) return;
     // Esc while a drag-active highlight is showing should clear it
     // immediately. The existing useEffect listens for blur/dragend/drop
     // but not keydown, so a user who hits Esc to cancel a stuck drag
@@ -462,15 +465,15 @@ export const Composer = forwardRef<
   }
 
   function canAcceptDroppedFiles(): boolean {
-    return Boolean(props.onAttachFilePaths && !props.disabled && !props.streaming && !pendingImportActionRef.current);
+    return Boolean(props.onAttachFilePaths && !props.disabled && !props.streaming && !importActionOwnerRef.current?.pending);
   }
 
   function hasDraggedFiles(event: DragEvent<HTMLFormElement>): boolean {
-    return Array.from(event.dataTransfer.types).includes('Files');
+    return fileTransferContainsFiles(event.dataTransfer.types, event.dataTransfer.files.length);
   }
 
   function hasPastedFiles(event: ClipboardEvent<HTMLTextAreaElement>): boolean {
-    return Array.from(event.clipboardData.types).includes('Files') || event.clipboardData.files.length > 0;
+    return fileTransferContainsFiles(event.clipboardData.types, event.clipboardData.files.length);
   }
 
   function onComposerDragOver(event: DragEvent<HTMLFormElement>) {
@@ -509,8 +512,7 @@ export const Composer = forwardRef<
     // TypeScript types don't acknowledge that.) Use a narrow `in` check
     // + a typed cast so this compiles AND keeps working when the
     // browser does expose the flag.
-    const native = event.nativeEvent;
-    if ('isComposing' in native && (native as { isComposing?: boolean }).isComposing) return;
+    if (isChatInputComposing(event, compositionActiveRef.current)) return;
     if (!hasPastedFiles(event)) return;
     if (!canAcceptDroppedFiles()) return;
     const files = Array.from(event.clipboardData.files);
@@ -532,7 +534,6 @@ export const Composer = forwardRef<
     };
   }, [dragActive]);
 
-  if (props.hidden) return null;
   const importActionBusy = pendingImportAction !== null;
   const sendDisabled = props.disabled || sendPending || importActionBusy || !hasDraftText;
   const modelChipLabel = props.modelLabel?.trim() || '选择模型';
@@ -548,6 +549,7 @@ export const Composer = forwardRef<
     <form
       ref={formRef}
       className="maka-composer composer"
+      hidden={props.hidden}
       data-drag-active={dragActive ? 'true' : undefined}
       data-maka-file-drop-target={canAcceptDroppedFiles() ? 'true' : undefined}
       onDragOver={onComposerDragOver}
@@ -582,6 +584,8 @@ export const Composer = forwardRef<
           disabled={props.disabled}
           onKeyDown={onTextareaKeyDown}
           onPaste={onTextareaPaste}
+          onCompositionStart={() => { compositionActiveRef.current = true; }}
+          onCompositionEnd={() => { compositionActiveRef.current = false; }}
           onInput={onTextareaInput}
           rows={1}
           autoComplete="off"
@@ -598,7 +602,6 @@ export const Composer = forwardRef<
               <UiButton
                 variant="quiet"
                 size="icon-sm"
-                className="maka-composer-tool-button maka-composer-context-plus"
                 type="button"
                 disabled={props.disabled || importActionBusy}
                 onClick={() => void runImportAction('pick', props.onPickAttachments)}
@@ -670,6 +673,7 @@ export const Composer = forwardRef<
                     activeModel={props.activeModel}
                     activeConnectionLabel={props.activeConnectionLabel}
                     activeModelLabel={props.activeModelLabel}
+                    currentProviderType={props.activeProviderType}
                     choices={props.modelChoices ?? []}
                     pending={props.modelChangePending}
                     disabledReason={modelSwitcherDisabledReason}
@@ -688,6 +692,7 @@ export const Composer = forwardRef<
                         ? modelChoiceValue(props.newChatModel.llmConnectionSlug, props.newChatModel.model)
                         : undefined
                     }
+                    currentProviderType={props.newChatProviderType}
                     renderProviderMark={props.renderProviderMark}
                     onPick={props.onPickNewChatModel}
                     thinkingLevels={props.newChatThinkingLevels}
@@ -701,9 +706,8 @@ export const Composer = forwardRef<
             )}
             {props.streaming ? (
               <UiButton
-                className="maka-button"
                 variant="default"
-                size="sm"
+                size="md"
                 type="button"
                 disabled={props.stopPending}
                 onClick={() => {
@@ -717,9 +721,8 @@ export const Composer = forwardRef<
               </UiButton>
             ) : (
               <UiButton
-                className="maka-composer-send-button"
                 variant="default"
-                size="icon-sm"
+                size="icon"
                 type="submit"
                 disabled={sendDisabled}
                 aria-label={buttonCopy.sendLabel}
@@ -737,12 +740,9 @@ export const Composer = forwardRef<
         const wp = props.workspacePicker!;
         return (
         <div className="maka-composer-workspace-row">
-          {/* PR-COMPOSER-WORKSPACE-PICKER-PRIMITIVE-0 (round 9/30):
-              the workspace picker badge was a raw `<button>`.
-              Routed through UiButton variant="quiet"; custom class
-              still owns the picker's inline-flex shape (icon +
-              label + chevron) and the bespoke 3px accent
-              focus-visible ring. */}
+          {/* The workspace and branch pickers are standard compact menu
+              triggers. Shared Button owns their visual and interaction states;
+              local classes only constrain layout and label truncation. */}
           <Menu>
             <MenuTrigger
               render={({ onClick: menuToggleClick, ...triggerRest }) => (
@@ -753,6 +753,7 @@ export const Composer = forwardRef<
                   }}
                   type="button"
                   variant="quiet"
+                  size="sm"
                   className="maka-composer-workspace-picker"
                   disabled={wp.pending === true}
                   aria-busy={wp.pending === true ? 'true' : undefined}
@@ -809,6 +810,7 @@ export const Composer = forwardRef<
                       }}
                       type="button"
                       variant="quiet"
+                      size="sm"
                       className="maka-composer-branch-picker"
                       disabled={triggerDisabled}
                       aria-busy={triggerDisabled ? 'true' : undefined}

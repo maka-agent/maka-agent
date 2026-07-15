@@ -85,8 +85,13 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(preload, /setModel\(sessionId: string, input: \{ llmConnectionSlug: string; model: string \}\): Promise<SessionSummary>/);
     assert.match(globalTypes, /setModel\(sessionId: string, input: \{ llmConnectionSlug: string; model: string \}\): Promise<SessionSummary>/);
     assert.match(renderer, /modelChoices=\{chatModelChoices\}/);
-    assert.match(renderer, /const pendingSessionModelChangesRef = useRef<Set<string>>\(new Set\(\)\);/);
-    assert.match(renderer, /const \{[\s\S]*setPendingSessionModelBySession,[\s\S]*\} = useAppShellSessionUiState\(\);/);
+    assert.match(renderer, /const sessionModelChangeRegistry = useKeyedPendingRegistry\(\);/);
+    assert.match(
+      renderer,
+      /pendingSessionModelChangesRef: sessionModelChangeRegistry\.keysRef/,
+      'the model-change dedup Set the setModel action guards on must be backed by the shared keyed-pending registry',
+    );
+    assert.match(renderer, /const sessionUi = useAppShellSessionUiState\(\);[\s\S]*setPendingSessionModelBySession: sessionUi\.setPendingSessionModelBySession/);
     assert.match(renderer, /const \{[\s\S]*pendingSessionModelBySession,[\s\S]*\} = sessionUiState;/);
     assert.match(renderer, /const sessionId = activeIdRef\.current;[\s\S]*pendingSessionModelChangesRef\.current\.has\(sessionId\)[\s\S]*window\.maka\.sessions\.setModel\(sessionId, input\)[\s\S]*finally \{[\s\S]*pendingSessionModelChangesRef\.current\.delete\(sessionId\);/);
     assert.match(
@@ -132,12 +137,12 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(ui, /const \[localPending,\s*setLocalPending\] = useState\(false\);/);
     assert.match(ui, /const pendingRef = useRef\(false\);/);
     assert.match(ui, /const pending = props\.pending \|\| localPending;/);
-    assert.match(ui, /const modelSwitcherMountedRef = useRef\(true\);/);
+    assert.match(ui, /const modelSwitcherMountedRef = useMountedRef\(\);/);
     assert.match(ui, /const pendingModelChangeRef = useRef<\{ sessionId: string; token: number \} \| null>\(null\);/);
     assert.match(ui, /const pendingModelChangeTokenRef = useRef\(0\);/);
     assert.match(
       ui,
-      /useEffect\(\(\) => \{[\s\S]*modelSwitcherMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*modelSwitcherMountedRef\.current = false;[\s\S]*pendingModelChangeRef\.current = null;[\s\S]*pendingModelChangeTokenRef\.current \+= 1;[\s\S]*pendingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*pendingModelChangeRef\.current = null;[\s\S]*pendingModelChangeTokenRef\.current \+= 1;[\s\S]*pendingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\);/,
       'model switcher must release pending ownership when the chat header unmounts',
     );
     assert.match(

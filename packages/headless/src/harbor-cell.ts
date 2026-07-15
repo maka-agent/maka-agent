@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import type {
   BackendKind,
   LlmConnection,
+  ModelInfo,
   PricingConfig,
   ProviderType,
   RuntimeEvent,
@@ -20,6 +21,7 @@ import {
   PiAgentBackend,
   SessionManager,
   buildProviderOptions,
+  buildSubscriptionModelFetch,
   defaultShellPlan,
   getAIModel,
   getBuiltinPricing,
@@ -49,6 +51,11 @@ import { configWithEconomyTaskPolicy, resolveEconomyTaskMode } from './economy-t
 import type { HeadlessBackendContext, IsolatedToolExecutor, RealBackendIsolation } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES, validateRealBackendIsolation } from './isolation.js';
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
+import {
+  providerBaseUrlFromEnv,
+  providerCredentialEnv,
+  requireProviderCredentialEnv,
+} from './provider-env.js';
 import { backendNeedsIsolation } from './runner.js';
 import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools, type BuildIsolatedHeadlessToolsOptions } from './tools.js';
 import {
@@ -115,6 +122,10 @@ export interface RunHarborCellResult {
 }
 
 export type RunHarborCellEnv = Record<string, string | undefined>;
+
+export function providerApiKeyEnvName(provider: string): string {
+  return requireProviderCredentialEnv(provider).apiKeys[0]!;
+}
 
 export const HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT = 'Continue the same benchmark task from the current workspace state. Do not restart. If the task is complete, provide the final response.';
 const HARBOR_CELL_DEFAULT_MAX_STEPS_PER_TURN = 50;
@@ -305,6 +316,9 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     model: config.model,
     ...(config.thinkingLevel !== undefined ? { thinkingLevel: config.thinkingLevel } : {}),
     ...(config.thinkingLevelMode !== undefined ? { thinkingLevelMode: config.thinkingLevelMode } : {}),
+    ...(config.thinkingLevel && config.thinkingLevel !== 'default'
+      ? { reasoningEffort: config.thinkingLevel }
+      : {}),
     systemPromptHash: hashHarborSystemPrompt(config.systemPrompt ?? ''),
     pricingProfile: input.pricingProfile ?? 'unconfigured',
   };
@@ -421,8 +435,10 @@ export async function runHarborCellFromEnv(
   const economyTaskMode = economyTaskModeFromEnv(resolvedEnv.MAKA_ECONOMY_TASK_MODE);
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(resolvedEnv);
   const maxSteps = harborCellMaxStepsFromEnv(resolvedEnv);
-  const thinkingLevel = harborCellThinkingLevelFromEnv(resolvedEnv.MAKA_THINKING_LEVEL);
+  const legacyThinkingLevel = harborCellThinkingLevelFromEnv(resolvedEnv.MAKA_THINKING_LEVEL);
   const thinkingLevelMode = harborCellThinkingLevelModeFromEnv(resolvedEnv.MAKA_THINKING_LEVEL_MODE);
+  const reasoningEffort = reasoningEffortFromEnv(resolvedEnv.MAKA_REASONING_EFFORT);
+  const thinkingLevel = resolveHarborCellThinkingLevel(legacyThinkingLevel, reasoningEffort);
   const baseConfig = {
     id: resolvedEnv.MAKA_CONFIG_ID ?? 'harbor-cell',
     backend,
@@ -517,6 +533,26 @@ export async function runHarborCellFromEnv(
     ...(options.now ? { now: options.now } : {}),
     ...(options.newId ? { newId: options.newId } : {}),
   });
+}
+
+export function reasoningEffortFromEnv(value: string | undefined): import('@maka/core').ThinkingLevel | undefined {
+  if (value === undefined) return undefined;
+  if (!isThinkingLevel(value)) throw new Error(`unsupported MAKA_REASONING_EFFORT: ${value}`);
+  return value;
+}
+
+function resolveHarborCellThinkingLevel(
+  legacyThinkingLevel: Config['thinkingLevel'],
+  reasoningEffort: import('@maka/core').ThinkingLevel | undefined,
+): Config['thinkingLevel'] {
+  if (
+    legacyThinkingLevel !== undefined
+    && reasoningEffort !== undefined
+    && legacyThinkingLevel !== reasoningEffort
+  ) {
+    throw new Error('MAKA_THINKING_LEVEL and MAKA_REASONING_EFFORT must agree when both are set');
+  }
+  return legacyThinkingLevel ?? reasoningEffort;
 }
 
 function economyTaskModeFromEnv(value: string | undefined): boolean | undefined {
@@ -666,8 +702,13 @@ export function buildAiSdkCellBackendRegistration(input: {
     if (!context.toolExecutor) {
       throw new Error('Harbor ai-sdk backend requires an isolated tool executor');
     }
-    registry.register('ai-sdk', (ctx) =>
-      new AiSdkBackend({
+    registry.register('ai-sdk', (ctx) => {
+      const subscriptionFetch = buildSubscriptionModelFetch({
+        connection,
+        sessionId: ctx.sessionId,
+        modelId: input.model,
+      });
+      return new AiSdkBackend({
         sessionId: ctx.sessionId,
         header: { ...ctx.header, model: input.model },
         appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
@@ -675,7 +716,10 @@ export function buildAiSdkCellBackendRegistration(input: {
         apiKey,
         modelId: input.model,
         permissionEngine,
-        modelFactory: getAIModel,
+        modelFactory: (modelInput) => getAIModel({
+          ...modelInput,
+          ...(subscriptionFetch ? { fetch: subscriptionFetch } : {}),
+        }),
         tools: buildHarborCellAiSdkTools(context.toolExecutor!, {
           ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
           ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
@@ -708,8 +752,8 @@ export function buildAiSdkCellBackendRegistration(input: {
         recordRunTrace: ctx.recordRunTrace,
         recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
         recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
-      }),
-    );
+      });
+    });
   };
 }
 
@@ -1572,70 +1616,32 @@ function connectionFromEnv(
   ts: number,
 ): LlmConnection {
   const defaults = PROVIDER_DEFAULTS[provider];
+  const githubApiProtocol = modelApiProtocolFromEnv(env.MAKA_MODEL_API_PROTOCOL);
+  if (provider === 'github-copilot' && !githubApiProtocol) {
+    throw new Error('GitHub Copilot requires an account-discovered model protocol');
+  }
   return {
     slug: env.MAKA_LLM_CONNECTION_SLUG ?? provider,
     name: defaults.label,
     providerType: provider,
-    baseUrl: env.MAKA_BASE_URL ?? providerBaseUrl(provider, env) ?? defaults.baseUrl,
+    baseUrl: env.MAKA_BASE_URL ?? providerBaseUrlFromEnv(provider, env) ?? defaults.baseUrl,
     defaultModel: model,
+    ...(provider === 'github-copilot' ? { models: [{ id: model, apiProtocol: githubApiProtocol }] } : {}),
     enabled: true,
     createdAt: ts,
     updatedAt: ts,
   };
 }
 
-function providerBaseUrl(provider: ProviderType, env: RunHarborCellEnv): string | undefined {
-  switch (provider) {
-    case 'deepseek':
-      return env.DEEPSEEK_BASE_URL ?? env.OPENAI_BASE_URL;
-    case 'openai':
-    case 'openai-compatible':
-      return env.OPENAI_BASE_URL;
-    case 'moonshot':
-      return env.MOONSHOT_BASE_URL;
-    case 'zai-coding-plan':
-      return env.ZAI_BASE_URL;
-    case 'MiniMax':
-    case 'MiniMax-cn':
-      return env.MINIMAX_BASE_URL;
-    default:
-      return undefined;
-  }
+function modelApiProtocolFromEnv(value: string | undefined): ModelInfo['apiProtocol'] {
+  if (value === 'openai-chat' || value === 'openai-responses' || value === 'anthropic-messages') return value;
+  return undefined;
 }
 
 function apiKeyFromEnv(provider: ProviderType, env: RunHarborCellEnv, connectionSlug: string): string {
-  const names: string[] = [];
-  switch (provider) {
-    case 'deepseek':
-      names.push('DEEPSEEK_API_KEY', 'OPENAI_API_KEY');
-      break;
-    case 'openai':
-    case 'openai-compatible':
-      names.push('OPENAI_API_KEY');
-      break;
-    case 'moonshot':
-      names.push('MOONSHOT_API_KEY', 'OPENAI_API_KEY');
-      break;
-    case 'zai-coding-plan':
-      names.push('ZAI_API_KEY', 'ZAI_CODING_CN_API_KEY', 'OPENAI_API_KEY');
-      break;
-    case 'google':
-      names.push('GOOGLE_API_KEY');
-      break;
-    case 'anthropic':
-    case 'kimi-coding-plan':
-    case 'claude-subscription':
-      names.push('ANTHROPIC_API_KEY');
-      break;
-    case 'MiniMax':
-    case 'MiniMax-cn':
-      names.push('MINIMAX_API_KEY');
-      break;
-    default:
-      names.push('OPENAI_API_KEY');
-      break;
-  }
-  return resolveApiKey(env, names, connectionSlug);
+  const credentialEnv = providerCredentialEnv(provider);
+  if (!credentialEnv) return '';
+  return resolveApiKey(env, credentialEnv.apiKeys, connectionSlug);
 }
 
 // Resolve an API key from either the raw env var or its `<NAME>_FILE` companion.

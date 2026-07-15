@@ -16,7 +16,7 @@
    定时任务 page (header → banner → tabs → grid sit straight on the white card).
    Removed the inner border/radius/shadow/1080-center so there's no card-in-card,
    and opened up the padding so the page breathes like the reference. */
-/* Phase 2 — atlas-driven rewrite (notes/reference-atlas.md §10). Plan/Reminder
+/* Plan/Reminder
    page card uses the universal recipe: 1px hairline border + 6px radius +
    single 4% lift + 1px inner top highlight. Tight 4-6px internal gaps
    (`--card-gap`) replace the old 14-18px loose stacking. */
@@ -80,18 +80,6 @@
   justify-content: flex-end;
   gap: var(--space-1-5);
   flex-wrap: wrap;
-}
-
-/* Detail round 7: the CTA rides UiButton variant="default" untouched — the
-   former charcoal re-skin (hardcoded oklch literals + radius-pill) diverged
-   from every other module-page primary (skills 添加, daily-review 生成每日回顾).
-   Only the icon/label gap remains. */
-.maka-plan-new-task-button {
-  gap: var(--space-1);
-}
-
-.maka-plan-refresh-button {
-  color: var(--foreground-secondary);
 }
 
 .maka-plan-template-strip {
@@ -560,15 +548,9 @@
 
 .maka-plan-preset {
   min-width: 0;
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.maka-plan-preset:hover {
-  background: var(--state-hover-bg);
 }
 
 .maka-plan-validation {
@@ -595,10 +577,6 @@
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
   line-height: var(--leading-snug);
-}
-
-.maka-plan-submit {
-  justify-content: center;
 }
 
 .maka-plan-search,

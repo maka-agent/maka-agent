@@ -1,7 +1,5 @@
 /**
  * Workspace config types.
- *
- * Source: V0.1_TECH_SPEC.md §13
  */
 
 import type { BackendKind } from './session.js';

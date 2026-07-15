@@ -3,7 +3,7 @@ doc_id: architecture.self-check-bounded-feedback-loop
 title: "第五章：Self-Check Is Not Self-Trust——Maka 的有界自检循环"
 language: zh-CN
 source_language: zh-CN
-counterpart: ./self-check-bounded-feedback-loop-draft.en.md
+counterpart: ./self-check-bounded-feedback-loop-draft.md
 implementation_status: mixed-current-and-target
 document_status: draft
 translation_status: synced

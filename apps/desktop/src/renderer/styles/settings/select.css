@@ -4,7 +4,7 @@
    different wrappers — different option shapes, different selected
    trigger renderers, different CSS recipes. They are now one
    `SettingsSelect` primitive in `@maka/ui` (see kenji styles inventory
-   `notes/maka-styles-css-inventory-2026-06-25-task-128.md`). These
+   the original CSS inventory). These
    `.settingsSelect*` rules pin the unified chrome. */
 .settingsSelectTrigger {
   min-width: 0;

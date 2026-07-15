@@ -1,7 +1,7 @@
 /**
  * Radius governance contract (#406 gap 4).
  *
- * Per docs/design-system.md §1.4:
+ * Radius vocabulary contract:
  *   - control  6px  — button / input / chip / kbd / inline code / tab trigger / nav row
  *   - surface  8px  — card / popover / menu popup / alert / toolbar / tab list / select popup
  *   - modal   12px — Settings / Confirm / Permission modal / floating card
@@ -370,7 +370,6 @@ describe('radius token governance (#406 gap 4)', () => {
       '.maka-code': '--radius-surface',
       '.maka-skeleton-card': '--radius-surface',
       '.composer .maka-composer-inner': '--radius-modal',
-      '.settingsPermissionRefresh': '--radius-control',
       '.settingsCapabilityGuidanceActions code': '--radius-surface',
       '.settingsModal': '--radius-modal',
       '.maka-palette-modal': '--radius-modal',
@@ -380,8 +379,7 @@ describe('radius token governance (#406 gap 4)', () => {
       '.settingsOsPermissionList': '--radius-surface',
       '.settingsHealthIntro': '--radius-surface',
       '.settingsHealthError': '--radius-surface',
-      '.settingsHealthRefresh': '--radius-control',
-      '.settingsBotHero': '--radius-surface',
+      '.settingsBotRuntime': '--radius-surface',
       '.settingsNotice': '--radius-surface',
       '.settingsAboutLogo': '--radius-surface',
       '.settingsAboutPrivacy': '--radius-surface',
@@ -390,7 +388,6 @@ describe('radius token governance (#406 gap 4)', () => {
       '.providerUnavailableNotice': '--radius-surface',
       '.enabledEmptyChip': '--radius-control',
       '.maka-firstrun-list': '--radius-surface',
-      '.maka-onboarding-quickchat-submit': '--radius-control',
       '.maka-first-run-checklist': '--radius-surface',
       '.providerLogo': '--radius-surface',
       '.maka-browser-address': '--radius-control',
@@ -445,7 +442,7 @@ describe('radius token governance (#406 gap 4)', () => {
       '--radius-pill': '999px',
     };
     for (const [tok, val] of Object.entries(expected)) {
-      assert.equal(tokens.get(tok), val, `${tok} must be ${val}. Update this test AND docs/design-system.md §1.4 together.`);
+      assert.equal(tokens.get(tok), val, `${tok} must be ${val}. Update the token source and this contract together.`);
     }
     const aliases: Record<string, string> = {
       '--radius-sm': 'var(--radius-control)',

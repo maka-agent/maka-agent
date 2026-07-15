@@ -35,6 +35,7 @@ import { RENDERER_SHELL_SOURCE_REPO_PATHS } from './renderer-shell-source-helper
 const FILES_TO_SCAN = [
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx'),
+  resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-turn.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'composer.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'skills-panel.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'daily-review-panel.tsx'),
@@ -368,11 +369,11 @@ describe('turn footer copy feedback contract', () => {
     const clipboardPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'clipboard-feedback.ts');
     const hookBlock = await readFile(clipboardPath, 'utf8');
 
-    assert.match(hookBlock, /const copyMountedRef = useRef\(true\)/, 'Shared copy feedback must track mounted state.');
+    assert.match(hookBlock, /const copyMountedRef = useMountedRef\(\)/, 'Shared copy feedback must track mounted state via the shared useMountedRef hook.');
     assert.match(
       hookBlock,
-      /useEffect\(\(\) => \{\s*copyMountedRef\.current = true;\s*return \(\) => \{\s*copyMountedRef\.current = false;\s*clearResetTimer\(\);\s*\};\s*\}, \[\]\)/,
-      'Shared copy feedback must restore mounted state during StrictMode effect replay, then cancel timers and mark itself unmounted during cleanup.',
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*clearResetTimer\(\);\s*\};\s*\}, \[\]\)/,
+      'Shared copy feedback cleanup must cancel timers; the shared useMountedRef hook owns StrictMode-safe mount state.',
     );
     assert.match(
       hookBlock,
@@ -397,7 +398,7 @@ describe('turn footer copy feedback contract', () => {
   });
 
   it('gates the inline footer copy action instead of silently firing raw clipboard writes', async () => {
-    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx');
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-turn.tsx');
     const src = await readFile(componentsPath, 'utf8');
     const footerBlock = src.match(/function TurnFooterActions[\s\S]*?const STATUS_FOOTER_ICON/)?.[0] ?? '';
 
@@ -406,8 +407,8 @@ describe('turn footer copy feedback contract', () => {
     assert.match(footerBlock, /copyResetTimerRef/, 'Turn footer copy feedback should reset without leaking timers.');
     assert.match(
       footerBlock,
-      /useEffect\(\(\) => \{\s*copyMountedRef\.current = true;\s*return \(\) => \{\s*copyMountedRef\.current = false;\s*clearCopyResetTimer\(\);\s*\};\s*\}, \[\]\)/,
-      'Turn footer copy feedback must restore mounted state during StrictMode effect replay, then clear timers on cleanup.',
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*clearCopyResetTimer\(\);\s*\};\s*\}, \[\]\)/,
+      'Turn footer copy feedback cleanup must clear timers; the shared useMountedRef hook owns StrictMode-safe mount state.',
     );
     assert.match(
       footerBlock,
@@ -494,9 +495,9 @@ describe('tool error copy feedback contract', () => {
     // (issue #332 PR3c): the pending / copy-feedback chrome — which lived UNLAYERED
     // in tool-output.css so it out-ranked the ghost button — now lives as literal
     // arbitrary utilities inlined on the copy button's `className`. We slice the
-    // `ToolErrorBanner` block and require the utilities to appear on an actual
-    // `className="maka-button …"` so the assertion proves BOTH that the state
-    // utilities exist AND that the banner's copy button wears them — a whole-file
+    // `ToolErrorBanner` block and require the utilities to appear on the actual
+    // copy button, without restoring the retired `.maka-button` layer. This proves
+    // BOTH that the state utilities exist AND that the button wears them — a whole-file
     // scan would false-pass if the string drifted to another component. These are
     // arbitrary-value utilities (source == computed), so this source contract is the
     // proof; the computed-style harness only re-diffs the non-trivial container box.
@@ -506,7 +507,7 @@ describe('tool error copy feedback contract', () => {
 
     assert.match(
       block,
-      /className="maka-button \[align-self:start\] data-\[pending=true\]:cursor-progress/,
+      /className="\[align-self:start\] data-\[pending=true\]:cursor-progress/,
       'The tool-error copy button must wear the leaf state utilities inline on its className.',
     );
     assert.match(
@@ -529,14 +530,12 @@ describe('tool error copy feedback contract', () => {
 
 describe('chat markdown copy feedback contract', () => {
   it('gates assistant message copy without redacting the raw message markdown', async () => {
-    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx');
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-turn.tsx');
     const src = await readFile(componentsPath, 'utf8');
     // PR-UI-LIB-EXTRACT-6 (round 7/10) moved the markdown layer
     // out of components.tsx; PR-UI-LIB-EXTRACT-8 (round 9/10)
     // then moved `EmptyChatHero` itself into `chat-empty-hero.tsx`.
-    // The next-named-thing anchor after `MessageCopyButton` is now
-    // `ChatHeaderAlertBadge`.
-    const block = src.match(/function MessageCopyButton[\s\S]*?function ChatHeaderAlertBadge/)?.[0] ?? '';
+    const block = src.match(/function MessageCopyButton[\s\S]*?export const TurnView/)?.[0] ?? '';
 
     assert.match(block, /useClipboardCopyFeedback\(1400, \{ redact: false \}\)/, 'Message copy should preserve raw assistant markdown.');
     assert.match(block, /await copyFeedback\.copy\('message', props\.text\)/, 'Message copy should route through the guarded helper.');

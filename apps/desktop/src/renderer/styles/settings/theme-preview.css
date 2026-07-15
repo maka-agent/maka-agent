@@ -421,35 +421,15 @@
   align-items: center;
   gap: var(--space-0-5);
 }
-.settingsPasswordToggle {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--muted-foreground);
-  transition: background var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
-}
-.settingsPasswordToggle:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-}
-.settingsPasswordToggle:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.28);
-}
-
 /* PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `2fa6ada6` screenshots):
    action buttons in bot settings follow the reference design — outlined
    blue rounded pills, stacked vertically with a small gap. */
 .settingsBotActionStack {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 /* Detail audit: the .settingsBotAction pill re-skin (radius-pill + raw
    accent chrome smuggled through this file's governance allowlist) was
@@ -590,11 +570,6 @@
   line-height: var(--leading-normal);
 }
 
-.settingsWechatQrSecondary:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.24);
-}
-
 .settingsWechatQrBody {
   display: grid;
   place-items: center;
@@ -659,26 +634,6 @@
   color: var(--destructive-text);
 }
 
-.settingsWechatQrSecondary {
-  min-height: 30px;
-  border: var(--border-width-hairline) solid oklch(from var(--accent) l c h / 0.34);
-  border-radius: var(--radius-surface);
-  background: var(--background);
-  color: var(--accent);
-  padding: 0 var(--space-3);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-medium);
-}
-
-.settingsWechatQrSecondary:hover {
-  background: oklch(from var(--accent) l c h / 0.08);
-}
-
-.settingsWechatQrSecondary:disabled {
-  opacity: var(--opacity-disabled);
-  cursor: progress;
-}
-
 .settingsThemeLabel {
   display: grid;
   min-width: 0;
@@ -720,11 +675,3 @@
 .settingsSubheading + .settingsThemeOptions {
   margin-top: calc(var(--space-1-5) * -1);
 }
-
-.settingsBotLayout {
-  min-height: 470px;
-  display: grid;
-  grid-template-columns: 210px minmax(0, 1fr);
-  gap: var(--space-6);
-}
-

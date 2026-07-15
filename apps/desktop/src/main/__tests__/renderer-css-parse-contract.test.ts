@@ -44,4 +44,23 @@ describe('renderer CSS parse contract', () => {
       );
     }
   });
+
+  it('keeps renderer font tokens owned by maka-tokens.css', async () => {
+    const entry = await readFile(`${REPO_ROOT}/apps/desktop/src/renderer/styles.css`, 'utf8');
+    const tokens = await readFile(`${REPO_ROOT}/apps/desktop/src/renderer/maka-tokens.css`, 'utf8');
+    assert.doesNotMatch(
+      stripCssComments(entry),
+      /--font-(sans|mono)\s*:/,
+      'styles.css is an import/Tailwind bridge and must not redefine product font tokens',
+    );
+    assert.match(tokens, /--font-sans\s*:/, 'maka-tokens.css must own --font-sans');
+    assert.match(tokens, /--font-mono\s*:/, 'maka-tokens.css must own --font-mono');
+  });
+
+  it('keeps one Tailwind theme bridge in styles.css', async () => {
+    const owners = (await readRendererCssFiles())
+      .filter(({ source }) => /@theme\s+inline\s*\{/.test(stripCssComments(source)))
+      .map(({ file }) => file.replaceAll('\\', '/'));
+    assert.deepEqual(owners, [`${REPO_ROOT}/apps/desktop/src/renderer/styles.css`]);
+  });
 });

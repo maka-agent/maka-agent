@@ -138,10 +138,7 @@ describe('materializeTurns', () => {
           cmd: 'sleep 99',
           status: 'cancelled',
           exitCode: 130,
-          stdout: '',
-          stderr: '',
-          stdoutTruncated: false,
-          stderrTruncated: false,
+          output: pipeOutput(),
         },
       } as StoredMessage,
     ]);
@@ -410,6 +407,17 @@ describe('materializeTurns', () => {
 
 function toolCallStep(turnId: string, ts: number, id: string, stepId: string, toolName = 'Read'): StoredMessage {
   return { type: 'tool_call', id, turnId, ts, toolName, args: {}, stepId };
+}
+
+function pipeOutput(stdout = '', stderr = '') {
+  return {
+    mode: 'pipes' as const,
+    stdout,
+    stderr,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    redacted: false,
+  };
 }
 
 function assistantStep(

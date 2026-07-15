@@ -67,6 +67,11 @@ export interface ShellSpawnPlan {
   useShellOption: boolean;
 }
 
+export interface PtyShellSpawnPlan {
+  file: string;
+  args: string[];
+}
+
 // PowerShell's -Command maps the process exit code to 0/1 from $? — a native
 // command exiting 42 comes back as 1 (about_Pwsh: "that exit code is converted
 // to 1"). Appended after the user command, this re-raises $LASTEXITCODE, but
@@ -95,6 +100,26 @@ export function buildShellSpawnPlan(shell: ShellPlan, command: string): ShellSpa
     };
   }
   return { file: command, args: [], useShellOption: true };
+}
+
+export function buildPtyShellSpawnPlan(
+  shell: ShellPlan,
+  command: string,
+  env: NodeJS.ProcessEnv = process.env,
+): PtyShellSpawnPlan {
+  if ((shell.kind === 'pwsh' || shell.kind === 'powershell') && shell.exe) {
+    return {
+      file: shell.exe,
+      args: ['-NoLogo', '-NoProfile', '-Command', `${command}\n${POWERSHELL_EXIT_CODE_TAIL}`],
+    };
+  }
+  if (shell.kind === 'cmd') {
+    return {
+      file: env.ComSpec || env.COMSPEC || 'cmd.exe',
+      args: ['/d', '/s', '/c', command],
+    };
+  }
+  return { file: '/bin/sh', args: ['-c', command] };
 }
 
 /**

@@ -92,14 +92,14 @@ const ALL_SCENARIOS = [
   // share one on-disk seed and only differ in active session, so
   // capture produces three deterministic screenshots covering primary
   // (lineage / aborted / failed), visible-parent branch (banner), and
-  // orphan branch (no banner). See smoke.md Path 15.
+  // orphan branch (no banner).
   'turn-control-history',
   'turn-control-branch-visible',
   'turn-control-branch-orphan',
   // PR-UI-RENDER-3a-smoke: registry-driven artifact preview fixtures.
   // Each writes a SINGLE artifact to ARTIFACT_SESSION_ID so the
   // ArtifactPane default selection deterministically shows the one we
-  // want to baseline. See smoke.md Path 17 PR-RENDER-3a-smoke gate.
+  // want to baseline.
   'artifact-preview-image',
   'artifact-preview-unsupported',
   'artifact-preview-oversize',
@@ -131,6 +131,14 @@ const ALL_SCENARIOS = [
   // Reviewers should see the single overflow trigger cleanly painted with
   // NO `Nm ago` peeking through and NO unread dot stacked behind.
   'sidebar-row-actions-visible',
+  // #819: BrowserPanel renderer-chrome fixture. Seeds
+  // `liveBrowserSessionIds` with the active turn session so the panel
+  // mounts; with no native WebContentsView in visual-smoke mode,
+  // browser.getState resolves null → EMPTY_STATE → the empty-state
+  // chrome (toolbar all-nav-disabled + <Empty> strip) the #818
+  // narrow-layout defect regressed against. 1280/990 × light/dark
+  // variants baseline the chrome layout at wide + narrow gates.
+  'browser-empty',
 ];
 
 const VARIANTS = [

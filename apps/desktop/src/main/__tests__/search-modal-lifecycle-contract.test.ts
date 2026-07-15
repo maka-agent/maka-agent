@@ -42,6 +42,8 @@ import { renderSessionListPanel } from './session-list-render-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const COMPONENTS_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-view.tsx');
+const CHAT_TURN_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-turn.tsx');
+const CHAT_SCROLL_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'use-chat-scroll.ts');
 const SEARCH_MODAL_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'search-modal.tsx');
 const COMMAND_PALETTE_CONTENT_PATH = join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'command-palette-content-search.ts');
 
@@ -115,7 +117,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
 
   it('returns focus to the sidebar Search trigger when the modal closes', async () => {
     const main = await readRendererShellCombinedSource();
-    const shellSearchButton = main.match(/className="maka-shell-topbar-button"[\s\S]*?data-maka-search-trigger="true"[\s\S]*?<\/TooltipTrigger>/)?.[0] ?? '';
+    const shellSearchButton = main.match(/className="maka-titlebar-action"[\s\S]*?data-maka-search-trigger="true"[\s\S]*?<\/TooltipTrigger>/)?.[0] ?? '';
     const closeSearchModal = main.match(/function closeSearchModal\(options\?: \{ restoreFocus\?: boolean \}\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(
@@ -162,6 +164,8 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   it('search result navigation consumes target.turnId instead of only switching sessions', async () => {
     const searchModalSource = await readFile(SEARCH_MODAL_PATH, 'utf8');
     const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const chatTurn = await readFile(CHAT_TURN_PATH, 'utf8');
+    const chatScroll = await readFile(CHAT_SCROLL_PATH, 'utf8');
     const main = await readRendererShellCombinedSource();
     const contentSearch = await readFile(COMMAND_PALETTE_CONTENT_PATH, 'utf8');
 
@@ -201,27 +205,27 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
       'ChatView must expose a typed scroll target prop',
     );
     assert.match(
-      components,
-      /scrollIntoView\(\{\s*behavior:\s*props\.scrollBehavior\s*\?\?\s*'smooth',\s*block:\s*'center'/,
+      chatScroll,
+      /scrollIntoView\(\{\s*behavior:\s*input\.behavior\s*\?\?\s*'smooth',\s*block:\s*'center'/,
       'ChatView must scroll the matched turn into view',
     );
     assert.match(
-      components,
-      /function scrollToBottom\(\) \{[\s\S]*scrollTo\(\{\s*top:\s*el\.scrollHeight,\s*behavior:\s*props\.scrollBehavior\s*\?\?\s*'smooth'\s*\}\);/,
+      chatScroll,
+      /function scrollToBottom\(\) \{[\s\S]*scrollTo\(\{\s*top:\s*viewport\.scrollHeight,\s*behavior:\s*input\.behavior\s*\?\?\s*'smooth'\s*\}\);/,
       'ChatView jump-to-latest must honor the same reduced-motion/visual-smoke scroll policy as search navigation',
     );
     assert.match(
-      components,
-      /targetEl\.setAttribute\('tabindex', '-1'\);[\s\S]*targetEl\.focus\(\{ preventScroll: true \}\);/,
+      chatScroll,
+      /targetElement\.setAttribute\('tabindex', '-1'\);[\s\S]*targetElement\.focus\(\{ preventScroll: true \}\);/,
       'ChatView must move keyboard focus to the matched turn after search navigation',
     );
     assert.match(
-      components,
+      chatTurn,
       /data-search-highlight=\{props\.searchHighlighted\s*\?\s*'true'\s*:\s*undefined\}/,
       'ChatView must visually mark the matched search turn',
     );
     assert.match(
-      components,
+      chatTurn,
       /tabIndex=\{props\.searchHighlighted \? -1 : undefined\}/,
       'Highlighted search turns must be programmatically focusable while the search target is active',
     );
@@ -313,10 +317,10 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
 
     assert.match(styles, /\.maka-search-modal-input::-webkit-search-cancel-button\s*\{\s*display:\s*none;/, 'Native search cancel is intentionally hidden for visual consistency');
     assert.match(searchModal, /query\.length > 0 && \(/, 'Clear button should appear only when the query has content');
-    assert.match(searchModal, /className="maka-search-modal-clear"[\s\S]*aria-label="清空搜索"/, 'Search modal must provide an explicit clear search button');
+    assert.match(searchModal, /<UiButton\s+variant="quiet"\s+size="icon-sm"\s+type="button"\s+aria-label="清空搜索"/, 'Search modal must provide a governed compact clear button');
     assert.match(searchModal, /onClick=\{clearSearchQuery\}/, 'Clear search button must use the shared clear helper');
     assert.match(searchModal, /function clearSearchQuery\(\) \{[\s\S]*setQuery\(''\);[\s\S]*clearSearchState\(\);[\s\S]*inputRef\.current\?\.focus\(\);[\s\S]*\}/, 'Clear search helper must clear the query, invalidate search state, and return focus to input');
-    assert.match(styles, /\.maka-search-modal-clear/, 'Clear search button needs dedicated styling');
+    assert.doesNotMatch(styles, /\.maka-search-modal-clear/, 'Clear search button styling belongs to the shared Button primitive');
   });
 
   it('search input shell uses shared primitive InputGroup instead of a hand-rolled grid wrapper', async () => {
@@ -369,10 +373,10 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   it('closing the modal invalidates already-started search requests before they set state', async () => {
     const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
 
-    assert.match(searchModal, /const searchMountedRef = useRef\(true\)/, 'SearchModal must track whether the conditionally mounted dialog is still alive.');
+    assert.match(searchModal, /const searchMountedRef = useMountedRef\(\)/, 'SearchModal must track whether the conditionally mounted dialog is still alive.');
     assert.match(
       searchModal,
-      /useEffect\(\(\) => \{\s*searchMountedRef\.current = true;\s*return \(\) => \{\s*searchMountedRef\.current = false;\s*ticketRef\.current \+= 1;\s*\};\s*\}, \[\]\)/,
+      /useEffect\(\(\) => \{\s*return \(\) => \{\s*ticketRef\.current \+= 1;\s*\};\s*\}, \[\]\)/,
       'SearchModal unmount cleanup must invalidate in-flight searches, including requests that already passed the debounce timer.',
     );
     assert.match(

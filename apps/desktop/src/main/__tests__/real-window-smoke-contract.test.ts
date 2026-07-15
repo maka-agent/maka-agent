@@ -1,6 +1,4 @@
 /**
- * PR-DESKTOP-SMOKE-0 contract.
- *
  * The recent Sidebar work exposed failures that screenshot capture and
  * grep-style CSS tests could not prove: real macOS edge/corner resize,
  * titlebar drag, modal focus cycle, and renderer ErrorBoundary state.
@@ -34,7 +32,7 @@ const REQUIRED_CHECK_IDS = [
   'renderer-health',
 ];
 
-describe('real Electron window smoke gate (PR-DESKTOP-SMOKE-0)', () => {
+describe('real Electron window smoke gate', () => {
   it('desktop package exposes `smoke:real-window` and builds core/ui/desktop first', async () => {
     const pkg = JSON.parse(await readFile(DESKTOP_PACKAGE_JSON, 'utf8')) as {
       scripts?: Record<string, string>;
@@ -98,7 +96,7 @@ describe('real Electron window smoke gate (PR-DESKTOP-SMOKE-0)', () => {
 
   it('smoke.md documents that real-window smoke is required for shell/modal PRs', async () => {
     const doc = await readFile(SMOKE_DOC, 'utf8');
-    assert.match(doc, /Real Electron window smoke \(PR-DESKTOP-SMOKE-0\)/);
+    assert.match(doc, /Real Electron window smoke/);
     assert.match(doc, /npm --workspace @maka\/desktop run smoke:real-window/);
     assert.match(doc, /four corners resizes diagonally/);
     assert.match(doc, /Search modal opens and closes/);

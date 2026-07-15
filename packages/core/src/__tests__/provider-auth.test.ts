@@ -9,6 +9,224 @@ import {
 import type { LlmConnection } from '../llm-connections.js';
 
 describe('ProviderAuth contract', () => {
+  test('Ollama Cloud requires its own API key and exposes remote model discovery', () => {
+    const missing = deriveProviderAuthContract({
+      providerType: 'ollama-cloud',
+      hasSecret: false,
+    });
+    const configured = deriveProviderAuthContract({
+      providerType: 'ollama-cloud',
+      hasSecret: true,
+    });
+
+    expect(missing.setupMode).toBe('api_key');
+    expect(missing.requiresSecret).toBe(true);
+    expect(missing.sendMayUseWithoutSecret).toBe(false);
+    expect(missing.actionAvailability.fetch_models).toBe('hidden');
+    expect(configured.actionAvailability.test_credentials).toBe('available');
+    expect(configured.actionAvailability.fetch_models).toBe('available');
+  });
+
+  test('DeepInfra uses the shared API-key credential and model-discovery flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'deepinfra',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('deepinfra');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
+  test('Cloudflare Workers AI uses API-token auth with honest snapshot model discovery', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'cloudflare-workers-ai',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('cloudflare-workers-ai');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
+  test('Volcengine Ark Coding Plan uses an isolated API key and hides unsupported refresh', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'volcengine-coding-plan',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('volcengine-coding-plan');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
+  test('Tencent Token Plan uses an independent API key and fallback-model flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'tencent-token-plan',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('tencent-token-plan');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
+  test('Tencent Coding Plan uses the shared API-key credential and fallback-model flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'tencent-coding-plan',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('tencent-coding-plan');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
+  test('StepFun Global uses an independent API-key credential and model-discovery flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'stepfun-ai',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('stepfun-ai');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
+  test('StepFun China uses the shared API-key credential and model-discovery flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'stepfun',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('stepfun');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
+  test('StepFun Step Plan China uses an independent API-key credential and snapshot-model flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'stepfun-step-plan',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('stepfun-step-plan');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
+  test('StepFun Step Plan Global uses an independent API-key credential and snapshot-model flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'stepfun-ai-step-plan',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('stepfun-ai-step-plan');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
+  test('Volcengine Ark China uses the shared API-key credential and snapshot-model flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'volcengine-ark',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('volcengine-ark');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
+  test('Together AI uses the shared API-key credential flow under its stable provider id', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'togetherai',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('togetherai');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+  });
+
+  test('Fireworks AI uses the shared API-key credential flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'fireworks-ai',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('fireworks-ai');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
+  test('Vercel Gateway requires one stored key and exposes its public model discovery action', () => {
+    const missing = deriveProviderAuthContract({
+      providerType: 'vercel',
+      hasSecret: false,
+    });
+    expect(missing.setupMode).toBe('api_key');
+    expect(missing.requiresSecret).toBe(true);
+    expect(missing.actionAvailability.test_credentials).toBe('hidden');
+    expect(missing.actionAvailability.fetch_models).toBe('hidden');
+
+    const configured = deriveProviderAuthContract({
+      providerType: 'vercel',
+      hasSecret: true,
+    });
+    expect(configured.providerType).toBe('vercel');
+    expect(configured.actionAvailability.test_credentials).toBe('available');
+    expect(configured.actionAvailability.fetch_models).toBe('available');
+  });
+
+  test('ZenMux requires one stored key while keeping its public bounded discovery available', () => {
+    const missing = deriveProviderAuthContract({ providerType: 'zenmux', hasSecret: false });
+    expect(missing.setupMode).toBe('api_key');
+    expect(missing.requiresSecret).toBe(true);
+    expect(missing.actionAvailability.test_credentials).toBe('hidden');
+    expect(missing.actionAvailability.fetch_models).toBe('hidden');
+
+    const configured = deriveProviderAuthContract({ providerType: 'zenmux', hasSecret: true });
+    expect(configured.providerType).toBe('zenmux');
+    expect(configured.actionAvailability.test_credentials).toBe('available');
+    expect(configured.actionAvailability.fetch_models).toBe('available');
+  });
+
+  test('MiniMax Coding Plan uses the shared API-key credential flow under its own provider id', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'minimax-coding-plan',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('minimax-coding-plan');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
   test('model-key providers expose credential actions only after a secret exists', () => {
     const missing = deriveProviderAuthContract({
       providerType: 'openai',
@@ -150,6 +368,52 @@ describe('ProviderAuth contract', () => {
     expect(contract.actionAvailability.test_credentials).toBe('available');
     expect(contract.actionAvailability.fetch_models).toBe('available');
     expect(contract.copy.detail).toContain('本地服务');
+  });
+
+  test('LM Studio uses the shared no-auth configuration flow under its own provider id', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'lm-studio',
+      hasSecret: false,
+    });
+
+    expect(contract.providerType).toBe('lm-studio');
+    expect(contract.setupMode).toBe('none');
+    expect(contract.requiresSecret).toBe(false);
+    expect(contract.sendMayUseWithoutSecret).toBe(true);
+    expect(contract.actionAvailability.save_secret).toBe('hidden');
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+  });
+
+  test('LocalAI keeps API-key setup available without making the key required', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'localai',
+      hasSecret: false,
+    });
+
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.state).toBe('configured');
+    expect(contract.validationStatus).toBe('not_required');
+    expect(contract.requiresSecret).toBe(false);
+    expect(contract.sendMayUseWithoutSecret).toBe(true);
+    expect(contract.actionAvailability.save_secret).toBe('available');
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('available');
+    expect(contract.copy.detail).toContain('可选');
+  });
+
+  test('LocalAI preserves endpoint validation failures without making its optional key required', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'localai',
+      hasSecret: true,
+      lastTestStatus: 'needs_reauth',
+    });
+
+    expect(contract.state).toBe('needs_reauth');
+    expect(contract.validationStatus).toBe('needs_reauth');
+    expect(contract.requiresSecret).toBe(false);
+    expect(contract.sendMayUseWithoutSecret).toBe(true);
+    expect(contract.copy.label).toContain('需要重新授权');
   });
 
   test('disabled providers hide actions regardless of stored credential state', () => {

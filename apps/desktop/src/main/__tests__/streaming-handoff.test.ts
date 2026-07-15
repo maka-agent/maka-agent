@@ -7,7 +7,7 @@ import {
   armLiveTurn,
   ChatView,
   type LiveTurnProjection,
-  type PermissionQueues,
+  type InteractionQueues,
 } from '@maka/ui';
 import { createAppShellSessionEventHandlers } from '../../renderer/app-shell-session-events.js';
 
@@ -42,7 +42,6 @@ function renderLiveTurn(liveTurn: LiveTurnProjection): string {
     },
     messages: [{ type: 'user', id: 'user-1', turnId: liveTurn.turnId, ts: 1, text: 'go' }],
     liveTurn,
-    mode: 'sessions',
     onNew() {},
   } satisfies Parameters<typeof ChatView>[0]));
 }
@@ -94,7 +93,6 @@ describe('single live-turn handoff', () => {
           tools: [],
         }],
       },
-      mode: 'sessions',
       onNew() {},
     } satisfies Parameters<typeof ChatView>[0]));
 
@@ -123,7 +121,6 @@ describe('single live-turn handoff', () => {
           tools: [{ toolUseId: 'tool-1', toolName: 'Bash', stepId: 'assistant-1', status: 'running', args: {} }],
         }],
       },
-      mode: 'sessions',
       onNew() {},
     } satisfies Parameters<typeof ChatView>[0]));
 
@@ -135,7 +132,7 @@ describe('single live-turn handoff', () => {
       'session-1': armLiveTurn('turn-1'),
     });
     const liveTurnBySessionRef = { current: liveTurns.get() };
-    const permissions = createStateSetter<PermissionQueues>({});
+    const interactions = createStateSetter<InteractionQueues>({});
     const refreshes: Array<{ sessionId: string; required?: string }> = [];
     const setLiveTurnBySession = (updater: (current: Record<string, LiveTurnProjection>) => Record<string, LiveTurnProjection>) => {
       liveTurns.set(updater);
@@ -150,7 +147,7 @@ describe('single live-turn handoff', () => {
       },
       refreshSessions: async () => [],
       setLiveTurnBySession,
-      setPermissionBySession: permissions.set,
+      setInteractionBySession: interactions.set,
       showModelSetupToast: () => {},
       toastApi: { error: () => {} },
     });
@@ -184,7 +181,7 @@ describe('single live-turn handoff', () => {
       'session-1': armLiveTurn('turn-1'),
     });
     const ref = { current: liveTurns.get() };
-    const permissions = createStateSetter<PermissionQueues>({});
+    const interactions = createStateSetter<InteractionQueues>({});
     const setLiveTurnBySession = (updater: (current: Record<string, LiveTurnProjection>) => Record<string, LiveTurnProjection>) => {
       liveTurns.set(updater);
       ref.current = liveTurns.get();
@@ -195,7 +192,7 @@ describe('single live-turn handoff', () => {
       refreshMessages: async () => true,
       refreshSessions: async () => [],
       setLiveTurnBySession,
-      setPermissionBySession: permissions.set,
+      setInteractionBySession: interactions.set,
       showModelSetupToast: () => {},
       toastApi: { error: () => {} },
     });
@@ -211,7 +208,7 @@ describe('single live-turn handoff', () => {
 
     assert.equal(liveTurns.get()['session-1']?.terminal, undefined);
     assert.equal(liveTurns.get()['session-1']?.steps[0]?.tools[0]?.status, 'waiting_permission');
-    assert.equal(permissions.get()['session-1']?.[0]?.requestId, 'request-1');
+    assert.equal(interactions.get()['session-1']?.[0]?.requestId, 'request-1');
   });
 
   it('hands an aborted projection over only after persisted messages cover it', async () => {
@@ -231,7 +228,7 @@ describe('single live-turn handoff', () => {
       },
     });
     const ref = { current: liveTurns.get() };
-    const permissions = createStateSetter<PermissionQueues>({});
+    const interactions = createStateSetter<InteractionQueues>({});
     const setLiveTurnBySession = (updater: (current: Record<string, LiveTurnProjection>) => Record<string, LiveTurnProjection>) => {
       liveTurns.set(updater);
       ref.current = liveTurns.get();
@@ -246,7 +243,7 @@ describe('single live-turn handoff', () => {
       refreshMessages: async () => refresh,
       refreshSessions: async () => [],
       setLiveTurnBySession,
-      setPermissionBySession: permissions.set,
+      setInteractionBySession: interactions.set,
       showModelSetupToast: () => {},
       toastApi: { error: () => {} },
     });
@@ -283,7 +280,7 @@ describe('single live-turn handoff', () => {
     };
     const liveTurns = createStateSetter<Record<string, LiveTurnProjection>>({ 'session-1': projection });
     const ref = { current: liveTurns.get() };
-    const permissions = createStateSetter<PermissionQueues>({});
+    const interactions = createStateSetter<InteractionQueues>({});
     const handlers = createAppShellSessionEventHandlers({
       activeIdRef: { current: 'session-1' },
       liveTurnBySessionRef: ref,
@@ -293,7 +290,7 @@ describe('single live-turn handoff', () => {
         liveTurns.set(updater);
         ref.current = liveTurns.get();
       },
-      setPermissionBySession: permissions.set,
+      setInteractionBySession: interactions.set,
       showModelSetupToast: () => {},
       toastApi: { error: () => {} },
     });
@@ -341,7 +338,7 @@ describe('single live-turn handoff', () => {
     };
     const liveTurns = createStateSetter<Record<string, LiveTurnProjection>>({ 'session-1': projection });
     const ref = { current: liveTurns.get() };
-    const permissions = createStateSetter<PermissionQueues>({});
+    const interactions = createStateSetter<InteractionQueues>({});
     const handlers = createAppShellSessionEventHandlers({
       activeIdRef: { current: 'session-1' },
       liveTurnBySessionRef: ref,
@@ -351,7 +348,7 @@ describe('single live-turn handoff', () => {
         liveTurns.set(updater);
         ref.current = liveTurns.get();
       },
-      setPermissionBySession: permissions.set,
+      setInteractionBySession: interactions.set,
       showModelSetupToast: () => {},
       toastApi: { error: () => {} },
     });
@@ -376,7 +373,7 @@ describe('single live-turn handoff', () => {
       },
     });
     const ref = { current: liveTurns.get() };
-    const permissions = createStateSetter<PermissionQueues>({});
+    const interactions = createStateSetter<InteractionQueues>({});
     let resolveRefresh!: (value: boolean) => void;
     const refresh = new Promise<boolean>((resolve) => {
       resolveRefresh = resolve;
@@ -390,7 +387,7 @@ describe('single live-turn handoff', () => {
         liveTurns.set(updater);
         ref.current = liveTurns.get();
       },
-      setPermissionBySession: permissions.set,
+      setInteractionBySession: interactions.set,
       showModelSetupToast: () => {},
       toastApi: { error: () => {} },
     });

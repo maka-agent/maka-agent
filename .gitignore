@@ -18,3 +18,6 @@ skills-lock.json
 # The committed baseline lives in `apps/desktop/tests/screenshots-baseline/`.
 apps/desktop/tests/screenshots/
 deepseek.key
+
+# Generated cua-driver release artifact; provenance metadata stays tracked.
+apps/desktop/resources/bin/

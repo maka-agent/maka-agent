@@ -1,13 +1,72 @@
 import { randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import {
+  isValidLegacyShellRunState,
+  isShellOutput,
+  isShellRunId,
   isShellRunStatus,
+  isValidShellRunState,
   type ShellRunRecord,
+  type ShellRunPatch,
   type ShellRunStore,
 } from '@maka/core';
+import { chainWrite } from './write-queue.js';
 
-const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+const SHELL_RUN_PATCH_KEYS = new Set([
+  'status',
+  'exitCode',
+  'failureMessage',
+  'updatedAt',
+  'completedAt',
+  'observedAt',
+  'output',
+]);
+const SHELL_RUN_RECORD_KEYS = new Set([
+  'shellRunId',
+  'sessionId',
+  'sourceRunId',
+  'sourceTurnId',
+  'sourceToolCallId',
+  'cwd',
+  'command',
+  'status',
+  'startedAt',
+  'updatedAt',
+  'completedAt',
+  'timeoutMs',
+  'exitCode',
+  'failureMessage',
+  'revision',
+  'observedAt',
+  'output',
+]);
+const LEGACY_SHELL_RUN_RECORD_KEYS = new Set([
+  'shellRunId',
+  'sessionId',
+  'sourceRunId',
+  'sourceTurnId',
+  'sourceToolCallId',
+  'cwd',
+  'command',
+  'status',
+  'startedAt',
+  'updatedAt',
+  'completedAt',
+  'timeoutMs',
+  'exitCode',
+  'failureMessage',
+  'stdoutTail',
+  'stderrTail',
+  'latestOutputStream',
+  'stdoutTruncated',
+  'stderrTruncated',
+  'observedAt',
+  'orphanedReason',
+  'pid',
+]);
 
 export function createShellRunStore(workspaceRoot: string): ShellRunStore {
   return new FileShellRunStore(workspaceRoot);
@@ -22,8 +81,8 @@ class FileShellRunStore implements ShellRunStore {
   }
 
   async createShellRun(record: ShellRunRecord): Promise<ShellRunRecord> {
-    assertSafeId(record.sessionId, 'Invalid session id');
-    assertSafeId(record.shellRunId, 'Invalid shell run id');
+    assertSessionId(record.sessionId);
+    assertShellRunId(record.shellRunId);
     const normalized = normalizeShellRunRecord(record, record.sessionId, record.shellRunId);
     await this.withQueue(record.sessionId, record.shellRunId, async () => {
       if (await pathExists(this.shellRunPath(record.sessionId, record.shellRunId))) {
@@ -38,12 +97,32 @@ class FileShellRunStore implements ShellRunStore {
   async updateShellRun(
     sessionId: string,
     shellRunId: string,
-    patch: Partial<ShellRunRecord>,
+    patch: ShellRunPatch,
   ): Promise<ShellRunRecord> {
     let next: ShellRunRecord | undefined;
     await this.withQueue(sessionId, shellRunId, async () => {
+      assertShellRunPatch(patch);
       const current = await this.readShellRunUnlocked(sessionId, shellRunId);
-      next = normalizeShellRunRecord({ ...current, ...patch, sessionId, shellRunId }, sessionId, shellRunId);
+      if (patch.output && patch.output.mode !== current.output.mode) {
+        throw new Error(`ShellRun output mode is immutable: ${current.output.mode}`);
+      }
+      const effectivePatch = current.observedAt !== undefined && Object.hasOwn(patch, 'observedAt')
+        ? { ...patch, observedAt: current.observedAt }
+        : patch;
+      const candidate = normalizeShellRunRecord(
+        { ...current, ...effectivePatch, sessionId, shellRunId, revision: current.revision },
+        sessionId,
+        shellRunId,
+      );
+      if (isDeepStrictEqual(candidate, current)) {
+        next = current;
+        return;
+      }
+      next = normalizeShellRunRecord(
+        { ...candidate, revision: current.revision + 1 },
+        sessionId,
+        shellRunId,
+      );
       await writeAtomic(this.shellRunPath(sessionId, shellRunId), JSON.stringify(next, sanitizeJson) + '\n');
     });
     if (!next) throw new Error(`Failed to update shell run ${shellRunId}`);
@@ -55,7 +134,7 @@ class FileShellRunStore implements ShellRunStore {
   }
 
   async listSessionShellRuns(sessionId: string): Promise<ShellRunRecord[]> {
-    assertSafeId(sessionId, 'Invalid session id');
+    assertSessionId(sessionId);
     let entries;
     try {
       entries = await readdir(this.shellRunsRoot(sessionId), { withFileTypes: true });
@@ -65,7 +144,7 @@ class FileShellRunStore implements ShellRunStore {
     }
     const records: ShellRunRecord[] = [];
     for (const entry of entries) {
-      if (!entry.isDirectory() || !isSafeId(entry.name)) continue;
+      if (!entry.isDirectory() || !isShellRunId(entry.name)) continue;
       try {
         records.push(await this.readShellRunUnlocked(sessionId, entry.name));
       } catch {
@@ -76,8 +155,8 @@ class FileShellRunStore implements ShellRunStore {
   }
 
   private async readShellRunUnlocked(sessionId: string, shellRunId: string): Promise<ShellRunRecord> {
-    assertSafeId(sessionId, 'Invalid session id');
-    assertSafeId(shellRunId, 'Invalid shell run id');
+    assertSessionId(sessionId);
+    assertShellRunId(shellRunId);
     return normalizeShellRunRecord(
       JSON.parse(await readFile(this.shellRunPath(sessionId, shellRunId), 'utf8')),
       sessionId,
@@ -86,12 +165,12 @@ class FileShellRunStore implements ShellRunStore {
   }
 
   private shellRunsRoot(sessionId: string): string {
-    assertSafeId(sessionId, 'Invalid session id');
+    assertSessionId(sessionId);
     return join(this.sessionsRoot, sessionId, 'shell-runs');
   }
 
   private shellRunDir(sessionId: string, shellRunId: string): string {
-    assertSafeId(shellRunId, 'Invalid shell run id');
+    assertShellRunId(shellRunId);
     return join(this.shellRunsRoot(sessionId), shellRunId);
   }
 
@@ -100,18 +179,10 @@ class FileShellRunStore implements ShellRunStore {
   }
 
   private withQueue(sessionId: string, shellRunId: string, operation: () => Promise<void>): Promise<void> {
-    assertSafeId(sessionId, 'Invalid session id');
-    assertSafeId(shellRunId, 'Invalid shell run id');
+    assertSessionId(sessionId);
+    assertShellRunId(shellRunId);
     const key = `${sessionId}:${shellRunId}`;
-    const previous = this.writeQueues.get(key) ?? Promise.resolve();
-    const next = previous.then(operation, operation);
-    this.writeQueues.set(
-      key,
-      next.catch(() => {
-        // Keep the chain alive after failures.
-      }),
-    );
-    return next;
+    return chainWrite(this.writeQueues, key, operation);
   }
 }
 
@@ -136,7 +207,7 @@ function normalizeShellRunRecord(value: unknown, sessionId: string, shellRunId: 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`Invalid ShellRun record for ${shellRunId}: expected an object`);
   }
-  const record = value as Partial<ShellRunRecord>;
+  const record = (normalizeLegacyShellRunRecord(value, sessionId, shellRunId) ?? value) as Partial<ShellRunRecord>;
   const requiredStrings = [
     record.shellRunId,
     record.sessionId,
@@ -144,85 +215,184 @@ function normalizeShellRunRecord(value: unknown, sessionId: string, shellRunId: 
     record.sourceToolCallId,
     record.cwd,
     record.command,
-    record.stdoutTail,
-    record.stderrTail,
   ];
   const optionalStrings = [
     record.sourceRunId,
     record.failureMessage,
-    record.orphanedReason,
   ];
-  const valid = requiredStrings.every((item) => typeof item === 'string') &&
+  const valid = hasOnlyKeys(record, SHELL_RUN_RECORD_KEYS) &&
+    requiredStrings.every((item) => typeof item === 'string') &&
     record.sessionId === sessionId &&
     record.shellRunId === shellRunId &&
     isShellRunStatus(record.status) &&
     isFiniteNumber(record.startedAt) &&
     isFiniteNumber(record.updatedAt) &&
+    isPositiveInteger(record.revision) &&
+    isShellOutput(record.output) &&
     (record.completedAt === undefined || isFiniteNumber(record.completedAt)) &&
     (record.timeoutMs === undefined || isFiniteNumber(record.timeoutMs)) &&
     (record.exitCode === undefined || isFiniteNumber(record.exitCode)) &&
     (record.observedAt === undefined || isFiniteNumber(record.observedAt)) &&
-    (record.pid === undefined || isFiniteNumber(record.pid)) &&
-    (record.latestOutputStream === undefined || record.latestOutputStream === 'stdout' || record.latestOutputStream === 'stderr') &&
-    typeof record.stdoutTruncated === 'boolean' &&
-    typeof record.stderrTruncated === 'boolean' &&
     optionalStrings.every((item) => item === undefined || typeof item === 'string');
   if (!valid) {
     throw new Error(`Invalid ShellRun record for ${shellRunId}: malformed fields`);
   }
-  if (!hasValidStateFields(record)) {
+  if (!isValidShellRunState(record)) {
     throw new Error(`Invalid ShellRun record for ${shellRunId}: inconsistent state fields`);
   }
-  return record as ShellRunRecord;
+  return canonicalShellRunRecord(record as ShellRunRecord);
 }
 
-function hasValidStateFields(record: Partial<ShellRunRecord>): boolean {
-  switch (record.status) {
-    case 'running':
-      return record.completedAt === undefined &&
-        record.exitCode === undefined &&
-        record.failureMessage === undefined &&
-        record.observedAt === undefined &&
-        record.orphanedReason === undefined;
-    case 'completed':
-      return record.completedAt !== undefined &&
-        record.exitCode === 0 &&
-        record.failureMessage === undefined &&
-        record.orphanedReason === undefined;
-    case 'failed':
-      return record.completedAt !== undefined &&
-        typeof record.exitCode === 'number' &&
-        record.exitCode !== 0 &&
-        record.orphanedReason === undefined;
-    case 'timed_out':
-      return record.completedAt !== undefined &&
-        record.exitCode === 124 &&
-        record.orphanedReason === undefined;
-    case 'cancelled':
-      return record.completedAt !== undefined &&
-        record.exitCode === 130 &&
-        record.orphanedReason === undefined;
-    case 'orphaned':
-      return record.completedAt !== undefined &&
-        record.exitCode === undefined &&
-        record.failureMessage === undefined &&
-        typeof record.orphanedReason === 'string' &&
-        record.orphanedReason.length > 0;
-    default:
-      return false;
-  }
+function normalizeLegacyShellRunRecord(
+  value: object,
+  sessionId: string,
+  shellRunId: string,
+): ShellRunRecord | undefined {
+  if (!hasOnlyKeys(value, LEGACY_SHELL_RUN_RECORD_KEYS)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    record.output !== undefined
+    || record.revision !== undefined
+    || record.shellRunId !== shellRunId
+    || record.sessionId !== sessionId
+    || typeof record.sourceTurnId !== 'string'
+    || typeof record.sourceToolCallId !== 'string'
+    || typeof record.cwd !== 'string'
+    || typeof record.command !== 'string'
+    || !isShellRunStatus(record.status)
+    || !isFiniteNumber(record.startedAt)
+    || !isFiniteNumber(record.updatedAt)
+    || typeof record.stdoutTail !== 'string'
+    || typeof record.stderrTail !== 'string'
+    || typeof record.stdoutTruncated !== 'boolean'
+    || typeof record.stderrTruncated !== 'boolean'
+    || (record.sourceRunId !== undefined && typeof record.sourceRunId !== 'string')
+    || (record.completedAt !== undefined && !isFiniteNumber(record.completedAt))
+    || (record.timeoutMs !== undefined && !isFiniteNumber(record.timeoutMs))
+    || (record.exitCode !== undefined && !isFiniteNumber(record.exitCode))
+    || (record.failureMessage !== undefined && typeof record.failureMessage !== 'string')
+    || (record.observedAt !== undefined && !isFiniteNumber(record.observedAt))
+    || (record.orphanedReason !== undefined && typeof record.orphanedReason !== 'string')
+    || (record.pid !== undefined && !isFiniteNumber(record.pid))
+    || (record.latestOutputStream !== undefined
+      && record.latestOutputStream !== 'stdout'
+      && record.latestOutputStream !== 'stderr')
+    || !isValidLegacyShellRunState(record)
+  ) return undefined;
+
+  const failureMessage = typeof record.failureMessage === 'string'
+    ? record.failureMessage
+    : record.status === 'orphaned'
+      ? record.orphanedReason as string
+      : undefined;
+  return {
+    shellRunId,
+    sessionId,
+    ...(typeof record.sourceRunId === 'string' ? { sourceRunId: record.sourceRunId } : {}),
+    sourceTurnId: record.sourceTurnId,
+    sourceToolCallId: record.sourceToolCallId,
+    cwd: record.cwd,
+    command: record.command,
+    status: record.status,
+    startedAt: record.startedAt,
+    updatedAt: record.updatedAt,
+    ...(isFiniteNumber(record.completedAt) ? { completedAt: record.completedAt } : {}),
+    ...(isFiniteNumber(record.timeoutMs) ? { timeoutMs: record.timeoutMs } : {}),
+    ...(isFiniteNumber(record.exitCode) ? { exitCode: record.exitCode } : {}),
+    ...(failureMessage !== undefined ? { failureMessage } : {}),
+    revision: 1,
+    ...(isFiniteNumber(record.observedAt) ? { observedAt: record.observedAt } : {}),
+    output: {
+      mode: 'pipes',
+      stdout: record.stdoutTail,
+      stderr: record.stderrTail,
+      ...(record.latestOutputStream === 'stdout' || record.latestOutputStream === 'stderr'
+        ? { latestStream: record.latestOutputStream }
+        : {}),
+      stdoutTruncated: record.stdoutTruncated,
+      stderrTruncated: record.stderrTruncated,
+      redacted: false,
+    },
+  };
 }
 
-function assertSafeId(value: string, message: string): void {
-  if (!isSafeId(value)) throw new Error(message);
+function assertSessionId(value: string): void {
+  if (!SESSION_ID_PATTERN.test(value)) throw new Error('Invalid session id');
 }
 
-function isSafeId(value: string): boolean {
-  return SAFE_ID_PATTERN.test(value);
+function assertShellRunId(value: string): void {
+  if (!isShellRunId(value)) throw new Error('Invalid shell run id');
 }
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function assertShellRunPatch(patch: ShellRunPatch): void {
+  for (const key of Object.keys(patch)) {
+    if (!SHELL_RUN_PATCH_KEYS.has(key)) {
+      throw new Error(`ShellRun field is immutable: ${key}`);
+    }
+  }
+}
+
+function hasOnlyKeys(value: unknown, allowed: ReadonlySet<string>): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+
+function canonicalShellRunRecord(record: ShellRunRecord): ShellRunRecord {
+  return {
+    shellRunId: record.shellRunId,
+    sessionId: record.sessionId,
+    ...(record.sourceRunId !== undefined ? { sourceRunId: record.sourceRunId } : {}),
+    sourceTurnId: record.sourceTurnId,
+    sourceToolCallId: record.sourceToolCallId,
+    cwd: record.cwd,
+    command: record.command,
+    status: record.status,
+    startedAt: record.startedAt,
+    updatedAt: record.updatedAt,
+    ...(record.completedAt !== undefined ? { completedAt: record.completedAt } : {}),
+    ...(record.timeoutMs !== undefined ? { timeoutMs: record.timeoutMs } : {}),
+    ...(record.exitCode !== undefined ? { exitCode: record.exitCode } : {}),
+    ...(record.failureMessage !== undefined ? { failureMessage: record.failureMessage } : {}),
+    revision: record.revision,
+    ...(record.observedAt !== undefined ? { observedAt: record.observedAt } : {}),
+    output: canonicalShellOutput(record.output),
+  };
+}
+
+function canonicalShellOutput(output: ShellRunRecord['output']): ShellRunRecord['output'] {
+  if (output.mode === 'pipes') {
+    return {
+      mode: 'pipes',
+      stdout: output.stdout,
+      stderr: output.stderr,
+      ...(output.latestStream !== undefined ? { latestStream: output.latestStream } : {}),
+      stdoutTruncated: output.stdoutTruncated,
+      stderrTruncated: output.stderrTruncated,
+      redacted: output.redacted,
+    };
+  }
+  return {
+    mode: 'pty',
+    screen: output.screen,
+    scrollback: output.scrollback,
+    ...(output.lastAlternateScreen !== undefined
+      ? { lastAlternateScreen: output.lastAlternateScreen }
+      : {}),
+    cols: output.cols,
+    rows: output.rows,
+    cursor: { ...output.cursor },
+    alternateScreen: output.alternateScreen,
+    truncated: output.truncated,
+    redacted: output.redacted,
+  };
 }
 
 function sanitizeJson(_key: string, value: unknown): unknown {

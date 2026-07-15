@@ -435,4 +435,38 @@ describe('resolveHarborRunOptions backend guard', () => {
     assert.equal(opts.env.ANTHROPIC_API_KEY_FILE, '/tmp/key');
     assert.equal(opts.env.DEEPSEEK_API_KEY_FILE, undefined);
   });
+
+  test('--api-key-file uses the SiliconFlow credential file env', async () => {
+    const opts = await resolveHarborRunOptions(
+      [
+        '--provider', 'siliconflow',
+        '--model', 'moonshotai/Kimi-K2.6',
+        '--instruction', 'test',
+        '--api-key-file', '/tmp/siliconflow-key',
+        '--isolation', 'harbor-local',
+      ],
+      {},
+    );
+
+    assert.equal(opts.env.SILICONFLOW_API_KEY_FILE, '/tmp/siliconflow-key');
+    assert.equal(opts.env.OPENAI_API_KEY_FILE, undefined);
+  });
+
+  test('--api-key-file uses the Vercel Gateway namespace without consuming the creator/model prefix', async () => {
+    const opts = await resolveHarborRunOptions(
+      [
+        '--provider', 'vercel',
+        '--model', 'xai/grok-4.3',
+        '--instruction', 'test',
+        '--api-key-file', '/tmp/vercel-key',
+        '--isolation', 'harbor-local',
+      ],
+      {},
+    );
+
+    assert.equal(opts.config.model, 'xai/grok-4.3');
+    assert.equal(opts.env.MAKA_PROVIDER, 'vercel');
+    assert.equal(opts.env.AI_GATEWAY_API_KEY_FILE, '/tmp/vercel-key');
+    assert.equal(opts.env.OPENAI_API_KEY_FILE, undefined);
+  });
 });

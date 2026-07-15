@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * check-copy.mjs — mechanical UI-copy lint (decision D8, roadmap §4.3-4).
+ * check-copy.mjs — mechanical UI-copy lint.
  *
  * Enforces the machine-checkable half of the four-source copy rules
  * (vercel writing-guidelines + anthropics frontend-design + taste-skill,
@@ -14,7 +14,7 @@
  *                     (web-interface-guidelines typography)。
  *
  * Judgment-required rules (same-intent-same-label, AI 腔清单, error =
- * 原因+修复路径) stay in human review — see roadmap §4.1 治理增补.
+ * 原因+修复路径) stay in human review.
  *
  * Exceptions: append `// copy-allow: <reason>` on the same line.
  */

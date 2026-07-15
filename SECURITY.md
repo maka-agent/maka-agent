@@ -4,13 +4,13 @@ This document names the trust boundaries Maka treats as load-bearing,
 the in-process safety nets it ships but does NOT treat as boundaries,
 and how to report a vulnerability.
 
-It is modeled after [external-reference's SECURITY.md][external reference-sec] and
+It is modeled after [hermes-agent's SECURITY.md][hermes-agent-sec] and
 shares the same honesty principle: the only enforcement boundary
 against an adversarial LLM is the operating system. Anything the
 agent process screens internally is a heuristic operating on an
 attacker-influenced string.
 
-[external reference-sec]: https://github.com/NousResearch/external-reference/blob/main/SECURITY.md
+[hermes-agent-sec]: https://github.com/NousResearch/hermes-agent/security
 
 ## 1. Reporting a vulnerability
 
@@ -47,17 +47,16 @@ and they are NOT equally load-bearing.
 - **Renderer process.** Electron's sandboxed renderer. Receives
   data only through the preload IPC bridge in
   `apps/desktop/src/preload/preload.ts`.
-- **Permission engine.** `@maka/core/permission` — categorizes
-  tools (`read / web_read / file_write / fs_destructive /
-  shell_safe / shell_unsafe / git_destructive / network_send /
-  privileged / custom_tool / subagent`) and routes each one
-  through a 3-mode policy matrix (`explore / ask / execute`).
-- **Permission mode.** Per-session user setting; `ask` is the
-  default and prompts on every non-read tool.
+- **Permission engine.** `@maka/core/permission` evaluates each tool
+  category against the selected mode. `PERMISSION_MODES`,
+  `TOOL_CATEGORIES`, and `PERMISSION_POLICY` are the exact authority;
+  this policy does not duplicate their inventory.
+- **Permission mode.** Per-session user setting. `ask` is the default;
+  its exact allow, prompt, and block decisions come from
+  `PERMISSION_POLICY`.
 - **Input surface.** Any channel through which content enters the
-  agent's context: chat input, file reads, web fetches (Tavily),
-  bot platform messages (Telegram / Feishu), MCP server responses
-  (not yet shipped), tool results.
+  agent's context: chat input, file reads, web fetches, enabled bot-platform
+  messages, tool results, and future external integrations.
 - **Trust envelope.** The set of resources Maka inherits from the
   user's OS account: filesystem, network, OS permissions
   (Keychain / Microphone / Screen recording).
@@ -76,9 +75,12 @@ because they are useful UX safety nets — they catch accidental
 output and slow down adversarial output enough for a human to
 notice — but we do not ship them as guarantees.
 
-Maka does NOT today support a separate isolation posture (no
-container backend for Bash, no separate process for tool
-execution). When that lands it will be documented here.
+Maka does not run tools in a separate process or container by default. The
+runtime exposes a macOS Seatbelt command transformer for restricted profiles,
+but current product compositions do not yet route command execution through
+it, so it is not a product boundary today. Externally isolated runtimes may
+supply their own boundary. See
+[`packages/runtime/src/sandbox/README.md`](./packages/runtime/src/sandbox/README.md).
 
 ### 2.3 Boundaries we DO treat as load-bearing
 
@@ -90,24 +92,26 @@ execution). When that lands it will be documented here.
    user's workspace directory. Its load-bearing boundary is the OS
    user account plus filesystem controls: directory mode 0o700,
    file mode 0o600, atomic writes, and no symlink/traversal escape.
-   Separate subscription OAuth token stores (Claude, Codex, Cursor,
-   Antigravity, and similar account services) still use Electron
-   safeStorage; those stores fail closed when safeStorage is
-   unavailable.
+   Claude and Codex subscription services keep their Desktop token copy
+   behind Electron safeStorage, but also export a best-effort plaintext
+   `oauth_token` JSON copy to `credentials.json` so the pure-Node runtime
+   can use the account. That shared copy has the same OS-account and
+   0o700/0o600 boundary as other runtime credentials. Cursor and
+   Antigravity are currently non-operational preview integrations.
 3. **Renderer process sandbox + preload IPC bridge.** The
    renderer cannot reach files, network, or shell directly. Every
    IPC handler in `apps/desktop/src/main/main.ts` is the trust
    boundary between renderer-controlled input and main-process
    action. Renderer code is treated as semi-trusted: it can read
    masked / sanitized data, but cleartext secrets never cross the
-   boundary in the renderer-to-main direction either (see §4).
+   boundary in the main-to-renderer direction (see §4).
 4. **Settings sensitive masking.** Tokens, API keys, and proxy
    passwords are masked at the IPC store boundary
    (`maskAppSettings` in `apps/desktop/src/main/settings-ipc-helpers.ts`).
    Re-submitting the mask sentinel `••••••` is interpreted as
    "keep current" by the merge logic; an empty string is
-   interpreted as an explicit clear. This is the SAME pattern
-   PR-WEB-SEARCH-TAVILY-0 applied to the Tavily API key.
+   interpreted as an explicit clear. The Tavily API key follows the
+   same boundary.
 5. **Network egress through user-configured proxies.** The
    `network.proxy` settings drive Electron's session proxy. Tools
    that bypass `proxiedFetch` (Tavily lives in main, uses
@@ -130,12 +134,12 @@ are welcome as ordinary issues, not security advisories.
 3. **`normalizeSearchUrl()` URL allowlist.** Filters non-http(s)
    URLs out of agent tool results before they reach a renderer
    `<a href>`.
-4. **`PermissionMode.ask`** as default. Every non-read tool
-   prompts. `execute` mode autopilots — the user is opting into
-   "yolo".
+4. **`PermissionMode.ask`** as default. Mode names are UX controls,
+   not security boundaries; even permissive modes remain subject to
+   the current policy table and OS isolation boundary.
 5. **Modal-lifecycle contract test.** Catches the React
-   `useEffect`-before-`if (!open) return null` pattern that
-   crashed Phase 3. Static analysis only.
+   `useEffect`-before-`if (!open) return null` pattern that can
+   violate React hook ordering. Static analysis only.
 6. **WebSearch fail-closed chain.** `invalid_query →
    incognito_active → not_configured → invalid_credentials`. All
    four return generalized Chinese copy without ever revealing
@@ -150,18 +154,16 @@ privacy commitments:
   results, telemetry, settings are stored under
   `app.getPath('userData')`. Cloud sync is not shipped.
 - **Tool query strings are NEVER logged.** The WebSearch tool's
-  `argsSummary` is scrubbed at the recordToolInvocation hook
-  (PR-AGENT-WEB-SEARCH-TOOL-0).
+  `argsSummary` is scrubbed at the `recordToolInvocation` hook.
 - **Incognito context.** When the workspace privacy context
   reports `incognitoActive: true`, the WebSearch tool fails
-  closed before any network call. Other surfaces that consume
-  the same context are listed in `packages/core/src/incognito.ts`.
+  closed before any network call. Main composition and focused
+  consumer tests own the full enforcement inventory.
 - **Token boundary.** Cleartext API keys / OAuth tokens / bot
-  tokens NEVER cross the main→renderer IPC boundary. The
-  PR-AGENT-WEB-SEARCH-TOOL-0 contract test
-  (`apps/desktop/src/main/__tests__/web-search-boundary.test.ts`)
-  is the gate that enforces this for the Tavily key; PR-OAUTH-SUBSCRIPTION-0
-  applies the same gate to the Claude subscription tokens.
+  tokens NEVER cross the main→renderer IPC boundary.
+  `apps/desktop/src/main/__tests__/web-search-boundary.test.ts` and
+  `claude-subscription-ipc-boundary.test.ts` enforce this for Tavily
+  and Claude subscription credentials.
 
 ## 3. Scope of vulnerability reports
 
@@ -173,8 +175,9 @@ boundary in §2.3 was crossed. Examples:
 - `credentials.json` is written outside the workspace credential
   path, through a symlink/traversal escape, or with POSIX permissions
   looser than the 0o700/0o600 boundary.
-- safeStorage encryption is bypassed for a subscription OAuth token
-  store that is documented and implemented to require safeStorage.
+- safeStorage encryption is bypassed for a Desktop subscription-token
+  store that is implemented to require safeStorage. The documented
+  plaintext CLI shared copy is not such a bypass.
 - A cleartext secret crosses main→renderer IPC under any
   circumstance (including error paths, settings preview, IPC
   result envelopes, log lines).
@@ -204,11 +207,9 @@ sentinel is interpreted by
 "keep current", so a round-trip through `settings:get →
 settings:update` cannot accidentally overwrite the stored value.
 
-When an experimental gate is enabled to send a cleartext token in
-a tool request (the test button on PR-WEB-SEARCH-TAVILY-0 sends a
-draft `apiKey` so the user can verify before saving), the main
-process accepts it for that single request and does NOT echo it
-back in the response.
+Credential-test requests may submit an unsaved cleartext token so the
+user can verify it before saving. The main process accepts it for that
+single request and does not echo it in the response.
 
 The static-analysis contract tests for this policy:
 - `apps/desktop/src/main/__tests__/web-search-boundary.test.ts`
@@ -224,6 +225,6 @@ release notes.
 ## 6. Acknowledgement
 
 The structure and several phrases of this document are adapted
-from the [external reference SECURITY.md][external reference-sec]. Thanks to the
+from the [hermes-agent SECURITY.md][hermes-agent-sec]. Thanks to the
 Nous Research team for setting the bar on honest agent security
 framing.

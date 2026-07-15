@@ -18,7 +18,7 @@ import {
   type ModelPickerPinnedItem,
 } from './model-picker-internals.js';
 import { cn } from './utils.js';
-import { buttonVariants } from './ui.js';
+import { inputClasses } from './primitives/input.js';
 
 export interface ModelPickerProps {
   groups: ModelMenuGroup[];
@@ -47,7 +47,7 @@ const ModelPickerTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsWit
   return (
     <BaseCombobox.Trigger
       ref={ref}
-      className={cn(buttonVariants({ variant: 'outline' }), 'justify-between', className)}
+      className={cn(inputClasses, 'justify-between', className)}
       {...props}
     >
       {children}

@@ -33,6 +33,7 @@ export function SettingsModal(props: {
    * ⌘K → "网络" jumps straight to the section without an extra click.
    */
   requestedSection?: SettingsSection;
+  openProviderCatalog?: boolean;
   /**
    * PR-DAILY-REVIEW-MVP-0 follow-up: navigate to the sidebar's
    * Daily Review module. Optional so the settings page degrades
@@ -84,6 +85,7 @@ export function SettingsModal(props: {
         onThemePaletteChange={props.onThemePaletteChange}
         onUserLabelChange={props.onUserLabelChange}
         requestedSection={props.requestedSection}
+        openProviderCatalog={props.openProviderCatalog}
         initialFocusRef={activeNavRef}
         onOpenDailyReview={props.onOpenDailyReview}
         onOpenSession={props.onOpenSession}

@@ -8,7 +8,7 @@
  * projections that should be written from -- or explicitly linked to -- these
  * events.
  *
- * Source: docs/runtime-v2-architecture-evolution.md §Canonical RuntimeEvent
+ * Architecture: docs/architecture/runtime-core-architecture-draft.md
  *
  * Phase 1 scope: types + small pure helpers only. No storage, runner,
  * projection, or ledger logic lives here. Those arrive in later nodes.
@@ -16,6 +16,7 @@
 
 import type { AttachmentRef } from './events.js';
 import type { PermissionRequest, PermissionResponse } from './permission.js';
+import type { UserQuestionRequest } from './user-question.js';
 import type {
   CacheMissInputSource,
   ContextBudgetDiagnostic,
@@ -217,6 +218,8 @@ export interface RuntimeEventActions {
   permissionRequest?: PermissionRequest;
   /** A resolved permission decision (allow/deny) for a prior request. */
   permissionDecision?: RuntimeEventPermissionDecision;
+  /** A bounded in-turn question raised by a tool call. */
+  userQuestionRequest?: UserQuestionRequest;
   /** Hand off the invocation to another agent (multi-agent transfer). */
   transferToAgent?: string;
   /** Marks the event that closes the invocation. */

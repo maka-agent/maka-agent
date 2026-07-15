@@ -8,6 +8,7 @@
     "packages/core",
     "packages/storage",
     "packages/runtime",
+    "packages/computer-use",
     "packages/headless",
     "packages/cli",
     "packages/ui",
@@ -15,13 +16,13 @@
   ],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test:scripts && npm --workspace @maka/core test && npm --workspace @maka/storage test && npm --workspace @maka/runtime test && npm --workspace @maka/headless test && npm --workspace maka-agent test && npm --workspace @maka/ui test && npm --workspace @maka/desktop test",
-    "test:dist": "npm run test:scripts && npm exec -w @maka/core -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/storage -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/runtime -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/headless -- node ../../scripts/run-headless-tests.mjs && npm exec -w maka-agent -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/ui -- node --test \"dist/**/*.test.js\" && npm --workspace @maka/desktop run test:dist",
-    "test:scripts": "node --test scripts/run-headless-tests.test.mjs",
+    "test": "npm run test:scripts && npm --workspace @maka/core test && npm --workspace @maka/storage test && npm --workspace @maka/runtime test && npm --workspace @maka/computer-use test && npm --workspace @maka/headless test && npm --workspace maka-agent test && npm --workspace @maka/ui test && npm --workspace @maka/desktop test",
+    "test:dist": "npm run test:scripts && npm exec -w @maka/core -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/storage -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/runtime -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/computer-use -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/headless -- node ../../scripts/run-headless-tests.mjs && npm exec -w maka-agent -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/ui -- node --test \"dist/**/*.test.js\" && npm --workspace @maka/desktop run test:dist",
+    "test:scripts": "node --test scripts/run-headless-tests.test.mjs scripts/sync-model-metadata.test.mjs scripts/cua-driver-provenance.test.mjs scripts/cu-real-e2e-contract.test.mjs scripts/cu-process-restart-e2e-contract.test.mjs scripts/cu-e2e-fixture.test.mjs scripts/cu-e2e-scenarios.test.mjs scripts/cu-provider-matrix.test.mjs scripts/cu-report-sanitize.test.mjs scripts/cu-real-model-launcher.test.mjs scripts/cu-real-ax-model-e2e-contract.test.mjs",
     "dev": "npm --workspace @maka/desktop run dev:hmr --",
     "dev:full": "npm run build && npm --workspace @maka/desktop run start",
-    "build": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/headless run build && npm --workspace maka-agent run build && npm --workspace @maka/ui run build && npm --workspace @maka/desktop run build",
-    "build:test": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/headless run build && npm --workspace maka-agent run build && npm --workspace @maka/ui run build && npm --workspace @maka/desktop run build:test",
+    "build": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/headless run build && npm --workspace maka-agent run build && npm --workspace @maka/ui run build && npm --workspace @maka/desktop run build",
+    "build:test": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/headless run build && npm --workspace maka-agent run build && npm --workspace @maka/ui run build && npm --workspace @maka/desktop run build:test",
     "clean": "node scripts/clean-build.mjs",
     "rebuild": "npm run clean && npm run build",
     "check:stale": "node scripts/check-stale-dist.mjs",
@@ -29,15 +30,34 @@
     "check:officecli-bundle": "node scripts/check-officecli-bundle.mjs",
     "check:release": "npm run check:stale && npm run check:officecli-bundle && node scripts/check-dead-css.mjs --check",
     "check:chat-visual": "electron scripts/check-chat-marker-computed-style.mjs",
-    "cost:deepseek-baseline": "node scripts/deepseek-live-cost-baseline.mjs"
+    "sync:model-metadata": "node scripts/sync-model-metadata.mjs",
+    "cost:deepseek-baseline": "node scripts/deepseek-live-cost-baseline.mjs",
+    "prepare:cua-driver": "node scripts/prepare-cua-driver.mjs",
+    "check:cua-driver-artifact": "node scripts/check-cua-driver-bundle.mjs",
+    "e2e:computer-use-real": "node scripts/cu-real-e2e-launcher.mjs",
+    "e2e:computer-use-concurrent": "node scripts/cu-real-e2e-launcher.mjs --concurrent-user",
+    "e2e:computer-use-process-restart": "node scripts/cu-process-restart-e2e-launcher.mjs",
+    "e2e:computer-use-real-model": "node scripts/cu-real-model-launcher.mjs",
+    "e2e:computer-use-real-ax-model": "node scripts/cu-real-ax-model-e2e-launcher.mjs",
+    "e2e:computer-use-real-ax-observe": "MAKA_CU_AX_MODEL_SCENARIO=observe-only node scripts/cu-real-ax-model-e2e-launcher.mjs",
+    "e2e:computer-use-real-ax-recovery": "MAKA_CU_AX_MODEL_SCENARIO=intervention-recovery node scripts/cu-real-ax-model-e2e-launcher.mjs",
+    "e2e:computer-use-real-ax-restart": "MAKA_CU_AX_MODEL_SCENARIO=restart-recovery node scripts/cu-real-ax-model-e2e-launcher.mjs",
+    "e2e:computer-use-real-ax-anthropic": "MAKA_CU_MODEL_PROVIDER=anthropic node scripts/cu-real-ax-model-e2e-launcher.mjs",
+    "e2e:computer-use-real-ax-anthropic-recovery": "MAKA_CU_MODEL_PROVIDER=anthropic MAKA_CU_AX_MODEL_SCENARIO=intervention-recovery node scripts/cu-real-ax-model-e2e-launcher.mjs",
+    "e2e:computer-use-real-ax-click": "MAKA_CU_AX_MODEL_SCENARIO=ax-click node scripts/cu-real-ax-model-e2e-launcher.mjs",
+    "e2e:computer-use-real-ax-ambiguity": "MAKA_CU_AX_MODEL_SCENARIO=ambiguity node scripts/cu-real-ax-model-e2e-launcher.mjs",
+    "e2e:computer-use-real-ax-multi-step": "MAKA_CU_AX_MODEL_SCENARIO=ax-multi-step node scripts/cu-real-ax-model-e2e-launcher.mjs",
+    "e2e:computer-use-real-ax-anthropic-multi-step": "MAKA_CU_MODEL_PROVIDER=anthropic MAKA_CU_AX_MODEL_SCENARIO=ax-multi-step node scripts/cu-real-ax-model-e2e-launcher.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.0.0",
+    "knip": "^6.26.0",
     "typescript": "^5.9.3"
   },
   "allowScripts": {
     "electron@39.8.10": true,
     "esbuild@0.27.7": true,
-    "@jackwener/opencli@1.8.4": true
+    "@jackwener/opencli@1.8.4": true,
+    "node-pty@1.2.0-beta.14": true
   }
 }
