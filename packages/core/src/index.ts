@@ -27,7 +27,9 @@ export type {
   ShellRunStateResult,
   ShellRunUpdateOwnership,
   ShellRunUpdate,
+  SandboxDenialRecovery,
   AdditionalPermissionRequestEvent,
+  SandboxEscalationRequestEvent,
   AnyPermissionRequestEvent,
   PermissionRequestEvent,
   PermissionDecisionAckEvent,
@@ -42,6 +44,7 @@ export type {
   AttachmentRef,
   AttachmentIngestItem,
   CompleteStopReason,
+  ContextBudgetExhaustedDetail,
 } from './events.js';
 export type {
   UserQuestion,
@@ -225,12 +228,15 @@ export {
 } from './pty-output-view.js';
 export type { PtyTuiTerminalView } from './pty-output-view.js';
 export {
+  formatWriteStdinPermissionInspection,
   projectToolActivityArgs,
+  projectWriteStdinPermissionSummary,
   projectWriteStdinInput,
   readWriteStdinInputPreview,
   WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS,
   WRITE_STDIN_REF_PREVIEW_MAX_CHARS,
   type WriteStdinInputPreview,
+  type WriteStdinPermissionSummary,
 } from './tool-activity-args.js';
 export {
   SHELL_RUN_ID_MAX_CHARS,
@@ -271,6 +277,9 @@ export {
 // permission.ts
 export type {
   PermissionMode,
+  ApprovalsReviewer,
+  ApprovalRiskLevel,
+  ActiveApprovalRoutingPolicy,
   ToolCategory,
   PolicyDecision,
   ToolExecutionFacts,
@@ -281,6 +290,8 @@ export type {
   PreToolUseInput,
   PreToolUseResult,
   AdditionalPermissionRequest,
+  SandboxEscalationRequest,
+  SandboxEscalationRiskSummary,
   PermissionRequest,
   PermissionRequestPayload,
   PermissionResponse,
@@ -289,6 +300,8 @@ export type {
 } from './permission.js';
 export {
   PERMISSION_MODES,
+  APPROVALS_REVIEWERS,
+  APPROVAL_RISK_LEVELS,
   TOOL_CATEGORIES,
   PERMISSION_POLICY,
   BUILTIN_TOOL_CATEGORY,
@@ -298,6 +311,7 @@ export {
   DESTRUCTIVE_GIT_PATTERNS,
   categorizeBash,
   classifyToolUse,
+  approvalRoutingPolicyForMode,
   isPermissionMode,
   isToolCategory,
   matchToolPermissionRules,
@@ -897,10 +911,36 @@ export {
   effectiveBaseUrl,
   migrateConnectionV1ToV2,
   normalizeConnectionBaseUrl,
+  normalizeProviderType,
   persistedBaseUrl,
   validateConnectionBaseUrl,
   validateSlug,
 } from './llm-connections.js';
+
+// provider-contract-matrix.ts — registry-driven conformance matrix plan.
+export type {
+  ProviderContractCell,
+  ProviderContractCellEntry,
+  ProviderContractCellState,
+  ProviderContractDimension,
+  ProviderContractDiscoveryPlan,
+  ProviderContractGeneratedCell,
+  ProviderContractMatrixPlan,
+  ProviderContractNotApplicableCell,
+  ProviderContractOverrideCell,
+  ProviderContractReasoningReplayPlan,
+  ProviderContractReverseAssertion,
+  ProviderContractRow,
+  ProviderContractWire,
+} from './provider-contract-matrix.js';
+export {
+  PROVIDER_CONTRACT_DIMENSIONS,
+  PROVIDER_CONTRACT_MATRIX_PLAN,
+  SUBSCRIPTION_WIRE_ADAPTER_KINDS,
+  buildProviderContractMatrixPlan,
+  buildProviderContractRow,
+  listProviderContractCells,
+} from './provider-contract-matrix.js';
 
 // connection-readiness.ts (PR110a)
 export type {

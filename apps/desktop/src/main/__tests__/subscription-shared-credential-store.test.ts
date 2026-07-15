@@ -10,7 +10,7 @@ import {
 
 const DESKTOP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const CLAUDE_SOURCE = resolve(DESKTOP_ROOT, 'src', 'main', 'oauth', 'claude-subscription-service.ts');
-const CODEX_SOURCE = resolve(DESKTOP_ROOT, 'src', 'main', 'oauth', 'codex-subscription-service.ts');
+const CODEX_SOURCE = resolve(DESKTOP_ROOT, 'src', 'main', 'oauth', 'openai-codex-service.ts');
 
 describe('OAuth subscription shared credential store bridge', () => {
   it('writes OAuth tokens to the shared credential store when available', async () => {

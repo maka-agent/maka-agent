@@ -112,8 +112,9 @@ export type { BadgeProps } from './primitives/badge.js';
 // PR-USE-SHADCN-BASE-UI-CHIP: squared compact status label. #520 PR9 collapsed
 // .settingsBadge + .settingsConnectionBadge CSS chips onto this one. Chip is
 // the squared (radius-control) counterpart to pill Badge, for dense settings
-// status rows. Variants mirror StatusTone: neutral / info / success / warning
-// / destructive.
+// status rows. Status variants mirror StatusTone: neutral / info / success /
+// warning / destructive; `accent` is the separate brand-accent marker
+// (default-connection flags) outside the status scale.
 export { Chip, chipVariants } from './primitives/chip.js';
 export type { ChipProps } from './primitives/chip.js';
 // PageHeader — the shared page-header shell (convergence round 3). One shell

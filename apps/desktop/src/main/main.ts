@@ -59,7 +59,7 @@ import {
 } from './permission-response-guard.js';
 import { turnFailureMessageFromSessionEvent } from './turn-stream-outcome.js';
 import { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
-import { CodexSubscriptionService } from './oauth/codex-subscription-service.js';
+import { OpenAiCodexService } from './oauth/openai-codex-service.js';
 import { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
@@ -80,6 +80,8 @@ import {
   buildBuiltinTools,
   buildAskUserQuestionTool,
   createBuiltinSandboxManager,
+  createFilesystemWorkerLaunchSpecProvider,
+  FilesystemWorkerClient,
   buildChildAgentTools,
   buildExpertDispatchToolForTeamId,
   buildSubagentProjectionTools,
@@ -187,6 +189,10 @@ import {
   applyComputerUseRealModelPolicy,
   parseComputerUseRealModelPolicy,
 } from './computer-use-real-model-policy.js';
+import {
+  computerUseAvailabilityForModel,
+  computerUseToolsForModel,
+} from './computer-use-model-tools.js';
 import { createComputerUseOverlayHook } from '@maka/computer-use';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
@@ -304,7 +310,7 @@ const claudeSubscription = new ClaudeSubscriptionService({
 // IPC payloads never carry tokens, each gated behind its own
 // MAKA_*_EXPERIMENTAL env var. Antigravity is a `preview` placeholder
 // until the Google client_id question is resolved.
-const codexSubscription = new CodexSubscriptionService({
+const openAiCodex = new OpenAiCodexService({
   userDataDir: app.getPath('userData'),
   credentialStore,
 });
@@ -316,18 +322,18 @@ const oauthModelConnections = createOAuthModelConnectionsMainService({
   connectionStore,
   credentialStore,
   claudeSubscription,
-  codexSubscription,
+  openAiCodex,
   githubCopilotSubscription,
 });
 const isClaudeSubscriptionAuthenticatedState = oauthModelConnections.isClaudeSubscriptionAuthenticatedState;
-const isCodexSubscriptionAuthenticatedState = oauthModelConnections.isCodexSubscriptionAuthenticatedState;
+const isOpenAiCodexAuthenticatedState = oauthModelConnections.isOpenAiCodexAuthenticatedState;
 
 function syncClaudeSubscriptionConnection(): Promise<LlmConnection | null> {
   return oauthModelConnections.syncClaudeSubscriptionConnection();
 }
 
-function syncCodexSubscriptionConnection(): Promise<LlmConnection | null> {
-  return oauthModelConnections.syncCodexSubscriptionConnection();
+function syncOpenAiCodexConnection(): Promise<LlmConnection | null> {
+  return oauthModelConnections.syncOpenAiCodexConnection();
 }
 
 function syncGitHubCopilotConnection(): Promise<LlmConnection | null> {
@@ -485,7 +491,6 @@ const goalWiring = createMainGoalWiring({
       .map((task) => task.key);
   },
   recordTaskGateDecision: async (trace) => {
-    if (!trace.turnId) return;
     const runs = await runStore.listSessionRuns(trace.sessionId);
     const run = runs.find((candidate) => candidate.turnId === trace.turnId);
     if (!run) return;
@@ -590,6 +595,18 @@ const shellRuns = new ShellRunProcessManager({
   },
 });
 const sandboxManager = createBuiltinSandboxManager();
+const filesystemWorker = process.platform === 'darwin' && sandboxManager
+  ? new FilesystemWorkerClient({
+      sandboxManager,
+      getLaunchSpec: createFilesystemWorkerLaunchSpecProvider({
+        runtime: 'electron',
+        executable: process.execPath,
+        resourceLocation: app.isPackaged
+          ? { kind: 'desktop-packaged', resourcesPath: process.resourcesPath }
+          : { kind: 'runtime' },
+      }),
+    })
+  : undefined;
 // Unified tool availability (issue #37). Deferred capability groups (Rive,
 // Office, browser, agent orchestration) are withheld from the
 // per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
@@ -687,6 +704,11 @@ const builtinTools: MakaTool[] = [
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
     ...(sandboxManager ? { sandboxManager } : {}),
+    ...(filesystemWorker ? {
+      filesystemWorker,
+      enableBashAdditionalPermissions: true,
+      enableFileToolAdditionalPermissions: true,
+    } : {}),
   }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
@@ -717,6 +739,11 @@ const builtinTools: MakaTool[] = [
 const childAgentTools = buildChildAgentTools([
   ...buildBuiltinTools({
     ...(sandboxManager ? { sandboxManager } : {}),
+    ...(filesystemWorker ? {
+      filesystemWorker,
+      enableBashAdditionalPermissions: true,
+      enableFileToolAdditionalPermissions: true,
+    } : {}),
   }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   webSearchTool,
 ]);
@@ -874,10 +901,10 @@ backends.register('ai-sdk', async (ctx) => {
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
-  const backendTools = isComputerUseRealModelE2e
+  const candidateTools = isComputerUseRealModelE2e
     ? computerUseTools
     : [...(ctx.tools ?? builtinTools)];
-  const backendToolAvailability = isComputerUseRealModelE2e
+  const candidateToolAvailability = isComputerUseRealModelE2e
     ? { economy: false, groups: [] }
     : toolAvailability;
   // Expert-team lead: a main session (ctx.tools undefined) labeled
@@ -886,6 +913,15 @@ backends.register('ai-sdk', async (ctx) => {
   // get expert_dispatch — members cannot spawn nested teams.
   const expertTeamId = ctx.tools ? undefined : expertTeamIdFromLabels(ctx.header.labels);
   const expertDispatchTool = expertTeamId ? buildExpertDispatchToolForTeamId(expertTeamId) : undefined;
+  const backendTools = computerUseToolsForModel(
+    candidateTools,
+    computerUseTools,
+    supportsVision,
+  );
+  const backendToolAvailability = computerUseAvailabilityForModel(
+    candidateToolAvailability,
+    supportsVision,
+  );
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -953,6 +989,7 @@ backends.register('ai-sdk', async (ctx) => {
     }),
     recordRunTrace: ctx.recordRunTrace,
     recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
+    loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
     recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
     recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
     newId: randomUUID,
@@ -1456,14 +1493,14 @@ function registerIpc(): void {
   registerSubscriptionIpc({
     connectionStore,
     claudeSubscription,
-    codexSubscription,
+    openAiCodex,
     githubCopilotSubscription,
     cursorSubscription,
     antigravitySubscription,
     isClaudeSubscriptionAuthenticatedState,
-    isCodexSubscriptionAuthenticatedState,
+    isOpenAiCodexAuthenticatedState,
     syncClaudeSubscriptionConnection,
-    syncCodexSubscriptionConnection,
+    syncOpenAiCodexConnection,
     syncGitHubCopilotConnection,
     emitConnectionListChanged,
   });
@@ -2052,6 +2089,7 @@ async function ensureSessionCanSend(sessionId: string): Promise<void> {
     result = await ensureSessionCanSendOrRebind(sessionId, header, {
       readyConnectionDeps,
       getDefaultSlug: () => connectionStore.getDefault(),
+      listConnectionSlugs: async () => (await connectionStore.list()).map((connection) => connection.slug),
       updateSession: (_sessionId, patch) => runtime.updateSession(_sessionId, {
         ...patch,
         status: 'active',

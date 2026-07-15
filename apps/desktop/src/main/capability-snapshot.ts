@@ -146,18 +146,15 @@ function computerUseCapability(
   permissions: PermissionSnapshot['permissions'],
   now: number,
 ): CapabilitySnapshot {
-  const available = input?.backendId === 'cua-driver'
-    && input.health.state !== 'not_available';
+  const artifactAvailable = input?.backendId === 'cua-driver';
   return staticCapability({
     id: 'computer_use',
     label: 'Computer Use',
     now,
     feature: {
-      state: available ? 'enabled' : 'not_available',
+      state: artifactAvailable ? 'enabled' : 'not_available',
       source: 'runtime',
-      reason: available
-        ? 'cua-driver 已通过本地完整性检查；按目标与动作类别授权后可操作本机应用。'
-        : '未找到通过完整性检查的 cua-driver artifact。',
+      reason: computerUseCapabilityReason(input, permissions),
     },
     requiredPermissions: [
       { id: 'accessibility', required: true, status: permissions.accessibility.status },
@@ -175,6 +172,42 @@ function computerUseCapability(
       reason: input?.health.reason ?? 'cua-driver 后端当前不可用。',
     },
   });
+}
+
+function computerUseCapabilityReason(
+  input: {
+    backendId: 'cua-driver' | 'none';
+    health: ReturnType<typeof computerUseServiceHealth>;
+  } | undefined,
+  permissions: PermissionSnapshot['permissions'],
+): string {
+  if (input?.backendId !== 'cua-driver') {
+    return '未找到通过完整性检查的 cua-driver artifact。';
+  }
+
+  const reasons = ['cua-driver artifact 已通过本地完整性检查。'];
+  const missingPermissions = [
+    ['辅助功能', permissions.accessibility.status],
+    ['屏幕录制', permissions.screen_recording.status],
+  ].filter((entry) => entry[1] !== 'granted').map((entry) => entry[0]);
+  if (missingPermissions.length > 0) {
+    reasons.push(`等待${missingPermissions.join('、')}权限。`);
+  }
+  switch (input.health.state) {
+    case 'not_available':
+      reasons.push('cua-driver service 启动失败、已退出或已停止。');
+      break;
+    case 'degraded':
+      reasons.push('cua-driver service 正在启动或恢复。');
+      break;
+    case 'healthy':
+      reasons.push('操作与截图 service 已就绪；按目标与动作类别授权后可操作本机应用。');
+      break;
+    case 'not_run':
+      reasons.push('service 将在首次调用时启动；按目标与动作类别授权后可操作本机应用。');
+      break;
+  }
+  return reasons.join('');
 }
 
 function officeDocumentsCapability(probe: OfficeCliProbe | undefined, now: number): CapabilitySnapshot {

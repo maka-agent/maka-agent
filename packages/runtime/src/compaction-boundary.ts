@@ -67,6 +67,8 @@ export interface CompactionDecision {
   stage: CompactionStage;
   sourceKind: CompactionSourceKind;
   decision: CompactionDecisionKind;
+  /** Compaction phase; absent = pre_turn. */
+  phase?: 'pre_turn' | 'mid_turn';
   boundaryKind?: CompactionBoundaryKind;
   boundaryIds?: readonly string[];
   coverage?: CompactionCoverage;
@@ -173,6 +175,7 @@ export function compactionDecisionToDiagnostic(
     stage: decision.stage,
     sourceKind: decision.sourceKind,
     decision: decision.decision,
+    ...(decision.phase ? { phase: decision.phase } : {}),
     ...(decision.boundaryKind ? { boundaryKind: decision.boundaryKind } : {}),
     ...(decision.boundaryIds ? { boundaryIds: [...decision.boundaryIds] } : {}),
     ...(decision.coverage?.turnIds ? { coveredTurns: decision.coverage.turnIds.length } : {}),

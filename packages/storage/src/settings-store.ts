@@ -105,6 +105,15 @@ class FileSettingsStore implements SettingsStore {
   }
 
   async get(): Promise<AppSettings> {
+    let settings: AppSettings | undefined;
+    await this.withQueue(async () => {
+      settings = await this.readOrCreate();
+    });
+    if (!settings) throw new Error('Failed to read settings');
+    return settings;
+  }
+
+  private async readOrCreate(): Promise<AppSettings> {
     try {
       const text = await readFile(this.settingsPath, 'utf8');
       return normalizeSettings(JSON.parse(text));
@@ -119,7 +128,7 @@ class FileSettingsStore implements SettingsStore {
   async update(patch: UpdateAppSettingsInput): Promise<AppSettings> {
     let next: AppSettings | undefined;
     await this.withQueue(async () => {
-      const current = await this.get();
+      const current = await this.readOrCreate();
       next = mergeSettings(current, patch);
       await this.write(next);
     });
@@ -141,7 +150,7 @@ class FileSettingsStore implements SettingsStore {
         : { id, skippedAt: timestamp };
     let result: OnboardingMilestone[] | undefined;
     await this.withQueue(async () => {
-      const current = await this.get();
+      const current = await this.readOrCreate();
       // Append the new entry; sanitize() applies last-valid-entry-wins
       // dedup with stable first-seen position. ID validity is enforced
       // by the sanitizer (closed enum).
@@ -165,7 +174,7 @@ class FileSettingsStore implements SettingsStore {
   async clearOnboardingMilestone(id: OnboardingMilestoneId): Promise<OnboardingMilestone[]> {
     let result: OnboardingMilestone[] | undefined;
     await this.withQueue(async () => {
-      const current = await this.get();
+      const current = await this.readOrCreate();
       const knownId = sanitizeOnboardingMilestones([{ id }]).some((entry) => entry.id === id);
       if (!knownId) {
         throw new Error(`invalid onboarding milestone id: ${String(id)}`);

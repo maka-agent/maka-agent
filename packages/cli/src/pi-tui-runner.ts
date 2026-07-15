@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import {
   Editor,
   Key,
@@ -22,7 +23,11 @@ import {
   type ShellRunUpdate,
 } from '@maka/core';
 import type { ModelChoice } from './connection-target.js';
-import type { MakaSessionDriver, MakaSessionSwitchResult } from './session-driver.js';
+import {
+  inspectSessionResumeAvailability,
+  type MakaSessionDriver,
+  type MakaSessionSwitchResult,
+} from './session-driver.js';
 import {
   createMakaPiTranscriptState,
   activePermissionRequest,
@@ -34,7 +39,9 @@ import {
   submitPromptToTranscript,
   toggleAllThinkingExpansion,
   toggleAllToolExpansion,
+  togglePendingPermissionDetails,
   type MakaPiTranscriptMetadata,
+  type TurnOutcome,
 } from './pi-transcript.js';
 import { editorTheme, selectListTheme } from './tui-ansi.js';
 import { MakaAutocompleteAboveEditorComponent } from './tui-autocomplete-layout.js';
@@ -94,7 +101,7 @@ export interface MakaPiTuiInput {
    * new turn rendered in the transcript — used for goal auto-continuation so
    * continuation turns are visible and chain correctly.
    */
-  onTurnComplete?: (injectTurn: (text: string) => void) => void;
+  onTurnComplete?: (turnId: string, injectTurn: (text: string) => void) => void;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -112,6 +119,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let thinkingLevels: readonly ThinkingLevel[] = providerType
     ? thinkingVariantsForModel(providerType, input.model)
     : [];
+  let sessionListScope: 'current' | 'all' = 'current';
   let busy = false;
   let closed = false;
   let permissionResponseInFlightRequestId: string | null = null;
@@ -144,6 +152,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     thinkingLevels,
     sessionId: input.driver.getSessionId(),
     busy,
+    usage: state.usage,
   });
 
   const transcript = new MakaTranscriptComponent(state, metadata);
@@ -151,6 +160,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // Show the whole slash-command set at once — discoverability is the point of
   // the menu. Keep a little headroom above the current command count.
   const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: EDITOR_AUTOCOMPLETE_MAX_VISIBLE });
+  let refreshEditorCwd: ((cwd: string) => void) | undefined;
   const editorSurface = new MakaAutocompleteAboveEditorComponent(editor);
   const layout = new MakaPiLayoutComponent(transcript, editorSurface, statusLine, terminal);
   const attention = new AttentionController(terminal, {
@@ -364,7 +374,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     void input.driver.respondToPermission({
       requestId: request.requestId,
       decision,
-      ...(decision === 'allow' ? { rememberForTurn } : {}),
+      ...(decision === 'allow' && request.rememberForTurnAllowed
+        ? { rememberForTurn }
+        : {}),
     })
       .catch((error) => {
         if (permissionResponseInFlightRequestId === request.requestId) {
@@ -389,6 +401,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       requestRender();
       return;
     }
+    editor.addToHistory(prompt);
     if (handleSlashCommand(prompt)) return;
 
     runAgentTurn(prompt);
@@ -407,7 +420,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
 
     let permissionAlerted = false;
-    let turnOutcome = { aborted: false, errored: false };
+    let turnOutcome: TurnOutcome | undefined;
     void submitPromptToTranscript({
       state,
       driver: input.driver,
@@ -452,8 +465,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // or it ended in error. An autonomous loop MUST halt on the Stop
       // affordance and must not hammer a failing turn — mirrors the desktop
       // `turnAborted` guard.
-      if (!closed && !turnOutcome.aborted && !turnOutcome.errored) {
-        input.onTurnComplete?.((text) => runAgentTurn(text));
+      if (!closed && turnOutcome?.kind === 'completed') {
+        input.onTurnComplete?.(turnOutcome.turnId, (text) => runAgentTurn(text));
       }
     });
   }
@@ -503,11 +516,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // `messages`. Shared by switchSession and rewindToTurn so both land the same
   // runner state (model/connection/thinking/transcript/scroll).
   const applySwitchResult = async ({ summary, messages }: MakaSessionSwitchResult): Promise<void> => {
+    cwd = summary.cwd ?? cwd;
     model = summary.model;
+    const previousConnectionSlug = connectionSlug;
     connectionSlug = summary.llmConnectionSlug;
+    providerType = input.modelChoices?.find((choice) => (
+      choice.connectionSlug === summary.llmConnectionSlug
+    ))?.providerType ?? (previousConnectionSlug === summary.llmConnectionSlug ? providerType : undefined);
     permissionMode = summary.permissionMode;
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
+    refreshEditorCwd?.(cwd);
     replaceTranscriptWithStoredMessages(state, messages);
     resetShellRunSessionState();
     if (input.listShellRunUpdates) {
@@ -520,9 +539,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     shellRunElapsedTicker.sync();
   };
 
-  // Folder/connection safety is enforced inside driver.switchSession(),
-  // before it commits any internal state, so a rejected switch leaves the
-  // active session untouched and the next prompt still lands on the old one.
+  // The driver validates the durable cwd before adopting the resumed session.
+  // A failure leaves the active session untouched and the next prompt still
+  // lands on the old one.
   const switchSession = async (sessionId: string) => {
     const result = await input.driver.switchSession(sessionId);
     await applySwitchResult(result);
@@ -665,14 +684,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     rightLabel: string,
     items: SelectItem[],
     onSelect: (item: SelectItem) => void,
-    options: { minPrimaryColumnWidth: number; maxPrimaryColumnWidth: number; selectedIndex?: number },
+    options: { minPrimaryColumnWidth: number; maxPrimaryColumnWidth: number; selectedIndex?: number; hint?: string },
   ): void => {
     const list = new SelectList(items, 10, selectListTheme(), {
       minPrimaryColumnWidth: options.minPrimaryColumnWidth,
       maxPrimaryColumnWidth: options.maxPrimaryColumnWidth,
     });
     if (options.selectedIndex !== undefined) list.setSelectedIndex(options.selectedIndex);
-    const picker = new PickerOverlay(list, { title, rightLabel });
+    const picker = new PickerOverlay(list, { title, rightLabel, hint: options.hint });
     let overlay: OverlayHandle | undefined;
     list.onSelect = (item) => {
       overlay?.hide();
@@ -700,37 +719,53 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
-    const currentSessions = sessions.filter(
-      (session) => session.cwd === cwd && session.llmConnectionSlug === connectionSlug,
-    );
-    if (currentSessions.length === 0) {
-      state.entries.push({
-        kind: 'notice',
-        level: 'info',
-        text: 'No sessions found for this folder.',
+    const availability = new Map(await Promise.all(sessions.map(async (session) => {
+      return [
+        session.id,
+        await input.driver.getSessionResumeAvailability?.(session)
+          ?? await inspectSessionResumeAvailability(session),
+      ] as const;
+    })));
+    const renderScope = (): void => {
+      const visibleSessions = sessionListScope === 'current'
+        ? sessions.filter((session) => session.cwd === cwd)
+        : sessions;
+      const items: SelectItem[] = visibleSessions.map((session) => {
+        const state = availability.get(session.id);
+        const location = sessionListScope === 'all' && session.cwd ? ` ${basename(session.cwd)}` : '';
+        return {
+          value: session.id,
+          label: session.name || session.id,
+          description: state?.available === false
+            ? `${shortSessionId(session.id)} ${state.reason}`
+            : `${shortSessionId(session.id)}${location} ${session.llmConnectionSlug} ${session.model}`,
+        };
       });
-      requestRender();
-      return;
-    }
-
-    // Recency-sorted. Label each row by its human name (the id is the selection
-    // value, not something the user should have to read) and disambiguate
-    // same-named sessions with a short id in the description. The list scrolls,
-    // so every session stays reachable — nothing is capped or hidden.
-    const items: SelectItem[] = currentSessions.map((session) => ({
-      value: session.id,
-      label: session.name || session.id,
-      description: `${shortSessionId(session.id)} ${session.model}`,
-    }));
-    showSelectPicker(
-      'Resume Session (Current Folder)',
-      'Current Folder',
-      items,
-      (item) => {
+      const list = new SelectList(items, 10, selectListTheme(), {
+        minPrimaryColumnWidth: 20,
+        maxPrimaryColumnWidth: Math.max(20, terminal.columns - 30),
+      });
+      let overlay: OverlayHandle | undefined;
+      list.onSelect = (item) => {
+        if (availability.get(item.value)?.available === false) return;
+        overlay?.hide();
         void runControl(() => switchSession(item.value));
-      },
-      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 40 },
-    );
+      };
+      list.onCancel = () => overlay?.hide();
+      overlay = showBottomPicker(new PickerOverlay(list, {
+        title: 'Resume Session',
+        rightLabel: sessionListScope === 'current' ? 'Current' : 'All',
+        hint: 'Tab scope · ↑↓ move · Enter select · Esc close',
+        onInput: (data) => {
+          if (!matchesKey(data, Key.tab) || isKeyRelease(data) || isKeyRepeat(data)) return false;
+          sessionListScope = sessionListScope === 'current' ? 'all' : 'current';
+          overlay?.hide();
+          renderScope();
+          return true;
+        },
+      }));
+    };
+    renderScope();
   };
 
   const showRewindPicker = async () => {
@@ -749,13 +784,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       label: target.label,
     }));
     showSelectPicker(
-      'Rewind — 回到选定轮次之前（丢弃该轮及之后，prompt 回填输入框）',
+      'Rewind',
       'Rewind',
       items,
       (item) => {
         void runControl(() => rewindToTurn(item.value));
       },
-      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 48 },
+      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 48, hint: '回到选定轮次之前（丢弃该轮及之后，prompt 回填输入框） · enter 选择 / esc 取消' },
     );
   };
 
@@ -1061,7 +1096,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     return true;
   };
 
-  editor.setAutocompleteProvider(new MakaAutocompleteProvider(input.cwd, slashCommands));
+  refreshEditorCwd = (nextCwd) => {
+    editor.setAutocompleteProvider(new MakaAutocompleteProvider(nextCwd, slashCommands));
+  };
+  refreshEditorCwd(cwd);
 
   tui.addInputListener((data) => {
     // Once closing has begun, swallow any buffered input that reaches the
@@ -1102,6 +1140,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // one (e.g. `Esc`, type, `Esc`).
     if (!matchesKey(data, Key.escape)) lastIdleEscapeAt = 0;
     if (matchesKey(data, Key.ctrl('o')) && !isKeyRepeat(data)) {
+      if (togglePendingPermissionDetails(state)) {
+        requestRender();
+        return { consume: true };
+      }
       if (toggleAllToolExpansion(state)) {
         requestRender();
         return { consume: true };
@@ -1121,7 +1163,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       }
       if (
         matchesKey(data, 'a')
-        && pendingPermission.rememberForTurnAllowed === true
+        && pendingPermission.rememberForTurnAllowed
       ) {
         respondToPendingPermission('allow', true);
         return { consume: true };

@@ -139,11 +139,56 @@ describe('runAbComparison', () => {
     ]);
   });
 
-  test('drains every started pair and arm before propagating a rejection', async () => {
+  test('drains the sibling arm before propagating a pair rejection', async () => {
+    const started: string[] = [];
+    const finished: string[] = [];
+    let bothStarted!: () => void;
+    const bothStartedPromise = new Promise<void>((resolve) => { bothStarted = resolve; });
+    let releaseSibling!: () => void;
+    const siblingMayFinish = new Promise<void>((resolve) => { releaseSibling = resolve; });
+    const run = runAbComparison({
+      runId: 'ab-run',
+      arms: [
+        { id: 'maka', kind: 'harness', fingerprint: sha256('maka') },
+        { id: 'opencode', kind: 'harness', fingerprint: sha256('opencode') },
+      ],
+      evaluationTasks: [
+        { id: 't1', path: '/tasks/t1' },
+      ],
+      reps: 1,
+      maxConcurrency: 1,
+      runArm: async ({ arm, task }) => {
+        const id = `${task.id}:${arm.id}`;
+        started.push(id);
+        if (started.length === 2) bothStarted();
+        await bothStartedPromise;
+        if (id === 't1:maka') throw new Error('arm failed');
+        await siblingMayFinish;
+        finished.push(id);
+        return completed(task.id, true);
+      },
+    });
+
+    let rejectionObserved = false;
+    const rejection = assert.rejects(run, /arm failed/).then(() => { rejectionObserved = true; });
+    await bothStartedPromise;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const rejectedBeforeSiblingFinished = rejectionObserved;
+    releaseSibling();
+    await rejection;
+
+    assert.equal(rejectedBeforeSiblingFinished, false, 'the pair must keep draining its sibling arm before rejecting');
+    assert.deepEqual(started, ['t1:maka', 't1:opencode']);
+    assert.deepEqual(finished, ['t1:opencode']);
+  });
+
+  test('drains every started pair before propagating a rejection', async () => {
     const started: string[] = [];
     const finished: string[] = [];
     let allStarted!: () => void;
     const allStartedPromise = new Promise<void>((resolve) => { allStarted = resolve; });
+    let releaseOtherPair!: () => void;
+    const otherPairMayFinish = new Promise<void>((resolve) => { releaseOtherPair = resolve; });
     const run = runAbComparison({
       runId: 'ab-run',
       arms: [
@@ -153,7 +198,6 @@ describe('runAbComparison', () => {
       evaluationTasks: [
         { id: 't1', path: '/tasks/t1' },
         { id: 't2', path: '/tasks/t2' },
-        { id: 't3', path: '/tasks/t3' },
       ],
       reps: 1,
       maxConcurrency: 2,
@@ -163,22 +207,23 @@ describe('runAbComparison', () => {
         if (started.length === 4) allStarted();
         await allStartedPromise;
         if (id === 't1:maka') throw new Error('arm failed');
-        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        if (task.id === 't2') await otherPairMayFinish;
         finished.push(id);
         return completed(task.id, true);
       },
     });
 
-    await assert.rejects(run, /arm failed/);
-    const finishedAtReject = [...finished];
-    await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    let rejectionObserved = false;
+    const rejection = assert.rejects(run, /arm failed/).then(() => { rejectionObserved = true; });
+    await allStartedPromise;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const rejectedBeforeOtherPairFinished = rejectionObserved;
+    releaseOtherPair();
+    await rejection;
 
-    assert.deepEqual(new Set(started), new Set([
-      't1:maka', 't1:opencode', 't2:maka', 't2:opencode',
-    ]));
-    assert.deepEqual(new Set(finishedAtReject), new Set([
-      't1:opencode', 't2:maka', 't2:opencode',
-    ]));
+    assert.equal(rejectedBeforeOtherPairFinished, false, 'the comparison must keep draining every active pair before rejecting');
+    assert.deepEqual(new Set(started), new Set(['t1:maka', 't1:opencode', 't2:maka', 't2:opencode']));
+    assert.deepEqual(new Set(finished), new Set(['t1:opencode', 't2:maka', 't2:opencode']));
   });
 
   test('stops scheduling new pairs after the observed cost threshold is reached', async () => {

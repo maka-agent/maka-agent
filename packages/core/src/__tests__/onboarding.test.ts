@@ -373,8 +373,8 @@ describe('deriveOnboardingState invariants', () => {
 
   it('Codex OAuth subscription connections are onboarding-ready once their send path lands', () => {
     const conn = realConnection({
-      slug: 'codex-subscription',
-      providerType: 'codex-subscription',
+      slug: 'openai-codex',
+      providerType: 'openai-codex',
       defaultModel: 'gpt-5.5',
       models: [{ id: 'gpt-5.5' }],
     });
@@ -382,8 +382,8 @@ describe('deriveOnboardingState invariants', () => {
     assert.equal(ready.ready, true);
     const result = derive({
       connections: [conn],
-      defaultSlug: 'codex-subscription',
-      secrets: { 'codex-subscription': true },
+      defaultSlug: 'openai-codex',
+      secrets: { 'openai-codex': true },
     });
     assert.equal(result.kind, 'ready_empty');
   });

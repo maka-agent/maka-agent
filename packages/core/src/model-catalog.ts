@@ -161,6 +161,10 @@ export function buildModelCatalogEntries(input: BuildModelCatalogInput): ModelCa
 export function buildConnectionModelCatalogEntries(input: BuildConnectionModelCatalogInput): ModelCatalogEntry[] {
   const { connection } = input;
   const defaults = PROVIDER_DEFAULTS[connection.providerType];
+  // Unknown providerType (legacy seed, or a connection persisted on a branch
+  // that registers a provider this build doesn't know) → no catalog entries.
+  // Mirrors `isFakeBackend` in connection-readiness.ts.
+  if (!defaults) return [];
   const catalogFallbackModels = curatedCatalogFallbackModelsForProvider(connection.providerType);
   return buildModelCatalogEntries({
     providerType: connection.providerType,

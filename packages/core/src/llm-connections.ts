@@ -11,6 +11,7 @@ import {
   PROVIDER_REGISTRY,
   READY_PROVIDER_TYPES,
   RECOMMENDED_PROVIDER_TYPES,
+  normalizeProviderType,
   type ProviderCatalogGroup,
   type ProviderCategory,
   type ProviderDefaults,
@@ -24,6 +25,7 @@ export {
   PROVIDER_REGISTRY,
   READY_PROVIDER_TYPES,
   RECOMMENDED_PROVIDER_TYPES,
+  normalizeProviderType,
 };
 export type {
   ProviderCatalogGroup,
@@ -110,22 +112,25 @@ export const CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS = new Set([
 export const PROVIDER_DEFAULTS = PROVIDER_REGISTRY;
 
 export function providerAuthRequiresSecret(providerType: ProviderType): boolean {
-  const authKind = PROVIDER_DEFAULTS[providerType].authKind;
+  const authKind = PROVIDER_DEFAULTS[providerType]?.authKind;
   return authKind === 'api_key' || authKind === 'oauth_token';
 }
 
 export function providerAuthSupportsApiKey(providerType: ProviderType): boolean {
-  const authKind = PROVIDER_DEFAULTS[providerType].authKind;
+  const authKind = PROVIDER_DEFAULTS[providerType]?.authKind;
   return authKind === 'api_key' || authKind === 'optional_api_key';
 }
 
 export function backendKindOf(c: Pick<LlmConnection, 'providerType'>): BackendKind {
-  return PROVIDER_DEFAULTS[c.providerType].backendKind;
+  // Unknown providerType (legacy seed, or a connection persisted on a branch
+  // that registers a provider this build doesn't know) → treat as non-real,
+  // matching `isFakeBackend` in connection-readiness.ts.
+  return PROVIDER_DEFAULTS[c.providerType]?.backendKind ?? 'fake';
 }
 
 export function effectiveBaseUrl(c: Pick<LlmConnection, 'providerType' | 'baseUrl'>): string {
   if (c.baseUrl && c.baseUrl.trim()) return c.baseUrl.trim();
-  return PROVIDER_DEFAULTS[c.providerType].baseUrl;
+  return PROVIDER_DEFAULTS[c.providerType]?.baseUrl ?? '';
 }
 
 /**
@@ -146,7 +151,7 @@ export function persistedBaseUrl(
 ): string | undefined {
   const trimmed = baseUrl?.trim();
   if (!trimmed) return undefined;
-  if (trimmed === PROVIDER_DEFAULTS[providerType].baseUrl) return undefined;
+  if (trimmed === PROVIDER_DEFAULTS[providerType]?.baseUrl) return undefined;
   return trimmed;
 }
 
@@ -331,7 +336,9 @@ export function migrateConnectionV1ToV2(old: unknown): LlmConnection {
     baseUrl?: string;
     createdAt?: number;
   };
-  if (value.providerType) return value as LlmConnection;
+  if (value.providerType) {
+    return { ...value, providerType: normalizeProviderType(value.providerType) } as LlmConnection;
+  }
   if (!value.slug) throw new Error('Cannot migrate connection without slug');
 
   const now = Date.now();

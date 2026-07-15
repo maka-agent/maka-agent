@@ -46,7 +46,7 @@ function buildGoalSetTool(deps: GoalToolsDeps): MakaTool<{
       'Set an autonomous execution goal. After each turn an evaluator judges progress; '
       + 'if the condition is not met the system continues working turn after turn until it is '
       + 'met, deemed impossible, stalls, or hits a limit. Only one goal is active per session; '
-      + 'setting a new one replaces the previous.',
+      + 'an unfinished goal must be cleared or completed before another can be set.',
     parameters: z.object({
       condition: z.string().trim().min(1).max(500)
         .describe('The objective to achieve. Should be observable and verifiable (e.g. "all tests in packages/runtime pass", "PR #522 review comments addressed").'),
@@ -60,12 +60,17 @@ function buildGoalSetTool(deps: GoalToolsDeps): MakaTool<{
     permissionRequired: false,
     impl: (input, ctx) => {
       const tokensAtStart = deps.getTokenCount?.(ctx.sessionId) ?? 0;
-      const goal = deps.goalManager.set(ctx.sessionId, input.condition, {
+      const result = deps.goalManager.create(ctx.sessionId, input.condition, {
         maxIterations: input.max_iterations,
         blockCap: input.block_cap,
         tokenBudget: input.token_budget,
         tokensAtStart,
       });
+      if (result.kind === 'unfinished') {
+        return `Goal not set: unfinished goal "${result.goal.condition}" is ${result.goal.status}. `
+          + 'Clear or complete it before setting another goal.';
+      }
+      const goal = result.goal;
       const limits = [
         `max ${goal.maxIterations} turns`,
         `stall after ${goal.blockCap} no-progress turns`,

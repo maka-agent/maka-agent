@@ -332,14 +332,14 @@ declare global {
         refreshTokens(): Promise<SubscriptionActionResult>;
         logout(): Promise<SubscriptionActionResult>;
       };
-      codexSubscription: {
+      openAiCodex: {
         isExperimentalEnabled(): Promise<boolean>;
         getAuthUrl(): Promise<AuthorizationUrlPayload | SubscriptionActionResult>;
         openAuthUrl(authRequestId: string): Promise<SubscriptionActionResult>;
         completeAuthorization(authRequestId: string): Promise<SubscriptionActionResult>;
         cancelAuthorization(authRequestId?: string): Promise<{ ok: true }>;
         getAccountState(): Promise<{
-          provider: 'codex-subscription';
+          provider: 'openai-codex';
           runtimeState:
             | 'not_logged_in'
             | 'authorizing'

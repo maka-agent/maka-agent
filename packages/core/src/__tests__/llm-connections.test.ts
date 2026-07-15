@@ -19,9 +19,16 @@ import {
   PROVIDER_REGISTRY,
   READY_PROVIDER_TYPES,
   RECOMMENDED_PROVIDER_TYPES,
+  backendKindOf,
+  effectiveBaseUrl,
+  migrateConnectionV1ToV2,
   normalizeConnectionBaseUrl,
+  normalizeProviderType,
   persistedBaseUrl,
+  providerAuthRequiresSecret,
+  providerAuthSupportsApiKey,
   validateConnectionBaseUrl,
+  type ProviderType,
 } from '../llm-connections.js';
 
 describe('provider compatibility contract', () => {
@@ -62,6 +69,9 @@ describe('provider compatibility contract', () => {
       'stepfun-ai',
       'volcengine-ark',
       'deepinfra',
+      'groq',
+      'openrouter',
+      'alibaba',
       'cloudflare-workers-ai',
       'ollama-cloud',
       'ollama',
@@ -70,7 +80,7 @@ describe('provider compatibility contract', () => {
       'openai-compatible',
       'github-copilot',
       'claude-subscription',
-      'codex-subscription',
+      'openai-codex',
       'gemini-cli',
     ]);
     assert.deepEqual(READY_PROVIDER_TYPES, [
@@ -115,6 +125,9 @@ describe('provider compatibility contract', () => {
       'zenmux',
       'opencode',
       'opencode-go',
+      'groq',
+      'openrouter',
+      'alibaba',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -158,6 +171,9 @@ describe('provider compatibility contract', () => {
       'zenmux',
       'opencode',
       'opencode-go',
+      'groq',
+      'openrouter',
+      'alibaba',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -187,7 +203,7 @@ describe('provider compatibility contract', () => {
     assert.equal(PROVIDER_REGISTRY.siliconflow.modelDiscovery.kind, 'protocol');
     assert.deepEqual(PROVIDER_REGISTRY.siliconflow.modelDiscovery.query, { sub_type: 'chat' });
     assert.equal(PROVIDER_REGISTRY.ollama.modelDiscovery.kind, 'ollama');
-    assert.equal(PROVIDER_REGISTRY['codex-subscription'].modelDiscovery.kind, 'fallback');
+    assert.deepEqual(PROVIDER_REGISTRY['openai-codex'].modelDiscovery, { kind: 'protocol', auth: 'openai-codex' });
   });
 
   it('owns OpenCode Zen and Go as distinct mixed-protocol access paths', () => {
@@ -460,6 +476,55 @@ describe('provider compatibility contract', () => {
     assert.equal(deepinfra.fallbackModels[0], 'moonshotai/Kimi-K2.7-Code');
     assert.ok(deepinfra.fallbackModels.includes('moonshotai/Kimi-K2.6'));
     assert.ok(!deepinfra.fallbackModels.includes('BAAI/bge-m3'));
+  });
+
+  it('owns Groq direct API behavior under the stable groq id', () => {
+    const groq = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).groq;
+
+    assert.ok(groq, 'Groq must be available through the shared provider registry');
+    assert.equal(groq.label, 'Groq');
+    assert.equal(groq.baseUrl, 'https://api.groq.com/openai/v1');
+    assert.equal(groq.authKind, 'api_key');
+    assert.equal(groq.protocol, 'openai');
+    assert.deepEqual(groq.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(groq.modelDiscovery, {
+      kind: 'protocol',
+      filter: 'fallback-models',
+    });
+    assert.equal(groq.category, 'overseas');
+    assert.equal(groq.catalogGroup, 'api');
+    assert.equal(groq.modelsDevId, 'groq');
+    assert.equal(groq.fallbackModels[0], 'llama-3.3-70b-versatile');
+    assert.ok(groq.fallbackModels.includes('openai/gpt-oss-120b'));
+    assert.ok(groq.fallbackModels.includes('qwen/qwen3-32b'));
+    // gpt-oss-safeguard-20b is a moderation model, but models.dev marks it
+    // function-calling — we keep it in the fallback list to match every other
+    // provider (Vercel ships the identical model). The default stays
+    // llama-3.3-70b-versatile via recommended-first ordering; safeguard never
+    // receives reasoning_effort (no thinkingOptions entry below).
+    assert.ok(groq.fallbackModels.includes('openai/gpt-oss-safeguard-20b'));
+    assert.ok(!groq.fallbackModels.includes('whisper-large-v3'));
+  });
+
+  it('owns OpenRouter direct API behavior under the stable openrouter id', () => {
+    const openrouter = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).openrouter;
+
+    assert.ok(openrouter, 'OpenRouter must be available through the shared provider registry');
+    assert.equal(openrouter.label, 'OpenRouter');
+    assert.equal(openrouter.baseUrl, 'https://openrouter.ai/api/v1');
+    assert.equal(openrouter.authKind, 'api_key');
+    assert.equal(openrouter.protocol, 'openai');
+    assert.deepEqual(openrouter.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(openrouter.modelDiscovery, {
+      kind: 'protocol',
+      filter: 'fallback-models',
+    });
+    assert.equal(openrouter.category, 'overseas');
+    assert.equal(openrouter.catalogGroup, 'aggregators');
+    assert.equal(openrouter.catalogBadge, '聚合');
+    assert.equal(openrouter.modelsDevId, 'openrouter');
+    assert.equal(openrouter.fallbackModels[0], 'anthropic/claude-sonnet-5');
+    assert.ok(openrouter.fallbackModels.includes('openai/gpt-5.6-sol'));
   });
 
   it('owns Cohere native API behavior under the stable cohere id', () => {
@@ -1010,8 +1075,8 @@ describe('provider URL defaults', () => {
   });
 
   it('labels the ChatGPT account path as OpenAI OAuth, not Codex subscription', () => {
-    assert.equal(PROVIDER_DEFAULTS['codex-subscription'].label, 'OpenAI OAuth (ChatGPT / Codex)');
-    assert.equal(PROVIDER_DEFAULTS['codex-subscription'].description, 'ChatGPT/Codex account OAuth path for OpenAI Responses models.');
+    assert.equal(PROVIDER_DEFAULTS['openai-codex'].label, 'OpenAI OAuth (ChatGPT / Codex)');
+    assert.equal(PROVIDER_DEFAULTS['openai-codex'].description, 'ChatGPT/Codex account OAuth path for OpenAI Responses models.');
   });
 
   it('keeps Kimi Coding Plan separate from Moonshot API key access', () => {
@@ -1306,5 +1371,73 @@ describe('normalizeConnectionBaseUrl (PR-UI-IPC-1 fixup v2, @kenji msg 8755ffb3 
       // guard is the contract.
       assert.ok(true);
     });
+  });
+});
+
+describe('unknown-providerType tolerance', () => {
+  // A connection persisted on another branch may carry a providerType this
+  // build's PROVIDER_REGISTRY doesn't know. These helpers must
+  // fall back safely instead of throwing — matching the `isFakeBackend`
+  // "unknown → non-real" convention in connection-readiness.ts.
+  const UNKNOWN = 'branch-only-provider' as ProviderType;
+
+  it('backendKindOf returns "fake" for an unregistered providerType', () => {
+    assert.equal(backendKindOf({ providerType: UNKNOWN }), 'fake');
+  });
+
+  it('effectiveBaseUrl returns the explicit baseUrl, else empty string', () => {
+    assert.equal(effectiveBaseUrl({ providerType: UNKNOWN, baseUrl: 'https://example.test/v1' }), 'https://example.test/v1');
+    assert.equal(effectiveBaseUrl({ providerType: UNKNOWN, baseUrl: undefined }), '');
+  });
+
+  it('persistedBaseUrl keeps a real override and drops empty for an unregistered providerType', () => {
+    assert.equal(persistedBaseUrl(UNKNOWN, 'https://example.test/v1'), 'https://example.test/v1');
+    assert.equal(persistedBaseUrl(UNKNOWN, '   '), undefined);
+    assert.equal(persistedBaseUrl(UNKNOWN, undefined), undefined);
+  });
+
+  it('providerAuthRequiresSecret / providerAuthSupportsApiKey return false for an unregistered providerType', () => {
+    assert.equal(providerAuthRequiresSecret(UNKNOWN), false);
+    assert.equal(providerAuthSupportsApiKey(UNKNOWN), false);
+  });
+
+  it('registered providers keep their real behavior', () => {
+    assert.equal(backendKindOf({ providerType: 'anthropic' }), 'ai-sdk');
+    assert.equal(providerAuthRequiresSecret('anthropic'), true);
+    assert.equal(providerAuthSupportsApiKey('ollama'), false);
+  });
+});
+
+describe('normalizeProviderType (persisted providerType alias)', () => {
+  // The `codex-subscription` providerType was renamed to `openai-codex`.
+  // Connections persisted before the rename still carry the old id on disk;
+  // reading them must normalize to the current id so every downstream
+  // registry lookup, `case` dispatch, and credential resolution works.
+  it('maps the legacy codex-subscription alias to openai-codex', () => {
+    assert.equal(normalizeProviderType('codex-subscription'), 'openai-codex');
+  });
+
+  it('returns the current id unchanged for renamed and other providers', () => {
+    assert.equal(normalizeProviderType('openai-codex'), 'openai-codex');
+    assert.equal(normalizeProviderType('anthropic'), 'anthropic');
+    assert.equal(normalizeProviderType('github-copilot'), 'github-copilot');
+  });
+
+  it('passes unknown ids through unchanged so unregistered-provider tolerance stays intact', () => {
+    assert.equal(normalizeProviderType('branch-only-provider'), 'branch-only-provider');
+  });
+
+  it('migrateConnectionV1ToV2 normalizes a persisted codex-subscription connection', () => {
+    const migrated = migrateConnectionV1ToV2({
+      slug: 'codex-subscription',
+      name: 'OpenAI OAuth',
+      providerType: 'codex-subscription',
+      defaultModel: 'gpt-5.5',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    assert.equal(migrated.providerType, 'openai-codex');
+    assert.equal(migrated.slug, 'codex-subscription');
   });
 });

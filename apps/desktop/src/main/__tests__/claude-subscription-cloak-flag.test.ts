@@ -83,8 +83,8 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
 
   it('main delegates Codex OAuth request construction to runtime', async () => {
     const src = await readMainProcessCombinedSource();
-    assert.match(src, /providerType === 'codex-subscription'[\s\S]*buildRuntimeSubscriptionModelFetch\(\{[\s\S]*connection[\s\S]*sessionId[\s\S]*modelId/);
-    assert.doesNotMatch(src, /function buildCodexSubscriptionFetch/, 'desktop must not duplicate the Codex fetch adapter');
+    assert.match(src, /providerType === 'openai-codex'[\s\S]*buildRuntimeSubscriptionModelFetch\(\{[\s\S]*connection[\s\S]*sessionId[\s\S]*modelId/);
+    assert.doesNotMatch(src, /function buildOpenAiCodexFetch/, 'desktop must not duplicate the Codex fetch adapter');
     assert.doesNotMatch(src, /codexInstructionsFromBody/, 'Codex instruction mapping belongs in runtime');
     assert.doesNotMatch(src, /OpenAI-Beta/, 'Codex subscription headers belong in runtime');
   });

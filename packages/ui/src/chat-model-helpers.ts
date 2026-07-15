@@ -32,7 +32,7 @@ export interface ChatModelChoice {
    * `none` auth), where `connection.name` is a plain label the user typed in
    * Settings when adding the connection (e.g. "OpenRouter", "My Together AI
    * key"). Must stay `undefined` for `claude-subscription` /
-   * `codex-subscription` / `gemini-cli`, whose `connection.name` embeds the
+   * `openai-codex` / `gemini-cli`, whose `connection.name` embeds the
    * OAuth account email (PR-CHAT-CHROME-FIX-0) — those three keep falling
    * back to the leak-safe provider label in `modelMenuGroups`. Callers
    * populate this field; `@maka/ui` doesn't know about `LlmConnection` and
@@ -60,7 +60,7 @@ const PROVIDER_SHORT_LABEL: Partial<Record<ProviderType, string>> = {
   'MiniMax-cn': 'MiniMax 中国站',
   'openai-compatible': '自定义',
   'claude-subscription': 'Claude 订阅',
-  'codex-subscription': 'OpenAI OAuth',
+  'openai-codex': 'OpenAI OAuth',
   'gemini-cli': 'Gemini CLI',
 };
 
@@ -87,7 +87,7 @@ export interface ModelMenuGroup {
  * the SAME provider are present and neither supplied a name (e.g. two OpenAI
  * keys) — the slug is a safe `[a-z0-9-]` identifier, never the OAuth
  * account email `connection.name` carries for `claude-subscription` /
- * `codex-subscription` / `gemini-cli`.
+ * `openai-codex` / `gemini-cli`.
  */
 export function modelMenuGroups(choices: ChatModelChoice[]): ModelMenuGroup[] {
   const bySlug = new Map<string, { connectionSlug: string; providerType: ProviderType; connectionName?: string; choices: ChatModelChoice[] }>();

@@ -22,6 +22,10 @@ export interface SandboxPathContext {
   tmpdir?: string;
   slashTmp?: string;
   minimalRoots?: readonly string[];
+  /** Runtime files needed only to launch a sandboxed helper process. */
+  runtimeReadableRoots?: readonly string[];
+  /** Runtime binaries/frameworks that the helper process may map and execute. */
+  executableRoots?: readonly string[];
 }
 
 export interface SandboxCommand {

@@ -22,8 +22,8 @@ export function buildSubscriptionModelFetch(input: SubscriptionModelFetchInput):
     if (input.claude?.cloakEnabled === false) return undefined;
     return buildClaudeSubscriptionCloakedFetch(input, requireClaudeCloakMetadata(input.claude));
   }
-  if (input.connection.providerType === 'codex-subscription') {
-    return buildCodexSubscriptionFetch(input.sessionId, input.fetchFn ?? fetch);
+  if (input.connection.providerType === 'openai-codex') {
+    return buildOpenAiCodexFetch(input.sessionId, input.fetchFn ?? fetch);
   }
   if (input.connection.providerType === 'github-copilot') {
     return buildGitHubCopilotFetch(input.fetchFn ?? fetch);
@@ -109,7 +109,7 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function buildCodexSubscriptionFetch(sessionId: string, fetchFn: typeof fetch): typeof fetch {
+function buildOpenAiCodexFetch(sessionId: string, fetchFn: typeof fetch): typeof fetch {
   return async (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const headers = new Headers(init?.headers);
     headers.set('OpenAI-Beta', 'responses=experimental');
@@ -120,21 +120,21 @@ function buildCodexSubscriptionFetch(sessionId: string, fetchFn: typeof fetch): 
 
     const rawBody = init?.body;
     if (typeof rawBody !== 'string') {
-      return checkedCodexSubscriptionFetch(fetchFn, url, { ...init, headers });
+      return checkedOpenAiCodexFetch(fetchFn, url, { ...init, headers });
     }
 
     let parsedBody: Record<string, unknown>;
     try {
       const parsed = JSON.parse(rawBody) as unknown;
       if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return checkedCodexSubscriptionFetch(fetchFn, url, { ...init, headers });
+        return checkedOpenAiCodexFetch(fetchFn, url, { ...init, headers });
       }
       parsedBody = parsed as Record<string, unknown>;
     } catch {
-      return checkedCodexSubscriptionFetch(fetchFn, url, { ...init, headers });
+      return checkedOpenAiCodexFetch(fetchFn, url, { ...init, headers });
     }
 
-    return checkedCodexSubscriptionFetch(fetchFn, url, {
+    return checkedOpenAiCodexFetch(fetchFn, url, {
       ...init,
       headers,
       body: JSON.stringify({
@@ -159,7 +159,7 @@ function buildCodexSubscriptionFetch(sessionId: string, fetchFn: typeof fetch): 
   };
 }
 
-async function checkedCodexSubscriptionFetch(
+async function checkedOpenAiCodexFetch(
   fetchFn: typeof fetch,
   url: Parameters<typeof fetch>[0],
   init?: Parameters<typeof fetch>[1],
@@ -167,7 +167,7 @@ async function checkedCodexSubscriptionFetch(
   const response = await fetchFn(url, init);
   if (!response.ok) {
     const detail = await response.clone().text().catch(() => '');
-    throw new Error(formatCodexSubscriptionHttpError(response.status, detail));
+    throw new Error(formatOpenAiCodexHttpError(response.status, detail));
   }
   return response;
 }
@@ -203,7 +203,7 @@ function codexInstructionsFromBody(body: Record<string, unknown>): string {
   return 'You are Maka, a helpful AI assistant.';
 }
 
-function formatCodexSubscriptionHttpError(statusCode: number, detail: string): string {
+function formatOpenAiCodexHttpError(statusCode: number, detail: string): string {
   const compact = redactSecrets(detail).replace(/\s+/g, ' ').trim().slice(0, 240);
   return compact
     ? `Codex OAuth request failed: HTTP ${statusCode} ${compact}`

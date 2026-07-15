@@ -15,12 +15,14 @@
 
 import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
+import alibabaBrandMark from '../assets/provider-brands/alibabacloud.svg';
 import cerebrasBrandMark from '../assets/provider-brands/cerebras.svg';
 import cohereBrandMark from '../assets/provider-brands/cohere.svg';
 import cloudflareMarkUrl from '../assets/provider-brands/cloudflare.svg';
 import deepinfraBrandMark from '../assets/provider-brands/deepinfra.svg';
 import fireworksMarkUrl from '../assets/provider-brands/fireworks.svg';
 import githubCopilotBrandMark from '../assets/provider-brands/github-copilot.svg';
+import groqBrandMark from '../assets/provider-brands/groq.svg';
 import huggingfaceBrandMark from '../assets/provider-brands/huggingface.svg';
 import hunyuanBrandMark from '../assets/provider-brands/hunyuan.svg';
 import tencentCloudBrandMark from '../assets/provider-brands/tencentcloud.svg';
@@ -31,6 +33,7 @@ import mistralBrandMark from '../assets/provider-brands/mistral.svg';
 import togetherBrandMark from '../assets/provider-brands/together.svg';
 import nvidiaMarkUrl from '../assets/provider-brands/nvidia.svg';
 import opencodeBrandMark from '../assets/provider-brands/opencode.svg';
+import openrouterBrandMark from '../assets/provider-brands/openrouter.svg';
 import stepfunBrandMark from '../assets/provider-brands/stepfun.svg';
 import vercelBrandMark from '../assets/provider-brands/vercel.svg';
 import volcengineBrandMark from '../assets/provider-brands/volcengine.svg';
@@ -92,6 +95,31 @@ function XiaomiMiMo(): ReactElement {
 // - path: packages/static-svg/icons/deepinfra-color.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: bfc78853fe658f6446651d03218f3e809215fd7cb3bce841a6526de383286544
+
+// Real Groq mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/groq.svg
+// - variant: monochrome; no upstream color variant exists in this release
+// - license: MIT (repository LICENSE)
+// - SHA-256: 078d5cf6e7a54905040c15ddacf5ea33c13042fe7739e820cedc2096e4406651
+
+// Real OpenRouter mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.92.0
+// - commit: df132de5a0cef315b9a2f155b1949e39f4b89bb5
+// - path: packages/static-svg/icons/openrouter-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 17bede1b89166f824ee06753dc526a3f5e18b769706deaab09d04a3a98de1a78
+
+// Real Alibaba Cloud mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/alibabacloud-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 73ea97baf919edb3d888a77cd45b21574e190a80124a59e199ea6953a28a959c
 
 // Cloudflare mark vendored byte-for-byte from Lobe Icons:
 // - repository: https://github.com/lobehub/lobe-icons
@@ -341,6 +369,12 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <img src={togetherBrandMark} alt="" />;
     case 'deepinfra':
       return <img src={deepinfraBrandMark} alt="" />;
+    case 'groq':
+      return <ProviderAssetMask src={groqBrandMark} />;
+    case 'openrouter':
+      return <img src={openrouterBrandMark} alt="" />;
+    case 'alibaba':
+      return <img src={alibabaBrandMark} alt="" />;
     case 'cloudflare-workers-ai':
       return <img src={cloudflareMarkUrl} alt="" />;
     case 'fireworks-ai':
@@ -356,7 +390,7 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
     case 'claude-subscription':
       return <Claude />;
     case 'openai':
-    case 'codex-subscription':
+    case 'openai-codex':
     case 'openai-compatible':
       return <OpenAI />;
     case 'github-copilot':

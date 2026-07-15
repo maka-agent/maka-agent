@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMountedRef } from './use-mounted-ref.js';
-import type { PermissionRequestEvent, PermissionResponse } from '@maka/core';
-import { derivePermissionRequestHealth, formatPermissionRequestWait, readWriteStdinInputPreview } from '@maka/core';
+import type {
+  AdditionalPermissionRequestEvent,
+  AnyPermissionRequestEvent,
+  PermissionRequestEvent,
+  SandboxEscalationRequestEvent,
+  PermissionResponse,
+} from '@maka/core';
+import {
+  derivePermissionRequestHealth,
+  formatPermissionRequestWait,
+  formatWriteStdinPermissionInspection,
+  projectWriteStdinPermissionSummary,
+} from '@maka/core';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Button as UiButton, Checkbox } from './ui.js';
 import { redactSecrets } from './redact.js';
@@ -9,7 +20,9 @@ import { formatRedactedJson } from './tool-format.js';
 
 // Per-reason presentation hints. The headline states the decision while tone
 // handles the minimum visual distinction needed for higher-risk requests.
-type ReasonKind = PermissionRequestEvent['reason'];
+type ReasonKind = PermissionRequestEvent['reason']
+  | AdditionalPermissionRequestEvent['reason']
+  | SandboxEscalationRequestEvent['reason'];
 
 interface ReasonPreset {
   prompt: string;
@@ -25,11 +38,13 @@ const REASON_PRESETS: Record<ReasonKind, ReasonPreset> = {
   privileged: { prompt: '允许执行特权操作？', tone: 'destructive' },
   browser: { prompt: '允许操作已登录的浏览器？', tone: 'caution' },
   computer_use: { prompt: '允许读取或操作本机应用？', tone: 'caution' },
+  additional_permissions: { prompt: '允许本次额外权限？', tone: 'caution' },
+  sandbox_escalation: { prompt: '允许本次在 sandbox 外执行？', tone: 'destructive' },
   custom: { prompt: '允许执行此操作？', tone: 'info' },
 };
 
 export function PermissionPrompt(props: {
-  request: PermissionRequestEvent;
+  request: AnyPermissionRequestEvent;
   // Accept Promise-returning impls so the prompt can await the IPC
   // and reset its own pending state when it resolves OR rejects.
   // The renderer's `respondToPermission` is async but was typed as
@@ -40,6 +55,7 @@ export function PermissionPrompt(props: {
   stopPending?: boolean;
 }) {
   const [rememberForTurn, setRememberForTurn] = useState(false);
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
   const [responsePending, setResponsePending] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const responsePendingRef = useRef(false);
@@ -50,6 +66,7 @@ export function PermissionPrompt(props: {
   useEffect(() => {
     activePermissionRequestIdRef.current = props.request.requestId;
     setRememberForTurn(false);
+    setExpandedRequestId(null);
     setResponsePending(false);
     responsePendingRef.current = false;
     setNow(Date.now());
@@ -79,7 +96,9 @@ export function PermissionPrompt(props: {
       await props.onRespond({
         requestId,
         decision,
-        rememberForTurn: decision === 'allow' ? rememberForTurn : false,
+        ...(props.request.rememberForTurnAllowed
+          ? { rememberForTurn: decision === 'allow' ? rememberForTurn : false }
+          : {}),
       });
     } finally {
       if (activePermissionRequestIdRef.current === requestId) {
@@ -89,11 +108,14 @@ export function PermissionPrompt(props: {
     }
   }
 
+  const fullArgsOpen = expandedRequestId === props.request.requestId;
   const preset = REASON_PRESETS[props.request.reason] ?? REASON_PRESETS.custom;
   const summary = renderPermissionSummary(props.request);
-  const details = renderPermissionDetails(props.request);
+  const details = renderPermissionDetails(props.request, fullArgsOpen);
   const additionalArgs = permissionAdditionalArgs(props.request);
-  const showDisclosure = details !== undefined || additionalArgs !== undefined;
+  const showDisclosure = props.request.toolName === 'WriteStdin'
+    || details !== undefined
+    || additionalArgs !== undefined;
   const disclosureLabel = permissionDisclosureLabel(props.request, additionalArgs);
   const prompt = permissionPrompt(props.request, preset);
   const isDestructive = preset.tone === 'destructive';
@@ -138,7 +160,11 @@ export function PermissionPrompt(props: {
             </p>
           )}
         </div>
-        <Collapsible className="maka-permission-raw">
+        <Collapsible
+          className="maka-permission-raw"
+          open={fullArgsOpen}
+          onOpenChange={(open) => setExpandedRequestId(open ? props.request.requestId : null)}
+        >
           {showDisclosure && (
             <CollapsiblePanel>
               {details && <div className="maka-permission-details">{details}</div>}
@@ -148,7 +174,7 @@ export function PermissionPrompt(props: {
           <footer className="permissionActions">
             <div className="maka-permission-utility-actions">
               {showDisclosure && <CollapsibleTrigger>{disclosureLabel}</CollapsibleTrigger>}
-              {props.request.rememberForTurnAllowed !== false && (
+              {props.request.rememberForTurnAllowed && (
                 <label className="permissionRemember">
                   <Checkbox
                     checked={rememberForTurn}
@@ -186,7 +212,8 @@ export function PermissionPrompt(props: {
                 disabled={decisionsDisabled}
                 onClick={() => submit('allow')}
               >
-                {responsePending ? '正在提交…' : '允许操作'}
+                {responsePending ? '正在提交…'
+                  : isOneShotPermissionRequest(props.request) ? '允许这一次' : '允许操作'}
               </UiButton>
             </div>
           </footer>
@@ -228,7 +255,44 @@ function renderBrowserSummary(toolName: string, args: Record<string, unknown>): 
  * top of the permission prompt body. Falls back to undefined if we can't
  * recognize the tool — the raw args Collapsible block is always available.
  */
-function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | undefined {
+function renderPermissionSummary(request: AnyPermissionRequestEvent): ReactNode | undefined {
+  if (isAdditionalPermissionRequest(request)) {
+    const entries = request.additionalPermissions.fileSystem?.entries ?? [];
+    return (
+      <>
+        <p className="maka-permission-line">{request.justification}</p>
+        <p className="maka-permission-meta">工作目录 <code>{redactSecrets(request.cwd)}</code></p>
+        {entries.map((entry) => (
+          <p className="maka-permission-path" key={`${entry.access}:${entry.scope}:${entry.path}`}>
+            <code>{redactSecrets(entry.path)}</code>
+            {' · '}{entry.access === 'write' ? '读写' : '只读'}
+            {' · '}{entry.scope === 'exact' ? '仅此路径' : '目录及子目录'}
+          </p>
+        ))}
+        {request.risk.networkEnabled && (
+          <p className="maka-permission-meta">本次调用将临时允许网络访问。</p>
+        )}
+        {request.risk.outsideWorkspace && (
+          <p className="maka-permission-meta">包含工作区外路径。</p>
+        )}
+        {request.risk.protectedMetadata && (
+          <p className="maka-permission-meta">包含受保护的 Git/Agent 元数据。</p>
+        )}
+      </>
+    );
+  }
+  if (isSandboxEscalationRequest(request)) {
+    return (
+      <>
+        <p className="maka-permission-line">{request.justification}</p>
+        <p className="maka-permission-meta">工作目录 <code>{redactSecrets(request.cwd)}</code></p>
+        <pre className="maka-code maka-permission-command">{redactSecrets(request.command)}</pre>
+        <p className="maka-permission-context" data-tone="destructive">
+          本次命令将不经过平台 sandbox，可访问工作区外文件、网络和受保护元数据。
+        </p>
+      </>
+    );
+  }
   const args = (request.args ?? {}) as Record<string, unknown>;
   switch (request.toolName) {
     case 'maka_computer': {
@@ -266,19 +330,32 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
       return <pre className="maka-code maka-permission-command">{commandSummary}</pre>;
     }
     case 'WriteStdin': {
-      const input = readWriteStdinInputPreview(args);
-      const size = args.size && typeof args.size === 'object' && !Array.isArray(args.size)
-        ? args.size as Record<string, unknown>
-        : undefined;
-      const cols = typeof size?.cols === 'number' ? size.cols : undefined;
-      const rows = typeof size?.rows === 'number' ? size.rows : undefined;
-      if (!input && (cols === undefined || rows === undefined)) return undefined;
+      const writeStdin = projectWriteStdinPermissionSummary(args);
+      if (!writeStdin.ref && !writeStdin.input && !writeStdin.size) return undefined;
       return (
         <>
           <p className="maka-permission-line">即将与后台终端交互</p>
-          {input && <p className="maka-permission-meta">输入 <strong>{input.bytes}</strong> 字节</p>}
-          {cols !== undefined && rows !== undefined && (
-            <p className="maka-permission-meta">目标尺寸 <strong>{cols}x{rows}</strong></p>
+          {writeStdin.ref && (
+            <p className="maka-permission-path">
+              <code>{writeStdin.ref.text}{writeStdin.ref.truncated ? '…' : ''}</code>
+            </p>
+          )}
+          {writeStdin.input && (
+            <>
+              <pre className="maka-code maka-permission-preview">
+                {writeStdin.input.text}{writeStdin.input.truncated ? '…' : ''}
+              </pre>
+              {writeStdin.input.truncated && (
+                <p className="maka-permission-meta">
+                  完整输入共 <strong>{writeStdin.input.bytes}</strong> 字节
+                </p>
+              )}
+            </>
+          )}
+          {writeStdin.size && (
+            <p className="maka-permission-meta">
+              目标尺寸 <strong>{writeStdin.size.cols}x{writeStdin.size.rows}</strong>
+            </p>
           )}
         </>
       );
@@ -331,15 +408,20 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
   }
 }
 
-function renderPermissionDetails(request: PermissionRequestEvent): ReactNode | undefined {
+function renderPermissionDetails(
+  request: AnyPermissionRequestEvent,
+  writeStdinExpanded: boolean,
+): ReactNode | undefined {
+  if (isAdditionalPermissionRequest(request)) return undefined;
   const args = (request.args ?? {}) as Record<string, unknown>;
   switch (request.toolName) {
     case 'WriteStdin': {
-      const input = readWriteStdinInputPreview(args);
-      if (!input) return undefined;
+      if (!writeStdinExpanded) return undefined;
+      const inspection = formatWriteStdinPermissionInspection(args);
+      if (!inspection) return undefined;
       return (
         <pre className="maka-code maka-permission-preview">
-          {input.text}{input.truncated ? '…' : ''}
+          {inspection}
         </pre>
       );
     }
@@ -392,7 +474,8 @@ function renderPermissionDetails(request: PermissionRequestEvent): ReactNode | u
   }
 }
 
-function permissionAdditionalArgs(request: PermissionRequestEvent): Record<string, unknown> | undefined {
+function permissionAdditionalArgs(request: AnyPermissionRequestEvent): Record<string, unknown> | undefined {
+  if (isAdditionalPermissionRequest(request)) return undefined;
   const args = (request.args ?? {}) as Record<string, unknown>;
   switch (request.toolName) {
     case 'Bash': {
@@ -424,14 +507,16 @@ function prefixPermissionDiff(value: string, prefix: '-' | '+'): string {
   return value.split('\n').map((line) => `${prefix} ${line}`).join('\n');
 }
 
-function permissionPrompt(request: PermissionRequestEvent, preset: ReasonPreset): string {
+function permissionPrompt(request: AnyPermissionRequestEvent, preset: ReasonPreset): string {
+  if (isAdditionalPermissionRequest(request)) return '允许本次额外权限？';
+  if (isSandboxEscalationRequest(request)) return '允许本次在 sandbox 外执行？';
   if (request.toolName === 'Edit') return '允许修改文件？';
   if (request.toolName === 'OfficeDocumentEdit') return '允许编辑 Office 文档？';
   return preset.prompt;
 }
 
 function permissionDisclosureLabel(
-  request: PermissionRequestEvent,
+  request: AnyPermissionRequestEvent,
   additionalArgs: Record<string, unknown> | undefined,
 ): string {
   switch (request.toolName) {
@@ -446,6 +531,22 @@ function permissionDisclosureLabel(
     default:
       return additionalArgs ? '完整参数' : '查看详情';
   }
+}
+
+function isAdditionalPermissionRequest(
+  request: AnyPermissionRequestEvent,
+): request is AdditionalPermissionRequestEvent {
+  return request.kind === 'additional_permissions';
+}
+
+function isSandboxEscalationRequest(
+  request: AnyPermissionRequestEvent,
+): request is SandboxEscalationRequestEvent {
+  return request.kind === 'sandbox_escalation';
+}
+
+function isOneShotPermissionRequest(request: AnyPermissionRequestEvent): boolean {
+  return isAdditionalPermissionRequest(request) || isSandboxEscalationRequest(request);
 }
 
 function permissionValuePreview(value: unknown): string {

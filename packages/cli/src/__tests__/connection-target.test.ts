@@ -385,6 +385,54 @@ describe('default session target resolver', () => {
     assert.equal(target.model, modelId);
   });
 
+  test('resolves Groq credentials without rewriting the exact model id', async () => {
+    const modelId = 'llama-3.3-70b-versatile';
+    const connection = makeConnection({
+      slug: 'groq',
+      name: 'Groq',
+      providerType: 'groq',
+      defaultModel: modelId,
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'groq',
+        get: async (slug) => slug === 'groq' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'groq-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'groq');
+    assert.equal(target.apiKey, 'groq-test-key');
+    assert.equal(target.model, modelId);
+  });
+
+  test('resolves OpenRouter credentials without rewriting the exact model id', async () => {
+    const modelId = 'anthropic/claude-sonnet-5';
+    const connection = makeConnection({
+      slug: 'openrouter',
+      name: 'OpenRouter',
+      providerType: 'openrouter',
+      defaultModel: modelId,
+    });
+
+    const target = await resolveDefaultSessionTarget({
+      connectionStore: {
+        getDefault: async () => 'openrouter',
+        get: async (slug) => slug === 'openrouter' ? connection : null,
+      },
+      credentialStore: {
+        getSecret: async (_slug, kind) => kind === 'api_key' ? 'openrouter-test-key' : null,
+      },
+    });
+
+    assert.equal(target.connection.providerType, 'openrouter');
+    assert.equal(target.apiKey, 'openrouter-test-key');
+    assert.equal(target.model, modelId);
+  });
+
   test('resolves Ollama Cloud credentials without crossing into local Ollama state', async () => {
     const modelId = 'qwen3.5:397b';
     const connection = makeConnection({
@@ -703,15 +751,15 @@ describe('default session target resolver', () => {
 
   test('uses a stored subscription access token for OAuth default connections', async () => {
     const connection = makeConnection({
-      slug: 'codex-subscription',
-      providerType: 'codex-subscription',
+      slug: 'openai-codex',
+      providerType: 'openai-codex',
       defaultModel: 'gpt-5.5',
     });
 
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
-        getDefault: async () => 'codex-subscription',
-        get: async (slug) => slug === 'codex-subscription' ? connection : null,
+        getDefault: async () => 'openai-codex',
+        get: async (slug) => slug === 'openai-codex' ? connection : null,
       },
       credentialStore: {
         getSecret: async () => JSON.stringify({
@@ -723,15 +771,15 @@ describe('default session target resolver', () => {
       },
     });
 
-    assert.equal(target.connection.slug, 'codex-subscription');
+    assert.equal(target.connection.slug, 'openai-codex');
     assert.equal(target.apiKey, 'oauth-access-token');
     assert.equal(target.model, 'gpt-5.5');
   });
 
   test('refreshes an expired OAuth subscription token before selecting the default target', async () => {
     const connection = makeConnection({
-      slug: 'codex-subscription',
-      providerType: 'codex-subscription',
+      slug: 'openai-codex',
+      providerType: 'openai-codex',
       defaultModel: 'gpt-5.5',
     });
     let stored = JSON.stringify({
@@ -744,8 +792,8 @@ describe('default session target resolver', () => {
 
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
-        getDefault: async () => 'codex-subscription',
-        get: async (slug) => slug === 'codex-subscription' ? connection : null,
+        getDefault: async () => 'openai-codex',
+        get: async (slug) => slug === 'openai-codex' ? connection : null,
       },
       credentialStore: {
         getSecret: async () => stored,
@@ -798,8 +846,8 @@ describe('default session target resolver', () => {
 
   test('rejects unusable OAuth subscription credentials instead of using the raw secret as an API key', async () => {
     const connection = makeConnection({
-      slug: 'codex-subscription',
-      providerType: 'codex-subscription',
+      slug: 'openai-codex',
+      providerType: 'openai-codex',
       defaultModel: 'gpt-5.5',
     });
     const expiredToken = JSON.stringify({
@@ -813,8 +861,8 @@ describe('default session target resolver', () => {
       await assert.rejects(
         resolveDefaultSessionTarget({
           connectionStore: {
-            getDefault: async () => 'codex-subscription',
-            get: async (slug) => slug === 'codex-subscription' ? connection : null,
+            getDefault: async () => 'openai-codex',
+            get: async (slug) => slug === 'openai-codex' ? connection : null,
           },
           credentialStore: {
             getSecret: async () => secret,

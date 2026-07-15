@@ -104,10 +104,10 @@ const OPENAI_MODEL_OVERRIDES: Record<string, ModelMetadata> = {
 };
 
 const OPENAI_OAUTH_MODEL_METADATA: Record<string, ModelMetadata> = {
-  'gpt-5.5': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.5']!, ...OPENAI_MODEL_OVERRIDES['gpt-5.5']!, contextWindow: 400_000 },
-  'gpt-5.5-pro': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.5-pro']!, contextWindow: 400_000 },
-  'gpt-5.4': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.4']!, contextWindow: 400_000 },
-  'gpt-5.4-mini': GENERATED_MODELS_DEV_METADATA.openai['gpt-5.4-mini']!,
+  'gpt-5.6-sol': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.6-sol']!, contextWindow: 372_000 },
+  'gpt-5.5': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.5']!, ...OPENAI_MODEL_OVERRIDES['gpt-5.5']!, contextWindow: 272_000 },
+  'gpt-5.4': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.4']!, contextWindow: 272_000 },
+  'gpt-5.4-mini': { ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.4-mini']!, contextWindow: 272_000 },
   'gpt-5.3-codex-spark': GENERATED_MODELS_DEV_METADATA.openai['gpt-5.3-codex-spark']!,
 };
 
@@ -132,6 +132,27 @@ const VOLCENGINE_CODING_PLAN_MODEL_METADATA: Record<string, ModelMetadata> = {
   'kimi-k2.6': planModel('Kimi-K2.6', true, 256_000, 32_000),
   'kimi-k2.7-code': planModel('Kimi-K2.7-Code', true, 256_000, 32_000),
 };
+
+// Ollama Cloud accepts reasoning_effort for every active reasoning model in its
+// generated catalog. GPT-OSS is the narrower exception and cannot be disabled.
+const OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS: ThinkingOptions = {
+  efforts: ['none', 'low', 'medium', 'high', 'max'],
+  toggle: true,
+};
+
+const OLLAMA_CLOUD_GPT_OSS_THINKING_OPTIONS: ThinkingOptions = {
+  efforts: ['low', 'medium', 'high'],
+};
+
+const ollamaCloudThinkingModels: Record<string, ModelMetadata> = Object.fromEntries(
+  Object.entries(GENERATED_MODELS_DEV_METADATA['ollama-cloud'])
+    .filter(([, metadata]) => metadata.capabilities?.reasoning && metadata.lifecycle !== 'deprecated')
+    .map(([id]) => [id, {
+      thinkingOptions: id.startsWith('gpt-oss')
+        ? OLLAMA_CLOUD_GPT_OSS_THINKING_OPTIONS
+        : OLLAMA_CLOUD_STANDARD_THINKING_OPTIONS,
+    }]),
+);
 
 // Facts that models.dev cannot express: provider wire controls and
 // access-path-specific aliases/limits. Standard model facts stay generated.
@@ -169,7 +190,7 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
     'command-a-reasoning-08-2025': { thinkingOptions: { toggle: true, offBehavior: 'cohere-thinking-disabled' } },
   },
   'gemini-cli': GOOGLE_MODEL_OVERRIDES,
-  'codex-subscription': OPENAI_OAUTH_MODEL_METADATA,
+  'openai-codex': OPENAI_OAUTH_MODEL_METADATA,
   siliconflow: SILICONFLOW_MODEL_OVERRIDES,
   vercel: {
     'xai/grok-4.3': { thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'] } },
@@ -200,6 +221,22 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
       thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
     },
   },
+  groq: {
+    // Groq accepts `reasoning_effort` only for gpt-oss-120b / gpt-oss-20b, with
+    // values low/medium/high (no `none`). See console.groq.com/docs/reasoning:
+    // qwen/qwen3-32b does NOT accept reasoning_effort (it reasons with no knob),
+    // and qwen/qwen3.6-27b accepts none/default but is not yet in the snapshot.
+    // gpt-oss-safeguard-20b is a guardrail model Groq does not list as accepting
+    // reasoning_effort, so it is deliberately omitted here.
+    'openai/gpt-oss-120b': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+    'openai/gpt-oss-20b': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+  },
+  openrouter: {
+    'anthropic/claude-sonnet-5': { thinkingOptions: { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] } },
+    'openai/gpt-5.6-sol': { thinkingOptions: { efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'], toggle: true } },
+    'x-ai/grok-4.5': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+    'deepseek/deepseek-v4-pro': { thinkingOptions: { efforts: ['high', 'xhigh'], toggle: true } },
+  },
   'cloudflare-workers-ai': {
     '@cf/moonshotai/kimi-k2.6': {
       thinkingOptions: {
@@ -209,11 +246,7 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
       },
     },
   },
-  'ollama-cloud': {
-    'qwen3.5:397b': {
-      thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'], toggle: true },
-    },
-  },
+  'ollama-cloud': ollamaCloudThinkingModels,
   deepseek: {
     'deepseek-v4-flash': { thinkingOptions: { efforts: ['high', 'max'], toggle: true } },
   },

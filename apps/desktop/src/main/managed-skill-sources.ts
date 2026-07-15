@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path';
 import { lstat, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
+import { validateSkillMetadata, type SkillValidationIssue } from '@maka/runtime';
 
 /**
  * Fixed marketplace taxonomy. A source's `category:` front-matter is
@@ -59,7 +60,11 @@ export interface ManagedSkillSourceEntry {
 
 export type ImportManagedSkillSourceResult =
   | { ok: true; source: ManagedSkillSourceRecord }
-  | { ok: false; reason: 'cancelled' | 'invalid_skill' | 'already_exists' | 'blocked_path' | 'write_failed' };
+  | {
+      ok: false;
+      reason: 'cancelled' | 'invalid_skill' | 'already_exists' | 'blocked_path' | 'write_failed';
+      diagnostics?: SkillValidationIssue[];
+    };
 
 export type ReadManagedSkillSourceResult =
   | { ok: true; source: ManagedSkillSourceRecord; content: string; contentSha256: string }
@@ -113,8 +118,14 @@ export async function importManagedSkillSource(input: {
   }
 
   const content = bytes.toString('utf8');
-  const parsed = parseSkillFrontMatterForSource(content);
-  if (!parsed.name) return { ok: false, reason: 'invalid_skill' };
+  const validation = validateSkillMetadata(content);
+  if (!validation.valid) {
+    return { ok: false, reason: 'invalid_skill', diagnostics: validation.issues };
+  }
+  const { name, description, category } = validation.manifest;
+  if (!name || !description) {
+    return { ok: false, reason: 'invalid_skill', diagnostics: validation.issues };
+  }
 
   const id = sourceIdFromPath(input.sourceFile);
   if (!id) return { ok: false, reason: 'invalid_skill' };
@@ -138,9 +149,9 @@ export async function importManagedSkillSource(input: {
 
     const source: ManagedSkillSourceRecord = {
       id,
-      name: parsed.name,
-      description: parsed.description ?? '',
-      category: normalizeManagedSkillCategory(parsed.category),
+      name,
+      description,
+      category: normalizeManagedSkillCategory(category),
       sourceType: 'local',
       sourcePath: managedSkillPath,
       contentSha256,

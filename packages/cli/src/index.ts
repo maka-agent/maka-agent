@@ -3,6 +3,7 @@ export {
   type MakaSessionDriver,
   type MakaSessionDriverInput,
   type MakaSessionRuntime,
+  type SessionResumeAvailability,
 } from './session-driver.js';
 export {
   parseMakaCliArgs,

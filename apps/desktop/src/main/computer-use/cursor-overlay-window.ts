@@ -321,8 +321,6 @@ export function createCursorOverlayController(
     if (typeof input.sessionId !== 'string' || input.sessionId.length === 0) return;
     if (input.sessionId !== sessionId || input.actionId !== actionId) return;
     push('overlay:cancel', { actionId: input.actionId });
-    settlePresentation();
-    actionId = null;
   }
 
   function clearForSession(id: string): void {

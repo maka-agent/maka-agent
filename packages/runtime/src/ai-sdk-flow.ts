@@ -41,6 +41,7 @@ import type {
   AdditionalPermissionRequest,
   PermissionRequest,
   PermissionRequestPayload,
+  SandboxEscalationRequest,
 } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
 import { isTerminalRuntimeEvent, type RuntimeEvent, type RuntimeEventStatus } from '@maka/core/runtime-event';
@@ -110,24 +111,32 @@ function resolveBase(event: SessionEvent, ctx: InvocationContext) {
 }
 
 function mapPermissionRequest(event: AnyPermissionRequestEvent): PermissionRequestPayload {
-  if (event.kind === 'additional_permissions') {
-    return mapAdditionalPermissionRequest(event);
+  if (event.kind === 'tool_permission') {
+    const request: PermissionRequest = {
+      kind: 'tool_permission',
+      requestId: event.requestId,
+      toolUseId: event.toolUseId,
+      toolName: event.toolName,
+      category: event.category,
+      reason: event.reason,
+      args: structuredClone(event.args),
+      rememberForTurnAllowed: event.rememberForTurnAllowed,
+      ...(event.hint !== undefined ? { hint: event.hint } : {}),
+    };
+    return request;
   }
-  const request: PermissionRequest = {
-    requestId: event.requestId,
-    toolUseId: event.toolUseId,
-    toolName: event.toolName,
-    category: event.category,
-    reason: event.reason,
-    args: structuredClone(event.args),
-    ...(event.hint !== undefined ? { hint: event.hint } : {}),
-  };
-  return request;
+  return event.kind === 'additional_permissions'
+    ? mapAdditionalPermissionRequest(event)
+    : mapSandboxEscalationRequest(event);
 }
 
 function mapAdditionalPermissionRequest(
   event: AnyPermissionRequestEvent,
 ): AdditionalPermissionRequest {
+  const runtimeKind: unknown = event.kind;
+  if (runtimeKind !== 'additional_permissions') {
+    throw malformedAdditionalPermissionRequest(event.requestId, 'kind');
+  }
   if (event.reason !== 'additional_permissions') {
     throw malformedAdditionalPermissionRequest(event.requestId, 'reason');
   }
@@ -181,6 +190,54 @@ function mapAdditionalPermissionRequest(
 function malformedAdditionalPermissionRequest(requestId: string, field: string): TypeError {
   return new TypeError(
     `Additional permission request ${requestId} has an invalid or missing ${field}.`,
+  );
+}
+
+function mapSandboxEscalationRequest(
+  event: AnyPermissionRequestEvent,
+): SandboxEscalationRequest {
+  if (event.kind !== 'sandbox_escalation') {
+    throw malformedSandboxEscalationRequest(event.requestId, 'kind');
+  }
+  if (
+    event.reason !== 'sandbox_escalation'
+    || typeof event.command !== 'string'
+    || typeof event.cwd !== 'string'
+    || typeof event.justification !== 'string'
+    || typeof event.intentHash !== 'string'
+    || typeof event.commandHash !== 'string'
+    || (event.trigger !== 'proactive' && event.trigger !== 'sandbox_denial')
+    || !event.risk
+    || typeof event.alsoApprovesToolExecution !== 'boolean'
+    || event.availableDecisions?.length !== 2
+    || event.availableDecisions[0] !== 'allow_once'
+    || event.availableDecisions[1] !== 'deny'
+  ) {
+    throw malformedSandboxEscalationRequest(event.requestId, 'payload');
+  }
+  return {
+    kind: 'sandbox_escalation',
+    requestId: event.requestId,
+    toolUseId: event.toolUseId,
+    toolName: 'Bash',
+    category: event.category,
+    reason: 'sandbox_escalation',
+    command: event.command,
+    cwd: event.cwd,
+    justification: event.justification,
+    intentHash: event.intentHash,
+    commandHash: event.commandHash,
+    trigger: event.trigger,
+    risk: structuredClone(event.risk),
+    alsoApprovesToolExecution: event.alsoApprovesToolExecution,
+    availableDecisions: ['allow_once', 'deny'],
+    ...(event.hint !== undefined ? { hint: event.hint } : {}),
+  };
+}
+
+function malformedSandboxEscalationRequest(requestId: string, field: string): TypeError {
+  return new TypeError(
+    `Sandbox escalation request ${requestId} has an invalid or missing ${field}.`,
   );
 }
 
@@ -345,6 +402,9 @@ export function mapSessionEventToRuntimeEvent(
             requestId: event.requestId,
             decision: event.decision,
             ...(event.rememberForTurn !== undefined ? { rememberForTurn: event.rememberForTurn } : {}),
+            ...(event.reviewer !== undefined ? { reviewer: event.reviewer } : {}),
+            ...(event.rationale !== undefined ? { rationale: event.rationale } : {}),
+            ...(event.riskLevel !== undefined ? { riskLevel: event.riskLevel } : {}),
           },
         },
         refs: { toolCallId: event.toolUseId },
@@ -449,7 +509,7 @@ export function mapSessionEventToRuntimeEvent(
         actions: { endInvocation: true, stateDelta: { abortSource: event.reason } },
       };
     case 'complete':
-      return completeRuntimeEvent(base, event.stopReason, memory);
+      return completeRuntimeEvent(base, event, memory);
     default: {
       // Exhaustiveness guard: if SessionEvent grows a new variant, the
       // mapping falls through to a diagnostic event instead of dropping it.
@@ -469,9 +529,10 @@ export function mapSessionEventToRuntimeEvent(
 
 function completeRuntimeEvent(
   base: ReturnType<typeof resolveBase>,
-  stopReason: CompleteStopReason,
+  event: CompleteEvent,
   memory: SessionEventMapMemory,
 ): RuntimeEvent {
+  const stopReason = event.stopReason;
   const status = memory.failureClass && stopReason !== 'user_stop'
     ? 'failed'
     : mapCompleteStopReason(stopReason);
@@ -480,6 +541,12 @@ function completeRuntimeEvent(
     stateDelta.failureClass = memory.failureClass
       ?? failureClassFromCompleteStopReason(stopReason)
       ?? 'runtime_error';
+  }
+  // The context_budget_exhausted outcome carries which invariant made the turn
+  // unrecoverable; the durable terminal state must not collapse it to a bare
+  // failure class.
+  if (event.contextBudgetExhaustedDetail !== undefined) {
+    stateDelta.contextBudgetExhaustedDetail = event.contextBudgetExhaustedDetail;
   }
   if (status === 'aborted') stateDelta.abortSource = stopReason;
   return {
@@ -584,6 +651,11 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
       for await (const sessionEvent of this.backend.send({
         runId: ctx.runId,
         turnId: ctx.turnId,
+        // The persisted head anchor: mid-turn capacity compaction keeps this
+        // event verbatim and needs its exact ledger identity for coverage.
+        ...(ctx.request.initialRuntimeEvent !== undefined
+          ? { headAnchorRuntimeEvent: ctx.request.initialRuntimeEvent }
+          : {}),
         text: input.text,
         ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
         context: input.context,

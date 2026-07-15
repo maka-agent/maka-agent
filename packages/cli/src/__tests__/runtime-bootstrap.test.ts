@@ -473,9 +473,9 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(backendInput.contextBudget?.name, 'cli-default-history-budget');
         assert.equal(backendInput.contextBudget?.maxHistoryEstimatedTokens, 32_000);
         assert.equal(backendInput.contextBudget?.activeToolResultPrune?.enabled, true);
-        // In-turn semantic compaction is stripped for the CLI: it interrupts the
-        // live reply with a compaction notice for small savings. History/turn
-        // compaction stays.
+        // In-turn semantic compaction (the #986 experiment) is off by default in
+        // the runtime, so the CLI inherits it absent without a local strip.
+        // History/turn compaction stays.
         assert.equal(backendInput.contextBudget?.semanticCompact, undefined);
         assert.equal(backendInput.contextBudget?.historyCompact?.enabled, true);
         assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'read_write');
@@ -519,8 +519,8 @@ describe('Maka CLI runtime bootstrap', () => {
           });
           const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
 
-          // The CLI default strips semantic compaction, but an explicit env
-          // opt-in must reach the backend so the path stays exercisable.
+          // Semantic compaction is off by default, but an explicit env opt-in
+          // must reach the backend so the path stays exercisable.
           assert.equal(backendInput.contextBudget?.semanticCompact?.enabled, true);
         });
       } finally {

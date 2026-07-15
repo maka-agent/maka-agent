@@ -92,7 +92,12 @@ function slashCommandPrefix(lines: string[], cursorLine: number, cursorCol: numb
 export class PickerOverlay implements Component {
   constructor(
     private readonly list: SelectList,
-    private readonly input: { title: string; rightLabel: string; hint?: string },
+    private readonly input: {
+      title: string;
+      rightLabel: string;
+      hint?: string;
+      onInput?: (data: string) => boolean;
+    },
   ) {}
 
   invalidate(): void {
@@ -100,6 +105,7 @@ export class PickerOverlay implements Component {
   }
 
   handleInput(data: string): void {
+    if (this.input.onInput?.(data)) return;
     this.list.handleInput(data);
   }
 

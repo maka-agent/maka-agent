@@ -102,7 +102,7 @@ export interface HarborCellOutput {
   runtimeEventsPath: string;
   promptHash?: string;
   executionIdentity?: HarborCellExecutionIdentity;
-  tokenSummary: HarborCellTokenSummary;
+  tokenSummary?: HarborCellTokenSummary;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
   continuationSummary?: HarborCellContinuationSummary;
@@ -124,6 +124,7 @@ export function buildHarborCellOutput(input: {
   taskToolSummaryEnabled?: boolean;
 }): HarborCellOutput {
   const { invocation } = input;
+  const tokenSummary = summarizeCellTokens(invocation.events);
   return {
     schemaVersion: HARBOR_CELL_OUTPUT_SCHEMA_VERSION,
     status: invocation.status,
@@ -131,13 +132,13 @@ export function buildHarborCellOutput(input: {
     runtimeEventsPath: input.runtimeEventsPath,
     ...promptHashField(invocation.events),
     ...(input.executionIdentity ? { executionIdentity: input.executionIdentity } : {}),
-    tokenSummary: summarizeCellTokens(invocation.events),
+    ...(tokenSummary ? { tokenSummary } : {}),
     ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
     ...contextBudgetSummaryField(invocation.events),
     ...(input.continuationSummary ? { continuationSummary: input.continuationSummary } : {}),
     toolSummary: summarizeCellTools(invocation.events),
     ...taskToolSummaryField(invocation.events, input.taskToolSummaryEnabled ?? false),
-    steps: invocation.events.length,
+    steps: countRuntimeSteps(invocation.events),
     durationMs: invocation.finishedAt - invocation.startedAt,
     startedAt: invocation.startedAt,
     finishedAt: invocation.finishedAt,
@@ -148,6 +149,26 @@ export function buildHarborCellOutput(input: {
       turnId: invocation.turnId,
     },
   };
+}
+
+export function countRuntimeSteps(events: readonly RuntimeEvent[]): number {
+  const turns = new Map<string, { reported: number; stepIds: Set<string>; legacyTextSteps: number }>();
+  for (const event of events) {
+    const turn = turns.get(event.turnId) ?? { reported: 0, stepIds: new Set<string>(), legacyTextSteps: 0 };
+    turn.reported += event.actions?.tokenUsage?.runtimeSteps ?? 0;
+    turns.set(event.turnId, turn);
+    if (event.role !== 'model' || event.partial === true) continue;
+    const stepId = event.refs?.stepId ?? event.refs?.providerEventId;
+    if (stepId) {
+      turn.stepIds.add(stepId);
+    } else if (event.content?.kind === 'text') {
+      turn.legacyTextSteps += 1;
+    }
+  }
+  return [...turns.values()].reduce(
+    (sum, turn) => sum + (turn.reported > 0 ? turn.reported : turn.stepIds.size + turn.legacyTextSteps),
+    0,
+  );
 }
 
 export function hashHarborSystemPrompt(systemPrompt: string): string {
@@ -169,7 +190,9 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
   const executionIdentity = 'executionIdentity' in value
     ? validateHarborCellExecutionIdentity(value.executionIdentity)
     : undefined;
-  const tokenSummary = validateHarborCellTokenSummary(value.tokenSummary);
+  const tokenSummary = 'tokenSummary' in value
+    ? validateHarborCellTokenSummary(value.tokenSummary)
+    : undefined;
   const contextBudgetPolicy = 'contextBudgetPolicy' in value
     ? validateContextBudgetPolicySnapshot(value.contextBudgetPolicy)
     : undefined;
@@ -195,7 +218,7 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
     runtimeEventsPath,
     ...(promptHash !== undefined ? { promptHash } : {}),
     ...(executionIdentity !== undefined ? { executionIdentity } : {}),
-    tokenSummary,
+    ...(tokenSummary ? { tokenSummary } : {}),
     ...(contextBudgetPolicy !== undefined ? { contextBudgetPolicy } : {}),
     ...(contextBudgetSummary !== undefined ? { contextBudgetSummary } : {}),
     ...(continuationSummary !== undefined ? { continuationSummary } : {}),
@@ -271,7 +294,7 @@ function requireContinuationTurns(value: unknown): HarborCellContinuationTurnSum
   });
 }
 
-export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCellTokenSummary {
+export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCellTokenSummary | undefined {
   const summary: HarborCellTokenSummary = {
     input: 0,
     output: 0,
@@ -286,9 +309,11 @@ export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCell
   };
   let sawExplicitCacheMiss = false;
   let sawDerivedCacheMiss = false;
+  let sawUsage = false;
   for (const event of events) {
     const usage = event.actions?.tokenUsage;
     if (!usage) continue;
+    sawUsage = true;
     summary.input += usage.input ?? 0;
     summary.output += usage.output ?? 0;
     const cacheHitInput = usage.cacheHitInput ?? usage.cacheRead ?? 0;
@@ -312,6 +337,7 @@ export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCell
     summary.total += usage.total ?? (usage.input ?? 0) + (usage.output ?? 0) + (usage.reasoning ?? 0);
     summary.costUsd += usage.costUsd ?? 0;
   }
+  if (!sawUsage) return undefined;
   if (sawExplicitCacheMiss) {
     summary.cacheMissInputSource = 'explicit';
   } else if (sawDerivedCacheMiss) {

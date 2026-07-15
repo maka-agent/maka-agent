@@ -89,7 +89,7 @@ describe('subscription model fetch', () => {
     let observedHeaders = new Headers();
     let observedBody = '';
     const modelFetch = buildSubscriptionModelFetch({
-      connection: codexSubscriptionConnection(),
+      connection: openAiCodexConnection(),
       sessionId: 'session-123',
       modelId: 'gpt-5.5',
       fetchFn: async (_url, init) => {
@@ -183,11 +183,11 @@ function claudeSubscriptionConnection(): LlmConnection {
   };
 }
 
-function codexSubscriptionConnection(): LlmConnection {
+function openAiCodexConnection(): LlmConnection {
   return {
-    slug: 'codex-subscription',
+    slug: 'openai-codex',
     name: 'OpenAI OAuth',
-    providerType: 'codex-subscription',
+    providerType: 'openai-codex',
     defaultModel: 'gpt-5.5',
     enabled: true,
     createdAt: 1,

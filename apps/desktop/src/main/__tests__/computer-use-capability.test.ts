@@ -49,9 +49,26 @@ describe('Desktop Computer Use production wiring', () => {
     assert.ok(capability, 'Computer Use capability block must exist');
     assert.match(capability, /required_scoped_lease/);
     assert.match(capability, /input\?\.health\.state/);
+    assert.match(capability, /未找到通过完整性检查的 cua-driver artifact/);
+    assert.match(capability, /等待.*权限/);
+    assert.match(capability, /service 正在启动或恢复/);
+    assert.match(capability, /service 启动失败、已退出或已停止/);
     assert.doesNotMatch(capability, /required_per_action/);
     assert.match(main, /computerUse\.backend\?\.serviceState/);
     assert.match(main, /computerUseServiceHealth/);
+  });
+
+  it('does not expose screenshot-returning Computer Use tools to non-visual models', async () => {
+    const [main, packageJson] = await Promise.all([
+      readFile(resolve(ROOT, 'apps/desktop/src/main/main.ts'), 'utf8'),
+      readFile(resolve(ROOT, 'apps/desktop/package.json'), 'utf8'),
+    ]);
+    assert.match(main, /computerUseToolsForModel\([\s\S]*supportsVision/);
+    assert.match(main, /computerUseAvailabilityForModel\([\s\S]*supportsVision/);
+    assert.match(
+      packageJson,
+      /"smoke:browser":\s*"[^"]*@maka\/computer-use[^"]*build:main/,
+    );
   });
 
   it('wires a conservative physical-input quiet window', async () => {

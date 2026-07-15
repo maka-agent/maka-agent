@@ -43,7 +43,7 @@ describe('connection credential IPC hardening contract', () => {
       /(^|[^\w])\.\.(?!\.)|includes\('\\.\\.'\)|includes\("\.\."\)|traversal|path traversal/i,
       'slug validator must explicitly reject traversal-looking ".." slugs even though dots are otherwise allowed for compatibility',
     );
-    for (const validSlug of ['claude-subscription', 'codex-subscription', 'zai-coding-plan', 'env-openai']) {
+    for (const validSlug of ['claude-subscription', 'openai-codex', 'zai-coding-plan', 'env-openai']) {
       assert.doesNotMatch(validSlug, /[\u0000-\u001F\u007F/:\\]/, `${validSlug} should stay representative-valid`);
       assert.ok(validSlug.length <= 64, `${validSlug} should stay under the IPC slug cap`);
     }
@@ -144,7 +144,7 @@ describe('connection credential IPC hardening contract', () => {
     );
     assert.match(
       mainSource,
-      /async function normalizeUpdateConnectionInput\([\s\S]*PROVIDER_DEFAULTS\[providerType\]\.authKind === 'oauth_token'[\s\S]*baseUrl: existing\?\.baseUrl \?\? PROVIDER_DEFAULTS\[providerType\]\.baseUrl/,
+      /async function normalizeUpdateConnectionInput\([\s\S]*const defaults = providerType \? PROVIDER_DEFAULTS\[providerType\] : undefined;[\s\S]*defaults\?\.authKind === 'oauth_token'[\s\S]*baseUrl: existing\?\.baseUrl \?\? defaults\.baseUrl/,
       'update must preserve the main-owned account endpoint for OAuth providers',
     );
     assert.match(mainSource, /connections:test[\s\S]*const apiKey = await resolveConnectionSecret\(slug\)/);

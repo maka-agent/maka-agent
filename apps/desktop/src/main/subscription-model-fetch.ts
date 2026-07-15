@@ -19,7 +19,7 @@ export function createSubscriptionModelFetch(deps: SubscriptionModelFetchDeps) {
       return buildClaudeSubscriptionCloakedFetch(connection, deps.claudeSubscription, sessionId, modelId);
     }
     if (
-      connection.providerType === 'codex-subscription'
+      connection.providerType === 'openai-codex'
       || connection.providerType === 'github-copilot'
     ) {
       return buildRuntimeSubscriptionModelFetch({ connection, sessionId, modelId });

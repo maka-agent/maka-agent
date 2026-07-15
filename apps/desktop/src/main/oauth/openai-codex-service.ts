@@ -51,7 +51,7 @@ import {
   pkceChallengeFromVerifier,
   safeExtractAccountClaims,
   type CodexAccountClaims,
-} from './codex-subscription-helpers.js';
+} from './openai-codex-helpers.js';
 
 // Endpoint shortcuts so the existing class body keeps reading
 // like the Claude service (constants at the top, lookups inline).
@@ -108,7 +108,7 @@ interface PendingAuthorization {
 // Service class.
 // =============================================================
 
-export interface CodexSubscriptionServiceDeps {
+export interface OpenAiCodexServiceDeps {
   /** Absolute path to userData dir; e.g. app.getPath('userData'). */
   userDataDir: string;
   /** Function returning current epoch ms. Injectable for tests. */
@@ -119,7 +119,7 @@ export interface CodexSubscriptionServiceDeps {
   credentialStore?: Pick<CredentialStore, 'setSecret' | 'deleteSecret'>;
 }
 
-export class CodexSubscriptionService {
+export class OpenAiCodexService {
   private readonly tokenFilePath: string;
   private readonly now: () => number;
   private readonly fetchFn: typeof fetch;
@@ -134,7 +134,7 @@ export class CodexSubscriptionService {
   private authorizing = false;
   private refreshing = false;
 
-  constructor(deps: CodexSubscriptionServiceDeps) {
+  constructor(deps: OpenAiCodexServiceDeps) {
     this.tokenFilePath = join(deps.userDataDir, '.codex_subscription_token');
     this.now = deps.now ?? (() => Date.now());
     this.fetchFn = deps.fetchFn ?? (globalThis.fetch as typeof fetch);
@@ -288,20 +288,20 @@ export class CodexSubscriptionService {
     if (!tokens) {
       if (this.lastStorageFailedMessage) {
         return {
-          provider: 'codex-subscription',
+          provider: 'openai-codex',
           runtimeState: 'storage_failed',
           errorMessage: this.lastStorageFailedMessage,
         };
       }
       return {
-        provider: 'codex-subscription',
+        provider: 'openai-codex',
         runtimeState: this.authorizing ? 'authorizing' : 'not_logged_in',
       };
     }
     const claims = this.cachedClaims ?? safeExtractAccountClaims(tokens.access_token, tokens.id_token);
     const runtimeState = this.deriveRuntimeState();
     return {
-      provider: 'codex-subscription',
+      provider: 'openai-codex',
       runtimeState,
       accountId: tokens.account_id || claims?.accountId,
       email: claims?.email,
@@ -634,7 +634,7 @@ export class CodexSubscriptionService {
 }
 
 // =============================================================
-// Public IPC payload shape — `codex-subscription:get-account-state`.
+// Public IPC payload shape — `openai-codex:get-account-state`.
 //
 // Mirrors the Claude service's SubscriptionAccountState shape so
 // the renderer can reuse a single presentation helper, but uses
@@ -650,7 +650,7 @@ export type CodexRuntimeState =
   | 'refresh_failed';
 
 export interface CodexAccountStateSnapshot {
-  provider: 'codex-subscription';
+  provider: 'openai-codex';
   runtimeState: CodexRuntimeState;
   accountId?: string;
   email?: string;
@@ -661,7 +661,7 @@ export interface CodexAccountStateSnapshot {
 
 // =============================================================
 // Re-exports for the IPC handler + tests. The pure helpers live
-// in `codex-subscription-helpers.ts` so they can be unit-tested
+// in `openai-codex-helpers.ts` so they can be unit-tested
 // without dragging in the electron ESM module.
 // =============================================================
 export { buildCodexAuthorizationUrl, extractAccountClaims, pkceChallengeFromVerifier };
@@ -696,7 +696,7 @@ function callbackErrorHtml(error: string): string {
 </body></html>`;
 }
 
-// `isCodexSubscriptionExperimentalEnabled` and `CODEX_OAUTH_CONFIG`
-// live in `codex-subscription-helpers.ts` — re-export so the IPC
+// `isOpenAiCodexExperimentalEnabled` and `CODEX_OAUTH_CONFIG`
+// live in `openai-codex-helpers.ts` — re-export so the IPC
 // handler in main.ts and contract tests have a single import path.
-export { CODEX_OAUTH_CONFIG, isCodexSubscriptionExperimentalEnabled } from './codex-subscription-helpers.js';
+export { CODEX_OAUTH_CONFIG, isOpenAiCodexExperimentalEnabled } from './openai-codex-helpers.js';

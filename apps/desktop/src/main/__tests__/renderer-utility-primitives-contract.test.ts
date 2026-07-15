@@ -121,9 +121,14 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.doesNotMatch(source, /<kbd\b/, 'Command palette shortcut glyphs must use shared primitive Kbd');
     assert.match(source, /<InputGroup[\s\S]*className="maka-palette-input-wrap"[\s\S]*aria-label="命令面板搜索"[\s\S]*onMouseDown=\{\(event\) => \{/);
     assert.match(source, /<InputGroupInput[\s\S]*className="maka-palette-input"/);
-    // Detail round 6: shortcut hints live in the palette footer only; the
-    // former inline-end addon duplicated ↵/Esc next to the input.
-    assert.doesNotMatch(source, /<InputGroupAddon\b/, 'Palette input must not regrow the duplicated shortcut-hint addon');
+    // Shortcut hints stay in the footer, and the close action stays outside
+    // the search InputGroup so neither can cover the other's hit target.
+    assert.doesNotMatch(source, /<InputGroupAddon\b/, 'Palette input must not regrow an inline addon');
+    assert.match(
+      source,
+      /<div className="maka-palette-header">[\s\S]*?<InputGroup[\s\S]*?<\/InputGroup>[\s\S]*?aria-label="关闭命令面板"/,
+      'Palette header must place the close action after the search InputGroup',
+    );
     assert.match(source, /<Autocomplete.Item[\s\S]*className="maka-palette-item"/, 'Command palette rows must be Autocomplete.Item (#520 PR8)');
     assert.match(source, /<KbdGroup className="maka-shortcut-group">[\s\S]*<Kbd className="maka-shortcut-kbd">↑<\/Kbd>[\s\S]*<Kbd className="maka-shortcut-kbd">↓<\/Kbd>/);
   });

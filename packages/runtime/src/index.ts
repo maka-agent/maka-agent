@@ -35,6 +35,7 @@ export {
   normalizeAdditionalPermissionProfile,
   planDeclaredBashAdditionalPermission,
   planFileToolAdditionalPermission,
+  revalidateAdditionalPermissionGrant,
   revalidateAdditionalPermissionProposal,
 } from './additional-permissions.js';
 export type {
@@ -48,10 +49,58 @@ export type {
   ToolExecutionPermissionContext,
 } from './additional-permissions.js';
 export { hashAdditionalPermissionProfile } from './additional-permission-hash.js';
+export {
+  DEFAULT_SANDBOX_ESCALATION_GRANT_TTL_MS,
+  MAX_SANDBOX_ESCALATION_JUSTIFICATION_CHARS,
+  SandboxEscalationError,
+  assertSandboxEscalationGrantForExecution,
+  assertSandboxEscalationProposal,
+  freezeSandboxEscalationGrant,
+  freezeSandboxEscalationProposal,
+  planDeclaredBashSandboxEscalation,
+  sandboxEscalationCommandHash,
+} from './sandbox-escalation.js';
+export type {
+  SandboxEscalationErrorReason,
+  SandboxEscalationGrant,
+  SandboxEscalationPlanResult,
+  SandboxEscalationPlannerContext,
+  SandboxEscalationProposal,
+} from './sandbox-escalation.js';
+export {
+  AiSdkAutoApprovalReviewer,
+  ApprovalCoordinator,
+  DEFAULT_AUTO_APPROVAL_REVIEW_TIMEOUT_MS,
+  MAX_AUTO_APPROVAL_RATIONALE_CHARS,
+} from './approval-reviewer.js';
+export type {
+  AiSdkAutoApprovalReviewerInput,
+  ApprovalCoordinatorObserver,
+  AutoApprovalReviewContext,
+  AutoApprovalReviewDecision,
+  AutoApprovalReviewer,
+} from './approval-reviewer.js';
+export {
+  FilesystemWorkerClient,
+  FilesystemWorkerClientError,
+  buildFilesystemWorkerEnv,
+  createFilesystemWorkerLaunchSpecProvider,
+} from './filesystem-worker/index.js';
+export type {
+  CreateFilesystemWorkerLaunchSpecProviderInput,
+  FilesystemWorkerClientInput,
+  FilesystemWorkerClientOperation,
+  FilesystemWorkerExecuteInput,
+  FilesystemWorkerLaunchSpec,
+  FilesystemWorkerLaunchSpecProvider,
+  FilesystemWorkerLaunchSpecResult,
+  FilesystemWorkerResourceLocation,
+} from './filesystem-worker/index.js';
 
 export { AiSdkBackend } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
+export { terminateChildProcessTree } from './process-tree-terminator.js';
 export type {
   AgentBackend,
   BackendCompactHistoryInput,
@@ -98,6 +147,46 @@ export type {
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
 export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
+export {
+  convertOpenAIComputerAction,
+  openAIComputerActionSchema,
+} from './openai-computer-actions.js';
+export type {
+  OpenAIComputerAction,
+  OpenAIComputerActionConversion,
+} from './openai-computer-actions.js';
+export {
+  createOpenAIComputerContinuationRequest,
+  createOpenAIComputerInitialRequest,
+  decodeOpenAIComputerResponse,
+} from './openai-computer-codec.js';
+export { OPENAI_COMPUTER_INSTRUCTIONS } from './openai-computer-policy.js';
+export {
+  createOpenAIStrictObjectSchema,
+  projectOpenAIStrictFunctionArgs,
+} from './openai-strict-function.js';
+export type { OpenAIStrictFunctionProjection } from './openai-strict-function.js';
+export type {
+  OpenAIComputerCall,
+  OpenAIComputerDialect,
+  OpenAIComputerInputItem,
+  OpenAIComputerRequest,
+  OpenAIComputerResponse,
+  OpenAIComputerSafetyCheck,
+  OpenAIComputerScreenshot,
+} from './openai-computer-codec.js';
+export { runOpenAIComputerLoop } from './openai-computer-loop.js';
+export type {
+  OpenAIComputerExecutor,
+  OpenAIComputerLoopResult,
+  OpenAIComputerScreenshotProvider,
+  OpenAIComputerTransport,
+} from './openai-computer-loop.js';
+export {
+  OpenAIResponsesTransport,
+  createOpenAIResponsesTransport,
+} from './openai-responses-transport.js';
+export type { OpenAIResponsesTransportOptions } from './openai-responses-transport.js';
 export type {
   ComputerUseToolSet,
   CuAppSummary,
@@ -445,6 +534,8 @@ export {
   canReplaceHistoryCompactCheckpoint,
   historyCompactCheckpointToRuntimeEvent,
   matchHistoryCompactCheckpointPrefix,
+  midTurnHeadAnchorEvent,
+  projectHistoryCompactCheckpointReplay,
   renderHistoryCompactCheckpoint,
   validateHistoryCompactCheckpointShape,
 } from './history-compact-checkpoint.js';
@@ -452,9 +543,27 @@ export type {
   BuildHistoryCompactCheckpointInput,
   HistoryCompactCheckpoint,
   HistoryCompactCheckpointCoverage,
+  HistoryCompactCheckpointHeadAnchor,
+  HistoryCompactCheckpointPhase,
   HistoryCompactCheckpointPrefixMatch,
   HistoryCompactCheckpointSource,
 } from './history-compact-checkpoint.js';
+export {
+  estimateNextRequestTokens,
+  exceedsContextWindow,
+  exceedsHighWater,
+  planMidTurnCapacityCompaction,
+  selectMidTurnSafeBoundary,
+} from './mid-turn-capacity-compact.js';
+export type {
+  EstimateNextRequestTokensInput,
+  MidTurnBoundary,
+  MidTurnBoundaryOptions,
+  MidTurnFailReason,
+  MidTurnSummarizer,
+  PlanMidTurnCapacityCompactionInput,
+  PlanMidTurnCapacityCompactionResult,
+} from './mid-turn-capacity-compact.js';
 export { cleanupLegacyHistoryCompactArtifacts } from './history-compact-cleanup.js';
 export type {
   HistoryCompactCleanupDiagnostic,
@@ -501,6 +610,7 @@ export type {
   ArchiveRetrievalResult,
   HistoryCompactBlock,
   HistoryCompactCoverage,
+  HistoryCompactMidTurnPolicy,
   HistoryCompactPolicy,
   HistoryCompactReplayResult,
   HistoryCompactSourceArchiveRef,
@@ -590,7 +700,7 @@ export type {
   SemanticCompactSummaryRequest,
 } from './semantic-compact.js';
 export { testConnection } from './test-connection.js';
-export { fetchGitHubCopilotModels, fetchProviderModels } from './model-fetcher.js';
+export { fetchGitHubCopilotModels, fetchOpenAiCodexModels, fetchProviderModels, OpenAiCodexDiscoveryError } from './model-fetcher.js';
 
 export {
   materializeSession,
@@ -897,13 +1007,16 @@ export {
   SKILLS_PROMPT_CONTEXT_RATIO,
   resolveSkillsPromptCharBudget,
   scanWorkspaceSkills,
+  scanWorkspaceSkillsWithDiagnostics,
   scanSkills,
+  scanSkillsWithDiagnostics,
   resolveSkillDiscoveryPaths,
   buildSkillsPromptFragment,
   loadSkillInstructions,
   buildSkillAgentTool,
   gateSkillsByHostCapabilities,
   parseSkillFrontMatter,
+  validateSkillMetadata,
   readSkillRuntimeState,
   writeSkillRuntimeState,
   readContainedRegularFile,
@@ -915,6 +1028,13 @@ export {
 } from './skills.js';
 export type {
   SkillRuntimeStatus,
+  SkillManifest,
+  SkillValidationSeverity,
+  SkillValidationCode,
+  SkillValidationIssue,
+  SkillMetadataValidationResult,
+  SkillScanDiagnostic,
+  SkillScanResult,
   RuntimeSkillDefinition,
   ScannedSkill,
   HostCapabilities,
@@ -925,5 +1045,6 @@ export type {
   LoadSkillInstructionsResult,
   SkillRuntimeStateReadResult,
   SkillSource,
+  SkillSourceResolver,
   SkillDiscoveryEntry,
 } from './skills.js';

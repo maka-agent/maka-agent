@@ -316,12 +316,14 @@ describe('AiSdkFlow seam', () => {
       events: [
         ev({
           type: 'permission_request',
+          kind: 'tool_permission',
           requestId: 'req-1',
           toolUseId: 'tu-2',
           toolName: 'bash',
           category: 'shell_unsafe',
           reason: 'shell_dangerous',
           args: { cmd: 'rm -rf /' },
+          rememberForTurnAllowed: true,
           hint: 'destructive',
         }),
         ev({
@@ -342,6 +344,11 @@ describe('AiSdkFlow seam', () => {
     assert.equal(req.actions?.permissionRequest?.requestId, 'req-1');
     assert.equal(req.actions?.permissionRequest?.toolName, 'bash');
     assert.equal(req.actions?.permissionRequest?.hint, 'destructive');
+    assert.equal(req.actions?.permissionRequest?.kind, 'tool_permission');
+    if (req.actions?.permissionRequest?.kind !== 'tool_permission') {
+      assert.fail('expected a tool permission request');
+    }
+    assert.equal(req.actions.permissionRequest.rememberForTurnAllowed, true);
 
     const ack = out[1];
     assert.equal(ack.author, 'user', 'permission decision is authored by the user');
@@ -400,6 +407,68 @@ describe('AiSdkFlow seam', () => {
     assert.deepEqual(request.availableDecisions, ['allow_once', 'deny']);
     assert.equal(request.alsoApprovesToolExecution, true);
     assert.equal('args' in request, false);
+  });
+
+  test('maps sandbox escalation as a bounded one-shot permission action', () => {
+    const mapped = mapSessionEventToRuntimeEvent(ev({
+      type: 'permission_request',
+      kind: 'sandbox_escalation',
+      requestId: 'req-escalation-1',
+      toolUseId: 'tu-escalation-1',
+      toolName: 'Bash',
+      category: 'shell_unsafe',
+      reason: 'sandbox_escalation',
+      args: undefined,
+      command: 'printf ok > /outside/result.txt',
+      cwd: '/workspace',
+      justification: 'Write the exact requested output.',
+      intentHash: 'intent-hash',
+      commandHash: 'command-hash',
+      trigger: 'sandbox_denial',
+      risk: {
+        unsandboxedExecution: true,
+        unrestrictedFileSystem: true,
+        unrestrictedNetwork: true,
+        protectedMetadataExposed: true,
+      },
+      alsoApprovesToolExecution: false,
+      availableDecisions: ['allow_once', 'deny'],
+      rememberForTurnAllowed: false,
+    }), ctx, createSessionEventMapMemory());
+
+    const request = mapped.actions?.permissionRequest;
+    assert.equal(request?.kind, 'sandbox_escalation');
+    if (request?.kind !== 'sandbox_escalation') assert.fail('expected sandbox escalation');
+    assert.equal(request.command, 'printf ok > /outside/result.txt');
+    assert.equal(request.trigger, 'sandbox_denial');
+    assert.deepEqual(request.availableDecisions, ['allow_once', 'deny']);
+    assert.equal('args' in request, false);
+  });
+
+  test('rejects permission requests without an explicit valid kind', () => {
+    const valid = ev({
+      type: 'permission_request',
+      kind: 'tool_permission',
+      requestId: 'req-kind',
+      toolUseId: 'tu-kind',
+      toolName: 'Write',
+      category: 'file_write',
+      reason: 'file_write',
+      args: { path: '/tmp/example' },
+      rememberForTurnAllowed: true,
+    });
+
+    for (const kind of [undefined, 'unknown']) {
+      const malformed = { ...valid, kind } as unknown as SessionEvent;
+      assert.throws(
+        () => mapSessionEventToRuntimeEvent(
+          malformed,
+          ctx,
+          createSessionEventMapMemory(),
+        ),
+        /invalid or missing kind/,
+      );
+    }
   });
 
   test('maps the error path preserving error content + terminal failed', async () => {
@@ -668,6 +737,25 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
     });
   });
 
+  test('context_budget_exhausted keeps its detail in the durable terminal state', () => {
+    const mapped = mapSessionEventToRuntimeEvent(
+      ev({
+        type: 'complete',
+        stopReason: 'context_budget_exhausted',
+        contextBudgetExhaustedDetail: 'head_anchor_exceeds_capacity',
+      }),
+      ctx,
+      createSessionEventMapMemory(),
+    );
+
+    assert.equal(mapped.status, 'failed');
+    assert.deepEqual(mapped.actions?.stateDelta, {
+      stopReason: 'context_budget_exhausted',
+      failureClass: 'context_budget_exhausted',
+      contextBudgetExhaustedDetail: 'head_anchor_exceeds_capacity',
+    });
+  });
+
   test('tool_output_delta and tool_progress map to partial tool-role heartbeats', () => {
     const mem = createSessionEventMapMemory();
     const a = mapSessionEventToRuntimeEvent(
@@ -721,16 +809,18 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
       {
         event: (args: unknown) => ev({
           type: 'permission_request',
+          kind: 'tool_permission',
           requestId: 'permission-owned',
           toolUseId: 'tu-owned',
           toolName: 'Write',
           category: 'file_write',
           reason: 'file_write',
           args,
+          rememberForTurnAllowed: true,
         }),
         mappedArgs: (event: RuntimeEvent) => {
           const request = event.actions?.permissionRequest;
-          return request?.kind === 'additional_permissions' ? undefined : request?.args;
+          return request?.kind === 'tool_permission' ? request.args : undefined;
         },
       },
     ];

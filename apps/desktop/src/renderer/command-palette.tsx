@@ -29,11 +29,13 @@ import {
   Sun,
   SunMoon,
   Wifi,
+  X,
   type LucideIcon,
 } from '@maka/ui/icons';
 import type { LlmConnection, PermissionMode, SessionSummary, SettingsSection, ThemePreference } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
 import {
+  Button,
   DialogContent,
   DialogRoot,
   Empty,
@@ -667,6 +669,7 @@ export function CommandPalette(props: {
         className="maka-modal maka-palette-modal top-[12vh] -translate-y-0"
         aria-label="命令面板"
         initialFocus={inputRef}
+        showClose={false}
       >
         {/*
           #520 PR8: Autocomplete owns the listbox/option ARIA + ArrowUp/Down/
@@ -693,30 +696,41 @@ export function CommandPalette(props: {
           itemToStringValue={(cmd) => cmd.label}
           items={combined}
         >
-          <InputGroup
-            className="maka-palette-input-wrap"
-            aria-label="命令面板搜索"
-            onMouseDown={(event) => {
-              const target = event.target as HTMLElement;
-              if (target.closest('input')) return;
-              event.preventDefault();
-              inputRef.current?.focus();
-            }}
-          >
-            <Autocomplete.Input
-              render={
-                <InputGroupInput
-                  ref={inputRef}
-                  className="maka-palette-input"
-                  type="text"
-                  placeholder="搜索命令、设置项或会话…"
-                  aria-label="搜索命令、设置项或会话"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-              }
-            />
-          </InputGroup>
+          <div className="maka-palette-header">
+            <InputGroup
+              className="maka-palette-input-wrap"
+              aria-label="命令面板搜索"
+              onMouseDown={(event) => {
+                const target = event.target as HTMLElement;
+                if (target.closest('input')) return;
+                event.preventDefault();
+                inputRef.current?.focus();
+              }}
+            >
+              <Autocomplete.Input
+                render={
+                  <InputGroupInput
+                    ref={inputRef}
+                    className="maka-palette-input"
+                    type="text"
+                    placeholder="搜索命令、设置项或会话…"
+                    aria-label="搜索命令、设置项或会话"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                }
+              />
+            </InputGroup>
+            <Button
+              type="button"
+              variant="quiet"
+              size="icon-sm"
+              aria-label="关闭命令面板"
+              onClick={props.onClose}
+            >
+              <X aria-hidden="true" />
+            </Button>
+          </div>
           <Autocomplete.List className="maka-palette-list" id="maka-palette-list" aria-label="命令面板结果">
             {grouped.length === 0 ? (
               <Empty className="maka-palette-empty py-8 md:py-10 gap-3">

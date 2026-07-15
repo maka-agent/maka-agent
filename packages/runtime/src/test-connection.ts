@@ -17,12 +17,15 @@ export async function testConnection(
   model?: string,
 ): Promise<ConnectionTestResult> {
   const t0 = Date.now();
-  const auth = PROVIDER_DEFAULTS[connection.providerType].authKind;
+  const defaults = PROVIDER_DEFAULTS[connection.providerType];
+  // Unknown providerType → can't pick an auth path or fallback model. Return a
+  // clear failure rather than crashing. Mirrors `isFakeBackend`.
+  if (!defaults) {
+    return { ok: false, errorMessage: `Unknown provider type "${connection.providerType}"` };
+  }
+  const auth = defaults.authKind;
   const secret = auth === 'none' ? '' : apiKey;
-  const testModel =
-    model ||
-    connection.defaultModel ||
-    PROVIDER_DEFAULTS[connection.providerType].fallbackModels[0];
+  const testModel = model || connection.defaultModel || defaults.fallbackModels[0];
 
   if (!testModel) {
     return { ok: false, errorMessage: 'No model to test' };
@@ -38,7 +41,7 @@ export async function testConnection(
         return /^gpt-5/i.test(testModel)
           ? await probeOpenAIResponses(baseUrl, secret, testModel, t0)
           : await probeOpenAI(connection, baseUrl, secret, testModel, t0);
-      case 'codex-subscription':
+      case 'openai-codex':
       case 'openai-compatible':
         return await probeOpenAI(connection, baseUrl, secret, testModel, t0);
       case 'github-copilot':
@@ -171,7 +174,7 @@ async function probeOpenAI(
   model: string,
   t0: number,
 ): Promise<ConnectionTestResult> {
-  if (connection.providerType === 'codex-subscription') {
+  if (connection.providerType === 'openai-codex') {
     // Codex Subscription credentials are ChatGPT account-scoped OAuth
     // tokens. A live `/responses` probe is not a stable readiness test:
     // the backend can hold or reject small synthetic requests even when

@@ -65,8 +65,8 @@ describe('model-metadata vision capability', () => {
   });
 
   it('keeps complete metadata for every Codex subscription model alias', () => {
-    for (const modelId of [...PROVIDER_DEFAULTS['codex-subscription'].fallbackModels, 'gpt-5.5-pro']) {
-      const metadata = lookupModelMetadata('codex-subscription', modelId);
+    for (const modelId of PROVIDER_DEFAULTS['openai-codex'].fallbackModels) {
+      const metadata = lookupModelMetadata('openai-codex', modelId);
       assert.ok(metadata.displayName);
       assert.equal(metadata.capabilities?.vision, true);
     }
