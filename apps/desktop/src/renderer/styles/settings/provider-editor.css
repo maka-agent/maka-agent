@@ -92,6 +92,14 @@
 
 .providerConnectionDialog {
   width: min(520px, calc(100vw - 32px));
+  /* The shared modal popup is `grid max-h-[85dvh] overflow-hidden` with no row
+     constraint, so header/body rows size to content: when the detail content
+     outgrows 85dvh the body row overflows the popup box and is clipped, and
+     the body's own overflow-y:auto never engages (clientHeight==scrollHeight)
+     — bottom actions become unreachable. Pin the rows to header + shrinkable
+     body so the body takes over scrolling at max height. The close button is
+     absolutely positioned and stays out of grid flow. */
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .providerConnectionDialog [data-slot="dialog-header"] {
