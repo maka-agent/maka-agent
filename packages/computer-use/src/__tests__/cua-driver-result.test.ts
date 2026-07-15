@@ -27,6 +27,27 @@ describe('normalizeCuaDriverOutcome', () => {
     );
   });
 
+  it('retains structured same-node set_value verification as internal evidence', () => {
+    assert.deepEqual(
+      normalizeCuaDriverOutcome(result({
+        path: 'ax',
+        changed: true,
+        verified: true,
+        readback_value: 'model-real-ax',
+      })),
+      {
+        ok: true,
+        tier: 'ax',
+        verified: true,
+        evidence: {
+          path: 'ax',
+          changed: true,
+          readbackValue: 'model-real-ax',
+        },
+      },
+    );
+  });
+
   it('maps CGEvent unverifiable evidence to an unverified background success', () => {
     assert.deepEqual(
       normalizeCuaDriverOutcome(result({

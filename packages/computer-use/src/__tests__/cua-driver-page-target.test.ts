@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-  CUA_INSPECT_PREPARED_ELEMENT_SCRIPT,
+  buildCuaInspectElementTokenScript,
   buildCuaPrepareElementAtScreenPointScript,
   buildCuaSemanticPointerActionScript,
   parseCuaFocusedPageElement,
@@ -12,6 +12,12 @@ import {
 } from '../cua-driver-page-target.js';
 
 const signal = new AbortController().signal;
+const lease = {
+  sessionId: 'session-1',
+  sessionGeneration: 2,
+  documentFingerprint: 'document-a',
+  navigationGeneration: 3,
+};
 
 function target(input: Partial<CuaCdpPageTarget> = {}): CuaCdpPageTarget {
   return {
@@ -91,7 +97,7 @@ describe('semantic pointer action script', () => {
     const click = buildCuaSemanticPointerActionScript({
       type: 'left_click',
       screenPoint: { x: 200, y: 300 },
-    });
+    }, lease);
     assert.match(click, /actionType = "left_click"/);
     assert.match(click, /elementFromPoint/);
     assert.match(click, /element\.click\(\)/);
@@ -102,7 +108,7 @@ describe('semantic pointer action script', () => {
       type: 'left_click_drag',
       startScreenPoint: { x: 10, y: 20 },
       endScreenPoint: { x: 100, y: 20 },
-    });
+    }, lease);
     assert.match(drag, /type \|\| ''\)\.toLowerCase\(\) !== 'range'/);
     assert.match(drag, /dispatchEvent\(new Event\('input'/);
     assert.match(drag, /range_value_did_not_persist/);
@@ -110,21 +116,29 @@ describe('semantic pointer action script', () => {
   });
 
   it('builds read-only element scripts and parses their JSON result', () => {
-    const prepare = buildCuaPrepareElementAtScreenPointScript({ x: 10, y: 20 });
+    const prepare = buildCuaPrepareElementAtScreenPointScript({ x: 10, y: 20 }, lease);
     assert.match(prepare, /elementFromPoint/);
-    assert.match(prepare, /__makaComputerUseTarget/);
+    assert.match(prepare, /__makaComputerUseElementState/);
     assert.doesNotMatch(prepare, /\.focus\s*\(/);
-    assert.match(CUA_INSPECT_PREPARED_ELEMENT_SCRIPT, /__makaComputerUseReadElement/);
+    const inspect = buildCuaInspectElementTokenScript({
+      ...lease,
+      elementToken: 'element-1',
+    });
+    assert.match(inspect, /__makaComputerUseReadElement/);
+    assert.match(inspect, /document\.activeElement !== element/);
+    assert.match(inspect, /\\"sessionId\\":\\"session-1\\"/);
     assert.deepEqual(
       parseCuaFocusedPageElement(JSON.stringify({
         editable: true,
         value: 'ready',
         tagName: 'textarea',
+        elementToken: 'element-1',
       })),
       {
         editable: true,
         value: 'ready',
         tagName: 'textarea',
+        elementToken: 'element-1',
       },
     );
   });

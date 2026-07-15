@@ -71,7 +71,12 @@ function observation(over: Partial<CuObservation> = {}): CuObservation {
       elementId: '5',
       role: 'AXButton',
       label: 'Continue',
-      identity: { token: 'button-token', role: 'AXButton', label: 'Continue' },
+      identity: {
+        elementToken: 'button-token',
+        elementIndex: 5,
+        role: 'AXButton',
+        label: 'Continue',
+      },
     }],
     screenshot: {
       base64: 'AA==',
@@ -736,7 +741,8 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
 
     assert.equal((seen[0].action as { observationId: string }).observationId, 'backend-obs-1');
     assert.deepEqual((seen[0].action as { elementIdentity?: unknown }).elementIdentity, {
-      token: 'button-token',
+      elementToken: 'button-token',
+      elementIndex: 5,
       role: 'AXButton',
       label: 'Continue',
     });
@@ -981,7 +987,8 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     } as never, ctx());
 
     assert.deepEqual((seen[0] as { elementIdentity?: unknown }).elementIdentity, {
-      token: 'button-token',
+      elementToken: 'button-token',
+      elementIndex: 5,
       role: 'AXButton',
       label: 'Continue',
     });

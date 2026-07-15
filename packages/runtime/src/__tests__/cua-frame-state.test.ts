@@ -121,6 +121,14 @@ describe('CuaFrameState', () => {
         bounds: { x: 100, y: 200, width: 800, height: 600 },
         sourceBoundsPx: { x: 0, y: 0, width: 800, height: 600 },
       },
+      elements: [{
+        elementToken: 'snapshot:7',
+        elementIndex: 7,
+        role: 'AXTextField',
+        label: 'Name',
+        value: '',
+        frame: { x: 120, y: 220, width: 100, height: 40 },
+      }],
     });
     const action: CuAction = {
       type: 'left_click',
@@ -132,6 +140,53 @@ describe('CuaFrameState', () => {
     assert.equal(bound?.target?.windowId, 7);
     assert.deepEqual(bound?.windowCoordinate, { x: 25, y: 30 });
     assert.equal(bound?.coordinateSpace, 'window-screenshot-local');
+    assert.deepEqual(bound?.sourceElement, {
+      elementToken: 'snapshot:7',
+      elementIndex: 7,
+      role: 'AXTextField',
+      label: 'Name',
+      value: '',
+      frame: { x: 120, y: 220, width: 100, height: 40 },
+    });
+  });
+
+  test('rejects a bound coordinate whose source element identity is tampered', () => {
+    const state = createState();
+    const observation = state.observe({
+      capturedAt: 1,
+      screenshotWidthPx: 800,
+      screenshotHeightPx: 600,
+      displays: [],
+      target: {
+        pid: 42,
+        windowId: 7,
+        bounds: { x: 100, y: 200, width: 800, height: 600 },
+        sourceBoundsPx: { x: 0, y: 0, width: 800, height: 600 },
+      },
+      elements: [{
+        elementToken: 'snapshot:7',
+        elementIndex: 7,
+        role: 'AXButton',
+        label: 'Delete',
+        frame: { x: 120, y: 220, width: 100, height: 40 },
+      }],
+    });
+    const bound = bindCuaActionToObservation(observation, {
+      type: 'left_click',
+      coordinate: { x: 25, y: 30 },
+    });
+    assert.ok(bound);
+
+    assert.deepEqual(state.claimAction({
+      ...bound,
+      sourceElement: {
+        ...bound.sourceElement!,
+        label: 'Confirm purchase',
+      },
+    }), {
+      ok: false,
+      reason: 'invalid_binding',
+    });
   });
 
   test('rejects a coordinate outside the bound window screenshot', () => {

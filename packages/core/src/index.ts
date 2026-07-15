@@ -326,6 +326,7 @@ export type {
   ComputerUseDispatchEvidence,
   ComputerUseDispatchTier,
   ComputerUseDisplayIdentity,
+  ComputerUseElementTargetIdentity,
   ComputerUseEffect,
   ComputerUseErrorCode,
   ComputerUseBoundAction,

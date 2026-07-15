@@ -36,12 +36,24 @@ function dispatchEvidence(
   const reason = typeof structuredContent.reason === 'string'
     ? structuredContent.reason
     : undefined;
-  return path === undefined && effect === undefined && reason === undefined
+  const changed = typeof structuredContent.changed === 'boolean'
+    ? structuredContent.changed
+    : undefined;
+  const readbackValue = typeof structuredContent.readback_value === 'string'
+    ? structuredContent.readback_value
+    : undefined;
+  return path === undefined
+    && effect === undefined
+    && reason === undefined
+    && changed === undefined
+    && readbackValue === undefined
     ? undefined
     : {
         ...(path === undefined ? {} : { path }),
         ...(effect === undefined ? {} : { effect }),
         ...(reason === undefined ? {} : { reason }),
+        ...(changed === undefined ? {} : { changed }),
+        ...(readbackValue === undefined ? {} : { readbackValue }),
       };
 }
 

@@ -52,6 +52,8 @@ export interface CuDispatchEvidence {
   path?: string;
   effect?: ComputerUseEffect;
   reason?: string;
+  changed?: boolean;
+  readbackValue?: string;
 }
 
 export type CuDispatchOutcome =
@@ -95,7 +97,8 @@ export interface CuObservedElement {
   value?: string;
   frame?: { x: number; y: number; width: number; height: number };
   identity?: {
-    token?: string;
+    elementToken?: string;
+    elementIndex: number;
     role: string;
     label?: string;
     value?: string;
@@ -717,6 +720,19 @@ export function buildComputerUseTools(deps: {
       ...(height !== undefined ? { screenshotHeightPx: height } : {}),
       displays,
       target,
+      elements: observation.elements.flatMap((element) =>
+        element.frame
+          ? [{
+              ...(element.identity?.elementToken
+                ? { elementToken: element.identity.elementToken }
+                : {}),
+              elementIndex: element.identity?.elementIndex ?? Number(element.elementId),
+              role: element.role,
+              ...(element.label !== undefined ? { label: element.label } : {}),
+              ...(element.value !== undefined ? { value: element.value } : {}),
+              frame: element.frame,
+            }]
+          : []),
     };
   }
 
@@ -729,6 +745,7 @@ export function buildComputerUseTools(deps: {
       elements: observation.elements.map((element) => ({
         ...element,
         identity: element.identity ?? {
+          elementIndex: Number(element.elementId),
           role: element.role,
           ...(element.label ? { label: element.label } : {}),
           ...(element.value !== undefined ? { value: element.value } : {}),

@@ -80,6 +80,7 @@ function boundCoordinateAction(input: {
   coordinate?: { x: number; y: number };
   zIndex?: number;
   page?: ComputerUsePageIdentity;
+  sourceElement?: CuaBoundAction['sourceElement'];
 } = {}): CuaBoundAction {
   const pid = input.pid ?? 4242;
   const windowId = input.windowId ?? 77;
@@ -106,6 +107,13 @@ function boundCoordinateAction(input: {
     sourceCoordinate: coordinate,
     windowCoordinate: coordinate,
     coordinateSpace: 'window-screenshot-local',
+    sourceElement: input.sourceElement ?? {
+      elementToken: 'snapshot:7',
+      elementIndex: 7,
+      role: 'AXTextArea',
+      value: '',
+      frame: { x: 250, y: 150, width: 200, height: 120 },
+    },
   };
 }
 
@@ -131,6 +139,7 @@ const SEMANTIC_OCCLUDED = process.env.CUA_MOCK_SEMANTIC_OCCLUDED === '1';
 const PAGE_EXEC_RESULT = process.env.CUA_MOCK_PAGE_EXEC_RESULT || '';
 const PAGE_READBACK_VALUE = process.env.CUA_MOCK_PAGE_READBACK_VALUE || '';
 const NATIVE_READBACK_VALUE = process.env.CUA_MOCK_NATIVE_READBACK_VALUE || '';
+const OMIT_ELEMENT_TOKEN = process.env.CUA_MOCK_OMIT_ELEMENT_TOKEN === '1';
 const PAGE_DOCUMENT_MARKER = process.env.CUA_MOCK_PAGE_DOCUMENT_MARKER || 'document-a';
 let PAGE_FIELD_VALUE = process.env.CUA_MOCK_PAGE_FIELD_VALUE || '';
 let PAGE_INSERTED = false;
@@ -210,7 +219,7 @@ function handle(msg) {
           : { x: 250, y: 150, w: 200, h: 120 };
         const baseElement = {
           element_index: 7,
-          element_token: 'snapshot:7',
+          ...(OMIT_ELEMENT_TOKEN ? {} : { element_token: 'snapshot:7' }),
           role: AX_ROLE,
           label: AX_LABEL || undefined,
           value: FIELD_VALUES.has(snapshotWindowId)
@@ -312,11 +321,20 @@ function handle(msg) {
         reply(id, { content: [], structuredContent: { apps: [{ pid: 4242, frontmost: false }] } });
         return;
       case 'set_value':
+        const requestedValue = String(params.arguments?.value ?? '');
         FIELD_VALUES.set(
           Number(params.arguments?.window_id),
-          String(params.arguments?.value ?? ''),
+          requestedValue,
         );
-        reply(id, { content: [{ type: 'text', text: 'value set' }], structuredContent: {} });
+        reply(id, {
+          content: [{ type: 'text', text: 'value set' }],
+          structuredContent: {
+            path: 'ax',
+            changed: true,
+            verified: true,
+            readback_value: NATIVE_READBACK_VALUE || requestedValue,
+          },
+        });
         return;
       case 'select_text':
       case 'perform_secondary_action':
@@ -332,7 +350,9 @@ function handle(msg) {
         const pageText = pageAction === 'execute_javascript'
           ? pageJavascript.includes('performance.timeOrigin')
             ? PAGE_DOCUMENT_MARKER
-            : pageJavascript.includes('__makaComputerUseReadElement')
+            : pageJavascript.includes('const actionType =')
+              ? PAGE_EXEC_RESULT
+              : pageJavascript.includes('__makaComputerUseReadElement')
             ? JSON.stringify({
                 editable: true,
                 value: PAGE_INSERTED && PAGE_READBACK_VALUE
@@ -468,6 +488,7 @@ function makeBackend(opts: {
   pageFieldValue?: string;
   pageReadbackValue?: string;
   nativeReadbackValue?: string;
+  omitElementToken?: boolean;
   pageDocumentMarker?: string;
   resolvePageDocumentFingerprint?: CuaDriverBackendOptions['resolvePageDocumentFingerprint'];
   resolveContentFingerprint?: CuaDriverBackendOptions['resolveContentFingerprint'];
@@ -503,6 +524,7 @@ function makeBackend(opts: {
   process.env.CUA_MOCK_PAGE_FIELD_VALUE = opts.pageFieldValue ?? '';
   process.env.CUA_MOCK_PAGE_READBACK_VALUE = opts.pageReadbackValue ?? '';
   process.env.CUA_MOCK_NATIVE_READBACK_VALUE = opts.nativeReadbackValue ?? '';
+  process.env.CUA_MOCK_OMIT_ELEMENT_TOKEN = opts.omitElementToken ? '1' : '';
   process.env.CUA_MOCK_PAGE_DOCUMENT_MARKER = opts.pageDocumentMarker ?? 'document-a';
   process.env.CUA_MOCK_SNAPSHOT_DELAY_MS = String(opts.snapshotDelayMs ?? 0);
   process.env.CUA_MOCK_REFETCH_MODE = opts.refetchMode ?? '';
@@ -680,7 +702,8 @@ describe('cua-driver backend', () => {
       value: '',
       frame: { x: 250, y: 150, width: 200, height: 120 },
       identity: {
-        token: 'snapshot:7',
+        elementToken: 'snapshot:7',
+        elementIndex: 7,
         role: 'AXButton',
         value: '',
       },
@@ -751,7 +774,7 @@ describe('cua-driver backend', () => {
     assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
   });
 
-  it('refetches a unique labeled element when the ephemeral token changes', async () => {
+  it('dispatches the observed opaque token without attribute-based replacement', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
       axLabel: 'Continue',
@@ -772,11 +795,11 @@ describe('cua-driver backend', () => {
 
     assert.equal(result.outcome.ok, true);
     const click = toolCall(await readRecords(logPath), 'click');
-    assert.equal(click?.element_index, 9);
-    assert.equal(click?.element_token, 'snapshot:9');
+    assert.equal(click?.element_index, 7);
+    assert.equal(click?.element_token, 'snapshot:7');
   });
 
-  it('does not treat a reused token as cross-snapshot semantic identity', async () => {
+  it('does not resnapshot before semantic dispatch', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
       axLabel: 'Continue',
@@ -795,41 +818,17 @@ describe('cua-driver backend', () => {
       elementIdentity: observation.elements[0]!.identity,
     }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
 
-    assert.equal(result.outcome.ok, false);
-    if (!result.outcome.ok) assert.match(result.outcome.message, /missing/);
-    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
-  });
-
-  it('refetches a tokenless element by one unique role and label match', async () => {
-    const { backend, logPath } = makeBackend({
-      axRole: 'AXButton',
-      axLabel: 'Continue',
-      refetchMode: 'replacement',
-    });
-    const signal = new AbortController().signal;
-    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
-    const observation = await backend.observeApp!({
-      app: 'Fixture Window',
-      includeScreenshot: true,
-    }, signal, context);
-    const result = await backend.runSemantic!({
-      type: 'click_element',
-      observationId: observation.observationId,
-      elementId: '7',
-      elementIdentity: { role: 'AXButton', label: 'Continue' },
-    }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
-
     assert.equal(result.outcome.ok, true);
-    const click = toolCall(await readRecords(logPath), 'click');
-    assert.equal(click?.element_index, 9);
-    assert.equal(click?.element_token, 'snapshot:9');
+    const records = await readRecords(logPath);
+    assert.equal(toolCalls(records, 'get_window_state').length, 2);
+    assert.equal(toolCalls(records, 'click')[0]?.element_token, 'snapshot:7');
   });
 
-  it('rejects a same-label replacement that moved before semantic dispatch', async () => {
+  it('fails closed when the observed semantic element has no token', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
       axLabel: 'Continue',
-      refetchMode: 'moved',
+      omitElementToken: true,
     });
     const signal = new AbortController().signal;
     const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
@@ -842,60 +841,40 @@ describe('cua-driver backend', () => {
       observationId: observation.observationId,
       elementId: '7',
       elementIdentity: observation.elements[0]!.identity,
+    }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.match(result.outcome.message, /observed semantic element is missing an AX element token/);
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+  });
+
+  it('rejects caller identity that does not match the consumed observation', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      axLabel: 'Continue',
+    });
+    const signal = new AbortController().signal;
+    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
+    const observation = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, signal, context);
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: observation.observationId,
+      elementId: '7',
+      elementIdentity: {
+        elementToken: 'forged-token',
+        elementIndex: 7,
+        role: 'AXButton',
+        label: 'Continue',
+      },
     }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
 
     assert.equal(result.outcome.ok, false);
     if (!result.outcome.ok) assert.equal(result.outcome.error, 'stale_frame');
     assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
   });
-
-  it('refetches an unlabeled element by unique structural identity', async () => {
-    const { backend, logPath } = makeBackend({
-      axRole: 'AXButton',
-      refetchMode: 'replacement',
-    });
-    const signal = new AbortController().signal;
-    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
-    const observation = await backend.observeApp!({
-      app: 'Fixture Window',
-      includeScreenshot: true,
-    }, signal, context);
-    const result = await backend.runSemantic!({
-      type: 'click_element',
-      observationId: observation.observationId,
-      elementId: '7',
-      elementIdentity: observation.elements[0]!.identity,
-    }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
-
-    assert.equal(result.outcome.ok, true);
-    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 1);
-  });
-
-  for (const refetchMode of ['missing', 'ambiguous'] as const) {
-    it(`rejects a ${refetchMode} refetched element without dispatch`, async () => {
-      const { backend, logPath } = makeBackend({
-        axRole: 'AXButton',
-        axLabel: 'Continue',
-        refetchMode,
-      });
-      const signal = new AbortController().signal;
-      const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
-      const observation = await backend.observeApp!({
-        app: 'Fixture Window',
-        includeScreenshot: true,
-      }, signal, context);
-      const result = await backend.runSemantic!({
-        type: 'click_element',
-        observationId: observation.observationId,
-        elementId: '7',
-        elementIdentity: observation.elements[0]!.identity,
-      }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
-
-      assert.equal(result.outcome.ok, false);
-      if (!result.outcome.ok) assert.equal(result.outcome.error, 'stale_frame');
-      assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
-    });
-  }
 
   it('declares app observations in capture-local window screenshot space', async () => {
     let desktopResolverCalls = 0;
@@ -1174,6 +1153,50 @@ describe('cua-driver backend', () => {
     );
   });
 
+  it('rejects a coordinate action when the source actionable element changes meaning', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      axLabel: 'Confirm purchase',
+    });
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 400, y: 200 } },
+      new AbortController().signal,
+      {
+        ...DEFAULT_RUN_CONTEXT,
+        boundAction: boundCoordinateAction({
+          sourceElement: {
+            elementToken: 'snapshot:7',
+            elementIndex: 7,
+            role: 'AXButton',
+            label: 'Delete',
+            value: '',
+            frame: { x: 250, y: 150, width: 200, height: 120 },
+          },
+        }),
+      },
+    );
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'target_changed');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+  });
+
+  it('fails closed when a fresh actionable coordinate has no element token', async () => {
+    const { backend, logPath } = makeBackend({ omitElementToken: true });
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 400, y: 200 } },
+      new AbortController().signal,
+      {
+        ...DEFAULT_RUN_CONTEXT,
+        boundAction: boundCoordinateAction(),
+      },
+    );
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'target_changed');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+  });
+
   it('does not treat omitted no-screenshot dimensions as a layout change', async () => {
     const { backend, logPath } = makeBackend({ emptyAx: true });
     const result = await backend.run(
@@ -1191,14 +1214,22 @@ describe('cua-driver backend', () => {
     assert.ok(toolCalls(await readRecords(logPath), 'get_window_state').length > 0);
   });
 
-  it('keeps an explicit coordinate click on the pixel path over an AX element', async () => {
+  it('routes an actionable coordinate click through the fresh AX token', async () => {
     const { backend, logPath } = makeBackend({ axRole: 'AXButton' });
     const result = await backend.run(
       { type: 'left_click', coordinate: { x: 400, y: 200 } },
       new AbortController().signal,
       {
         ...DEFAULT_RUN_CONTEXT,
-        boundAction: boundCoordinateAction(),
+        boundAction: boundCoordinateAction({
+          sourceElement: {
+            elementToken: 'snapshot:7',
+            elementIndex: 7,
+            role: 'AXButton',
+            value: '',
+            frame: { x: 250, y: 150, width: 200, height: 120 },
+          },
+        }),
       },
     );
 
@@ -1206,10 +1237,10 @@ describe('cua-driver backend', () => {
     const click = toolCall(await readRecords(logPath), 'click');
     assert.equal(click?.pid, 4242);
     assert.equal(click?.window_id, 77);
-    assert.equal(typeof click?.x, 'number');
-    assert.equal(typeof click?.y, 'number');
-    assert.equal(click?.element_index, undefined);
-    assert.equal(click?.element_token, undefined);
+    assert.equal(click?.x, undefined);
+    assert.equal(click?.y, undefined);
+    assert.equal(click?.element_index, 7);
+    assert.equal(click?.element_token, 'snapshot:7');
   });
 
   it('rejects a bound coordinate occluded by a higher z-order window', async () => {
@@ -1348,6 +1379,54 @@ describe('cua-driver backend', () => {
     assert.equal(toolCalls(records, 'click').length, 0);
   });
 
+  for (const actionType of ['middle_click', 'triple_click', 'scroll'] as const) {
+    it(`validates bound Electron page identity before ${actionType} pixel fallback`, async () => {
+      const { backend, logPath } = makeBackend({
+        processKind: 'electron',
+        pageTarget: testPageTarget(),
+      });
+      const action: CuAction = actionType === 'scroll'
+        ? {
+            type: 'scroll',
+            coordinate: { x: 400, y: 200 },
+            scrollDirection: 'down',
+            scrollAmount: 1,
+          }
+        : { type: actionType, coordinate: { x: 400, y: 200 } };
+      const result = await backend.run(action, new AbortController().signal, {
+        ...DEFAULT_RUN_CONTEXT,
+        boundAction: boundCoordinateAction(),
+      });
+
+      assert.equal(result.outcome.ok, false);
+      if (!result.outcome.ok) assert.equal(result.outcome.error, 'page_target_changed');
+      const records = await readRecords(logPath);
+      assert.equal(toolCalls(records, 'click').length, 0);
+      assert.equal(toolCalls(records, 'scroll').length, 0);
+    });
+  }
+
+  for (const actionType of ['left_click', 'middle_click', 'scroll'] as const) {
+    it(`refuses ${actionType} pixel fallback for an unknown process`, async () => {
+      const { backend, logPath } = makeBackend({ processKind: 'unknown' });
+      const action: CuAction = actionType === 'scroll'
+        ? {
+            type: 'scroll',
+            coordinate: { x: 600, y: 400 },
+            scrollDirection: 'down',
+            scrollAmount: 1,
+          }
+        : { type: actionType, coordinate: { x: 600, y: 400 } };
+      const result = await backend.run(action, new AbortController().signal);
+
+      assert.equal(result.outcome.ok, false);
+      if (!result.outcome.ok) assert.equal(result.outcome.error, 'unsupported_action');
+      const records = await readRecords(logPath);
+      assert.equal(toolCalls(records, 'click').length, 0);
+      assert.equal(toolCalls(records, 'scroll').length, 0);
+    });
+  }
+
   it('coordinate click stays on fresh same-snapshot pixels over an actionable control', async () => {
     const { backend, logPath } = makeBackend({ axRole: 'AXButton' });
     const res = await backend.run(
@@ -1437,6 +1516,7 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'input',
+        elementToken: 'element-1',
         focusChanged: true,
       },
       onTrace: (event) => traces.push(event),
@@ -1502,6 +1582,38 @@ describe('cua-driver backend', () => {
       address: 'ax',
     });
     assert.doesNotMatch(JSON.stringify(traces), /Private field label|private value/);
+  });
+
+  it('uses structured set_value verification and updates the fresh observation value', async () => {
+    const { backend, logPath } = makeBackend({ axRole: 'AXTextField' });
+    const signal = new AbortController().signal;
+    const context = {
+      sessionId: 'set-value-session',
+      turnId: 'set-value-turn',
+      toolCallId: 'set-value',
+    };
+    const observed = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: false,
+    }, signal, context);
+
+    const result = await backend.runSemantic!({
+      type: 'set_value',
+      observationId: observed.observationId,
+      elementId: '7',
+      value: 'updated',
+      elementIdentity: observed.elements[0]!.identity,
+    }, signal, {
+      ...context,
+      boundAction: boundElementAction(observed, '7'),
+    });
+
+    assert.equal(result.outcome.ok, true);
+    assert.equal(result.observation?.elements[0]?.value, 'updated');
+    assert.equal(result.observation?.elements[0]?.identity?.value, 'updated');
+    const call = toolCall(await readRecords(logPath), 'set_value');
+    assert.equal(call?.element_token, 'snapshot:7');
+    assert.equal(call?.element_index, 7);
   });
 
   it('fails closed when the physical-input guard cannot be read', async () => {
@@ -1943,7 +2055,7 @@ describe('cua-driver backend', () => {
     assert.ok(!methodTrace(await readRecords(logPath)).includes('tools/call:type_text'));
   });
 
-  it('type after an editable native click uses AXValue and verifies a fresh snapshot', async () => {
+  it('native type stays unsupported without an actual focused element token', async () => {
     const { backend, logPath } = makeBackend();
     const sig = new AbortController().signal;
     // Establish the target: click win 77 (device 600,400 → screen 300,200 ∈ win 77).
@@ -1951,20 +2063,60 @@ describe('cua-driver backend', () => {
     assert.equal(click.outcome.ok, true);
 
     const typed = await backend.run({ type: 'type', text: 'hello world' } as CuAction, sig);
-    assert.equal(typed.outcome.ok, true, 'type succeeds once a target is established');
+    assert.equal(typed.outcome.ok, false);
+    if (!typed.outcome.ok) assert.equal(typed.outcome.error, 'unsupported_action');
 
     const records = await readRecords(logPath);
-    const call = toolCall(records, 'set_value');
-    assert.ok(call, 'set_value sent to the agent-clicked native field');
-    assert.equal(call!.pid, 4242);
-    assert.equal(call!.window_id, 77);
-    assert.equal(call!.element_index, 7);
-    assert.equal(call!.element_token, 'snapshot:7');
-    assert.equal(call!.value, 'hello world');
+    assert.equal(toolCalls(records, 'set_value').length, 0);
     assert.equal(toolCalls(records, 'type_text').length, 0);
     assert.equal(toolCalls(records, 'press_key').length, 0);
-    // Red line: the target came from the click, never from a frontmost lookup.
-    assert.ok(!methodTrace(records).includes('tools/call:list_apps'), 'must never resolve a frontmost pid to type into');
+  });
+
+  it('does not invent a focused token after native layout reflow', async () => {
+    const { backend, logPath } = makeBackend({ refetchMode: 'moved' });
+    const signal = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const typed = await backend.run(
+      { type: 'type', text: 'after reflow' } as CuAction,
+      signal,
+    );
+    assert.equal(typed.outcome.ok, false);
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 0);
+  });
+
+  it('repeated native type remains unsupported without focused tokens', async () => {
+    const { backend, logPath } = makeBackend();
+    const signal = new AbortController().signal;
+    await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+
+    const first = await backend.run({ type: 'type', text: 'once' } as CuAction, signal);
+    const retry = await backend.run({ type: 'type', text: 'once' } as CuAction, signal);
+
+    assert.equal(first.outcome.ok, false);
+    assert.equal(retry.outcome.ok, false);
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 0);
+  });
+
+  it('does not establish native keyboard ownership without a focused element token', async () => {
+    const { backend, logPath } = makeBackend();
+    const signal = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const typed = await backend.run({ type: 'type', text: 'blocked' } as CuAction, signal);
+    assert.equal(typed.outcome.ok, false);
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 0);
   });
 
   it('parallel click then type waits for the new click target instead of using the old window', async () => {
@@ -1995,11 +2147,10 @@ describe('cua-driver backend', () => {
     );
     const [clicked, typed] = await Promise.all([clickNew, typeNew]);
     assert.equal(clicked.outcome.ok, true);
-    assert.equal(typed.outcome.ok, true);
+    assert.equal(typed.outcome.ok, false);
 
     const setCalls = toolCalls(await readRecords(logPath), 'set_value');
-    assert.equal(setCalls.length, 1);
-    assert.equal(setCalls[0]!.window_id, 88);
+    assert.equal(setCalls.length, 0);
   });
 
   it('type with no AX-addressable editable field fails before any keyboard dispatch', async () => {
@@ -2068,6 +2219,7 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'textarea',
+        elementToken: 'element-1',
         clickEvents: 1,
       },
     });
@@ -2253,6 +2405,7 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'textarea',
+        elementToken: 'element-1',
         clickEvents: 1,
       },
     });
@@ -2278,6 +2431,7 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'textarea',
+        elementToken: 'element-1',
         clickEvents: 1,
       },
     });
@@ -2297,7 +2451,38 @@ describe('cua-driver backend', () => {
     ]);
   });
 
-  it('native AX text readback mismatch preserves outcome_unknown', async () => {
+  it('invalidates an Electron element token immediately after document reload', async () => {
+    let fingerprintReads = 0;
+    const { backend, logPath } = makeBackend({
+      processKind: 'electron',
+      pageTarget: testPageTarget(),
+      emptyAx: true,
+      semanticPointerResult: {
+        supported: true,
+        ok: true,
+        kind: 'left_click',
+        editable: true,
+        tagName: 'textarea',
+        elementToken: 'element-1',
+        clickEvents: 1,
+      },
+      resolvePageDocumentFingerprint: async () =>
+        fingerprintReads++ === 0 ? 'document-a' : 'document-b',
+    });
+    const signal = new AbortController().signal;
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+    );
+    assert.equal(click.outcome.ok, true);
+
+    const typed = await backend.run({ type: 'type', text: 'must-not-land' } as CuAction, signal);
+    assert.equal(typed.outcome.ok, false);
+    if (!typed.outcome.ok) assert.equal(typed.outcome.error, 'page_target_changed');
+    assert.equal(businessPageCalls(await readRecords(logPath)).length, 1);
+  });
+
+  it('native type remains unsupported before any AX readback mismatch can occur', async () => {
     const { backend, logPath } = makeBackend({
       nativeReadbackValue: 'wrong',
     });
@@ -2315,13 +2500,12 @@ describe('cua-driver backend', () => {
 
     assert.equal(result.outcome.ok, false);
     if (!result.outcome.ok) {
-      assert.equal(result.outcome.error, 'outcome_unknown');
-      assert.equal(result.outcome.evidence?.path, 'ax');
+      assert.equal(result.outcome.error, 'unsupported_action');
     }
-    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 1);
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 0);
   });
 
-  it('native AX text readback request failure preserves outcome_unknown', async () => {
+  it('native type remains unsupported before any AX readback request', async () => {
     const { backend, logPath } = makeBackend({
       rpcErrAfterTool: 'get_window_state',
       rpcErrAfterCount: 3,
@@ -2340,10 +2524,9 @@ describe('cua-driver backend', () => {
 
     assert.equal(result.outcome.ok, false);
     if (!result.outcome.ok) {
-      assert.equal(result.outcome.error, 'outcome_unknown');
-      assert.equal(result.outcome.evidence?.path, 'ax');
+      assert.equal(result.outcome.error, 'unsupported_action');
     }
-    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 1);
+    assert.equal(toolCalls(await readRecords(logPath), 'set_value').length, 0);
   });
 
   it('CDP text inspection request failure preserves outcome_unknown', async () => {
@@ -2357,10 +2540,11 @@ describe('cua-driver backend', () => {
         kind: 'left_click',
         editable: true,
         tagName: 'textarea',
+        elementToken: 'element-1',
         clickEvents: 1,
       },
       rpcErrAfterTool: 'page',
-      rpcErrAfterCount: 5,
+      rpcErrAfterCount: 6,
     });
     const signal = new AbortController().signal;
     const click = await backend.run(
@@ -2435,7 +2619,7 @@ describe('cua-driver backend', () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
       rpcErrAfterTool: 'get_window_state',
-      rpcErrAfterCount: 3,
+      rpcErrAfterCount: 2,
     });
     const signal = new AbortController().signal;
     const context = {

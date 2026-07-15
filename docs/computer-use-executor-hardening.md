@@ -4,6 +4,54 @@ This note records the post-merge review of PR #893 against the current
 `cua-driver` executor and the local Codex Computer Use reverse-engineering
 evidence.
 
+## Target Identity Consolidation
+
+The follow-up review of PRs #930-#933 exposed four variants of the same root
+cause: target identity was inferred from mutable content or local indexes
+instead of being carried through observation, dispatch, and readback as one
+driver-owned identity.
+
+Evidence:
+
+- coordinate freshness used one window-wide fingerprint, so removing dynamic
+  labels and values also removed the identity of the actionable control at the
+  source coordinate;
+- Electron page validation covered only the semantic left/right/double-click
+  branch, leaving middle-click, triple-click, scroll, and unknown-process pixel
+  fallback outside the boundary;
+- native keyboard ownership came from the pre-click coordinate snapshot and
+  re-resolved by role/label/value, which could select a different AX node;
+- Electron text used a document-global incrementing token installed through a
+  different helper path from readback, so reload and session reuse were not
+  fenced.
+
+The consolidated implementation:
+
+- keeps the window fingerprint structural, while Runtime binds the smallest
+  actionable source element's `elementToken`, `elementIndex`, role, label,
+  value, and frame into the action fingerprint;
+- validates Electron page identity before every compatibility pointer fallback
+  and refuses pixel fallback when process classification is `unknown`;
+- refreshes an actionable coordinate against `get_window_state`, requires one
+  exact role/label/value/frame match, and dispatches AX click with that fresh
+  element's opaque token; token absence or ambiguity fails closed without pixel
+  fallback;
+- installs and reads the Electron element helper through one bootstrap, with
+  tokens leased to Maka session, session generation, document fingerprint, and
+  navigation generation; reload invalidates the lease before insertion;
+- sends the fresh `element_token` for semantic `click_element` and `set_value`,
+  requires `set_value` structured `changed`, `verified`, and `readback_value`,
+  and carries the readback value into the returned fresh observation;
+- keeps native type unsupported until the driver can return the actual focused
+  element token. The executor does not synthesize a resolver from mutable AX
+  attributes.
+
+Remaining driver dependency:
+
+- pinned `cua-driver` must emit opaque `elements[].element_token` values from
+  `get_window_state` and accept them on AX click and `set_value`. Native type
+  remains unavailable until a real focused-token surface exists.
+
 ## Fixed In This Follow-Up
 
 - Semantic refetch now requires one unique role/label/value candidate and then
