@@ -655,36 +655,6 @@
   }
 }
 
-/* PR-SETTINGS-SWITCH-SCALE-0 (round 3/15) + switch-geometry round 8:
-   the BaseSwitch shared adapter renders at 36×20 with a 16×16 thumb —
-   too small inside the roomy settings rows. ONE scope for the bigger
-   size: every switch inside the settings modal (`.settingsModal`), so
-   pages that aren't built from settingsFormRow/settingsField (数据
-   导入导出's category list, ad-hoc rows) can't fall back to the compact
-   scale and split the app into two switch sizes.
-   Geometry: 46px track − 2×1px border − 22px thumb − 2px inset = 20px
-   checked travel — SYMMETRIC 2px insets on both sides (the old 22px
-   value parked the thumb flush against the right border while the
-   unchecked side kept a 2px gap).
-   The overrides write the `translate:` property (not `transform:`)
-   because Tailwind v4's translate-x utilities emit `translate:` — a
-   `transform` override would stack additively instead of replacing. */
-.settingsModal [role="switch"] {
-  height: 26px;
-  width: 46px;
-  border-radius: var(--radius-pill);
-}
-
-.settingsModal [role="switch"] > span {
-  height: 22px;
-  width: 22px;
-  translate: 2px 0;
-}
-
-.settingsModal [role="switch"][data-checked] > span {
-  translate: 20px 0;
-}
-
 .settingsFormRow strong,
 .settingsField span,
 .settingsFormGrid label span {

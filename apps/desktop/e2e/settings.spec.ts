@@ -1,5 +1,21 @@
 import { test, expect } from './fixtures';
 
+test('settings switches keep the compact shared control geometry', async ({ window: page }) => {
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.getByRole('main', { name: '设置内容' }).getByRole('button', { name: '通用', exact: true }).click();
+
+  const privacySwitch = page.getByRole('switch', { name: '启用隐身模式' });
+  await expect(privacySwitch).toBeVisible();
+  const box = await privacySwitch.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.width).toBe(32);
+  expect(box!.height).toBe(18);
+  await expect.poll(
+    () => privacySwitch.evaluate((element) => getComputedStyle(element).boxShadow),
+  ).toBe('none');
+});
+
 /**
  * Settings take effect: open settings, switch the theme to dark, and confirm
  * the <html> root picks up the `dark` class (theme.ts applies it via

@@ -43,3 +43,19 @@ test('InputGroup adapters keep their inner fields bare so InputGroup owns the ch
   assert.match(inputMarkup, /data-slot="input"/);
   assert.match(textareaMarkup, /data-slot="textarea"/);
 });
+
+test('standalone and grouped fields use flat chrome with one quiet focus treatment', () => {
+  const inputMarkup = renderToStaticMarkup(
+    createElement(Input, { 'aria-label': 'Standalone input' }),
+  );
+  const groupMarkup = renderToStaticMarkup(
+    createElement(InputGroup, { 'aria-label': 'Grouped input' },
+      createElement(InputGroupInput, { 'aria-label': 'Grouped input field' }),
+    ),
+  );
+
+  assert.doesNotMatch(inputMarkup, /shadow-sm/, 'standalone input has no resting drop shadow');
+  assert.doesNotMatch(inputMarkup, /ring-offset/, 'focus treatment does not create a detached halo');
+  assert.doesNotMatch(groupMarkup, /before:shadow/, 'group has no decorative inset highlight');
+  assert.doesNotMatch(groupMarkup, /ring-\[3px\]/, 'group focus ring stays visually quiet');
+});

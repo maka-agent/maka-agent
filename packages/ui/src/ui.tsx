@@ -168,10 +168,11 @@ export const Checkbox = forwardRef<
     <BaseCheckbox.Root
       ref={ref}
       className={cn(
-        'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-input bg-background text-foreground shadow-sm transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        'relative inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-input bg-background text-foreground transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20',
         'data-[checked]:border-control data-[checked]:bg-control data-[checked]:text-control-foreground',
         'data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
+        'pointer-coarse:after:absolute pointer-coarse:after:left-1/2 pointer-coarse:after:top-1/2 pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 pointer-coarse:after:-translate-x-1/2 pointer-coarse:after:-translate-y-1/2 pointer-coarse:after:content-[" "]',
         className,
       )}
       data-slot="checkbox"
@@ -386,21 +387,16 @@ export const Switch = forwardRef<
     <BaseSwitch.Root
       ref={ref}
       className={cn(
-        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-input bg-muted shadow-sm transition-colors',
+        'relative inline-flex h-4.5 w-8 shrink-0 items-center rounded-full bg-foreground/16 transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         'data-[checked]:bg-control data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
+        'pointer-coarse:after:absolute pointer-coarse:after:left-1/2 pointer-coarse:after:top-1/2 pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 pointer-coarse:after:-translate-x-1/2 pointer-coarse:after:-translate-y-1/2 pointer-coarse:after:content-[" "]',
         className,
       )}
       data-slot="switch"
       {...props}
     >
-      {/* Checked travel MUST stay on the px-based spacing scale (translate-x-4
-          = 16px): track w-9 (36px) − 2×1px border − 16px thumb − 2px inset = 16,
-          giving symmetric 2px insets. The previous rem arbitrary value
-          (translate-x-[1.125rem]) silently shrank to 14.625px under the app's
-          13px root font — spacing utilities are px-calc'd, rem values are not —
-          leaving the thumb 4.4px short of the right edge. */}
-      <BaseSwitch.Thumb className="block h-4 w-4 translate-x-0.5 rounded-full bg-background shadow transition-transform data-[checked]:translate-x-4" />
+      <BaseSwitch.Thumb className="block h-3.5 w-3.5 translate-x-0.5 rounded-full bg-background transition-transform duration-150 data-[checked]:translate-x-4 data-[checked]:bg-control-foreground" />
     </BaseSwitch.Root>
   );
 });
@@ -462,9 +458,10 @@ export const Radio = forwardRef<
     <BaseRadio.Root
       ref={ref}
       className={cn(
-        'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-input bg-background shadow-sm transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        'relative inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-input bg-background transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20',
         'data-[checked]:border-control data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
+        'pointer-coarse:after:absolute pointer-coarse:after:left-1/2 pointer-coarse:after:top-1/2 pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 pointer-coarse:after:-translate-x-1/2 pointer-coarse:after:-translate-y-1/2 pointer-coarse:after:content-[" "]',
         className,
       )}
       data-slot="radio"

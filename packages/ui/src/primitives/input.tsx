@@ -11,9 +11,10 @@ import type * as React from "react";
 // `input:focus-visible` still matches; the unstyled flag gives the bare form
 // for Field/InputGroup embedding.
 export const inputClasses = [
-  'flex min-h-9 w-full rounded-sm border border-input bg-[oklch(from_var(--foreground)_l_c_h_/_0.02)] px-3 py-2 text-sm text-foreground shadow-sm',
+  'flex min-h-9 w-full rounded-sm border border-input bg-background px-3 py-2 text-sm text-foreground transition-[border-color,box-shadow,background-color]',
   'placeholder:text-foreground-secondary/70',
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+  'hover:not-focus-visible:border-foreground/20 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/16',
+  'aria-invalid:border-destructive/64 aria-invalid:ring-destructive/16',
   'disabled:cursor-not-allowed disabled:opacity-50',
 ].join(' ');
 

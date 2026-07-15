@@ -44,6 +44,7 @@ import {
   EmptyMedia,
   EmptyTitle,
   InputGroup,
+  InputGroupAddon,
   InputGroupInput,
   Kbd,
   KbdGroup,
@@ -707,6 +708,9 @@ export function CommandPalette(props: {
                 inputRef.current?.focus();
               }}
             >
+              <InputGroupAddon align="inline-start" className="maka-palette-search-icon" aria-hidden="true">
+                <Search />
+              </InputGroupAddon>
               <Autocomplete.Input
                 render={
                   <InputGroupInput

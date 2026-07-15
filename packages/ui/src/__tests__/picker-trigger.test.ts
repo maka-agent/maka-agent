@@ -8,7 +8,8 @@ test('picker triggers separate field chrome from quiet toolbar chrome', () => {
 
   assert.match(field, /\bmin-h-9\b/);
   assert.match(field, /\bw-full\b/);
-  assert.match(field, /\bshadow-sm\b/);
+  assert.match(field, /\bborder-input\b/);
+  assert.doesNotMatch(field, /\bshadow-/);
 
   assert.doesNotMatch(quiet, /\bmin-h-9\b/);
   assert.doesNotMatch(quiet, /\bw-full\b/);
