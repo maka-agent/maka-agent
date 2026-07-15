@@ -1121,7 +1121,11 @@ const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   // matches output-parameter errors ("max_tokens is too many tokens for this
   // model"), which are not an input overflow and must not trigger recovery.
   /(?:prompt|input|context|message|request)[^.]{0,80}too many tokens/i,
-  /token limit exceeded/i, // Generic fallback
+  // Generic fallback, same input-subject constraint: a bare "token limit
+  // exceeded" also matches OUTPUT caps ("Output token limit exceeded",
+  // "Maximum output token limit exceeded"), which history compaction cannot
+  // fix and which must not trigger a persisted compaction retry.
+  /(?:prompt|input|context|message|request)[^.]{0,80}token limit exceeded/i,
 ];
 
 /**
