@@ -9,6 +9,7 @@ import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { AgentBackend, BackendSendInput } from '@maka/core/backend-types';
 import { z } from 'zod';
 import { AiSdkBackend } from '../ai-sdk-backend.js';
+import { buildDefaultContextBudgetPolicy } from '../context-budget-policy.js';
 import { AiSdkFlow, createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
 import type { InvocationContext } from '../invocation-context.js';
 import { PermissionEngine } from '../permission-engine.js';
@@ -54,6 +55,11 @@ interface MidTurnFixtureOptions {
   contextWindow?: number;
   /** Omit the model's context window entirely (unknown model metadata). */
   withoutContextWindow?: boolean;
+  /**
+   * Derive the policy from the runtime default (buildDefaultContextBudgetPolicy)
+   * instead of the hand-built one, so a test can exercise the shipped default.
+   */
+  useRuntimeDefaultPolicy?: boolean;
   reserveTokens?: number;
   summarize?: () => Promise<string | undefined> | string | undefined;
   branch?: string;
@@ -259,7 +265,19 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     ...(options.bigSystemPrompt
       ? { systemPrompt: 'SYSTEM_CONTEXT '.repeat(400) }
       : {}),
-    contextBudget: {
+    contextBudget: options.useRuntimeDefaultPolicy
+      ? buildDefaultContextBudgetPolicy(
+          { ...connection(), models: [{ id: 'mock-model-id', contextWindow }] },
+          {
+            name: 'runtime-default-mid-turn',
+            modelId: 'mock-model-id',
+            // Only the reserve is sized to the toy window (a first-class knob);
+            // every other value is the shipped runtime default, including the
+            // default-on midTurn derivation under test.
+            env: { MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS: String(reserveTokens) },
+          },
+        )
+      : {
       name: 'mid-turn-test',
       maxHistoryEstimatedTokens: 100_000,
       minRecentTurns: 1,
@@ -1089,6 +1107,28 @@ describe('mid-turn capacity default-on safety guards (issue #882 PR 3)', () => {
     assert.equal(fixture.summarizerCalls, 0);
     const complete = events.find((event) => event.type === 'complete');
     assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
+  });
+});
+
+describe('the shipped runtime default drives the proactive long-turn journey (issue #882 PR 3)', () => {
+  test('a long turn near the window compacts mid-turn and continues instead of truncating', async () => {
+    // No hand-built policy: this wires buildDefaultContextBudgetPolicy — the
+    // exact default every surface now inherits — into the backend. A long turn
+    // whose growing payload crosses `contextWindow - reserve` must fold a safe
+    // completed prefix and continue the SAME turn to normal completion, never
+    // truncate it or surface a raw provider error.
+    const fixture = buildFixture({ useRuntimeDefaultPolicy: true });
+    await runFixtureTurn(fixture);
+
+    // The default's midTurn config actually engaged mid-turn: the summarizer
+    // seam was invoked between steps as the payload crossed the high water.
+    assert.equal(fixture.summarizerCalls >= 1, true);
+    // ...and the turn continued through all three steps to a clean end — no
+    // truncation, no raw provider error surfaced to the user.
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    const complete = fixture.events.find((event) => event.type === 'complete');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
+    assert.equal(fixture.events.some((event) => event.type === 'error'), false);
   });
 });
 
