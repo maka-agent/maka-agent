@@ -252,6 +252,9 @@ describe('ModelAdapter stream and error normalization', () => {
     // cannot fix it, so it must never trigger a persisted compaction retry.
     assert.notEqual(overflow('Output token limit exceeded', { statusCode: 400 }), 'ContextLength');
     assert.notEqual(overflow('Maximum output token limit exceeded', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(overflow('output token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(overflow('completion token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(overflow('max output token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
     // ...while the input-side form of the same wording still classifies.
     assert.equal(overflow('Input token limit exceeded: 250000 tokens > 200000 maximum', { statusCode: 400 }), 'ContextLength');
     assert.equal(adapter.classifyError(Object.assign(new Error('401 Authorization'), { statusCode: 401 })), 'Auth');

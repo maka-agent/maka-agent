@@ -1104,10 +1104,11 @@ const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /maximum context length is \d+ tokens/i, // OpenRouter (most backends)
   /exceeds (?:the )?maximum allowed input length of [\d,]+ tokens?/i, // OpenRouter/Poolside
   /input \(\d+ tokens\) is longer than the model'?s context length \(\d+ tokens\)/i, // Together AI
-  // GitHub Copilot: "prompt token count of X exceeds the limit of Y". The token
-  // subject is required — a bare "exceeds the limit of N" also matches file-size
-  // and other quota errors that must not trigger a compaction retry.
-  /token count of [\d,]+ exceeds the limit of [\d,]+/i,
+  // GitHub Copilot: "prompt token count of X exceeds the limit of Y". The INPUT
+  // subject is required — a bare "token count of N exceeds the limit of M" also
+  // matches output/completion caps, and a bare "exceeds the limit of N" matches
+  // file-size and other quota errors; neither is fixable by history compaction.
+  /(?:prompt|input|context|message|request)[^.]{0,80}token count of [\d,]+ exceeds the limit of [\d,]+/i,
   /exceeds the available context size/i, // llama.cpp server
   /greater than the context length/i, // LM Studio
   /context window exceeds limit/i, // MiniMax
