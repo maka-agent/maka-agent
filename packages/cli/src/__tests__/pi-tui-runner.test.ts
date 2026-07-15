@@ -15,7 +15,13 @@ import {
   type UserQuestionResponse,
 } from '@maka/core';
 import type { ShellRunUpdate } from '@maka/runtime';
-import type { MakaSessionDriver, MakaSessionRewindResult, MakaSessionSwitchResult, RewindTarget } from '../session-driver.js';
+import type {
+  MakaSessionDriver,
+  MakaSessionRewindResult,
+  MakaSessionSwitchResult,
+  RewindTarget,
+  SessionResumeAvailability,
+} from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
 import { BUSY_SPINNER_FRAMES } from '../tui-attention.js';
 import { arrangeAutocompleteAboveEditor } from '../tui-autocomplete-layout.js';
@@ -764,6 +770,31 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('passes the runtime terminal turn identity to the completion callback', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RuntimeTurnIdentityDriver();
+    const completedTurnIds: string[] = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+      onTurnComplete: (turnId) => { completedTurnIds.push(turnId); },
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => completedTurnIds.length === 1);
+
+    assert.deepEqual(completedTurnIds, ['runtime-turn-42']);
+
+    exitMaka(terminal);
+    await run;
+  });
+
   test('flows a transcript taller than the viewport into scrollback, untruncated and un-paged', async () => {
     const terminal = new FakeTerminal();
     const driver = new LongTranscriptDriver();
@@ -1186,6 +1217,60 @@ describe('Maka Pi TUI runner', () => {
     assert.deepEqual(filtered.lines.slice(4), ['────────', '/s ', '────────']);
   });
 
+  test('navigates submitted prompt history and restores the unsent draft', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    const submit = async (prompt: string, expectedPromptCount: number) => {
+      terminal.input(prompt);
+      terminal.input('\r');
+      await waitFor(() => driver.prompts.length === expectedPromptCount);
+      await waitFor(() => terminal.progressStates.at(-1) === false);
+    };
+
+    try {
+      await submit('first prompt', 1);
+      await submit('second prompt', 2);
+
+      terminal.input('\x1b[A');
+      await waitFor(() => editorInputText(terminal) === 'second prompt');
+
+      terminal.input('\x1b[A');
+      await waitFor(() => editorInputText(terminal) === 'first prompt');
+
+      terminal.input('\x1b[B');
+      await waitFor(() => editorInputText(terminal) === 'second prompt');
+
+      terminal.input('\x1b[B');
+      await waitFor(() => editorInputText(terminal) === '');
+
+      terminal.input('unsent draft');
+      terminal.input('\x01');
+      terminal.input('\x1b[A');
+      await waitFor(() => editorInputText(terminal) === 'second prompt');
+
+      terminal.input('\x1b[B');
+      await waitFor(() => editorInputText(terminal) === 'unsent draft');
+    } finally {
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    }
+  });
+
   test('handles /exit without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -1398,6 +1483,33 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => driver.thinkingLevelUpdates.length === 1);
     assert.deepEqual(driver.thinkingLevelUpdates, ['high']);
     assert.deepEqual(driver.prompts, []);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('shows the default thinking status for Ollama Cloud GLM-5.2', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'glm-5.2',
+      connectionSlug: 'ollama-cloud',
+      providerType: 'ollama-cloud',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes(
+      'Maka · ask · glm-5.2 · thinking:default · ollama-cloud · /repo',
+    ));
 
     exitMaka(terminal);
     await Promise.race([
@@ -1758,15 +1870,15 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('/session');
     terminal.input('\r');
 
-    await waitFor(() => terminal.output().includes('Resume Session (Current Folder)'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Resume Session Current'));
     // The picker labels rows by human name, not the raw session id.
     await waitFor(() => terminal.output().includes('Existing chat'));
-    const titleLine = latestPlainLineContaining(terminal.output(), 'Resume Session (Current Folder)');
-    assert.equal(titleLine.startsWith('Resume Session (Current Folder)'), true);
+    const titleLine = latestPlainLineContaining(terminal.output(), 'Resume Session Current');
+    assert.equal(titleLine.startsWith('Resume Session Current'), true);
     assert.equal(visibleWidth(titleLine), terminal.columns);
     assertBottomPickerPlacement(
       terminal,
-      'Resume Session (Current Folder)',
+      'Resume Session Current',
       'Maka · ask · claude-sonnet-4-5 · claude-subscription · /repo',
     );
     terminal.input('\r');
@@ -1878,10 +1990,11 @@ describe('Maka Pi TUI runner', () => {
     await run;
   });
 
-  test('shows only current-cwd sessions in the session picker', async () => {
+  test('shows every connection in Current while hiding other cwd sessions', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver([
       fakeSessionSummary('session-current', '/repo', 'Current chat'),
+      { ...fakeSessionSummary('session-other-connection', '/repo', 'Other connection chat'), llmConnectionSlug: 'zai' },
       fakeSessionSummary('session-other', '/elsewhere', 'Other chat'),
     ]);
     const run = runMakaPiTui({
@@ -1899,6 +2012,7 @@ describe('Maka Pi TUI runner', () => {
 
     await waitFor(() => terminal.output().includes('Current chat'));
     const output = plainTerminalOutput(terminal.output());
+    assert.equal(output.includes('Other connection chat'), true);
     assert.equal(output.includes('Other chat'), false);
 
     terminal.input('\x1b');
@@ -1909,6 +2023,101 @@ describe('Maka Pi TUI runner', () => {
         throw new Error('TUI did not close during test cleanup');
       }),
     ]);
+  });
+
+  test('toggles the session picker from Current to All with Tab', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver([
+      fakeSessionSummary('session-current', '/repo', 'Current chat'),
+      fakeSessionSummary('session-other', '/elsewhere', 'Other chat'),
+    ]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Current chat'));
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('Other chat'), false);
+
+    terminal.input('\t');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Other chat'));
+    assert.match(plainTerminalOutput(terminal.screenOutput()), /Resume Session.*All/);
+    assert.match(plainTerminalOutput(terminal.screenOutput()), /Other chat.*elsewhere/);
+
+    terminal.input('\x1b');
+    exitMaka(terminal);
+    await run;
+  });
+
+  test('adopts a resumed cwd and remembers the All scope for the TUI process', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver([
+      fakeSessionSummary('session-current', '/repo', 'Current chat'),
+      fakeSessionSummary('session-other', '/elsewhere', 'Other chat'),
+    ]);
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Current chat'));
+    terminal.input('\t');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Other chat'));
+    terminal.input('\x1b[B');
+    terminal.input('\r');
+    await waitFor(() => driver.sessionIds.includes('session-other'));
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('/elsewhere'));
+
+    terminal.input('/session');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Resume Session All'));
+    terminal.input('\t');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Resume Session Current'));
+    const currentOutput = plainTerminalOutput(terminal.screenOutput());
+    assert.equal(currentOutput.includes('Other chat'), true);
+    assert.equal(currentOutput.includes('Current chat'), false);
+
+    terminal.input('\x1b');
+    exitMaka(terminal);
+    await run;
+  });
+
+  test('shows a session without a cwd in All but prevents resuming it', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver([
+      fakeSessionSummary('session-current', '/repo', 'Current chat'),
+      { ...fakeSessionSummary('session-legacy', '/repo', 'Legacy chat'), cwd: undefined },
+    ]);
+    Object.defineProperty(driver, 'getSessionResumeAvailability', { value: undefined });
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Current chat'));
+    terminal.input('\t');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Missing working directory'));
+    terminal.input('\x1b[B');
+    terminal.input('\r');
+    await delay(10);
+
+    assert.deepEqual(driver.sessionIds, []);
+    assert.match(plainTerminalOutput(terminal.screenOutput()), /Legacy chat.*Missing working directory/);
+
+    terminal.input('\x1b');
+    exitMaka(terminal);
+    await run;
   });
 
   test('the session picker scrolls through every session rather than capping', async () => {
@@ -1928,7 +2137,7 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('/session');
     terminal.input('\r');
 
-    await waitFor(() => terminal.output().includes('Resume Session (Current Folder)'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Resume Session Current'));
     // All 12 are in the list (not sliced to 10): the scroll indicator counts the
     // full total, so the window shows "(1/12)".
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('/12)'));
@@ -1967,7 +2176,7 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('/session');
     terminal.input('\r');
 
-    await waitFor(() => terminal.output().includes('Resume Session (Current Folder)'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Resume Session Current'));
     // Same label on both rows, but the short id in the description tells them apart.
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('aaaa1111'));
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('bbbb4444'));
@@ -3065,6 +3274,12 @@ function bellCount(terminal: FakeTerminal): number {
   return terminal.writes.filter((write) => write === '\x07').length;
 }
 
+function editorInputText(terminal: FakeTerminal): string {
+  const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+  const [topEditorBorderIndex, bottomEditorBorderIndex] = inputSurfaceRows(lines);
+  return lines.slice(topEditorBorderIndex + 1, bottomEditorBorderIndex).join('\n').trim();
+}
+
 function exitMaka(_terminal: FakeTerminal): void {
   const previousExitCode = process.exitCode;
   process.emit('SIGTERM');
@@ -3564,6 +3779,12 @@ class SlashCommandDriver implements MakaSessionDriver {
     return this.sessions;
   }
 
+  async getSessionResumeAvailability(session: SessionSummary): Promise<SessionResumeAvailability> {
+    return session.cwd
+      ? { available: true }
+      : { available: false, reason: 'Missing working directory' };
+  }
+
   async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
     this.prompts.push(prompt);
     yield {
@@ -3619,6 +3840,19 @@ class SlashCommandDriver implements MakaSessionDriver {
   }
   getSessionId(): string {
     return this.sessionId;
+  }
+}
+
+class RuntimeTurnIdentityDriver extends SlashCommandDriver {
+  override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'runtime-turn-42',
+      ts: 1,
+      stopReason: 'end_turn',
+    };
   }
 }
 

@@ -17,7 +17,7 @@ import {
   buildCodexAuthorizationUrl,
   extractAccountClaims,
   pkceChallengeFromVerifier,
-} from '../oauth/codex-subscription-helpers.js';
+} from '../oauth/openai-codex-helpers.js';
 import { base64urlEncode } from '@maka/core';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
@@ -28,7 +28,7 @@ const SERVICE_SOURCE = resolve(
   'src',
   'main',
   'oauth',
-  'codex-subscription-service.ts',
+  'openai-codex-service.ts',
 );
 const HELPERS_SOURCE = resolve(
   REPO_ROOT,
@@ -37,7 +37,7 @@ const HELPERS_SOURCE = resolve(
   'src',
   'main',
   'oauth',
-  'codex-subscription-helpers.ts',
+  'openai-codex-helpers.ts',
 );
 
 describe('Codex subscription OAuth config (upstream openai-codex-auth pattern)', () => {
@@ -189,14 +189,14 @@ describe('Codex service source-grep contract', () => {
     }
   });
 
-  it('exports isCodexSubscriptionExperimentalEnabled tied to the env flag', async () => {
+  it('exports isOpenAiCodexExperimentalEnabled tied to the env flag', async () => {
     const helpersSrc = await readFile(HELPERS_SOURCE, 'utf8');
-    assert.match(helpersSrc, /export function isCodexSubscriptionExperimentalEnabled\(\)/);
+    assert.match(helpersSrc, /export function isOpenAiCodexExperimentalEnabled\(\)/);
     assert.match(helpersSrc, /MAKA_CODEX_SUBSCRIPTION_EXPERIMENTAL/);
     const serviceSrc = await readFile(SERVICE_SOURCE, 'utf8');
     assert.match(
       serviceSrc,
-      /isCodexSubscriptionExperimentalEnabled/,
+      /isOpenAiCodexExperimentalEnabled/,
       'service must re-export the flag so main.ts can import from a single path',
     );
   });

@@ -168,7 +168,7 @@ describe('RunTrace extraction contract', () => {
 
     assert.match(trace, /export class RunTrace/);
     assert.match(trace, /export interface RunTraceEvent/);
-    assert.match(trace, /type RunTracePhase = 'turn' \| 'model' \| 'tool' \| 'permission' \| 'abort' \| 'usage'/);
+    assert.match(trace, /type RunTracePhase = 'turn' \| 'model' \| 'tool' \| 'permission' \| 'sandbox' \| 'abort' \| 'usage'/);
     assert.doesNotMatch(events, /RunTrace/);
     assert.doesNotMatch(events, /trace_/);
     assert.doesNotMatch(adapter, /RunTrace|recordRunTrace/);

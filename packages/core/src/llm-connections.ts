@@ -11,6 +11,7 @@ import {
   PROVIDER_REGISTRY,
   READY_PROVIDER_TYPES,
   RECOMMENDED_PROVIDER_TYPES,
+  normalizeProviderType,
   type ProviderCatalogGroup,
   type ProviderCategory,
   type ProviderDefaults,
@@ -24,6 +25,7 @@ export {
   PROVIDER_REGISTRY,
   READY_PROVIDER_TYPES,
   RECOMMENDED_PROVIDER_TYPES,
+  normalizeProviderType,
 };
 export type {
   ProviderCatalogGroup,
@@ -334,7 +336,9 @@ export function migrateConnectionV1ToV2(old: unknown): LlmConnection {
     baseUrl?: string;
     createdAt?: number;
   };
-  if (value.providerType) return value as LlmConnection;
+  if (value.providerType) {
+    return { ...value, providerType: normalizeProviderType(value.providerType) } as LlmConnection;
+  }
   if (!value.slug) throw new Error('Cannot migrate connection without slug');
 
   const now = Date.now();

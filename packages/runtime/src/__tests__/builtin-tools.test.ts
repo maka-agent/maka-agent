@@ -16,6 +16,7 @@ import { assertAdditionalPermissionProposal } from '../additional-permissions.js
 import { SandboxManager } from '../sandbox/sandbox-manager.js';
 import { LinuxBubblewrapBackend } from '../sandbox/linux-sandbox.js';
 import { MacosSeatbeltBackend } from '../sandbox/macos-seatbelt.js';
+import { sandboxEscalationCommandHash } from '../sandbox-escalation.js';
 import type { ShellRunLauncher } from '../shell-tools.js';
 import {
   MAX_SHELL_RUN_RESOURCE_REF_CHARS,
@@ -282,7 +283,7 @@ describe('builtin Bash streaming output', () => {
     })).toEqual({ platformSandboxAvailable: true });
   });
 
-  test('does not claim sandbox enforcement for PTY Bash and leaves it on the approved host path', async () => {
+  test('fails closed for sandbox-required PTY Bash unless exact host execution was approved', async () => {
     const calls: any[] = [];
     const shellRuns = {
       async runForegroundBash() { throw new Error('not used'); },
@@ -303,14 +304,36 @@ describe('builtin Bash streaming output', () => {
     }).find((candidate) => candidate.name === 'Bash');
     if (!bash) throw new Error('Bash tool missing');
 
-    await bash.impl({ command: 'bash', run_in_background: true, pty: true }, {
-      sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1', cwd: '/workspace',
+    const ptyArgs = { command: 'bash', run_in_background: true, pty: true };
+    await assert.rejects(async () => {
+      await bash.impl(ptyArgs, {
+        sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1', cwd: '/workspace',
+        permissionMode: 'execute', abortSignal: new AbortController().signal, emitOutput: () => {},
+      });
+    }, /PTY Bash is unavailable/);
+    expect(calls.length).toBe(0);
+
+    await bash.impl(ptyArgs, {
+      sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-2', cwd: '/workspace',
       permissionMode: 'execute', abortSignal: new AbortController().signal, emitOutput: () => {},
+      permissionContext: {
+        sandboxEscalationGrant: {
+          grantId: 'grant-pty', sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-2',
+          toolName: 'Bash', intentHash: 'intent', commandHash: sandboxEscalationCommandHash('bash', '/workspace'),
+          command: 'bash', cwd: '/workspace',
+          risk: {
+            unsandboxedExecution: true, unrestrictedFileSystem: true,
+            unrestrictedNetwork: true, protectedMetadataExposed: true,
+          },
+          issuedAt: 1, expiresAt: 2,
+        },
+      },
     });
 
     expect(calls[0]?.argv).toBe(undefined);
     expect(calls[0]?.fdInputs).toBe(undefined);
     expect(Boolean(calls[0]?.shell)).toBe(true);
+    expect(calls[0]?.sandboxType).toBe('none');
     expect(typeof bash.sandbox).toBe('function');
     if (typeof bash.sandbox !== 'function') throw new Error('dynamic sandbox metadata missing');
     expect(bash.sandbox({
@@ -320,7 +343,7 @@ describe('builtin Bash streaming output', () => {
     })).toEqual({ platformSandboxAvailable: false });
   });
 
-  test('reports unavailable bubblewrap and keeps approved Bash on the host path', async () => {
+  test('fails closed when a required command sandbox is unavailable', async () => {
     const calls: any[] = [];
     const shellRuns = {
       async runForegroundBash(input: any) {
@@ -343,13 +366,14 @@ describe('builtin Bash streaming output', () => {
     }).find((candidate) => candidate.name === 'Bash');
     if (!bash) throw new Error('Bash tool missing');
 
-    await bash.impl({ command: 'echo host' }, {
-      sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1', cwd: '/workspace',
-      permissionMode: 'execute', abortSignal: new AbortController().signal, emitOutput: () => {},
-    });
+    await assert.rejects(async () => {
+      await bash.impl({ command: 'echo host' }, {
+        sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1', cwd: '/workspace',
+        permissionMode: 'execute', abortSignal: new AbortController().signal, emitOutput: () => {},
+      });
+    }, /sandbox is required but unavailable/);
 
-    expect(calls[0]?.argv).toBe(undefined);
-    expect(Boolean(calls[0]?.shell)).toBe(true);
+    expect(calls.length).toBe(0);
     expect(typeof bash.sandbox).toBe('function');
     if (typeof bash.sandbox !== 'function') throw new Error('dynamic sandbox metadata missing');
     expect(bash.sandbox({
@@ -404,6 +428,7 @@ describe('builtin Bash streaming output', () => {
         sandboxPlatform: 'darwin',
       }).find((candidate) => candidate.name === 'Bash');
       if (!bash?.planAdditionalPermissions) throw new Error('Bash additional permission planner missing');
+      if (!bash.planSandboxEscalation) throw new Error('Bash sandbox escalation planner missing');
 
       const args = {
         command: `printf ok > ${JSON.stringify(target)}`,
@@ -420,8 +445,8 @@ describe('builtin Bash streaming output', () => {
       expect(parameters.safeParse(args).success).toBe(true);
       expect(parameters.safeParse({
         command: 'echo unsafe',
-        sandbox_permissions: { mode: 'require_escalated', justification: 'Not in this slice.' },
-      }).success).toBe(false);
+        sandbox_permissions: { mode: 'require_escalated', justification: 'The sandbox cannot perform this action.' },
+      }).success).toBe(true);
 
       const plannerContext = {
         sessionId: 'session-1',
@@ -483,6 +508,46 @@ describe('builtin Bash streaming output', () => {
       );
       assert.equal(ptyPlan.kind, 'block');
       if (ptyPlan.kind === 'block') assert.match(ptyPlan.message, /PTY/);
+
+      const escalatedArgs = {
+        command: `printf escalated > ${JSON.stringify(target)}`,
+        sandbox_permissions: {
+          mode: 'require_escalated' as const,
+          justification: 'The exact command requires host execution.',
+        },
+      };
+      const escalationPlan = await bash.planSandboxEscalation(escalatedArgs, {
+        ...plannerContext,
+        args: escalatedArgs,
+      });
+      assert.equal(escalationPlan.kind, 'request');
+      if (escalationPlan.kind !== 'request') throw new Error('Sandbox escalation request missing');
+      await bash.impl(escalatedArgs, {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        toolCallId: 'tool-2',
+        cwd: canonicalWorkspace,
+        permissionMode: 'execute',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+        permissionContext: {
+          sandboxEscalationGrant: {
+            grantId: 'grant-2',
+            sessionId: 'session-1',
+            turnId: 'turn-1',
+            toolUseId: 'tool-2',
+            toolName: 'Bash',
+            intentHash: escalationPlan.proposal.intentHash,
+            commandHash: escalationPlan.proposal.commandHash,
+            command: escalationPlan.proposal.command,
+            cwd: escalationPlan.proposal.cwd,
+            risk: escalationPlan.proposal.risk,
+            issuedAt: 1,
+            expiresAt: 2,
+          },
+        },
+      });
+      assert.deepEqual(execInput?.argv, ['/bin/sh', '-c', escalatedArgs.command]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

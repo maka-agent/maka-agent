@@ -21,6 +21,7 @@ import {
 import type { PermissionMode, ToolCategory } from '@maka/core/permission';
 
 import { hashAdditionalPermissionProfile } from './additional-permission-hash.js';
+import type { SandboxEscalationGrant } from './sandbox-escalation.js';
 import { stableHash } from './request-shape.js';
 
 export const MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS = 500;
@@ -94,6 +95,7 @@ export interface AdditionalPermissionGrant {
 
 export interface ToolExecutionPermissionContext {
   readonly additionalGrant?: AdditionalPermissionGrant;
+  readonly sandboxEscalationGrant?: SandboxEscalationGrant;
 }
 
 export type AdditionalPermissionPlanResult =

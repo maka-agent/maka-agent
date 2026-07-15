@@ -4,6 +4,7 @@ import type {
   AdditionalPermissionRequestEvent,
   AnyPermissionRequestEvent,
   PermissionRequestEvent,
+  SandboxEscalationRequestEvent,
   PermissionResponse,
 } from '@maka/core';
 import {
@@ -19,7 +20,9 @@ import { formatRedactedJson } from './tool-format.js';
 
 // Per-reason presentation hints. The headline states the decision while tone
 // handles the minimum visual distinction needed for higher-risk requests.
-type ReasonKind = PermissionRequestEvent['reason'] | AdditionalPermissionRequestEvent['reason'];
+type ReasonKind = PermissionRequestEvent['reason']
+  | AdditionalPermissionRequestEvent['reason']
+  | SandboxEscalationRequestEvent['reason'];
 
 interface ReasonPreset {
   prompt: string;
@@ -36,6 +39,7 @@ const REASON_PRESETS: Record<ReasonKind, ReasonPreset> = {
   browser: { prompt: '允许操作已登录的浏览器？', tone: 'caution' },
   computer_use: { prompt: '允许读取或操作本机应用？', tone: 'caution' },
   additional_permissions: { prompt: '允许本次额外权限？', tone: 'caution' },
+  sandbox_escalation: { prompt: '允许本次在 sandbox 外执行？', tone: 'destructive' },
   custom: { prompt: '允许执行此操作？', tone: 'info' },
 };
 
@@ -209,7 +213,7 @@ export function PermissionPrompt(props: {
                 onClick={() => submit('allow')}
               >
                 {responsePending ? '正在提交…'
-                  : isAdditionalPermissionRequest(props.request) ? '允许这一次' : '允许操作'}
+                  : isOneShotPermissionRequest(props.request) ? '允许这一次' : '允许操作'}
               </UiButton>
             </div>
           </footer>
@@ -274,6 +278,18 @@ function renderPermissionSummary(request: AnyPermissionRequestEvent): ReactNode 
         {request.risk.protectedMetadata && (
           <p className="maka-permission-meta">包含受保护的 Git/Agent 元数据。</p>
         )}
+      </>
+    );
+  }
+  if (isSandboxEscalationRequest(request)) {
+    return (
+      <>
+        <p className="maka-permission-line">{request.justification}</p>
+        <p className="maka-permission-meta">工作目录 <code>{redactSecrets(request.cwd)}</code></p>
+        <pre className="maka-code maka-permission-command">{redactSecrets(request.command)}</pre>
+        <p className="maka-permission-context" data-tone="destructive">
+          本次命令将不经过平台 sandbox，可访问工作区外文件、网络和受保护元数据。
+        </p>
       </>
     );
   }
@@ -493,6 +509,7 @@ function prefixPermissionDiff(value: string, prefix: '-' | '+'): string {
 
 function permissionPrompt(request: AnyPermissionRequestEvent, preset: ReasonPreset): string {
   if (isAdditionalPermissionRequest(request)) return '允许本次额外权限？';
+  if (isSandboxEscalationRequest(request)) return '允许本次在 sandbox 外执行？';
   if (request.toolName === 'Edit') return '允许修改文件？';
   if (request.toolName === 'OfficeDocumentEdit') return '允许编辑 Office 文档？';
   return preset.prompt;
@@ -520,6 +537,16 @@ function isAdditionalPermissionRequest(
   request: AnyPermissionRequestEvent,
 ): request is AdditionalPermissionRequestEvent {
   return request.kind === 'additional_permissions';
+}
+
+function isSandboxEscalationRequest(
+  request: AnyPermissionRequestEvent,
+): request is SandboxEscalationRequestEvent {
+  return request.kind === 'sandbox_escalation';
+}
+
+function isOneShotPermissionRequest(request: AnyPermissionRequestEvent): boolean {
+  return isAdditionalPermissionRequest(request) || isSandboxEscalationRequest(request);
 }
 
 function permissionValuePreview(value: unknown): string {

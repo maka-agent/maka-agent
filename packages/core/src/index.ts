@@ -27,7 +27,9 @@ export type {
   ShellRunStateResult,
   ShellRunUpdateOwnership,
   ShellRunUpdate,
+  SandboxDenialRecovery,
   AdditionalPermissionRequestEvent,
+  SandboxEscalationRequestEvent,
   AnyPermissionRequestEvent,
   PermissionRequestEvent,
   PermissionDecisionAckEvent,
@@ -275,6 +277,9 @@ export {
 // permission.ts
 export type {
   PermissionMode,
+  ApprovalsReviewer,
+  ApprovalRiskLevel,
+  ActiveApprovalRoutingPolicy,
   ToolCategory,
   PolicyDecision,
   ToolExecutionFacts,
@@ -285,6 +290,8 @@ export type {
   PreToolUseInput,
   PreToolUseResult,
   AdditionalPermissionRequest,
+  SandboxEscalationRequest,
+  SandboxEscalationRiskSummary,
   PermissionRequest,
   PermissionRequestPayload,
   PermissionResponse,
@@ -293,6 +300,8 @@ export type {
 } from './permission.js';
 export {
   PERMISSION_MODES,
+  APPROVALS_REVIEWERS,
+  APPROVAL_RISK_LEVELS,
   TOOL_CATEGORIES,
   PERMISSION_POLICY,
   BUILTIN_TOOL_CATEGORY,
@@ -302,6 +311,7 @@ export {
   DESTRUCTIVE_GIT_PATTERNS,
   categorizeBash,
   classifyToolUse,
+  approvalRoutingPolicyForMode,
   isPermissionMode,
   isToolCategory,
   matchToolPermissionRules,
@@ -901,6 +911,7 @@ export {
   effectiveBaseUrl,
   migrateConnectionV1ToV2,
   normalizeConnectionBaseUrl,
+  normalizeProviderType,
   persistedBaseUrl,
   validateConnectionBaseUrl,
   validateSlug,

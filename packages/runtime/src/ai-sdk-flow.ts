@@ -41,6 +41,7 @@ import type {
   AdditionalPermissionRequest,
   PermissionRequest,
   PermissionRequestPayload,
+  SandboxEscalationRequest,
 } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
 import { isTerminalRuntimeEvent, type RuntimeEvent, type RuntimeEventStatus } from '@maka/core/runtime-event';
@@ -124,7 +125,9 @@ function mapPermissionRequest(event: AnyPermissionRequestEvent): PermissionReque
     };
     return request;
   }
-  return mapAdditionalPermissionRequest(event);
+  return event.kind === 'additional_permissions'
+    ? mapAdditionalPermissionRequest(event)
+    : mapSandboxEscalationRequest(event);
 }
 
 function mapAdditionalPermissionRequest(
@@ -187,6 +190,54 @@ function mapAdditionalPermissionRequest(
 function malformedAdditionalPermissionRequest(requestId: string, field: string): TypeError {
   return new TypeError(
     `Additional permission request ${requestId} has an invalid or missing ${field}.`,
+  );
+}
+
+function mapSandboxEscalationRequest(
+  event: AnyPermissionRequestEvent,
+): SandboxEscalationRequest {
+  if (event.kind !== 'sandbox_escalation') {
+    throw malformedSandboxEscalationRequest(event.requestId, 'kind');
+  }
+  if (
+    event.reason !== 'sandbox_escalation'
+    || typeof event.command !== 'string'
+    || typeof event.cwd !== 'string'
+    || typeof event.justification !== 'string'
+    || typeof event.intentHash !== 'string'
+    || typeof event.commandHash !== 'string'
+    || (event.trigger !== 'proactive' && event.trigger !== 'sandbox_denial')
+    || !event.risk
+    || typeof event.alsoApprovesToolExecution !== 'boolean'
+    || event.availableDecisions?.length !== 2
+    || event.availableDecisions[0] !== 'allow_once'
+    || event.availableDecisions[1] !== 'deny'
+  ) {
+    throw malformedSandboxEscalationRequest(event.requestId, 'payload');
+  }
+  return {
+    kind: 'sandbox_escalation',
+    requestId: event.requestId,
+    toolUseId: event.toolUseId,
+    toolName: 'Bash',
+    category: event.category,
+    reason: 'sandbox_escalation',
+    command: event.command,
+    cwd: event.cwd,
+    justification: event.justification,
+    intentHash: event.intentHash,
+    commandHash: event.commandHash,
+    trigger: event.trigger,
+    risk: structuredClone(event.risk),
+    alsoApprovesToolExecution: event.alsoApprovesToolExecution,
+    availableDecisions: ['allow_once', 'deny'],
+    ...(event.hint !== undefined ? { hint: event.hint } : {}),
+  };
+}
+
+function malformedSandboxEscalationRequest(requestId: string, field: string): TypeError {
+  return new TypeError(
+    `Sandbox escalation request ${requestId} has an invalid or missing ${field}.`,
   );
 }
 
@@ -351,6 +402,9 @@ export function mapSessionEventToRuntimeEvent(
             requestId: event.requestId,
             decision: event.decision,
             ...(event.rememberForTurn !== undefined ? { rememberForTurn: event.rememberForTurn } : {}),
+            ...(event.reviewer !== undefined ? { reviewer: event.reviewer } : {}),
+            ...(event.rationale !== undefined ? { rationale: event.rationale } : {}),
+            ...(event.riskLevel !== undefined ? { riskLevel: event.riskLevel } : {}),
           },
         },
         refs: { toolCallId: event.toolUseId },

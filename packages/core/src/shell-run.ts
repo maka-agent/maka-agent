@@ -113,6 +113,14 @@ export interface ShellRunRecord {
   revision: number;
   observedAt?: number;
   output: ShellOutput;
+  sandboxExecution?: {
+    type: 'none' | 'macos-seatbelt' | 'linux';
+    enforced: boolean;
+  };
+  sandboxEscalation?: {
+    commandHash: string;
+    unsandboxed: true;
+  };
 }
 
 export type ShellRunPatch = Partial<Pick<

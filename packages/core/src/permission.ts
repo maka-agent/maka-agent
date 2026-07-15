@@ -19,6 +19,32 @@ import {
 export const PERMISSION_MODES = ['explore', 'ask', 'execute', 'bypass'] as const;
 export type PermissionMode = typeof PERMISSION_MODES[number];
 
+export const APPROVALS_REVIEWERS = ['user', 'auto_review'] as const;
+export type ApprovalsReviewer = typeof APPROVALS_REVIEWERS[number];
+
+export const APPROVAL_RISK_LEVELS = ['low', 'medium', 'high', 'critical'] as const;
+export type ApprovalRiskLevel = typeof APPROVAL_RISK_LEVELS[number];
+
+export interface ActiveApprovalRoutingPolicy {
+  readonly reviewer: ApprovalsReviewer;
+  readonly sandboxEscalationAllowed: boolean;
+}
+
+export function approvalRoutingPolicyForMode(
+  mode: PermissionMode,
+): ActiveApprovalRoutingPolicy | null {
+  switch (mode) {
+    case 'ask':
+      return { reviewer: 'user', sandboxEscalationAllowed: true };
+    case 'execute':
+      return { reviewer: 'auto_review', sandboxEscalationAllowed: true };
+    case 'explore':
+      return { reviewer: 'user', sandboxEscalationAllowed: false };
+    case 'bypass':
+      return null;
+  }
+}
+
 export function isPermissionMode(value: unknown): value is PermissionMode {
   return typeof value === 'string' && (PERMISSION_MODES as readonly string[]).includes(value);
 }
@@ -682,8 +708,37 @@ export interface AdditionalPermissionRequest {
   hint?: string;
 }
 
+export interface SandboxEscalationRiskSummary {
+  readonly unsandboxedExecution: true;
+  readonly unrestrictedFileSystem: true;
+  readonly unrestrictedNetwork: true;
+  readonly protectedMetadataExposed: true;
+}
+
+export interface SandboxEscalationRequest {
+  kind: 'sandbox_escalation';
+  requestId: string;
+  toolUseId: string;
+  toolName: 'Bash';
+  category: ToolCategory;
+  reason: 'sandbox_escalation';
+  command: string;
+  cwd: string;
+  justification: string;
+  intentHash: string;
+  commandHash: string;
+  trigger: 'proactive' | 'sandbox_denial';
+  risk: SandboxEscalationRiskSummary;
+  alsoApprovesToolExecution: boolean;
+  availableDecisions: readonly ['allow_once', 'deny'];
+  hint?: string;
+}
+
 /** Permission prompt payloads that may be carried by canonical runtime events. */
-export type PermissionRequestPayload = PermissionRequest | AdditionalPermissionRequest;
+export type PermissionRequestPayload =
+  | PermissionRequest
+  | AdditionalPermissionRequest
+  | SandboxEscalationRequest;
 
 function permissionRequestArgs(args: unknown, category: ToolCategory): unknown {
   return category === 'computer_use'
@@ -705,4 +760,7 @@ export interface PermissionResponse {
   requestId: string;
   decision: 'allow' | 'deny';
   rememberForTurn?: boolean;
+  reviewer?: ApprovalsReviewer;
+  rationale?: string;
+  riskLevel?: ApprovalRiskLevel;
 }

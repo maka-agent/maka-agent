@@ -42,9 +42,9 @@ interface OAuthLoginService {
 
 function oauthLoginServiceFor(providerType: ProviderType): OAuthLoginService | null {
   switch (providerType) {
-    case 'codex-subscription':
+    case 'openai-codex':
       return {
-        bridge: window.maka.codexSubscription as unknown as OAuthLoginFlowBridge,
+        bridge: window.maka.openAiCodex as unknown as OAuthLoginFlowBridge,
         display: { name: 'OpenAI Codex', shortName: 'Codex' },
       };
     case 'gemini-cli':

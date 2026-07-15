@@ -384,6 +384,6 @@ export function reconcileTerminalLiveTurn(
     return !toolsCovered;
   });
   if (steps.length === current.steps.length) return current;
-  if (steps.length === 0) return undefined;
+  if (steps.length === 0 && current.terminal) return undefined;
   return { ...current, steps };
 }

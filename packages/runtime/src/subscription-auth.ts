@@ -12,7 +12,7 @@ export function claudeSubscriptionHeaders(): Record<string, string> {
   };
 }
 
-export function codexSubscriptionHeaders(accessToken: string): Record<string, string> {
+export function openAiCodexHeaders(accessToken: string): Record<string, string> {
   const accountId = extractCodexAccountId(accessToken);
   return {
     ...(accountId ? {

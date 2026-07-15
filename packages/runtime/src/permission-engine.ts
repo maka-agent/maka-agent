@@ -46,6 +46,15 @@ import {
   type AdditionalPermissionGrant,
   type AdditionalPermissionProposal,
 } from './additional-permissions.js';
+import {
+  DEFAULT_SANDBOX_ESCALATION_GRANT_TTL_MS,
+  SandboxEscalationError,
+  assertSandboxEscalationProposal,
+  freezeSandboxEscalationGrant,
+  freezeSandboxEscalationProposal,
+  type SandboxEscalationGrant,
+  type SandboxEscalationProposal,
+} from './sandbox-escalation.js';
 import { TurnScopedAwaitRegistry } from './turn-scoped-await-registry.js';
 
 // ============================================================================
@@ -58,6 +67,8 @@ interface TurnState {
   remembered: Set<string>;
   /** Approved one-shot grants keyed by their bound tool invocation. */
   additionalGrants: Map<string, PendingAdditionalPermissionGrant>;
+  /** Approved exact unsandboxed-command grants keyed by tool invocation. */
+  sandboxEscalationGrants: Map<string, PendingSandboxEscalationGrant>;
 }
 
 interface ParkedPermission {
@@ -69,10 +80,16 @@ interface ParkedPermission {
   scopeKey: string;
   rememberForTurnAllowed: boolean;
   additionalProposal?: AdditionalPermissionProposal;
+  sandboxEscalationProposal?: SandboxEscalationProposal;
 }
 
 interface PendingAdditionalPermissionGrant {
   grant: AdditionalPermissionGrant;
+  consumed: boolean;
+}
+
+interface PendingSandboxEscalationGrant {
+  grant: SandboxEscalationGrant;
   consumed: boolean;
 }
 
@@ -113,6 +130,8 @@ export interface EvaluateInput {
   hint?: string;
   /** Runtime-normalized one-shot permission proposal for this exact tool intent. */
   additionalPermissionProposal?: AdditionalPermissionProposal;
+  /** Runtime-normalized request to execute this exact Bash command without a platform sandbox. */
+  sandboxEscalationProposal?: SandboxEscalationProposal;
   /** Canonical cwd displayed with an additional permission request. */
   cwd?: string;
   /** Optional trusted facts about the executor that would run this tool. */
@@ -151,6 +170,7 @@ export class PermissionEngine {
         turnId,
         remembered: new Set(),
         additionalGrants: new Map(),
+        sandboxEscalationGrants: new Map(),
       });
     }
     this.parked.beginTurn(turnId);
@@ -171,7 +191,14 @@ export class PermissionEngine {
               message,
               recoverable: true,
             })
-          : new Error(message);
+          : parked.sandboxEscalationProposal
+            ? new SandboxEscalationError({
+                stage: 'approval',
+                reason: 'sandbox_escalation_aborted',
+                message,
+                recoverable: true,
+              })
+            : new Error(message);
       },
     );
     this.turns.delete(turnId);
@@ -198,7 +225,9 @@ export class PermissionEngine {
       rules: input.permissionRules ?? [],
     });
     const hasAdditionalProposal = input.additionalPermissionProposal !== undefined;
-    if (ruleDecision === 'allow' && !hasAdditionalProposal) return { kind: 'allow', category };
+    const hasSandboxEscalationProposal = input.sandboxEscalationProposal !== undefined;
+    const hasOneShotProposal = hasAdditionalProposal || hasSandboxEscalationProposal;
+    if (ruleDecision === 'allow' && !hasOneShotProposal) return { kind: 'allow', category };
     if (ruleDecision === 'deny') {
       const requestId = this.deps.newId();
       return {
@@ -219,7 +248,7 @@ export class PermissionEngine {
     if (
       ruleDecision === undefined
       && input.permissionRequired === false
-      && !hasAdditionalProposal
+      && !hasOneShotProposal
     ) {
       return { kind: 'allow', category };
     }
@@ -235,6 +264,14 @@ export class PermissionEngine {
     });
 
     let additional = input.additionalPermissionProposal;
+    let sandboxEscalation = input.sandboxEscalationProposal;
+    if (additional && sandboxEscalation) {
+      return {
+        kind: 'block',
+        category: pre.category,
+        reason: 'Additional permissions and sandbox escalation cannot be requested together.',
+      };
+    }
     if (additional) {
       try {
         assertAdditionalPermissionProposal({
@@ -269,6 +306,41 @@ export class PermissionEngine {
       }
     }
 
+    if (sandboxEscalation) {
+      try {
+        assertSandboxEscalationProposal({
+          proposal: sandboxEscalation,
+          toolName: input.toolName,
+          args,
+          cwd: input.cwd ?? '',
+        });
+        sandboxEscalation = freezeSandboxEscalationProposal(sandboxEscalation);
+      } catch (error) {
+        return {
+          kind: 'block',
+          category: pre.category,
+          reason: error instanceof SandboxEscalationError
+            ? error.message
+            : 'Sandbox escalation proposal validation failed.',
+        };
+      }
+      if (input.mode === 'explore') {
+        return {
+          kind: 'block',
+          category: pre.category,
+          reason: 'Sandbox escalation is blocked in explore mode.',
+        };
+      }
+      if (input.mode === 'bypass') return { kind: 'allow', category: pre.category };
+      if (typeof input.cwd !== 'string' || !isAbsolute(input.cwd)) {
+        return {
+          kind: 'block',
+          category: pre.category,
+          reason: 'Sandbox escalation requests require a canonical cwd.',
+        };
+      }
+    }
+
     const baseExplicitlyAllowed = ruleDecision === 'allow'
       || (ruleDecision === undefined && input.permissionRequired === false);
     const baseAllowed = baseExplicitlyAllowed || pre.proceed;
@@ -276,10 +348,10 @@ export class PermissionEngine {
     if (!baseExplicitlyAllowed && pre.blockReason !== undefined) {
       return { kind: 'block', category: pre.category, reason: pre.blockReason };
     }
-    if (baseAllowed && !additional) {
+    if (baseAllowed && !additional && !sandboxEscalation) {
       return { kind: 'allow', category: pre.category };
     }
-    if (!additional && !pre.partialRequest) {
+    if (!additional && !sandboxEscalation && !pre.partialRequest) {
       // Defensive: pre.proceed=false && !blockReason && !partialRequest is
       // unreachable per the type contract, but TS doesn't know that. Treat
       // as block to fail safe.
@@ -315,7 +387,32 @@ export class PermissionEngine {
           rememberForTurnAllowed: false,
           ...(input.hint !== undefined ? { hint: input.hint } : {}),
         }
-      : {
+      : sandboxEscalation
+        ? {
+            type: 'permission_request',
+            kind: 'sandbox_escalation',
+            id: this.deps.newId(),
+            turnId: input.turnId,
+            ts: this.deps.now(),
+            requestId,
+            toolUseId: input.toolUseId,
+            toolName: 'Bash',
+            category: pre.category,
+            reason: 'sandbox_escalation',
+            args: undefined,
+            command: sandboxEscalation.command,
+            cwd: sandboxEscalation.cwd,
+            justification: sandboxEscalation.justification,
+            intentHash: sandboxEscalation.intentHash,
+            commandHash: sandboxEscalation.commandHash,
+            trigger: sandboxEscalation.trigger,
+            risk: sandboxEscalation.risk,
+            alsoApprovesToolExecution: !baseAllowed,
+            availableDecisions: ['allow_once', 'deny'],
+            rememberForTurnAllowed: false,
+            ...(input.hint !== undefined ? { hint: input.hint } : {}),
+          }
+        : {
           type: 'permission_request',
           kind: 'tool_permission',
           id: this.deps.newId(),
@@ -340,8 +437,11 @@ export class PermissionEngine {
       scopeKey: pre.scopeKey,
       rememberForTurnAllowed: additional
         ? false
-        : pre.partialRequest!.rememberForTurnAllowed,
+        : sandboxEscalation
+          ? false
+          : pre.partialRequest!.rememberForTurnAllowed,
       ...(additional ? { additionalProposal: additional } : {}),
+      ...(sandboxEscalation ? { sandboxEscalationProposal: sandboxEscalation } : {}),
     });
 
     return { kind: 'prompt', category: pre.category, event, parked };
@@ -363,7 +463,10 @@ export class PermissionEngine {
       !response ||
       typeof response.requestId !== 'string' ||
       (response.decision !== 'allow' && response.decision !== 'deny') ||
-      (response.rememberForTurn !== undefined && typeof response.rememberForTurn !== 'boolean')
+      (response.rememberForTurn !== undefined && typeof response.rememberForTurn !== 'boolean') ||
+      (response.reviewer !== undefined && response.reviewer !== 'user' && response.reviewer !== 'auto_review') ||
+      (response.rationale !== undefined && typeof response.rationale !== 'string') ||
+      (response.riskLevel !== undefined && !['low', 'medium', 'high', 'critical'].includes(response.riskLevel))
     ) {
       throw new Error('Invalid permission response');
     }
@@ -372,7 +475,7 @@ export class PermissionEngine {
     const parked = this.parked.entries(turnId).find(([requestId]) => requestId === response.requestId)?.[1];
     if (!parked) return null;
 
-    if (parked.additionalProposal && response.rememberForTurn === true) {
+    if ((parked.additionalProposal || parked.sandboxEscalationProposal) && response.rememberForTurn !== undefined) {
       throw new Error('One-shot permission responses cannot use rememberForTurn');
     }
 
@@ -431,8 +534,39 @@ export class PermissionEngine {
       });
     }
 
-    const resolvedResponse: PermissionResponse = parked.additionalProposal
-      ? { requestId: response.requestId, decision: response.decision }
+    if (response.decision === 'allow' && parked.sandboxEscalationProposal) {
+      if (state.sandboxEscalationGrants.has(parked.toolUseId)) {
+        throw new Error(`Sandbox escalation grant already exists for tool ${parked.toolUseId}`);
+      }
+      const issuedAt = this.deps.now();
+      const proposal = parked.sandboxEscalationProposal;
+      state.sandboxEscalationGrants.set(parked.toolUseId, {
+        consumed: false,
+        grant: freezeSandboxEscalationGrant({
+          grantId: this.deps.newId(),
+          sessionId: parked.sessionId,
+          turnId: parked.turnId,
+          toolUseId: parked.toolUseId,
+          toolName: 'Bash',
+          intentHash: proposal.intentHash,
+          commandHash: proposal.commandHash,
+          command: proposal.command,
+          cwd: proposal.cwd,
+          risk: proposal.risk,
+          issuedAt,
+          expiresAt: issuedAt + DEFAULT_SANDBOX_ESCALATION_GRANT_TTL_MS,
+        }),
+      });
+    }
+
+    const resolvedResponse: PermissionResponse = parked.additionalProposal || parked.sandboxEscalationProposal
+      ? {
+          requestId: response.requestId,
+          decision: response.decision,
+          ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
+          ...(response.rationale !== undefined ? { rationale: response.rationale } : {}),
+          ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
+        }
       : parked.rememberForTurnAllowed
         ? response
         : { ...response, rememberForTurn: false };
@@ -455,7 +589,14 @@ export class PermissionEngine {
           message: reason,
           recoverable: true,
         })
-      : new Error(reason);
+      : metadata.sandboxEscalationProposal
+        ? new SandboxEscalationError({
+            stage: 'approval',
+            reason: 'sandbox_escalation_timeout',
+            message: reason,
+            recoverable: true,
+          })
+        : new Error(reason);
     const parked = this.parked.reject(turnId, requestId, error);
     if (!parked) return null;
     return { category: parked.category, toolUseId: parked.toolUseId };
@@ -508,6 +649,60 @@ export class PermissionEngine {
     return grant;
   }
 
+  consumeSandboxEscalationGrant(input: {
+    sessionId: string;
+    turnId: string;
+    toolUseId: string;
+    toolName: string;
+    intentHash: string;
+    command: string;
+    cwd: string;
+  }): SandboxEscalationGrant | undefined {
+    const state = this.turns.get(input.turnId);
+    const pending = state?.sandboxEscalationGrants.get(input.toolUseId);
+    if (!pending) return undefined;
+    if (pending.consumed) {
+      throw new SandboxEscalationError({
+        stage: 'consume',
+        reason: 'sandbox_escalation_grant_consumed',
+      });
+    }
+    const grant = pending.grant;
+    if (grant.expiresAt <= this.deps.now()) {
+      state!.sandboxEscalationGrants.delete(input.toolUseId);
+      throw new SandboxEscalationError({
+        stage: 'consume',
+        reason: 'sandbox_escalation_grant_expired',
+      });
+    }
+    if (
+      grant.sessionId !== input.sessionId
+      || grant.turnId !== input.turnId
+      || grant.toolUseId !== input.toolUseId
+      || grant.toolName !== input.toolName
+      || grant.intentHash !== input.intentHash
+    ) {
+      throw new SandboxEscalationError({
+        stage: 'consume',
+        reason: 'sandbox_escalation_intent_mismatch',
+      });
+    }
+    if (grant.command !== input.command) {
+      throw new SandboxEscalationError({
+        stage: 'consume',
+        reason: 'sandbox_escalation_command_mismatch',
+      });
+    }
+    if (grant.cwd !== input.cwd) {
+      throw new SandboxEscalationError({
+        stage: 'consume',
+        reason: 'sandbox_escalation_cwd_mismatch',
+      });
+    }
+    pending.consumed = true;
+    return grant;
+  }
+
   private requireTurn(turnId: string): TurnState {
     let state = this.turns.get(turnId);
     if (!state) {
@@ -516,6 +711,7 @@ export class PermissionEngine {
         turnId,
         remembered: new Set(),
         additionalGrants: new Map(),
+        sandboxEscalationGrants: new Map(),
       };
       this.turns.set(turnId, state);
       this.parked.beginTurn(turnId);

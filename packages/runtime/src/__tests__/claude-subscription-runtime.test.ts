@@ -28,7 +28,7 @@ describe('Claude subscription runtime wiring', () => {
     const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
     const caseIdx = src.indexOf("case 'claude-subscription'");
     assert.notEqual(caseIdx, -1, 'claude-subscription case must exist');
-    const caseRegion = src.slice(caseIdx, src.indexOf("case 'codex-subscription'", caseIdx));
+    const caseRegion = src.slice(caseIdx, src.indexOf("case 'openai-codex'", caseIdx));
     assert.match(caseRegion, /createAnthropic\(\{[\s\S]*authToken:\s*apiKey/, 'Claude OAuth must use AI SDK Anthropic authToken');
     assert.match(caseRegion, /baseURL:\s*anthropicV1BaseUrl\(baseURL\)/, 'Claude OAuth must pass the AI SDK a /v1 Anthropic base URL');
     assert.match(caseRegion, /fetch,/, 'Claude OAuth must accept the desktop cloak fetch wrapper');
@@ -115,15 +115,15 @@ describe('Claude subscription runtime wiring', () => {
     assert.deepEqual(PROVIDER_REGISTRY['MiniMax-cn'].runtimeAdapter, expected);
   });
 
-  test('model factory wires codex-subscription to OpenAI Responses with account-scoped fetch/header shape', async () => {
+  test('model factory wires openai-codex to OpenAI Responses with account-scoped fetch/header shape', async () => {
     const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
-    assert.deepEqual(PROVIDER_REGISTRY['codex-subscription'].runtimeAdapter, { kind: 'codex-subscription' });
-    const caseIdx = src.indexOf("case 'codex-subscription'");
-    assert.notEqual(caseIdx, -1, 'codex-subscription case must exist');
+    assert.deepEqual(PROVIDER_REGISTRY['openai-codex'].runtimeAdapter, { kind: 'openai-codex' });
+    const caseIdx = src.indexOf("case 'openai-codex'");
+    assert.notEqual(caseIdx, -1, 'openai-codex case must exist');
     const caseRegion = src.slice(caseIdx, src.indexOf("case 'unavailable'", caseIdx));
     assert.match(caseRegion, /createOpenAI\(\{[\s\S]*apiKey/, 'Codex OAuth must use OpenAI client with OAuth token');
     assert.match(caseRegion, /fetch,/, 'Codex OAuth must accept the desktop ChatGPT backend fetch wrapper');
-    assert.match(caseRegion, /codexSubscriptionHeaders\(apiKey\)/, 'Codex OAuth must attach account-scoped headers');
+    assert.match(caseRegion, /openAiCodexHeaders\(apiKey\)/, 'Codex OAuth must attach account-scoped headers');
     assert.match(caseRegion, /\.responses\(modelId\)/, 'Codex OAuth must use Responses API');
     assert.doesNotMatch(caseRegion, /throw new Error/, 'Codex OAuth must not remain in the experimental throw branch');
   });
@@ -138,21 +138,21 @@ describe('Claude subscription runtime wiring', () => {
     const src = await readFile(new URL('../../src/subscription-auth.ts', import.meta.url), 'utf8');
     assert.match(src, /OpenAI-Beta['"]:\s*['"]responses=experimental/, 'Codex OAuth must opt into ChatGPT Responses beta');
     assert.equal(
-      (await import('../subscription-auth.js')).codexSubscriptionHeaders(codexAccessToken('acct_test'))['ChatGPT-Account-Id'],
+      (await import('../subscription-auth.js')).openAiCodexHeaders(codexAccessToken('acct_test'))['ChatGPT-Account-Id'],
       'acct_test',
     );
   });
 
   test('Codex OAuth headers do not fall back to JWT sub as ChatGPT account id', async () => {
-    const { codexSubscriptionHeaders } = await import('../subscription-auth.js');
-    const headers = codexSubscriptionHeaders(codexAccessTokenWithoutChatGptAccount('sub_not_account'));
+    const { openAiCodexHeaders } = await import('../subscription-auth.js');
+    const headers = openAiCodexHeaders(codexAccessTokenWithoutChatGptAccount('sub_not_account'));
     assert.equal(headers['ChatGPT-Account-Id'], undefined);
   });
 
   test('Codex OAuth provider options use non-persistent ChatGPT backend defaults', async () => {
     const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
     const fnIdx = src.indexOf('export function buildProviderOptions');
-    const caseIdx = src.indexOf("case 'codex-subscription'", fnIdx);
+    const caseIdx = src.indexOf("case 'openai-codex'", fnIdx);
     const caseRegion = src.slice(caseIdx, src.indexOf("case 'openai'", caseIdx));
     assert.match(caseRegion, /store:\s*false/, 'Codex OAuth sends must not persist Responses API inputs by default');
     assert.match(caseRegion, /textVerbosity:\s*['"]medium['"]/, 'Codex OAuth sends must use the ChatGPT backend text verbosity shape');
@@ -173,9 +173,9 @@ function claudeOAuthConnection(): LlmConnection {
 
 function codexOAuthConnection(): LlmConnection {
   return {
-    slug: 'codex-subscription',
+    slug: 'openai-codex',
     name: 'Codex OAuth',
-    providerType: 'codex-subscription',
+    providerType: 'openai-codex',
     defaultModel: 'gpt-5.5',
     enabled: true,
     createdAt: 1,

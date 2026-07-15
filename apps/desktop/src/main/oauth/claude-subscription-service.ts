@@ -817,6 +817,6 @@ function looksLikeClaudePkceVerifier(value: string): boolean {
  * the visible Claude OAuth card promises a usable model after login;
  * `MAKA_CLAUDE_SUBSCRIPTION_CLOAK=0` remains as an emergency opt-out.
  */
-export function isSubscriptionExperimentalEnabled(): boolean {
-  return process.env.MAKA_CLAUDE_SUBSCRIPTION_EXPERIMENTAL !== '0';
-}
+// Re-exported from claude-subscription-helpers.ts so unit tests can import
+// the gate without dragging in the `electron` ESM module.
+export { isSubscriptionExperimentalEnabled } from './claude-subscription-helpers.js';

@@ -4,6 +4,7 @@ import { describe, test } from 'node:test';
 import type {
   AdditionalPermissionRequestEvent,
   PermissionRequestEvent,
+  SandboxEscalationRequestEvent,
   UserQuestionRequestEvent,
 } from '@maka/core';
 import {
@@ -65,6 +66,37 @@ function additionalPermission(requestId: string): AdditionalPermissionRequestEve
   };
 }
 
+function sandboxEscalation(requestId: string): SandboxEscalationRequestEvent {
+  return {
+    type: 'permission_request',
+    kind: 'sandbox_escalation',
+    id: `evt_${requestId}`,
+    turnId: 'turn_1',
+    ts: 0,
+    requestId,
+    toolUseId: `call_${requestId}`,
+    toolName: 'Bash',
+    category: 'shell_unsafe',
+    reason: 'sandbox_escalation',
+    args: undefined,
+    command: 'printf retry-ok > /tmp/retry.txt',
+    cwd: '/workspace',
+    justification: 'The exact command must write outside the workspace.',
+    intentHash: `sha256:${'3'.repeat(64)}`,
+    commandHash: `sha256:${'4'.repeat(64)}`,
+    trigger: 'sandbox_denial',
+    risk: {
+      unsandboxedExecution: true,
+      unrestrictedFileSystem: true,
+      unrestrictedNetwork: true,
+      protectedMetadataExposed: true,
+    },
+    alsoApprovesToolExecution: true,
+    availableDecisions: ['allow_once', 'deny'],
+    rememberForTurnAllowed: false,
+  };
+}
+
 describe('composer interaction queue', () => {
   test('permission and question requests share one FIFO per session', () => {
     let queues: InteractionQueues = {};
@@ -82,6 +114,16 @@ describe('composer interaction queue', () => {
     assert.equal(active?.type, 'permission_request');
     if (active?.type === 'permission_request') {
       assert.equal(active.kind, 'additional_permissions');
+      assert.equal(active.rememberForTurnAllowed, false);
+    }
+  });
+
+  test('queues one-call sandbox escalation without turn memory', () => {
+    const queues = enqueueInteraction({}, 's', sandboxEscalation('escalation'));
+    const active = activeInteractionFor(queues, 's');
+    assert.equal(active?.type, 'permission_request');
+    if (active?.type === 'permission_request') {
+      assert.equal(active.kind, 'sandbox_escalation');
       assert.equal(active.rememberForTurnAllowed, false);
     }
   });

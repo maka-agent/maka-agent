@@ -122,6 +122,15 @@ const LEGACY_TERMINAL_RESULT_KEYS = new Set([
   'stderrTruncated',
 ]);
 
+const PRE_STATUS_TERMINAL_RESULT_KEYS = new Set([
+  'kind',
+  'cwd',
+  'cmd',
+  'exitCode',
+  'stdout',
+  'stderr',
+]);
+
 const LEGACY_SHELL_RUN_RESULT_KEYS = new Set([
   'kind',
   'ref',
@@ -154,11 +163,44 @@ export function normalizeShellToolResultContent(value: unknown): ShellToolResult
     : currentShellRunResult(value);
   if (current) return { state: 'valid', content: current };
   const legacy = value.kind === 'terminal'
-    ? normalizeLegacyTerminalResult(value)
+    ? normalizeLegacyTerminalResult(value) ?? normalizePreStatusTerminalResult(value)
     : normalizeLegacyShellRunResult(value);
   return legacy
     ? { state: 'valid', content: legacy }
     : { state: 'invalid' };
+}
+
+function normalizePreStatusTerminalResult(
+  value: Record<string, unknown>,
+): Extract<ToolResultContent, { kind: 'terminal' }> | undefined {
+  if (
+    !hasOnlyKeys(value, PRE_STATUS_TERMINAL_RESULT_KEYS)
+    || typeof value.cwd !== 'string'
+    || typeof value.cmd !== 'string'
+    || value.exitCode !== 0
+    || typeof value.stdout !== 'string'
+    || typeof value.stderr !== 'string'
+  ) return undefined;
+
+  return {
+    kind: 'terminal',
+    cwd: value.cwd,
+    cmd: value.cmd,
+    status: 'completed',
+    exitCode: 0,
+    output: {
+      mode: 'pipes',
+      stdout: value.stdout,
+      stderr: value.stderr,
+      stdoutTruncated: hasLegacyTruncationMarker(value.stdout),
+      stderrTruncated: hasLegacyTruncationMarker(value.stderr),
+      redacted: false,
+    },
+  };
+}
+
+function hasLegacyTruncationMarker(value: string): boolean {
+  return /^\.\.\.\d+ (?:bytes|lines) truncated\./.test(value);
 }
 
 function currentTerminalResult(value: Record<string, unknown>): TerminalToolResult | undefined {

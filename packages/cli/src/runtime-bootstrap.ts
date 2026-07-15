@@ -218,8 +218,10 @@ export async function createMakaCliRuntimeContext(
   const host: HostCapabilities = {
     toolNames: new Set([...tools, automationTool, ...goalTools, ...surfaceTools].map((tool) => tool.name)),
   };
-  const skillSource = resolveSkillDiscoveryPaths(input.cwd, input.workspaceRoot);
-  const skillTool = buildSkillAgentTool(skillSource, host);
+  const skillTool = buildSkillAgentTool(
+    ({ cwd }) => resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
+    host,
+  );
   const allTools = [...tools, automationTool, ...goalTools, skillTool, ...surfaceTools];
 
   backends.register('ai-sdk', async (ctx) => {

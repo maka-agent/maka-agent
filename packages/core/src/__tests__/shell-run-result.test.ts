@@ -157,6 +157,52 @@ describe('ShellRun view updates', () => {
 });
 
 describe('normalizeShellToolResultContent', () => {
+  it('normalizes the exact pre-status terminal result and preserves its truncation marker', () => {
+    assert.deepEqual(normalizeShellToolResultContent({
+      kind: 'terminal',
+      cwd: '/repo',
+      cmd: 'printf ok',
+      exitCode: 0,
+      stdout: '...12 bytes truncated. historical recovery guidance\n\nok',
+      stderr: '',
+    }), {
+      state: 'valid',
+      content: {
+        kind: 'terminal',
+        cwd: '/repo',
+        cmd: 'printf ok',
+        status: 'completed',
+        exitCode: 0,
+        output: {
+          mode: 'pipes',
+          stdout: '...12 bytes truncated. historical recovery guidance\n\nok',
+          stderr: '',
+          stdoutTruncated: true,
+          stderrTruncated: false,
+          redacted: false,
+        },
+      },
+    });
+  });
+
+  it('rejects incomplete or contradictory pre-status terminal results', () => {
+    const historical = {
+      kind: 'terminal',
+      cwd: '/repo',
+      cmd: 'printf ok',
+      exitCode: 0,
+      stdout: 'ok',
+      stderr: '',
+    };
+    for (const value of [
+      { ...historical, exitCode: 1 },
+      { ...historical, status: 'completed' },
+      { kind: 'terminal', cwd: '/repo', cmd: 'printf ok', exitCode: 0, stdout: 'ok' },
+    ]) {
+      assert.equal(normalizeShellToolResultContent(value).state, 'invalid');
+    }
+  });
+
   it('accepts canonical current terminal state and rejects contradictory exit status', () => {
     const current = {
       kind: 'terminal',

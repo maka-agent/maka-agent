@@ -6,7 +6,7 @@
 
 import { strict as assert } from 'node:assert';
 import { afterEach, describe, it } from 'node:test';
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { WebContents } from 'electron';
@@ -30,6 +30,7 @@ class MockDebugger extends EventEmitter {
   }
   sendCommand(method: string, params?: unknown, sessionId?: string) {
     this.calls.push({ method, params, sessionId });
+    this.emit('command');
     return this.impl(method, params, sessionId);
   }
 }
@@ -81,6 +82,10 @@ function open(url: string, opts?: ClientOptions): Promise<WebSocket> {
 
 function nextMessage(ws: WebSocket): Promise<Record<string, unknown>> {
   return new Promise((resolve) => ws.once('message', (data) => resolve(JSON.parse(String(data)))));
+}
+
+function waitForCommand(debuggerEmitter: EventEmitter): Promise<unknown[]> {
+  return once(debuggerEmitter, 'command', { signal: AbortSignal.timeout(2_000) });
 }
 
 function withDifferentSecret(endpoint: string): string {
@@ -185,8 +190,9 @@ describe('CdpBridge', () => {
     const { bridge, cdpEndpoint } = await startBridge(asWebContents);
     const ws = await open(cdpEndpoint);
     const errored = nextMessage(ws);
+    const commandStarted = waitForCommand(wc.debugger);
     ws.send(JSON.stringify({ id: 99, method: 'Page.navigate', params: {} }));
-    await new Promise((resolve) => setTimeout(resolve, 20)); // let the command register as pending
+    await commandStarted;
     await bridge.stop();
     const msg = (await errored) as { id: number; error?: { message: string } };
     assert.equal(msg.id, 99);
@@ -201,8 +207,9 @@ describe('CdpBridge', () => {
     const { bridge, cdpEndpoint } = await startBridge(asWebContents);
     const ws = await open(cdpEndpoint);
     const errored = nextMessage(ws);
+    const commandStarted = waitForCommand(wc.debugger);
     ws.send(JSON.stringify({ id: 5, method: 'Page.navigate', params: {}, sessionId: 'session-a' }));
-    await new Promise((resolve) => setTimeout(resolve, 20)); // let the command register as pending
+    await commandStarted;
     await bridge.stop();
     const msg = (await errored) as { id: number; sessionId?: string; error?: { message: string } };
     assert.equal(msg.id, 5);
@@ -218,8 +225,9 @@ describe('CdpBridge', () => {
     const { cdpEndpoint } = await startBridge(asWebContents);
 
     const first = await open(cdpEndpoint);
+    const firstCommandStarted = waitForCommand(wc.debugger);
     first.send(JSON.stringify({ id: 1, method: 'Page.navigate', params: {} }));
-    await new Promise((resolve) => setTimeout(resolve, 20)); // let id 1 register as pending
+    await firstCommandStarted;
     first.terminate();
 
     // The single slot frees only once the server has processed the close.
@@ -231,8 +239,9 @@ describe('CdpBridge', () => {
     if (!second) throw new Error('could not reconnect after terminate');
 
     const answered = nextMessage(second);
+    const secondCommandStarted = waitForCommand(wc.debugger);
     second.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: {} }));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await secondCommandStarted;
     resolvers[0]?.({ stale: true }); // the dead connection's command completes late
     resolvers[1]?.({ fresh: true });
     const msg = (await answered) as { id: number; result: Record<string, unknown> };

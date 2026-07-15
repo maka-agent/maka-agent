@@ -41,7 +41,7 @@ export async function testConnection(
         return /^gpt-5/i.test(testModel)
           ? await probeOpenAIResponses(baseUrl, secret, testModel, t0)
           : await probeOpenAI(connection, baseUrl, secret, testModel, t0);
-      case 'codex-subscription':
+      case 'openai-codex':
       case 'openai-compatible':
         return await probeOpenAI(connection, baseUrl, secret, testModel, t0);
       case 'github-copilot':
@@ -174,7 +174,7 @@ async function probeOpenAI(
   model: string,
   t0: number,
 ): Promise<ConnectionTestResult> {
-  if (connection.providerType === 'codex-subscription') {
+  if (connection.providerType === 'openai-codex') {
     // Codex Subscription credentials are ChatGPT account-scoped OAuth
     // tokens. A live `/responses` probe is not a stable readiness test:
     // the backend can hold or reject small synthetic requests even when

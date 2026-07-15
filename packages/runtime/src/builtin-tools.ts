@@ -44,7 +44,7 @@ export type { MakaTool, MakaToolContext };
 import { withFileWriteLock } from './file-write-lock.js';
 import type { SandboxManager } from './sandbox/sandbox-manager.js';
 import { linuxExecutableRoots } from './sandbox/linux-sandbox.js';
-import type { SandboxPlatform } from './sandbox/types.js';
+import type { SandboxPlatform, SandboxType } from './sandbox/types.js';
 import type { ChildFdInput } from './child-fd-input.js';
 import {
   normalizeAdditionalPermissionPath,
@@ -54,6 +54,12 @@ import {
   type AdditionalPermissionPlanResult,
 } from './additional-permissions.js';
 import type { FilesystemWorkerClient } from './filesystem-worker/client.js';
+import {
+  assertSandboxEscalationGrantForExecution,
+  planDeclaredBashSandboxEscalation,
+  type SandboxEscalationPlannerContext,
+  type SandboxEscalationPlanResult,
+} from './sandbox-escalation.js';
 
 // Generous wall-clock cap for the ripgrep-backed Grep tool. A search should be
 // near-instant; this only bounds a pathological hang now that the stream
@@ -124,6 +130,10 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         sandboxPlatform,
       )
     : undefined;
+  const bashSandboxEscalationPlanner = options.sandboxManager
+    && options.enableBashAdditionalPermissions
+    ? createBashSandboxEscalationPlanner()
+    : undefined;
   const filePermissionPlanner = options.enableFileToolAdditionalPermissions
     ? createFileToolAdditionalPermissionPlanner(options.permissionProfile)
     : undefined;
@@ -149,12 +159,18 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         ...(bashAdditionalPermissionPlanner
           ? { planAdditionalPermissions: bashAdditionalPermissionPlanner }
           : {}),
+        ...(bashSandboxEscalationPlanner
+          ? { planSandboxEscalation: bashSandboxEscalationPlanner }
+          : {}),
       })]
     : [buildExecutorBashTool(executor, shell, {
         ...(options.permissionProfile ? { permissionProfile: options.permissionProfile } : {}),
         ...(options.sandboxManager ? { sandboxManager: options.sandboxManager } : {}),
         ...(bashAdditionalPermissionPlanner
           ? { planAdditionalPermissions: bashAdditionalPermissionPlanner }
+          : {}),
+        ...(bashSandboxEscalationPlanner
+          ? { planSandboxEscalation: bashSandboxEscalationPlanner }
           : {}),
         sandboxPlatform,
       })];
@@ -511,12 +527,18 @@ interface ExecutorBashSandboxOptions {
   sandboxManager?: SandboxManager;
   sandboxPlatform: SandboxPlatform;
   planAdditionalPermissions?: BashAdditionalPermissionPlanner;
+  planSandboxEscalation?: BashSandboxEscalationPlanner;
 }
 
 type BashAdditionalPermissionPlanner = (
   args: ManagedBashPermissionArgs,
   context: AdditionalPermissionPlannerContext,
 ) => Promise<AdditionalPermissionPlanResult> | AdditionalPermissionPlanResult;
+
+type BashSandboxEscalationPlanner = (
+  args: ManagedBashPermissionArgs,
+  context: SandboxEscalationPlannerContext,
+) => Promise<SandboxEscalationPlanResult> | SandboxEscalationPlanResult;
 
 function buildExecutorBashTool(
   executor: WorkspaceExecutor,
@@ -528,15 +550,15 @@ function buildExecutorBashTool(
     activityKind: 'command',
     description: withShellGuidance('Run a shell command in the session cwd.', shell)
       + ' Subject to permission policy.'
-      + (sandboxOptions.planAdditionalPermissions
-        ? ' One-call filesystem or network access can be requested with sandbox_permissions.'
+      + (sandboxOptions.planAdditionalPermissions || sandboxOptions.planSandboxEscalation
+        ? ' Request minimal one-call access with sandbox_permissions; use require_escalated only when sandboxed execution cannot work.'
         : ''),
     parameters: z.object({
       command: z.string().describe('The shell command to execute'),
       timeout_ms: z.number().int().positive().max(600_000).optional(),
-      ...(sandboxOptions.planAdditionalPermissions ? {
+      ...(sandboxOptions.planAdditionalPermissions || sandboxOptions.planSandboxEscalation ? {
         sandbox_permissions: bashSandboxPermissionsSchema
-          .describe('Optional one-call filesystem or network permission request.')
+          .describe('Optional one-call filesystem/network permission or explicit unsandboxed execution request.')
           .optional(),
       } : {}),
     }).strict(),
@@ -544,6 +566,9 @@ function buildExecutorBashTool(
     executionFacts: executor.facts,
     ...(sandboxOptions.planAdditionalPermissions
       ? { planAdditionalPermissions: sandboxOptions.planAdditionalPermissions }
+      : {}),
+    ...(sandboxOptions.planSandboxEscalation
+      ? { planSandboxEscalation: sandboxOptions.planSandboxEscalation }
       : {}),
     ...(sandboxOptions.sandboxManager ? {
       sandbox: sandboxAvailabilityResolver(
@@ -568,7 +593,7 @@ function buildExecutorBashTool(
       const result = await executor.exec({
         command,
         cwd: transformed?.cwd ?? cwd,
-        ...(transformed ? { argv: transformed.argv } : {}),
+        ...(transformed?.argv ? { argv: transformed.argv } : {}),
         ...(transformed?.env ? { env: transformed.env } : {}),
         ...(transformed?.fdInputs ? { fdInputs: transformed.fdInputs } : {}),
         timeoutMs: timeout,
@@ -576,12 +601,17 @@ function buildExecutorBashTool(
         emitOutput,
         shell,
       });
-      if (result.timedOut) throw terminalError(`Command timed out after ${timeout}ms`, result, 124);
-      if (result.aborted) throw terminalError('Command aborted', result, 130);
-      if (result.exitCode !== 0) {
-        throw terminalError(`Command failed with exit code ${result.exitCode}`, result, result.exitCode);
+      const executionResult = {
+        ...result,
+        ...(transformed?.sandboxType ? { sandboxType: transformed.sandboxType } : {}),
+        sandboxed: transformed?.sandboxType === 'macos-seatbelt' || transformed?.sandboxType === 'linux',
+      };
+      if (executionResult.timedOut) throw terminalError(`Command timed out after ${timeout}ms`, executionResult, 124);
+      if (executionResult.aborted) throw terminalError('Command aborted', executionResult, 130);
+      if (executionResult.exitCode !== 0) {
+        throw terminalError(`Command failed with exit code ${executionResult.exitCode}`, executionResult, executionResult.exitCode);
       }
-      return shapeTerminalResult({ cwd, command, result });
+      return shapeTerminalResult({ cwd, command, result: executionResult });
     },
   };
 }
@@ -592,8 +622,10 @@ function sandboxAvailabilityResolver(
   platform: SandboxPlatform,
 ): NonNullable<MakaTool['sandbox']> {
   return ({ permissionMode, cwd, args }) => {
-    if (isPtyBashArgs(args)) return { platformSandboxAvailable: false };
     const effective = effectivePermissionProfile(explicitProfile, permissionMode, cwd);
+    if (isPtyBashArgs(args) && profileRequiresSandbox(effective.profile)) {
+      return { platformSandboxAvailable: false };
+    }
     return {
       platformSandboxAvailable: manager.canEnforce({
         profile: effective.profile,
@@ -611,22 +643,41 @@ function sandboxCommand(
   pty: boolean,
   ctx: MakaToolContext,
 ): {
-  argv: readonly string[];
+  argv?: readonly string[];
   cwd: string;
   env?: NodeJS.ProcessEnv;
   fdInputs?: readonly ChildFdInput[];
+  sandboxType?: SandboxType;
 } | undefined {
-  if (pty) return undefined;
   const cwd = canonicalExistingPath(ctx.cwd);
   const effective = effectivePermissionProfile(
     explicitProfile,
     ctx.permissionMode ?? 'ask',
     cwd,
   );
-  if (!manager.canEnforce({ profile: effective.profile, platform })) return undefined;
-
   const env = { ...process.env };
-  const additionalPermissions = ctx.permissionContext?.additionalGrant?.profile;
+  const additionalGrant = ctx.permissionContext?.additionalGrant;
+  const escalationGrant = ctx.permissionContext?.sandboxEscalationGrant;
+  if (additionalGrant && escalationGrant) {
+    throw new Error('Additional permissions and sandbox escalation cannot be applied together.');
+  }
+  if (escalationGrant) {
+    assertSandboxEscalationGrantForExecution({ grant: escalationGrant, command, cwd });
+  }
+  if (pty) {
+    if (escalationGrant) return { cwd, env, sandboxType: 'none' };
+    if (profileRequiresSandbox(effective.profile)) {
+      throw new Error('PTY Bash is unavailable while the active permission profile requires command sandboxing.');
+    }
+    return undefined;
+  }
+  if (!escalationGrant && !manager.canEnforce({ profile: effective.profile, platform })) {
+    if (profileRequiresSandbox(effective.profile)) {
+      throw new Error(`Command sandbox is required but unavailable on platform ${platform}.`);
+    }
+    return undefined;
+  }
+
   const result = manager.transform({
     platform,
     command: {
@@ -650,7 +701,8 @@ function sandboxCommand(
         } : {}),
       },
     },
-    ...(additionalPermissions ? { additionalPermissions } : {}),
+    ...(additionalGrant ? { additionalPermissions: additionalGrant.profile } : {}),
+    ...(escalationGrant ? { preference: 'forbid' as const } : {}),
   });
   if (!result.ok) {
     throw new Error(result.message ?? `Sandbox transform failed: ${result.reason}`);
@@ -660,7 +712,12 @@ function sandboxCommand(
     cwd: result.exec.cwd,
     ...(result.exec.env ? { env: { ...result.exec.env } } : {}),
     ...(result.exec.fdInputs ? { fdInputs: result.exec.fdInputs } : {}),
+    sandboxType: result.exec.sandboxType,
   };
+}
+
+function profileRequiresSandbox(profile: PermissionProfile): boolean {
+  return profile.type === 'managed' && profile.fileSystem.kind === 'restricted';
 }
 
 function canonicalExistingPath(path: string): string {
@@ -736,6 +793,17 @@ function createBashAdditionalPermissionPlanner(
   };
 }
 
+function createBashSandboxEscalationPlanner(): BashSandboxEscalationPlanner {
+  return (args, context) => planDeclaredBashSandboxEscalation({
+    declaration: args.sandbox_permissions,
+    command: args.command,
+    cwd: canonicalExistingPath(context.cwd),
+    mode: context.mode,
+    args: context.args,
+    recentSandboxDenial: context.recentSandboxDenial,
+  });
+}
+
 type FileToolAdditionalPermissionName = 'Read' | 'Write' | 'Edit' | 'FormatJson' | 'Glob' | 'Grep';
 type FileToolPathSelector = (args: Record<string, any>) => string | undefined;
 
@@ -783,7 +851,10 @@ function isPtyBashArgs(args: unknown): boolean {
 
 function terminalError(
   message: string,
-  result: Pick<WorkspaceExecResult, 'stdout' | 'stderr' | 'stdoutTruncated' | 'stderrTruncated'>,
+  result: Pick<WorkspaceExecResult, 'stdout' | 'stderr' | 'stdoutTruncated' | 'stderrTruncated'> & {
+    sandboxType?: SandboxType;
+    sandboxed?: boolean;
+  },
   code: number,
 ): Error {
   const error = new Error(message);
@@ -793,8 +864,18 @@ function terminalError(
     stdoutTruncated: result.stdoutTruncated,
     stderrTruncated: result.stderrTruncated,
     code,
+    ...(result.sandboxType ? { sandboxType: result.sandboxType } : {}),
+    sandboxed: result.sandboxed === true,
+    ...(isLikelySandboxDenial(result) ? { reason: 'sandbox_denial', recoverable: true } : {}),
   });
   return error;
+}
+
+function isLikelySandboxDenial(result: Pick<WorkspaceExecResult, 'stdout' | 'stderr'> & { sandboxed?: boolean }): boolean {
+  if (result.sandboxed !== true) return false;
+  return /operation not permitted|sandbox-exec|sandbox(?:ed)?[^\n]*den(?:y|ied)/i.test(
+    `${result.stderr}\n${result.stdout}`,
+  );
 }
 
 function assertRelativeGlobPattern(pattern: string): void {

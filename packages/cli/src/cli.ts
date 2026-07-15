@@ -152,12 +152,13 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           subscribeShellRunUpdates: context.subscribeShellRunUpdates,
           listShellRunUpdates: context.listShellRunUpdates,
           onProcessExit: handleMakaCliProcessExit,
-          onTurnComplete: (injectTurn) => {
+          onTurnComplete: (turnId, injectTurn) => {
             const sessionId = driver.getSessionId();
             if (!sessionId) return;
             void handleGoalContinuation(
               { ...context.goalContinuationDeps, injectTurn: (_s, text) => injectTurn(text) },
               sessionId,
+              turnId,
             ).catch(() => {});
           },
         });

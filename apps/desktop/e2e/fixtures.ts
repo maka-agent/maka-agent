@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createConnectionStore, createFileCredentialStore } from '@maka/storage';
+import { closeElectronApplication } from './electron-lifecycle.js';
 
 const DESKTOP_ROOT = process.cwd();
 
@@ -65,33 +66,6 @@ function buildE2eEnv(userDataDir: string, visualSmokeScenario?: string): NodeJS.
 }
 
 /**
- * Launch the desktop app against a throwaway userData dir and wait for a
- * readiness selector. MAKA_E2E=1 forces every session onto the deterministic
- * fake backend, so tests run without real provider keys or network. `seed`
- * controls whether a connection is pre-staged: chat/session/settings/attachment
- * need it to clear onboarding; first-run must boot without it.
- */
-async function launchE2eApp(
-  userDataDir: string,
-  { seed, readinessSelector, visualSmokeScenario }: {
-    seed: boolean;
-    readinessSelector: string;
-    visualSmokeScenario?: string;
-  },
-): Promise<{ app: ElectronApplication; page: Page }> {
-  if (seed) await seedE2eConnection(userDataDir);
-  const app = await electron.launch({
-    args: ['.'],
-    cwd: DESKTOP_ROOT,
-    env: buildE2eEnv(userDataDir, visualSmokeScenario),
-  });
-  const page = await app.firstWindow();
-  // Centralize the cold-start wait so test bodies are flake-free under retries:0.
-  await page.waitForSelector(readinessSelector, { timeout: 20_000 });
-  return { app, page };
-}
-
-/**
  * Own the full launch lifecycle so a failure anywhere — seeding, Electron
  * launch, firstWindow, or the readiness wait — still tears down the Electron
  * process and the throwaway userData dir. The previous shape ran `mkdtemp`
@@ -108,13 +82,35 @@ async function withE2eWindow(
 ): Promise<void> {
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'maka-e2e-'));
   let app: ElectronApplication | undefined;
+  const mainLogs: string[] = [];
   try {
-    const launched = await launchE2eApp(userDataDir, { seed, readinessSelector, visualSmokeScenario });
-    app = launched.app;
-    await use(launched.page);
+    if (seed) await seedE2eConnection(userDataDir);
+    app = await electron.launch({
+      args: ['.'],
+      cwd: DESKTOP_ROOT,
+      env: buildE2eEnv(userDataDir, visualSmokeScenario),
+    });
+    app.on('console', (message) => {
+      mainLogs.push(message.text());
+      if (mainLogs.length > 20) mainLogs.shift();
+    });
+    let page: Page;
+    try {
+      page = await app.firstWindow();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const logs = mainLogs.length > 0 ? `\nElectron main console:\n${mainLogs.join('\n')}` : '';
+      throw new Error(`${detail}${logs}`, { cause: error });
+    }
+    // Centralize the cold-start wait so test bodies are flake-free under retries:0.
+    await page.waitForSelector(readinessSelector, { timeout: 20_000 });
+    await use(page);
   } finally {
-    await app?.close().catch(() => {});
-    await rm(userDataDir, { recursive: true, force: true });
+    try {
+      if (app) await closeElectronApplication(app, 5_000);
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
   }
 }
 

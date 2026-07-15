@@ -9,6 +9,11 @@ import {
   type AdditionalPermissionPlannerContext,
   type AdditionalPermissionPlanResult,
 } from './additional-permissions.js';
+import type {
+  SandboxEscalationPlanResult,
+  SandboxEscalationPlannerContext,
+} from './sandbox-escalation.js';
+import type { SandboxType } from './sandbox/types.js';
 import { runShellWithBoundedTail, type BoundedShellResult } from './shell-exec.js';
 import { bashToolShellGuidance, defaultShellPlan, type ShellPlan } from './shell-detect.js';
 import { truncateToolOutput } from './tool-output.js';
@@ -45,6 +50,8 @@ export interface ForegroundBashResult {
   stderrTruncated?: boolean;
   timedOut?: boolean;
   aborted?: boolean;
+  sandboxType?: SandboxType;
+  sandboxed?: boolean;
 }
 
 export interface BuildForegroundBashToolOptions {
@@ -84,6 +91,10 @@ export const bashSandboxPermissionsSchema = z.discriminatedUnion('mode', [
     }).strict().optional(),
     network: z.literal(true).optional(),
     justification: z.string().min(1).max(MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS),
+  }).strict(),
+  z.object({
+    mode: z.literal('require_escalated'),
+    justification: z.string().min(1).max(500),
   }).strict(),
 ]);
 
@@ -156,20 +167,28 @@ export function buildManagedBashTool(
       pty: boolean;
       ctx: MakaToolContext;
     }) => {
-      argv: readonly string[];
+      argv?: readonly string[];
       cwd: string;
       env?: NodeJS.ProcessEnv;
       fdInputs?: readonly ChildFdInput[];
+      sandboxType?: SandboxType;
     } | undefined;
     planAdditionalPermissions?: (
       args: ManagedBashPermissionArgs,
       context: AdditionalPermissionPlannerContext,
     ) => Promise<AdditionalPermissionPlanResult> | AdditionalPermissionPlanResult;
+    planSandboxEscalation?: (
+      args: ManagedBashPermissionArgs,
+      context: SandboxEscalationPlannerContext,
+    ) => Promise<SandboxEscalationPlanResult> | SandboxEscalationPlanResult;
   } = {},
 ): MakaTool {
   const shell = options.shell ?? defaultShellPlan();
-  const additionalPermissionDescription = options.planAdditionalPermissions
-    ? ' One-call filesystem or network access can be requested with sandbox_permissions.'
+  const hasSandboxPermissionPlanner = Boolean(
+    options.planAdditionalPermissions || options.planSandboxEscalation,
+  );
+  const additionalPermissionDescription = hasSandboxPermissionPlanner
+    ? ' Request minimal one-call access with sandbox_permissions; use require_escalated only when sandboxed execution cannot work.'
     : '';
   return {
     name: 'Bash',
@@ -185,9 +204,9 @@ export function buildManagedBashTool(
       timeout_ms: z.number().int().positive().max(MAX_SHELL_RUN_TIMEOUT_MS).optional(),
       run_in_background: z.boolean().optional(),
       pty: z.boolean().optional(),
-      ...(options.planAdditionalPermissions ? {
+      ...(hasSandboxPermissionPlanner ? {
         sandbox_permissions: bashSandboxPermissionsSchema
-          .describe('Optional one-call filesystem or network permission request.')
+          .describe('Optional one-call filesystem/network permission or explicit unsandboxed execution request.')
           .optional(),
       } : {}),
     }).strict().superRefine(({ timeout_ms, run_in_background, pty }, ctx) => {
@@ -215,6 +234,9 @@ export function buildManagedBashTool(
     ...(options.planAdditionalPermissions
       ? { planAdditionalPermissions: options.planAdditionalPermissions }
       : {}),
+    ...(options.planSandboxEscalation
+      ? { planSandboxEscalation: options.planSandboxEscalation }
+      : {}),
     impl: async ({ command, timeout_ms, run_in_background, pty }, ctx) => {
       const transformed = options.transformCommand?.({ command, pty: pty === true, ctx });
       return shellRuns[run_in_background ? 'runBackgroundBash' : 'runForegroundBash']({
@@ -225,12 +247,14 @@ export function buildManagedBashTool(
         cwd: transformed?.cwd ?? ctx.cwd,
         command,
         ...(pty !== undefined ? { pty } : {}),
-        ...(transformed ? { argv: transformed.argv } : { shell }),
+        ...(transformed?.argv ? { argv: transformed.argv } : { shell }),
         ...(transformed?.env ? { env: transformed.env } : {}),
         ...(transformed?.fdInputs ? { fdInputs: transformed.fdInputs } : {}),
         ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),
         abortSignal: ctx.abortSignal,
         emitOutput: ctx.emitOutput,
+        ...(transformed?.sandboxType ? { sandboxType: transformed.sandboxType } : {}),
+        ...(ctx.permissionContext ? { permissionContext: ctx.permissionContext } : {}),
       });
     },
   };
@@ -318,7 +342,24 @@ export function shapeTerminalResult(input: {
       stderrTruncated: Boolean(input.result.stderrTruncated) || stderrView.truncated,
       redacted: stdout !== input.result.stdout || stderr !== input.result.stderr,
     },
+    ...(isLikelySandboxDenial(input.result) ? {
+      sandboxDenial: {
+        likely: true,
+        ...('sandboxType' in input.result
+          && (input.result.sandboxType === 'macos-seatbelt' || input.result.sandboxType === 'linux')
+          ? { backend: input.result.sandboxType }
+          : {}),
+        recovery: 'require_escalated',
+      },
+    } : {}),
   };
+}
+
+function isLikelySandboxDenial(result: ForegroundBashResult | BoundedShellResult): boolean {
+  if (!('sandboxed' in result) || result.sandboxed !== true) return false;
+  return /operation not permitted|sandbox-exec|sandbox(?:ed)?[^\n]*den(?:y|ied)/i.test(
+    `${result.stderr}\n${result.stdout}`,
+  );
 }
 
 function terminalStatus(result: ForegroundBashResult | BoundedShellResult): TerminalToolResult['status'] {

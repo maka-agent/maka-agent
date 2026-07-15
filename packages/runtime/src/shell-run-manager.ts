@@ -702,6 +702,18 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       startedAt: live.startedAt,
       updatedAt: live.startedAt,
       ...(live.timeoutMs !== undefined ? { timeoutMs: live.timeoutMs } : {}),
+      ...(input.sandboxType ? {
+        sandboxExecution: {
+          type: input.sandboxType,
+          enforced: input.sandboxType !== 'none',
+        },
+      } : {}),
+      ...(input.permissionContext?.sandboxEscalationGrant ? {
+        sandboxEscalation: {
+          commandHash: input.permissionContext.sandboxEscalationGrant.commandHash,
+          unsandboxed: true,
+        },
+      } : {}),
       revision: 1,
       output: live.mode === 'pipes' ? live.collector.snapshot() : live.collector.lastGoodSnapshot(),
     };

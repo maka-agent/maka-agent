@@ -5465,11 +5465,11 @@ describe('AiSdkBackend RunTrace', () => {
 
     assert.deepEqual(
       trace.map((event) => event.type),
-      ['tool_started', 'permission_requested', 'permission_decided', 'tool_failed'],
+      ['tool_started', 'approval_routed', 'permission_requested', 'permission_decided', 'tool_failed'],
     );
     assert.deepEqual(
       trace.map((event) => event.phase),
-      ['tool', 'permission', 'permission', 'tool'],
+      ['tool', 'permission', 'permission', 'permission', 'tool'],
     );
     assert.equal(trace.find((event) => event.type === 'permission_decided')?.data?.decision, 'deny');
     assert.equal(trace.find((event) => event.type === 'tool_failed')?.data?.errorClass, 'Permission');

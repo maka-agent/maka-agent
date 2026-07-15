@@ -530,23 +530,82 @@ describe('fetchProviderModels', () => {
     assert.deepEqual(models, [{ id: 'MiniMax-M3' }, { id: 'MiniMax-M2.7-highspeed' }]);
   });
 
-  test('Codex subscription model fetch uses the pinned subscription model list', async () => {
+  test('Codex OAuth discovers models from the chatgpt.com/backend-api/codex/models endpoint', async () => {
+    const requests: Array<{ url: string; authorization: string | undefined }> = [];
+    const server = await startJsonServer((request, response) => {
+      requests.push({ url: request.url ?? '', authorization: request.headers.authorization });
+      respondJson(response, 200, {
+        models: [
+          { slug: 'hidden-model', visibility: 'hide', priority: 0 },
+          { slug: 'gpt-5.6-sol', priority: 1, context_window: 372000 },
+          { slug: 'gpt-5.5', priority: 2, context_window: 272000 },
+          { slug: 'gpt-5.4-mini', priority: 3 },
+          { slug: '', priority: 4 },
+        ],
+      });
+    });
+
     const models = await fetchProviderModels({
-      slug: 'codex-subscription',
+      slug: 'openai-codex',
       name: 'Codex OAuth',
-      providerType: 'codex-subscription',
-      defaultModel: 'gpt-5.5',
+      providerType: 'openai-codex',
+      baseUrl: server.url,
+      defaultModel: 'gpt-5.6-sol',
       enabled: true,
       createdAt: 1,
       updatedAt: 1,
-    }, 'oauth-access-token');
+    }, 'codex-oauth-token');
 
-    assert.deepEqual(models, [
-      { id: 'gpt-5.5' },
-      { id: 'gpt-5.4' },
-      { id: 'gpt-5.4-mini' },
-      { id: 'gpt-5.3-codex-spark' },
+    assert.deepEqual(requests, [
+      { url: '/models?client_version=1.0.0', authorization: 'Bearer codex-oauth-token' },
     ]);
+    assert.deepEqual(models, [
+      { id: 'gpt-5.6-sol', contextWindow: 372000 },
+      { id: 'gpt-5.5', contextWindow: 272000 },
+      { id: 'gpt-5.4-mini' },
+    ]);
+  });
+
+  test('Codex OAuth discovery sends ChatGPT-Account-Id for account routing', async () => {
+    const payload = Buffer.from(
+      JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-42' } }),
+    ).toString('base64url');
+    const token = `header.${payload}.sig`;
+    let capturedAccountId: string | string[] | undefined;
+    const server = await startJsonServer((request, response) => {
+      capturedAccountId = request.headers['chatgpt-account-id'];
+      respondJson(response, 200, { models: [] });
+    });
+    await fetchProviderModels({
+      slug: 'openai-codex',
+      name: 'Codex OAuth',
+      providerType: 'openai-codex',
+      baseUrl: server.url,
+      defaultModel: 'gpt-5.6-sol',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, token);
+    assert.equal(capturedAccountId, 'acct-42');
+  });
+
+  test('Codex OAuth discovery surfaces the HTTP status on auth failure for caller classification', async () => {
+    const server = await startJsonServer((_request, response) => {
+      respondJson(response, 401, { error: 'unauthorized' });
+    });
+    await assert.rejects(
+      fetchProviderModels({
+        slug: 'openai-codex',
+        name: 'Codex OAuth',
+        providerType: 'openai-codex',
+        baseUrl: server.url,
+        defaultModel: 'gpt-5.6-sol',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      }, 'codex-oauth-token'),
+      (err: unknown) => (err as { status?: number }).status === 401,
+    );
   });
 
   test('successful empty provider responses stay fetched-empty instead of falling back', async () => {

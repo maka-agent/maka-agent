@@ -4,6 +4,7 @@ const SOURCE_URL = 'https://models.dev/api.json';
 const DEFAULT_OUTPUT = 'packages/core/src/model-metadata.generated.ts';
 const PROVIDERS = {
   anthropic: 'anthropic',
+  alibaba: 'alibaba',
   cerebras: 'cerebras',
   cohere: 'cohere',
   'cloudflare-workers-ai': 'cloudflare-workers-ai',

@@ -12,7 +12,7 @@ export type ProviderRuntimeAdapter =
   | { kind: 'anthropic'; auth: 'api-key' | 'bearer'; normalizeBaseUrl: boolean }
   | { kind: 'claude-subscription' }
   | { kind: 'openai' }
-  | { kind: 'codex-subscription' }
+  | { kind: 'openai-codex' }
   | { kind: 'google'; normalizeBaseUrl?: boolean }
   | { kind: 'github-copilot' }
   | { kind: 'cohere' }
@@ -29,7 +29,7 @@ export type ProviderRuntimeAdapter =
 export type ProviderModelDiscovery =
   | {
       kind: 'protocol';
-      auth?: 'claude-subscription' | 'github-copilot' | 'none';
+      auth?: 'claude-subscription' | 'github-copilot' | 'openai-codex' | 'none';
       path?: string;
       query?: Readonly<Record<string, string>>;
       responseShape?: 'array-or-data';
@@ -311,6 +311,15 @@ const openrouterModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA.openrouter,
   ['anthropic/claude-sonnet-5', 'openai/gpt-5.6-sol', 'x-ai/grok-4.5', 'deepseek/deepseek-v4-pro'],
 ).filter((id) => GENERATED_MODELS_DEV_METADATA.openrouter[id]?.lifecycle !== 'deprecated');
+const alibaba = GENERATED_MODELS_DEV_PROVIDER_FACTS.alibaba;
+if (alibaba.id !== 'alibaba' || alibaba.api !== 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1') {
+  throw new Error('models.dev Alibaba provider facts are missing the stable id or API');
+}
+const alibabaModelIds = toolCallingModelIds(
+  'Alibaba',
+  GENERATED_MODELS_DEV_METADATA.alibaba,
+  ['qwen3.7-plus'],
+);
 const vercel = GENERATED_MODELS_DEV_PROVIDER_FACTS.vercel;
 if (vercel.id !== 'vercel') {
   throw new Error('models.dev Vercel AI Gateway provider facts are missing stable id vercel');
@@ -1099,6 +1108,25 @@ const providerRegistry = {
     readyOrder: 40,
     catalogOrder: 40,
   },
+  alibaba: {
+    label: alibaba.name,
+    description: 'Alibaba Cloud Qwen models for multimodal reasoning, coding, and tool use.',
+    baseUrl: alibaba.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: alibabaModelIds,
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'protocol', filter: 'fallback-models' },
+    category: 'overseas',
+    catalogGroup: 'api',
+    catalogBadge: 'API',
+    signupUrl: 'https://modelstudio.console.alibabacloud.com/',
+    modelsDevId: alibaba.id,
+    readyOrder: 41,
+    catalogOrder: 41,
+  },
   'cloudflare-workers-ai': {
     label: cloudflareWorkersAi.name,
     description: 'Cloudflare-hosted models over the account-scoped Workers AI API.',
@@ -1250,17 +1278,17 @@ const providerRegistry = {
     category: 'oauth',
     catalogBadge: 'Experimental',
   },
-  'codex-subscription': {
+  'openai-codex': {
     label: 'OpenAI OAuth (ChatGPT / Codex)',
     description: 'ChatGPT/Codex account OAuth path for OpenAI Responses models.',
     baseUrl: 'https://chatgpt.com/backend-api/codex',
     authKind: 'oauth_token',
     backendKind: 'ai-sdk',
-    fallbackModels: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark'],
+    fallbackModels: ['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark'],
     status: 'phase3-experimental',
     protocol: 'openai',
-    runtimeAdapter: { kind: 'codex-subscription' },
-    modelDiscovery: { kind: 'fallback' },
+    runtimeAdapter: { kind: 'openai-codex' },
+    modelDiscovery: { kind: 'protocol', auth: 'openai-codex' },
     category: 'oauth',
     catalogBadge: 'Account',
   },
@@ -1293,3 +1321,21 @@ function providerTypesByOrder(field: 'readyOrder' | 'catalogOrder' | 'recommende
 export const READY_PROVIDER_TYPES = providerTypesByOrder('readyOrder');
 export const CATALOG_PROVIDER_TYPES = providerTypesByOrder('catalogOrder');
 export const RECOMMENDED_PROVIDER_TYPES = providerTypesByOrder('recommendedOrder');
+
+/**
+ * Persisted providerType aliases renamed away in the current registry. Each
+ * entry maps a legacy persisted id to its current id so connections stored
+ * before a rename keep working without a destructive on-disk migration.
+ *
+ * The alias normalizes the `providerType` field only. Persisted connection
+ * slugs and credential-store keys (e.g. the `codex-subscription` slug used by
+ * the OpenAI Codex OAuth service) are intentionally left untouched so existing
+ * OAuth tokens remain reachable.
+ */
+const PROVIDER_TYPE_ALIASES: Readonly<Record<string, ProviderType>> = {
+  'codex-subscription': 'openai-codex',
+};
+
+export function normalizeProviderType(type: string): ProviderType {
+  return PROVIDER_TYPE_ALIASES[type] ?? (type as ProviderType);
+}

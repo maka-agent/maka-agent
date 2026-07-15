@@ -341,7 +341,7 @@ describe('ProviderAuth contract', () => {
 
   test('wired OAuth subscription providers route missing login to the OAuth setup path', () => {
     const contract = deriveProviderAuthContract({
-      providerType: 'codex-subscription',
+      providerType: 'openai-codex',
       hasSecret: false,
     });
 

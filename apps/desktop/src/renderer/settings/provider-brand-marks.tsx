@@ -15,6 +15,7 @@
 
 import type { ProviderType } from '@maka/core';
 import type { ReactElement } from 'react';
+import alibabaBrandMark from '../assets/provider-brands/alibabacloud.svg';
 import cerebrasBrandMark from '../assets/provider-brands/cerebras.svg';
 import cohereBrandMark from '../assets/provider-brands/cohere.svg';
 import cloudflareMarkUrl from '../assets/provider-brands/cloudflare.svg';
@@ -111,6 +112,14 @@ function XiaomiMiMo(): ReactElement {
 // - path: packages/static-svg/icons/openrouter-color.svg
 // - license: MIT (repository LICENSE)
 // - SHA-256: 17bede1b89166f824ee06753dc526a3f5e18b769706deaab09d04a3a98de1a78
+
+// Real Alibaba Cloud mark vendored byte-for-byte from Lobe Icons:
+// - repository: https://github.com/lobehub/lobe-icons
+// - package/version: @lobehub/icons-static-svg@1.91.0
+// - commit: e4302041fbb3039608d25f9f618bd462783b875e
+// - path: packages/static-svg/icons/alibabacloud-color.svg
+// - license: MIT (repository LICENSE)
+// - SHA-256: 73ea97baf919edb3d888a77cd45b21574e190a80124a59e199ea6953a28a959c
 
 // Cloudflare mark vendored byte-for-byte from Lobe Icons:
 // - repository: https://github.com/lobehub/lobe-icons
@@ -364,6 +373,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <ProviderAssetMask src={groqBrandMark} />;
     case 'openrouter':
       return <img src={openrouterBrandMark} alt="" />;
+    case 'alibaba':
+      return <img src={alibabaBrandMark} alt="" />;
     case 'cloudflare-workers-ai':
       return <img src={cloudflareMarkUrl} alt="" />;
     case 'fireworks-ai':
@@ -379,7 +390,7 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
     case 'claude-subscription':
       return <Claude />;
     case 'openai':
-    case 'codex-subscription':
+    case 'openai-codex':
     case 'openai-compatible':
       return <OpenAI />;
     case 'github-copilot':

@@ -152,30 +152,30 @@ describe('chat readiness guard', () => {
 
   test('allows Codex OAuth once its subscription send path is wired', async () => {
     const ready = await requireReadyConnection(
-      'codex-subscription',
+      'openai-codex',
       deps({
         connection: connection({
-          slug: 'codex-subscription',
+          slug: 'openai-codex',
           name: 'Codex Subscription',
-          providerType: 'codex-subscription',
+          providerType: 'openai-codex',
           defaultModel: 'gpt-5.5',
         }),
         apiKey: 'codex-oauth-secret',
       }),
     );
-    assert.equal(ready.connection.slug, 'codex-subscription');
+    assert.equal(ready.connection.slug, 'openai-codex');
     assert.equal(ready.apiKey, 'codex-oauth-secret');
     assert.equal(ready.model, 'gpt-5.5');
   });
 
   test('normalizes stale Codex OAuth session model away from unsupported ChatGPT-account model', async () => {
     const ready = await requireReadyConnection(
-      'codex-subscription',
+      'openai-codex',
       deps({
         connection: connection({
-          slug: 'codex-subscription',
+          slug: 'openai-codex',
           name: 'Codex Subscription',
-          providerType: 'codex-subscription',
+          providerType: 'openai-codex',
           defaultModel: 'gpt-5.5',
           models: [{ id: 'gpt-5.5' }, { id: 'gpt-5.4' }],
         }),
@@ -183,7 +183,7 @@ describe('chat readiness guard', () => {
       }),
       'gpt-5-codex',
     );
-    assert.equal(ready.connection.slug, 'codex-subscription');
+    assert.equal(ready.connection.slug, 'openai-codex');
     assert.equal(ready.model, 'gpt-5.5');
   });
 

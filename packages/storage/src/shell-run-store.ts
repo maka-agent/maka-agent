@@ -39,6 +39,8 @@ const SHELL_RUN_RECORD_KEYS = new Set([
   'timeoutMs',
   'exitCode',
   'failureMessage',
+  'sandboxExecution',
+  'sandboxEscalation',
   'revision',
   'observedAt',
   'output',
@@ -233,6 +235,8 @@ function normalizeShellRunRecord(value: unknown, sessionId: string, shellRunId: 
     (record.timeoutMs === undefined || isFiniteNumber(record.timeoutMs)) &&
     (record.exitCode === undefined || isFiniteNumber(record.exitCode)) &&
     (record.observedAt === undefined || isFiniteNumber(record.observedAt)) &&
+    isSandboxExecution(record.sandboxExecution) &&
+    isSandboxEscalation(record.sandboxEscalation, record.sandboxExecution) &&
     optionalStrings.every((item) => item === undefined || typeof item === 'string');
   if (!valid) {
     throw new Error(`Invalid ShellRun record for ${shellRunId}: malformed fields`);
@@ -332,6 +336,30 @@ function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
+function isSandboxExecution(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!hasOnlyKeys(value, new Set(['type', 'enforced']))) return false;
+  const execution = value as Record<string, unknown>;
+  return (
+    execution.type === 'none'
+    || execution.type === 'macos-seatbelt'
+    || execution.type === 'linux'
+  ) && typeof execution.enforced === 'boolean'
+    && execution.enforced === (execution.type !== 'none');
+}
+
+function isSandboxEscalation(value: unknown, execution: unknown): boolean {
+  if (value === undefined) return true;
+  if (!hasOnlyKeys(value, new Set(['commandHash', 'unsandboxed']))) return false;
+  const escalation = value as Record<string, unknown>;
+  const sandbox = execution as { type?: unknown; enforced?: unknown } | undefined;
+  return typeof escalation.commandHash === 'string'
+    && escalation.commandHash.length > 0
+    && escalation.unsandboxed === true
+    && sandbox?.type === 'none'
+    && sandbox.enforced === false;
+}
+
 function assertShellRunPatch(patch: ShellRunPatch): void {
   for (const key of Object.keys(patch)) {
     if (!SHELL_RUN_PATCH_KEYS.has(key)) {
@@ -361,6 +389,12 @@ function canonicalShellRunRecord(record: ShellRunRecord): ShellRunRecord {
     ...(record.timeoutMs !== undefined ? { timeoutMs: record.timeoutMs } : {}),
     ...(record.exitCode !== undefined ? { exitCode: record.exitCode } : {}),
     ...(record.failureMessage !== undefined ? { failureMessage: record.failureMessage } : {}),
+    ...(record.sandboxExecution !== undefined ? {
+      sandboxExecution: { ...record.sandboxExecution },
+    } : {}),
+    ...(record.sandboxEscalation !== undefined ? {
+      sandboxEscalation: { ...record.sandboxEscalation },
+    } : {}),
     revision: record.revision,
     ...(record.observedAt !== undefined ? { observedAt: record.observedAt } : {}),
     output: canonicalShellOutput(record.output),

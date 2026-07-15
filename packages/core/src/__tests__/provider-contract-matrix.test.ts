@@ -43,7 +43,7 @@ describe('provider contract matrix — row selection', () => {
   });
 
   it('excludes the experimental oauth providers and the unavailable gemini-cli', () => {
-    for (const excluded of ['claude-subscription', 'codex-subscription', 'gemini-cli'] as const) {
+    for (const excluded of ['claude-subscription', 'openai-codex', 'gemini-cli'] as const) {
       assert.ok(!plan.rows.some((row) => row.providerType === excluded), `${excluded} must not be a row`);
     }
   });

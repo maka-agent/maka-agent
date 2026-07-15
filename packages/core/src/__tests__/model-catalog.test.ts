@@ -632,7 +632,7 @@ describe('ModelCatalogEntry', () => {
   it('keeps OpenAI OAuth limits provider-specific instead of reusing OpenAI API context', () => {
     const [[openaiEntry], [oauthEntry]] = ([
       ['openai', 'gpt-5.5'],
-      ['codex-subscription', 'gpt-5.5'],
+      ['openai-codex', 'gpt-5.5'],
     ] as const).map(([providerType, model]) => buildModelCatalogEntries({
       providerType,
       defaultModel: model,
@@ -641,7 +641,7 @@ describe('ModelCatalogEntry', () => {
     }));
 
     assert.equal(openaiEntry?.contextWindow, 1_050_000);
-    assert.equal(oauthEntry?.contextWindow, 400_000);
+    assert.equal(oauthEntry?.contextWindow, 272_000);
     assert.notEqual(oauthEntry?.contextWindow, openaiEntry?.contextWindow);
     assert.equal(oauthEntry?.maxOutputTokens, 128_000);
   });
@@ -955,7 +955,7 @@ describe('ModelCatalogEntry', () => {
 
   it('carries display names separately from stable model ids', () => {
     const [fetchedEntry] = buildModelCatalogEntries({
-      providerType: 'codex-subscription',
+      providerType: 'openai-codex',
       defaultModel: 'gpt-5.5',
       models: [{ id: 'gpt-5.5', displayName: 'GPT 5.5' }],
       modelSource: 'fetched',
@@ -967,14 +967,36 @@ describe('ModelCatalogEntry', () => {
 
     const [fallbackEntry] = buildConnectionModelCatalogEntries({
       connection: {
-        slug: 'codex-subscription',
-        providerType: 'codex-subscription',
+        slug: 'openai-codex',
+        providerType: 'openai-codex',
         defaultModel: '',
       },
     });
 
-    assert.equal(fallbackEntry?.id, 'gpt-5.5');
-    assert.equal(fallbackEntry?.displayName, 'GPT-5.5');
+    assert.equal(fallbackEntry?.id, 'gpt-5.6-sol');
+    assert.equal(fallbackEntry?.displayName, 'GPT-5.6 Sol');
+  });
+
+  it('exposes gpt-5.6-sol as the lead OpenAI Codex OAuth fallback model with the access-path context window', () => {
+    // gpt-5.6-sol is the current ChatGPT/Codex flagship slug served by the
+    // chatgpt.com/backend-api/codex OAuth backend (per the OpenAI codex CLI
+    // models.json and hermes DEFAULT_CODEX_MODELS). It must lead the OAuth
+    // fallback list, and its context window is the access-path limit (372k),
+    // not the platform-API limit (1.05M) from the models.dev snapshot.
+    // gpt-5.6-luna/terra and the bare gpt-5.6 platform-API slug are
+    // intentionally excluded: they are not selectable through the
+    // ChatGPT/Codex OAuth path.
+    const [lead] = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'openai-codex',
+        providerType: 'openai-codex',
+        defaultModel: '',
+      },
+    });
+
+    assert.equal(lead?.id, 'gpt-5.6-sol');
+    assert.equal(lead?.displayName, 'GPT-5.6 Sol');
+    assert.equal(lead?.contextWindow, 372_000);
   });
 
   it('enriches provider model ids with models.dev display names', () => {
@@ -988,7 +1010,7 @@ describe('ModelCatalogEntry', () => {
         ['gemini-cli', 'gemini-2.5-pro'],
         ['deepseek', 'deepseek-v4-flash'],
         ['zai-coding-plan', 'glm-5.2'],
-        ['codex-subscription', 'gpt-5.3-codex-spark'],
+        ['openai-codex', 'gpt-5.3-codex-spark'],
       ] as Array<[ProviderType, string]>).map(([providerType, model]) => {
         const [entry] = buildModelCatalogEntries({
           providerType,

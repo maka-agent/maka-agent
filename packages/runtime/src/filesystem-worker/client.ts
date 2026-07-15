@@ -190,7 +190,7 @@ export class FilesystemWorkerClient {
 
     const launch = await this.input.getLaunchSpec();
     if (!launch.ok) throw clientError(launch.reason, 'launch', requestId, launch.message);
-    const workerProfile = deriveWorkerProfile(effectiveProfile, operation.kind);
+    const workerProfile = deriveWorkerProfile(effectiveProfile, operationPermission);
     const transformed = this.input.sandboxManager.transform({
       platform: this.input.platform ?? process.platform,
       command: {
@@ -255,20 +255,31 @@ export class FilesystemWorkerClient {
 
 function deriveWorkerProfile(
   profile: PermissionProfile,
-  operation: FilesystemWorkerOperation['kind'],
+  operationPermission: {
+    readonly fileSystem: {
+      readonly entries: readonly [{
+        readonly path: string;
+        readonly access: 'read' | 'write';
+        readonly scope: 'exact' | 'subtree';
+      }];
+    };
+  },
 ): PermissionProfile {
   if (profile.type !== 'managed' || profile.fileSystem.kind !== 'restricted') return profile;
-  if (operation === 'write' || operation === 'edit' || operation === 'format_json') {
-    return { ...profile, network: { kind: 'restricted' } };
-  }
+  const target = operationPermission.fileSystem.entries[0];
   return {
     ...profile,
-    name: 'read-only',
     fileSystem: {
       ...profile.fileSystem,
-      entries: profile.fileSystem.entries.map((entry) => (
-        entry.access === 'write' ? { ...entry, access: 'read' as const } : entry
-      )),
+      entries: [
+        ...profile.fileSystem.entries.filter((entry) => entry.access === 'deny'),
+        {
+          kind: 'path',
+          path: target.path,
+          access: target.access,
+          match: target.scope,
+        },
+      ],
     },
     network: { kind: 'restricted' },
   };

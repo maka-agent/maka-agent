@@ -29,7 +29,7 @@ export function providerPanelActionErrorMessage(error: unknown): string {
 }
 
 export function isWiredOAuthProvider(type: ProviderType): boolean {
-  return type === 'claude-subscription' || type === 'codex-subscription';
+  return type === 'claude-subscription' || type === 'openai-codex';
 }
 
 export function categoryLabel(category: ProviderCategory): string {

@@ -9,7 +9,7 @@ import type {
   ToolAvailabilityDiagnostic,
 } from '@maka/core/usage-stats/types';
 
-export type RunTracePhase = 'turn' | 'model' | 'tool' | 'permission' | 'abort' | 'usage';
+export type RunTracePhase = 'turn' | 'model' | 'tool' | 'permission' | 'sandbox' | 'abort' | 'usage';
 
 export type RunTraceEventType =
   | 'turn_started'
@@ -24,6 +24,16 @@ export type RunTraceEventType =
   | 'permission_requested'
   | 'permission_decided'
   | 'permission_failed'
+  | 'approval_routed'
+  | 'auto_review_started'
+  | 'auto_review_decided'
+  | 'auto_review_failed'
+  | 'sandbox_escalation_requested'
+  | 'sandbox_escalation_granted'
+  | 'sandbox_escalation_denied'
+  | 'sandbox_escalation_applied'
+  | 'sandbox_escalation_failed'
+  | 'sandbox_denial_detected'
   | 'abort_requested'
   | 'usage_recorded';
 

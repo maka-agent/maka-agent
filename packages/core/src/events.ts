@@ -12,6 +12,7 @@ import type {
   PermissionMode,
   PermissionRequest,
   PermissionResponse,
+  SandboxEscalationRequest,
 } from './permission.js';
 import type { UserQuestionRequest } from './user-question.js';
 import type {
@@ -188,7 +189,14 @@ type ShellRunResultMetadata = {
   failureMessage?: string;
   revision: number;
   timeoutMs?: number;
+  sandboxDenial?: SandboxDenialRecovery;
 };
+
+export interface SandboxDenialRecovery {
+  likely: true;
+  backend?: 'macos-seatbelt' | 'linux';
+  recovery: 'require_escalated';
+}
 
 export type ShellRunCompactResult = ShellRunResultMetadata & (
   | { mode: 'pipes'; output?: never }
@@ -238,6 +246,7 @@ export type ToolResultContent =
       exitCode?: number;
       failureMessage?: string;
       output: ShellOutput;
+      sandboxDenial?: SandboxDenialRecovery;
     }
   | ShellRunToolResultContent
   | { kind: 'image'; mimeType: string; ref: StorageRef }
@@ -407,9 +416,18 @@ export interface AdditionalPermissionRequestEvent
   rememberForTurnAllowed?: false;
 }
 
+export interface SandboxEscalationRequestEvent
+  extends BaseEvent, SandboxEscalationRequest {
+  type: 'permission_request';
+  /** Escalation prompts expose only bounded command and justification fields. */
+  args: undefined;
+  rememberForTurnAllowed?: false;
+}
+
 export type AnyPermissionRequestEvent =
   | PermissionRequestEvent
-  | AdditionalPermissionRequestEvent;
+  | AdditionalPermissionRequestEvent
+  | SandboxEscalationRequestEvent;
 
 export interface UserQuestionRequestEvent extends BaseEvent, UserQuestionRequest {
   type: 'user_question_request';
@@ -426,6 +444,9 @@ export interface PermissionDecisionAckEvent extends BaseEvent {
   toolUseId: string;
   decision: 'allow' | 'deny';
   rememberForTurn?: boolean;
+  reviewer?: import('./permission.js').ApprovalsReviewer;
+  rationale?: string;
+  riskLevel?: import('./permission.js').ApprovalRiskLevel;
 }
 
 export interface PlanSubmittedEvent extends BaseEvent {

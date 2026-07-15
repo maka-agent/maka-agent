@@ -586,10 +586,9 @@ describe('OpenGatewayService', () => {
     const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
     assert.ok(status.baseUrl);
 
-    // Retain the whole opened stream (controller + response) for the lifetime of the
-    // assertions. undici tears down a fetch connection when its response body is
-    // garbage-collected without being consumed, so dropping the response here would let
-    // GC (heavier under load) abort registered streams before the count is checked.
+    // Keep each unread response body reachable until cleanup. Undici closes an SSE
+    // connection when its response is garbage-collected, which would make the stream
+    // count depend on GC timing instead of the gateway limit under test.
     const streams: Array<{ controller: AbortController; response: Response }> = [];
     try {
       for (let index = 0; index < 3; index += 1) {

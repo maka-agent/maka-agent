@@ -36,24 +36,39 @@ function setup(opts?: {
   return { mgr, deps, injected };
 }
 
+function controlledCall<T>() {
+  let markStarted!: () => void;
+  let resolveResult!: (value: T | PromiseLike<T>) => void;
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  const result = new Promise<T>((resolve) => { resolveResult = resolve; });
+  return {
+    invoke: () => {
+      markStarted();
+      return result;
+    },
+    started,
+    resolve: resolveResult,
+  };
+}
+
 describe('handleGoalContinuation', () => {
   test('no active goal → no_goal', async () => {
     const { deps } = setup();
-    const out = await handleGoalContinuation(deps, SESSION);
+    const out = await handleGoalContinuation(deps, SESSION, 'turn-1');
     assert.equal(out.kind, 'no_goal');
   });
 
   test('session busy → cannot_continue', async () => {
     const { mgr, deps } = setup({ canContinue: false });
-    mgr.set(SESSION, 'x');
-    const out = await handleGoalContinuation(deps, SESSION);
+    mgr.create(SESSION, 'x');
+    const out = await handleGoalContinuation(deps, SESSION, 'turn-1');
     assert.equal(out.kind, 'cannot_continue');
   });
 
   test('met → achieved, no injection', async () => {
     const { mgr, deps, injected } = setup({ evaluation: { met: true, reason: 'all pass' } });
-    mgr.set(SESSION, 'x');
-    const out = await handleGoalContinuation(deps, SESSION);
+    mgr.create(SESSION, 'x');
+    const out = await handleGoalContinuation(deps, SESSION, 'turn-1');
     assert.equal(out.kind, 'achieved');
     assert.equal(mgr.get(SESSION)?.status, 'achieved');
     assert.equal(injected.length, 0);
@@ -61,8 +76,8 @@ describe('handleGoalContinuation', () => {
 
   test('impossible → impossible, no injection', async () => {
     const { mgr, deps, injected } = setup({ evaluation: { impossible: true, reason: 'cannot' } });
-    mgr.set(SESSION, 'x');
-    const out = await handleGoalContinuation(deps, SESSION);
+    mgr.create(SESSION, 'x');
+    const out = await handleGoalContinuation(deps, SESSION, 'turn-1');
     assert.equal(out.kind, 'impossible');
     assert.equal(mgr.get(SESSION)?.status, 'impossible');
     assert.equal(injected.length, 0);
@@ -70,8 +85,8 @@ describe('handleGoalContinuation', () => {
 
   test('not met + progress → continued, injects steering turn', async () => {
     const { mgr, deps, injected } = setup({ evaluation: { progress: true, reason: '1 of 3 done' } });
-    mgr.set(SESSION, 'x');
-    const out = await handleGoalContinuation(deps, SESSION);
+    mgr.create(SESSION, 'x');
+    const out = await handleGoalContinuation(deps, SESSION, 'turn-1');
     assert.equal(out.kind, 'continued');
     assert.equal(injected.length, 1);
     assert.ok(injected[0].includes('1 of 3 done'));
@@ -81,11 +96,11 @@ describe('handleGoalContinuation', () => {
 
   test('no progress accumulates and trips stalled at block cap', async () => {
     const { mgr, deps, injected } = setup({ evaluation: { progress: false, reason: 'stuck' } });
-    mgr.set(SESSION, 'x', { blockCap: 2 });
-    const first = await handleGoalContinuation(deps, SESSION);
+    mgr.create(SESSION, 'x', { blockCap: 2 });
+    const first = await handleGoalContinuation(deps, SESSION, 'turn-1');
     assert.equal(first.kind, 'continued');
     assert.equal(mgr.get(SESSION)?.consecutiveNoProgress, 1);
-    const second = await handleGoalContinuation(deps, SESSION);
+    const second = await handleGoalContinuation(deps, SESSION, 'turn-2');
     assert.equal(second.kind, 'stopped');
     assert.equal(mgr.get(SESSION)?.status, 'stalled');
     // Second call must not inject (goal stalled).
@@ -94,33 +109,41 @@ describe('handleGoalContinuation', () => {
 
   test('evaluate-first: a goal MET on its final permitted turn is achieved, not max_iterations', async () => {
     const { mgr, deps } = setup({ evaluation: { met: true, reason: 'all pass' } });
-    mgr.set(SESSION, 'x', { maxIterations: 1 });
-    const out = await handleGoalContinuation(deps, SESSION);
+    mgr.create(SESSION, 'x', { maxIterations: 1 });
+    const out = await handleGoalContinuation(deps, SESSION, 'turn-final');
     assert.equal(out.kind, 'achieved');
     assert.equal(mgr.get(SESSION)?.status, 'achieved');
   });
 
   test('not-met on the final permitted turn stops with max_iterations', async () => {
     const { mgr, deps } = setup({ evaluation: { met: false, progress: true } });
-    mgr.set(SESSION, 'x', { maxIterations: 1 });
-    const out = await handleGoalContinuation(deps, SESSION);
+    mgr.create(SESSION, 'x', { maxIterations: 1 });
+    const out = await handleGoalContinuation(deps, SESSION, 'turn-final');
     assert.equal(out.kind, 'stopped');
     assert.equal(mgr.get(SESSION)?.status, 'max_iterations');
   });
 
   test('evaluate-first: a goal MET on the budget-crossing turn is achieved, not budget_limited', async () => {
     const { mgr, deps } = setup({ tokenCount: 2000, evaluation: { met: true, reason: 'done' } });
-    mgr.set(SESSION, 'x', { tokenBudget: 1000, tokensAtStart: 500 });
-    const out = await handleGoalContinuation(deps, SESSION);
+    mgr.create(SESSION, 'x', { tokenBudget: 1000, tokensAtStart: 500 });
+    const out = await handleGoalContinuation(deps, SESSION, 'turn-final');
     assert.equal(out.kind, 'achieved');
     assert.equal(mgr.get(SESSION)?.status, 'achieved');
   });
 
   test('not-met budget crossing stops with budget_limited', async () => {
     const { mgr, deps } = setup({ tokenCount: 2000, evaluation: { met: false, progress: true } });
-    mgr.set(SESSION, 'x', { tokenBudget: 1000, tokensAtStart: 500 });
-    mgr.recordTokens(SESSION, 500); // establish baseline before the continuation
-    const out = await handleGoalContinuation(deps, SESSION);
+    const created = mgr.create(SESSION, 'x', { tokenBudget: 1000, tokensAtStart: 500 });
+    assert.equal(created.kind, 'created');
+    mgr.settleTurn(SESSION, {
+      checkpoint: { goalId: created.goal.id, revision: created.goal.revision },
+      turnId: 'turn-baseline',
+      verdict: 'continue',
+      reason: 'baseline',
+      madeProgress: true,
+      tokensNow: 500,
+    });
+    const out = await handleGoalContinuation(deps, SESSION, 'turn-final');
     assert.equal(out.kind, 'stopped');
     assert.equal(mgr.get(SESSION)?.status, 'budget_limited');
   });
@@ -136,8 +159,8 @@ describe('handleGoalContinuation', () => {
       injectTurn: () => {},
       canContinue: async () => true,
     };
-    mgr.set(SESSION, 'x', { blockCap: 2 });
-    await handleGoalContinuation(deps, SESSION);
+    mgr.create(SESSION, 'x', { blockCap: 2 });
+    await handleGoalContinuation(deps, SESSION, 'turn-1');
     // Neutral: streak neither advanced nor reset; goal still active (fail-open).
     assert.equal(mgr.get(SESSION)?.consecutiveNoProgress, 0);
     assert.equal(mgr.get(SESSION)?.status, 'active');
@@ -147,8 +170,8 @@ describe('handleGoalContinuation', () => {
     const { mgr, deps, injected } = setup({
       evaluation: { waiting: true, progress: false, reason: 'CI still running' },
     });
-    mgr.set(SESSION, 'deploy done', { blockCap: 2 });
-    const out = await handleGoalContinuation(deps, SESSION);
+    mgr.create(SESSION, 'deploy done', { blockCap: 2 });
+    const out = await handleGoalContinuation(deps, SESSION, 'turn-1');
     assert.equal(out.kind, 'continued');
     // Waiting must NOT accumulate toward stall (a wait is not being stuck).
     assert.equal(mgr.get(SESSION)?.consecutiveNoProgress, 0);
@@ -160,10 +183,10 @@ describe('handleGoalContinuation', () => {
     const { mgr, deps } = setup({
       evaluation: { waiting: true, progress: false, reason: 'CI running' },
     });
-    mgr.set(SESSION, 'x', { maxIterations: 3 });
-    await handleGoalContinuation(deps, SESSION); // turn 1
-    await handleGoalContinuation(deps, SESSION); // turn 2
-    const third = await handleGoalContinuation(deps, SESSION); // turn 3 hits cap
+    mgr.create(SESSION, 'x', { maxIterations: 3 });
+    await handleGoalContinuation(deps, SESSION, 'turn-1');
+    await handleGoalContinuation(deps, SESSION, 'turn-2');
+    const third = await handleGoalContinuation(deps, SESSION, 'turn-3');
     assert.equal(third.kind, 'stopped');
     assert.equal(mgr.get(SESSION)?.status, 'max_iterations');
   });
@@ -172,40 +195,157 @@ describe('handleGoalContinuation', () => {
     let id = 0;
     const mgr = new GoalManager({ generateId: () => `g-${++id}`, now: () => 1000 });
     const inFlight = new Set<string>();
-    let releaseEval: (() => void) | undefined;
+    const evaluation = controlledCall<string>();
     const deps: GoalContinuationDeps = {
       goalManager: mgr,
       inFlight,
-      evaluator: { evaluate: () => new Promise<string>((resolve) => { releaseEval = () => resolve('{"met": false, "progress": true, "reason": "x"}'); }) },
+      evaluator: { evaluate: evaluation.invoke },
       getRecentContext: async () => 'ctx',
       injectTurn: () => {},
       canContinue: async () => true,
     };
-    mgr.set(SESSION, 'x');
-    const first = handleGoalContinuation(deps, SESSION); // hangs on evaluate
-    await new Promise((r) => setTimeout(r, 0));
-    const second = await handleGoalContinuation(deps, SESSION); // should see inFlight
+    mgr.create(SESSION, 'x');
+    const first = handleGoalContinuation(deps, SESSION, 'turn-1'); // hangs on evaluate
+    await evaluation.started;
+    const second = await handleGoalContinuation(deps, SESSION, 'turn-2'); // should see inFlight
     assert.equal(second.kind, 'busy');
-    releaseEval?.();
+    evaluation.resolve('{"met": false, "progress": true, "reason": "x"}');
     await first;
+  });
+
+  test('a completed turn is settled once without re-running the evaluator', async () => {
+    const { mgr, deps, injected } = setup();
+    let evaluations = 0;
+    const evaluate = deps.evaluator.evaluate;
+    deps.evaluator.evaluate = (...args) => {
+      evaluations++;
+      return evaluate(...args);
+    };
+    mgr.create(SESSION, 'x');
+
+    const first = await handleGoalContinuation(deps, SESSION, 'turn-1');
+    const replay = await handleGoalContinuation(deps, SESSION, 'turn-1');
+
+    assert.equal(first.kind, 'continued');
+    assert.equal(replay.kind, 'duplicate');
+    assert.equal(evaluations, 1);
+    assert.equal(injected.length, 1);
+    assert.equal(mgr.get(SESSION)?.iterations, 1);
+  });
+
+  test('a settled turn remains duplicate after its terminal Goal is replaced', async () => {
+    const { mgr, deps, injected } = setup();
+    let evaluations = 0;
+    const evaluate = deps.evaluator.evaluate;
+    deps.evaluator.evaluate = (...args) => {
+      evaluations++;
+      return evaluate(...args);
+    };
+    mgr.create(SESSION, 'first', { maxIterations: 1 });
+
+    const first = await handleGoalContinuation(deps, SESSION, 'turn-shared');
+    assert.equal(first.kind, 'stopped');
+    const replacement = mgr.create(SESSION, 'replacement');
+    assert.equal(replacement.kind, 'created');
+    const replay = await handleGoalContinuation(deps, SESSION, 'turn-shared');
+
+    assert.equal(replay.kind, 'duplicate');
+    assert.equal(evaluations, 1);
+    assert.deepEqual(injected, []);
+    assert.equal(replacement.goal.iterations, 0);
+    assert.equal(replacement.goal.revision, 0);
+  });
+
+  test('an evaluator result cannot settle a replacement Goal', async () => {
+    const { mgr, deps, injected } = setup();
+    const evaluation = controlledCall<string>();
+    deps.evaluator.evaluate = evaluation.invoke;
+    const decisions: string[] = [];
+    deps.taskGate = {
+      listActionableTaskKeys: async () => [],
+      recordDecision: (trace) => { decisions.push(trace.decision); },
+    };
+    mgr.create(SESSION, 'old');
+    const pending = handleGoalContinuation(deps, SESSION, 'turn-old');
+    await evaluation.started;
+
+    mgr.clear(SESSION);
+    const replacement = mgr.create(SESSION, 'replacement');
+    assert.equal(replacement.kind, 'created');
+    evaluation.resolve('{"met":true,"impossible":false,"progress":true,"waiting":false,"reason":"old done"}');
+    const result = await pending;
+
+    assert.equal(result.kind, 'stale');
+    assert.equal(mgr.get(SESSION)?.condition, 'replacement');
+    assert.equal(mgr.get(SESSION)?.status, 'active');
+    assert.deepEqual(injected, []);
+    assert.deepEqual(decisions, []);
+  });
+
+  test('an evaluator result cannot cross clear, pause/resume, or removal', async (t) => {
+    for (const scenario of ['clear', 'pause-resume', 'remove'] as const) {
+      await t.test(scenario, async () => {
+        const { mgr, deps, injected } = setup();
+        const evaluation = controlledCall<string>();
+        deps.evaluator.evaluate = evaluation.invoke;
+        mgr.create(SESSION, 'x');
+        const pending = handleGoalContinuation(deps, SESSION, `turn-${scenario}`);
+        await evaluation.started;
+
+        if (scenario === 'clear') {
+          mgr.clear(SESSION);
+        } else if (scenario === 'pause-resume') {
+          mgr.pause(SESSION);
+          mgr.resume(SESSION);
+        } else {
+          mgr.remove(SESSION);
+        }
+        evaluation.resolve('{"met":false,"impossible":false,"progress":true,"waiting":false,"reason":"old progress"}');
+        const result = await pending;
+
+        assert.equal(result.kind, 'stale');
+        if (scenario === 'remove') assert.equal(mgr.get(SESSION), undefined);
+        else assert.equal(mgr.get(SESSION)?.iterations, 0);
+        assert.deepEqual(injected, []);
+      });
+    }
+  });
+
+  test('a post-settlement pause prevents stale continuation injection', async () => {
+    const { mgr, deps, injected } = setup();
+    const taskRead = controlledCall<string[]>();
+    deps.taskGate = {
+      listActionableTaskKeys: taskRead.invoke,
+    };
+    mgr.create(SESSION, 'x');
+    const pending = handleGoalContinuation(deps, SESSION, 'turn-1');
+    await taskRead.started;
+
+    mgr.pause(SESSION);
+    taskRead.resolve([]);
+    const result = await pending;
+
+    assert.equal(result.kind, 'stale');
+    assert.equal(mgr.get(SESSION)?.status, 'paused');
+    assert.deepEqual(injected, []);
   });
 
   test('paused goal is not continued', async () => {
     const { mgr, deps } = setup();
-    mgr.set(SESSION, 'x');
+    mgr.create(SESSION, 'x');
     mgr.pause(SESSION);
-    const out = await handleGoalContinuation(deps, SESSION);
+    const out = await handleGoalContinuation(deps, SESSION, 'turn-1');
     assert.equal(out.kind, 'no_goal');
   });
 
   test('task gate injects one reminder per goal and traces the reminder limit', async () => {
     const { mgr, deps, injected } = setup();
-    const traces: Array<{ decision: string; taskKeys: string[]; turnId?: string }> = [];
+    const traces: Array<{ decision: string; taskKeys: string[]; turnId: string }> = [];
     deps.taskGate = {
       listActionableTaskKeys: async () => ['T1', 'T1.1'],
       recordDecision: (trace) => { traces.push(trace); },
     };
-    mgr.set(SESSION, 'finish implementation');
+    mgr.create(SESSION, 'finish implementation');
     await handleGoalContinuation(deps, SESSION, 'turn-1');
     await handleGoalContinuation(deps, SESSION, 'turn-2');
     assert.equal(injected.length, 2);
@@ -222,7 +362,7 @@ describe('handleGoalContinuation', () => {
       listActionableTaskKeys: async () => [],
       recordDecision: (trace) => { decisions.push(trace.decision); },
     };
-    mgr.set(SESSION, 'wait for dependency');
+    mgr.create(SESSION, 'wait for dependency');
     await handleGoalContinuation(deps, SESSION, 'turn-1');
     assert.doesNotMatch(injected[0]!, /\[Task reminder\]/);
     assert.deepEqual(decisions, ['no_actionable_tasks']);
@@ -236,7 +376,7 @@ describe('handleGoalContinuation', () => {
       listActionableTaskKeys: async () => { listCalls += 1; return ['T1']; },
       recordDecision: (trace) => { decisions.push(trace.decision); },
     };
-    mgr.set(SESSION, 'done');
+    mgr.create(SESSION, 'done');
     await handleGoalContinuation(deps, SESSION, 'turn-final');
     assert.equal(listCalls, 0);
     assert.equal(injected.length, 0);
@@ -255,7 +395,7 @@ describe('handleGoalContinuation', () => {
       listActionableTaskKeys: async () => ['T1'],
       recordDecision: (trace) => { traces.push(trace.decision); },
     };
-    mgr.set(SESSION, 'finish implementation');
+    mgr.create(SESSION, 'finish implementation');
 
     const preempted = await handleGoalContinuation(deps, SESSION, 'turn-1');
     assert.equal(preempted.kind, 'cannot_continue');
@@ -275,7 +415,7 @@ describe('handleGoalContinuation', () => {
       listActionableTaskKeys: async () => ['T1', 'T2.1'],
       recordDecision: (trace) => { traces.push(trace); },
     };
-    mgr.set(SESSION, 'finish implementation', { maxIterations: 1 });
+    mgr.create(SESSION, 'finish implementation', { maxIterations: 1 });
     const result = await handleGoalContinuation(deps, SESSION, 'turn-final');
     assert.equal(result.kind, 'stopped');
     assert.deepEqual(traces, [{

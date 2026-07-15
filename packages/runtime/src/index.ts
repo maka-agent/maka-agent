@@ -50,6 +50,37 @@ export type {
 } from './additional-permissions.js';
 export { hashAdditionalPermissionProfile } from './additional-permission-hash.js';
 export {
+  DEFAULT_SANDBOX_ESCALATION_GRANT_TTL_MS,
+  MAX_SANDBOX_ESCALATION_JUSTIFICATION_CHARS,
+  SandboxEscalationError,
+  assertSandboxEscalationGrantForExecution,
+  assertSandboxEscalationProposal,
+  freezeSandboxEscalationGrant,
+  freezeSandboxEscalationProposal,
+  planDeclaredBashSandboxEscalation,
+  sandboxEscalationCommandHash,
+} from './sandbox-escalation.js';
+export type {
+  SandboxEscalationErrorReason,
+  SandboxEscalationGrant,
+  SandboxEscalationPlanResult,
+  SandboxEscalationPlannerContext,
+  SandboxEscalationProposal,
+} from './sandbox-escalation.js';
+export {
+  AiSdkAutoApprovalReviewer,
+  ApprovalCoordinator,
+  DEFAULT_AUTO_APPROVAL_REVIEW_TIMEOUT_MS,
+  MAX_AUTO_APPROVAL_RATIONALE_CHARS,
+} from './approval-reviewer.js';
+export type {
+  AiSdkAutoApprovalReviewerInput,
+  ApprovalCoordinatorObserver,
+  AutoApprovalReviewContext,
+  AutoApprovalReviewDecision,
+  AutoApprovalReviewer,
+} from './approval-reviewer.js';
+export {
   FilesystemWorkerClient,
   FilesystemWorkerClientError,
   buildFilesystemWorkerEnv,
@@ -69,6 +100,7 @@ export type {
 export { AiSdkBackend } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
+export { terminateChildProcessTree } from './process-tree-terminator.js';
 export type {
   AgentBackend,
   BackendCompactHistoryInput,
@@ -661,7 +693,7 @@ export type {
   SemanticCompactSummaryRequest,
 } from './semantic-compact.js';
 export { testConnection } from './test-connection.js';
-export { fetchGitHubCopilotModels, fetchProviderModels } from './model-fetcher.js';
+export { fetchGitHubCopilotModels, fetchOpenAiCodexModels, fetchProviderModels, OpenAiCodexDiscoveryError } from './model-fetcher.js';
 
 export {
   materializeSession,
@@ -996,5 +1028,6 @@ export type {
   LoadSkillInstructionsResult,
   SkillRuntimeStateReadResult,
   SkillSource,
+  SkillSourceResolver,
   SkillDiscoveryEntry,
 } from './skills.js';
