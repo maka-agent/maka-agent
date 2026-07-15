@@ -50,20 +50,22 @@ test('adds a catalog provider through the canonical API-key dialog', async ({ wi
   await expect(dialog.getByLabel('API Key')).toBeFocused();
   await expect(dialog.getByLabel('API Key')).toHaveAttribute('type', 'password');
   await expect(dialog.getByText('输入 Cerebras API Key 即可完成连接。')).toHaveCount(0);
-  await expect(dialog.getByText('粘贴服务商提供的 API Key，凭据仅保存在本机。')).toBeVisible();
+  await expect(dialog.getByText('粘贴服务商提供的 API Key，凭据仅保存在本机。')).toHaveCount(0);
+  await expect(dialog.getByText('连接后即可使用模型；API Key 不会自动同步，由你掌控。')).toBeVisible();
   await expect(dialog.getByText('Cerebras API Key', { exact: true })).toHaveCount(0);
+  await expect(dialog.getByLabel('API Key')).toHaveAttribute('placeholder', '输入或粘贴 API Key');
   await expect(dialog.getByLabel('模型供应商连接标识')).toHaveCount(0);
   await expect(dialog.getByLabel('模型供应商服务地址')).toHaveCount(0);
   await expect(dialog.getByLabel('模型供应商默认模型')).toHaveCount(0);
   const dialogBox = await dialog.boundingBox();
   expect(dialogBox?.width).toBeLessThanOrEqual(420);
   expect(dialogBox?.height).toBeGreaterThanOrEqual(190);
-  expect(dialogBox?.height).toBeLessThanOrEqual(210);
+  expect(dialogBox?.height).toBeLessThanOrEqual(230);
   await expect(dialog.locator('.providerLogo')).toHaveCSS('width', '24px');
   await expect(dialog.locator('.providerLogo')).toHaveCSS('height', '24px');
-  expect((await dialog.getByRole('button', { name: '连接', exact: true }).boundingBox())?.width).toBeLessThan(96);
+  expect((await dialog.getByRole('button', { name: '连接并使用', exact: true }).boundingBox())?.width).toBeLessThan(96);
   await dialog.getByLabel('API Key').fill('e2e-cerebras-key');
-  await dialog.getByRole('button', { name: '连接', exact: true }).click();
+  await dialog.getByRole('button', { name: '连接并使用', exact: true }).click();
 
   await expect(dialog).toBeHidden();
   const connection = page.getByRole('button', { name: /模型连接：Cerebras/ });

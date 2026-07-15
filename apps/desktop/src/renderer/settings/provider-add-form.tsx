@@ -118,7 +118,7 @@ export function AddProviderForm(props: {
             icon={<ProviderLogo type={props.providerType} compact />}
             title={`连接 ${display.name}`}
             titleId={titleId}
-            subtitle="粘贴服务商提供的 API Key，凭据仅保存在本机。"
+            subtitle="连接后即可使用模型；API Key 不会自动同步，由你掌控。"
             onClose={() => {
               if (!busy) props.onCancel();
             }}
@@ -132,7 +132,7 @@ export function AddProviderForm(props: {
                   setApiKey(next);
                   if (error) setError(null);
                 }}
-                placeholder="粘贴 API Key"
+                placeholder="输入或粘贴 API Key"
                 ariaLabel="API Key"
                 ariaDescribedBy={error ? errorId : undefined}
                 inputRef={apiKeyInputRef}
@@ -143,7 +143,7 @@ export function AddProviderForm(props: {
             <div className="providerKeyDialogActions">
               <Button variant="ghost" type="button" disabled={busy} onClick={props.onCancel}>取消</Button>
               <Button type="submit" disabled={busy}>
-                {busy ? '连接中…' : '连接'}
+                {busy ? '连接中…' : '连接并使用'}
               </Button>
             </div>
           </form>
