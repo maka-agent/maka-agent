@@ -118,7 +118,7 @@ export function AddProviderForm(props: {
             icon={<ProviderLogo type={props.providerType} compact />}
             title={`连接 ${display.name}`}
             titleId={titleId}
-            subtitle="连接后即可使用模型；API Key 不会自动同步，由你掌控。"
+            subtitle="输入 API Key 即可连接；密钥仅保存在本机。"
             onClose={() => {
               if (!busy) props.onCancel();
             }}

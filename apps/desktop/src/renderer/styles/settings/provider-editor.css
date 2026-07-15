@@ -98,6 +98,10 @@
   align-items: center;
 }
 
+.providerKeyDialog [data-slot="dialog-header-subtitle"] {
+  white-space: nowrap;
+}
+
 .providerKeyDialog [data-slot="dialog-header-icon"],
 .providerKeyDialog .providerLogo[data-compact="true"] {
   width: 24px;

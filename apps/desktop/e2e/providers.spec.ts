@@ -51,7 +51,10 @@ test('adds a catalog provider through the canonical API-key dialog', async ({ wi
   await expect(dialog.getByLabel('API Key')).toHaveAttribute('type', 'password');
   await expect(dialog.getByText('输入 Cerebras API Key 即可完成连接。')).toHaveCount(0);
   await expect(dialog.getByText('粘贴服务商提供的 API Key，凭据仅保存在本机。')).toHaveCount(0);
-  await expect(dialog.getByText('连接后即可使用模型；API Key 不会自动同步，由你掌控。')).toBeVisible();
+  const intro = dialog.getByText('输入 API Key 即可连接；密钥仅保存在本机。');
+  await expect(intro).toBeVisible();
+  await expect(intro).toHaveCSS('white-space', 'nowrap');
+  expect(await intro.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect(dialog.getByText('Cerebras API Key', { exact: true })).toHaveCount(0);
   await expect(dialog.getByLabel('API Key')).toHaveAttribute('placeholder', '输入或粘贴 API Key');
   await expect(dialog.getByLabel('模型供应商连接标识')).toHaveCount(0);
@@ -64,7 +67,21 @@ test('adds a catalog provider through the canonical API-key dialog', async ({ wi
   await expect(dialog.locator('.providerLogo')).toHaveCSS('width', '24px');
   await expect(dialog.locator('.providerLogo')).toHaveCSS('height', '24px');
   expect((await dialog.getByRole('button', { name: '连接并使用', exact: true }).boundingBox())?.width).toBeLessThan(96);
-  await dialog.getByLabel('API Key').fill('e2e-cerebras-key');
+  const keyInput = dialog.getByLabel('API Key');
+  const inputBox = await keyInput.boundingBox();
+  await keyInput.fill(`sk-${'a'.repeat(300)}`);
+  const longKeyLayout = await keyInput.evaluate((input) => ({
+    clientWidth: input.clientWidth,
+    scrollWidth: input.scrollWidth,
+    clientHeight: input.clientHeight,
+    scrollHeight: input.scrollHeight,
+  }));
+  expect(longKeyLayout.scrollWidth).toBeGreaterThan(longKeyLayout.clientWidth);
+  expect(longKeyLayout.scrollHeight).toBe(longKeyLayout.clientHeight);
+  expect((await keyInput.boundingBox())?.height).toBe(inputBox?.height);
+  expect((await dialog.boundingBox())?.width).toBe(dialogBox?.width);
+  expect((await dialog.boundingBox())?.height).toBe(dialogBox?.height);
+  await keyInput.fill('e2e-cerebras-key');
   await dialog.getByRole('button', { name: '连接并使用', exact: true }).click();
 
   await expect(dialog).toBeHidden();
