@@ -242,6 +242,12 @@ function buildHistoryRewriteGatePolicy(
   };
 }
 
+// Semantic compaction is the #981/#986 attention-first experiment, distinct
+// from the standard historyCompact mechanism. It defaults OFF and is opt-in per
+// surface (issue #882 PR 3): an explicit MAKA_CONTEXT_SEMANTIC_COMPACT truthy
+// value, or a MAKA_CONTEXT_SEMANTIC_COMPACT_MODE other than `off`, turns it on.
+// This keeps the experiment out of every surface's default budget without each
+// surface stripping it locally.
 function buildSemanticCompactPolicy(
   env: Record<string, string | undefined>,
   defaultHighWaterName: string,
@@ -250,6 +256,9 @@ function buildSemanticCompactPolicy(
   if (enabled === false) return undefined;
   const mode = parseSemanticCompactMode(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODE);
   if (mode === 'off') return undefined;
+  // Default off: require an explicit opt-in (the boolean flag or an explicit
+  // non-off mode). Neither present means the experiment stays out of the budget.
+  if (enabled !== true && mode === undefined) return undefined;
   const rejectInvalidSummaries = parseOptionalBoolean(
     env.MAKA_CONTEXT_SEMANTIC_COMPACT_REJECT_INVALID_SUMMARIES,
     'MAKA_CONTEXT_SEMANTIC_COMPACT_REJECT_INVALID_SUMMARIES',

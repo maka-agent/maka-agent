@@ -11,6 +11,8 @@ const ACTIVE_PRUNE_ENV_KEYS = [
   'MAKA_CONTEXT_HISTORY_COMPACT',
   'MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS',
   'MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN',
+  'MAKA_CONTEXT_SEMANTIC_COMPACT',
+  'MAKA_CONTEXT_SEMANTIC_COMPACT_MODE',
 ] as const;
 
 const savedEnv: Record<string, string | undefined> = {};
@@ -94,6 +96,17 @@ describe('desktop activeToolResultPrune policy', () => {
     const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: 'desktop-default-history-budget' });
     assert.equal(policy?.historyCompact?.enabled, true);
     assert.equal(policy?.historyCompact?.midTurn, undefined);
+  });
+
+  test('keeps semantic compaction (the #986 experiment) off by default', () => {
+    const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: 'desktop-default-history-budget' });
+    assert.equal(policy?.semanticCompact, undefined);
+  });
+
+  test('honors an explicit MAKA_CONTEXT_SEMANTIC_COMPACT=on opt-in', () => {
+    process.env.MAKA_CONTEXT_SEMANTIC_COMPACT = 'on';
+    const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: 'desktop-default-history-budget' });
+    assert.equal(policy?.semanticCompact?.enabled, true);
   });
 
   test('uses the selected model context window minus the default reserve as the history budget', () => {
