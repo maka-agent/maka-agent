@@ -881,6 +881,30 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
+  test('rejects a Harbor reward that disagrees with the structured verifier outcome', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        runHarbor: fakeRunner({
+          reward: '1\n',
+          verifierOutcome: {
+            schemaVersion: 1,
+            outcome: 'failed',
+            attempts: [{ attempt: 1, classification: 'failed', durationMs: 12, reward: 0 }],
+          },
+        }),
+      });
+
+      await assert.rejects(runner(runInput()), (error: unknown) => {
+        assert.ok(error instanceof HarborInfraError);
+        assert.match(error.message, /reward disagrees with verifier outcome/);
+        return true;
+      });
+    });
+  });
+
   test('summarizes verifier assertion failures without raw expected output', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       const runner = createHarborTaskRunner({

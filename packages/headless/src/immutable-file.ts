@@ -20,15 +20,23 @@ export async function publishImmutableFile(path: string, contents: string): Prom
       if (isAlreadyExists(error)) return false;
       throw error;
     }
-    const directoryHandle = await open(directory, 'r');
-    try {
-      await directoryHandle.sync();
-    } finally {
-      await directoryHandle.close();
-    }
+    await syncDirectory(directory);
     return true;
   } finally {
     await rm(temporaryPath, { force: true });
+  }
+}
+
+export async function syncParentDirectory(path: string): Promise<void> {
+  await syncDirectory(dirname(path));
+}
+
+async function syncDirectory(directory: string): Promise<void> {
+  const directoryHandle = await open(directory, 'r');
+  try {
+    await directoryHandle.sync();
+  } finally {
+    await directoryHandle.close();
   }
 }
 

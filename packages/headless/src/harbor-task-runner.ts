@@ -281,6 +281,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
     if (!verifier) {
       throw new HarborInfraError(`custom verifier produced no structured verifier outcome for task ${input.task.id}`);
     }
+    assertVerifierRewardAgreement(verifier, reward, input.task.id);
     const verifierFailureSummary = verifier?.outcome === 'candidate_timeout'
       ? 'candidate_timeout'
       : reward <= 0
@@ -377,11 +378,20 @@ export function createHarborOracleQualifier(options: HarborOracleQualifierOption
     const outcome = await readVerifierOutcome(join(trialDir, TRIAL_VERIFIER_OUTCOME), task.id);
     if (!outcome) throw new HarborInfraError(`Oracle qualification produced no structured verifier outcome for task ${task.id}`);
     const reward = await readReward(join(trialDir, TRIAL_REWARD), join(trialDir, TRIAL_RESULT), task.id);
-    if ((outcome.outcome === 'passed') !== (reward > 0)) {
-      throw new HarborInfraError(`Oracle qualification reward disagrees with verifier outcome for task ${task.id}`);
-    }
+    assertVerifierRewardAgreement(outcome, reward, task.id, 'Oracle qualification ');
     return { outcome: outcome.outcome, reward, attempts: outcome.attempts.length };
   };
+}
+
+function assertVerifierRewardAgreement(
+  outcome: HarborVerifierOutcome,
+  reward: number,
+  taskId: string,
+  prefix = '',
+): void {
+  if ((outcome.outcome === 'passed') !== (reward > 0)) {
+    throw new HarborInfraError(`${prefix}reward disagrees with verifier outcome for task ${taskId}`);
+  }
 }
 
 function resolveHarborTimeoutMs(

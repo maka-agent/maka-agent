@@ -553,6 +553,34 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('protectPassAtOne never retries a full Harbor attempt after runner failure', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      let harborCalls = 0;
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        protectPassAtOne: true,
+        harborRunner: async () => {
+          harborCalls += 1;
+          throw new Error('result collection failed after candidate sampling');
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(harborCalls, 1);
+      assert.equal(result.events[0]?.type, 'task_infra_failed');
+    });
+  });
+
   test('fails loud instead of resampling an orphaned admitted attempt', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -1257,6 +1285,10 @@ describe('fixed prompt controller', () => {
       await assert.rejects(
         runFixedPromptController({ ...base, maxInfraFailureRate: 0 }),
         /maxInfraFailureRate must be a number in \(0, 1\]/,
+      );
+      await assert.rejects(
+        runFixedPromptController({ ...base, protectPassAtOne: true, infraFailurePolicy: 'retry-once' }),
+        /protectPassAtOne is incompatible with infraFailurePolicy retry-once/,
       );
     });
   });

@@ -13,6 +13,7 @@ import {
   type HarborCellTokenSummary,
 } from './cell-output.js';
 import type { Config } from './contracts.js';
+import { syncParentDirectory } from './immutable-file.js';
 import { assertFinitePositive, assertPositiveInt, assertRatio } from './numeric-guards.js';
 
 export const FIXED_PROMPT_WAL_SCHEMA_VERSION = 1;
@@ -371,6 +372,10 @@ export async function runFixedPromptController(
   // silently disable the guard (maxConcurrency is checked in normalizeMaxConcurrency).
   if (input.costCeilingUsd !== undefined) assertFinitePositive('costCeilingUsd', input.costCeilingUsd);
   if (input.maxInfraFailureRate !== undefined) assertRatio('maxInfraFailureRate', input.maxInfraFailureRate);
+  if (input.protectPassAtOne && input.infraFailurePolicy === 'retry-once') {
+    throw new Error('protectPassAtOne is incompatible with infraFailurePolicy retry-once');
+  }
+  const terminalInfraFailures = input.protectPassAtOne || input.infraFailurePolicy === 'terminal';
   assertUniqueTaskIds(input.tasks.map((task) => task.id));
   const systemPrompt = await readFile(input.systemPromptPath, 'utf8');
   const expectedPromptHash = hashSystemPrompt(systemPrompt);
@@ -385,7 +390,7 @@ export async function runFixedPromptController(
     input.roundId,
     expectedPromptHash,
     input.resumeFingerprint,
-    input.infraFailurePolicy === 'terminal',
+    terminalInfraFailures,
   );
   const orphanedAttempts = orphanedTaskAttempts(
     [...attemptEvents, ...events],
@@ -555,7 +560,9 @@ export function appendFixedPromptWalEvent(
   const operation = async () => {
     await mkdir(dirname(path), { recursive: true });
     await truncateTornWalTail(path);
-    await appendFile(path, `${JSON.stringify(event)}\n`, { encoding: 'utf8', flush: options.flush ?? false });
+    const flush = options.flush ?? false;
+    await appendFile(path, `${JSON.stringify(event)}\n`, { encoding: 'utf8', flush });
+    if (flush) await syncParentDirectory(path);
   };
   const write = previous.then(operation, operation);
   const tail = write.then(() => {}, () => {});
@@ -662,7 +669,7 @@ async function runTaskAndBuildEvent(input: {
         ts: input.ts,
       });
     }
-    if (input.input.infraFailurePolicy === 'terminal') {
+    if (input.input.protectPassAtOne || input.input.infraFailurePolicy === 'terminal') {
       return taskInfraFailedEvent({
         error,
         taskId: input.task.id,
