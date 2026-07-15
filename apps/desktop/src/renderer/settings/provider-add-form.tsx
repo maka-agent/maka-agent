@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { PROVIDER_DEFAULTS, validateSlug, type ProviderType } from '@maka/core';
-import { Button, Chip, Input, useMountedRef } from '@maka/ui';
+import { Button, Chip, DialogContent, DialogHeader, DialogRoot, Input, useMountedRef } from '@maka/ui';
 import { buildCatalogRecommendedDefaultModel } from '../model-catalog-choices';
-import { providerDisplay } from './provider-display';
+import { PasswordInput } from './password-input';
+import { ProviderLogo, providerDisplay } from './provider-display';
 import {
   categoryLabel,
   isWiredOAuthProvider,
@@ -15,6 +16,7 @@ export function AddProviderForm(props: {
   bridge: ConnectionsBridge;
   providerType: ProviderType;
   existingSlugs: string[];
+  finalFocus?(): HTMLElement | null;
   onCancel(): void;
   onCreated(slug: string): Promise<void>;
 }) {
@@ -26,15 +28,18 @@ export function AddProviderForm(props: {
   const [baseUrl, setBaseUrl] = useState(defaults.baseUrl);
   const [cloudflareAccountId, setCloudflareAccountId] = useState('');
   const [defaultModel, setDefaultModel] = useState(recommendedDefaultModel);
+  const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const addProviderMountedRef = useMountedRef();
+  const apiKeyInputRef = useRef<HTMLInputElement>(null);
 
   const isCloudflareWorkersAi = props.providerType === 'cloudflare-workers-ai';
   const requiresBaseUrl = !defaults.baseUrl && !isCloudflareWorkersAi;
   const isExperimental = defaults.status === 'phase3-experimental';
   const isWiredOAuth = isWiredOAuthProvider(props.providerType);
+  const usesApiKeyDialog = usesQuickApiKeyDialog(props.providerType);
 
   useEffect(() => {
     return () => {
@@ -48,6 +53,8 @@ export function AddProviderForm(props: {
     const slugError = validateSlug(slug);
     if (slugError) return setError(slugError);
     if (props.existingSlugs.includes(slug)) return setError('连接标识已存在');
+    const normalizedApiKey = apiKey.trim();
+    if (usesApiKeyDialog && !normalizedApiKey) return setError(`请填写 ${display.name} API Key`);
     const normalizedCloudflareAccountId = cloudflareAccountId.trim();
     if (isCloudflareWorkersAi && !normalizedCloudflareAccountId) {
       return setError('请填写 Cloudflare Account ID');
@@ -73,6 +80,7 @@ export function AddProviderForm(props: {
         providerType: props.providerType,
         baseUrl: resolvedBaseUrl,
         defaultModel,
+        ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
       });
       if (!addProviderMountedRef.current) return;
       await props.onCreated(connection.slug);
@@ -82,6 +90,66 @@ export function AddProviderForm(props: {
       busyRef.current = false;
       if (addProviderMountedRef.current) setBusy(false);
     }
+  }
+
+  function submitApiKey(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void submit();
+  }
+
+  if (usesApiKeyDialog) {
+    const titleId = `provider-key-dialog-${props.providerType}`;
+    const errorId = `${titleId}-error`;
+    return (
+      <DialogRoot
+        open
+        onOpenChange={(open) => {
+          if (!open && !busy) props.onCancel();
+        }}
+      >
+        <DialogContent
+          className="maka-modal providerKeyDialog"
+          aria-labelledby={titleId}
+          initialFocus={apiKeyInputRef}
+          finalFocus={props.finalFocus}
+          showClose={false}
+        >
+          <DialogHeader
+            icon={<ProviderLogo type={props.providerType} compact />}
+            title={`连接 ${display.name}`}
+            titleId={titleId}
+            subtitle={`输入 ${display.name} API Key 即可完成连接。`}
+            onClose={() => {
+              if (!busy) props.onCancel();
+            }}
+          />
+          <form className="providerKeyDialogForm" onSubmit={submitApiKey}>
+            <label>
+              <span>{display.name} API Key</span>
+              <PasswordInput
+                value={apiKey}
+                onChange={(next) => {
+                  setApiKey(next);
+                  if (error) setError(null);
+                }}
+                placeholder="粘贴 API Key"
+                ariaLabel={`${display.name} API Key`}
+                ariaDescribedBy={error ? errorId : undefined}
+                inputRef={apiKeyInputRef}
+                disabled={busy}
+              />
+            </label>
+            {error && <p className="providerError" id={errorId} role="alert">{error}</p>}
+            <div className="providerKeyDialogActions">
+              <Button variant="ghost" type="button" disabled={busy} onClick={props.onCancel}>取消</Button>
+              <Button type="submit" disabled={busy}>
+                {busy ? '连接中…' : `连接 ${display.name}`}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </DialogRoot>
+    );
   }
 
   return (
@@ -153,4 +221,9 @@ export function AddProviderForm(props: {
       </div>
     </div>
   );
+}
+
+export function usesQuickApiKeyDialog(providerType: ProviderType): boolean {
+  const defaults = PROVIDER_DEFAULTS[providerType];
+  return defaults.authKind === 'api_key' && Boolean(defaults.baseUrl);
 }

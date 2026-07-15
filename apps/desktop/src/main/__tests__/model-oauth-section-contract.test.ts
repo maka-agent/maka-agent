@@ -287,10 +287,14 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('provider configuration uses an accessible in-pane child page, not a Sheet', async () => {
+  it('standard API providers use the shared key dialog while special configuration stays in-pane', async () => {
     const src = await readProviderSettingsCombinedSource();
     assert.match(src, /type ProviderPage =[\s\S]*kind: 'add'[\s\S]*kind: 'detail'/);
     assert.match(src, /function ProviderPageHeader[\s\S]*aria-label="返回模型连接"/);
+    assert.match(src, /usesQuickApiKeyDialog[\s\S]*defaults\.authKind === 'api_key' && Boolean\(defaults\.baseUrl\)/);
+    assert.match(src, /<DialogContent[\s\S]*initialFocus=\{apiKeyInputRef\}[\s\S]*finalFocus=\{props\.finalFocus\}/);
+    assert.match(src, /ariaLabel=\{`\$\{display\.name\} API Key`\}/);
+    assert.match(src, /\.\.\.\(normalizedApiKey \? \{ apiKey: normalizedApiKey \} : \{\}\)/);
     assert.match(src, /<div className="providerInlineEditor">[\s\S]*<AddProviderForm/);
     assert.doesNotMatch(src, /ProviderConfigSheetOverlay/, 'API provider configuration must not use the OAuth modal infrastructure');
   });

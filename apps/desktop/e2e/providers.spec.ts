@@ -24,7 +24,7 @@ import { test, expect } from './fixtures';
 // upstream <img> mark that must stay untouched in BOTH light and dark themes);
 // the assertions below validate the *flow and the colorAssetRenderContract
 // mechanism*, not Cerebras's data — that lives in the registry contract tests.
-test('adds a catalog provider through the canonical API-key journey (search, tab, colored mark, form defaults)', async ({ window: page }) => {
+test('adds a catalog provider through the canonical API-key dialog', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();
   await expect(page.getByLabel('设置内容')).toBeVisible();
@@ -45,17 +45,25 @@ test('adds a catalog provider through the canonical API-key journey (search, tab
   expect(await catalogMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
 
   await page.getByRole('button', { name: /添加模型供应商：Cerebras/ }).click();
-  await expect(page.getByLabel('模型供应商连接标识')).toHaveValue('cerebras');
-  await expect(page.getByLabel('模型供应商服务地址')).toHaveValue('https://api.cerebras.ai/v1');
-  await expect(page.getByLabel('模型供应商默认模型')).toHaveValue('gpt-oss-120b');
-  await page.getByRole('button', { name: '保存供应商' }).click();
+  const dialog = page.getByRole('dialog', { name: '连接 Cerebras' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('Cerebras API Key')).toBeFocused();
+  await expect(dialog.getByLabel('Cerebras API Key')).toHaveAttribute('type', 'password');
+  await expect(dialog.getByLabel('模型供应商连接标识')).toHaveCount(0);
+  await expect(dialog.getByLabel('模型供应商服务地址')).toHaveCount(0);
+  await expect(dialog.getByLabel('模型供应商默认模型')).toHaveCount(0);
+  await dialog.getByLabel('Cerebras API Key').fill('e2e-cerebras-key');
+  await dialog.getByRole('button', { name: '连接 Cerebras' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Cerebras', exact: true }).first()).toBeVisible();
+  await expect(dialog).toBeHidden();
+  const connection = page.getByRole('button', { name: /模型连接：Cerebras/ });
+  await expect(connection).toBeFocused();
+  await connection.click();
   const detailMark = page.locator('.providerSubpageHeader .providerLogo[data-provider="cerebras"] img');
   await expect(detailMark).toBeVisible();
   expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
   await expect(page.getByText('gpt-oss-120b', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '模型密钥' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '模型密钥' })).toHaveAttribute('placeholder', '••••••••');
 });
 
 // Distinct form behavior: an account-scoped provider has no fixed base URL —
@@ -134,9 +142,9 @@ test('restores keyboard focus across provider child pages', async ({ window: pag
   const siliconFlow = page.getByRole('button', { name: /添加模型供应商：SiliconFlow/ });
   await siliconFlow.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('button', { name: '返回模型连接' })).toBeFocused();
+  await expect(page.getByLabel('SiliconFlow API Key')).toBeFocused();
 
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape');
   await expect(siliconFlow).toBeFocused();
 
   const catalogBack = page.getByRole('button', { name: '返回模型连接' });

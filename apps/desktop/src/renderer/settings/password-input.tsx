@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type Ref } from 'react';
 import { Check, Copy, Eye, EyeOff } from '@maka/ui/icons';
 import { Button, Input, useMountedRef, useToast } from '@maka/ui';
 
@@ -22,7 +22,9 @@ export function PasswordInput(props: {
   onChange(next: string): void;
   placeholder?: string;
   ariaLabel?: string;
+  ariaDescribedBy?: string;
   disabled?: boolean;
+  inputRef?: Ref<HTMLInputElement>;
   onBlur?(): void;
 }) {
   const toast = useToast();
@@ -72,12 +74,14 @@ export function PasswordInput(props: {
   return (
     <div className="settingsPasswordField">
       <Input
+        ref={props.inputRef}
         type={visible ? 'text' : 'password'}
         value={props.value}
         onChange={(event) => props.onChange(event.currentTarget.value)}
         onBlur={props.onBlur}
         placeholder={props.placeholder}
         aria-label={props.ariaLabel}
+        aria-describedby={props.ariaDescribedBy}
         autoComplete="off"
         spellCheck={false}
         disabled={props.disabled}

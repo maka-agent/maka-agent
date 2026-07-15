@@ -36,7 +36,7 @@ describe('Settings model provider page hierarchy', () => {
 
     assert.match(
       source,
-      /if \(page\.kind === 'catalog'\)[\s\S]*<ProviderPageHeader[\s\S]*title="添加服务商"[\s\S]*onBack=\{\(\) => navigate\(\{ kind: 'connections' \}, \{ kind: 'add-provider' \}\)\}/,
+      /if \(page\.kind === 'catalog' \|\| \(page\.kind === 'add' && usesQuickApiKeyDialog\(page\.providerType\)\)\)[\s\S]*<ProviderPageHeader[\s\S]*title="添加服务商"[\s\S]*onBack=\{\(\) => navigate\(\{ kind: 'connections' \}, \{ kind: 'add-provider' \}\)\}/,
       'the catalog must provide a way back to model connections',
     );
     assert.match(
