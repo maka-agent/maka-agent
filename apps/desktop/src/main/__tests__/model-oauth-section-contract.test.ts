@@ -673,6 +673,13 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       /<Button type="button" disabled=\{detailActionBusy \|\| !hasApiKeyChange\} onClick=\{save\}>[\s\S]*<Button type="button" disabled=\{detailActionBusy \|\| !hasBaseUrlChange\} onClick=\{save\}>/,
       'each Save action stays beside its field and disabled (not unmounted) until that field changes',
     );
+    // An OAuth-fixed endpoint is readOnly with no dirty path (no jitter risk),
+    // so it must not render a permanently-disabled 保存服务地址 button.
+    assert.match(
+      detail,
+      /\{!hasFixedOAuthBaseUrl && \(\s*<div className="providerEndpointActions">/,
+      'OAuth-fixed endpoints render no endpoint Save action instead of a forever-disabled one',
+    );
   });
 
   it('forwards an empty service-address draft so the stored override can be cleared', async () => {
@@ -699,13 +706,19 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // reflecting `enabledModelIds`, not a separate search-only "add" surface.
     assert.match(
       enabledModels,
-      /<ul className="providerModelChoiceList" aria-label="模型列表">/,
-      'the model catalog must use a single named native list',
+      /<ul\s+ref=\{modelListRef\}\s+className="providerModelChoiceList"\s+aria-label="模型列表"\s+onKeyDown=\{onModelListKeyDown\}\s*>/,
+      'the model catalog must use a single named native list with the roving-tabindex keyboard handler',
     );
     assert.match(
       enabledModels,
       /role="checkbox"\s+aria-checked=\{isEnabled\}/,
       'each model row is a checkbox reflecting its enabled state',
+    );
+    // Roving tabindex: exactly one row is a Tab stop; the rest are -1.
+    assert.match(
+      enabledModels,
+      /tabIndex=\{row\.id === resolvedActiveRowId \? 0 : -1\}/,
+      'model rows must rove a single tabIndex=0 so the list is one Tab stop',
     );
     assert.match(
       enabledModels,

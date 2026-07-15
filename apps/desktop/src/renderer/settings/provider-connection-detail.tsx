@@ -610,12 +610,16 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
               onChange={setBaseUrl}
             />
             {/* Persistent button (disabled until the endpoint is edited) so the
-                advanced settings body height stays constant while typing. */}
-            <div className="providerEndpointActions">
-              <Button type="button" disabled={detailActionBusy || !hasBaseUrlChange} onClick={save}>
-                {busy ? '保存中…' : '保存服务地址'}
-              </Button>
-            </div>
+                advanced settings body height stays constant while typing. An
+                OAuth-fixed endpoint is readOnly with no dirty path — no jitter
+                risk — so it renders no permanently-disabled Save at all. */}
+            {!hasFixedOAuthBaseUrl && (
+              <div className="providerEndpointActions">
+                <Button type="button" disabled={detailActionBusy || !hasBaseUrlChange} onClick={save}>
+                  {busy ? '保存中…' : '保存服务地址'}
+                </Button>
+              </div>
+            )}
           </div>
           <div className="providerAdvancedActions">
             <Button variant="secondary" type="button" disabled={detailActionBusy || !hasUsableCredential} onClick={runTest}>

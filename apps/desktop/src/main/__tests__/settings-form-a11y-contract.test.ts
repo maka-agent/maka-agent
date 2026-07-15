@@ -169,7 +169,7 @@ describe('Settings form accessibility labels', () => {
     assert.doesNotMatch(providersPanel, /<select\b/, 'ProvidersPanel must use the Base UI Select primitive for Settings selects');
     assert.doesNotMatch(providersPanel, /className="maka-button/, 'ProvidersPanel governed Buttons must not layer the legacy maka-button class (inert under the @maka/ui Button utilities, so it is dead weight)');
     assert.match(providersPanel, /aria-label="搜索模型"/);
-    assert.match(providersPanel, /<ul className="providerModelChoiceList" aria-label="模型列表">/);
+    assert.match(providersPanel, /className="providerModelChoiceList"\s+aria-label="模型列表"/);
     // `Item` rows become real buttons through Base UI's polymorphic
     // `render={<button .../>}` prop, which is a primitive render target rather
     // than a hand-rolled control. Strip those before asserting no raw <button>
