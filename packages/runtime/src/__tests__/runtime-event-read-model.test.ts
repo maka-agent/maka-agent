@@ -288,6 +288,62 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.diagnostics.map((diag) => diag.code)).toEqual(['context_remaining_unsupported']);
   });
 
+  test('projects an AskUserQuestion round trip without a legacy row for the live request', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-question-call',
+        ts: ts + 1,
+        role: 'model',
+        author: 'agent',
+        content: {
+          kind: 'function_call',
+          id: 'question-tool-1',
+          name: 'AskUserQuestion',
+          args: { questions: [{ question: 'Choose', options: [{ label: 'Extend' }] }] },
+        },
+        refs: { toolCallId: 'question-tool-1' },
+      }),
+      ev({
+        id: 'evt-question-request',
+        ts: ts + 2,
+        actions: {
+          userQuestionRequest: {
+            requestId: 'question-1',
+            toolUseId: 'question-tool-1',
+            questions: [{ question: 'Choose', options: [{ label: 'Extend' }] }],
+          },
+        },
+        refs: { toolCallId: 'question-tool-1' },
+      }),
+      ev({
+        id: 'evt-question-result',
+        ts: ts + 3,
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'question-tool-1',
+          name: 'AskUserQuestion',
+          result: { kind: 'json', value: { answers: ['Extend'] } },
+        },
+        refs: { toolCallId: 'question-tool-1' },
+      }),
+      ev({
+        id: 'evt-question-complete',
+        ts: ts + 4,
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    ], { runHeaders: [header] });
+
+    expect(out.messages.map((message) => message.type)).toEqual([
+      'tool_call',
+      'tool_result',
+      'turn_state',
+    ]);
+    expect(out.diagnostics).toEqual([]);
+  });
+
   test('normalizes an exact legacy terminal result at RuntimeEvent restore', () => {
     const out = projectRuntimeEventsToStoredMessages([
       ev({
