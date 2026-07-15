@@ -1088,7 +1088,9 @@ export function formatSyntheticToolErrorText(error: unknown): string {
  * from pi's battle-tested table and covers the providers Maka ships in its
  * registry (Anthropic, OpenAI/-compatible, Google, xAI, Groq, OpenRouter,
  * Mistral, MiniMax, Kimi/Moonshot, Together, llama.cpp/LM Studio/Ollama, …).
- * Matched against the RAW provider error message, never the generalized string.
+ * Matched against the ORIGINAL error's composite fields (name, code, status,
+ * message), never the generalized string, so a structured code like OpenAI's
+ * `context_length_exceeded` classifies even with a generic HTTP message.
  */
 const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /prompt is too long/i, // Anthropic token overflow
@@ -1102,7 +1104,10 @@ const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /maximum context length is \d+ tokens/i, // OpenRouter (most backends)
   /exceeds (?:the )?maximum allowed input length of [\d,]+ tokens?/i, // OpenRouter/Poolside
   /input \(\d+ tokens\) is longer than the model'?s context length \(\d+ tokens\)/i, // Together AI
-  /exceeds the limit of \d+/i, // GitHub Copilot
+  // GitHub Copilot: "prompt token count of X exceeds the limit of Y". The token
+  // subject is required — a bare "exceeds the limit of N" also matches file-size
+  // and other quota errors that must not trigger a compaction retry.
+  /token count of [\d,]+ exceeds the limit of [\d,]+/i,
   /exceeds the available context size/i, // llama.cpp server
   /greater than the context length/i, // LM Studio
   /context window exceeds limit/i, // MiniMax
@@ -1112,7 +1117,10 @@ const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /model_context_window_exceeded/i, // z.ai non-standard finish_reason surfaced as error text
   /prompt too long; exceeded (?:max )?context length/i, // Ollama explicit overflow error
   /context[_ ]length[_ ]exceeded/i, // Generic fallback
-  /too many tokens/i, // Generic fallback
+  // Generic fallback, input-subject constrained: a bare "too many tokens" also
+  // matches output-parameter errors ("max_tokens is too many tokens for this
+  // model"), which are not an input overflow and must not trigger recovery.
+  /(?:prompt|input|context|message|request)[^.]{0,80}too many tokens/i,
   /token limit exceeded/i, // Generic fallback
 ];
 
@@ -1131,13 +1139,14 @@ const NON_CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
- * Exclusion-first overflow detection on a raw provider error message: excluded
- * throttling/quota wording never counts, then any overflow signature does.
+ * Exclusion-first overflow detection on an error's raw text (the composite of
+ * its original name/code/status/message): excluded throttling/quota wording
+ * never counts, then any overflow signature does.
  */
-export function isContextOverflowErrorMessage(message: string): boolean {
-  if (!message) return false;
-  if (NON_CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(message))) return false;
-  return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(message));
+export function isContextOverflowErrorText(text: string): boolean {
+  if (!text) return false;
+  if (NON_CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text))) return false;
+  return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 export function classifyError(error: unknown): string {
@@ -1154,10 +1163,11 @@ export function classifyError(error: unknown): string {
   if (text.includes('rate') || statusCode === '429' || code === '429') return 'RateLimit';
   if (text.includes('auth') || statusCode === '401' || statusCode === '403' || code === '401' || code === '403') return 'Auth';
   if (/^5\d\d$/.test(statusCode) || /^5\d\d$/.test(code)) return 'ProviderUnavailable';
-  // Context-length overflow is a request-level 400/413: classified from the raw
-  // message after the status-based classes so an explicit 429/5xx never lands
-  // here, and exclusion-first so throttling that mentions tokens does not.
-  if (isContextOverflowErrorMessage(error.message)) return 'ContextLength';
+  // Context-length overflow is a request-level 400/413: classified from the
+  // composite original-error text (name + code + status + message) after the
+  // status-based classes so an explicit 429/5xx never lands here, and
+  // exclusion-first so throttling that mentions tokens does not.
+  if (isContextOverflowErrorText(text)) return 'ContextLength';
   if (text.includes('timeout')) return 'Timeout';
   if (text.includes('network') || text.includes('fetch')) return 'Network';
   return error.name || 'Other';

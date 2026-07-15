@@ -228,13 +228,26 @@ describe('ModelAdapter stream and error normalization', () => {
     assert.equal(overflow('Prompt contains 5000 tokens; too large for model with 4096 maximum context length', { statusCode: 400 }), 'ContextLength'); // Mistral
     assert.equal(overflow('invalid params, context window exceeds limit', { statusCode: 400 }), 'ContextLength'); // MiniMax
     assert.equal(overflow('Your request exceeded model token limit: 200000 (requested: 260000)', { statusCode: 400 }), 'ContextLength'); // Kimi
+    assert.equal(overflow('prompt token count of 21000 exceeds the limit of 16384', { statusCode: 400 }), 'ContextLength'); // GitHub Copilot
+    assert.equal(overflow('the prompt contains too many tokens', { statusCode: 400 }), 'ContextLength'); // generic prompt-overflow wording
+
+    // The classification covers the ORIGINAL error fields, not just the message:
+    // an OpenAI-style structured code with a generic HTTP message must classify.
+    assert.equal(
+      overflow('Bad Request', { statusCode: 400, code: 'context_length_exceeded' }),
+      'ContextLength',
+    );
 
     // Exclusion-first: throttling/rate-limit wording must NOT be read as overflow
     // even when it superficially mentions tokens.
     assert.equal(overflow('Rate limit reached: too many tokens, please wait before trying again', { statusCode: 429 }), 'RateLimit');
     assert.notEqual(overflow('ThrottlingException: too many tokens, please wait before trying again', { statusCode: 400 }), 'ContextLength');
-    // Unrelated 400s stay in their own buckets, never ContextLength.
+    // Unrelated 400s stay in their own buckets, never ContextLength: a token-free
+    // size limit and an output-parameter error merely mention limits/tokens, and
+    // misreading either would run (and persist) a pointless compaction + retry.
     assert.notEqual(overflow('invalid request: missing required field', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(overflow('file size exceeds the limit of 10485760', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(overflow('max_tokens is too many tokens for this model', { statusCode: 400 }), 'ContextLength');
     assert.equal(adapter.classifyError(Object.assign(new Error('401 Authorization'), { statusCode: 401 })), 'Auth');
   });
 
