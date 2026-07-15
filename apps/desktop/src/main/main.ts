@@ -989,6 +989,7 @@ backends.register('ai-sdk', async (ctx) => {
     }),
     recordRunTrace: ctx.recordRunTrace,
     recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
+    loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
     recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
     recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
     newId: randomUUID,

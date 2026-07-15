@@ -213,6 +213,13 @@ export interface BackendFactoryContext {
   recordRunTrace?: RunTraceRecorder;
   loadHistoryCompactCheckpoint?: () => Promise<HistoryCompactCheckpoint | undefined>;
   recordHistoryCompactCheckpoint?: (checkpoint: HistoryCompactCheckpoint, turnId: string) => Promise<void>;
+  /**
+   * Durable read of the given turn's persisted RuntimeEvents from the
+   * authoritative run ledger. Mid-turn capacity compaction derives its
+   * coverage pool from this read, so covered events are persisted by
+   * construction before any checkpoint that folds them.
+   */
+  loadTurnRuntimeEvents?: (turnId: string) => Promise<RuntimeEvent[]>;
   recordActiveFullCompactBlock?: (block: ActiveFullCompactBlock) => void;
   recordSemanticCompactBlock?: (block: SemanticCompactBlock) => void;
   shellRunContextSummary?: () => Promise<string | undefined>;

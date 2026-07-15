@@ -455,7 +455,7 @@ export function mapSessionEventToRuntimeEvent(
         actions: { endInvocation: true, stateDelta: { abortSource: event.reason } },
       };
     case 'complete':
-      return completeRuntimeEvent(base, event.stopReason, memory);
+      return completeRuntimeEvent(base, event, memory);
     default: {
       // Exhaustiveness guard: if SessionEvent grows a new variant, the
       // mapping falls through to a diagnostic event instead of dropping it.
@@ -475,9 +475,10 @@ export function mapSessionEventToRuntimeEvent(
 
 function completeRuntimeEvent(
   base: ReturnType<typeof resolveBase>,
-  stopReason: CompleteStopReason,
+  event: CompleteEvent,
   memory: SessionEventMapMemory,
 ): RuntimeEvent {
+  const stopReason = event.stopReason;
   const status = memory.failureClass && stopReason !== 'user_stop'
     ? 'failed'
     : mapCompleteStopReason(stopReason);
@@ -486,6 +487,12 @@ function completeRuntimeEvent(
     stateDelta.failureClass = memory.failureClass
       ?? failureClassFromCompleteStopReason(stopReason)
       ?? 'runtime_error';
+  }
+  // The context_budget_exhausted outcome carries which invariant made the turn
+  // unrecoverable; the durable terminal state must not collapse it to a bare
+  // failure class.
+  if (event.contextBudgetExhaustedDetail !== undefined) {
+    stateDelta.contextBudgetExhaustedDetail = event.contextBudgetExhaustedDetail;
   }
   if (status === 'aborted') stateDelta.abortSource = stopReason;
   return {
@@ -590,6 +597,11 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
       for await (const sessionEvent of this.backend.send({
         runId: ctx.runId,
         turnId: ctx.turnId,
+        // The persisted head anchor: mid-turn capacity compaction keeps this
+        // event verbatim and needs its exact ledger identity for coverage.
+        ...(ctx.request.initialRuntimeEvent !== undefined
+          ? { headAnchorRuntimeEvent: ctx.request.initialRuntimeEvent }
+          : {}),
         text: input.text,
         ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
         context: input.context,

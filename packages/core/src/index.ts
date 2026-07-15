@@ -42,6 +42,7 @@ export type {
   AttachmentRef,
   AttachmentIngestItem,
   CompleteStopReason,
+  ContextBudgetExhaustedDetail,
 } from './events.js';
 export type {
   UserQuestion,

@@ -25,6 +25,26 @@ export interface HistoryCompactCheckpointCoverage {
   sourceDigest: string;
 }
 
+/**
+ * Compaction phase. Absent on legacy data and defaults to `pre_turn`, the
+ * turn-boundary compaction the V2 checkpoint protocol was introduced for. A
+ * `mid_turn` checkpoint folds a prefix that reaches into the current turn's
+ * completed steps, so its projection re-renders the covered head anchor (the
+ * current turn's user message) verbatim after the compact block.
+ */
+export type HistoryCompactCheckpointPhase = 'pre_turn' | 'mid_turn';
+
+/**
+ * Reference to a covered RuntimeEvent that a `mid_turn` checkpoint re-renders
+ * verbatim in the replay projection. Coverage still spans this event so the
+ * digest math stays a contiguous prefix; the projection deterministically
+ * rebuilds `[compact block, verbatim head anchor, tail]` from it.
+ */
+export interface HistoryCompactCheckpointHeadAnchor {
+  runtimeEventId: string;
+  turnId: string;
+}
+
 export interface HistoryCompactCheckpoint {
   kind: 'maka.history_compact_checkpoint';
   version: 2;
@@ -36,6 +56,10 @@ export interface HistoryCompactCheckpoint {
   /** Present on evidence-spine checkpoints; omitted only on legacy V2 data. */
   source?: HistoryCompactCheckpointSource;
   coverage: HistoryCompactCheckpointCoverage;
+  /** Absent = `pre_turn`. `mid_turn` checkpoints carry a `headAnchor`. */
+  phase?: HistoryCompactCheckpointPhase;
+  /** Present only on `mid_turn` checkpoints; the covered head anchor re-rendered verbatim. */
+  headAnchor?: HistoryCompactCheckpointHeadAnchor;
   summary: string;
   limitations: string[];
   estimatedTokens: number;
@@ -52,6 +76,10 @@ export interface BuildHistoryCompactCheckpointInput {
   previousCheckpointId?: string;
   now?: number;
   charsPerToken?: number;
+  /** Defaults to `pre_turn`. `mid_turn` requires a `headAnchor` inside coverage. */
+  phase?: HistoryCompactCheckpointPhase;
+  /** Required when `phase` is `mid_turn`; must reference a covered RuntimeEvent. */
+  headAnchor?: HistoryCompactCheckpointHeadAnchor;
 }
 
 export type HistoryCompactCheckpointPrefixMatch =
@@ -77,9 +105,44 @@ export function buildHistoryCompactCheckpoint(
   if (input.coveredRuntimeEvents.some((event) => event.sessionId !== input.sessionId)) {
     throw new Error('History compact checkpoint source events must belong to one session');
   }
+  // A partial streaming snapshot is later replaced or deleted in the durable
+  // ledger, so a digest over it can never replay: coverage must be immutable.
+  if (input.coveredRuntimeEvents.some((event) => event.partial === true)) {
+    throw new Error('History compact checkpoint coverage must not include partial events');
+  }
   const summary = input.summary.trim();
   if (summary.length === 0) {
     throw new Error('History compact checkpoint requires a non-empty summary');
+  }
+  // A mid_turn checkpoint folds a prefix that reaches into the current turn, so
+  // its head anchor MUST be one of the covered events — the projection re-renders
+  // that exact event verbatim after the block, and coverage stays contiguous.
+  const phase = input.phase === 'mid_turn' ? 'mid_turn' : undefined;
+  let headAnchor: HistoryCompactCheckpointHeadAnchor | undefined;
+  if (phase === 'mid_turn') {
+    if (!input.headAnchor) {
+      throw new Error('Mid-turn history compact checkpoint requires a head anchor');
+    }
+    const anchored = input.coveredRuntimeEvents.find((event) => event.id === input.headAnchor!.runtimeEventId);
+    if (!anchored) {
+      throw new Error('Mid-turn history compact checkpoint head anchor must be a covered RuntimeEvent');
+    }
+    // The anchor is re-rendered verbatim as the compacted turn's user message.
+    // The compacted turn is the one the coverage reaches into — the LAST
+    // covered event's turn — so the anchor must be that turn's user event. A
+    // self-consistent anchor resolving to some other covered user event (e.g.
+    // a prior turn's prompt) would silently drop the real current prompt from
+    // the replay, so the protocol fails closed at build time.
+    const lastCovered = input.coveredRuntimeEvents.at(-1)!;
+    if (
+      anchored.turnId !== input.headAnchor.turnId
+      || anchored.turnId !== lastCovered.turnId
+      || anchored.role !== 'user'
+      || anchored.author !== 'user'
+    ) {
+      throw new Error('Mid-turn history compact checkpoint head anchor must be the compacted turn\'s user event');
+    }
+    headAnchor = { runtimeEventId: input.headAnchor.runtimeEventId, turnId: input.headAnchor.turnId };
   }
   const charsPerToken = input.charsPerToken ?? 4;
   const maxSummaryChars = Math.max(80, (input.maxSummaryEstimatedTokens ?? 1_024) * Math.max(1, charsPerToken));
@@ -113,6 +176,8 @@ export function buildHistoryCompactCheckpoint(
     coverage,
     summary: boundedSummary,
     previousCheckpointId: input.previousCheckpointId,
+    // Only hash the phase/anchor when set so pre_turn checkpoint ids stay stable.
+    ...(phase ? { phase, headAnchor } : {}),
   })).slice(0, 32)}`;
   const checkpoint: HistoryCompactCheckpoint = {
     kind: 'maka.history_compact_checkpoint',
@@ -124,6 +189,8 @@ export function buildHistoryCompactCheckpoint(
     highWaterSeq,
     source,
     coverage,
+    ...(phase ? { phase } : {}),
+    ...(headAnchor ? { headAnchor } : {}),
     summary: boundedSummary,
     limitations: [
       'Replay-time summary of the covered RuntimeEvent prefix.',
@@ -193,6 +260,13 @@ export function validateHistoryCompactCheckpointShape(
       checkpoint.sessionId,
       coverage,
     ))
+    && (checkpoint.phase === undefined || checkpoint.phase === 'pre_turn' || checkpoint.phase === 'mid_turn')
+    && (checkpoint.phase !== 'mid_turn'
+      || (!!checkpoint.headAnchor
+        && nonEmpty(checkpoint.headAnchor.runtimeEventId)
+        && nonEmpty(checkpoint.headAnchor.turnId)))
+    && (checkpoint.headAnchor === undefined
+      || (nonEmpty(checkpoint.headAnchor.runtimeEventId) && nonEmpty(checkpoint.headAnchor.turnId)))
     && typeof checkpoint.summary === 'string'
     && checkpoint.summary.trim().length > 0
     && Array.isArray(checkpoint.limitations)
@@ -257,10 +331,56 @@ export function matchHistoryCompactCheckpointPrefix(
   ) {
     return { coveredEventCount: 0, coveredRuntimeEvents: [], successorRuntimeEvents: [], reason: 'coverage_miss' };
   }
+  // A mid_turn checkpoint's replay re-renders the head anchor verbatim, so a
+  // corrupted anchor reference must fail the match closed here — otherwise the
+  // projection would silently drop the compacted turn's user message.
+  // The compacted turn is the coverage's `through` turn, so the anchor must be
+  // THAT turn's user event — not merely any self-consistent covered user event
+  // (e.g. a prior turn's prompt).
+  if (checkpoint.phase === 'mid_turn') {
+    const anchor = coveredRuntimeEvents.find(
+      (event) => event.id === checkpoint.headAnchor!.runtimeEventId,
+    );
+    if (
+      !anchor
+      || anchor.turnId !== checkpoint.headAnchor!.turnId
+      || anchor.turnId !== checkpoint.coverage.through.turnId
+      || anchor.role !== 'user'
+      || anchor.author !== 'user'
+    ) {
+      return { coveredEventCount: 0, coveredRuntimeEvents: [], successorRuntimeEvents: [], reason: 'coverage_miss' };
+    }
+  }
   if (historyCompactSourceDigest(coveredRuntimeEvents) !== checkpoint.coverage.sourceDigest) {
     return { coveredEventCount: 0, coveredRuntimeEvents: [], successorRuntimeEvents: [], reason: 'source_hash_mismatch' };
   }
   return { coveredEventCount: coveredRuntimeEvents.length, coveredRuntimeEvents, successorRuntimeEvents };
+}
+
+/**
+ * Deterministic replay projection for a checkpoint. `pre_turn` yields
+ * `[compact block, ...tail]`; `mid_turn` re-inserts the covered head anchor
+ * verbatim as `[compact block, head anchor, ...tail]` so the current turn's
+ * user message stays exact even though coverage folded it. `coveredRuntimeEvents`
+ * are the raw events the checkpoint covers (from `matchHistoryCompactCheckpointPrefix`).
+ */
+export function projectHistoryCompactCheckpointReplay(
+  checkpoint: HistoryCompactCheckpoint,
+  coveredRuntimeEvents: readonly RuntimeEvent[],
+  replayTail: readonly RuntimeEvent[],
+): RuntimeEvent[] {
+  const block = historyCompactCheckpointToRuntimeEvent(checkpoint);
+  const anchor = midTurnHeadAnchorEvent(checkpoint, coveredRuntimeEvents);
+  return anchor ? [block, anchor, ...replayTail] : [block, ...replayTail];
+}
+
+/** The covered head anchor event for a mid_turn checkpoint, or undefined. */
+export function midTurnHeadAnchorEvent(
+  checkpoint: HistoryCompactCheckpoint,
+  coveredRuntimeEvents: readonly RuntimeEvent[],
+): RuntimeEvent | undefined {
+  if (checkpoint.phase !== 'mid_turn' || !checkpoint.headAnchor) return undefined;
+  return coveredRuntimeEvents.find((event) => event.id === checkpoint.headAnchor!.runtimeEventId);
 }
 
 function historyCompactCheckpointSource(
