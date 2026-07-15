@@ -774,7 +774,7 @@ describe('cua-driver backend', () => {
     assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
   });
 
-  it('refetches a unique labeled element when the ephemeral token changes', async () => {
+  it('dispatches the observed opaque token without attribute-based replacement', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
       axLabel: 'Continue',
@@ -795,11 +795,11 @@ describe('cua-driver backend', () => {
 
     assert.equal(result.outcome.ok, true);
     const click = toolCall(await readRecords(logPath), 'click');
-    assert.equal(click?.element_index, 9);
-    assert.equal(click?.element_token, 'snapshot:9');
+    assert.equal(click?.element_index, 7);
+    assert.equal(click?.element_token, 'snapshot:7');
   });
 
-  it('does not treat a reused token as cross-snapshot semantic identity', async () => {
+  it('does not resnapshot before semantic dispatch', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
       axLabel: 'Continue',
@@ -818,12 +818,13 @@ describe('cua-driver backend', () => {
       elementIdentity: observation.elements[0]!.identity,
     }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
 
-    assert.equal(result.outcome.ok, false);
-    if (!result.outcome.ok) assert.match(result.outcome.message, /missing/);
-    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+    assert.equal(result.outcome.ok, true);
+    const records = await readRecords(logPath);
+    assert.equal(toolCalls(records, 'get_window_state').length, 2);
+    assert.equal(toolCalls(records, 'click')[0]?.element_token, 'snapshot:7');
   });
 
-  it('fails closed when the fresh semantic element has no token', async () => {
+  it('fails closed when the observed semantic element has no token', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
       axLabel: 'Continue',
@@ -843,15 +844,14 @@ describe('cua-driver backend', () => {
     }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
 
     assert.equal(result.outcome.ok, false);
-    if (!result.outcome.ok) assert.match(result.outcome.message, /missing an AX element token/);
+    if (!result.outcome.ok) assert.match(result.outcome.message, /observed semantic element is missing an AX element token/);
     assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
   });
 
-  it('refetches a tokenless element by one unique role and label match', async () => {
+  it('rejects caller identity that does not match the consumed observation', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
       axLabel: 'Continue',
-      refetchMode: 'replacement',
     });
     const signal = new AbortController().signal;
     const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
@@ -863,86 +863,18 @@ describe('cua-driver backend', () => {
       type: 'click_element',
       observationId: observation.observationId,
       elementId: '7',
-      elementIdentity: { elementIndex: 7, role: 'AXButton', label: 'Continue' },
-    }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
-
-    assert.equal(result.outcome.ok, true);
-    const click = toolCall(await readRecords(logPath), 'click');
-    assert.equal(click?.element_index, 9);
-    assert.equal(click?.element_token, 'snapshot:9');
-  });
-
-  it('rejects a same-label replacement that moved before semantic dispatch', async () => {
-    const { backend, logPath } = makeBackend({
-      axRole: 'AXButton',
-      axLabel: 'Continue',
-      refetchMode: 'moved',
-    });
-    const signal = new AbortController().signal;
-    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
-    const observation = await backend.observeApp!({
-      app: 'Fixture Window',
-      includeScreenshot: true,
-    }, signal, context);
-    const result = await backend.runSemantic!({
-      type: 'click_element',
-      observationId: observation.observationId,
-      elementId: '7',
-      elementIdentity: observation.elements[0]!.identity,
+      elementIdentity: {
+        elementToken: 'forged-token',
+        elementIndex: 7,
+        role: 'AXButton',
+        label: 'Continue',
+      },
     }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
 
     assert.equal(result.outcome.ok, false);
     if (!result.outcome.ok) assert.equal(result.outcome.error, 'stale_frame');
     assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
   });
-
-  it('refetches an unlabeled element by unique structural identity', async () => {
-    const { backend, logPath } = makeBackend({
-      axRole: 'AXButton',
-      refetchMode: 'replacement',
-    });
-    const signal = new AbortController().signal;
-    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
-    const observation = await backend.observeApp!({
-      app: 'Fixture Window',
-      includeScreenshot: true,
-    }, signal, context);
-    const result = await backend.runSemantic!({
-      type: 'click_element',
-      observationId: observation.observationId,
-      elementId: '7',
-      elementIdentity: observation.elements[0]!.identity,
-    }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
-
-    assert.equal(result.outcome.ok, true);
-    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 1);
-  });
-
-  for (const refetchMode of ['missing', 'ambiguous'] as const) {
-    it(`rejects a ${refetchMode} refetched element without dispatch`, async () => {
-      const { backend, logPath } = makeBackend({
-        axRole: 'AXButton',
-        axLabel: 'Continue',
-        refetchMode,
-      });
-      const signal = new AbortController().signal;
-      const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
-      const observation = await backend.observeApp!({
-        app: 'Fixture Window',
-        includeScreenshot: true,
-      }, signal, context);
-      const result = await backend.runSemantic!({
-        type: 'click_element',
-        observationId: observation.observationId,
-        elementId: '7',
-        elementIdentity: observation.elements[0]!.identity,
-      }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
-
-      assert.equal(result.outcome.ok, false);
-      if (!result.outcome.ok) assert.equal(result.outcome.error, 'stale_frame');
-      assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
-    });
-  }
 
   it('declares app observations in capture-local window screenshot space', async () => {
     let desktopResolverCalls = 0;
@@ -2687,7 +2619,7 @@ describe('cua-driver backend', () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
       rpcErrAfterTool: 'get_window_state',
-      rpcErrAfterCount: 3,
+      rpcErrAfterCount: 2,
     });
     const signal = new AbortController().signal;
     const context = {

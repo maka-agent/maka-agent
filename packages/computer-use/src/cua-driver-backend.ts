@@ -1033,42 +1033,6 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     };
   }
 
-  function elementMatchesIdentity(
-    element: NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>,
-    identity: CuObservedElement['identity'] | undefined,
-    original?: NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>,
-  ): boolean {
-    if (!identity) return false;
-    if (element.role !== identity.role) return false;
-    const label = identity.label?.trim();
-    return (!label || element.label === identity.label)
-      && !!original
-      && element.depth === original.depth
-      && element.frame.x === original.frame.x
-      && element.frame.y === original.frame.y
-      && element.frame.w === original.frame.w
-      && element.frame.h === original.frame.h
-      && element.value === original.value;
-  }
-
-  function dedupeSemanticElements(
-    elements: NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>[],
-  ): NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>[] {
-    const seen = new Set<string>();
-    return elements.filter((element) => {
-      const key = JSON.stringify({
-        role: element.role,
-        label: element.label,
-        value: element.value,
-        frame: element.frame,
-        depth: element.depth,
-      });
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }
-
   async function validateSemanticElementVisibility(
     window: CuaResolvedWindow,
     element: NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>,
@@ -1495,78 +1459,48 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     return resolveWindowAt(fallback.x, fallback.y, signal);
   }
 
-  async function refetchSemanticElement(
+  function storedSemanticElement(
     observation: StoredObservation,
     action: Exclude<CuSemanticAction, { type: 'press_key' }>,
-    signal: AbortSignal,
-  ): Promise<
+  ):
     | NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>
-    | CuRunResult
-  > {
-    const state = await actionClient.callTool('get_window_state', {
-      pid: observation.window.pid,
-      window_id: observation.window.windowId,
-      include_screenshot: false,
-      max_elements: 500,
-      max_depth: 25,
-    }, signal);
-    const outcome = normalizeCuaDriverOutcome(state);
-    if (!outcome.ok) return { outcome };
-    const fresh = dedupeSemanticElements(
-      ((state?.structuredContent?.elements ?? []) as CuaSnapshotElement[])
-      .flatMap((candidate) => {
-        const element = normalizeCuaSnapshotElement(candidate);
-        return element ? [element] : [];
-      }),
-    );
+    | CuRunResult {
     const original = observation.elements.get(action.elementId);
-    const identity = action.elementIdentity ?? (
-      original
-        ? {
-            ...(original.element_token ? { elementToken: original.element_token } : {}),
-            elementIndex: original.element_index,
-            role: original.role,
-            ...(original.label ? { label: original.label } : {}),
-            ...(original.value !== undefined ? { value: original.value } : {}),
-          }
-        : undefined
-    );
-    if (!identity) {
+    if (!original) {
       return {
         outcome: {
           ok: false,
           error: 'stale_frame',
-          message: 'semantic element identity is unavailable',
+          message: 'semantic element is missing from the consumed observation',
         },
       };
     }
-    const identityMatches = fresh.filter((candidate) =>
-      candidate.role === identity.role
-      && (!identity.label?.trim() || candidate.label === identity.label)
+    if (!original.element_token) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'stale_frame',
+          message: 'observed semantic element is missing an AX element token',
+        },
+      };
+    }
+    const supplied = action.elementIdentity;
+    if (
+      supplied
       && (
-        identity.value === undefined
-        || candidate.value === identity.value
-      ));
-    if (identityMatches.length > 1) {
+        supplied.elementToken !== original.element_token
+        || supplied.elementIndex !== original.element_index
+      )
+    ) {
       return {
         outcome: {
           ok: false,
           error: 'stale_frame',
-          message: 'semantic element identity is ambiguous in the fresh observation',
+          message: 'semantic action identity does not match the consumed observation',
         },
       };
     }
-    const matches = identityMatches.filter(
-      (candidate) => elementMatchesIdentity(candidate, identity, original),
-    );
-    if (matches.length === 1) return matches[0]!;
-    return {
-      outcome: {
-        ok: false,
-        error: 'stale_frame',
-        message: 'semantic element is missing from the fresh observation',
-      },
-    };
+    return original;
   }
 
   function targetForContext(context: CuRunContext): KeyboardTarget | undefined {
@@ -2121,29 +2055,20 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             },
           };
         }
-        const refetched = await refetchSemanticElement(observation, action, signal);
-        if ('outcome' in refetched) return refetched;
+        const observedElement = storedSemanticElement(observation, action);
+        if ('outcome' in observedElement) return observedElement;
         const visibilityFailure = await validateSemanticElementVisibility(
           validated,
-          refetched,
+          observedElement,
           signal,
         );
         if (visibilityFailure) return visibilityFailure;
         const args = {
           pid: validated.pid,
           window_id: validated.windowId,
-          element_index: refetched.element_index,
-          element_token: refetched.element_token,
+          element_index: observedElement.element_index,
+          element_token: observedElement.element_token,
         };
-        if (!refetched.element_token) {
-          return {
-            outcome: {
-              ok: false,
-              error: 'stale_frame',
-              message: 'fresh semantic element is missing an AX element token',
-            },
-          };
-        }
         const intervention = await physicalInputFailure();
         if (intervention) return intervention;
         trace({
@@ -2186,19 +2111,6 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           );
         } catch {
           return deliveredVerificationFailure(action.type, 'ax');
-        }
-        if (action.type === 'set_value') {
-          const updated = fresh.elements.find((element) =>
-            element.identity?.elementToken === refetched.element_token
-            || (
-              element.identity?.elementIndex === refetched.element_index
-              && element.role === refetched.role
-            ));
-          if (updated) {
-            const readbackValue = String(structured.readback_value);
-            updated.value = readbackValue;
-            if (updated.identity) updated.identity.value = readbackValue;
-          }
         }
         return {
           outcome,
