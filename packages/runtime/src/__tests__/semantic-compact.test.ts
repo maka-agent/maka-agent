@@ -39,6 +39,7 @@ describe('semantic compact', () => {
         assert.match(JSON.stringify(request.messages), /recent-result/);
         assert.match(JSON.stringify(request.messages), /Return ONLY a valid JSON object/);
         assert.doesNotMatch(JSON.stringify(request.messages), /source_manifest/);
+        assert.doesNotMatch(JSON.stringify(request.messages), /restoration_cards/);
         return {
           text: semanticSummary({
             objective: 'Solve the task while keeping the service running.',
@@ -65,6 +66,7 @@ describe('semantic compact', () => {
     assert.ok(requestSeen, 'expected injected summarizer to be called');
     assert.equal(requestSeen.maxOutputTokens, 4096);
     assert.equal(result.block?.kind, 'maka.semantic_compact_block');
+    assert.equal(result.block?.stateCards, undefined);
     assert.equal(result.block?.acceptance.decision, 'accepted');
     assert.ok((result.block?.estimatedTokensSavedSigned ?? 0) > 0);
     assert.deepEqual(result.block?.preservedTail.toolCallIds, []);
@@ -443,7 +445,7 @@ describe('semantic compact', () => {
     assert.equal(calls, 1);
   });
 
-  test('renders restoration cards and archive refs without raw source hashes as prose', async () => {
+  test('keeps runtime evidence in the diagnostic block without injecting it into the LLM projection', async () => {
     const result = await rewriteSemanticCompactInMessages({
       sessionId: 'session-1',
       turnId: 'turn-1',
@@ -468,10 +470,58 @@ describe('semantic compact', () => {
     });
 
     assert.equal(result.decision, 'replaced');
+    assert.ok((result.block?.sourceRefs.length ?? 0) > 0);
+    assert.ok((result.block?.coverage.providerMessageSourceIds.length ?? 0) > 0);
+    assert.equal(result.block?.stateCards, undefined);
     const rendered = renderSemanticCompactBlock(result.block!);
     assert.match(rendered, /maka_semantic_compact_block/);
-    assert.match(rendered, /restoration_state_cards|coverage:/);
+    assert.match(rendered, /next_action: Resume with preserved tail\./);
+    assert.doesNotMatch(rendered, /restoration_state_cards/);
+    assert.doesNotMatch(rendered, /durable_archives_available/);
+    assert.doesNotMatch(rendered, /durable_coverage/);
+    assert.doesNotMatch(rendered, /preserved_tail:/);
     assert.doesNotMatch(rendered, /providerSourceIds=/);
+  });
+
+  test('never renders legacy state cards or runtime-inferred assistant intentions', async () => {
+    const messages = [
+      { role: 'user', content: 'Implement the MIPS interpreter exactly. '.repeat(80) },
+      { role: 'assistant', content: 'Let me re-read the files before writing the VM. '.repeat(80) },
+    ] as ModelMessage[];
+    let requestSeen: SemanticCompactSummaryRequest | undefined;
+    const result = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-no-state-cards',
+      turnId: 'turn-no-state-cards',
+      messages,
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: attentionTestPolicy(),
+      summarizer: (request) => {
+        requestSeen = request;
+        return {
+          text: semanticSummary({
+            objective: 'Implement the MIPS interpreter exactly.',
+            nextAction: 'Write /app/vm.js now.',
+          }),
+        };
+      },
+    });
+
+    assert.equal(result.decision, 'replaced');
+    assert.ok(requestSeen);
+    assert.doesNotMatch(JSON.stringify(requestSeen.messages.at(-1)), /restoration_cards/);
+    assert.equal(result.block?.stateCards, undefined);
+
+    result.block!.stateCards = [{
+      kind: 'vm',
+      text: 'Let me re-read the files before writing the VM.',
+      sourceIds: ['legacy-provider-source'],
+    }];
+    const rendered = renderSemanticCompactBlock(result.block!);
+    assert.doesNotMatch(rendered, /Let me re-read/);
+    assert.doesNotMatch(rendered, /restoration_state_cards/);
+    assert.match(rendered, /next_action: Write \/app\/vm\.js now\./);
+    assert.ok(rendered.indexOf('next_action:') > rendered.indexOf('archive_refs_to_reread_if_needed:'));
   });
 
   test('preserves prior replay and the exact multimodal current-user head anchor', async () => {
@@ -613,6 +663,17 @@ describe('semantic compact', () => {
     });
     assert.equal(first.decision, 'replaced');
 
+    first.block!.stateCards = [{
+      kind: 'process',
+      text: 'Let me re-read every source file before writing the VM.',
+      sourceIds: ['legacy-source'],
+    }];
+    const legacyProjection = first.messages.find((message) =>
+      JSON.stringify(message.content).includes('<maka_semantic_compact_block')
+    );
+    assert.ok(legacyProjection);
+    legacyProjection.content = `${String(legacyProjection.content)}\nrestoration_state_cards:\n- Let me re-read every source file before writing the VM.`;
+
     const withNewHistory = [
       ...first.messages,
       { role: 'assistant', content: 'second completed history '.repeat(500) } as ModelMessage,
@@ -627,7 +688,10 @@ describe('semantic compact', () => {
       charsPerToken: 1,
       policy: { ...attentionTestPolicy(), minNewPrefixEstimatedTokens: 1 },
       summarizer: (request) => {
-        assert.match(JSON.stringify(request.messages), new RegExp(first.block!.blockId));
+        const renderedRequest = JSON.stringify(request.messages);
+        assert.match(renderedRequest, new RegExp(first.block!.blockId));
+        assert.doesNotMatch(renderedRequest, /restoration_state_cards/);
+        assert.doesNotMatch(renderedRequest, /Let me re-read every source file/);
         return { text: semanticSummary({ objective: 'Exact task instruction', nextAction: 'Finish.' }) };
       },
     });

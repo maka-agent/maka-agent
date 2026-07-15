@@ -8,7 +8,6 @@ import {
   buildActiveCompactionHeadAnchor,
   buildActiveFullCompactBlockFromSummary,
   buildActiveFullCompactSourceIndex,
-  buildDeterministicActiveFullCompactSummary,
   selectActiveCompactionSafeSpan,
   validateActiveFullCompactBlockForSourceIndex,
   type ActiveFullCompactArchiveRef,
@@ -71,7 +70,6 @@ export interface SemanticCompactPolicy {
   summarizerModel?: string;
   timeoutMs?: number;
   archiveRequired?: boolean;
-  benchmarkStateCards?: boolean;
   promptVersion?: string;
   highWaterName?: string;
 }
@@ -98,6 +96,7 @@ export interface SemanticCompactControllerState {
 }
 
 export interface SemanticCompactStateCard {
+  /** @deprecated V1/V2 read compatibility only. New semantic blocks never generate or render state cards. */
   kind: 'process' | 'vm' | 'artifact' | 'command' | 'constraint' | 'verifier' | 'next_action' | 'generic';
   text: string;
   sourceIds: string[];
@@ -165,6 +164,7 @@ export interface SemanticCompactBlock {
     limitations?: string[];
     nextAction?: string;
   };
+  /** @deprecated Read compatibility only. Runtime heuristics must not enter an LLM semantic projection. */
   stateCards?: SemanticCompactStateCard[];
   requestShapeHashBefore?: string;
   requestShapeHashAfter?: string;
@@ -338,13 +338,6 @@ export async function rewriteSemanticCompactInMessages(
     warningReasons.push('deprecated_semantic_recency_policy_ignored');
   }
 
-  const stateCards = buildSemanticStateCards({
-    selection,
-    messages,
-    runtimeEvents: input.runtimeEvents,
-    policy,
-    charsPerToken,
-  });
   let summary: CompactSummaryResult;
   try {
     summary = await callSummarizerWithTimeout(input.summarizer, {
@@ -355,7 +348,7 @@ export async function rewriteSemanticCompactInMessages(
         index,
         headAnchor,
         ...(predecessorMessageIndex !== undefined ? { predecessorMessageIndex } : {}),
-        stateCards,
+        ...(input.predecessorBlock ? { predecessorBlock: input.predecessorBlock } : {}),
         policy,
         charsPerToken,
       }),
@@ -416,7 +409,6 @@ export async function rewriteSemanticCompactInMessages(
     predecessorBlock: input.predecessorBlock,
     structuredSummary,
     summaryText,
-    stateCards,
     usage: summary.usage,
     finishReason: summary.finishReason,
     providerRequestId: summary.providerRequestId,
@@ -576,22 +568,13 @@ export function semanticCompactBlockToCompactionBoundary(
 }
 
 export function renderSemanticCompactBlock(block: SemanticCompactBlock): string {
-  const stateLines = (block.stateCards ?? []).map((card) =>
-    `- ${card.kind}: ${singleLine(card.text)}`
-  );
-  const archiveCount = block.archiveRefs?.length ?? 0;
   return [
     `<maka_semantic_compact_block id="${escapeAttribute(block.blockId)}" high_water="${escapeAttribute(block.highWaterName)}" seq="${block.highWaterSeq}" version="${block.version}">`,
+    'instructions: Continue the same task from the exact user anchor, this LLM-authored semantic projection, and the verbatim protocol tail that follows it.',
     'summary:',
     block.summary.text,
-    stateLines.length > 0 ? 'restoration_state_cards:' : '',
-    ...stateLines,
-    archiveCount > 0 ? `durable_archives_available: ${archiveCount} raw evidence refs retained outside provider-visible context.` : '',
-    `durable_coverage: ${block.coverage.providerMessageSourceIds.length} provider source entries and ${block.coverage.toolCallIds.length} tool calls retained in the compact audit side-channel.`,
-    `preserved_tail: messages=${block.preservedTail.messageIndexes.join(',') || 'none'} toolCalls=${block.preservedTail.toolCallIds.join(',') || 'none'}`,
-    'instructions: Continue from this semantic summary plus the exact preserved recent messages that follow it. Use archive refs for raw evidence recovery when needed.',
     '</maka_semantic_compact_block>',
-  ].filter((line) => line !== '').join('\n');
+  ].join('\n');
 }
 
 function policyForSemanticSelection(
@@ -618,7 +601,7 @@ function buildSummarizerMessages(input: {
   index: ActiveFullCompactSourceIndex;
   headAnchor: ActiveCompactionHeadAnchor;
   predecessorMessageIndex?: number;
-  stateCards: readonly SemanticCompactStateCard[];
+  predecessorBlock?: SemanticCompactBlock;
   policy: SemanticCompactPolicy;
   charsPerToken: number;
 }): ModelMessage[] {
@@ -628,10 +611,6 @@ function buildSummarizerMessages(input: {
     contentKinds: input.selection.coverage.contentKinds,
     durableArchiveRefCount: input.selection.entries.filter((entry) => entry.archiveRef).length,
   };
-  const restorationCards = input.stateCards.map((card) => ({
-    kind: card.kind,
-    text: card.text,
-  }));
   const schema = {
     current_objective: 'string, required, one sentence',
     user_constraints: ['strings, public constraints only'],
@@ -651,18 +630,19 @@ function buildSummarizerMessages(input: {
     `JSON schema: ${JSON.stringify(schema)}`,
     'The current_objective and next_action string fields are required and must be non-empty.',
     'Use arrays for list fields. Keep each list to at most 6 short items.',
-    'Use only the public provider-visible messages above and the bounded restoration cards below.',
+    'Use only the public provider-visible messages above.',
     'Do not invent command results, file contents, process state, credentials, verifier results, or hidden/private evaluation facts.',
     'Summarize continuity only. Durable source refs, hashes, and archive audit metadata are stored outside this provider-visible summary.',
     'Preserve objective, constraints, decisions, failed attempts, commands/results that matter, files/artifacts, active process/build state, public verification state, and exact next action.',
     `Prefer concise JSON around ${input.policy.maxAcceptedProjectionEstimatedTokens ?? input.policy.maxSummaryEstimatedTokens ?? DEFAULT_MAX_SUMMARY_TOKENS} estimated tokens when possible; complete valid JSON is more important than brevity.`,
     `context_boundary: ${JSON.stringify(contextBoundary)}`,
-    `restoration_cards: ${JSON.stringify(restorationCards)}`,
   ].join('\n');
   return [
     input.messages[input.headAnchor.messageIndex]!,
     ...(input.predecessorMessageIndex !== undefined
-      ? [input.messages[input.predecessorMessageIndex]!]
+      ? [input.predecessorBlock
+          ? semanticCompactBlockToModelMessage(input.predecessorBlock)
+          : input.messages[input.predecessorMessageIndex]!]
       : []),
     ...input.messages.slice(input.selection.startMessageIndex, input.selection.endMessageIndex + 1),
     { role: 'user', content: request } as ModelMessage,
@@ -678,37 +658,6 @@ function semanticCompactSystemPrompt(policy: SemanticCompactPolicy): string {
   ].join('\n');
 }
 
-function buildSemanticStateCards(input: {
-  selection: Extract<ReturnType<typeof selectActiveCompactionSafeSpan>, { decision: 'selected' }>;
-  messages: readonly ModelMessage[];
-  runtimeEvents?: readonly RuntimeEvent[];
-  policy: SemanticCompactPolicy;
-  charsPerToken: number;
-}): SemanticCompactStateCard[] {
-  if (input.policy.benchmarkStateCards === false) return [];
-  const deterministic = buildDeterministicActiveFullCompactSummary({
-    selection: input.selection,
-    messages: input.messages,
-    runtimeEvents: input.runtimeEvents,
-    maxSummaryEstimatedTokens: Math.min(input.policy.maxSummaryEstimatedTokens ?? DEFAULT_MAX_SUMMARY_TOKENS, 384),
-    charsPerToken: input.charsPerToken,
-  });
-  const allSourceIds = input.selection.entries.map((entry) => entry.sourceId);
-  const cards: SemanticCompactStateCard[] = [];
-  for (const text of deterministic.processState ?? []) cards.push({ kind: 'process', text, sourceIds: allSourceIds });
-  for (const text of deterministic.vmState ?? []) cards.push({ kind: 'vm', text, sourceIds: allSourceIds });
-  for (const text of deterministic.artifactPaths ?? []) cards.push({ kind: 'artifact', text, sourceIds: allSourceIds });
-  for (const command of deterministic.commandsTried ?? []) {
-    cards.push({ kind: 'command', text: `${command.command}: ${command.outcome}`, sourceIds: command.sourceIds ?? allSourceIds });
-  }
-  for (const text of deterministic.constraints ?? []) cards.push({ kind: 'constraint', text, sourceIds: allSourceIds });
-  if (deterministic.latestVerifierFailure) {
-    cards.push({ kind: 'verifier', text: deterministic.latestVerifierFailure, sourceIds: allSourceIds });
-  }
-  for (const text of deterministic.nextActions ?? []) cards.push({ kind: 'next_action', text, sourceIds: allSourceIds });
-  return cards.slice(0, 16);
-}
-
 function buildSemanticCompactBlock(input: {
   input: SemanticCompactRewriteInput;
   index: ActiveFullCompactSourceIndex;
@@ -717,7 +666,6 @@ function buildSemanticCompactBlock(input: {
   predecessorBlock?: SemanticCompactBlock;
   structuredSummary: SemanticCompactStructuredSummary;
   summaryText: string;
-  stateCards: readonly SemanticCompactStateCard[];
   usage?: NormalizedAiSdkUsage;
   finishReason?: string;
   providerRequestId?: string;
@@ -802,7 +750,7 @@ function buildSemanticCompactBlock(input: {
     summary: {
       promptVersion: policy.promptVersion ?? 'maka-semantic-compact-json-v2',
       text: input.summaryText,
-      limitations: ['LLM semantic compact summary is bounded by public provider-visible context and deterministic restoration cards.'],
+      limitations: ['LLM semantic compact summary is bounded by public provider-visible context.'],
       nextAction: input.structuredSummary.nextAction,
     },
     projection: {
@@ -815,7 +763,6 @@ function buildSemanticCompactBlock(input: {
       ),
       estimatedTokens: 0,
     },
-    ...(input.stateCards.length > 0 ? { stateCards: [...input.stateCards] } : {}),
     ...(input.requestShapeHashBefore ? { requestShapeHashBefore: input.requestShapeHashBefore } : {}),
     preActiveContextEstimatedTokens: input.index.estimatedTokens,
     postReplacementEstimatedTokens: input.index.estimatedTokens,
@@ -1080,15 +1027,15 @@ function renderStructuredSemanticSummary(summary: SemanticCompactStructuredSumma
   return [
     `current_objective: ${summary.currentObjective}`,
     ...renderSummaryList('user_constraints', summary.userConstraints),
+    ...renderSummaryList('operational_state', summary.operationalState),
+    `public_verification_state: ${summary.publicVerificationState || 'No public verification state claimed.'}`,
     ...renderSummaryList('important_files_and_artifacts', summary.importantFilesAndArtifacts),
     ...renderSummaryList('commands_and_results', summary.commandsAndResults),
     ...renderSummaryList('errors_and_fixes', summary.errorsAndFixes),
     ...renderSummaryList('failed_hypotheses', summary.failedHypotheses),
-    ...renderSummaryList('operational_state', summary.operationalState),
-    `public_verification_state: ${summary.publicVerificationState || 'No public verification state claimed.'}`,
+    ...renderSummaryList('archive_refs_to_reread_if_needed', summary.archiveRefsToRereadIfNeeded),
     ...renderSummaryList('remaining_work', summary.remainingWork),
     `next_action: ${summary.nextAction}`,
-    ...renderSummaryList('archive_refs_to_reread_if_needed', summary.archiveRefsToRereadIfNeeded),
   ].join('\n').trim();
 }
 
@@ -1169,9 +1116,6 @@ function fitSemanticCompactBlockToAcceptedBudget(
     return updateProjectionEstimate(block, charsPerToken);
   };
   update();
-  if (fits() && acceptFit()) return true;
-
-  delete block.stateCards;
   if (fits() && acceptFit()) return true;
 
   const lowerPriorityLists: Array<keyof Pick<

@@ -226,10 +226,6 @@ function buildSemanticCompactPolicy(
     env.MAKA_CONTEXT_SEMANTIC_COMPACT_ARCHIVE_REQUIRED,
     'MAKA_CONTEXT_SEMANTIC_COMPACT_ARCHIVE_REQUIRED',
   );
-  const benchmarkStateCards = parseOptionalBoolean(
-    env.MAKA_CONTEXT_SEMANTIC_COMPACT_BENCHMARK_STATE_CARDS,
-    'MAKA_CONTEXT_SEMANTIC_COMPACT_BENCHMARK_STATE_CARDS',
-  );
   return {
     enabled: true,
     mode: mode ?? 'replace',
@@ -272,7 +268,6 @@ function buildSemanticCompactPolicy(
       parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS) ?? 8,
     timeoutMs: parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_TIMEOUT_MS),
     ...(archiveRequired !== undefined ? { archiveRequired } : {}),
-    ...(benchmarkStateCards !== undefined ? { benchmarkStateCards } : {}),
     ...(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODEL
       ? { summarizerModel: env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODEL }
       : {}),

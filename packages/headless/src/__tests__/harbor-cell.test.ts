@@ -1784,7 +1784,6 @@ describe('runHarborCell', () => {
       MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS: '11',
       MAKA_CONTEXT_SEMANTIC_COMPACT_TIMEOUT_MS: '30000',
       MAKA_CONTEXT_SEMANTIC_COMPACT_ARCHIVE_REQUIRED: 'true',
-      MAKA_CONTEXT_SEMANTIC_COMPACT_BENCHMARK_STATE_CARDS: 'true',
       MAKA_CONTEXT_SEMANTIC_COMPACT_MODEL: 'compact-model',
       MAKA_CONTEXT_SEMANTIC_COMPACT_PROMPT_VERSION: 'prompt-v-test',
     });
@@ -1808,7 +1807,6 @@ describe('runHarborCell', () => {
     assert.equal(options.contextBudget?.semanticCompact?.invalidSummaryCooldownSteps, 11);
     assert.equal(options.contextBudget?.semanticCompact?.timeoutMs, 30000);
     assert.equal(options.contextBudget?.semanticCompact?.archiveRequired, true);
-    assert.equal(options.contextBudget?.semanticCompact?.benchmarkStateCards, true);
     assert.equal(options.contextBudget?.semanticCompact?.summarizerModel, 'compact-model');
     assert.equal(options.contextBudget?.semanticCompact?.promptVersion, 'prompt-v-test');
 

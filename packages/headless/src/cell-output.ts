@@ -729,9 +729,6 @@ function validateSemanticCompactSnapshot(value: unknown): NonNullable<ContextBud
     ...(value.archiveRequired !== undefined
       ? { archiveRequired: requireBoolean(value.archiveRequired, 'contextBudgetPolicy.semanticCompact.archiveRequired') }
       : {}),
-    ...(value.benchmarkStateCards !== undefined
-      ? { benchmarkStateCards: requireBoolean(value.benchmarkStateCards, 'contextBudgetPolicy.semanticCompact.benchmarkStateCards') }
-      : {}),
     ...(value.summarizerModel !== undefined
       ? { summarizerModel: requireString(value.summarizerModel, 'contextBudgetPolicy.semanticCompact.summarizerModel') }
       : {}),

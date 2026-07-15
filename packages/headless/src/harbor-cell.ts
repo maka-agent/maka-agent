@@ -228,7 +228,6 @@ export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
   'MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_TIMEOUT_MS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_ARCHIVE_REQUIRED',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_BENCHMARK_STATE_CARDS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_MODEL',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_PROMPT_VERSION',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_HIGH_WATER_NAME',
@@ -1000,10 +999,6 @@ export function buildHarborCellContextBudgetBackendOptions(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_ARCHIVE_REQUIRED,
       'MAKA_CONTEXT_SEMANTIC_COMPACT_ARCHIVE_REQUIRED',
     );
-    const benchmarkStateCards = booleanEnv(
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_BENCHMARK_STATE_CARDS,
-      'MAKA_CONTEXT_SEMANTIC_COMPACT_BENCHMARK_STATE_CARDS',
-    );
     const highWaterRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_HIGH_WATER_RATIO);
     const forceRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_FORCE_RATIO);
     const targetRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_TARGET_RATIO);
@@ -1032,7 +1027,6 @@ export function buildHarborCellContextBudgetBackendOptions(
       ...(invalidSummaryCooldownSteps !== undefined ? { invalidSummaryCooldownSteps } : {}),
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       ...(archiveRequired !== undefined ? { archiveRequired } : {}),
-      ...(benchmarkStateCards !== undefined ? { benchmarkStateCards } : {}),
       ...(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODEL
         ? { summarizerModel: env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODEL }
         : {}),
@@ -1269,9 +1263,6 @@ export function buildHarborCellContextBudgetPolicySnapshot(
               : {}),
             ...(contextBudget.semanticCompact.archiveRequired !== undefined
               ? { archiveRequired: contextBudget.semanticCompact.archiveRequired }
-              : {}),
-            ...(contextBudget.semanticCompact.benchmarkStateCards !== undefined
-              ? { benchmarkStateCards: contextBudget.semanticCompact.benchmarkStateCards }
               : {}),
             ...(contextBudget.semanticCompact.summarizerModel
               ? { summarizerModel: contextBudget.semanticCompact.summarizerModel }
