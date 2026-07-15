@@ -74,6 +74,8 @@ interface ReactiveFixtureOptions {
   slowAppendMessage?: boolean;
   /** Enable the active tool-result prune with a small threshold + archive seam. */
   activeToolResultPrune?: boolean;
+  /** Test-only gate before a numbered provider request starts. */
+  beforeStream?: (call: number) => Promise<void>;
 }
 
 interface ReactiveLlmCall {
@@ -191,6 +193,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     doStream: async (
       streamOptions: { abortSignal?: AbortSignal },
     ): Promise<{ stream: ReadableStream<LanguageModelV3StreamPart> }> => {
+      await options.beforeStream?.(model.doStreamCalls.length);
       if (streamOptions.abortSignal?.aborted) {
         throw Object.assign(new Error('aborted'), { name: 'AbortError' });
       }
@@ -413,6 +416,31 @@ describe('reactive overflow recovery in the streaming backend', () => {
     assert.equal(lastCall?.inputTokens, 220);
     assert.equal(lastCall?.outputTokens, 30);
     assert.equal(lastCall?.totalTokens, 250);
+  });
+
+  test('does not retry an overflow after an after-step stop is requested', async () => {
+    let signalSecondStream!: () => void;
+    let releaseSecondStream!: () => void;
+    const secondStreamStarted = new Promise<void>((resolve) => { signalSecondStream = resolve; });
+    const secondStreamGate = new Promise<void>((resolve) => { releaseSecondStream = resolve; });
+    const fixture = buildReactiveFixture({
+      script: ['tool', 'overflow', 'done'],
+      bigPriors: true,
+      beforeStream: async (call) => {
+        if (call !== 2) return;
+        signalSecondStream();
+        await secondStreamGate;
+      },
+    });
+
+    const turn = runTurn(fixture);
+    await secondStreamStarted;
+    await fixture.backend.stop('user_stop', 'after_step');
+    releaseSecondStream();
+    await turn;
+
+    assert.equal(fixture.model.doStreamCalls.length, 2);
+    assert.equal(fixture.recorded.length, 0);
   });
 
   test('recovers from a plain-object in-stream error part, not just Error instances (review round-8 P1-1)', async () => {

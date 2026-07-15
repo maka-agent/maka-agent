@@ -3350,6 +3350,7 @@ describe('SessionManager permission mode updates', () => {
 
     expect(backend?.stopCalls).toBe(1);
     expect(backend?.stopModes).toEqual(['after_step']);
+    expect(backend?.sendInputs).toHaveLength(0);
   });
 
   test('stopSession retries only backends that failed in a multi-session stop', async () => {

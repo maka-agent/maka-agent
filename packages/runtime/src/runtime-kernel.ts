@@ -369,6 +369,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       providers: { newId: this.deps.newId, now: this.deps.now },
       stopOnTerminal: false,
     });
+    if (run.isStopped()) abortController.abort();
     const runnerResult = runner.run({
       sessionId,
       invocationId: begin.initialRuntimeEvent.invocationId,
@@ -383,6 +384,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
       lineage: run.lineage,
       abortSignal: abortController.signal,
     }).then(async (result) => {
+      if (!flowDone) {
+        flowDone = true;
+        await run.finalize();
+        sessionEvents.close();
+      }
       await this.deps.runtimeInvocationObserver?.(result);
       return result;
     }, (error) => {

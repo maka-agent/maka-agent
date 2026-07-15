@@ -1542,6 +1542,7 @@ export class AiSdkBackend implements AgentBackend {
           }
 
           if (sawStreamError && !this.aborted) {
+            if (this.stopAfterStepRequested) throw streamErrorChunk;
             // A retry is a fresh provider request that would run at least one
             // more step; with the send-level budget already spent there is
             // nothing left to grant it, so the error is terminal.
