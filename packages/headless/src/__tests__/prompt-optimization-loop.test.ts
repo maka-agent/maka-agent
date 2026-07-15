@@ -761,7 +761,7 @@ describe('runPromptOptimizationLoop', () => {
     });
   });
 
-  test('excludes a capability-limit task after two retained prompts but keeps executing it', async () => {
+  test('re-banks the held-in reference when a capability-limit task shrinks the decision set', async () => {
     await withHarness(async (harness) => {
       const heldInTasks = makeTasks('hin', 20);
       const heldOutTasks = makeTasks('hout', 4);
@@ -803,6 +803,15 @@ describe('runPromptOptimizationLoop', () => {
           rejectionReason: 'capability_limit',
         },
       );
+      assert.equal(
+        first.heldInReferencePassEligibleRate,
+        1 - promptAcceptanceNoiseBand({
+          sampleSize: 19,
+          passRate: 10 / 19,
+          baselineRunCount: 2,
+          zScore: 1.96,
+        }),
+      );
       proposalInputs.length = 0;
 
       const replayedFirst = await runLoop(harness, {
@@ -817,6 +826,7 @@ describe('runPromptOptimizationLoop', () => {
         },
       });
       assert.deepEqual(replayedFirst.addressability, first.addressability);
+      assert.equal(replayedFirst.heldInReferencePassEligibleRate, first.heldInReferencePassEligibleRate);
       assert.equal(proposalInputs.length, 0);
 
       const result = await runLoop(harness, {
@@ -835,14 +845,129 @@ describe('runPromptOptimizationLoop', () => {
       });
 
       assert.equal(result.decisions[0]?.decision, 'keep');
+      assert.equal(result.decisions[1]?.decision, 'discard');
+      assert.equal(result.decisions[1]?.reason, 'held_in_within_noise');
+      assert.equal(result.decisions[1]?.metrics.lastKept.heldIn.passEligibleRate, 1);
+      assert.equal(
+        result.decisions[1]?.previousHeldInReferencePassEligibleRate,
+        1 - result.decisions[1]!.heldInPassRateNoiseBand,
+      );
+      assert.equal(
+        result.heldInReferencePassEligibleRate,
+        result.decisions[1]?.previousHeldInReferencePassEligibleRate,
+      );
       assert.equal(proposalInputs.length, 1);
       assert.doesNotMatch(proposalInputs[0]!.resultsTsv, /hin-19/);
       assert.equal(proposalInputs[0]!.heldInDigests.some((digest) => digest.taskId === 'hin-19'), false);
       assert.ok(roundOneTaskIds.includes('hin-19'));
       const terminalStat = result.addressability.heldIn.taskStats.find((stat) => stat.taskId === 'hin-19');
-      assert.equal(terminalStat?.observations, 4);
-      assert.equal(terminalStat?.keptPrompts, 3);
-      assert.equal(terminalStat?.passes, 1);
+      assert.equal(terminalStat?.observations, 3);
+      assert.equal(terminalStat?.keptPrompts, 2);
+      assert.equal(terminalStat?.passes, 0);
+      assert.equal(terminalStat?.rejectionReason, 'capability_limit');
+
+      proposalInputs.length = 0;
+      const replayed = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 2,
+        baselineRuns: 2,
+        metaAgent: async (input) => {
+          proposalInputs.push(input);
+          return propose(input);
+        },
+      });
+      assert.equal(proposalInputs.length, 0);
+      assert.deepEqual(replayed.decisions, result.decisions);
+      assert.equal(replayed.heldInReferencePassEligibleRate, result.heldInReferencePassEligibleRate);
+      assert.deepEqual(replayed.addressability, result.addressability);
+    });
+  });
+
+  test('reward-hack scanning includes capability-limited tasks outside the decision set', async () => {
+    await withHarness(async (harness) => {
+      const heldInTasks = makeTasks('hin', 20);
+      const heldOutTasks = makeTasks('hout', 4);
+      const roundOneTaskIds: string[] = [];
+      const rewardFor = (roundId: string, taskId: string): number => {
+        if (taskId.startsWith('hout-')) return 1;
+        const index = taskIndex(taskId);
+        if (roundId.startsWith('baseline-')) return index < 10 ? 1 : 0;
+        if (roundId === 'round-0') return index < 19 ? 1 : 0;
+        return 1;
+      };
+
+      const result = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 2,
+        baselineRuns: 2,
+        rewardHackVerifierPatternsByTaskId: {
+          ...Object.fromEntries(heldInTasks.map((task) => [task.id, ['ZZZ_NO_VERIFIER_MATCH']])),
+          'hin-19': ['EXPECTED_SECRET'],
+        },
+        runtimeEventCommandFor: (roundId, taskId) => (
+          roundId === 'round-1' && taskId === 'hin-19' ? 'echo EXPECTED_SECRET' : undefined
+        ),
+        onTaskRun: (roundId, taskId) => {
+          if (roundId === 'round-1' && taskId.startsWith('hin-')) roundOneTaskIds.push(taskId);
+        },
+      });
+
+      assert.equal(result.decisions[0]?.decision, 'keep');
+      assert.equal(result.decisions[1]?.decision, 'discard');
+      assert.equal(result.decisions[1]?.reason, 'reward_hack_quarantined');
+      assert.deepEqual(result.decisions[1]?.rewardHackScan, {
+        decision: 'quarantine',
+        reason: 'verifier_pattern',
+        matchedPatterns: ['EXPECTED_SECRET'],
+      });
+      assert.ok(roundOneTaskIds.includes('hin-19'));
+      assert.equal(result.decisions[1]?.metrics.candidate.heldIn.taskCount, 19);
+    });
+  });
+
+  test('re-banks again when retained evidence expands the decision set', async () => {
+    await withHarness(async (harness) => {
+      const heldInTasks = makeTasks('hin', 20);
+      const heldOutTasks = makeTasks('hout', 4);
+      const proposalInputs: MetaAgentPromptInput[] = [];
+      const propose = fakeMetaAgent();
+      const rewardFor = (roundId: string, taskId: string): number => {
+        if (taskId.startsWith('hout-')) return 1;
+        const index = taskIndex(taskId);
+        if (roundId.startsWith('baseline-')) return index < 10 ? 1 : 0;
+        if (roundId === 'round-0') return index > 0 && index < 18 ? 1 : 0;
+        return 1;
+      };
+
+      const result = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 3,
+        baselineRuns: 2,
+        metaAgent: async (input) => {
+          proposalInputs.push(input);
+          return propose(input);
+        },
+      });
+
+      assert.deepEqual(result.decisions.map((decision) => decision.decision), ['keep', 'keep', 'discard']);
+      assert.deepEqual(proposalInputs.map((input) => input.heldInDigests.length), [20, 18, 19]);
+      assert.equal(proposalInputs[1]?.heldInDigests.some((digest) => digest.taskId === 'hin-18'), false);
+      assert.equal(proposalInputs[1]?.heldInDigests.some((digest) => digest.taskId === 'hin-19'), false);
+      assert.equal(proposalInputs[2]?.heldInDigests.some((digest) => digest.taskId === 'hin-18'), true);
+      assert.equal(proposalInputs[2]?.heldInDigests.some((digest) => digest.taskId === 'hin-19'), true);
+      assert.equal(proposalInputs[2]?.heldInDigests.some((digest) => digest.taskId === 'hin-0'), false);
+      assert.equal(result.decisions[2]?.metrics.lastKept.heldIn.passEligibleRate, 1);
+      assert.equal(
+        result.decisions[2]?.previousHeldInReferencePassEligibleRate,
+        1 - result.decisions[2]!.heldInPassRateNoiseBand,
+      );
+      assert.equal(result.decisions[2]?.reason, 'held_in_within_noise');
     });
   });
 

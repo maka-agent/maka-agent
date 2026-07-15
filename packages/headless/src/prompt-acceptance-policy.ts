@@ -642,6 +642,13 @@ function rewardHackGateReason(scan: PromptCandidateRewardHackScan): PromptAccept
   return scan.decision === 'clean' ? null : PROMPT_REWARD_HACK_QUARANTINE_REASON;
 }
 
+export function bankPromptAcceptanceReference(
+  passEligibleRate: number,
+  noiseBand: number,
+): number {
+  return passEligibleRate - noiseBand;
+}
+
 function nextHeldInReferencePassEligibleRate(input: {
   decision: PromptAcceptanceDecision;
   previousReference: number | null;
@@ -651,7 +658,7 @@ function nextHeldInReferencePassEligibleRate(input: {
   if (input.decision !== 'keep' || input.candidatePassEligibleRate === null) {
     return input.previousReference;
   }
-  const bankedReference = input.candidatePassEligibleRate - input.noiseBand;
+  const bankedReference = bankPromptAcceptanceReference(input.candidatePassEligibleRate, input.noiseBand);
   return input.previousReference === null
     ? bankedReference
     : Math.max(input.previousReference, bankedReference);

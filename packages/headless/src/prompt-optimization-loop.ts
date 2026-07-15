@@ -25,11 +25,13 @@ import {
 } from './prompt-candidate-loop.js';
 import {
   appendPromptAcceptanceDecision,
+  bankPromptAcceptanceReference,
   calibratePromptAcceptanceBaseline,
   decidePromptAcceptance,
   heldInGateReason,
   selectAddressablePromptTasks,
   selectStablePromptTasks,
+  summarizePromptAcceptancePartition,
   type PromptAcceptanceBaseline,
   type PromptAcceptanceBaselineRun,
   type PromptAcceptanceResult,
@@ -268,8 +270,10 @@ export async function runPromptOptimizationLoop(
       })),
   );
 
-  // Reward-hacking guard over the held-in trajectories the meta-agent optimizes
-  // against. First non-clean task decides the round (deterministic by order).
+  // Reward-hacking is a safety gate over the full executed held-in sweep, not
+  // only the addressable decision subset. A flaky or capability-limited task
+  // cannot exempt a candidate from quarantine. First non-clean task decides
+  // the round (deterministic by execution order).
   const scanHeldIn = async (
     events: readonly FixedPromptTaskWalEvent[],
   ): Promise<PromptCandidateRewardHackScan> => {
@@ -447,7 +451,7 @@ export async function runPromptOptimizationLoop(
   let latestHeldInFeedbackExecutionEvents: readonly FixedPromptTaskWalEvent[] = stableHeldIn(
     baselineRunsData[baselineRunsData.length - 1]!.heldInEvents,
   );
-  let finalAddressability = initialAddressability;
+  let heldInReferenceTaskIds = initialAddressability.heldIn.selectedTaskIds;
   let hasKeptCandidate = false;
   let nextPromptAttribution: RsiPromptAttribution | undefined;
 
@@ -465,7 +469,6 @@ export async function runPromptOptimizationLoop(
     const roundId = `round-${round}`;
     const addressability = selectCurrentAddressability();
     assertAddressablePartitions(addressability);
-    finalAddressability = addressability;
     const decisionHeldInTaskIds = addressability.heldIn.selectedTaskIds;
     const decisionHeldOutTaskIds = addressability.heldOut.selectedTaskIds;
     const decisionHeldInSet = new Set(decisionHeldInTaskIds);
@@ -486,10 +489,18 @@ export async function runPromptOptimizationLoop(
       ? decisionHeldIn(previousCandidateHeldInExecutionEvents)
       : undefined;
     const latestHeldInFeedbackEvents = decisionHeldIn(latestHeldInFeedbackExecutionEvents);
+    const heldInReferenceTaskSetChanged = !sameTaskIdSet(heldInReferenceTaskIds, decisionHeldInTaskIds);
     const heldInReference = hasKeptCandidate
-      ? finalHeldInReference
+      ? heldInReferenceTaskSetChanged
+        ? bankedReferenceForTaskSet(
+            lastKeptHeldInEvents,
+            decisionHeldInTaskIds,
+            activeBaseline.heldIn.noiseBand,
+          )
+        : finalHeldInReference
       : activeBaseline.heldIn.referencePassEligibleRate;
     finalHeldInReference = heldInReference;
+    heldInReferenceTaskIds = decisionHeldInTaskIds;
     const nextHeldInDigests = await digestsFor(latestHeldInFeedbackEvents);
     await writeFixedPromptResultsTsv(input.heldInResultsTsvPath, latestHeldInFeedbackEvents);
     const promptAnalysis = await analyzeRsiRound({
@@ -731,8 +742,23 @@ export async function runPromptOptimizationLoop(
   // decision set was selected. Refresh once more so the returned profile and
   // fail-loud empty-partition invariant describe the committed final state,
   // including replay of a terminal keep.
-  finalAddressability = selectCurrentAddressability();
+  const finalAddressability = selectCurrentAddressability();
   assertAddressablePartitions(finalAddressability);
+  const finalHeldInTaskIds = finalAddressability.heldIn.selectedTaskIds;
+  if (hasKeptCandidate && !sameTaskIdSet(heldInReferenceTaskIds, finalHeldInTaskIds)) {
+    const finalHeldInSet = new Set(finalHeldInTaskIds);
+    const finalBaseline = calibratePromptAcceptanceBaseline({
+      heldInTaskIds: finalHeldInTaskIds,
+      heldOutTaskIds: finalAddressability.heldOut.selectedTaskIds,
+      baselineRuns: baselineRunsData,
+      zScore,
+    });
+    finalHeldInReference = bankedReferenceForTaskSet(
+      lastKeptHeldInExecutionEvents.filter((event) => finalHeldInSet.has(event.taskId)),
+      finalHeldInTaskIds,
+      finalBaseline.heldIn.noiseBand,
+    );
+  }
 
   // 3. Structural smoke report over the full WAL.
   const events = await readFixedPromptWal(input.resultsJsonlPath);
@@ -757,6 +783,21 @@ export async function runPromptOptimizationLoop(
     droppedHeldOutTaskIds,
     addressability: finalAddressability,
   };
+}
+
+function sameTaskIdSet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((taskId) => rightSet.has(taskId));
+}
+
+function bankedReferenceForTaskSet(
+  lastKeptEvents: readonly FixedPromptTaskWalEvent[],
+  taskIds: readonly string[],
+  noiseBand: number,
+): number | null {
+  const passEligibleRate = summarizePromptAcceptancePartition(lastKeptEvents, taskIds).passEligibleRate;
+  return passEligibleRate === null ? null : bankPromptAcceptanceReference(passEligibleRate, noiseBand);
 }
 
 function assertUniqueTaskIds(label: string, taskIds: readonly string[]): void {
