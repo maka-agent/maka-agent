@@ -1,0 +1,132 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  // Biome 2.5.4. See https://biomejs.dev/reference/configuration/
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    // Broad include; VCS integration (useIgnoreFile) already skips anything
+    // in .gitignore (node_modules, dist, etc). The excludes below cover
+    // tracked files that still shouldn't be touched by Biome.
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!package-lock.json",
+      // Generated shadcn/ui config — not hand-authored source.
+      "!components.json"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      // Every rule below is a "recommended" rule with existing violations on
+      // this tree as of the #415 intro. Disabled here so `npm run lint`
+      // passes without touching any source file; each is a candidate to
+      // re-enable (with a real fix pass) in the follow-up auto-fix PR.
+      "a11y": {
+        "noAriaHiddenOnFocusable": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "noInteractiveElementToNoninteractiveRole": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "noLabelWithoutControl": "off", // 51 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noNoninteractiveElementToInteractiveRole": "off", // 2 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noRedundantRoles": "off", // 4 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noStaticElementInteractions": "off", // 3 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noSvgWithoutTitle": "off", // 12 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useAriaPropsSupportedByRole": "off", // 33 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useFocusableInteractive": "off", // 2 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useHtmlLang": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "useSemanticElements": "off", // 27 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useValidAriaRole": "off" // 3 violations as of #415 intro — re-enable in follow-up auto-fix PR
+      },
+      "complexity": {
+        "noAdjacentSpacesInRegex": "off", // 84 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noBannedTypes": "off", // 4 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noCommaOperator": "off", // 7 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noExtraBooleanCast": "off", // 3 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noImportantStyles": "off", // 31 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUselessConstructor": "off", // 4 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUselessContinue": "off", // 2 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUselessEmptyExport": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUselessEscapeInRegex": "off", // 8 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUselessFragments": "off", // 2 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUselessStringRaw": "off", // 2 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUselessSwitchCase": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUselessTernary": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUselessUndefinedInitialization": "off", // 5 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useIndexOf": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "useLiteralKeys": "off", // 2 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useOptionalChain": "off" // 30 violations as of #415 intro — re-enable in follow-up auto-fix PR
+      },
+      "correctness": {
+        "noChildrenProp": "off", // 2 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noEmptyCharacterClassInRegex": "off", // 4 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noEmptyPattern": "off", // 4 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noInvalidPositionAtImportRule": "off", // 35 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noSwitchDeclarations": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUnsafeOptionalChaining": "off", // 74 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUnusedFunctionParameters": "off", // 9 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUnusedImports": "off", // 74 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUnusedPrivateClassMembers": "off", // 7 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUnusedVariables": "off", // 32 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useExhaustiveDependencies": "off", // 110 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useJsxKeyInIterable": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "useYield": "off" // 5 violations as of #415 intro — re-enable in follow-up auto-fix PR
+      },
+      "style": {
+        "noDescendingSpecificity": "off", // 36 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noNonNullAssertion": "off", // 1274 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useConst": "off", // 5 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useImportType": "off", // 34 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useTemplate": "off" // 137 violations as of #415 intro — re-enable in follow-up auto-fix PR
+      },
+      "suspicious": {
+        "noArrayIndexKey": "off", // 28 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noAssignInExpressions": "off", // 23 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noConfusingVoidType": "off", // 14 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noControlCharactersInRegex": "off", // 67 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noDuplicateCustomProperties": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "noDuplicateObjectKeys": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "noExplicitAny": "off", // 60 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noGlobalIsNan": "off", // 6 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noImplicitAnyLet": "off", // 22 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noMisleadingCharacterClass": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "noNonNullAssertedOptionalChain": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "noProto": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
+        "noPrototypeBuiltins": "off", // 11 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noShadowRestrictedNames": "off", // 2 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noTemplateCurlyInString": "off", // 15 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "noUselessEscapeInString": "off", // 3 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useIterableCallbackReturn": "off" // 13 violations as of #415 intro — re-enable in follow-up auto-fix PR
+      }
+    }
+  },
+  "css": {
+    // apps/desktop/src/renderer/styles.css uses Tailwind CSS 4 `@import`/
+    // `@source` directives; without this the CSS parser errors on them.
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  // Import sorting / organize-imports assist actions are intentionally
+  // disabled for this intro PR to keep the diff config-only. Enabled in the
+  // follow-up auto-fix PR, see #415.
+  "assist": {
+    "enabled": false
+  }
+}
