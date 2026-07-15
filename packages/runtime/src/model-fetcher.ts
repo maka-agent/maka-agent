@@ -8,7 +8,7 @@ import {
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import { proxiedFetch } from './bots/proxied-fetch.js';
 import { anthropicV1Url, googleApiUrl } from './provider-urls.js';
-import { claudeSubscriptionHeaders } from './subscription-auth.js';
+import { claudeSubscriptionHeaders, openAiCodexHeaders } from './subscription-auth.js';
 import {
   GITHUB_COPILOT_API_VERSION,
   GITHUB_COPILOT_COMPAT_HEADERS,
@@ -87,6 +87,9 @@ export async function fetchProviderModels(
   try {
     return await fetchProviderModelsStrict(connection, apiKey);
   } catch (error) {
+    // Preserve status-bearing discovery errors so the sync layer can classify
+    // auth/protocol/network failures; only wrap unknown errors for display.
+    if (error instanceof OpenAiCodexDiscoveryError) throw error;
     throw new Error(generalizedErrorMessage(error, 'Failed to fetch provider models'));
   }
 }
@@ -122,6 +125,9 @@ async function fetchProviderModelsStrict(
   }
   if (discovery.auth === 'github-copilot') {
     return fetchGitHubCopilotModels(baseUrl, apiKey);
+  }
+  if (discovery.auth === 'openai-codex') {
+    return fetchOpenAiCodexModels(baseUrl, apiKey);
   }
 
   switch (definition.protocol) {
@@ -194,6 +200,77 @@ export async function fetchGitHubCopilotModels(
   const payload = await response.json() as { data?: RawGitHubCopilotModel[] };
   if (!Array.isArray(payload.data)) throw new Error('Invalid GitHub Copilot models response');
   return payload.data.flatMap(toGitHubCopilotModelInfo);
+}
+
+type RawOpenAiCodexModel = {
+  slug?: unknown;
+  visibility?: unknown;
+  priority?: unknown;
+  context_window?: unknown;
+};
+
+/**
+ * Discovery error carrying the HTTP status, so callers (syncOpenAiCodexConnection)
+ * can classify auth failures (401/403) vs protocol errors (4xx) vs transient
+ * network failures without string-matching the message.
+ */
+export class OpenAiCodexDiscoveryError extends Error {
+  constructor(public readonly status: number) {
+    super(`HTTP ${status}`);
+    this.name = 'OpenAiCodexDiscoveryError';
+  }
+}
+
+/**
+ * Discover models from the ChatGPT/Codex OAuth backend
+ * (`chatgpt.com/backend-api/codex/models`). Unlike the public OpenAI API
+ * `/v1/models`, this endpoint reports the slugs the signed-in ChatGPT account
+ * can actually use over the Codex backend, including OAuth-only slugs such
+ * as `gpt-5.3-codex-spark`. Entries with `visibility: hide|hidden` are
+ * dropped; the rest are sorted by `priority` (ascending) to match the
+ * ChatGPT/Codex picker order.
+ */
+export async function fetchOpenAiCodexModels(
+  baseUrl: string,
+  accessToken: string,
+  fetchFn?: typeof fetch,
+): Promise<ModelInfo[]> {
+  const response = await (fetchFn ?? proxiedFetch)(
+    `${stripTrailing(baseUrl)}/models?client_version=1.0.0`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...openAiCodexHeaders(accessToken),
+        'content-type': 'application/json',
+      },
+      ...(fetchFn ? { signal: AbortSignal.timeout(MODEL_FETCH_TIMEOUT_MS) } : { timeoutMs: MODEL_FETCH_TIMEOUT_MS }),
+    },
+  );
+  if (!response.ok) throw new OpenAiCodexDiscoveryError(response.status);
+  const payload = await response.json() as { models?: RawOpenAiCodexModel[] };
+  if (!Array.isArray(payload?.models)) throw new Error('Invalid OpenAI Codex models response');
+  const visible = payload.models.filter((model) => {
+    if (!model || typeof model.slug !== 'string' || !model.slug.trim()) return false;
+    const visibility = typeof model.visibility === 'string' ? model.visibility.trim().toLowerCase() : '';
+    return visibility !== 'hide' && visibility !== 'hidden';
+  });
+  visible.sort((a, b) => priorityOfOpenAiCodexModel(a) - priorityOfOpenAiCodexModel(b));
+  return visible.map((model) => {
+    const entry: ModelInfo = { id: (model.slug as string).trim() };
+    const contextWindow = contextWindowOfOpenAiCodexModel(model);
+    if (contextWindow !== undefined) entry.contextWindow = contextWindow;
+    return entry;
+  });
+}
+
+function priorityOfOpenAiCodexModel(model: RawOpenAiCodexModel): number {
+  return typeof model.priority === 'number' && Number.isFinite(model.priority) ? model.priority : 10_000;
+}
+
+function contextWindowOfOpenAiCodexModel(model: RawOpenAiCodexModel): number | undefined {
+  return typeof model.context_window === 'number' && Number.isFinite(model.context_window) && model.context_window > 0
+    ? model.context_window
+    : undefined;
 }
 
 function toGitHubCopilotModelInfo(model: RawGitHubCopilotModel): ModelInfo[] {

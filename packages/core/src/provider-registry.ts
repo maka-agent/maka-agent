@@ -29,7 +29,7 @@ export type ProviderRuntimeAdapter =
 export type ProviderModelDiscovery =
   | {
       kind: 'protocol';
-      auth?: 'claude-subscription' | 'github-copilot' | 'none';
+      auth?: 'claude-subscription' | 'github-copilot' | 'openai-codex' | 'none';
       path?: string;
       query?: Readonly<Record<string, string>>;
       responseShape?: 'array-or-data';
@@ -1260,7 +1260,7 @@ const providerRegistry = {
     status: 'phase3-experimental',
     protocol: 'openai',
     runtimeAdapter: { kind: 'openai-codex' },
-    modelDiscovery: { kind: 'fallback' },
+    modelDiscovery: { kind: 'protocol', auth: 'openai-codex' },
     category: 'oauth',
     catalogBadge: 'Account',
   },

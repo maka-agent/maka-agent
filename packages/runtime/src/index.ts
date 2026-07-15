@@ -502,8 +502,6 @@ export {
   canReplaceHistoryCompactCheckpoint,
   historyCompactCheckpointToRuntimeEvent,
   matchHistoryCompactCheckpointPrefix,
-  midTurnHeadAnchorEvent,
-  projectHistoryCompactCheckpointReplay,
   renderHistoryCompactCheckpoint,
   validateHistoryCompactCheckpointShape,
 } from './history-compact-checkpoint.js';
@@ -511,27 +509,9 @@ export type {
   BuildHistoryCompactCheckpointInput,
   HistoryCompactCheckpoint,
   HistoryCompactCheckpointCoverage,
-  HistoryCompactCheckpointHeadAnchor,
-  HistoryCompactCheckpointPhase,
   HistoryCompactCheckpointPrefixMatch,
   HistoryCompactCheckpointSource,
 } from './history-compact-checkpoint.js';
-export {
-  estimateNextRequestTokens,
-  exceedsContextWindow,
-  exceedsHighWater,
-  planMidTurnCapacityCompaction,
-  selectMidTurnSafeBoundary,
-} from './mid-turn-capacity-compact.js';
-export type {
-  EstimateNextRequestTokensInput,
-  MidTurnBoundary,
-  MidTurnBoundaryOptions,
-  MidTurnFailReason,
-  MidTurnSummarizer,
-  PlanMidTurnCapacityCompactionInput,
-  PlanMidTurnCapacityCompactionResult,
-} from './mid-turn-capacity-compact.js';
 export { cleanupLegacyHistoryCompactArtifacts } from './history-compact-cleanup.js';
 export type {
   HistoryCompactCleanupDiagnostic,
@@ -578,7 +558,6 @@ export type {
   ArchiveRetrievalResult,
   HistoryCompactBlock,
   HistoryCompactCoverage,
-  HistoryCompactMidTurnPolicy,
   HistoryCompactPolicy,
   HistoryCompactReplayResult,
   HistoryCompactSourceArchiveRef,
@@ -661,7 +640,7 @@ export type {
   SemanticCompactSummaryRequest,
 } from './semantic-compact.js';
 export { testConnection } from './test-connection.js';
-export { fetchGitHubCopilotModels, fetchProviderModels } from './model-fetcher.js';
+export { fetchGitHubCopilotModels, fetchOpenAiCodexModels, fetchProviderModels, OpenAiCodexDiscoveryError } from './model-fetcher.js';
 
 export {
   materializeSession,
