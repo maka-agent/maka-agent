@@ -560,7 +560,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
     ];
     const out = buildModelHistoryFromRuntimeEvents(events);
     expect(out).toHaveLength(1);
-    expect((out[0]?.content as { isError?: boolean }).isError).toBe(true);
+    expect((out[0].content as { isError?: boolean }).isError).toBe(true);
   });
 
   test('POLICY: tool events excluded when includeToolEvents=false (text-only replay)', () => {
@@ -1170,7 +1170,7 @@ describe('adapter → projection integration', () => {
     expect(history).toHaveLength(2);
     expect(history[0]?.role).toBe('user');
     expect(history[1]?.role).toBe('model');
-    expect((history[0]?.content as { text: string }).text).toBe('what is 2+2?');
+    expect((history[0].content as { text: string }).text).toBe('what is 2+2?');
   });
 
   test('ModelHistoryEntry type carries the discriminated content union', () => {

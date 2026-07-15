@@ -734,8 +734,8 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       screenshot?: { base64: string; mimeType: string };
     };
 
-    assert.equal((seen[0]?.action as { observationId: string }).observationId, 'backend-obs-1');
-    assert.deepEqual((seen[0]?.action as { elementIdentity?: unknown }).elementIdentity, {
+    assert.equal((seen[0].action as { observationId: string }).observationId, 'backend-obs-1');
+    assert.deepEqual((seen[0].action as { elementIdentity?: unknown }).elementIdentity, {
       token: 'button-token',
       role: 'AXButton',
       label: 'Continue',

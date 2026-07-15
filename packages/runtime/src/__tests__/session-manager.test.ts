@@ -4431,7 +4431,7 @@ describe('SessionManager permission mode updates', () => {
     for (const run of await runStore.listSessionRuns(session.id)) {
       for (const event of await runStore.readEvents(session.id, run.runId)) {
         if (event.type === 'history_compact_checkpoint_recorded') {
-          recordedCoverage.push((event.data?.checkpoint as HistoryCompactCheckpoint).coverage.eventCount);
+          recordedCoverage.push((event.data!.checkpoint as HistoryCompactCheckpoint).coverage.eventCount);
         }
       }
     }
@@ -4481,7 +4481,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore({
       beforeAgentRunEventAppend: async (_sessionId, _runId, event) => {
         if (event.type !== 'history_compact_checkpoint_recorded') return;
-        const coverage = (event.data?.checkpoint as HistoryCompactCheckpoint).coverage.eventCount;
+        const coverage = (event.data!.checkpoint as HistoryCompactCheckpoint).coverage.eventCount;
         if (coverage === 1) {
           parentWriteStarted.release();
           await parentWriteGate.promise;
@@ -4542,7 +4542,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore({
       beforeAgentRunEventAppend: async (_sessionId, _runId, event) => {
         if (event.type !== 'history_compact_checkpoint_recorded') return;
-        const coverage = (event.data?.checkpoint as HistoryCompactCheckpoint).coverage.eventCount;
+        const coverage = (event.data!.checkpoint as HistoryCompactCheckpoint).coverage.eventCount;
         physicalCoverage.push(coverage);
         if (coverage === 1) {
           parentWriteStarted.release();
@@ -4659,7 +4659,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore({
       beforeAgentRunEventAppend: async (_sessionId, _runId, event) => {
         if (event.type !== 'history_compact_checkpoint_recorded') return;
-        const coverage = (event.data?.checkpoint as HistoryCompactCheckpoint).coverage.eventCount;
+        const coverage = (event.data!.checkpoint as HistoryCompactCheckpoint).coverage.eventCount;
         physicalCoverage.push(coverage);
         if (coverage === 2) {
           furthestWriteStarted.release();
@@ -4793,7 +4793,7 @@ describe('SessionManager permission mode updates', () => {
     for (const run of await runStore.listSessionRuns(session.id)) {
       for (const event of await runStore.readEvents(session.id, run.runId)) {
         if (event.type === 'history_compact_checkpoint_recorded') {
-          checkpointCoverage.push((event.data?.checkpoint as HistoryCompactCheckpoint).coverage.eventCount);
+          checkpointCoverage.push((event.data!.checkpoint as HistoryCompactCheckpoint).coverage.eventCount);
         }
       }
     }
@@ -4858,7 +4858,7 @@ describe('SessionManager permission mode updates', () => {
     for (const run of await runStore.listSessionRuns(session.id)) {
       for (const event of await runStore.readEvents(session.id, run.runId)) {
         if (event.type === 'history_compact_checkpoint_recorded') {
-          checkpointCoverage.push((event.data?.checkpoint as HistoryCompactCheckpoint).coverage.eventCount);
+          checkpointCoverage.push((event.data!.checkpoint as HistoryCompactCheckpoint).coverage.eventCount);
         }
       }
     }

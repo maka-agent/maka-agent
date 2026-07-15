@@ -37,10 +37,12 @@
     "rules": {
       "preset": "recommended",
       // Every rule below is a "recommended" rule with existing violations on
-      // this tree as of the #415 intro. Disabled here so `npm run lint`
-      // passes without touching any source file; each is a candidate to
-      // re-enable (with a real fix pass) in the follow-up auto-fix PR.
+      // this tree as of the #415 intro. Reviewed and reorganized per the
+      // PR #1019 review into two buckets (see the per-group headers below):
+      // rules dropped outright (pure style, not tracked as debt) and rules
+      // deferred pending a dedicated follow-up fix pass.
       "a11y": {
+        // Deferred — violations exist on the current tree; re-enable via follow-up fix passes. Counts as of #415 intro.
         "noAriaHiddenOnFocusable": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
         "noInteractiveElementToNoninteractiveRole": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
         "noLabelWithoutControl": "off", // 51 violations as of #415 intro — re-enable in follow-up auto-fix PR
@@ -55,6 +57,7 @@
         "useValidAriaRole": "off" // 3 violations as of #415 intro — re-enable in follow-up auto-fix PR
       },
       "complexity": {
+        // Deferred — violations exist on the current tree; re-enable via follow-up fix passes. Counts as of #415 intro.
         "noAdjacentSpacesInRegex": "off", // 84 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noBannedTypes": "off", // 4 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noCommaOperator": "off", // 7 violations as of #415 intro — re-enable in follow-up auto-fix PR
@@ -74,39 +77,42 @@
         "useOptionalChain": "off" // 30 violations as of #415 intro — re-enable in follow-up auto-fix PR
       },
       "correctness": {
+        // Deferred — violations exist on the current tree; re-enable via follow-up fix passes. Counts as of #415 intro.
         "noChildrenProp": "off", // 2 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noEmptyCharacterClassInRegex": "off", // 4 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noEmptyPattern": "off", // 4 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noInvalidPositionAtImportRule": "off", // 35 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noSwitchDeclarations": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
-        "noUnsafeOptionalChaining": "off", // 74 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noUnusedFunctionParameters": "off", // 9 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noUnusedImports": "off", // 74 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noUnusedPrivateClassMembers": "off", // 7 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noUnusedVariables": "off", // 32 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        // real bug-catcher but each fix needs per-case judgment (PR #1019 review) — dedicated follow-up
         "useExhaustiveDependencies": "off", // 110 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "useJsxKeyInIterable": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
         "useYield": "off" // 5 violations as of #415 intro — re-enable in follow-up auto-fix PR
       },
       "style": {
+        // Dropped outright — pure style, high-volume, deliberately NOT tracked as debt (PR #1019 review). Revisit only with a dedicated proposal.
+        "noNonNullAssertion": "off", // 1274 violations as of #415 intro
+        "useTemplate": "off", // 137 violations as of #415 intro
+        // Deferred — violations exist on the current tree; re-enable via follow-up fix passes. Counts as of #415 intro.
         "noDescendingSpecificity": "off", // 36 violations as of #415 intro — re-enable in follow-up auto-fix PR
-        "noNonNullAssertion": "off", // 1274 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "useConst": "off", // 5 violations as of #415 intro — re-enable in follow-up auto-fix PR
-        "useImportType": "off", // 34 violations as of #415 intro — re-enable in follow-up auto-fix PR
-        "useTemplate": "off" // 137 violations as of #415 intro — re-enable in follow-up auto-fix PR
+        "useImportType": "off" // 34 violations as of #415 intro — re-enable in follow-up auto-fix PR
       },
       "suspicious": {
+        // Dropped outright — pure style, high-volume, deliberately NOT tracked as debt (PR #1019 review). Revisit only with a dedicated proposal.
+        "noExplicitAny": "off", // 60 violations as of #415 intro
+        // Deferred — violations exist on the current tree; re-enable via follow-up fix passes. Counts as of #415 intro.
         "noArrayIndexKey": "off", // 28 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noAssignInExpressions": "off", // 23 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noConfusingVoidType": "off", // 14 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noControlCharactersInRegex": "off", // 67 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noDuplicateCustomProperties": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
-        "noDuplicateObjectKeys": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
-        "noExplicitAny": "off", // 60 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noGlobalIsNan": "off", // 6 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noImplicitAnyLet": "off", // 22 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noMisleadingCharacterClass": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
-        "noNonNullAssertedOptionalChain": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
         "noProto": "off", // 1 violation as of #415 intro — re-enable in follow-up auto-fix PR
         "noPrototypeBuiltins": "off", // 11 violations as of #415 intro — re-enable in follow-up auto-fix PR
         "noShadowRestrictedNames": "off", // 2 violations as of #415 intro — re-enable in follow-up auto-fix PR

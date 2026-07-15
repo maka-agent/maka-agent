@@ -86,7 +86,6 @@ test('normalizeReport unifies real-model and direct-provider report fields', () 
       { modelLatencyMs: 120, toolLatencyMs: 40, displayLagMs: 8 },
       { modelLatencyMs: 80, durationMs: 20, displayLagMs: 4, retry: true },
     ],
-    fixtureState: { blue: 1, red: 0, note: '' },
     forbiddenEffects: [],
     fixtureState: { target: { blue: 1, red: 0 } },
   }, scenario());
