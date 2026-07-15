@@ -129,17 +129,18 @@ const toolOutputPanel = (el, id) =>
 // body / intent, and the args `<pre>` override over the shared `.maka-code` base
 // — is static and diffed in full.
 //
-// Each card carries the production disclosure default: waiting_permission /
-// errored render OPEN; ordinary pending / running / completed / interrupted
-// states render COLLAPSED. The rich inner parts ride the open `errored` card,
-// and a collapsed `completed` card is diffed too. The non-vacuous collapsed
-// signal is the summary's
+// Each card carries the production disclosure default: waiting_permission
+// renders OPEN (a permission prompt is actionable); errored now renders
+// COLLAPSED like the other settled states (the failure signal lives on the
+// summary text). The rich inner parts ride the open `waiting_permission`
+// card, and collapsed `completed` + `errored` cards are diffed too. The
+// non-vacuous collapsed signal is the summary's
 // border-bottom: 1px on the open card, 0px on the collapsed one (the `[open]`
 // gate), so the rows genuinely exercise both states. (The body is hidden via
 // Chromium's `::details-content` pseudo, so its child `display` stays `block`
 // either way — the collapsed body row still diffs its box / typography parity.)
 const tv = (part) => toolVariants({ part });
-const openByDefault = (s) => s === 'waiting_permission' || s === 'errored';
+const openByDefault = (s) => s === 'waiting_permission';
 // The SINGLE source of truth for the tool-card fixture: every production
 // `ToolActivityItem['status']` (the keys of components.tsx's STATUS_LABEL). The
 // cards, the header count, and the diffed IDS all derive from this one list, so
@@ -155,19 +156,21 @@ const toolCardSection = (el) => {
   const body = pair('maka-tool-body', tv('body'));
   const dotEl = (s, id) => el('span', id, dot, `data-status="${s}" aria-hidden="true"`);
   // The status-invariant inner parts (name / meta / duration / status-label /
-  // body / intent / args) ride the OPEN `errored` card so they're each measured
-  // once in their visible state — including the `[open]>summary` divider.
-  const erroredInner =
+  // body / intent / args) ride the OPEN `waiting_permission` card so they're
+  // each measured once in their visible state — including the `[open]>summary`
+  // divider.
+  const waitingInner =
     el('summary', 'tool-summary', hdr, '',
-        dotEl('errored', 'tool-dot-errored')
+        dotEl('waiting_permission', 'tool-dot-waiting_permission')
         + el('span', 'tool-name', pair('maka-tool-name', tv('name')), '', 'Bash')
         + el('span', 'tool-meta', pair('maka-tool-meta', tv('meta')), '',
             el('span', 'tool-duration', pair('maka-tool-duration', tv('duration')), '', '1.2s')
-            + el('span', 'tool-statuslabel', pair('maka-tool-status-label', tv('status-label')), '', '失败')))
+            + el('span', 'tool-statuslabel', pair('maka-tool-status-label', tv('status-label')), '', '等待权限')))
       + el('div', 'tool-body', body, '',
           el('p', 'tool-intent', pair('maka-tool-intent', tv('intent')), '', 'run a command')
           + el('pre', 'tool-args', pair('maka-code toolArgs', cn('maka-code', tv('args'))), '', '{ "cmd": "ls" }'));
-  // The COLLAPSED `completed` card — the default history state. The summary loses
+  // The COLLAPSED `completed` card — the default history state (the collapsed
+  // `errored` card shares the same default branch now). The summary loses
   // its `[open]>summary` divider (border-bottom 0px vs the open card's 1px — the
   // non-vacuous proof the collapsed branch is really exercised); the body's box /
   // typography parity is diffed too. Both read identical across main/head.
@@ -177,7 +180,7 @@ const toolCardSection = (el) => {
         + el('span', 'tool-name-collapsed', pair('maka-tool-name', tv('name')), '', 'Read'))
       + el('div', 'tool-body-collapsed', body, '', 'hidden while collapsed');
   const inner = (s) =>
-    s === 'errored' ? erroredInner
+    s === 'waiting_permission' ? waitingInner
     : s === 'completed' ? completedInner
     // running dot excluded from IDS (animated); other open/collapsed dots diffed.
     : el('summary', `tool-sum-${s}`, hdr, '', dotEl(s, `tool-dot-${s}`));
@@ -257,8 +260,9 @@ const IDS = ['footer', 'footer-rest', 'footer-pending', 'footer-copy-pending', '
   // PR3b tool-card shell: section + count, all six `[data-status]` card
   // containers at their production default open/collapsed state, the summary header
   // grid, the static dot colors (running dot excluded — animated ring), the
-  // status-invariant inner parts (on the open `errored` card), and the COLLAPSED
-  // `completed` default — its summary (no `[open]` divider) + UA-hidden body.
+  // status-invariant inner parts (on the open `waiting_permission` card), and
+  // the COLLAPSED `completed` / `errored` defaults — the collapsed summary (no
+  // `[open]` divider) + UA-hidden body.
   'tool-section', 'tool-section-header', 'tool-count',
   // Derived from the same STAT as the cards (no second hand-kept list to drift):
   // every status' `[data-status]` container is diffed…

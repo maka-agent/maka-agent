@@ -42,7 +42,7 @@ describe('chat tool-output stream migration contract (#332 PR3)', () => {
 
     assert.match(
       harness,
-      /const openByDefault = \(s\) => s === 'waiting_permission' \|\| s === 'errored';/,
+      /const openByDefault = \(s\) => s === 'waiting_permission';/,
     );
   });
 
