@@ -124,15 +124,24 @@ export interface HarborRunRequest {
 const DEFAULT_HARBOR_TIMEOUT_MS = 45 * 60_000;
 const HARBOR_SETUP_TEARDOWN_GRACE_MS = 15 * 60_000;
 const DEFAULT_VERIFIER_TIMEOUT_SEC = 600;
-const VERIFIER_MAX_ATTEMPTS = 2;
+export const HARBOR_VERIFIER_MAX_ATTEMPTS = 2;
 const VERIFIER_RETRY_GRACE_SEC = 120;
-export const HARBOR_VERIFIER_POLICY_FINGERPRINT = `sha256:${createHash('sha256').update(JSON.stringify({
-  importPath: 'maka_verifier:MakaVerifier',
-  maxAttempts: VERIFIER_MAX_ATTEMPTS,
-  defaultAttemptTimeoutSec: DEFAULT_VERIFIER_TIMEOUT_SEC,
-  retryGraceSec: VERIFIER_RETRY_GRACE_SEC,
-  timeoutPolicy: 'candidate_timeout_without_replay',
-})).digest('hex')}`;
+
+export function buildHarborVerifierPolicyFingerprint(input: {
+  implementationSource: string | Uint8Array;
+  toolchainFingerprint: string;
+}): string {
+  const implementationSha256 = createHash('sha256').update(input.implementationSource).digest('hex');
+  return `sha256:${createHash('sha256').update(JSON.stringify({
+    importPath: 'maka_verifier:MakaVerifier',
+    implementationSha256,
+    toolchainFingerprint: input.toolchainFingerprint,
+    maxAttempts: HARBOR_VERIFIER_MAX_ATTEMPTS,
+    defaultAttemptTimeoutSec: DEFAULT_VERIFIER_TIMEOUT_SEC,
+    retryGraceSec: VERIFIER_RETRY_GRACE_SEC,
+    timeoutPolicy: 'candidate_timeout_without_replay',
+  })).digest('hex')}`;
+}
 
 export interface HarborRunResult {
   exitCode: number;
@@ -300,37 +309,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       },
     };
   };
-  runner.samplingState = (input) => readHarborAttemptSamplingState(options.jobsDir, input);
   return runner;
-}
-
-async function readHarborAttemptSamplingState(
-  rootJobsDir: string,
-  input: HarborTaskRunInput,
-): Promise<'not_started' | 'started' | 'unknown'> {
-  const jobDir = join(
-    rootJobsDir,
-    sanitize(input.runId),
-    sanitize(input.roundId),
-    sanitize(input.task.id),
-    'trial',
-  );
-  let entries;
-  try {
-    entries = await readdir(jobDir, { withFileTypes: true });
-  } catch (error) {
-    return (error as { code?: unknown }).code === 'ENOENT' ? 'not_started' : 'unknown';
-  }
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    try {
-      await readFile(join(jobDir, entry.name, TRIAL_EXECUTION_IDENTITY), 'utf8');
-      return 'started';
-    } catch (error) {
-      if ((error as { code?: unknown }).code !== 'ENOENT') return 'unknown';
-    }
-  }
-  return 'not_started';
 }
 
 export function createHarborOracleQualifier(options: HarborOracleQualifierOptions): HarborOracleQualifier {
@@ -713,7 +692,7 @@ function harborVerifierConfig(verifier: ReturnType<typeof verifierPolicy>) {
     import_path: 'maka_verifier:MakaVerifier',
     kwargs: {
       attempt_timeout_sec: verifier.attemptTimeoutSec,
-      max_attempts: VERIFIER_MAX_ATTEMPTS,
+      max_attempts: HARBOR_VERIFIER_MAX_ATTEMPTS,
     },
     override_timeout_sec: verifier.outerTimeoutSec,
   };
@@ -726,7 +705,7 @@ function verifierPolicy(task: HarborTaskRunInput['task']): {
   const attemptTimeoutSec = task.metadata?.verifierTimeoutSec ?? DEFAULT_VERIFIER_TIMEOUT_SEC;
   return {
     attemptTimeoutSec,
-    outerTimeoutSec: attemptTimeoutSec * VERIFIER_MAX_ATTEMPTS + VERIFIER_RETRY_GRACE_SEC,
+    outerTimeoutSec: attemptTimeoutSec * HARBOR_VERIFIER_MAX_ATTEMPTS + VERIFIER_RETRY_GRACE_SEC,
   };
 }
 

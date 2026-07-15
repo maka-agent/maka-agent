@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -16,7 +16,7 @@ describe('harness Oracle qualification', () => {
       candidateTasks: ['a', 'b', 'c', 'd'].map((id) => ({ id, path: `/tasks/${id}` })),
       targetCount: 2,
       taskSourceFingerprint: 'sha256:tasks',
-      verifierPolicyFingerprint: 'sha256:verifier',
+      verifierPolicy: { fingerprint: 'sha256:verifier', maxAttempts: 2 },
       runOracle: async (task) => {
         calls.push(task.id);
         return task.id === 'b'
@@ -41,7 +41,7 @@ describe('harness Oracle qualification', () => {
         candidateTasks: [{ id: 'a', path: '/tasks/a' }],
         targetCount: 2,
         taskSourceFingerprint: 'sha256:tasks',
-        verifierPolicyFingerprint: 'sha256:verifier',
+        verifierPolicy: { fingerprint: 'sha256:verifier', maxAttempts: 2 },
         runOracle: async () => ({ outcome: 'failed', reward: 0, attempts: 2 }),
       }),
       /only 0 of 2 tasks passed Oracle qualification/,
@@ -57,7 +57,7 @@ describe('harness Oracle qualification', () => {
         candidateTasks: [{ id: 'a', path: '/tasks/a' }],
         targetCount: 1,
         taskSourceFingerprint: 'sha256:tasks',
-        verifierPolicyFingerprint: 'sha256:verifier',
+        verifierPolicy: { fingerprint: 'sha256:verifier', maxAttempts: 2 },
         runOracle: async () => {
           calls += 1;
           return { outcome: 'passed' as const, reward: 1, attempts: 1 };
@@ -74,6 +74,30 @@ describe('harness Oracle qualification', () => {
     }
   });
 
+  test('atomically publishes one complete evidence file under concurrent qualification', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-qualification-'));
+    const path = join(root, 'qualification.json');
+    const input = {
+      candidateTasks: [{ id: 'a', path: '/tasks/a' }],
+      targetCount: 1,
+      taskSourceFingerprint: 'sha256:tasks',
+      verifierPolicy: { fingerprint: 'sha256:verifier', maxAttempts: 2 },
+      runOracle: async () => ({ outcome: 'passed' as const, reward: 1, attempts: 1 }),
+    };
+    try {
+      const [first, second] = await Promise.all([
+        ensureHarnessOracleQualification(path, input),
+        ensureHarnessOracleQualification(path, input),
+      ]);
+
+      assert.deepEqual(second, first);
+      assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), first);
+      assert.deepEqual((await readdir(root)).filter((entry) => entry.includes('.tmp-')), []);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('rejects checksummed evidence whose selected tasks disagree with Oracle outcomes', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-qualification-'));
     const path = join(root, 'qualification.json');
@@ -81,7 +105,7 @@ describe('harness Oracle qualification', () => {
       candidateTasks: [{ id: 'a', path: '/tasks/a' }, { id: 'b', path: '/tasks/b' }],
       targetCount: 1,
       taskSourceFingerprint: 'sha256:tasks',
-      verifierPolicyFingerprint: 'sha256:verifier',
+      verifierPolicy: { fingerprint: 'sha256:verifier', maxAttempts: 2 },
       runOracle: async () => ({ outcome: 'passed' as const, reward: 1, attempts: 1 }),
     };
     try {
@@ -89,6 +113,34 @@ describe('harness Oracle qualification', () => {
       const { fingerprint: _fingerprint, ...tamperedBody } = {
         ...valid,
         selectedTaskIds: ['b'],
+      };
+      const fingerprint = `sha256:${createHash('sha256').update(canonicalJsonFixture(tamperedBody)).digest('hex')}`;
+      await writeFile(path, `${JSON.stringify({ ...tamperedBody, fingerprint }, null, 2)}\n`, 'utf8');
+
+      await assert.rejects(
+        ensureHarnessOracleQualification(path, input),
+        /stored Oracle qualification evidence is malformed/,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects checksummed evidence with more attempts than the verifier policy permits', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-qualification-'));
+    const path = join(root, 'qualification.json');
+    const input = {
+      candidateTasks: [{ id: 'a', path: '/tasks/a' }],
+      targetCount: 1,
+      taskSourceFingerprint: 'sha256:tasks',
+      verifierPolicy: { fingerprint: 'sha256:verifier', maxAttempts: 2 },
+      runOracle: async () => ({ outcome: 'passed' as const, reward: 1, attempts: 1 }),
+    };
+    try {
+      const valid = await ensureHarnessOracleQualification(path, input);
+      const { fingerprint: _fingerprint, ...tamperedBody } = {
+        ...valid,
+        candidates: valid.candidates.map((candidate) => ({ ...candidate, attempts: 3 })),
       };
       const fingerprint = `sha256:${createHash('sha256').update(canonicalJsonFixture(tamperedBody)).digest('hex')}`;
       await writeFile(path, `${JSON.stringify({ ...tamperedBody, fingerprint }, null, 2)}\n`, 'utf8');

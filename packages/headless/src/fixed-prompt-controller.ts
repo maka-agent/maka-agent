@@ -68,11 +68,8 @@ export interface HarborTaskRunInput {
   agentEnv?: Record<string, string>;
 }
 
-export type HarborAttemptSamplingState = 'not_started' | 'started' | 'unknown';
-
 export interface HarborTaskRunner {
   (input: HarborTaskRunInput): Promise<HarborTaskRunOutput>;
-  samplingState?: (input: HarborTaskRunInput) => Promise<HarborAttemptSamplingState>;
 }
 
 export interface FixedPromptBudgetExhaustedArtifactRefs {
@@ -390,17 +387,6 @@ export async function runFixedPromptController(
     input.resumeFingerprint,
     input.infraFailurePolicy === 'terminal',
   );
-  const samplingStateFor = (task: FixedPromptTask) => input.harborRunner.samplingState?.({
-    runId: input.runId,
-    roundId: input.roundId,
-    task,
-    config,
-    systemPrompt,
-  });
-  for (const task of input.protectPassAtOne ? input.tasks : []) {
-    if (completed.get(task.id)?.type !== 'task_infra_failed') continue;
-    if (await samplingStateFor(task) === 'not_started') completed.delete(task.id);
-  }
   const orphanedAttempts = orphanedTaskAttempts(
     [...attemptEvents, ...events],
     input.runId,
@@ -410,8 +396,6 @@ export async function runFixedPromptController(
   );
   for (const task of input.protectPassAtOne ? input.tasks : []) {
     if (completed.has(task.id) || !orphanedAttempts.has(task.id)) continue;
-    const samplingState = await samplingStateFor(task);
-    if (samplingState === 'not_started') continue;
     const event = orphanedAttemptEvent({
       taskId: task.id,
       runId: input.runId,

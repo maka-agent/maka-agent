@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import type { FixedPromptTask } from './fixed-prompt-controller.js';
+import { publishImmutableFile } from './immutable-file.js';
 
 export interface HarnessOracleTaskResult {
   outcome: 'passed' | 'failed' | 'candidate_timeout';
@@ -24,7 +24,10 @@ export interface QualifyHarnessTasksInput {
   candidateTasks: readonly FixedPromptTask[];
   targetCount: number;
   taskSourceFingerprint: string;
-  verifierPolicyFingerprint: string;
+  verifierPolicy: {
+    fingerprint: string;
+    maxAttempts: number;
+  };
   runOracle: (task: FixedPromptTask) => Promise<HarnessOracleTaskResult>;
 }
 
@@ -48,7 +51,7 @@ export async function qualifyHarnessTasks(
   return withFingerprint({
     schemaVersion: 1 as const,
     taskSourceFingerprint: input.taskSourceFingerprint,
-    verifierPolicyFingerprint: input.verifierPolicyFingerprint,
+    verifierPolicyFingerprint: input.verifierPolicy.fingerprint,
     targetCount: input.targetCount,
     candidateTaskIds: input.candidateTasks.map((task) => task.id),
     selectedTaskIds,
@@ -63,21 +66,18 @@ export async function ensureHarnessOracleQualification(
   const existing = await readEvidence(path);
   if (existing) return validateEvidence(existing, input);
   const evidence = await qualifyHarnessTasks(input);
-  await mkdir(dirname(path), { recursive: true });
-  try {
-    await writeFile(path, `${JSON.stringify(evidence, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
-    return evidence;
-  } catch (error) {
-    if (!isAlreadyExists(error)) throw error;
-    const concurrent = await readEvidence(path);
-    if (!concurrent) throw error;
-    return validateEvidence(concurrent, input);
-  }
+  if (await publishImmutableFile(path, `${JSON.stringify(evidence, null, 2)}\n`)) return evidence;
+  const concurrent = await readEvidence(path);
+  if (!concurrent) throw new Error('concurrent Oracle qualification evidence disappeared after publication');
+  return validateEvidence(concurrent, input);
 }
 
 function assertQualificationInput(input: QualifyHarnessTasksInput): void {
   if (!Number.isSafeInteger(input.targetCount) || input.targetCount < 1) {
     throw new Error('qualification targetCount must be a positive integer');
+  }
+  if (!Number.isSafeInteger(input.verifierPolicy.maxAttempts) || input.verifierPolicy.maxAttempts < 1) {
+    throw new Error('qualification verifier maxAttempts must be a positive integer');
   }
   const ids = input.candidateTasks.map((task) => task.id);
   if (new Set(ids).size !== ids.length) throw new Error('qualification candidate task ids must be unique');
@@ -93,13 +93,13 @@ function validateEvidence(value: unknown, input: QualifyHarnessTasksInput): Harn
   const expectedTaskIds = input.candidateTasks.map((task) => task.id);
   if (
     value.taskSourceFingerprint !== input.taskSourceFingerprint
-    || value.verifierPolicyFingerprint !== input.verifierPolicyFingerprint
+    || value.verifierPolicyFingerprint !== input.verifierPolicy.fingerprint
     || value.targetCount !== input.targetCount
     || JSON.stringify(value.candidateTaskIds) !== JSON.stringify(expectedTaskIds)
   ) {
     throw new Error('stored Oracle qualification evidence does not match this run');
   }
-  if (!qualificationEvidenceBodyIsValid(value, expectedTaskIds, input.targetCount)) {
+  if (!qualificationEvidenceBodyIsValid(value, expectedTaskIds, input.targetCount, input.verifierPolicy.maxAttempts)) {
     throw new Error('stored Oracle qualification evidence is malformed');
   }
   return value as unknown as HarnessOracleQualificationEvidence;
@@ -109,6 +109,7 @@ function qualificationEvidenceBodyIsValid(
   value: Record<string, unknown>,
   expectedTaskIds: readonly string[],
   targetCount: number,
+  maxAttempts: number,
 ): boolean {
   if (!Array.isArray(value.selectedTaskIds) || !Array.isArray(value.candidates)) return false;
   if (
@@ -127,6 +128,7 @@ function qualificationEvidenceBodyIsValid(
       || typeof candidate.attempts !== 'number'
       || !Number.isSafeInteger(candidate.attempts)
       || candidate.attempts < 1
+      || candidate.attempts > maxAttempts
     ) return false;
     if (candidate.outcome === 'passed') {
       if (candidate.reward <= 0) return false;
@@ -170,8 +172,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNotFound(error: unknown): boolean {
   return isRecord(error) && error.code === 'ENOENT';
-}
-
-function isAlreadyExists(error: unknown): boolean {
-  return isRecord(error) && error.code === 'EEXIST';
 }

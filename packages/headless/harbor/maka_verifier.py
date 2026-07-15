@@ -102,7 +102,7 @@ class MakaVerifier(Verifier):
             except Exception as error:
                 last_error = error
 
-            classification = self._classify_attempt(result, last_error)
+            classification = self._classify_attempt(result)
             record: dict[str, Any] = {
                 "attempt": attempt,
                 "classification": classification,
@@ -138,17 +138,16 @@ class MakaVerifier(Verifier):
     def _classify_attempt(
         self,
         result: VerifierResult | None,
-        error: Exception | None,
     ) -> str:
         if self._timed_environment.timed_out:
             return "timeout"
+        reward = _reward(result)
+        if reward is not None:
+            return "passed" if reward > 0 else "failed"
         stdout = _read_optional_text(self.trial_paths.test_stdout_path)
         if _is_infra_failure(stdout):
             return "infra_setup_failed"
-        reward = _reward(result)
-        if reward is None or error is not None:
-            return "infra_failed"
-        return "passed" if reward > 0 else "failed"
+        return "infra_failed"
 
     async def _clear_attempt_outputs(self) -> None:
         for path in (

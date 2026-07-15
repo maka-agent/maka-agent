@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import type {
   AbRunManifest,
   AbRunManifestInput,
 } from './ab-types.js';
+import { publishImmutableFile } from './immutable-file.js';
 
 export function buildAbRunManifest(input: AbRunManifestInput): AbRunManifest {
   const manifestWithoutFingerprint = withoutUndefined({
@@ -64,14 +64,10 @@ export async function ensureAbRunManifest<T extends { fingerprint: string }>(
     if (!isNotFound(error)) throw error;
   }
   if (raw === undefined) {
-    await mkdir(dirname(path), { recursive: true });
-    try {
-      await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
+    if (await publishImmutableFile(path, `${JSON.stringify(manifest, null, 2)}\n`)) {
       return manifest;
-    } catch (error) {
-      if (!isAlreadyExists(error)) throw error;
-      raw = await readConcurrentManifest(path);
     }
+    raw = await readFile(path, 'utf8');
   }
   const existing = JSON.parse(raw) as T;
   if (hasFullBodyFingerprint(existing)) {
@@ -117,26 +113,4 @@ function isNotFound(error: unknown): boolean {
     && error !== null
     && 'code' in error
     && (error as { code?: unknown }).code === 'ENOENT';
-}
-
-function isAlreadyExists(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && (error as { code?: unknown }).code === 'EEXIST';
-}
-
-async function readConcurrentManifest(path: string): Promise<string> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    try {
-      const raw = await readFile(path, 'utf8');
-      JSON.parse(raw);
-      return raw;
-    } catch (error) {
-      lastError = error;
-      await new Promise<void>((resolve) => setImmediate(resolve));
-    }
-  }
-  throw lastError;
 }

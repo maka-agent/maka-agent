@@ -7,10 +7,11 @@ import { tokenSummary } from './helpers/cell-output-fixtures.js';
 import type { HarborCellExecutionIdentity, HarborCellOutput } from '../cell-output.js';
 import { FixedPromptBudgetExhaustedError, type HarborTaskRunInput } from '../fixed-prompt-controller.js';
 import {
+  buildHarborVerifierPolicyFingerprint,
   buildHarborJobConfig,
   createHarborOracleQualifier,
   createHarborTaskRunner,
-  HARBOR_VERIFIER_POLICY_FINGERPRINT,
+  HARBOR_VERIFIER_MAX_ATTEMPTS,
   HarborInfraError,
   type HarborProcessRunner,
   type HarborRunResult,
@@ -157,28 +158,6 @@ async function withRun<T>(fn: (dirs: { jobsDir: string; repo: string; keyFile: s
 }
 
 describe('createHarborTaskRunner', () => {
-  test('reports whether durable trial evidence shows model sampling may have started', async () => {
-    await withRun(async ({ jobsDir, repo }) => {
-      const runner = createHarborTaskRunner({
-        makaRepoPath: repo,
-        jobsDir,
-        model: 'deepseek/deepseek-v4-flash',
-      });
-
-      assert.equal(await runner.samplingState?.(runInput()), 'not_started');
-
-      const agentDir = join(jobsDir, 'run-1', 'round-1', 'task-1', 'trial', 'cobol-modernization__t1', 'agent');
-      await mkdir(agentDir, { recursive: true });
-      await writeFile(
-        join(agentDir, 'maka-cell-execution-identity.json'),
-        JSON.stringify({ llmConnectionSlug: 'fake' }),
-        'utf8',
-      );
-
-      assert.equal(await runner.samplingState?.(runInput()), 'started');
-    });
-  });
-
   test('parses reward + cell output and rewrites runtime events to the host path', async () => {
     await withRun(async ({ jobsDir, repo, keyFile }) => {
       const runner = createHarborTaskRunner({
@@ -1001,7 +980,26 @@ describe('createHarborOracleQualifier', () => {
       assert.deepEqual(result, { outcome: 'passed', reward: 1, attempts: 1 });
       assert.deepEqual(config.agents, [{ name: 'oracle' }]);
       assert.equal(verifier.import_path, 'maka_verifier:MakaVerifier');
-      assert.match(HARBOR_VERIFIER_POLICY_FINGERPRINT, /^sha256:[a-f0-9]{64}$/);
+      const fingerprint = buildHarborVerifierPolicyFingerprint({
+        implementationSource: 'verifier source v1',
+        toolchainFingerprint: 'sha256:toolchain-v1',
+      });
+      assert.match(fingerprint, /^sha256:[a-f0-9]{64}$/);
+      assert.notEqual(
+        fingerprint,
+        buildHarborVerifierPolicyFingerprint({
+          implementationSource: 'verifier source v2',
+          toolchainFingerprint: 'sha256:toolchain-v1',
+        }),
+      );
+      assert.notEqual(
+        fingerprint,
+        buildHarborVerifierPolicyFingerprint({
+          implementationSource: 'verifier source v1',
+          toolchainFingerprint: 'sha256:toolchain-v2',
+        }),
+      );
+      assert.equal(HARBOR_VERIFIER_MAX_ATTEMPTS, 2);
     });
   });
 });

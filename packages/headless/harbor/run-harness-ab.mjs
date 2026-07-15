@@ -12,9 +12,10 @@ import {
   resolveFixedPromptRunRoot,
 } from '#fixed-prompt-task-source';
 import {
+  buildHarborVerifierPolicyFingerprint,
   createHarborOracleQualifier,
   createHarborTaskRunner,
-  HARBOR_VERIFIER_POLICY_FINGERPRINT,
+  HARBOR_VERIFIER_MAX_ATTEMPTS,
 } from '#harbor-task-runner';
 import { ensureHarnessOracleQualification } from '#harness-qualification';
 import {
@@ -204,6 +205,23 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     return;
   }
 
+  const subjectFingerprint = await buildSubjectFingerprint(
+    makaRepoPath,
+    process.env.MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT,
+  );
+  const hostToolchainFingerprint = await buildToolchainFingerprint(
+    process.env.MAKA_HARNESS_AB_TOOLCHAIN_FINGERPRINT,
+    undefined,
+    makaRepoPath,
+  );
+  const verifierPolicy = {
+    fingerprint: buildHarborVerifierPolicyFingerprint({
+      implementationSource: await readFile(join(makaRepoPath, 'packages/headless/harbor/maka_verifier.py')),
+      toolchainFingerprint: hostToolchainFingerprint,
+    }),
+    maxAttempts: HARBOR_VERIFIER_MAX_ATTEMPTS,
+  };
+
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
   const orderedTasks = deterministicHarnessTaskOrder(allTasks.map((task) => task.id), ORDER_SEED)
     .map((taskId) => tasksById.get(taskId));
@@ -214,7 +232,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
       candidateTasks: orderedTasks,
       targetCount: EXPECTED_EVALUATION_TASKS,
       taskSourceFingerprint,
-      verifierPolicyFingerprint: HARBOR_VERIFIER_POLICY_FINGERPRINT,
+      verifierPolicy,
       runOracle: createHarborOracleQualifier({
         makaRepoPath,
         jobsDir: join(runRoot, 'qualification-jobs'),
@@ -223,15 +241,6 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     },
   );
 
-  const subjectFingerprint = await buildSubjectFingerprint(
-    makaRepoPath,
-    process.env.MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT,
-  );
-  const hostToolchainFingerprint = await buildToolchainFingerprint(
-    process.env.MAKA_HARNESS_AB_TOOLCHAIN_FINGERPRINT,
-    undefined,
-    makaRepoPath,
-  );
   const toolchainFingerprint = `sha256:${createHash('sha256').update(JSON.stringify({
     hostToolchainFingerprint,
     opencodeToolchainFingerprint: OPENCODE_TOOLCHAIN_FINGERPRINT,

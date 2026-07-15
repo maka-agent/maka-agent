@@ -593,7 +593,7 @@ describe('fixed prompt controller', () => {
     });
   });
 
-  test('readmits an orphaned admission when runner evidence proves sampling never started', async () => {
+  test('fails closed after an orphaned durable admission even when no identity was observed', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       const resultsJsonlPath = join(dir, 'results.jsonl');
@@ -609,13 +609,10 @@ describe('fixed prompt controller', () => {
         promptHash: hashSystemPrompt('fixed prompt\n'),
       });
       let harborCalls = 0;
-      const harborRunner: HarborTaskRunner = Object.assign(
-        async ({ task }: HarborTaskRunInput) => {
-          harborCalls += 1;
-          return harborOutput({ taskId: task.id });
-        },
-        { samplingState: async () => 'not_started' as const },
-      );
+      const harborRunner: HarborTaskRunner = async ({ task }: HarborTaskRunInput) => {
+        harborCalls += 1;
+        return harborOutput({ taskId: task.id });
+      };
 
       const result = await runFixedPromptController({
         runId: 'run-1',
@@ -631,12 +628,13 @@ describe('fixed prompt controller', () => {
         newId: idFactory(),
       });
 
-      assert.equal(harborCalls, 1);
-      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(harborCalls, 0);
+      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
+      assert.equal(result.events[0]?.errorClass, 'orphaned_sampled_attempt');
     });
   });
 
-  test('readmits a terminal infrastructure failure when sampling evidence proves no model started', async () => {
+  test('keeps a terminal infrastructure failure closed after durable pass-at-one admission', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       const resultsJsonlPath = join(dir, 'results.jsonl');
@@ -657,13 +655,10 @@ describe('fixed prompt controller', () => {
         error: 'Harbor failed before the agent started',
       });
       let harborCalls = 0;
-      const harborRunner: HarborTaskRunner = Object.assign(
-        async ({ task }: HarborTaskRunInput) => {
-          harborCalls += 1;
-          return harborOutput({ taskId: task.id });
-        },
-        { samplingState: async () => 'not_started' as const },
-      );
+      const harborRunner: HarborTaskRunner = async ({ task }: HarborTaskRunInput) => {
+        harborCalls += 1;
+        return harborOutput({ taskId: task.id });
+      };
 
       const result = await runFixedPromptController({
         runId: 'run-1',
@@ -679,8 +674,8 @@ describe('fixed prompt controller', () => {
         newId: idFactory(),
       });
 
-      assert.equal(harborCalls, 1);
-      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(harborCalls, 0);
+      assert.equal(result.events[0]?.type, 'task_infra_failed');
     });
   });
 
