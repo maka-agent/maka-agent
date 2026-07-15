@@ -899,7 +899,7 @@ function modelSupportsVision(connection: LlmConnection, model: string): boolean 
 backends.register('ai-sdk', async (ctx) => {
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
-  const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
+  const memoryProjection = await localMemory.captureAgentMemoryProjection();
   const supportsVision = modelSupportsVision(connection, model);
   const candidateTools = isComputerUseRealModelE2e
     ? computerUseTools
@@ -943,7 +943,7 @@ backends.register('ai-sdk', async (ctx) => {
       modelId: model,
     }),
     systemPrompt: ({ cwd }) => systemPromptService.buildBackendSystemPrompt(ctx.header, cwd, {
-      memoryFragment: memoryPromptSnapshot,
+      memoryProjection,
       childInstruction: ctx.systemPrompt,
       skillBudget: { contextWindow: resolveSelectedModelContextWindow(connection, model) },
     }),

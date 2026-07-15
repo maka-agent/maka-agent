@@ -1,0 +1,3 @@
+attempt_id,input_tokens,output_tokens,reasoning_tokens,total_tokens
+sha256:142758c12f0b931e457cd4e93dda88acbe85fa75a38aec8a9cfefa987be7d6a9,10,2,0,12
+sha256:64714fa9bd490d39b0e0248efbfe2ad6060d4585b263b8aa6a801a339929a6cc,11,3,1,15

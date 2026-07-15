@@ -132,6 +132,9 @@ export async function runExperiment(
       backend: config.backend,
       llmConnectionSlug: config.llmConnectionSlug,
       model: config.model,
+      ...(config.thinkingLevel !== undefined && config.thinkingLevel !== 'default'
+        ? { thinkingLevel: config.thinkingLevel }
+        : {}),
       permissionMode: 'execute',
       name: `lab:${config.id}:${task.id}`,
     });

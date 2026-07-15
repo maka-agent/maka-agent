@@ -24,6 +24,8 @@ export function deriveMemorySettingsViewModel(input: {
     archivedEntryCount: 0,
     entries: [],
     activeEntries: [],
+    compatibilityEntries: [],
+    malformedEntries: [],
     archivedEntries: [],
   } satisfies LocalMemoryState;
   const memoryDraftDirty = input.draft !== effective.content;
@@ -41,6 +43,14 @@ export function deriveMemorySettingsViewModel(input: {
     visibleMemoryEntries.archivedEntries,
     normalizedMemoryEntryQuery,
   );
+  const filteredCompatibilityEntries = filterLocalMemoryEntries(
+    visibleMemoryEntries.compatibilityEntries,
+    normalizedMemoryEntryQuery,
+  );
+  const filteredMalformedEntries = filterLocalMemoryEntries(
+    visibleMemoryEntries.malformedEntries,
+    normalizedMemoryEntryQuery,
+  );
   const localMemoryPromptPreview = buildLocalMemoryPromptBody(input.draft) ?? '';
   const promptPreviewBlockedReason = localMemoryPromptPreviewBlockedReason(effective);
   const localMemoryPromptPreviewTruncated = localMemoryPromptPreview.includes('[本地记忆已按长度截断]');
@@ -53,7 +63,12 @@ export function deriveMemorySettingsViewModel(input: {
     normalizedMemoryEntryQuery,
     filteredActiveEntries,
     filteredArchivedEntries,
-    filteredEntryCount: filteredActiveEntries.length + filteredArchivedEntries.length,
+    filteredCompatibilityEntries,
+    filteredMalformedEntries,
+    filteredEntryCount: filteredActiveEntries.length
+      + filteredArchivedEntries.length
+      + filteredCompatibilityEntries.length
+      + filteredMalformedEntries.length,
     localMemoryPromptPreview,
     promptPreviewBlockedReason,
     promptPreviewWillInject: localMemoryPromptPreview.length > 0 && !promptPreviewBlockedReason,

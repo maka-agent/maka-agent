@@ -1,0 +1,36 @@
+{
+  "input": {
+    "manifest": {
+      "apiKey": "sk-manifest-secret-123456"
+    },
+    "trace": {
+      "sessionToken": "trace-session-secret",
+      "githubToken": "opaque-github-token",
+      "awsSecretAccessKey": "opaque-aws-secret"
+    },
+    "transcript": "Authorization: Basic dXNlcjpwYXNz OPENAI_API_KEY=opaque-openai-key GITHUB_TOKEN=opaque-github-token",
+    "error": "request failed at https://user:password@example.test/?access_token=error-secret",
+    "headers": "Cookie: session=opaque-cookie-value",
+    "summary": {
+      "cookie": "summary-cookie-secret",
+      "inputTokens": 42
+    }
+  },
+  "expected": {
+    "manifest": {
+      "apiKey": "[REDACTED]"
+    },
+    "trace": {
+      "sessionToken": "[REDACTED]",
+      "githubToken": "[REDACTED]",
+      "awsSecretAccessKey": "[REDACTED]"
+    },
+    "transcript": "Authorization: [REDACTED] OPENAI_API_KEY=[REDACTED] GITHUB_TOKEN=[REDACTED]",
+    "error": "request failed at https://[REDACTED]@example.test/?access_token=[REDACTED]",
+    "headers": "Cookie: [REDACTED]",
+    "summary": {
+      "cookie": "[REDACTED]",
+      "inputTokens": 42
+    }
+  }
+}

@@ -1,15 +1,15 @@
 import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
-const REPO_ROOT = join(process.cwd(), '..', '..');
+const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
 async function readRepo(path: string): Promise<string> {
-  return readFile(join(REPO_ROOT, path), 'utf8');
+  return readFile(resolve(REPO_ROOT, path), 'utf8');
 }
 
 describe('local MEMORY.md Settings UI contract', () => {
@@ -20,8 +20,8 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(page, /<MemoryPromptPreviewSection[\s\S]*active=\{promptPreviewWillInject\}[\s\S]*preview=\{localMemoryPromptPreview\}[\s\S]*budgetLabel=\{localMemoryPromptPreviewBudgetLabel\}[\s\S]*blockedReason=\{promptPreviewBlockedReason\}[\s\S]*safeMode=\{effective\.status === 'safe_mode'\}[\s\S]*copyPending=\{isMemoryActionPending\('memory:prompt-preview:copy'\)\}[\s\S]*onCopy=\{copyLocalMemoryPromptPreview\}/);
 
     const entryLists = [...page.matchAll(/<MemoryEntryList[\s\S]*?\/>/g)].map((match) => match[0]);
-    assert.equal(entryLists.length, 2, 'active and archived entry lists must both be wired');
-    for (const list of entryLists) {
+    assert.equal(entryLists.length, 4, 'active, archived, compatibility, and malformed lists must be wired');
+    for (const list of entryLists.slice(0, 2)) {
       assert.match(list, /filtered=\{normalizedMemoryEntryQuery\.length > 0\}/);
       assert.match(list, /draftDirty=\{memoryDraftDirty\}/);
       assert.match(list, /busy=\{memoryControlsDisabled \|\| effective\.status === 'incognito_blocked' \|\| !effective\.enabled\}/);
@@ -30,13 +30,21 @@ describe('local MEMORY.md Settings UI contract', () => {
       assert.match(list, /onFocusDraft=\{focusMemoryEntryInDraft\}/);
       assert.match(list, /onStatusChange=\{updateMemoryEntryStatus\}/);
     }
-    const [activeList, archivedList] = entryLists;
+    const [activeList, archivedList, compatibilityList, malformedList] = entryLists;
     assert.match(activeList, /title="生效记忆"/);
     assert.match(activeList, /entries=\{filteredActiveEntries\}/);
     assert.doesNotMatch(activeList, /\n\s+archived(?:\s|\n)/);
     assert.match(archivedList, /title="已归档记忆"/);
     assert.match(archivedList, /entries=\{filteredArchivedEntries\}/);
     assert.match(archivedList, /\n\s+archived(?:\s|\n)/);
+    assert.match(compatibilityList, /title="兼容只读记忆"/);
+    assert.match(compatibilityList, /entries=\{filteredCompatibilityEntries\}/);
+    assert.match(compatibilityList, /\n\s+compatibility(?:\s|\n)/);
+    assert.doesNotMatch(compatibilityList, /onStatusChange/);
+    assert.match(malformedList, /title="需要修复的记忆"/);
+    assert.match(malformedList, /entries=\{filteredMalformedEntries\}/);
+    assert.match(malformedList, /\n\s+malformed(?:\s|\n)/);
+    assert.doesNotMatch(malformedList, /onStatusChange/);
   });
 
   it('renders active and archived memory entries as separate visible groups', async () => {
@@ -44,6 +52,10 @@ describe('local MEMORY.md Settings UI contract', () => {
 
     assert.match(src, /<MemoryEntryList[\s\S]*title="生效记忆"[\s\S]*entries=\{filteredActiveEntries\}/);
     assert.match(src, /<MemoryEntryList[\s\S]*title="已归档记忆"[\s\S]*entries=\{filteredArchivedEntries\}[\s\S]*archived/);
+    assert.match(src, /title="兼容只读记忆"[\s\S]*entries=\{filteredCompatibilityEntries\}/);
+    assert.match(src, /title="需要修复的记忆"[\s\S]*entries=\{filteredMalformedEntries\}/);
+    assert.match(src, /旧格式兼容条目，不属于已确认的 durable memory/);
+    assert.match(src, /格式不完整，只读保留且不会进入 prompt/);
     assert.match(src, /<div className="settingsMemoryManualAdd" role="group" aria-label="手动添加本地记忆">/);
     assert.doesNotMatch(src, /<div className="settingsMemoryManualAdd" aria-label="手动添加本地记忆">/);
     assert.match(src, /visibleMemoryEntries\.archivedEntries\.length > 0/);
@@ -388,6 +400,8 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(src, /const statusActionLabel = props\.draftDirty/);
     assert.match(src, /:\s*props\.archived\s*\?\s*'恢复'\s*:\s*'归档';/);
     assert.match(src, /window\.maka\.memory\.save\(result\.draft\)/);
+    assert.match(src, /confirmation_required/);
+    assert.match(src, /旧格式记忆缺少确认来源/);
   });
 
   it('keeps archive and restore draft-only when MEMORY.md has unsaved edits', async () => {
@@ -612,9 +626,8 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(service, /await this\.backupRestoreUndo\(\)/);
     assert.match(service, /await this\.backup\('restore\.bak'\)/);
     assert.match(service, /realpath\(backupInfo\.path\)/);
-    assert.match(service, /const backupContent = await readFile\(backup\)/);
-    assert.match(service, /await writeFile\(this\.file, backupContent, \{ mode: 0o600 \}\)/);
-    assert.match(service, /await chmod\(this\.file, 0o600\)/);
+    assert.match(service, /const backupContent = await readFile\(backup, 'utf8'\)/);
+    assert.match(service, /await this\.writeMemoryContent\(backupContent\)/);
     assert.match(service, /没有找到上一版 MEMORY\.md 备份/);
     assert.match(main, /ipcMain\.handle\('memory:restoreLatestBackup'/);
     assert.match(preload, /restoreLatestBackup\(\)/);

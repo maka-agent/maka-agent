@@ -246,6 +246,30 @@ describe('getAIModel: models.dev registry providers', () => {
 });
 
 describe('buildProviderOptions: openai-compatible namespace', () => {
+  test('custom gateways pass an explicit headless calibration level under the connection namespace', () => {
+    assert.deepEqual(
+      buildProviderOptions(conn('openai-compatible', 'custom-gateway'), 'reasoning-model', 'high'),
+      {},
+    );
+    assert.deepEqual(
+      buildProviderOptions(
+        conn('openai-compatible', 'custom-gateway'),
+        'reasoning-model',
+        'high',
+        { allowUncataloguedThinkingLevel: true },
+      ),
+      { 'custom-gateway': { reasoningEffort: 'high' } },
+    );
+    assert.deepEqual(
+      buildProviderOptions(
+        conn('openai-compatible', 'gateway'),
+        'unknown-model',
+        'off',
+        { allowUncataloguedThinkingLevel: true },
+      ),
+      {},
+    );
+  });
   test('zai-coding-plan emits reasoningEffort under the raw dashed namespace', () => {
     assert.deepEqual(buildProviderOptions(conn('zai-coding-plan', 'zai-coding-plan'), 'glm-5.2', 'high'), { 'zai-coding-plan': { reasoningEffort: 'high' } });
     assert.deepEqual(buildProviderOptions(conn('zai-coding-plan', 'zai-coding-plan'), 'glm-5.2', 'max'), { 'zai-coding-plan': { reasoningEffort: 'max' } });

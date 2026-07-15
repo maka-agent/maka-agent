@@ -10,6 +10,8 @@ import {
   buildHarborCellContinuationPolicy,
   buildHarborCellTaskLedgerExperimentPolicy,
   harborCellMaxStepsFromEnv,
+  harborCellThinkingLevelFromEnv,
+  harborCellThinkingLevelModeFromEnv,
   normalizeHarborCellContextEnv,
   providerApiKeyEnvName,
   reasoningEffortFromEnv,
@@ -29,6 +31,8 @@ const HOST_BACKEND_ENV_KEYS = [
   'MAKA_OUTPUT_DIR',
   'MAKA_STORAGE_ROOT',
   'MAKA_REASONING_EFFORT',
+  'MAKA_THINKING_LEVEL',
+  'MAKA_THINKING_LEVEL_MODE',
 ];
 export async function main(options = {}) {
   const env = process.env;
@@ -42,7 +46,10 @@ export async function main(options = {}) {
   const economyTaskMode = economyTaskModeFromEnv(env.MAKA_ECONOMY_TASK_MODE);
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(env);
   const maxSteps = harborCellMaxStepsFromEnv(env);
+  const legacyThinkingLevel = harborCellThinkingLevelFromEnv(env.MAKA_THINKING_LEVEL);
+  const thinkingLevelMode = harborCellThinkingLevelModeFromEnv(env.MAKA_THINKING_LEVEL_MODE);
   const reasoningEffort = reasoningEffortFromEnv(env.MAKA_REASONING_EFFORT);
+  const thinkingLevel = resolveThinkingLevel(legacyThinkingLevel, reasoningEffort);
   const now = Date.now;
   const newId = randomId;
 
@@ -52,9 +59,11 @@ export async function main(options = {}) {
       backend: 'ai-sdk',
       llmConnectionSlug: env.MAKA_LLM_CONNECTION_SLUG || provider,
       model,
-      ...(reasoningEffort ? { thinkingLevel: reasoningEffort } : {}),
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
       ...(env.MAKA_SYSTEM_PROMPT !== undefined ? { systemPrompt: env.MAKA_SYSTEM_PROMPT } : {}),
       ...(economyTaskMode !== undefined ? { economyTaskMode } : {}),
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+      ...(thinkingLevelMode !== undefined ? { thinkingLevelMode } : {}),
     },
     instruction: await instructionFromEnv(env),
     cwd: env.MAKA_WORKDIR || process.cwd(),
@@ -88,6 +97,17 @@ export async function main(options = {}) {
     outputPath: result.outputPath,
     runtimeEventsPath: result.runtimeEventsPath,
   }));
+}
+
+function resolveThinkingLevel(legacyThinkingLevel, reasoningEffort) {
+  if (
+    legacyThinkingLevel !== undefined
+    && reasoningEffort !== undefined
+    && legacyThinkingLevel !== reasoningEffort
+  ) {
+    throw new Error('MAKA_THINKING_LEVEL and MAKA_REASONING_EFFORT must agree when both are set');
+  }
+  return legacyThinkingLevel ?? reasoningEffort;
 }
 
 function economyTaskModeFromEnv(value) {

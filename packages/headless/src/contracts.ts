@@ -134,8 +134,10 @@ export interface Config {
   llmConnectionSlug: string;
   /** Falls back to the connection's default model when omitted. */
   model?: string;
-  /** Provider-native reasoning depth for a fixed benchmark configuration. */
-  thinkingLevel?: ThinkingLevel;
+  /** Provider-native reasoning depth; `default` records an explicit benchmark baseline. */
+  thinkingLevel?: ThinkingLevel | 'default';
+  /** `probe` explicitly permits uncatalogued custom gateways to receive the requested level. */
+  thinkingLevelMode?: 'catalog' | 'probe';
   /**
    * Optional system prompt for the config under test. This is a benchmark
    * variable, NOT persisted session state — the `registerBackends` factory

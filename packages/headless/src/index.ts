@@ -4,10 +4,105 @@
 // package-local entrypoints, not the root API. Minimal usage is
 // `runExperiment(config, task, { storageRoot })`.
 export { runPromptOptimizationRun } from './prompt-optimization-run.js';
+export {
+  MEMORY_BENCHMARK_MANIFEST_SCHEMA_VERSION,
+  MEMORY_BENCHMARK_FORMAT_V1,
+  appendMemoryBenchmarkAttempt,
+  assertMemoryBenchmarkArtifactRedacted,
+  buildMemoryBenchmarkAttemptId,
+  buildMemoryBenchmarkManifest,
+  ensureMemoryBenchmarkManifest,
+  hashMemoryBenchmarkArtifact,
+  importHarborMemoryBenchmarkAttempt,
+  parseMemoryBenchmarkManifest,
+  planMemoryBenchmarkResume,
+  readMemoryBenchmarkAttempts,
+  readVerifiedMemoryBenchmarkArtifact,
+  recomputeMemoryBenchmarkScore,
+  redactMemoryBenchmarkArtifact,
+  writeRedactedMemoryBenchmarkJson,
+  writeRedactedMemoryBenchmarkText,
+} from './memory-benchmark-manifest.js';
+export type {
+  MemoryBenchmarkAttemptArtifact,
+  ImportHarborMemoryBenchmarkAttemptInput,
+  MemoryBenchmarkManifest,
+  MemoryBenchmarkManifestInput,
+  MemoryBenchmarkPlannedAttempt,
+  MemoryBenchmarkReasoningEffort,
+  MemoryBenchmarkResumePlan,
+  MemoryBenchmarkScore,
+  MemoryBenchmarkWriteOptions,
+} from './memory-benchmark-manifest.js';
+export {
+  MEMORY_BASELINE_SCHEMA_VERSION,
+  auditCurrentMakaMemoryBaseline,
+  buildCurrentMakaMemoryBaseline,
+  buildNextCurrentMakaMemoryBaseline,
+  loadCurrentMakaMemoryBaseline,
+  parseCurrentMakaMemoryBaseline,
+  writeCurrentMakaMemoryBaseline,
+  writeCurrentMakaMemoryBaselineSnapshot,
+} from './memory-baseline.js';
+export type {
+  CurrentMakaMemoryBaseline,
+  CurrentMakaMemoryBaselineInput,
+  CurrentMakaMemoryBaselineSnapshot,
+  MemoryBaselineCapabilityProbe,
+  MemoryBaselineCalibrationEvidence,
+  MemoryBaselineKnownGap,
+  MemoryBaselineRunAudit,
+  MemoryBaselineRunReference,
+} from './memory-baseline.js';
+export {
+  BUNDLED_MEMORY_BENCHMARK_CATEGORY_COUNTS,
+  BUNDLED_MEMORY_BENCHMARK_HASHES,
+  MEMORY_BENCHMARK_CASE_OUTPUT_SCHEMA_VERSION,
+  MEMORY_BENCHMARK_DATASET_IDS,
+  MEMORY_BENCHMARK_DATASET_SCHEMA_VERSION,
+  gradeMemoryBenchmarkCase,
+  gradeMemoryBenchmarkDataset,
+  hashMemoryBenchmarkDataset,
+  loadBundledMemoryBenchmarkDataset,
+  loadMemoryBenchmarkDataset,
+  parseMemoryBenchmarkDataset,
+} from './memory-benchmark-dataset.js';
+export type {
+  BundledMemoryBenchmarkDatasetId,
+  MemoryBenchmarkAssertion,
+  MemoryBenchmarkAssertionOp,
+  MemoryBenchmarkCase,
+  MemoryBenchmarkCaseGrade,
+  MemoryBenchmarkCaseOutput,
+  MemoryBenchmarkDataset,
+  MemoryBenchmarkDatasetGrade,
+  MemoryBenchmarkDatasetKind,
+  MemoryBenchmarkGradeClassification,
+  MemoryBenchmarkHardGate,
+  MemoryBenchmarkHardGateStatus,
+} from './memory-benchmark-dataset.js';
 export type {
   PromptOptimizationRunInput,
   PromptOptimizationRunResult,
 } from './prompt-optimization-run.js';
+export {
+  MODEL_CALIBRATION_CASE_COUNTS,
+  MODEL_CALIBRATION_SCHEMA_VERSION,
+  buildModelCalibrationConfigId,
+  buildModelCalibrationDecision,
+  buildModelCalibrationEnvironment,
+  qualifyModelCalibrationResults,
+} from './model-calibration.js';
+export type {
+  ModelCalibrationCaseKind,
+  ModelCalibrationCaseResult,
+  ModelCalibrationConfigReport,
+  ModelCalibrationDecision,
+  ModelCalibrationEnvironment,
+  ModelCalibrationQualification,
+  ModelCalibrationRoleQualification,
+  ModelCalibrationTokenUsage,
+} from './model-calibration.js';
 export type {
   BenchmarkAdapter,
   BenchmarkAdapterRegistry,

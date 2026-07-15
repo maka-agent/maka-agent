@@ -13,12 +13,13 @@ import { projectRuntimeEventsToStoredMessages } from '../runtime-event-read-mode
 import { materializeSession } from '../materializer.js';
 import type { InvocationContext } from '../invocation-context.js';
 import type { AssistantMessage, StoredMessage, ToolResultMessage } from '@maka/core/session';
-import type { LlmCallRecord } from '@maka/core/usage-stats/types';
+import type { ContextBudgetDiagnostic, LlmCallRecord } from '@maka/core/usage-stats/types';
 import { z } from 'zod';
 import {
   AiSdkBackend,
   INVALID_TOOL_NAME,
   MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN,
+  ProviderReplayProjectionError,
   TOOL_ERROR_RESULT_MAX_CHARS,
   formatSyntheticToolErrorText,
   normalizeAiSdkUsage,
@@ -50,6 +51,7 @@ import { memoryArtifactStore } from './memory-artifact-store.js';
 import { buildRuntimeEventModelReplayPlan } from '../model-history.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
 import type { SemanticCompactBlock } from '../semantic-compact.js';
+import { estimateProviderMessagesTokens } from '../provider-replay-projection.js';
 
 describe('AiSdkBackend model history', () => {
   test('prefers RuntimeEvent prior messages and appends current user once', async () => {
@@ -2989,7 +2991,9 @@ describe('AiSdkBackend model history', () => {
     assert.equal(usage?.contextBudget?.historyCompactBlockIds, undefined);
     assert.equal(usage?.contextBudget?.historyCompactedEvents, undefined);
     assert.deepEqual(
-      usage?.contextBudget?.compactionDecisions?.map((decision) => decision.decision),
+      usage?.contextBudget?.compactionDecisions
+        ?.filter((decision) => decision.boundaryKind === 'historyCompact')
+        .map((decision) => decision.decision),
       ['failedOpen'],
     );
     assert.equal(
@@ -3347,6 +3351,128 @@ describe('AiSdkBackend model history', () => {
       { role: 'assistant', content: [{ type: 'text', text: 'projection assistant' }] },
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
+  });
+
+  test('caps an unsupported-semantics fallback and always retains the current user turn', async () => {
+    const model = completionModel();
+    const events: SessionEvent[] = [];
+    const newestProjection = [
+      { role: 'user', content: 'new projection user' },
+      { role: 'assistant', content: 'new projection assistant' },
+    ] as ModelMessage[];
+    const maxHistoryEstimatedTokens = estimateProviderMessagesTokens(newestProjection, 1);
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      contextBudget: {
+        name: 'fallback-hard-cap',
+        maxHistoryEstimatedTokens,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    for await (const event of backend.send({
+      turnId: 'turn-current',
+      text: 'current user must remain',
+      context: [
+        { type: 'user', id: 'old-u', turnId: 'turn-old', ts: 1, text: 'old projection user' },
+        { type: 'assistant', id: 'old-a', turnId: 'turn-old', ts: 2, text: 'O'.repeat(500), modelId: 'm' },
+        { type: 'user', id: 'new-u', turnId: 'turn-new', ts: 3, text: 'new projection user' },
+        { type: 'assistant', id: 'new-a', turnId: 'turn-new', ts: 4, text: 'new projection assistant', modelId: 'm' },
+      ],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-old', role: 'user', author: 'user', text: 'runtime user' }),
+        runtimeEvent({
+          id: 'rt-error',
+          turnId: 'turn-old',
+          role: 'system',
+          author: 'system',
+          content: { kind: 'error', reason: 'tool_failed', message: 'Tool failed' },
+        }),
+      ],
+    })) {
+      events.push(event);
+    }
+
+    const prompt = JSON.stringify(compactPrompt(model));
+    assert.doesNotMatch(prompt, /old projection user|OOOO/);
+    assert.match(prompt, /new projection user/);
+    assert.match(prompt, /new projection assistant/);
+    assert.match(prompt, /current user must remain/);
+    const usage = events.find((event) => event.type === 'token_usage') as
+      | (Extract<SessionEvent, { type: 'token_usage' }> & { contextBudget?: ContextBudgetDiagnostic })
+      | undefined;
+    const decision = usage?.contextBudget?.compactionDecisions?.find((entry) =>
+      entry.boundaryKind === 'providerReplayFallback'
+    );
+    assert.equal(decision?.decision, 'replaced');
+    assert.equal(decision?.reason, 'runtime_replay_unsupported_semantics');
+    assert.equal(decision?.skippedReasonCounts?.dropped_turns, 1);
+  });
+
+  test('fails before model invocation when a protected fallback turn cannot fit the hard cap', async () => {
+    const model = completionModel();
+    const permissionEngine = new PermissionEngine({ newId: () => 'permission-id', now: () => 1 });
+    const priorProjection = [
+      { role: 'user', content: 'protected prior user' },
+      { role: 'assistant', content: 'P'.repeat(300) },
+    ] as ModelMessage[];
+    const requiredTokens = estimateProviderMessagesTokens(priorProjection, 1);
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine,
+      modelFactory: () => model,
+      tools: [],
+      contextBudget: {
+        maxHistoryEstimatedTokens: requiredTokens - 1,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await assert.rejects(
+      async () => drain(backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [
+          { type: 'user', id: 'prior-u', turnId: 'turn-prior', ts: 1, text: 'protected prior user' },
+          { type: 'assistant', id: 'prior-a', turnId: 'turn-prior', ts: 2, text: 'P'.repeat(300), modelId: 'm' },
+        ],
+      })),
+      (error) => {
+        assert.equal(error instanceof ProviderReplayProjectionError, true);
+        if (!(error instanceof ProviderReplayProjectionError)) return false;
+        assert.equal(error.code, 'PROVIDER_REPLAY_PROJECTION_FAILED');
+        assert.equal(error.failure.reason, 'hard_budget_impossible');
+        assert.equal(error.failure.requiredEstimatedTokens, requiredTokens);
+        return true;
+      },
+    );
+
+    assert.equal(model.doStreamCalls.length, 0);
+    assert.equal(
+      (permissionEngine as unknown as { turns: Map<string, unknown> }).turns.has('turn-current'),
+      false,
+    );
+    assert.equal((backend as unknown as { currentTurnId: string | null }).currentTurnId, null);
+    assert.equal((backend as unknown as { currentQueue: unknown | null }).currentQueue, null);
   });
 
   test('uses StoredMessage projection instead of leaking unsupported thinking text', async () => {
@@ -4342,6 +4468,7 @@ describe('AiSdkBackend usage telemetry', () => {
           maxSummaryEstimatedTokens: 1024,
           minSavingsTokens: 1,
           minSavingsRatio: 0,
+          compactCallTokenCostWeight: 0,
         },
       },
       newId: idGenerator(),
@@ -4367,6 +4494,7 @@ describe('AiSdkBackend usage telemetry', () => {
       content: message.content,
     })));
     assert.match(secondPrompt, /maka_semantic_compact_block/);
+    assert.match(secondPrompt, /"hi"/);
     assert.doesNotMatch(secondPrompt, /SEMANTIC_COMPACT_RAW_TOOL_OUTPUT/);
 
     const semanticRecord = llmRecords.find((record) => record.callKind === 'semantic_compact');
@@ -4386,6 +4514,151 @@ describe('AiSdkBackend usage telemetry', () => {
         && decision.decision === 'replaced'
         && decision.compactCallTotalTokens === 34
     ), true);
+  });
+
+  test('semantic compact failed-open history is hard-capped before another provider step', async () => {
+    const events: SessionEvent[] = [];
+    let streamCalls = 0;
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => {
+        throw new Error('semantic summarizer failed');
+      },
+      doStream: async () => {
+        streamCalls += 1;
+        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+          ? [
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'tool-call',
+                toolCallId: 'tool-semantic-fail',
+                toolName: 'Read',
+                input: JSON.stringify({ path: 'large.log' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+              },
+            ]
+          : [
+              { type: 'stream-start', warnings: [] },
+              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } },
+            ];
+        return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [{
+        name: 'Read',
+        description: 'Read description',
+        parameters: z.object({ path: z.string() }),
+        permissionRequired: false,
+        impl: async () => ({ body: 'SEMANTIC_FAILED_OPEN_RAW'.repeat(200) }),
+      }],
+      contextBudget: {
+        charsPerToken: 1,
+        semanticCompact: {
+          enabled: true,
+          mode: 'replace',
+          minStepNumber: 1,
+          minRecentMessages: 0,
+          maxActiveEstimatedTokens: 1,
+          highWaterRatio: 0.1,
+          maxSummaryEstimatedTokens: 128,
+        },
+      },
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    assert.equal(streamCalls, 1);
+    assert.ok(events.some((event) => event.type === 'error'));
+    const terminal = events.at(-1);
+    assert.equal(terminal?.type, 'complete');
+    if (terminal?.type === 'complete') assert.equal(terminal.stopReason, 'error');
+  });
+
+  test('active full compact failed-open history is hard-capped before another provider step', async () => {
+    const events: SessionEvent[] = [];
+    let streamCalls = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        streamCalls += 1;
+        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+          ? [
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'tool-call',
+                toolCallId: 'tool-active-fail',
+                toolName: 'Read',
+                input: JSON.stringify({ path: 'large.log' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+              },
+            ]
+          : [
+              { type: 'stream-start', warnings: [] },
+              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } },
+            ];
+        return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [{
+        name: 'Read',
+        description: 'Read description',
+        parameters: z.object({ path: z.string() }),
+        permissionRequired: false,
+        impl: async () => ({ body: 'ACTIVE_FAILED_OPEN_RAW'.repeat(200) }),
+      }],
+      contextBudget: {
+        charsPerToken: 1,
+        activeFullCompact: {
+          enabled: true,
+          minStepNumber: 1,
+          minRecentMessages: 0,
+          maxActiveEstimatedTokens: 1,
+          highWaterRatio: 0.1,
+          maxSummaryEstimatedTokens: 128,
+          archiveRequired: true,
+        },
+      },
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    assert.equal(streamCalls, 1);
+    assert.ok(events.some((event) => event.type === 'error'));
+    const terminal = events.at(-1);
+    assert.equal(terminal?.type, 'complete');
+    if (terminal?.type === 'complete') assert.equal(terminal.stopReason, 'error');
   });
 
   test('active full compact keeps the accepted boundary projection across later AI SDK steps', async () => {
@@ -5222,7 +5495,10 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
       turnTailPrompt: 'volatile tail',
       contextBudget: {
         name: 'test-budget',
-        maxHistoryEstimatedTokens: 1,
+        maxHistoryEstimatedTokens: estimateProviderMessagesTokens([
+          { role: 'user', content: [{ type: 'text', text: 'new user text' }] },
+          { role: 'assistant', content: 'new assistant text' },
+        ] as ModelMessage[], 1),
         minRecentTurns: 1,
         charsPerToken: 1,
       },

@@ -8,11 +8,11 @@ describe('Memory Settings view model', () => {
       '# Maka Memory',
       '',
       '## Writing style',
-      '<!-- maka-memory: id=writing origin=manual status=active tags=preference -->',
+      '<!-- maka-memory: id=writing entrySchema=maka.local_memory.entry.v1 compatSource=structured_v1 migrationState=not_required origin=manual source=user_authored status=active scope=workspace confirmedAt=1700000000000 approvedBy=user approvalSurface=manual_editor_save sourceRefs=manual_editor:MEMORY.md tags=preference -->',
       'Prefer concise answers.',
       '',
       '## Old preference',
-      '<!-- maka-memory: id=old origin=manual status=archived -->',
+      '<!-- maka-memory: id=old entrySchema=maka.local_memory.entry.v1 compatSource=structured_v1 migrationState=not_required origin=manual source=user_authored status=archived scope=workspace confirmedAt=1700000000000 approvedBy=user approvalSurface=manual_editor_save sourceRefs=manual_editor:MEMORY.md -->',
       'Use verbose answers.',
     ].join('\n');
 

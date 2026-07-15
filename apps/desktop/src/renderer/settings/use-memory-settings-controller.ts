@@ -451,6 +451,9 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
         case 'not_found':
           toast.error('无法更新记忆', '当前草稿里找不到这条记忆；请先保存或刷新后重试。');
           return;
+        case 'confirmation_required':
+          toast.error('无法恢复记忆', '这条旧格式记忆缺少确认来源；请重新添加或通过审核流程确认。');
+          return;
         case 'oversize':
           toast.error('无法更新记忆', 'MEMORY.md 超出安全上限，请先删减旧内容。');
           return;
@@ -497,6 +500,8 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
     normalizedMemoryEntryQuery,
     filteredActiveEntries,
     filteredArchivedEntries,
+    filteredCompatibilityEntries,
+    filteredMalformedEntries,
     filteredEntryCount,
     localMemoryPromptPreview,
     promptPreviewBlockedReason,
@@ -559,6 +564,8 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
     normalizedMemoryEntryQuery,
     filteredActiveEntries,
     filteredArchivedEntries,
+    filteredCompatibilityEntries,
+    filteredMalformedEntries,
     filteredEntryCount,
     localMemoryPromptPreview,
     promptPreviewBlockedReason,

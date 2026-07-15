@@ -5,8 +5,11 @@ import type { ModelMessage } from 'ai';
 import {
   renderSemanticCompactBlock,
   rewriteSemanticCompactInMessages,
+  validateSemanticCompactBlockForSourceIndex,
+  validateSemanticCompactReplacementShape,
   type SemanticCompactSummaryRequest,
 } from '../semantic-compact.js';
+import { buildActiveFullCompactSourceIndex } from '../active-full-compact.js';
 
 describe('semantic compact', () => {
   test('replaces an older span with a no-tools LLM summary and preserves recent tool pairs', async () => {
@@ -87,7 +90,7 @@ describe('semantic compact', () => {
     assert.equal(typeof result.diagnosticPatch.highWaterRequestShapeHashAfter, 'string');
   });
 
-  test('accepts with a warning when signed savings do not meet the configured margin', async () => {
+  test('fails open and retains original messages when signed savings do not meet the configured margin', async () => {
     const messages = semanticFixtureMessages();
     const result = await rewriteSemanticCompactInMessages({
       sessionId: 'session-1',
@@ -124,22 +127,30 @@ describe('semantic compact', () => {
       }),
     });
 
-    assert.equal(result.decision, 'replaced');
+    assert.equal(result.decision, 'failedOpen');
     assert.equal(result.reason, 'below_min_savings_tokens');
-    assert.notDeepEqual(result.messages, messages);
-    assert.equal(result.block?.acceptance.decision, 'accepted');
+    assert.deepEqual(result.messages, messages);
+    assert.equal(result.block?.acceptance.decision, 'rejected');
     assert.equal(result.block?.acceptance.reason, 'below_min_savings_tokens');
+    assert.deepEqual(result.failure, {
+      kind: 'maka.semantic_compact_failure',
+      stage: 'economics',
+      reason: 'below_min_savings_tokens',
+      reasons: ['below_min_savings_tokens'],
+      retryable: false,
+    });
     const decision = result.diagnosticPatch.compactionDecisions?.[0];
     assert.equal(decision?.boundaryKind, 'semanticCompact');
-    assert.equal(decision?.decision, 'replaced');
+    assert.equal(decision?.decision, 'failedOpen');
     assert.equal(decision?.reason, 'below_min_savings_tokens');
+    assert.equal(decision?.failOpenReason, 'below_min_savings_tokens');
     assert.deepEqual(decision?.skippedReasonCounts, { below_min_savings_tokens: 1 });
     assert.equal(typeof decision?.estimatedTokensSaved, 'number');
     assert.equal(decision?.compactCallInputTokens, 5);
     assert.equal(decision?.compactCallTotalTokens, 11);
   });
 
-  test('accepts summaries that newly surface private verifier material with a warning', async () => {
+  test('fails open when summaries newly surface private verifier material', async () => {
     const result = await rewriteSemanticCompactInMessages({
       sessionId: 'session-1',
       turnId: 'turn-1',
@@ -174,8 +185,8 @@ describe('semantic compact', () => {
       }),
     });
 
-    assert.equal(result.decision, 'replaced');
-    assert.equal(result.block?.acceptance.decision, 'accepted');
+    assert.equal(result.decision, 'failedOpen');
+    assert.equal(result.block?.acceptance.decision, 'rejected');
     assert.equal(result.block?.acceptance.reason, 'private_verifier_surface');
     assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.reason, 'private_verifier_surface');
     assert.deepEqual(result.diagnosticPatch.compactionDecisions?.[0]?.skippedReasonCounts, {
@@ -184,7 +195,7 @@ describe('semantic compact', () => {
     assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.compactCallTotalTokens, 7);
   });
 
-  test('falls back to raw summary text when JSON summaries do not satisfy the schema contract', async () => {
+  test('fails open when JSON summaries do not satisfy the schema contract', async () => {
     const baseInput = {
       sessionId: 'session-1',
       turnId: 'turn-1',
@@ -206,9 +217,10 @@ describe('semantic compact', () => {
       ...baseInput,
       summarizer: () => ({ text: JSON.stringify({ next_action: 'Continue from preserved context.' }) }),
     });
-    assert.equal(missingObjective.decision, 'replaced');
-    assert.equal(missingObjective.block?.acceptance.decision, 'accepted');
-    assert.equal(missingObjective.block?.acceptance.reason, 'summary_missing_current_objective');
+    assert.equal(missingObjective.decision, 'failedOpen');
+    assert.deepEqual(missingObjective.messages, baseInput.messages);
+    assert.equal(missingObjective.failure?.stage, 'summary');
+    assert.equal(missingObjective.failure?.reason, 'summary_missing_current_objective');
     assert.equal(
       missingObjective.diagnosticPatch.compactionDecisions?.[0]?.reason,
       'summary_missing_current_objective',
@@ -218,14 +230,15 @@ describe('semantic compact', () => {
       ...baseInput,
       summarizer: () => ({ text: JSON.stringify({ current_objective: 'Solve the task.' }) }),
     });
-    assert.equal(missingNextAction.decision, 'replaced');
-    assert.equal(missingNextAction.block?.acceptance.decision, 'accepted');
-    assert.equal(missingNextAction.block?.acceptance.reason, 'summary_missing_next_action');
+    assert.equal(missingNextAction.decision, 'failedOpen');
+    assert.deepEqual(missingNextAction.messages, baseInput.messages);
+    assert.equal(missingNextAction.failure?.stage, 'summary');
+    assert.equal(missingNextAction.failure?.reason, 'summary_missing_next_action');
     assert.equal(
       missingNextAction.diagnosticPatch.compactionDecisions?.[0]?.reason,
       'summary_missing_next_action',
     );
-    assert.match(renderSemanticCompactBlock(missingNextAction.block!), /raw_semantic_summary_fallback/);
+    assert.equal(missingNextAction.block, undefined);
   });
 
   test('does not reject valid summaries just because they exceed the soft summary target', async () => {
@@ -258,7 +271,7 @@ describe('semantic compact', () => {
     assert.notEqual(result.reason, 'summary_too_large');
   });
 
-  test('accepts compact with a warning when provider savings do not beat compact-call token cost', async () => {
+  test('fails open when provider savings do not beat compact-call token cost', async () => {
     const result = await rewriteSemanticCompactInMessages({
       sessionId: 'session-1',
       turnId: 'turn-1',
@@ -295,14 +308,47 @@ describe('semantic compact', () => {
       }),
     });
 
-    assert.equal(result.decision, 'replaced');
-    assert.equal(result.block?.acceptance.decision, 'accepted');
-    assert.equal(result.block?.acceptance.reason, 'below_min_net_savings_tokens');
-    assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.reason, 'below_min_net_savings_tokens');
+    assert.equal(result.decision, 'failedOpen');
+    assert.equal(result.block?.acceptance.decision, 'rejected');
+    assert.equal(result.block?.acceptance.reason, 'non_positive_net_savings');
+    assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.reason, 'non_positive_net_savings');
     assert.ok((result.block?.estimatedNetTokensSavedSigned ?? 0) < 0);
   });
 
-  test('does not brake semantic compact calls after malformed summary fallbacks', async () => {
+  test('fails open on zero or negative provider savings even when configured thresholds are zero', async () => {
+    const messages = [
+      { role: 'user', content: 'old' } as ModelMessage,
+      { role: 'user', content: 'current' } as ModelMessage,
+    ];
+    const result = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      messages,
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: {
+        enabled: true,
+        maxActiveEstimatedTokens: 1,
+        highWaterRatio: 0.1,
+        minRecentMessages: 1,
+        minSavingsTokens: 0,
+        minSavingsRatio: 0,
+        minNetSavingsTokens: 0,
+        compactCallTokenCostWeight: 0,
+      },
+      summarizer: () => ({
+        text: semanticSummary({ objective: 'Continue.', nextAction: 'Keep the current user message.' }),
+      }),
+    });
+
+    assert.equal(result.decision, 'failedOpen');
+    assert.deepEqual(result.messages, messages);
+    assert.equal(result.failure?.stage, 'economics');
+    assert.equal(result.failure?.reason, 'non_positive_savings');
+    assert.ok((result.block?.estimatedTokensSavedSigned ?? 1) <= 0);
+  });
+
+  test('brakes semantic compact calls after malformed summaries', async () => {
     const controllerState = {
       consecutiveInvalidSummaries: 0,
       totalInvalidSummaries: 0,
@@ -336,10 +382,10 @@ describe('semantic compact', () => {
         return { text: JSON.stringify({ next_action: 'Continue.' }) };
       },
     });
-    assert.equal(invalid.decision, 'replaced');
-    assert.equal(invalid.block?.acceptance.reason, 'summary_missing_current_objective');
+    assert.equal(invalid.decision, 'failedOpen');
+    assert.equal(invalid.failure?.reason, 'summary_missing_current_objective');
     assert.equal(calls, 1);
-    assert.equal(controllerState.consecutiveInvalidSummaries, 0);
+    assert.equal(controllerState.consecutiveInvalidSummaries, 1);
 
     const cooled = await rewriteSemanticCompactInMessages({
       sessionId: 'session-1',
@@ -354,9 +400,9 @@ describe('semantic compact', () => {
         return { text: semanticSummary({ objective: 'Should not run.', nextAction: 'Should not run.' }) };
       },
     });
-    assert.equal(cooled.decision, 'replaced');
-    assert.notEqual(cooled.reason, 'semantic_compact_cooldown');
-    assert.equal(calls, 2);
+    assert.equal(cooled.decision, 'unchanged');
+    assert.equal(cooled.reason, 'semantic_compact_cooldown');
+    assert.equal(calls, 1);
 
     const resumed = await rewriteSemanticCompactInMessages({
       sessionId: 'session-1',
@@ -372,7 +418,7 @@ describe('semantic compact', () => {
       },
     });
     assert.notEqual(resumed.reason, 'semantic_compact_cooldown');
-    assert.equal(calls, 3);
+    assert.equal(calls, 2);
   });
 
   test('brakes semantic compact calls after repeated summarizer failures', async () => {
@@ -410,6 +456,9 @@ describe('semantic compact', () => {
       },
     });
     assert.equal(failed.reason, 'summarizer_failed');
+    assert.equal(failed.decision, 'failedOpen');
+    assert.equal(failed.failure?.stage, 'summarizer');
+    assert.equal(failed.failure?.retryable, true);
     assert.equal(controllerState.consecutiveInvalidSummaries, 1);
 
     const cooled = await rewriteSemanticCompactInMessages({
@@ -428,6 +477,137 @@ describe('semantic compact', () => {
     assert.equal(cooled.decision, 'unchanged');
     assert.equal(cooled.reason, 'semantic_compact_cooldown');
     assert.equal(calls, 1);
+  });
+
+  test('times out a summarizer that ignores abort and reports a typed failure', async () => {
+    const messages = semanticFixtureMessages();
+    const result = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      messages,
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: {
+        enabled: true,
+        maxActiveEstimatedTokens: 1,
+        highWaterRatio: 0.1,
+        minRecentMessages: 1,
+        minSavingsTokens: 1,
+        minSavingsRatio: 0,
+        timeoutMs: 5,
+      },
+      summarizer: () => new Promise<never>(() => {}),
+    });
+
+    assert.equal(result.decision, 'failedOpen');
+    assert.deepEqual(result.messages, messages);
+    assert.equal(result.reason, 'summarizer_timeout');
+    assert.deepEqual(result.failure, {
+      kind: 'maka.semantic_compact_failure',
+      stage: 'summarizer',
+      reason: 'summarizer_timeout',
+      reasons: ['summarizer_timeout'],
+      retryable: true,
+    });
+    assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.decision, 'failedOpen');
+    assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.failOpenReason, 'summarizer_timeout');
+  });
+
+  test('requires every covered source ref before a semantic compact block is replaceable', async () => {
+    const messages = semanticFixtureMessages();
+    const result = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      messages,
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: {
+        enabled: true,
+        maxActiveEstimatedTokens: 1,
+        highWaterRatio: 0.1,
+        minRecentMessages: 1,
+        minRecentToolPairs: 1,
+        minSavingsTokens: 1,
+        minSavingsRatio: 0,
+      },
+      summarizer: () => ({
+        text: semanticSummary({ objective: 'Continue safely.', nextAction: 'Use the preserved tail.' }),
+      }),
+    });
+    assert.equal(result.decision, 'replaced');
+    const index = buildActiveFullCompactSourceIndex({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      messages,
+      stepNumber: 2,
+      charsPerToken: 1,
+    });
+    const invalidBlock = { ...result.block!, sourceRefs: [] };
+
+    const validation = validateSemanticCompactBlockForSourceIndex(invalidBlock, index, {
+      requiredSourceIds: result.block!.coverage.providerMessageSourceIds,
+      charsPerToken: 1,
+    });
+
+    assert.equal(validation.valid, false);
+    assert.equal(validation.reasons.includes('source_refs_missing'), true);
+  });
+
+  test('validates current-user, tool-pair, and signed-thinking preservation before replacement', async () => {
+    const messages = semanticFixtureMessages();
+    const result = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      messages,
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: {
+        enabled: true,
+        maxActiveEstimatedTokens: 1,
+        highWaterRatio: 0.1,
+        minRecentMessages: 1,
+        minRecentToolPairs: 1,
+        minSavingsTokens: 1,
+        minSavingsRatio: 0,
+      },
+      summarizer: () => ({
+        text: semanticSummary({ objective: 'Continue safely.', nextAction: 'Use the preserved tail.' }),
+      }),
+    });
+    assert.equal(result.decision, 'replaced');
+    const valid = validateSemanticCompactReplacementShape({
+      originalMessages: messages,
+      replacementMessages: result.messages,
+      block: result.block!,
+    });
+    assert.equal(valid.valid, true);
+
+    const missingToolResult = result.messages.filter((message) => message.role !== 'tool');
+    const toolValidation = validateSemanticCompactReplacementShape({
+      originalMessages: messages,
+      replacementMessages: missingToolResult,
+      block: result.block!,
+    });
+    assert.equal(toolValidation.valid, false);
+    assert.equal(toolValidation.reasons.includes('tool_pair_split'), true);
+
+    const missingThinking = result.messages.map((message) => {
+      const content = (message as { content?: unknown }).content;
+      if (message.role !== 'assistant' || !Array.isArray(content)) return message;
+      return {
+        ...message,
+        content: content.filter((part) =>
+          !(part && typeof part === 'object' && 'type' in part && part.type === 'reasoning')
+        ),
+      } as ModelMessage;
+    });
+    const thinkingValidation = validateSemanticCompactReplacementShape({
+      originalMessages: messages,
+      replacementMessages: missingThinking,
+      block: result.block!,
+    });
+    assert.equal(thinkingValidation.valid, false);
+    assert.equal(thinkingValidation.reasons.includes('thinking_pair_split'), true);
   });
 
   test('renders restoration cards and archive refs without raw source hashes as prose', async () => {
@@ -476,7 +656,14 @@ function semanticFixtureMessages(): ModelMessage[] {
     } as unknown as ModelMessage,
     {
       role: 'assistant',
-      content: [{ type: 'tool-call', toolCallId: 'tool-recent', toolName: 'Bash', input: { command: 'ps aux' } }],
+      content: [
+        {
+          type: 'reasoning',
+          text: 'Check whether the service is still running.',
+          providerOptions: { anthropic: { signature: 'signed-reasoning' } },
+        },
+        { type: 'tool-call', toolCallId: 'tool-recent', toolName: 'Bash', input: { command: 'ps aux' } },
+      ],
     } as ModelMessage,
     {
       role: 'tool',

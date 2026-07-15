@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "maka.memory_benchmark.fake_pair.v1",
+  "provider": "fake",
+  "baseline": {
+    "root": ".",
+    "expectedPassRate": 0.5
+  },
+  "candidate": {
+    "root": "candidate",
+    "expectedPassRate": 1
+  },
+  "expected": {
+    "sameDataset": true,
+    "distinctManifestFingerprints": true,
+    "passRateDelta": 0.5
+  }
+}

@@ -25,6 +25,7 @@ export function registerMemoryIpc(deps: MemoryIpcDeps): void {
       title: proposal.title,
       content: proposal.content,
       scope: proposal.scope,
+      sessionId: proposal.sessionId,
     });
   });
   ipcMain.handle('memory:remember', async (_event, input: unknown) => {
@@ -41,6 +42,7 @@ export function registerMemoryIpc(deps: MemoryIpcDeps): void {
       title: memory.title,
       content: memory.content,
       scope: memory.scope,
+      sessionId: memory.sessionId,
     });
   });
   ipcMain.handle('memory:approveProposal', async (_event, proposalId: unknown) => {
@@ -86,6 +88,17 @@ export function registerMemoryIpc(deps: MemoryIpcDeps): void {
       };
     }
     return localMemory.restoreEntry(entryId);
+  });
+  ipcMain.handle('memory:deleteEntry', async (_event, entryId: unknown) => {
+    if (typeof entryId !== 'string') {
+      return {
+        ok: false,
+        state: await localMemory.getState(),
+        reason: 'invalid_input',
+        message: '记忆 ID 无效。',
+      };
+    }
+    return localMemory.deleteEntry(entryId);
   });
   ipcMain.handle('memory:save', async (_event, content: unknown): Promise<LocalMemoryState> => {
     if (typeof content !== 'string') return localMemory.getState();
@@ -134,15 +147,18 @@ function normalizeMemoryTextInput(input: unknown): {
   title: string;
   content: string;
   scope?: 'workspace' | 'session';
+  sessionId?: string;
 } | null {
   if (!input || typeof input !== 'object') return null;
   const value = input as Record<string, unknown>;
   if (typeof value.title !== 'string' || typeof value.content !== 'string') return null;
   const scope = value.scope === 'session' ? 'session' : value.scope === 'workspace' ? 'workspace' : undefined;
+  const sessionId = typeof value.sessionId === 'string' ? value.sessionId : undefined;
   return {
     title: value.title,
     content: value.content,
     ...(scope ? { scope } : {}),
+    ...(sessionId !== undefined ? { sessionId } : {}),
   };
 }
 

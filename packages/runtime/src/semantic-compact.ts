@@ -12,6 +12,8 @@ import {
   type ActiveFullCompactArchiveRef,
   type ActiveFullCompactCoverage,
   type ActiveFullCompactPolicy,
+  type ActiveFullCompactFailOpenReason,
+  type ActiveFullCompactSelection,
   type ActiveFullCompactSourceEntry,
   type ActiveFullCompactSourceIndex,
   type ActiveFullCompactSourceRef,
@@ -20,11 +22,11 @@ import {
 import { compactionDecisionDiagnosticPatch } from './compaction-boundary.js';
 import { estimateTokens } from './context-budget.js';
 import type { CompactSummaryResult, NormalizedAiSdkUsage } from './model-adapter.js';
+import { validateProviderMessageShape } from './provider-replay-projection.js';
 
 const DEFAULT_CHARS_PER_TOKEN = 4;
 const DEFAULT_MAX_SUMMARY_TOKENS = 768;
 const DEFAULT_MAX_COMPACT_CALL_TOKENS = 4096;
-const FALLBACK_RAW_SUMMARY_MAX_CHARS = 12_000;
 const DEFAULT_MIN_SAVINGS_TOKENS = 256;
 const DEFAULT_MIN_SAVINGS_RATIO = 0.05;
 const DEFAULT_COMPACT_CALL_TOKEN_COST_WEIGHT = 1;
@@ -159,6 +161,47 @@ export interface SemanticCompactBlock {
 
 export type SemanticCompactDecision = 'unchanged' | 'replaced' | 'failedOpen';
 
+export type SemanticCompactFailureStage =
+  | 'summarizer'
+  | 'summary'
+  | 'source_validation'
+  | 'provider_shape'
+  | 'economics';
+
+export type SemanticCompactFailureReason =
+  | ActiveFullCompactFailOpenReason
+  | 'summarizer_failed'
+  | 'summarizer_timeout'
+  | 'summary_invalid_json'
+  | 'summary_schema_invalid'
+  | 'summary_missing_current_objective'
+  | 'summary_missing_next_action'
+  | 'private_verifier_surface'
+  | 'source_refs_missing'
+  | 'source_ref_mismatch'
+  | 'current_user_not_preserved'
+  | 'provider_message_structure_invalid'
+  | 'thinking_pair_split'
+  | 'non_positive_savings'
+  | 'below_min_savings_tokens'
+  | 'below_min_savings_ratio'
+  | 'non_positive_net_savings'
+  | 'below_min_net_savings_tokens';
+
+export interface SemanticCompactFailure {
+  kind: 'maka.semantic_compact_failure';
+  stage: SemanticCompactFailureStage;
+  reason: SemanticCompactFailureReason;
+  reasons: SemanticCompactFailureReason[];
+  retryable: boolean;
+}
+
+export interface SemanticCompactValidationResult {
+  valid: boolean;
+  reasons: SemanticCompactFailureReason[];
+  reasonCounts: Readonly<Record<string, number>>;
+}
+
 export interface SemanticCompactRewriteInput {
   sessionId: string;
   turnId: string;
@@ -184,6 +227,7 @@ export interface SemanticCompactRewriteResult {
   diagnosticPatch: Partial<ContextBudgetDiagnostic>;
   block?: SemanticCompactBlock;
   validation?: ActiveFullCompactValidationResult;
+  failure?: SemanticCompactFailure;
 }
 
 export async function rewriteSemanticCompactInMessages(
@@ -211,7 +255,8 @@ export async function rewriteSemanticCompactInMessages(
     charsPerToken,
   });
   const selectionPolicy = policyForSemanticSelection(policy, messages);
-  const selection = selectActiveFullCompactCoveredSpan(index, selectionPolicy);
+  const baseSelection = selectActiveFullCompactCoveredSpan(index, selectionPolicy);
+  const selection = preserveCurrentUserInSemanticSelection(baseSelection, index, messages);
   if (selection.decision !== 'selected') {
     const decision = selection.decision === 'failedOpen' ? 'failedOpen' : 'unchanged';
     return {
@@ -260,7 +305,17 @@ export async function rewriteSemanticCompactInMessages(
     archiveRequired: policy.archiveRequired,
     charsPerToken,
   });
-  const warningReasons: string[] = validation.valid ? [] : [...validation.reasons];
+  if (!validation.valid) {
+    const reasons = validation.reasons.length > 0 ? validation.reasons : ['source_ref_mismatch'] as const;
+    const reason = reasons[0]!;
+    recordInvalidSummary(input.controllerState, policy, reason, input.stepNumber);
+    return failClosed(messages, index, {
+      stage: 'source_validation',
+      reason,
+      reasons: [...reasons],
+      validation,
+    });
+  }
 
   const stateCards = buildSemanticStateCards({
     selection,
@@ -284,23 +339,37 @@ export async function rewriteSemanticCompactInMessages(
       maxOutputTokens: Math.floor(policy.maxCompactCallTokens ?? DEFAULT_MAX_COMPACT_CALL_TOKENS),
       abortSignal: input.abortSignal,
     }, policy.timeoutMs);
-  } catch {
-    recordInvalidSummary(input.controllerState, policy, 'summarizer_failed', input.stepNumber);
-    return rejected(messages, index, 'summarizer_failed');
+  } catch (error) {
+    const reason: SemanticCompactFailureReason = error instanceof SemanticCompactSummarizerTimeoutError
+      ? 'summarizer_timeout'
+      : 'summarizer_failed';
+    recordInvalidSummary(input.controllerState, policy, reason, input.stepNumber);
+    return failClosed(messages, index, {
+      stage: 'summarizer',
+      reason,
+      reasons: [reason],
+      retryable: true,
+    });
   }
 
   const compactCallUsage = summary.usage ? compactUsage(summary.usage) : undefined;
   recordCompactCall(input.controllerState, compactCallUsage);
   const parsedSummary = parseSemanticCompactSummary(summary.text);
-  if (!parsedSummary.ok) warningReasons.push(parsedSummary.reason);
-  recordValidSummary(input.controllerState);
-  const structuredSummary = parsedSummary.ok
-    ? parsedSummary.summary
-    : fallbackSemanticCompactSummary(summary.text, parsedSummary.reason);
-  const summaryText = renderStructuredSemanticSummary(structuredSummary);
-  if (newPrivateVerifierSurface(`${summary.text}\n${summaryText}`, selectedSourceText(selection, messages))) {
-    warningReasons.push('private_verifier_surface');
+  if (!parsedSummary.ok) {
+    recordInvalidSummary(input.controllerState, policy, parsedSummary.reason, input.stepNumber);
+    return failClosed(messages, index, {
+      stage: 'summary',
+      reason: parsedSummary.reason,
+      reasons: [parsedSummary.reason],
+      compactCallUsage,
+    });
   }
+  const structuredSummary = parsedSummary.summary;
+  const summaryText = renderStructuredSemanticSummary(structuredSummary);
+  const surfacedPrivateVerifier = newPrivateVerifierSurface(
+    `${summary.text}\n${summaryText}`,
+    selectedSourceText(selection, messages),
+  );
 
   const requestShapeHashBefore = input.requestShapeHashBefore ?? input.requestShapeHashForMessages?.(messages);
   const block = buildSemanticCompactBlock({
@@ -328,11 +397,45 @@ export async function rewriteSemanticCompactInMessages(
   block.estimatedTokensSavedSigned = index.estimatedTokens - block.postReplacementEstimatedTokens;
   block.estimatedNetTokensSavedSigned = estimateSemanticNetTokensSaved(block, policy);
 
+  const sourceValidation = validateSemanticCompactBlockForSourceIndex(block, index, {
+    requiredSourceIds: selection.entries.map((entry) => entry.sourceId),
+    archiveRequired: policy.archiveRequired,
+    charsPerToken,
+  });
+  const replacementValidation = validateSemanticCompactReplacementShape({
+    originalMessages: messages,
+    replacementMessages,
+    block,
+  });
+  const rejectionReasons: SemanticCompactFailureReason[] = [
+    ...sourceValidation.reasons,
+    ...replacementValidation.reasons,
+    ...(surfacedPrivateVerifier ? ['private_verifier_surface' as const] : []),
+  ];
   const economicsReason = semanticSavingsRejectionReason(block, policy);
-  if (economicsReason) warningReasons.push(economicsReason);
-  const uniqueWarningReasons = uniqueStrings(warningReasons);
-  const warningReasonCounts = countStringReasons(uniqueWarningReasons);
-  const primaryWarningReason = uniqueWarningReasons[0];
+  if (economicsReason) rejectionReasons.push(economicsReason);
+  const uniqueRejectionReasons = uniqueStrings(rejectionReasons) as SemanticCompactFailureReason[];
+  const primaryRejectionReason = uniqueRejectionReasons[0];
+
+  if (primaryRejectionReason) {
+    const stage = semanticFailureStage(primaryRejectionReason);
+    block.acceptance = {
+      decision: 'rejected',
+      reason: primaryRejectionReason,
+      validationReasons: uniqueRejectionReasons,
+    };
+    recordInvalidSummary(input.controllerState, policy, primaryRejectionReason, input.stepNumber);
+    return failClosed(messages, index, {
+      stage,
+      reason: primaryRejectionReason,
+      reasons: uniqueRejectionReasons,
+      block,
+      validation,
+      compactCallUsage,
+    });
+  }
+
+  recordValidSummary(input.controllerState);
 
   if (policy.mode === 'validate_only' || policy.mode === 'prepare_step_dry_run') {
     block.acceptance = { decision: 'dry_run', reason: policy.mode };
@@ -351,20 +454,16 @@ export async function rewriteSemanticCompactInMessages(
         estimatedTokensSaved: block.estimatedTokensSavedSigned,
         compactCallUsage: block.compactCallUsage,
         reason: policy.mode,
-        ...(primaryWarningReason ? { skippedReasonCounts: warningReasonCounts } : {}),
         validationReasonCounts: validation.reasonCounts,
       }),
     };
   }
 
-  block.acceptance = primaryWarningReason
-    ? { decision: 'accepted', reason: primaryWarningReason, validationReasons: uniqueWarningReasons }
-    : { decision: 'accepted' };
+  block.acceptance = { decision: 'accepted' };
   recordAcceptedSemanticCompact(input.controllerState, block);
   return {
     messages: replacementMessages,
     decision: 'replaced',
-    ...(primaryWarningReason ? { reason: primaryWarningReason } : {}),
     block,
     validation,
     diagnosticPatch: {
@@ -376,7 +475,6 @@ export async function rewriteSemanticCompactInMessages(
         estimatedTokensAfter: block.postReplacementEstimatedTokens,
         estimatedTokensSaved: block.estimatedTokensSavedSigned,
         compactCallUsage: block.compactCallUsage,
-        ...(primaryWarningReason ? { reason: primaryWarningReason, skippedReasonCounts: warningReasonCounts } : {}),
         validationReasonCounts: validation.reasonCounts,
       }),
       ...(requestShapeHashBefore && requestShapeHashAfter
@@ -415,6 +513,166 @@ export function renderSemanticCompactBlock(block: SemanticCompactBlock): string 
   ].filter((line) => line !== '').join('\n');
 }
 
+export function validateSemanticCompactBlockForSourceIndex(
+  block: SemanticCompactBlock,
+  index: ActiveFullCompactSourceIndex,
+  options: {
+    requiredSourceIds?: readonly string[];
+    archiveRequired?: boolean;
+    charsPerToken?: number;
+  } = {},
+): SemanticCompactValidationResult {
+  const reasons: SemanticCompactFailureReason[] = [];
+  const add = (reason: SemanticCompactFailureReason) => {
+    if (!reasons.includes(reason)) reasons.push(reason);
+  };
+  if (block.sourceRefs.length === 0) add('source_refs_missing');
+  const coveredSourceIds = uniqueSorted(block.coverage.providerMessageSourceIds);
+  const referencedSourceIds = uniqueSorted(block.sourceRefs.map((ref) => ref.sourceId));
+  const requiredSourceIds = uniqueSorted(options.requiredSourceIds ?? coveredSourceIds);
+  if (
+    block.coverage.providerMessageSourceIds.length !== coveredSourceIds.length
+    || block.sourceRefs.length !== referencedSourceIds.length
+    || !sameStrings(coveredSourceIds, referencedSourceIds)
+    || !sameStrings(requiredSourceIds, referencedSourceIds)
+  ) {
+    add('source_ref_mismatch');
+  }
+
+  const activeValidation = validateActiveFullCompactBlockForSourceIndex({
+    kind: 'maka.active_full_compact_block',
+    version: block.version,
+    blockId: block.blockId,
+    sessionId: block.sessionId,
+    turnId: block.turnId,
+    ...(block.runId ? { runId: block.runId } : {}),
+    ...(block.invocationId ? { invocationId: block.invocationId } : {}),
+    createdAt: block.createdAt,
+    highWaterName: block.highWaterName,
+    highWaterSeq: block.highWaterSeq,
+    trigger: block.trigger,
+    coverage: block.coverage,
+    summary: {
+      schemaVersion: 1,
+      text: block.summary.text,
+      ...(block.summary.nextAction ? { nextActions: [block.summary.nextAction] } : {}),
+    },
+    limitations: block.summary.limitations ?? [],
+    sourceRefs: block.sourceRefs,
+    ...(block.archiveRefs ? { archiveRefs: block.archiveRefs } : {}),
+  }, index, {
+    sessionId: block.sessionId,
+    turnId: block.turnId,
+    archiveRequired: options.archiveRequired,
+    charsPerToken: options.charsPerToken,
+  });
+  for (const reason of activeValidation.reasons) add(reason);
+
+  const entriesBySourceId = new Map(index.entries.map((entry) => [entry.sourceId, entry]));
+  const requiredEntries = requiredSourceIds
+    .map((sourceId) => entriesBySourceId.get(sourceId))
+    .filter((entry): entry is ActiveFullCompactSourceEntry => entry !== undefined);
+  if (
+    requiredEntries.length !== requiredSourceIds.length
+    || stableStringify(activeFullCompactCoverageFromEntries(requiredEntries)) !== stableStringify(block.coverage)
+  ) {
+    add('coverage_miss');
+  }
+
+  for (const ref of block.sourceRefs) {
+    const entry = entriesBySourceId.get(ref.sourceId);
+    if (
+      !entry
+      || ref.kind !== sourceRefKindForEntry(entry)
+      || ref.messageIndex !== entry.messageIndex
+      || ref.partIndex !== entry.partIndex
+      || ref.sessionId !== block.sessionId
+      || ref.turnId !== entry.turnId
+      || ref.runtimeEventId !== entry.runtimeEventId
+      || ref.toolCallId !== entry.toolCallId
+      || ref.toolName !== entry.toolName
+      || ref.contentKind !== entry.contentKind
+      || ref.bodySha256 !== entry.bodySha256
+      || !sameOptionalArchiveRef(ref.archiveRef, entry.archiveRef)
+    ) {
+      add('source_ref_mismatch');
+    }
+  }
+
+  return {
+    valid: reasons.length === 0,
+    reasons,
+    reasonCounts: countStringReasons(reasons),
+  };
+}
+
+export function validateSemanticCompactReplacementShape(input: {
+  originalMessages: readonly ModelMessage[];
+  replacementMessages: readonly ModelMessage[];
+  block: SemanticCompactBlock;
+}): SemanticCompactValidationResult {
+  const reasons: SemanticCompactFailureReason[] = [];
+  const add = (reason: SemanticCompactFailureReason) => {
+    if (!reasons.includes(reason)) reasons.push(reason);
+  };
+  const coveredMessageIndexes = uniqueNumbers(input.block.sourceRefs.map((ref) => ref.messageIndex));
+  const startMessageIndex = coveredMessageIndexes[0];
+  const endMessageIndex = coveredMessageIndexes.at(-1);
+  if (startMessageIndex === undefined || endMessageIndex === undefined) {
+    add('source_refs_missing');
+    add('provider_message_structure_invalid');
+    return { valid: false, reasons, reasonCounts: countStringReasons(reasons) };
+  }
+
+  const expectedMessages = [
+    ...input.originalMessages.slice(0, startMessageIndex),
+    semanticCompactBlockToModelMessage(input.block),
+    ...input.originalMessages.slice(endMessageIndex + 1),
+  ];
+  const providerShape = validateProviderMessageShape(input.replacementMessages);
+  if (!providerShape.valid) {
+    add('provider_message_structure_invalid');
+    if (providerShape.reasons.some((reason) => reason.startsWith('tool_') || reason === 'duplicate_tool_call_id')) {
+      add('tool_pair_split');
+    }
+    if (providerShape.reasons.includes('thinking_after_tool_call')) add('thinking_pair_split');
+  }
+  if (!sameModelMessages(expectedMessages, input.replacementMessages)) {
+    add('provider_message_structure_invalid');
+  }
+
+  const currentUserIndex = findLastMessageIndex(input.originalMessages, 'user');
+  if (currentUserIndex >= startMessageIndex && currentUserIndex <= endMessageIndex) {
+    add('current_user_not_preserved');
+  } else if (currentUserIndex >= 0) {
+    const mappedIndex = mapPreservedMessageIndex(currentUserIndex, startMessageIndex, endMessageIndex);
+    if (!sameModelMessage(input.originalMessages[currentUserIndex], input.replacementMessages[mappedIndex])) {
+      add('current_user_not_preserved');
+    }
+  }
+
+  validatePreservedToolPairs(
+    input.originalMessages,
+    input.replacementMessages,
+    startMessageIndex,
+    endMessageIndex,
+    add,
+  );
+  validatePreservedThinking(
+    input.originalMessages,
+    input.replacementMessages,
+    startMessageIndex,
+    endMessageIndex,
+    add,
+  );
+
+  return {
+    valid: reasons.length === 0,
+    reasons,
+    reasonCounts: countStringReasons(reasons),
+  };
+}
+
 function policyForSemanticSelection(
   policy: SemanticCompactPolicy,
   messages: readonly ModelMessage[],
@@ -436,6 +694,57 @@ function policyForSemanticSelection(
     archiveRequired: policy.archiveRequired,
     highWaterName: policy.highWaterName,
   };
+}
+
+function preserveCurrentUserInSemanticSelection(
+  selection: ActiveFullCompactSelection,
+  index: ActiveFullCompactSourceIndex,
+  messages: readonly ModelMessage[],
+): ActiveFullCompactSelection {
+  if (selection.decision !== 'selected') return selection;
+  const currentUserIndex = findLastMessageIndex(messages, 'user');
+  if (currentUserIndex < selection.startMessageIndex || currentUserIndex > selection.endMessageIndex) {
+    return selection;
+  }
+
+  const before = selection.entries.filter((entry) => entry.messageIndex < currentUserIndex);
+  const after = selection.entries.filter((entry) => entry.messageIndex > currentUserIndex);
+  const candidates = [before, after]
+    .filter((entries) => entries.length > 0)
+    .sort((left, right) => selectedEntryTokens(right) - selectedEntryTokens(left));
+  for (const entries of candidates) {
+    const validationBlock = buildActiveFullCompactBlockFromSummary({
+      sessionId: index.sessionId,
+      turnId: index.turnId,
+      ...(index.runId ? { runId: index.runId } : {}),
+      ...(index.invocationId ? { invocationId: index.invocationId } : {}),
+      entries,
+      summary: { schemaVersion: 1, text: 'Semantic compact current-user preservation preflight.' },
+      highWaterSeq: index.stepNumber,
+    });
+    const validation = validateActiveFullCompactBlockForSourceIndex(validationBlock, index, {
+      sessionId: index.sessionId,
+      turnId: index.turnId,
+    });
+    if (!validation.valid) continue;
+    return {
+      decision: 'selected',
+      startMessageIndex: Math.min(...entries.map((entry) => entry.messageIndex)),
+      endMessageIndex: Math.max(...entries.map((entry) => entry.messageIndex)),
+      entries,
+      coverage: activeFullCompactCoverageFromEntries(entries),
+      estimatedTokens: selectedEntryTokens(entries),
+    };
+  }
+  return {
+    decision: 'unchanged',
+    reason: 'no_candidate',
+    skippedReasonCounts: { current_user_preserved: 1 },
+  };
+}
+
+function selectedEntryTokens(entries: readonly ActiveFullCompactSourceEntry[]): number {
+  return entries.reduce((total, entry) => total + entry.estimatedTokens, 0);
 }
 
 function recentMessageCountForToolPairs(messages: readonly ModelMessage[], minPairs: number): number {
@@ -663,7 +972,11 @@ function buildSemanticCompactBlock(input: {
   return block;
 }
 
-function semanticSavingsRejectionReason(block: SemanticCompactBlock, policy: SemanticCompactPolicy): string | undefined {
+function semanticSavingsRejectionReason(
+  block: SemanticCompactBlock,
+  policy: SemanticCompactPolicy,
+): SemanticCompactFailureReason | undefined {
+  if (block.estimatedTokensSavedSigned <= 0) return 'non_positive_savings';
   const minSavingsTokens = Math.max(0, Math.floor(policy.minSavingsTokens ?? DEFAULT_MIN_SAVINGS_TOKENS));
   if (block.estimatedTokensSavedSigned < minSavingsTokens) return 'below_min_savings_tokens';
   const minSavingsRatio = Math.max(0, policy.minSavingsRatio ?? DEFAULT_MIN_SAVINGS_RATIO);
@@ -672,7 +985,9 @@ function semanticSavingsRejectionReason(block: SemanticCompactBlock, policy: Sem
     : 0;
   if (savingsRatio < minSavingsRatio) return 'below_min_savings_ratio';
   const minNetSavingsTokens = Math.max(0, Math.floor(policy.minNetSavingsTokens ?? minSavingsTokens));
-  if ((block.estimatedNetTokensSavedSigned ?? block.estimatedTokensSavedSigned) < minNetSavingsTokens) {
+  const netSavings = block.estimatedNetTokensSavedSigned ?? block.estimatedTokensSavedSigned;
+  if (netSavings <= 0) return 'non_positive_net_savings';
+  if (netSavings < minNetSavingsTokens) {
     return 'below_min_net_savings_tokens';
   }
   return undefined;
@@ -796,14 +1111,31 @@ async function callSummarizerWithTimeout(
 ): Promise<CompactSummaryResult> {
   if (!timeoutMs || timeoutMs <= 0) return Promise.resolve(summarizer(request));
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('semantic compact summarizer timeout')), timeoutMs);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      const error = new SemanticCompactSummarizerTimeoutError();
+      reject(error);
+      controller.abort(error);
+    }, timeoutMs);
+  });
   const parentAbort = () => controller.abort(request.abortSignal?.reason);
   request.abortSignal?.addEventListener('abort', parentAbort, { once: true });
   try {
-    return await Promise.resolve(summarizer({ ...request, abortSignal: controller.signal }));
+    return await Promise.race([
+      Promise.resolve(summarizer({ ...request, abortSignal: controller.signal })),
+      timeout,
+    ]);
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     request.abortSignal?.removeEventListener('abort', parentAbort);
+  }
+}
+
+class SemanticCompactSummarizerTimeoutError extends Error {
+  constructor() {
+    super('semantic compact summarizer timeout');
+    this.name = 'SemanticCompactSummarizerTimeoutError';
   }
 }
 
@@ -834,12 +1166,19 @@ function selectedSourceText(
   return stableStringify(messages.slice(selection.startMessageIndex, selection.endMessageIndex + 1));
 }
 
+type SemanticCompactSummaryParseReason =
+  | 'summary_missing'
+  | 'summary_invalid_json'
+  | 'summary_schema_invalid'
+  | 'summary_missing_current_objective'
+  | 'summary_missing_next_action';
+
 function parseSemanticCompactSummary(text: string): {
   ok: true;
   summary: SemanticCompactStructuredSummary;
 } | {
   ok: false;
-  reason: string;
+  reason: SemanticCompactSummaryParseReason;
 } {
   const raw = text.trim();
   if (!raw) return { ok: false, reason: 'summary_missing' };
@@ -857,23 +1196,6 @@ function parseSemanticCompactSummary(text: string): {
   const legacy = parseLegacyLabeledSummary(raw);
   if (legacy.ok) return legacy;
   return { ok: false, reason: 'summary_invalid_json' };
-}
-
-function fallbackSemanticCompactSummary(rawText: string, reason: string): SemanticCompactStructuredSummary {
-  const fallbackText = boundedSingleLine(rawText, FALLBACK_RAW_SUMMARY_MAX_CHARS);
-  return {
-    currentObjective: 'Continue the current task from the semantic compact fallback summary and preserved recent context.',
-    userConstraints: [],
-    importantFilesAndArtifacts: [],
-    commandsAndResults: fallbackText ? [`raw_semantic_summary_fallback: ${fallbackText}`] : [],
-    errorsAndFixes: [],
-    failedHypotheses: [],
-    operationalState: [`Semantic compact summarizer output did not satisfy the requested structure (${reason}); using raw text fallback.`],
-    publicVerificationState: 'No public verification state claimed by structured summary.',
-    remainingWork: ['Continue from the preserved recent messages after this compact block.'],
-    nextAction: 'Continue from the preserved recent context.',
-    archiveRefsToRereadIfNeeded: [],
-  };
 }
 
 function renderStructuredSemanticSummary(summary: SemanticCompactStructuredSummary): string {
@@ -914,7 +1236,7 @@ function normalizeStructuredSummary(value: unknown): {
   summary: SemanticCompactStructuredSummary;
 } | {
   ok: false;
-  reason: string;
+  reason: SemanticCompactSummaryParseReason;
 } {
   if (!isRecord(value)) return { ok: false, reason: 'summary_schema_invalid' };
   const currentObjective = stringField(value, 'current_objective');
@@ -944,7 +1266,7 @@ function parseLegacyLabeledSummary(raw: string): {
   summary: SemanticCompactStructuredSummary;
 } | {
   ok: false;
-  reason: string;
+  reason: SemanticCompactSummaryParseReason;
 } {
   const currentObjective = extractSummaryField(raw, SUMMARY_FIELD_LABELS.objective);
   if (!currentObjective) return { ok: false, reason: 'summary_missing_current_objective' };
@@ -1015,23 +1337,43 @@ function newPrivateVerifierSurface(summaryText: string, publicSourceText: string
   return PRIVATE_VERIFIER_PATTERN.test(summaryText) && !PRIVATE_VERIFIER_PATTERN.test(publicSourceText);
 }
 
-function rejected(
+function failClosed(
   messages: ModelMessage[],
   index: ActiveFullCompactSourceIndex,
-  reason: string,
-  compactCallUsage?: SemanticCompactBlock['compactCallUsage'],
+  input: {
+    stage: SemanticCompactFailureStage;
+    reason: SemanticCompactFailureReason;
+    reasons: readonly SemanticCompactFailureReason[];
+    retryable?: boolean;
+    block?: SemanticCompactBlock;
+    validation?: ActiveFullCompactValidationResult;
+    compactCallUsage?: SemanticCompactBlock['compactCallUsage'];
+  },
 ): SemanticCompactRewriteResult {
+  const reasons = uniqueStrings(input.reasons) as SemanticCompactFailureReason[];
   return {
     messages,
-    decision: 'unchanged',
-    reason,
+    decision: 'failedOpen',
+    reason: input.reason,
+    ...(input.block ? { block: input.block } : {}),
+    ...(input.validation ? { validation: input.validation } : {}),
+    failure: {
+      kind: 'maka.semantic_compact_failure',
+      stage: input.stage,
+      reason: input.reason,
+      reasons,
+      retryable: input.retryable ?? false,
+    },
     diagnosticPatch: semanticCompactDecisionDiagnosticPatch({
-      decision: 'unchanged',
-      reason,
+      decision: 'failedOpen',
+      reason: input.reason,
+      failOpenReason: input.reason,
       estimatedTokensBefore: index.estimatedTokens,
       estimatedTokensAfter: index.estimatedTokens,
       estimatedTokensSaved: 0,
-      ...(compactCallUsage ? { compactCallUsage } : {}),
+      ...(input.compactCallUsage ? { compactCallUsage: input.compactCallUsage } : {}),
+      skippedReasonCounts: countStringReasons(reasons),
+      ...(input.validation ? { validationReasonCounts: input.validation.reasonCounts } : {}),
     }),
   };
 }
@@ -1056,6 +1398,172 @@ function compactUsage(usage: NormalizedAiSdkUsage): NonNullable<SemanticCompactB
     cacheWriteInputTokens: usage.cacheWriteInputTokens,
     totalTokens: usage.totalTokens,
   };
+}
+
+function semanticFailureStage(reason: SemanticCompactFailureReason): SemanticCompactFailureStage {
+  if (reason === 'summarizer_failed' || reason === 'summarizer_timeout') return 'summarizer';
+  if (
+    reason === 'summary_missing'
+    || reason === 'summary_invalid_json'
+    || reason === 'summary_schema_invalid'
+    || reason === 'summary_missing_current_objective'
+    || reason === 'summary_missing_next_action'
+    || reason === 'private_verifier_surface'
+  ) {
+    return 'summary';
+  }
+  if (
+    reason === 'current_user_not_preserved'
+    || reason === 'provider_message_structure_invalid'
+    || reason === 'tool_pair_split'
+    || reason === 'thinking_pair_split'
+  ) {
+    return 'provider_shape';
+  }
+  if (
+    reason === 'non_positive_savings'
+    || reason === 'below_min_savings_tokens'
+    || reason === 'below_min_savings_ratio'
+    || reason === 'non_positive_net_savings'
+    || reason === 'below_min_net_savings_tokens'
+  ) {
+    return 'economics';
+  }
+  return 'source_validation';
+}
+
+function validatePreservedToolPairs(
+  originalMessages: readonly ModelMessage[],
+  replacementMessages: readonly ModelMessage[],
+  startMessageIndex: number,
+  endMessageIndex: number,
+  add: (reason: SemanticCompactFailureReason) => void,
+): void {
+  const original = collectToolMessagePositions(originalMessages);
+  const replacement = collectToolMessagePositions(replacementMessages);
+  const toolCallIds = new Set([...original.calls.keys(), ...original.results.keys()]);
+  for (const toolCallId of toolCallIds) {
+    const callIndexes = original.calls.get(toolCallId) ?? [];
+    const resultIndexes = original.results.get(toolCallId) ?? [];
+    const allIndexes = [...callIndexes, ...resultIndexes];
+    const coveredCount = allIndexes.filter((index) => index >= startMessageIndex && index <= endMessageIndex).length;
+    if (coveredCount > 0 && coveredCount < allIndexes.length) {
+      add('tool_pair_split');
+      continue;
+    }
+    if (coveredCount === allIndexes.length || callIndexes.length === 0 || resultIndexes.length === 0) continue;
+
+    const replacementCalls = replacement.calls.get(toolCallId) ?? [];
+    const replacementResults = replacement.results.get(toolCallId) ?? [];
+    if (replacementCalls.length !== callIndexes.length || replacementResults.length !== resultIndexes.length) {
+      add('tool_pair_split');
+      continue;
+    }
+    const expectedCalls = callIndexes.map((index) => mapPreservedMessageIndex(index, startMessageIndex, endMessageIndex));
+    const expectedResults = resultIndexes.map((index) => mapPreservedMessageIndex(index, startMessageIndex, endMessageIndex));
+    if (!sameNumbers(expectedCalls, replacementCalls) || !sameNumbers(expectedResults, replacementResults)) {
+      add('tool_pair_split');
+      continue;
+    }
+    if (Math.max(...replacementCalls) >= Math.min(...replacementResults)) add('tool_pair_split');
+  }
+}
+
+function validatePreservedThinking(
+  originalMessages: readonly ModelMessage[],
+  replacementMessages: readonly ModelMessage[],
+  startMessageIndex: number,
+  endMessageIndex: number,
+  add: (reason: SemanticCompactFailureReason) => void,
+): void {
+  originalMessages.forEach((message, index) => {
+    if (index >= startMessageIndex && index <= endMessageIndex) return;
+    if (!messageHasThinking(message)) return;
+    const mappedIndex = mapPreservedMessageIndex(index, startMessageIndex, endMessageIndex);
+    if (!sameModelMessage(message, replacementMessages[mappedIndex])) add('thinking_pair_split');
+  });
+  for (const message of replacementMessages) {
+    if ((message as { role?: string }).role !== 'assistant') continue;
+    const content = (message as { content?: unknown }).content;
+    if (!Array.isArray(content)) continue;
+    const thinkingIndex = content.findIndex((part) => isThinkingPart(part));
+    const toolCallIndex = content.findIndex((part) => isRecord(part) && part.type === 'tool-call');
+    if (thinkingIndex >= 0 && toolCallIndex >= 0 && thinkingIndex > toolCallIndex) add('thinking_pair_split');
+  }
+}
+
+function collectToolMessagePositions(messages: readonly ModelMessage[]): {
+  calls: Map<string, number[]>;
+  results: Map<string, number[]>;
+} {
+  const calls = new Map<string, number[]>();
+  const results = new Map<string, number[]>();
+  messages.forEach((message, index) => {
+    for (const id of messageToolCallIds(message)) pushNumber(calls, id, index);
+    for (const id of messageToolResultIds(message)) pushNumber(results, id, index);
+  });
+  return { calls, results };
+}
+
+function pushNumber(map: Map<string, number[]>, key: string, value: number): void {
+  const values = map.get(key);
+  if (values) values.push(value);
+  else map.set(key, [value]);
+}
+
+function messageHasThinking(message: ModelMessage): boolean {
+  const content = (message as { content?: unknown }).content;
+  return Array.isArray(content) && content.some(isThinkingPart);
+}
+
+function isThinkingPart(value: unknown): boolean {
+  return isRecord(value) && (value.type === 'reasoning' || value.type === 'thinking');
+}
+
+function findLastMessageIndex(messages: readonly ModelMessage[], role: string): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if ((messages[index] as { role?: string } | undefined)?.role === role) return index;
+  }
+  return -1;
+}
+
+function mapPreservedMessageIndex(index: number, startMessageIndex: number, endMessageIndex: number): number {
+  if (index < startMessageIndex) return index;
+  return index - (endMessageIndex - startMessageIndex);
+}
+
+function sameModelMessages(left: readonly ModelMessage[], right: readonly ModelMessage[]): boolean {
+  return left.length === right.length && left.every((message, index) => sameModelMessage(message, right[index]));
+}
+
+function sameModelMessage(left: ModelMessage | undefined, right: ModelMessage | undefined): boolean {
+  return left !== undefined && right !== undefined && stableStringify(left) === stableStringify(right);
+}
+
+function sameOptionalArchiveRef(
+  left: ActiveFullCompactArchiveRef | undefined,
+  right: ActiveFullCompactArchiveRef | undefined,
+): boolean {
+  if (!left || !right) return left === right;
+  return stableStringify(left) === stableStringify(right);
+}
+
+function sourceRefKindForEntry(entry: ActiveFullCompactSourceEntry): ActiveFullCompactSourceRef['kind'] {
+  if (entry.archiveRef) return 'active_archive_placeholder';
+  if (entry.runtimeEventId) return 'runtime_event';
+  return 'provider_message';
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function sameNumbers(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function uniqueNumbers(values: readonly number[]): number[] {
+  return [...new Set(values)].sort((a, b) => a - b);
 }
 
 function uniqueArchiveRefs(refs: readonly ActiveFullCompactArchiveRef[]): ActiveFullCompactArchiveRef[] {
@@ -1138,10 +1646,4 @@ function escapeAttribute(value: string): string {
 
 function singleLine(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
-}
-
-function boundedSingleLine(value: string, maxChars: number): string {
-  const clean = singleLine(value);
-  if (clean.length <= maxChars) return clean;
-  return `${clean.slice(0, Math.max(0, maxChars - 3))}...`;
 }

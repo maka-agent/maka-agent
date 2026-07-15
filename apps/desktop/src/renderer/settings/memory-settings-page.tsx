@@ -58,6 +58,8 @@ export function MemorySettingsPage(props: {
     normalizedMemoryEntryQuery,
     filteredActiveEntries,
     filteredArchivedEntries,
+    filteredCompatibilityEntries,
+    filteredMalformedEntries,
     filteredEntryCount,
     localMemoryPromptPreview,
     promptPreviewBlockedReason,
@@ -298,6 +300,28 @@ export function MemorySettingsPage(props: {
                   onCopyReference={copyMemoryEntryReference}
                   onFocusDraft={focusMemoryEntryInDraft}
                   onStatusChange={updateMemoryEntryStatus}
+                />
+              )}
+              {visibleMemoryEntries.compatibilityEntries.length > 0 && (
+                <MemoryEntryList
+                  title="兼容只读记忆"
+                  entries={filteredCompatibilityEntries}
+                  filtered={normalizedMemoryEntryQuery.length > 0}
+                  compatibility
+                  pendingCopyIds={pendingMemoryActions}
+                  onCopyReference={copyMemoryEntryReference}
+                  onFocusDraft={focusMemoryEntryInDraft}
+                />
+              )}
+              {visibleMemoryEntries.malformedEntries.length > 0 && (
+                <MemoryEntryList
+                  title="需要修复的记忆"
+                  entries={filteredMalformedEntries}
+                  filtered={normalizedMemoryEntryQuery.length > 0}
+                  malformed
+                  pendingCopyIds={pendingMemoryActions}
+                  onCopyReference={copyMemoryEntryReference}
+                  onFocusDraft={focusMemoryEntryInDraft}
                 />
               )}
             </div>

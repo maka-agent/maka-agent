@@ -7,6 +7,8 @@ export function MemoryEntryList(props: {
   entries: LocalMemoryState['activeEntries'];
   filtered?: boolean;
   archived?: boolean;
+  compatibility?: boolean;
+  malformed?: boolean;
   draftDirty?: boolean;
   busy?: boolean;
   pendingCopyIds?: ReadonlySet<string>;
@@ -69,8 +71,17 @@ export function MemoryEntryList(props: {
                     </span>
                   )}
                 </small>
-                <span className="settingsMemoryPromptScope" data-active={props.archived ? 'false' : 'true'}>
-                  {props.archived ? '已归档，不进入 prompt' : '生效条目，会进入本地记忆 prompt'}
+                <span
+                  className="settingsMemoryPromptScope"
+                  data-active={props.archived || props.compatibility || props.malformed ? 'false' : 'true'}
+                >
+                  {props.malformed
+                    ? '格式不完整，只读保留且不会进入 prompt'
+                    : props.compatibility
+                      ? '旧格式兼容条目，不属于已确认的 durable memory'
+                      : props.archived
+                        ? '已归档，不进入 prompt'
+                        : '生效条目，会进入本地记忆 prompt'}
                 </span>
                 <p>{entry.content}</p>
                 {(props.onCopyReference || props.onFocusDraft || props.onStatusChange) && (

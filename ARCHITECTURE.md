@@ -49,7 +49,7 @@ AHE organizes outcomes and traces from multiple TaskRuns into evolution evidence
 
 Relevant chapter: 6.
 
-## Six-chapter index
+## Seven-chapter index
 
 | Chapter | Core question | Implementation status | Read |
 |---|---|---|---|
@@ -59,6 +59,7 @@ Relevant chapter: 6.
 | 4. The Durable Task Loop | How does Maka continue a task that outlives a Turn, Run, or process? | Current + Target | [English](./docs/architecture/durable-task-loop-headless-draft.md) · [中文](./docs/architecture/durable-task-loop-headless-draft.zh-CN.md) |
 | 5. Self-Check Is Not Self-Trust | How can an Agent inspect and repair its work without turning self-report into authority? | Current + Target | [English](./docs/architecture/self-check-bounded-feedback-loop-draft.md) · [中文](./docs/architecture/self-check-bounded-feedback-loop-draft.zh-CN.md) |
 | 6. Self-Iteration Happens Outside the Runtime | How does Maka turn run experience into falsifiable and reversible system improvement? | Current + Target | [English](./docs/architecture/ahe-self-iteration-boundary-draft.md) · [中文](./docs/architecture/ahe-self-iteration-boundary-draft.zh-CN.md) |
+| 7. Legacy Is Not Approval | How can hand-edited Markdown remain readable without being silently promoted to confirmed durable memory? | Current | [English](./docs/architecture/memory-markdown-compatibility-draft.md) · [中文](./docs/architecture/memory-markdown-compatibility-draft.zh-CN.md) |
 
 **Current + Target** means the article covers verified implementation and visibly labeled target direction. It does not mean Target sections are implemented. The `implementation_status` and `last_verified` fields in each article's front matter are the more precise status source.
 
@@ -100,7 +101,7 @@ The “code map” in each deep-dive article is the preferred implementation ent
 - [`docs/archive/runtime-v2-architecture-evolution.md`](./docs/archive/runtime-v2-architecture-evolution.md)
 - [`docs/archive/runtime-v2-implementation-notes.md`](./docs/archive/runtime-v2-implementation-notes.md)
 
-Those documents provide historical design context and implementation notes. The six chapters indexed here are the narrative entry point for current backend mechanisms.
+Those documents provide historical design context and implementation notes. The seven chapters indexed here are the narrative entry point for current backend mechanisms.
 
 ## Documentation layout
 

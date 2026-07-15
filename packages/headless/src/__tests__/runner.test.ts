@@ -320,6 +320,7 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
         backend: 'ai-sdk',
         llmConnectionSlug: 'deepseek',
         model: 'deepseek-chat',
+        thinkingLevel: 'high',
       };
       const task: Task = {
         id: 'real-task',
@@ -328,10 +329,17 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
         verification: { command: 'test -f solved.txt', protectedPaths: [] },
       };
       const contexts: HeadlessBackendContext[] = [];
+      const headers: SessionHeader[] = [];
 
       const result = await runExperiment(realConfig, task, {
         storageRoot,
-        registerBackends: registerIsolatedRealBackend(contexts),
+        registerBackends: (registry, context) => {
+          contexts.push(context);
+          registry.register('ai-sdk', (ctx) => {
+            headers.push(ctx.header);
+            return new IsolatedRealBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store });
+          });
+        },
         realBackendIsolation: { kind: 'external', label: 'unit-test isolated backend' },
       });
 
@@ -341,6 +349,7 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
       assert.equal(contexts[0]?.realBackendIsolation?.label, 'unit-test isolated backend');
       assert.equal(contexts[0]?.config.id, 'real-cfg');
       assert.equal(contexts[0]?.task.id, 'real-task');
+      assert.equal(headers[0]?.thinkingLevel, 'high');
     });
   });
 

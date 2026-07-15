@@ -6,6 +6,13 @@
  */
 
 import { redactSecrets } from './redaction.js';
+import {
+  MEMORY_SOURCE_REF_KINDS,
+  MEMORY_SOURCE_REF_MAX_CHARS,
+  normalizeMemorySourceRefs,
+  type MemorySourceRef,
+  type MemorySourceRefKind,
+} from './memory.js';
 
 export interface LocalMemorySettings {
   readonly enabled: boolean;
@@ -15,16 +22,28 @@ export interface LocalMemorySettings {
 export type LocalMemoryOrigin = 'manual' | 'extracted' | 'imported' | 'unknown';
 export type LocalMemoryEntryStatus = 'draft' | 'review_required' | 'active' | 'archived' | 'rejected' | 'unknown';
 export type LocalMemoryScope = 'workspace' | 'session';
-export type LocalMemorySource = 'user_authored' | 'chat_extracted' | 'unknown';
+export type LocalMemorySource = 'user_authored' | 'chat_extracted' | 'legacy_markdown' | 'unknown';
+export type LocalMemoryCompatibilitySource = 'structured_v1' | 'legacy_markdown';
+export type LocalMemoryMigrationState = 'not_required' | 'legacy_read_only' | 'malformed_read_only';
+export type LocalMemoryApprovalState = 'confirmed' | 'compatibility_unconfirmed' | 'invalid';
+export type LocalMemoryCompatibilityStatus = 'legacy_active' | 'legacy_archived';
+export type LocalMemorySourceRefKind = MemorySourceRefKind | 'legacy_section';
+export type LocalMemorySourceRef = MemorySourceRef | { readonly kind: 'legacy_section'; readonly ref: string };
 
 export interface LocalMemoryEntryPreview {
   readonly id: string;
   readonly origin: LocalMemoryOrigin;
   readonly source: LocalMemorySource;
   readonly status: LocalMemoryEntryStatus;
+  readonly compatibilitySource: LocalMemoryCompatibilitySource;
+  readonly migrationState: LocalMemoryMigrationState;
+  readonly approvalState: LocalMemoryApprovalState;
+  readonly compatibilityStatus?: LocalMemoryCompatibilityStatus;
+  readonly sourceRefs: readonly LocalMemorySourceRef[];
   readonly title: string;
   readonly content: string;
   readonly scope?: LocalMemoryScope;
+  readonly sessionId?: string;
   readonly proposalId?: string;
   readonly sourceTurnId?: string;
   readonly createdAt?: number;
@@ -43,6 +62,9 @@ export interface LocalMemoryEntryPreview {
 export interface LocalMemoryParseResult {
   readonly entries: ReadonlyArray<LocalMemoryEntryPreview>;
   readonly activeEntries: ReadonlyArray<LocalMemoryEntryPreview>;
+  readonly durableActiveEntries: ReadonlyArray<LocalMemoryEntryPreview>;
+  readonly compatibilityEntries: ReadonlyArray<LocalMemoryEntryPreview>;
+  readonly malformedEntries: ReadonlyArray<LocalMemoryEntryPreview>;
   readonly archivedEntries: ReadonlyArray<LocalMemoryEntryPreview>;
   readonly safeMode: boolean;
   readonly reason?: 'empty' | 'oversize';
@@ -62,11 +84,16 @@ export interface LocalMemoryBackupInfo {
 
 interface LocalMemoryRawEntry extends LocalMemoryEntryPreview {
   readonly promptContent: string;
+  readonly declaredStatus: LocalMemoryEntryStatus;
 }
 
 interface LocalMemoryRawParseResult {
   readonly entries: ReadonlyArray<LocalMemoryRawEntry>;
   readonly activeEntries: ReadonlyArray<LocalMemoryRawEntry>;
+  readonly durableActiveEntries: ReadonlyArray<LocalMemoryRawEntry>;
+  readonly modelVisibleCandidates: ReadonlyArray<LocalMemoryRawEntry>;
+  readonly compatibilityEntries: ReadonlyArray<LocalMemoryRawEntry>;
+  readonly malformedEntries: ReadonlyArray<LocalMemoryRawEntry>;
   readonly archivedEntries: ReadonlyArray<LocalMemoryRawEntry>;
   readonly safeMode: boolean;
   readonly reason?: 'empty' | 'oversize';
@@ -83,6 +110,8 @@ export interface LocalMemoryState {
   readonly archivedEntryCount: number;
   readonly entries: ReadonlyArray<LocalMemoryEntryPreview>;
   readonly activeEntries: ReadonlyArray<LocalMemoryEntryPreview>;
+  readonly compatibilityEntries: ReadonlyArray<LocalMemoryEntryPreview>;
+  readonly malformedEntries: ReadonlyArray<LocalMemoryEntryPreview>;
   readonly archivedEntries: ReadonlyArray<LocalMemoryEntryPreview>;
   readonly latestEntry?: LocalMemoryEntryPreview;
   readonly latestBackup?: LocalMemoryBackupInfo;
@@ -107,6 +136,7 @@ export interface AppendApprovedLocalMemoryEntryInput {
   readonly content: string;
   readonly source: 'user_authored' | 'chat_extracted';
   readonly scope?: LocalMemoryScope;
+  readonly sessionId?: string;
   readonly proposalId?: string;
   readonly sourceTurnId?: string;
   readonly confirmedAt: number;
@@ -116,13 +146,14 @@ export interface AppendApprovedLocalMemoryEntryInput {
 
 export type AppendApprovedLocalMemoryEntryResult =
   | { readonly ok: true; readonly draft: string }
-  | { readonly ok: false; readonly reason: 'invalid_id' | 'empty_title' | 'empty_content' | 'oversize' };
+  | { readonly ok: false; readonly reason: 'invalid_id' | 'empty_title' | 'empty_content' | 'session_owner_required' | 'oversize' };
 
 export interface AppendLocalMemoryProposalInput {
   readonly proposalId: string;
   readonly title: string;
   readonly content: string;
   readonly scope?: LocalMemoryScope;
+  readonly sessionId?: string;
   readonly sourceTurnId?: string;
   readonly proposedAt: number;
   readonly tags?: readonly string[];
@@ -130,7 +161,7 @@ export interface AppendLocalMemoryProposalInput {
 
 export type AppendLocalMemoryProposalResult =
   | { readonly ok: true; readonly draft: string }
-  | { readonly ok: false; readonly reason: 'invalid_id' | 'empty_title' | 'empty_content' | 'oversize' };
+  | { readonly ok: false; readonly reason: 'invalid_id' | 'empty_title' | 'empty_content' | 'session_owner_required' | 'oversize' };
 
 export interface ApproveLocalMemoryProposalInput {
   readonly proposalId: string;
@@ -141,7 +172,7 @@ export interface ApproveLocalMemoryProposalInput {
 
 export type ApproveLocalMemoryProposalResult =
   | { readonly ok: true; readonly memoryDraft: string; readonly pendingDraft: string; readonly entry: LocalMemoryEntryPreview }
-  | { readonly ok: false; readonly reason: 'invalid_id' | 'not_found' | 'not_pending' | 'empty_content' | 'oversize' };
+  | { readonly ok: false; readonly reason: 'invalid_id' | 'not_found' | 'not_pending' | 'empty_content' | 'session_owner_required' | 'oversize' };
 
 export interface RejectLocalMemoryProposalInput {
   readonly proposalId: string;
@@ -162,6 +193,10 @@ export interface SetLocalMemoryEntryStatusInput {
 
 export type SetLocalMemoryEntryStatusResult =
   | { readonly ok: true; readonly draft: string }
+  | { readonly ok: false; readonly reason: 'invalid_id' | 'not_found' | 'confirmation_required' | 'oversize' };
+
+export type DeleteLocalMemoryEntryResult =
+  | { readonly ok: true; readonly draft: string }
   | { readonly ok: false; readonly reason: 'invalid_id' | 'not_found' | 'oversize' };
 
 export interface LocalMemoryEntryDraftRange {
@@ -175,12 +210,71 @@ export interface LocalMemoryEntryDraft {
   readonly status: LocalMemoryEntryStatus;
   readonly content: string;
   readonly scope?: LocalMemoryScope;
+  readonly sessionId?: string;
   readonly proposalId?: string;
   readonly sourceTurnId?: string;
 }
 
 export const LOCAL_MEMORY_MAX_BYTES = 128 * 1024;
 export const LOCAL_MEMORY_PROMPT_MAX_CHARS = 12_000;
+export const LOCAL_MEMORY_ENTRY_SCHEMA_V1 = 'maka.local_memory.entry.v1';
+
+export interface LocalMemoryDocumentVersionResult {
+  readonly ok: boolean;
+  readonly version: number;
+  readonly legacy: boolean;
+  readonly reason?: 'invalid_version' | 'duplicate_version';
+}
+
+export type WithLocalMemoryDocumentVersionResult =
+  | { readonly ok: true; readonly draft: string; readonly version: number }
+  | { readonly ok: false; readonly reason: 'invalid_version' | 'duplicate_version' };
+
+export type LocalMemoryLegacyScopePolicy = 'workspace_compat' | 'deny';
+export type LocalMemoryReadDecision =
+  | 'selected_workspace'
+  | 'selected_session'
+  | 'selected_legacy_workspace_compat'
+  | 'rejected_other_session'
+  | 'rejected_session_owner_missing'
+  | 'rejected_not_current_or_active'
+  | 'rejected_legacy_scope'
+  | 'rejected_malformed_entry';
+
+export interface LocalMemoryAgentReadContext {
+  readonly workspaceRoot: string;
+  readonly sourceWorkspaceRoot: string;
+  readonly sessionId: string;
+  readonly enabled: boolean;
+  readonly agentReadEnabled: boolean;
+  readonly incognitoActive: boolean;
+  readonly legacyScopePolicy?: LocalMemoryLegacyScopePolicy;
+}
+
+export interface LocalMemoryReadTrace {
+  readonly schemaVersion: 'maka.local_memory.read_trace.v1';
+  readonly status: 'visible' | 'empty';
+  readonly reason?: LocalMemoryAgentReadEmptyReason;
+  readonly totalActiveEntries: number;
+  readonly selectedEntries: number;
+  readonly decisions: ReadonlyArray<{
+    readonly entryRef: string;
+    readonly decision: LocalMemoryReadDecision;
+  }>;
+}
+
+export type LocalMemoryAgentReadEmptyReason =
+  | 'disabled'
+  | 'agent_read_disabled'
+  | 'incognito_active'
+  | 'workspace_mismatch'
+  | 'safe_mode'
+  | 'ambiguous_entry_ids'
+  | 'no_visible_entries';
+
+export type LocalMemoryAgentReadResult =
+  | { readonly status: 'visible'; readonly promptBody: string; readonly trace: LocalMemoryReadTrace }
+  | { readonly status: 'empty'; readonly reason: LocalMemoryAgentReadEmptyReason; readonly trace: LocalMemoryReadTrace };
 
 const SHA256_K = [
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -192,6 +286,46 @@ const SHA256_K = [
   0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
   0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ] as const;
+
+export function readLocalMemoryDocumentVersion(input: string): LocalMemoryDocumentVersionResult {
+  const lines = input.split(/\r?\n/);
+  const markerIndexes = lines.flatMap((line, index) => (
+    /^<!--\s*maka-memory-version:/.test(line.trim()) ? [index] : []
+  ));
+  if (markerIndexes.length === 0) return { ok: true, version: 0, legacy: true };
+  if (markerIndexes.length > 1) {
+    return { ok: false, version: 0, legacy: false, reason: 'duplicate_version' };
+  }
+  const markerIndex = markerIndexes[0] ?? -1;
+  const h1Index = lines.findIndex((line) => /^#\s+/.test(line));
+  if (markerIndex !== (h1Index >= 0 ? h1Index + 1 : 0)) {
+    return { ok: false, version: 0, legacy: false, reason: 'invalid_version' };
+  }
+  const match = /^<!--\s*maka-memory-version:\s*(\d+)\s*-->$/.exec(lines[markerIndex]?.trim() ?? '');
+  if (!match) return { ok: false, version: 0, legacy: false, reason: 'invalid_version' };
+  const version = Number(match[1]);
+  if (!Number.isSafeInteger(version) || version < 0) {
+    return { ok: false, version: 0, legacy: false, reason: 'invalid_version' };
+  }
+  return { ok: true, version, legacy: false };
+}
+
+export function withLocalMemoryDocumentVersion(
+  input: string,
+  version: number,
+): WithLocalMemoryDocumentVersionResult {
+  if (!Number.isSafeInteger(version) || version < 0) return { ok: false, reason: 'invalid_version' };
+  const current = readLocalMemoryDocumentVersion(input);
+  if (!current.ok) return { ok: false, reason: current.reason ?? 'invalid_version' };
+
+  const hadTrailingNewline = input.endsWith('\n');
+  const lines = input.split(/\r?\n/).filter((line) => !/^<!--\s*maka-memory-version:/.test(line.trim()));
+  if (hadTrailingNewline && lines.at(-1) === '') lines.pop();
+  const marker = `<!-- maka-memory-version: ${version} -->`;
+  const h1Index = lines.findIndex((line) => /^#\s+/.test(line));
+  lines.splice(h1Index >= 0 ? h1Index + 1 : 0, 0, marker);
+  return { ok: true, draft: `${lines.join('\n')}${hadTrailingNewline ? '\n' : ''}`, version };
+}
 
 export function defaultLocalMemorySettings(): LocalMemorySettings {
   return { enabled: true, agentReadEnabled: false };
@@ -213,7 +347,7 @@ export function defaultLocalMemoryMarkdown(now = Date.now()): string {
     '# Maka Memory',
     '',
     '## 示例：我的偏好',
-    `<!-- maka-memory: id=${exampleId} origin=manual createdAt=${now} -->`,
+    `<!-- maka-memory: id=${exampleId} entrySchema=${LOCAL_MEMORY_ENTRY_SCHEMA_V1} compatSource=structured_v1 migrationState=not_required origin=manual source=user_authored createdAt=${now} updatedAt=${now} confirmedAt=${now} status=active scope=workspace approvedBy=user approvalSurface=manual_editor_save sourceRefs=manual_editor:MEMORY.md -->`,
     exampleContent,
     '',
   ].join('\n');
@@ -227,10 +361,133 @@ export function parseLocalMemoryMarkdown(input: string): LocalMemoryParseResult 
 
 export function buildLocalMemoryPromptBody(input: string): string | undefined {
   const parsed = parseLocalMemoryMarkdownRaw(input);
-  if (parsed.safeMode || parsed.activeEntries.length === 0) return undefined;
+  if (parsed.safeMode) return undefined;
+  const previewEntries = parsed.modelVisibleCandidates.filter((entry) =>
+    isStrictConfirmedLocalMemoryEntry(entry) || entry.migrationState === 'legacy_read_only'
+  );
+  return previewEntries.length > 0 ? renderLocalMemoryPromptEntries(previewEntries) : undefined;
+}
 
-  const blocks = parsed.activeEntries.map((entry) => {
+export function readLocalMemoryForAgent(
+  input: string,
+  context: LocalMemoryAgentReadContext,
+  visibilityAuthorityInput?: string,
+): LocalMemoryAgentReadResult {
+  const blocked = localMemoryReadGate(context);
+  if (blocked) return emptyMemoryRead(blocked);
+
+  const parsed = parseLocalMemoryMarkdownRaw(input);
+  if (parsed.safeMode) return emptyMemoryRead('safe_mode');
+  const authorityParsed = visibilityAuthorityInput === undefined
+    ? parsed
+    : parseLocalMemoryMarkdownRaw(visibilityAuthorityInput);
+  if (authorityParsed.safeMode) return emptyMemoryRead('safe_mode');
+  if (hasDuplicateEntryIds(parsed.entries) || hasDuplicateEntryIds(authorityParsed.entries)) {
+    return emptyMemoryRead('ambiguous_entry_ids');
+  }
+  const authorityById = new Map(authorityParsed.entries.map((entry) => [entry.id, entry]));
+  const decisions: LocalMemoryReadTrace['decisions'][number][] = [];
+  const selected: LocalMemoryRawEntry[] = [];
+  const legacyPolicy = context.legacyScopePolicy ?? 'workspace_compat';
+  for (const entry of parsed.modelVisibleCandidates) {
+    const authorityEntry = authorityById.get(entry.id);
+    let decision: LocalMemoryReadDecision;
+    if (!authorityEntry || authorityEntry.declaredStatus !== 'active') {
+      decision = 'rejected_not_current_or_active';
+    } else if (
+      entry.migrationState === 'malformed_read_only'
+      || authorityEntry.migrationState === 'malformed_read_only'
+    ) {
+      decision = 'rejected_malformed_entry';
+    } else if (
+      entry.compatibilitySource === 'legacy_markdown'
+      || authorityEntry.compatibilitySource === 'legacy_markdown'
+    ) {
+      if (legacyPolicy === 'deny') {
+        decision = 'rejected_legacy_scope';
+      } else if (authorityEntry.scope === 'session' && authorityEntry.sessionId === context.sessionId) {
+        decision = 'selected_legacy_workspace_compat';
+        selected.push(entry);
+      } else if (authorityEntry.scope === 'session' && !authorityEntry.sessionId) {
+        decision = 'rejected_session_owner_missing';
+      } else if (authorityEntry.scope === 'session') {
+        decision = 'rejected_other_session';
+      } else {
+        decision = 'selected_legacy_workspace_compat';
+        selected.push(entry);
+      }
+    } else if (authorityEntry.scope === 'workspace') {
+      decision = 'selected_workspace';
+      selected.push(entry);
+    } else if (authorityEntry.scope === 'session' && authorityEntry.sessionId === context.sessionId) {
+      decision = 'selected_session';
+      selected.push(entry);
+    } else if (authorityEntry.scope === 'session' && !authorityEntry.sessionId) {
+      decision = 'rejected_session_owner_missing';
+    } else if (authorityEntry.scope === 'session') {
+      decision = 'rejected_other_session';
+    } else decision = 'rejected_legacy_scope';
+    decisions.push({ entryRef: `sha256:${sha256Hex(entry.id)}`, decision });
+  }
+  const traceBase = {
+    schemaVersion: 'maka.local_memory.read_trace.v1' as const,
+    totalActiveEntries: parsed.modelVisibleCandidates.length,
+    selectedEntries: selected.length,
+    decisions,
+  };
+  if (selected.length === 0) {
+    return {
+      status: 'empty',
+      reason: 'no_visible_entries',
+      trace: { ...traceBase, status: 'empty', reason: 'no_visible_entries' },
+    };
+  }
+  const promptBody = renderLocalMemoryPromptEntries(selected);
+  if (!promptBody) return emptyMemoryRead('no_visible_entries', traceBase);
+  return { status: 'visible', promptBody, trace: { ...traceBase, status: 'visible' } };
+}
+
+function hasDuplicateEntryIds(entries: readonly LocalMemoryRawEntry[]): boolean {
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    if (ids.has(entry.id)) return true;
+    ids.add(entry.id);
+  }
+  return false;
+}
+
+function localMemoryReadGate(context: LocalMemoryAgentReadContext): LocalMemoryAgentReadEmptyReason | undefined {
+  if (!context.enabled) return 'disabled';
+  if (!context.agentReadEnabled) return 'agent_read_disabled';
+  if (context.incognitoActive) return 'incognito_active';
+  if (context.workspaceRoot !== context.sourceWorkspaceRoot) return 'workspace_mismatch';
+  return undefined;
+}
+
+function emptyMemoryRead(
+  reason: LocalMemoryAgentReadEmptyReason,
+  trace?: Pick<LocalMemoryReadTrace, 'schemaVersion' | 'totalActiveEntries' | 'selectedEntries' | 'decisions'>,
+): LocalMemoryAgentReadResult {
+  return {
+    status: 'empty',
+    reason,
+    trace: {
+      schemaVersion: 'maka.local_memory.read_trace.v1',
+      status: 'empty',
+      reason,
+      totalActiveEntries: trace?.totalActiveEntries ?? 0,
+      selectedEntries: trace?.selectedEntries ?? 0,
+      decisions: trace?.decisions ?? [],
+    },
+  };
+}
+
+function renderLocalMemoryPromptEntries(entries: readonly LocalMemoryRawEntry[]): string | undefined {
+  const blocks = entries.map((entry) => {
     const lines = [`## ${entry.title}`];
+    if (entry.migrationState === 'legacy_read_only') {
+      lines.push('Compatibility: legacy_markdown_read_only (not confirmed structured memory)');
+    }
     if (entry.tags.length > 0) lines.push(`Tags: ${entry.tags.join(', ')}`);
     lines.push(redactSecrets(entry.promptContent));
     return lines.join('\n');
@@ -256,9 +513,19 @@ export function appendManualLocalMemoryEntryDraft(
   const id = stableLocalMemoryEntryId(content, now);
   const meta = [
     `id=${id}`,
+    `entrySchema=${LOCAL_MEMORY_ENTRY_SCHEMA_V1}`,
+    'compatSource=structured_v1',
+    'migrationState=not_required',
     'origin=manual',
+    'source=user_authored',
     `createdAt=${now}`,
+    `updatedAt=${now}`,
+    `confirmedAt=${now}`,
     'status=active',
+    'scope=workspace',
+    'approvedBy=user',
+    'approvalSurface=manual_editor_save',
+    'sourceRefs=manual_editor:MEMORY.md',
     ...(tags.length > 0 ? [`tags=${tags.join(',')}`] : []),
   ].join(' ');
   const entry = [
@@ -287,11 +554,23 @@ export function appendApprovedLocalMemoryEntryDraft(
   if (!content) return { ok: false, reason: 'empty_content' };
 
   const confirmedAt = normalizeTimestamp(input.confirmedAt);
+  const sessionId = normalizeLocalMemorySessionOwner(input.scope, input.sessionId);
+  if (sessionId === null) return { ok: false, reason: 'session_owner_required' };
   const tags = normalizeManualEntryTags(input.tags ?? []);
   const source = input.source === 'chat_extracted' ? 'chat_extracted' : 'user_authored';
   const origin = source === 'chat_extracted' ? 'extracted' : 'manual';
+  const approvalSurface = input.approvalSurface ?? (source === 'chat_extracted' ? 'settings_review_queue' : 'manual_editor_save');
+  const sourceRefs = buildLocalMemorySourceRefs({
+    source,
+    proposalId: input.proposalId,
+    sourceTurnId: input.sourceTurnId,
+    approvalSurface,
+  });
   const meta = [
     `id=${id}`,
+    `entrySchema=${LOCAL_MEMORY_ENTRY_SCHEMA_V1}`,
+    'compatSource=structured_v1',
+    'migrationState=not_required',
     `origin=${origin}`,
     `source=${source}`,
     `createdAt=${confirmedAt}`,
@@ -299,8 +578,10 @@ export function appendApprovedLocalMemoryEntryDraft(
     `confirmedAt=${confirmedAt}`,
     'status=active',
     `scope=${input.scope === 'session' ? 'session' : 'workspace'}`,
+    ...(sessionId ? [`sessionId=${sessionId}`] : []),
     'approvedBy=user',
-    `approvalSurface=${input.approvalSurface ?? (source === 'chat_extracted' ? 'settings_review_queue' : 'manual_editor_save')}`,
+    `approvalSurface=${approvalSurface}`,
+    `sourceRefs=${sourceRefs}`,
     ...(input.proposalId ? [`proposalId=${normalizeId(input.proposalId, 'proposal-')}`] : []),
     ...(input.sourceTurnId ? [`sourceTurnId=${normalizeMetaValue(input.sourceTurnId)}`] : []),
     ...(tags.length > 0 ? [`tags=${tags.join(',')}`] : []),
@@ -322,15 +603,26 @@ export function appendLocalMemoryProposalDraft(
   if (!content) return { ok: false, reason: 'empty_content' };
 
   const proposedAt = normalizeTimestamp(input.proposedAt);
+  const sessionId = normalizeLocalMemorySessionOwner(input.scope, input.sessionId);
+  if (sessionId === null) return { ok: false, reason: 'session_owner_required' };
   const tags = normalizeManualEntryTags(input.tags ?? []);
+  const sourceRefs = serializeLocalMemorySourceRefs([
+    ['proposal', proposalId],
+    ...(input.sourceTurnId ? [['chat_turn', input.sourceTurnId] as const] : []),
+  ]);
   const meta = [
     `id=${proposalId}`,
+    `entrySchema=${LOCAL_MEMORY_ENTRY_SCHEMA_V1}`,
+    'compatSource=structured_v1',
+    'migrationState=not_required',
     `proposalId=${proposalId}`,
     'origin=extracted',
     'source=chat_extracted',
     `proposedAt=${proposedAt}`,
     'status=review_required',
     `scope=${input.scope === 'session' ? 'session' : 'workspace'}`,
+    ...(sessionId ? [`sessionId=${sessionId}`] : []),
+    `sourceRefs=${sourceRefs}`,
     ...(input.sourceTurnId ? [`sourceTurnId=${normalizeMetaValue(input.sourceTurnId)}`] : []),
     ...(tags.length > 0 ? [`tags=${tags.join(',')}`] : []),
   ].join(' ');
@@ -358,6 +650,18 @@ export function setLocalMemoryEntryStatusDraft(
 
   const section = findLocalMemoryEntrySection(currentDraft, id);
   if (!section) return { ok: false, reason: 'not_found' };
+  if (input.status === 'active') {
+    const entry = parseLocalMemoryMarkdown(currentDraft).entries.find((candidate) => candidate.id === section.id);
+    if (
+      !entry
+      || entry.compatibilitySource !== 'structured_v1'
+      || entry.migrationState !== 'not_required'
+      || entry.approvalState !== 'confirmed'
+      || entry.sourceRefs.length === 0
+    ) {
+      return { ok: false, reason: 'confirmation_required' };
+    }
+  }
 
   const now = Number.isFinite(input.now) && input.now !== undefined ? Math.max(0, Math.floor(input.now)) : Date.now();
   const lines = currentDraft.split(/\r?\n/);
@@ -378,6 +682,21 @@ export function setLocalMemoryEntryStatusDraft(
   }
 
   const draft = lines.join('\n');
+  if (new TextEncoder().encode(draft).byteLength > LOCAL_MEMORY_MAX_BYTES) {
+    return { ok: false, reason: 'oversize' };
+  }
+  return { ok: true, draft };
+}
+
+export function deleteLocalMemoryEntryDraft(
+  currentDraft: string,
+  entryId: string,
+): DeleteLocalMemoryEntryResult {
+  const id = entryId.trim();
+  if (!id) return { ok: false, reason: 'invalid_id' };
+  const section = findLocalMemoryEntryFullSection(currentDraft, id);
+  if (!section) return { ok: false, reason: 'not_found' };
+  const draft = removeLocalMemoryEntrySection(currentDraft, section.range);
   if (new TextEncoder().encode(draft).byteLength > LOCAL_MEMORY_MAX_BYTES) {
     return { ok: false, reason: 'oversize' };
   }
@@ -405,6 +724,7 @@ export function approveLocalMemoryProposalDraft(
     content: proposal.content,
     source: 'chat_extracted',
     scope: normalizeScope(proposal.meta?.scope),
+    sessionId: proposal.meta?.sessionId,
     proposalId,
     sourceTurnId: proposal.meta?.sourceTurnId,
     confirmedAt: input.confirmedAt,
@@ -412,7 +732,9 @@ export function approveLocalMemoryProposalDraft(
     tags: parseTags(proposal.meta?.tags),
   });
   if (!approved.ok) {
-    return approved.reason === 'oversize' ? { ok: false, reason: 'oversize' } : { ok: false, reason: 'empty_content' };
+    if (approved.reason === 'oversize') return { ok: false, reason: 'oversize' };
+    if (approved.reason === 'session_owner_required') return { ok: false, reason: 'session_owner_required' };
+    return { ok: false, reason: 'empty_content' };
   }
 
   const pendingWithoutProposal = removeLocalMemoryEntrySection(pendingDraft, proposal.range);
@@ -513,6 +835,7 @@ export function findLocalMemoryEntryDraft(input: string, entryId: string): Local
     status: normalizeEntryStatus(section.meta?.status, false),
     content: section.content,
     scope: normalizeScope(section.meta?.scope),
+    ...(section.meta?.sessionId ? { sessionId: section.meta.sessionId } : {}),
     ...(section.meta?.proposalId ? { proposalId: section.meta.proposalId } : {}),
     ...(section.meta?.sourceTurnId ? { sourceTurnId: section.meta.sourceTurnId } : {}),
   };
@@ -521,25 +844,54 @@ export function findLocalMemoryEntryDraft(input: string, entryId: string): Local
 function parseLocalMemoryMarkdownRaw(input: string): LocalMemoryRawParseResult {
   const size = new TextEncoder().encode(input).byteLength;
   if (size > LOCAL_MEMORY_MAX_BYTES) {
-    return { entries: [], activeEntries: [], archivedEntries: [], safeMode: true, reason: 'oversize' };
+    return {
+      entries: [], activeEntries: [], durableActiveEntries: [], compatibilityEntries: [],
+      modelVisibleCandidates: [], malformedEntries: [], archivedEntries: [], safeMode: true, reason: 'oversize',
+    };
   }
   if (input.trim().length === 0) {
-    return { entries: [], activeEntries: [], archivedEntries: [], safeMode: false, reason: 'empty' };
+    return {
+      entries: [], activeEntries: [], durableActiveEntries: [], compatibilityEntries: [],
+      modelVisibleCandidates: [], malformedEntries: [], archivedEntries: [], safeMode: false, reason: 'empty',
+    };
   }
 
   const entries: LocalMemoryRawEntry[] = [];
   const lines = input.split(/\r?\n/);
-  let current: { title: string; body: string[]; meta?: Record<string, string> } | null = null;
+  let current: {
+    title: string;
+    body: string[];
+    meta?: Record<string, string>;
+    malformedMetadata: boolean;
+  } | null = null;
 
   const flush = () => {
     if (!current) return;
     const content = current.body.join('\n').trim();
     if (content.length > 0) {
+      const contract = classifyLocalMemoryEntryContract(
+        current.meta,
+        current.title,
+        content,
+        current.malformedMetadata,
+      );
       const id = current.meta?.id ?? slugId(current.title);
       const origin = normalizeOrigin(current.meta?.origin);
-      const source = normalizeSource(current.meta?.source, origin);
-      const status = normalizeEntryStatus(current.meta?.status, false);
+      const declaredStatus = normalizeEntryStatus(current.meta?.status, false);
+      const status = contract.migrationState === 'malformed_read_only'
+        ? 'unknown'
+        : contract.migrationState === 'legacy_read_only' && declaredStatus === 'active'
+          ? 'review_required'
+          : declaredStatus;
+      const compatibilityStatus = contract.migrationState === 'legacy_read_only'
+        ? declaredStatus === 'active'
+          ? 'legacy_active'
+          : declaredStatus === 'archived'
+            ? 'legacy_archived'
+            : undefined
+        : undefined;
       const scope = normalizeScope(current.meta?.scope);
+      const sessionId = current.meta?.sessionId;
       const createdAt = parseFiniteNumber(current.meta?.createdAt);
       const updatedAt = parseFiniteNumber(current.meta?.updatedAt);
       const proposedAt = parseFiniteNumber(current.meta?.proposedAt);
@@ -552,12 +904,19 @@ function parseLocalMemoryMarkdownRaw(input: string): LocalMemoryRawParseResult {
       entries.push({
         id,
         origin,
-        source,
+        source: contract.source,
         status,
+        compatibilitySource: contract.compatibilitySource,
+        migrationState: contract.migrationState,
+        approvalState: contract.approvalState,
+        ...(compatibilityStatus ? { compatibilityStatus } : {}),
+        sourceRefs: contract.sourceRefs,
         title: current.title,
         content: content.slice(0, 500),
         promptContent: content,
+        declaredStatus,
         scope,
+        ...(sessionId ? { sessionId } : {}),
         ...(current.meta?.proposalId ? { proposalId: current.meta.proposalId } : {}),
         ...(current.meta?.sourceTurnId ? { sourceTurnId: current.meta.sourceTurnId } : {}),
         ...(Number.isFinite(createdAt) ? { createdAt } : {}),
@@ -580,52 +939,187 @@ function parseLocalMemoryMarkdownRaw(input: string): LocalMemoryRawParseResult {
     const heading = /^##\s+(.+?)\s*$/.exec(line);
     if (heading) {
       flush();
-      current = { title: heading[1] ?? '未命名记忆', body: [] };
+      current = { title: heading[1] ?? '未命名记忆', body: [], malformedMetadata: false };
       continue;
     }
     if (!current) continue;
-    const meta = parseMetaComment(line);
-    if (meta) {
-      current.meta = meta;
+    const parsedMeta = parseMetaCommentDetailed(line);
+    if (parsedMeta) {
+      const { meta } = parsedMeta;
+      if (current.meta) {
+        current.meta = { ...current.meta, ...meta };
+        current.malformedMetadata = true;
+      } else {
+        current.meta = meta;
+      }
+      if (parsedMeta.malformed || Object.keys(meta).length === 0) current.malformedMetadata = true;
+      continue;
+    }
+    if (/^<!--\s*maka-memory:/.test(line.trim())) {
+      current.malformedMetadata = true;
       continue;
     }
     current.body.push(line);
   }
   flush();
-  const archivedEntries = entries.filter((entry) => entry.status === 'archived');
-  const activeEntries = entries.filter((entry) => entry.status === 'active');
-  return { entries, activeEntries, archivedEntries, safeMode: false };
+  const modelVisibleCandidates = entries.filter((entry) => entry.declaredStatus === 'active');
+  const durableActiveEntries = modelVisibleCandidates.filter(isStrictConfirmedLocalMemoryEntry);
+  const activeEntries = durableActiveEntries;
+  const compatibilityEntries = entries.filter((entry) => entry.migrationState === 'legacy_read_only');
+  const malformedEntries = entries.filter((entry) => entry.migrationState === 'malformed_read_only');
+  const archivedEntries = entries.filter((entry) => entry.status === 'archived' && isStrictConfirmedLocalMemoryEntry(entry));
+  return {
+    entries,
+    activeEntries,
+    durableActiveEntries,
+    modelVisibleCandidates,
+    compatibilityEntries,
+    malformedEntries,
+    archivedEntries,
+    safeMode: false,
+  };
 }
 
 function toPreviewParseResult(parsed: LocalMemoryRawParseResult): LocalMemoryParseResult {
   const entries = parsed.entries.map(stripPromptContent);
+  const activeEntries = entries.filter((entry) => entry.status === 'active' && isStrictConfirmedLocalMemoryEntry(entry));
   return {
-    ...parsed,
     entries,
-    activeEntries: entries.filter((entry) => entry.status === 'active'),
-    archivedEntries: entries.filter((entry) => entry.status === 'archived'),
+    activeEntries,
+    durableActiveEntries: activeEntries,
+    compatibilityEntries: entries.filter((entry) => entry.migrationState === 'legacy_read_only'),
+    malformedEntries: entries.filter((entry) => entry.migrationState === 'malformed_read_only'),
+    archivedEntries: entries.filter((entry) => entry.status === 'archived' && isStrictConfirmedLocalMemoryEntry(entry)),
+    safeMode: parsed.safeMode,
+    ...(parsed.reason ? { reason: parsed.reason } : {}),
   };
 }
 
+function isStrictConfirmedLocalMemoryEntry(
+  entry: Pick<LocalMemoryEntryPreview, 'compatibilitySource' | 'migrationState' | 'approvalState'>,
+): boolean {
+  return entry.compatibilitySource === 'structured_v1'
+    && entry.migrationState === 'not_required'
+    && entry.approvalState === 'confirmed';
+}
+
 function stripPromptContent(entry: LocalMemoryRawEntry): LocalMemoryEntryPreview {
-  const { promptContent: _promptContent, ...preview } = entry;
+  const { promptContent: _promptContent, declaredStatus: _declaredStatus, ...preview } = entry;
   return preview;
 }
 
+function classifyLocalMemoryEntryContract(
+  meta: Record<string, string> | undefined,
+  title: string,
+  content: string,
+  malformedMetadata: boolean,
+): Pick<
+  LocalMemoryEntryPreview,
+  'source' | 'compatibilitySource' | 'migrationState' | 'approvalState' | 'sourceRefs'
+> {
+  if (meta?.entrySchema === undefined && !malformedMetadata) {
+    return {
+      source: 'legacy_markdown',
+      compatibilitySource: 'legacy_markdown',
+      migrationState: 'legacy_read_only',
+      approvalState: 'compatibility_unconfirmed',
+      sourceRefs: [{ kind: 'legacy_section', ref: sha256Hex(`${title}\n${content}`).slice(0, 24) }],
+    };
+  }
+
+  const origin = normalizeOrigin(meta?.origin);
+  const source = normalizeSource(meta?.source, origin);
+  const status = normalizeEntryStatus(meta?.status, false);
+  const sourceRefParse = parseLocalMemorySourceRefs(meta?.sourceRefs);
+  const sourceRefs = sourceRefParse.refs;
+  const confirmedAt = parseFiniteNumber(meta?.confirmedAt);
+  const strictEnvelopeValid = !malformedMetadata
+    && meta?.entrySchema === LOCAL_MEMORY_ENTRY_SCHEMA_V1
+    && meta.compatSource === 'structured_v1'
+    && meta.migrationState === 'not_required'
+    && typeof meta.id === 'string'
+    && meta.id.length > 0
+    && normalizeScope(meta.scope) !== undefined
+    && !(meta.scope === 'session' && !meta.sessionId)
+    && sourceRefParse.valid;
+  const activeLifecycleValid = status !== 'active' && status !== 'archived'
+    ? true
+    : (source === 'user_authored' || source === 'chat_extracted')
+      && Number.isFinite(confirmedAt)
+      && meta?.approvedBy === 'user'
+      && normalizeApprovalSurface(meta.approvalSurface) !== undefined;
+  const pendingLifecycleValid = status !== 'draft' && status !== 'review_required' && status !== 'rejected'
+    ? true
+    : source === 'chat_extracted';
+
+  if (!strictEnvelopeValid || !activeLifecycleValid || !pendingLifecycleValid || status === 'unknown') {
+    return {
+      source,
+      compatibilitySource: 'structured_v1',
+      migrationState: 'malformed_read_only',
+      approvalState: 'invalid',
+      sourceRefs,
+    };
+  }
+
+  return {
+    source,
+    compatibilitySource: 'structured_v1',
+    migrationState: 'not_required',
+    approvalState: status === 'active' || status === 'archived' ? 'confirmed' : 'compatibility_unconfirmed',
+    sourceRefs,
+  };
+}
+
+function parseLocalMemorySourceRefs(
+  input: string | undefined,
+): { refs: MemorySourceRef[]; valid: boolean } {
+  if (!input) return { refs: [], valid: false };
+  const refs: MemorySourceRef[] = [];
+  const seen = new Set<string>();
+  for (const raw of input.split(',')) {
+    const separator = raw.indexOf(':');
+    if (separator <= 0) return { refs: [], valid: false };
+    const kind = raw.slice(0, separator) as MemorySourceRefKind;
+    const ref = raw.slice(separator + 1);
+    if (!(MEMORY_SOURCE_REF_KINDS as readonly string[]).includes(kind)) return { refs: [], valid: false };
+    if (!ref || ref.length > MEMORY_SOURCE_REF_MAX_CHARS) return { refs: [], valid: false };
+    const key = `${kind}:${ref}`;
+    if (seen.has(key)) return { refs: [], valid: false };
+    seen.add(key);
+    refs.push({ kind, ref });
+  }
+  const normalized = normalizeMemorySourceRefs(refs);
+  return normalized.ok ? { refs: [...normalized.value], valid: true } : { refs: [], valid: false };
+}
+
 function parseMetaComment(line: string): Record<string, string> | null {
+  return parseMetaCommentDetailed(line)?.meta ?? null;
+}
+
+function parseMetaCommentDetailed(
+  line: string,
+): { meta: Record<string, string>; malformed: boolean } | null {
   const match = /^<!--\s*maka-memory:\s*(.*?)\s*-->$/.exec(line.trim());
   if (!match) return null;
   const meta: Record<string, string> = {};
+  let malformed = false;
   for (const part of (match[1] ?? '').split(/\s+/)) {
     const idx = part.indexOf('=');
-    if (idx <= 0) continue;
+    if (idx <= 0) {
+      malformed = true;
+      continue;
+    }
     const key = part.slice(0, idx);
     const value = part.slice(idx + 1);
-    if (/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(key) && value.length <= 128) {
-      meta[key] = value;
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(key) || value.length === 0 || value.length > 128) {
+      malformed = true;
+      continue;
     }
+    if (meta[key] !== undefined) malformed = true;
+    meta[key] = value;
   }
-  return meta;
+  return { meta, malformed };
 }
 
 function findLocalMemoryEntrySection(
@@ -730,6 +1224,9 @@ function removeLocalMemoryEntrySection(input: string, range: LocalMemoryEntryDra
 function serializeMetaComment(meta: Record<string, string>): string {
   const orderedKeys = [
     'id',
+    'entrySchema',
+    'compatSource',
+    'migrationState',
     'proposalId',
     'origin',
     'source',
@@ -741,8 +1238,10 @@ function serializeMetaComment(meta: Record<string, string>): string {
     'archivedAt',
     'rejectedAt',
     'scope',
+    'sessionId',
     'approvedBy',
     'approvalSurface',
+    'sourceRefs',
     'sourceTurnId',
     'archiveReason',
     'tags',
@@ -826,6 +1325,45 @@ function normalizeMetaValue(input: string): string {
   return input.replace(/[\s<>]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 128);
 }
 
+function normalizeLocalMemorySessionOwner(
+  scope: LocalMemoryScope | undefined,
+  input: string | undefined,
+): string | undefined | null {
+  if (scope !== 'session') return undefined;
+  if (typeof input !== 'string') return null;
+  const sessionId = normalizeMetaValue(input);
+  return sessionId || null;
+}
+
+function buildLocalMemorySourceRefs(input: {
+  source: 'user_authored' | 'chat_extracted';
+  proposalId?: string;
+  sourceTurnId?: string;
+  approvalSurface: 'settings_review_queue' | 'inline_approval' | 'manual_editor_save';
+}): string {
+  if (input.source === 'user_authored') return 'manual_editor:MEMORY.md';
+  const refs: Array<readonly [LocalMemorySourceRefKind, string]> = [
+    ...(input.proposalId ? [['proposal', input.proposalId] as const] : []),
+    ...(input.sourceTurnId ? [['chat_turn', input.sourceTurnId] as const] : []),
+  ];
+  if (refs.length === 0) refs.push(['approval_surface', input.approvalSurface]);
+  return serializeLocalMemorySourceRefs(refs);
+}
+
+function serializeLocalMemorySourceRefs(
+  refs: ReadonlyArray<readonly [LocalMemorySourceRefKind, string]>,
+): string {
+  const encoded: string[] = [];
+  for (const [kind, rawRef] of refs) {
+    const ref = normalizeMetaValue(rawRef).slice(0, MEMORY_SOURCE_REF_MAX_CHARS);
+    if (!ref) continue;
+    const candidate = `${kind}:${ref}`;
+    if ([...encoded, candidate].join(',').length > 128) continue;
+    encoded.push(candidate);
+  }
+  return encoded.join(',');
+}
+
 function normalizeOrigin(input: string | undefined): LocalMemoryOrigin {
   switch (input) {
     case 'manual':
@@ -864,8 +1402,8 @@ function normalizeEntryStatus(input: string | undefined, missingIsPending: boole
   }
 }
 
-function normalizeScope(input: string | undefined): LocalMemoryScope {
-  return input === 'session' ? 'session' : 'workspace';
+function normalizeScope(input: string | undefined): LocalMemoryScope | undefined {
+  return input === 'session' || input === 'workspace' ? input : undefined;
 }
 
 function normalizeApprovalSurface(input: string | undefined): LocalMemoryEntryPreview['approvalSurface'] | undefined {

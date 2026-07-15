@@ -386,10 +386,10 @@ contextBridge.exposeInMainWorld('maka', {
     listProposals(): Promise<ReadonlyArray<LocalMemoryEntryPreview>> {
       return ipcRenderer.invoke('memory:listProposals');
     },
-    propose(input: { title: string; content: string; scope?: 'workspace' | 'session' }): Promise<LocalMemoryMutationResult> {
+    propose(input: { title: string; content: string; scope?: 'workspace' | 'session'; sessionId?: string }): Promise<LocalMemoryMutationResult> {
       return ipcRenderer.invoke('memory:propose', input);
     },
-    remember(input: { title: string; content: string; scope?: 'workspace' | 'session' }): Promise<LocalMemoryMutationResult> {
+    remember(input: { title: string; content: string; scope?: 'workspace' | 'session'; sessionId?: string }): Promise<LocalMemoryMutationResult> {
       return ipcRenderer.invoke('memory:remember', input);
     },
     approveProposal(proposalId: string): Promise<LocalMemoryMutationResult> {
@@ -403,6 +403,9 @@ contextBridge.exposeInMainWorld('maka', {
     },
     restoreEntry(entryId: string): Promise<LocalMemoryMutationResult> {
       return ipcRenderer.invoke('memory:restoreEntry', entryId);
+    },
+    deleteEntry(entryId: string): Promise<LocalMemoryMutationResult> {
+      return ipcRenderer.invoke('memory:deleteEntry', entryId);
     },
     save(content: string): Promise<LocalMemoryState> {
       return ipcRenderer.invoke('memory:save', content);

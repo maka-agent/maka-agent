@@ -61,6 +61,7 @@ function durableRequest(overrides: Partial<MemoryWriteRequest> = {}): MemoryWrit
     content: 'Remember to ship the contract before the implementation.',
     scope: 'workspace',
     confirmedAt: 1_700_000_000_000,
+    sourceRefs: [{ kind: 'manual_editor', ref: 'MEMORY.md' }],
     ...overrides,
   };
 }
@@ -71,6 +72,7 @@ function draftRequest(overrides: Partial<MemoryWriteRequest> = {}): MemoryWriteR
     persistenceState: 'draft',
     content: 'Meeting note from voice transcript.',
     scope: 'session',
+    sessionId: 'session-a',
     ...overrides,
   };
 }
@@ -150,6 +152,12 @@ describe('G2 — durable active requires confirmedAt (manual confirm)', () => {
       assert.equal(result.value.source, 'user_authored');
       assert.equal((result.value as { confirmedAt: number }).confirmedAt, 1_700_000_000_000);
     }
+  });
+
+  it('rejects active durable memory without source refs', () => {
+    const result = validateMemoryWriteRequest(durableRequest({ sourceRefs: undefined }), ctx());
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, 'source_refs_required');
   });
 });
 
@@ -406,6 +414,34 @@ describe('normalizeMemoryContent', () => {
   });
 });
 
+describe('session-scoped memory ownership', () => {
+  it('rejects session-scoped durable and draft writes without a bounded owner', () => {
+    for (const request of [
+      durableRequest({ scope: 'session', sessionId: undefined }),
+      draftRequest({ sessionId: undefined }),
+      durableRequest({ scope: 'session', sessionId: ' '.repeat(4) }),
+      durableRequest({ scope: 'session', sessionId: 's'.repeat(129) }),
+    ]) {
+      const result = validateMemoryWriteRequest(request, ctx());
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.equal(result.reason, 'scope_invalid');
+    }
+  });
+
+  it('normalizes and preserves the session owner on accepted writes', () => {
+    const durable = validateMemoryWriteRequest(
+      durableRequest({ scope: 'session', sessionId: '  session-a  ' }),
+      ctx(),
+    );
+    assert.equal(durable.ok, true);
+    if (durable.ok) assert.equal(durable.value.sessionId, 'session-a');
+
+    const draft = validateMemoryWriteRequest(draftRequest({ sessionId: '  session-b  ' }), ctx());
+    assert.equal(draft.ok, true);
+    if (draft.ok) assert.equal(draft.value.sessionId, 'session-b');
+  });
+});
+
 describe('normalizeMemorySource', () => {
   it('classifies user_authored as memory kind', () => {
     const result = normalizeMemorySource('user_authored');
@@ -543,6 +579,7 @@ describe('Quasi-memory surfaces cannot enter MemorySource', () => {
           persistenceState: 'draft',
           content: 'quasi-memory body but presented as draft',
           scope: 'session',
+          sessionId: 'session-a',
         },
         ctx(),
       );
@@ -572,6 +609,7 @@ describe('MEMORY_BLOCK_REASONS is a closed union', () => {
       'persistence_invalid',
       'renderer_provenance_forged',
       'mode_disallows_candidate',
+      'source_refs_required',
     ];
     for (const reason of expected) {
       assert.ok(
@@ -604,6 +642,7 @@ describe('canonical return shape', () => {
       // confirmedAt + createdAt both present.
       assert.equal((entry as { confirmedAt: number }).confirmedAt, 1_700_000_000_000);
       assert.equal(entry.createdAt, 1_700_000_000_000);
+      assert.deepEqual(entry.sourceRefs, [{ kind: 'manual_editor', ref: 'MEMORY.md' }]);
     }
   });
 

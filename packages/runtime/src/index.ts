@@ -97,7 +97,7 @@ export type {
   FilesystemWorkerResourceLocation,
 } from './filesystem-worker/index.js';
 
-export { AiSdkBackend } from './ai-sdk-backend.js';
+export { AiSdkBackend, ProviderReplayProjectionError } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
 export { terminateChildProcessTree } from './process-tree-terminator.js';

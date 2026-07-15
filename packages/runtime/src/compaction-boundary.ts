@@ -11,7 +11,8 @@ export type CompactionBoundaryKind =
   | 'staleToolResultPrune'
   | 'activeToolResultPrune'
   | 'activeFullCompact'
-  | 'semanticCompact';
+  | 'semanticCompact'
+  | 'providerReplayFallback';
 export type CompactionDecisionKind = 'unchanged' | 'replaced' | 'failedOpen';
 
 export interface CompactionCoverage {

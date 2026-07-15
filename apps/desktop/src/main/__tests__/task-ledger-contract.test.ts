@@ -33,10 +33,7 @@ function makeService(tasks: Task[]) {
   return createSystemPromptMainService({
     settingsStore: { get: async () => ({}) as AppSettings },
     workspaceRoot: '/tmp/does-not-matter',
-    localMemory: {
-      getState: async () => ({ status: 'ok', agentReadEnabled: false, content: '' }) as never,
-      consumePendingPromptUpdates: () => [],
-    },
+    localMemory: localMemoryStub(),
     taskLedger: { list: async () => tasks },
   });
 }
@@ -75,10 +72,7 @@ describe('task ledger contract', () => {
     const service = createSystemPromptMainService({
       settingsStore: { get: async () => ({}) as AppSettings },
       workspaceRoot: root,
-      localMemory: {
-        getState: async () => ({ status: 'ok', agentReadEnabled: false, content: '' }) as never,
-        consumePendingPromptUpdates: () => [],
-      },
+      localMemory: localMemoryStub(),
       taskLedger: wiring.store,
     });
     const create = wiring.tools.find((t) => t.name === TASK_CREATE_TOOL_NAME);
@@ -216,3 +210,22 @@ describe('task ledger contract', () => {
     }
   });
 });
+
+function localMemoryStub() {
+  return {
+    captureAgentMemoryProjection: async () => undefined,
+    readForAgent: async () => ({
+      status: 'empty' as const,
+      reason: 'agent_read_disabled' as const,
+      trace: {
+        schemaVersion: 'maka.local_memory.read_trace.v1' as const,
+        status: 'empty' as const,
+        reason: 'agent_read_disabled' as const,
+        totalActiveEntries: 0,
+        selectedEntries: 0,
+        decisions: [],
+      },
+    }),
+    consumePendingPromptUpdates: () => [],
+  };
+}

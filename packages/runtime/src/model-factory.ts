@@ -259,10 +259,18 @@ export function buildProviderOptions(
   connection: LlmConnection,
   modelId: string,
   thinkingLevel?: ThinkingLevel,
+  options: { allowUncataloguedThinkingLevel?: boolean } = {},
 ): SharedV3ProviderOptions {
   const thinkingOptions = thinkingOptionsForModel(connection.providerType, modelId);
   const variants = thinkingVariantsForModel(connection.providerType, modelId);
-  const level = thinkingLevel && variants.includes(thinkingLevel) ? thinkingLevel : undefined;
+  // Custom OpenAI-compatible connections cannot have reliable catalog metadata.
+  // An explicit headless probe may still forward the requested level while the
+  // normal runtime remains catalog-gated.
+  const level = thinkingLevel
+    && (variants.includes(thinkingLevel)
+      || (connection.providerType === 'openai-compatible' && options.allowUncataloguedThinkingLevel === true))
+    ? thinkingLevel
+    : undefined;
   switch (connection.providerType) {
     // Anthropic-protocol: effort enum models send `effort`; toggle/budget
     // models send `thinking.disabled` for off. No budget-token mapping — the
@@ -363,6 +371,10 @@ export function buildProviderOptions(
     case 'stepfun-ai-step-plan':
       return level && level !== 'off'
         ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level } }
+        : {};
+    case 'openai-compatible':
+      return level && level !== 'off'
+        ? { [connection.slug]: { reasoningEffort: level } }
         : {};
     default:
       return {};
