@@ -281,8 +281,8 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
     assert.doesNotMatch(src, /\{\s*id:\s*'oauth'/, 'model provider transport catalog must not classify OAuth as a provider category');
     assert.match(
       src,
-      /<section className="providerAccountSection" aria-label="账号连接">[\s\S]*<ModelOAuthSection onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\} \/>[\s\S]*<\/section>/,
-      'account connections must render the real OAuth login cards, not an empty roadmap tile',
+      /catalogCategory === 'recommended' \|\| catalogCategory === 'accounts'[\s\S]*<ModelOAuthSection[\s\S]*query=\{catalogQuery\}[\s\S]*onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\}/,
+      'the inline recommended/account catalog must render the real OAuth login cards, not an empty roadmap tile',
     );
     assert.doesNotMatch(
       src,

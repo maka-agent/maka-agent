@@ -59,7 +59,7 @@ const TABULAR_NUMS_SELECTORS = [
   // search result counts
   '.maka-search-modal-result-summary',
   // provider counts
-  '.enabledStripHeader span',
+  '.providerRootHeader > span',
   '.modelTableHeaderText small',
   // plan search count
   '.maka-plan-search-summary',

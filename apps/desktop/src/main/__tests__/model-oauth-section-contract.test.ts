@@ -457,6 +457,23 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       ['claude', 'codex', 'github-copilot'],
       'the catalog must hide account logins that cannot create a runnable model connection',
     );
+
+    const section = src.match(/function ModelOAuthSection[\s\S]*?function providerOAuthAriaLabel/)?.[0] ?? '';
+    assert.match(
+      section,
+      /const \[claudeCatalogEnabled, setClaudeCatalogEnabled\] = useState<boolean \| null>\(null\)/,
+      'Claude must remain hidden until the experimental availability check resolves',
+    );
+    assert.match(
+      section,
+      /window\.maka\.claudeSubscription\s*\.isExperimentalEnabled\(\)/,
+      'the catalog must use the main-process experimental gate as the Claude availability authority',
+    );
+    assert.match(
+      section,
+      /card\.id !== 'claude' \|\| claudeCatalogEnabled === true/,
+      'the catalog must not expose the Claude entry when its experimental send path is disabled or unknown',
+    );
   });
 
   it('keeps OAuth cards visually aligned with domestic and overseas provider cards', async () => {

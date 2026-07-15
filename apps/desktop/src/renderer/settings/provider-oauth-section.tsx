@@ -71,6 +71,7 @@ const MODEL_OAUTH_CARDS: ReadonlyArray<ModelOAuthCard> = [
 
 export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(): Promise<void> }) {
   const [openModal, setOpenModal] = useState<OAuthServiceId | null>(null);
+  const [claudeCatalogEnabled, setClaudeCatalogEnabled] = useState<boolean | null>(null);
   const toast = useToast();
   const modelOAuthMountedRef = useMountedRef();
   const modelOAuthRefreshTicketRef = useRef(0);
@@ -91,17 +92,27 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
   });
   const [cardRefreshError, setCardRefreshError] = useState<string | null>(null);
   const normalizedQuery = props.query?.trim().toLocaleLowerCase() ?? '';
-  const visibleCards = MODEL_OAUTH_CARDS.filter((card) => !normalizedQuery || [
-    card.id,
-    card.name,
-    card.description,
-  ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery)));
+  const visibleCards = MODEL_OAUTH_CARDS
+    .filter((card) => card.id !== 'claude' || claudeCatalogEnabled === true)
+    .filter((card) => !normalizedQuery || [card.id, card.name, card.description]
+      .some((value) => value.toLocaleLowerCase().includes(normalizedQuery)));
 
   async function refreshAllCards() {
     const ticket = modelOAuthRefreshTicketRef.current + 1;
     modelOAuthRefreshTicketRef.current = ticket;
+    const claudeGate = await window.maka.claudeSubscription
+      .isExperimentalEnabled()
+      .then((enabled) => ({ enabled } as const))
+      .catch((error: unknown) => ({ error } as const));
+    const claudeEnabledForRefresh = 'enabled' in claudeGate
+      ? claudeGate.enabled
+      : claudeCatalogEnabled === true;
+    const cardsToRefresh = MODEL_OAUTH_CARDS
+      .filter((card) => card.id !== 'claude' || claudeEnabledForRefresh)
+      .filter((card) => !normalizedQuery || [card.id, card.name, card.description]
+        .some((value) => value.toLocaleLowerCase().includes(normalizedQuery)));
     const results = await Promise.all(
-      visibleCards.map(async (card) => {
+      cardsToRefresh.map(async (card) => {
         try {
           const snapshot = await getSubscriptionSnapshot(card.id);
           return { id: card.id, snapshot } as const;
@@ -111,6 +122,7 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
       }),
     );
     if (!modelOAuthMountedRef.current || modelOAuthRefreshTicketRef.current !== ticket) return false;
+    if ('enabled' in claudeGate) setClaudeCatalogEnabled(claudeGate.enabled);
     const failures = results.filter((result) => 'error' in result);
     setCardStates((prev) => {
       const next = { ...prev };
@@ -119,10 +131,15 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
       }
       return next;
     });
-    if (failures.length > 0) {
+    if ('error' in claudeGate || failures.length > 0) {
       const firstFailure = failures[0];
-      const message = firstFailure && 'error' in firstFailure
-        ? subscriptionActionErrorMessage(firstFailure.error)
+      const error = 'error' in claudeGate
+        ? claudeGate.error
+        : firstFailure && 'error' in firstFailure
+          ? firstFailure.error
+          : undefined;
+      const message = error
+        ? subscriptionActionErrorMessage(error)
         : '登录服务暂时不可用，请检查网络后重试。';
       setCardRefreshError(message);
       toast.error('刷新 OAuth 登录状态失败', message);
