@@ -10,6 +10,7 @@ export interface ProviderSettingsSources {
   catalog: string;
   oauth: string;
   display: string;
+  displayCopy: string;
   addForm: string;
   detail: string;
   shared: string;
@@ -22,18 +23,20 @@ const sourcePaths = {
   catalog: resolve(SETTINGS_ROOT, 'provider-catalog.tsx'),
   oauth: resolve(SETTINGS_ROOT, 'provider-oauth-section.tsx'),
   display: resolve(SETTINGS_ROOT, 'provider-display.tsx'),
+  displayCopy: resolve(SETTINGS_ROOT, 'provider-display-copy.ts'),
   addForm: resolve(SETTINGS_ROOT, 'provider-add-form.tsx'),
   detail: resolve(SETTINGS_ROOT, 'provider-connection-detail.tsx'),
   shared: resolve(SETTINGS_ROOT, 'provider-panel-shared.ts'),
 } as const;
 
 export async function readProviderSettingsSources(): Promise<ProviderSettingsSources> {
-  const [panel, dialog, catalog, oauth, display, addForm, detail, shared] = await Promise.all([
+  const [panel, dialog, catalog, oauth, display, displayCopy, addForm, detail, shared] = await Promise.all([
     readFile(sourcePaths.panel, 'utf8'),
     readFile(sourcePaths.dialog, 'utf8'),
     readFile(sourcePaths.catalog, 'utf8'),
     readFile(sourcePaths.oauth, 'utf8'),
     readFile(sourcePaths.display, 'utf8'),
+    readFile(sourcePaths.displayCopy, 'utf8'),
     readFile(sourcePaths.addForm, 'utf8'),
     readFile(sourcePaths.detail, 'utf8'),
     readFile(sourcePaths.shared, 'utf8'),
@@ -45,6 +48,7 @@ export async function readProviderSettingsSources(): Promise<ProviderSettingsSou
     catalog,
     oauth,
     display,
+    displayCopy,
     addForm,
     detail,
     shared,
@@ -54,6 +58,7 @@ export async function readProviderSettingsSources(): Promise<ProviderSettingsSou
       catalog,
       oauth,
       display,
+      displayCopy,
       addForm,
       detail,
       shared,
