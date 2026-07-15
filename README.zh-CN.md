@@ -1,8 +1,7 @@
-<a href="./README.md"><img alt="English" src="https://img.shields.io/badge/English-2ea44f?style=for-the-badge&logo=googletranslate&logoColor=white"></a>
-
 # Maka
 
 [![CI](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml)
+[![docs](https://img.shields.io/badge/docs-English-blue?logo=googletranslate&logoColor=white)](./README.md)
 
 ![Maka——你的工作，你的 Agent。](./.github/assets/maka-hero.zh-CN.png)
 
