@@ -197,13 +197,13 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /\{hasApiKeyChange && \([\s\S]*disabled=\{detailActionBusy\} onClick=\{save\}[\s\S]*\{busy \? '保存中…' : '更新密钥'\}/,
-      'ConnectionDetail key save button must appear only when the key draft is dirty',
+      /<Button type="button" disabled=\{detailActionBusy \|\| !hasApiKeyChange\} onClick=\{save\}>[\s\S]*\{busy \? '保存中…' : '更新密钥'\}/,
+      'ConnectionDetail key save button stays present but disabled until the key draft is dirty (constant dialog height)',
     );
     assert.match(
       detail,
-      /\{hasBaseUrlChange && \([\s\S]*className="providerEndpointActions"[\s\S]*disabled=\{detailActionBusy\} onClick=\{save\}[\s\S]*\{busy \? '保存中…' : '保存服务地址'\}/,
-      'ConnectionDetail endpoint save button must remain available to providers without API keys',
+      /className="providerEndpointActions"[\s\S]*<Button type="button" disabled=\{detailActionBusy \|\| !hasBaseUrlChange\} onClick=\{save\}>[\s\S]*\{busy \? '保存中…' : '保存服务地址'\}/,
+      'ConnectionDetail endpoint save button stays present but disabled until the endpoint draft is dirty',
     );
     assert.match(
       detail,
@@ -434,7 +434,10 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(detail, /<Label[^>]*>服务地址<\/Label>/);
     assert.match(detail, /props\.fixedOAuth && <FieldDescription>OAuth 固定<\/FieldDescription>/);
     assert.match(detail, /<Label[^>]*>模型密钥<\/Label>/);
-    assert.match(detail, /hasSecret === true && <FieldDescription>已设置，粘贴新值可替换<\/FieldDescription>/);
+    // The credential hint is a single persistent line (constant dialog height);
+    // its text still covers the "已设置，粘贴新值可替换" state.
+    assert.match(detail, /<FieldDescription>\{apiKeyStatusHint\}<\/FieldDescription>/);
+    assert.match(detail, /hasSecret === true\s*\?\s*'已设置，粘贴新值可替换'/);
     assert.match(detail, /placeholder=\{hasSecret === true \? '••••••••' : '粘贴模型密钥'\}/);
     assert.match(detail, /ariaLabel=\{`\$\{display\.name\} 模型密钥`\}/);
     assert.match(detail, /获取模型密钥/);
@@ -653,7 +656,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('does not render Save when an existing connection has no draft changes', async () => {
+  it('keeps each Save action beside its field, disabled until that field is dirty', async () => {
     const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
 
@@ -662,10 +665,13 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       /const hasApiKeyChange = apiKey\.length > 0;[\s\S]*const hasBaseUrlChange = draftBaseUrl !== savedBaseUrl;/,
       'ConnectionDetail must compute dirty state separately for each field it writes',
     );
+    // The Save buttons stay mounted (disabled while the field is clean) so the
+    // dialog does not add or drop a row — and thus does not jitter in height —
+    // the moment the user starts typing a key or editing the endpoint.
     assert.match(
       detail,
-      /\{hasApiKeyChange && \([\s\S]*<Button type="button" disabled=\{detailActionBusy\} onClick=\{save\}>[\s\S]*\{hasBaseUrlChange && \([\s\S]*<Button type="button" disabled=\{detailActionBusy\} onClick=\{save\}>/,
-      'each Save action must stay beside its field and out of the default visual hierarchy until that field changes',
+      /<Button type="button" disabled=\{detailActionBusy \|\| !hasApiKeyChange\} onClick=\{save\}>[\s\S]*<Button type="button" disabled=\{detailActionBusy \|\| !hasBaseUrlChange\} onClick=\{save\}>/,
+      'each Save action stays beside its field and disabled (not unmounted) until that field changes',
     );
   });
 

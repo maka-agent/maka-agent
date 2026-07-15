@@ -176,6 +176,17 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
   const draftBaseUrl = baseUrl;
   const hasApiKeyChange = apiKey.length > 0;
   const hasBaseUrlChange = draftBaseUrl !== savedBaseUrl;
+  // Persistent single-line credential hint. Rendered in every hasSecret state
+  // (including `false`) so the description row never adds or drops a line as the
+  // async secret probe resolves — the dialog height stays constant.
+  const apiKeyStatusHint =
+    hasSecret === true
+      ? '已设置，粘贴新值可替换'
+      : hasSecret === 'loading'
+        ? '正在读取状态'
+        : hasSecret === 'error'
+          ? '凭据状态未知'
+          : '尚未设置密钥';
   const detailActionBusy = busy || testing || fetchingModels || savingEnabledModels || settingDefault || deleting;
   const issue = connectionChipStatus(connection);
   const lastTestMessage = connectionLastTestMessageDisplay(connection.lastTestMessage);
@@ -489,9 +500,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
         <div className="providerCredentialTask">
           <FieldRoot className="grid gap-1.5">
             <Label className="text-xs text-foreground-secondary">模型密钥</Label>
-            {hasSecret === true && <FieldDescription>已设置，粘贴新值可替换</FieldDescription>}
-            {hasSecret === 'loading' && <FieldDescription>正在读取状态</FieldDescription>}
-            {hasSecret === 'error' && <FieldDescription>凭据状态未知</FieldDescription>}
+            <FieldDescription>{apiKeyStatusHint}</FieldDescription>
             <PasswordInput
               value={apiKey}
               onChange={setApiKey}
@@ -506,11 +515,12 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
                 获取模型密钥
               </a>
             )}
-            {hasApiKeyChange && (
-              <Button type="button" disabled={detailActionBusy} onClick={save}>
-                {busy ? '保存中…' : '更新密钥'}
-              </Button>
-            )}
+            {/* Persistent button (disabled until a new key is typed) so the
+                credential actions row keeps a fixed height — no jitter when the
+                user starts pasting a key. */}
+            <Button type="button" disabled={detailActionBusy || !hasApiKeyChange} onClick={save}>
+              {busy ? '保存中…' : '更新密钥'}
+            </Button>
           </div>
         </div>
       )}
@@ -583,13 +593,13 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
               disabled={detailActionBusy}
               onChange={setBaseUrl}
             />
-            {hasBaseUrlChange && (
-              <div className="providerEndpointActions">
-                <Button type="button" disabled={detailActionBusy} onClick={save}>
-                  {busy ? '保存中…' : '保存服务地址'}
-                </Button>
-              </div>
-            )}
+            {/* Persistent button (disabled until the endpoint is edited) so the
+                advanced settings body height stays constant while typing. */}
+            <div className="providerEndpointActions">
+              <Button type="button" disabled={detailActionBusy || !hasBaseUrlChange} onClick={save}>
+                {busy ? '保存中…' : '保存服务地址'}
+              </Button>
+            </div>
           </div>
           <div className="providerAdvancedActions">
             <Button variant="secondary" type="button" disabled={detailActionBusy || !hasUsableCredential} onClick={runTest}>

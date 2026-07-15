@@ -84,6 +84,18 @@ test('adds a catalog provider through the canonical API-key dialog', async ({ wi
   const detailMark = detailDialog.locator('.providerLogo[data-provider="cerebras"] img');
   await expect(detailMark).toBeVisible();
   expect(await detailMark.evaluate(colorAssetRenderContract)).toEqual(COLOR_ASSET_RENDER_CONTRACT);
+
+  // Dialog height must stay fixed while an API key is typed: the credential
+  // hint is a single persistent line and the 更新密钥 button is always present
+  // (disabled until a new key is entered), so nothing is added or removed.
+  const detailKeyField = detailDialog.getByRole('textbox', { name: /模型密钥/ });
+  await expect(detailKeyField).toHaveAttribute('placeholder', '••••••••');
+  const detailHeightBefore = (await detailDialog.boundingBox())?.height;
+  await detailKeyField.fill('sk-e2e-replacement-key');
+  await expect(detailDialog.getByRole('button', { name: '更新密钥', exact: true })).toBeEnabled();
+  expect((await detailDialog.boundingBox())?.height).toBe(detailHeightBefore);
+  await detailKeyField.fill('');
+
   await expect(detailDialog.getByText('GPT OSS 120B', { exact: true })).toBeHidden();
   await detailDialog.getByText('高级设置', { exact: true }).click();
   await expect(detailDialog.getByText('GPT OSS 120B', { exact: true }).first()).toBeVisible();
