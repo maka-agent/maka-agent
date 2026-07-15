@@ -36,11 +36,20 @@ test('force-kills Electron when graceful E2E teardown does not settle', async ()
     process: () => child,
   };
 
+  let terminatedTree = false;
   const settled = await Promise.race([
-    closeElectronApplication(app, 0).then(() => true),
+    closeElectronApplication(app, 0, async (target, signal) => {
+      expect(target).toBe(child);
+      expect(signal).toBe('SIGKILL');
+      terminatedTree = true;
+      child.signalCode = signal;
+      child.emit('exit');
+      return true;
+    }).then(() => true),
     new Promise<false>((resolve) => setTimeout(() => resolve(false), 25)),
   ]);
 
   expect(settled).toBe(true);
-  expect(child.killedWith).toBe('SIGKILL');
+  expect(terminatedTree).toBe(true);
+  expect(child.killedWith).toBeUndefined();
 });

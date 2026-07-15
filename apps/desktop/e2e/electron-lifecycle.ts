@@ -1,3 +1,6 @@
+import type { ChildProcess } from 'node:child_process';
+import { terminateChildProcessTree } from '@maka/runtime';
+
 export interface ElectronProcessHandle {
   exitCode: number | null;
   signalCode: NodeJS.Signals | null;
@@ -5,6 +8,14 @@ export interface ElectronProcessHandle {
   once(event: 'exit', listener: () => void): unknown;
   off(event: 'exit', listener: () => void): unknown;
 }
+
+type ProcessTreeTerminator = (
+  child: ElectronProcessHandle,
+  signal: 'SIGKILL',
+) => Promise<boolean>;
+
+const terminateElectronProcessTree: ProcessTreeTerminator = (child, signal) =>
+  terminateChildProcessTree(child as ChildProcess, signal);
 
 export interface ClosableElectronApplication {
   close(): Promise<void>;
@@ -14,6 +25,7 @@ export interface ClosableElectronApplication {
 export async function closeElectronApplication(
   app: ClosableElectronApplication,
   graceMs: number,
+  terminateTree: ProcessTreeTerminator = terminateElectronProcessTree,
 ): Promise<void> {
   const child = app.process();
   const gracefulClose = app.close().then(
@@ -23,7 +35,7 @@ export async function closeElectronApplication(
   if (await settlesWithin(gracefulClose, graceMs)) return;
 
   if (child.exitCode === null && child.signalCode === null) {
-    child.kill('SIGKILL');
+    await terminateTree(child, 'SIGKILL');
   }
   if (!await waitForExit(child, 2_000)) {
     throw new Error('Electron process did not exit after SIGKILL');

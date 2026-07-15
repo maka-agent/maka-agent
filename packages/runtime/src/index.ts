@@ -69,6 +69,7 @@ export type {
 export { AiSdkBackend } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
+export { terminateChildProcessTree } from './process-tree-terminator.js';
 export type {
   AgentBackend,
   BackendCompactHistoryInput,
