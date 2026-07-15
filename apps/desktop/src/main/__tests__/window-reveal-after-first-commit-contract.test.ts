@@ -238,6 +238,20 @@ describe('window reveal wiring (PR-SHOW-AFTER-FIRST-COMMIT)', () => {
     );
   });
 
+  it('owns Electron launch before waiting for the first E2E window so startup failures can be cleaned up', async () => {
+    const src = await readRepoFile('apps/desktop/e2e/fixtures.ts');
+    const helperStart = src.indexOf('async function withE2eWindow(');
+    const helperEnd = src.indexOf('\nexport const test =', helperStart);
+    assert.notEqual(helperStart, -1);
+    assert.notEqual(helperEnd, -1);
+    const helper = src.slice(helperStart, helperEnd);
+    const tryIndex = helper.indexOf('try {');
+    const launchIndex = helper.indexOf('app = await electron.launch(');
+    const firstWindowIndex = helper.indexOf('await app.firstWindow(');
+    assert.ok(tryIndex !== -1 && launchIndex > tryIndex, 'Electron must be assigned inside the lifecycle try block');
+    assert.ok(firstWindowIndex > launchIndex, 'the app handle must be retained before firstWindow can time out');
+  });
+
   it('main-window creates the window hidden and wires the reveal fallback timer', async () => {
     const src = await readRepoFile('apps/desktop/src/main/main-window.ts');
     // Every run now creates hidden — no `!app.isPackaged && startHidden` gate.
