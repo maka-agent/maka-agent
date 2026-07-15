@@ -477,7 +477,7 @@
   display: grid;
   gap: var(--space-3);
   padding-top: var(--space-5);
-  border-top: var(--border-width-hairline) solid var(--border-subtle);
+  border-top: var(--border-width-hairline) solid var(--border);
 }
 
 .providerRootHeader h3 {
