@@ -10,6 +10,7 @@ import {
   applyMakaSessionEventToTranscript,
   applyShellRunUpdateToTranscript,
   createMakaPiTranscriptState,
+  renderMakaPiStatusLine,
   renderMakaPiTranscript,
   refreshRunningShellRunElapsed,
   replaceTranscriptWithStoredMessages,
@@ -2186,6 +2187,40 @@ describe('transcript entry render memoization', () => {
     const after = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.match(after, /BBBB/);
     assert.doesNotMatch(after, /AAAA/);
+  });
+});
+
+describe('Maka Pi TUI status line', () => {
+  test('shows thinking:high when thinkingLevel is set', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+      thinkingLevel: 'high',
+      thinkingLevels: ['off', 'low', 'medium', 'high', 'max'],
+    }, 100));
+    assert.match(line, /thinking:high/);
+  });
+
+  test('shows thinking:default when thinkingLevel is unset but levels are available', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+      thinkingLevels: ['off', 'low', 'medium', 'high', 'max'],
+    }, 100));
+    assert.match(line, /thinking:default/);
+  });
+
+  test('omits thinking segment when no levels are available', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+    }, 100));
+    assert.doesNotMatch(line, /thinking/);
+  });
+
+  test('omits thinking segment when thinkingLevels is empty', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+      thinkingLevels: [],
+    }, 100));
+    assert.doesNotMatch(line, /thinking/);
   });
 });
 

@@ -920,7 +920,12 @@ export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width
   const safeWidth = Math.max(1, width);
   const sep = ansi.dim(' · ');
   const parts: string[] = [ansi.bold(metadata.title), ansi.dim(metadata.permissionMode), ansi.dim(metadata.model)];
-  const thinking = metadata.thinkingLevel ? ansi.dim(`thinking:${metadata.thinkingLevel}`) : '';
+  const thinking =
+    metadata.thinkingLevel
+      ? ansi.dim(`thinking:${metadata.thinkingLevel}`)
+      : metadata.thinkingLevels && metadata.thinkingLevels.length > 0
+        ? ansi.dim('thinking:default')
+        : '';
   if (thinking) parts.push(thinking);
   const usage = metadata.usage;
   if (usage) {
