@@ -1108,7 +1108,7 @@ const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   // subject is required — a bare "token count of N exceeds the limit of M" also
   // matches output/completion caps, and a bare "exceeds the limit of N" matches
   // file-size and other quota errors; neither is fixable by history compaction.
-  /(?:prompt|input|context|message|request)[^.]{0,80}token count of [\d,]+ exceeds the limit of [\d,]+/i,
+  /(?:prompt|input|context|message)[^.]{0,80}token count of [\d,]+ exceeds the limit of [\d,]+/i,
   /exceeds the available context size/i, // llama.cpp server
   /greater than the context length/i, // LM Studio
   /context window exceeds limit/i, // MiniMax
@@ -1117,49 +1117,55 @@ const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /prompt has [\d,]+ tokens?, but the configured context size is [\d,]+ tokens?/i, // DS4 server
   /model_context_window_exceeded/i, // z.ai non-standard finish_reason surfaced as error text
   /prompt too long; exceeded (?:max )?context length/i, // Ollama explicit overflow error
-  /context[_ ]length[_ ]exceeded/i, // Generic fallback
-  // Generic fallback, input-subject constrained: a bare "too many tokens" also
-  // matches output-parameter errors ("max_tokens is too many tokens for this
-  // model"), which are not an input overflow and must not trigger recovery.
-  /(?:prompt|input|context|message|request)[^.]{0,80}too many tokens/i,
-  // Generic fallback, same input-subject constraint: a bare "token limit
-  // exceeded" also matches OUTPUT caps ("Output token limit exceeded",
-  // "Maximum output token limit exceeded"), which history compaction cannot
-  // fix and which must not trigger a persisted compaction retry.
-  /(?:prompt|input|context|message|request)[^.]{0,80}token limit exceeded/i,
+  /context[_ ]length[_ ]exceeded/i, // OpenAI structured error code (also generic)
 ];
 
 /**
- * Wording that looks token-shaped but is NOT an overflow (throttling / quota /
- * rate limiting, or an explicit OUTPUT-side cap). Checked first: any match here
- * excludes the message from overflow classification even when it also matches
- * an overflow pattern (e.g. "ThrottlingException: Too many tokens, please
- * wait" would otherwise match `/too many tokens/`). The output-cap exclusions
- * carry the invariant the subject-word constraints alone cannot: history
- * compaction can only fix INPUT overflow, and a generic prefix like "Invalid
- * request:" must not smuggle an output/completion/max_tokens cap past a
- * subject-word check. Kept adjacency-tight so OpenAI's classic input-overflow
- * wording ("... you requested N tokens (M in the messages, K in max_tokens)")
- * is not excluded.
+ * Ambiguous token-limit wording that is an input overflow only when an
+ * input-like word is the subject. Consulted last, and only when neither the
+ * definitive table above nor an exclusion matched. `request` is deliberately
+ * NOT in the subject list: it appears in generic prefixes ("Invalid request:
+ * ...") without saying anything about which side of the token budget overflowed.
+ */
+const FUZZY_CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
+  /(?:prompt|input|context|message)[^.]{0,80}too many tokens/i,
+  /(?:prompt|input|context|message)[^.]{0,80}token limit exceeded/i,
+];
+
+/**
+ * Wording that looks token-shaped but is NOT an input overflow: throttling /
+ * quota / rate limiting, and complete OUTPUT-cap relations (subject AND
+ * predicate — "completion has too many tokens", "output token count of N
+ * exceeds", "max_tokens token limit exceeded"). Noun phrases alone (e.g.
+ * "completion token count") are not excluded: they also appear as usage
+ * breakdowns inside genuine input-overflow messages, which is why definitive
+ * signals are checked before exclusions.
  */
 const NON_CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
   /rate limit/i,
   /too many requests/i,
   /throttl/i,
   /quota/i,
-  /(?:output|completion)\s+token\s+(?:count|limit)/i,
-  /max_tokens\b[^.]{0,60}too many tokens/i,
+  /(?:output|completion|max_tokens)\b[^.]{0,60}(?:too many tokens|token limit exceeded)/i,
+  /(?:output|completion)\s+token\s+(?:count|limit)[^.]{0,40}exceed/i,
 ];
 
 /**
- * Exclusion-first overflow detection on an error's raw text (the composite of
- * its original name/code/status/message): excluded throttling/quota wording
- * never counts, then any overflow signature does.
+ * Tiered overflow detection on an error's raw text (the composite of its
+ * original name/code/status/message). Triggering recovery requires positive
+ * evidence of an INPUT overflow — the one class history compaction can fix:
+ * 1. Definitive provider signals win unconditionally: structured evidence
+ *    (e.g. OpenAI's `context_length_exceeded` code) must not be vetoed by an
+ *    output-ish usage breakdown in the same message.
+ * 2. Exclusions veto everything below: throttling/quota wording and complete
+ *    output-cap relations never count.
+ * 3. Fuzzy input-subject wording counts only when nothing above matched.
  */
 export function isContextOverflowErrorText(text: string): boolean {
   if (!text) return false;
+  if (CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text))) return true;
   if (NON_CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text))) return false;
-  return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text));
+  return FUZZY_CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 export function classifyError(error: unknown): string {
