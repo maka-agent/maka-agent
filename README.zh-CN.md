@@ -1,5 +1,4 @@
-<a href="./README.md"><img alt="English" src="https://img.shields.io/badge/English-555?style=for-the-badge&logo=googletranslate&logoColor=white"></a>
-<a href="./README.zh-CN.md"><img alt="简体中文" src="https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-2ea44f?style=for-the-badge&logo=googletranslate&logoColor=white"></a>
+<a href="./README.md"><img alt="English" src="https://img.shields.io/badge/English-2ea44f?style=for-the-badge&logo=googletranslate&logoColor=white"></a>
 
 # Maka
 
