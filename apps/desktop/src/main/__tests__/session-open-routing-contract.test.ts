@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererShellSource, readRendererShellSources } from './renderer-shell-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -96,7 +97,7 @@ describe('session open routing contract', () => {
   });
 
   it('keeps persisted mark-read at the renderer message-read IPC boundary', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
     const readMessagesHandler = main.match(/ipcMain\.handle\('sessions:readMessages'[\s\S]*?\n  \}\);/)?.[0] ?? '';
     const searchHandler = main.match(/ipcMain\.handle\('search:thread'[\s\S]*?\n  \}\);/)?.[0] ?? '';
     const gatewayDeps = main.match(/const openGateway = new OpenGatewayService\(\{[\s\S]*?\n\}\);/)?.[0] ?? '';

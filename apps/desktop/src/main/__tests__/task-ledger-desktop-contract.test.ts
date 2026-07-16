@@ -3,8 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { REPO_ROOT } from './css-test-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 async function source(relativePath: string): Promise<string> {
+  if (relativePath === 'apps/desktop/src/main/main.ts') return readMainProcessCombinedSource();
   return readFile(resolve(REPO_ROOT, relativePath), 'utf8');
 }
 

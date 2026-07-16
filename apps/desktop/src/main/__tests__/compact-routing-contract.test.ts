@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererShellSource } from './renderer-shell-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -26,7 +27,7 @@ describe('/compact routing contract', () => {
   });
 
   it('main sessions:compact IPC drives runtime.compactSession via streamEvents', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
     const handler = main.match(/ipcMain\.handle\('sessions:compact'[\s\S]*?\n  \}\);/)?.[0] ?? '';
 
     assert.match(handler, /await ensureSessionCanSend\(sessionId\);/);

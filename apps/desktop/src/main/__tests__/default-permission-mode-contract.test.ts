@@ -22,7 +22,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { readRendererShellSources } from './renderer-shell-source-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
-import { readMainTsSource } from './main-process-contract-source-helpers.js';
+import { readMainProcessCombinedSource, readMainTsSource } from './main-process-contract-source-helpers.js';
 
 describe('default permission mode contract', () => {
   it('renderer always omits permissionMode when creating sessions', async () => {
@@ -63,10 +63,13 @@ describe('default permission mode contract', () => {
       'the resolver must live in ./permission-mode-default.ts, not inline in main.ts (so its never-rejects fallback is unit-testable)',
     );
 
-    // Both sessions:create branches (fake + ai-sdk) + quick chat must inject
-    // settingsStore.get into the resolver — proving they route through the
-    // single authority instead of reading settings inline.
-    const routedCalls = src.match(/resolveDefaultPermissionMode\(\(\) => settingsStore\.get\(\)\)/g) ?? [];
+    // Both sessions:create branches (fake + ai-sdk) live in sessions-ipc-main.ts
+    // and quick chat stays in main.ts — but all must inject settingsStore.get
+    // into the resolver, proving they route through the single authority
+    // instead of reading settings inline. Count across the combined main-process
+    // source so the split does not weaken the invariant.
+    const combined = await readMainProcessCombinedSource();
+    const routedCalls = combined.match(/resolveDefaultPermissionMode\(\(\) => settingsStore\.get\(\)\)/g) ?? [];
     assert.ok(
       routedCalls.length >= 3, // fake branch + ai-sdk branch + quick chat
       `all session-creation fallbacks must route through resolveDefaultPermissionMode(() => settingsStore.get()) (found ${routedCalls.length}, expected >= 3)`,

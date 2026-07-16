@@ -5,6 +5,7 @@ import { readProviderSettingsCombinedSource } from './provider-contract-source-h
 import { describe, it } from 'node:test';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -24,7 +25,7 @@ async function readModelSwitcherUiSource(): Promise<string> {
 
 describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
   it('captures the ready model when creating a desktop session', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
 
     assert.match(main, /const requestedSlug = input\?\.llmConnectionSlug \?\? \(await connectionStore\.getDefault\(\)\)/);
     assert.match(main, /const \{ connection, model \} = await getReadyConnection\(requestedSlug, input\?\.model\)/);
@@ -35,7 +36,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     const readiness = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/chat-readiness.ts'), 'utf8');
     const coreReadiness = await readFile(resolve(REPO_ROOT, 'packages/core/src/connection-readiness.ts'), 'utf8');
     const projection = await readFile(resolve(REPO_ROOT, 'packages/core/src/session-send-projection.ts'), 'utf8');
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
 
     assert.match(readiness, /assertSessionCanSend\([\s\S]*header: Pick<SessionHeader, 'backend' \| 'llmConnectionSlug' \| 'model'>/);
     assert.match(readiness, /requireReadyConnection\(header\.llmConnectionSlug, deps, header\.model\)/);
@@ -76,7 +77,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
   });
 
   it('lets the user explicitly switch the current session model from the chat header', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
     const preload = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'), 'utf8');
     const globalTypes = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/global.d.ts'), 'utf8');
     const renderer = await readRendererShellCombinedSource();

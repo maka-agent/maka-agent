@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 import {
   MAX_WORKSPACE_INSTRUCTION_FILE_CHARS,
   buildWorkspaceInstructionsPromptFragment,
@@ -140,7 +141,7 @@ describe('workspace instructions prompt fragment', () => {
   });
 
   it('wires instruction actions through the selected project root without arbitrary paths', async () => {
-    const main = await readFile(join(process.cwd(), 'src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
     const preload = await readFile(join(process.cwd(), 'src/preload/preload.ts'), 'utf8');
     const settings = await readSettingsCombinedSource();
 

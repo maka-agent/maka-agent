@@ -4,6 +4,7 @@ import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 import {
   createComputerUseHost,
   computerUseServiceHealth,
@@ -148,7 +149,7 @@ describe('Computer Use host health', () => {
 
   it('wires a one-second physical-input quiet window', async () => {
     const source = await import('node:fs/promises').then(({ readFile }) =>
-      readFile(join(process.cwd(), 'src/main/main.ts'), 'utf8'));
+      readMainProcessCombinedSource());
     assert.match(source, /physicalInputRecentlyActive/);
     assert.match(source, /powerMonitor\.getSystemIdleTime\(\) < 1/);
   });

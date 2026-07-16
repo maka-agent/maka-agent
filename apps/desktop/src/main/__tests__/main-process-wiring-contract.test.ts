@@ -14,11 +14,23 @@ const extractedIpcRegistrars = [
   ['registerSubscriptionIpc', './subscription-ipc-main'],
   ['registerBrowserIpc', './browser-ipc-main'],
   ['registerConnectionsIpc', './connections-ipc-main'],
+  ['registerConfigIpc', './config-ipc-main'],
+  ['registerNotificationsIpc', './notifications-ipc-main'],
   ['registerPlanReminderIpc', './plan-reminders-ipc-main'],
   ['registerWorkspaceResourcesIpc', './workspace-resources-ipc-main'],
   ['registerDailyReviewIpc', './daily-review-ipc-main'],
   ['registerUsageIpc', './usage-ipc-main'],
   ['registerWebSearchIpc', './web-search-ipc-main'],
+  ['registerAppIpc', './app-ipc-main'],
+  ['registerGitIpc', './git-ipc-main'],
+  ['registerWorkspaceSearchIpc', './workspace-search-ipc-main'],
+  ['registerWorkspaceInstructionsIpc', './workspace-instructions-ipc-main'],
+  ['registerOnboardingIpc', './onboarding-ipc-main'],
+  ['registerSessionEntryIpc', './session-entry-ipc-main'],
+  ['registerSessionsIpc', './sessions-ipc-main'],
+  ['registerPermissionsIpc', './permissions-ipc-main'],
+  ['registerSettingsIpc', './settings-ipc-main'],
+  ['registerGatewayIpc', './gateway-ipc-main'],
 ] as const;
 
 function escapeRegExp(value: string): string {
