@@ -5,6 +5,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible, type MetadataExtractor } from '@ai-sdk/openai-compatible';
 import { isJSONArray, type JSONArray, type LanguageModelV3, type SharedV3ProviderOptions } from '@ai-sdk/provider';
 import { type LlmConnection, type ProviderType } from '@maka/core/llm-connections';
+import { openAiAdapterApiProtocol } from '@maka/core/model-metadata';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { thinkingOptionsForModel, thinkingVariantsForModel } from '@maka/core/model-thinking';
 import { anthropicV1BaseUrl, googleV1BetaBaseUrl } from './provider-urls.js';
@@ -80,8 +81,13 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
 
     case 'openai': {
       const openai = createOpenAI({ apiKey, baseURL });
-      if (/^gpt-5/i.test(modelId)) return openai.responses(modelId);
-      return openai.chat(modelId);
+      // Routing is declaration-driven via the ModelInfo.apiProtocol seam: an
+      // account-declared protocol wins (mirrors the github-copilot case above);
+      // otherwise the model's declared OpenAI-adapter protocol decides. gpt-5*
+      // families are Responses-only; everything else uses Chat Completions.
+      const apiProtocol = connection.models?.find((model) => model.id === modelId)?.apiProtocol
+        ?? openAiAdapterApiProtocol(modelId);
+      return apiProtocol === 'openai-responses' ? openai.responses(modelId) : openai.chat(modelId);
     }
 
     case 'google':

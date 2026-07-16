@@ -45,6 +45,23 @@ export function lookupModelProviderOverride(
 }
 
 /**
+ * The request wire a model served over the OpenAI adapter must use.
+ *
+ * OpenAI's `gpt-5*` families are served only over the Responses API; every other
+ * model on the OpenAI adapter uses Chat Completions. This is the single declared
+ * source of that protocol split, expressed through the {@link ModelInfo.apiProtocol}
+ * seam. It is consumed by the runtime model factory (to pick `.responses()` vs
+ * `.chat()`) and by the conformance matrix (to keep `gpt-5*` off the generated
+ * default-Chat wire), replacing the `/^gpt-5/i` routing regex that was previously
+ * hard-coded in both places.
+ */
+export function openAiAdapterApiProtocol(
+  modelId: string,
+): 'openai-responses' | 'openai-chat' {
+  return /^gpt-5/i.test(modelId.trim()) ? 'openai-responses' : 'openai-chat';
+}
+
+/**
  * Resolve whether a model accepts image input for the send path.
  *
  * Stored `connection.models` win when they declare `vision` explicitly

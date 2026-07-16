@@ -436,68 +436,6 @@ describe('fetchProviderModels', () => {
     assert.deepEqual(models, [{ id: 'claude-haiku-4-5-20251001' }]);
   });
 
-  test('GitHub Copilot discovers only account-enabled tool models and preserves each exact endpoint wire', async () => {
-    const server = await startJsonServer((request, response) => {
-      assert.equal(request.method, 'GET');
-      assert.equal(request.url, '/models');
-      assert.equal(request.headers.authorization, 'Bearer github-account-token');
-      assert.equal(request.headers['user-agent'], 'GitHubCopilotChat/0.35.0');
-      assert.equal(request.headers['editor-version'], 'vscode/1.107.0');
-      assert.equal(request.headers['editor-plugin-version'], 'copilot-chat/0.35.0');
-      assert.equal(request.headers['copilot-integration-id'], 'vscode-chat');
-      assert.equal(request.headers['x-github-api-version'], '2026-06-01');
-      respondJson(response, 200, {
-        data: [
-          copilotModel('gpt-5.4', ['/responses']),
-          copilotModel('claude-sonnet-4.6', ['/v1/messages']),
-          copilotModel('gemini-3.1-pro-preview', ['/chat/completions']),
-          { ...copilotModel('disabled-by-policy', ['/chat/completions']), policy: { state: 'disabled' } },
-          { ...copilotModel('hidden-from-picker', ['/chat/completions']), model_picker_enabled: false },
-          { ...copilotModel('no-tools', ['/chat/completions']), capabilities: { supports: { tool_calls: false } } },
-          copilotModel('unsupported-wire', ['/embeddings']),
-        ],
-      });
-    });
-
-    const models = await fetchProviderModels({
-      slug: 'github-copilot',
-      name: 'GitHub Copilot',
-      providerType: 'github-copilot',
-      baseUrl: server.url,
-      defaultModel: 'gpt-5.4',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, 'github-account-token');
-
-    assert.deepEqual(models, [
-      {
-        id: 'gpt-5.4',
-        displayName: 'gpt-5.4 display',
-        contextWindow: 400_000,
-        maxOutputTokens: 128_000,
-        apiProtocol: 'openai-responses',
-        capabilities: { vision: true, reasoning: true, functionCalling: true },
-      },
-      {
-        id: 'claude-sonnet-4.6',
-        displayName: 'claude-sonnet-4.6 display',
-        contextWindow: 400_000,
-        maxOutputTokens: 128_000,
-        apiProtocol: 'anthropic-messages',
-        capabilities: { vision: true, reasoning: true, functionCalling: true },
-      },
-      {
-        id: 'gemini-3.1-pro-preview',
-        displayName: 'gemini-3.1-pro-preview display',
-        contextWindow: 400_000,
-        maxOutputTokens: 128_000,
-        apiProtocol: 'openai-chat',
-        capabilities: { vision: true, reasoning: true, functionCalling: true },
-      },
-    ]);
-  });
-
   test('MiniMax Coding Plan discovers exact model ids with Anthropic API-key authentication', async () => {
     let observedAuthorization = '';
     let observedApiKey = '';
@@ -642,27 +580,6 @@ async function startJsonServer(
 function respondJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, { 'content-type': 'application/json' });
   response.end(JSON.stringify(body));
-}
-
-function copilotModel(id: string, supportedEndpoints: string[]): Record<string, unknown> {
-  return {
-    id,
-    name: `${id} display`,
-    model_picker_enabled: true,
-    supported_endpoints: supportedEndpoints,
-    policy: { state: 'enabled' },
-    capabilities: {
-      limits: {
-        max_prompt_tokens: 400_000,
-        max_output_tokens: 128_000,
-      },
-      supports: {
-        tool_calls: true,
-        vision: true,
-        reasoning_effort: ['low', 'medium', 'high'],
-      },
-    },
-  };
 }
 
 function zaiConnection(): LlmConnection {

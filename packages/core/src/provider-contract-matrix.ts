@@ -24,7 +24,7 @@
  * Pure: no IO, no network, no clock. Given the registry it is a total function.
  */
 
-import { lookupModelProviderOverride } from './model-metadata.js';
+import { lookupModelProviderOverride, openAiAdapterApiProtocol } from './model-metadata.js';
 import {
   PROVIDER_REGISTRY,
   type ProviderDefaults,
@@ -59,9 +59,16 @@ export const SUBSCRIPTION_WIRE_ADAPTER_KINDS: ReadonlySet<ProviderRuntimeAdapter
 /** Derived expectation for a generated `discovery` cell. */
 export interface ProviderContractDiscoveryPlan {
   protocol: ProviderDefaults['protocol'];
-  /** `none` when the request must carry no credential — a public model list, or a
-   * provider with no credential to send; `default` when it carries provider auth. */
-  auth: 'default' | 'none';
+  /**
+   * How the discovery request carries (or omits) a credential:
+   *   - `none`     the request must carry no credential — a public model list, or
+   *                a provider with no credential to send (`authKind: 'none'`).
+   *   - `default`  the request must carry the provider's credential (`api_key`).
+   *   - `optional` the credential is user-optional (`authKind: 'optional_api_key'`):
+   *                the request carries it when a key is configured and omits it
+   *                entirely when none is, so both branches must be exercised.
+   */
+  auth: 'default' | 'none' | 'optional';
   path?: string;
   query?: Readonly<Record<string, string>>;
   responseShape?: 'array-or-data';
@@ -163,7 +170,7 @@ function wireForProtocol(protocol: ProviderDefaults['protocol']): ProviderContra
 function sampleModelIdFor(providerType: ProviderType, def: ProviderDefaults): string {
   const usesDefaultWire = (id: string): boolean => {
     if (lookupModelProviderOverride(providerType, id)) return false;
-    if (def.runtimeAdapter.kind === 'openai' && /^gpt-5/i.test(id)) return false;
+    if (def.runtimeAdapter.kind === 'openai' && openAiAdapterApiProtocol(id) === 'openai-responses') return false;
     return true;
   };
   return def.fallbackModels.find(usesDefaultWire) ?? SYNTHETIC_SAMPLE_MODEL_ID;
@@ -214,7 +221,11 @@ function discoveryCell(providerType: ProviderType, def: ProviderDefaults): Provi
         dimension: 'discovery',
         discovery: {
           protocol: def.protocol,
-          auth: discovery.auth === 'none' || def.authKind === 'none' ? 'none' : 'default',
+          auth: discovery.auth === 'none' || def.authKind === 'none'
+            ? 'none'
+            : def.authKind === 'optional_api_key'
+              ? 'optional'
+              : 'default',
           ...(discovery.path !== undefined ? { path: discovery.path } : {}),
           ...(discovery.query !== undefined ? { query: discovery.query } : {}),
           ...(discovery.responseShape !== undefined ? { responseShape: discovery.responseShape } : {}),

@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { lookupModelMetadata, resolveModelVisionSupport } from '../model-metadata.js';
+import { lookupModelMetadata, openAiAdapterApiProtocol, resolveModelVisionSupport } from '../model-metadata.js';
 import { PROVIDER_DEFAULTS, type ModelInfo, type ProviderType } from '../llm-connections.js';
 
 describe('model-metadata vision capability', () => {
@@ -91,5 +91,19 @@ describe('resolveModelVisionSupport', () => {
   it('falls back to metadata when the model list is empty or missing', () => {
     assert.equal(resolveModelVisionSupport('zai-coding-plan' as ProviderType, [], 'glm-5v-turbo'), true);
     assert.equal(resolveModelVisionSupport('zai-coding-plan' as ProviderType, undefined, 'glm-5.2'), false);
+  });
+});
+
+describe('openAiAdapterApiProtocol', () => {
+  it('routes every gpt-5* family to the Responses wire', () => {
+    for (const modelId of ['gpt-5', 'gpt-5-codex', 'gpt-5.5', 'gpt-5.6-sol', 'GPT-5', ' gpt-5.4 ']) {
+      assert.equal(openAiAdapterApiProtocol(modelId), 'openai-responses', modelId);
+    }
+  });
+
+  it('keeps every other OpenAI-adapter model on the Chat Completions wire', () => {
+    for (const modelId of ['gpt-4o', 'gpt-4.1', 'o3', 'o4-mini', 'chatgpt-4o-latest']) {
+      assert.equal(openAiAdapterApiProtocol(modelId), 'openai-chat', modelId);
+    }
   });
 });

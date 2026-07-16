@@ -2,12 +2,11 @@ import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { after, describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core';
-import { generateText, stepCountIs, streamText, tool } from 'ai';
+import { generateText, stepCountIs, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { buildProviderOptions, getAIModel } from '../model-factory.js';
 import { testConnection } from '../test-connection.js';
-import { buildSubscriptionModelFetch } from '../subscription-model-fetch.js';
 
 const servers: Array<{ close(): Promise<void> }> = [];
 
@@ -61,140 +60,68 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.ok, false);
   });
 
-  test('GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire', async () => {
-    const modelId = 'gemini-3.1-pro-preview';
-    const requestBodies: Array<Record<string, unknown>> = [];
-    const initiators: string[] = [];
+  test('OpenAI routes gpt-5* through the Responses wire and other models through Chat Completions by declaration', async () => {
+    const requests: string[] = [];
     const server = await startJsonServer(async (request, response) => {
-      assert.equal(request.headers.authorization, 'Bearer github-account-token');
-      if (request.method === 'GET' && request.url === '/models') {
-        respondJson(response, 200, {
-          data: [{
-            id: modelId,
-            name: 'Gemini 3.1 Pro Preview',
-            model_picker_enabled: true,
-            supported_endpoints: ['/chat/completions'],
-            policy: { state: 'enabled' },
-            capabilities: {
-              limits: { max_prompt_tokens: 400_000, max_output_tokens: 64_000 },
-              supports: { tool_calls: true, reasoning_effort: ['low', 'medium', 'high'] },
-            },
-          }],
-        });
-        return;
-      }
       assert.equal(request.method, 'POST');
-      assert.equal(request.url, '/chat/completions');
-      assert.equal(request.headers['openai-intent'], 'conversation-edits');
-      assert.equal(request.headers['x-github-api-version'], '2026-06-01');
-      initiators.push(String(request.headers['x-initiator']));
-      requestBodies.push(JSON.parse(await readBody(request)) as Record<string, unknown>);
-      if (requestBodies.length === 1) {
+      assert.equal(request.headers.authorization, 'Bearer openai-test-key');
+      requests.push(request.url ?? '');
+      await readBody(request);
+      if (request.url === '/v1/responses') {
         respondJson(response, 200, {
-          id: 'copilot-tool',
-          object: 'chat.completion',
-          created: 1,
-          model: modelId,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: null,
-              reasoning_content: 'I should use the echo tool.',
-              tool_calls: [{
-                id: 'call-copilot-echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
-            },
-            finish_reason: 'tool_calls',
+          id: 'resp_gpt5',
+          object: 'response',
+          created_at: 1,
+          status: 'completed',
+          model: 'gpt-5.5',
+          output: [{
+            type: 'message',
+            id: 'msg_gpt5',
+            status: 'completed',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'Responses wire.', annotations: [], logprobs: [] }],
           }],
-          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+          usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
         });
         return;
       }
+      assert.equal(request.url, '/v1/chat/completions');
       respondJson(response, 200, {
-        id: 'copilot-final',
+        id: 'chatcmpl-gpt4o',
         object: 'chat.completion',
         created: 2,
-        model: modelId,
+        model: 'gpt-4o',
         choices: [{
           index: 0,
-          message: { role: 'assistant', content: 'Echoed hello.' },
+          message: { role: 'assistant', content: 'Chat wire.' },
           finish_reason: 'stop',
         }],
-        usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+        usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
       });
     });
     const connection: LlmConnection = {
-      slug: 'github-copilot',
-      name: 'GitHub Copilot',
-      providerType: 'github-copilot',
-      baseUrl: server.url,
-      defaultModel: modelId,
+      slug: 'openai',
+      name: 'OpenAI',
+      providerType: 'openai',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: 'gpt-5.5',
       enabled: true,
       createdAt: 1,
       updatedAt: 1,
     };
-    const models = await fetchProviderModels(connection, 'github-account-token');
-    connection.models = models;
-    const modelFetch = buildSubscriptionModelFetch({
-      connection,
-      sessionId: 'session-copilot',
-      modelId,
-      fetchFn: fetch,
-    });
-    assert.ok(modelFetch);
 
-    const result = await generateText({
-      model: getAIModel({
-        connection,
-        apiKey: 'github-account-token',
-        modelId,
-        fetch: modelFetch,
-      }),
-      prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
-      tools: {
-        echo: tool({
-          description: 'Echo text',
-          inputSchema: z.object({ text: z.string() }),
-          execute: async ({ text }) => ({ echoed: text }),
-        }),
-      },
+    const gpt5 = await generateText({
+      model: getAIModel({ connection, apiKey: 'openai-test-key', modelId: 'gpt-5.5' }),
+      prompt: 'Say hi.',
+    });
+    const gpt4o = await generateText({
+      model: getAIModel({ connection, apiKey: 'openai-test-key', modelId: 'gpt-4o' }),
+      prompt: 'Say hi.',
     });
 
-    assert.deepEqual(models.map((model) => [model.id, model.apiProtocol]), [[modelId, 'openai-chat']]);
-    assert.deepEqual(initiators, ['user', 'agent']);
-    assert.equal(requestBodies[0]?.model, modelId);
-    assert.equal(result.steps[0]?.reasoningText, 'I should use the echo tool.');
-    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
-    // Turn two must carry the exact model id, replay the assistant tool-call
-    // turn (original tool_calls id + reasoning_content verbatim), and link the
-    // tool result back through tool_call_id.
-    assert.equal(requestBodies[1]?.model, modelId);
-    const secondMessages = requestBodies[1]?.messages as Array<Record<string, unknown>>;
-    const assistant = secondMessages.find((message) => message.role === 'assistant');
-    assert.ok(assistant, 'turn two must replay the assistant tool-call turn');
-    assert.deepEqual(
-      (assistant.tool_calls as Array<{ id: string }>).map(({ id }) => id),
-      ['call-copilot-echo'],
-      'turn two must replay the original tool_calls id',
-    );
-    assert.equal(
-      assistant.reasoning_content,
-      'I should use the echo tool.',
-      'turn two must replay the first-turn reasoning verbatim as reasoning_content',
-    );
-    const toolMessage = secondMessages.find((message) => message.role === 'tool');
-    assert.ok(toolMessage, 'turn two must carry a tool message with the echo result');
-    assert.equal(toolMessage.tool_call_id, 'call-copilot-echo');
-    const toolMessageContent = JSON.stringify(toolMessage.content);
-    assert.ok(
-      toolMessageContent.includes('echoed') && toolMessageContent.includes('hello'),
-      `turn two tool message must carry the echo output, got ${toolMessageContent}`,
-    );
-    assert.equal(result.text, 'Echoed hello.');
+    assert.deepEqual(requests, ['/v1/responses', '/v1/chat/completions']);
+    assert.equal(gpt5.text, 'Responses wire.');
+    assert.equal(gpt4o.text, 'Chat wire.');
   });
 
   test('OpenCode Go preserves exact discovery ids and reasoning through a two-stage tool loop', async () => {
@@ -460,107 +387,6 @@ describe('models.dev provider conformance', () => {
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_zenmux_echo' },
     );
     assert.equal(result.text, 'Echoed hello.');
-  });
-
-  test('ZenMux replays signed reasoning details in the streamed runtime tool loop', async () => {
-    const modelId = 'moonshotai/kimi-k2.5';
-    const reasoningDetails = [{
-      type: 'reasoning.text',
-      text: 'Use echo.',
-      signature: 'deterministic-stream-signature',
-      format: 'anthropic-claude-v1',
-    }];
-    const requestBodies: Array<Record<string, unknown>> = [];
-    const server = await startJsonServer(async (request, response) => {
-      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
-      requestBodies.push(body);
-      assert.equal(body.stream, true);
-      if (requestBodies.length === 1) {
-        respondOpenAIStream(response, [{
-          id: 'chatcmpl-zenmux-stream-tool',
-          object: 'chat.completion.chunk',
-          created: 1,
-          model: modelId,
-          choices: [{
-            index: 0,
-            delta: {
-              role: 'assistant',
-              reasoning: 'Use echo.',
-              reasoning_details: reasoningDetails,
-              tool_calls: [{
-                index: 0,
-                id: 'call_zenmux_stream_echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
-            },
-            finish_reason: null,
-          }],
-        }, {
-          id: 'chatcmpl-zenmux-stream-tool',
-          object: 'chat.completion.chunk',
-          created: 1,
-          model: modelId,
-          choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
-          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
-        }]);
-        return;
-      }
-      respondOpenAIStream(response, [{
-        id: 'chatcmpl-zenmux-stream-final',
-        object: 'chat.completion.chunk',
-        created: 2,
-        model: modelId,
-        choices: [{ index: 0, delta: { role: 'assistant', content: 'Echoed hello.' }, finish_reason: null }],
-      }, {
-        id: 'chatcmpl-zenmux-stream-final',
-        object: 'chat.completion.chunk',
-        created: 2,
-        model: modelId,
-        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
-      }]);
-    });
-    const connection: LlmConnection = {
-      slug: 'zenmux',
-      name: 'ZenMux',
-      providerType: 'zenmux',
-      baseUrl: `${server.url}/v1`,
-      defaultModel: modelId,
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-
-    const result = streamText({
-      model: getAIModel({ connection, apiKey: 'zenmux-test-key', modelId }),
-      prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
-      tools: {
-        echo: tool({
-          description: 'Echo text',
-          inputSchema: z.object({ text: z.string() }),
-          execute: async ({ text }) => ({ echoed: text }),
-        }),
-      },
-    });
-
-    assert.equal(await result.text, 'Echoed hello.');
-    assert.equal(requestBodies.length, 2);
-    assert.deepEqual(
-      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
-      {
-        role: 'assistant',
-        content: null,
-        reasoning: 'Use echo.',
-        reasoning_details: reasoningDetails,
-        tool_calls: [{
-          id: 'call_zenmux_stream_echo',
-          type: 'function',
-          function: { name: 'echo', arguments: '{"text":"hello"}' },
-        }],
-      },
-    );
   });
 
   test('OpenCode connection probes follow each selected model protocol', async () => {
@@ -2069,325 +1895,6 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.text, 'Echoed hello.');
   });
 
-  test('Fireworks discovers exact serverless model paths and completes a two-stage tool-call loop', async () => {
-    const modelId = 'accounts/fireworks/models/kimi-k2p6';
-    const requestBodies: Array<Record<string, unknown>> = [];
-    const server = await startJsonServer(async (request, response) => {
-      assert.equal(request.headers.authorization, 'Bearer fireworks-test-key');
-      if (request.method === 'GET' && request.url === '/v1/accounts?pageSize=200') {
-        respondJson(response, 200, {
-          accounts: [{ name: 'accounts/acme' }],
-          nextPageToken: 'accounts-next',
-        });
-        return;
-      }
-      if (request.method === 'GET' && request.url === '/v1/accounts?pageSize=200&pageToken=accounts-next') {
-        respondJson(response, 200, { accounts: [{ name: 'accounts/team' }] });
-        return;
-      }
-      if (
-        request.method === 'GET'
-        && request.url === '/v1/accounts/acme/models?filter=supports_serverless%3Dtrue&pageSize=200'
-      ) {
-        respondJson(response, 200, {
-          models: [{
-            name: 'accounts/acme/models/custom-agent',
-            displayName: 'Custom Agent',
-            supportsTools: true,
-            supportsServerless: true,
-          }],
-          nextPageToken: 'models-next',
-        });
-        return;
-      }
-      if (
-        request.method === 'GET'
-        && request.url === '/v1/accounts/acme/models?filter=supports_serverless%3Dtrue&pageSize=200&pageToken=models-next'
-      ) {
-        respondJson(response, 200, {
-          models: [{
-            name: 'accounts/acme/models/custom-agent-v2',
-            displayName: 'Custom Agent V2',
-            supportsTools: true,
-            supportsServerless: true,
-          }],
-        });
-        return;
-      }
-      if (
-        request.method === 'GET'
-        && request.url === '/v1/accounts/team/models?filter=supports_serverless%3Dtrue&pageSize=200'
-      ) {
-        respondJson(response, 200, {
-          models: [{
-            name: 'accounts/team/models/team-agent',
-            displayName: 'Team Agent',
-            supportsTools: true,
-            supportsServerless: true,
-          }],
-        });
-        return;
-      }
-      if (
-        request.method === 'GET'
-        && request.url === '/v1/accounts/fireworks/models?filter=supports_serverless%3Dtrue&pageSize=200'
-      ) {
-        respondJson(response, 200, {
-          models: [{
-            name: modelId,
-            displayName: 'Kimi K2.6',
-            contextLength: 262_000,
-            supportsImageInput: true,
-            supportsTools: true,
-            supportsServerless: true,
-          }],
-        });
-        return;
-      }
-
-      assert.equal(request.method, 'POST');
-      assert.equal(request.url, '/inference/v1/chat/completions');
-      requestBodies.push(JSON.parse(await readBody(request)) as Record<string, unknown>);
-      if (requestBodies.length === 1) {
-        respondJson(response, 200, {
-          id: 'chatcmpl-fireworks-tool',
-          object: 'chat.completion',
-          created: 1,
-          model: modelId,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: null,
-              tool_calls: [{
-                id: 'call_echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
-            },
-            finish_reason: 'tool_calls',
-          }],
-          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
-        });
-        return;
-      }
-
-      respondJson(response, 200, {
-        id: 'chatcmpl-fireworks-final',
-        object: 'chat.completion',
-        created: 2,
-        model: modelId,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: 'Echoed hello.' },
-          finish_reason: 'stop',
-        }],
-        usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
-      });
-    });
-    const connection: LlmConnection = {
-      slug: 'fireworks-ai',
-      name: 'Fireworks AI',
-      providerType: 'fireworks-ai',
-      baseUrl: `${server.url}/inference/v1`,
-      defaultModel: modelId,
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-
-    const models = await fetchProviderModels(connection, 'fireworks-test-key');
-    assert.deepEqual(models, [
-      {
-        id: 'accounts/acme/models/custom-agent',
-        displayName: 'Custom Agent',
-        capabilities: { functionCalling: true },
-      },
-      {
-        id: 'accounts/acme/models/custom-agent-v2',
-        displayName: 'Custom Agent V2',
-        capabilities: { functionCalling: true },
-      },
-      {
-        id: 'accounts/team/models/team-agent',
-        displayName: 'Team Agent',
-        capabilities: { functionCalling: true },
-      },
-      {
-        id: modelId,
-        displayName: 'Kimi K2.6',
-        contextWindow: 262_000,
-        capabilities: { vision: true, functionCalling: true },
-      },
-    ]);
-
-    const result = await generateText({
-      model: getAIModel({ connection, apiKey: 'fireworks-test-key', modelId }),
-      prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
-      tools: {
-        echo: tool({
-          description: 'Echo text',
-          inputSchema: z.object({ text: z.string() }),
-          execute: async ({ text }) => ({ echoed: text }),
-        }),
-      },
-    });
-
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
-    assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
-      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
-    );
-    assert.equal(result.text, 'Echoed hello.');
-  });
-
-  for (const testCase of [
-    {
-      label: 'complex local model id',
-      discoveredModelIds: ['hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M'],
-      modelId: 'hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M',
-    },
-    {
-      label: 'cloud alias distinct from its local model id',
-      discoveredModelIds: ['qwen3.5', 'qwen3.5:cloud'],
-      modelId: 'qwen3.5:cloud',
-    },
-  ] as const) {
-    test(`Ollama preserves an exact ${testCase.label} through local discovery and a no-secret tool-call loop`, async () => {
-      await assertOllamaModelContract(testCase.discoveredModelIds, testCase.modelId);
-    });
-  }
-
-  test('Cohere paginates account models and completes its native V2 tool-call loop', async () => {
-    const modelId = 'command-a-plus-05-2026';
-    const requestBodies: Array<Record<string, unknown>> = [];
-    const modelListUrls: string[] = [];
-    const server = await startJsonServer(async (request, response) => {
-      assert.equal(request.headers.authorization, 'Bearer cohere-test-key');
-      if (request.method === 'GET' && request.url?.startsWith('/v1/models?')) {
-        modelListUrls.push(request.url);
-        const url = new URL(request.url, 'http://localhost');
-        assert.equal(url.searchParams.get('endpoint'), 'chat');
-        assert.equal(url.searchParams.get('page_size'), '1000');
-        if (!url.searchParams.has('page_token')) {
-          respondJson(response, 200, {
-            models: [
-              { name: modelId, is_deprecated: false, endpoints: ['chat'], context_length: 128_000 },
-              { name: 'retired-command', is_deprecated: true, endpoints: ['chat'], context_length: 4_000 },
-            ],
-            next_page_token: 'page-2',
-          });
-          return;
-        }
-        assert.equal(url.searchParams.get('page_token'), 'page-2');
-        respondJson(response, 200, {
-          models: [{
-            name: 'command-a-reasoning-08-2025',
-            is_deprecated: false,
-            endpoints: ['chat'],
-            context_length: 256_000,
-          }],
-          next_page_token: '',
-        });
-        return;
-      }
-
-      assert.equal(request.method, 'POST');
-      assert.equal(request.url, '/v2/chat');
-      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
-      requestBodies.push(body);
-      if (requestBodies.length === 1) {
-        respondJson(response, 200, {
-          generation_id: 'cohere-tool-turn',
-          finish_reason: 'TOOL_CALL',
-          message: {
-            role: 'assistant',
-            content: [],
-            tool_plan: 'Call echo.',
-            tool_calls: [{
-              id: 'call_echo',
-              type: 'function',
-              function: { name: 'echo', arguments: '{"text":"hello"}' },
-            }],
-          },
-          usage: {
-            billed_units: { input_tokens: 8, output_tokens: 4 },
-            tokens: { input_tokens: 8, output_tokens: 4 },
-          },
-        });
-        return;
-      }
-
-      respondJson(response, 200, {
-        generation_id: 'cohere-final-turn',
-        finish_reason: 'COMPLETE',
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Echoed hello.' }],
-        },
-        usage: {
-          billed_units: { input_tokens: 12, output_tokens: 3 },
-          tokens: { input_tokens: 12, output_tokens: 3 },
-        },
-      });
-    });
-    const connection: LlmConnection = {
-      slug: 'cohere',
-      name: 'Cohere',
-      providerType: 'cohere',
-      baseUrl: `${server.url}/v2`,
-      defaultModel: modelId,
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-
-    const models = await fetchProviderModels(connection, 'cohere-test-key');
-    assert.deepEqual(models, [
-      { id: modelId, contextWindow: 128_000 },
-      { id: 'command-a-reasoning-08-2025', contextWindow: 256_000 },
-    ]);
-    assert.equal(modelListUrls.length, 2);
-
-    const result = await generateText({
-      model: getAIModel({ connection, apiKey: 'cohere-test-key', modelId: models[0]!.id }),
-      prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
-      tools: {
-        echo: tool({
-          description: 'Echo text',
-          inputSchema: z.object({ text: z.string() }),
-          execute: async ({ text }) => ({ echoed: text }),
-        }),
-      },
-    });
-
-    assert.equal(requestBodies.length, 2);
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
-    assert.deepEqual(
-      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
-      ['echo'],
-    );
-    const secondMessages = requestBodies[1]?.messages as Array<Record<string, unknown>>;
-    assert.deepEqual(secondMessages.find(({ role }) => role === 'assistant'), {
-      role: 'assistant',
-      tool_calls: [{
-        id: 'call_echo',
-        type: 'function',
-        function: { name: 'echo', arguments: '{"text":"hello"}' },
-      }],
-    });
-    assert.deepEqual(secondMessages.find(({ role }) => role === 'tool'), {
-      role: 'tool',
-      content: '{"echoed":"hello"}',
-      tool_call_id: 'call_echo',
-    });
-    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
-    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
-    assert.equal(result.text, 'Echoed hello.');
-  });
-
   test('Mistral discovers exact account model ids and completes its documented tool-call loop', async () => {
     const requestBodies: Array<Record<string, unknown>> = [];
     let modelListRequests = 0;
@@ -3346,99 +2853,6 @@ describe('models.dev provider conformance', () => {
   }
 });
 
-async function assertOllamaModelContract(
-  discoveredModelIds: readonly string[],
-  modelId: string,
-): Promise<void> {
-  const requestBodies: Array<Record<string, unknown>> = [];
-  const server = await startJsonServer(async (request, response) => {
-    if (request.method === 'GET' && request.url === '/api/tags') {
-      assert.equal(request.headers.authorization, undefined);
-      respondJson(response, 200, {
-        models: discoveredModelIds.map((id) => ({ name: id, model: id })),
-      });
-      return;
-    }
-    assert.equal(request.method, 'POST');
-    assert.equal(request.url, '/v1/chat/completions');
-    assert.equal(request.headers.authorization, undefined);
-    const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
-    requestBodies.push(body);
-    if (requestBodies.length === 1) {
-      respondJson(response, 200, {
-        id: 'chatcmpl-ollama-tool',
-        object: 'chat.completion',
-        created: 1,
-        model: modelId,
-        choices: [{
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: [{
-              id: 'call_echo',
-              type: 'function',
-              function: { name: 'echo', arguments: '{"text":"hello"}' },
-            }],
-          },
-          finish_reason: 'tool_calls',
-        }],
-        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
-      });
-      return;
-    }
-    respondJson(response, 200, {
-      id: 'chatcmpl-ollama-final',
-      object: 'chat.completion',
-      created: 2,
-      model: modelId,
-      choices: [{
-        index: 0,
-        message: { role: 'assistant', content: 'Echoed hello.' },
-        finish_reason: 'stop',
-      }],
-      usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
-    });
-  });
-  const connection: LlmConnection = {
-    slug: 'ollama-local',
-    name: 'Ollama',
-    providerType: 'ollama',
-    baseUrl: `${server.url}/v1`,
-    defaultModel: modelId,
-    enabled: true,
-    createdAt: 1,
-    updatedAt: 1,
-  };
-
-  assert.deepEqual(await fetchProviderModels(connection, ''), discoveredModelIds.map((id) => ({ id })));
-
-  const result = await generateText({
-    model: getAIModel({ connection, apiKey: '', modelId }),
-    prompt: 'Call echo with hello, then report the result.',
-    tools: {
-      echo: tool({
-        description: 'Echo text',
-        inputSchema: z.object({ text: z.string() }),
-        execute: async ({ text }) => ({ text }),
-      }),
-    },
-    stopWhen: stepCountIs(2),
-  });
-
-  assert.equal(result.text, 'Echoed hello.');
-  assert.equal(requestBodies.length, 2);
-  assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
-  assert.deepEqual(
-    (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
-    ['echo'],
-  );
-  const secondMessages = requestBodies[1]?.messages as Array<{ role: string; content: string }>;
-  const toolMessage = secondMessages.find((message) => message.role === 'tool');
-  assert.ok(toolMessage);
-  assert.deepEqual(JSON.parse(toolMessage.content), { text: 'hello' });
-}
-
 async function startJsonServer(
   handler: (request: IncomingMessage, response: ServerResponse) => void | Promise<void>,
 ): Promise<{ url: string; close(): Promise<void> }> {
@@ -3473,10 +2887,4 @@ function readBody(request: IncomingMessage): Promise<string> {
 function respondJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, { 'content-type': 'application/json' });
   response.end(JSON.stringify(body));
-}
-
-function respondOpenAIStream(response: ServerResponse, chunks: readonly unknown[]): void {
-  response.writeHead(200, { 'content-type': 'text/event-stream' });
-  for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`);
-  response.end('data: [DONE]\n\n');
 }

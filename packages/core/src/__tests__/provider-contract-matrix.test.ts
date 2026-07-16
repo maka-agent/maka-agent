@@ -107,6 +107,12 @@ describe('provider contract matrix — discovery derivation', () => {
     assert.equal(lmStudio.state === 'generated' && lmStudio.discovery?.auth, 'none');
   });
 
+  it('derives auth optional when the provider credential is user-optional', () => {
+    const localai = cellFor('localai', 'discovery');
+    assert.equal(localai.state, 'generated');
+    assert.equal(localai.state === 'generated' && localai.discovery?.auth, 'optional');
+  });
+
   it('marks fireworks / cohere / ollama discovery as override', () => {
     for (const providerType of ['fireworks-ai', 'cohere', 'ollama'] as const) {
       const cell = cellFor(providerType, 'discovery');

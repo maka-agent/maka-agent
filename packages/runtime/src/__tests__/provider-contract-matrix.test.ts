@@ -8,10 +8,12 @@
  *   - `generated`      a parametric wire test is executed against a scripted
  *                      local HTTP server (discovery, exact-model-id, tool-loop,
  *                      reasoning-replay), driven entirely by the derived cell.
- *   - `override`       the cell is asserted to have a named entry in
- *                      {@link OVERRIDE_REGISTRY}, each pointing at the
- *                      hand-written test (in `provider-conformance.test.ts` by
- *                      default) that owns the provider-specific contract.
+ *   - `override`       the cell binds to an executable entry in
+ *                      {@link PROVIDER_CONTRACT_OVERRIDE_BINDINGS}
+ *                      (`provider-contract-overrides.ts`), and this suite runs
+ *                      the bound provider-specific contract directly — deleting
+ *                      or breaking an override fails here, with no reliance on
+ *                      test titles in another source file.
  *   - `not-applicable` the machine-readable reason is asserted, and any reverse
  *                      assertion (e.g. fallback discovery must not call /models)
  *                      is executed.
@@ -19,16 +21,11 @@
  * The gap report (`test('no contract gaps ...')`) fails loudly, listing
  * provider + dimension + what is missing, whenever a ready provider's dimension
  * satisfies none of the three states — this is Phase 7's gap reporting.
- *
- * This file is purely additive. It does not modify or replace the hand-written
- * `provider-conformance.test.ts`; overlapping coverage is intentional.
  */
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { IncomingMessage } from 'node:http';
 import { after, describe, test } from 'node:test';
-import { fileURLToPath } from 'node:url';
 import type { LlmConnection } from '@maka/core';
 import {
   PROVIDER_CONTRACT_MATRIX_PLAN,
@@ -42,6 +39,11 @@ import { generateText, stepCountIs, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { getAIModel } from '../model-factory.js';
+import { closeAllJsonServers, readBody, respondJson, startJsonServer } from './conformance-harness.js';
+import {
+  PROVIDER_CONTRACT_OVERRIDE_BINDINGS,
+  type ProviderContractOverrideBinding,
+} from './provider-contract-overrides.js';
 
 const REASONING_TEXT = 'I should call echo with the requested text.';
 const FINAL_TEXT = 'Echoed hello.';
@@ -49,111 +51,12 @@ const API_KEY = 'contract-matrix-test-key';
 
 const plan = PROVIDER_CONTRACT_MATRIX_PLAN;
 
-const servers: Array<{ close(): Promise<void> }> = [];
+after(closeAllJsonServers);
 
-after(async () => {
-  await Promise.all(servers.map((server) => server.close()));
-});
-
-/** A named override binding a plan cell to a hand-written conformance test. */
-interface OverrideBinding {
-  /**
-   * Exact test title as it appears verbatim in the bound test source (for
-   * parametric tests, the literal template text including any `${...}`
-   * placeholder). The binding test below asserts the source still contains an
-   * enabled `test(` call whose complete quoted title equals this text, so
-   * deleting, renaming (even by suffix), or skipping the hand-written test
-   * breaks the matrix instead of leaving a silent gap.
-   */
-  test: string;
-  /**
-   * Source file (sibling of this suite) that owns the bound test.
-   * Defaults to {@link DEFAULT_OVERRIDE_TEST_FILE}.
-   */
-  file?: string;
-  /** Human-readable statement of the provider-specific contract the override owns. */
-  contract: string;
-}
-
-const DEFAULT_OVERRIDE_TEST_FILE = 'provider-conformance.test.ts';
-
-const GITHUB_COPILOT_OVERRIDE_TEST =
-  'GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire';
-
-/**
- * Named overrides. Each key is a plan `overrideKey` (`${providerType}:${dimension}`)
- * and each value binds the hand-written test that owns the provider-specific
- * contract the plan cannot generate. A missing key here surfaces as a contract
- * gap; a stale or disabled `test` title fails the source binding test.
- */
-const OVERRIDE_REGISTRY: Readonly<Record<string, OverrideBinding>> = {
-  'cohere:discovery': {
-    test: 'Cohere paginates account models and completes its native V2 tool-call loop',
-    contract: 'Cohere native V2 paginated /v1/models discovery (endpoint=chat)',
-  },
-  'fireworks-ai:discovery': {
-    test: 'Fireworks discovers exact serverless model paths and completes a two-stage tool-call loop',
-    contract: 'Fireworks account pagination discovery over /v1/accounts + per-account /models',
-  },
-  'ollama:discovery': {
-    // eslint-disable-next-line no-template-curly-in-string -- literal source text of a parametric title
-    test: 'Ollama preserves an exact ${testCase.label} through local discovery and a no-secret tool-call loop',
-    contract: 'Ollama native /api/tags discovery',
-  },
-  'github-copilot:discovery': {
-    test: 'GitHub Copilot discovers only account-enabled tool models and preserves each exact endpoint wire',
-    file: 'model-fetcher.test.ts',
-    contract: 'GitHub Copilot subscription /models discovery (picker + endpoint gating)',
-  },
-  'github-copilot:exact-model-id': {
-    test: GITHUB_COPILOT_OVERRIDE_TEST,
-    contract: 'GitHub Copilot preserves the exact account model id on its subscription wire',
-  },
-  'github-copilot:tool-loop': {
-    test: GITHUB_COPILOT_OVERRIDE_TEST,
-    contract: 'GitHub Copilot completes a two-stage tool loop on its subscription wire',
-  },
-  'github-copilot:reasoning-replay': {
-    test: GITHUB_COPILOT_OVERRIDE_TEST,
-    contract: 'GitHub Copilot replays reasoning on its provider-specific per-model wire',
-  },
-  'zenmux:reasoning-replay': {
-    test: 'ZenMux replays signed reasoning details in the streamed runtime tool loop',
-    contract: 'Signed reasoning_details are replayed byte-for-byte, beyond a plain field rename',
-  },
-};
-
-/**
- * The suite runs compiled from `dist/` (sibling `.js`) but can also run straight
- * from `src/` (sibling `.ts`). Test titles survive compilation verbatim, so read
- * whichever sibling exists, resolved relative to this test file.
- */
-function readOverrideTestSource(file: string): string {
-  const errors: string[] = [];
-  for (const candidate of [`./${file}`, `./${file.replace(/\.ts$/, '.js')}`]) {
-    try {
-      return readFileSync(fileURLToPath(new URL(candidate, import.meta.url)), 'utf8');
-    } catch (error) {
-      errors.push(`${candidate}: ${(error as Error).message}`);
-    }
-  }
-  throw new Error(`override test source "${file}" not found next to the matrix suite:\n${errors.join('\n')}`);
-}
-
-/**
- * True when the source contains an *enabled* `test(` call whose complete quoted
- * title equals the bound title — `test('title'`, `test("title"`, or
- * `` test(`title` `` (the backtick form covers parametric template-literal
- * titles, whose bound text includes the `${...}` placeholder verbatim).
- * Requiring the closing quote means renaming the test — even by appending a
- * suffix — breaks the binding. `test.skip(` / `test.todo(` never match because
- * their call prefix differs. Known residual: this is a textual check, so a
- * fully commented-out `test(...)` line still matches; the Phase 8 executable
- * override binding removes that class.
- */
-function hasEnabledTestCall(source: string, title: string): boolean {
-  return ["'", '"', '`'].some((quote) => source.includes(`test(${quote}${title}${quote}`));
-}
+/** Executable override lookup: plan `overrideKey` → its runnable binding. */
+const OVERRIDE_BINDING_BY_KEY: ReadonlyMap<string, ProviderContractOverrideBinding> = new Map(
+  PROVIDER_CONTRACT_OVERRIDE_BINDINGS.flatMap((binding) => binding.keys.map((key) => [key, binding])),
+);
 
 const KNOWN_WIRES: ReadonlySet<ProviderContractWire> = new Set([
   'openai-chat',
@@ -176,8 +79,8 @@ describe('provider conformance matrix — gap report', () => {
           }
           break;
         case 'override':
-          if (!OVERRIDE_REGISTRY[cell.overrideKey]) {
-            gaps.push(`${where}: no named override registered for key "${cell.overrideKey}"`);
+          if (!OVERRIDE_BINDING_BY_KEY.has(cell.overrideKey)) {
+            gaps.push(`${where}: no executable override binding registered for key "${cell.overrideKey}"`);
           }
           break;
         case 'not-applicable':
@@ -190,47 +93,28 @@ describe('provider conformance matrix — gap report', () => {
     assert.deepEqual(gaps, [], `provider contract gaps found:\n  ${gaps.join('\n  ')}`);
   });
 
-  test('every registered override maps to a real override cell in the plan', () => {
+  test('every registered override binding maps to a real override cell in the plan', () => {
     const overrideKeys = new Set(
       listProviderContractCells(plan)
         .filter((entry) => entry.cell.state === 'override')
         .map((entry) => (entry.cell.state === 'override' ? entry.cell.overrideKey : '')),
     );
-    for (const key of Object.keys(OVERRIDE_REGISTRY)) {
-      assert.ok(overrideKeys.has(key), `override registry key "${key}" has no matching override cell`);
-    }
-  });
-
-  test('every registered override title is an enabled test call in its bound source file', () => {
-    const sources = new Map<string, string>();
-    for (const [key, binding] of Object.entries(OVERRIDE_REGISTRY)) {
-      const file = binding.file ?? DEFAULT_OVERRIDE_TEST_FILE;
-      let source = sources.get(file);
-      if (source === undefined) {
-        source = readOverrideTestSource(file);
-        sources.set(file, source);
+    const seen = new Set<string>();
+    for (const binding of PROVIDER_CONTRACT_OVERRIDE_BINDINGS) {
+      assert.ok(binding.keys.length > 0, `override binding "${binding.title}" must own at least one key`);
+      for (const key of binding.keys) {
+        assert.ok(!seen.has(key), `override key "${key}" is bound by more than one executable binding`);
+        seen.add(key);
+        assert.ok(overrideKeys.has(key), `override binding key "${key}" has no matching override cell`);
       }
-      if (hasEnabledTestCall(source, binding.test)) continue;
-      assert.fail(
-        source.includes(binding.test)
-          ? `override "${key}": the bound title exists in ${file} but is not an enabled test call `
-            + `(is it test.skip/test.todo, or referenced outside a test(...)?): "${binding.test}" `
-            + '— re-enable the hand-written test or update the binding'
-          : `override "${key}" is bound to a test title that no longer exists in ${file}: `
-            + `"${binding.test}" — update the binding or restore the hand-written test`,
-      );
     }
   });
 });
 
-describe('provider conformance matrix — override cells reference a named hand-written test', () => {
-  for (const { providerType, dimension, cell } of listProviderContractCells(plan)) {
-    if (cell.state !== 'override') continue;
-    test(`${providerType} · ${dimension} · override → ${cell.overrideKey}`, () => {
-      const reference = OVERRIDE_REGISTRY[cell.overrideKey];
-      assert.ok(reference, `expected a named override for ${cell.overrideKey}`);
-      assert.ok(reference.test.length > 0, `override for ${cell.overrideKey} must name its hand-written test title`);
-      assert.ok(reference.contract.length > 0, `override for ${cell.overrideKey} must describe its contract`);
+describe('provider conformance matrix — override cells execute their bound contract', () => {
+  for (const binding of PROVIDER_CONTRACT_OVERRIDE_BINDINGS) {
+    test(`${binding.keys.join(' + ')} · ${binding.title}`, async () => {
+      await binding.run();
     });
   }
 });
@@ -266,6 +150,33 @@ describe('provider conformance matrix — wire (exact-model-id + tool-loop + rea
 // Generated discovery execution
 // ---------------------------------------------------------------------------
 
+/**
+ * The per-run credential expectation a generated discovery cell expands into.
+ * `default` runs once with the provider credential; `none` runs once with no
+ * credential on the wire; `optional` (optional_api_key providers such as
+ * LocalAI) runs twice — a configured key must reach the wire, and an absent key
+ * must leave the request credential-free rather than sending a dummy value.
+ */
+interface DiscoveryCredentialCase {
+  label: 'provider-auth' | 'no-auth' | 'optional-with-key' | 'optional-without-key';
+  apiKey: string;
+  expectCredential: boolean;
+}
+
+function discoveryCredentialCases(auth: ProviderContractDiscoveryPlan['auth']): DiscoveryCredentialCase[] {
+  switch (auth) {
+    case 'default':
+      return [{ label: 'provider-auth', apiKey: API_KEY, expectCredential: true }];
+    case 'none':
+      return [{ label: 'no-auth', apiKey: API_KEY, expectCredential: false }];
+    case 'optional':
+      return [
+        { label: 'optional-with-key', apiKey: API_KEY, expectCredential: true },
+        { label: 'optional-without-key', apiKey: '', expectCredential: false },
+      ];
+  }
+}
+
 async function runGeneratedDiscovery(
   row: ProviderContractRow,
   cell: ProviderContractGeneratedCell & { discovery: NonNullable<ProviderContractGeneratedCell['discovery']> },
@@ -277,30 +188,32 @@ async function runGeneratedDiscovery(
   const payloadShapes: ReadonlyArray<'data-object' | 'bare-array'> =
     discovery.responseShape === 'array-or-data' ? ['data-object', 'bare-array'] : ['data-object'];
   for (const shape of payloadShapes) {
-    const where = `${row.providerType} discovery (${shape} payload)`;
-    // Handler assertion failures are recorded and rethrown after the fetch so
-    // the test fails with the request-contract message instead of a generic
-    // "failed to fetch models" wrapper.
-    const handlerErrors: unknown[] = [];
-    let requestCount = 0;
-    const server = await startJsonServer((request, response) => {
-      requestCount += 1;
-      try {
-        assertDiscoveryRequest(row, discovery, request);
-      } catch (error) {
-        handlerErrors.push(error);
-      }
-      respondJson(response, 200, discoveryPayload(discovery.protocol, sample, discovery.filter, shape));
-    });
-    const connection = baseConnection(row, server.url);
-    const models = await fetchProviderModels(connection, API_KEY);
-    if (handlerErrors.length > 0) throw handlerErrors[0];
-    assert.ok(requestCount >= 1, `${where} must request the model list`);
-    assert.deepEqual(
-      models.map((model) => model.id),
-      [sample],
-      `${where} should return exactly the scripted exact id`,
-    );
+    for (const credentialCase of discoveryCredentialCases(discovery.auth)) {
+      const where = `${row.providerType} discovery (${shape} payload, ${credentialCase.label})`;
+      // Handler assertion failures are recorded and rethrown after the fetch so
+      // the test fails with the request-contract message instead of a generic
+      // "failed to fetch models" wrapper.
+      const handlerErrors: unknown[] = [];
+      let requestCount = 0;
+      const server = await startJsonServer((request, response) => {
+        requestCount += 1;
+        try {
+          assertDiscoveryRequest(row, discovery, credentialCase, request);
+        } catch (error) {
+          handlerErrors.push(error);
+        }
+        respondJson(response, 200, discoveryPayload(discovery.protocol, sample, discovery.filter, shape));
+      });
+      const connection = baseConnection(row, server.url);
+      const models = await fetchProviderModels(connection, credentialCase.apiKey);
+      if (handlerErrors.length > 0) throw handlerErrors[0];
+      assert.ok(requestCount >= 1, `${where} must request the model list`);
+      assert.deepEqual(
+        models.map((model) => model.id),
+        [sample],
+        `${where} should return exactly the scripted exact id`,
+      );
+    }
   }
 }
 
@@ -309,9 +222,9 @@ async function runGeneratedDiscovery(
  * auth — mirroring `model-fetcher.ts`'s real URL/header construction:
  *
  *   - openai:    `{baseUrl}{path ?? '/models'}?{query}` with a Bearer credential
- *                when the cell declares provider auth *and* the provider's
- *                authKind actually supports an API key (lm-studio declares
- *                `authKind: 'none'`, so its wire carries no credential).
+ *                when the credential case expects one (lm-studio declares
+ *                `authKind: 'none'` and LocalAI without a configured key sends
+ *                nothing, so those wires carry no credential).
  *   - anthropic: `{baseUrl}/v1/models` with the `x-api-key` credential header.
  *   - google:    `{baseUrl}/v1beta/models?key={apiKey}` — the credential rides
  *                the `key` query parameter, never a header.
@@ -319,9 +232,10 @@ async function runGeneratedDiscovery(
 function assertDiscoveryRequest(
   row: ProviderContractRow,
   discovery: ProviderContractDiscoveryPlan,
+  credentialCase: DiscoveryCredentialCase,
   request: IncomingMessage,
 ): void {
-  const where = `${row.providerType} discovery`;
+  const where = `${row.providerType} discovery (${credentialCase.label})`;
   assert.equal(request.method, 'GET', `${where} must GET the model list`);
   const url = new URL(request.url ?? '', 'http://contract.test');
 
@@ -334,22 +248,24 @@ function assertDiscoveryRequest(
 
   // Query: exactly the declared parameters (google adds its key-query credential).
   const expectedQuery: Record<string, string> = { ...(discovery.query ?? {}) };
-  if (discovery.protocol === 'google' && discovery.auth !== 'none') expectedQuery.key = API_KEY;
+  if (discovery.protocol === 'google' && credentialCase.expectCredential) expectedQuery.key = API_KEY;
   assert.deepEqual(
     Object.fromEntries(url.searchParams),
     expectedQuery,
     `${where} must send exactly the declared query parameters`,
   );
 
-  // Auth: public cells must carry no credential; default cells must carry the
-  // protocol's credential exactly as model-fetcher constructs it.
+  // Auth: credential-free cases (public lists, `authKind: 'none'`, and
+  // optional_api_key with no configured key) must not inject any credential —
+  // not even a dummy value; credentialed cases must carry the protocol's
+  // credential exactly as model-fetcher constructs it.
   const authorization = request.headers.authorization;
   const xApiKey = request.headers['x-api-key'];
   const xGoogApiKey = request.headers['x-goog-api-key'];
-  if (discovery.auth === 'none') {
-    assert.equal(authorization, undefined, `${where} is public: it must not send an Authorization header`);
-    assert.equal(xApiKey, undefined, `${where} is public: it must not send an x-api-key header`);
-    assert.equal(xGoogApiKey, undefined, `${where} is public: it must not send an x-goog-api-key header`);
+  if (!credentialCase.expectCredential) {
+    assert.equal(authorization, undefined, `${where} must not send an Authorization header`);
+    assert.equal(xApiKey, undefined, `${where} must not send an x-api-key header`);
+    assert.equal(xGoogApiKey, undefined, `${where} must not send an x-goog-api-key header`);
     return;
   }
   switch (discovery.protocol) {
@@ -807,40 +723,4 @@ function baseConnection(row: ProviderContractRow, baseUrl: string): LlmConnectio
     createdAt: 1,
     updatedAt: 1,
   };
-}
-
-async function startJsonServer(
-  handler: (request: IncomingMessage, response: ServerResponse) => void | Promise<void>,
-): Promise<{ url: string; close(): Promise<void> }> {
-  const server = createServer((request, response) => {
-    void Promise.resolve(handler(request, response)).catch((error) => {
-      response.destroy(error as Error);
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  assert.ok(address && typeof address === 'object');
-  const control = {
-    url: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    }),
-  };
-  servers.push(control);
-  return control;
-}
-
-function readBody(request: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    request.setEncoding('utf8');
-    request.on('data', (chunk) => { body += chunk; });
-    request.on('end', () => resolve(body));
-    request.on('error', reject);
-  });
-}
-
-function respondJson(response: ServerResponse, status: number, body: unknown): void {
-  response.writeHead(status, { 'content-type': 'application/json' });
-  response.end(JSON.stringify(body));
 }
