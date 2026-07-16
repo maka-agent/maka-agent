@@ -1276,6 +1276,18 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "API_KEY" not in json.dumps(ollama_env), ollama_env
 
     agent = MakaAgent(Path(tmp))
+    deadline_output_path = Path(tmp) / "maka-cell-output.json"
+    deadline_output_path.write_text(json.dumps({
+        "status": "failed",
+        "errorClass": "aborted",
+        "deadlineSettlement": {"source": "benchmark.deadline", "mode": "immediate"},
+    }), encoding="utf-8")
+    deadline_usage = {"input": 10, "output": 2, "total": 12, "costUsd": 0.01, "pricingSource": "runtime"}
+    (Path(tmp) / "maka-cell-usage-checkpoint.json").write_text(json.dumps(deadline_usage), encoding="utf-8")
+    hydrated_deadline_output = agent._read_cell_output(required=True)
+    assert hydrated_deadline_output["tokenSummary"] == deadline_usage, hydrated_deadline_output
+    assert json.loads(deadline_output_path.read_text(encoding="utf-8"))["tokenSummary"] == deadline_usage
+
     context = AgentContext()
     agent._apply_cell_output(context, {
         "status": "completed",
@@ -1538,6 +1550,18 @@ with tempfile.TemporaryDirectory() as tmp:
             "MAKA_ECONOMY_TASK_MODE": "true",
         })
         host_process_environment = types.SimpleNamespace(root_commands=[], agent_commands=[])
+        asyncio.run(host_process_agent._run_host_cell(host_process_environment, Path(tmp) / "instruction.txt"))
+
+        class DeadlineSettledHostProcess(FakeHostProcess):
+            returncode = 124
+
+            async def communicate(self):
+                return (b'{"status":"failed","settledByDeadline":true}', b"")
+
+        async def fake_deadline_subprocess_exec(*args, **kwargs):
+            return DeadlineSettledHostProcess()
+
+        asyncio.create_subprocess_exec = fake_deadline_subprocess_exec
         asyncio.run(host_process_agent._run_host_cell(host_process_environment, Path(tmp) / "instruction.txt"))
 
         class CancelledHostProcess:

@@ -83,6 +83,7 @@ class MakaAgent(BaseInstalledAgent):
 
     _RUN_LOG_FILENAME = "maka-run.log"
     _CELL_OUTPUT_FILENAME = "maka-cell-output.json"
+    _CELL_USAGE_CHECKPOINT_FILENAME = "maka-cell-usage-checkpoint.json"
 
     CLI_FLAGS = [
         CliFlag(
@@ -331,7 +332,10 @@ class MakaAgent(BaseInstalledAgent):
                 raise
             run_log_path.write_bytes(stdout + stderr)
             if process.returncode == 124:
-                raise RuntimeError(f"Maka host cell exceeded {self._cell_timeout_sec()}s")
+                # run-host-cell uses 124 only after it has settled the runtime at
+                # the soft deadline and persisted maka-cell-output.json. Returning
+                # lets Harbor grade the task's final filesystem state.
+                return
             if process.returncode != 0:
                 message = (stderr or stdout).decode("utf-8", errors="replace").strip()
                 raise RuntimeError(f"Maka host cell exited {process.returncode}: {message}")
@@ -434,6 +438,20 @@ class MakaAgent(BaseInstalledAgent):
                 raise RuntimeError(f"Maka cell output must be a JSON object: {output_path}")
             self.logger.debug("Maka cell output %s was not a JSON object", output_path)
             return None
+        deadline_settlement = output.get("deadlineSettlement")
+        if (
+            not isinstance(output.get("tokenSummary"), dict)
+            and isinstance(deadline_settlement, dict)
+            and deadline_settlement.get("source") == "benchmark.deadline"
+        ):
+            checkpoint_path = self.logs_dir / self._CELL_USAGE_CHECKPOINT_FILENAME
+            try:
+                checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+                if isinstance(checkpoint, dict):
+                    output["tokenSummary"] = checkpoint
+                    output_path.write_text(f"{json.dumps(output, indent=2)}\n", encoding="utf-8")
+            except (OSError, json.JSONDecodeError) as exc:
+                self.logger.debug("Could not hydrate Maka deadline usage from %s: %s", checkpoint_path, exc)
         return output
 
     def _apply_cell_output(self, context: AgentContext, output: dict[str, Any] | None = None) -> None:

@@ -1856,6 +1856,37 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('keeps verifier-graded deadline settlements as scored benchmark outcomes', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => harborOutput({
+          taskId: 'task-a',
+          reward: 0,
+          status: 'failed',
+          errorClass: 'aborted',
+          deadlineSettlement: { source: 'benchmark.deadline', mode: 'immediate' },
+        }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.passed, false);
+      assert.equal(result.events[0]?.scored, true);
+      assert.equal(result.events[0]?.eligible, true);
+    });
+  });
+
   test('classifies provider rate limits as infrastructure failures', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -2248,6 +2279,7 @@ function harborOutput(input: {
   errorClass?: string;
   status?: HarborTaskRunOutput['cell']['status'];
   executionIdentity?: HarborTaskRunOutput['cell']['executionIdentity'];
+  deadlineSettlement?: HarborTaskRunOutput['cell']['deadlineSettlement'];
   verifier?: HarborTaskRunOutput['harbor']['verifier'];
 }): HarborTaskRunOutput {
   return {
@@ -2260,6 +2292,7 @@ function harborOutput(input: {
       traceEventsPath: `/logs/${input.taskId}/events.jsonl`,
       ...(input.omitPromptHash ? {} : { promptHash: input.promptHash ?? hashSystemPrompt('fixed prompt\n') }),
       ...(input.executionIdentity ? { executionIdentity: input.executionIdentity } : {}),
+      ...(input.deadlineSettlement ? { deadlineSettlement: input.deadlineSettlement } : {}),
       ...(input.omitTokenSummary
         ? {}
         : { tokenSummary: input.tokenSummary ?? tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }) }),
