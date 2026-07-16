@@ -6,16 +6,17 @@
  * and `readWriteStdinInputPreview`, both already in `@maka/core`.
  *
  * Extracted from `packages/ui/src/tool-activity/builtin-preview.ts` (#1065)
- * so the CLI can consume the same path. Desktop passes `detectUiLocale()`;
- * the TUI passes `'en'`.
+ * so the CLI can consume the same path. Every caller passes its resolved
+ * locale explicitly.
  */
 
 import { redactSecrets } from './display-redaction.js';
 import { readWriteStdinInputPreview } from './tool-activity-args.js';
+import type { UiLocale } from './ui-locale.js';
 
 // ── Locale ───────────────────────────────────────────────────────────────
 
-export type UiLocale = 'zh' | 'en';
+export type { UiLocale } from './ui-locale.js';
 
 interface QuietPreviewStrings {
   backgroundTerminal: string;

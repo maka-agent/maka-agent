@@ -3,8 +3,7 @@
  *
  * `formatToolInvocationLine` and `formatQuietJsonValue` are pure functions
  * extracted from this module into `@maka/core` so the CLI/TUI can consume
- * the same path. Desktop passes `detectUiLocale()` — the default `'zh'`
- * locale preserves byte-identical output to the previous inline implementation.
+ * the same path. Desktop passes the resolved locale from `LocaleProvider`.
  *
  * The desktop `ToolActivityItem`-typed signature is adapted here so existing
  * call sites (`tool-activity.tsx`, `tool-result-preview.tsx`) keep their
@@ -14,23 +13,27 @@
 import {
   formatQuietJsonValue as coreFormatQuietJsonValue,
   formatToolInvocationLine as coreFormatToolInvocationLine,
+  type UiLocale,
 } from '@maka/core';
-import { detectUiLocale } from '../locale-helpers.js';
 import type { ToolActivityItem } from '../materialize.js';
 
 export type { QuietPreview } from '@maka/core';
 
-/** Desktop-adapted wrapper that injects the detected UI locale. */
+/** Desktop-adapted wrapper with an explicit resolved locale. */
 export function formatToolInvocationLine(
   item: Pick<ToolActivityItem, 'toolName' | 'args' | 'activityKind'>,
+  locale: UiLocale,
 ): string | undefined {
   return coreFormatToolInvocationLine(
     { toolName: item.toolName, args: item.args },
-    detectUiLocale(),
+    locale,
   );
 }
 
-/** Desktop-adapted wrapper that injects the detected UI locale. */
-export function formatQuietJsonValue(value: unknown): import('@maka/core').QuietPreview {
-  return coreFormatQuietJsonValue(value, detectUiLocale());
+/** Desktop-adapted wrapper with an explicit resolved locale. */
+export function formatQuietJsonValue(
+  value: unknown,
+  locale: UiLocale,
+): import('@maka/core').QuietPreview {
+  return coreFormatQuietJsonValue(value, locale);
 }

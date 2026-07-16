@@ -9,6 +9,10 @@ function rendererSource(file: string): string {
   return readFileSync(resolve(REPO_ROOT, 'apps/desktop/src/renderer', file), 'utf8');
 }
 
+function repoSource(file: string): string {
+  return readFileSync(resolve(REPO_ROOT, file), 'utf8');
+}
+
 describe('reactive locale foundation', () => {
   it('owns one persisted preference and one test override in AppShell state', () => {
     const source = rendererSource('app-shell.tsx');
@@ -67,11 +71,14 @@ describe('reactive locale foundation', () => {
   it('uses the reactive locale for desktop copy and Intl formatting', () => {
     const onboarding = rendererSource('OnboardingHero.tsx');
     const artifact = rendererSource('artifact-pane.tsx');
+    const toolPreview = repoSource('packages/ui/src/tool-activity/builtin-preview.ts');
 
     assert.match(onboarding, /useUiLocale\(\)/);
     assert.match(artifact, /useUiLocale\(\)/);
     assert.match(artifact, /formatRelativeTimestamp\(record\.createdAt, Date\.now\(\), locale\)/);
     assert.doesNotMatch(onboarding, /detectUiLocale/);
+    assert.doesNotMatch(toolPreview, /detectUiLocale/);
+    assert.match(toolPreview, /locale: UiLocale/);
   });
 
   it('keeps provider catalog copy on the same reactive locale path', () => {

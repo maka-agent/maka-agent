@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
-import { isShellOutput, type ToolResultContent } from '@maka/core';
+import { isShellOutput, type ToolResultContent, type UiLocale } from '@maka/core';
 import {
   AlertOctagon,
   Check,
@@ -178,14 +178,14 @@ function useToolDisclosure(presentation: ToolActivityPresentation) {
   };
 }
 
-function extractErrorText(result: ToolActivityItem['result']): string {
+function extractErrorText(result: ToolActivityItem['result'], locale: UiLocale): string {
   if (!result) return '';
   switch (result.kind) {
     case 'text':
       return result.text;
     case 'json': {
       // Same quiet formatter as the panel — never dump escaped JSON braces.
-      const quiet = formatQuietJsonValue(result.value);
+      const quiet = formatQuietJsonValue(result.value, locale);
       return quiet.headline ? `${quiet.headline}\n${quiet.body}` : quiet.body;
     }
     case 'terminal': {
@@ -383,6 +383,7 @@ function ToolActivityCard({ item, open: openProp }: { item: ToolActivityItem; op
  * quiet formatters (tool-args-redaction-contract / quiet-panel contracts).
  */
 function ToolCardBody({ item }: { item: ToolActivityItem }) {
+  const locale = useUiLocale();
   const cancelled = isCancelledToolResult(item.result);
   // Cancel maps to interrupted at materialize/live-projection; keep defensive
   // checks so a stale errored+cancelled item still does not look like failure.
@@ -396,7 +397,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
   // Every tool: human invocation line from args — never pretty-printed JSON.
   // Skip when the result panel already prints the command (terminal/shell_run).
   const invocationLine = !permissionDenied && !ownsPanel
-    ? formatToolInvocationLine(item)
+    ? formatToolInvocationLine(item, locale)
     : undefined;
   // While running the live stream is the output; once a structured result
   // preview exists it is the single quiet output block — never render both.
@@ -414,7 +415,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
     : undefined;
   const quietJson =
     displayResult?.kind === 'json'
-      ? formatQuietJsonValue(displayResult.value)
+      ? formatQuietJsonValue(displayResult.value, locale)
       : undefined;
   // Keep the invocation line whenever args yield one. Only add a result
   // headline when it says something different (avoids dropping Write/Edit paths
@@ -465,7 +466,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
           {/* No formatRedactedJson dump — if invocation failed, quiet-format args. */}
           {!showInvocation && !resultHeadline && item.args !== undefined && !permissionDenied && !showResult && (
             <pre className={cn(TOOL_OUTPUT_BODY_CLASS, 'max-h-40')}>
-              {formatQuietJsonValue(item.args).body}
+              {formatQuietJsonValue(item.args, locale).body}
             </pre>
           )}
           {showLiveStream && (
@@ -733,11 +734,12 @@ function summarizeErrorText(text: string): string {
 // Alert owns the shell; these are the few declarations it doesn't set, kept arbitrary
 // so they map 1:1 to the old CSS (`[align-self:start]`, not Tailwind's `flex-start`).
 function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
+  const locale = useUiLocale();
   // Tool stderr / raw provider errors occasionally slip credential paths,
   // bearer tokens, or API keys through main-side redaction. Apply a
   // defensive UI-level mask before display *and* before clipboard copy so
   // the user can't accidentally paste a credential into a bug report.
-  const errorText = formatUserVisibleToolText(redactSecrets(extractErrorText(props.result)));
+  const errorText = formatUserVisibleToolText(redactSecrets(extractErrorText(props.result, locale)));
   const copyFeedback = useClipboardCopyFeedback();
   const copyPhase = copyFeedback.phaseFor('tool-error');
   const copyPending = copyPhase === 'pending';

@@ -10,6 +10,7 @@ import {
 import { AlertCircle, Ban, Check, Clock, GitBranch, Loader2, Plug } from '../icons.js';
 import { previewVariants } from '../primitives/chat.js';
 import { redactSecrets } from '../redact.js';
+import { useUiLocale } from '../locale-context.js';
 import { cn } from '../ui.js';
 import { ExploreAgentPreview, SubagentPreview } from './agent-preview.js';
 import { formatQuietJsonValue } from './builtin-preview.js';
@@ -40,6 +41,7 @@ export function ToolResultPreview(props: {
   shellRunSource?: 'owned' | 'unavailable';
 }) {
   const { content } = props;
+  const locale = useUiLocale();
 
   if (content.kind === 'file_diff') {
     return <FileDiffPreview diff={content.diff} paths={content.paths} />;
@@ -99,7 +101,7 @@ export function ToolResultPreview(props: {
 
   if (content.kind === 'json') {
     // Never pretty-print JSON with escaped newlines — quiet plain text only.
-    const quiet = formatQuietJsonValue(content.value);
+    const quiet = formatQuietJsonValue(content.value, locale);
     return (
       <div className="grid gap-1.5" data-kind="json">
         {quiet.headline ? (

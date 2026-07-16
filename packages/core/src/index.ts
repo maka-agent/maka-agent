@@ -245,7 +245,6 @@ export {
   formatToolInvocationLine,
   type QuietPreview,
   type ToolInvocationInput,
-  type UiLocale,
 } from './tool-quiet-preview.js';
 export { redactSecrets as displayRedactSecrets } from './display-redaction.js';
 export {
