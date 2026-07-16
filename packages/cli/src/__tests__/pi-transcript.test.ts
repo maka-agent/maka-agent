@@ -2351,16 +2351,10 @@ describe('Maka Pi TUI status line', () => {
     assert.match(line, /ctx 32k\/128k 25%/);
   });
 
-  test('falls back to lastInput for ctx when contextRemaining is absent (#1064)', () => {
-    const line = stripAnsi(renderMakaPiStatusLine({
-      ...meta(),
-      modelContextWindow: 128_000,
-      usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0, lastInput: 52_000 },
-    }, 100));
-    assert.match(line, /ctx 52k\/128k 41%/);
-  });
-
-  test('omits ctx segment when modelContextWindow is set but no contextRemaining and no lastInput', () => {
+  test('omits ctx segment when modelContextWindow is set but no contextRemaining (#1064)', () => {
+    // token_usage.input is a billing-cumulative sum across tool-loop steps,
+    // not the last request's context size, so it cannot serve as a proxy
+    // for "used context". The ctx segment is omitted rather than misleading.
     const line = stripAnsi(renderMakaPiStatusLine({
       ...meta(),
       modelContextWindow: 128_000,

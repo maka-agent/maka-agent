@@ -5,6 +5,7 @@ import {
   disc,
   stripAnsi,
   _setColorLevelForTesting,
+  _detectColorLevelForTesting as detect,
 } from '../tui-ansi.js';
 
 // Reset to truecolor (the development default) after each test so a test that
@@ -90,5 +91,54 @@ describe('color capability fallback (#1064)', () => {
     assert.equal(ansi.bold('x'), 'x');
     assert.equal(ansi.dim('x'), 'x');
     assert.equal(ansi.yellow('x'), 'x');
+  });
+});
+
+describe('detectColorLevel env detection (#1064)', () => {
+  test('NO_COLOR with non-empty value → level 0', () => {
+    assert.equal(detect({ NO_COLOR: '1', TERM: 'xterm-256color', COLORTERM: 'truecolor' }), 0);
+    assert.equal(detect({ NO_COLOR: '0', TERM: 'xterm-256color' }), 0);
+  });
+
+  test('NO_COLOR with empty string → color still enabled (per spec)', () => {
+    assert.equal(detect({ NO_COLOR: '', TERM: 'xterm-256color', COLORTERM: 'truecolor' }), 3);
+  });
+
+  test('NO_COLOR unset → color enabled', () => {
+    assert.equal(detect({ TERM: 'xterm-256color', COLORTERM: 'truecolor' }), 3);
+  });
+
+  test('TERM=dumb → level 0', () => {
+    assert.equal(detect({ TERM: 'dumb' }), 0);
+  });
+
+  test('TERM unset/empty → level 0', () => {
+    assert.equal(detect({}), 0);
+    assert.equal(detect({ TERM: '' }), 0);
+  });
+
+  test('COLORTERM=truecolor → level 3', () => {
+    assert.equal(detect({ TERM: 'xterm-256color', COLORTERM: 'truecolor' }), 3);
+    assert.equal(detect({ TERM: 'xterm', COLORTERM: '24bit' }), 3);
+  });
+
+  test('TERM ending with -truecolor → level 3', () => {
+    assert.equal(detect({ TERM: 'xterm-truecolor' }), 3);
+    assert.equal(detect({ TERM: 'tmux-24bit' }), 3);
+  });
+
+  test('TERM with 256color (no COLORTERM) → level 2', () => {
+    assert.equal(detect({ TERM: 'xterm-256color' }), 2);
+    assert.equal(detect({ TERM: 'screen-256color' }), 2);
+  });
+
+  test('TERM with 256color + COLORTERM=truecolor → level 3 (COLORTERM wins)', () => {
+    assert.equal(detect({ TERM: 'xterm-256color', COLORTERM: 'truecolor' }), 3);
+  });
+
+  test('Generic TERM (xterm, screen, rxvt) → level 1', () => {
+    assert.equal(detect({ TERM: 'xterm' }), 1);
+    assert.equal(detect({ TERM: 'screen' }), 1);
+    assert.equal(detect({ TERM: 'rxvt-unicode' }), 1);
   });
 });

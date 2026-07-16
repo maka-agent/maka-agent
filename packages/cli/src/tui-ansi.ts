@@ -20,6 +20,19 @@ export function _setColorLevelForTesting(level: 0 | 1 | 2 | 3): void {
   rebuildAnsi();
 }
 
+/**
+ * Detect color level from an explicit env snapshot — for unit-testing the
+ * detection logic directly. Production code uses `detectColorLevel()` which
+ * reads `process.env` at module load.
+ */
+export function _detectColorLevelForTesting(env: {
+  NO_COLOR?: string;
+  TERM?: string;
+  COLORTERM?: string;
+}): 0 | 1 | 2 | 3 {
+  return detectColorLevelFromEnv(env);
+}
+
 export let ansi = buildAnsi();
 
 // #1053: status disc — a single `●` tinted by tone. The shared visual primitive
@@ -74,29 +87,41 @@ function buildAnsi() {
   };
 }
 
+function detectColorLevel(): 0 | 1 | 2 | 3 {
+  return detectColorLevelFromEnv({
+    NO_COLOR: process.env.NO_COLOR,
+    TERM: process.env.TERM,
+    COLORTERM: process.env.COLORTERM,
+  });
+}
+
 /**
- * Terminal color support level:
- * - 0: no color (NO_COLOR set, or a terminal known to lack color support)
- * - 1: 16-color (basic ANSI — TERM is `dumb` or similar)
- * - 2: 256-color (most modern terminals without truecolor)
- * - 3: 24-bit truecolor (COLORTERM=truecolor or termux/iterm known to support it)
+ * Pure color level detection from an env snapshot.
+ * - 0: no color (NO_COLOR non-empty, or TERM is dumb/empty)
+ * - 1: 16-color (basic ANSI)
+ * - 2: 256-color (TERM contains 256color)
+ * - 3: 24-bit truecolor (COLORTERM=truecolor/24bit or TERM ends with -truecolor)
  *
  * Benchmark: codex `supports-color` 3-level; pi `theme.ts` 256 fallback.
  */
-function detectColorLevel(): 0 | 1 | 2 | 3 {
-  // NO_COLOR spec — any value disables all color.
-  if (process.env.NO_COLOR !== undefined) return 0;
+function detectColorLevelFromEnv(env: {
+  NO_COLOR?: string;
+  TERM?: string;
+  COLORTERM?: string;
+}): 0 | 1 | 2 | 3 {
+  // NO_COLOR spec — a non-empty value disables all color.
+  // (NO_COLOR= with an empty string does NOT disable color per the spec.)
+  if (env.NO_COLOR && env.NO_COLOR.length > 0) return 0;
   // TERM=dumb is explicitly colorless.
-  const term = process.env.TERM ?? '';
+  const term = env.TERM ?? '';
   if (term === 'dumb' || term === '') return 0;
   // COLORTERM=truecolor → 24-bit.
-  const colorterm = process.env.COLORTERM ?? '';
+  const colorterm = env.COLORTERM ?? '';
   if (colorterm === 'truecolor' || colorterm === '24bit') return 3;
   // Known truecolor terminals by TERM name.
   if (/\-(truecolor|24bit)$/.test(term)) return 3;
   // 256-color: most modern terminals set this explicitly.
   if (/256color|256-color/.test(term)) {
-    // If the terminal also advertises truecolor via COLORTERM, prefer 3.
     return 2;
   }
   // Everything else (xterm, screen, rxvt, …) supports at least 16 colors.

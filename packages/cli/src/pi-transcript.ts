@@ -41,8 +41,6 @@ export interface MakaPiUsageSummary {
   cacheMissInput: number;
   /** Remaining context tokens from the latest token_usage event. */
   contextRemaining?: number;
-  /** Last `input` token count from a token_usage event, for ctx fallback. */
-  lastInput?: number;
 }
 
 export interface MakaPiTranscriptState {
@@ -137,9 +135,6 @@ function accumulateUsage(usage: MakaPiUsageSummary, msg: {
   cacheMissInput?: number;
 }): void {
   usage.costUsd += msg.costUsd ?? 0;
-  // #1064: track the last `input` so the statusline ctx segment has a fallback
-  // when `contextRemaining` is absent (#1053 spec: "else last token_usage input").
-  if (msg.input !== undefined) usage.lastInput = msg.input;
   const hit = msg.cacheHitInput ?? msg.cacheRead ?? 0;
   const write = msg.cacheWriteInput ?? msg.cacheCreation ?? 0;
   usage.cacheHitInput += hit;
@@ -944,22 +939,16 @@ export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width
   }
   const usage = metadata.usage;
   if (usage) {
-    // #1064: ctx segment — prefer `window - contextRemaining` when remaining
-    // exists; fall back to last `token_usage` input as an estimate of used
-    // tokens when remaining is absent.
-    if (metadata.modelContextWindow !== undefined) {
-      let used: number | undefined;
-      if (usage.contextRemaining !== undefined) {
-        used = Math.max(0, metadata.modelContextWindow - usage.contextRemaining);
-      } else if (usage.lastInput !== undefined) {
-        used = usage.lastInput;
-      }
-      if (used !== undefined) {
-        const pct = Math.round((used / metadata.modelContextWindow) * 100);
-        // #1064: color warning — yellow >80%, red >95%, dim otherwise.
-        const ctxColor = pct > 95 ? ansi.red : pct > 80 ? ansi.yellow : ansi.dim;
-        parts.push(ctxColor(`ctx ${formatTokenCount(used)}/${formatTokenCount(metadata.modelContextWindow)} ${pct}%`));
-      }
+    // ctx segment: only show when contextRemaining is available, since
+    // token_usage.input is a billing-cumulative sum across tool-loop steps,
+    // not the last request's context size. Using it as a proxy for "used"
+    // would produce misleading percentages (potentially >100%).
+    if (metadata.modelContextWindow !== undefined && usage.contextRemaining !== undefined) {
+      const used = Math.max(0, metadata.modelContextWindow - usage.contextRemaining);
+      const pct = Math.round((used / metadata.modelContextWindow) * 100);
+      // #1064: color warning — yellow >80%, red >95%, dim otherwise.
+      const ctxColor = pct > 95 ? ansi.red : pct > 80 ? ansi.yellow : ansi.dim;
+      parts.push(ctxColor(`ctx ${formatTokenCount(used)}/${formatTokenCount(metadata.modelContextWindow)} ${pct}%`));
     }
     if (usage.costUsd > 0) {
       parts.push(ansi.dim(`$${formatCost(usage.costUsd)}`));
