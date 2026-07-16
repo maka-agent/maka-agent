@@ -57,10 +57,10 @@ export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbRep
   const coverage = {
     scheduledCells: summary.baseline.attempts + summary.candidate.attempts,
     attemptedCells: summary.baseline.observed + summary.candidate.observed,
-    modelScoredCells: summary.baseline.valid + summary.candidate.valid,
+    modelScoredCells: summary.baseline.completed + summary.candidate.completed,
     infraFailedCells: summary.baseline.infraFailed + summary.candidate.infraFailed,
     unscoredCells: summary.baseline.observed + summary.candidate.observed
-      - summary.baseline.valid - summary.candidate.valid,
+      - summary.baseline.completed - summary.candidate.completed,
     missingFinalUsageCells: summary.baseline.missingFinalUsage + summary.candidate.missingFinalUsage,
   };
   const runStatus = summary.stopReason

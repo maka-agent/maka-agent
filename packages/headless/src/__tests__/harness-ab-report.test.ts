@@ -103,6 +103,35 @@ describe('harness A/B report', () => {
     assert.equal(report.effectiveness.candidateMinusBaseline, -1);
   });
 
+  test('reports a budget-exhausted cell with final usage as unscored', () => {
+    const meteredTimeout = {
+      ...budgetExhausted('a'),
+      tokenSummary: usage('a', false, 100, 40, 20, 0.00018).tokenSummary,
+      tokenSummarySource: 'final' as const,
+    };
+    const summary = summarizeAbComparison({
+      runId: 'glm-harness-ab',
+      roundId: 'ab-summary',
+      baselineArmId: 'maka',
+      candidateArmId: 'opencode',
+      evaluationTaskIds: ['a'],
+      baselineRuns: [[meteredTimeout]],
+      candidateRuns: [[usage('a', true, 100, 40, 20, 0.00018)]],
+    });
+
+    const report = buildHarnessAbReport(summary);
+
+    assert.equal(report.runStatus, 'completed_with_gaps');
+    assert.deepEqual(report.coverage, {
+      scheduledCells: 2,
+      attemptedCells: 2,
+      modelScoredCells: 1,
+      infraFailedCells: 0,
+      unscoredCells: 1,
+      missingFinalUsageCells: 0,
+    });
+  });
+
   test('stays incomplete when scheduled cells were never attempted', () => {
     const summary = summarizeAbComparison({
       runId: 'glm-harness-ab',
