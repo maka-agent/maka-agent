@@ -1,8 +1,0 @@
-/.venv/
-/bin/
-/harbor-venv/
-/__pycache__/
-/**/*.pyc
-/generated-configs/
-/jobs/
-/artifacts-*

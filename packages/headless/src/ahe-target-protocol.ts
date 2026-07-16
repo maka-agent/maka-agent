@@ -401,8 +401,8 @@ export const MAKA_AHE_CURRENT_COMPONENTS: readonly MakaAheTargetComponent[] = [
     editable: true,
     sourceRefs: [
       { path: 'packages/headless/README.md' },
-      { path: 'terminal-bench-smoke/maka_harbor_runner.mjs' },
-      { path: 'terminal-bench-smoke/run-terminal-bench-sample-heavy.sh' },
+      { path: 'packages/headless/harbor/run-terminal-bench-smoke.mjs' },
+      { path: 'packages/headless/harbor/maka_agent.py' },
     ],
   },
 ];
