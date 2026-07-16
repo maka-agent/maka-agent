@@ -38,6 +38,7 @@ import {
 } from './ai-sdk-flow.js';
 import type { InvocationContext } from './invocation-context.js';
 import { buildInitialUserRuntimeEvent } from './runtime-runner.js';
+import type { RuntimeContinuation } from './runtime-resume.js';
 
 export interface AgentRunActiveSession {
   sessionId: string;
@@ -77,9 +78,18 @@ export interface AgentRunInput {
   repairRunRuntimeLedger?: (sessionId: string, runId: string) => Promise<boolean>;
   newId: () => string;
   now: () => number;
+  workspaceIdentity?: string;
+  continuationFailpoint?: (point: RuntimeContinuationFailpoint) => Promise<void>;
   hooks: AgentRunHooks;
   recordSessionMessages?: boolean;
+  runId?: string;
 }
+
+export type RuntimeContinuationFailpoint =
+  | 'after_run_created'
+  | 'after_continuation_start_committed'
+  | 'after_terminal_event_committed'
+  | 'after_terminal_header_committed';
 
 export interface AgentRunBeginResult {
   backend: AgentBackend;
@@ -90,6 +100,11 @@ export interface AgentRunBeginResult {
 export interface AgentRunOperationBeginResult {
   backend: AgentBackend;
   runtimeContext: RuntimeEvent[];
+  startedAt: number;
+}
+
+export interface AgentRunContinuationBeginResult {
+  backend: AgentBackend;
   startedAt: number;
 }
 
@@ -125,6 +140,7 @@ export class AgentRun {
   private turnFailed = false;
   private finalized = false;
   private terminalRunHeaderCommitted = false;
+  private continuationActive = false;
   private terminalClaim: {
     owner: 'event' | 'stop';
     event?: RuntimeEvent;
@@ -137,7 +153,7 @@ export class AgentRun {
     if (input.runStore && !input.runtimeEventStore) {
       throw new Error('RuntimeEventStore is required when AgentRunStore is configured');
     }
-    this.runId = input.newId();
+    this.runId = input.runId ?? input.newId();
     this.sessionId = input.sessionId;
     this.turnId = input.userInput.turnId;
     this.header = input.header;
@@ -422,6 +438,44 @@ export class AgentRun {
     };
   }
 
+  async beginContinuation(
+    continuation: RuntimeContinuation,
+  ): Promise<AgentRunContinuationBeginResult> {
+    if (
+      continuation.sessionId !== this.sessionId
+      || continuation.runId !== this.runId
+      || continuation.turnId !== this.turnId
+    ) {
+      throw new Error('Runtime continuation identity does not match the target AgentRun');
+    }
+
+    this.continuationActive = true;
+    await this.createRunRecord(continuation);
+    await this.input.continuationFailpoint?.('after_run_created');
+    const startedAt = this.input.now();
+    this.lastTs = startedAt;
+    if (this.recordsSessionMessages()) {
+      await this.input.hooks.appendTurnState(
+        this.sessionId,
+        this.turnId,
+        'running',
+        this.lineage,
+        { ts: startedAt },
+      );
+    }
+
+    if (!this.header.connectionLocked) {
+      this.header = await this.input.hooks.updateHeader(this.sessionId, { connectionLocked: true });
+    }
+
+    this.active = await this.input.hooks.ensureActive(this.sessionId, this.header);
+    this.input.hooks.registerRun(this.active, this);
+    await this.markRunStarted(startedAt);
+    await this.input.hooks.updateStatus(this.sessionId, 'running', undefined, startedAt);
+
+    return { backend: this.active.backend, startedAt };
+  }
+
   private buildInitialRuntimeEvent(id: string, ts: number): RuntimeEvent {
     return buildInitialUserRuntimeEvent({
       id,
@@ -607,8 +661,11 @@ export class AgentRun {
     return this.input.recordSessionMessages !== false;
   }
 
-  private async createRunRecord(): Promise<void> {
-    if (!this.input.runStore) return;
+  private async createRunRecord(continuation?: RuntimeContinuation): Promise<void> {
+    if (!this.input.runStore) {
+      if (continuation) throw new Error('Runtime continuation requires a durable run store');
+      return;
+    }
     const createdAt = this.input.now();
     const header: AgentRunHeader = {
       runId: this.runId,
@@ -620,10 +677,21 @@ export class AgentRun {
       llmConnectionSlug: this.header.llmConnectionSlug,
       modelId: this.header.model,
       cwd: this.header.cwd,
+      ...(this.input.workspaceIdentity
+        ? { workspaceIdentity: this.input.workspaceIdentity }
+        : {}),
       permissionMode: this.header.permissionMode,
       createdAt,
       updatedAt: createdAt,
       ...this.lineage,
+      ...(continuation ? {
+        continuationSource: {
+          sourceInvocationId: continuation.sourceInvocationId,
+          sourceRunId: continuation.sourceRunId,
+          sourceTurnId: continuation.sourceTurnId,
+          sourceRuntimeEventHighWater: continuation.sourceRuntimeEventHighWater,
+        },
+      } : {}),
       ...(this.input.userInput.agentId ? { agentId: this.input.userInput.agentId } : {}),
       ...(this.input.userInput.agentName ? { agentName: this.input.userInput.agentName } : {}),
       ...(this.input.userInput.origin?.kind === 'automation'
@@ -647,6 +715,7 @@ export class AgentRun {
     } catch (error) {
       this.runStoreAvailable = false;
       this.enqueueTraceWriteFailure(error);
+      if (continuation) throw error;
     }
   }
 
@@ -913,6 +982,9 @@ export class AgentRun {
       const terminalEvent = terminalClaim?.event;
       if (!terminalEvent) throw new Error('terminal RuntimeEvent claim is missing');
       await terminalClaim.write;
+      if (this.continuationActive) {
+        await this.input.continuationFailpoint?.('after_terminal_event_committed');
+      }
       const commit = commitOrCreateTerminalRunFact({
         runStore,
         runtimeEventStore,
@@ -939,6 +1011,9 @@ export class AgentRun {
       const result = await commit;
       terminalClaim.persisted = true;
       this.terminalRunHeaderCommitted = result.headerCommitted;
+      if (result.headerCommitted && this.continuationActive) {
+        await this.input.continuationFailpoint?.('after_terminal_header_committed');
+      }
       if (result.headerCommitError !== undefined) {
         await this.enqueueTraceWriteFailure(result.headerCommitError, 'commit terminal run header');
       }

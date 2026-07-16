@@ -1564,6 +1564,30 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('handles /resume without submitting another user prompt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    for (const char of '/resume') terminal.input(char);
+    terminal.input('\r');
+
+    await waitFor(() => driver.resumeCalls === 1);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('resumed safely'));
+    assert.deepEqual(driver.prompts, []);
+
+    exitMaka(terminal);
+    await run;
+  });
+
   test('applies the selected slash command from autocomplete', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -3939,6 +3963,7 @@ class SlashCommandDriver implements MakaSessionDriver {
   readonly sessionIds: string[] = [];
   readonly renames: string[] = [];
   startNewSessionCalls = 0;
+  resumeCalls = 0;
   protected sessionId = 'session-1';
 
   constructor(
@@ -3973,6 +3998,25 @@ class SlashCommandDriver implements MakaSessionDriver {
       id: 'event-compact-complete',
       turnId: 'turn-compact',
       ts: 1,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async *resumeLatest(): AsyncIterable<SessionEvent> {
+    this.resumeCalls += 1;
+    yield {
+      type: 'text_complete',
+      id: 'event-resume-text',
+      turnId: 'turn-resume',
+      ts: 1,
+      messageId: 'message-resume',
+      text: 'resumed safely',
+    };
+    yield {
+      type: 'complete',
+      id: 'event-resume-complete',
+      turnId: 'turn-resume',
+      ts: 2,
       stopReason: 'end_turn',
     };
   }

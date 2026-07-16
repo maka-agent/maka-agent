@@ -1,5 +1,7 @@
 import {
   isPartialRuntimeEvent,
+  isTerminalRuntimeEvent,
+  runtimeEventHasModelVisibleContent,
   type RuntimeEvent,
   type RuntimeEventFunctionCallContent,
   type RuntimeEventFunctionResponseContent,
@@ -28,11 +30,49 @@ export type ResumePlanDiagnosticCode =
   | 'pending_tool_result'
   | 'unmatched_tool_result'
   | 'tool_name_mismatch'
-  | 'runtime_offset_mismatch';
+  | 'runtime_offset_mismatch'
+  | 'pending_permission'
+  | 'workspace_identity_mismatch'
+  | 'background_operation_pending'
+  | 'tool_catalog_mismatch'
+  | 'runtime_ledger_unreadable'
+  | 'terminal_repair_failed'
+  | 'workspace_cwd_mismatch'
+  | 'runtime_ledger_empty'
+  | 'runtime_identity_mismatch'
+  | 'continuation_identity_reused'
+  | 'provider_resume_boundary_unsupported'
+  | 'workspace_ref_missing'
+  | 'checkpoint_restore_failed'
+  | 'source_run_unreadable'
+  | 'continuation_already_exists'
+  | 'workspace_identity_missing'
+  | 'safety_observation_unavailable'
+  | 'resume_feature_disabled'
+  | 'resume_candidate_missing';
 
 export type ResumeRejectionReason =
   | 'runtime_offset_mismatch'
-  | 'dangling_tool_state';
+  | 'dangling_tool_state'
+  | 'pending_permission'
+  | 'workspace_identity_mismatch'
+  | 'background_operation_pending'
+  | 'tool_catalog_mismatch'
+  | 'runtime_ledger_unreadable'
+  | 'terminal_repair_failed'
+  | 'workspace_cwd_mismatch'
+  | 'runtime_ledger_empty'
+  | 'runtime_identity_mismatch'
+  | 'continuation_identity_reused'
+  | 'provider_resume_boundary_unsupported'
+  | 'workspace_ref_missing'
+  | 'checkpoint_restore_failed'
+  | 'source_run_unreadable'
+  | 'continuation_already_exists'
+  | 'workspace_identity_missing'
+  | 'safety_observation_unavailable'
+  | 'resume_feature_disabled'
+  | 'resume_candidate_missing';
 
 export interface ResumePlanDiagnostic {
   code: ResumePlanDiagnosticCode;
@@ -105,6 +145,176 @@ export const RUNTIME_RESUME_FAILPOINTS = [
   { id: 'P10', boundary: 'recovery decision commit', committedPrefix: 'after_terminal_event' },
   { id: 'P11', boundary: 'continuation run creation', committedPrefix: 'after_terminal_event' },
 ] as const satisfies readonly RuntimeResumeFailpointSpec[];
+
+export interface ContinuationIdentity {
+  invocationId: string;
+  runId: string;
+  turnId: string;
+}
+
+export interface SafeBoundaryContinuationFacts {
+  ledgerReadable: boolean;
+  terminalRepairSucceeded: boolean;
+  sourceCwd: string;
+  currentCwd: string;
+  sourceWorkspaceIdentity: string;
+  currentWorkspaceIdentity: string;
+  backgroundOperationsSettled: boolean;
+  availableToolNames: readonly string[];
+  continuationIdentity: ContinuationIdentity;
+  expectedRuntimeEventHighWater?: number;
+  workspaceCheckpoint?: {
+    ref?: string;
+    restored: boolean;
+    runtimeEventHighWater: number;
+  };
+}
+
+export interface RuntimeContinuation {
+  sessionId: string;
+  invocationId: string;
+  runId: string;
+  turnId: string;
+  sourceInvocationId: string;
+  sourceRunId: string;
+  sourceTurnId: string;
+  sourceRuntimeEventHighWater: number;
+  runtimeContext: RuntimeEvent[];
+  safetySnapshot: RuntimeContinuationSafetySnapshot;
+}
+
+export interface RuntimeContinuationSafetySnapshot {
+  workspaceIdentity: string;
+  backgroundOperationsSettled: true;
+  availableToolNames: string[];
+  workspaceCheckpoint?: {
+    ref: string;
+    runtimeEventHighWater: number;
+  };
+}
+
+export interface RuntimeContinuationSafetyObservation {
+  workspaceIdentity: string;
+  backgroundOperationsSettled: boolean;
+  availableToolNames: readonly string[];
+  workspaceCheckpoint?: {
+    ref?: string;
+    restored: boolean;
+    runtimeEventHighWater: number;
+  };
+}
+
+export interface SafeBoundaryContinuationPlan {
+  disposition: 'continue' | 'park';
+  rejectionReasons: ResumeRejectionReason[];
+  diagnostics: ResumePlanDiagnostic[];
+  continuation?: RuntimeContinuation;
+}
+
+export interface RuntimeContinuationPlannerInput {
+  sessionId: string;
+  sourceRunId: string;
+  currentCwd: string;
+  sourceWorkspaceIdentity: string;
+  currentWorkspaceIdentity: string;
+  backgroundOperationsSettled: boolean;
+  availableToolNames: readonly string[];
+  expectedRuntimeEventHighWater?: number;
+  workspaceCheckpoint?: SafeBoundaryContinuationFacts['workspaceCheckpoint'];
+}
+
+export interface RuntimeContinuationPlannerDeps {
+  readSourceRun(sessionId: string, runId: string): Promise<{ cwd: string; status: string }>;
+  readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]>;
+  findExistingContinuation?(
+    sessionId: string,
+    sourceRunId: string,
+    sourceRuntimeEventHighWater: number,
+  ): Promise<{ runId: string } | undefined>;
+  newId(): string;
+}
+
+export class RuntimeContinuationPlanner {
+  constructor(private readonly deps: RuntimeContinuationPlannerDeps) {}
+
+  async plan(input: RuntimeContinuationPlannerInput): Promise<SafeBoundaryContinuationPlan> {
+    let sourceRun: { cwd: string; status: string };
+    try {
+      sourceRun = await this.deps.readSourceRun(input.sessionId, input.sourceRunId);
+    } catch {
+      return parkedPlan('source_run_unreadable', 'source AgentRun could not be read');
+    }
+
+    let events: RuntimeEvent[];
+    try {
+      events = await this.deps.readRuntimeEvents(input.sessionId, input.sourceRunId);
+    } catch {
+      return parkedPlan('runtime_ledger_unreadable', 'RuntimeEvent ledger could not be read reliably');
+    }
+    if (events.some((event) => (
+      event.sessionId !== input.sessionId || event.runId !== input.sourceRunId
+    ))) {
+      return parkedPlan(
+        'runtime_identity_mismatch',
+        'RuntimeEvent ledger does not belong to the requested source run',
+      );
+    }
+    const existingContinuation = await this.deps.findExistingContinuation?.(
+      input.sessionId,
+      input.sourceRunId,
+      events.length,
+    );
+    if (existingContinuation) {
+      return parkedPlan(
+        'continuation_already_exists',
+        'source run already has a continuation child',
+        { continuationRunId: existingContinuation.runId },
+      );
+    }
+
+    return buildSafeBoundaryContinuationPlan(events, {
+      ledgerReadable: true,
+      terminalRepairSucceeded: hasConsistentTerminalBoundary(sourceRun.status, events),
+      sourceCwd: sourceRun.cwd,
+      currentCwd: input.currentCwd,
+      sourceWorkspaceIdentity: input.sourceWorkspaceIdentity,
+      currentWorkspaceIdentity: input.currentWorkspaceIdentity,
+      backgroundOperationsSettled: input.backgroundOperationsSettled,
+      availableToolNames: input.availableToolNames,
+      continuationIdentity: {
+        invocationId: this.deps.newId(),
+        runId: this.deps.newId(),
+        turnId: this.deps.newId(),
+      },
+      ...(input.expectedRuntimeEventHighWater !== undefined
+        ? { expectedRuntimeEventHighWater: input.expectedRuntimeEventHighWater }
+        : {}),
+      ...(input.workspaceCheckpoint !== undefined
+        ? { workspaceCheckpoint: input.workspaceCheckpoint }
+        : {}),
+    });
+  }
+}
+
+function isTerminalRunStatus(status: string): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+function hasConsistentTerminalBoundary(
+  runStatus: string,
+  events: readonly RuntimeEvent[],
+): boolean {
+  if (!isTerminalRunStatus(runStatus)) return false;
+  const terminalEvents = events.filter((event) => (
+    !isPartialRuntimeEvent(event) && isTerminalRuntimeEvent(event)
+  ));
+  if (terminalEvents.length !== 1) return false;
+  const eventStatus = terminalEvents[0]?.status;
+  if (eventStatus === 'aborted' || eventStatus === 'cancelled') {
+    return runStatus === 'cancelled';
+  }
+  return eventStatus === runStatus;
+}
 
 interface MutableToolOperation extends ToolOperation {
   responseRuntimeEventId?: string;
@@ -205,6 +415,222 @@ export function buildResumeReplayRuntimeEvents(
   }
 
   return replayEvents;
+}
+
+export function buildSafeBoundaryContinuationPlan(
+  events: readonly RuntimeEvent[],
+  facts: SafeBoundaryContinuationFacts,
+): SafeBoundaryContinuationPlan {
+  const expectedRuntimeEventHighWater = facts.workspaceCheckpoint?.runtimeEventHighWater
+    ?? facts.expectedRuntimeEventHighWater;
+  const replayPlan = buildResumePlanFromRuntimeEvents(events, {
+    ...(expectedRuntimeEventHighWater !== undefined
+      ? { expectedRuntimeEventHighWater }
+      : {}),
+  });
+  const phaseOneDiagnostics = collectPendingPermissionDiagnostics(events);
+  const phaseOneRejectionReasons: ResumeRejectionReason[] = [];
+  if (phaseOneDiagnostics.length > 0) phaseOneRejectionReasons.push('pending_permission');
+  const source = events[0];
+  if (!source) {
+    phaseOneDiagnostics.push({
+      code: 'runtime_ledger_empty',
+      message: 'safe-boundary continuation requires at least one RuntimeEvent',
+    });
+    phaseOneRejectionReasons.push('runtime_ledger_empty');
+  } else {
+    const mismatchedEvent = events.find((event) =>
+      event.sessionId !== source.sessionId
+      || event.invocationId !== source.invocationId
+      || event.runId !== source.runId
+      || event.turnId !== source.turnId
+    );
+    if (mismatchedEvent) {
+      phaseOneDiagnostics.push({
+        code: 'runtime_identity_mismatch',
+        message: 'RuntimeEvent ledger contains more than one source execution identity',
+        eventId: mismatchedEvent.id,
+      });
+      phaseOneRejectionReasons.push('runtime_identity_mismatch');
+    }
+    if (
+      facts.continuationIdentity.invocationId === source.invocationId
+      || facts.continuationIdentity.runId === source.runId
+      || facts.continuationIdentity.turnId === source.turnId
+    ) {
+      phaseOneDiagnostics.push({
+        code: 'continuation_identity_reused',
+        message: 'continuation must use fresh invocation, run, and turn identities',
+      });
+      phaseOneRejectionReasons.push('continuation_identity_reused');
+    }
+  }
+  if (!facts.ledgerReadable) {
+    phaseOneDiagnostics.push({
+      code: 'runtime_ledger_unreadable',
+      message: 'RuntimeEvent ledger could not be read reliably',
+    });
+    phaseOneRejectionReasons.push('runtime_ledger_unreadable');
+  }
+  if (!facts.terminalRepairSucceeded) {
+    phaseOneDiagnostics.push({
+      code: 'terminal_repair_failed',
+      message: 'source run terminal repair did not complete successfully',
+    });
+    phaseOneRejectionReasons.push('terminal_repair_failed');
+  }
+  if (normalizeCwd(facts.sourceCwd) !== normalizeCwd(facts.currentCwd)) {
+    phaseOneDiagnostics.push({
+      code: 'workspace_cwd_mismatch',
+      message: 'current cwd differs from the source resume boundary',
+      detail: { sourceCwd: facts.sourceCwd, currentCwd: facts.currentCwd },
+    });
+    phaseOneRejectionReasons.push('workspace_cwd_mismatch');
+  }
+  if (facts.sourceWorkspaceIdentity !== facts.currentWorkspaceIdentity) {
+    phaseOneDiagnostics.push({
+      code: 'workspace_identity_mismatch',
+      message: 'current workspace identity differs from the source resume boundary',
+      detail: {
+        sourceWorkspaceIdentity: facts.sourceWorkspaceIdentity,
+        currentWorkspaceIdentity: facts.currentWorkspaceIdentity,
+      },
+    });
+    phaseOneRejectionReasons.push('workspace_identity_mismatch');
+  }
+  if (!facts.backgroundOperationsSettled) {
+    phaseOneDiagnostics.push({
+      code: 'background_operation_pending',
+      message: 'a background or child operation is not settled',
+    });
+    phaseOneRejectionReasons.push('background_operation_pending');
+  }
+  if (facts.workspaceCheckpoint) {
+    if (!facts.workspaceCheckpoint.ref) {
+      phaseOneDiagnostics.push({
+        code: 'workspace_ref_missing',
+        message: 'workspace checkpoint does not contain a restorable ref',
+      });
+      phaseOneRejectionReasons.push('workspace_ref_missing');
+    } else if (!facts.workspaceCheckpoint.restored) {
+      phaseOneDiagnostics.push({
+        code: 'checkpoint_restore_failed',
+        message: 'workspace checkpoint ref could not be restored',
+        detail: { workspaceRef: facts.workspaceCheckpoint.ref },
+      });
+      phaseOneRejectionReasons.push('checkpoint_restore_failed');
+    }
+  }
+  const availableToolNames = new Set(facts.availableToolNames);
+  const unavailableToolNames = [...new Set(
+    replayPlan.operations
+      .map((operation) => operation.toolName)
+      .filter((toolName) => !availableToolNames.has(toolName)),
+  )].sort();
+  if (unavailableToolNames.length > 0) {
+    phaseOneDiagnostics.push({
+      code: 'tool_catalog_mismatch',
+      message: 'one or more tools from the source boundary are unavailable',
+      detail: { unavailableToolNames },
+    });
+    phaseOneRejectionReasons.push('tool_catalog_mismatch');
+  }
+  const lastModelVisibleEvent = findLastModelVisibleEvent(replayPlan.replayRuntimeEvents);
+  if (
+    source
+    && !phaseOneRejectionReasons.includes('runtime_identity_mismatch')
+    && lastModelVisibleEvent?.role !== 'user'
+    && lastModelVisibleEvent?.role !== 'tool'
+  ) {
+    phaseOneDiagnostics.push({
+      code: 'provider_resume_boundary_unsupported',
+      message: 'provider replay must end at a user or tool boundary for continuation',
+      ...(lastModelVisibleEvent ? { eventId: lastModelVisibleEvent.id } : {}),
+      detail: { lastRole: lastModelVisibleEvent?.role ?? null },
+    });
+    phaseOneRejectionReasons.push('provider_resume_boundary_unsupported');
+  }
+  if (replayPlan.disposition !== 'safe_replay' || phaseOneRejectionReasons.length > 0 || !source) {
+    return {
+      disposition: 'park',
+      rejectionReasons: [...replayPlan.rejectionReasons, ...phaseOneRejectionReasons],
+      diagnostics: [...replayPlan.diagnostics, ...phaseOneDiagnostics],
+    };
+  }
+
+  return {
+    disposition: 'continue',
+    rejectionReasons: [],
+    diagnostics: [],
+    continuation: {
+      sessionId: source.sessionId,
+      ...facts.continuationIdentity,
+      sourceInvocationId: source.invocationId,
+      sourceRunId: source.runId,
+      sourceTurnId: source.turnId,
+      sourceRuntimeEventHighWater: replayPlan.sourceRuntimeEventHighWater,
+      runtimeContext: replayPlan.replayRuntimeEvents,
+      safetySnapshot: {
+        workspaceIdentity: facts.currentWorkspaceIdentity,
+        backgroundOperationsSettled: true,
+        availableToolNames: [...new Set(facts.availableToolNames)].sort(),
+        ...(facts.workspaceCheckpoint?.ref ? {
+          workspaceCheckpoint: {
+            ref: facts.workspaceCheckpoint.ref,
+            runtimeEventHighWater: facts.workspaceCheckpoint.runtimeEventHighWater,
+          },
+        } : {}),
+      },
+    },
+  };
+}
+
+function collectPendingPermissionDiagnostics(
+  events: readonly RuntimeEvent[],
+): ResumePlanDiagnostic[] {
+  const pending = new Map<string, RuntimeEvent>();
+  for (const event of events) {
+    if (isPartialRuntimeEvent(event)) continue;
+    const request = event.actions?.permissionRequest;
+    if (request) pending.set(request.requestId, event);
+    const decision = event.actions?.permissionDecision;
+    if (decision) pending.delete(decision.requestId);
+  }
+  return [...pending.entries()].map(([requestId, event]) => ({
+    code: 'pending_permission',
+    message: 'permission request has no committed decision',
+    eventId: event.id,
+    detail: { requestId },
+  }));
+}
+
+function normalizeCwd(value: string): string {
+  const normalized = value.replaceAll('\\', '/').replace(/\/+$/, '');
+  return /^[A-Za-z]:\//.test(normalized)
+    ? normalized.toLowerCase()
+    : normalized;
+}
+
+function findLastModelVisibleEvent(
+  events: readonly RuntimeEvent[],
+): RuntimeEvent | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event && runtimeEventHasModelVisibleContent(event)) return event;
+  }
+  return undefined;
+}
+
+function parkedPlan(
+  reason: ResumeRejectionReason & ResumePlanDiagnosticCode,
+  message: string,
+  detail?: Record<string, unknown>,
+): SafeBoundaryContinuationPlan {
+  return {
+    disposition: 'park',
+    rejectionReasons: [reason],
+    diagnostics: [{ code: reason, message, ...(detail ? { detail } : {}) }],
+  };
 }
 
 function collectResumeDiagnostics(

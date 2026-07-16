@@ -33,6 +33,7 @@
 import type { AttachmentRef } from '@maka/core/events';
 import type { StoredMessage } from '@maka/core/session';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
+import type { RuntimeContinuationMetadata } from '@maka/core/backend-types';
 import type { InvocationContext } from './invocation-context.js';
 
 export type { InvocationContext } from './invocation-context.js';
@@ -70,6 +71,8 @@ export interface FlowInput {
    * compatibility projection.
    */
   runtimeContext?: RuntimeEvent[];
+  /** Continue the committed history directly instead of appending a new user message. */
+  continuation?: RuntimeContinuationMetadata;
   /** Abort signal propagated to the underlying engine. */
   abortSignal?: AbortSignal;
 }

@@ -885,6 +885,7 @@ export {
 // backend-types.ts
 export type {
   BackendSendInput,
+  RuntimeContinuationMetadata,
   PermissionDecision,
   AgentBackend,
   BackendCompactHistoryInput,

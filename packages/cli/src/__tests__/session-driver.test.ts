@@ -14,6 +14,7 @@ import type {
   UserQuestionResponse,
 } from '@maka/core';
 import { createMakaSessionDriver } from '../session-driver.js';
+import type { RuntimeContinuation, SafeBoundaryContinuationPlan } from '@maka/runtime';
 
 describe('Maka session driver', () => {
   test('creates an ask-permission session from the first prompt and streams the turn', async () => {
@@ -411,6 +412,24 @@ describe('Maka session driver', () => {
     assert.deepEqual(events.map((event) => event.type), ['complete']);
   });
 
+  test('plans and streams a safe-boundary resume for the active session', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      newId: fixedIds('turn-1'),
+    });
+
+    await collect(driver.sendPrompt('hello'));
+    const events = await collect(driver.resumeLatest!());
+
+    assert.deepEqual(runtime.resumePlanSessions, ['session-1']);
+    assert.equal(runtime.resumedContinuations.length, 1);
+    assert.deepEqual(events.map((event) => event.type), ['text_complete', 'complete']);
+  });
+
   test('routes permission responses to the active session', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
@@ -671,6 +690,8 @@ class RecordingRuntime {
   readonly created: CreateSessionInput[] = [];
   readonly sent: Array<{ sessionId: string; input: UserMessageInput }> = [];
   readonly compacted: Array<{ sessionId: string; input: { turnId?: string } }> = [];
+  readonly resumePlanSessions: string[] = [];
+  readonly resumedContinuations: RuntimeContinuation[] = [];
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
   readonly userQuestionResponses: Array<{ sessionId: string; response: UserQuestionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
@@ -724,6 +745,39 @@ class RecordingRuntime {
       id: 'event-compact-complete',
       turnId: input.turnId ?? 'turn-compact',
       ts: 3,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async planLatestAuthoritativeSafeBoundaryContinuation(
+    sessionId: string,
+  ): Promise<SafeBoundaryContinuationPlan> {
+    this.resumePlanSessions.push(sessionId);
+    return {
+      disposition: 'continue',
+      rejectionReasons: [],
+      diagnostics: [],
+      continuation: { sessionId, runId: 'resume-run', turnId: 'resume-turn' } as RuntimeContinuation,
+    };
+  }
+
+  async *resumeSafeBoundaryContinuation(
+    continuation: RuntimeContinuation,
+  ): AsyncIterable<SessionEvent> {
+    this.resumedContinuations.push(continuation);
+    yield {
+      type: 'text_complete',
+      id: 'resume-text',
+      turnId: continuation.turnId,
+      ts: 4,
+      messageId: 'resume-message',
+      text: 'resumed',
+    };
+    yield {
+      type: 'complete',
+      id: 'resume-complete',
+      turnId: continuation.turnId,
+      ts: 5,
       stopReason: 'end_turn',
     };
   }

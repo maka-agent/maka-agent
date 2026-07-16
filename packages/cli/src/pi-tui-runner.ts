@@ -33,6 +33,7 @@ import {
   activePermissionRequest,
   activeUserQuestionRequest,
   completePendingInteraction,
+  applyMakaSessionEventToTranscript,
   applyShellRunViewUpdateToTranscript,
   replaceTranscriptWithStoredMessages,
   submitCompactToTranscript,
@@ -725,6 +726,24 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     });
   };
 
+  const resumeSession = async () => {
+    if (!input.driver.resumeLatest) {
+      throw new Error('Safe-boundary resume is unavailable on this runtime.');
+    }
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: 'Resuming from the latest safe boundary…',
+    });
+    requestRender();
+    for await (const event of input.driver.resumeLatest()) {
+      applyMakaSessionEventToTranscript(state, event);
+      shellRunElapsedTicker.sync();
+      syncUserQuestionOverlay();
+      requestRender();
+    }
+  };
+
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
     const availability = new Map(await Promise.all(sessions.map(async (session) => {
@@ -1064,6 +1083,22 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           });
           requestRender();
         });
+      },
+    },
+    {
+      name: 'resume',
+      description: 'Resume latest interrupted run at a safe boundary',
+      run: (parts: string[]) => {
+        if (parts.length !== 1) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: 'Usage: /resume',
+          });
+          requestRender();
+          return;
+        }
+        void runControl(resumeSession);
       },
     },
     {

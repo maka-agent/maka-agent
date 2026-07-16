@@ -12,6 +12,13 @@ export const AGENT_RUN_STATUSES = [
 
 export type AgentRunStatus = typeof AGENT_RUN_STATUSES[number];
 
+export interface AgentRunContinuationSource {
+  sourceInvocationId: string;
+  sourceRunId: string;
+  sourceTurnId: string;
+  sourceRuntimeEventHighWater: number;
+}
+
 export interface AgentRunHeader {
   runId: string;
   /** Durable Runtime invocation spine. Optional only for legacy run headers. */
@@ -23,6 +30,8 @@ export interface AgentRunHeader {
   llmConnectionSlug: string;
   modelId: string;
   cwd: string;
+  /** Authoritative host identity for the workspace observed when the run was created. */
+  workspaceIdentity?: string;
   permissionMode: PermissionMode;
   createdAt: number;
   updatedAt: number;
@@ -35,6 +44,8 @@ export interface AgentRunHeader {
   regeneratedFromTurnId?: string;
   branchOfTurnId?: string;
   parentSessionId?: string;
+  /** Durable claim that this run is the continuation child for one source boundary. */
+  continuationSource?: AgentRunContinuationSource;
   /** Non-user trigger for this run (e.g. a scheduled automation fire). */
   automationId?: string;
   failureClass?: string;

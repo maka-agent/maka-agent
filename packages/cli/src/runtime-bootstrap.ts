@@ -15,6 +15,7 @@ import {
   buildBuiltinTools,
   createBuiltinSandboxManager,
   createFilesystemWorkerLaunchSpecProvider,
+  createLocalContinuationSafetyInspector,
   FilesystemWorkerClient,
   buildDefaultContextBudgetPolicy,
   buildSkillAgentTool,
@@ -304,6 +305,25 @@ export async function createMakaCliRuntimeContext(
     runtimeEventStore,
     shellRuns,
     backends,
+    safeBoundaryResumeEnabled: process.env.MAKA_RUNTIME_SAFE_BOUNDARY_RESUME === '1',
+    onContinuationLifecycleEvent: (event) => {
+      console.info('[runtime-resume]', JSON.stringify(event));
+    },
+    inspectContinuationSafety: createLocalContinuationSafetyInspector({
+      readSessionCwd: async (sessionId) => (await store.readHeader(sessionId)).cwd,
+      listAvailableToolNames: async () => allTools.map((tool) => tool.name),
+      hasPendingBackgroundOperations: async (sessionId) => {
+        const [shellUpdates, runs] = await Promise.all([
+          shellRuns.listSessionUpdates(sessionId),
+          runStore.listSessionRuns(sessionId),
+        ]);
+        return shellUpdates.some((update) => update.result.status === 'running')
+          || runs.some((run) => (
+            run.parentRunId !== undefined
+            && ['created', 'running', 'waiting_permission'].includes(run.status)
+          ));
+      },
+    }),
     runtimeInvocationObserver: input.runtimeInvocationObserver,
     cleanupHistoryCompactArtifacts: async (cleanupInput) => {
       await cleanupLegacyHistoryCompactArtifacts({

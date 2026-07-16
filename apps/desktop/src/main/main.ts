@@ -87,6 +87,7 @@ import {
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
   buildSubagentToolGroup,
+  createLocalContinuationSafetyInspector,
   getAIModel,
   getExpertTeam,
   listExpertTeams,
@@ -1034,6 +1035,28 @@ const runtime = new SessionManager({
   shellRuns,
   backends,
   childTools: childAgentTools,
+  safeBoundaryResumeEnabled: process.env.MAKA_RUNTIME_SAFE_BOUNDARY_RESUME === '1',
+  onContinuationLifecycleEvent: (event) => {
+    console.info('[runtime-resume]', JSON.stringify(event));
+  },
+  inspectContinuationSafety: createLocalContinuationSafetyInspector({
+    readSessionCwd: async (sessionId) => (await store.readHeader(sessionId)).cwd,
+    listAvailableToolNames: async () => [
+      ...builtinTools.map((tool) => tool.name),
+      'expert_dispatch',
+    ],
+    hasPendingBackgroundOperations: async (sessionId) => {
+      const [shellUpdates, runs] = await Promise.all([
+        shellRuns.listSessionUpdates(sessionId),
+        runStore.listSessionRuns(sessionId),
+      ]);
+      return shellUpdates.some((update) => update.result.status === 'running')
+        || runs.some((run) => (
+          run.parentRunId !== undefined
+          && ['created', 'running', 'waiting_permission'].includes(run.status)
+        ));
+    },
+  }),
   listArtifactsForTurn: async (sessionId, turnId) =>
     (await artifactStore.list(sessionId)).filter((artifact) =>
       artifact.turnId === turnId && artifact.status !== 'deleted'
@@ -1601,6 +1624,23 @@ function registerIpc(): void {
     await ensureSessionCanSend(sessionId);
     const turnId = randomUUID();
     void streamEvents(sessionId, runtime.compactSession(sessionId, { turnId }), turnId);
+  });
+  ipcMain.handle('sessions:resumeLatest', async (_event, sessionId: string) => {
+    const plan = await runtime.planLatestAuthoritativeSafeBoundaryContinuation(sessionId);
+    if (!plan.continuation) {
+      return {
+        disposition: 'park' as const,
+        rejectionReasons: plan.rejectionReasons,
+        diagnostics: plan.diagnostics,
+      };
+    }
+    const iterator = runtime.resumeSafeBoundaryContinuation(plan.continuation);
+    void streamEvents(sessionId, iterator, plan.continuation.turnId);
+    return {
+      disposition: 'started' as const,
+      runId: plan.continuation.runId,
+      turnId: plan.continuation.turnId,
+    };
   });
   ipcMain.handle('sessions:regenerateTurn', async (_event, sessionId: string, input: unknown) => {
     await ensureSessionCanSend(sessionId);
@@ -2234,6 +2274,13 @@ function normalizeSessionModelSelection(input: unknown): { llmConnectionSlug: st
 async function recoverInterruptedSessionsOnStartup(): Promise<void> {
   try {
     await runtime.recoverInterruptedSessions();
+    if (process.env.MAKA_RUNTIME_SAFE_BOUNDARY_RESUME !== '1') return;
+    for (const session of await runtime.listSessions()) {
+      const plan = await runtime.planLatestAuthoritativeSafeBoundaryContinuation(session.id);
+      if (!plan.continuation) continue;
+      const iterator = runtime.resumeSafeBoundaryContinuation(plan.continuation);
+      void streamEvents(session.id, iterator, plan.continuation.turnId);
+    }
   } catch {
     // Best-effort: startup should still reach the renderer so users can inspect
     // and repair any remaining local session state.

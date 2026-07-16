@@ -839,6 +839,24 @@ export function AppShell({
   });
 
   async function sendWithAttachments(text: string): Promise<boolean | void> {
+    if (text.trim() === '/resume') {
+      if (activeId) {
+        try {
+          const result = await window.maka.sessions.resumeLatest(activeId);
+          if (result.disposition === 'park') {
+            toastApi.error('无法安全恢复', result.rejectionReasons.join(', '));
+          } else {
+            toastApi.info('已开始安全恢复', '正在从最后一个完整执行边界继续');
+          }
+        } catch (error) {
+          toastApi.error(
+            '恢复失败',
+            generalizedErrorMessageChinese(error, '无法启动安全恢复，请检查会话状态后重试。'),
+          );
+        }
+      }
+      return true;
+    }
     if (text.trim() === '/compact') {
       if (activeId) await window.maka.sessions.compact(activeId);
       return true;

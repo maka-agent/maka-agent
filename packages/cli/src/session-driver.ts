@@ -6,6 +6,7 @@ import type { UserQuestionResponse } from '@maka/core/user-question';
 import type { BranchFromTurnInput, CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { SessionSummary, StoredMessage } from '@maka/core/session';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
+import type { RuntimeContinuation, SafeBoundaryContinuationPlan } from '@maka/runtime';
 
 export interface MakaSessionRuntime {
   createSession(input: CreateSessionInput): Promise<SessionSummary>;
@@ -13,6 +14,12 @@ export interface MakaSessionRuntime {
   getMessages(sessionId: string): Promise<StoredMessage[]>;
   sendMessage(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
   compactSession(sessionId: string, input?: { turnId?: string }): AsyncIterable<SessionEvent>;
+  planLatestAuthoritativeSafeBoundaryContinuation?(
+    sessionId: string,
+  ): Promise<SafeBoundaryContinuationPlan>;
+  resumeSafeBoundaryContinuation?(
+    continuation: RuntimeContinuation,
+  ): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   respondToUserQuestion?(sessionId: string, response: UserQuestionResponse): Promise<void>;
@@ -60,6 +67,7 @@ export interface MakaSessionDriver {
   getSessionResumeAvailability?(session: SessionSummary): Promise<SessionResumeAvailability>;
   sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
   compactSession(): AsyncIterable<SessionEvent>;
+  resumeLatest?(): AsyncIterable<SessionEvent>;
   respondToPermission(response: PermissionResponse): Promise<void>;
   respondToUserQuestion?(response: UserQuestionResponse): Promise<void>;
   /**
@@ -143,6 +151,21 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   async *compactSession(): AsyncIterable<SessionEvent> {
     if (!this.sessionId) throw new Error('Cannot compact before a session starts.');
     yield* this.input.runtime.compactSession(this.sessionId, { turnId: this.newId() });
+  }
+
+  async *resumeLatest(): AsyncIterable<SessionEvent> {
+    if (!this.sessionId) throw new Error('Cannot resume before a session starts.');
+    const planLatest = this.input.runtime.planLatestAuthoritativeSafeBoundaryContinuation;
+    const resume = this.input.runtime.resumeSafeBoundaryContinuation;
+    if (!planLatest || !resume) throw new Error('Safe-boundary resume is unavailable on this runtime.');
+    const plan = await planLatest.call(this.input.runtime, this.sessionId);
+    if (plan.disposition !== 'continue' || !plan.continuation) {
+      const detail = plan.diagnostics.map((diagnostic) => diagnostic.message).join('; ')
+        || plan.rejectionReasons.join(', ')
+        || 'no safe continuation candidate exists';
+      throw new Error(`Safe-boundary resume parked: ${detail}`);
+    }
+    yield* resume.call(this.input.runtime, plan.continuation);
   }
 
   async listSessions(): Promise<SessionSummary[]> {

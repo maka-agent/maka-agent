@@ -64,6 +64,31 @@ jobs:
       # throw away this dist and rebuild every package a second time.
       - run: npm run test:dist
 
+  runtime-resume-platforms:
+    name: Runtime resume (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm --workspace @maka/core run build
+      - run: npm --workspace @maka/storage run build
+      - run: npm --workspace @maka/runtime run build
+      - name: Safe-boundary resume contracts and crash prefixes
+        run: >-
+          node --test
+          packages/runtime/dist/__tests__/runtime-resume-crash.test.js
+          packages/runtime/dist/__tests__/runtime-continuation-crash.test.js
+          packages/runtime/dist/__tests__/runtime-resume.test.js
+          packages/runtime/dist/__tests__/runtime-continuation.test.js
+
   e2e:
     runs-on: ubuntu-latest
     steps:

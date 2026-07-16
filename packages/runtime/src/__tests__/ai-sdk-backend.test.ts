@@ -90,6 +90,42 @@ describe('AiSdkBackend model history', () => {
     ]);
   });
 
+  test('safe-boundary continuation does not append a duplicate current user message', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-resume',
+      text: '',
+      context: [],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'original user' }),
+      ],
+      continuation: {
+        sourceInvocationId: 'invocation-source',
+        sourceRunId: 'run-source',
+        sourceTurnId: 'turn-source',
+        sourceRuntimeEventHighWater: 1,
+      },
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'original user' }] },
+    ]);
+  });
+
   test('uses StoredMessage projection when RuntimeEvent replay is empty', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({

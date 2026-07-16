@@ -15,6 +15,13 @@ import type { PermissionResponse } from './permission.js';
 import type { UserQuestionResponse } from './user-question.js';
 import type { ContextBudgetDiagnostic } from './usage-stats/types.js';
 
+export interface RuntimeContinuationMetadata {
+  sourceInvocationId: string;
+  sourceRunId: string;
+  sourceTurnId: string;
+  sourceRuntimeEventHighWater: number;
+}
+
 export interface BackendSendInput {
   /** AgentRun id for this invocation, when the caller has a run ledger. */
   runId?: string;
@@ -41,6 +48,8 @@ export interface BackendSendInput {
    * compatibility projection.
    */
   runtimeContext?: RuntimeEvent[];
+  /** Continue from an already committed RuntimeEvent boundary without adding another user turn. */
+  continuation?: RuntimeContinuationMetadata;
 }
 
 /** Alias for clarity at the backend boundary. */

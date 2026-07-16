@@ -189,6 +189,12 @@ contextBridge.exposeInMainWorld('maka', {
     compact(sessionId: string): Promise<void> {
       return ipcRenderer.invoke('sessions:compact', sessionId);
     },
+    resumeLatest(sessionId: string): Promise<
+      | { disposition: 'started'; runId: string; turnId: string }
+      | { disposition: 'park'; rejectionReasons: string[]; diagnostics: unknown[] }
+    > {
+      return ipcRenderer.invoke('sessions:resumeLatest', sessionId);
+    },
     stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void> {
       return ipcRenderer.invoke('sessions:stop', sessionId, input);
     },

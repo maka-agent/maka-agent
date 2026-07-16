@@ -162,6 +162,10 @@ declare global {
         readMessages(sessionId: string): Promise<StoredMessage[]>;
         listTurns(sessionId: string): Promise<TurnRecord[]>;
         compact(sessionId: string): Promise<void>;
+        resumeLatest(sessionId: string): Promise<
+          | { disposition: 'started'; runId: string; turnId: string }
+          | { disposition: 'park'; rejectionReasons: string[]; diagnostics: unknown[] }
+        >;
         regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void>;
         branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
         respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;

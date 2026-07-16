@@ -8,7 +8,9 @@
 export { SessionManager, BackendRegistry, headerToSummary, changesBackendConfig } from './session-manager.js';
 export type {
   CompactSessionInput,
+  PlanSafeBoundaryContinuationInput,
   SessionManagerDeps,
+  RuntimeContinuationLifecycleEvent,
   SessionStore,
   BackendFactory,
   BackendFactoryContext,
@@ -883,16 +885,19 @@ export type {
   BuildModelHistoryOptions,
 } from './model-history.js';
 
-// runtime-resume.ts - Phase 0 replay projection and safety diagnostics.
+// runtime-resume.ts - Phase 0 replay projection + Phase 1 safe continuation gates.
 export {
   INDETERMINATE_TOOL_RESULT_DIRECTIVE,
   RUNTIME_RESUME_FAILPOINTS,
+  RuntimeContinuationPlanner,
+  buildSafeBoundaryContinuationPlan,
   buildResumePlanFromRuntimeEvents,
   buildResumeReplayRuntimeEvents,
   projectToolOperationsFromRuntimeEvents,
 } from './runtime-resume.js';
 export type {
   BuildResumePlanOptions,
+  ContinuationIdentity,
   ResumePlan,
   ResumePlanDiagnostic,
   ResumePlanDiagnosticCode,
@@ -901,9 +906,19 @@ export type {
   RuntimeResumeCommittedPrefix,
   RuntimeResumeFailpointId,
   RuntimeResumeFailpointSpec,
+  RuntimeContinuation,
+  RuntimeContinuationPlannerDeps,
+  RuntimeContinuationPlannerInput,
+  RuntimeContinuationSafetyObservation,
+  RuntimeContinuationSafetySnapshot,
+  SafeBoundaryContinuationFacts,
+  SafeBoundaryContinuationPlan,
   ToolOperation,
   ToolOperationStatus,
 } from './runtime-resume.js';
+
+export { createLocalContinuationSafetyInspector } from './continuation-safety.js';
+export type { LocalContinuationSafetyInspectorDeps } from './continuation-safety.js';
 
 // agent-flow.ts — formal Flow seam.
 export type {

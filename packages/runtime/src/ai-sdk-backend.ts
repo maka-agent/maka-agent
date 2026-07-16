@@ -1308,18 +1308,24 @@ export class AiSdkBackend implements AgentBackend {
         watchdog.start();
         const activeTools = plan.activeTools;
         const systemPrompt = await this.resolveSystemPrompt();
-        const turnTailPrompt = joinPromptFragments([
-          await this.resolveTurnTailPrompt(),
-          await this.resolveShellRunContextSummary(),
-        ]);
-        const currentUserContent = await this.buildCurrentUserContent(input.text, input.attachments);
-        const messages = [
-          ...priorReplay.messages,
-          {
-            role: 'user' as const,
-            content: this.appendTurnTailPrompt(currentUserContent, turnTailPrompt),
-          } as ModelMessage,
-        ];
+        const turnTailPrompt = input.continuation
+          ? undefined
+          : joinPromptFragments([
+              await this.resolveTurnTailPrompt(),
+              await this.resolveShellRunContextSummary(),
+            ]);
+        const currentUserContent = input.continuation
+          ? undefined
+          : await this.buildCurrentUserContent(input.text, input.attachments);
+        const messages = currentUserContent === undefined
+          ? [...priorReplay.messages]
+          : [
+              ...priorReplay.messages,
+              {
+                role: 'user' as const,
+                content: this.appendTurnTailPrompt(currentUserContent, turnTailPrompt),
+              } as ModelMessage,
+            ];
         const activeCompactionHeadAnchor = buildActiveCompactionHeadAnchor(
           messages,
           messages.length - 1,
@@ -1343,7 +1349,9 @@ export class AiSdkBackend implements AgentBackend {
               toolCount: active.length,
               priorMessages: priorReplay.messages,
               priorRuntimeEventCount: priorReplay.runtimeEventCount,
-              currentUserContent: formatTextWithAttachmentRefs(input.text, input.attachments),
+              currentUserContent: input.continuation
+                ? ''
+                : formatTextWithAttachmentRefs(input.text, input.attachments),
               turnTailPrompt,
             }),
             requestShape: computeRequestShapeDiagnostic({

@@ -252,6 +252,11 @@ export interface RuntimeEventRefs {
    * and is replayed with the older degraded semantics.
    */
   stepId?: string;
+  /** Source execution boundary for a safe-boundary continuation start fact. */
+  sourceInvocationId?: string;
+  sourceRunId?: string;
+  sourceTurnId?: string;
+  sourceRuntimeEventHighWater?: number;
 }
 
 // ============================================================================
