@@ -513,7 +513,7 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('n');
     terminal.input('\r');
 
-    await waitFor(() => terminal.output().includes('(Ctrl+O)'));
+    await waitFor(() => terminal.output().includes('›'));
     assert.equal(terminal.output().includes('expanded-tail'), false);
 
     terminal.input('\x0f');
@@ -561,7 +561,7 @@ describe('Maka Pi TUI runner', () => {
         output: pipeOutput('done\n'),
       },
     });
-    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('done 4000ms'));
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('·  4s'));
 
     exitMaka(terminal);
     await run;
@@ -583,7 +583,7 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('run');
     terminal.input('\r');
-    await waitFor(() => terminal.output().includes('(Ctrl+O)'));
+    await waitFor(() => terminal.output().includes('›'));
 
     // Kitty keyboard protocol terminals (Ghostty/Kitty) send one event for the
     // key press and another for the release. The release must not undo the
@@ -591,11 +591,11 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\x1b[111;5u');
     terminal.input('\x1b[111;5:3u');
 
-    // The compact-only (Ctrl+O) hint leaving the screen proves the card is
+    // The compact-only › hint leaving the screen proves the card is
     // still expanded after the release event.
-    await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('(Ctrl+O)'));
+    await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('›'));
     await delay(20);
-    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('(Ctrl+O)'), false);
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('›'), false);
 
     exitMaka(terminal);
     await Promise.race([
@@ -660,7 +660,7 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('run');
     terminal.input('\r');
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('思考（Ctrl+T 展开）'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Thinking…'));
     assert.equal(plainTerminalOutput(terminal.output()).includes('secret reasoning tail'), false);
 
     terminal.input('\x14');
@@ -1983,7 +1983,7 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('/session session-2');
     terminal.input('\r');
 
-    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('done 4000ms'));
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('·  4s'));
     assert.deepEqual(reads, ['session-2']);
 
     exitMaka(terminal);

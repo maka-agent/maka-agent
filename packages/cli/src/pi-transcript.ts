@@ -993,8 +993,8 @@ function setThinking(state: MakaPiTranscriptState, messageId: string, text: stri
 // never floods the scrollback; Ctrl+T expands every thinking entry on demand.
 function renderThinkingBlock(entry: MakaPiThinkingEntry, width: number, expanded: boolean): string[] {
   if (!entry.text.trim()) return [];
-  if (!expanded) return [fitLine(ansi.dim('思考（Ctrl+T 展开）'), width)];
-  const lines = [fitLine(ansi.dim('思考'), width)];
+  if (!expanded) return [fitLine(ansi.dim('Thinking…'), width)];
+  const lines = [fitLine(ansi.dim('Thinking'), width)];
   lines.push(...renderIndented(entry.text, width, 2).map((line) => fitLine(ansi.dim(line), width)));
   return lines;
 }
