@@ -122,9 +122,8 @@ class MakaAgent(BaseInstalledAgent):
     def _harbor_mode(self) -> str:
         """cell (default) runs a RuntimeRunner cell; task-run runs the full
         task-run controller on the host and bridges tool execution into the
-        container via the shared _ToolExecutorServer. The mode switch keeps the
-        heavy-task / autonomous experiment path that used to live in the
-        terminal-bench-smoke fork on the single authoritative adapter."""
+        container via the shared _ToolExecutorServer. task-run is the
+        heavy-task / autonomous experiment path."""
         mode = (self._get_env("MAKA_HARBOR_MODE") or "cell").strip()
         if mode not in ("cell", "task-run"):
             raise RuntimeError(f"MAKA_HARBOR_MODE must be cell or task-run, got {mode!r}")
@@ -516,8 +515,7 @@ class MakaAgent(BaseInstalledAgent):
         context: AgentContext,
     ) -> None:
         """Run the full task-run controller on the host, bridging tool execution
-        into the task container. Ported from the terminal-bench-smoke fork so the
-        heavy-task / autonomous experiment path is preserved end to end."""
+        into the task container."""
         self.logs_dir.mkdir(parents=True, exist_ok=True)
 
         env = os.environ.copy()
@@ -1220,7 +1218,7 @@ def _apply_trial_pricing(agent: MakaAgent, token_summary: dict[str, Any]) -> Non
 
 
 # ---------------------------------------------------------------------------
-# task-run host mode helpers (ported from the terminal-bench-smoke fork)
+# task-run host mode helpers
 # ---------------------------------------------------------------------------
 
 
