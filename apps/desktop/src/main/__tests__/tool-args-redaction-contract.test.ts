@@ -21,7 +21,7 @@ describe('tool and permission args redaction', () => {
     const [toolSource, permissionSource, quietSource] = await Promise.all([
       readFile(join(process.cwd(), '../../packages/ui/src/tool-activity.tsx'), 'utf8'),
       readFile(join(process.cwd(), '../../packages/ui/src/permission-dialog.tsx'), 'utf8'),
-      readFile(join(process.cwd(), '../../packages/ui/src/tool-activity/builtin-preview.ts'), 'utf8'),
+      readFile(join(process.cwd(), '../../packages/core/src/tool-quiet-preview.ts'), 'utf8'),
     ]);
     const toolActivity = toolSource.match(/export function ToolActivity[\s\S]*?function ToolOutputStream/)?.[0] ?? '';
     const permissionPrompt = permissionSource.match(/export function PermissionPrompt[\s\S]*?function renderPermissionSummary/)?.[0] ?? '';
@@ -31,7 +31,7 @@ describe('tool and permission args redaction', () => {
     assert.match(toolActivity, /formatQuietJsonValue/);
     assert.doesNotMatch(toolActivity, /JSON\.stringify\(item\.args/);
     assert.doesNotMatch(toolActivity, /formatRedactedJson\(item\.args\)/);
-    // Keys and full lines are redacted in the quiet key/value formatter.
+    // Keys and full lines are redacted in the shared core quiet key/value formatter.
     assert.match(quietSource, /redactSecrets\(key\)/);
     assert.match(quietSource, /push\(redactSecrets\(line\)\)|lines\.push\(redactSecrets\(line\)\)/);
     // Permission prompt redacts only args that its summary and details have not already shown.

@@ -1,5 +1,7 @@
 import type { ToolOutputStream, ToolResultContent } from '@maka/core/events';
 import {
+  formatQuietJsonValue,
+  formatToolInvocationLine,
   ptyCompactTerminalLine,
   ptyTuiTerminalRows,
   ptyTuiTerminalView,
@@ -524,9 +526,14 @@ function plainResultText(entry: MakaPiToolEntry): string {
       const rows = record.matches ?? record.files;
       if (Array.isArray(rows)) return rows.map((row) => String(row)).join('\n');
     }
-    // Single line: this text can land on the compact summary line, and a
-    // pretty-printed JSON body would break the two-line card contract.
-    return formatUnknownInline(value);
+    // Generic json fallback: use the shared quiet-value formatter instead of
+    // dumping a single-line JSON blob. It extracts headline + body from
+    // known shapes (lists, text payloads, Write/Edit results, key-value) and
+    // never produces escaped JSON braces (#1065). AskUserQuestion, GoalSet,
+    // Automation, and any future tool without a custom case render
+    // human-readable text here.
+    const preview = formatQuietJsonValue(value, 'en');
+    return preview.headline ? `${preview.headline}\n${preview.body}` : preview.body;
   }
   return entry.output ?? '';
 }
@@ -723,7 +730,13 @@ function toolInputSummary(entry: MakaPiToolEntry): string {
     }
   }
   if (input === undefined) return '';
-  // Single line: this summary is inlined into the compact header, and a
-  // pretty-printed JSON body would break the two-line card contract.
+  // Generic fallback: use the shared invocation-line formatter instead of
+  // dumping raw JSON. It extracts headline fields (command/path/pattern/query/
+  // name/…) and never produces escaped JSON braces (#1065). The explicit per-
+  // tool cases above are an optimization for the common tools; this fallback
+  // covers Skill, AskUserQuestion, GoalSet, Automation, and any future tool.
+  const line = formatToolInvocationLine({ toolName: entry.toolName, args: input }, 'en');
+  if (line) return line;
+  // Absolute last resort — still single-line for the compact header contract.
   return `input: ${limitText(formatUnknownInline(input), 600)}`;
 }

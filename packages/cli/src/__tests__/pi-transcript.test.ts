@@ -1694,9 +1694,12 @@ describe('Maka Pi TUI transcript', () => {
 
     const compact = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
     // A 3-line error object must not be reported as "3 matches"; fall back to
-    // the generic first-line summary instead.
+    // the generic quiet-value summary instead (#1065: no raw JSON braces).
+    // The multi-line error value renders as `error:` headline + indented body;
+    // the compact card shows only the first line (the key name).
     assert.doesNotMatch(compact, /\d+ matches/);
-    assert.match(compact, /"error":"boom/);
+    assert.match(compact, /error:/);
+    assert.doesNotMatch(compact, /"error":"boom/);
   });
 
   test('does not fabricate a Grep match count when matches is not an array', () => {
@@ -1751,8 +1754,14 @@ describe('Maka Pi TUI transcript', () => {
     // Never more than one card line (plus the leading blank separator):
     // multi-line JSON must not split the header.
     assert.equal(lines.length, 2);
-    assert.match(lines[1] ?? '', /● Frobnicate  input: \{"alpha":1,"beta":"two"\}/);
-    assert.match(lines[1] ?? '', /\{"gamma":3,"delta":"four"\}/);
+    // #1065: the generic fallback now uses formatToolInvocationLine /
+    // formatQuietJsonValue instead of dumping raw JSON. A tool with no
+    // custom case extracts headline key:value lines, never JSON braces.
+    // The multi-line key:value input is collapsed to a single line by
+    // collapseToSingleLine so the compact card stays one line.
+    assert.match(lines[1] ?? '', /● Frobnicate  alpha: 1 beta: two  ·  gamma: 3 ›/);
+    assert.doesNotMatch(lines[1] ?? '', /\{"alpha"/);
+    assert.doesNotMatch(lines[1] ?? '', /\{"gamma"/);
   });
 
   test('summarizes file_diff compactly and colors the expanded diff', () => {

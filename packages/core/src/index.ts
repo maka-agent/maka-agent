@@ -239,6 +239,15 @@ export {
   type WriteStdinPermissionSummary,
 } from './tool-activity-args.js';
 export {
+  extractToolCommand,
+  formatAsKeyValueLines,
+  formatQuietJsonValue,
+  formatToolInvocationLine,
+  type QuietPreview,
+  type ToolInvocationInput,
+  type UiLocale,
+} from './tool-quiet-preview.js';
+export {
   SHELL_RUN_ID_MAX_CHARS,
   SHELL_RUN_STATUSES,
   SHELL_RUN_TERMINAL_STATUSES,
