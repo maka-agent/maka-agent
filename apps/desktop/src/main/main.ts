@@ -119,7 +119,7 @@ import {
   createArtifactStore,
   createConnectionStore,
   createPlanReminderStore,
-  createRuntimeEventStore,
+  openRuntimeEventPersistence,
   createSessionStore,
   createSettingsStore,
   createShellRunStore,
@@ -288,7 +288,11 @@ const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFix
 let configWatcher: ConfigFileWatcher | undefined;
 const store = createSessionStore(workspaceRoot);
 const runStore = createAgentRunStore(workspaceRoot);
-const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
+const runtimePersistence = await openRuntimeEventPersistence({
+  workspaceRoot,
+  sqliteCanonical: process.env.MAKA_RUNTIME_SQLITE_CANONICAL === '1',
+});
+const runtimeEventStore = runtimePersistence.runtimeEventStore;
 const shellRunStore = createShellRunStore(workspaceRoot);
 const connectionStore = createConnectionStore(workspaceRoot);
 const settingsStore = createSettingsStore(workspaceRoot);
@@ -970,6 +974,9 @@ backends.register('ai-sdk', async (ctx) => {
     archiveToolResult: (event: ToolResultArchiveRecorderInput) => persistArchivedToolResult(event),
     readToolResultArchive: (event: ToolResultArchiveReaderInput) => readArchivedToolResult(event),
     readAttachmentBytes: createAttachmentByteReader({ artifactStore, sessionId: ctx.sessionId }),
+    ...(runtimePersistence.runtimeCommitStore
+      ? { runtimeCommitSink: runtimePersistence.runtimeCommitStore }
+      : {}),
     supportsVision,
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
     loadHistoryCompactCheckpoint: ctx.loadHistoryCompactCheckpoint,
@@ -2446,6 +2453,7 @@ async function runBeforeQuitCleanup(): Promise<void> {
   for (const result of results) {
     if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
   }
+  runtimePersistence.close();
 }
 
 function computerUseCapabilityInput() {

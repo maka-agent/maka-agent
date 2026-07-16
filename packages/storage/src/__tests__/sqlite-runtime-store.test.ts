@@ -63,6 +63,10 @@ describe('SqliteRuntimeStore', () => {
       assert.deepEqual((await store.readToolJournal('operation-1')).map((event) => event.state), [
         'prepared',
       ]);
+      assert.deepEqual(
+        (await store.listUnsettledToolOperations()).map((operation) => operation.operationId),
+        ['operation-1'],
+      );
     });
   });
 
@@ -128,6 +132,7 @@ describe('SqliteRuntimeStore', () => {
         'prepared',
         'outcome_committed',
       ]);
+      assert.deepEqual(await store.listUnsettledToolOperations(), []);
     });
   });
 
@@ -194,6 +199,67 @@ describe('SqliteRuntimeStore', () => {
         }),
         /operation identity conflict/,
       );
+    });
+  });
+
+  it('coalesces stream chunks outside the immutable high-water ledger', async () => {
+    await withStore(async (store) => {
+      for (const [index, text] of ['hel', 'lo', '!'].entries()) {
+        await store.appendRuntimeEvent('session-1', 'run-1', functionCallEvent({
+          id: `partial-${index}`,
+          ts: index + 1,
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text },
+          refs: { providerEventId: 'message-1' },
+        }));
+      }
+
+      const visible = await store.readRuntimeEvents('session-1', 'run-1');
+      assert.equal(visible.length, 1);
+      assert.deepEqual(visible[0]?.content, { kind: 'text', text: 'hello!' });
+      assert.deepEqual(await store.readImmutableRuntimeEvents('session-1', 'run-1'), []);
+      assert.equal(await store.runtimeHighWater('invocation-1'), 0);
+    });
+  });
+
+  it('replaces text and tool partial snapshots when their durable final arrives', async () => {
+    await withStore(async (store) => {
+      await store.appendRuntimeEvent('session-1', 'run-1', functionCallEvent({
+        id: 'text-partial',
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'working' },
+        refs: { providerEventId: 'message-1' },
+      }));
+      await store.appendRuntimeEvent('session-1', 'run-1', functionCallEvent({
+        id: 'tool-partial',
+        partial: true,
+        role: 'tool',
+        author: 'tool',
+        content: undefined,
+        refs: { toolCallId: 'provider-call-1' },
+      }));
+      await store.appendRuntimeEvent('session-1', 'run-1', functionCallEvent({
+        id: 'text-final',
+        ts: 2,
+        partial: false,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'done' },
+        refs: { providerEventId: 'message-1' },
+      }));
+      await store.appendRuntimeEvent('session-1', 'run-1', functionResponseEvent({
+        refs: { toolCallId: 'provider-call-1' },
+      }));
+
+      assert.deepEqual(
+        (await store.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
+        ['text-final', 'response-event-1'],
+      );
+      assert.equal(await store.runtimeHighWater('invocation-1'), 2);
     });
   });
 });

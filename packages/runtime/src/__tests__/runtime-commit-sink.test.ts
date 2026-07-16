@@ -89,6 +89,28 @@ describe('RuntimeCommitSink', () => {
     assert.equal(implementationCalls, 0);
   });
 
+  it('does not dispatch an operation whose durable T1 claim already exists', async () => {
+    let implementationCalls = 0;
+    const sink: RuntimeCommitSink = {
+      commitToolPrepared: async () => ({ created: false, runtimeEventSeq: 1 }),
+      commitToolOutcome: async () => { throw new Error('must not run'); },
+    };
+
+    await assert.rejects(
+      executeDurableToolBoundary({
+        sink,
+        prepared: preparedCommit(),
+        execute: async () => {
+          implementationCalls += 1;
+          return 'duplicate side effect';
+        },
+        buildOutcome: outcomeCommit,
+      }),
+      /already claimed/,
+    );
+    assert.equal(implementationCalls, 0);
+  });
+
   it('does not expose an implementation result when T2 fails', async () => {
     let implementationCalls = 0;
     const sink: RuntimeCommitSink = {

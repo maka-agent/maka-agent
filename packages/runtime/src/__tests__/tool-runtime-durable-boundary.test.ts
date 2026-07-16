@@ -27,6 +27,23 @@ describe('ToolRuntime durable boundary', () => {
     assert.equal(harness.messages.some((message) => message.type === 'tool_result'), false);
   });
 
+  it('does not invoke a tool when another local dispatcher already owns its operation', async () => {
+    let implementationCalls = 0;
+    const harness = makeHarness({
+      commitToolPrepared: async () => ({ created: false, runtimeEventSeq: 1 }),
+      commitToolOutcome: async () => { throw new Error('must not reach T2'); },
+    });
+
+    await assert.rejects(
+      harness.execute(tool(() => { implementationCalls += 1; return { ok: true }; })),
+      /already claimed/,
+    );
+
+    assert.equal(implementationCalls, 0);
+    assert.equal(harness.events.length, 0);
+    assert.equal(harness.messages.length, 0);
+  });
+
   it('commits T1 before implementation and T2 before publishing the result', async () => {
     const order: string[] = [];
     const prepared: ToolPreparedCommit[] = [];

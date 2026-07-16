@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
-import type { RuntimeEvent, RuntimeEventStore } from '@maka/core';
+import type { RuntimeEvent, RuntimeEventStore, ToolRecoveryMode } from '@maka/core';
 import {
   configureSqliteRuntimeDatabase,
   migrateSqliteRuntimeDatabase,
@@ -11,12 +12,7 @@ import {
 
 export { SQLITE_RUNTIME_SCHEMA_VERSION } from './sqlite-runtime-schema.js';
 
-export type ToolRecoveryMode =
-  | 'replay_safe'
-  | 'idempotent'
-  | 'reconcile'
-  | 'reattach'
-  | 'never_auto_retry';
+export type { ToolRecoveryMode } from '@maka/core';
 
 export type ToolJournalState =
   | 'prepared'
@@ -126,15 +122,47 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
   }
 
   async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+    await this.importRuntimeEvent(sessionId, runId, event);
+  }
+
+  async importRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<boolean> {
     if (sessionId !== event.sessionId || runId !== event.runId) {
       throw new Error(`RuntimeEvent store identity does not match event ${event.id}`);
     }
-    this.transaction(() => {
+    return this.transaction(() => {
+      const partial = partialRuntimeStream(event);
+      if (partial) return this.upsertRuntimePartial(event, partial);
+      const existing = this.readRuntimeEventJson(event.id) !== undefined;
       this.insertRuntimeEvent(event, event.ts, true);
+      return !existing;
     });
   }
 
   async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
+    const immutable = await this.readImmutableRuntimeEvents(sessionId, runId);
+    const partials = this.db.prepare(`
+      SELECT payload_json, text_content, after_event_id
+      FROM runtime_partial_snapshots
+      WHERE session_id = ? AND run_id = ?
+      ORDER BY updated_at ASC, stream_key ASC
+    `).all(sessionId, runId) as Array<{
+      payload_json: string;
+      text_content: string;
+      after_event_id: string | null;
+    }>;
+    return mergeRuntimePartialSnapshots(immutable, partials.map((row) => {
+      const event = JSON.parse(row.payload_json) as RuntimeEvent;
+      if (event.content?.kind === 'text' || event.content?.kind === 'thinking') {
+        event.content = { ...event.content, text: row.text_content };
+      }
+      return {
+        event,
+        ...(row.after_event_id ? { afterEventId: row.after_event_id } : {}),
+      };
+    }));
+  }
+
+  async readImmutableRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
     const rows = this.db.prepare(`
       SELECT payload_json
       FROM runtime_events
@@ -144,18 +172,26 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
     return rows.map((row) => JSON.parse(row.payload_json) as RuntimeEvent);
   }
 
-  async readImmutableRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
-    return this.readRuntimeEvents(sessionId, runId);
-  }
-
   async readSessionRuntimeEvents(sessionId: string): Promise<RuntimeEvent[]> {
     const rows = this.db.prepare(`
-      SELECT payload_json
-      FROM runtime_events
-      WHERE session_id = ?
-      ORDER BY committed_at ASC, rowid ASC
-    `).all(sessionId) as Array<{ payload_json: string }>;
-    return rows.map((row) => JSON.parse(row.payload_json) as RuntimeEvent);
+      SELECT run_id FROM runtime_events WHERE session_id = ?
+      UNION
+      SELECT run_id FROM runtime_partial_snapshots WHERE session_id = ?
+      ORDER BY run_id ASC
+    `).all(sessionId, sessionId) as Array<{ run_id: string }>;
+    const ordered: Array<{ event: RuntimeEvent; runId: string; eventIndex: number }> = [];
+    for (const row of rows) {
+      const events = await this.readRuntimeEvents(sessionId, row.run_id);
+      for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
+        ordered.push({ event: events[eventIndex]!, runId: row.run_id, eventIndex });
+      }
+    }
+    ordered.sort((a, b) =>
+      a.event.ts - b.event.ts
+      || a.runId.localeCompare(b.runId)
+      || a.eventIndex - b.eventIndex
+      || a.event.id.localeCompare(b.event.id));
+    return ordered.map((item) => item.event);
   }
 
   async runtimeHighWater(invocationId: string): Promise<number> {
@@ -251,17 +287,32 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
         input.committedAt,
       );
       this.options.failpoint?.('after_journal_event_insert');
-      this.db.prepare(`
+      const updated = this.db.prepare(`
         UPDATE tool_operations
         SET current_state = 'outcome_committed', result_event_id = ?, version = version + 1
         WHERE operation_id = ? AND current_state = 'prepared' AND result_event_id IS NULL
       `).run(input.runtimeEvent.id, input.operationId);
+      if (updated.changes !== 1) {
+        throw new Error(`Tool operation compare-and-set failed for ${input.operationId}`);
+      }
       return { created: true, runtimeEventSeq };
     });
   }
 
   async readToolOperation(operationId: string): Promise<ToolOperationRecord | undefined> {
     return this.readToolOperationSync(operationId);
+  }
+
+  async listUnsettledToolOperations(): Promise<ToolOperationRecord[]> {
+    const rows = this.db.prepare(`
+      SELECT operation_id, invocation_id, run_id, turn_id, provider_tool_call_id,
+        tool_name, canonical_args_hash, recovery_mode, current_state,
+        call_event_id, result_event_id, version
+      FROM tool_operations
+      WHERE current_state = 'prepared' AND result_event_id IS NULL
+      ORDER BY invocation_id ASC, operation_id ASC
+    `).all() as unknown as ToolOperationRow[];
+    return rows.map(toolOperationFromRow);
   }
 
   async readToolJournal(operationId: string): Promise<ToolJournalEventRecord[]> {
@@ -297,6 +348,7 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
     const existingJson = this.readRuntimeEventJson(event.id);
     if (existingJson !== undefined) {
       assertStoredRuntimeEventEquals(event, existingJson);
+      this.deleteCompletedPartialSnapshot(event);
       if (!allowExactDuplicate) {
         throw new Error(`RuntimeEvent ${event.id} already exists outside this tool transaction`);
       }
@@ -319,7 +371,60 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
       JSON.stringify(event),
       committedAt,
     );
+    this.deleteCompletedPartialSnapshot(event);
     return next;
+  }
+
+  private deleteCompletedPartialSnapshot(event: RuntimeEvent): void {
+    const completedPartialKey = completedPartialRuntimeStreamKey(event);
+    if (!completedPartialKey) return;
+    this.db.prepare('DELETE FROM runtime_partial_snapshots WHERE stream_key = ?')
+      .run(completedPartialKey);
+  }
+
+  private upsertRuntimePartial(
+    event: RuntimeEvent,
+    partial: { key: string; snapshot: RuntimeEvent; text: string },
+  ): boolean {
+    const existing = this.db.prepare(`
+      SELECT 1 AS found FROM runtime_partial_snapshots WHERE stream_key = ?
+    `).get(partial.key) as { found: number } | undefined;
+    if (!existing && this.hasCompletedPartialStream(event.sessionId, event.runId, partial.key)) {
+      return false;
+    }
+    const anchor = existing ? undefined : this.db.prepare(`
+      SELECT event_id FROM runtime_events
+      WHERE session_id = ? AND run_id = ?
+      ORDER BY event_seq DESC LIMIT 1
+    `).get(event.sessionId, event.runId) as { event_id: string } | undefined;
+    this.db.prepare(`
+      INSERT INTO runtime_partial_snapshots (
+        stream_key, session_id, invocation_id, run_id, turn_id,
+        after_event_id, payload_json, text_content, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(stream_key) DO UPDATE SET
+        text_content = runtime_partial_snapshots.text_content || excluded.text_content,
+        updated_at = excluded.updated_at
+    `).run(
+      partial.key,
+      event.sessionId,
+      event.invocationId,
+      event.runId,
+      event.turnId,
+      anchor?.event_id ?? null,
+      JSON.stringify(partial.snapshot),
+      partial.text,
+      event.ts,
+    );
+    return !existing;
+  }
+
+  private hasCompletedPartialStream(sessionId: string, runId: string, streamKey: string): boolean {
+    const rows = this.db.prepare(`
+      SELECT payload_json FROM runtime_events WHERE session_id = ? AND run_id = ?
+    `).all(sessionId, runId) as Array<{ payload_json: string }>;
+    return rows.some((row) =>
+      completedPartialRuntimeStreamKey(JSON.parse(row.payload_json) as RuntimeEvent) === streamKey);
   }
 
   private nextRuntimeEventSeq(invocationId: string): number {
@@ -482,4 +587,106 @@ function assertStoredRuntimeEventEquals(event: RuntimeEvent, storedJson: string 
 
 function runtimeEventKind(event: RuntimeEvent): string {
   return event.content?.kind ?? event.status ?? (event.actions?.endInvocation ? 'invocation_end' : 'runtime_fact');
+}
+
+interface RuntimePartialSnapshot {
+  event: RuntimeEvent;
+  afterEventId?: string;
+}
+
+function mergeRuntimePartialSnapshots(
+  immutableEvents: readonly RuntimeEvent[],
+  snapshots: readonly RuntimePartialSnapshot[],
+): RuntimeEvent[] {
+  const leading: RuntimePartialSnapshot[] = [];
+  const afterEvent = new Map<string, RuntimePartialSnapshot[]>();
+  for (const snapshot of snapshots) {
+    if (!snapshot.afterEventId) {
+      leading.push(snapshot);
+      continue;
+    }
+    const grouped = afterEvent.get(snapshot.afterEventId) ?? [];
+    grouped.push(snapshot);
+    afterEvent.set(snapshot.afterEventId, grouped);
+  }
+  const order = (a: RuntimePartialSnapshot, b: RuntimePartialSnapshot) =>
+    a.event.ts - b.event.ts || a.event.id.localeCompare(b.event.id);
+  const merged = leading.sort(order).map(({ event }) => event);
+  for (const event of immutableEvents) {
+    merged.push(event);
+    const anchored = afterEvent.get(event.id);
+    if (!anchored) continue;
+    merged.push(...anchored.sort(order).map((snapshot) => snapshot.event));
+    afterEvent.delete(event.id);
+  }
+  for (const orphaned of afterEvent.values()) {
+    merged.push(...orphaned.sort(order).map((snapshot) => snapshot.event));
+  }
+  return merged;
+}
+
+function partialRuntimeStream(event: RuntimeEvent): {
+  key: string;
+  snapshot: RuntimeEvent;
+  text: string;
+} | undefined {
+  if (!event.partial || event.status !== undefined || event.actions) return undefined;
+  const content = event.content;
+  let identity: string | undefined;
+  let text = '';
+  if (
+    content?.kind === 'text'
+    && content.attachments === undefined
+    && event.refs?.providerEventId
+    && hasOnlyKeys(event.refs, ['providerEventId'])
+  ) {
+    identity = `${content.kind}:provider:${event.refs.providerEventId}`;
+    text = content.text;
+  } else if (
+    content?.kind === 'thinking'
+    && content.signature === undefined
+    && event.refs?.providerEventId
+    && hasOnlyKeys(event.refs, ['providerEventId'])
+  ) {
+    identity = `${content.kind}:provider:${event.refs.providerEventId}`;
+    text = content.text;
+  } else if (!content && event.refs?.toolCallId && hasOnlyKeys(event.refs, ['toolCallId'])) {
+    identity = `tool:call:${event.refs.toolCallId}`;
+  }
+  if (!identity) return undefined;
+  const key = runtimePartialStreamKey(identity, event);
+  const snapshot = content?.kind === 'text' || content?.kind === 'thinking'
+    ? { ...event, content: { ...content, text: '' } }
+    : event;
+  return { key, snapshot, text };
+}
+
+function completedPartialRuntimeStreamKey(event: RuntimeEvent): string | undefined {
+  if (event.partial) return undefined;
+  const content = event.content;
+  let identity: string | undefined;
+  if ((content?.kind === 'text' || content?.kind === 'thinking') && event.refs?.providerEventId) {
+    identity = `${content.kind}:provider:${event.refs.providerEventId}`;
+  } else if (content?.kind === 'function_response' && event.refs?.toolCallId) {
+    identity = `tool:call:${event.refs.toolCallId}`;
+  }
+  return identity ? runtimePartialStreamKey(identity, event) : undefined;
+}
+
+function runtimePartialStreamKey(identity: string, event: RuntimeEvent): string {
+  return createHash('sha256').update(JSON.stringify([
+    identity,
+    event.sessionId,
+    event.invocationId,
+    event.runId,
+    event.turnId,
+    event.branch ?? null,
+    event.role,
+    event.author,
+  ])).digest('hex');
+}
+
+function hasOnlyKeys(value: object, allowed: readonly string[]): boolean {
+  const allowedSet = new Set(allowed);
+  return Object.keys(value).every((key) => allowedSet.has(key));
 }

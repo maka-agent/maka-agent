@@ -1,13 +1,8 @@
 import { createHash } from 'node:crypto';
-import type { RuntimeEvent } from '@maka/core';
+import type { RuntimeEvent, ToolRecoveryMode } from '@maka/core';
 import { stableHash } from './request-shape.js';
 
-export type ToolRecoveryMode =
-  | 'replay_safe'
-  | 'idempotent'
-  | 'reconcile'
-  | 'reattach'
-  | 'never_auto_retry';
+export type { ToolRecoveryMode } from '@maka/core';
 
 export interface ToolPreparedCommit {
   operationId: string;
@@ -66,7 +61,10 @@ export async function executeDurableToolBoundary<T>(input: {
   execute: () => Promise<T>;
   buildOutcome: (result: T) => ToolOutcomeCommit;
 }): Promise<T> {
-  await input.sink.commitToolPrepared(input.prepared);
+  const prepared = await input.sink.commitToolPrepared(input.prepared);
+  if (!prepared.created) {
+    throw new Error(`Tool operation ${input.prepared.operationId} is already claimed`);
+  }
   const result = await input.execute();
   await input.sink.commitToolOutcome(input.buildOutcome(result));
   return result;

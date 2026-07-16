@@ -261,6 +261,14 @@ export interface RuntimeEventRefs {
   sourceRuntimeEventHighWater?: number;
 }
 
+/** Tool-owned contract for deciding what a later recovery phase may do. */
+export type ToolRecoveryMode =
+  | 'replay_safe'
+  | 'idempotent'
+  | 'reconcile'
+  | 'reattach'
+  | 'never_auto_retry';
+
 // ============================================================================
 // RuntimeEvent
 // ============================================================================

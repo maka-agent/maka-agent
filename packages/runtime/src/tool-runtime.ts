@@ -1328,7 +1328,7 @@ export class ToolRuntime {
       ...(Object.keys(stateDelta).length > 0 ? { actions: { stateDelta } } : {}),
     };
     try {
-      await sink.commitToolPrepared({
+      const prepared = await sink.commitToolPrepared({
         operationId,
         journalEventId: `${operationId}_prepared`,
         runtimeEvent: callEvent,
@@ -1338,6 +1338,9 @@ export class ToolRuntime {
         recoveryMode: input.tool.recoveryMode ?? 'never_auto_retry',
         committedAt: callEvent.ts,
       });
+      if (!prepared.created) {
+        throw new Error(`Tool operation ${operationId} is already claimed`);
+      }
     } catch (error) {
       throw new RuntimeCommitBoundaryError('T1', error);
     }

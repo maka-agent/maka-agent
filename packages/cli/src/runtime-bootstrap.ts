@@ -42,7 +42,7 @@ import {
   createAutomationStore,
   createConnectionStore,
   createFileCredentialStore,
-  createRuntimeEventStore,
+  openRuntimeEventPersistence,
   createSessionStore,
   createSettingsStore,
   createShellRunStore,
@@ -105,7 +105,11 @@ export async function createMakaCliRuntimeContext(
 ): Promise<MakaCliRuntimeContext> {
   const store = createSessionStore(input.workspaceRoot);
   const runStore = createAgentRunStore(input.workspaceRoot);
-  const runtimeEventStore = createRuntimeEventStore(input.workspaceRoot);
+  const runtimePersistence = await openRuntimeEventPersistence({
+    workspaceRoot: input.workspaceRoot,
+    sqliteCanonical: process.env.MAKA_RUNTIME_SQLITE_CANONICAL === '1',
+  });
+  const runtimeEventStore = runtimePersistence.runtimeEventStore;
   const shellRunStore = createShellRunStore(input.workspaceRoot);
   const artifactStore = createArtifactStore(input.workspaceRoot);
   const connectionStore = createConnectionStore(input.workspaceRoot);
@@ -296,6 +300,9 @@ export async function createMakaCliRuntimeContext(
       now: Date.now,
       ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
       ...(input.permissionRules !== undefined ? { permissionRules: input.permissionRules } : {}),
+      ...(runtimePersistence.runtimeCommitStore
+        ? { runtimeCommitSink: runtimePersistence.runtimeCommitStore }
+        : {}),
     });
   });
 
@@ -484,6 +491,7 @@ export async function createMakaCliRuntimeContext(
       automationScheduler.dispose();
       await shellRuns.terminateAll();
       shellRunListeners.clear();
+      runtimePersistence.close();
     },
   };
 }

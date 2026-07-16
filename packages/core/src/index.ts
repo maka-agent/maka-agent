@@ -86,6 +86,7 @@ export type {
   RuntimeEventPermissionDecision,
   RuntimeEventActions,
   RuntimeEventRefs,
+  ToolRecoveryMode,
 } from './runtime-event.js';
 export {
   RUNTIME_EVENT_ROLES,

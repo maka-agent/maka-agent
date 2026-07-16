@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 
-export const SQLITE_RUNTIME_SCHEMA_VERSION = 1;
+export const SQLITE_RUNTIME_SCHEMA_VERSION = 2;
 
 const MIGRATIONS: ReadonlyMap<number, string> = new Map([
   [1, `
@@ -60,6 +60,22 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
       FOREIGN KEY(result_event_id) REFERENCES runtime_events(event_id),
       UNIQUE(invocation_id, provider_tool_call_id)
     );
+  `],
+  [2, `
+    CREATE TABLE runtime_partial_snapshots (
+      stream_key TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      invocation_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      turn_id TEXT NOT NULL,
+      after_event_id TEXT,
+      payload_json TEXT NOT NULL,
+      text_content TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX runtime_partial_snapshots_by_run
+      ON runtime_partial_snapshots(session_id, run_id, updated_at, stream_key);
   `],
 ]);
 
