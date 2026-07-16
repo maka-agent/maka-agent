@@ -1386,6 +1386,7 @@ export function AppShell({
                 turnFailedRecoveryLabels={turnFailedRecoveryLabels}
                 turnLineageBadgesByTurn={turnLineageBadgesByTurn}
                 onLineageBadgeClick={handleLineageBadgeClick}
+                onReadAttachmentBytes={window.maka.attachments.readBytes}
                 scrollTargetTurn={
                   activeId && searchScrollTarget?.sessionId === activeId
                     ? { turnId: searchScrollTarget.turnId, nonce: searchScrollTarget.nonce }

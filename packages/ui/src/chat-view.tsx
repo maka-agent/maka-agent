@@ -22,6 +22,7 @@ import {
   ModelContinuingIndicator,
   ModelProcessingIndicator,
   TurnView,
+  type ReadAttachmentBytes,
   type TurnFooterActionMeta,
   type TurnLineageBadge,
 } from './chat-turn.js';
@@ -142,6 +143,15 @@ export function ChatView(props: {
     fromAbortedTurn?: boolean;
   };
   onBranchBannerClick?: (parentSessionId: string) => void;
+  /**
+   * Host reader for image attachment bytes, threaded to each turn's user-message
+   * thumbnails. The desktop shell passes its preload `attachments.readBytes`;
+   * non-desktop hosts omit it and image thumbnails stay in their pending
+   * skeleton. Keeps @maka/ui host-agnostic (no direct `window.maka` access).
+   * Pass an identity-stable reference so the memoized TurnViews keep skipping
+   * reconciliation on the hot streaming path.
+   */
+  onReadAttachmentBytes?: ReadAttachmentBytes;
   onNew(): void;
   onPromptSuggestion?(prompt: string): void;
 }) {
@@ -386,6 +396,7 @@ export function ChatView(props: {
                 failedRecoveryLabel={props.turnFailedRecoveryLabels?.[turn.turnId]}
                 lineageBadges={props.turnLineageBadgesByTurn?.[turn.turnId]}
                 onLineageBadgeClick={stableLineageBadgeClick}
+                onReadAttachmentBytes={props.onReadAttachmentBytes}
                 searchHighlighted={highlightedTurnId === turn.turnId}
                 liveStreaming={
                   turn.turnId === tailTurnId
