@@ -83,6 +83,18 @@ export const PROVIDER_DISPLAY_COPY = {
     zh: { name: 'Xiaomi', description: '小米官方接入，MiMo 系列模型', badge: 'API' },
     en: { name: 'Xiaomi', description: 'Official Xiaomi API access for MiMo models.', badge: 'API' },
   },
+  'xiaomi-token-plan-cn': {
+    zh: { name: 'Xiaomi Token Plan 中国', description: '小米 MiMo Token Plan 订阅 · 中国 · 编码工具', badge: 'Token' },
+    en: { name: 'Xiaomi Token Plan (China)', description: 'Xiaomi MiMo Token Plan subscription (China) for coding tools.', badge: 'Token' },
+  },
+  'xiaomi-token-plan-sgp': {
+    zh: { name: 'Xiaomi Token Plan 新加坡', description: '小米 MiMo Token Plan 订阅 · 新加坡 · 编码工具', badge: 'Token' },
+    en: { name: 'Xiaomi Token Plan (Singapore)', description: 'Xiaomi MiMo Token Plan subscription (Singapore) for coding tools.', badge: 'Token' },
+  },
+  'xiaomi-token-plan-ams': {
+    zh: { name: 'Xiaomi Token Plan 欧洲', description: '小米 MiMo Token Plan 订阅 · 欧洲 · 编码工具', badge: 'Token' },
+    en: { name: 'Xiaomi Token Plan (Europe)', description: 'Xiaomi MiMo Token Plan subscription (Europe) for coding tools.', badge: 'Token' },
+  },
   cerebras: {
     zh: { name: 'Cerebras', description: '高速推理托管开源模型', badge: 'API' },
     en: { name: 'Cerebras', description: 'Fast hosted open-model inference.', badge: 'API' },

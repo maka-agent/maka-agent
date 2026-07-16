@@ -137,6 +137,35 @@ describe('ModelCatalogEntry', () => {
     });
   });
 
+  for (const providerType of [
+    'xiaomi-token-plan-cn',
+    'xiaomi-token-plan-sgp',
+    'xiaomi-token-plan-ams',
+  ] as const) {
+    it(`uses the official ${providerType} snapshot without inventing live model discovery`, () => {
+      const entries = buildConnectionModelCatalogEntries({
+        connection: {
+          slug: providerType,
+          providerType,
+          defaultModel: 'mimo-v2.5-pro',
+        },
+      });
+
+      assert.deepEqual(entries.map((entry) => entry.id), ['mimo-v2.5-pro', 'mimo-v2.5']);
+      assert.equal(entries[0]?.source, 'static_catalog');
+      assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+      assert.equal(entries[0]?.contextWindow, 1_048_576);
+      assert.equal(entries[0]?.maxOutputTokens, 131_072);
+      // mimo-v2.5-pro is text-only; mimo-v2.5 adds vision. Both reason and tool-call.
+      assert.equal(entries[0]?.capabilities.vision, undefined);
+      assert.equal(entries[0]?.capabilities.reasoning, true);
+      assert.equal(entries[0]?.capabilities.functionCalling, true);
+      assert.equal(entries[1]?.capabilities.vision, true);
+      assert.equal(entries[1]?.capabilities.reasoning, true);
+      assert.equal(entries[1]?.capabilities.functionCalling, true);
+    });
+  }
+
   it('uses the checked-in StepFun Global snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

@@ -117,6 +117,25 @@ describe('ProviderAuth contract', () => {
     }
   });
 
+  for (const providerType of [
+    'xiaomi-token-plan-cn',
+    'xiaomi-token-plan-sgp',
+    'xiaomi-token-plan-ams',
+  ] as const) {
+    test(`${providerType} uses an independent API key and fallback-model flow`, () => {
+      const contract = deriveProviderAuthContract({
+        providerType,
+        hasSecret: true,
+      });
+
+      expect(contract.providerType).toBe(providerType);
+      expect(contract.setupMode).toBe('api_key');
+      expect(contract.requiresSecret).toBe(true);
+      expect(contract.actionAvailability.test_credentials).toBe('available');
+      expect(contract.actionAvailability.fetch_models).toBe('hidden');
+    });
+  }
+
   test('Tencent Coding Plan uses the shared API-key credential and fallback-model flow', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'tencent-coding-plan',

@@ -52,6 +52,9 @@ describe('provider compatibility contract', () => {
       'xai',
       'zai',
       'xiaomi',
+      'xiaomi-token-plan-cn',
+      'xiaomi-token-plan-sgp',
+      'xiaomi-token-plan-ams',
       'cerebras',
       'mistral',
       'cohere',
@@ -100,6 +103,9 @@ describe('provider compatibility contract', () => {
       'xai',
       'zai',
       'xiaomi',
+      'xiaomi-token-plan-cn',
+      'xiaomi-token-plan-sgp',
+      'xiaomi-token-plan-ams',
       'cerebras',
       'mistral',
       'ollama',
@@ -152,6 +158,9 @@ describe('provider compatibility contract', () => {
       'xai',
       'zai',
       'xiaomi',
+      'xiaomi-token-plan-cn',
+      'xiaomi-token-plan-sgp',
+      'xiaomi-token-plan-ams',
       'cerebras',
       'mistral',
       'togetherai',
@@ -907,6 +916,48 @@ describe('provider compatibility contract', () => {
     assert.notEqual(plan.baseUrl, cn.baseUrl);
     assert.deepEqual(plan.fallbackModels, cn.fallbackModels);
   });
+
+  for (const region of [
+    {
+      type: 'xiaomi-token-plan-cn',
+      label: 'Xiaomi Token Plan (China)',
+      baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+      category: 'domestic',
+    },
+    {
+      type: 'xiaomi-token-plan-sgp',
+      label: 'Xiaomi Token Plan (Singapore)',
+      baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1',
+      category: 'overseas',
+    },
+    {
+      type: 'xiaomi-token-plan-ams',
+      label: 'Xiaomi Token Plan (Europe)',
+      baseUrl: 'https://token-plan-ams.xiaomimimo.com/v1',
+      category: 'overseas',
+    },
+  ] as const) {
+    it(`owns ${region.label} behavior under its independent persisted id`, () => {
+      const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)[region.type];
+
+      assert.ok(plan, `${region.label} must have its own persisted provider id`);
+      assert.equal(plan.label, region.label);
+      assert.equal(plan.baseUrl, region.baseUrl);
+      assert.equal(plan.authKind, 'api_key');
+      assert.equal(plan.protocol, 'openai');
+      assert.deepEqual(plan.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+      assert.deepEqual(plan.modelDiscovery, { kind: 'fallback' });
+      assert.equal(plan.category, region.category);
+      assert.equal(plan.catalogGroup, 'plans');
+      assert.equal(plan.catalogBadge, 'Token');
+      assert.equal(plan.signupUrl, 'https://platform.xiaomimimo.com/token-plan');
+      assert.equal(plan.modelsDevId, region.type);
+      // Coding-only Token Plan endpoints publish no /models list and the models.dev
+      // snapshot still carries the deprecated mimo-v2-pro and speech-only mimo-v2-tts;
+      // the fallback set must stay pinned to the two documented MiMo chat models.
+      assert.deepEqual(plan.fallbackModels, ['mimo-v2.5-pro', 'mimo-v2.5']);
+    });
+  }
 
   it('owns StepFun China direct API behavior under the stable stepfun id', () => {
     const stepfun = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).stepfun;

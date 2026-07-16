@@ -516,7 +516,10 @@ describe('icon + typography governance contract', () => {
       marks,
       /Xiaomi MiMo and Z\.AI marks vendored byte-for-byte from Lobe Icons:[\s\S]*@lobehub\/icons-static-svg@1\.91\.0[\s\S]*packages\/static-svg\/icons\/xiaomimimo\.svg[\s\S]*packages\/static-svg\/icons\/zai\.svg[\s\S]*license: MIT/,
     );
-    assert.match(marks, /case 'xiaomi':\s*return <XiaomiMiMo \/>/);
+    assert.match(
+      marks,
+      /case 'xiaomi-token-plan-cn':\s*case 'xiaomi-token-plan-sgp':\s*case 'xiaomi-token-plan-ams':\s*case 'xiaomi':\s*return <XiaomiMiMo \/>/,
+    );
     assert.match(marks, /case 'zai':\s*case 'zai-coding-plan':\s*return <ZAI \/>/);
   });
 

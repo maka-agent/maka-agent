@@ -407,6 +407,9 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
     case 'moonshot':
     case 'kimi-coding-plan':
       return <Moonshot />;
+    case 'xiaomi-token-plan-cn':
+    case 'xiaomi-token-plan-sgp':
+    case 'xiaomi-token-plan-ams':
     case 'xiaomi':
       return <XiaomiMiMo />;
     case 'zai':

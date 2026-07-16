@@ -84,6 +84,30 @@ if (xiaomi.id !== 'xiaomi' || !xiaomi.api) {
   throw new Error('models.dev Xiaomi provider facts are missing stable id xiaomi or api');
 }
 const xiaomiModelIds = toolCallingModelIds('Xiaomi', GENERATED_MODELS_DEV_METADATA.xiaomi, ['mimo-v2.5']);
+// Xiaomi MiMo Token Plan is a coding-only subscription whose /v1 endpoint publishes no
+// /models discovery contract, so this checked-in allowlist is authoritative. models.dev's
+// snapshot still carries the deprecated mimo-v2-pro and the speech-only mimo-v2-tts, which
+// must never enter the chat/tool-calling fallback set — pin the two documented MiMo chat models.
+const xiaomiTokenPlanModelIds = ['mimo-v2.5-pro', 'mimo-v2.5'] as const;
+const xiaomiTokenPlanCn = GENERATED_MODELS_DEV_PROVIDER_FACTS['xiaomi-token-plan-cn'];
+if (xiaomiTokenPlanCn.id !== 'xiaomi-token-plan-cn' || !xiaomiTokenPlanCn.api) {
+  throw new Error('models.dev Xiaomi Token Plan (China) provider facts are missing stable id or api');
+}
+const xiaomiTokenPlanSgp = GENERATED_MODELS_DEV_PROVIDER_FACTS['xiaomi-token-plan-sgp'];
+if (xiaomiTokenPlanSgp.id !== 'xiaomi-token-plan-sgp' || !xiaomiTokenPlanSgp.api) {
+  throw new Error('models.dev Xiaomi Token Plan (Singapore) provider facts are missing stable id or api');
+}
+const xiaomiTokenPlanAms = GENERATED_MODELS_DEV_PROVIDER_FACTS['xiaomi-token-plan-ams'];
+if (xiaomiTokenPlanAms.id !== 'xiaomi-token-plan-ams' || !xiaomiTokenPlanAms.api) {
+  throw new Error('models.dev Xiaomi Token Plan (Europe) provider facts are missing stable id or api');
+}
+for (const region of ['xiaomi-token-plan-cn', 'xiaomi-token-plan-sgp', 'xiaomi-token-plan-ams'] as const) {
+  for (const id of xiaomiTokenPlanModelIds) {
+    if (!GENERATED_MODELS_DEV_METADATA[region][id]?.capabilities?.functionCalling) {
+      throw new Error(`models.dev Xiaomi Token Plan snapshot ${region} is missing tool-capable model ${id}`);
+    }
+  }
+}
 const zai = GENERATED_MODELS_DEV_PROVIDER_FACTS.zai;
 if (zai.id !== 'zai' || !zai.api) {
   throw new Error('models.dev Z.AI provider facts are missing stable id zai or api');
@@ -812,6 +836,63 @@ const providerRegistry = {
     modelsDevId: xiaomi.id,
     readyOrder: 10.2,
     catalogOrder: 12.2,
+  },
+  'xiaomi-token-plan-cn': {
+    label: xiaomiTokenPlanCn.name,
+    description: 'Xiaomi MiMo Token Plan (China) subscription for interactive coding agents and tools.',
+    baseUrl: xiaomiTokenPlanCn.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [...xiaomiTokenPlanModelIds],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'domestic',
+    catalogGroup: 'plans',
+    catalogBadge: 'Token',
+    signupUrl: 'https://platform.xiaomimimo.com/token-plan',
+    modelsDevId: xiaomiTokenPlanCn.id,
+    readyOrder: 10.3,
+    catalogOrder: 12.3,
+  },
+  'xiaomi-token-plan-sgp': {
+    label: xiaomiTokenPlanSgp.name,
+    description: 'Xiaomi MiMo Token Plan (Singapore) subscription for interactive coding agents and tools.',
+    baseUrl: xiaomiTokenPlanSgp.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [...xiaomiTokenPlanModelIds],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'overseas',
+    catalogGroup: 'plans',
+    catalogBadge: 'Token',
+    signupUrl: 'https://platform.xiaomimimo.com/token-plan',
+    modelsDevId: xiaomiTokenPlanSgp.id,
+    readyOrder: 10.4,
+    catalogOrder: 12.4,
+  },
+  'xiaomi-token-plan-ams': {
+    label: xiaomiTokenPlanAms.name,
+    description: 'Xiaomi MiMo Token Plan (Europe) subscription for interactive coding agents and tools.',
+    baseUrl: xiaomiTokenPlanAms.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [...xiaomiTokenPlanModelIds],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'overseas',
+    catalogGroup: 'plans',
+    catalogBadge: 'Token',
+    signupUrl: 'https://platform.xiaomimimo.com/token-plan',
+    modelsDevId: xiaomiTokenPlanAms.id,
+    readyOrder: 10.5,
+    catalogOrder: 12.5,
   },
   cerebras: {
     label: cerebras.name,

@@ -3195,6 +3195,39 @@ setTimeout(() => {
     }
   });
 
+  for (const provider of [
+    'xiaomi-token-plan-cn',
+    'xiaomi-token-plan-sgp',
+    'xiaomi-token-plan-ams',
+  ] as const) {
+    test(`does not load ${provider} credentials in non-interactive Harbor runs`, async () => {
+      const dir = await mkdtemp(join(tmpdir(), `maka-cell-${provider}-`));
+      try {
+        const credentialsPath = join(dir, 'credentials.json');
+        await writeFile(credentialsPath, `${JSON.stringify({
+          version: 1,
+          values: { [`${provider}:apiKey`]: 'must-not-load-in-headless' },
+        })}\n`, 'utf8');
+
+        const resolved = resolveHarborCellAiSdkEnv({
+          provider,
+          model: 'mimo-v2.5-pro',
+          env: {
+            MAKA_CREDENTIALS_PATH: credentialsPath,
+            XIAOMI_API_KEY: 'must-also-not-load-in-headless',
+          },
+          ts: 1,
+        });
+
+        assert.equal(resolved.apiKey, '');
+        assert.equal(resolved.connection.providerType, provider);
+        assert.equal(resolved.connection.defaultModel, 'mimo-v2.5-pro');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  }
+
   test('resolves StepFun China only from its direct API credential env', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'stepfun',

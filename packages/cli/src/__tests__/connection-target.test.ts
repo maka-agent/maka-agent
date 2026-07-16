@@ -314,6 +314,35 @@ describe('default session target resolver', () => {
     }
   });
 
+  for (const providerType of [
+    'xiaomi-token-plan-cn',
+    'xiaomi-token-plan-sgp',
+    'xiaomi-token-plan-ams',
+  ] as const) {
+    test(`resolves ${providerType} credentials without rewriting the selected model id`, async () => {
+      const connection = makeConnection({
+        slug: providerType,
+        name: providerType,
+        providerType,
+        defaultModel: 'mimo-v2.5-pro',
+      });
+
+      const target = await resolveDefaultSessionTarget({
+        connectionStore: {
+          getDefault: async () => providerType,
+          get: async (slug) => slug === providerType ? connection : null,
+        },
+        credentialStore: {
+          getSecret: async (_slug, kind) => kind === 'api_key' ? `${providerType}-test-key` : null,
+        },
+      });
+
+      assert.equal(target.connection.providerType, providerType);
+      assert.equal(target.apiKey, `${providerType}-test-key`);
+      assert.equal(target.model, 'mimo-v2.5-pro');
+    });
+  }
+
   test('resolves LM Studio without reading a credential or rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'lm-studio',

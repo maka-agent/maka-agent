@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
-const PROVIDER_IDS = ['alibaba', 'alibaba-coding-plan', 'alibaba-coding-plan-cn', 'alibaba-token-plan', 'alibaba-token-plan-cn', 'anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'github-copilot', 'google', 'groq', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'opencode', 'opencode-go', 'openrouter', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'xiaomi', 'zai', 'zai-coding-plan', 'zenmux'];
+const PROVIDER_IDS = ['alibaba', 'alibaba-coding-plan', 'alibaba-coding-plan-cn', 'alibaba-token-plan', 'alibaba-token-plan-cn', 'anthropic', 'cerebras', 'cloudflare-workers-ai', 'cohere', 'deepinfra', 'deepseek', 'fireworks-ai', 'github-copilot', 'google', 'groq', 'huggingface', 'minimax', 'minimax-cn', 'mistral', 'moonshotai-cn', 'nvidia', 'ollama-cloud', 'openai', 'opencode', 'opencode-go', 'openrouter', 'siliconflow', 'stepfun', 'stepfun-ai', 'stepfun-ai-step-plan', 'tencent-coding-plan', 'tencent-token-plan', 'tencent-tokenhub', 'togetherai', 'vercel', 'xai', 'xiaomi', 'xiaomi-token-plan-ams', 'xiaomi-token-plan-cn', 'xiaomi-token-plan-sgp', 'zai', 'zai-coding-plan', 'zenmux'];
 
 function withRequiredProviders(openai) {
   return Object.fromEntries(PROVIDER_IDS.map((id) => {
@@ -165,6 +165,50 @@ test('sync-model-metadata vendors Xiaomi provider facts and exact MiMo model ids
   assert.match(generated, /"xiaomi": \{/);
   assert.match(generated, /"xiaomi": \{"id":"xiaomi","name":"Xiaomi","api":"https:\/\/api\.xiaomimimo\.com\/v1"/);
   assert.match(generated, /"mimo-v2\.5": \{"displayName":"MiMo-V2\.5"/);
+});
+
+test('sync-model-metadata vendors the three Xiaomi Token Plan regions and exact MiMo model ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'maka-model-metadata-'));
+  const input = join(directory, 'api.json');
+  const output = join(directory, 'generated.ts');
+  const catalog = withRequiredProviders({});
+  const regions = {
+    'xiaomi-token-plan-cn': { name: 'Xiaomi Token Plan (China)', host: 'token-plan-cn' },
+    'xiaomi-token-plan-sgp': { name: 'Xiaomi Token Plan (Singapore)', host: 'token-plan-sgp' },
+    'xiaomi-token-plan-ams': { name: 'Xiaomi Token Plan (Europe)', host: 'token-plan-ams' },
+  };
+  for (const [id, { name, host }] of Object.entries(regions)) {
+    catalog[id] = {
+      ...catalog[id],
+      id,
+      name,
+      api: `https://${host}.xiaomimimo.com/v1`,
+      doc: 'https://platform.xiaomimimo.com/#/docs',
+      models: {
+        'mimo-v2.5-pro': {
+          id: 'mimo-v2.5-pro', name: 'MiMo-V2.5-Pro', reasoning: true, tool_call: true,
+          modalities: { input: ['text'], output: ['text'] },
+          limit: { context: 1_048_576, output: 131_072 },
+        },
+        'mimo-v2.5': {
+          id: 'mimo-v2.5', name: 'MiMo-V2.5', reasoning: true, tool_call: true,
+          modalities: { input: ['text', 'image'], output: ['text'] },
+          limit: { context: 1_048_576, output: 131_072 },
+        },
+      },
+    };
+  }
+  await writeFile(input, JSON.stringify(catalog));
+
+  await execFileAsync(process.execPath, [
+    'scripts/sync-model-metadata.mjs', '--input', input, '--output', output,
+  ]);
+
+  const generated = await readFile(output, 'utf8');
+  assert.match(generated, /"xiaomi-token-plan-cn": \{"id":"xiaomi-token-plan-cn","name":"Xiaomi Token Plan \(China\)","api":"https:\/\/token-plan-cn\.xiaomimimo\.com\/v1"/);
+  assert.match(generated, /"xiaomi-token-plan-sgp": \{"id":"xiaomi-token-plan-sgp","name":"Xiaomi Token Plan \(Singapore\)","api":"https:\/\/token-plan-sgp\.xiaomimimo\.com\/v1"/);
+  assert.match(generated, /"xiaomi-token-plan-ams": \{"id":"xiaomi-token-plan-ams","name":"Xiaomi Token Plan \(Europe\)","api":"https:\/\/token-plan-ams\.xiaomimimo\.com\/v1"/);
+  assert.match(generated, /"mimo-v2\.5-pro": \{"displayName":"MiMo-V2\.5-Pro"/);
 });
 
 test('sync-model-metadata keeps Z.AI direct API separate from its coding plan', async () => {

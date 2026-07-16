@@ -449,6 +449,29 @@ describe('FileConnectionStore', () => {
     }
   });
 
+  for (const providerType of [
+    'xiaomi-token-plan-cn',
+    'xiaomi-token-plan-sgp',
+    'xiaomi-token-plan-ams',
+  ] as const) {
+    test(`persists the ${providerType} provider id and exact default model`, async () => {
+      await withConnectionStore(async (store, dir) => {
+        await store.create({
+          slug: providerType,
+          name: providerType,
+          providerType,
+          defaultModel: 'mimo-v2.5-pro',
+        });
+
+        const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+          connections: Array<{ providerType: string; defaultModel: string }>;
+        };
+        assert.equal(persisted.connections[0]?.providerType, providerType);
+        assert.equal(persisted.connections[0]?.defaultModel, 'mimo-v2.5-pro');
+      });
+    });
+  }
+
   test('persists the LM Studio provider id and exact local model id', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({
