@@ -10,6 +10,7 @@ import {
   applyMakaSessionEventToTranscript,
   applyShellRunUpdateToTranscript,
   createMakaPiTranscriptState,
+  renderMakaPiActivityStrip,
   renderMakaPiStatusLine,
   renderMakaPiTranscript,
   refreshRunningShellRunElapsed,
@@ -2365,6 +2366,21 @@ describe('Maka Pi TUI status line', () => {
       usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0, contextRemaining: 96_000 },
     }, 100));
     assert.doesNotMatch(line, /ctx /);
+  });
+});
+
+describe('Maka Pi TUI activity strip', () => {
+  test('shows Working… Ns when turnElapsedMs is set', () => {
+    const line = stripAnsi(renderMakaPiActivityStrip({
+      ...meta(),
+      turnElapsedMs: 5_500,
+    }, 100));
+    assert.equal(line, 'Working… 5s');
+  });
+
+  test('shows blank row when turnElapsedMs is undefined', () => {
+    const line = renderMakaPiActivityStrip(meta(), 100);
+    assert.equal(line, '');
   });
 });
 

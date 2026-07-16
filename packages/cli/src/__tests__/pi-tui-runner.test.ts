@@ -711,6 +711,36 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('shows Working… in the activity strip while a turn runs', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new HangingTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('hello');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Working…'));
+    assert.match(plainTerminalOutput(terminal.screenOutput()), /Working… \d+s/);
+
+    driver.releaseComplete();
+    await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('Working…'));
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('uses logo blue for TUI accent chrome', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -3870,6 +3900,39 @@ class HangingCloseDriver extends SlashCommandDriver {
   releaseStop(): void {
     this.resolveStop?.();
     this.resolveStop = null;
+  }
+}
+
+class HangingTurnDriver extends SlashCommandDriver {
+  private resolveComplete: (() => void) | null = null;
+
+  override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    yield {
+      type: 'text_delta',
+      id: 'event-text-delta',
+      turnId: 'turn-1',
+      ts: 1,
+      messageId: 'msg-1',
+      text: 'thinking…',
+    };
+    await new Promise<void>((resolve) => {
+      this.resolveComplete = resolve;
+    });
+    yield {
+      type: 'text_complete',
+      id: 'event-text-complete',
+      turnId: 'turn-1',
+      ts: 2,
+      messageId: 'msg-1',
+      text: 'done',
+    };
+    yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 3, stopReason: 'end_turn' };
+  }
+
+  releaseComplete(): void {
+    this.resolveComplete?.();
+    this.resolveComplete = null;
   }
 }
 

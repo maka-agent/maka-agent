@@ -109,6 +109,8 @@ export interface MakaPiTranscriptMetadata {
   usage?: MakaPiUsageSummary;
   /** Maximum context tokens for the active model, for the `ctx used/window pct%` segment. */
   modelContextWindow?: number;
+  /** Elapsed milliseconds of the running agent turn, for the activity strip. */
+  turnElapsedMs?: number;
 }
 
 export function createMakaPiTranscriptState(): MakaPiTranscriptState {
@@ -955,6 +957,18 @@ export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width
   parts.push(ansi.dim(metadata.connectionSlug));
   parts.push(ansi.dim(metadata.cwd));
   return fitLine(parts.join(sep), safeWidth);
+}
+
+/**
+ * One-line activity strip shown between the transcript and the editor.
+ * Renders `Working… Ns` while a turn runs, or a blank reserved row when idle
+ * so the layout does not jump when a turn starts or ends.
+ */
+export function renderMakaPiActivityStrip(metadata: MakaPiTranscriptMetadata, width: number): string {
+  const safeWidth = Math.max(1, width);
+  if (metadata.turnElapsedMs === undefined) return '';
+  const seconds = Math.floor(metadata.turnElapsedMs / 1000);
+  return fitLine(ansi.dim(`Working… ${seconds}s`), safeWidth);
 }
 
 function formatTokenCount(tokens: number): string {

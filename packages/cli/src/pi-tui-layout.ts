@@ -1,5 +1,6 @@
 import { Container, type Component, type Terminal } from '@earendil-works/pi-tui';
 import {
+  renderMakaPiActivityStrip,
   renderMakaPiStatusLine,
   renderMakaPiTranscript,
   type MakaPiTranscriptMetadata,
@@ -29,6 +30,16 @@ export class MakaStatusLineComponent implements Component {
   }
 }
 
+export class MakaActivityStripComponent implements Component {
+  constructor(private readonly metadata: () => MakaPiTranscriptMetadata) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    return [renderMakaPiActivityStrip(this.metadata(), width)];
+  }
+}
+
 /**
  * Stacks the transcript above the editor and status line. The transcript is
  * never windowed: every line is emitted and, when the whole document is taller
@@ -44,26 +55,30 @@ export class MakaStatusLineComponent implements Component {
 export class MakaPiLayoutComponent extends Container {
   constructor(
     private readonly transcript: MakaTranscriptComponent,
+    private readonly activityStrip: MakaActivityStripComponent,
     private readonly editor: Component,
     private readonly statusLine: Component,
     private readonly terminal: Terminal,
   ) {
     super();
     this.addChild(transcript);
+    this.addChild(activityStrip);
     this.addChild(editor);
     this.addChild(statusLine);
   }
 
   render(width: number): string[] {
     const transcriptLines = this.transcript.render(width);
+    const activityLines = this.activityStrip.render(width);
     const editorLines = this.editor.render(width);
     const statusLines = this.statusLine.render(width);
-    const chromeRows = editorLines.length + statusLines.length;
+    const chromeRows = activityLines.length + editorLines.length + statusLines.length;
     const viewportRows = Math.max(0, this.terminal.rows - chromeRows);
     const paddingRows = Math.max(0, viewportRows - transcriptLines.length);
     return [
       ...transcriptLines,
       ...Array.from({ length: paddingRows }, () => ''),
+      ...activityLines,
       ...editorLines,
       ...statusLines,
     ];

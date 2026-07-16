@@ -54,6 +54,7 @@ import {
   FOCUS_OUT_SEQUENCE,
 } from './tui-attention.js';
 import {
+  MakaActivityStripComponent,
   MakaPiLayoutComponent,
   MakaStatusLineComponent,
   MakaTranscriptComponent,
@@ -134,6 +135,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     answers: Array<string | null>;
   } | undefined;
   let turnRunning = false;
+  let turnStartedAt: number | undefined;
   let interruptRequested = false;
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
@@ -157,16 +159,18 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     busy,
     usage: state.usage,
     modelContextWindow,
+    turnElapsedMs: turnStartedAt !== undefined ? Date.now() - turnStartedAt : undefined,
   });
 
   const transcript = new MakaTranscriptComponent(state, metadata);
+  const activityStrip = new MakaActivityStripComponent(metadata);
   const statusLine = new MakaStatusLineComponent(metadata);
   // Show the whole slash-command set at once — discoverability is the point of
   // the menu. Keep a little headroom above the current command count.
   const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: EDITOR_AUTOCOMPLETE_MAX_VISIBLE });
   let refreshEditorCwd: ((cwd: string) => void) | undefined;
   const editorSurface = new MakaAutocompleteAboveEditorComponent(editor);
-  const layout = new MakaPiLayoutComponent(transcript, editorSurface, statusLine, terminal);
+  const layout = new MakaPiLayoutComponent(transcript, activityStrip, editorSurface, statusLine, terminal);
   const attention = new AttentionController(terminal, {
     baseTitle: input.title,
     ...(input.attentionLongTurnThresholdMs !== undefined
@@ -182,6 +186,20 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     state,
     onTick: requestRender,
   });
+  // 1-second heartbeat that re-renders the activity strip's elapsed counter
+  // while a turn runs. Stopped on turn end and disposed on teardown.
+  let turnElapsedInterval: ReturnType<typeof setInterval> | undefined;
+  const startTurnElapsedTicker = () => {
+    if (turnElapsedInterval) return;
+    turnElapsedInterval = setInterval(() => requestRender(), 1_000);
+    turnElapsedInterval.unref();
+  };
+  const stopTurnElapsedTicker = () => {
+    if (turnElapsedInterval) {
+      clearInterval(turnElapsedInterval);
+      turnElapsedInterval = undefined;
+    }
+  };
   let shellRunOwnerMappings: ShellRunUpdate[] = [];
   let hydratingShellRunsFor: string | undefined;
   let shellRunHydrationEpoch = 0;
@@ -311,6 +329,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     unsubscribeShellRunUpdates?.();
     resetShellRunSessionState();
     shellRunElapsedTicker.dispose();
+    stopTurnElapsedTicker();
     terminal.setProgress(false);
     // Drop the busy / attention title marker so the tab is not handed back to
     // the shell still marked busy when the session exits.
@@ -416,6 +435,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   function runAgentTurn(prompt: string): void {
     busy = true;
     turnRunning = true;
+    turnStartedAt = Date.now();
+    startTurnElapsedTicker();
     interruptRequested = false;
     lastTurnEscapeAt = 0;
     editor.disableSubmit = true;
@@ -459,6 +480,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     }).finally(() => {
       busy = false;
       turnRunning = false;
+      turnStartedAt = undefined;
+      stopTurnElapsedTicker();
       interruptRequested = false;
       editor.disableSubmit = false;
       terminal.setProgress(false);
