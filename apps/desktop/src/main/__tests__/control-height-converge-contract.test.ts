@@ -308,9 +308,9 @@ describe('control-height whitelist negative cases', () => {
     assert.ok(offendersJb.some((o) => o.includes('missing required width')), `missing width must be flagged: ${offendersJb}`);
     // .settingsNavItem is mapped with props: ['height', 'min-height'] — both
     // required. Deleting either one must flag.
-    const navCheck: ControlHeightCheck = { selector: '.settingsNavItem', props: ['height', 'min-height'], token: '--h-control-xl' };
-    assert.ok(checkSelectorTier('.settingsNavItem {\n  min-height: var(--h-control-xl);\n}', navCheck).some((o) => o.includes('missing required height')), 'missing height must be flagged');
-    assert.ok(checkSelectorTier('.settingsNavItem {\n  height: var(--h-control-xl);\n}', navCheck).some((o) => o.includes('missing required min-height')), 'missing min-height must be flagged');
+    const navCheck: ControlHeightCheck = { selector: '.settingsNavItem', props: ['height', 'min-height'], token: '--h-control-lg' };
+    assert.ok(checkSelectorTier('.settingsNavItem {\n  min-height: var(--h-control-lg);\n}', navCheck).some((o) => o.includes('missing required height')), 'missing height must be flagged');
+    assert.ok(checkSelectorTier('.settingsNavItem {\n  height: var(--h-control-lg);\n}', navCheck).some((o) => o.includes('missing required min-height')), 'missing min-height must be flagged');
     // A complete fixture (both props present, correct tier) passes.
     assert.deepEqual(checkSelectorTier('.maka-chat-jump-bottom {\n  width: var(--h-control-md);\n  height: var(--h-control-md);\n}', jbCheck), [], 'complete square control must pass');
   });
