@@ -84,6 +84,7 @@ export type RuntimeEventReplayDiagnosticCode =
   | 'unsupported_content'
   | 'system_runtime_fact_diagnostic_only'
   | 'terminal_fact_diagnostic_only'
+  | 'error_content_diagnostic_only'
   | 'empty_text_skipped'
   | 'unsigned_thinking_skipped'
   | 'signed_thinking_in_tool_turn_skipped'
@@ -369,6 +370,20 @@ export function buildRuntimeEventModelReplayPlan(
           event,
           'empty_text_skipped',
           'empty model text RuntimeEvent (thinking/tool-only step closer) skipped for model replay',
+        ));
+        continue;
+      }
+      // Error content is a run/turn failure fact (a flow error event or a
+      // terminal recovery commit), not model conversation. It must stay
+      // diagnostic-only: `unsupported_content` is a BLOCKING diagnostic (see
+      // hasBlockingReplayDiagnostics), and one persisted failure would
+      // otherwise degrade every later turn of the session to the
+      // stored-message projection.
+      if (event.content.kind === 'error') {
+        diagnostics.push(diagnostic(
+          event,
+          'error_content_diagnostic_only',
+          'error RuntimeEvent content is diagnostic-only for model replay',
         ));
         continue;
       }

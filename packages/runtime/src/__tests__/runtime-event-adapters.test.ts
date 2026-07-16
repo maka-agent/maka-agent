@@ -1189,6 +1189,50 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
     expect(plan.items).toHaveLength(1);
     expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toContain('terminal_fact_diagnostic_only');
   });
+
+  test('error-content RuntimeEvents are diagnostic-only, never blocking', () => {
+    // A run that errored (or was recovered after an app restart) lands error
+    // events in the ledger: a non-terminal error fact from the flow, and a
+    // terminal commit carrying the failure as error content. Neither is model
+    // conversation — flagging them `unsupported_content` (a blocking
+    // diagnostic) would degrade every later turn of the session to the
+    // stored-message projection.
+    const events: RuntimeEvent[] = [
+      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'q' } }),
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: { command: 'ls' } },
+      }),
+      ev({
+        role: 'tool',
+        author: 'tool',
+        content: { kind: 'function_response', id: 'tool-1', name: 'Bash', result: { ok: true }, isError: false },
+      }),
+      // Non-terminal error fact (ai-sdk-flow: the terminal complete follows).
+      ev({
+        role: 'system',
+        author: 'system',
+        content: { kind: 'error', code: 'api_error', reason: 'api_error', message: 'boom' },
+      }),
+      // Terminal recovery commit (terminal-run-commit after an app restart).
+      ev({
+        role: 'system',
+        author: 'system',
+        status: 'failed',
+        content: { kind: 'error', code: 'app_restarted', reason: 'app_restarted', message: 'app_restarted' },
+        actions: { endInvocation: true },
+      }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+
+    const codes = plan.diagnostics.map((diagnostic) => diagnostic.code);
+    expect(codes).not.toContain('unsupported_content');
+    expect(codes.filter((code) => code === 'error_content_diagnostic_only')).toHaveLength(2);
+    expect(plan.items.map((item) => item.kind)).toEqual(['text', 'tool_call', 'tool_result']);
+    expect(plan.hasProviderNativeSemantics).toBe(true);
+  });
 });
 
 // ============================================================================
