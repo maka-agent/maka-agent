@@ -11,6 +11,7 @@ export {
   migrateLegacyCredentialFile,
 } from './credential-store.js';
 export type {
+  CredentialCasResult,
   CredentialKind,
   CredentialStore,
   LegacyCredentialDecryptor,
