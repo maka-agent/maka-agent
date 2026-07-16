@@ -656,6 +656,70 @@ describe('TaskLedgerStore', () => {
     );
   });
 
+  it('atomically self-claims only available tasks and limits one task per child turn', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [first, second] } = await store.create(SESSION_ID, [
+      { subject: 'first shared task' },
+      { subject: 'second shared task' },
+    ], { actor: 'main_agent', runId: 'lead-run', turnId: 'lead-turn' });
+    assert.ok(first && second);
+    const owner = { actor: 'child_agent' as const, agentId: 'expert:code-review:correctness-reviewer', turnId: 'child-turn' };
+    const scope = { parentRunId: 'lead-run' };
+    const claimed = await store.claimAvailable(SESSION_ID, first.id, owner, scope, { actor: 'child_agent', source: 'tool' });
+    assert.equal(claimed.updated.status, 'in_progress');
+    assert.deepEqual(claimed.updated.owner, owner);
+    assert.equal((await store.claimAvailable(SESSION_ID, first.id, owner, scope)).updated.id, first.id);
+    await assert.rejects(
+      () => store.claimAvailable(SESSION_ID, second.id, owner, scope),
+      /already owns task T1/,
+    );
+  });
+
+  it('refuses self-claim of unowned tasks or tasks shared by another lead run', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [unowned] } = await store.create(SESSION_ID, [{ subject: 'ordinary task' }]);
+    const { created: [olderRun] } = await store.create(
+      SESSION_ID,
+      [{ subject: 'older team task' }],
+      { actor: 'main_agent', runId: 'older-lead-run', turnId: 'older-lead-turn' },
+    );
+    assert.ok(unowned && olderRun);
+    const owner = { actor: 'child_agent' as const, agentId: 'agent-a', turnId: 'turn-a' };
+    const scope = { parentRunId: 'lead-run' };
+    await assert.rejects(() => store.claimAvailable(SESSION_ID, unowned.id, owner, scope), /not shared by parent run/);
+    await assert.rejects(() => store.claimAvailable(SESSION_ID, olderRun.id, owner, scope), /not shared by parent run/);
+  });
+
+  it('resolves concurrent self-claim races inside the write queue', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [task] } = await store.create(
+      SESSION_ID,
+      [{ subject: 'shared' }],
+      { actor: 'main_agent', runId: 'lead-run', turnId: 'lead-turn' },
+    );
+    assert.ok(task);
+    const outcomes = await Promise.allSettled([
+      store.claimAvailable(
+        SESSION_ID,
+        task.id,
+        { actor: 'child_agent', agentId: 'agent-a', turnId: 'turn-a' },
+        { parentRunId: 'lead-run' },
+      ),
+      store.claimAvailable(
+        SESSION_ID,
+        task.id,
+        { actor: 'child_agent', agentId: 'agent-b', turnId: 'turn-b' },
+        { parentRunId: 'lead-run' },
+      ),
+    ]);
+    assert.equal(outcomes.filter((outcome) => outcome.status === 'fulfilled').length, 1);
+    assert.equal(outcomes.filter((outcome) => outcome.status === 'rejected').length, 1);
+    assert.equal((await store.get(SESSION_ID, task.id))?.status, 'in_progress');
+  });
+
   it('backfills old JSONL fields and persists compatibility events on the next write', async () => {
     const root = await tempRoot();
     await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });

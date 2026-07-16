@@ -84,6 +84,11 @@ export interface TaskAgentOutcome {
   reason?: string;
 }
 
+export interface TaskAvailableClaimScope {
+  /** Main AgentRun that made this task available to its child team. */
+  parentRunId: string;
+}
+
 /**
  * Store contract shared by the storage implementation and the runtime tools.
  * Mutations return the changed task(s) and the new total, computed inside the
@@ -97,6 +102,7 @@ export interface TaskLedgerStore {
   create(sessionId: string, drafts: unknown, context?: TaskLedgerMutationContext): Promise<{ created: Task[]; total: number }>;
   update(sessionId: string, id: string, patch: unknown, context?: TaskLedgerMutationContext): Promise<{ updated: Task; total: number }>;
   claim(sessionId: string, id: string, owner: TaskOwner, context?: TaskLedgerMutationContext): Promise<{ updated: Task; total: number }>;
+  claimAvailable(sessionId: string, id: string, owner: TaskOwner, scope: TaskAvailableClaimScope, context?: TaskLedgerMutationContext): Promise<{ updated: Task; total: number }>;
   settleAgentOutcome(sessionId: string, id: string, outcome: TaskAgentOutcome, context?: TaskLedgerMutationContext): Promise<{ updated: Task; total: number }>;
   subscribe(listener: (event: TaskLedgerChangedEvent) => void): () => void;
 }

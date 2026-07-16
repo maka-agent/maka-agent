@@ -12,6 +12,7 @@ import {
   requireBuiltinAgentDefinitionByProfile,
 } from './agent-catalog.js';
 import type { ToolGroup } from './tool-availability.js';
+import { AGENT_TEAM_CHILD_TOOL_NAMES } from './agent-team-tool-names.js';
 
 export const AGENT_SPAWN_TOOL_NAME = 'agent_spawn';
 export const AGENT_LIST_TOOL_NAME = 'agent_list';
@@ -44,6 +45,12 @@ export function buildChildAgentTools(tools: readonly MakaTool[]): MakaTool[] {
       seen.add(tool.name);
       out.push(tool);
     }
+  }
+  for (const name of AGENT_TEAM_CHILD_TOOL_NAMES) {
+    const tool = tools.find((candidate) => candidate.name === name);
+    if (!tool || seen.has(name)) continue;
+    seen.add(name);
+    out.push(tool);
   }
   return out;
 }

@@ -34,6 +34,7 @@
     "./bot-events": "./dist/bot-events.js",
     "./bot-platform-hints": "./dist/bot-platform-hints.js",
     "./plan-reminders": "./dist/plan-reminders.js",
+    "./agent-mailbox": "./dist/agent-mailbox.js",
     "./task-ledger": "./dist/task-ledger.js",
     "./memory": "./dist/memory.js",
     "./voice": "./dist/voice.js",

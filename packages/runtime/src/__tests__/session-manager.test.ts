@@ -55,6 +55,7 @@ import {
   getExpertTeam,
   materializeExpertAgentDefinition,
 } from '../expert-catalog.js';
+import { AGENT_TEAM_CHILD_TOOL_NAMES } from '../agent-team-tool-names.js';
 
 describe('SessionManager manual compaction', () => {
   test('runs backend history compaction as a runtime turn and persists diagnostics', async () => {
@@ -2890,6 +2891,10 @@ describe('SessionManager permission mode updates', () => {
         testTool('Glob'),
         testTool('WebSearch'),
         testTool('Grep'),
+        ...AGENT_TEAM_CHILD_TOOL_NAMES.map((name) => ({
+          ...testTool(name),
+          categoryHint: 'read' as const,
+        })),
       ],
       newId: nextId(),
       now: nextNow(7_200),
@@ -2917,8 +2922,16 @@ describe('SessionManager permission mode updates', () => {
     // The resolver flowed the materialized expert definition through the child
     // turn: read-only archetype scope + composed persona + explore permission.
     expect(contexts.map((ctx) => ctx.header.permissionMode)).toEqual(['ask', 'explore']);
-    expect(contexts[1]?.tools?.map((tool) => tool.name)).toEqual(['Read', 'Glob', 'Grep']);
+    expect(contexts[1]?.tools?.map((tool) => tool.name)).toEqual([
+      'Read', 'Glob', 'Grep', ...AGENT_TEAM_CHILD_TOOL_NAMES,
+    ]);
     expect(contexts[1]?.systemPrompt).toBe(expected.systemPrompt);
+    expect(contexts[1]?.agentTeam).toEqual({
+      role: 'member',
+      teamId: team.id,
+      agentId: expertId,
+      parentRunId: parentRun.runId,
+    });
 
     const childRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'child-turn');
     expect(childRun?.agentId).toBe(expertId);

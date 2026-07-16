@@ -904,6 +904,13 @@ function taskLedgerStub(task: Task | undefined, calls: string[]): TaskLedgerStor
       task.owner = owner;
       return { updated: task, total: 1 };
     },
+    claimAvailable: async (_sessionId, _id, owner: TaskOwner) => {
+      if (!task) throw new Error('No such task');
+      calls.push(`claimAvailable:${owner.turnId}`);
+      task.status = 'in_progress';
+      task.owner = owner;
+      return { updated: task, total: 1 };
+    },
     settleAgentOutcome: async (_sessionId, _id, outcome: TaskAgentOutcome) => {
       if (!task) throw new Error('No such task');
       calls.push(`settle:${outcome.status}:${outcome.owner.runId}`);

@@ -95,6 +95,7 @@ import {
   formatSyntheticToolErrorText,
   type MakaTool,
   type MakaToolContext,
+  type AgentTeamExecutionContext,
 } from './tool-runtime.js';
 import {
   ModelAdapter,
@@ -719,6 +720,8 @@ export interface AiSdkBackendInput {
   /** Canonical-named tools available this session. Backend wraps each with
    *  permission gating before passing to ai-sdk. */
   tools: MakaTool[];
+  /** Trusted identity for expert-team lead/member collaboration tools. */
+  agentTeam?: AgentTeamExecutionContext;
   /**
    * Optional unified tool-availability config (issue #37). With `economy: true`,
    * only core + ungrouped tools are advertised each turn; each group's tools are
@@ -933,6 +936,7 @@ export class AiSdkBackend implements AgentBackend {
       now: this.now,
       getPermissionPauseTarget: () => this.currentWatchdog,
       getCurrentRunId: () => this.currentRunId ?? undefined,
+      agentTeam: input.agentTeam,
       getCurrentStepId: () => this.currentStepMessageId ?? undefined,
       permissionRules: input.permissionRules,
       spawnChildAgent: input.spawnChildAgent,

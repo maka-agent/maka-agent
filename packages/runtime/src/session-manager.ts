@@ -66,7 +66,7 @@ import {
 } from './terminal-run-commit.js';
 
 import type { AgentBackend, BackendStopMode } from '@maka/core/backend-types';
-import type { MakaTool } from './tool-runtime.js';
+import type { AgentTeamExecutionContext, MakaTool } from './tool-runtime.js';
 import type { RunTraceRecorder } from './run-trace.js';
 import type { ShellRunProcessManager } from './shell-run-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
@@ -212,6 +212,8 @@ export interface BackendFactoryContext {
    */
   systemPrompt?: string;
   tools?: readonly MakaTool[];
+  /** Trusted child expert-team identity. Main-session factories leave this undefined. */
+  agentTeam?: AgentTeamExecutionContext;
   recordRunTrace?: RunTraceRecorder;
   loadHistoryCompactCheckpoint?: () => Promise<HistoryCompactCheckpoint | undefined>;
   recordHistoryCompactCheckpoint?: (checkpoint: HistoryCompactCheckpoint, turnId: string) => Promise<void>;

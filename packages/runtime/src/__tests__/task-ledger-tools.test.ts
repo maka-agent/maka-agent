@@ -87,6 +87,10 @@ class FakeTaskLedgerStore implements TaskLedgerStore {
     return { updated: { ...task }, total: this.tasks.length };
   }
 
+  async claimAvailable(sessionId: string, id: string, owner: TaskOwner): Promise<{ updated: Task; total: number }> {
+    return this.claim(sessionId, id, owner);
+  }
+
   async settleAgentOutcome(_sessionId: string, id: string, outcome: TaskAgentOutcome): Promise<{ updated: Task; total: number }> {
     const task = this.tasks.find((item) => item.id === id || item.key === id);
     if (!task) throw new Error(`No such task: ${id}`);

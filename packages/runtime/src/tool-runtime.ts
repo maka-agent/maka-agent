@@ -130,6 +130,8 @@ export interface MakaToolContext {
   toolCallId: string;
   abortSignal: AbortSignal;
   emitOutput: (stream: ToolOutputStream, chunk: string) => void;
+  /** Trusted expert-team identity supplied by RuntimeKernel/backend wiring. */
+  agentTeam?: AgentTeamExecutionContext;
   /** One-call grants already approved and consumed by ToolRuntime. */
   permissionContext?: ToolExecutionPermissionContext;
   spawnChildAgent?: (input: {
@@ -140,6 +142,14 @@ export interface MakaToolContext {
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
   askUserQuestion?: (questions: UserQuestion[]) => Promise<UserQuestionResult>;
+}
+
+export interface AgentTeamExecutionContext {
+  role: 'lead' | 'member';
+  teamId: string;
+  agentId: string;
+  /** Lead AgentRun that owns this team execution. Required for members. */
+  parentRunId?: string;
 }
 
 export type AppendMessageFn = (m: ToolCallMessage | ToolResultMessage | PermissionDecisionMessage) => Promise<void>;
@@ -186,6 +196,7 @@ export interface ToolRuntimeInput {
   now: () => number;
   getPermissionPauseTarget: () => { pause(): void; resume(): void } | null;
   getCurrentRunId?: () => string | undefined;
+  agentTeam?: AgentTeamExecutionContext;
   /**
    * Id of the assistant step currently streaming, stamped onto each tool call's
    * `tool_start` event so model replay can group a step's reasoning + tool calls
@@ -1022,6 +1033,7 @@ export class ToolRuntime {
           toolCallId: toolUseId,
           abortSignal: ctx.abortSignal,
           emitOutput: output.emit,
+          ...(this.input.agentTeam ? { agentTeam: this.input.agentTeam } : {}),
           ...(permissionContext ? { permissionContext } : {}),
           ...(this.input.listChildAgents ? { listChildAgents: this.input.listChildAgents } : {}),
           ...(this.input.readChildAgentOutput ? { readChildAgentOutput: this.input.readChildAgentOutput } : {}),

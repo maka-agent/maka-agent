@@ -206,6 +206,7 @@ describe('task ledger contract', () => {
         create: async () => ({ created: [], total: 0 }),
         update: async () => ({ updated: {} as Task, total: 0 }),
         claim: async () => ({ updated: {} as Task, total: 0 }),
+        claimAvailable: async () => ({ updated: {} as Task, total: 0 }),
         settleAgentOutcome: async () => ({ updated: {} as Task, total: 0 }),
         subscribe: () => () => {},
       },

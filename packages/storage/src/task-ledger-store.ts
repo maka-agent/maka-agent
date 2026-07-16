@@ -23,6 +23,7 @@ import {
   classifyTaskResumeTrust,
   type Task,
   type TaskAgentOutcome,
+  type TaskAvailableClaimScope,
   type TaskLedgerChangedEvent,
   type TaskLedgerEvent,
   type TaskLedgerEventTaskSnapshot,
@@ -216,6 +217,62 @@ class FileTaskLedgerStore implements TaskLedgerStore {
       updated = clearStaleTaskEvidence({ ...current, status: 'in_progress', owner, updatedAt: Date.now() });
       return tasks.map((task) => task.id === current.id ? updated! : task);
     }, () => previous && updated ? [buildTaskLedgerEvent({
+      type: taskLedgerEventTypeForUpdate(previous, updated), sessionId, task: updated, previous, context,
+    })] : []);
+    if (!updated) throw new Error(`No such task: ${id}`);
+    return { updated, total: all.length };
+  }
+
+  async claimAvailable(
+    sessionId: string,
+    id: string,
+    owner: TaskOwner,
+    scope: TaskAvailableClaimScope,
+    context: TaskLedgerMutationContext = {},
+  ): Promise<{ updated: Task; total: number }> {
+    assertSafeSessionId(sessionId);
+    assertChildTaskOwner(owner);
+    if (!isSafeTaskId(scope.parentRunId)) throw new Error('Available task claim requires a stable parent AgentRun id');
+    let updated: Task | undefined;
+    let previous: Task | undefined;
+    const all = await this.mutate(sessionId, (tasks) => {
+      const current = findTaskByRef(tasks, id);
+      if (!current) throw new Error(`No such task: ${id}`);
+      if (isTerminalTaskStatus(current.status)) throw new Error(`Cannot claim terminal task ${current.key}`);
+
+      const alreadyClaimed = tasks.find((task) =>
+        task.id !== current.id
+        && !isTerminalTaskStatus(task.status)
+        && task.owner?.actor === 'child_agent'
+        && task.owner.turnId === owner.turnId
+      );
+      if (alreadyClaimed) {
+        throw new Error(`Child agent already owns task ${alreadyClaimed.key}; one shared task may be claimed per child turn`);
+      }
+
+      const sameOwner = current.owner?.actor === 'child_agent'
+        && current.owner.turnId === owner.turnId;
+      if (
+        !sameOwner
+        && (current.owner?.actor !== 'main_agent' || current.owner.runId !== scope.parentRunId)
+      ) {
+        throw new Error(`Task ${current.key} is not shared by parent run ${scope.parentRunId}`);
+      }
+      if (current.status === 'in_progress' && !sameOwner) {
+        throw new Error(`Task ${current.key} is already in progress and is not available for self-claim`);
+      }
+      if (current.owner?.actor === 'child_agent' && !sameOwner) {
+        throw new Error(`Task ${current.key} is already claimed by another child agent`);
+      }
+
+      previous = current;
+      updated = sameOwner && current.status === 'in_progress'
+        ? current
+        : clearStaleTaskEvidence({ ...current, status: 'in_progress', owner, updatedAt: Date.now() });
+      return updated === current
+        ? tasks
+        : tasks.map((task) => task.id === current.id ? updated! : task);
+    }, () => previous && updated && previous !== updated ? [buildTaskLedgerEvent({
       type: taskLedgerEventTypeForUpdate(previous, updated), sessionId, task: updated, previous, context,
     })] : []);
     if (!updated) throw new Error(`No such task: ${id}`);

@@ -22,7 +22,7 @@ import type { UserQuestionResponse } from '@maka/core/user-question';
 import { AgentRun, type AgentRunActiveSession, type AgentRunBeginResult, type AgentRunLineage } from './agent-run.js';
 import { AiSdkFlow, mapSessionEventToRuntimeEvent } from './ai-sdk-flow.js';
 import type { AgentBackend, SteeringLease } from '@maka/core/backend-types';
-import type { MakaTool } from './tool-runtime.js';
+import type { AgentTeamExecutionContext, MakaTool } from './tool-runtime.js';
 import type { InvocationContext, InvocationResult, InvocationSource } from './invocation-context.js';
 import { RuntimeRunner } from './runtime-runner.js';
 import type { BackendRegistry, CompactSessionInput, SessionStore, StopSessionInput } from './session-manager.js';
@@ -37,7 +37,7 @@ import {
   assertAgentDefinitionRunnable,
   buildToolsForAgentDefinition,
 } from './agent-catalog.js';
-import { requireResolvedAgentDefinition } from './expert-catalog.js';
+import { parseExpertAgentId, requireResolvedAgentDefinition } from './expert-catalog.js';
 import { loadLatestHistoryCompactCheckpointFromRunLedger } from './history-compact-ledger.js';
 import {
   canReplaceHistoryCompactCheckpoint,
@@ -341,6 +341,15 @@ export class RuntimeKernel implements RuntimeKernelLike {
       tools: availableChildTools,
     });
     const childTools = buildToolsForAgentDefinition(availableChildTools, definition);
+    const expertIdentity = parseExpertAgentId(definition.id);
+    const agentTeam: AgentTeamExecutionContext | undefined = expertIdentity
+      ? {
+          role: 'member',
+          teamId: expertIdentity.teamId,
+          agentId: definition.id,
+          parentRunId: input.parentRunId,
+        }
+      : undefined;
     const childHeader: SessionHeader = {
       ...parentHeader,
       permissionMode: definition.permissionMode,
@@ -367,7 +376,14 @@ export class RuntimeKernel implements RuntimeKernelLike {
       recordSessionMessages: false,
       hooks: {
         ensureActive: (targetSessionId, nextHeader) =>
-          this.ensureChildActive(activeKey, targetSessionId, nextHeader, definition.systemPrompt, childTools),
+          this.ensureChildActive(
+            activeKey,
+            targetSessionId,
+            nextHeader,
+            definition.systemPrompt,
+            childTools,
+            agentTeam,
+          ),
         registerRun: (active, activeRun) => this.registerRun(active, activeRun),
         unregisterRun: (active, activeRun) => this.unregisterChildRun(activeKey, active, activeRun),
         updateHeader: async (_targetSessionId, patch) => ({ ...childHeader, ...patch }),
@@ -1057,6 +1073,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     header: SessionHeader,
     systemPrompt: string,
     tools: readonly MakaTool[],
+    agentTeam?: AgentTeamExecutionContext,
   ): Promise<ActiveSession> {
     const existing = this.childActive.get(activeKey);
     if (existing) {
@@ -1071,6 +1088,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       appendMessage: async () => {},
       systemPrompt,
       tools,
+      ...(agentTeam ? { agentTeam } : {}),
       recordRunTrace: (event) => {
         const active = this.childActive.get(activeKey);
         const runId = active?.turnToRunId.get(event.turnId);

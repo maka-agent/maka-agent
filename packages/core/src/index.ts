@@ -701,12 +701,35 @@ export {
   normalizePlanReminderTitle,
   normalizeUpdatePlanReminderInput,
 } from './plan-reminders.js';
+// agent-mailbox.ts (durable expert-team communication)
+export type {
+  AgentMailboxListOptions,
+  AgentMailboxMessage,
+  AgentMailboxMessageKind,
+  AgentMailboxNormalizeResult,
+  AgentMailboxParticipantRef,
+  AgentMailboxRole,
+  AgentMailboxSendInput,
+  AgentMailboxStore,
+} from './agent-mailbox.js';
+export {
+  AGENT_MAILBOX_CONTENT_MAX_CHARS,
+  AGENT_MAILBOX_LIST_MAX,
+  AGENT_MAILBOX_MAX_MESSAGES_PER_TEAM_RUN,
+  AGENT_MAILBOX_SCHEMA_VERSION,
+  isAgentMailboxMessage,
+  isAgentMailboxParticipantRef,
+  isAgentTeamId,
+  isSafeAgentMailboxToken,
+  normalizeAgentMailboxContent,
+} from './agent-mailbox.js';
 // task-ledger.ts (main agent session task tracking)
 export type {
   CreateTaskInput,
   ResumeTrust,
   Task,
   TaskAgentOutcome,
+  TaskAvailableClaimScope,
   TaskLedgerChangedEvent,
   TaskLedgerEvent,
   TaskLedgerEventTaskSnapshot,

@@ -51,6 +51,8 @@ import {
   createFilesystemWorkerLaunchSpecProvider,
   FilesystemWorkerClient,
   buildChildAgentTools,
+  buildAgentTeamChildTools,
+  buildAgentTeamLeadTools,
   buildExpertDispatchToolForTeamId,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
@@ -77,6 +79,7 @@ import type {
 import type { LlmConnection } from '@maka/core/llm-connections';
 import {
   createAgentRunStore,
+  createAgentMailboxStore,
   createArtifactStore,
   createConnectionStore,
   createPlanReminderStore,
@@ -330,6 +333,7 @@ const antigravitySubscription = new AntigravitySubscriptionService({
 const planReminderStore = createPlanReminderStore(workspaceRoot);
 const taskLedgerWiring = createMainTaskLedgerWiring(workspaceRoot);
 const taskLedgerStore = taskLedgerWiring.store;
+const agentMailboxStore = createAgentMailboxStore(workspaceRoot);
 
 // Unified Automation — single "Automation" tool for heartbeat + cron.
 // Deps are resolved lazily since runtime/store aren't ready at this point.
@@ -630,6 +634,14 @@ const agentTools: MakaTool[] = [
   buildSubagentSpawnTool({ taskLedger: taskLedgerStore }),
   ...buildSubagentProjectionTools(),
 ];
+const agentTeamLeadTools = buildAgentTeamLeadTools({
+  mailbox: agentMailboxStore,
+  taskLedger: taskLedgerStore,
+});
+const agentTeamChildTools = buildAgentTeamChildTools({
+  mailbox: agentMailboxStore,
+  taskLedger: taskLedgerStore,
+});
 const deferredTools: MakaTool[] = [
   ...riveTools,
   ...officeTools,
@@ -711,6 +723,7 @@ const childAgentTools = buildChildAgentTools([
     } : {}),
   }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   webSearchTool,
+  ...agentTeamChildTools,
 ]);
 let lookupPricing = buildPricingLookup();
 // Track the last status fields that affect persisted diagnostics. The reason
@@ -870,7 +883,12 @@ backends.register('ai-sdk', async (ctx) => {
   // Child turns receive scoped `ctx.tools` and inherit the label, but must NOT
   // get expert_dispatch — members cannot spawn nested teams.
   const expertTeamId = ctx.tools ? undefined : expertTeamIdFromLabels(ctx.header.labels);
-  const expertDispatchTool = expertTeamId ? buildExpertDispatchToolForTeamId(expertTeamId) : undefined;
+  const expertDispatchTool = expertTeamId
+    ? buildExpertDispatchToolForTeamId(expertTeamId, { taskLedger: taskLedgerStore })
+    : undefined;
+  const agentTeam = ctx.agentTeam ?? (expertTeamId
+    ? { role: 'lead' as const, teamId: expertTeamId, agentId: 'lead' }
+    : undefined);
   const backendTools = computerUseToolsForModel(
     candidateTools,
     computerUseTools,
@@ -890,7 +908,10 @@ backends.register('ai-sdk', async (ctx) => {
     modelId: model,
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
-    tools: expertDispatchTool ? [...backendTools, expertDispatchTool] : backendTools,
+    tools: expertDispatchTool
+      ? [...backendTools, expertDispatchTool, ...agentTeamLeadTools]
+      : backendTools,
+    agentTeam,
     toolAvailability: backendToolAvailability,
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
