@@ -218,6 +218,11 @@ export function refreshRunningShellRunElapsed(
   let found = false;
   for (const entry of state.entries) {
     if (entry.kind !== 'tool' || entry.status !== 'running' || entry.result?.kind !== 'shell_run') continue;
+    // Skip off-screen running cards: updating their elapsed time would change
+    // their rendered lines, but those lines are frozen in scrollback (#1135).
+    // The underlying durationMs stays stale until the card re-enters the
+    // viewport or the session is replayed.
+    if (!entryInLiveViewport(state, entry)) continue;
     entry.durationMs = Math.max(0, now - entry.result.startedAt);
     found = true;
   }
@@ -548,7 +553,14 @@ export function applyMakaSessionEventToTranscript(
       if (tool && parent && shellRun && !event.isError) {
         applyLiveShellRunResultToParent(state, parent, shellRun);
         if (tool.toolName === 'Read' || tool.toolName === 'StopBackgroundTask') {
-          state.entries.splice(state.entries.indexOf(tool), 1);
+          // Splicing an off-screen entry shifts subsequent entries' line numbers,
+          // which changes the composed buffer above the viewport and forces a
+          // scrollback-clearing full redraw (#1135). Leave it in place: its
+          // frozen render stays in scrollback, the fold already applied to the
+          // parent, and the stale entry is cleaned on the next session switch.
+          if (entryInLiveViewport(state, tool)) {
+            state.entries.splice(state.entries.indexOf(tool), 1);
+          }
         } else {
           applyOwnShellRunResult(tool, shellRun, event.durationMs);
         }
@@ -941,6 +953,7 @@ export function renderMakaPiTranscript(
   }
 
   const entryFirstLine = new Map<MakaPiTranscriptEntry, number>();
+  const viewportTop = state.renderGeometry.viewportTop;
   for (let i = 0; i < state.entries.length; i += 1) {
     const entry = state.entries[i]!;
     const prev = state.entries[i - 1];
@@ -952,7 +965,10 @@ export function renderMakaPiTranscript(
     const continuesStack = entry.kind === 'tool' && prev?.kind === 'tool';
     if (!continuesStack) lines.push('');
     entryFirstLine.set(entry, lines.length);
-    lines.push(...renderTranscriptEntryMemoized(entry, safeWidth));
+    // An entry whose first line sits above the live viewport is in terminal
+    // scrollback — freeze its rendered lines (#1135).
+    const offScreen = lines.length < viewportTop;
+    lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, offScreen));
   }
   state.renderGeometry.entryFirstLine = entryFirstLine;
 
@@ -1044,6 +1060,8 @@ function clearPendingInteractions(state: MakaPiTranscriptState): void {
 interface TranscriptEntryRender {
   signature: string;
   lines: string[];
+  /** Width the cached lines were rendered at, for off-screen freeze matching. */
+  width: number;
 }
 
 const transcriptEntryRenderCache = new WeakMap<MakaPiTranscriptEntry, TranscriptEntryRender>();
@@ -1055,12 +1073,24 @@ const transcriptEntryRenderCache = new WeakMap<MakaPiTranscriptEntry, Transcript
 function renderTranscriptEntryMemoized(
   entry: MakaPiTranscriptEntry,
   width: number,
+  offScreen: boolean,
 ): string[] {
+  // Off-screen entries live in terminal scrollback, which is immutable: any
+  // change to their rendered lines forces pi-tui's differential renderer into a
+  // scrollback-clearing full redraw (#1135). Serving the cached render keeps
+  // the display consistent with what's already in the terminal. The underlying
+  // entry state still updates — only the visual output is frozen. A width
+  // change already triggered a pi-tui full redraw (re-anchoring viewportTop to
+  // the tail), so a stale-width cache won't be served.
+  if (offScreen) {
+    const cached = transcriptEntryRenderCache.get(entry);
+    if (cached && cached.width === width) return cached.lines;
+  }
   const signature = transcriptEntrySignature(entry, width);
   const cached = transcriptEntryRenderCache.get(entry);
   if (cached && cached.signature === signature) return cached.lines;
   const lines = renderTranscriptEntryBlock(entry, width);
-  transcriptEntryRenderCache.set(entry, { signature, lines });
+  transcriptEntryRenderCache.set(entry, { signature, lines, width });
   return lines;
 }
 

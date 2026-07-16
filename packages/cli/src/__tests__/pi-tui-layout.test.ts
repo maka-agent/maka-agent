@@ -131,14 +131,16 @@ describe('MakaPiLayoutComponent viewport geometry', () => {
       layout.render(80);
       assert.equal(state.renderGeometry.viewportTop, top);
     }
-    // In-place edit above the top: pi-tui full-redraws, so the top re-anchors.
+    // In-place edit above the top: off-screen freeze (#1135) keeps the
+    // rendered lines unchanged, so the shadow diff sees no change and the
+    // top stays put. Without the freeze, pi-tui would full-redraw and the
+    // top would re-anchor to the tail.
     {
       const { state, layout, head, top } = opened();
       assert.ok(head.kind === 'thinking');
       head.text = 'head-reasoning-EDITEDำy'.slice(0, head.text.length);
-      const lines = layout.render(80);
-      assert.equal(state.renderGeometry.viewportTop, Math.max(0, lines.length - 24));
-      assert.ok(state.renderGeometry.viewportTop < top);
+      layout.render(80);
+      assert.equal(state.renderGeometry.viewportTop, top);
     }
     // Normalization-equivalent change above the top: pi-tui diffs normalized
     // lines and sees no change, so the top must not fall.
