@@ -67,6 +67,33 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
       );
     });
 
+    it(`${name} service maps store write failures to storage_failed, not exchange/refresh failures`, async () => {
+      const src = await readFile(resolve(OAUTH_DIR, file), 'utf8');
+      // Both the login save and the refresh save must have their own
+      // catch that surfaces storage_failed: a consumed one-time code or
+      // a successfully rotated token with a failed write is a storage
+      // problem, not a provider problem.
+      const saveCatches = src.match(/await this\.saveTokens\([\s\S]{0,500}?reason: 'storage_failed'/g) ?? [];
+      assert.ok(
+        saveCatches.length >= 2,
+        `${name} must map save failures to storage_failed in both completeAuthorization and refreshTokens; found ${saveCatches.length}`,
+      );
+    });
+
+    it(`${name} logout stays terminal against an in-flight refresh`, async () => {
+      const src = await readFile(resolve(OAUTH_DIR, file), 'utf8');
+      assert.match(
+        src,
+        /this\.credentialEpoch \+= 1/,
+        `${name} logout must bump the credential epoch`,
+      );
+      assert.match(
+        src,
+        /epoch !== this\.credentialEpoch/,
+        `${name} refresh must discard its result when the epoch moved (logout during the network window)`,
+      );
+    });
+
     it(`${name} service refreshes through the runtime's shared refresher`, async () => {
       const src = await readFile(resolve(OAUTH_DIR, file), 'utf8');
       assert.match(

@@ -191,6 +191,13 @@ export class ClaudeSubscriptionService {
   private lastStorageFailedMessage: string | null = null;
   private authorizing = false;
   private refreshing = false;
+  /**
+   * Bumped by logout. A refresh that started before the bump discards
+   * its result instead of writing tokens back after the user logged
+   * out — in this process, logout is terminal even against an
+   * in-flight refresh's read→network→write window.
+   */
+  private credentialEpoch = 0;
 
   constructor(deps: ClaudeSubscriptionServiceDeps) {
     this.legacyTokenFilePath = join(deps.userDataDir, '.claude_subscription_token');
@@ -326,7 +333,15 @@ export class ClaudeSubscriptionService {
 
     try {
       const tokens = await this.exchangeCodeForTokens(parsed.code, verifier, parsed.state);
-      await this.saveTokens(tokens);
+      // Storage failures are not exchange failures: the one-time code
+      // was consumed successfully, so tell the user to fix the store
+      // instead of implying the code was bad.
+      try {
+        await this.saveTokens(tokens);
+      } catch {
+        this.authorizing = false;
+        return { ok: false, reason: 'storage_failed', message: this.lastStorageFailedMessage ?? '写入共享凭据失败，请检查 credentials.json 权限后重试。' };
+      }
       this.pending.delete(authRequestId);
       this.authorizing = false;
       // Kick a profile fetch in the background; failure is non-fatal
@@ -374,7 +389,12 @@ export class ClaudeSubscriptionService {
     return {
       provider: 'claude-subscription',
       runtimeState,
-      profile: this.cachedProfile ?? { accountUuid: tokens.account_uuid },
+      // The cached profile is only valid for the account the shared
+      // store currently holds — another surface may have re-logged in
+      // with a different account since the profile was fetched.
+      profile: this.cachedProfile?.accountUuid === tokens.account_uuid
+        ? this.cachedProfile
+        : { accountUuid: tokens.account_uuid },
       quota: this.cachedQuota ?? undefined,
       errorMessage: this.errorForState(runtimeState),
     };
@@ -390,6 +410,7 @@ export class ClaudeSubscriptionService {
   async refreshTokens(): Promise<SubscriptionActionResult> {
     const tokens = await this.loadTokens();
     if (!tokens) return { ok: false, reason: 'refresh_failed', message: '当前未登录。' };
+    const epoch = this.credentialEpoch;
     this.refreshing = true;
     try {
       const next = await refreshOAuthSubscriptionTokens({
@@ -398,14 +419,25 @@ export class ClaudeSubscriptionService {
         now: this.now,
         fetchFn: this.fetchFn,
       });
-      await this.saveTokens({
-        access_token: next.access_token,
-        refresh_token: next.refresh_token,
-        expires_at: next.expires_at,
-        token_type: next.token_type ?? tokens.token_type,
-        scope: next.scope ?? tokens.scope,
-        account_uuid: next.account_uuid ?? tokens.account_uuid,
-      });
+      if (epoch !== this.credentialEpoch) {
+        // Logout landed while the refresh was in flight: drop the
+        // result instead of resurrecting the deleted credential.
+        this.refreshing = false;
+        return { ok: false, reason: 'refresh_failed', message: '登录状态已变更，本次刷新结果已丢弃。' };
+      }
+      try {
+        await this.saveTokens({
+          access_token: next.access_token,
+          refresh_token: next.refresh_token,
+          expires_at: next.expires_at,
+          token_type: next.token_type ?? tokens.token_type,
+          scope: next.scope ?? tokens.scope,
+          account_uuid: next.account_uuid ?? tokens.account_uuid,
+        });
+      } catch {
+        this.refreshing = false;
+        return { ok: false, reason: 'storage_failed', message: this.lastStorageFailedMessage ?? '写入共享凭据失败，请检查 credentials.json 权限后重试。' };
+      }
       this.lastRefreshFailedMessage = null;
       this.refreshing = false;
       return { ok: true };
@@ -483,6 +515,7 @@ export class ClaudeSubscriptionService {
    *   - Clear runtime diagnostic flags.
    */
   async logout(): Promise<SubscriptionActionResult> {
+    this.credentialEpoch += 1;
     this.cachedQuota = null;
     this.cachedProfile = null;
     this.lastRefreshFailedMessage = null;

@@ -52,7 +52,6 @@ import {
   extractAccountClaims,
   pkceChallengeFromVerifier,
   safeExtractAccountClaims,
-  type CodexAccountClaims,
 } from './openai-codex-helpers.js';
 
 // Endpoint shortcuts so the existing class body keeps reading
@@ -81,8 +80,6 @@ interface PersistedTokens {
   account_id: string;
   /* eslint-enable */
 }
-
-type AccountClaims = CodexAccountClaims;
 
 interface PendingAuthorization {
   verifier: string;
@@ -130,13 +127,19 @@ export class OpenAiCodexService {
   private readonly fetchFn: typeof fetch;
   private readonly credentialStore: SharedOAuthCredentialStore;
 
-  private cachedClaims: AccountClaims | null = null;
   private pending: Map<string, PendingAuthorization> = new Map();
 
   private lastRefreshFailedMessage: string | null = null;
   private lastStorageFailedMessage: string | null = null;
   private authorizing = false;
   private refreshing = false;
+  /**
+   * Bumped by logout. A refresh that started before the bump discards
+   * its result instead of writing tokens back after the user logged
+   * out — in this process, logout is terminal even against an
+   * in-flight refresh's read→network→write window.
+   */
+  private credentialEpoch = 0;
 
   constructor(deps: OpenAiCodexServiceDeps) {
     this.legacyTokenFilePath = join(deps.userDataDir, '.codex_subscription_token');
@@ -257,8 +260,16 @@ export class OpenAiCodexService {
         return { ok: false, reason: 'invalid_paste_code', message: '回调 state 校验失败，请重新登录。' };
       }
       const tokens = await this.exchangeCodeForTokens(code, pending.verifier);
-      await this.saveTokens(tokens);
-      this.cachedClaims = extractAccountClaims(tokens.access_token, tokens.id_token);
+      // Storage failures are not exchange failures: the one-time code
+      // was consumed successfully, so tell the user to fix the store
+      // instead of implying the code was bad.
+      try {
+        await this.saveTokens(tokens);
+      } catch {
+        this.disposePending(authRequestId);
+        this.authorizing = false;
+        return { ok: false, reason: 'storage_failed', message: this.lastStorageFailedMessage ?? '写入共享凭据失败，请检查 credentials.json 权限后重试。' };
+      }
       this.disposePending(authRequestId);
       this.authorizing = false;
       return { ok: true };
@@ -301,7 +312,10 @@ export class OpenAiCodexService {
         runtimeState: this.authorizing ? 'authorizing' : 'not_logged_in',
       };
     }
-    const claims = this.cachedClaims ?? safeExtractAccountClaims(tokens.access_token, tokens.id_token);
+    // Claims are always derived from the CURRENT tokens rather than
+    // cached: another surface may have re-logged in with a different
+    // account since this process last saw a login or refresh.
+    const claims = safeExtractAccountClaims(tokens.access_token, tokens.id_token);
     const runtimeState = this.deriveRuntimeState();
     return {
       provider: 'openai-codex',
@@ -322,6 +336,7 @@ export class OpenAiCodexService {
   async refreshTokens(): Promise<SubscriptionActionResult> {
     const tokens = await this.loadTokens();
     if (!tokens) return { ok: false, reason: 'refresh_failed', message: '当前未登录。' };
+    const epoch = this.credentialEpoch;
     this.refreshing = true;
     try {
       const next = await refreshOAuthSubscriptionTokens({
@@ -330,15 +345,25 @@ export class OpenAiCodexService {
         now: this.now,
         fetchFn: this.fetchFn,
       });
+      if (epoch !== this.credentialEpoch) {
+        // Logout landed while the refresh was in flight: drop the
+        // result instead of resurrecting the deleted credential.
+        this.refreshing = false;
+        return { ok: false, reason: 'refresh_failed', message: '登录状态已变更，本次刷新结果已丢弃。' };
+      }
       const claims = extractAccountClaims(next.access_token, next.id_token);
-      await this.saveTokens({
-        access_token: next.access_token,
-        refresh_token: next.refresh_token,
-        id_token: next.id_token,
-        expires_at: next.expires_at,
-        account_id: claims.accountId || tokens.account_id,
-      });
-      this.cachedClaims = claims;
+      try {
+        await this.saveTokens({
+          access_token: next.access_token,
+          refresh_token: next.refresh_token,
+          id_token: next.id_token,
+          expires_at: next.expires_at,
+          account_id: claims.accountId || tokens.account_id,
+        });
+      } catch {
+        this.refreshing = false;
+        return { ok: false, reason: 'storage_failed', message: this.lastStorageFailedMessage ?? '写入共享凭据失败，请检查 credentials.json 权限后重试。' };
+      }
       this.lastRefreshFailedMessage = null;
       this.refreshing = false;
       return { ok: true };
@@ -358,7 +383,7 @@ export class OpenAiCodexService {
    * can rely on).
    */
   async logout(): Promise<SubscriptionActionResult> {
-    this.cachedClaims = null;
+    this.credentialEpoch += 1;
     this.lastRefreshFailedMessage = null;
     this.lastStorageFailedMessage = null;
     for (const id of [...this.pending.keys()]) this.disposePending(id);
