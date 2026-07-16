@@ -279,7 +279,9 @@
 }
 
 /* PR-SETTINGS-A11Y-POLISH-0 — respect prefers-reduced-motion. The
-   interaction still fires, just instantly. */
+   interaction still fires, just instantly.
+   Justified: a11y reduced-motion override; the only `!important` in this
+   file, tracked in renderer-important-audit-contract.test.ts. */
 @media (prefers-reduced-motion: reduce) {
   .settingsFormRow,
   .settingsRow,
