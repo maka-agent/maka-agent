@@ -31,8 +31,8 @@
      rhythm. Match `.settingsNavItem` exactly so the row reads as part
      of the same vertical list. */
   width: calc(100% - 8px);
-  height: var(--h-control-xl);
-  min-height: var(--h-control-xl);
+  height: var(--h-control-lg);
+  min-height: var(--h-control-lg);
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -113,16 +113,17 @@
 }
 
 .settingsNavItem {
-  /* PR-SETTINGS-SIDEBAR-SPACIOUS-0: roomier nav row matching reference.
-     PR-SETTINGS-CSS-ROOT-CLEANUP-0 (WAWQAQ msg `57de86ae`): the previous
+  /* PR-SETTINGS-CSS-ROOT-CLEANUP-0 (WAWQAQ msg `57de86ae`): the previous
      `grid-template-columns: 24px minmax(0,1fr) auto` allocated a trailing
      `auto` track for the Beta badge, but on the 11 rows without a
      badge the empty auto track still consumed a 12px gap, so the label
      ran 12px short. Switched to flex — glyph is fixed-width, label
-     fills, badge sits right-aligned naturally. No phantom gap. */
+     fills, badge sits right-aligned naturally. No phantom gap.
+     Height sits on the lg control tier (32px) — same tier as the
+     session-list rows, so the two sidebars share one row rhythm. */
   width: calc(100% - 8px);
-  height: var(--h-control-xl);
-  min-height: var(--h-control-xl);
+  height: var(--h-control-lg);
+  min-height: var(--h-control-lg);
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -136,8 +137,8 @@
   text-align: left;
   justify-content: initial;
   font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
   transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
-  grid-template-columns: 20px minmax(0, 1fr) auto;
 }
 
 .settingsNavItem > .settingsNavGlyph {
@@ -150,6 +151,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Weight lives on the item so the active rule below can bump it;
+     an explicit weight here would shadow that state change (the old
+     always-semibold rule made the active bump a dead declaration). */
+  font-weight: inherit;
 }
 
 /* PR-SETTINGS-NAV-REGROUP-0 (WAWQAQ msg `a9ef0d5d`): small chip on nav
@@ -189,12 +194,14 @@
 }
 
 .settingsNavItem[data-active="true"] {
-  /* Active state via the shared --state-selected-bg token + 500 weight.
-     Keep the selected row neutral (WAWQAQ msg 49bd00e1): a leading
-     accent rail reads like a stray status marker in the Settings nav. */
+  /* Active state via the shared --state-selected-bg token + a weight
+     bump (medium → semibold, same recipe as `.maka-list-row-name` in
+     the session sidebar). Keep the selected row neutral (WAWQAQ msg
+     49bd00e1): a leading accent rail reads like a stray status marker
+     in the Settings nav. */
   background: var(--state-selected-bg);
   color: var(--foreground);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
   box-shadow: none;
 }
 
@@ -214,31 +221,19 @@
 }
 
 .settingsNavGlyph {
-  /* PR-SETTINGS-SIDEBAR-SPACIOUS-0: slightly bigger glyph track + svg
-     so the icon doesn't read as a tiny dot. */
-  width: 24px;
-  height: 24px;
+  /* Track = icon footprint (16px, the size the TSX renders). The old
+     24px track + 17px svg override meant nav labels started 8px to the
+     right of the back button's label (its bare 16px ArrowLeft has no
+     track); now both rows share the same icon + gap rhythm. */
+  width: 16px;
+  height: 16px;
   display: grid;
   place-items: center;
   color: var(--foreground-secondary);
 }
 
-.settingsNavGlyph svg {
-  width: 17px;
-  height: 17px;
-}
-
 /* PR-UI-11 (@yuejing 2026-05-22): inactive glyph stays muted; active
  * glyph is overridden above to `--foreground` for selection visibility. */
-
-.settingsNavItem strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-}
 
 .settingsFeatureStatusPage {
   display: grid;
