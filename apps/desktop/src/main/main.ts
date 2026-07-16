@@ -367,9 +367,11 @@ function hasConnectionSecret(connection: LlmConnection): Promise<boolean> {
 }
 const cursorSubscription = new CursorSubscriptionService({
   userDataDir: app.getPath('userData'),
+  credentialStore,
 });
 const antigravitySubscription = new AntigravitySubscriptionService({
   userDataDir: app.getPath('userData'),
+  credentialStore,
 });
 
 const planReminderStore = createPlanReminderStore(workspaceRoot);
@@ -2353,6 +2355,8 @@ async function runBackgroundStartup(): Promise<void> {
       files: [
         { slug: 'claude-subscription', filePath: join(userDataDir, '.claude_subscription_token') },
         { slug: 'codex-subscription', filePath: join(userDataDir, '.codex_subscription_token') },
+        { slug: 'cursor-subscription', filePath: join(userDataDir, '.cursor_subscription_token') },
+        { slug: 'antigravity-subscription', filePath: join(userDataDir, '.antigravity_subscription_token') },
       ],
     });
     for (const report of reports) {

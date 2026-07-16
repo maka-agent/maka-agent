@@ -3,7 +3,8 @@
  * preview-only placeholder.
  *
  * Structurally mirrors the Claude / Codex services (loopback PKCE,
- * Google OAuth endpoints, safeStorage-encrypted persistence). The
+ * Google OAuth endpoints, tokens persisted in the shared
+ * CredentialStore — the cross-surface authority, #1125). The
  * preview remains fail-closed because no Google client id is bundled.
  *
  * Status: 'preview'. The card is visible in Settings → 模型, but
@@ -21,11 +22,11 @@
  *     advances to a real implementation.
  */
 
-import { safeStorage, shell } from 'electron';
+import { shell } from 'electron';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
   PENDING_AUTHORIZATION_TTL_MS,
   PKCE_VERIFIER_LENGTH_BYTES,
@@ -44,6 +45,12 @@ import {
   buildAntigravityAuthorizationUrl,
   pkceChallengeFromVerifier,
 } from './antigravity-subscription-helpers.js';
+import {
+  deleteSharedOAuthTokens,
+  loadSharedOAuthTokens,
+  saveSharedOAuthTokens,
+  type SharedOAuthCredentialStore,
+} from './shared-credential-bridge.js';
 
 const GOOGLE_AUTHORIZE_ENDPOINT = ANTIGRAVITY_OAUTH_CONFIG.authUrl;
 const GOOGLE_TOKEN_ENDPOINT = ANTIGRAVITY_OAUTH_CONFIG.tokenUrl;
@@ -90,14 +97,19 @@ export interface AntigravitySubscriptionServiceDeps {
   now?: () => number;
   /** fetch implementation. Defaults to global fetch (Node 18+). */
   fetchFn?: typeof fetch;
+  /** Shared workspace credential store — the authoritative token store for every surface (#1125). */
+  credentialStore: SharedOAuthCredentialStore;
 }
 
 export class AntigravitySubscriptionService {
-  private readonly tokenFilePath: string;
+  /** Pre-#1125 safeStorage-encrypted token file. Never written or read
+   *  anymore; unlinked on logout in case the startup import could not
+   *  run, so logout still means "no credential survives anywhere". */
+  private readonly legacyTokenFilePath: string;
   private readonly now: () => number;
   private readonly fetchFn: typeof fetch;
+  private readonly credentialStore: SharedOAuthCredentialStore;
 
-  private cachedTokens: PersistedTokens | null = null;
   private pending: Map<string, PendingAuthorization> = new Map();
 
   private lastRefreshFailedMessage: string | null = null;
@@ -105,9 +117,10 @@ export class AntigravitySubscriptionService {
   private refreshing = false;
 
   constructor(deps: AntigravitySubscriptionServiceDeps) {
-    this.tokenFilePath = join(deps.userDataDir, '.antigravity_subscription_token');
+    this.legacyTokenFilePath = join(deps.userDataDir, '.antigravity_subscription_token');
     this.now = deps.now ?? (() => Date.now());
     this.fetchFn = deps.fetchFn ?? (globalThis.fetch as typeof fetch);
+    this.credentialStore = deps.credentialStore;
   }
 
   // -----------------------------------------------------------
@@ -214,7 +227,6 @@ export class AntigravitySubscriptionService {
       }
       const tokens = await this.exchangeCodeForTokens(code, pending.verifier);
       await this.saveTokens(tokens);
-      this.cachedTokens = tokens;
       this.disposePending(authRequestId);
       this.authorizing = false;
       return { ok: true };
@@ -259,7 +271,6 @@ export class AntigravitySubscriptionService {
     try {
       const next = await this.requestRefresh(tokens.refresh_token);
       await this.saveTokens(next);
-      this.cachedTokens = next;
       this.lastRefreshFailedMessage = null;
       this.refreshing = false;
       return { ok: true };
@@ -272,18 +283,24 @@ export class AntigravitySubscriptionService {
   }
 
   async logout(): Promise<SubscriptionActionResult> {
-    this.cachedTokens = null;
     this.lastRefreshFailedMessage = null;
     for (const id of [...this.pending.keys()]) this.disposePending(id);
     this.authorizing = false;
+    let legacyDeleteFailed = false;
     try {
-      await fs.unlink(this.tokenFilePath);
+      await fs.unlink(this.legacyTokenFilePath);
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT') {
-        return { ok: false, reason: 'storage_failed', message: '删除本地凭据失败，请手动清理。' };
+        legacyDeleteFailed = true;
       }
     }
+    try {
+      await deleteSharedOAuthTokens(this.credentialStore, 'antigravity-subscription');
+    } catch {
+      return { ok: false, reason: 'storage_failed', message: '删除共享凭据失败，请手动清理。' };
+    }
+    if (legacyDeleteFailed) return { ok: false, reason: 'storage_failed', message: '删除本地遗留凭据失败，请手动清理。' };
     return { ok: true };
   }
 
@@ -461,37 +478,30 @@ export class AntigravitySubscriptionService {
   }
 
   private async saveTokens(tokens: PersistedTokens): Promise<void> {
-    const serialized = JSON.stringify(tokens);
-    const dir = dirname(this.tokenFilePath);
-    await fs.mkdir(dir, { recursive: true });
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new Error('safeStorage encryption is unavailable.');
-    }
-    const buffer = safeStorage.encryptString(serialized);
-    await fs.writeFile(this.tokenFilePath, buffer, { mode: 0o600 });
-    await fs.chmod(this.tokenFilePath, 0o600);
+    // Fail closed: a store write failure propagates to the caller's
+    // failure envelope instead of pretending the login stuck.
+    await saveSharedOAuthTokens(this.credentialStore, 'antigravity-subscription', tokens);
   }
 
+  /**
+   * Always reads the shared store — no in-memory copy; the store is
+   * the cross-surface authority (#1125). A corrupt entry is deleted by
+   * the bridge so the next login isn't stuck.
+   */
   private async loadTokens(): Promise<PersistedTokens | null> {
-    if (this.cachedTokens) return this.cachedTokens;
-    let buffer: Buffer;
+    let result: Awaited<ReturnType<typeof loadSharedOAuthTokens>>;
     try {
-      buffer = await fs.readFile(this.tokenFilePath);
+      result = await loadSharedOAuthTokens(this.credentialStore, 'antigravity-subscription');
     } catch {
       return null;
     }
-    if (!safeStorage.isEncryptionAvailable()) return null;
-    try {
-      const decoded = safeStorage.decryptString(buffer);
-      const parsed = JSON.parse(decoded) as PersistedTokens;
-      this.cachedTokens = parsed;
-      return parsed;
-    } catch {
-      // Token file exists but is unreadable. Delete to avoid a
-      // stuck-corrupt state on the next login attempt.
-      try { await fs.unlink(this.tokenFilePath); } catch { /* best-effort */ }
-      return null;
-    }
+    if (result.status !== 'ok') return null;
+    return {
+      access_token: result.tokens.access_token,
+      refresh_token: result.tokens.refresh_token,
+      id_token: result.tokens.id_token,
+      expires_at: result.tokens.expires_at,
+    };
   }
 
   private failureFromError(

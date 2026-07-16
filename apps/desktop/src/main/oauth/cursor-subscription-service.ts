@@ -14,14 +14,16 @@
  *   - Refresh failure does NOT auto-logout.
  *   - The login URL is held in-process; the renderer only
  *     receives an opaque `authRequestId`.
+ *   - Tokens persist in the shared CredentialStore (workspace
+ *     credentials.json), the cross-surface authority (#1125).
  *
  * Reference: cursor-auth plugin pattern (external reference).
  */
 
-import { safeStorage, shell } from 'electron';
+import { shell } from 'electron';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
   PENDING_AUTHORIZATION_TTL_MS,
   PKCE_VERIFIER_LENGTH_BYTES,
@@ -36,6 +38,12 @@ import {
   getTokenExpiry,
   pkceChallengeFromVerifier,
 } from './cursor-subscription-helpers.js';
+import {
+  deleteSharedOAuthTokens,
+  loadSharedOAuthTokens,
+  saveSharedOAuthTokens,
+  type SharedOAuthCredentialStore,
+} from './shared-credential-bridge.js';
 
 // Endpoint shortcuts so the existing class body reads like the
 // Claude / Codex services (constants at the top, lookups inline).
@@ -89,15 +97,20 @@ export interface CursorSubscriptionServiceDeps {
   /** Sleep function. Injectable for tests so poll loops don't
    *  actually wait. */
   sleepFn?: (ms: number) => Promise<void>;
+  /** Shared workspace credential store — the authoritative token store for every surface (#1125). */
+  credentialStore: SharedOAuthCredentialStore;
 }
 
 export class CursorSubscriptionService {
-  private readonly tokenFilePath: string;
+  /** Pre-#1125 safeStorage-encrypted token file. Never written or read
+   *  anymore; unlinked on logout in case the startup import could not
+   *  run, so logout still means "no credential survives anywhere". */
+  private readonly legacyTokenFilePath: string;
   private readonly now: () => number;
   private readonly fetchFn: typeof fetch;
   private readonly sleepFn: (ms: number) => Promise<void>;
+  private readonly credentialStore: SharedOAuthCredentialStore;
 
-  private cachedTokens: PersistedTokens | null = null;
   private pending: Map<string, PendingAuthorization> = new Map();
 
   private lastRefreshFailedMessage: string | null = null;
@@ -105,11 +118,12 @@ export class CursorSubscriptionService {
   private refreshing = false;
 
   constructor(deps: CursorSubscriptionServiceDeps) {
-    this.tokenFilePath = join(deps.userDataDir, '.cursor_subscription_token');
+    this.legacyTokenFilePath = join(deps.userDataDir, '.cursor_subscription_token');
     this.now = deps.now ?? (() => Date.now());
     this.fetchFn = deps.fetchFn ?? (globalThis.fetch as typeof fetch);
     this.sleepFn =
       deps.sleepFn ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    this.credentialStore = deps.credentialStore;
   }
 
   // -----------------------------------------------------------
@@ -199,7 +213,6 @@ export class CursorSubscriptionService {
     try {
       const tokens = await pending.pollPromise;
       await this.saveTokens(tokens);
-      this.cachedTokens = tokens;
       this.disposePending(authRequestId);
       this.authorizing = false;
       return { ok: true };
@@ -257,7 +270,6 @@ export class CursorSubscriptionService {
     try {
       const next = await this.requestRefresh(tokens.refresh_token);
       await this.saveTokens(next);
-      this.cachedTokens = next;
       this.lastRefreshFailedMessage = null;
       this.refreshing = false;
       return { ok: true };
@@ -270,21 +282,29 @@ export class CursorSubscriptionService {
   }
 
   /**
-   * Logout: clear in-memory + delete token file. Local clear only.
+   * Logout: clear in-memory state, delete the shared-store token (the
+   * authority) and any legacy safeStorage token file the startup
+   * import could not process. Local clear only.
    */
   async logout(): Promise<SubscriptionActionResult> {
-    this.cachedTokens = null;
     this.lastRefreshFailedMessage = null;
     for (const id of [...this.pending.keys()]) this.disposePending(id);
     this.authorizing = false;
+    let legacyDeleteFailed = false;
     try {
-      await fs.unlink(this.tokenFilePath);
+      await fs.unlink(this.legacyTokenFilePath);
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT') {
-        return { ok: false, reason: 'storage_failed', message: '删除本地凭据失败，请手动清理。' };
+        legacyDeleteFailed = true;
       }
     }
+    try {
+      await deleteSharedOAuthTokens(this.credentialStore, 'cursor-subscription');
+    } catch {
+      return { ok: false, reason: 'storage_failed', message: '删除共享凭据失败，请手动清理。' };
+    }
+    if (legacyDeleteFailed) return { ok: false, reason: 'storage_failed', message: '删除本地遗留凭据失败，请手动清理。' };
     return { ok: true };
   }
 
@@ -408,37 +428,29 @@ export class CursorSubscriptionService {
   }
 
   private async saveTokens(tokens: PersistedTokens): Promise<void> {
-    const serialized = JSON.stringify(tokens);
-    const dir = dirname(this.tokenFilePath);
-    await fs.mkdir(dir, { recursive: true });
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new Error('safeStorage encryption is unavailable.');
-    }
-    const buffer = safeStorage.encryptString(serialized);
-    await fs.writeFile(this.tokenFilePath, buffer, { mode: 0o600 });
-    await fs.chmod(this.tokenFilePath, 0o600);
+    // Fail closed: a store write failure propagates to the caller's
+    // failure envelope instead of pretending the login stuck.
+    await saveSharedOAuthTokens(this.credentialStore, 'cursor-subscription', tokens);
   }
 
+  /**
+   * Always reads the shared store — no in-memory copy; the store is
+   * the cross-surface authority (#1125). A corrupt entry is deleted by
+   * the bridge so the next login isn't stuck.
+   */
   private async loadTokens(): Promise<PersistedTokens | null> {
-    if (this.cachedTokens) return this.cachedTokens;
-    let buffer: Buffer;
+    let result: Awaited<ReturnType<typeof loadSharedOAuthTokens>>;
     try {
-      buffer = await fs.readFile(this.tokenFilePath);
+      result = await loadSharedOAuthTokens(this.credentialStore, 'cursor-subscription');
     } catch {
       return null;
     }
-    if (!safeStorage.isEncryptionAvailable()) return null;
-    try {
-      const decoded = safeStorage.decryptString(buffer);
-      const parsed = JSON.parse(decoded) as PersistedTokens;
-      this.cachedTokens = parsed;
-      return parsed;
-    } catch {
-      // Token file exists but is unreadable. Delete to avoid a
-      // stuck-corrupt state on the next login attempt.
-      try { await fs.unlink(this.tokenFilePath); } catch { /* best-effort */ }
-      return null;
-    }
+    if (result.status !== 'ok') return null;
+    return {
+      access_token: result.tokens.access_token,
+      refresh_token: result.tokens.refresh_token,
+      expires_at: result.tokens.expires_at,
+    };
   }
 
   private failureFromError(

@@ -18,15 +18,6 @@ const SERVICES_WITH_LOOPBACK_SERVER = [
   'antigravity-subscription-service.ts',
 ];
 
-// Services still on the legacy per-service encrypted token file.
-// Claude / Codex moved to the shared CredentialStore authority
-// (#1125); their corrupt-entry cleanup lives in the shared bridge and
-// is asserted in the storage-failure contract below.
-const SERVICES_WITH_LEGACY_TOKEN_FILE = [
-  'cursor-subscription-service.ts',
-  'antigravity-subscription-service.ts',
-];
-
 const WIRED_OAUTH_SEND_SERVICES = [
   'claude-subscription-service.ts',
   'openai-codex-service.ts',
@@ -60,26 +51,10 @@ describe('OAuth callback server: drains sockets + timeout (B-SWEEP-1, B-SWEEP-2)
   }
 });
 
-describe('OAuth loadTokens: unlinks corrupt files (B-SWEEP-3)', () => {
-  for (const file of SERVICES_WITH_LEGACY_TOKEN_FILE) {
-    it(`${file} deletes the token file when decryptString / JSON.parse throws`, async () => {
-      const source = await readFile(resolve(OAUTH_DIR, file), 'utf8');
-      // After PR-BUG-SWEEP-2026-06-02 the catch block around
-      // decryptString + JSON.parse must call fs.unlink so a
-      // corrupt token blob doesn't pin the user to a stuck
-      // "not logged in" state. Best-effort — we don't bubble the
-      // unlink error.
-      // Find the loadTokens method, ensure it contains an unlink.
-      const loadTokensStart = source.indexOf('private async loadTokens(');
-      assert.ok(loadTokensStart > 0, `loadTokens not found in ${file}`);
-      // Limit to the method body — find the next top-level
-      // 'private ' or 'public ' or 'async ' declaration after it.
-      const tail = source.slice(loadTokensStart, loadTokensStart + 1500);
-      assert.match(tail, /fs\.unlink\(this\.tokenFilePath\)/,
-        `loadTokens in ${file} must unlink the token file on decrypt failure`);
-    });
-  }
-});
+// B-SWEEP-3 (unlink corrupt token files) is retired: every service
+// now persists through the shared CredentialStore (#1125), and the
+// bridge deletes a corrupt entry — covered by
+// shared-oauth-token-persistence.test.ts.
 
 describe('OAuth loadTokens: storage failures are not shown as logged out', () => {
   for (const file of WIRED_OAUTH_SEND_SERVICES) {
