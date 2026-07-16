@@ -316,13 +316,23 @@ function activeToolResultArchiveKey(
 /**
  * Tool results from the newest completed step have not crossed the provider
  * boundary yet: prepareStep is invoked immediately before the first request
- * that could show those results to the model. Active pruning may archive only
- * calls from older completed steps, after the model has had one request in
- * which to consume their exact output.
+ * that could show those results to the model. By default active pruning defers
+ * the newest step and archives only older completed steps, after the model has
+ * had one request in which to consume their exact output.
+ *
+ * `includeNewestStep` widens eligibility to every completed step, including the
+ * newest. The caller sets it when mid-turn capacity compaction is active: the
+ * final-payload verdict may need an oversized newest result pruned to a
+ * placeholder before declaring exhaustion, and capacity/recovery rebuilds
+ * re-materialize raw bodies from the ledger that must be re-archived.
  */
-function collectPrunablePrepareStepToolCallIds(steps: PrepareStepLike['steps']): Set<string> {
+function collectPrunablePrepareStepToolCallIds(
+  steps: PrepareStepLike['steps'],
+  includeNewestStep: boolean,
+): Set<string> {
   const out = new Set<string>();
-  for (const step of steps.slice(0, -1)) {
+  const prunableSteps = includeNewestStep ? steps : steps.slice(0, -1);
+  for (const step of prunableSteps) {
     for (const call of step.toolCalls ?? []) {
       if (typeof call.toolCallId === 'string' && call.toolCallId.length > 0) {
         out.add(call.toolCallId);
@@ -1453,12 +1463,19 @@ export class AiSdkBackend implements AgentBackend {
           midTurnSystemPromptChars,
           onMidTurnDiagnosticPatch,
         );
-        const activeToolResultPruneHook = this.buildActiveToolResultPrunePrepareStep(turnId, (patch) => {
-          activeToolResultPruneDiagnosticPatch = mergeActiveToolResultPruneDiagnosticPatches(
-            activeToolResultPruneDiagnosticPatch,
-            patch,
-          );
-        });
+        // When mid-turn capacity compaction is active, the prune must also cover
+        // the newest completed step; see collectPrunablePrepareStepToolCallIds.
+        const activeToolResultPruneIncludesNewestStep = midTurnState !== undefined;
+        const activeToolResultPruneHook = this.buildActiveToolResultPrunePrepareStep(
+          turnId,
+          activeToolResultPruneIncludesNewestStep,
+          (patch) => {
+            activeToolResultPruneDiagnosticPatch = mergeActiveToolResultPruneDiagnosticPatches(
+              activeToolResultPruneDiagnosticPatch,
+              patch,
+            );
+          },
+        );
         const shapedPrepareStep = composePrepareStep(
           plan.prepareStep,
           midTurnCapacityHook,
@@ -2425,6 +2442,7 @@ export class AiSdkBackend implements AgentBackend {
 
   private buildActiveToolResultPrunePrepareStep(
     turnId: string,
+    includeNewestStep: boolean,
     onDiagnosticPatch?: (patch: ActiveToolResultPruneDiagnosticPatch) => void,
   ): PrepareStepFunctionLike | undefined {
     const policy = this.input.contextBudget?.activeToolResultPrune;
@@ -2432,7 +2450,7 @@ export class AiSdkBackend implements AgentBackend {
 
     const archivedPlaceholders = new Map<string, ActiveArchivedToolResultPlaceholder>();
     return async (options) => {
-      const eligibleToolCallIds = collectPrunablePrepareStepToolCallIds(options.steps);
+      const eligibleToolCallIds = collectPrunablePrepareStepToolCallIds(options.steps, includeNewestStep);
       if (eligibleToolCallIds.size === 0) return undefined;
       const rewritten = await rewriteActiveToolResultsInMessages({
         messages: options.messages,

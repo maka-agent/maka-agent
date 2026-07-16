@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
-import { describe, test } from 'node:test';
+import { before, describe, test } from 'node:test';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import {
   SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES,
@@ -23,6 +23,7 @@ import type {
   SessionResumeAvailability,
 } from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
+import { _setColorLevelForTesting } from '../tui-ansi.js';
 import { BUSY_SPINNER_FRAMES } from '../tui-attention.js';
 import { arrangeAutocompleteAboveEditor } from '../tui-autocomplete-layout.js';
 import {
@@ -33,6 +34,11 @@ import {
   plainTerminalOutput,
   waitFor,
 } from './tui-terminal-mock.js';
+
+// Pin truecolor so the accent-chrome escape assertion ("uses logo blue") is
+// hermetic. Color level is detected from process.env.TERM/COLORTERM at module
+// load, which varies between local (truecolor) and CI (unset/dumb) terminals.
+before(() => _setColorLevelForTesting(3));
 
 describe('Maka Pi TUI runner', () => {
   test('restores the terminal before exiting on SIGTERM', async () => {
