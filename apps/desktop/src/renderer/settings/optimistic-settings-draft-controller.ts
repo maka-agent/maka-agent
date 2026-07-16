@@ -17,6 +17,8 @@
 
 export interface OptimisticDraftController<T> {
   readonly draftRef: { current: T };
+  /** Re-arm the controller when React replays an effect setup in StrictMode. */
+  activate(): void;
   /** Sync immediately when idle, or defer until the final pending save settles. */
   syncPersisted(persisted: T): void;
   /** Optimistically apply `patch`, persist it, and reconcile last-write-wins. */
@@ -43,6 +45,7 @@ export function createOptimisticDraftController<T>(
   let pendingSaveCount = 0;
   let saveTicket = 0;
   let confirmedSaveTicket = 0;
+  let lifecycleGeneration = 0;
   let disposed = false;
 
   function commit(next: T): void {
@@ -55,8 +58,8 @@ export function createOptimisticDraftController<T>(
     deps.onReconcile?.(next);
   }
 
-  function isCurrent(ticket: number): boolean {
-    return !disposed && deps.isMounted() && ticket === saveTicket;
+  function isCurrent(ticket: number, generation: number): boolean {
+    return !disposed && generation === lifecycleGeneration && deps.isMounted() && ticket === saveTicket;
   }
 
   function syncPersisted(persisted: T): void {
@@ -67,50 +70,62 @@ export function createOptimisticDraftController<T>(
     }
   }
 
+  function activate(): void {
+    if (!disposed) return;
+    disposed = false;
+    deps.onSavingChange?.(false);
+  }
+
   async function update(patch: Partial<T>): Promise<boolean> {
     if (disposed) return false;
     const nextDraft = { ...draftRef.current, ...patch } as T;
     saveTicket += 1;
     pendingSaveCount += 1;
     const ticket = saveTicket;
+    const generation = lifecycleGeneration;
     commit(nextDraft);
     if (pendingSaveCount === 1 && deps.isMounted()) {
       deps.onSavingChange?.(true);
     }
     try {
       const next = await deps.onUpdate(patch);
-      if (!disposed && ticket > confirmedSaveTicket) {
+      if (!disposed && generation === lifecycleGeneration && ticket > confirmedSaveTicket) {
         confirmedSaveTicket = ticket;
         authoritativeRef.current = next;
       }
-      if (isCurrent(ticket)) {
+      if (isCurrent(ticket, generation)) {
         reconcile(next);
       }
-      return isCurrent(ticket);
+      return isCurrent(ticket, generation);
     } catch (error) {
-      if (isCurrent(ticket)) {
+      if (isCurrent(ticket, generation)) {
         reconcile(authoritativeRef.current);
         deps.onError?.(error);
       }
       return false;
     } finally {
-      pendingSaveCount = Math.max(0, pendingSaveCount - 1);
-      if (!disposed && pendingSaveCount === 0 && deps.isMounted()) {
-        if (draftRef.current !== authoritativeRef.current) {
-          reconcile(authoritativeRef.current);
+      if (generation === lifecycleGeneration) {
+        pendingSaveCount = Math.max(0, pendingSaveCount - 1);
+        if (!disposed && pendingSaveCount === 0 && deps.isMounted()) {
+          if (draftRef.current !== authoritativeRef.current) {
+            reconcile(authoritativeRef.current);
+          }
+          deps.onSavingChange?.(false);
         }
-        deps.onSavingChange?.(false);
       }
     }
   }
 
   function dispose(): void {
     disposed = true;
+    lifecycleGeneration += 1;
+    pendingSaveCount = 0;
     saveTicket += 1;
   }
 
   return {
     draftRef,
+    activate,
     syncPersisted,
     update,
     dispose,

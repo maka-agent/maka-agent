@@ -64,18 +64,19 @@ export function useOptimisticSettingsDraft<T>(
   const controller = controllerRef.current;
 
   useEffect(() => {
-    controller.syncPersisted(persisted);
-    // Sync is intentionally keyed on the persisted value alone; callbacks are
-    // read from refs so they never re-trigger the effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [persisted]);
-
-  useEffect(() => {
+    controller.activate();
     return () => {
       controller.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    controller.syncPersisted(persisted);
+    // Sync is intentionally keyed on the persisted value alone; callbacks are
+    // read from refs so they never re-trigger the effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persisted]);
 
   return {
     draft,

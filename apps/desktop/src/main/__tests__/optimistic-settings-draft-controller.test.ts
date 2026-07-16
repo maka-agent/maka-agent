@@ -6,6 +6,8 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import {
   createOptimisticDraftController,
@@ -15,6 +17,12 @@ import {
 interface Draft {
   v: number;
 }
+
+const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
+const hookSource = readFileSync(
+  resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'settings', 'use-optimistic-settings-draft.ts'),
+  'utf8',
+);
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void } {
   let resolve!: (value: T) => void;
@@ -200,6 +208,51 @@ describe('createOptimisticDraftController last-write-wins', () => {
       h.drafts.some((draft) => draft.v === 30),
       false,
       'a save resolving after dispose must not write the draft',
+    );
+  });
+
+  it('accepts updates again after a StrictMode cleanup replay reactivates it', async () => {
+    const h = harness({ v: 0 });
+
+    h.controller.dispose();
+    h.controller.activate();
+
+    const save = h.controller.update({ v: 2 });
+    assert.equal(h.pending.length, 1, 'reactivation must restore persistence calls');
+    h.pending[0].deferred.resolve({ v: 20 });
+
+    assert.equal(await save, true);
+    assert.deepEqual(h.controller.draftRef.current, { v: 20 });
+  });
+
+  it('keeps pre-dispose responses invalid after reactivation', async () => {
+    const h = harness({ v: 0 });
+
+    const staleSave = h.controller.update({ v: 1 });
+    h.controller.dispose();
+    h.controller.activate();
+    h.pending[0].deferred.resolve({ v: 10 });
+
+    assert.equal(await staleSave, false);
+    assert.equal(
+      h.drafts.some((draft) => draft.v === 10),
+      false,
+      'reactivation must not revive responses owned by the previous lifecycle',
+    );
+  });
+});
+
+describe('useOptimisticSettingsDraft lifecycle wiring', () => {
+  it('reactivates the controller before syncing persisted state on every effect setup', () => {
+    const activateIndex = hookSource.indexOf('controller.activate();');
+    const syncIndex = hookSource.indexOf('controller.syncPersisted(persisted);');
+
+    assert.notEqual(activateIndex, -1, 'the effect setup must reactivate after a StrictMode cleanup replay');
+    assert.ok(activateIndex < syncIndex, 'reactivation must run before persisted-state sync');
+    assert.match(
+      hookSource,
+      /useEffect\(\(\) => \{\s*controller\.activate\(\);\s*return \(\) => \{\s*controller\.dispose\(\);\s*\};/,
+      'one effect must pair controller activation with cleanup disposal',
     );
   });
 });
