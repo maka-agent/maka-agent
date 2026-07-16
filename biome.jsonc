@@ -19,12 +19,41 @@
       "!components.json"
     ]
   },
-  // No formatter here on purpose. `formatter.enabled: true` on main gets
-  // picked up by editors' format-on-save, leaking a 1,299-file reformat
-  // piecemeal into unrelated PRs. Formatting lands separately as one atomic
-  // baseline PR (config + `biome format --write` baseline + check-mode CI
-  // gate + `.git-blame-ignore-revs` entry), timed when few PRs are open.
-  // See #415.
+  // Formatter enabled together with the one-time whole-tree baseline commit
+  // in this PR (see .git-blame-ignore-revs) and a `biome format` check-mode
+  // CI gate. Style matches the dominant existing conventions so the baseline
+  // diff is minimal churn, not a restyle.
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "includes": [
+      "**",
+      // The UI surface (apps/desktop + packages/ui) is formatter-EXCLUDED
+      // (still fully linted): desktop's "source-contract tests" read .ts/.tsx
+      // source — desktop's own AND packages/ui's — and regex-match exact
+      // single-line shapes; a whole-tree reformat broke 145 desktop-source
+      // assertions plus ~45 contracts introspecting packages/ui. Formatting
+      // the UI surface lands as a follow-up once those contract tests are
+      // made format-tolerant. See #415.
+      "!apps/desktop/**",
+      "!packages/ui/**",
+      // Byte-sensitive provenance / generated artifacts — NOT hand-authored
+      // source. SOURCE.json is read whole and SHA-256'd + size-checked by
+      // scripts/prepare-cua-driver.mjs, so reformatting breaks provenance
+      // verification; bundled-tools.json is its generated sibling.
+      "!apps/desktop/resources/licenses/**",
+      "!apps/desktop/bundled-tools.json"
+    ]
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
   "linter": {
     "enabled": true,
     // Admission bar for this gate (PR #1019 review). This is an EXPLICIT
