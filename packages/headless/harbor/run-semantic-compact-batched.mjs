@@ -172,6 +172,44 @@ function assertTaskPartition() {
   }
 }
 
+export function semanticCompactSupplementTaskIds(env = process.env) {
+  const raw = env.MAKA_SEMANTIC_AB_SUPPLEMENT_TASK_IDS;
+  if (!raw) return null;
+  const taskIds = raw.split(',').map((taskId) => taskId.trim()).filter(Boolean);
+  const historical = new Set(HISTORICAL_V1_TASK_IDS);
+  for (const taskId of taskIds) {
+    if (!historical.has(taskId)) throw new Error(`unknown historical task: ${taskId}`);
+  }
+  return taskIds;
+}
+
+export function semanticCompactBatchPlan(env = process.env) {
+  const supplementTaskIds = semanticCompactSupplementTaskIds(env);
+  if (supplementTaskIds === null) {
+    return {
+      parentRunId: env.MAKA_SEMANTIC_AB_RUN_ID || 'glm-5.2-semantic-compact-30-local-edit-fix-v1',
+      batches: [
+        { id: 'issue15', taskIds: ISSUE_TASK_IDS },
+        { id: 'remaining15', taskIds: REMAINING_TASK_IDS },
+      ],
+    };
+  }
+  if (supplementTaskIds.length === 0) throw new Error('supplement task list must not be empty');
+  if (new Set(supplementTaskIds).size !== supplementTaskIds.length) {
+    throw new Error('supplement task list must contain unique task ids');
+  }
+  const parentRunId = env.MAKA_SEMANTIC_AB_RUN_ID;
+  const supplementOfRunId = env.MAKA_SEMANTIC_AB_SUPPLEMENT_OF_RUN_ID;
+  if (!parentRunId) throw new Error('MAKA_SEMANTIC_AB_RUN_ID is required in supplement mode');
+  if (!supplementOfRunId) throw new Error('MAKA_SEMANTIC_AB_SUPPLEMENT_OF_RUN_ID is required in supplement mode');
+  if (parentRunId === supplementOfRunId) throw new Error('supplement run id must differ from its source run id');
+  return {
+    parentRunId,
+    supplementOfRunId,
+    batches: [{ id: 'supplement', taskIds: supplementTaskIds }],
+  };
+}
+
 export function contextBudgetEnv(profile) {
   const common = {
     MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
@@ -349,10 +387,11 @@ async function runBatch({ parentRoot, batchId, taskIds, tasksById, common }) {
 
 export async function main() {
   assertTaskPartition();
+  const batchPlan = semanticCompactBatchPlan(process.env);
   const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
   const makaRepoPath = envPath('MAKA_SEMANTIC_AB_MAKA_REPO', repoRoot);
   const outDir = envPath('MAKA_SEMANTIC_AB_OUT_DIR', join(homedir(), '.maka/eval/runs/semantic-compact-on-off-20260717'));
-  const parentRunId = process.env.MAKA_SEMANTIC_AB_RUN_ID || 'glm-5.2-semantic-compact-30-local-edit-fix-v1';
+  const parentRunId = batchPlan.parentRunId;
   const parentRoot = resolveFixedPromptRunRoot(outDir, parentRunId, 'MAKA_SEMANTIC_AB_RUN_ID');
   const tasksRoot = envPath('MAKA_SEMANTIC_AB_TASKS_ROOT', join(homedir(), '.cache/harbor/tasks'));
   const keyFile = envPath('MAKA_SEMANTIC_AB_KEY_FILE', join(repoRoot, '.local-secrets/zai-key'));
@@ -368,7 +407,8 @@ export async function main() {
   }
 
   if (process.env.MAKA_SEMANTIC_AB_DRY_RUN === '1') {
-    console.log(`dry-run: 15 issue tasks + 15 remaining tasks = historical v1's 30 unique tasks; 60 total cells -> ${parentRoot}`);
+    const taskCount = new Set(batchPlan.batches.flatMap((batch) => batch.taskIds)).size;
+    console.log(`dry-run: ${batchPlan.batches.length} batch(es), ${taskCount} unique tasks, ${taskCount * 2} total cells -> ${parentRoot}`);
     return;
   }
 
@@ -402,35 +442,53 @@ export async function main() {
     subjectFingerprint,
     taskSourceFingerprint,
     batches: [
-      { id: 'issue15', taskCount: ISSUE_TASK_IDS.length },
-      { id: 'remaining15', taskCount: REMAINING_TASK_IDS.length },
+      ...batchPlan.batches.map((batch) => ({ id: batch.id, taskCount: batch.taskIds.length })),
     ],
+    ...(batchPlan.supplementOfRunId ? { supplementOfRunId: batchPlan.supplementOfRunId } : {}),
   };
   await writeJsonAtomic(join(parentRoot, 'experiment-manifest.json'), {
     schemaVersion: 1,
     parentRunId,
     historicalV1TaskIds: HISTORICAL_V1_TASK_IDS,
-    batches: { issue15: ISSUE_TASK_IDS, remaining15: REMAINING_TASK_IDS },
+    batches: Object.fromEntries(batchPlan.batches.map((batch) => [batch.id, batch.taskIds])),
+    ...(batchPlan.supplementOfRunId ? { supplementOfRunId: batchPlan.supplementOfRunId } : {}),
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,
   });
   try {
-    await writeJsonAtomic(journalPath, { ...baseJournal, status: 'running', currentBatch: 'issue15' });
-    const issue15 = await runBatch({ parentRoot, batchId: 'issue15', taskIds: ISSUE_TASK_IDS, tasksById, common });
-    await writeJsonAtomic(journalPath, { ...baseJournal, status: 'running', currentBatch: 'remaining15', completedBatches: ['issue15'] });
-    const remaining15 = await runBatch({ parentRoot, batchId: 'remaining15', taskIds: REMAINING_TASK_IDS, tasksById, common });
+    const completedBatches = [];
+    const reports = [];
+    for (const batch of batchPlan.batches) {
+      await writeJsonAtomic(journalPath, {
+        ...baseJournal,
+        status: 'running',
+        currentBatch: batch.id,
+        completedBatches,
+      });
+      const result = await runBatch({
+        parentRoot,
+        batchId: batch.id,
+        taskIds: batch.taskIds,
+        tasksById,
+        common,
+      });
+      completedBatches.push(batch.id);
+      reports.push(result.report);
+    }
+    const uniqueTaskCount = new Set(batchPlan.batches.flatMap((batch) => batch.taskIds)).size;
     await writeJsonAtomic(join(parentRoot, 'combined-report.json'), {
       schemaVersion: 1,
       runId: parentRunId,
-      uniqueTaskCount: 30,
-      scheduledCells: 60,
-      batches: [issue15.report, remaining15.report],
+      uniqueTaskCount,
+      scheduledCells: uniqueTaskCount * 2,
+      ...(batchPlan.supplementOfRunId ? { supplementOfRunId: batchPlan.supplementOfRunId } : {}),
+      batches: reports,
     });
     await writeJsonAtomic(journalPath, {
       ...baseJournal,
       status: 'completed',
-      completedBatches: ['issue15', 'remaining15'],
+      completedBatches,
       finishedAt: new Date().toISOString(),
       exitCode: 0,
     });

@@ -76,6 +76,60 @@ test('semantic compact batched runtime only sends context keys accepted by Harbo
   assert.deepEqual(normalizeHarborCellContextEnv(env), env);
 });
 
+test('semantic compact supplement mode selects only the requested historical task pair', async () => {
+  const { semanticCompactSupplementTaskIds } = await import(
+    new URL('../../harbor/run-semantic-compact-batched.mjs', import.meta.url).href
+  );
+
+  assert.deepEqual(
+    semanticCompactSupplementTaskIds({
+      MAKA_SEMANTIC_AB_SUPPLEMENT_TASK_IDS: 'custom-memory-heap-crash',
+    }),
+    ['custom-memory-heap-crash'],
+  );
+});
+
+test('semantic compact supplement mode rejects tasks outside the historical 30', async () => {
+  const { semanticCompactSupplementTaskIds } = await import(
+    new URL('../../harbor/run-semantic-compact-batched.mjs', import.meta.url).href
+  );
+
+  assert.throws(
+    () => semanticCompactSupplementTaskIds({ MAKA_SEMANTIC_AB_SUPPLEMENT_TASK_IDS: 'not-a-historical-task' }),
+    /unknown historical task: not-a-historical-task/,
+  );
+});
+
+test('semantic compact supplement mode creates one isolated batch with source provenance', async () => {
+  const { semanticCompactBatchPlan } = await import(
+    new URL('../../harbor/run-semantic-compact-batched.mjs', import.meta.url).href
+  );
+
+  assert.deepEqual(semanticCompactBatchPlan({
+    MAKA_SEMANTIC_AB_SUPPLEMENT_TASK_IDS: 'custom-memory-heap-crash',
+    MAKA_SEMANTIC_AB_RUN_ID: 'semantic-compact-supplement-custom-memory',
+    MAKA_SEMANTIC_AB_SUPPLEMENT_OF_RUN_ID: 'semantic-compact-main-v2',
+  }), {
+    parentRunId: 'semantic-compact-supplement-custom-memory',
+    supplementOfRunId: 'semantic-compact-main-v2',
+    batches: [{ id: 'supplement', taskIds: ['custom-memory-heap-crash'] }],
+  });
+});
+
+test('semantic compact default plan preserves the historical 15 plus 15 batches', async () => {
+  const { semanticCompactBatchPlan } = await import(
+    new URL('../../harbor/run-semantic-compact-batched.mjs', import.meta.url).href
+  );
+
+  const plan = semanticCompactBatchPlan({});
+  assert.equal(plan.batches.length, 2);
+  assert.deepEqual(plan.batches.map((batch: { id: string; taskIds: string[] }) => [batch.id, batch.taskIds.length]), [
+    ['issue15', 15],
+    ['remaining15', 15],
+  ]);
+  assert.equal(new Set(plan.batches.flatMap((batch: { taskIds: string[] }) => batch.taskIds)).size, 30);
+});
+
 test('harness Oracle environment selects the linux/amd64 image manifest digest', async () => {
   const { resolvedImageDigestFromInspect } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
