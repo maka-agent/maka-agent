@@ -935,6 +935,47 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(bodyIndex < expanded.findIndex((line) => line.includes('the answer')));
   });
 
+  test('separates the thinking marker from tool rows with blank lines', () => {
+    const state = createMakaPiTranscriptState();
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'tool-1', toolName: 'Bash', args: { command: 'ls' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'ok' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'thinking_delta', messageId: 'message-1', text: 'plan the next step',
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'tool-2', toolName: 'Bash', args: { command: 'pwd' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'tool-2', isError: false, content: { kind: 'text', text: 'ok' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'tool-3', toolName: 'Bash', args: { command: 'whoami' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'tool-3', isError: false, content: { kind: 'text', text: 'ok' },
+    }));
+
+    const lines = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi);
+    const markerIndex = lines.findIndex((line) => line.includes('Thinking…'));
+    assert.ok(markerIndex > 0);
+
+    // Thinking reads as model output: a blank line sets it apart from the
+    // tool rows on both sides.
+    assert.equal(lines[markerIndex - 1], '');
+    assert.equal(lines[markerIndex + 1], '');
+
+    // Consecutive tool rows stay compact — no blank line between them.
+    const toolIndices = lines
+      .map((line, index) => (line.includes('● Bash') ? index : -1))
+      .filter((index) => index >= 0);
+    assert.deepEqual(toolIndices, [markerIndex - 2, markerIndex + 2, markerIndex + 3]);
+  });
+
   test('replaces the streamed thinking entry when thinking_complete arrives after the reply', () => {
     const state = createMakaPiTranscriptState();
 

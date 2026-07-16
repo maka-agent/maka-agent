@@ -746,11 +746,12 @@ export function renderMakaPiTranscript(
   for (let i = 0; i < state.entries.length; i += 1) {
     const entry = state.entries[i]!;
     const prev = state.entries[i - 1];
-    // A blank gap separates human-facing boundaries (user/assistant/notice)
-    // and the edges of an agent-work stack; consecutive thinking/tool entries
-    // (the agent-work stack) have no blank line between them.
-    const continuesStack = (entry.kind === 'thinking' || entry.kind === 'tool')
-      && (prev?.kind === 'thinking' || prev?.kind === 'tool');
+    // A blank gap separates human-facing boundaries (user/assistant/thinking/
+    // notice) and the edges of a tool stack; only consecutive tool entries (the
+    // agent-work stack) have no blank line between them. Thinking reads as
+    // model output, so it gets the same blank-line breathing room as assistant
+    // text rather than packing against the tool rows.
+    const continuesStack = entry.kind === 'tool' && prev?.kind === 'tool';
     if (!continuesStack) lines.push('');
     lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, state.expandAllTools, state.expandAllThinking));
   }
