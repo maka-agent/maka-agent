@@ -82,11 +82,14 @@ describe('shared OAuth token persistence (store authority)', () => {
     await assert.rejects(loadSharedOAuthTokens(store, 'claude-subscription'), /schema version/);
   });
 
-  it('deletes an unparseable entry and reports corrupt', async () => {
+  it('keeps an unparseable entry intact and reports corrupt (reads never destroy secrets)', async () => {
     const store = createFileCredentialStore(await makeWorkspace());
     await store.setSecret('claude-subscription', 'oauth_token', 'not-a-token-payload');
     assert.deepEqual(await loadSharedOAuthTokens(store, 'claude-subscription'), { status: 'corrupt' });
-    assert.equal(await store.getSecret('claude-subscription', 'oauth_token'), null);
+    assert.equal(await store.getSecret('claude-subscription', 'oauth_token'), 'not-a-token-payload');
+    // A fresh login overwrites the corrupt entry — no delete needed to unstick.
+    await saveSharedOAuthTokens(store, 'claude-subscription', TOKENS);
+    assert.equal((await loadSharedOAuthTokens(store, 'claude-subscription')).status, 'ok');
   });
 
   it('delete removes the entry and leaves other kinds intact', async () => {
@@ -148,6 +151,25 @@ describe('legacy safeStorage token file import (one-shot)', () => {
     await assert.rejects(stat(filePath), { code: 'ENOENT' });
   });
 
+  it('a garbage store entry does not supersede a valid legacy file', async () => {
+    const workspaceRoot = await makeWorkspace();
+    const store = createFileCredentialStore(workspaceRoot);
+    await store.setSecret('claude-subscription', 'oauth_token', 'stored-garbage');
+    const filePath = join(workspaceRoot, '.claude_subscription_token');
+    await writeFile(filePath, encryptedTokenFileContents(TOKENS));
+
+    const reports = await importLegacyOAuthTokenFiles({
+      credentialStore: store,
+      decryptor: fakeDecryptor(),
+      files: [{ slug: 'claude-subscription', filePath }],
+    });
+
+    assert.deepEqual(reports.map((r) => r.outcome), ['imported']);
+    const result = await loadSharedOAuthTokens(store, 'claude-subscription');
+    assert.equal(result.status === 'ok' && result.tokens.access_token, TOKENS.access_token);
+    await assert.rejects(stat(filePath), { code: 'ENOENT' });
+  });
+
   it('leaves the file intact when decryption is unavailable', async () => {
     const workspaceRoot = await makeWorkspace();
     const store = createFileCredentialStore(workspaceRoot);
@@ -180,7 +202,7 @@ describe('legacy safeStorage token file import (one-shot)', () => {
     await stat(filePath); // still present, retried next start
   });
 
-  it('removes a file whose decrypted payload is not a token', async () => {
+  it('keeps a file whose decrypted payload is not a token this build can parse', async () => {
     const workspaceRoot = await makeWorkspace();
     const store = createFileCredentialStore(workspaceRoot);
     const filePath = join(workspaceRoot, '.claude_subscription_token');
@@ -192,9 +214,9 @@ describe('legacy safeStorage token file import (one-shot)', () => {
       files: [{ slug: 'claude-subscription', filePath }],
     });
 
-    assert.deepEqual(reports.map((r) => r.outcome), ['removed-corrupt']);
+    assert.deepEqual(reports.map((r) => r.outcome), ['left-unparseable']);
     assert.equal(await store.getSecret('claude-subscription', 'oauth_token'), null);
-    await assert.rejects(stat(filePath), { code: 'ENOENT' });
+    await stat(filePath); // kept — only an explicit logout destroys it
   });
 
   it('reports per-file failures without throwing and continues with the rest', async () => {

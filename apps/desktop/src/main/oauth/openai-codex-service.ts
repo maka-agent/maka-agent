@@ -578,9 +578,9 @@ export class OpenAiCodexService {
       return null;
     }
     if (result.status === 'corrupt') {
-      // Entry existed but was not a token payload; the bridge deleted
-      // it so the next login doesn't observe a stuck-corrupt state.
-      this.lastStorageFailedMessage = 'Codex OAuth 共享凭据无法解析，已清理损坏条目，请重新登录。';
+      // Entry exists but is not a token payload; it is kept as-is
+      // (reads never destroy secrets) and a fresh login overwrites it.
+      this.lastStorageFailedMessage = 'Codex OAuth 共享凭据无法解析，请重新登录。';
       return null;
     }
     if (result.status === 'missing') return null;

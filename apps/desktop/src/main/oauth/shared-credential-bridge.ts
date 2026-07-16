@@ -27,8 +27,10 @@ export type SharedOAuthCredentialStore = Pick<CredentialStore, 'getSecret' | 'se
 export type SharedOAuthTokensReadResult =
   | { status: 'ok'; tokens: OAuthSubscriptionTokens }
   | { status: 'missing' }
-  /** Entry existed but was not a valid token payload; it has been deleted
-   *  so the next login does not observe a stuck-corrupt state. */
+  /** Entry exists but is not a valid token payload. The entry is kept
+   *  as-is: reads never destroy a secret (it may be readable by a
+   *  newer schema or repairable by hand), and a fresh login simply
+   *  overwrites it — there is no stuck state a delete would unstick. */
   | { status: 'corrupt' };
 
 /** Persist tokens as the authoritative copy. Throws on store failure. */
@@ -43,8 +45,8 @@ export async function saveSharedOAuthTokens(
 /**
  * Load the authoritative tokens. Store read errors (corrupt file,
  * schema mismatch, stale lock) propagate to the caller; an entry that
- * exists but does not parse as a token payload is deleted (best-effort)
- * and reported as `corrupt`.
+ * exists but does not parse as a token payload is reported as
+ * `corrupt` and left untouched.
  */
 export async function loadSharedOAuthTokens(
   store: SharedOAuthCredentialStore,
@@ -53,10 +55,7 @@ export async function loadSharedOAuthTokens(
   const raw = await store.getSecret(slug, 'oauth_token');
   if (raw === null) return { status: 'missing' };
   const tokens = parseOAuthSubscriptionTokens(raw);
-  if (!tokens) {
-    await store.deleteSecret(slug, 'oauth_token').catch(() => {});
-    return { status: 'corrupt' };
-  }
+  if (!tokens) return { status: 'corrupt' };
   return { status: 'ok', tokens };
 }
 
@@ -90,15 +89,18 @@ export interface LegacyOAuthTokenFile {
 export type LegacyOAuthTokenImportOutcome =
   /** Decrypted and written to the store; file removed. */
   | 'imported'
-  /** The store already held a token for the slug (it is at least as
-   *  fresh — every legacy write dual-wrote the store, and pure-Node
-   *  refreshes write only the store); file removed as a stale duplicate. */
+  /** The store already held a PARSEABLE token for the slug (it is at
+   *  least as fresh — every legacy write dual-wrote the store, and
+   *  pure-Node refreshes write only the store); file removed as a
+   *  stale duplicate. An unparseable store entry does not supersede:
+   *  a valid legacy token must win over stored garbage. */
   | 'superseded'
   /** Decryption unavailable or denied; file left intact for a later
    *  start (never destroy a possibly recoverable secret). */
   | 'left-encrypted'
-  /** Decrypted fine but the payload is not a token; file removed. */
-  | 'removed-corrupt'
+  /** Decrypted fine but the payload is not a token this build can
+   *  parse; file kept — only an explicit logout destroys it. */
+  | 'left-unparseable'
   /** Unexpected I/O or store error; file left intact. */
   | 'failed';
 
@@ -111,11 +113,14 @@ export interface LegacyOAuthTokenImportReport {
 
 /**
  * Import legacy safeStorage-encrypted token files into the shared
- * store, once per file. Idempotent: a missing file is a no-op, and
- * every terminal outcome except `left-encrypted`/`failed` removes the
- * file so no decryptable copy survives (tombstone, matching
- * `migrateLegacyCredentialFile`). Never throws — desktop startup treats
- * migration as best-effort; returns a report per file that existed.
+ * store, once per file. Idempotent: a missing file is a no-op. The
+ * file is removed only when its secret provably survives elsewhere —
+ * written into the store (`imported`) or superseded by a parseable
+ * store token; every other outcome keeps the file for a later start
+ * (or manual recovery), because the import must never be the step
+ * that destroys the last copy of a credential. Never throws — desktop
+ * startup treats migration as best-effort; returns a report per file
+ * that existed.
  */
 export async function importLegacyOAuthTokenFiles(input: {
   credentialStore: Pick<CredentialStore, 'getSecret' | 'setSecret'>;
@@ -135,7 +140,8 @@ export async function importLegacyOAuthTokenFiles(input: {
       continue;
     }
     try {
-      if (await input.credentialStore.getSecret(slug, 'oauth_token') !== null) {
+      const existing = await input.credentialStore.getSecret(slug, 'oauth_token');
+      if (existing !== null && parseOAuthSubscriptionTokens(existing)) {
         await fs.unlink(filePath);
         report('superseded');
         continue;
@@ -149,15 +155,13 @@ export async function importLegacyOAuthTokenFiles(input: {
         decoded = input.decryptor.decryptString(encrypted);
       } catch (error) {
         // Keychain denied / rolled: possibly recoverable on a later
-        // start, so keep the file. Only a successful decrypt that
-        // yields garbage proves the file is dead.
+        // start, so keep the file.
         report('left-encrypted', error);
         continue;
       }
       const tokens = parseOAuthSubscriptionTokens(decoded);
       if (!tokens) {
-        await fs.unlink(filePath);
-        report('removed-corrupt');
+        report('left-unparseable');
         continue;
       }
       await input.credentialStore.setSecret(slug, 'oauth_token', serializeOAuthSubscriptionTokens(tokens));

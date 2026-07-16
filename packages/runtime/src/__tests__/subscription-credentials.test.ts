@@ -57,3 +57,61 @@ describe('GitHub Copilot subscription credentials', () => {
     assert.equal(tokens?.base_url, 'https://api.githubcopilot.com');
   });
 });
+
+describe('OAuth refresh response validation', () => {
+  const nearExpiryStored = JSON.stringify({
+    access_token: 'old-access',
+    refresh_token: 'old-refresh',
+    expires_at: 1_000, // already past `now` below → refresh path runs
+  });
+
+  const okResponse = (body: unknown): Response =>
+    ({ ok: true, status: 200, json: async () => body }) as unknown as Response;
+
+  for (const [name, body] of [
+    ['empty object', {}],
+    ['empty access token', { access_token: '', expires_in: 3600 }],
+    ['missing expiry', { access_token: 'new-access' }],
+    ['non-numeric expiry', { access_token: 'new-access', expires_in: 'soon' }],
+    ['non-positive expiry', { access_token: 'new-access', expires_in: 0 }],
+  ] as const) {
+    test(`a 200 refresh with ${name} never replaces the stored token`, async () => {
+      const writes: string[] = [];
+      const tokens = await resolveOAuthSubscriptionTokens({
+        providerType: 'claude-subscription',
+        slug: 'claude-subscription',
+        credentialStore: {
+          getSecret: async () => nearExpiryStored,
+          setSecret: async (_slug, _kind, value) => {
+            writes.push(value);
+          },
+        },
+        now: () => 10_000_000,
+        fetchFn: async () => okResponse(body),
+      });
+
+      assert.equal(tokens, null, 'an invalid refresh payload must surface as a refresh failure');
+      assert.deepEqual(writes, [], 'the still-working stored record must not be overwritten with garbage');
+    });
+  }
+
+  test('a rotated refresh token that is an empty string keeps the previous refresh token', async () => {
+    const writes: string[] = [];
+    const tokens = await resolveOAuthSubscriptionTokens({
+      providerType: 'claude-subscription',
+      slug: 'claude-subscription',
+      credentialStore: {
+        getSecret: async () => nearExpiryStored,
+        setSecret: async (_slug, _kind, value) => {
+          writes.push(value);
+        },
+      },
+      now: () => 10_000_000,
+      fetchFn: async () => okResponse({ access_token: 'new-access', refresh_token: '', expires_in: 3600 }),
+    });
+
+    assert.equal(tokens?.access_token, 'new-access');
+    assert.equal(tokens?.refresh_token, 'old-refresh');
+    assert.equal(writes.length, 1);
+  });
+});
