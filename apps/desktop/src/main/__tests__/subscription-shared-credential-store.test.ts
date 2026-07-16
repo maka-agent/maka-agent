@@ -9,7 +9,7 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -81,6 +81,34 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
       );
     });
   }
+
+  it('no production OAuth path invokes safeStorage (#1125 acceptance)', async () => {
+    // The acceptance bar for #1125: saving or loading a runtime-usable
+    // token must never require safeStorage. No module under oauth/ may
+    // import or call safeStorage (the bridge's legacy import takes an
+    // injected decryptor instead); main.ts may only pass the object
+    // into the legacy importers, never call it.
+    for (const file of await readdir(OAUTH_DIR)) {
+      if (!file.endsWith('.ts')) continue;
+      const src = await readFile(resolve(OAUTH_DIR, file), 'utf8');
+      assert.doesNotMatch(
+        src,
+        /import\s*\{[^}]*\bsafeStorage\b[^}]*\}\s*from 'electron'/,
+        `oauth/${file} must not import safeStorage from electron`,
+      );
+      assert.doesNotMatch(
+        src,
+        /\bsafeStorage\s*[.(]/,
+        `oauth/${file} must not invoke safeStorage`,
+      );
+    }
+    const mainSrc = await readFile(resolve(DESKTOP_ROOT, 'src', 'main', 'main.ts'), 'utf8');
+    assert.doesNotMatch(
+      mainSrc,
+      /safeStorage\s*\./,
+      'main.ts must only hand safeStorage to the legacy importers, never call it',
+    );
+  });
 
   it('main.ts runs the one-shot legacy token import at startup, non-fatally', async () => {
     const src = await readFile(resolve(DESKTOP_ROOT, 'src', 'main', 'main.ts'), 'utf8');

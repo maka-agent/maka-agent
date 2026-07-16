@@ -39,7 +39,7 @@ export type OAuthSubscriptionRuntimeState =
   | 'authenticated'        // tokens valid; not yet proven operational
   | 'refreshing'           // refresh attempt in flight
   | 'refresh_failed'       // refresh errored; user must re-login (token file NOT auto-deleted per kenji)
-  | 'storage_failed'       // token file / safeStorage read failed; do not present as logged out
+  | 'storage_failed'       // shared credential store read failed; do not present as logged out
   | 'quota_unavailable'    // tokens valid but /oauth/usage failed
   | 'provider_rejected';   // last send rejected by provider (likely policy / cloak needed)
 
@@ -120,7 +120,7 @@ export type SubscriptionActionFailureReason =
   | 'authorization_expired'    // verifier TTL passed before paste
   | 'token_exchange_failed'    // /oauth/token returned non-200
   | 'refresh_failed'           // refresh attempt errored
-  | 'storage_failed'           // safeStorage / file write failed
+  | 'storage_failed'           // shared credential store write failed
   // PR-OAUTH-SUBSCRIPTION-0 (kenji `45b31e16`): the experimental
   // env flag is OFF. Distinct from `provider_rejected` so the user
   // doesn't think Anthropic rejected their account — this is
