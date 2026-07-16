@@ -11,7 +11,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
-import { createFileCredentialStore } from '@maka/storage';
+import { createFileCredentialStore, type CredentialStore } from '@maka/storage';
 import {
   deleteSharedOAuthTokens,
   importLegacyOAuthTokenFiles,
@@ -148,6 +148,40 @@ describe('legacy safeStorage token file import (one-shot)', () => {
     assert.deepEqual(reports.map((r) => r.outcome), ['superseded']);
     const result = await loadSharedOAuthTokens(store, 'claude-subscription');
     assert.equal(result.status === 'ok' && result.tokens.access_token, 'fresher-from-cli-refresh');
+    await assert.rejects(stat(filePath), { code: 'ENOENT' });
+  });
+
+  it('does not overwrite a token committed after the import read its basis', async () => {
+    const workspaceRoot = await makeWorkspace();
+    const importingStore = createFileCredentialStore(workspaceRoot);
+    const concurrentStore = createFileCredentialStore(workspaceRoot);
+    const filePath = join(workspaceRoot, '.claude_subscription_token');
+    await writeFile(filePath, encryptedTokenFileContents(TOKENS));
+    const concurrentTokens = { ...TOKENS, access_token: 'concurrent-live-token' };
+    const concurrentRaw = JSON.stringify(concurrentTokens);
+    const racingStore: CredentialStore = {
+      getSecret: (slug, kind) => importingStore.getSecret(slug, kind),
+      setSecret: async (slug, kind, value) => {
+        await concurrentStore.setSecret(slug, kind, concurrentRaw);
+        await importingStore.setSecret(slug, kind, value);
+      },
+      deleteSecret: (slug, kind) => importingStore.deleteSecret(slug, kind),
+      compareAndSetSecret: async (slug, kind, expected, value) => {
+        await concurrentStore.setSecret(slug, kind, concurrentRaw);
+        assert.ok(importingStore.compareAndSetSecret);
+        return importingStore.compareAndSetSecret(slug, kind, expected, value);
+      },
+    };
+
+    const reports = await importLegacyOAuthTokenFiles({
+      credentialStore: racingStore,
+      decryptor: fakeDecryptor(),
+      files: [{ slug: 'claude-subscription', filePath }],
+    });
+
+    assert.deepEqual(reports.map((report) => report.outcome), ['superseded']);
+    const stored = await loadSharedOAuthTokens(concurrentStore, 'claude-subscription');
+    assert.equal(stored.status === 'ok' && stored.tokens.access_token, concurrentTokens.access_token);
     await assert.rejects(stat(filePath), { code: 'ENOENT' });
   });
 

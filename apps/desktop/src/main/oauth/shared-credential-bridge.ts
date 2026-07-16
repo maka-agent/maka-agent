@@ -123,7 +123,7 @@ export interface LegacyOAuthTokenImportReport {
  * that existed.
  */
 export async function importLegacyOAuthTokenFiles(input: {
-  credentialStore: Pick<CredentialStore, 'getSecret' | 'setSecret'>;
+  credentialStore: Pick<CredentialStore, 'getSecret' | 'setSecret' | 'compareAndSetSecret'>;
   decryptor: LegacySafeStorageDecryptor;
   files: LegacyOAuthTokenFile[];
 }): Promise<LegacyOAuthTokenImportReport[]> {
@@ -140,11 +140,27 @@ export async function importLegacyOAuthTokenFiles(input: {
       continue;
     }
     try {
-      const existing = await input.credentialStore.getSecret(slug, 'oauth_token');
+      let existing = await input.credentialStore.getSecret(slug, 'oauth_token');
       if (existing !== null && parseOAuthSubscriptionTokens(existing)) {
-        await fs.unlink(filePath);
-        report('superseded');
-        continue;
+        if (!input.credentialStore.compareAndSetSecret) {
+          await fs.unlink(filePath);
+          report('superseded');
+          continue;
+        }
+        // A same-value CAS turns the pre-lock "already imported" snapshot into
+        // a serialized decision before the legacy file may be removed.
+        const checked = await input.credentialStore.compareAndSetSecret(
+          slug,
+          'oauth_token',
+          existing,
+          existing,
+        );
+        if (checked.committed || (checked.current !== null && parseOAuthSubscriptionTokens(checked.current))) {
+          await fs.unlink(filePath);
+          report('superseded');
+          continue;
+        }
+        existing = checked.current;
       }
       if (!input.decryptor.isEncryptionAvailable()) {
         report('left-encrypted');
@@ -164,7 +180,26 @@ export async function importLegacyOAuthTokenFiles(input: {
         report('left-unparseable');
         continue;
       }
-      await input.credentialStore.setSecret(slug, 'oauth_token', serializeOAuthSubscriptionTokens(tokens));
+      const serialized = serializeOAuthSubscriptionTokens(tokens);
+      if (input.credentialStore.compareAndSetSecret) {
+        const committed = await input.credentialStore.compareAndSetSecret(
+          slug,
+          'oauth_token',
+          existing,
+          serialized,
+        );
+        if (!committed.committed) {
+          if (committed.current !== null && parseOAuthSubscriptionTokens(committed.current)) {
+            await fs.unlink(filePath);
+            report('superseded');
+          } else {
+            report('failed', new Error('OAuth credential changed during legacy import.'));
+          }
+          continue;
+        }
+      } else {
+        await input.credentialStore.setSecret(slug, 'oauth_token', serialized);
+      }
       await fs.unlink(filePath);
       report('imported');
     } catch (error) {
