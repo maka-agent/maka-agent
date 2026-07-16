@@ -26,10 +26,10 @@ export function renderToolBlock(entry: MakaPiToolEntry, width: number, expanded:
   return expanded ? renderExpandedToolBlock(entry, width) : renderCompactToolBlock(entry, width);
 }
 
-/** Status disc for a tool row: muted = done, accent = running, danger = error/aborted. */
+/** Status disc for a tool row: muted = done, accent = running, danger = error/aborted/failed. */
 function toolDisc(entry: MakaPiToolEntry): string {
   if (entry.status === 'running') return disc('accent');
-  if (entry.status === 'error' || entry.status === 'aborted') return disc('danger');
+  if (entry.status === 'error' || entry.status === 'aborted' || entry.status === 'failed') return disc('danger');
   return disc('muted');
 }
 
@@ -49,23 +49,59 @@ function toolDurationText(entry: MakaPiToolEntry): string {
  * `● Name  primary  ·  duration  ·  summary ›`. The disc carries status, the
  * duration is integer seconds, and a dim trailing `›` marks an expandable
  * card. Live output and stop hints live only in the expanded card, so collapse
- * never grows a second line (no height jitter).
+ * never grows a second line (no height jitter). The disc, name, duration, and
+ * `›` are always preserved; only the input and summary text truncate, so a
+ * long command or result never hides elapsed time or the expand marker.
  */
 function renderCompactToolBlock(entry: MakaPiToolEntry, width: number): string[] {
   const inputSummary = collapseToSingleLine(toolInputSummary(entry));
   const duration = toolDurationText(entry);
   const summary = compactToolSummary(entry, width);
+  const summaryText = summary && entry.status !== 'running' ? collapseToSingleLine(summary.text) : '';
   const sep = `  ${ansi.dim('·')}  `;
-  const segments: string[] = [];
-  if (inputSummary) segments.push(inputSummary);
-  if (duration) segments.push(duration);
-  // Running tools have no result yet; keep the row to `running Ns` and leave
-  // the live tail for the expanded card.
-  if (summary && entry.status !== 'running') segments.push(collapseToSingleLine(summary.text));
-  let line = `${toolDisc(entry)} ${entry.title ?? entry.toolName}`;
-  if (segments.length) line += `  ${segments.join(sep)}`;
-  if (summary?.expandable) line += ` ${ansi.dim('›')}`;
-  return [fitLine(line, width)];
+  const chevron = summary?.expandable ? ` ${ansi.dim('›')}` : '';
+  const head = `${toolDisc(entry)} ${entry.title ?? entry.toolName}`;
+  return [fitLine(assembleCompactToolRow(head, inputSummary, duration, summaryText, sep, chevron, width), width)];
+}
+
+/**
+ * Lay out `head  input  ·  duration  ·  summary chevron` on one line, keeping
+ * the head, duration segment, and chevron (the status-carrying parts) intact
+ * and truncating only the flexible input/summary text when the row overflows.
+ * Input is truncated before summary so a long command keeps its elapsed time.
+ */
+function assembleCompactToolRow(
+  head: string,
+  input: string,
+  duration: string,
+  summary: string,
+  sep: string,
+  chevron: string,
+  width: number,
+): string {
+  const inputSeg = input ? `  ${input}` : '';
+  const durSeg = duration ? `${sep}${duration}` : '';
+  const sumSeg = summary ? `${sep}${summary}` : '';
+  const full = `${head}${inputSeg}${durSeg}${sumSeg}${chevron}`;
+  if (visibleWidth(full) <= width) return full;
+  // Overflow: reserve head + duration + chevron, then fit input before summary.
+  // Input joins the name with two spaces; duration and summary join with `·`.
+  let budget = Math.max(0, width - visibleWidth(`${head}${durSeg}${chevron}`));
+  let builtInput = '';
+  let builtSummary = '';
+  if (input && budget > 3) {
+    const room = budget - 2;
+    const text = visibleWidth(input) > room ? truncateToWidth(input, room, '…') : input;
+    builtInput = `  ${text}`;
+    budget -= visibleWidth(builtInput);
+  }
+  const sepW = visibleWidth(sep);
+  if (summary && budget > sepW + 1) {
+    const room = budget - sepW;
+    const text = visibleWidth(summary) > room ? truncateToWidth(summary, room, '…') : summary;
+    builtSummary = `${sep}${text}`;
+  }
+  return `${head}${builtInput}${durSeg}${builtSummary}${chevron}`;
 }
 
 function renderExpandedToolBlock(entry: MakaPiToolEntry, width: number): string[] {

@@ -1301,6 +1301,45 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(lines.join('\n'), /\x1b\[31m●\x1b\[39m/);
   });
 
+  test('marks a failed background Bash card with the danger disc on the compact row', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-fail', toolName: 'Bash', args: { command: 'false' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-fail', isError: false,
+      content: shellRun({ status: 'failed', startedAt: 1_000, updatedAt: 2_000, completedAt: 2_000, exitCode: 1 }),
+    }));
+
+    const tools = state.entries.filter((entry) => entry.kind === 'tool');
+    assert.equal(tools[0]?.kind === 'tool' ? tools[0].status : undefined, 'failed');
+    const lines = renderMakaPiTranscript(state, meta(), 100);
+    const rendered = lines.map(stripAnsi).join('\n');
+    assert.match(rendered, /● Bash  \$ false/);
+    // A failed background run uses the danger (red) disc, not the muted done disc.
+    assert.match(lines.join('\n'), /\x1b\[31m●\x1b\[39m/);
+  });
+
+  test('keeps duration and the expand marker when a compact row overflows', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-long', toolName: 'Bash',
+      args: { command: 'npm run build ' + 'x'.repeat(60) },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-long', isError: false,
+      content: shellRun({ status: 'completed', startedAt: 1_000, updatedAt: 6_000, completedAt: 6_000, exitCode: 0, stdout: 'first\nlast\n' }),
+    }));
+
+    const lines = renderMakaPiTranscript(state, meta(), 60).map(stripAnsi);
+    assert.equal(lines.length, 2); // one card line plus the leading blank separator
+    const row = lines[1]!;
+    // A long command must not hide the elapsed time or the expand marker.
+    assert.match(row, /·  5s/);
+    assert.match(row, /›$/);
+    assert.ok(visibleWidth(row) <= 60, `row width ${visibleWidth(row)} exceeds 60`);
+  });
+
   test('applies a runtime-published terminal update directly to its parent Bash card', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
