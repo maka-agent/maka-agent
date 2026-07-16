@@ -247,6 +247,7 @@ export {
   type ToolInvocationInput,
   type UiLocale,
 } from './tool-quiet-preview.js';
+export { redactSecrets as displayRedactSecrets } from './display-redaction.js';
 export {
   SHELL_RUN_ID_MAX_CHARS,
   SHELL_RUN_STATUSES,

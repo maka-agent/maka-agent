@@ -48,6 +48,7 @@
     "./onboarding": "./dist/onboarding.js",
     "./text-file-import": "./dist/text-file-import.js",
     "./redaction": "./dist/redaction.js",
+    "./display-redaction": "./dist/display-redaction.js",
     "./settings": "./dist/settings.js",
     "./settings/network-settings": "./dist/settings/network-settings.js",
     "./settings/result": "./dist/settings/result.js",

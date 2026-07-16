@@ -736,7 +736,7 @@ function toolInputSummary(entry: MakaPiToolEntry): string {
   // tool cases above are an optimization for the common tools; this fallback
   // covers Skill, AskUserQuestion, GoalSet, Automation, and any future tool.
   const line = formatToolInvocationLine({ toolName: entry.toolName, args: input }, 'en');
-  if (line) return line;
+  if (line) return limitText(line, 600);
   // Absolute last resort — still single-line for the compact header contract.
   return `input: ${limitText(formatUnknownInline(input), 600)}`;
 }

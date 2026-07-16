@@ -10,7 +10,7 @@
  * the TUI passes `'en'`.
  */
 
-import { redactSecrets } from './redaction.js';
+import { redactSecrets } from './display-redaction.js';
 import { readWriteStdinInputPreview } from './tool-activity-args.js';
 
 // ── Locale ───────────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ const STRINGS_BY_LOCALE: Record<UiLocale, QuietPreviewStrings> = {
     empty: '(empty)',
     done: 'done',
     notDone: 'not done',
-    replacements: (n) => `${n} replacements`,
+    replacements: (n) => (n === 1 ? '1 replacement' : `${n} replacements`),
     written: 'written',
     bytes: (n) => `${n} bytes`,
   },
