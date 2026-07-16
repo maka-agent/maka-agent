@@ -78,7 +78,7 @@
       }
     },
     "maka-prune-default": {
-      "description": "Post-#621 default prune pipeline (active + stale on) with continuation enabled. Per-turn step cap deliberately low so tasks cross turn boundaries and stale prune fires. B arm for the stale-prune A/B; A arm for the retrieval A/B.",
+      "description": "Post-#621 default prune pipeline (active + stale on) with continuation enabled. Per-turn step cap deliberately low so tasks cross turn boundaries and stale prune fires. B arm for the stale-prune A/B; A arm for the retrieval A/B. Note: the continuation env vars are currently inert in task-run mode (never consumed by the CLI path; pre-existing).",
       "agentTimeoutMultiplier": 4.0,
       "agent": {
         "importPath": "maka_agent:MakaAgent",
@@ -96,7 +96,7 @@
       }
     },
     "maka-stale-off": {
-      "description": "Same as maka-prune-default but stale tool-result prune explicitly off. A arm for the stale-prune A/B.",
+      "description": "Same as maka-prune-default but stale tool-result prune explicitly off. A arm for the stale-prune A/B. Note: the continuation env vars are currently inert in task-run mode (never consumed by the CLI path; pre-existing).",
       "agentTimeoutMultiplier": 4.0,
       "agent": {
         "importPath": "maka_agent:MakaAgent",
@@ -115,7 +115,7 @@
       }
     },
     "maka-retrieval-on": {
-      "description": "Same as maka-prune-default plus eager archive retrieval, so stale-pruned placeholders hydrate back (newest first, bounded). B arm for the retrieval A/B.",
+      "description": "Same as maka-prune-default plus eager archive retrieval, so stale-pruned placeholders hydrate back (newest first, bounded). B arm for the retrieval A/B. Note: the continuation env vars are currently inert in task-run mode (never consumed by the CLI path; pre-existing).",
       "agentTimeoutMultiplier": 4.0,
       "agent": {
         "importPath": "maka_agent:MakaAgent",
