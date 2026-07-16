@@ -57,11 +57,26 @@ export interface MakaPiTranscriptState {
    */
   expandAllTools: boolean;
   expandAllThinking: boolean;
+  /**
+   * Ref polls folded at `tool_start`, childToolUseId → card facts. A Read /
+   * StopBackgroundTask aimed at a ref a visible Bash card owns is internal
+   * polling: it never renders a row, and its result folds straight into the
+   * parent. The facts survive only so an errored poll can surface as a normal
+   * card instead of being swallowed.
+   */
+  pendingShellRunPolls: Map<string, MakaPiPendingShellRunPoll>;
   /** Aggregated token usage for statusline display; reset on session switch. */
   usage: MakaPiUsageSummary;
 }
 
 export type MakaPiPendingInteraction = AnyPermissionRequestEvent | UserQuestionRequestEvent;
+
+/** Facts kept from a folded poll's `tool_start` so an errored result can still materialize a proper card. */
+export interface MakaPiPendingShellRunPoll {
+  toolName: string;
+  title?: string;
+  input: unknown;
+}
 
 /** A single live output chunk from a `tool_output_delta` event. */
 export interface MakaPiToolOutputDelta {
@@ -121,6 +136,7 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
     queuedInteractions: [],
     expandAllTools: false,
     expandAllThinking: false,
+    pendingShellRunPolls: new Map(),
     usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 },
   };
 }
@@ -162,8 +178,12 @@ export function applyShellRunViewUpdateToTranscript(
   state: MakaPiTranscriptState,
   update: ShellRunUpdate,
 ): boolean {
-  const applied = applyShellRunUpdateToTranscript(state, update.sourceToolCallId, update.result);
   const tool = findToolEntry(state, update.sourceToolCallId);
+  const wasLive = isLiveShellRunCard(tool);
+  const applied = applyShellRunUpdateToTranscript(state, update.sourceToolCallId, update.result);
+  if (tool && wasLive && isSettledShellRunCard(tool)) {
+    pushShellRunSettledNotice(state, tool);
+  }
   if (!tool
     || tool.toolName !== 'Bash'
     || tool.result?.kind !== 'shell_run'
@@ -200,6 +220,7 @@ export function replaceTranscriptWithStoredMessages(
       .map((entry) => entry.messageId),
   );
   clearPendingInteractions(state);
+  state.pendingShellRunPolls.clear();
   state.expandAllTools = false;
   state.expandAllThinking = false;
   state.usage = { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 };
@@ -355,7 +376,24 @@ export function applyMakaSessionEventToTranscript(
       if (event.text) setThinking(state, event.messageId, event.text);
       break;
 
-    case 'tool_start':
+    case 'tool_start': {
+      // A Read / StopBackgroundTask aimed at a ref a visible Bash card owns is
+      // internal polling of that run: it never gets a row, so an active polling
+      // loop cannot flicker cards in and out of the transcript. The result
+      // folds into the parent at tool_result. A poll is folded only when its
+      // parent card already carries the run's shell_run result — otherwise it
+      // renders normally and the tool_result fold below still applies.
+      if (event.toolName === 'Read' || event.toolName === 'StopBackgroundTask') {
+        const ref = readArgsRef(event.args);
+        if (ref && findShellRunParent(state, ref, event.toolUseId)) {
+          state.pendingShellRunPolls.set(event.toolUseId, {
+            toolName: event.toolName,
+            ...(event.displayName ? { title: event.displayName } : {}),
+            input: projectToolActivityArgs(event.toolName, event.args),
+          });
+          break;
+        }
+      }
       state.entries.push({
         kind: 'tool',
         toolUseId: event.toolUseId,
@@ -368,16 +406,48 @@ export function applyMakaSessionEventToTranscript(
         status: 'running',
       });
       break;
+    }
 
     case 'tool_result': {
       completePendingPermissionsForToolUseId(state, event.toolUseId);
+      const foldedPoll = state.pendingShellRunPolls.get(event.toolUseId);
+      if (foldedPoll) {
+        state.pendingShellRunPolls.delete(event.toolUseId);
+        const shellRun = event.content.kind === 'shell_run' ? event.content : undefined;
+        const parent = shellRun
+          ? findShellRunParent(state, shellRun.ref, event.toolUseId)
+          : undefined;
+        if (parent && shellRun) {
+          applyLiveShellRunResultToParent(state, parent, shellRun);
+          break;
+        }
+        // The poll failed (or lost its parent): surface a normal card so the
+        // failure is never swallowed by the fold.
+        const entry: MakaPiToolEntry = {
+          kind: 'tool',
+          toolUseId: event.toolUseId,
+          toolName: foldedPoll.toolName,
+          ...(foldedPoll.title ? { title: foldedPoll.title } : {}),
+          input: foldedPoll.input,
+          progress: createProgressBuffer(),
+          outputDeltas: createOutputBuffer(),
+          result: event.content,
+          output: formatToolResultContent(event.content),
+          resultVersion: 1,
+          durationMs: event.durationMs,
+          status: event.isError ? 'error' : 'done',
+        };
+        if (shellRun) applyOwnShellRunResult(entry, shellRun, event.durationMs);
+        state.entries.push(entry);
+        break;
+      }
       const tool = findToolEntry(state, event.toolUseId);
       const shellRun = event.content.kind === 'shell_run' ? event.content : undefined;
       const parent = shellRun
         ? findShellRunParent(state, shellRun.ref, event.toolUseId)
         : undefined;
       if (tool && parent && shellRun) {
-        applyShellRunResult(parent, shellRun);
+        applyLiveShellRunResultToParent(state, parent, shellRun);
         if (tool.toolName === 'Read' || tool.toolName === 'StopBackgroundTask') {
           state.entries.splice(state.entries.indexOf(tool), 1);
         } else {
@@ -1085,6 +1155,71 @@ function findShellRunParent(
       && entry.toolUseId !== childToolUseId
       && entry.result?.kind === 'shell_run'
       && entry.result.ref === ref);
+}
+
+/** The runtime-resource ref a tool call is aimed at, when the args carry one. */
+function readArgsRef(args: unknown): string | undefined {
+  const ref = args !== null && typeof args === 'object'
+    ? (args as { ref?: unknown }).ref
+    : undefined;
+  return typeof ref === 'string' && ref.length > 0 ? ref : undefined;
+}
+
+/** A card tracking a live local run: still `running` with a running shell_run result. */
+function isLiveShellRunCard(entry: MakaPiToolEntry | undefined): boolean {
+  return entry?.status === 'running'
+    && entry.result?.kind === 'shell_run'
+    && entry.result.status === 'running';
+}
+
+/**
+ * Apply a live result to a parent Bash card, announcing a running → settled
+ * transition exactly once. Shared by both poll paths (folded at tool_start and
+ * the tool_result fold) so a settle observed through the model's polling
+ * notifies the same way as the event-driven update.
+ */
+function applyLiveShellRunResultToParent(
+  state: MakaPiTranscriptState,
+  parent: MakaPiToolEntry,
+  result: Extract<ToolResultContent, { kind: 'shell_run' }>,
+): void {
+  const wasLive = isLiveShellRunCard(parent);
+  applyShellRunResult(parent, result);
+  if (wasLive && isSettledShellRunCard(parent)) pushShellRunSettledNotice(state, parent);
+}
+
+function isSettledShellRunCard(entry: MakaPiToolEntry): boolean {
+  return entry.result?.kind === 'shell_run' && entry.result.status !== 'running';
+}
+
+/**
+ * Announce a live running → settled transition at the transcript tail: the
+ * card flip itself happens wherever the card sits in the scrollback, which is
+ * usually off-screen by the time a long task ends. Only live transitions fire
+ * — a run first seen settled (own result, stored replay) stays silent, so a
+ * settle reported twice (event + folded poll) notifies exactly once.
+ */
+function pushShellRunSettledNotice(state: MakaPiTranscriptState, entry: MakaPiToolEntry): void {
+  const result = entry.result?.kind === 'shell_run' ? entry.result : undefined;
+  if (!result) return;
+  const failed = result.status === 'failed'
+    || result.status === 'timed_out'
+    || result.status === 'orphaned';
+  const verb = result.status === 'completed' ? 'completed'
+    : result.status === 'cancelled' ? 'stopped' : result.status;
+  const parts: string[] = [];
+  if (result.exitCode !== undefined) parts.push(`exit ${result.exitCode}`);
+  const secs = Math.round((entry.durationMs ?? 0) / 1000);
+  if (secs >= 1) parts.push(`${secs}s`);
+  const suffix = parts.length > 0 ? ` (${parts.join(' · ')})` : '';
+  const failure = failed && result.failureMessage
+    ? ` — ${result.failureMessage.split('\n', 1)[0]}`
+    : '';
+  state.entries.push({
+    kind: 'notice',
+    level: failed ? 'error' : 'info',
+    text: `Background task ${verb}: ${result.cmd.split('\n', 1)[0]}${suffix}${failure}`,
+  });
 }
 
 /** A user turn: a dim `>` quote prefix per line, no speaker label. */

@@ -1234,6 +1234,276 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(unavailable, /Ask Maka to stop this task/);
   });
 
+  test('never renders a background-task Read card while a poll is in flight', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
+      args: { command: 'npm test' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running', stdout: 'starting\n', updatedAt: 2_000 }),
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-bg', toolName: 'Read', args: { ref },
+    }));
+
+    // The poll is in flight, but no Read row ever appears — the parent card is
+    // the only tool entry throughout.
+    assert.deepEqual(
+      state.entries.filter((entry) => entry.kind === 'tool').map((tool) => tool.toolUseId),
+      ['bash-bg'],
+    );
+    const inFlight = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.doesNotMatch(inFlight, /● Read/);
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'read-bg', isError: false,
+      content: shellRun({ ref, status: 'running', stdout: 'starting\nstill running\n', updatedAt: 5_000 }),
+    }));
+
+    const tools = state.entries.filter((entry) => entry.kind === 'tool');
+    assert.deepEqual(tools.map((tool) => tool.toolUseId), ['bash-bg']);
+    assert.equal(
+      tools[0]?.result?.kind === 'shell_run' && tools[0].result.output?.mode === 'pipes'
+        ? tools[0].result.output.stdout
+        : '',
+      'starting\nstill running\n',
+    );
+    const settled = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.doesNotMatch(settled, /● Read/);
+  });
+
+  test('surfaces an errored background-task poll as a card instead of swallowing it', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
+      args: { command: 'npm test' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running', stdout: 'starting\n', updatedAt: 2_000 }),
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-bg', toolName: 'Read', args: { ref },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'read-bg', isError: true,
+      content: { kind: 'text', text: 'background task no longer exists' },
+    }));
+
+    const tools = state.entries.filter((entry) => entry.kind === 'tool');
+    assert.equal(tools.length, 2);
+    const poll = tools[1];
+    assert.equal(poll?.toolUseId, 'read-bg');
+    assert.equal(poll?.toolName, 'Read');
+    assert.equal(poll?.status, 'error');
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /● Read/);
+    assert.match(rendered, /background task no longer exists/);
+  });
+
+  test('never renders a StopBackgroundTask card while the stop is in flight', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'sleep 30' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running' }),
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'stop-bg', toolName: 'StopBackgroundTask', args: { ref },
+    }));
+
+    // No transient stop row while the stop call is in flight.
+    assert.deepEqual(
+      state.entries.filter((entry) => entry.kind === 'tool').map((tool) => tool.toolUseId),
+      ['bash-bg'],
+    );
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'stop-bg', isError: false,
+      content: shellRun({ ref, status: 'cancelled', completedAt: 8_000, exitCode: 130 }),
+    }));
+
+    const tools = state.entries.filter((entry) => entry.kind === 'tool');
+    assert.deepEqual(tools.map((tool) => tool.toolUseId), ['bash-bg']);
+    assert.equal(tools[0]?.status, 'aborted');
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.doesNotMatch(rendered, /● StopBackgroundTask/);
+  });
+
+  test('never folds a WriteStdin aimed at a background-task ref', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'top' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running' }),
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'stdin-bg', toolName: 'WriteStdin',
+      args: { ref, input: 'q' },
+    }));
+
+    // WriteStdin is a real interaction with the process, not polling: its card
+    // renders from tool_start on.
+    const tools = state.entries.filter((entry) => entry.kind === 'tool');
+    assert.deepEqual(tools.map((tool) => tool.toolUseId), ['bash-bg', 'stdin-bg']);
+    assert.equal(tools[1]?.status, 'running');
+  });
+
+  test('announces at the transcript tail when a running background task completes', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
+      args: { command: 'npm test' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running', stdout: 'starting\n', updatedAt: 2_000 }),
+    }));
+
+    applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'session-1',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({ ref, status: 'completed', stdout: 'starting\ndone\n', completedAt: 48_000, exitCode: 0 }),
+    });
+
+    const notice = state.entries[state.entries.length - 1];
+    assert.equal(notice?.kind, 'notice');
+    assert.equal(notice?.kind === 'notice' ? notice.level : '', 'info');
+    const text = notice?.kind === 'notice' ? notice.text : '';
+    assert.match(text, /Background task completed: npm test/);
+    assert.match(text, /exit 0/);
+    assert.match(text, /47s/);
+  });
+
+  test('notifies a settle exactly once across a folded poll and the live update', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
+      args: { command: 'npm test' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running', stdout: 'starting\n', updatedAt: 2_000 }),
+    }));
+
+    // The model's poll observes the settle first: exactly one notice.
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-bg', toolName: 'Read', args: { ref },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'read-bg', isError: false,
+      content: shellRun({ ref, status: 'completed', stdout: 'starting\ndone\n', completedAt: 48_000, exitCode: 0 }),
+    }));
+    let notices = state.entries.filter((entry) => entry.kind === 'notice');
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0]?.kind === 'notice' ? notices[0].level : '', 'info');
+    assert.match(notices[0]?.kind === 'notice' ? notices[0].text : '', /Background task completed: npm test/);
+
+    // The event-driven update reporting the same settle must not re-notify.
+    applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'session-1',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({ ref, status: 'completed', stdout: 'starting\ndone\n', completedAt: 48_000, exitCode: 0 }),
+    });
+    notices = state.entries.filter((entry) => entry.kind === 'notice');
+    assert.equal(notices.length, 1);
+  });
+
+  test('announces a failed background task as an error with its exit and message', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
+      args: { command: 'npm run build' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running', cmd: 'npm run build' }),
+    }));
+
+    applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'session-1',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({
+        ref, status: 'failed', cmd: 'npm run build',
+        completedAt: 13_000, exitCode: 1, failureMessage: 'compiler exited\nwith diagnostics',
+      }),
+    });
+
+    const notice = state.entries[state.entries.length - 1];
+    assert.equal(notice?.kind, 'notice');
+    assert.equal(notice?.kind === 'notice' ? notice.level : '', 'error');
+    const text = notice?.kind === 'notice' ? notice.text : '';
+    assert.match(text, /Background task failed: npm run build/);
+    assert.match(text, /exit 1/);
+    assert.match(text, /12s/);
+    // Only the first line of a multi-line failure message joins the notice.
+    assert.match(text, /compiler exited/);
+    assert.doesNotMatch(text, /with diagnostics/);
+  });
+
+  test('announces a stopped background task as a plain note', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'sleep 30' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running', cmd: 'sleep 30' }),
+    }));
+
+    applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'session-1',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({ ref, status: 'cancelled', cmd: 'sleep 30', completedAt: 8_000, exitCode: 130 }),
+    });
+
+    const notice = state.entries[state.entries.length - 1];
+    assert.equal(notice?.kind, 'notice');
+    assert.equal(notice?.kind === 'notice' ? notice.level : '', 'info');
+    assert.match(notice?.kind === 'notice' ? notice.text : '', /Background task stopped: sleep 30/);
+  });
+
+  test('stays silent for a background task already settled in stored history', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+
+    replaceTranscriptWithStoredMessages(state, [
+      {
+        type: 'tool_call', id: 'bash-bg', turnId: 'turn-1', ts: 1,
+        toolName: 'Bash', args: { command: 'npm test' },
+      },
+      {
+        type: 'tool_result', id: 'bash-result', turnId: 'turn-1', ts: 2,
+        toolUseId: 'bash-bg', isError: false,
+        content: shellRun({ ref, status: 'completed', stdout: 'done\n', completedAt: 5_000, updatedAt: 5_000, exitCode: 0 }),
+      },
+    ] satisfies StoredMessage[]);
+
+    assert.equal(state.entries.some((entry) => entry.kind === 'notice'), false);
+  });
+
   test('folds a background-task Read result into its parent Bash card', () => {
     const state = createMakaPiTranscriptState();
     const ref = 'maka://runtime/background-tasks/bg-1';
