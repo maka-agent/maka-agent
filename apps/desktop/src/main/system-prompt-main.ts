@@ -18,6 +18,7 @@ import {
   buildPersonalizationPromptFragment,
   resolveProjectGitInfo,
   buildSessionEnvironmentPromptFragment,
+  resolveSkillDiscoveryPaths,
   type GoalManager,
 } from '@maka/runtime';
 import { buildSkillsPromptFragment } from './skills.js';
@@ -51,7 +52,8 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
     const personalization = includePersonalization
       ? buildPersonalizationPromptFragment(settings.personalization)
       : { text: undefined };
-    const skills = await buildSkillsPromptFragment(deps.workspaceRoot, undefined, options?.skillBudget);
+    const skillSource = resolveSkillDiscoveryPaths(cwd ?? deps.workspaceRoot, deps.workspaceRoot);
+    const skills = await buildSkillsPromptFragment(skillSource, undefined, options?.skillBudget);
     const workspaceInstructions = settings.workspaceInstructions.enabled && cwd
       ? await buildWorkspaceInstructionsPromptFragment(cwd)
       : undefined;

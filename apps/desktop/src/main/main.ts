@@ -140,7 +140,7 @@ import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from 
 import { handleExpertTeamStart as runExpertTeamStart } from './expert-team-start.js';
 import { probeOfficeCli } from './officecli-probe.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
-import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
+import { resolveProjectGitInfo, resolveProjectRoot, resolveSkillDiscoveryPaths } from '@maka/runtime';
 import { listLocalBranches, checkoutBranch } from './git-branch.js';
 import { searchWorkspaceFiles } from './workspace-file-search.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
@@ -712,7 +712,10 @@ const builtinTools: MakaTool[] = [
   }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
-  buildSkillAgentTool(workspaceRoot),
+  // Resolve per-call from the session cwd so skills at all 5 standard paths
+  // (cwd/.maka, cwd/.agents, workspaceRoot/skills, ~/.maka, ~/.agents) are
+  // discovered — matching the CLI and the Agent Skills spec (#1068).
+  buildSkillAgentTool(({ cwd }) => resolveSkillDiscoveryPaths(cwd, workspaceRoot)),
   // External reference plan-mode borrow: a bounded read-only local worker for
   // self-contained code/repo investigations. The tool advertises the
   // `subagent` category; explore mode allows it, but the implementation
