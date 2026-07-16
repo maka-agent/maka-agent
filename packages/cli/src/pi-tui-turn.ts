@@ -26,7 +26,6 @@ export type MakaPiTuiTurnRequest =
   | {
       kind: 'coordinator';
       prompt: string;
-      sessionId: string;
       turnId: string;
       activity: SessionActivityLease;
     };
@@ -53,15 +52,13 @@ export async function runMakaPiTuiTurn(
   let activity = request.kind === 'coordinator' ? request.activity : undefined;
   let preparedTurnId = request.kind === 'coordinator' ? request.turnId : undefined;
   let settleExternalTurn: GoalExternalTurnSettler | undefined;
-  let settlementNotified = false;
 
   const notifySettlement = (outcome: GoalTurnOutcome): void => {
-    if (!settleExternalTurn || settlementNotified) return;
-    settlementNotified = true;
+    if (!settleExternalTurn) return;
     void settleExternalTurn(outcome);
   };
 
-  const finishBeforeDrain = async (outcome: GoalTurnOutcome): Promise<GoalTurnOutcome> => {
+  const finishBeforeDrain = (outcome: GoalTurnOutcome): GoalTurnOutcome => {
     activity?.release();
     activity = undefined;
     notifySettlement(outcome);
@@ -92,17 +89,6 @@ export async function runMakaPiTuiTurn(
     );
     preparedTurnId = turn.turnId;
 
-    if (request.kind === 'coordinator') {
-      if (turn.sessionId !== request.sessionId) {
-        throw new Error('TUI Goal turn started in a different session than its reserved activity.');
-      }
-      if (turn.turnId !== request.turnId) {
-        throw new Error(`Prepared turn identity mismatch: expected ${request.turnId}, received ${turn.turnId}.`);
-      }
-    } else if (request.sessionId && turn.sessionId !== request.sessionId) {
-      throw new Error('TUI turn started in a different session than its reserved activity.');
-    }
-
     if (!activity) activity = await input.lifecycle.activities.acquire(turn.sessionId);
     if (input.shouldAbort()) {
       return finishBeforeDrain(abortedOutcome(turn.turnId));
@@ -111,18 +97,16 @@ export async function runMakaPiTuiTurn(
     if (request.kind === 'external') {
       const registration = input.lifecycle.beginExternalTurn(turn.sessionId, turn.turnId);
       if (registration.kind !== 'registered') {
-        throw new Error(registration.kind === 'duplicate'
-          ? `TUI turn ${turn.turnId} is already registered.`
-          : registration.reason);
+        throw new Error(registration.reason);
       }
       settleExternalTurn = registration.settle;
     }
 
     let sawTerminalEvent = false;
     let failureProjected = false;
-    const result = await drainGoalTurn({
+    const outcome = await drainGoalTurn({
       events: turn.events,
-      expectedTurnId: turn.turnId,
+      turnId: turn.turnId,
       activity,
       onEvent: async (event) => {
         if (event.type === 'complete' || event.type === 'abort' || event.type === 'error') {
@@ -142,7 +126,7 @@ export async function runMakaPiTuiTurn(
       onSettled: notifySettlement,
     });
     activity = undefined;
-    return result.outcome;
+    return outcome;
   } catch (error) {
     if (input.shouldAbort()) {
       return finishBeforeDrain(abortedOutcome(preparedTurnId));

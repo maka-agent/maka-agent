@@ -94,7 +94,6 @@ export type GoalCreateResult =
 
 interface GoalTurnSettlementBase {
   readonly checkpoint: GoalCheckpoint;
-  readonly turnId: string;
   readonly reason: string;
 }
 
@@ -104,9 +103,6 @@ export type GoalTurnSettlementInput =
     })
   | (GoalTurnSettlementBase & {
       readonly verdict: 'impossible';
-    })
-  | (GoalTurnSettlementBase & {
-      readonly verdict: 'pause';
     })
   | (GoalTurnSettlementBase & (
       | {
@@ -124,13 +120,6 @@ export type GoalTurnSettlementInput =
         }
     ));
 
-export type GoalTurnSettlementResult =
-  | { kind: 'applied'; goal: GoalState }
-  | { kind: 'duplicate'; goal: GoalState }
-  | { kind: 'stale'; goal: GoalState }
-  | { kind: 'inactive'; goal: GoalState }
-  | { kind: 'not_found' };
-
 export interface GoalManagerDeps {
   generateId: () => string;
   now: () => number;
@@ -140,7 +129,7 @@ export interface GoalManagerDeps {
    * visible indicator and a clear affordance. This is a best-effort observer:
    * failures cannot roll back an already committed state transition.
    */
-  onChange?: (goal: GoalState, previous?: GoalStatus) => void | Promise<void>;
+  onChange?: (goal: GoalState, previous?: GoalStatus) => void;
 }
 
 export const DEFAULT_MAX_ITERATIONS = 50;
@@ -149,12 +138,6 @@ export const DEFAULT_BLOCK_CAP = 8;
 interface GoalRecord {
   state: GoalState;
   controlLease: GoalControlLease;
-}
-
-interface GoalSessionRecord {
-  goal?: GoalRecord;
-  /** Turn identity belongs to the session lifetime, not an individual Goal. */
-  readonly settledTurnIds: Set<string>;
 }
 
 export interface GoalPauseOptions {
@@ -168,22 +151,13 @@ type GoalStatePatch = Partial<Omit<
 >>;
 
 export class GoalManager {
-  private sessions = new Map<string, GoalSessionRecord>();
+  private goals = new Map<string, GoalRecord>();
 
   constructor(private readonly deps: GoalManagerDeps) {}
 
-  private sessionFor(sessionId: string): GoalSessionRecord {
-    const existing = this.sessions.get(sessionId);
-    if (existing) return existing;
-    const created: GoalSessionRecord = { settledTurnIds: new Set() };
-    this.sessions.set(sessionId, created);
-    return created;
-  }
-
   private emit(goal: GoalState, previous?: GoalStatus): void {
     try {
-      const notification = this.deps.onChange?.(goal, previous);
-      void Promise.resolve(notification).catch(() => {});
+      this.deps.onChange?.(goal, previous);
     } catch {
       // State and control leases are already committed. A host notification
       // must not make the caller observe failure after that point.
@@ -215,8 +189,7 @@ export class GoalManager {
     tokenBudget?: number;
     tokensAtStart?: number;
   }): GoalCreateResult {
-    const session = this.sessionFor(sessionId);
-    const existing = session.goal?.state;
+    const existing = this.goals.get(sessionId)?.state;
     if (existing && !TERMINAL_GOAL_STATUSES.has(existing.status)) {
       return { kind: 'unfinished', goal: existing };
     }
@@ -242,81 +215,56 @@ export class GoalManager {
       state: goal,
       controlLease: createControlLease(goal.id),
     };
-    session.goal = goalRecord;
+    this.goals.set(sessionId, goalRecord);
     this.emit(goal);
     return { kind: 'created', goal };
   }
 
   get(sessionId: string): GoalState | undefined {
-    return this.sessions.get(sessionId)?.goal?.state;
+    return this.goals.get(sessionId)?.state;
   }
 
   getActive(sessionId: string): GoalState | undefined {
-    const goal = this.sessions.get(sessionId)?.goal?.state;
+    const goal = this.goals.get(sessionId)?.state;
     return goal?.status === 'active' ? goal : undefined;
   }
 
   getControlLease(sessionId: string): GoalControlLease | undefined {
-    return this.sessions.get(sessionId)?.goal?.controlLease;
+    return this.goals.get(sessionId)?.controlLease;
   }
 
   matchesControlLease(sessionId: string, lease: GoalControlLease): boolean {
-    return this.sessions.get(sessionId)?.goal?.controlLease === lease;
+    return this.goals.get(sessionId)?.controlLease === lease;
   }
 
   matchesActive(sessionId: string, checkpoint: GoalCheckpoint): boolean {
-    const goal = this.sessions.get(sessionId)?.goal?.state;
+    const goal = this.goals.get(sessionId)?.state;
     return goal?.status === 'active'
       && goal.id === checkpoint.goalId
       && goal.revision === checkpoint.revision;
   }
 
   matches(sessionId: string, checkpoint: GoalCheckpoint): boolean {
-    const goal = this.sessions.get(sessionId)?.goal?.state;
+    const goal = this.goals.get(sessionId)?.state;
     return goal?.id === checkpoint.goalId && goal.revision === checkpoint.revision;
   }
 
-  hasSettledTurn(sessionId: string, turnId: string): boolean {
-    return this.sessions.get(sessionId)?.settledTurnIds.has(turnId) ?? false;
-  }
-
-  /** Consume invalidated queued evidence without changing the current Goal state. */
-  markTurnSettled(sessionId: string, turnId: string): boolean {
-    const session = this.sessionFor(sessionId);
-    if (session.settledTurnIds.has(turnId)) return false;
-    session.settledTurnIds.add(turnId);
-    return true;
-  }
-
   tokensSpent(sessionId: string): number {
-    const goal = this.sessions.get(sessionId)?.goal?.state;
+    const goal = this.goals.get(sessionId)?.state;
     if (!goal) return 0;
     return Math.max(0, goal.tokensNow - goal.tokensAtStart);
   }
 
-  settleTurn(sessionId: string, input: GoalTurnSettlementInput): GoalTurnSettlementResult {
-    const session = this.sessions.get(sessionId);
-    const record = session?.goal;
-    if (!session || !record) return { kind: 'not_found' };
+  settleTurn(sessionId: string, input: GoalTurnSettlementInput): GoalState | undefined {
+    const record = this.goals.get(sessionId);
+    if (!record) return undefined;
     const current = record.state;
-    if (session.settledTurnIds.has(input.turnId)) return { kind: 'duplicate', goal: current };
-    if (current.id !== input.checkpoint.goalId) return { kind: 'stale', goal: current };
-    if (current.revision !== input.checkpoint.revision) return { kind: 'stale', goal: current };
-    if (
-      current.status !== 'active'
-      && !(input.verdict === 'pause' && current.status === 'waiting')
-    ) {
-      return { kind: 'inactive', goal: current };
-    }
+    if (current.id !== input.checkpoint.goalId) return undefined;
+    if (current.revision !== input.checkpoint.revision) return undefined;
+    if (current.status !== 'active') return undefined;
 
     let patch: GoalStatePatch;
-    if (input.verdict === 'pause') {
-      patch = {
-        status: 'paused',
-        pausedAt: this.deps.now(),
-        lastReason: input.reason,
-      };
-    } else if (input.verdict === 'achieved') {
+    if (input.verdict === 'achieved') {
       patch = {
         status: 'achieved',
         lastReason: input.reason,
@@ -385,17 +333,11 @@ export class GoalManager {
       };
     }
 
-    session.settledTurnIds.add(input.turnId);
-    return {
-      kind: 'applied',
-      goal: this.commit(record, patch, {
-        renewControlLease: input.verdict === 'pause',
-      }),
-    };
+    return this.commit(record, patch);
   }
 
   pause(sessionId: string, options?: GoalPauseOptions): GoalState | undefined {
-    const record = this.sessions.get(sessionId)?.goal;
+    const record = this.goals.get(sessionId);
     if (!record || (record.state.status !== 'active' && record.state.status !== 'waiting')) {
       return undefined;
     }
@@ -412,7 +354,7 @@ export class GoalManager {
   }
 
   resume(sessionId: string): GoalState | undefined {
-    const record = this.sessions.get(sessionId)?.goal;
+    const record = this.goals.get(sessionId);
     if (!record || record.state.status !== 'paused') return undefined;
     return this.commit(
       record,
@@ -422,7 +364,7 @@ export class GoalManager {
   }
 
   wakeWaiting(sessionId: string, checkpoint: GoalCheckpoint): GoalState | undefined {
-    const record = this.sessions.get(sessionId)?.goal;
+    const record = this.goals.get(sessionId);
     if (
       !record
       || record.state.status !== 'waiting'
@@ -434,31 +376,20 @@ export class GoalManager {
   }
 
   clear(sessionId: string): GoalState | undefined {
-    const record = this.sessions.get(sessionId)?.goal;
+    const record = this.goals.get(sessionId);
     if (!record || TERMINAL_GOAL_STATUSES.has(record.state.status)) return undefined;
     return this.commit(record, { status: 'cleared' }, { renewControlLease: true });
   }
 
-  /** Drop Goal state while retaining the session's turn-id ledger (archive). */
-  removeGoal(sessionId: string): boolean {
-    const session = this.sessions.get(sessionId);
-    const record = session?.goal;
-    if (!session || !record) return false;
-    delete session.goal;
-    this.emit(record.state, record.state.status);
-    return true;
-  }
-
-  /** Release all in-memory ownership for a permanently deleted session. */
-  removeSession(sessionId: string): boolean {
-    const record = this.sessions.get(sessionId)?.goal;
-    const deleted = this.sessions.delete(sessionId);
+  remove(sessionId: string): boolean {
+    const record = this.goals.get(sessionId);
+    const deleted = this.goals.delete(sessionId);
     if (record && deleted) this.emit(record.state, record.state.status);
     return deleted;
   }
 
   dispose(): void {
-    this.sessions.clear();
+    this.goals.clear();
   }
 }
 

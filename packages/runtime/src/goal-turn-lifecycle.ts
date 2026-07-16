@@ -43,12 +43,10 @@ export class SessionActivityRegistry {
       release: () => {
         if (released) return;
         released = true;
-        const current = this.states.get(sessionId);
-        if (current !== state) return;
-        current.count--;
-        if (current.count > 0) return;
+        state.count--;
+        if (state.count > 0) return;
         this.states.delete(sessionId);
-        current.resolveIdle();
+        state.resolveIdle();
       },
     };
   }
@@ -64,75 +62,15 @@ export class SessionActivityRegistry {
     for (;;) {
       const lease = this.reserveIfIdle(sessionId);
       if (lease) return lease;
-      const whenIdle = this.whenIdle(sessionId);
-      if (whenIdle) await whenIdle;
+      await this.whenIdle(sessionId)!;
     }
-  }
-}
-
-/** Reduces a fully drained SessionEvent stream to the host-facing Goal outcome. */
-export class GoalTurnOutcomeTracker {
-  private currentOutcome: GoalTurnOutcome | undefined;
-
-  get outcome(): GoalTurnOutcome | undefined {
-    return this.currentOutcome;
-  }
-
-  observe(event: SessionEvent): void {
-    const failureClass = event.type === 'complete'
-      ? failureClassFromCompleteStopReason(event.stopReason)
-      : undefined;
-    if (event.type === 'error' || failureClass !== undefined) {
-      this.currentOutcome = {
-        kind: 'errored',
-        turnId: event.turnId,
-        reason: event.type === 'error'
-          ? event.message
-          : `Turn ended with ${failureClass}`,
-      };
-      return;
-    }
-    if (this.currentOutcome?.kind === 'errored') return;
-    if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
-      this.currentOutcome = { kind: 'aborted', turnId: event.turnId };
-      return;
-    }
-    if (this.currentOutcome?.kind === 'aborted' || event.type !== 'complete') return;
-    if (event.stopReason === 'permission_handoff') {
-      this.currentOutcome = {
-        kind: 'suspended',
-        turnId: event.turnId,
-        reason: 'Turn is waiting for user permission.',
-      };
-      return;
-    }
-    // A resumed stream may emit permission_handoff and later end normally.
-    this.currentOutcome = { kind: 'completed', turnId: event.turnId };
-  }
-
-  fail(error: unknown, turnId?: string): GoalTurnOutcome {
-    const reason = errorMessage(error);
-    const observedTurnId = turnId ?? this.currentOutcome?.turnId;
-    this.currentOutcome = {
-      kind: 'errored',
-      ...(observedTurnId ? { turnId: observedTurnId } : {}),
-      reason,
-    };
-    return this.currentOutcome;
-  }
-
-  finish(fallbackTurnId?: string): GoalTurnOutcome {
-    return this.currentOutcome ?? this.fail(
-      new Error('Session turn ended without a completion event'),
-      fallbackTurnId,
-    );
   }
 }
 
 export interface DrainGoalTurnInput {
   events: AsyncIterable<SessionEvent>;
-  /** Every event in this single-turn stream must carry this identity. */
-  expectedTurnId: string;
+  /** Canonical identity assigned by the caller before the stream starts. */
+  turnId: string;
   activity?: SessionActivityLease;
   onEvent?: (event: SessionEvent) => void | Promise<void>;
   onStreamError?: (error: unknown) => void | Promise<void>;
@@ -142,13 +80,8 @@ export interface DrainGoalTurnInput {
   onSettled?: (outcome: GoalTurnOutcome) => void;
 }
 
-export interface DrainGoalTurnResult {
-  outcome: GoalTurnOutcome;
-  streamError?: unknown;
-}
-
-export async function drainGoalTurn(input: DrainGoalTurnInput): Promise<DrainGoalTurnResult> {
-  const tracker = new GoalTurnOutcomeTracker();
+export async function drainGoalTurn(input: DrainGoalTurnInput): Promise<GoalTurnOutcome> {
+  let observedOutcome: GoalTurnOutcome | undefined;
   let streamError: unknown;
   let streamFailed = false;
   const captureStreamError = (error: unknown): void => {
@@ -158,13 +91,7 @@ export async function drainGoalTurn(input: DrainGoalTurnInput): Promise<DrainGoa
   };
   try {
     for await (const event of input.events) {
-      if (event.turnId !== input.expectedTurnId) {
-        captureStreamError(new Error(
-          `Session turn identity mismatch: expected ${input.expectedTurnId}, received ${event.turnId}.`,
-        ));
-        continue;
-      }
-      tracker.observe(event);
+      observedOutcome = observeGoalTurnOutcome(observedOutcome, event);
       try {
         await input.onEvent?.(event);
       } catch (observerError) {
@@ -178,29 +105,59 @@ export async function drainGoalTurn(input: DrainGoalTurnInput): Promise<DrainGoa
   }
 
   if (streamFailed) {
-    tracker.fail(streamError, input.expectedTurnId);
+    observedOutcome = failedOutcome(streamError, input.turnId);
     try {
       await input.onStreamError?.(streamError);
     } catch (observerError) {
-      streamError = observerError;
-      tracker.fail(observerError, input.expectedTurnId);
+      observedOutcome = failedOutcome(observerError, input.turnId);
     }
   }
 
-  let outcome = tracker.finish(input.expectedTurnId);
+  let outcome: GoalTurnOutcome = observedOutcome
+    ?? failedOutcome(new Error('Session turn ended without a completion event'), input.turnId);
+  outcome = { ...outcome, turnId: input.turnId };
   try {
     await input.onDrained?.(outcome);
   } catch (observerError) {
-    streamError = observerError;
-    outcome = tracker.fail(observerError, input.expectedTurnId);
+    outcome = failedOutcome(observerError, input.turnId);
   } finally {
     input.activity?.release();
   }
   input.onSettled?.(outcome);
-  return {
-    outcome,
-    ...(streamError !== undefined ? { streamError } : {}),
-  };
+  return outcome;
+}
+
+function observeGoalTurnOutcome(
+  current: GoalTurnOutcome | undefined,
+  event: SessionEvent,
+): GoalTurnOutcome | undefined {
+  if (current) return current;
+  const failureClass = event.type === 'complete'
+    ? failureClassFromCompleteStopReason(event.stopReason)
+    : undefined;
+  if (event.type === 'error' || failureClass !== undefined) {
+    return {
+      kind: 'errored',
+      turnId: event.turnId,
+      reason: event.type === 'error' ? event.message : `Turn ended with ${failureClass}`,
+    };
+  }
+  if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
+    return { kind: 'aborted', turnId: event.turnId };
+  }
+  if (event.type !== 'complete') return undefined;
+  if (event.stopReason === 'permission_handoff') {
+    return {
+      kind: 'suspended',
+      turnId: event.turnId,
+      reason: 'Turn is waiting for user permission.',
+    };
+  }
+  return { kind: 'completed', turnId: event.turnId };
+}
+
+function failedOutcome(error: unknown, turnId: string): GoalTurnOutcome {
+  return { kind: 'errored', turnId, reason: errorMessage(error) };
 }
 
 function errorMessage(error: unknown): string {

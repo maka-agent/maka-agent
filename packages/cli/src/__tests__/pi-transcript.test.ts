@@ -39,7 +39,7 @@ function runPromptTurn(input: {
       activities: new SessionActivityRegistry(),
       beginExternalTurn: () => ({
         kind: 'registered',
-        settle: async () => ({ kind: 'no_goal' }),
+        settle: async () => {},
       }),
     },
     request: { kind: 'external', prompt: input.prompt, sessionId: null },

@@ -131,7 +131,6 @@ describe('goal tools', () => {
     const first = mgr.getActive(SESSION)!;
     mgr.settleTurn(SESSION, {
       checkpoint: goalCheckpoint(first),
-      turnId: 'turn-1',
       verdict: 'continue',
       reason: 'continue',
       madeProgress: true,
@@ -140,7 +139,6 @@ describe('goal tools', () => {
     const second = mgr.getActive(SESSION)!;
     mgr.settleTurn(SESSION, {
       checkpoint: goalCheckpoint(second),
-      turnId: 'turn-2',
       verdict: 'continue',
       reason: 'continue',
       madeProgress: true,

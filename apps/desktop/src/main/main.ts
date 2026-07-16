@@ -372,7 +372,7 @@ const automationWiring = createMainAutomationWiring({
       turnId,
       goalBoundary: 'external',
     });
-    return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
+    return { runId: turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
   },
   // Cron: spawn a FRESH session (explore mode — no unapproved side effects) and
   // run the prompt there, so each fire is a first-class session + run.
@@ -406,7 +406,7 @@ const automationWiring = createMainAutomationWiring({
       await goalWiring.archiveSession(session.id, () => runtime.archive(session.id));
       emitSessionsChanged('archived', session.id);
     } catch {}
-    return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
+    return { runId: turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
   },
 });
 
@@ -443,24 +443,15 @@ const goalWiring = createMainGoalWiring({
     }
     return total;
   },
-  admitTurn: (sessionId, text, bindTurn) => {
+  admitTurn: (sessionId, text) => {
     const whenIdle = sessionActivities.whenIdle(sessionId);
     if (whenIdle) return { kind: 'busy', whenIdle };
     const reservation = sessionActivities.reserve(sessionId);
     const turnId = randomUUID();
-    const binding = bindTurn(turnId);
-    if (binding.kind !== 'bound') {
-      reservation.release();
-      return {
-        kind: 'unavailable',
-        reason: binding.kind === 'duplicate'
-          ? `Goal continuation turn ${turnId} is already registered.`
-          : binding.reason,
-      };
-    }
     return {
-      kind: 'started',
-      completion: (async (): Promise<GoalTurnOutcome> => {
+      kind: 'prepared',
+      turnId,
+      start: async (): Promise<GoalTurnOutcome> => {
         try {
           await ensureSessionCanSend(sessionId);
           const iterator = runtime.sendMessage(sessionId, { turnId, text });
@@ -477,19 +468,17 @@ const goalWiring = createMainGoalWiring({
             reason: `Goal continuation could not start: ${errorMessage(error)}`,
           };
         }
-      })(),
+      },
     };
   },
   // Surface every goal transition to the renderer so an active autonomous loop
   // is visible (badge + clear affordance) — never a silent token burn.
   onGoalChange: (goal) => emitSessionsChanged('goal-change', goal.sessionId),
-  listActionableTaskKeys: async (sessionId, signal) => {
-    signal.throwIfAborted();
+  listActionableTaskKeys: async (sessionId) => {
     const tasks = await taskLedgerStore.list(sessionId, {
       includeTerminal: false,
       includeArchived: false,
     });
-    signal.throwIfAborted();
     return filterModelVisibleTaskLedgerTasks(tasks)
       .filter((task) => task.status === 'pending' || task.status === 'in_progress')
       .map((task) => task.key);
@@ -1256,7 +1245,6 @@ function streamEvents(
   options: StreamEventsOptions,
 ): Promise<StreamEventsResult> {
   let userAppendBroadcasted = false;
-  let finalAppendBroadcasted = false;
   const turnId = options.turnId;
   const started = startDesktopSessionTurn({
     sessionId,
@@ -1303,14 +1291,11 @@ function streamEvents(
       computerUseTools.clearSession(sessionId);
     },
     onDrained: () => {
-      if (!finalAppendBroadcasted) {
-        emitSessionsChanged('message-appended', sessionId);
-        finalAppendBroadcasted = true;
-      }
+      emitSessionsChanged('message-appended', sessionId);
     },
   });
   if (started.kind === 'unavailable') throw new Error(started.reason);
-  return started.completion.then(({ outcome }) => {
+  return started.completion.then((outcome) => {
     const failureReason = outcome.kind === 'errored' || outcome.kind === 'suspended'
       ? outcome.reason
       : undefined;

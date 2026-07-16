@@ -98,7 +98,6 @@ function createTestGoalLifecycle(
       kind: 'registered',
       settle: async (outcome) => {
         onSettled?.(sessionId, turnId, outcome);
-        return { kind: 'no_goal' };
       },
     }),
     bindHost: (host) => {
@@ -1258,60 +1257,7 @@ describe('Maka Pi TUI runner', () => {
     await run;
   });
 
-  test('Goal host binds admission to the current session and does not double-notify owned turns', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new SlashCommandDriver();
-    const externalTurns: string[] = [];
-    let goalHost: CliGoalTurnHost | undefined;
-    let hostUnbound = false;
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'deepseek-v4-flash',
-      connectionSlug: 'deepseek',
-      permissionMode: 'ask',
-      terminal,
-      goalLifecycle: createTestGoalLifecycle((_sessionId, _turnId, outcome) => {
-        externalTurns.push(outcome.kind);
-      }, undefined, (host) => {
-        if (host) goalHost = host;
-        else hostUnbound = true;
-      }),
-    });
-    assert.ok(goalHost);
-
-    assert.deepEqual(goalHost.admitTurn('other-session', 'wrong target', () => ({ kind: 'bound' })), {
-      kind: 'unavailable',
-      reason: 'TUI is attached to a different session.',
-    });
-    let ownedTurnId: string | undefined;
-    const admission = goalHost.admitTurn('session-1', 'goal continuation', (turnId) => {
-      ownedTurnId = turnId;
-      return { kind: 'bound' };
-    });
-    assert.equal(admission.kind, 'started');
-    if (admission.kind !== 'started') throw new Error('expected started admission');
-    assert.deepEqual(await admission.completion, { kind: 'completed', turnId: ownedTurnId });
-    assert.deepEqual(driver.prompts, ['goal continuation']);
-    assert.deepEqual(externalTurns, []);
-
-    await driver.switchSession('session-2');
-    assert.equal(
-      goalHost.admitTurn('session-1', 'stale target', () => ({ kind: 'bound' })).kind,
-      'unavailable',
-    );
-
-    exitMaka(terminal);
-    await run;
-    assert.equal(hostUnbound, true);
-    assert.deepEqual(goalHost.admitTurn('session-2', 'after close', () => ({ kind: 'bound' })), {
-      kind: 'unavailable',
-      reason: 'TUI is closed.',
-    });
-  });
-
-  test('uses the real CLI Goal lifecycle for external, owned, switched, and closed turns', async () => {
+  test('uses the real CLI Goal lifecycle for external, owned, and switched turns', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
     let goalId = 0;
@@ -1359,15 +1305,15 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(manager.get('session-1')?.iterations, 1);
     assert.equal(lifecycle.activities.whenIdle('session-1'), undefined);
 
-    await driver.switchSession('session-2');
     assert.equal(manager.create('session-1', 'old session goal').kind, 'created');
     const switched = lifecycle.beginExternalTurn('session-1', 'turn-after-switch');
     assert.equal(switched.kind, 'registered');
     if (switched.kind !== 'registered') throw new Error('expected registered switch-boundary turn');
-    assert.equal((await switched.settle({
+    await driver.switchSession('session-2');
+    await switched.settle({
       kind: 'completed',
       turnId: 'turn-after-switch',
-    })).kind, 'continued');
+    });
     await waitFor(() => manager.get('session-1')?.status === 'paused');
     assert.equal(
       manager.get('session-1')?.lastReason,
@@ -1378,50 +1324,8 @@ describe('Maka Pi TUI runner', () => {
     exitMaka(terminal);
     await run;
 
-    assert.equal(manager.create('session-1', 'closed host goal').kind, 'created');
-    const closed = lifecycle.beginExternalTurn('session-1', 'turn-after-close');
-    assert.equal(closed.kind, 'registered');
-    if (closed.kind !== 'registered') throw new Error('expected registered close-boundary turn');
-    assert.equal((await closed.settle({
-      kind: 'completed',
-      turnId: 'turn-after-close',
-    })).kind, 'continued');
-    await waitFor(() => manager.get('session-1')?.status === 'paused');
-    assert.equal(manager.get('session-1')?.lastReason, 'TUI Goal host is not available.');
-
     lifecycle.dispose();
     manager.dispose();
-  });
-
-  test('Goal host exposes the current TUI activity as an awaitable busy admission', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new InterruptibleTurnDriver();
-    const activities = new SessionActivityRegistry();
-    let goalHost: CliGoalTurnHost | undefined;
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'deepseek-v4-flash',
-      connectionSlug: 'deepseek',
-      permissionMode: 'ask',
-      terminal,
-      goalLifecycle: createTestGoalLifecycle(undefined, activities, (host) => {
-        if (host) goalHost = host;
-      }),
-    });
-    assert.ok(goalHost);
-
-    terminal.input('run');
-    terminal.input('\r');
-    assert.ok(activities.whenIdle('session-1'), 'visible turn must reserve activity synchronously');
-    const admission = goalHost.admitTurn('session-1', 'wait until idle', () => ({ kind: 'bound' }));
-    assert.equal(admission.kind, 'busy');
-    if (admission.kind !== 'busy') throw new Error('expected busy admission');
-
-    exitMaka(terminal);
-    await Promise.all([run, admission.whenIdle]);
-    assert.equal(driver.stopCalls, 1);
   });
 
   test('waits to start a visible turn until shared session activity releases', async () => {
@@ -1477,7 +1381,7 @@ describe('Maka Pi TUI runner', () => {
           registered = true;
           return {
             kind: 'registered',
-            settle: async () => ({ kind: 'no_goal' }),
+            settle: async () => {},
           };
         },
       },
@@ -3526,9 +3430,11 @@ describe('Maka Pi TUI runner', () => {
     await run;
   });
 
-  test('blocks prompt submission while a control command is in flight', async () => {
+  test('serializes a control command with prompts and shared session activity', async () => {
     const terminal = new FakeTerminal();
     const driver = new DeferredControlDriver();
+    const activities = new SessionActivityRegistry();
+    let goalHost: CliGoalTurnHost | undefined;
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -3537,11 +3443,26 @@ describe('Maka Pi TUI runner', () => {
       connectionSlug: 'claude-subscription',
       permissionMode: 'ask',
       terminal,
+      goalLifecycle: createTestGoalLifecycle(undefined, activities, (host) => {
+        if (host) goalHost = host;
+      }),
     });
+    assert.ok(goalHost);
 
     terminal.input('/model claude-opus-4-1');
     terminal.input('\r');
     await waitFor(() => driver.models.length === 1);
+    const admission = goalHost.admitTurn('session-1', 'wait for control');
+    assert.equal(admission.kind, 'busy');
+    if (admission.kind !== 'busy') throw new Error('expected busy admission');
+
+    let automationAcquired = false;
+    const automationActivity = activities.acquire('session-1').then((lease) => {
+      automationAcquired = true;
+      return lease;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(automationAcquired, false);
 
     // While the model switch is in flight, typing + Enter must not send a prompt.
     terminal.input('blocked');
@@ -3551,6 +3472,9 @@ describe('Maka Pi TUI runner', () => {
 
     // After the switch completes, the previously typed prompt goes through.
     driver.releaseSetModel();
+    await admission.whenIdle;
+    const automationLease = await automationActivity;
+    automationLease.release();
     await delay(20);
     terminal.input('\r');
     await waitFor(() => driver.prompts.length === 1);

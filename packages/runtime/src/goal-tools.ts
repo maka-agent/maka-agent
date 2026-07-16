@@ -68,23 +68,17 @@ function buildGoalSetTool(deps: GoalToolsDeps): MakaTool<{
           + 'Clear or complete it before setting another goal.';
       }
       const tokensAtStart = deps.getTokenCount?.(ctx.sessionId) ?? 0;
-      const activation = deps.goalContinuation.activateGoal(ctx.sessionId, ctx.turnId, () => {
-        const result = deps.goalManager.create(ctx.sessionId, input.condition, {
+      const goal = deps.goalContinuation.activateGoal(ctx.sessionId, ctx.turnId, () => {
+        return deps.goalManager.create(ctx.sessionId, input.condition, {
           maxIterations: input.max_iterations,
           blockCap: input.block_cap,
           tokenBudget: input.token_budget,
           tokensAtStart,
-        });
-        if (result.kind !== 'created') {
-          throw new Error('Goal activation changed during a synchronous GoalSet transaction.');
-        }
-        return { goal: result.goal, result };
+        }).goal;
       });
-      if (activation.kind === 'stale') {
+      if (!goal) {
         return 'Goal not set: this turn no longer owns Goal activation.';
       }
-      const result = activation.result;
-      const goal = result.goal;
       const limits = [
         `max ${goal.maxIterations} turns`,
         `stall after ${goal.blockCap} no-progress turns`,
@@ -108,17 +102,12 @@ function buildGoalClearTool(deps: GoalToolsDeps): MakaTool<Record<string, never>
       if (!current || TERMINAL_GOAL_STATUSES.has(current.status)) {
         return 'No active goal to clear.';
       }
-      const mutation = deps.goalContinuation.mutateGoal(ctx.sessionId, ctx.turnId, () => {
-        const goal = deps.goalManager.clear(ctx.sessionId);
-        if (!goal) {
-          throw new Error('Goal control changed during a synchronous GoalClear transaction.');
-        }
-        return { goal, result: goal };
+      const goal = deps.goalContinuation.mutateGoal(ctx.sessionId, ctx.turnId, () => {
+        return deps.goalManager.clear(ctx.sessionId)!;
       });
-      if (mutation.kind === 'stale') {
+      if (!goal) {
         return 'Goal not cleared: this turn no longer owns Goal control.';
       }
-      const goal = mutation.result;
       return `Goal cleared: "${goal.condition}" after ${goal.iterations} turn(s).`;
     },
   };
@@ -136,17 +125,12 @@ function buildGoalPauseTool(deps: GoalToolsDeps): MakaTool<Record<string, never>
       if (!current || (current.status !== 'active' && current.status !== 'waiting')) {
         return 'No active goal to pause.';
       }
-      const mutation = deps.goalContinuation.mutateGoal(ctx.sessionId, ctx.turnId, () => {
-        const goal = deps.goalManager.pause(ctx.sessionId);
-        if (!goal) {
-          throw new Error('Goal control changed during a synchronous GoalPause transaction.');
-        }
-        return { goal, result: goal };
+      const goal = deps.goalContinuation.mutateGoal(ctx.sessionId, ctx.turnId, () => {
+        return deps.goalManager.pause(ctx.sessionId)!;
       });
-      if (mutation.kind === 'stale') {
+      if (!goal) {
         return 'Goal not paused: this turn no longer owns Goal control.';
       }
-      const goal = mutation.result;
       return `Goal paused: "${goal.condition}" at turn ${goal.iterations}. Use GoalResume to continue.`;
     },
   };
@@ -163,17 +147,12 @@ function buildGoalResumeTool(deps: GoalToolsDeps): MakaTool<Record<string, never
       if (deps.goalManager.get(ctx.sessionId)?.status !== 'paused') {
         return 'No paused goal to resume.';
       }
-      const activation = deps.goalContinuation.activateGoal(ctx.sessionId, ctx.turnId, () => {
-        const goal = deps.goalManager.resume(ctx.sessionId);
-        if (!goal) {
-          throw new Error('Goal activation changed during a synchronous GoalResume transaction.');
-        }
-        return { goal, result: goal };
+      const goal = deps.goalContinuation.activateGoal(ctx.sessionId, ctx.turnId, () => {
+        return deps.goalManager.resume(ctx.sessionId)!;
       });
-      if (activation.kind === 'stale') {
+      if (!goal) {
         return 'Goal not resumed: this turn no longer owns Goal activation.';
       }
-      const goal = activation.result;
       return `Goal resumed: "${goal.condition}". Autonomous continuation re-enabled.`;
     },
   };

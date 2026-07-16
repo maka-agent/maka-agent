@@ -1009,11 +1009,7 @@ export {
   GOAL_WAIT_BACKOFF_MAX_MS,
 } from './goal-continuation.js';
 export type {
-  GoalActivation,
-  GoalActivationResult,
-  GoalMutationResult,
   GoalContinuationDeps,
-  GoalContinuationOutcome,
   GoalContinuationScheduler,
   GoalExternalTurnStart,
   GoalExternalTurnSettler,
@@ -1022,18 +1018,14 @@ export type {
   GoalTaskGateDeps,
   GoalTaskGateTrace,
   GoalTurnAdmission,
-  GoalTurnBinder,
-  GoalTurnBinding,
   GoalTurnOutcome,
 } from './goal-continuation.js';
 export {
-  GoalTurnOutcomeTracker,
   SessionActivityRegistry,
   drainGoalTurn,
 } from './goal-turn-lifecycle.js';
 export type {
   DrainGoalTurnInput,
-  DrainGoalTurnResult,
   SessionActivityLease,
 } from './goal-turn-lifecycle.js';
 

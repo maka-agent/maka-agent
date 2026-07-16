@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { SessionEvent } from '@maka/core';
 import {
-  GoalTurnOutcomeTracker,
   SessionActivityRegistry,
   drainGoalTurn,
 } from '../goal-turn-lifecycle.js';
@@ -13,7 +12,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function complete(turnId: string, stopReason: 'end_turn' | 'permission_handoff'): SessionEvent {
+function complete(turnId: string, stopReason: 'end_turn' | 'permission_handoff' | 'error'): SessionEvent {
   return { type: 'complete', id: `${turnId}-${stopReason}`, turnId, ts: 1, stopReason };
 }
 
@@ -47,17 +46,17 @@ describe('Goal turn lifecycle', () => {
     assert.equal(registry.whenIdle('session-1'), undefined);
   });
 
-  test('projects a terminal permission handoff as suspended but accepts a later resumed completion', () => {
-    const tracker = new GoalTurnOutcomeTracker();
-    tracker.observe(complete('turn-1', 'permission_handoff'));
-    assert.deepEqual(tracker.outcome, {
+  test('projects terminal permission handoff as suspended', async () => {
+    async function* events(): AsyncIterable<SessionEvent> {
+      yield complete('turn-1', 'permission_handoff');
+    }
+
+    const suspended = await drainGoalTurn({ events: events(), turnId: 'turn-1' });
+    assert.deepEqual(suspended, {
       kind: 'suspended',
       turnId: 'turn-1',
       reason: 'Turn is waiting for user permission.',
     });
-
-    tracker.observe(complete('turn-1', 'end_turn'));
-    assert.deepEqual(tracker.finish(), { kind: 'completed', turnId: 'turn-1' });
   });
 
   test('settles only after a full drain and releases activity before notifying the owner', async () => {
@@ -83,7 +82,7 @@ describe('Goal turn lifecycle', () => {
 
     const resultPromise = drainGoalTurn({
       events: events(),
-      expectedTurnId: 'turn-1',
+      turnId: 'turn-1',
       activity: lease,
       onEvent: (event) => {
         sequence.push(`observed:${event.type}`);
@@ -104,7 +103,7 @@ describe('Goal turn lifecycle', () => {
     releaseStream.resolve();
     const result = await resultPromise;
 
-    assert.deepEqual(result.outcome, { kind: 'completed', turnId: 'turn-1' });
+    assert.deepEqual(result, { kind: 'completed', turnId: 'turn-1' });
     assert.deepEqual(sequence, [
       'first-event',
       'observed:text_delta',
@@ -115,7 +114,7 @@ describe('Goal turn lifecycle', () => {
     ]);
   });
 
-  test('keeps draining after a terminal error event before releasing activity', async () => {
+  test('keeps draining from an error event through terminal completion', async () => {
     const registry = new SessionActivityRegistry();
     const releaseStream = deferred<void>();
     const errorObserved = deferred<void>();
@@ -132,11 +131,12 @@ describe('Goal turn lifecycle', () => {
         message: 'provider failed',
       };
       await releaseStream.promise;
+      yield complete('turn-1', 'error');
     }
 
     const resultPromise = drainGoalTurn({
       events: events(),
-      expectedTurnId: 'turn-1',
+      turnId: 'turn-1',
       activity: registry.reserve('session-1'),
       onEvent: (event) => {
         if (event.type === 'error') errorObserved.resolve();
@@ -150,12 +150,12 @@ describe('Goal turn lifecycle', () => {
     releaseStream.resolve();
     const result = await resultPromise;
 
-    assert.deepEqual(result.outcome, {
+    assert.deepEqual(result, {
       kind: 'errored',
       turnId: 'turn-1',
       reason: 'provider failed',
     });
-    assert.deepEqual(settled, result.outcome);
+    assert.deepEqual(settled, result);
     assert.equal(registry.whenIdle('session-1'), undefined);
   });
 
@@ -179,7 +179,7 @@ describe('Goal turn lifecycle', () => {
 
     const result = await drainGoalTurn({
       events: events(),
-      expectedTurnId: 'turn-1',
+      turnId: 'turn-1',
       activity: registry.reserve('session-1'),
       onEvent: (event) => {
         projected.push(event.type);
@@ -190,32 +190,13 @@ describe('Goal turn lifecycle', () => {
 
     assert.equal(streamDrained, true);
     assert.deepEqual(projected, ['text_delta', 'complete']);
-    assert.deepEqual(result.outcome, {
+    assert.deepEqual(result, {
       kind: 'errored',
       turnId: 'turn-1',
       reason: 'projection failed',
     });
-    assert.deepEqual(settled, result.outcome);
+    assert.deepEqual(settled, result);
     assert.equal(registry.whenIdle('session-1'), undefined);
   });
 
-  test('fails a single-turn drain when any event carries another turn identity', async () => {
-    const projected: SessionEvent[] = [];
-    async function* events(): AsyncIterable<SessionEvent> {
-      yield complete('unexpected-turn', 'end_turn');
-    }
-
-    const result = await drainGoalTurn({
-      events: events(),
-      expectedTurnId: 'turn-1',
-      onEvent: (event) => { projected.push(event); },
-    });
-
-    assert.deepEqual(projected, []);
-    assert.deepEqual(result.outcome, {
-      kind: 'errored',
-      turnId: 'turn-1',
-      reason: 'Session turn identity mismatch: expected turn-1, received unexpected-turn.',
-    });
-  });
 });

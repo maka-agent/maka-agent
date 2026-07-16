@@ -60,12 +60,9 @@ export interface MakaSessionSwitchResult {
   messages: StoredMessage[];
 }
 
-export interface MakaSessionTurnStart {
+export interface MakaPreparedSessionTurn {
   sessionId: string;
   turnId: string;
-}
-
-export interface MakaPreparedSessionTurn extends MakaSessionTurnStart {
   events: AsyncIterable<SessionEvent>;
 }
 

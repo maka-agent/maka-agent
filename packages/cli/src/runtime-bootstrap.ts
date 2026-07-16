@@ -418,7 +418,7 @@ export async function createMakaCliRuntimeContext(
     // createFreshRun is omitted, so the tool advertises heartbeat only.
     injectTurn: async (sessionId, prompt, automationId) => {
       const turnId = randomUUID();
-      const { outcome } = await goalContinuation.runAutomationTurn({
+      const outcome = await goalContinuation.runAutomationTurn({
         sessionId,
         turnId,
         start: () => runtime.sendMessage(sessionId, {

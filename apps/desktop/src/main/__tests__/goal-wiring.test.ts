@@ -30,7 +30,7 @@ function setup() {
 }
 
 describe('Desktop Goal session lifecycle transaction', () => {
-  test('failed persistence preserves Goal ownership and turn idempotency', async (t) => {
+  test('failed persistence preserves Goal ownership and reopens admission', async (t) => {
     await t.test('archive', async () => {
       const wiring = setup();
       wiring.manager.create(SESSION, 'keep this Goal');
@@ -55,7 +55,6 @@ describe('Desktop Goal session lifecycle transaction', () => {
     await t.test('remove', async () => {
       const wiring = setup();
       wiring.manager.create(SESSION, 'keep this Goal');
-      wiring.manager.markTurnSettled(SESSION, 'turn-old');
       const persisted = deferred<void>();
       const pending = wiring.removeSession(SESSION, () => persisted.promise);
 
@@ -69,7 +68,6 @@ describe('Desktop Goal session lifecycle transaction', () => {
         wiring.manager.get(SESSION)?.lastReason,
         'Goal continuation paused because session removal did not complete.',
       );
-      assert.deepEqual(wiring.coordinator.beginExternalTurn(SESSION, 'turn-old'), { kind: 'duplicate' });
       assert.equal(wiring.coordinator.beginExternalTurn(SESSION, 'turn-after-rollback').kind, 'registered');
       wiring.coordinator.dispose();
       wiring.manager.dispose();

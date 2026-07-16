@@ -11,10 +11,8 @@ import {
 import {
   GoalContinuationCoordinator,
   type GoalContinuationDeps,
-  type GoalContinuationOutcome,
   type GoalContinuationScheduler,
   type GoalTurnAdmission,
-  type GoalTurnBinder,
   type GoalTurnOutcome,
 } from '../goal-continuation.js';
 import type { GoalEvaluation } from '../goal-evaluator.js';
@@ -78,11 +76,6 @@ class ManualScheduler implements GoalContinuationScheduler {
     entry.callback();
   }
 
-  fireEvenIfCleared(index: number): void {
-    const entry = this.entries[index];
-    assert.ok(entry, `expected timer at index ${index}`);
-    entry.callback();
-  }
 }
 
 interface AdmittedTurn {
@@ -90,6 +83,23 @@ interface AdmittedTurn {
   prompt: string;
   turnId: string;
   completion: ReturnType<typeof deferred<GoalTurnOutcome>>;
+}
+
+function prepareAdmission(
+  admitted: AdmittedTurn[],
+  sessionId: string,
+  prompt: string,
+  turnId: string,
+): GoalTurnAdmission {
+  const completion = deferred<GoalTurnOutcome>();
+  return {
+    kind: 'prepared',
+    turnId,
+    start: () => {
+      admitted.push({ sessionId, prompt, turnId, completion });
+      return completion.promise;
+    },
+  };
 }
 
 function setup(opts?: {
@@ -120,13 +130,9 @@ function setup(opts?: {
   let admissionImpl: (
     sessionId: string,
     prompt: string,
-    bindTurn: GoalTurnBinder,
-  ) => GoalTurnAdmission = (sessionId, prompt, bindTurn) => {
+  ) => GoalTurnAdmission = (sessionId, prompt) => {
     const turnId = `turn-owned-${++ownedTurnSequence}`;
-    assert.deepEqual(bindTurn(turnId), { kind: 'bound' });
-    const completion = deferred<GoalTurnOutcome>();
-    admitted.push({ sessionId, prompt, turnId, completion });
-    return { kind: 'started', completion: completion.promise };
+    return prepareAdmission(admitted, sessionId, prompt, turnId);
   };
   const deps: GoalContinuationDeps = {
     goalManager: manager,
@@ -138,9 +144,9 @@ function setup(opts?: {
     },
     getRecentContext: async () => 'recent context',
     getTokenCount: opts?.tokenCount !== undefined ? () => opts.tokenCount! : undefined,
-    admitTurn: (sessionId, prompt, bindTurn) => {
+    admitTurn: (sessionId, prompt) => {
       attemptedPrompts.push(prompt);
-      return admissionImpl(sessionId, prompt, bindTurn);
+      return admissionImpl(sessionId, prompt);
     },
     scheduler,
     ...(opts?.taskGate ? { taskGate: opts.taskGate } : {}),
@@ -170,11 +176,10 @@ function settleExternal(
   coordinator: GoalContinuationCoordinator,
   sessionId: string,
   outcome: GoalTurnOutcome,
-): Promise<GoalContinuationOutcome> {
+): Promise<void> {
   assert.ok(outcome.turnId, 'an external turn must have a stable identity before it starts');
   const registration = coordinator.beginExternalTurn(sessionId, outcome.turnId);
-  if (registration.kind === 'duplicate') return Promise.resolve({ kind: 'duplicate' });
-  if (registration.kind === 'unavailable') return Promise.resolve({ kind: 'stale' });
+  assert.equal(registration.kind, 'registered');
   return registration.settle(outcome);
 }
 
@@ -210,14 +215,6 @@ function goalToolsFor(
 }
 
 describe('GoalContinuationCoordinator settlement', () => {
-  test('returns no_goal without retaining an idle lane', async () => {
-    const { coordinator } = setup();
-    assert.deepEqual(await settleExternal(coordinator, SESSION, {
-      kind: 'completed',
-      turnId: 'turn-1',
-    }), { kind: 'no_goal' });
-  });
-
   test('binds a Goal created by the same external turn before it settles', async () => {
     const { manager, coordinator } = setup({
       evaluations: [{ met: true, reason: 'same-turn Goal verified' }],
@@ -228,9 +225,8 @@ describe('GoalContinuationCoordinator settlement', () => {
     assert.ok(set);
 
     await set.impl({ condition: 'ship' }, goalToolContext('turn-owner'));
-    const result = await settle({ kind: 'completed', turnId: 'turn-owner' });
+    await settle({ kind: 'completed', turnId: 'turn-owner' });
 
-    assert.equal(result.kind, 'achieved');
     assert.equal(manager.get(SESSION)?.status, 'achieved');
   });
 
@@ -251,16 +247,17 @@ describe('GoalContinuationCoordinator settlement', () => {
     assert.ok(set);
     await set.impl({ condition: 'ship' }, goalToolContext('turn-owner'));
 
-    assert.equal((await settleOther({
+    await settleOther({
       kind: 'completed',
       turnId: 'turn-other',
-    })).kind, 'stale');
+    });
     assert.equal(evaluations, 0);
-    assert.equal((await settleOwner({
+    await settleOwner({
       kind: 'completed',
       turnId: 'turn-owner',
-    })).kind, 'achieved');
+    });
     assert.equal(evaluations, 1);
+    assert.equal(manager.get(SESSION)?.status, 'achieved');
   });
 
   test('an older unbound turn cannot activate a Goal after another turn activated and cleared one', async () => {
@@ -337,24 +334,6 @@ describe('GoalContinuationCoordinator settlement', () => {
     assert.equal(manager.get(SESSION)?.status, 'active');
   });
 
-  test('a throwing state observer cannot strand Goal activation without its turn lease', async () => {
-    const { manager, coordinator } = setup({
-      evaluations: [{ met: true, reason: 'verified' }],
-      onChange: () => { throw new Error('observer failed'); },
-    });
-    const settle = registerExternalTurn(coordinator, SESSION, 'turn-set');
-    const set = goalToolsFor(manager, coordinator)
-      .find((tool) => tool.name === GOAL_SET_TOOL_NAME);
-    assert.ok(set);
-
-    const output = String(await set.impl({ condition: 'ship' }, goalToolContext('turn-set')));
-    const outcome = await settle({ kind: 'completed', turnId: 'turn-set' });
-
-    assert.match(output, /Goal set/);
-    assert.equal(outcome.kind, 'achieved');
-    assert.equal(manager.get(SESSION)?.status, 'achieved');
-  });
-
   test('a removed external turn cannot create or resume a Goal through the real tools', async (t) => {
     await t.test('GoalSet after permanent removal', async () => {
       const { manager, coordinator } = setup();
@@ -364,7 +343,7 @@ describe('GoalContinuationCoordinator settlement', () => {
       assert.ok(set);
 
       const removal = coordinator.beginSessionClose(SESSION, 'remove');
-      manager.removeSession(SESSION);
+      manager.remove(SESSION);
       removal.commit();
       const output = String(await set.impl({ condition: 'must not exist' }, goalToolContext('turn-deleted')));
 
@@ -382,7 +361,7 @@ describe('GoalContinuationCoordinator settlement', () => {
       assert.ok(resume);
 
       const archive = coordinator.beginSessionClose(SESSION, 'archive');
-      manager.removeGoal(SESSION);
+      manager.remove(SESSION);
       archive.commit();
       coordinator.unarchiveSession(SESSION);
       manager.create(SESSION, 'replacement');
@@ -395,49 +374,20 @@ describe('GoalContinuationCoordinator settlement', () => {
     });
   });
 
-  test('closed sessions reject fresh Goal authority until explicitly reopened', async (t) => {
-    await t.test('archive fence', async () => {
-      const { manager, coordinator } = setup();
-      manager.create(SESSION, 'archived');
-      const archive = coordinator.beginSessionClose(SESSION, 'archive');
-      assert.equal(manager.removeGoal(SESSION), true);
-      archive.commit();
+  test('closed sessions reject fresh turns until explicitly reopened', () => {
+    const { coordinator } = setup();
+    coordinator.beginSessionClose(SESSION, 'archive').commit();
 
-      assert.deepEqual(coordinator.beginExternalTurn(SESSION, 'turn-closed'), {
-        kind: 'unavailable',
-        reason: 'Goal continuation session is closed.',
-      });
-      const set = goalToolsFor(manager, coordinator)
-        .find((tool) => tool.name === GOAL_SET_TOOL_NAME);
-      assert.ok(set);
-      assert.match(
-        String(await set.impl({ condition: 'must stay closed' }, goalToolContext('turn-closed'))),
-        /no longer owns Goal activation/,
-      );
-      assert.equal(manager.get(SESSION), undefined);
-
-      coordinator.unarchiveSession(SESSION);
-      registerExternalTurn(coordinator, SESSION, 'turn-reopened');
-      assert.match(
-        String(await set.impl({ condition: 'reopened' }, goalToolContext('turn-reopened'))),
-        /Goal set/,
-      );
-      assert.equal(manager.get(SESSION)?.condition, 'reopened');
+    assert.deepEqual(coordinator.beginExternalTurn(SESSION, 'turn-closed'), {
+      kind: 'unavailable',
+      reason: 'Goal continuation session is closed.',
     });
 
-    await t.test('permanent removal fence', () => {
-      const { manager, coordinator } = setup();
-      manager.create(SESSION, 'deleted');
-      const removal = coordinator.beginSessionClose(SESSION, 'remove');
-      assert.equal(manager.removeSession(SESSION), true);
-      removal.commit();
-
-      assert.deepEqual(coordinator.beginExternalTurn(SESSION, 'turn-after-delete'), {
-        kind: 'unavailable',
-        reason: 'Goal continuation session is closed.',
-      });
-      assert.equal(manager.removeSession(SESSION), false);
-    });
+    coordinator.unarchiveSession(SESSION);
+    assert.equal(
+      coordinator.beginExternalTurn(SESSION, 'turn-reopened').kind,
+      'registered',
+    );
   });
 
   test('a rolled-back session close leaves revoked continuation visibly paused', async (t) => {
@@ -447,10 +397,10 @@ describe('GoalContinuationCoordinator settlement', () => {
       setAdmission(() => ({ kind: 'busy', whenIdle: idle.promise }));
       manager.create(SESSION, 'ship');
 
-      assert.equal((await settleExternal(coordinator, SESSION, {
+      await settleExternal(coordinator, SESSION, {
         kind: 'completed',
         turnId: 'turn-external',
-      })).kind, 'continued');
+      });
       await waitFor(() => attemptedPrompts.length === 1, 'continuation did not reach the busy gate');
 
       const archive = coordinator.beginSessionClose(SESSION, 'archive');
@@ -486,7 +436,7 @@ describe('GoalContinuationCoordinator settlement', () => {
 
       const removal = coordinator.beginSessionClose(SESSION, 'remove');
       removal.rollback();
-      assert.equal((await settlement).kind, 'stale');
+      await settlement;
       evaluation.resolve('{"met":true,"reason":"late"}');
       await new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -499,116 +449,52 @@ describe('GoalContinuationCoordinator settlement', () => {
     });
   });
 
-  test('duplicate external registration is rejected while the original is open or processing', async () => {
-    const { manager, coordinator, deps } = setup();
-    const evaluation = controlledCall<string>();
-    deps.evaluator.evaluate = evaluation.invoke;
-    manager.create(SESSION, 'ship');
-    const settle = registerExternalTurn(coordinator, SESSION, 'turn-shared');
-
-    assert.deepEqual(coordinator.beginExternalTurn(SESSION, 'turn-shared'), { kind: 'duplicate' });
-    const pending = settle({ kind: 'completed', turnId: 'turn-shared' });
-    await evaluation.started;
-    assert.deepEqual(coordinator.beginExternalTurn(SESSION, 'turn-shared'), { kind: 'duplicate' });
-
-    evaluation.resolve('{"met":true,"reason":"verified"}');
-    assert.equal((await pending).kind, 'achieved');
-  });
-
-  test('a terminal turn-id mismatch pauses in FIFO order under the registered identity', async () => {
-    const { manager, coordinator, deps } = setup();
-    const firstEvaluation = controlledCall<string>();
-    deps.evaluator.evaluate = firstEvaluation.invoke;
-    manager.create(SESSION, 'ship');
-    const settleFirst = registerExternalTurn(coordinator, SESSION, 'turn-first');
-    const settleExpected = registerExternalTurn(coordinator, SESSION, 'turn-expected');
-
-    const first = settleFirst({ kind: 'completed', turnId: 'turn-first' });
-    await firstEvaluation.started;
-    const mismatched = settleExpected({ kind: 'completed', turnId: 'turn-wrong' });
-    assert.equal(manager.get(SESSION)?.status, 'active');
-
-    firstEvaluation.resolve('{"met":false,"progress":true,"reason":"first evidence"}');
-    assert.equal((await first).kind, 'continued');
-    assert.equal((await mismatched).kind, 'stopped');
-
-    assert.equal(manager.get(SESSION)?.status, 'paused');
-    assert.match(manager.get(SESSION)?.lastReason ?? '', /identity mismatch/);
-    assert.equal(manager.hasSettledTurn(SESSION, 'turn-expected'), true);
-    assert.equal(manager.hasSettledTurn(SESSION, 'turn-wrong'), false);
-    assert.deepEqual(coordinator.beginExternalTurn(SESSION, 'turn-expected'), { kind: 'duplicate' });
-  });
-
-  test('a host that binds twice fails closed without leaking the first turn identity', async () => {
-    const { manager, coordinator, setAdmission } = setup();
-    const completion = deferred<GoalTurnOutcome>();
-    setAdmission((_sessionId, _prompt, bindTurn) => {
-      assert.deepEqual(bindTurn('turn-owned-first'), { kind: 'bound' });
-      assert.deepEqual(bindTurn('turn-owned-second'), {
-        kind: 'unavailable',
-        reason: 'Goal continuation turn ownership is stale.',
+  test('transfers same-turn authority across its own lifecycle mutation', async (t) => {
+    await t.test('pause then resume', async () => {
+      const { manager, coordinator } = setup({
+        evaluations: [{ met: true, reason: 'resumed Goal verified' }],
       });
-      return {
-        kind: 'started',
-        completion: completion.promise,
-      };
-    });
-    manager.create(SESSION, 'ship');
+      const settle = registerExternalTurn(coordinator, SESSION, 'turn-control');
+      const tools = goalToolsFor(manager, coordinator);
+      const context = goalToolContext('turn-control');
+      const set = tools.find((tool) => tool.name === GOAL_SET_TOOL_NAME);
+      const pause = tools.find((tool) => tool.name === GOAL_PAUSE_TOOL_NAME);
+      const resume = tools.find((tool) => tool.name === GOAL_RESUME_TOOL_NAME);
+      assert.ok(set);
+      assert.ok(pause);
+      assert.ok(resume);
 
-    await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
-    await waitFor(() => manager.get(SESSION)?.status === 'paused', 'double-bound host did not pause Goal');
+      await set.impl({ condition: 'ship' }, context);
+      await pause.impl({}, context);
+      assert.match(String(await resume.impl({}, context)), /Goal resumed/);
+      await settle({ kind: 'completed', turnId: 'turn-control' });
 
-    assert.equal(manager.hasSettledTurn(SESSION, 'turn-owned-first'), true);
-    assert.equal(manager.hasSettledTurn(SESSION, 'turn-owned-second'), false);
-    assert.deepEqual(coordinator.beginExternalTurn(SESSION, 'turn-owned-first'), { kind: 'duplicate' });
-    completion.reject(new Error('owned stream failed after protocol rejection'));
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  });
-
-  test('a turn cannot rebind after activating and pausing its Goal', async () => {
-    const { manager, coordinator, deps } = setup();
-    let evaluations = 0;
-    deps.evaluator.evaluate = async () => {
-      evaluations++;
-      return '{"met":true,"reason":"must not evaluate"}';
-    };
-    const settle = registerExternalTurn(coordinator, SESSION, 'turn-control');
-    const tools = goalToolsFor(manager, coordinator);
-    const context = goalToolContext('turn-control');
-    let resumeOutput = '';
-    for (const name of [GOAL_SET_TOOL_NAME, GOAL_PAUSE_TOOL_NAME, GOAL_RESUME_TOOL_NAME]) {
-      const tool = tools.find((candidate) => candidate.name === name);
-      assert.ok(tool);
-      const output = await tool.impl(name === GOAL_SET_TOOL_NAME ? { condition: 'ship' } : {}, context);
-      if (name === GOAL_RESUME_TOOL_NAME) resumeOutput = String(output);
-    }
-
-    assert.equal((await settle({
-      kind: 'completed',
-      turnId: 'turn-control',
-    })).kind, 'stale');
-    assert.match(resumeOutput, /no longer owns Goal activation/);
-    assert.equal(manager.get(SESSION)?.status, 'paused');
-    assert.equal(manager.get(SESSION)?.iterations, 0);
-    assert.equal(evaluations, 0);
-  });
-
-  test('terminal evaluator verdict wins over hard caps and never admits another turn', async () => {
-    const { manager, coordinator, admitted } = setup({
-      evaluations: [{ met: true, reason: 'verified' }],
-      tokenCount: 10_000,
-    });
-    manager.create(SESSION, 'ship', { maxIterations: 1, tokenBudget: 1 });
-
-    const outcome = await settleExternal(coordinator, SESSION, {
-      kind: 'completed',
-      turnId: 'turn-final',
+      assert.equal(manager.get(SESSION)?.status, 'achieved');
     });
 
-    assert.equal(outcome.kind, 'achieved');
-    assert.equal(manager.get(SESSION)?.status, 'achieved');
-    assert.equal(manager.get(SESSION)?.iterations, 0);
-    assert.equal(admitted.length, 0);
+    await t.test('clear then replace', async () => {
+      const { manager, coordinator } = setup({
+        evaluations: [{ met: true, reason: 'replacement Goal verified' }],
+      });
+      manager.create(SESSION, 'old Goal');
+      const settle = registerExternalTurn(coordinator, SESSION, 'turn-control');
+      const tools = goalToolsFor(manager, coordinator);
+      const context = goalToolContext('turn-control');
+      const clear = tools.find((tool) => tool.name === GOAL_CLEAR_TOOL_NAME);
+      const set = tools.find((tool) => tool.name === GOAL_SET_TOOL_NAME);
+      assert.ok(clear);
+      assert.ok(set);
+
+      await clear.impl({}, context);
+      assert.match(
+        String(await set.impl({ condition: 'replacement Goal' }, context)),
+        /Goal set/,
+      );
+      await settle({ kind: 'completed', turnId: 'turn-control' });
+
+      assert.equal(manager.get(SESSION)?.condition, 'replacement Goal');
+      assert.equal(manager.get(SESSION)?.status, 'achieved');
+    });
   });
 
   test('an impossible verdict terminates without admission', async () => {
@@ -617,12 +503,11 @@ describe('GoalContinuationCoordinator settlement', () => {
     });
     manager.create(SESSION, 'ship');
 
-    const outcome = await settleExternal(coordinator, SESSION, {
+    await settleExternal(coordinator, SESSION, {
       kind: 'completed',
       turnId: 'turn-impossible',
     });
 
-    assert.equal(outcome.kind, 'impossible');
     assert.equal(manager.get(SESSION)?.status, 'impossible');
     assert.equal(admitted.length, 0);
   });
@@ -633,13 +518,12 @@ describe('GoalContinuationCoordinator settlement', () => {
     });
     manager.create(SESSION, 'ship', { blockCap: 3 });
 
-    const outcome = await settleExternal(coordinator, SESSION, {
+    await settleExternal(coordinator, SESSION, {
       kind: 'completed',
       turnId: 'turn-1',
     });
     await waitFor(() => admitted.length === 1, 'continuation was not admitted');
 
-    assert.equal(outcome.kind, 'continued');
     assert.equal(manager.get(SESSION)?.iterations, 1);
     assert.equal(manager.get(SESSION)?.consecutiveNoProgress, 1);
     assert.equal(admitted.length, 1);
@@ -651,13 +535,12 @@ describe('GoalContinuationCoordinator settlement', () => {
     deps.evaluator.evaluate = async () => { throw new Error('provider outage'); };
     manager.create(SESSION, 'ship', { blockCap: 1 });
 
-    const outcome = await settleExternal(coordinator, SESSION, {
+    await settleExternal(coordinator, SESSION, {
       kind: 'completed',
       turnId: 'turn-1',
     });
     await waitFor(() => admitted.length === 1, 'fail-open continuation was not admitted');
 
-    assert.equal(outcome.kind, 'continued');
     assert.equal(manager.get(SESSION)?.status, 'active');
     assert.equal(manager.get(SESSION)?.consecutiveNoProgress, 0);
     assert.equal(admitted.length, 1);
@@ -668,19 +551,18 @@ describe('GoalContinuationCoordinator settlement', () => {
     deps.getRecentContext = async () => { throw new Error('storage unavailable'); };
     manager.create(SESSION, 'ship');
 
-    const outcome = await settleExternal(coordinator, SESSION, {
+    await settleExternal(coordinator, SESSION, {
       kind: 'completed',
       turnId: 'turn-1',
     });
 
-    assert.equal(outcome.kind, 'stopped');
     assert.equal(manager.get(SESSION)?.status, 'paused');
     assert.match(manager.get(SESSION)?.lastReason ?? '', /storage unavailable/);
     assert.equal(admitted.length, 0);
   });
 
   test('queued completions are evaluated FIFO and collapse to the newest pending intent', async () => {
-    const { manager, coordinator, deps, admitted, queueEvaluations } = setup();
+    const { manager, coordinator, deps, admitted } = setup();
     const firstEvaluation = controlledCall<string>();
     let calls = 0;
     deps.evaluator.evaluate = (async () => {
@@ -715,7 +597,7 @@ describe('GoalContinuationCoordinator settlement', () => {
     assert.doesNotMatch(admitted[0]!.prompt, /first result/);
   });
 
-  test('queues failures behind earlier evidence and consumes the remaining generation before resume', async () => {
+  test('queues failures behind earlier evidence and discards later queued outcomes', async () => {
     const { manager, coordinator, deps, admitted } = setup();
     const evaluation = controlledCall<string>();
     let evaluations = 0;
@@ -742,28 +624,10 @@ describe('GoalContinuationCoordinator settlement', () => {
       waiting: false,
       reason: 'first result',
     }));
-    const [firstResult, failureResult, laterResult] = await Promise.all([first, failure, later]);
-
-    assert.equal(firstResult.kind, 'continued');
-    assert.equal(failureResult.kind, 'stopped');
-    assert.equal(laterResult.kind, 'stale');
+    await Promise.all([first, failure, later]);
     assert.equal(manager.get(SESSION)?.status, 'paused');
     assert.equal(evaluations, 1);
     assert.equal(admitted.length, 0);
-    for (const turnId of ['turn-first', 'turn-failure', 'turn-later']) {
-      assert.equal(manager.hasSettledTurn(SESSION, turnId), true);
-    }
-
-    manager.resume(SESSION);
-    for (const outcome of [
-      { kind: 'completed', turnId: 'turn-first' },
-      { kind: 'errored', turnId: 'turn-failure', reason: 'provider failed' },
-      { kind: 'completed', turnId: 'turn-later' },
-    ] satisfies GoalTurnOutcome[]) {
-      assert.equal((await settleExternal(coordinator, SESSION, outcome)).kind, 'duplicate');
-    }
-    assert.equal(evaluations, 1);
-    assert.equal(manager.get(SESSION)?.status, 'active');
   });
 
   test('pause and resume invalidate every outcome queued under the previous control lease', async () => {
@@ -801,21 +665,11 @@ describe('GoalContinuationCoordinator settlement', () => {
       reason: 'old evidence must not apply',
     }));
 
-    assert.deepEqual(
-      (await Promise.all([first, failure, later])).map((result) => result.kind),
-      ['stale', 'stale', 'stale'],
-    );
+    await Promise.all([first, failure, later]);
     assert.equal(manager.get(SESSION)?.status, 'active');
     assert.equal(manager.get(SESSION)?.iterations, 0);
     assert.equal(evaluations, 1);
     assert.equal(admitted.length, 0);
-    for (const outcome of [
-      { kind: 'completed', turnId: 'turn-first' },
-      { kind: 'errored', turnId: 'turn-failure', reason: 'provider failed' },
-      { kind: 'completed', turnId: 'turn-later' },
-    ] satisfies GoalTurnOutcome[]) {
-      assert.equal((await settleExternal(coordinator, SESSION, outcome)).kind, 'duplicate');
-    }
   });
 
   test('a pre-pause external turn cannot settle the resumed Goal', async () => {
@@ -828,27 +682,21 @@ describe('GoalContinuationCoordinator settlement', () => {
     manager.create(SESSION, 'ship');
     const settleLate = registerExternalTurn(coordinator, SESSION, 'turn-late');
 
-    assert.equal((await settleExternal(coordinator, SESSION, {
+    await settleExternal(coordinator, SESSION, {
       kind: 'errored',
       turnId: 'turn-failure',
       reason: 'provider failed',
-    })).kind, 'stopped');
+    });
     assert.ok(manager.resume(SESSION));
-    assert.equal((await settleLate({
+    await settleLate({
       kind: 'completed',
       turnId: 'turn-late',
-    })).kind, 'stale');
-    assert.equal(manager.hasSettledTurn(SESSION, 'turn-late'), true);
-
-    assert.equal((await settleExternal(coordinator, SESSION, {
-      kind: 'completed',
-      turnId: 'turn-late',
-    })).kind, 'duplicate');
+    });
     assert.equal(manager.get(SESSION)?.status, 'active');
     assert.equal(evaluations, 0);
   });
 
-  test('archive retains queued and in-flight turn identities across Goal replacement', async () => {
+  test('archive invalidates queued and in-flight outcomes before Goal replacement', async () => {
     const { manager, coordinator, deps, admitted } = setup();
     const evaluation = controlledCall<string>();
     deps.evaluator.evaluate = evaluation.invoke;
@@ -865,23 +713,12 @@ describe('GoalContinuationCoordinator settlement', () => {
     });
 
     const archive = coordinator.beginSessionClose(SESSION, 'archive');
-    assert.equal(manager.removeGoal(SESSION), true);
+    assert.equal(manager.remove(SESSION), true);
     archive.commit();
-    assert.equal(manager.hasSettledTurn(SESSION, 'turn-in-flight'), true);
-    assert.equal(manager.hasSettledTurn(SESSION, 'turn-queued'), true);
     coordinator.unarchiveSession(SESSION);
     assert.equal(manager.create(SESSION, 'replacement').kind, 'created');
 
-    assert.equal((await settleExternal(coordinator, SESSION, {
-      kind: 'completed',
-      turnId: 'turn-in-flight',
-    })).kind, 'duplicate');
-    assert.equal((await settleExternal(coordinator, SESSION, {
-      kind: 'completed',
-      turnId: 'turn-queued',
-    })).kind, 'duplicate');
-    assert.equal((await inFlight).kind, 'stale');
-    assert.equal((await queued).kind, 'stale');
+    await Promise.all([inFlight, queued]);
 
     evaluation.resolve(JSON.stringify({
       met: true,
@@ -907,154 +744,18 @@ describe('GoalContinuationCoordinator settlement', () => {
     const settleOld = registerExternalTurn(coordinator, SESSION, 'turn-still-draining');
 
     const archive = coordinator.beginSessionClose(SESSION, 'archive');
-    assert.equal(manager.removeGoal(SESSION), true);
+    assert.equal(manager.remove(SESSION), true);
     archive.commit();
-    assert.equal(manager.hasSettledTurn(SESSION, 'turn-still-draining'), true);
     coordinator.unarchiveSession(SESSION);
     assert.equal(manager.create(SESSION, 'replacement').kind, 'created');
 
-    assert.equal((await settleOld({
+    await settleOld({
       kind: 'completed',
       turnId: 'turn-still-draining',
-    })).kind, 'duplicate');
+    });
     assert.equal(manager.get(SESSION)?.condition, 'replacement');
     assert.equal(manager.get(SESSION)?.status, 'active');
     assert.equal(evaluations, 0);
-  });
-
-  test('permanent removal keeps a consumed external capability from recreating session state', async () => {
-    const { manager, coordinator, deps } = setup();
-    let evaluations = 0;
-    deps.evaluator.evaluate = async () => {
-      evaluations++;
-      return '{"met":true,"reason":"deleted turn must not evaluate"}';
-    };
-    manager.create(SESSION, 'deleted');
-    const settleDeleted = registerExternalTurn(coordinator, SESSION, 'turn-deleted');
-
-    const removal = coordinator.beginSessionClose(SESSION, 'remove');
-    assert.equal(manager.removeSession(SESSION), true);
-    removal.commit();
-    assert.equal(manager.hasSettledTurn(SESSION, 'turn-deleted'), false);
-
-    assert.equal((await settleDeleted({
-      kind: 'completed',
-      turnId: 'turn-deleted',
-    })).kind, 'stale');
-    assert.equal(manager.get(SESSION), undefined);
-    assert.equal(manager.hasSettledTurn(SESSION, 'turn-deleted'), false);
-    assert.equal(evaluations, 0);
-  });
-
-  test('a late evaluator finally cannot recreate the ledger after permanent removal', async () => {
-    const { manager, coordinator, deps } = setup();
-    const evaluation = controlledCall<string>();
-    deps.evaluator.evaluate = evaluation.invoke;
-    manager.create(SESSION, 'deleted while evaluating');
-    const settle = registerExternalTurn(coordinator, SESSION, 'turn-evaluating');
-    const pending = settle({ kind: 'completed', turnId: 'turn-evaluating' });
-    await evaluation.started;
-
-    const removal = coordinator.beginSessionClose(SESSION, 'remove');
-    manager.removeSession(SESSION);
-    removal.commit();
-    assert.equal(manager.hasSettledTurn(SESSION, 'turn-evaluating'), false);
-
-    evaluation.resolve('{"met":true,"reason":"too late"}');
-    assert.equal((await pending).kind, 'stale');
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.equal(manager.get(SESSION), undefined);
-    assert.equal(manager.hasSettledTurn(SESSION, 'turn-evaluating'), false);
-  });
-
-  test('a replacement invalidates a late evaluator result and its side effects', async () => {
-    const { manager, coordinator, deps, admitted } = setup();
-    const evaluation = controlledCall<string>();
-    deps.evaluator.evaluate = evaluation.invoke;
-    manager.create(SESSION, 'old');
-
-    const pending = settleExternal(coordinator, SESSION, {
-      kind: 'completed',
-      turnId: 'turn-old',
-    });
-    await evaluation.started;
-    manager.clear(SESSION);
-    const replacement = manager.create(SESSION, 'replacement');
-    assert.equal(replacement.kind, 'created');
-    evaluation.resolve('{"met":true,"impossible":false,"progress":true,"waiting":false,"reason":"old done"}');
-
-    assert.equal((await pending).kind, 'stale');
-    assert.equal(manager.get(SESSION)?.condition, 'replacement');
-    assert.equal(manager.get(SESSION)?.status, 'active');
-    assert.equal(admitted.length, 0);
-  });
-
-  test('a settled turn remains duplicate after a terminal Goal is replaced', async () => {
-    const { manager, coordinator, deps, admitted } = setup();
-    let evaluations = 0;
-    const evaluate = deps.evaluator.evaluate;
-    deps.evaluator.evaluate = (...args) => {
-      evaluations++;
-      return evaluate(...args);
-    };
-    manager.create(SESSION, 'first', { maxIterations: 1 });
-
-    const first = await settleExternal(coordinator, SESSION, {
-      kind: 'completed',
-      turnId: 'turn-shared',
-    });
-    assert.equal(first.kind, 'stopped');
-    const replacement = manager.create(SESSION, 'replacement');
-    assert.equal(replacement.kind, 'created');
-
-    const replay = await settleExternal(coordinator, SESSION, {
-      kind: 'completed',
-      turnId: 'turn-shared',
-    });
-
-    assert.equal(replay.kind, 'duplicate');
-    assert.equal(evaluations, 1);
-    assert.equal(admitted.length, 0);
-    assert.equal(manager.get(SESSION)?.iterations, 0);
-  });
-
-  test('late evaluator results cannot cross clear, pause/resume, or removal', async (t) => {
-    for (const scenario of ['clear', 'pause-resume', 'remove'] as const) {
-      await t.test(scenario, async () => {
-        const { manager, coordinator, deps, admitted } = setup();
-        const evaluation = controlledCall<string>();
-        deps.evaluator.evaluate = evaluation.invoke;
-        manager.create(SESSION, 'ship');
-        const pending = settleExternal(coordinator, SESSION, {
-          kind: 'completed',
-          turnId: `turn-${scenario}`,
-        });
-        await evaluation.started;
-
-        if (scenario === 'clear') {
-          manager.clear(SESSION);
-        } else if (scenario === 'pause-resume') {
-          manager.pause(SESSION);
-          manager.resume(SESSION);
-        } else {
-          const removal = coordinator.beginSessionClose(SESSION, 'remove');
-          manager.removeSession(SESSION);
-          removal.commit();
-        }
-        evaluation.resolve(JSON.stringify({
-          met: false,
-          impossible: false,
-          progress: true,
-          waiting: false,
-          reason: 'late progress',
-        }));
-
-        assert.equal((await pending).kind, 'stale');
-        if (scenario === 'remove') assert.equal(manager.get(SESSION), undefined);
-        else assert.equal(manager.get(SESSION)?.iterations, 0);
-        assert.equal(admitted.length, 0);
-      });
-    }
   });
 
   test('dispose revokes an evaluator and all later injection', async () => {
@@ -1068,7 +769,7 @@ describe('GoalContinuationCoordinator settlement', () => {
     coordinator.dispose();
     evaluation.resolve('{"met":false,"impossible":false,"progress":true,"waiting":false,"reason":"late"}');
 
-    assert.equal((await pending).kind, 'stale');
+    await pending;
     assert.equal(manager.get(SESSION)?.iterations, 0);
     assert.equal(admitted.length, 0);
   });
@@ -1095,19 +796,12 @@ describe('GoalContinuationCoordinator admission and completion', () => {
         };
         manager.create(SESSION, 'ship');
 
-        const result = await settleExternal(coordinator, SESSION, outcome);
+        await settleExternal(coordinator, SESSION, outcome);
 
-        assert.equal(result.kind, 'stopped');
         assert.equal(manager.get(SESSION)?.status, 'paused');
         assert.match(manager.get(SESSION)?.lastReason ?? '', /aborted|waiting for user permission|provider failed/);
         assert.equal(evaluations, 0);
         assert.equal(admitted.length, 0);
-        assert.equal(manager.hasSettledTurn(SESSION, outcome.turnId!), true);
-
-        manager.resume(SESSION);
-        const replay = await settleExternal(coordinator, SESSION, outcome);
-        assert.equal(replay.kind, 'duplicate');
-        assert.equal(manager.get(SESSION)?.status, 'active');
       });
     }
   });
@@ -1118,14 +812,10 @@ describe('GoalContinuationCoordinator admission and completion', () => {
     });
     const idle = deferred<void>();
     let attempts = 0;
-    setAdmission((sessionId, prompt, bindTurn) => {
+    setAdmission((sessionId, prompt) => {
       attempts++;
       if (attempts === 1) return { kind: 'busy', whenIdle: idle.promise };
-      const turnId = `turn-owned-${attempts}`;
-      assert.deepEqual(bindTurn(turnId), { kind: 'bound' });
-      const completion = deferred<GoalTurnOutcome>();
-      admitted.push({ sessionId, prompt, turnId, completion });
-      return { kind: 'started', completion: completion.promise };
+      return prepareAdmission(admitted, sessionId, prompt, `turn-owned-${attempts}`);
     });
     manager.create(SESSION, 'ship');
 
@@ -1151,14 +841,10 @@ describe('GoalContinuationCoordinator admission and completion', () => {
     });
     const idle = deferred<void>();
     let attempts = 0;
-    setAdmission((sessionId, prompt, bindTurn) => {
+    setAdmission((sessionId, prompt) => {
       attempts++;
       if (attempts === 1) return { kind: 'busy', whenIdle: idle.promise };
-      const turnId = `turn-owned-${attempts}`;
-      assert.deepEqual(bindTurn(turnId), { kind: 'bound' });
-      const completion = deferred<GoalTurnOutcome>();
-      admitted.push({ sessionId, prompt, turnId, completion });
-      return { kind: 'started', completion: completion.promise };
+      return prepareAdmission(admitted, sessionId, prompt, `turn-owned-${attempts}`);
     });
     manager.create(SESSION, 'ship');
 
@@ -1183,14 +869,10 @@ describe('GoalContinuationCoordinator admission and completion', () => {
     });
     const idle = deferred<void>();
     let attempts = 0;
-    setAdmission((sessionId, prompt, bindTurn) => {
+    setAdmission((sessionId, prompt) => {
       attempts++;
       if (attempts === 2) return { kind: 'busy', whenIdle: idle.promise };
-      const turnId = `turn-owned-${attempts}`;
-      assert.deepEqual(bindTurn(turnId), { kind: 'bound' });
-      const completion = deferred<GoalTurnOutcome>();
-      admitted.push({ sessionId, prompt, turnId, completion });
-      return { kind: 'started', completion: completion.promise };
+      return prepareAdmission(admitted, sessionId, prompt, `turn-owned-${attempts}`);
     });
     manager.create(SESSION, 'ship');
 
@@ -1243,37 +925,11 @@ describe('GoalContinuationCoordinator admission and completion', () => {
     manager.resume(SESSION);
     taskRead.resolve([]);
 
-    assert.equal((await settlement).kind, 'continued');
+    await settlement;
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.equal(manager.get(SESSION)?.status, 'active');
     assert.equal(taskReads, 1);
     assert.equal(admitted.length, 0);
-  });
-
-  test('an advisory task read fails open without permanently owning the session lane', async () => {
-    const taskRead = controlledCall<string[]>();
-    let readSignal: AbortSignal | undefined;
-    const { manager, coordinator, admitted } = setup({
-      taskGate: {
-        listActionableTimeoutMs: 10,
-        listActionableTaskKeys: (_sessionId, signal) => {
-          readSignal = signal;
-          return taskRead.invoke();
-        },
-      },
-    });
-    manager.create(SESSION, 'ship');
-
-    const settlement = settleExternal(coordinator, SESSION, {
-      kind: 'completed',
-      turnId: 'turn-1',
-    });
-    await taskRead.started;
-    await waitFor(() => admitted.length === 1, 'task read timeout did not release the lane');
-
-    assert.equal((await settlement).kind, 'continued');
-    assert.equal(readSignal?.aborted, true);
-    assert.doesNotMatch(admitted[0]!.prompt, /\[Task reminder\]/);
   });
 
   test('a completed Goal-owned turn re-enters the FIFO with its real turn id', async () => {
@@ -1290,24 +946,31 @@ describe('GoalContinuationCoordinator admission and completion', () => {
     await waitFor(() => manager.get(SESSION)?.status === 'achieved', 'owned turn was not settled');
 
     assert.equal(manager.get(SESSION)?.status, 'achieved');
-    assert.equal(manager.hasSettledTurn(SESSION, admitted[0]!.turnId), true);
     assert.equal(admitted.length, 1);
   });
 
-  test('an admitted Goal-owned turn can use the same Goal control capability', async () => {
-    const { manager, coordinator, admitted } = setup();
+  test('an admitted Goal-owned turn transfers its checkpoint across pause and resume', async () => {
+    const { manager, coordinator, admitted, queueEvaluations } = setup({
+      evaluations: [{ reason: 'continue' }],
+    });
+    queueEvaluations({ met: true, reason: 'resumed owned turn verified' });
     manager.create(SESSION, 'ship');
 
     await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
     await waitFor(() => admitted.length === 1, 'continuation was not admitted');
-    const pause = goalToolsFor(manager, coordinator)
-      .find((tool) => tool.name === GOAL_PAUSE_TOOL_NAME);
+    const tools = goalToolsFor(manager, coordinator);
+    const pause = tools.find((tool) => tool.name === GOAL_PAUSE_TOOL_NAME);
+    const resume = tools.find((tool) => tool.name === GOAL_RESUME_TOOL_NAME);
     assert.ok(pause);
+    assert.ok(resume);
+    const context = goalToolContext(admitted[0]!.turnId);
 
-    const output = String(await pause.impl({}, goalToolContext(admitted[0]!.turnId)));
+    assert.match(String(await pause.impl({}, context)), /Goal paused/);
+    assert.match(String(await resume.impl({}, context)), /Goal resumed/);
+    admitted[0]!.completion.resolve({ kind: 'completed', turnId: admitted[0]!.turnId });
+    await waitFor(() => manager.get(SESSION)?.status === 'achieved');
 
-    assert.match(output, /Goal paused/);
-    assert.equal(manager.get(SESSION)?.status, 'paused');
+    assert.equal(manager.get(SESSION)?.status, 'achieved');
   });
 
   test('archive consumes an admitted Goal-owned turn before its completion arrives', async () => {
@@ -1319,15 +982,13 @@ describe('GoalContinuationCoordinator admission and completion', () => {
     const ownedTurnId = admitted[0]!.turnId;
 
     const archive = coordinator.beginSessionClose(SESSION, 'archive');
-    manager.removeGoal(SESSION);
+    manager.remove(SESSION);
     archive.commit();
     coordinator.unarchiveSession(SESSION);
     manager.create(SESSION, 'replacement');
     admitted[0]!.completion.resolve({ kind: 'completed', turnId: ownedTurnId });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    assert.equal(manager.hasSettledTurn(SESSION, ownedTurnId), true);
-    assert.deepEqual(coordinator.beginExternalTurn(SESSION, ownedTurnId), { kind: 'duplicate' });
     assert.equal(manager.get(SESSION)?.condition, 'replacement');
     assert.equal(manager.get(SESSION)?.iterations, 0);
   });
@@ -1357,17 +1018,11 @@ describe('GoalContinuationCoordinator admission and completion', () => {
     assert.equal(evaluations, 1);
     assert.equal(manager.get(SESSION)?.status, 'active');
     assert.equal(manager.get(SESSION)?.iterations, 1);
-    assert.equal(manager.hasSettledTurn(SESSION, admitted[0]!.turnId), true);
-    assert.equal((await settleExternal(coordinator, SESSION, {
-      kind: 'completed',
-      turnId: admitted[0]!.turnId,
-    })).kind, 'duplicate');
-    assert.equal(evaluations, 1);
     assert.equal(admitted.length, 1);
   });
 
-  test('aborted, errored, and rejected Goal-owned turns pause without retrying', async (t) => {
-    for (const scenario of ['aborted', 'errored', 'rejected'] as const) {
+  test('resolved failure and rejected Goal-owned turns pause without retrying', async (t) => {
+    for (const scenario of ['aborted', 'rejected'] as const) {
       await t.test(scenario, async () => {
         const { manager, coordinator, admitted } = setup();
         manager.create(SESSION, 'ship');
@@ -1376,12 +1031,6 @@ describe('GoalContinuationCoordinator admission and completion', () => {
 
         if (scenario === 'aborted') {
           admitted[0]!.completion.resolve({ kind: 'aborted', turnId: admitted[0]!.turnId });
-        } else if (scenario === 'errored') {
-          admitted[0]!.completion.resolve({
-            kind: 'errored',
-            turnId: admitted[0]!.turnId,
-            reason: 'provider failed',
-          });
         } else {
           admitted[0]!.completion.reject(new Error('stream rejected'));
         }
@@ -1389,7 +1038,7 @@ describe('GoalContinuationCoordinator admission and completion', () => {
 
         assert.equal(manager.get(SESSION)?.status, 'paused');
         assert.equal(admitted.length, 1);
-        assert.match(manager.get(SESSION)?.lastReason ?? '', /aborted|provider failed|stream rejected/);
+        assert.match(manager.get(SESSION)?.lastReason ?? '', /aborted|stream rejected/);
       });
     }
   });
@@ -1403,9 +1052,8 @@ describe('GoalContinuationCoordinator waiting and task gate', () => {
     queueEvaluations({ waiting: true, progress: false, reason: 'CI still running' });
     manager.create(SESSION, 'CI passes');
 
-    const first = await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
+    await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
     await waitFor(() => scheduler.pendingDelays().length === 1, 'waiting retry was not scheduled');
-    assert.equal(first.kind, 'waiting');
     assert.equal(manager.get(SESSION)?.status, 'waiting');
     assert.deepEqual(scheduler.pendingDelays(), [5_000]);
     assert.equal(admitted.length, 0);
@@ -1422,7 +1070,7 @@ describe('GoalContinuationCoordinator waiting and task gate', () => {
     assert.equal(manager.get(SESSION)?.consecutiveNoProgress, 0);
   });
 
-  test('a real user turn preempts waiting and makes the stale timer harmless', async () => {
+  test('a real user turn preempts waiting and cancels its retry', async () => {
     const { manager, coordinator, scheduler, admitted, queueEvaluations } = setup({
       evaluations: [{ waiting: true, progress: false, reason: 'CI running' }],
     });
@@ -1438,69 +1086,32 @@ describe('GoalContinuationCoordinator waiting and task gate', () => {
     assert.equal(manager.get(SESSION)?.status, 'active');
     assert.equal(admitted.length, 1);
     assert.match(admitted[0]!.prompt, /CI passed/);
-
-    scheduler.fireEvenIfCleared(0);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.equal(admitted.length, 1);
-  });
-
-  test('waiting timer cannot wake a cleared and replaced Goal', async () => {
-    const { manager, coordinator, scheduler, admitted } = setup({
-      evaluations: [{ waiting: true, reason: 'pending' }],
-    });
-    manager.create(SESSION, 'old');
-    await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
-    await waitFor(() => scheduler.pendingDelays().length === 1, 'waiting retry was not scheduled');
-
-    const settleOldControlTurn = registerExternalTurn(coordinator, SESSION, 'turn-old-control');
-    manager.clear(SESSION);
-    const replacement = manager.create(SESSION, 'new');
-    assert.equal(replacement.kind, 'created');
-    assert.equal((await settleOldControlTurn({
-      kind: 'completed',
-      turnId: 'turn-old-control',
-    })).kind, 'stale');
     assert.deepEqual(scheduler.pendingDelays(), []);
-    scheduler.fireEvenIfCleared(0);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    assert.equal(manager.get(SESSION)?.condition, 'new');
-    assert.equal(manager.get(SESSION)?.revision, 0);
-    assert.equal(admitted.length, 0);
   });
 
   test('task reminder is consumed and traced only after admission starts', async () => {
     const idle = deferred<void>();
-    const remindedGoalIds = new Set<string>();
     const decisions: string[] = [];
     const { manager, coordinator, admitted, setAdmission } = setup({
       taskGate: {
-        listActionableTaskKeys: async () => ['T1', 'T1'],
-        remindedGoalIds,
-        recordDecision: (trace) => { decisions.push(trace.decision); },
+        listActionableTaskKeys: async () => ['T1'],
+        recordDecision: async (trace) => { decisions.push(trace.decision); },
       },
     });
     let attempts = 0;
-    setAdmission((sessionId, prompt, bindTurn) => {
+    setAdmission((sessionId, prompt) => {
       attempts++;
       if (attempts === 1) return { kind: 'busy', whenIdle: idle.promise };
-      const turnId = `turn-owned-${attempts}`;
-      assert.deepEqual(bindTurn(turnId), { kind: 'bound' });
-      const completion = deferred<GoalTurnOutcome>();
-      admitted.push({ sessionId, prompt, turnId, completion });
-      return { kind: 'started', completion: completion.promise };
+      return prepareAdmission(admitted, sessionId, prompt, `turn-owned-${attempts}`);
     });
-    const created = manager.create(SESSION, 'ship');
-    assert.equal(created.kind, 'created');
+    manager.create(SESSION, 'ship');
 
     await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
     await waitFor(() => attempts === 1, 'busy admission was not attempted');
-    assert.deepEqual([...remindedGoalIds], []);
     assert.deepEqual(decisions, []);
 
     idle.resolve();
     await waitFor(() => decisions.length === 1, 'started admission was not traced');
-    assert.deepEqual([...remindedGoalIds], [created.goal.id]);
     assert.deepEqual(decisions, ['reminder_injected']);
     assert.match(admitted[0]!.prompt, /Actionable task keys: T1/);
   });
@@ -1510,7 +1121,7 @@ describe('GoalContinuationCoordinator waiting and task gate', () => {
     const { manager, coordinator, admitted } = setup({
       taskGate: {
         listActionableTaskKeys: async () => ['T1'],
-        recordDecision: (trace) => { decisions.push(trace.decision); },
+        recordDecision: async (trace) => { decisions.push(trace.decision); },
       },
     });
     manager.create(SESSION, 'ship');
@@ -1547,6 +1158,6 @@ describe('GoalContinuationCoordinator waiting and task gate', () => {
     });
     await waitFor(() => admitted.length === 2, 'pending trace retained the session lane');
 
-    assert.equal((await settlement).kind, 'continued');
+    await settlement;
   });
 });

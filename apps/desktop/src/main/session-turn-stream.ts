@@ -1,7 +1,6 @@
 import type { SessionEvent } from '@maka/core';
 import {
   drainGoalTurn,
-  type DrainGoalTurnResult,
   type GoalExternalTurnStart,
   type GoalTurnOutcome,
   type SessionActivityLease,
@@ -24,7 +23,7 @@ export interface StartDesktopSessionTurnInput {
 }
 
 export type DesktopSessionTurnStart =
-  | { kind: 'started'; completion: Promise<DrainGoalTurnResult> }
+  | { kind: 'started'; completion: Promise<GoalTurnOutcome> }
   | { kind: 'unavailable'; reason: string };
 
 /**
@@ -40,9 +39,7 @@ export function startDesktopSessionTurn(
   if (registration && registration.kind !== 'registered') {
     return {
       kind: 'unavailable',
-      reason: registration.kind === 'duplicate'
-        ? `Desktop turn ${input.turnId} is already registered.`
-        : registration.reason,
+      reason: registration.reason,
     };
   }
 
@@ -51,7 +48,7 @@ export function startDesktopSessionTurn(
     kind: 'started',
     completion: drainGoalTurn({
       events: input.events,
-      expectedTurnId: input.turnId,
+      turnId: input.turnId,
       activity,
       onEvent: input.onEvent,
       onStreamError: input.onStreamError,

@@ -8,7 +8,6 @@ import {
   type GoalStatus,
   type GoalTaskGateTrace,
   type GoalTurnAdmission,
-  type GoalTurnBinder,
   type MakaTool,
 } from '@maka/runtime';
 import type { LlmConnection } from '@maka/core';
@@ -30,7 +29,7 @@ export interface MainGoalWiring {
   coordinator: GoalContinuationCoordinator;
   /** Clear the current Goal generation without closing the session to future turns. */
   clearGoal: (sessionId: string) => GoalState | undefined;
-  /** Persist archive, then discard Goal execution while retaining turn idempotency. */
+  /** Persist archive, then discard Goal execution state. */
   archiveSession: (sessionId: string, persist: () => Promise<unknown>) => Promise<void>;
   /** Persist unarchive, then clear only the durable archive admission fence. */
   unarchiveSession: (sessionId: string, persist: () => Promise<unknown>) => Promise<void>;
@@ -54,11 +53,11 @@ export interface CreateMainGoalWiringDeps {
   getRecentMessages: (sessionId: string) => Promise<Array<{ type: string; text?: string }>>;
   /** Cumulative token count for a session (summed from token_usage messages). */
   getTokenCount: (sessionId: string) => Promise<number>;
-  admitTurn: (sessionId: string, text: string, bindTurn: GoalTurnBinder) => GoalTurnAdmission;
+  admitTurn: (sessionId: string, text: string) => GoalTurnAdmission;
   /** Pending/in-progress task keys used by the bounded Goal stop reminder. */
-  listActionableTaskKeys?: (sessionId: string, signal: AbortSignal) => Promise<string[]>;
+  listActionableTaskKeys?: (sessionId: string) => Promise<string[]>;
   /** Persist the task gate decision against the completed AgentRun. */
-  recordTaskGateDecision?: (trace: GoalTaskGateTrace) => void | Promise<void>;
+  recordTaskGateDecision?: (trace: GoalTaskGateTrace) => Promise<void>;
   /**
    * Fired on every goal state transition (set / continue / terminal / clear).
    * The host emits a session event so the renderer can badge an active goal and
@@ -123,7 +122,6 @@ export function createMainGoalWiring(deps: CreateMainGoalWiringDeps): MainGoalWi
     ...(deps.listActionableTaskKeys ? {
       taskGate: {
         listActionableTaskKeys: deps.listActionableTaskKeys,
-        remindedGoalIds: new Set<string>(),
         ...(deps.recordTaskGateDecision ? { recordDecision: deps.recordTaskGateDecision } : {}),
       },
     } : {}),
@@ -140,7 +138,6 @@ export function createMainGoalWiring(deps: CreateMainGoalWiringDeps): MainGoalWi
     sessionId: string,
     kind: 'archive' | 'remove',
     persist: () => Promise<unknown>,
-    releaseGoalState: () => void,
   ): Promise<void> {
     const operation = coordinator.beginSessionClose(sessionId, kind);
     try {
@@ -150,7 +147,7 @@ export function createMainGoalWiring(deps: CreateMainGoalWiringDeps): MainGoalWi
       throw error;
     }
     operation.commit();
-    releaseGoalState();
+    manager.remove(sessionId);
   }
 
   return {
@@ -163,18 +160,14 @@ export function createMainGoalWiring(deps: CreateMainGoalWiringDeps): MainGoalWi
       return cleared;
     },
     archiveSession(sessionId, persist) {
-      return closeSession(sessionId, 'archive', persist, () => {
-        manager.removeGoal(sessionId);
-      });
+      return closeSession(sessionId, 'archive', persist);
     },
     async unarchiveSession(sessionId, persist) {
       await persist();
       coordinator.unarchiveSession(sessionId);
     },
     removeSession(sessionId, persist) {
-      return closeSession(sessionId, 'remove', persist, () => {
-        manager.removeSession(sessionId);
-      });
+      return closeSession(sessionId, 'remove', persist);
     },
   };
 }

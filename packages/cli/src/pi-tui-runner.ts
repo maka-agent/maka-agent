@@ -22,7 +22,7 @@ import {
   projectShellRunUpdateForSession,
   type ShellRunUpdate,
 } from '@maka/core';
-import type { GoalTurnOutcome } from '@maka/runtime';
+import type { GoalTurnOutcome, SessionActivityLease } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
 import type { MakaCliSkillSurface } from './runtime-bootstrap.js';
 import {
@@ -450,11 +450,16 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     terminal.setProgress(true);
     attention.controlStarted();
     requestRender();
+    let sessionActivity: SessionActivityLease | undefined;
     try {
+      const sessionId = input.driver.getSessionId();
+      if (sessionId) sessionActivity = await input.goalLifecycle.activities.acquire(sessionId);
+      if (closed) return;
       await action();
     } catch (error) {
       reportError(error);
     } finally {
+      sessionActivity?.release();
       busy = false;
       activity.finish();
       editor.disableSubmit = false;
@@ -909,52 +914,32 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   try {
     unbindGoalHost = input.goalLifecycle.bindHost({
-      admitTurn: (sessionId, text, bindTurn) => {
-        if (closed) return { kind: 'unavailable', reason: 'TUI is closed.' };
+      admitTurn: (sessionId, text) => {
         if (input.driver.getSessionId() !== sessionId) {
           return { kind: 'unavailable', reason: 'TUI is attached to a different session.' };
         }
         if (busy) {
-          return currentActivityCompletion
-            ? { kind: 'busy', whenIdle: currentActivityCompletion }
-            : { kind: 'unavailable', reason: 'TUI activity cannot be observed.' };
+          return { kind: 'busy', whenIdle: currentActivityCompletion! };
         }
-        const sessionActivity = input.goalLifecycle.activities.reserveIfIdle(sessionId);
-        if (!sessionActivity) {
-          const whenIdle = input.goalLifecycle.activities.whenIdle(sessionId);
-          return whenIdle
-            ? { kind: 'busy', whenIdle }
-            : { kind: 'unavailable', reason: 'TUI session activity cannot be observed.' };
-        }
+        const sessionActivity = input.goalLifecycle.activities.reserveIfIdle(sessionId)!;
         const turnId = randomUUID();
-        const binding = bindTurn(turnId);
-        if (binding.kind !== 'bound') {
-          sessionActivity.release();
-          return {
-            kind: 'unavailable',
-            reason: binding.kind === 'duplicate'
-              ? `TUI Goal turn ${turnId} is already registered.`
-              : binding.reason,
-          };
-        }
-        try {
-          return {
-            kind: 'started',
-            completion: runAgentTurn({
-              kind: 'coordinator',
-              prompt: text,
-              sessionId,
-              turnId,
-              activity: sessionActivity,
-            }),
-          };
-        } catch (error) {
-          sessionActivity.release();
-          return {
-            kind: 'unavailable',
-            reason: `TUI Goal turn could not start: ${error instanceof Error ? error.message : String(error)}`,
-          };
-        }
+        return {
+          kind: 'prepared',
+          turnId,
+          start: () => {
+            try {
+              return runAgentTurn({
+                kind: 'coordinator',
+                prompt: text,
+                turnId,
+                activity: sessionActivity,
+              });
+            } catch (error) {
+              sessionActivity.release();
+              throw error;
+            }
+          },
+        };
       },
     });
   } catch (error) {

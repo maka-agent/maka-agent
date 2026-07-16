@@ -3,20 +3,16 @@ import {
   GoalContinuationCoordinator,
   SessionActivityRegistry,
   drainGoalTurn,
-  type DrainGoalTurnResult,
   type GoalContinuationDeps,
-  type GoalActivation,
-  type GoalActivationResult,
-  type GoalMutationResult,
+  type GoalState,
   type GoalExternalTurnStart,
   type GoalExternalTurnSettler,
   type GoalTurnAdmission,
-  type GoalTurnBinder,
   type GoalTurnOutcome,
 } from '@maka/runtime';
 
 export interface CliGoalTurnHost {
-  admitTurn: (sessionId: string, text: string, bindTurn: GoalTurnBinder) => GoalTurnAdmission;
+  admitTurn: (sessionId: string, text: string) => GoalTurnAdmission;
 }
 
 /** Owns the CLI's single coordinator and the activity boundary shared with Automation. */
@@ -29,10 +25,10 @@ export class CliGoalContinuation {
   constructor(deps: Omit<GoalContinuationDeps, 'admitTurn'>) {
     this.coordinator = new GoalContinuationCoordinator({
       ...deps,
-      admitTurn: (sessionId, text, bindTurn) => {
+      admitTurn: (sessionId, text) => {
         const whenIdle = this.activities.whenIdle(sessionId);
         if (whenIdle) return { kind: 'busy', whenIdle };
-        return this.host?.admitTurn(sessionId, text, bindTurn) ?? {
+        return this.host?.admitTurn(sessionId, text) ?? {
           kind: 'unavailable',
           reason: 'TUI Goal host is not available.',
         };
@@ -56,19 +52,19 @@ export class CliGoalContinuation {
     return this.coordinator.beginExternalTurn(sessionId, turnId);
   }
 
-  activateGoal<T>(
+  activateGoal(
     sessionId: string,
     turnId: string,
-    activate: () => GoalActivation<T>,
-  ): GoalActivationResult<T> {
+    activate: () => GoalState,
+  ): GoalState | undefined {
     return this.coordinator.activateGoal(sessionId, turnId, activate);
   }
 
-  mutateGoal<T>(
+  mutateGoal(
     sessionId: string,
     turnId: string,
-    mutate: () => GoalActivation<T>,
-  ): GoalMutationResult<T> {
+    mutate: () => GoalState,
+  ): GoalState | undefined {
     return this.coordinator.mutateGoal(sessionId, turnId, mutate);
   }
 
@@ -76,27 +72,20 @@ export class CliGoalContinuation {
     sessionId: string;
     turnId: string;
     start: () => AsyncIterable<SessionEvent>;
-  }): Promise<DrainGoalTurnResult> {
+  }): Promise<GoalTurnOutcome> {
     const activity = await this.activities.acquire(input.sessionId);
     if (this.disposed) {
       activity.release();
       return {
-        outcome: {
-          kind: 'errored',
-          turnId: input.turnId,
-          reason: 'CLI Goal continuation is disposed.',
-        },
+        kind: 'errored',
+        turnId: input.turnId,
+        reason: 'CLI Goal continuation is disposed.',
       };
     }
     const registration = this.beginExternalTurn(input.sessionId, input.turnId);
     if (registration.kind !== 'registered') {
       activity.release();
-      const reason = registration.kind === 'duplicate'
-        ? `CLI turn ${input.turnId} is already registered.`
-        : registration.reason;
-      return {
-        outcome: { kind: 'errored', turnId: input.turnId, reason },
-      };
+      return { kind: 'errored', turnId: input.turnId, reason: registration.reason };
     }
     const settleExternalTurn: GoalExternalTurnSettler = registration.settle;
     let events: AsyncIterable<SessionEvent>;
@@ -111,11 +100,11 @@ export class CliGoalContinuation {
         reason,
       };
       void settleExternalTurn(outcome);
-      return { outcome, streamError: error };
+      return outcome;
     }
     return drainGoalTurn({
       events,
-      expectedTurnId: input.turnId,
+      turnId: input.turnId,
       activity,
       onSettled: (outcome) => { void settleExternalTurn(outcome); },
     });
