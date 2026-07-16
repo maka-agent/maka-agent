@@ -1463,7 +1463,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // be rewritten, so resizing it would push pi-tui's differential renderer
   // into a scrollback-clearing full redraw (its `firstChanged < viewportTop`
   // path). The toggles therefore retarget only entries inside the viewport;
-  // see entryInLiveViewport in pi-transcript.ts (#1097).
+  // see entryInLiveViewport in pi-transcript.ts (#1097). A block whose own
+  // expansion pushed its head above the viewport can consequently never be
+  // collapsed in place (#1134): the toggles still flip the default and append
+  // a notice, and the expanded content stays readable in scrollback.
   tui.setClearOnShrink(false);
   tui.addChild(layout);
   tui.setFocus(editorSurface);

@@ -558,20 +558,60 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(afterText, /early-head/);
   });
 
-  test('Ctrl+O reports nothing to toggle when every tool card sits above the viewport', () => {
+  test('Ctrl+O with a head-scrolled expanded card flips the default back and leaves a notice (#1134)', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
-      type: 'tool_start', toolUseId: 'tool-1', toolName: 'Bash', args: { command: 'npm test' },
+      type: 'tool_start', toolUseId: 'tool-big', toolName: 'Bash', args: { command: 'big-diff' },
     }));
     applyMakaSessionEventToTranscript(state, event({
-      type: 'tool_result', toolUseId: 'tool-1', isError: false, content: terminalResult('ok\n'),
+      type: 'tool_result', toolUseId: 'tool-big', isError: false,
+      content: terminalResult(`big-head\n${Array.from({ length: 80 }, (_, i) => `big-row-${i}`).join('\n')}`),
     }));
 
-    const lines = renderMakaPiTranscript(state, meta(), 100);
-    state.renderGeometry.viewportTop = lines.length;
+    assert.equal(toggleAllToolExpansion(state), true);
+    assert.equal(state.expandAllTools, true);
+    const entry = state.entries.find(
+      (candidate): candidate is Extract<typeof candidate, { kind: 'tool' }> => candidate.kind === 'tool',
+    );
+    assert.ok(entry);
+    assert.equal(entry.expanded, true);
 
+    // Expanding grew the document past the terminal: the card's head is now
+    // terminal scrollback and only its tail is inside the live viewport.
+    const before = renderMakaPiTranscript(state, meta(), 100);
+    const firstLine = state.renderGeometry.entryFirstLine?.get(entry);
+    assert.ok(firstLine !== undefined);
+    const viewportTop = firstLine + 5;
+    assert.ok(viewportTop < before.length);
+    state.renderGeometry.viewportTop = viewportTop;
+
+    // The second Ctrl+O cannot collapse the card (its head is in scrollback),
+    // but it must still flip the default back and say why nothing moved.
+    assert.equal(toggleAllToolExpansion(state), true);
+    assert.equal(state.expandAllTools, false);
+    assert.equal(entry.expanded, true);
+
+    const notice = state.entries[state.entries.length - 1];
+    assert.equal(notice.kind, 'notice');
+    assert.equal(notice.kind === 'notice' && notice.level, 'info');
+    assert.match(notice.kind === 'notice' ? notice.text : '', /starts collapsed/);
+
+    const after = renderMakaPiTranscript(state, meta(), 100);
+    assert.deepEqual(after.slice(0, viewportTop), before.slice(0, viewportTop));
+    assert.match(after.map(stripAnsi).join('\n'), /Note: /);
+
+    // A third Ctrl+O keeps flipping the default and keeps saying so.
+    assert.equal(toggleAllToolExpansion(state), true);
+    assert.equal(state.expandAllTools, true);
+    const third = state.entries[state.entries.length - 1];
+    assert.match(third.kind === 'notice' ? third.text : '', /starts expanded/);
+  });
+
+  test('Ctrl+O reports nothing to toggle when the session has no tool card at all', () => {
+    const state = createMakaPiTranscriptState();
     assert.equal(toggleAllToolExpansion(state), false);
     assert.equal(state.expandAllTools, false);
+    assert.equal(state.entries.some((entry) => entry.kind === 'notice'), false);
   });
 
   test('tool cards born after an expand-all start expanded', () => {
@@ -625,6 +665,38 @@ describe('Maka Pi TUI transcript', () => {
     const afterText = after.map(stripAnsi).join('\n');
     assert.match(afterText, /late-visible-reasoning/);
     assert.doesNotMatch(afterText, /early-secret-reasoning/);
+  });
+
+  test('Ctrl+T with only head-scrolled thinking flips the default back and leaves a notice (#1134)', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'thinking_delta', messageId: 'message-1',
+      text: Array.from({ length: 80 }, (_, i) => `reasoning-row-${i}`).join('\n'),
+    }));
+
+    assert.equal(toggleAllThinkingExpansion(state), true);
+    assert.equal(state.expandAllThinking, true);
+
+    const before = renderMakaPiTranscript(state, meta(), 100);
+    const entry = state.entries.find(
+      (candidate): candidate is Extract<typeof candidate, { kind: 'thinking' }> => candidate.kind === 'thinking',
+    );
+    assert.ok(entry);
+    const firstLine = state.renderGeometry.entryFirstLine?.get(entry);
+    assert.ok(firstLine !== undefined);
+    const viewportTop = firstLine + 10;
+    state.renderGeometry.viewportTop = viewportTop;
+
+    assert.equal(toggleAllThinkingExpansion(state), true);
+    assert.equal(state.expandAllThinking, false);
+    assert.equal(entry.expanded, true);
+
+    const notice = state.entries[state.entries.length - 1];
+    assert.equal(notice.kind, 'notice');
+    assert.match(notice.kind === 'notice' ? notice.text : '', /starts collapsed/);
+
+    const after = renderMakaPiTranscript(state, meta(), 100);
+    assert.deepEqual(after.slice(0, viewportTop), before.slice(0, viewportTop));
   });
 
   test('replays WriteStdin as a human-readable operation row while merging its PTY revision into Bash', () => {

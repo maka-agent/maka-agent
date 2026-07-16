@@ -844,6 +844,40 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('Ctrl-T on a block expanded past the viewport flips the default and explains, without clearing scrollback (#1134)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new TallThinkingOutputDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Thinking…'));
+
+    // Expanding writes all 80 reasoning rows; the block's own head scrolls
+    // above the 24-row viewport into terminal scrollback.
+    terminal.input('\x14');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('reason-row-79'));
+
+    // The second Ctrl+T finds no thinking head inside the viewport. It must
+    // not clear scrollback, must keep the frozen expansion, and must say what
+    // happened instead of silently doing nothing.
+    terminal.input('\x14');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('No thinking in view to toggle'));
+    assert.match(plainTerminalOutput(terminal.screenOutput()), /New thinking starts collapsed/);
+    assert.equal(terminal.output().includes('\x1b[3J'), false);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('renders the statusline below the input editor', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -4618,6 +4652,27 @@ class ThinkingOutputDriver implements MakaSessionDriver {
   startNewSession(): void {}
   getSessionId(): string {
     return 'session-1';
+  }
+}
+
+/** 80 reasoning rows: expanding pushes the block's head into scrollback (#1134). */
+class TallThinkingOutputDriver extends ThinkingOutputDriver {
+  override async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'thinking_delta',
+      id: 'event-thinking',
+      turnId: 'turn-1',
+      ts: 1,
+      messageId: 'message-1',
+      text: Array.from({ length: 80 }, (_, i) => `reason-row-${i}`).join('\n'),
+    };
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-1',
+      ts: 2,
+      stopReason: 'end_turn',
+    };
   }
 }
 

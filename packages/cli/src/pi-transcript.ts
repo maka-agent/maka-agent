@@ -318,27 +318,66 @@ function entryInLiveViewport(state: MakaPiTranscriptState, entry: MakaPiTranscri
   return firstLine === undefined || firstLine >= geometry.viewportTop;
 }
 
-/** Toggle every tool card in the live viewport at once; false when there is none. */
+/**
+ * True while entry positions are unknown but the viewport has scrolled (a
+ * wholesale replacement not yet re-rendered): a toggle could rewrite lines
+ * above pi-tui's real viewport, so it must do nothing until the next render.
+ */
+function togglesInert(state: MakaPiTranscriptState): boolean {
+  return state.renderGeometry.entryFirstLine === undefined && state.renderGeometry.viewportTop > 0;
+}
+
+/**
+ * Toggle every tool card in the live viewport at once and flip the default for
+ * future cards; false when the session has no tool card at all or the toggles
+ * are inert pending a render.
+ *
+ * When every card sits above the viewport (e.g. a block whose own expansion
+ * pushed its head into scrollback, #1134), nothing visible can change — those
+ * lines are immutable short of a scrollback-clearing full redraw — so the
+ * toggle still flips the default and appends a notice saying why.
+ */
 export function toggleAllToolExpansion(state: MakaPiTranscriptState): boolean {
-  const targets = state.entries.filter(
-    (entry): entry is MakaPiToolEntry => entry.kind === 'tool' && entryInLiveViewport(state, entry),
+  if (togglesInert(state)) return false;
+  const candidates = state.entries.filter(
+    (entry): entry is MakaPiToolEntry => entry.kind === 'tool',
   );
-  if (targets.length === 0) return false;
+  if (candidates.length === 0) return false;
   state.expandAllTools = !state.expandAllTools;
+  const targets = candidates.filter((entry) => entryInLiveViewport(state, entry));
   for (const entry of targets) entry.expanded = state.expandAllTools;
+  if (targets.length === 0) {
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: `No tool card in view to toggle — cards above stay as rendered in scrollback. New tool output starts ${state.expandAllTools ? 'expanded' : 'collapsed'}.`,
+    });
+  }
   return true;
 }
 
-/** Toggle every thinking entry in the live viewport at once; false when there is none. */
+/**
+ * Toggle every thinking entry in the live viewport at once and flip the
+ * default for future entries; false when there is no thinking at all or the
+ * toggles are inert pending a render. Same head-scrolled contract as
+ * toggleAllToolExpansion (#1134).
+ */
 export function toggleAllThinkingExpansion(state: MakaPiTranscriptState): boolean {
-  const targets = state.entries.filter(
-    (entry): entry is MakaPiThinkingEntry => entry.kind === 'thinking'
-      && Boolean(entry.text.trim())
-      && entryInLiveViewport(state, entry),
+  if (togglesInert(state)) return false;
+  const candidates = state.entries.filter(
+    (entry): entry is MakaPiThinkingEntry => entry.kind === 'thinking' && Boolean(entry.text.trim()),
   );
-  if (targets.length === 0) return false;
+  if (candidates.length === 0) return false;
   state.expandAllThinking = !state.expandAllThinking;
+  const targets = candidates.filter((entry) => entryInLiveViewport(state, entry));
   for (const entry of targets) entry.expanded = state.expandAllThinking;
+  if (targets.length === 0) {
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: `No thinking in view to toggle — thinking above stays as rendered in scrollback. New thinking starts ${state.expandAllThinking ? 'expanded' : 'collapsed'}.`,
+    });
+  }
   return true;
 }
 
