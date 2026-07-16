@@ -26,6 +26,7 @@ export function UsageSettingsPage(props: {
   } = useOptimisticSettingsDraft<AppSettings['usage']>(
     persistedUsage,
     (patch) => props.onUpdate({ usage: patch }).then((result) => result.settings.usage),
+    { onError: (error) => toast.error('保存使用统计设置失败', settingsActionErrorMessage(error)) },
   );
 
   useEffect(() => {
@@ -55,9 +56,7 @@ export function UsageSettingsPage(props: {
   }
 
   function updateUsage(patch: Partial<AppSettings['usage']>): Promise<boolean> {
-    return update(patch, {
-      onError: (error) => toast.error('保存使用统计设置失败', settingsActionErrorMessage(error)),
-    });
+    return update(patch);
   }
 
   async function refresh() {

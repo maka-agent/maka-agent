@@ -16,18 +16,21 @@ export function OpenGatewaySettingsPage(props: {
   const [statusLoadError, setStatusLoadError] = useState<string | null>(null);
   const [tokenDraft, setTokenDraft] = useState(persistedGateway.token);
   const [eventSessionId, setEventSessionId] = useState('');
-  const [saving, setSaving] = useState(false);
   const [copyingGatewayAction, setCopyingGatewayAction] = useState<string | null>(null);
   const copyingGatewayActionRef = useRef<string | null>(null);
   const toast = useToast();
   const {
     draft: gatewayDraft,
     mountedRef: openGatewayMountedRef,
+    saving,
     update,
   } = useOptimisticSettingsDraft<AppSettings['openGateway']>(
     persistedGateway,
     (patch) => props.onUpdate({ openGateway: patch }).then((result) => result.settings.openGateway),
-    { onSyncPersisted: (next) => setTokenDraft(next.token) },
+    {
+      onError: (error) => toast.error('保存开放网关设置失败', settingsActionErrorMessage(error)),
+      onReconcile: (next) => setTokenDraft(next.token),
+    },
   );
 
   useEffect(() => {
@@ -65,17 +68,7 @@ export function OpenGatewaySettingsPage(props: {
   }, []);
 
   function updateGateway(patch: Partial<AppSettings['openGateway']>): Promise<boolean> {
-    return update(patch, {
-      onStart: () => setSaving(true),
-      onSync: (next) => setTokenDraft(next.token),
-      onSettled: (pending) => {
-        if (openGatewayMountedRef.current) {
-          setSaving(pending > 0);
-        }
-      },
-      onError: (error) => toast.error('保存开放网关设置失败', settingsActionErrorMessage(error)),
-      returnMounted: true,
-    });
+    return update(patch);
   }
 
   async function saveToken(nextToken = tokenDraft.trim()) {

@@ -177,7 +177,7 @@ describe('Settings usage dashboard contract', () => {
     );
     assert.match(
       usagePage![0],
-      /function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean> \{[\s\S]*return update\(patch, \{[\s\S]*onError: \(error\) => toast\.error\('保存使用统计设置失败', settingsActionErrorMessage\(error\)\),/,
+      /\{ onError: \(error\) => toast\.error\('保存使用统计设置失败', settingsActionErrorMessage\(error\)\) \},[\s\S]*function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean> \{[\s\S]*return update\(patch\);/,
       'Usage settings saves must route through the shared draft update (latest-response sync + rollback owned by the hook)',
     );
     assert.match(usagePage![0], /<Input value=\{usageDraft\.modelFilter\}/);
@@ -197,7 +197,7 @@ describe('Settings usage dashboard contract', () => {
     assert.match(usagePage![0], /function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean>/);
     assert.match(
       usagePage![0],
-      /function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean> \{[\s\S]*return update\(patch, \{[\s\S]*onError: \(error\) => toast\.error\('保存使用统计设置失败', settingsActionErrorMessage\(error\)\),/,
+      /\{ onError: \(error\) => toast\.error\('保存使用统计设置失败', settingsActionErrorMessage\(error\)\) \},[\s\S]*function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean> \{[\s\S]*return update\(patch\);/,
       'Usage settings updates must surface the save failure through the shared hook (which gates on the latest mounted save) and report failure to callers',
     );
     assert.match(

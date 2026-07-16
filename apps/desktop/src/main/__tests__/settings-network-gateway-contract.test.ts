@@ -41,7 +41,7 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       networkBlock,
-      /function updateProxy\(patch: Partial<NetworkProxySettings>\) \{[\s\S]*return update\(patch, \{[\s\S]*onError: \(error\) => toast\.error\('保存网络设置失败', settingsActionErrorMessage\(error\)\),/,
+      /\{ onError: \(error\) => toast\.error\('保存网络设置失败', settingsActionErrorMessage\(error\)\) \},[\s\S]*function updateProxy\(patch: Partial<NetworkProxySettings>\) \{[\s\S]*return update\(patch\);/,
       'Network proxy field saves must route through the shared draft update and surface a visible failure toast',
     );
     assert.match(
@@ -144,7 +144,7 @@ describe('Settings network and gateway persistence contract', () => {
     );
     // Save-response staleness + rollback after unmount are owned by the shared
     // optimistic draft hook and covered by its controller unit test; the page
-    // only wires the failure toast through update({ onError }).
+    // only wires the failure toast through the hook-level onError callback.
     assert.match(
       networkBlock,
       /if \(result\.ok && networkPageMountedRef\.current\) \{[\s\S]*toast\.success\('代理可达'/,
@@ -182,7 +182,7 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /\{ onSyncPersisted: \(next\) => setTokenDraft\(next\.token\) \}/,
+      /onReconcile: \(next\) => setTokenDraft\(next\.token\)/,
       'Open Gateway must keep the token draft mirrored when the persisted value syncs in',
     );
     assert.match(
@@ -207,8 +207,8 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /function updateGateway\(patch: Partial<AppSettings\['openGateway'\]>\): Promise<boolean> \{[\s\S]*return update\(patch, \{[\s\S]*onStart: \(\) => setSaving\(true\),[\s\S]*onSync: \(next\) => setTokenDraft\(next\.token\),[\s\S]*onError: \(error\) => toast\.error\('保存开放网关设置失败', settingsActionErrorMessage\(error\)\),[\s\S]*returnMounted: true,/,
-      'Open Gateway settings updates must return a boolean, mirror the token draft, and surface failures through the shared hook',
+      /onError: \(error\) => toast\.error\('保存开放网关设置失败', settingsActionErrorMessage\(error\)\),[\s\S]*onReconcile: \(next\) => setTokenDraft\(next\.token\),[\s\S]*function updateGateway\(patch: Partial<AppSettings\['openGateway'\]>\): Promise<boolean> \{[\s\S]*return update\(patch\);/,
+      'Open Gateway settings updates must return the shared update result, mirror authoritative tokens, and surface failures',
     );
     assert.match(
       gatewayBlock,
@@ -255,14 +255,18 @@ describe('Settings network and gateway persistence contract', () => {
       /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*copyingGatewayActionRef\.current = null;/,
       'Open Gateway cleanup must release copy ownership when Settings closes (the hook invalidates save tickets)',
     );
-    // Save-response staleness, draft rollback, and token mirroring after unmount
-    // are owned by the shared optimistic draft hook (unit-tested on its
-    // controller); the page only wires the pending-state settle through
-    // update({ onSettled }), gated on the shared mounted ref.
+    // Save-response staleness, draft rollback, token mirroring, and pending
+    // state are owned by the shared optimistic draft hook (unit-tested on its
+    // controller). The page reads the hook-owned saving state.
     assert.match(
       gatewayBlock,
-      /onSettled: \(pending\) => \{[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*setSaving\(pending > 0\);/,
-      'Open Gateway save cleanup must not write React pending state after unmount',
+      /mountedRef: openGatewayMountedRef,[\s\S]*saving,[\s\S]*update,/,
+      'Open Gateway pending state must come from the shared hook',
+    );
+    assert.doesNotMatch(
+      gatewayBlock,
+      /const \[saving, setSaving\] = useState\(false\)/,
+      'Open Gateway must not maintain a second pending-state implementation',
     );
     assert.match(
       gatewayBlock,

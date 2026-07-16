@@ -28,8 +28,9 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reje
 
 function harness(initial: Draft) {
   const drafts: Draft[] = [];
+  const errors: unknown[] = [];
+  const savingChanges: boolean[] = [];
   const pending: Array<{ patch: Partial<Draft>; deferred: ReturnType<typeof deferred<Draft>> }> = [];
-  let mounted = true;
   const controller: OptimisticDraftController<Draft> = createOptimisticDraftController<Draft>({
     initial,
     onUpdate: (patch) => {
@@ -38,15 +39,16 @@ function harness(initial: Draft) {
       return d.promise;
     },
     onDraftChange: (draft) => drafts.push(draft),
-    isMounted: () => mounted,
+    onError: (error) => errors.push(error),
+    onSavingChange: (saving) => savingChanges.push(saving),
+    isMounted: () => true,
   });
   return {
     controller,
     drafts,
+    errors,
+    savingChanges,
     pending,
-    unmount() {
-      mounted = false;
-    },
   };
 }
 
@@ -82,15 +84,54 @@ describe('createOptimisticDraftController last-write-wins', () => {
 
   it('rolls the draft back to persisted on failure and reports failure', async () => {
     const h = harness({ v: 0 });
-    const errors: unknown[] = [];
 
-    const save = h.controller.update({ v: 5 }, { onError: (error) => errors.push(error) });
+    const save = h.controller.update({ v: 5 });
     assert.deepEqual(h.controller.draftRef.current, { v: 5 }, 'optimistic value shows immediately');
 
     h.pending[0].deferred.reject(new Error('boom'));
     assert.equal(await save, false);
     assert.deepEqual(h.controller.draftRef.current, { v: 0 }, 'draft rolls back to the persisted value');
-    assert.equal(errors.length, 1, 'the failure is surfaced to the caller');
+    assert.equal(h.errors.length, 1, 'the failure is surfaced to the caller');
+  });
+
+  it('rolls a newer failed save back to an earlier confirmed success', async () => {
+    const h = harness({ v: 0 });
+
+    const first = h.controller.update({ v: 1 });
+    const second = h.controller.update({ v: 2 });
+
+    h.pending[0].deferred.resolve({ v: 10 });
+    await first;
+    assert.deepEqual(h.controller.draftRef.current, { v: 2 }, 'the newer optimistic draft stays visible');
+
+    h.pending[1].deferred.reject(new Error('newer save failed'));
+    await second;
+
+    assert.deepEqual(
+      h.controller.draftRef.current,
+      { v: 10 },
+      'failure restores the newest value already confirmed by persistence',
+    );
+  });
+
+  it('applies an earlier confirmed success that settles after a newer failure', async () => {
+    const h = harness({ v: 0 });
+
+    const first = h.controller.update({ v: 1 });
+    const second = h.controller.update({ v: 2 });
+
+    h.pending[1].deferred.reject(new Error('newer save failed'));
+    await second;
+    assert.deepEqual(h.controller.draftRef.current, { v: 0 }, 'the current failure uses the baseline known so far');
+
+    h.pending[0].deferred.resolve({ v: 10 });
+    await first;
+
+    assert.deepEqual(
+      h.controller.draftRef.current,
+      { v: 10 },
+      'the final settle reveals the newest value confirmed by persistence',
+    );
   });
 
   it('does not resync the draft from persisted while a save is in flight', async () => {
@@ -110,19 +151,55 @@ describe('createOptimisticDraftController last-write-wins', () => {
     assert.deepEqual(h.controller.draftRef.current, { v: 42 });
   });
 
-  it('invalidates an in-flight save after dispose (unmount)', async () => {
+  it('applies the latest persisted snapshot when the final pending save settles', async () => {
+    const h = harness({ v: 0 });
+
+    const first = h.controller.update({ v: 1 });
+    const second = h.controller.update({ v: 2 });
+    h.pending[1].deferred.resolve({ v: 20 });
+    await second;
+
+    h.controller.syncPersisted({ v: 99 });
+    assert.deepEqual(h.controller.draftRef.current, { v: 20 }, 'pending work defers the external snapshot');
+
+    h.pending[0].deferred.resolve({ v: 10 });
+    await first;
+
+    assert.deepEqual(
+      h.controller.draftRef.current,
+      { v: 99 },
+      'the deferred snapshot lands automatically when pending reaches zero',
+    );
+  });
+
+  it('reports saving for the full pending batch instead of each individual settle', async () => {
+    const h = harness({ v: 0 });
+
+    const first = h.controller.update({ v: 1 });
+    const second = h.controller.update({ v: 2 });
+    assert.deepEqual(h.savingChanges, [true], 'the first pending save enters saving state once');
+
+    h.pending[0].deferred.resolve({ v: 10 });
+    await first;
+    assert.deepEqual(h.savingChanges, [true], 'a partial settle keeps the batch pending');
+
+    h.pending[1].deferred.resolve({ v: 20 });
+    await second;
+    assert.deepEqual(h.savingChanges, [true, false], 'the final settle clears saving state once');
+  });
+
+  it('invalidates an in-flight save after dispose even while the owner still reports mounted', async () => {
     const h = harness({ v: 0 });
 
     const save = h.controller.update({ v: 3 });
-    h.unmount();
     h.controller.dispose();
     h.pending[0].deferred.resolve({ v: 30 });
 
-    assert.equal(await save, false, 'a save resolving after unmount reports failure');
+    assert.equal(await save, false, 'a save resolving after dispose reports failure');
     assert.equal(
       h.drafts.some((draft) => draft.v === 30),
       false,
-      'a save resolving after unmount must not write the draft',
+      'a save resolving after dispose must not write the draft',
     );
   });
 });

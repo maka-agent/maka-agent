@@ -256,6 +256,7 @@ function NetworkProxySection(props: {
   } = useOptimisticSettingsDraft<NetworkProxySettings>(
     persistedProxy,
     (patch) => props.onUpdate({ network: { proxy: patch } }).then((result) => result.settings.network.proxy),
+    { onError: (error) => toast.error('保存网络设置失败', settingsActionErrorMessage(error)) },
   );
 
   useEffect(() => {
@@ -265,9 +266,7 @@ function NetworkProxySection(props: {
   }, []);
 
   function updateProxy(patch: Partial<NetworkProxySettings>) {
-    return update(patch, {
-      onError: (error) => toast.error('保存网络设置失败', settingsActionErrorMessage(error)),
-    });
+    return update(patch);
   }
 
   async function testProxy() {
