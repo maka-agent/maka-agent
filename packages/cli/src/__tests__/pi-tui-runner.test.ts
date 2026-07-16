@@ -1537,8 +1537,10 @@ describe('Maka Pi TUI runner', () => {
       terminal,
     });
 
+    // #1064: thinking:default is no longer shown — only an explicitly set
+    // thinkingLevel appears. The status line omits the thinking segment.
     await waitFor(() => plainTerminalOutput(terminal.output()).includes(
-      'Maka · ask · glm-5.2 · thinking:default · ollama-cloud · /repo',
+      'Maka · ask · glm-5.2 · ollama-cloud · /repo',
     ));
 
     exitMaka(terminal);

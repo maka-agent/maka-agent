@@ -17,6 +17,7 @@ import {
   projectWriteStdinPermissionSummary,
   type ShellRunUpdate,
 } from '@maka/core';
+import { homedir } from 'node:os';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
 import { BoundedChunkBuffer } from './bounded-chunk-buffer.js';
@@ -40,6 +41,8 @@ export interface MakaPiUsageSummary {
   cacheMissInput: number;
   /** Remaining context tokens from the latest token_usage event. */
   contextRemaining?: number;
+  /** Last `input` token count from a token_usage event, for ctx fallback. */
+  lastInput?: number;
 }
 
 export interface MakaPiTranscriptState {
@@ -134,6 +137,9 @@ function accumulateUsage(usage: MakaPiUsageSummary, msg: {
   cacheMissInput?: number;
 }): void {
   usage.costUsd += msg.costUsd ?? 0;
+  // #1064: track the last `input` so the statusline ctx segment has a fallback
+  // when `contextRemaining` is absent (#1053 spec: "else last token_usage input").
+  if (msg.input !== undefined) usage.lastInput = msg.input;
   const hit = msg.cacheHitInput ?? msg.cacheRead ?? 0;
   const write = msg.cacheWriteInput ?? msg.cacheCreation ?? 0;
   usage.cacheHitInput += hit;
@@ -931,19 +937,29 @@ export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width
   const safeWidth = Math.max(1, width);
   const sep = ansi.dim(' · ');
   const parts: string[] = [ansi.bold(metadata.title), ansi.dim(metadata.permissionMode), ansi.dim(metadata.model)];
-  const thinking =
-    metadata.thinkingLevel
-      ? ansi.dim(`thinking:${metadata.thinkingLevel}`)
-      : metadata.thinkingLevels && metadata.thinkingLevels.length > 0
-        ? ansi.dim('thinking:default')
-        : '';
-  if (thinking) parts.push(thinking);
+  // #1064: omit thinking:default — it is noise before the user explicitly
+  // changes the level. Only a non-default, explicitly set level shows.
+  if (metadata.thinkingLevel) {
+    parts.push(ansi.dim(`thinking:${metadata.thinkingLevel}`));
+  }
   const usage = metadata.usage;
   if (usage) {
-    if (metadata.modelContextWindow !== undefined && usage.contextRemaining !== undefined) {
-      const used = Math.max(0, metadata.modelContextWindow - usage.contextRemaining);
-      const pct = Math.round((used / metadata.modelContextWindow) * 100);
-      parts.push(ansi.dim(`ctx ${formatTokenCount(used)}/${formatTokenCount(metadata.modelContextWindow)} ${pct}%`));
+    // #1064: ctx segment — prefer `window - contextRemaining` when remaining
+    // exists; fall back to last `token_usage` input as an estimate of used
+    // tokens when remaining is absent.
+    if (metadata.modelContextWindow !== undefined) {
+      let used: number | undefined;
+      if (usage.contextRemaining !== undefined) {
+        used = Math.max(0, metadata.modelContextWindow - usage.contextRemaining);
+      } else if (usage.lastInput !== undefined) {
+        used = usage.lastInput;
+      }
+      if (used !== undefined) {
+        const pct = Math.round((used / metadata.modelContextWindow) * 100);
+        // #1064: color warning — yellow >80%, red >95%, dim otherwise.
+        const ctxColor = pct > 95 ? ansi.red : pct > 80 ? ansi.yellow : ansi.dim;
+        parts.push(ctxColor(`ctx ${formatTokenCount(used)}/${formatTokenCount(metadata.modelContextWindow)} ${pct}%`));
+      }
     }
     if (usage.costUsd > 0) {
       parts.push(ansi.dim(`$${formatCost(usage.costUsd)}`));
@@ -955,7 +971,8 @@ export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width
     }
   }
   parts.push(ansi.dim(metadata.connectionSlug));
-  parts.push(ansi.dim(metadata.cwd));
+  // #1064: shorten cwd to ~-relative path instead of the full path.
+  parts.push(ansi.dim(shortenCwd(metadata.cwd)));
   return fitLine(parts.join(sep), safeWidth);
 }
 
@@ -969,6 +986,18 @@ export function renderMakaPiActivityStrip(metadata: MakaPiTranscriptMetadata, wi
   if (metadata.turnElapsedMs === undefined) return '';
   const seconds = Math.floor(metadata.turnElapsedMs / 1000);
   return fitLine(ansi.dim(`Working… ${seconds}s`), safeWidth);
+}
+
+/**
+ * Shorten an absolute path to a `~`-relative form for the statusline.
+ * `/Users/alice/workspace/project` → `~/workspace/project`.
+ * Falls back to the original path if it is not under the home directory.
+ */
+function shortenCwd(cwd: string, homeDir?: string): string {
+  const home = homeDir ?? homedir();
+  if (home && cwd.startsWith(home + '/')) return `~${cwd.slice(home.length)}`;
+  if (home && cwd === home) return '~';
+  return cwd;
 }
 
 function formatTokenCount(tokens: number): string {

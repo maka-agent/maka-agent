@@ -2319,12 +2319,12 @@ describe('Maka Pi TUI status line', () => {
     assert.match(line, /thinking:high/);
   });
 
-  test('shows thinking:default when thinkingLevel is unset but levels are available', () => {
+  test('omits thinking:default when thinkingLevel is unset but levels are available (#1064)', () => {
     const line = stripAnsi(renderMakaPiStatusLine({
       ...meta(),
       thinkingLevels: ['off', 'low', 'medium', 'high', 'max'],
     }, 100));
-    assert.match(line, /thinking:default/);
+    assert.doesNotMatch(line, /thinking/);
   });
 
   test('omits thinking segment when no levels are available', () => {
@@ -2351,13 +2351,73 @@ describe('Maka Pi TUI status line', () => {
     assert.match(line, /ctx 32k\/128k 25%/);
   });
 
-  test('omits ctx segment when modelContextWindow is set but no contextRemaining', () => {
+  test('falls back to lastInput for ctx when contextRemaining is absent (#1064)', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+      modelContextWindow: 128_000,
+      usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0, lastInput: 52_000 },
+    }, 100));
+    assert.match(line, /ctx 52k\/128k 41%/);
+  });
+
+  test('omits ctx segment when modelContextWindow is set but no contextRemaining and no lastInput', () => {
     const line = stripAnsi(renderMakaPiStatusLine({
       ...meta(),
       modelContextWindow: 128_000,
       usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 },
     }, 100));
     assert.doesNotMatch(line, /ctx /);
+  });
+
+  test('ctx segment uses yellow when usage >80% (#1064)', () => {
+    const raw = renderMakaPiStatusLine({
+      ...meta(),
+      modelContextWindow: 128_000,
+      usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0, contextRemaining: 12_800 },
+    }, 100);
+    // 115200/128000 = 90% → yellow (\x1b[33m)
+    assert.ok(raw.includes('\x1b[33m'), 'ctx segment should use yellow at >80%');
+  });
+
+  test('ctx segment uses red when usage >95% (#1064)', () => {
+    const raw = renderMakaPiStatusLine({
+      ...meta(),
+      modelContextWindow: 128_000,
+      usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0, contextRemaining: 3_200 },
+    }, 100);
+    // 124800/128000 = 97.5% → red (\x1b[31m)
+    assert.ok(raw.includes('\x1b[31m'), 'ctx segment should use red at >95%');
+  });
+
+  test('ctx segment uses dim when usage <=80% (#1064)', () => {
+    const raw = renderMakaPiStatusLine({
+      ...meta(),
+      modelContextWindow: 128_000,
+      usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0, contextRemaining: 96_000 },
+    }, 100);
+    // 25% → dim (\x1b[2m), not yellow or red
+    assert.ok(raw.includes('\x1b[2m'), 'ctx segment should use dim at <=80%');
+    assert.ok(!raw.includes('\x1b[33m'), 'ctx segment should not use yellow at <=80%');
+    assert.ok(!raw.includes('\x1b[31m'), 'ctx segment should not use red at <=80%');
+  });
+
+  test('shortens cwd to ~-relative path when under home (#1064)', () => {
+    const home = process.env.HOME ?? '';
+    if (home) {
+      const line = stripAnsi(renderMakaPiStatusLine({
+        ...meta(),
+        cwd: `${home}/workspace/project`,
+      }, 120));
+      assert.match(line, /~\/workspace\/project/);
+    }
+  });
+
+  test('leaves cwd unchanged when not under home (#1064)', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+      cwd: '/tmp/project',
+    }, 120));
+    assert.match(line, /\/tmp\/project/);
   });
 
   test('omits ctx segment when contextRemaining is set but no modelContextWindow', () => {

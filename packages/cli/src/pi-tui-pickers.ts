@@ -154,6 +154,11 @@ export class UserQuestionTextOverlay implements Component {
 
   render(width: number): string[] {
     const safeWidth = Math.max(1, width);
+    // #1064: emit the hardware-cursor marker so IME candidate windows position
+    // correctly inside this overlay editor. Without this, CJK input methods
+    // anchor at the terminal bottom instead of the editor's cursor location.
+    // Reference: ~/.pi/agent/extensions/question.ts.
+    this.editor.focused = true;
     return [
       padLine(`${this.input.title} ${ansi.accent(this.input.rightLabel)}`, safeWidth),
       padLine(ansi.dim('Type another answer · Enter submit · Esc unanswered · Ctrl+C stop'), safeWidth),
