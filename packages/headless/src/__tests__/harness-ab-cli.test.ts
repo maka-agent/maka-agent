@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'node:test';
 import { TERMINAL_BENCH_2_1_TASK_IDS } from '../harness-ab-manifest.js';
+import { normalizeHarborCellContextEnv } from '../harbor-cell.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -42,6 +43,37 @@ test('harness A/B runtime keeps pruning enabled and semantic compact disabled', 
     MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS_FULL: '0',
     MAKA_CONTEXT_SEMANTIC_COMPACT: 'off',
   });
+});
+
+test('semantic compact batched runtime only sends context keys accepted by Harbor', async () => {
+  const { contextBudgetEnv } = await import(
+    new URL('../../harbor/run-semantic-compact-batched.mjs', import.meta.url).href
+  );
+
+  const env = contextBudgetEnv({
+    semanticCompact: {
+      enabled: true,
+      mode: 'replace',
+      minStepNumber: 2,
+      highWaterRatio: 0.5,
+      maxActiveEstimatedTokens: 16384,
+      minRecentMessages: 4,
+      minRecentToolPairs: 1,
+      maxSummaryEstimatedTokens: 768,
+      minSavingsTokens: 256,
+      minSavingsRatio: 0.05,
+      minNetSavingsTokens: 256,
+      compactCallTokenCostWeight: 1,
+      maxCompactCallTokens: 4096,
+      maxConsecutiveInvalidSummaries: 2,
+      invalidSummaryCooldownSteps: 8,
+      archiveRequired: false,
+      promptVersion: 'maka-semantic-compact-json-v2',
+      highWaterName: 'harbor-cell-semantic-compact',
+    },
+  });
+
+  assert.deepEqual(normalizeHarborCellContextEnv(env), env);
 });
 
 test('harness Oracle environment selects the linux/amd64 image manifest digest', async () => {

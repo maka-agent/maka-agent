@@ -147,7 +147,6 @@ const COMPACT_PROFILE = {
     maxConsecutiveInvalidSummaries: 2,
     invalidSummaryCooldownSteps: 8,
     archiveRequired: false,
-    benchmarkStateCards: true,
     promptVersion: 'maka-semantic-compact-json-v2',
     highWaterName: 'harbor-cell-semantic-compact',
   },
@@ -173,7 +172,7 @@ function assertTaskPartition() {
   }
 }
 
-function contextBudgetEnv(profile) {
+export function contextBudgetEnv(profile) {
   const common = {
     MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
     MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: '2048',
@@ -202,7 +201,6 @@ function contextBudgetEnv(profile) {
     MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CONSECUTIVE_INVALID_SUMMARIES: String(semantic.maxConsecutiveInvalidSummaries),
     MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS: String(semantic.invalidSummaryCooldownSteps),
     MAKA_CONTEXT_SEMANTIC_COMPACT_ARCHIVE_REQUIRED: String(semantic.archiveRequired),
-    MAKA_CONTEXT_SEMANTIC_COMPACT_BENCHMARK_STATE_CARDS: String(semantic.benchmarkStateCards),
     MAKA_CONTEXT_SEMANTIC_COMPACT_PROMPT_VERSION: semantic.promptVersion,
     MAKA_CONTEXT_SEMANTIC_COMPACT_HIGH_WATER_NAME: semantic.highWaterName,
   };
