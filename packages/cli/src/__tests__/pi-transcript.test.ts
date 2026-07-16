@@ -2340,6 +2340,32 @@ describe('Maka Pi TUI status line', () => {
     }, 100));
     assert.doesNotMatch(line, /thinking/);
   });
+
+  test('shows ctx used/window pct% when modelContextWindow and contextRemaining are both set', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+      modelContextWindow: 128_000,
+      usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0, contextRemaining: 96_000 },
+    }, 100));
+    assert.match(line, /ctx 32k\/128k 25%/);
+  });
+
+  test('omits ctx segment when modelContextWindow is set but no contextRemaining', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+      modelContextWindow: 128_000,
+      usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 },
+    }, 100));
+    assert.doesNotMatch(line, /ctx /);
+  });
+
+  test('omits ctx segment when contextRemaining is set but no modelContextWindow', () => {
+    const line = stripAnsi(renderMakaPiStatusLine({
+      ...meta(),
+      usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0, contextRemaining: 96_000 },
+    }, 100));
+    assert.doesNotMatch(line, /ctx /);
+  });
 });
 
 function meta() {

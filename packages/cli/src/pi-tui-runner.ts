@@ -85,6 +85,8 @@ export interface MakaPiTuiInput {
   connectionSlug: string;
   providerType?: ProviderType;
   permissionMode: PermissionMode;
+  /** Maximum context tokens for the active model, for the statusline ctx segment. */
+  modelContextWindow?: number;
   terminal?: Terminal;
   /** Starts the CLI process-exit deadline after terminal restore, before outer cleanup. */
   onProcessExit?: (exitCode: number, error?: Error) => void;
@@ -114,6 +116,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // Mutable: a cross-connection /model switch rebinds the provider, which changes
   // both the connection and the thinking variants the new model supports.
   let providerType = input.providerType;
+  let modelContextWindow = input.modelContextWindow;
   let permissionMode = input.permissionMode;
   let thinkingLevel: ThinkingLevel | undefined = undefined;
   let thinkingLevels: readonly ThinkingLevel[] = providerType
@@ -153,6 +156,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     sessionId: input.driver.getSessionId(),
     busy,
     usage: state.usage,
+    modelContextWindow,
   });
 
   const transcript = new MakaTranscriptComponent(state, metadata);
@@ -474,6 +478,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const setModel = async (nextModel: string) => {
     await input.driver.setModel(nextModel);
     model = nextModel;
+    const match = input.modelChoices?.find((choice) => choice.model === nextModel);
+    if (match) modelContextWindow = match.contextWindow;
     thinkingLevel = undefined;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, nextModel) : [];
     state.entries.push({
@@ -491,6 +497,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     model = choice.model;
     connectionSlug = choice.connectionSlug;
     providerType = choice.providerType;
+    modelContextWindow = choice.contextWindow;
     thinkingLevel = undefined;
     thinkingLevels = thinkingVariantsForModel(choice.providerType, choice.model);
     state.entries.push({

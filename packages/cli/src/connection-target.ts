@@ -1,7 +1,7 @@
 import { isConnectionReady, type ChatConfigurationReason } from '@maka/core/connection-readiness';
 import type { LlmConnection, ProviderType } from '@maka/core/llm-connections';
 import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
-import { isOAuthSubscriptionProvider, resolveOAuthSubscriptionTokens, type OAuthSubscriptionTokens } from '@maka/runtime';
+import { isOAuthSubscriptionProvider, resolveOAuthSubscriptionTokens, resolveSelectedModelContextWindow, type OAuthSubscriptionTokens } from '@maka/runtime';
 import type { ConnectionStore, CredentialKind, CredentialStore } from '@maka/storage';
 
 export interface ReadySessionTarget {
@@ -18,6 +18,8 @@ export interface ModelChoice {
   providerType: ProviderType;
   model: string;
   isDefaultConnection: boolean;
+  /** Maximum context tokens for this model, resolved from the connection or provider catalog. */
+  contextWindow?: number;
 }
 
 export function selectableModelIdsForTarget(target: Pick<ReadySessionTarget, 'connection' | 'model'>): string[] {
@@ -141,6 +143,7 @@ export async function listReadyModelChoices(input: {
           providerType: connection.providerType,
           model,
           isDefaultConnection: connection.slug === defaultSlug,
+          contextWindow: resolveSelectedModelContextWindow(connection, model),
         });
       }
     } catch {

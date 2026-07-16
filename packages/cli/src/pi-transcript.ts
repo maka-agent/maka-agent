@@ -107,6 +107,8 @@ export interface MakaPiTranscriptMetadata {
   sessionId?: string | null;
   busy?: boolean;
   usage?: MakaPiUsageSummary;
+  /** Maximum context tokens for the active model, for the `ctx used/window pct%` segment. */
+  modelContextWindow?: number;
 }
 
 export function createMakaPiTranscriptState(): MakaPiTranscriptState {
@@ -936,8 +938,10 @@ export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width
   if (thinking) parts.push(thinking);
   const usage = metadata.usage;
   if (usage) {
-    if (usage.contextRemaining !== undefined) {
-      parts.push(ansi.dim(`ctx ${formatTokenCount(usage.contextRemaining)}`));
+    if (metadata.modelContextWindow !== undefined && usage.contextRemaining !== undefined) {
+      const used = Math.max(0, metadata.modelContextWindow - usage.contextRemaining);
+      const pct = Math.round((used / metadata.modelContextWindow) * 100);
+      parts.push(ansi.dim(`ctx ${formatTokenCount(used)}/${formatTokenCount(metadata.modelContextWindow)} ${pct}%`));
     }
     if (usage.costUsd > 0) {
       parts.push(ansi.dim(`$${formatCost(usage.costUsd)}`));

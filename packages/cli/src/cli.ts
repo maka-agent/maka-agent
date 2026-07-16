@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describeChatConfigurationReason, parseNoRealConnectionError } from '@maka/core';
-import { handleGoalContinuation } from '@maka/runtime';
+import { handleGoalContinuation, resolveSelectedModelContextWindow } from '@maka/runtime';
 import { createMakaSessionDriver } from './session-driver.js';
 import { createMakaCliRuntimeContext } from './runtime-bootstrap.js';
 import { selectableModelIdsForTarget } from './connection-target.js';
@@ -148,6 +148,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           modelChoices: context.modelChoices,
           connectionSlug: context.target.connection.slug,
           providerType: context.target.connection.providerType,
+          modelContextWindow: resolveSelectedModelContextWindow(context.target.connection, context.target.model),
           permissionMode: 'ask',
           subscribeShellRunUpdates: context.subscribeShellRunUpdates,
           listShellRunUpdates: context.listShellRunUpdates,
