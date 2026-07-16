@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core/llm-connections';
-import { listReadyModelChoices, resolveDefaultSessionTarget } from '../connection-target.js';
+import { listReadyModelChoices, resolveDefaultSessionTarget, selectableModelIdsForTarget } from '../connection-target.js';
 
 describe('default session target resolver', () => {
   test('resolves OpenCode Go credentials without rewriting its exact model id', async () => {
@@ -979,13 +979,70 @@ describe('default session target resolver', () => {
   });
 });
 
+describe('selectableModelIdsForTarget', () => {
+  test('filters the picker to the connection enabledModelIds, keeping the current model selectable', () => {
+    const connection = makeConnection({
+      providerType: 'ollama',
+      defaultModel: 'glm-5.2',
+      enabledModelIds: ['glm-5.2'],
+      models: [{ id: 'glm-5.2' }, { id: 'glm-5-air' }, { id: 'glm-4.6' }],
+    });
+
+    // The session is currently on glm-5-air: it stays selectable even though
+    // the user curated it out; the rest of the catalog (glm-4.6) stays hidden.
+    assert.deepEqual(
+      selectableModelIdsForTarget({ connection, model: 'glm-5-air' }),
+      ['glm-5-air', 'glm-5.2'],
+    );
+  });
+
+  test('legacy connections without enabledModelIds collapse to the default model, never the full catalog', () => {
+    const connection = makeConnection({
+      providerType: 'ollama',
+      defaultModel: 'glm-5.2',
+      models: [{ id: 'glm-5.2' }, { id: 'glm-5-air' }],
+    });
+
+    assert.deepEqual(
+      selectableModelIdsForTarget({ connection, model: 'glm-5.2' }),
+      ['glm-5.2'],
+    );
+  });
+});
+
 describe('listReadyModelChoices', () => {
+  test('lists only enabledModelIds for connections with a curated model set', async () => {
+    const zai = makeConnection({
+      slug: 'zai',
+      name: 'Z.ai',
+      providerType: 'ollama', // authKind none → ready without a stored secret
+      defaultModel: 'glm-5.2',
+      enabledModelIds: ['glm-5.2'],
+      models: [{ id: 'glm-5.2' }, { id: 'glm-5-air' }],
+    });
+
+    const choices = await listReadyModelChoices({
+      connectionStore: {
+        list: async () => [zai],
+        getDefault: async () => 'zai',
+      },
+      credentialStore: {
+        getSecret: async () => null,
+      },
+    });
+
+    // glm-5-air is discovered but curated out on desktop, so the TUI picker
+    // must not offer it either.
+    assert.deepEqual(choices.map((choice) => choice.model), ['glm-5.2']);
+  });
+
   test('lists models across every ready connection and skips fake / not-ready', async () => {
     const zai = makeConnection({
       slug: 'zai',
       name: 'Z.ai',
       providerType: 'ollama', // authKind none → ready without a stored secret
       defaultModel: 'glm-5.2',
+      enabledModelIds: ['glm-5.2', 'glm-5-air'],
       models: [{ id: 'glm-5.2' }, { id: 'glm-5-air' }],
     });
     const openai = makeConnection({

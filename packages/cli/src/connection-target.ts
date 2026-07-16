@@ -1,6 +1,6 @@
 import { isConnectionReady, type ChatConfigurationReason } from '@maka/core/connection-readiness';
 import type { LlmConnection, ProviderType } from '@maka/core/llm-connections';
-import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
+import { connectionEnabledModelIds, PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { isOAuthSubscriptionProvider, resolveOAuthSubscriptionTokens, resolveSelectedModelContextWindow, type OAuthSubscriptionTokens } from '@maka/runtime';
 import type { ConnectionStore, CredentialKind, CredentialStore } from '@maka/storage';
 
@@ -23,11 +23,13 @@ export interface ModelChoice {
 }
 
 export function selectableModelIdsForTarget(target: Pick<ReadySessionTarget, 'connection' | 'model'>): string[] {
-  const defaults = PROVIDER_DEFAULTS[target.connection.providerType];
+  // The picker mirrors the desktop's curated visibility: only the connection's
+  // enabled models are offered (legacy connections collapse to their default
+  // model, never the full discovered catalog). The session's current model
+  // stays selectable even when the user curated it out.
   const candidates = [
     target.model,
-    target.connection.defaultModel,
-    ...(target.connection.models?.map((model) => model.id) ?? defaults?.fallbackModels ?? []),
+    ...connectionEnabledModelIds(target.connection),
   ];
   const ids: string[] = [];
   const seen = new Set<string>();
