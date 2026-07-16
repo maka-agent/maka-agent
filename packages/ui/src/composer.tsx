@@ -232,7 +232,7 @@ export const Composer = forwardRef<
     onPermissionModeChange?(mode: PermissionMode): void | Promise<void>;
     /**
      * Composer mention popups (v1 plain-text tokens; see
-     * notes/composer-mentions-spec-2026-07-14.md). Both are optional and the
+     * docs/archive/composer-mentions-spec-2026-07-14.md). Both are optional and the
      * whole feature no-ops when absent (SSR contracts render Composer with
      * minimal props):
      *   - `mentionSkills` powers the `/` popup — pass only ENABLED skills; the

@@ -1,7 +1,7 @@
 /**
  * Composer `@` file / `/` skill mention popup — a presentational overlay
  * rendered by Composer while a trigger is active. See
- * notes/composer-mentions-spec-2026-07-14.md for the v1 plain-text model.
+ * docs/archive/composer-mentions-spec-2026-07-14.md for the v1 plain-text model.
  *
  * All state (which trigger, the filtered items, the highlighted index) lives in
  * Composer; this component only paints the list and forwards hover/click to

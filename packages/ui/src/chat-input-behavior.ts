@@ -31,7 +31,7 @@ export function focusTextInputAtEnd(input: TextInputSelectionTarget): void {
  * Composer `@` / `/` mention trigger detection.
  *
  * Decompiled from the QoderWork/WorkBuddy composer bundles and adapted to our
- * plain-text v1 (see notes/composer-mentions-spec-2026-07-14.md). Pure so it
+ * plain-text v1 (see docs/archive/composer-mentions-spec-2026-07-14.md). Pure so it
  * can be unit-pinned without a DOM: given the current textarea value + caret
  * offset it reports the active trigger, the query typed after it, and the
  * trigger char's index (so the caller can splice `[start, caret)` on select).

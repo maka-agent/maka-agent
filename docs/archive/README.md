@@ -23,6 +23,9 @@ The root `DESIGN.md` owns shared product design intent. `docs/frontend-css-gover
 
 Tracked `notes/` files were retired as an undocumented parallel authority. Point-in-time audits, migration plans, reference reverse-engineering, and design research remain here only for provenance. Current repository rules live in `ARCHITECTURE.md`, `DESIGN.md`, active cross-cutting contracts, local READMEs, source, and tests; workspace-specific agent instructions are supplied outside the tracked documentation set.
 
+- `frontend-simplification-map-2026-07-13.md` — baseline knip/size measurement for the frontend simplification rounds landed in #871–#887.
+- `composer-mentions-spec-2026-07-14.md` — the shipped v1 `@`/`/` composer mention-popup spec (#979); current behavior lives in `packages/ui` source and the composer-mention contract test.
+
 ## Security contract snapshots
 
 - `memory-threat-model-pr-memory-1.md` — the contract-only PR-MEMORY-1 boundary, superseded as a description of the current product.

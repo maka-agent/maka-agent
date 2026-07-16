@@ -1,6 +1,6 @@
 /**
  * Contract for the composer `@`/`/` mention popups
- * (feat/composer-mentions, notes/composer-mentions-spec-2026-07-14.md).
+ * (feat/composer-mentions, docs/archive/composer-mentions-spec-2026-07-14.md).
  *
  * Pins the fragile ordering + SSR-safety guarantees:
  *   1. The mention-popup keyboard branch runs BEFORE the Esc/drag branch and
