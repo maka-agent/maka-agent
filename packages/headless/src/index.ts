@@ -396,6 +396,7 @@ export type {
   IsolatedReadFileInput,
   IsolatedReadFileResult,
   IsolatedToolExecutor,
+  IsolatedToolExecutionControl,
   IsolatedWriteFileInput,
   IsolatedWriteFileResult,
   RealBackendIsolation,

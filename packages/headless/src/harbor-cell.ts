@@ -1361,7 +1361,7 @@ export function createHarborHttpToolExecutor(env: RunHarborCellEnv = process.env
   const baseUrl = requiredHarborEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_URL');
   const token = requiredHarborEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_TOKEN');
   return {
-    exec: async (input) => {
+    exec: async (input, control) => {
       const timeoutSec = input.timeoutMs === undefined
         ? undefined
         : Math.max(1, Math.ceil(input.timeoutMs / 1000));
@@ -1375,6 +1375,7 @@ export function createHarborHttpToolExecutor(env: RunHarborCellEnv = process.env
           ...input,
           ...(timeoutSec !== undefined ? { timeoutSec } : {}),
         }),
+        signal: control?.abortSignal,
       });
       const body = await response.text();
       if (!response.ok) return { exitCode: 1, stdout: '', stderr: body };
@@ -1403,7 +1404,7 @@ export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = proces
   const shell = defaultShellPlan();
   return {
     shell,
-    exec: async ({ command, cwd, timeoutMs, boundedTail }) => {
+    exec: async ({ command, cwd, timeoutMs, boundedTail }, control) => {
       if (boundedTail) {
         // Bash opted in: stream into a bounded tail (shared with the in-process
         // builtin Bash) instead of execAsync({ maxBuffer }). A command whose
@@ -1414,6 +1415,7 @@ export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = proces
             cwd,
             env: childEnv,
             timeoutMs: timeoutMs ?? defaultTimeoutMs,
+            abortSignal: control?.abortSignal,
             shell,
           });
           return {
@@ -1443,6 +1445,7 @@ export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = proces
           env: childEnv,
           timeout: timeoutMs ?? defaultTimeoutMs,
           maxBuffer: HARBOR_CELL_TOOL_MAX_BUFFER_BYTES,
+          signal: control?.abortSignal,
         });
         return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
       } catch (error) {

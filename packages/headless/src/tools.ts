@@ -91,16 +91,19 @@ export function buildIsolatedBashTool(
       + (guidance ? ` ${guidance}` : ''),
     defaultTimeoutMs: cleanupCommandTimeoutMs,
     emitReturnedOutput: true,
-    execute: async ({ command, cwd, timeoutMs }) => {
+    execute: async ({ command, cwd, timeoutMs, ctx }) => {
       // boundedTail: Bash is the one caller that wants a recoverable tail of a
       // huge, never-killed output. Read/Glob/Grep deliberately omit it so they
       // get full, head-first content from the executor.
-      return await executor.exec({
-        command,
-        cwd,
-        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-        boundedTail: true,
-      });
+      return await executor.exec(
+        {
+          command,
+          cwd,
+          ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+          boundedTail: true,
+        },
+        { abortSignal: ctx.abortSignal },
+      );
     },
     afterResult: async (input, result, ctx) => {
       await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Bash', input, result }, ctx);
@@ -137,7 +140,7 @@ export function buildIsolatedReadTool(
         normalizedPath,
         numberArg(offset),
         numberArg(limit),
-      ]));
+      ]), ctx.abortSignal);
       const result = { content: stdout };
       await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Read', input, result }, ctx);
       return result;
@@ -160,14 +163,14 @@ export function buildIsolatedWriteTool(
       const input = { cwd, path: normalizedPath, content };
       return await withFileWriteLock(fileWriteKey(cwd, normalizedPath), async () => {
         if (executor.writeFile) {
-          const result = await executor.writeFile(input);
+          const result = await executor.writeFile(input, { abortSignal: ctx.abortSignal });
           await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Write', input, result }, ctx);
           return result;
         }
         await execFileCommand(executor, cwd, shellFileCommand(WRITE_SCRIPT, [
           normalizedPath,
           content,
-        ]));
+        ]), ctx.abortSignal);
         const result = { ok: true, path: normalizedPath, bytes: Buffer.byteLength(content, 'utf8') };
         await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Write', input, result }, ctx);
         return result;
@@ -199,9 +202,9 @@ export function buildIsolatedEditTool(
       const normalizedPath = normalizeWorkspacePath(path, cwd, 'Edit path');
       const input = { cwd, path: normalizedPath, oldString: old_string, newString: new_string };
       return await withFileWriteLock(fileWriteKey(cwd, normalizedPath), async () => {
-        const raw = await readIsolatedFileBytes(executor, cwd, normalizedPath);
+        const raw = await readIsolatedFileBytes(executor, cwd, normalizedPath, ctx.abortSignal);
         const { content, ...metadata } = computeEditBytes(raw, old_string, new_string, normalizedPath);
-        await writeIsolatedFileBytes(executor, cwd, normalizedPath, content);
+        await writeIsolatedFileBytes(executor, cwd, normalizedPath, content, ctx.abortSignal);
         const result = { ok: true, path: normalizedPath, replacements: 1, ...metadata };
         await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Edit', input, result }, ctx);
         return result;
@@ -228,7 +231,7 @@ export function buildIsolatedGlobTool(
       const normalizedRelCwd = relCwd === undefined ? undefined : normalizeWorkspacePath(relCwd, cwd, 'Glob cwd');
       const input = { cwd, pattern: normalizedPattern, searchCwd: normalizedRelCwd };
       if (executor.globFiles) {
-        const result = await executor.globFiles(input);
+        const result = await executor.globFiles(input, { abortSignal: ctx.abortSignal });
         await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Glob', input, result }, ctx);
         return result;
       }
@@ -236,7 +239,7 @@ export function buildIsolatedGlobTool(
         normalizedPattern,
         globPatternToEre(normalizedPattern),
         normalizedRelCwd ?? '',
-      ]));
+      ]), ctx.abortSignal);
       const result = { files: parseLineArray(stdout) };
       await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Glob', input, result }, ctx);
       return result;
@@ -268,7 +271,7 @@ export function buildIsolatedGrepTool(
         glob: normalizedGlob,
       };
       if (executor.grepFiles) {
-        const result = await executor.grepFiles(input);
+        const result = await executor.grepFiles(input, { abortSignal: ctx.abortSignal });
         await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Grep', input, result }, ctx);
         return result;
       }
@@ -277,7 +280,7 @@ export function buildIsolatedGrepTool(
         normalizedPath ?? '',
         normalizedGlob ?? '',
         normalizedGlob === undefined ? '' : globPatternToEre(normalizedGlob),
-      ]));
+      ]), ctx.abortSignal);
       const result = { matches: parseLineArray(stdout) };
       await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Grep', input, result }, ctx);
       return result;
@@ -285,16 +288,29 @@ export function buildIsolatedGrepTool(
   };
 }
 
-async function execFileCommand(executor: IsolatedToolExecutor, cwd: string, command: string): Promise<string> {
-  const result = await executor.exec({ command, cwd, timeoutMs: 120_000 });
+async function execFileCommand(
+  executor: IsolatedToolExecutor,
+  cwd: string,
+  command: string,
+  abortSignal: AbortSignal,
+): Promise<string> {
+  const result = await executor.exec(
+    { command, cwd, timeoutMs: 120_000 },
+    { abortSignal },
+  );
   if (result.exitCode !== 0) {
     throw new Error(result.stderr.trim() || `isolated file command failed with exit code ${result.exitCode}`);
   }
   return result.stdout;
 }
 
-async function readIsolatedFileBytes(executor: IsolatedToolExecutor, cwd: string, path: string): Promise<Buffer> {
-  const stdout = await execFileCommand(executor, cwd, shellFileCommand(EDIT_READ_BYTES_SCRIPT, [path]));
+async function readIsolatedFileBytes(
+  executor: IsolatedToolExecutor,
+  cwd: string,
+  path: string,
+  abortSignal: AbortSignal,
+): Promise<Buffer> {
+  const stdout = await execFileCommand(executor, cwd, shellFileCommand(EDIT_READ_BYTES_SCRIPT, [path]), abortSignal);
   return Buffer.from(stdout.replace(/\s+/g, ''), 'base64');
 }
 
@@ -303,11 +319,12 @@ async function writeIsolatedFileBytes(
   cwd: string,
   path: string,
   content: Buffer,
+  abortSignal: AbortSignal,
 ): Promise<void> {
   await execFileCommand(executor, cwd, shellFileCommand(EDIT_WRITE_BYTES_SCRIPT, [
     path,
     content.toString('base64'),
-  ]));
+  ]), abortSignal);
 }
 
 function computeEditBytes(

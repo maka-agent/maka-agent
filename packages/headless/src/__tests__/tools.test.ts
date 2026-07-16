@@ -210,6 +210,23 @@ describe('isolated headless tools', () => {
     );
   });
 
+  test('command-backed file tools forward active-turn cancellation to the isolated executor', async () => {
+    const seenSignals: Array<AbortSignal | undefined> = [];
+    const tools = buildIsolatedHeadlessTools({
+      async exec(_input, control) {
+        seenSignals.push(control?.abortSignal);
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    });
+    const ctx = toolCtx('/workspace');
+
+    await tool(tools, 'Read').impl({ path: 'src/f.txt' }, ctx);
+    await tool(tools, 'Glob').impl({ pattern: '**/*.txt' }, ctx);
+    await tool(tools, 'Grep').impl({ pattern: 'hello' }, ctx);
+
+    assert.deepEqual(seenSignals, [ctx.abortSignal, ctx.abortSignal, ctx.abortSignal]);
+  });
+
   test('standard isolated tool surface exposes externalized file tools to local-read children', () => {
     const tools = buildIsolatedHeadlessTools({
       async exec() {
@@ -341,19 +358,23 @@ describe('isolated headless tools', () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-tools-host-'));
     await writeFile(join(cwd, 'target.txt'), 'host\n', 'utf8');
     const calls: Array<{ name: string; input: unknown }> = [];
+    const nativeSignals: Array<AbortSignal | undefined> = [];
     const tools = buildIsolatedHeadlessTools({
       async exec() {
         throw new Error('file tools must use native isolated methods when available');
       },
-      async writeFile(input) {
+      async writeFile(input, control) {
+        nativeSignals.push(control?.abortSignal);
         calls.push({ name: 'Write', input });
         return { ok: true, path: input.path, bytes: Buffer.byteLength(input.content, 'utf8') };
       },
-      async globFiles(input) {
+      async globFiles(input, control) {
+        nativeSignals.push(control?.abortSignal);
         calls.push({ name: 'Glob', input });
         return { files: ['container.txt'] };
       },
-      async grepFiles(input) {
+      async grepFiles(input, control) {
+        nativeSignals.push(control?.abortSignal);
         calls.push({ name: 'Grep', input });
         return { matches: ['container.txt:1:needle'] };
       },
@@ -381,6 +402,8 @@ describe('isolated headless tools', () => {
       { name: 'Glob', input: { cwd, pattern: '*.txt', searchCwd: 'src' } },
       { name: 'Grep', input: { cwd, pattern: 'needle', path: 'src', glob: '*.txt' } },
     ]);
+    assert.equal(nativeSignals.length, 3);
+    assert.ok(nativeSignals.every((signal) => signal instanceof AbortSignal));
   });
 
   test('Read ignores any native readFile hook and always formats via READ_SCRIPT', async () => {

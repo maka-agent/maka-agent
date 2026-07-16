@@ -9,6 +9,7 @@ import {
   buildHarborCellContextBudgetPolicySnapshot,
   buildHarborCellContinuationPolicy,
   buildHarborCellTaskLedgerExperimentPolicy,
+  createHarborHttpToolExecutor,
   harborCellMaxStepsFromEnv,
   harborCellSoftTimeoutMsFromEnv,
   normalizeHarborCellContextEnv,
@@ -79,7 +80,7 @@ export async function main(options = {}) {
     realBackendIsolation: {
       kind: 'external',
       label: 'Harbor task container via host adapter',
-      toolExecutor: httpToolExecutor(env),
+      toolExecutor: createHarborHttpToolExecutor(env),
     },
     now,
     newId,
@@ -126,33 +127,6 @@ async function hostApiKey(env) {
   throw new Error('MAKA_HOST_API_KEY_FILE is required for host-side Harbor cells');
 }
 
-function httpToolExecutor(env) {
-  const baseUrl = requiredEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_URL');
-  const token = requiredEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_TOKEN');
-  return {
-    exec: async (input) => {
-      const response = await fetch(new URL('/exec', baseUrl), {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${token}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(input),
-      });
-      const body = await response.text();
-      if (!response.ok) {
-        return { exitCode: 1, stdout: '', stderr: body };
-      }
-      const parsed = JSON.parse(body);
-      return {
-        exitCode: Number.isInteger(parsed.exitCode) ? parsed.exitCode : 1,
-        stdout: typeof parsed.stdout === 'string' ? parsed.stdout : '',
-        stderr: typeof parsed.stderr === 'string' ? parsed.stderr : '',
-      };
-    },
-  };
-}
-
 async function instructionFromEnv(env) {
   if (env.MAKA_INSTRUCTION !== undefined) return env.MAKA_INSTRUCTION;
   if (env.MAKA_INSTRUCTION_FILE) return await readFile(env.MAKA_INSTRUCTION_FILE, 'utf8');
@@ -167,12 +141,6 @@ function providerFromModel(rawModel) {
 function stripProvider(rawModel, provider) {
   const prefix = `${provider}/`;
   return rawModel.startsWith(prefix) ? rawModel.slice(prefix.length) : rawModel;
-}
-
-function requiredEnv(env, name) {
-  const value = env[name];
-  if (!value) throw new Error(`${name} is required`);
-  return value;
 }
 
 function randomId() {

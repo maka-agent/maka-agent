@@ -32,6 +32,10 @@ export interface IsolatedCommandResult {
   stderrTruncated?: boolean;
 }
 
+export interface IsolatedToolExecutionControl {
+  abortSignal?: AbortSignal;
+}
+
 export interface IsolatedReadFileInput {
   cwd: string;
   path: string;
@@ -104,7 +108,7 @@ export const ISOLATED_HEADLESS_TOOL_NAMES = ['Bash', 'Read', 'Write', 'Edit', 'G
  * model-backed backend is allowed.
  */
 export interface IsolatedToolExecutor {
-  exec(input: IsolatedCommandInput): Promise<IsolatedCommandResult>;
+  exec(input: IsolatedCommandInput, control?: IsolatedToolExecutionControl): Promise<IsolatedCommandResult>;
   /**
    * Shell dialect this executor's Bash commands run in, surfaced so
    * buildIsolatedBashTool can DECLARE it in the tool description. Selection
@@ -128,9 +132,9 @@ export interface IsolatedToolExecutor {
    * in the headless process, and writes bytes back through the executor. Both
    * hold regardless of which native ops an executor provides.
    */
-  writeFile?(input: IsolatedWriteFileInput): Promise<IsolatedWriteFileResult>;
-  globFiles?(input: IsolatedGlobInput): Promise<IsolatedGlobResult>;
-  grepFiles?(input: IsolatedGrepInput): Promise<IsolatedGrepResult>;
+  writeFile?(input: IsolatedWriteFileInput, control?: IsolatedToolExecutionControl): Promise<IsolatedWriteFileResult>;
+  globFiles?(input: IsolatedGlobInput, control?: IsolatedToolExecutionControl): Promise<IsolatedGlobResult>;
+  grepFiles?(input: IsolatedGrepInput, control?: IsolatedToolExecutionControl): Promise<IsolatedGrepResult>;
 }
 
 export interface ExternalRealBackendIsolation {
