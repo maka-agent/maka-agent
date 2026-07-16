@@ -63,6 +63,7 @@ import { OpenAiCodexService } from './oauth/openai-codex-service.js';
 import { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
+import { importLegacyOAuthTokenFiles } from './oauth/shared-credential-bridge.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
 import type { LlmCallRecord, PricingConfig, ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import type {
@@ -2339,6 +2340,27 @@ async function runBackgroundStartup(): Promise<void> {
     await migrateLegacyCredentials(workspaceRoot, safeStorage);
   } catch (error) {
     console.error('[credentials] migration off safeStorage failed; legacy file left intact:', error);
+  }
+  // One-shot import of pre-#1125 safeStorage-encrypted OAuth token
+  // files into the shared CredentialStore, which is the only token
+  // authority from here on. Best-effort like the migration above:
+  // files that cannot be decrypted are left intact for a later start.
+  try {
+    const userDataDir = app.getPath('userData');
+    const reports = await importLegacyOAuthTokenFiles({
+      credentialStore,
+      decryptor: safeStorage,
+      files: [
+        { slug: 'claude-subscription', filePath: join(userDataDir, '.claude_subscription_token') },
+        { slug: 'codex-subscription', filePath: join(userDataDir, '.codex_subscription_token') },
+      ],
+    });
+    for (const report of reports) {
+      const log = report.outcome === 'failed' ? console.error : console.log;
+      log(`[credentials] legacy OAuth token file for ${report.slug}: ${report.outcome}`, report.error ?? '');
+    }
+  } catch (error) {
+    console.error('[credentials] legacy OAuth token import failed; files left intact:', error);
   }
   if (visualSmokeFixture) {
     console.log(`[visual-smoke] scenario=${visualSmokeFixture.scenario} workspace=${workspaceRoot}`);

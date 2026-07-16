@@ -18,9 +18,11 @@ const SERVICES_WITH_LOOPBACK_SERVER = [
   'antigravity-subscription-service.ts',
 ];
 
-const SERVICES_WITH_LOAD_TOKENS = [
-  'claude-subscription-service.ts',
-  'openai-codex-service.ts',
+// Services still on the legacy per-service encrypted token file.
+// Claude / Codex moved to the shared CredentialStore authority
+// (#1125); their corrupt-entry cleanup lives in the shared bridge and
+// is asserted in the storage-failure contract below.
+const SERVICES_WITH_LEGACY_TOKEN_FILE = [
   'cursor-subscription-service.ts',
   'antigravity-subscription-service.ts',
 ];
@@ -59,7 +61,7 @@ describe('OAuth callback server: drains sockets + timeout (B-SWEEP-1, B-SWEEP-2)
 });
 
 describe('OAuth loadTokens: unlinks corrupt files (B-SWEEP-3)', () => {
-  for (const file of SERVICES_WITH_LOAD_TOKENS) {
+  for (const file of SERVICES_WITH_LEGACY_TOKEN_FILE) {
     it(`${file} deletes the token file when decryptString / JSON.parse throws`, async () => {
       const source = await readFile(resolve(OAUTH_DIR, file), 'utf8');
       // After PR-BUG-SWEEP-2026-06-02 the catch block around
@@ -102,18 +104,18 @@ describe('OAuth loadTokens: storage failures are not shown as logged out', () =>
       );
       assert.match(
         loadTokens,
-        /safeStorage\.isEncryptionAvailable\(\)[\s\S]*lastStorageFailedMessage[\s\S]*return null/,
-        `${file} safeStorage-unavailable reads must set storage_failed detail`,
+        /loadSharedOAuthTokens\(this\.credentialStore/,
+        `${file} must load tokens from the shared credential store (the authority, #1125)`,
       );
       assert.match(
         loadTokens,
-        /catch \(error\)[\s\S]*code !== 'ENOENT'[\s\S]*lastStorageFailedMessage[\s\S]*return null/,
-        `${file} token-file read errors other than ENOENT must set storage_failed detail`,
+        /catch \{[\s\S]*lastStorageFailedMessage[\s\S]*return null/,
+        `${file} store read failures must set storage_failed detail instead of reading as logged out`,
       );
       assert.match(
         loadTokens,
-        /decryptString[\s\S]*JSON\.parse[\s\S]*catch \{[\s\S]*lastStorageFailedMessage[\s\S]*fs\.unlink\(this\.tokenFilePath\)/,
-        `${file} decrypt/parse failures must set storage_failed detail before corrupt-token cleanup`,
+        /status === 'corrupt'[\s\S]*lastStorageFailedMessage[\s\S]*return null/,
+        `${file} corrupt shared entries (deleted by the bridge) must surface storage_failed detail`,
       );
     });
   }

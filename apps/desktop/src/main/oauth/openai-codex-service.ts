@@ -5,8 +5,9 @@
  * mirrors its shape:
  *   - PKCE authorize URL generation + pending state.
  *   - Loopback callback server (port 1455) captures the redirect.
- *   - Token exchange + refresh + safeStorage-encrypted persistence
- *     under `app.getPath('userData')` with mode 0o600.
+ *   - Token exchange + refresh + persistence via the shared
+ *     CredentialStore (workspace credentials.json), the single
+ *     cross-surface token authority (#1125).
  *   - Account state snapshot for renderer — never exposes tokens.
  *
  * Hard gates (shared with the Claude service):
@@ -21,11 +22,11 @@
  * endpoint constants pinned to that file's values.
  */
 
-import { safeStorage, shell } from 'electron';
+import { shell } from 'electron';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
   PENDING_AUTHORIZATION_TTL_MS,
   PKCE_VERIFIER_LENGTH_BYTES,
@@ -37,12 +38,13 @@ import {
   type SubscriptionActionResult,
 } from '@maka/core';
 import {
-  serializeOAuthSubscriptionTokens,
+  refreshOAuthSubscriptionTokens,
 } from '@maka/runtime';
-import type { CredentialStore } from '@maka/storage';
 import {
-  tryDeleteSharedOAuthToken,
-  trySaveSharedOAuthToken,
+  deleteSharedOAuthTokens,
+  loadSharedOAuthTokens,
+  saveSharedOAuthTokens,
+  type SharedOAuthCredentialStore,
 } from './shared-credential-bridge.js';
 import {
   CODEX_OAUTH_CONFIG,
@@ -115,17 +117,19 @@ export interface OpenAiCodexServiceDeps {
   now?: () => number;
   /** fetch implementation. Defaults to global fetch (Node 18+). */
   fetchFn?: typeof fetch;
-  /** Shared workspace credential store used as a one-way export for pure-Node callers such as the CLI. */
-  credentialStore?: Pick<CredentialStore, 'setSecret' | 'deleteSecret'>;
+  /** Shared workspace credential store — the authoritative token store for every surface (#1125). */
+  credentialStore: SharedOAuthCredentialStore;
 }
 
 export class OpenAiCodexService {
-  private readonly tokenFilePath: string;
+  /** Pre-#1125 safeStorage-encrypted token file. Never written or read
+   *  anymore; unlinked on logout in case the startup import could not
+   *  run, so logout still means "no credential survives anywhere". */
+  private readonly legacyTokenFilePath: string;
   private readonly now: () => number;
   private readonly fetchFn: typeof fetch;
-  private readonly credentialStore?: Pick<CredentialStore, 'setSecret' | 'deleteSecret'>;
+  private readonly credentialStore: SharedOAuthCredentialStore;
 
-  private cachedTokens: PersistedTokens | null = null;
   private cachedClaims: AccountClaims | null = null;
   private pending: Map<string, PendingAuthorization> = new Map();
 
@@ -135,7 +139,7 @@ export class OpenAiCodexService {
   private refreshing = false;
 
   constructor(deps: OpenAiCodexServiceDeps) {
-    this.tokenFilePath = join(deps.userDataDir, '.codex_subscription_token');
+    this.legacyTokenFilePath = join(deps.userDataDir, '.codex_subscription_token');
     this.now = deps.now ?? (() => Date.now());
     this.fetchFn = deps.fetchFn ?? (globalThis.fetch as typeof fetch);
     this.credentialStore = deps.credentialStore;
@@ -254,7 +258,6 @@ export class OpenAiCodexService {
       }
       const tokens = await this.exchangeCodeForTokens(code, pending.verifier);
       await this.saveTokens(tokens);
-      this.cachedTokens = tokens;
       this.cachedClaims = extractAccountClaims(tokens.access_token, tokens.id_token);
       this.disposePending(authRequestId);
       this.authorizing = false;
@@ -321,10 +324,21 @@ export class OpenAiCodexService {
     if (!tokens) return { ok: false, reason: 'refresh_failed', message: '当前未登录。' };
     this.refreshing = true;
     try {
-      const next = await this.requestRefresh(tokens);
-      await this.saveTokens(next);
-      this.cachedTokens = next;
-      this.cachedClaims = extractAccountClaims(next.access_token, next.id_token);
+      const next = await refreshOAuthSubscriptionTokens({
+        providerType: 'openai-codex',
+        tokens,
+        now: this.now,
+        fetchFn: this.fetchFn,
+      });
+      const claims = extractAccountClaims(next.access_token, next.id_token);
+      await this.saveTokens({
+        access_token: next.access_token,
+        refresh_token: next.refresh_token,
+        id_token: next.id_token,
+        expires_at: next.expires_at,
+        account_id: claims.accountId || tokens.account_id,
+      });
+      this.cachedClaims = claims;
       this.lastRefreshFailedMessage = null;
       this.refreshing = false;
       return { ok: true };
@@ -337,32 +351,33 @@ export class OpenAiCodexService {
   }
 
   /**
-   * Logout: clear in-memory + delete token file. Local clear only;
-   * no remote revocation (auth.openai.com does not publicly expose
-   * an RFC 7009 endpoint we can rely on).
+   * Logout: clear in-memory state, delete the shared-store token (the
+   * authority) and any legacy safeStorage token file the startup
+   * import could not process. Local clear only; no remote revocation
+   * (auth.openai.com does not publicly expose an RFC 7009 endpoint we
+   * can rely on).
    */
   async logout(): Promise<SubscriptionActionResult> {
-    this.cachedTokens = null;
     this.cachedClaims = null;
     this.lastRefreshFailedMessage = null;
     this.lastStorageFailedMessage = null;
     for (const id of [...this.pending.keys()]) this.disposePending(id);
     this.authorizing = false;
-    let localDeleteFailed = false;
+    let legacyDeleteFailed = false;
     try {
-      await fs.unlink(this.tokenFilePath);
+      await fs.unlink(this.legacyTokenFilePath);
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT') {
-        localDeleteFailed = true;
+        legacyDeleteFailed = true;
       }
     }
-    const sharedDeleted = await tryDeleteSharedOAuthToken({
-      credentialStore: this.credentialStore,
-      slug: 'codex-subscription',
-    });
-    if (localDeleteFailed) return { ok: false, reason: 'storage_failed', message: '删除本地凭据失败，请手动清理。' };
-    if (!sharedDeleted) return { ok: false, reason: 'storage_failed', message: '删除共享凭据失败，请手动清理。' };
+    try {
+      await deleteSharedOAuthTokens(this.credentialStore, 'codex-subscription');
+    } catch {
+      return { ok: false, reason: 'storage_failed', message: '删除共享凭据失败，请手动清理。' };
+    }
+    if (legacyDeleteFailed) return { ok: false, reason: 'storage_failed', message: '删除本地遗留凭据失败，请手动清理。' };
     return { ok: true };
   }
 
@@ -537,91 +552,47 @@ export class OpenAiCodexService {
     };
   }
 
-  private async requestRefresh(tokens: PersistedTokens): Promise<PersistedTokens> {
-    const body = new URLSearchParams({
-      grant_type: 'refresh_token',
-      client_id: CODEX_CLIENT_ID,
-      refresh_token: tokens.refresh_token,
-    });
-    const response = await this.fetchFn(CODEX_TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': PLAIN_USER_AGENT,
-      },
-      body: body.toString(),
-    });
-    if (!response.ok) throw new Error(`Token refresh failed (${response.status}).`);
-    const payload = (await response.json()) as {
-      access_token: string;
-      refresh_token?: string;
-      id_token?: string;
-      expires_in: number;
-    };
-    const nextIdToken = payload.id_token ?? tokens.id_token;
-    const claims = extractAccountClaims(payload.access_token, nextIdToken);
-    return {
-      access_token: payload.access_token,
-      refresh_token: payload.refresh_token ?? tokens.refresh_token,
-      id_token: nextIdToken,
-      expires_at: this.now() + 1000 * payload.expires_in,
-      account_id: claims.accountId || tokens.account_id,
-    };
-  }
-
   private async saveTokens(tokens: PersistedTokens): Promise<void> {
-    const serialized = JSON.stringify(tokens);
-    const dir = dirname(this.tokenFilePath);
-    await fs.mkdir(dir, { recursive: true });
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new Error('safeStorage encryption is unavailable.');
+    try {
+      await saveSharedOAuthTokens(this.credentialStore, 'codex-subscription', tokens);
+    } catch (err) {
+      // Fail closed: a token we cannot persist for every surface is a
+      // storage failure, not a partial success.
+      this.lastStorageFailedMessage = '写入 Codex OAuth 共享凭据失败，请检查 credentials.json 权限后重试。';
+      throw err;
     }
-    const buffer = safeStorage.encryptString(serialized);
-    await fs.writeFile(this.tokenFilePath, buffer, { mode: 0o600 });
-    await fs.chmod(this.tokenFilePath, 0o600);
-    await this.trySaveSharedTokens(tokens);
     this.lastStorageFailedMessage = null;
   }
 
+  /**
+   * Always reads the shared store — no in-memory copy. Pure-Node
+   * surfaces refresh and rewrite the same entry, so caching here could
+   * hold a rotated-out refresh token.
+   */
   private async loadTokens(): Promise<PersistedTokens | null> {
-    if (this.cachedTokens) return this.cachedTokens;
-    let buffer: Buffer;
+    let result: Awaited<ReturnType<typeof loadSharedOAuthTokens>>;
     try {
-      buffer = await fs.readFile(this.tokenFilePath);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT') {
-        this.lastStorageFailedMessage = '读取 Codex OAuth 本地凭据失败，请检查文件权限或重新登录。';
-      }
-      return null;
-    }
-    if (!safeStorage.isEncryptionAvailable()) {
-      this.lastStorageFailedMessage = '系统 safeStorage 当前不可用，无法读取 Codex OAuth 本地凭据。';
-      return null;
-    }
-    try {
-      const decoded = safeStorage.decryptString(buffer);
-      const parsed = JSON.parse(decoded) as PersistedTokens;
-      this.cachedTokens = parsed;
-      this.lastStorageFailedMessage = null;
-      await this.trySaveSharedTokens(parsed);
-      return parsed;
+      result = await loadSharedOAuthTokens(this.credentialStore, 'codex-subscription');
     } catch {
-      // Token file exists but is unreadable (keychain rolled, file
-      // corrupted, JSON shape drifted). Delete it so the next login
-      // flow doesn't observe a stuck-corrupt state. Best-effort.
-      this.lastStorageFailedMessage = 'Codex OAuth 本地凭据无法解密，已清理损坏文件，请重新登录。';
-      try { await fs.unlink(this.tokenFilePath); } catch { /* best-effort */ }
+      this.lastStorageFailedMessage = '读取 Codex OAuth 共享凭据失败，请检查 credentials.json 或重新登录。';
       return null;
     }
-  }
-
-  private async trySaveSharedTokens(tokens: PersistedTokens): Promise<void> {
-    await trySaveSharedOAuthToken({
-      credentialStore: this.credentialStore,
-      slug: 'codex-subscription',
-      value: serializeOAuthSubscriptionTokens(tokens),
-    });
+    if (result.status === 'corrupt') {
+      // Entry existed but was not a token payload; the bridge deleted
+      // it so the next login doesn't observe a stuck-corrupt state.
+      this.lastStorageFailedMessage = 'Codex OAuth 共享凭据无法解析，已清理损坏条目，请重新登录。';
+      return null;
+    }
+    if (result.status === 'missing') return null;
+    this.lastStorageFailedMessage = null;
+    const tokens = result.tokens;
+    return {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      id_token: tokens.id_token,
+      expires_at: tokens.expires_at,
+      account_id: tokens.account_id ?? '',
+    };
   }
 
   private failureFromError(

@@ -105,17 +105,25 @@ export async function resolveOAuthSubscriptionTokens(
   return refreshed;
 }
 
-async function refreshOAuthSubscriptionTokens(input: {
+/**
+ * Provider-specific refresh request. Exported so the desktop services
+ * force-refresh through the same HTTP contract the pure-Node resolve
+ * path uses — one refresh implementation per provider, not two.
+ * Throws on a failed refresh; persistence is the caller's concern.
+ */
+export async function refreshOAuthSubscriptionTokens(input: {
   providerType: OAuthSubscriptionProvider;
   tokens: OAuthSubscriptionTokens;
-  now: () => number;
-  fetchFn: typeof fetch;
+  now?: () => number;
+  fetchFn?: typeof fetch;
 }): Promise<OAuthSubscriptionTokens> {
+  const now = input.now ?? (() => Date.now());
+  const fetchFn = input.fetchFn ?? fetch;
   switch (input.providerType) {
     case 'claude-subscription':
-      return refreshClaudeSubscriptionTokens(input.tokens, input.now, input.fetchFn);
+      return refreshClaudeSubscriptionTokens(input.tokens, now, fetchFn);
     case 'openai-codex':
-      return refreshOpenAiCodexTokens(input.tokens, input.now, input.fetchFn);
+      return refreshOpenAiCodexTokens(input.tokens, now, fetchFn);
     case 'github-copilot':
       return input.tokens;
   }

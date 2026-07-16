@@ -24,11 +24,6 @@ import type { CredentialStore } from '@maka/storage';
 
 export type SharedOAuthCredentialStore = Pick<CredentialStore, 'getSecret' | 'setSecret' | 'deleteSecret'>;
 
-/** @deprecated Transitional alias while services migrate to the store-authority API. */
-export type SharedOAuthCredentialSaveStore = Pick<CredentialStore, 'setSecret'>;
-/** @deprecated Transitional alias while services migrate to the store-authority API. */
-export type SharedOAuthCredentialDeleteStore = Pick<CredentialStore, 'deleteSecret'>;
-
 export type SharedOAuthTokensReadResult =
   | { status: 'ok'; tokens: OAuthSubscriptionTokens }
   | { status: 'missing' }
@@ -173,39 +168,4 @@ export async function importLegacyOAuthTokenFiles(input: {
     }
   }
   return reports;
-}
-
-// =============================================================
-// Transitional best-effort export helpers — deleted once every
-// service persists through the authoritative API above.
-// =============================================================
-
-export interface TrySaveSharedOAuthTokenInput {
-  credentialStore?: SharedOAuthCredentialSaveStore;
-  slug: string;
-  value: string;
-}
-
-export interface TryDeleteSharedOAuthTokenInput {
-  credentialStore?: SharedOAuthCredentialDeleteStore;
-  slug: string;
-}
-
-export async function trySaveSharedOAuthToken(input: TrySaveSharedOAuthTokenInput): Promise<boolean> {
-  try {
-    await input.credentialStore?.setSecret(input.slug, 'oauth_token', input.value);
-    return Boolean(input.credentialStore);
-  } catch {
-    return false;
-  }
-}
-
-export async function tryDeleteSharedOAuthToken(input: TryDeleteSharedOAuthTokenInput): Promise<boolean> {
-  if (!input.credentialStore) return true;
-  try {
-    await input.credentialStore.deleteSecret(input.slug, 'oauth_token');
-    return true;
-  } catch {
-    return false;
-  }
 }

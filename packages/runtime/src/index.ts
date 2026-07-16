@@ -485,6 +485,7 @@ export {
   extractOAuthSubscriptionAccessToken,
   isOAuthSubscriptionProvider,
   parseOAuthSubscriptionTokens,
+  refreshOAuthSubscriptionTokens,
   resolveOAuthSubscriptionAccessToken,
   resolveOAuthSubscriptionTokens,
   createGitHubCopilotAccountTokens,
