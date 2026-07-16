@@ -278,9 +278,11 @@ export function replaceTranscriptWithStoredMessages(
   state.pendingShellRunPolls.clear();
   state.expandAllTools = false;
   state.expandAllThinking = false;
-  // The old entries are gone; drop their recorded positions. viewportTop stays:
-  // whatever is on screen still came from the previous render until the next
-  // render replaces it.
+  // The old entries are gone; drop their recorded positions. viewportTop is
+  // left to the next layout render: when the replacement changes lines above
+  // it, pi-tui full-redraws and the layout's shadow diff resets the estimate
+  // to match; when the replacement is a pure truncation or identical content,
+  // pi-tui keeps its viewport and so does the estimate.
   state.renderGeometry.entryFirstLine = new Map();
   state.usage = { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 };
   // Queues are per-active-run; a switched/reset session has none pending.

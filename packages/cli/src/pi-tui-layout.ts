@@ -65,6 +65,11 @@ export class MakaPendingQueueComponent implements Component {
  * Once it overflows the padding is gone and the buffer grows past the viewport.
  */
 export class MakaPiLayoutComponent extends Container {
+  /** Composed lines of the previous render, for the viewport-top shadow diff. */
+  private previousLines: string[] | undefined;
+  private previousRows: number | undefined;
+  private previousWidth: number | undefined;
+
   constructor(
     private readonly state: MakaPiTranscriptState,
     private readonly transcript: MakaTranscriptComponent,
@@ -109,15 +114,40 @@ export class MakaPiLayoutComponent extends Container {
     ];
     // #1097: record where pi-tui's live viewport starts for this render, in
     // transcript-line coordinates (valid because the transcript opens this
-    // composed list at line 0). Monotonic max mirrors pi-tui, whose viewport
-    // never scrolls back up short of a full redraw. The expansion toggles use
-    // it to leave entries above the viewport untouched — their lines sit in
-    // scrollback, which cannot be rewritten without a scrollback-clearing
-    // full redraw.
-    this.state.renderGeometry.viewportTop = Math.max(
-      this.state.renderGeometry.viewportTop,
-      lines.length - this.terminal.rows,
-    );
+    // composed list at line 0). The expansion toggles use it to leave entries
+    // above the viewport untouched — their lines sit in scrollback, which
+    // cannot be rewritten without a scrollback-clearing full redraw.
+    //
+    // Shadow pi-tui's own viewport rule rather than guessing: its viewport
+    // never scrolls back up (monotonic max) except when it full-redraws and
+    // re-anchors to the document tail. It full-redraws exactly when the
+    // terminal width or height changed, when a line above the current
+    // viewport top changed (wholesale replacement), or when the document
+    // shrank below the viewport top (deep rewind) — those cases reset the
+    // estimate; anything else (appends, in-viewport edits, shallow
+    // truncation) keeps it monotonic.
+    this.state.renderGeometry.viewportTop = this.nextViewportTop(lines, width);
+    this.previousLines = lines;
+    this.previousRows = this.terminal.rows;
+    this.previousWidth = width;
     return lines;
+  }
+
+  private nextViewportTop(lines: string[], width: number): number {
+    const tailTop = Math.max(0, lines.length - this.terminal.rows);
+    if (
+      this.previousLines === undefined
+      || this.previousRows !== this.terminal.rows
+      || this.previousWidth !== width
+    ) {
+      return tailTop;
+    }
+    const current = this.state.renderGeometry.viewportTop;
+    if (lines.length < current) return tailTop;
+    const overlap = Math.min(this.previousLines.length, lines.length, current);
+    for (let i = 0; i < overlap; i += 1) {
+      if (this.previousLines[i] !== lines[i]) return tailTop;
+    }
+    return Math.max(current, tailTop);
   }
 }
