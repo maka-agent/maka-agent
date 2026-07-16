@@ -65,6 +65,11 @@ export interface HarborCellExecutionIdentity {
   pricingProfile: string;
 }
 
+export interface HarborCellDeadlineSettlement {
+  source: 'benchmark.deadline';
+  mode: 'immediate';
+}
+
 export interface HarborCellContinuationSummary {
   enabled: boolean;
   maxTurns: number;
@@ -102,6 +107,7 @@ export interface HarborCellOutput {
   runtimeEventsPath: string;
   promptHash?: string;
   executionIdentity?: HarborCellExecutionIdentity;
+  deadlineSettlement?: HarborCellDeadlineSettlement;
   tokenSummary?: HarborCellTokenSummary;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
@@ -119,6 +125,7 @@ export function buildHarborCellOutput(input: {
   invocation: InvocationResult;
   runtimeEventsPath: string;
   executionIdentity?: HarborCellExecutionIdentity;
+  deadlineSettlement?: HarborCellDeadlineSettlement;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   continuationSummary?: HarborCellContinuationSummary;
   taskToolSummaryEnabled?: boolean;
@@ -132,6 +139,7 @@ export function buildHarborCellOutput(input: {
     runtimeEventsPath: input.runtimeEventsPath,
     ...promptHashField(invocation.events),
     ...(input.executionIdentity ? { executionIdentity: input.executionIdentity } : {}),
+    ...(input.deadlineSettlement ? { deadlineSettlement: input.deadlineSettlement } : {}),
     ...(tokenSummary ? { tokenSummary } : {}),
     ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
     ...contextBudgetSummaryField(invocation.events),
@@ -190,6 +198,9 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
   const executionIdentity = 'executionIdentity' in value
     ? validateHarborCellExecutionIdentity(value.executionIdentity)
     : undefined;
+  const deadlineSettlement = 'deadlineSettlement' in value
+    ? validateHarborCellDeadlineSettlement(value.deadlineSettlement)
+    : undefined;
   const tokenSummary = 'tokenSummary' in value
     ? validateHarborCellTokenSummary(value.tokenSummary)
     : undefined;
@@ -218,6 +229,7 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
     runtimeEventsPath,
     ...(promptHash !== undefined ? { promptHash } : {}),
     ...(executionIdentity !== undefined ? { executionIdentity } : {}),
+    ...(deadlineSettlement !== undefined ? { deadlineSettlement } : {}),
     ...(tokenSummary ? { tokenSummary } : {}),
     ...(contextBudgetPolicy !== undefined ? { contextBudgetPolicy } : {}),
     ...(contextBudgetSummary !== undefined ? { contextBudgetSummary } : {}),
@@ -231,6 +243,14 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
     runtimeRefs,
   };
   return output;
+}
+
+function validateHarborCellDeadlineSettlement(value: unknown): HarborCellDeadlineSettlement {
+  if (!isRecord(value)) throw new Error('deadlineSettlement must be a JSON object');
+  return {
+    source: requireStringUnion(value.source, 'deadlineSettlement.source', ['benchmark.deadline'] as const),
+    mode: requireStringUnion(value.mode, 'deadlineSettlement.mode', ['immediate'] as const),
+  };
 }
 
 export function validateHarborCellExecutionIdentity(value: unknown): HarborCellExecutionIdentity {

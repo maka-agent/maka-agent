@@ -164,6 +164,48 @@ class DeadlineSettlingBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
+class NonCooperativeDeadlineBackend implements AgentBackend {
+  readonly sessionId: string;
+  readonly stopModes: BackendStopMode[] = [];
+  private releaseStop!: () => void;
+  private readonly stopped = new Promise<void>((resolve) => {
+    this.releaseStop = resolve;
+  });
+  private readonly fallback: NodeJS.Timeout;
+
+  constructor(sessionId: string, readonly kind: BackendKind = 'fake', fallbackAfterMs = 500) {
+    this.sessionId = sessionId;
+    this.fallback = setTimeout(() => this.releaseStop(), fallbackAfterMs);
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const ts = Date.now();
+    yield {
+      type: 'token_usage',
+      id: 'usage-before-forced-deadline',
+      turnId: input.turnId,
+      ts,
+      input: 13,
+      output: 5,
+      total: 18,
+      costUsd: 0.004,
+    };
+    await this.stopped;
+    yield { type: 'abort', id: 'forced-deadline-abort', turnId: input.turnId, ts: Date.now(), reason: 'user_stop' };
+    yield { type: 'complete', id: 'forced-deadline-complete', turnId: input.turnId, ts: Date.now(), stopReason: 'user_stop' };
+  }
+
+  async stop(_reason: 'user_stop' | 'redirect', mode: BackendStopMode = 'immediate'): Promise<void> {
+    this.stopModes.push(mode);
+    if (mode !== 'immediate') return;
+    clearTimeout(this.fallback);
+    this.releaseStop();
+  }
+
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
 class TerminalClaimBeforeDeadlineBackend implements AgentBackend {
   readonly kind = 'fake' as const;
   readonly sessionId: string;
@@ -568,7 +610,39 @@ describe('runHarborCell', () => {
       }), 10_000, 'Harbor cell did not settle before the hard deadline');
 
       assert.equal(result.settledByDeadline, true);
-      assert.deepEqual(backend?.stopModes, ['after_step']);
+      assert.deepEqual(backend?.stopModes, ['immediate']);
+      assert.equal(result.output.tokenSummary?.total, 18);
+      assert.deepEqual(result.output.deadlineSettlement, {
+        source: 'benchmark.deadline',
+        mode: 'immediate',
+      });
+      assert.deepEqual(
+        JSON.parse(await readFile(join(outputDir, HARBOR_CELL_OUTPUT_FILENAME), 'utf8')),
+        result.output,
+      );
+    });
+  });
+
+  test('force-stops a non-cooperative active step and writes final usage before the hard deadline', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      let backend: NonCooperativeDeadlineBackend | undefined;
+      const result = await withTimeout(runHarborCell({
+        config,
+        instruction: 'keep working until force-stopped',
+        cwd: workspaceDir,
+        outputDir,
+        storageRoot,
+        settleAfterMs: 20,
+        registerBackends: (registry) => {
+          registry.register('fake', (ctx) => {
+            backend = new NonCooperativeDeadlineBackend(ctx.sessionId);
+            return backend;
+          });
+        },
+      }), 250, 'Harbor cell did not force-stop before the hard deadline');
+
+      assert.equal(result.settledByDeadline, true);
+      assert.deepEqual(backend?.stopModes, ['immediate']);
       assert.equal(result.output.tokenSummary?.total, 18);
       assert.deepEqual(
         JSON.parse(await readFile(join(outputDir, HARBOR_CELL_OUTPUT_FILENAME), 'utf8')),
@@ -1310,7 +1384,7 @@ describe('runHarborCell', () => {
     });
   });
 
-  test('host-side Harbor cell returns after settling at its soft deadline', async () => {
+  test('host-side Harbor cell force-stops a non-cooperative step at its soft deadline', async () => {
     const { main } = await import(new URL('../../harbor/run-host-cell.mjs', import.meta.url).href) as {
       main: (options?: { registerBackends?: (registry: BackendRegistry) => void }) => Promise<unknown>;
     };
@@ -1329,13 +1403,17 @@ describe('runHarborCell', () => {
         process.env.MAKA_CELL_SOFT_TIMEOUT_MS = '1000';
         const result = await withTimeout(main({
           registerBackends: (registry) => {
-            registry.register('ai-sdk', (ctx) => new DeadlineSettlingBackend(ctx.sessionId, 'ai-sdk'));
+            registry.register('ai-sdk', (ctx) => new NonCooperativeDeadlineBackend(ctx.sessionId, 'ai-sdk', 2_000));
           },
         }), 10_000, 'host cell did not honor its soft deadline');
 
         assert.equal(Reflect.get(result as object, 'settledByDeadline'), true);
         const output = JSON.parse(await readFile(join(outputDir, HARBOR_CELL_OUTPUT_FILENAME), 'utf8'));
         assert.equal(output.tokenSummary.total, 18);
+        assert.deepEqual(output.deadlineSettlement, {
+          source: 'benchmark.deadline',
+          mode: 'immediate',
+        });
       } finally {
         process.env = previousEnv;
       }
