@@ -6,7 +6,7 @@
 // Arrow/Enter/Esc navigation is local to the input, focus trap + restore +
 // Esc-dismiss come from DialogRoot/DialogContent (#520 PR7).
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Blocks,
   CalendarDays,
@@ -76,7 +76,12 @@ export function useCommandPalette(): [boolean, () => void, () => void] {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  return [open, () => setOpen(true), () => setOpen(false)];
+  // Stable open/close identities: callers feed these into memoized callback
+  // chains (the palette's command pipeline), so fresh closures per render
+  // would churn every memo downstream for no state change.
+  const openPalette = useCallback(() => setOpen(true), []);
+  const closePalette = useCallback(() => setOpen(false), []);
+  return [open, openPalette, closePalette];
 }
 
 /**

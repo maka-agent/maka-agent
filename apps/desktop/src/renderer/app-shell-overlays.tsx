@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useRef } from 'react';
 import type {
   LlmConnection,
   SettingsSection,
@@ -94,6 +94,28 @@ export function AppShellOverlays(props: {
     themePref,
   } = props;
 
+  /* #1045: keep the palette's command list identity stable while it is open.
+   * app-shell rebuilds commandOptions on every render (streaming ticks
+   * included), which used to rebuild the whole command list per render and
+   * bust every memo inside CommandPalette. The palette is modal, so its
+   * visible inputs cannot change from user action while it is open — rebuild
+   * only on the open/close transition, reading the latest options snapshot
+   * through a ref (same stable-ref pattern as openSessionInChatRef in
+   * app-shell.tsx). */
+  const commandOptionsRef = useRef(commandOptions);
+  commandOptionsRef.current = commandOptions;
+  const commands = useMemo(
+    () => buildAppShellCommandList(commandOptionsRef.current),
+    [paletteOpen],
+  );
+  const openSearchModal = useCallback(
+    (query: string) => {
+      closePalette();
+      paletteOnOpenSearchModal(query);
+    },
+    [closePalette, paletteOnOpenSearchModal],
+  );
+
   return (
     <>
       {settingsOpen && (
@@ -130,11 +152,8 @@ export function AppShellOverlays(props: {
         <CommandPalette
           onClose={closePalette}
           onSelectSession={paletteOnSelectSession}
-          onOpenSearchModal={(query) => {
-            closePalette();
-            paletteOnOpenSearchModal(query);
-          }}
-          commands={buildAppShellCommandList(commandOptions)}
+          onOpenSearchModal={openSearchModal}
+          commands={commands}
         />
       )}
     </>
