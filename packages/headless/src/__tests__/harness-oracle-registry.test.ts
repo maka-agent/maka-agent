@@ -126,6 +126,38 @@ describe('harness Oracle evidence registry', () => {
     assert.deepEqual(plan.reusedEntries.map((entry) => entry.taskId), ['a']);
   });
 
+  test('rejects registry entries outside the planned task set', async () => {
+    const auditTask = (taskId: string) => ({
+      task: { id: taskId, path: `/tasks/${taskId}` },
+      identity: {
+        taskFingerprint: `sha256:task-${taskId}`,
+        executionPolicyFingerprint: 'sha256:verifier',
+        environmentFingerprint: 'sha256:environment',
+      },
+    });
+    const provenance = oracleExecutionProvenance('123');
+    const planned = [auditTask('a')];
+    const baseline = await auditHarnessOracleRegistry({
+      tasks: planned,
+      provenance,
+      runOracle: async () => ({ outcome: 'passed', reward: 1, attempts: 1 }),
+    });
+    const extra = await auditHarnessOracleRegistry({
+      tasks: [auditTask('b')],
+      provenance,
+      runOracle: async () => ({ outcome: 'passed', reward: 1, attempts: 1 }),
+    });
+
+    assert.throws(
+      () => buildHarnessOracleRegistrySnapshot({
+        tasks: planned.map(({ task, identity }) => ({ taskId: task.id, identity })),
+        entries: [...baseline.snapshot.entries, ...extra.snapshot.entries],
+        provenance,
+      }),
+      /exactly one matching entry per task/,
+    );
+  });
+
   test('rejects a tampered snapshot before reusing its entries', async () => {
     const tasks = [{
       task: { id: 'a', path: '/tasks/a' },

@@ -182,6 +182,7 @@ export function buildHarnessOracleRegistrySnapshot(
   const entries = input.tasks.map(({ taskId }) => entriesByTaskId.get(taskId));
   if (
     new Set(taskIds).size !== taskIds.length
+    || input.entries.length !== taskIds.length
     || entriesByTaskId.size !== input.entries.length
     || entries.some((entry, index) => (
       !entry

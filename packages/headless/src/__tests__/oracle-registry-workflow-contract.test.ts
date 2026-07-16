@@ -35,7 +35,9 @@ test('Oracle task evidence records the workflow and observed runner runtime', as
       GITHUB_RUN_ID: '456',
       GITHUB_RUN_ATTEMPT: '2',
     },
-    readToolVersion: async (command: string, args: string[]) => `${command} ${args.join(' ')}`,
+    readToolVersion: async (command: string, args: string[]) => (
+      command === 'harbor' ? `harbor ${HARBOR_ORACLE_VERSION}` : `${command} ${args.join(' ')}`
+    ),
   });
 
   assert.deepEqual(provenance, {
@@ -47,9 +49,31 @@ test('Oracle task evidence records the workflow and observed runner runtime', as
     runAttempt: '2',
     runtime: {
       nodeVersion: process.version,
-      harborVersion: 'harbor --version',
+      harborVersion: `harbor ${HARBOR_ORACLE_VERSION}`,
       dockerVersion: 'docker --version',
       dockerBuildxVersion: 'docker buildx version',
     },
   });
+});
+
+test('Oracle task evidence rejects a Harbor runtime outside the controlled policy', async () => {
+  const { workflowExecutionProvenance } = await import(
+    new URL('../../harbor/run-oracle-registry-audit.mjs', import.meta.url).href
+  );
+
+  await assert.rejects(
+    workflowExecutionProvenance({
+      env: {
+        GITHUB_REPOSITORY: 'maka-agent/maka-agent',
+        GITHUB_WORKFLOW: 'Oracle evidence audit',
+        GITHUB_SHA: 'abc123',
+        GITHUB_RUN_ID: '456',
+        GITHUB_RUN_ATTEMPT: '2',
+      },
+      readToolVersion: async (command: string) => (
+        command === 'harbor' ? 'harbor 0.14.0' : `${command} test-version`
+      ),
+    }),
+    /Harbor runtime does not match controlled Oracle policy/,
+  );
 });

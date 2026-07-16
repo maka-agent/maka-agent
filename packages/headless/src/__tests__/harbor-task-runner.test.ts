@@ -12,6 +12,7 @@ import {
   createHarborTaskRunner,
   HarborInfraError,
   type HarborProcessRunner,
+  type HarborRunRequest,
   type HarborRunResult,
 } from '../harbor-task-runner.js';
 import { HARBOR_ORACLE_EXECUTION_POLICY } from '../harness-oracle-policy.js';
@@ -74,13 +75,16 @@ interface FakeOptions {
   verifierStdout?: string;
   verifierOutcome?: Record<string, unknown> | null;
   trialResult?: Record<string, unknown>;
-  captured?: { config?: Record<string, unknown> };
+  captured?: { config?: Record<string, unknown>; request?: HarborRunRequest };
 }
 
 function fakeRunner(opts: FakeOptions): HarborProcessRunner {
   return async (request): Promise<HarborRunResult> => {
     const config = JSON.parse(await readFile(request.configPath, 'utf8')) as Record<string, unknown>;
-    if (opts.captured) opts.captured.config = config;
+    if (opts.captured) {
+      opts.captured.config = config;
+      opts.captured.request = request;
+    }
     if (opts.exitCode && opts.exitCode !== 0) {
       return { exitCode: opts.exitCode, stdout: '', stderr: 'container build failed' };
     }
@@ -1012,6 +1016,10 @@ describe('createHarborOracleQualifier', () => {
         (config.environment as Record<string, unknown>).delete,
         HARBOR_ORACLE_EXECUTION_POLICY.environment.delete,
       );
+      assert.deepEqual(
+        (config.environment as Record<string, unknown>).extra_docker_compose,
+        [join(repo, 'packages/headless/harbor', HARBOR_ORACLE_EXECUTION_POLICY.environment.composeFile)],
+      );
       assert.equal(verifier.import_path, 'maka_verifier:MakaVerifier');
       assert.equal(
         (verifier.kwargs as Record<string, unknown>).attempt_timeout_sec,
@@ -1020,6 +1028,10 @@ describe('createHarborOracleQualifier', () => {
       assert.equal(
         (verifier.kwargs as Record<string, unknown>).max_attempts,
         HARBOR_ORACLE_EXECUTION_POLICY.verifier.maxAttempts,
+      );
+      assert.equal(
+        captured.request?.timeoutMs,
+        HARBOR_ORACLE_EXECUTION_POLICY.watchdog.minimumSec * 1_000,
       );
     });
   });

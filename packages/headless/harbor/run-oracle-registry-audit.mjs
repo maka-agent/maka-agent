@@ -15,6 +15,7 @@ import {
 } from '#harbor-task-runner';
 import {
   buildHarnessOracleExecutionPolicyFingerprint,
+  HARBOR_ORACLE_EXECUTION_POLICY,
   HARBOR_ORACLE_DOCKER_PLATFORM,
 } from '#harness-oracle-policy';
 import {
@@ -135,7 +136,11 @@ async function mergeCommand(args) {
 async function currentAuditTasks(repoRoot, tasks) {
   const [verifierImplementationSource, composeImplementationSource] = await Promise.all([
     readFile(join(repoRoot, 'packages/headless/harbor/maka_verifier.py')),
-    readFile(join(repoRoot, 'packages/headless/harbor/docker-compose-linux-amd64.yaml')),
+    readFile(join(
+      repoRoot,
+      'packages/headless/harbor',
+      HARBOR_ORACLE_EXECUTION_POLICY.environment.composeFile,
+    )),
   ]);
   const executionPolicyFingerprint = buildHarnessOracleExecutionPolicyFingerprint({
     verifierImplementationSource,
@@ -217,6 +222,13 @@ export async function workflowExecutionProvenance({
     readToolVersion('docker', ['--version']),
     readToolVersion('docker', ['buildx', 'version']),
   ]);
+  const expectedHarborVersion = HARBOR_ORACLE_EXECUTION_POLICY.harborVersion;
+  const escapedHarborVersion = expectedHarborVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!new RegExp(`(^|[^0-9.])${escapedHarborVersion}([^0-9.]|$)`).test(harborVersion)) {
+    throw new Error(
+      `Harbor runtime does not match controlled Oracle policy ${expectedHarborVersion}: ${harborVersion}`,
+    );
+  }
   return {
     ...workflowProvenance(env),
     runtime: {

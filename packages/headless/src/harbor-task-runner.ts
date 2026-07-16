@@ -24,6 +24,7 @@ import {
 import {
   HARBOR_ORACLE_EXECUTION_POLICY,
   HARBOR_ORACLE_MAX_ATTEMPTS,
+  resolveHarnessOracleWatchdogTimeoutMs,
   type HarnessOracleTaskResult,
 } from './harness-oracle-policy.js';
 import { startProviderAuthProxy } from './provider-auth-proxy.js';
@@ -144,7 +145,6 @@ export interface HarborOracleQualifierOptions {
   makaRepoPath: string;
   jobsDir: string;
   harborBin?: string;
-  harborTimeoutMs?: number;
   runHarbor?: HarborProcessRunner;
 }
 
@@ -321,7 +321,11 @@ export function createHarborOracleQualifier(options: HarborOracleQualifierOption
         type: HARBOR_ORACLE_EXECUTION_POLICY.environment.type,
         force_build: HARBOR_ORACLE_EXECUTION_POLICY.environment.forceBuild,
         delete: HARBOR_ORACLE_EXECUTION_POLICY.environment.delete,
-        extra_docker_compose: [join(options.makaRepoPath, 'packages/headless/harbor/docker-compose-linux-amd64.yaml')],
+        extra_docker_compose: [join(
+          options.makaRepoPath,
+          'packages/headless/harbor',
+          HARBOR_ORACLE_EXECUTION_POLICY.environment.composeFile,
+        )],
       },
       verifier: harborVerifierConfig(verifier),
       metrics: [{ type: 'mean', kwargs: {} }],
@@ -342,9 +346,10 @@ export function createHarborOracleQualifier(options: HarborOracleQualifierOption
       jobsDir,
       args: ['run', '--config', configPath, '--yes'],
       cwd: options.makaRepoPath,
-      timeoutMs: options.harborTimeoutMs ?? resolveNativeHarborTimeoutMs({
-        timeoutMultiplier: HARBOR_ORACLE_EXECUTION_POLICY.job.timeoutMultiplier,
-      }, task),
+      timeoutMs: resolveHarnessOracleWatchdogTimeoutMs({
+        agentTimeoutSec: task.metadata?.agentTimeoutSec ?? 0,
+        verifierTimeoutSec: verifier.outerTimeoutSec,
+      }),
       env: { PYTHONPATH: pythonPath },
     });
     if (result.timedOut) {
