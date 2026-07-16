@@ -191,6 +191,43 @@ describe('AiSdkBackend model history', () => {
     ]);
   });
 
+  test('stored-message fallback skips empty assistant texts', async () => {
+    // A thinking/tool-only step projects an assistant row with empty text.
+    // The degraded stored-message path must not replay it: an empty text
+    // content block is a hard 400 on Anthropic-protocol providers, which
+    // permanently blocks every later turn of the session.
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [
+        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+        { type: 'assistant', id: 'projection-empty', turnId: 'turn-prev', ts: 2, text: '', modelId: 'm' },
+        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 3, text: 'projection assistant', modelId: 'm' },
+      ],
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'projection user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'projection assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'current user' }] },
+    ]);
+  });
+
   test('stored-message fallback keeps placeholder text when no reader is wired', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
