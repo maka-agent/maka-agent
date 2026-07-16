@@ -23,7 +23,10 @@
   background: transparent;
   color: var(--foreground-secondary);
   padding: 0 var(--space-2);
-  font-size: var(--font-size-caption);
+  /* ui tier, not caption: this is an interactive control, and per the
+     #546 type scale controls sit on the 13px chrome tier. The caption
+     size was a leftover from the recipe's settings-page origin. */
+  font-size: var(--font-size-ui);
   font-weight: var(--font-weight-medium);
   transition:
     background-color var(--duration-quick) var(--ease-out-strong),

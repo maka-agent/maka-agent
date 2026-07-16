@@ -69,6 +69,11 @@ describe('sidebar project view mode', () => {
     assert.match(css, /\.maka-segmented button\[data-pressed\]/);
     assert.doesNotMatch(css, /\.settingsSegmented/);
 
+    // Type tier: an interactive control sits on the 13px ui/chrome tier,
+    // not the caption meta tier (leftover from the settings-page origin).
+    const buttonRule = css.match(/\.maka-segmented button\s*\{[^}]*\}/)?.[0] ?? '';
+    assert.match(buttonRule, /font-size:\s*var\(--font-size-ui\)/);
+
     const botCss = await readRepo('apps/desktop/src/renderer/styles/settings/bot.css');
     assert.doesNotMatch(botCss, /\.maka-segmented\s*\{/, 'segmented recipe must not move back into a settings subpage file');
   });
