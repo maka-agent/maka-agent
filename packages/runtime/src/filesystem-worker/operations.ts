@@ -7,6 +7,7 @@ import { additionalPermissionAllowsPath } from '@maka/core/additional-permission
 
 import { hashAdditionalPermissionProfile } from '../additional-permission-hash.js';
 import { computeEditedSource } from '../edit-replace.js';
+import { isSupportedImagePath, readWorkspaceImage } from '../image-file.js';
 import {
   FILESYSTEM_WORKER_PROTOCOL_VERSION,
   type FilesystemWorkerErrorCode,
@@ -79,6 +80,14 @@ export async function executeFilesystemOperation(
   switch (operation.kind) {
     case 'read': {
       const path = await resolveExistingAllowed(operation.cwd, operation.path, 'Read', 'read', operationPermission);
+      if (isSupportedImagePath(path)) {
+        try {
+          const image = await readWorkspaceImage(path);
+          return { kind: 'read_image', base64: Buffer.from(image.bytes).toString('base64'), mimeType: image.mimeType };
+        } catch (error) {
+          throw operationError('filesystem_error', error instanceof Error ? error.message : 'Image could not be read.');
+        }
+      }
       const content = await fs.readFile(path, 'utf8');
       if (operation.offset === undefined && operation.limit === undefined) return { kind: 'read', content };
       const lines = content.split('\n');

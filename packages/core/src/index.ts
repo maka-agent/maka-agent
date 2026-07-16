@@ -1327,4 +1327,15 @@ export {
 } from './expert-team.js';
 
 // attachments.ts
-export { attachmentKindFromMimeType, guessMimeFromName, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from './attachments.js';
+export {
+  attachmentKindFromMimeType,
+  guessMimeFromName,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENT_COUNT,
+  MAX_READ_IMAGE_BYTES,
+  MAX_MODEL_IMAGE_EDGE,
+  READ_IMAGE_TOO_LARGE_MESSAGE,
+  MAX_PROVIDER_IMAGE_REQUEST_BYTES,
+  PROVIDER_IMAGE_BUDGET_EXCEEDED_MESSAGE,
+} from './attachments.js';
+export type { AttachmentByteReader } from './attachments.js';

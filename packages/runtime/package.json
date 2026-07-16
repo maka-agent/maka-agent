@@ -67,6 +67,7 @@
     "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/headless": "^6.0.0",
     "ai": "^6.0.185",
+    "image-dimensions": "^2.5.1",
     "node-pty": "^1.2.0-beta.14",
     "qrcode": "^1.5.4",
     "socks": "^2.8.9",

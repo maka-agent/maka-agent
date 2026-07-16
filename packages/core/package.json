@@ -24,6 +24,7 @@
     "./user-question": "./dist/user-question.js",
     "./connections": "./dist/connections.js",
     "./workspace": "./dist/workspace.js",
+    "./attachments": "./dist/attachments.js",
     "./artifacts": "./dist/artifacts.js",
     "./runtime-inputs": "./dist/runtime-inputs.js",
     "./visual-smoke": "./dist/visual-smoke.js",

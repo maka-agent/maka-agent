@@ -82,7 +82,9 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 import {
   createAgentRunStore,
   createAgentMailboxStore,
+  createAttachmentByteReader,
   createArtifactStore,
+  createReadImageSnapshotter,
   createConnectionStore,
   createPlanReminderStore,
   createRuntimeEventStore,
@@ -116,7 +118,6 @@ import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
 import { createAttachmentApprovalRegistry } from './attachment-approval.js';
-import { createAttachmentByteReader } from './attachment-reader.js';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
@@ -253,6 +254,7 @@ const settingsStore = createSettingsStore(workspaceRoot);
 const telemetryRepo = createTelemetryRepo(workspaceRoot);
 const dailyReviewArchiveStore = createDailyReviewArchiveStore(workspaceRoot);
 const artifactStore = createArtifactStore(workspaceRoot);
+const storeReadImage = createReadImageSnapshotter(artifactStore);
 const attachmentApprovals = createAttachmentApprovalRegistry();
 const credentialStore = createFileCredentialStore(workspaceRoot);
 // PR-OAUTH-SUBSCRIPTION-0: Claude subscription OAuth service.
@@ -710,6 +712,7 @@ const builtinTools: MakaTool[] = [
     runtimeResources: shellRuns,
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
+    snapshotImage: snapshotReadImage,
     ...(sandboxManager ? { sandboxManager } : {}),
     ...(filesystemWorker ? {
       filesystemWorker,
@@ -748,6 +751,7 @@ const builtinTools: MakaTool[] = [
 // maka://runtime/background-tasks/<id> are not part of their tool surface.
 const childAgentTools = buildChildAgentTools([
   ...buildBuiltinTools({
+    snapshotImage: snapshotReadImage,
     ...(sandboxManager ? { sandboxManager } : {}),
     ...(filesystemWorker ? {
       filesystemWorker,
@@ -861,6 +865,23 @@ async function persistToolArtifacts(cwd: string, event: ToolArtifactRecorderInpu
       ts: Date.now(),
     });
   }
+}
+
+async function snapshotReadImage(input: {
+  sessionId: string;
+  turnId: string;
+  name: string;
+  bytes: Uint8Array;
+  mimeType: string;
+}) {
+  const ref = await storeReadImage(input);
+  safeSendToRenderer('artifacts:changed', {
+    reason: 'created',
+    artifactId: ref.relativePath,
+    sessionId: ref.sessionId,
+    ts: Date.now(),
+  });
+  return ref;
 }
 
 async function persistArchivedToolResult(

@@ -76,7 +76,7 @@ describe('Maka CLI runtime bootstrap', () => {
         defaultModel: 'selected-model',
       });
       await connectionStore.update('selected-local', {
-        models: [{ id: 'requested-model' }],
+        models: [{ id: 'requested-model', capabilities: { vision: true } }],
       });
       const observed: unknown[] = [];
       const observer = (result: unknown): void => { observed.push(result); };
@@ -117,6 +117,8 @@ describe('Maka CLI runtime bootstrap', () => {
 
         assert.equal(backendInput.maxSteps, 3);
         assert.equal(backendInput.permissionRules, permissionRules);
+        assert.equal(backendInput.supportsVision, true);
+        assert.equal(typeof backendInput.readAttachmentBytes, 'function');
         assert.equal(runtimeDeps.runtimeInvocationObserver, observer);
         assert.deepEqual(observed, []);
       } finally {

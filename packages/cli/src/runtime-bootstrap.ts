@@ -37,16 +37,19 @@ import {
 } from '@maka/runtime';
 import {
   createAgentRunStore,
+  createAttachmentByteReader,
   createArtifactStore,
   createAutomationStore,
   createConnectionStore,
   createFileCredentialStore,
+  createReadImageSnapshotter,
   createRuntimeEventStore,
   createSessionStore,
   createSettingsStore,
   createShellRunStore,
 } from '@maka/storage';
 import type { ToolPermissionRule } from '@maka/core/permission';
+import { resolveModelVisionSupport } from '@maka/core';
 import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
 import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
 import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
@@ -166,6 +169,7 @@ export async function createMakaCliRuntimeContext(
     runtimeResources: shellRuns,
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
+    snapshotImage: createReadImageSnapshotter(artifactStore),
     ...(sandboxManager ? { sandboxManager } : {}),
     ...(filesystemWorker ? {
       filesystemWorker,
@@ -339,6 +343,12 @@ export async function createMakaCliRuntimeContext(
         name: 'cli-default-history-budget',
         modelId: ready.model,
       }),
+      supportsVision: resolveModelVisionSupport(
+        ready.connection.providerType,
+        ready.connection.models,
+        ready.model,
+      ),
+      readAttachmentBytes: createAttachmentByteReader({ artifactStore, sessionId: ctx.sessionId }),
       loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
       loadHistoryCompactCheckpoint: ctx.loadHistoryCompactCheckpoint,
       summarizeHistoryCompact: buildLlmHistorySummarizer({

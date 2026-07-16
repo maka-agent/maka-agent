@@ -68,6 +68,11 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
+import type { AttachmentByteReader } from '@maka/core/attachments';
+import {
+  MAX_PROVIDER_IMAGE_REQUEST_BYTES,
+  PROVIDER_IMAGE_BUDGET_EXCEEDED_MESSAGE,
+} from '@maka/core';
 import type {
   LlmCallRecord,
   PricingConfig,
@@ -96,6 +101,7 @@ import {
   type MakaTool,
   type MakaToolContext,
   type AgentTeamExecutionContext,
+  type ToolModelOutput,
 } from './tool-runtime.js';
 import {
   ModelAdapter,
@@ -693,13 +699,6 @@ export type HistoryCompactCheckpointRecorder = (checkpoint: HistoryCompactCheckp
 export type ActiveFullCompactBlockRecorder = (block: ActiveFullCompactBlock) => void | Promise<void>;
 export type SemanticCompactBlockRecorder = (block: SemanticCompactBlock) => void | Promise<void>;
 
-/** Reads attachment bytes for a StorageRef. Injected by the caller (wired to the
- * session ArtifactStore); runtime itself never imports @maka/storage, so this
- * is the seam through which image attachments become provider image parts. */
-export type AttachmentByteReader = (
-  ref: StorageRef,
-) => Promise<{ ok: true; bytes: Uint8Array } | { ok: false; reason: string }>;
-
 export interface AiSdkBackendInput {
   // ── Session context ────────────────────────────────────────────────────
   sessionId: string;
@@ -795,6 +794,7 @@ export interface AiSdkBackendInput {
    * image parts; false/unknown stay as text refs with a fallback note.
    */
   supportsVision?: boolean;
+  maxProviderImageRequestBytes?: number;
   /**
    * Optional archive writer for replay-only stale tool-result pruning. The
    * runtime rewrites only candidates whose original body has been durably
@@ -850,6 +850,19 @@ function appendNonVisionImageFallbackNotice(textContent: string): string {
   return `${textContent}\n\n[image attachments omitted: the selected model does not support image input. Tell the user you cannot view the attached image(s) and ask them to describe the image or switch to a vision-capable model.]`;
 }
 
+function isImageToolResult(value: unknown): value is { kind: 'image'; mimeType: string; ref: StorageRef } {
+  if (!value || typeof value !== 'object') return false;
+  const image = value as { kind?: unknown; mimeType?: unknown; ref?: unknown };
+  return image.kind === 'image'
+    && typeof image.mimeType === 'string'
+    && image.ref !== null
+    && typeof image.ref === 'object';
+}
+
+function toolResultText(text: string): ToolModelOutput {
+  return { type: 'content', value: [{ type: 'text', text }] };
+}
+
 // ============================================================================
 // Implementation
 // ============================================================================
@@ -885,6 +898,7 @@ export class AiSdkBackend implements AgentBackend {
    */
   private injectedSteeringMessages: ModelMessage[] = [];
   private currentRunId: string | null = null;
+  private imageRequestBudget: { used: number; decisions: Map<string, boolean> } | null = null;
   /** Side-channel for tool.execute() callbacks to push events into the iterator. */
   private currentQueue: AsyncEventQueue<SessionEvent> | null = null;
   /** Paused while the backend is waiting on a user permission decision. */
@@ -1120,6 +1134,7 @@ export class AiSdkBackend implements AgentBackend {
     this.input.permissionEngine.beginTurn(turnId);
     this.toolRuntime.beginTurn(turnId);
     this.abortController = new AbortController();
+    this.imageRequestBudget = { used: 0, decisions: new Map() };
 
     const midTurnState = this.buildMidTurnCapacityCompactState(input);
     const queue = new AsyncEventQueue<SessionEvent>();
@@ -1297,7 +1312,9 @@ export class AiSdkBackend implements AgentBackend {
           if (providerError) throw new Error(providerError);
           return output;
         },
-        ...(t.toModelOutput ? { toModelOutput: t.toModelOutput } : {}),
+        toModelOutput: t.toModelOutput
+          ?? (({ toolCallId, output }: { toolCallId: string; output: unknown }) =>
+            this.materializeToolResultOutput(output, false, toolCallId)),
       };
     }
 
@@ -3968,7 +3985,7 @@ export class AiSdkBackend implements AgentBackend {
     // back — the plan flags them as `unmatched_tool_result` (a non-blocking
     // diagnostic precisely so this drop path is reachable; see
     // hasBlockingReplayDiagnostics).
-    const pushToolResults = (calls: readonly ToolCallItem[]) => {
+    const pushToolResults = async (calls: readonly ToolCallItem[]) => {
       for (const call of calls) {
         const result = results.get(call.toolCallId);
         if (!result) continue;
@@ -3979,14 +3996,14 @@ export class AiSdkBackend implements AgentBackend {
             type: 'tool-result',
             toolCallId: result.toolCallId,
             toolName: result.toolName,
-            output: toolResultOutput(result.output, result.isError),
+            output: await this.materializeToolResultOutput(result.output, result.isError, result.toolCallId),
           }],
         });
       }
     };
     // Emit one assistant message for a step: reasoning (if any), text (if any),
     // then the step's tool calls, followed by those calls' tool results.
-    const emitStep = (reasoning: ThinkingItem | undefined, text: string, calls: readonly ToolCallItem[]) => {
+    const emitStep = async (reasoning: ThinkingItem | undefined, text: string, calls: readonly ToolCallItem[]) => {
       const content: unknown[] = [];
       if (reasoning) content.push(reasoningPart(reasoning));
       if (text.length > 0) content.push({ type: 'text', text });
@@ -3994,7 +4011,7 @@ export class AiSdkBackend implements AgentBackend {
         content.push({ type: 'tool-call', toolCallId: call.toolCallId, toolName: call.toolName, input: call.input });
       }
       if (content.length > 0) out.push({ role: 'assistant', content } as ModelMessage);
-      pushToolResults(calls);
+      await pushToolResults(calls);
     };
     // Emit tool calls no assistant text closed: a thinking + tool step with no
     // text (its empty closer is skipped from the plan), a pure-tool step, or a
@@ -4003,27 +4020,27 @@ export class AiSdkBackend implements AgentBackend {
     // stepId — this is how the common Anthropic interleaved-thinking step shape
     // (reasoning + tool call, no text) gets its reasoning merged ahead of its
     // calls. Calls without a stepId group together (legacy shape, no reasoning).
-    const emitGroupedCalls = (calls: readonly ToolCallItem[]) => {
+    const emitGroupedCalls = async (calls: readonly ToolCallItem[]) => {
       let group: ToolCallItem[] = [];
-      const emitGroup = () => {
+      const emitGroup = async () => {
         if (group.length === 0) return;
         const stepId = group[0]!.stepId;
         const reasoning = stepId !== undefined ? reasoningByStep.get(stepId) : undefined;
         if (stepId !== undefined) reasoningByStep.delete(stepId);
-        emitStep(reasoning, '', group);
+        await emitStep(reasoning, '', group);
         group = [];
       };
       for (const call of calls) {
-        if (group.length > 0 && group[0]!.stepId !== call.stepId) emitGroup();
+        if (group.length > 0 && group[0]!.stepId !== call.stepId) await emitGroup();
         group.push(call);
       }
-      emitGroup();
+      await emitGroup();
     };
-    const flushLooseCalls = () => {
+    const flushLooseCalls = async () => {
       if (bufferedCalls.length === 0) return;
       const calls = bufferedCalls;
       bufferedCalls = [];
-      emitGroupedCalls(calls);
+      await emitGroupedCalls(calls);
     };
 
     for (const item of plan.items) {
@@ -4039,13 +4056,13 @@ export class AiSdkBackend implements AgentBackend {
             reasoningByStep.set(item.stepId, item);
           } else {
             // Legacy standalone reasoning (pure-reasoning turn): emit on its own.
-            flushLooseCalls();
+            await flushLooseCalls();
             out.push({ role: 'assistant', content: [reasoningPart(item)] } as ModelMessage);
           }
           break;
         case 'text':
           if (item.role !== 'assistant') {
-            flushLooseCalls();
+            await flushLooseCalls();
             out.push(await this.materializeRuntimeReplayItem(item));
             break;
           }
@@ -4056,18 +4073,18 @@ export class AiSdkBackend implements AgentBackend {
             bufferedCalls = [];
             // Earlier steps' unclosed calls flush first (with their own parked
             // reasoning, if any) so step order is preserved.
-            if (otherCalls.length > 0) emitGroupedCalls(otherCalls);
-            emitStep(reasoningByStep.get(stepId), item.content, thisCalls);
+            if (otherCalls.length > 0) await emitGroupedCalls(otherCalls);
+            await emitStep(reasoningByStep.get(stepId), item.content, thisCalls);
             reasoningByStep.delete(stepId);
           } else {
             // Legacy per-turn assistant text: standalone after any tool block.
-            flushLooseCalls();
+            await flushLooseCalls();
             out.push({ role: 'assistant', content: item.content });
           }
           break;
       }
     }
-    flushLooseCalls();
+    await flushLooseCalls();
     // Any reasoning whose closing text never arrived (defensive): emit standalone.
     for (const reasoning of reasoningByStep.values()) {
       out.push({ role: 'assistant', content: [reasoningPart(reasoning)] } as ModelMessage);
@@ -4119,7 +4136,7 @@ export class AiSdkBackend implements AgentBackend {
             type: 'tool-result',
             toolCallId: item.toolCallId,
             toolName: item.toolName,
-            output: toolResultOutput(item.output, item.isError),
+            output: await this.materializeToolResultOutput(item.output, item.isError, item.toolCallId),
           }],
         };
     }
@@ -4159,6 +4176,20 @@ export class AiSdkBackend implements AgentBackend {
     return [...(content as unknown[]), { type: 'text', text: turnTailPrompt }] as ModelMessage['content'];
   }
 
+  /** A decision key deduplicates re-materialization; no key charges each occurrence. */
+  private chargeImageBudget(bytes: number, decisionKey?: string): boolean {
+    const budget = this.imageRequestBudget;
+    if (!budget) return true;
+    if (decisionKey !== undefined) {
+      const cached = budget.decisions.get(decisionKey);
+      if (cached !== undefined) return cached;
+    }
+    const keep = budget.used + bytes <= (this.input.maxProviderImageRequestBytes ?? MAX_PROVIDER_IMAGE_REQUEST_BYTES);
+    if (keep) budget.used += bytes;
+    if (decisionKey !== undefined) budget.decisions.set(decisionKey, keep);
+    return keep;
+  }
+
   /**
    * Render provider-visible content for a user message: keep the given
    * (already-formatted) text, and append image attachments as provider image
@@ -4183,13 +4214,63 @@ export class AiSdkBackend implements AgentBackend {
     const parts: Array<{ type: 'text'; text: string } | { type: 'image'; image: Uint8Array; mediaType: string }> = [
       { type: 'text', text: textContent },
     ];
+    let omittedByBudget = 0;
     for (const image of images) {
       const read = await this.input.readAttachmentBytes(image.ref);
-      if (read.ok) {
-        parts.push({ type: 'image', image: read.bytes, mediaType: image.mimeType });
+      if (!read.ok) {
+        parts.push({ type: 'text', text: `Image attachment "${image.name}" could not be loaded: ${read.reason}.` });
+        continue;
       }
+      if (!this.chargeImageBudget(read.bytes.length)) {
+        omittedByBudget += 1;
+        continue;
+      }
+      parts.push({ type: 'image', image: read.bytes, mediaType: image.mimeType });
+    }
+    if (omittedByBudget > 0) {
+      parts.push({
+        type: 'text',
+        text: `[${omittedByBudget} image attachment(s) omitted: the per-request image budget was exceeded. Earlier images were sent; ask the user to send fewer or smaller images.]`,
+      });
     }
     return parts as ModelMessage['content'];
+  }
+
+  private async materializeToolResultOutput(
+    output: unknown,
+    isError: boolean,
+    decisionKey: string,
+  ): Promise<ReturnType<typeof toolResultOutput> | ToolModelOutput> {
+    if (isError || !isImageToolResult(output)) return toolResultOutput(output, isError);
+    if (this.input.supportsVision !== true) {
+      return toolResultText('Image was read, but the selected model does not support image input.');
+    }
+    if (!this.input.readAttachmentBytes) {
+      return toolResultText('Image was read, but its stored bytes are unavailable.');
+    }
+    const budget = this.imageRequestBudget;
+    if (budget && budget.decisions.get(decisionKey) === false) {
+      return toolResultText(PROVIDER_IMAGE_BUDGET_EXCEEDED_MESSAGE);
+    }
+    let read: Awaited<ReturnType<AttachmentByteReader>>;
+    try {
+      read = await this.input.readAttachmentBytes(output.ref);
+    } catch {
+      return toolResultText('Image could not be loaded from artifact storage: read_failed.');
+    }
+    if (!read.ok) {
+      return toolResultText(`Image could not be loaded from artifact storage: ${read.reason}.`);
+    }
+    if (!this.chargeImageBudget(read.bytes.length, decisionKey)) {
+      return toolResultText(PROVIDER_IMAGE_BUDGET_EXCEEDED_MESSAGE);
+    }
+    return {
+      type: 'content',
+      value: [
+        { type: 'text', text: 'Image read successfully.' },
+        { type: 'image-data', data: Buffer.from(read.bytes).toString('base64'), mediaType: output.mimeType },
+      ],
+    };
   }
 
   private async buildCurrentUserContent(

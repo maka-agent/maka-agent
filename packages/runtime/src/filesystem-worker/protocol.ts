@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { validateAdditionalPermissionProfile } from '@maka/core/additional-permissions';
 
-export const FILESYSTEM_WORKER_PROTOCOL_VERSION = 1 as const;
+export const FILESYSTEM_WORKER_PROTOCOL_VERSION = 2 as const;
 
 const path = z.string().min(1).max(4096);
 const cwd = z.string().min(1).max(4096);
@@ -79,6 +79,11 @@ export const FilesystemWorkerRequestSchema = z.object({
 
 export const FilesystemWorkerResultSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('read'), content: z.string() }).strict(),
+  z.object({
+    kind: z.literal('read_image'),
+    base64: z.string(),
+    mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+  }).strict(),
   z.object({
     kind: z.literal('write'),
     ok: z.literal(true),

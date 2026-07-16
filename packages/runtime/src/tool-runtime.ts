@@ -117,7 +117,7 @@ export interface MakaTool<P = any, R = unknown> {
     toolCallId: string;
     input: unknown;
     output: unknown;
-  }) => ToolModelOutput;
+  }) => ToolModelOutput | Promise<ToolModelOutput>;
 }
 
 export interface MakaToolContext {

@@ -71,6 +71,22 @@ describe('builtin tool activity kinds', () => {
   });
 });
 
+describe('builtin Read capabilities', () => {
+  test('advertises image support only when image snapshots are available', () => {
+    const textOnly = buildBuiltinTools().find((tool) => tool.name === 'Read')!;
+    const withImages = buildBuiltinTools({
+      snapshotImage: async (input) => ({
+        kind: 'session_file',
+        sessionId: input.sessionId,
+        relativePath: 'image-1',
+      }),
+    }).find((tool) => tool.name === 'Read')!;
+
+    assert.doesNotMatch(textOnly.description, /image/);
+    assert.match(withImages.description, /image/);
+  });
+});
+
 describe('builtin tool executor facts', () => {
   test('attaches executor facts to every built-in tool', () => {
     const facts: WorkspaceExecutorFacts = {
@@ -1035,6 +1051,47 @@ describe('builtin Bash streaming output', () => {
 });
 
 describe('builtin read tools path containment', () => {
+  test('Read snapshots the complete image returned by the workspace executor', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-read-image-'));
+    const imageBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+    const snapshots: unknown[] = [];
+    const read = buildBuiltinTools({
+      executor: fakeExecutor({
+        readFile: async () => ({ bytes: imageBytes, mimeType: 'image/png' }),
+      }),
+      snapshotImage: async (input) => {
+        snapshots.push(input);
+        return { kind: 'session_file', sessionId: input.sessionId, relativePath: 'artifact-1' };
+      },
+    }).find((candidate) => candidate.name === 'Read');
+    if (!read) throw new Error('Read tool missing');
+
+    const result = await runTool(read, { path: 'PHOTO.PNG', offset: 1, limit: 1 }, root);
+
+    expect(result).toEqual({
+      kind: 'image',
+      mimeType: 'image/png',
+      ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'artifact-1' },
+    });
+    expect(snapshots).toEqual([{
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      name: 'PHOTO.PNG',
+      bytes: imageBytes,
+      mimeType: 'image/png',
+    }]);
+  });
+
+  test('Read rejects image content without snapshot support, regardless of extension', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-read-image-'));
+    await writeFile(join(root, 'photo.png'), Buffer.from('\x89PNG\r\n\x1a\n', 'latin1'));
+    await symlink('photo.png', join(root, 'notes.txt'));
+    const readWithoutSnapshots = buildBuiltinTools().find((candidate) => candidate.name === 'Read');
+    if (!readWithoutSnapshots) throw new Error('Read tool missing');
+
+    await expectRejects(runTool(readWithoutSnapshots, { path: 'notes.txt' }, root), /snapshots are not available/);
+  });
+
   test('Read delegates file loading to the injected workspace executor', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-read-executor-'));
     await writeFile(join(root, 'inside.txt'), 'local-content', 'utf8');
@@ -1210,6 +1267,19 @@ describe('builtin write tools path containment', () => {
     });
   });
 
+  test('Edit rejects image results from the workspace executor', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-edit-image-'));
+    const edit = buildBuiltinTools({ executor: fakeExecutor({
+      readFile: async () => ({ bytes: new Uint8Array([1]), mimeType: 'image/png' }),
+    }) }).find((candidate) => candidate.name === 'Edit');
+    if (!edit) throw new Error('Edit tool missing');
+
+    await expectRejects(
+      runTool(edit, { path: 'image.png', old_string: 'x', new_string: 'y' }, root),
+      /Edit does not support image files/,
+    );
+  });
+
   test('Write rejects absolute, parent traversal, and symlink-parent escape paths', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-write-root-'));
     const outside = await mkdtemp(join(tmpdir(), 'maka-write-outside-'));
@@ -1336,6 +1406,16 @@ describe('builtin FormatJson (file in place)', () => {
     expect(result.bytesBefore).toBe(Buffer.byteLength(input, 'utf8'));
     expect(result.bytesAfter).toBe(Buffer.byteLength(onDisk, 'utf8'));
     expect(result.byteDelta).toBe((result.bytesAfter ?? 0) - result.bytesBefore);
+  });
+
+  test('rejects image results from the workspace executor', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-formatjson-image-'));
+    const formatJson = buildBuiltinTools({ executor: fakeExecutor({
+      readFile: async () => ({ bytes: new Uint8Array([1]), mimeType: 'image/png' }),
+    }) }).find((candidate) => candidate.name === 'FormatJson');
+    if (!formatJson) throw new Error('FormatJson tool missing');
+
+    await expectRejects(runTool(formatJson, { path: 'image.png' }, root), /FormatJson does not support image files/);
   });
 
   test('sort_keys: true orders object keys lexicographically', async () => {

@@ -5,7 +5,7 @@ import { describe, test } from 'node:test';
 import type { ModelMessage } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import type { AgentRunHeader, LlmConnection, SessionHeader } from '@maka/core';
+import type { AgentRunHeader, AttachmentByteReader, BackendSendInput, LlmConnection, SessionHeader, StorageRef } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import { createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
@@ -535,6 +535,197 @@ describe('AiSdkBackend model history', () => {
     assert.ok(text.includes('does not support image input'), `expected non-vision fallback note in: ${text}`);
   });
 
+  test('reports unavailable attachment reads without consuming image budget', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {}, connection: connection(),
+      apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      supportsVision: true, maxProviderImageRequestBytes: 15,
+      readAttachmentBytes: async (ref: StorageRef) =>
+        ref.kind === 'session_file' && ref.relativePath === 'missing'
+          ? { ok: false, reason: 'not_found' }
+          : { ok: true, bytes: new Uint8Array(10) },
+    } as never);
+    const attachment = (relativePath: string) => ({
+      kind: 'image' as const, name: `${relativePath}.png`, mimeType: 'image/png', bytes: 10,
+      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath },
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current', text: 'describe these charts',
+      attachments: [attachment('missing'), attachment('available')], context: [], runtimeContext: [],
+    }));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const parts = prompt.at(-1)?.content as Array<{ type: string; mediaType?: string; text?: string }>;
+    assert.equal(parts.filter((part) => part.type !== 'text' && part.mediaType === 'image/png').length, 1);
+    assert.match(parts.map((part) => part.text ?? '').join('\n'), /missing\.png.*not_found/);
+  });
+
+  test('charges attachment image budget from the bytes actually read', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {}, connection: connection(),
+      apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      supportsVision: true, maxProviderImageRequestBytes: 15,
+      readAttachmentBytes: async () => ({ ok: true, bytes: new Uint8Array(10) }),
+    } as never);
+
+    await drain(backend.send({
+      turnId: 'turn-current', text: 'describe this chart',
+      attachments: [{
+        kind: 'image', name: 'chart.png', mimeType: 'image/png', bytes: 20,
+        ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'chart' },
+      }],
+      context: [], runtimeContext: [],
+    }));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const parts = prompt.at(-1)?.content as Array<{ type: string; mediaType?: string }>;
+    assert.equal(parts.filter((part) => part.type !== 'text' && part.mediaType === 'image/png').length, 1);
+  });
+
+  test('degrades excess current-turn image attachments once the per-request budget is exceeded', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      supportsVision: true,
+      maxProviderImageRequestBytes: 25,
+      readAttachmentBytes: async () => ({ ok: true, bytes: new Uint8Array(10) }),
+    } as never);
+
+    const attachment = (relativePath: string) => ({
+      kind: 'image' as const,
+      name: relativePath,
+      mimeType: 'image/png',
+      bytes: 10,
+      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath },
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'describe these charts',
+      attachments: [attachment('img-1'), attachment('img-2'), attachment('img-3')],
+      context: [],
+      runtimeContext: [],
+    }));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const currentUser = prompt[prompt.length - 1];
+    const parts = currentUser.content as Array<{ type: string; mediaType?: string; text?: string }>;
+    const imageParts = parts.filter((p) => p.type !== 'text' && p.mediaType === 'image/png');
+    assert.equal(imageParts.length, 2, `expected two image parts, got: ${JSON.stringify(parts)}`);
+    const text = parts.map((p) => p.text ?? '').join('\n');
+    assert.match(text, /1 image attachment\(s\) omitted.*image budget/, `expected budget-omitted notice in: ${text}`);
+  });
+
+  test('counts the same attachment ref separately in replay and the current turn', async () => {
+    const bytes = new Uint8Array(10);
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {}, connection: connection(),
+      apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      supportsVision: true, maxProviderImageRequestBytes: 15,
+      readAttachmentBytes: async () => ({ ok: true, bytes }),
+    });
+    const attachment = {
+      kind: 'image' as const,
+      name: 'chart.png',
+      mimeType: 'image/png',
+      bytes: bytes.length,
+      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath: 'artifact-1' },
+    };
+
+    await drain(backend.send({
+      turnId: 'turn-regenerated',
+      text: 'describe this chart',
+      attachments: [attachment],
+      context: [],
+      runtimeContext: [
+        runtimeEvent({
+          id: 'rt-original', turnId: 'turn-original', role: 'user', author: 'user',
+          content: { kind: 'text', text: 'describe this chart', attachments: [attachment] },
+        }),
+        runtimeTextEvent({ id: 'rt-answer', turnId: 'turn-original', role: 'model', author: 'agent', text: 'original answer' }),
+      ],
+    }));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const imageParts = prompt.flatMap((message) => Array.isArray(message.content) ? message.content : [])
+      .filter((part: any) => part.type !== 'text' && part.mediaType === 'image/png');
+    assert.equal(imageParts.length, 1, `expected the repeated ref to consume budget twice: ${JSON.stringify(prompt)}`);
+    const currentUser = prompt[prompt.length - 1];
+    const currentText = (currentUser.content as Array<{ text?: string }>).map((part) => part.text ?? '').join('\n');
+    assert.match(currentText, /1 image attachment\(s\) omitted.*image budget/, `expected current attachment omission: ${currentText}`);
+  });
+
+  test('degrades excess replayed image tool results once the per-request budget is exceeded', async () => {
+    const bytes = new Uint8Array(10);
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {}, connection: connection(),
+      apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      supportsVision: true, maxProviderImageRequestBytes: 25,
+      readAttachmentBytes: async () => ({ ok: true, bytes }),
+    });
+
+    const imageResult = (callId: string, relativePath: string) => runtimeEvent({
+      id: `rt-result-${callId}`, turnId: 'turn-prev', role: 'tool', author: 'tool',
+      content: {
+        kind: 'function_response', id: callId, name: 'Read', isError: false,
+        result: { kind: 'image', mimeType: 'image/png',
+          ref: { kind: 'session_file', sessionId: 'session-1', relativePath } },
+      },
+    });
+    const call = (callId: string, path: string) => runtimeEvent({
+      id: `rt-call-${callId}`, turnId: 'turn-prev', role: 'model', author: 'agent',
+      content: { kind: 'function_call', id: callId, name: 'Read', args: { path } },
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'continue',
+      context: [],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'read them' }),
+        call('tool-1', 'a.png'), imageResult('tool-1', 'artifact-1'),
+        call('tool-2', 'b.png'), imageResult('tool-2', 'artifact-2'),
+        call('tool-3', 'c.png'), imageResult('tool-3', 'artifact-3'),
+      ],
+    }));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: any[] }>;
+    const toolOutputs = prompt
+      .filter((message) => message.role === 'tool')
+      .flatMap((message) => message.content as any[])
+      .map((entry) => entry?.output)
+      .filter((output) => output?.type === 'content');
+    const imageData = toolOutputs.filter((output) =>
+      output.value.some((part: any) => part.type === 'image-data' && part.mediaType === 'image/png'));
+    const degraded = toolOutputs.filter((output) =>
+      output.value.some((part: any) => part.type === 'text' && /image budget/.test(part.text)));
+    assert.equal(imageData.length, 2, `expected two hydrated image tool results, got: ${JSON.stringify(toolOutputs)}`);
+    assert.equal(degraded.length, 1, `expected one budget-degraded tool result, got: ${JSON.stringify(toolOutputs)}`);
+  });
+
   test('RuntimeEvent replay renders historical image attachments as image parts', async () => {
     const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 8, 7]);
     const model = completionModel();
@@ -658,6 +849,150 @@ describe('AiSdkBackend model history', () => {
       },
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
+  });
+
+  test('replays an image tool result as provider image data', async () => {
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      supportsVision: true,
+      readAttachmentBytes: async () => ({ ok: true, bytes: pngBytes }),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'continue',
+      context: [],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'read it' }),
+        runtimeEvent({
+          id: 'rt-call', turnId: 'turn-prev', role: 'model', author: 'agent',
+          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'chart.png' } },
+        }),
+        runtimeEvent({
+          id: 'rt-result', turnId: 'turn-prev', role: 'tool', author: 'tool',
+          content: {
+            kind: 'function_response', id: 'tool-1', name: 'Read', isError: false,
+            result: {
+              kind: 'image', mimeType: 'image/png',
+              ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'artifact-1' },
+            },
+          },
+        }),
+      ],
+    }));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: any[] }>;
+    const result = prompt.find((message) => message.role === 'tool')?.content[0]?.output;
+    assert.equal(result.type, 'content');
+    assert.ok(result.value.some((part: any) => part.type === 'image-data' && part.mediaType === 'image/png'));
+  });
+
+  test('sends a live image tool result to the next provider step', async () => {
+    const pngBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    let calls = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        calls += 1;
+        return {
+          stream: simulateReadableStream({
+            chunks: (calls === 1
+              ? [
+                  { type: 'stream-start', warnings: [] },
+                  { type: 'tool-call', toolCallId: 'tool-1', toolName: 'Read', input: JSON.stringify({ path: 'chart.png' }) },
+                  { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: emptyUsage() },
+                ]
+              : [
+                  { type: 'stream-start', warnings: [] },
+                  { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: emptyUsage() },
+                ]) as LanguageModelV3StreamPart[],
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {}, connection: connection(),
+      apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [{
+        name: 'Read', description: 'read', parameters: z.object({ path: z.string() }), permissionRequired: false,
+        impl: async () => ({
+          kind: 'image', mimeType: 'image/png',
+          ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath: 'artifact-1' },
+        }),
+      }],
+      supportsVision: true,
+      readAttachmentBytes: async () => ({ ok: true, bytes: pngBytes }),
+      newId: idGenerator(), now: monotonicClock(),
+    });
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'read chart.png', context: [] }));
+
+    const nextPrompt = model.doStreamCalls[1]?.prompt as Array<{ role: string; content: any[] }>;
+    const result = nextPrompt.find((message) => message.role === 'tool')?.content[0]?.output;
+    assert.ok(result.value.some((part: any) => part.type === 'image-data' && part.mediaType === 'image/png'));
+  });
+
+  test('does not read image bytes for a non-vision model', async () => {
+    let reads = 0;
+    const model = completionModel();
+    const backend = imageReplayBackend(model, {
+      supportsVision: false,
+      readAttachmentBytes: async () => { reads += 1; return { ok: true, bytes: new Uint8Array([1]) }; },
+    });
+
+    await drain(backend.send(imageReplayInput()));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: any[] }>;
+    const output = prompt.find((message) => message.role === 'tool')?.content[0]?.output;
+    assert.equal(reads, 0);
+    assert.match(output.value[0].text, /does not support image input/);
+  });
+
+  test('explains when a replayed image artifact is missing', async () => {
+    const model = completionModel();
+    const backend = imageReplayBackend(model, {
+      supportsVision: true,
+      readAttachmentBytes: async () => ({ ok: false, reason: 'not_found' }),
+    });
+
+    await drain(backend.send(imageReplayInput()));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: any[] }>;
+    const output = prompt.find((message) => message.role === 'tool')?.content[0]?.output;
+    assert.match(output.value[0].text, /not_found/);
+  });
+
+  test('explains when replayed image storage throws', async () => {
+    const model = completionModel();
+    const backend = imageReplayBackend(model, {
+      supportsVision: true,
+      readAttachmentBytes: async () => { throw new Error('private disk detail'); },
+    });
+
+    await drain(backend.send(imageReplayInput()));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: any[] }>;
+    const output = prompt.find((message) => message.role === 'tool')?.content[0]?.output;
+    assert.match(output.value[0].text, /read_failed/);
+    assert.doesNotMatch(JSON.stringify(prompt), /private disk detail/);
   });
 
   test('replays interleaved parallel RuntimeEvent tool calls as one provider tool-call block', async () => {
@@ -3606,6 +3941,7 @@ describe('AiSdkBackend model history', () => {
     // so the ledger stays on RuntimeEvent replay instead of falling back to
     // StoredMessage projection.
     const model = completionModel();
+    let imageReads = 0;
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
@@ -3616,6 +3952,8 @@ describe('AiSdkBackend model history', () => {
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
       tools: [],
+      supportsVision: true,
+      readAttachmentBytes: async () => { imageReads += 1; return { ok: true, bytes: new Uint8Array([1]) }; },
       newId: idGenerator(),
       now: monotonicClock(),
     });
@@ -3634,7 +3972,13 @@ describe('AiSdkBackend model history', () => {
           turnId: 'turn-prev',
           role: 'tool',
           author: 'tool',
-          content: { kind: 'function_response', id: 'missing-call', name: 'Read', result: 'contents', isError: false },
+          content: {
+            kind: 'function_response', id: 'missing-call', name: 'Read', isError: false,
+            result: {
+              kind: 'image', mimeType: 'image/png',
+              ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'orphan' },
+            },
+          },
         }),
       ],
     }));
@@ -3644,6 +3988,7 @@ describe('AiSdkBackend model history', () => {
       { role: 'user', content: [{ type: 'text', text: 'runtime user' }] },
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
+    assert.equal(imageReads, 0);
   });
 
   test('uses StoredMessage projection when RuntimeEvent replay has unsupported content', async () => {
@@ -8219,6 +8564,50 @@ function completionModel(): MockLanguageModelV3 {
       }),
     },
   });
+}
+
+function emptyUsage() {
+  return {
+    inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
+    outputTokens: { total: 0, text: 0, reasoning: 0 },
+  };
+}
+
+function imageReplayBackend(
+  model: MockLanguageModelV3,
+  options: { supportsVision: boolean; readAttachmentBytes: AttachmentByteReader },
+): AiSdkBackend {
+  return new AiSdkBackend({
+    sessionId: 'session-1', header: header(), appendMessage: async () => {}, connection: connection(),
+    apiKey: 'sk-test', modelId: 'mock-model-id',
+    permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+    modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(), ...options,
+  });
+}
+
+function imageReplayInput(): BackendSendInput {
+  return {
+    turnId: 'turn-current',
+    text: 'continue',
+    context: [],
+    runtimeContext: [
+      runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'read it' }),
+      runtimeEvent({
+        id: 'rt-call', turnId: 'turn-prev', role: 'model', author: 'agent',
+        content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'chart.png' } },
+      }),
+      runtimeEvent({
+        id: 'rt-result', turnId: 'turn-prev', role: 'tool', author: 'tool',
+        content: {
+          kind: 'function_response', id: 'tool-1', name: 'Read', isError: false,
+          result: {
+            kind: 'image', mimeType: 'image/png',
+            ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'artifact-1' },
+          },
+        },
+      }),
+    ],
+  };
 }
 
 function countingToolLoopModel(toolCallsBeforeStop?: number): {

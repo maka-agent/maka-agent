@@ -246,7 +246,8 @@ export class FilesystemWorkerClient {
         response.error.code === 'not_found' || response.error.code === 'edit_conflict',
       );
     }
-    if (response.result.kind !== operation.kind) {
+    if (response.result.kind !== operation.kind
+      && !(operation.kind === 'read' && response.result.kind === 'read_image')) {
       throw clientError('response_kind_mismatch', 'protocol', requestId);
     }
     return response.result;

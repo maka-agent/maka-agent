@@ -1,4 +1,5 @@
 import type { JSONValue } from 'ai';
+import type { ToolModelOutput } from './tool-runtime.js';
 
 /**
  * AI SDK v6 tool-result `output` wrapper: the provider-visible result of a tool
@@ -10,7 +11,8 @@ export type AiSdkToolResultOutput =
   | { type: 'text'; value: string }
   | { type: 'json'; value: JSONValue }
   | { type: 'error-text'; value: string }
-  | { type: 'error-json'; value: JSONValue };
+  | { type: 'error-json'; value: JSONValue }
+  | ToolModelOutput;
 
 /**
  * Coerce an arbitrary tool result into a JSON-safe value (non-JSON scalars are

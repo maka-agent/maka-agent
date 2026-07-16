@@ -103,6 +103,16 @@ describe('attachment frontend contract', () => {
     );
   });
 
+  it('snapshots Read images and notifies the existing artifact preview flow', async () => {
+    const main = await readRepo('apps/desktop/src/main/main.ts');
+    const artifactAttachments = await readRepo('packages/storage/src/artifact-attachments.ts');
+
+    assert.match(main, /snapshotImage: snapshotReadImage/);
+    assert.match(main, /const storeReadImage = createReadImageSnapshotter\(artifactStore\)/);
+    assert.match(artifactAttachments, /kind: 'image'[\s\S]*source: 'tool_result'/);
+    assert.match(main, /async function snapshotReadImage[\s\S]*safeSendToRenderer\('artifacts:changed'/);
+  });
+
   it('renders user image attachments inside the chat turn stream', () => {
     const attachment: AttachmentRef = {
       kind: 'image',

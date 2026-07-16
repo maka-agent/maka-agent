@@ -8,6 +8,8 @@ import type { ToolExecutionFacts } from '@maka/core/permission';
 import { runProcessWithBoundedTail, runShellWithBoundedTail } from './shell-exec.js';
 import type { ChildFdInput } from './child-fd-input.js';
 import type { ShellPlan } from './shell-detect.js';
+import { isSupportedImagePath, readWorkspaceImage } from './image-file.js';
+import type { ImageMimeType } from './image-file.js';
 
 const execAsync = promisify(exec);
 
@@ -56,9 +58,16 @@ export interface WorkspaceReadFileInput {
   limit?: number;
 }
 
-export interface WorkspaceReadFileResult {
+export interface WorkspaceReadTextResult {
   content: string;
 }
+
+export interface WorkspaceReadImageResult {
+  bytes: Uint8Array;
+  mimeType: ImageMimeType;
+}
+
+export type WorkspaceReadFileResult = WorkspaceReadTextResult | WorkspaceReadImageResult;
 
 export interface WorkspaceWriteFileInput {
   cwd: string;
@@ -220,6 +229,9 @@ export class LocalWorkspaceExecutor implements WorkspaceExecutor {
   }
 
   async readFile(input: WorkspaceReadFileInput): Promise<WorkspaceReadFileResult> {
+    if (isSupportedImagePath(input.path)) {
+      return await readWorkspaceImage(input.path);
+    }
     const content = await fs.readFile(input.path, 'utf8');
     if (input.offset === undefined && input.limit === undefined) return { content };
     const lines = content.split('\n');

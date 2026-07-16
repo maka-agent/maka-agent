@@ -20,6 +20,52 @@ afterEach(async () => {
 });
 
 describe('filesystem worker operations', () => {
+  test('reads a validated image through the approved path capability', async () => {
+    const root = await temporaryDirectory('maka-worker-image-');
+    const target = join(root, 'image.png');
+    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    await writeFile(target, bytes);
+
+    const response = await executeFilesystemWorkerRequest(requestFor(
+      { kind: 'read', cwd: root, path: target, offset: 1, limit: 1 },
+      { enforcementPath: target, access: 'read', scope: 'exact', targetType: 'file' },
+    ));
+
+    assert.equal(response.ok, true);
+    if (response.ok) assert.deepEqual(response.result, {
+      kind: 'read_image', base64: Buffer.from(bytes).toString('base64'), mimeType: 'image/png',
+    });
+  });
+
+  test('classifies symlinks by their canonical target', async () => {
+    const root = await temporaryDirectory('maka-worker-image-link-');
+    const image = join(root, 'photo.png');
+    const imageLink = join(root, 'notes.txt');
+    const text = join(root, 'notes.txt.real');
+    const textLink = join(root, 'chart.png');
+    const bytes = Buffer.from('\x89PNG\r\n\x1a\n', 'latin1');
+    await writeFile(image, bytes);
+    await writeFile(text, 'notes', 'utf8');
+    await symlink(image, imageLink);
+    await symlink(text, textLink);
+
+    const imageResponse = await executeFilesystemWorkerRequest(requestFor(
+      { kind: 'read', cwd: root, path: imageLink },
+      { enforcementPath: image, access: 'read', scope: 'exact', targetType: 'file' },
+      image,
+    ));
+    assert.equal(imageResponse.ok, true);
+    if (imageResponse.ok) assert.equal(imageResponse.result.kind, 'read_image');
+
+    const textResponse = await executeFilesystemWorkerRequest(requestFor(
+      { kind: 'read', cwd: root, path: textLink },
+      { enforcementPath: text, access: 'read', scope: 'exact', targetType: 'file' },
+      text,
+    ));
+    assert.equal(textResponse.ok, true);
+    if (textResponse.ok) assert.deepEqual(textResponse.result, { kind: 'read', content: 'notes' });
+  });
+
   test('reads and writes only the canonical path capability in the request', async () => {
     const root = await temporaryDirectory('maka-worker-root-');
     const outside = await temporaryDirectory('maka-worker-outside-');

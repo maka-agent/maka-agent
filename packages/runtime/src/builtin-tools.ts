@@ -9,10 +9,11 @@ import { z } from 'zod';
 import { jsonSchema, zodSchema } from 'ai';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute } from 'node:path';
+import { basename, isAbsolute } from 'node:path';
 import {
   applyAdditionalPermissionProfile,
   compilePermissionProfile,
+  type StorageRef,
   type PermissionProfile,
 } from '@maka/core';
 import { computeEditedSource } from './edit-replace.js';
@@ -85,6 +86,13 @@ export interface BuildBuiltinToolsOptions {
   enableFileToolAdditionalPermissions?: boolean;
   /** Test/embedding override. Production callers use the current process platform. */
   sandboxPlatform?: SandboxPlatform;
+  snapshotImage?: (input: {
+    sessionId: string;
+    turnId: string;
+    name: string;
+    bytes: Uint8Array;
+    mimeType: string;
+  }) => Promise<Extract<StorageRef, { kind: 'session_file' }>>;
 }
 
 export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaTool[] {
@@ -96,13 +104,11 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   }
   const executor = options.executor ?? createLocalWorkspaceExecutor();
   const executionFacts = executor.facts;
-  const readDescription = options.runtimeResources
-    ? 'Read a file from disk, or read a whole runtime resource using ref.'
-    : 'Read a file from disk.';
+  const readDescription = `Read a text file${options.snapshotImage ? ' or supported image' : ''} from disk${options.runtimeResources ? ', or read a whole runtime resource using ref' : ''}.`;
   const fileReadParameters = z.object({
     path: z.string().describe('A file path; relative paths are resolved from the session cwd'),
-    offset: z.number().int().nonnegative().describe('Zero-based file line offset').optional(),
-    limit: z.number().int().positive().describe('Maximum file lines to read').optional(),
+    offset: z.number().int().nonnegative().describe('Zero-based text file line offset').optional(),
+    limit: z.number().int().positive().describe('Maximum text file lines to read').optional(),
   }).strict();
   const runtimeResourceReadParameters = z.object({
     ref: z.string().describe('A runtime resource ref returned by another tool'),
@@ -241,16 +247,39 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
               : {}),
             ...(abortSignal ? { abortSignal } : {}),
           });
+          if (result.kind === 'read_image') {
+            if (!options.snapshotImage) throw new Error('Read image snapshots are not available in this toolset.');
+            const ref = await options.snapshotImage({
+              sessionId,
+              turnId: ctx.turnId,
+              name: basename(path),
+              bytes: Buffer.from(result.base64, 'base64'),
+              mimeType: result.mimeType,
+            });
+            return { kind: 'image' as const, mimeType: result.mimeType, ref };
+          }
           if (result.kind !== 'read') throw new Error('Filesystem worker returned a mismatched Read result.');
           return { content: result.content };
         }
         const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Read' });
-        return await executor.readFile({
+        const result = await executor.readFile({
           cwd,
           path: resolvedPath,
           ...(offset !== undefined ? { offset } : {}),
           ...(limit !== undefined ? { limit } : {}),
         });
+        if ('bytes' in result) {
+          if (!options.snapshotImage) throw new Error('Read image snapshots are not available in this toolset.');
+          const ref = await options.snapshotImage({
+            sessionId,
+            turnId: ctx.turnId,
+            name: basename(path),
+            bytes: result.bytes,
+            mimeType: result.mimeType,
+          });
+          return { kind: 'image' as const, mimeType: result.mimeType, ref };
+        }
+        return result;
       },
     },
     {
@@ -342,7 +371,9 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
             };
           }
           const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Edit' });
-          const { content: current } = await executor.readFile({ cwd, path: resolvedPath });
+          const read = await executor.readFile({ cwd, path: resolvedPath });
+          if ('bytes' in read) throw new Error('Edit does not support image files.');
+          const current = read.content;
           const result = computeEditedSource(current, old_string, new_string, path);
           await executor.writeFile({ cwd, path: resolvedPath, content: result.content });
           return {
@@ -400,7 +431,9 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
             return result;
           }
           const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'FormatJson' });
-          const { content: original } = await executor.readFile({ cwd, path: resolvedPath });
+          const read = await executor.readFile({ cwd, path: resolvedPath });
+          if ('bytes' in read) throw new Error('FormatJson does not support image files.');
+          const original = read.content;
           const bytesBefore = Buffer.byteLength(original, 'utf8');
           let parsed: unknown;
           try {

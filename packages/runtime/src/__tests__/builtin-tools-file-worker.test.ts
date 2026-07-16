@@ -113,6 +113,30 @@ describe('builtin file tools use the sandboxed worker', () => {
     assert.equal(calls.every((call) => call.permissionProfile === permissionProfile), true);
   });
 
+  test('uses one worker read operation for image paths', async () => {
+    const cwd = await temporaryDirectory('maka-file-worker-cwd-');
+    const calls: FilesystemWorkerExecuteInput[] = [];
+    const tools = buildBuiltinTools({
+      filesystemWorker: {
+        execute: async (input) => {
+          calls.push(input);
+          return { kind: 'read_image', base64: 'iVBORw0KGgo=', mimeType: 'image/png' };
+        },
+      },
+      snapshotImage: async () => ({
+        kind: 'session_file',
+        sessionId: 'session-1',
+        relativePath: 'artifact-1',
+      }),
+      sandboxPlatform: 'darwin',
+    });
+
+    await runTool(tools, 'Read', { path: 'image.png', offset: 1, limit: 1 }, cwd);
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0]?.operation, { kind: 'read', path: 'image.png', offset: 1, limit: 1 });
+  });
+
   test('plans Grep with exact file and subtree directory permissions', async () => {
     const root = await temporaryDirectory('maka-file-grep-plan-');
     const workspace = join(root, 'workspace');
