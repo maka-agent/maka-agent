@@ -27,7 +27,17 @@ This page is the authority map for Maka documentation. Code and contract tests r
 - [Execution identity and evidence spine](./execution-evidence-spine.md)
 - [AHE target protocol and evidence export](./ahe-target-protocol.md)
 - [Skill catalog policy](./skill-catalog-policy.md)
+- [Expert teams runtime](./expert-team-runtime.md)
 - [Backend architecture chapters](./architecture/)
+
+### Computer use
+
+- [Foundation contract](./computer-use-foundation-contract.md)
+- [Model-loop foundation](./computer-use-model-loop-foundation.md)
+- [Evidence classes](./computer-use-evidence-classes.md)
+- [Provider evidence contract](./computer-use-provider-evidence.md)
+- [Host events contract](./computer-use-host-events-contract.md)
+- [cua-driver artifact integrity](./cua-driver-artifact-integrity.md)
 
 ### Frontend and validation
 
@@ -54,3 +64,4 @@ This page is the authority map for Maka documentation. Code and contract tests r
 - Keep progress and TODOs in issues or pull requests instead of copying them into stable documents.
 - Move completed plans to `docs/archive/`; remove a document only after its unique references are updated or no longer needed.
 - Prefer updating an existing authority over adding a parallel document.
+- Keep PR follow-up records, incident investigations, and run logs in the pull request or `docs/archive/`, not as new current contracts. `notes/` and `docs/local/` are workspace-local scratch and stay untracked.
