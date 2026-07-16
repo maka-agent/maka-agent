@@ -56,12 +56,7 @@ function setDarkClass(isDark: boolean): void {
   // Lets native form controls and scrollbars pick up the right base colors per
   // the Vercel Web Interface Guidelines dark-mode rule.
   root.style.colorScheme = isDark ? 'dark' : 'light';
-  // PR-WINDOW-TITLEBAR-0: keep the native Windows titleBarOverlay color in
-  // sync with the resolved theme. The IPC handler is a no-op on non-Windows,
-  // and `window.maka` is only defined in the Electron renderer, so guard for
-  // both. Swallowed errors (window torn down mid-toggle, etc.) never block
-  // the in-app `.dark` toggle above.
-  void window.maka?.appWindow?.setTitleBarOverlayTheme?.(isDark).catch(() => {});
+  syncTitleBarOverlay(root);
 }
 
 /**
@@ -81,4 +76,41 @@ export function applyThemePalette(palette: ThemePalette): void {
     root.setAttribute('data-maka-theme', palette);
   }
   safeLocalStorageSet('maka-theme-palette-v1', palette);
+  // Palette variants override --background independently of light/dark mode.
+  // Re-sync after changing the attribute so the native Windows controls never
+  // retain the previous palette's titlebar color.
+  syncTitleBarOverlay(root);
+}
+
+function syncTitleBarOverlay(root: HTMLElement): void {
+  // The native Windows overlay sits on top of the renderer's content surface.
+  // Sample the actual resolved --background color instead of approximating it
+  // with one hard-coded light and dark pair; this also follows every palette.
+  const backgroundColor = cssColorToHex(
+    getComputedStyle(root).getPropertyValue('--background'),
+    root.classList.contains(DARK_CLASS) ? '#1c1d21' : '#ffffff',
+  );
+  void window.maka?.appWindow
+    ?.setTitleBarOverlayTheme?.({
+      isDark: root.classList.contains(DARK_CLASS),
+      backgroundColor,
+    })
+    .catch(() => {});
+}
+
+function cssColorToHex(value: string, fallback: string): string {
+  const color = value.trim();
+  if (!color || !CSS.supports('color', color)) return fallback;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 1;
+  canvas.height = 1;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return fallback;
+
+  context.fillStyle = color;
+  context.fillRect(0, 0, 1, 1);
+  const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data;
+  if (alpha !== 255) return fallback;
+  return `#${[red, green, blue].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
 }

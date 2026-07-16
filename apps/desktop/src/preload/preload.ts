@@ -838,9 +838,9 @@ contextBridge.exposeInMainWorld('maka', {
       return ipcRenderer.invoke('window:setThemeSource', themePref);
     },
     // PR-WINDOW-TITLEBAR-0: re-sync the native Windows titleBarOverlay
-    // color/symbolColor to the current app theme. No-op on non-Windows.
-    setTitleBarOverlayTheme(isDark: boolean): Promise<void> {
-      return ipcRenderer.invoke('window:setTitleBarOverlayTheme', isDark);
+    // color/symbolColor to the resolved app surface. No-op on non-Windows.
+    setTitleBarOverlayTheme(theme: { isDark: boolean; backgroundColor: string }): Promise<void> {
+      return ipcRenderer.invoke('window:setTitleBarOverlayTheme', theme);
     },
     // PR-SHOW-AFTER-FIRST-COMMIT: tell main the renderer finished its first
     // React commit so the hidden window can be revealed. Fire-and-forget.

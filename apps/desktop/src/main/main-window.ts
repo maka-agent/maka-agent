@@ -23,7 +23,7 @@ export interface MainWindowController {
   notifyRendererReady(): void;
   setTitlebarControlsVisible(sender: Electron.WebContents, visible: unknown): void;
   setThemeSource(sender: Electron.WebContents, themePref: unknown): void;
-  setTitleBarOverlayTheme(sender: Electron.WebContents, isDark: unknown): void;
+  setTitleBarOverlayTheme(sender: Electron.WebContents, theme: unknown): void;
   showOpenDialog(options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue>;
   showSaveDialog(options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue>;
   capturePage(): Promise<Electron.NativeImage | null>;
@@ -84,11 +84,19 @@ const SHOW_FALLBACK_TIMEOUT_MS = 4000;
 // renderer `--h-titlebar: 36px` token so the native control strip and the
 // in-app top chrome share a baseline. The overlay color/symbolColor are
 // reused both at window creation (to avoid a first-frame flash against the
-// window `backgroundColor`) and on runtime theme changes via
+// window `backgroundColor`) and on runtime mode/palette changes via
 // `setTitleBarOverlayTheme`.
 const TITLEBAR_OVERLAY_HEIGHT = 36;
-const titleBarOverlayOptions = (isDark: boolean): { color: string; symbolColor: string; height: number } => ({
-  color: isDark ? '#1c1d21' : '#f3f3f5',
+const titleBarOverlayOptions = (
+  isDark: boolean,
+  color = isDark ? '#1c1d21' : '#ffffff',
+): { color: string; symbolColor: string; height: number } => ({
+  // The light overlay color must match the renderer's `--background`
+  // (maka-tokens.css :root, oklch(1 0 0) == #ffffff) so the top-right
+  // action buttons sit on the same surface as the OS-drawn window control
+  // strip — otherwise a visible color seam splits the titlebar. The dark
+  // value mirrors the dark-mode `--background` anchor.
+  color,
   symbolColor: isDark ? '#e6e6e8' : '#1c1d21',
   height: TITLEBAR_OVERLAY_HEIGHT,
 });
@@ -164,7 +172,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     const isDark =
       themePref === 'dark' ||
       (themePref === 'auto' && nativeTheme.shouldUseDarkColors);
-    const initialBg = isDark ? '#1c1d21' : '#f3f3f5';
+    const initialBg = isDark ? '#1c1d21' : '#ffffff';
     // Astro-Han review (#493): sync nativeTheme here too, not only via the
     // renderer's later setThemeSource() IPC call -- otherwise the vibrancy
     // material behind the sidebar can still flash the *system* theme's tint
@@ -405,11 +413,11 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       if (!isThemePreference(themePref)) return;
       nativeTheme.themeSource = toNativeThemeSource(themePref);
     },
-    setTitleBarOverlayTheme(sender, isDark) {
+    setTitleBarOverlayTheme(sender, theme) {
       const target = BrowserWindow.fromWebContents(sender);
       if (!target || target !== mainWindow || process.platform !== 'win32') return;
-      if (typeof isDark !== 'boolean') return;
-      mainWindow.setTitleBarOverlay(titleBarOverlayOptions(isDark));
+      if (!isTitleBarOverlayTheme(theme)) return;
+      mainWindow.setTitleBarOverlay(titleBarOverlayOptions(theme.isDark, theme.backgroundColor));
     },
     showOpenDialog(options) {
       return mainWindow
@@ -442,6 +450,16 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       return !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused();
     },
   };
+}
+
+function isTitleBarOverlayTheme(value: unknown): value is { isDark: boolean; backgroundColor: string } {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { isDark?: unknown; backgroundColor?: unknown };
+  return (
+    typeof candidate.isDark === 'boolean' &&
+    typeof candidate.backgroundColor === 'string' &&
+    /^#[0-9a-f]{6}$/i.test(candidate.backgroundColor)
+  );
 }
 
 /**
