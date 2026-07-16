@@ -333,8 +333,11 @@ class MakaAgent(BaseInstalledAgent):
             run_log_path.write_bytes(stdout + stderr)
             if process.returncode == 124:
                 # run-host-cell uses 124 only after it has settled the runtime at
-                # the soft deadline and persisted maka-cell-output.json. Returning
-                # lets Harbor grade the task's final filesystem state.
+                # the soft deadline and persisted maka-cell-output.json. Reclaim
+                # any command still bridged into the task before returning, or
+                # executor teardown can consume Harbor's outer timeout instead of
+                # letting it grade the task's final filesystem state.
+                executor.mark_reclaim_scoped_processes()
                 return
             if process.returncode != 0:
                 message = (stderr or stdout).decode("utf-8", errors="replace").strip()
@@ -677,7 +680,7 @@ class MakaAgent(BaseInstalledAgent):
             # instead of preserving them as if the run had completed. A clean exit
             # (return code 0) still preserves verifier-visible services.
             if proc is not None and proc.returncode != 0:
-                executor.mark_infra_failure()
+                executor.mark_reclaim_scoped_processes()
 
         parsed = self._parse_node_result(stdout)
         assert proc is not None
@@ -888,7 +891,7 @@ class _ToolExecutorServer:
         self._futures: set[concurrent.futures.Future[Any]] = set()
         self._futures_lock = threading.Lock()
         self._accepting_requests = False
-        self._infra_failure = False
+        self._reclaim_scoped_processes = False
         self.token = secrets.token_urlsafe(32)
         self.command_scope = secrets.token_urlsafe(24)
         self.url = ""
@@ -913,18 +916,19 @@ class _ToolExecutorServer:
         self._thread.start()
         return self
 
-    def mark_infra_failure(self) -> None:
-        """Record that the run failed for infrastructure reasons so teardown
-        reclaims scoped background processes even when the `async with` block
-        exits without raising. A non-zero runner subprocess is such a failure:
-        leaving its orphaned background services alive would masquerade as a
-        successful completion to the verifier."""
-        self._infra_failure = True
+    def mark_reclaim_scoped_processes(self) -> None:
+        """Make teardown stop active scoped commands before returning.
+
+        Callers use this after a settled deadline or a non-zero runner exit,
+        where waiting for a bridged command to finish would either overrun the
+        outer benchmark timeout or leave an orphan that can affect grading.
+        """
+        self._reclaim_scoped_processes = True
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         stop_error: BaseException | None = None
         cleanup_error: BaseException | None = None
-        reclaim = exc_type is not None or self._infra_failure
+        reclaim = exc_type is not None or self._reclaim_scoped_processes
         try:
             cleanup_error = await self._stop_server(
                 reclaim_scoped_processes=reclaim

@@ -312,7 +312,7 @@ describe('Harbor adapter contract', () => {
     assert.match(source, /async with _ToolExecutorServer\(self, environment\) as executor:/);
     // A non-zero runner subprocess is flagged as an infra failure inside the
     // executor scope so teardown reclaims orphaned scoped background processes.
-    assert.match(source, /executor\.mark_infra_failure\(\)/);
+    assert.match(source, /executor\.mark_reclaim_scoped_processes\(\)/);
     // The bridged tool exec is a bare container exec (real exit code returned as
     // a 200), not exec_as_agent (which raises on non-zero and injects agent env).
     assert.match(source, /self\._environment\.exec\(\s*\n\s*command=_scoped_command\(/);
@@ -911,7 +911,7 @@ async def _run_with_scoped_service(mark_infra_failure):
         try:
             async with server:
                 if mark_infra_failure:
-                    server.mark_infra_failure()
+                    server.mark_reclaim_scoped_processes()
             deadline = time.time() + 2
             while process.poll() is None and time.time() < deadline:
                 time.sleep(0.02)
@@ -1500,15 +1500,22 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "DEEPSEEK_BASE_URL" not in host_env, host_env
 
     class FakeToolExecutor:
+        instances = []
+
         def __init__(self, agent, environment):
             self.url = "http://127.0.0.1:4321"
             self.token = "tool-token"
+            self.reclaim_scoped_processes = False
+            self.instances.append(self)
 
         async def __aenter__(self):
             return self
 
         async def __aexit__(self, exc_type, exc, tb):
             return None
+
+        def mark_reclaim_scoped_processes(self):
+            self.reclaim_scoped_processes = True
 
     class FakeHostProcess:
         returncode = 0
@@ -1563,6 +1570,9 @@ with tempfile.TemporaryDirectory() as tmp:
 
         asyncio.create_subprocess_exec = fake_deadline_subprocess_exec
         asyncio.run(host_process_agent._run_host_cell(host_process_environment, Path(tmp) / "instruction.txt"))
+        assert FakeToolExecutor.instances[-1].reclaim_scoped_processes, (
+            "a settled deadline must reclaim active bridged commands before Harbor's outer timeout"
+        )
 
         class CancelledHostProcess:
             def __init__(self):
