@@ -283,10 +283,6 @@
   }
 }
 
-/* Segmented chrome moved to styles/segmented.css (`.maka-segmented`):
-   the primitive is cross-surface (sidebar, daily review, settings), so
-   its recipe no longer lives in this settings subpage file. */
-
 .settingsUsageSummary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -10,6 +10,10 @@
   width: fit-content;
   display: inline-flex;
   align-items: center;
+  /* Narrow containers wrap whole options to the next row; labels never
+     break inside a button (nowrap below). Keeps every option reachable
+     and 22px tall at any width. */
+  flex-wrap: wrap;
   gap: var(--space-0-5);
   border-radius: var(--radius-pill);
   background: var(--foreground-5);
@@ -23,6 +27,7 @@
   background: transparent;
   color: var(--foreground-secondary);
   padding: 0 var(--space-2);
+  white-space: nowrap;
   /* ui tier, not caption: this is an interactive control, and per the
      #546 type scale controls sit on the 13px chrome tier. The caption
      size was a leftover from the recipe's settings-page origin. */
