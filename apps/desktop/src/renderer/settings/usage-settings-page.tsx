@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AppSettings, UpdateAppSettingsResult, UsageRange, UsageStats } from '@maka/core';
-import { Button, Input, Segmented, SettingsSelect, SettingsSwitch as Switch, useMountedRef, useToast } from '@maka/ui';
+import { Button, Input, Segmented, SettingsSelect, SettingsSwitch as Switch, useToast } from '@maka/ui';
 import { RefreshCcw } from '@maka/ui/icons';
 import { MetricCard } from './settings-metric-card';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { useOptimisticSettingsDraft } from './use-optimistic-settings-draft';
 
 export function UsageSettingsPage(props: {
   settings: AppSettings;
@@ -13,32 +14,22 @@ export function UsageSettingsPage(props: {
   onOpenSession?(sessionId: string): void;
 }) {
   const persistedUsage = props.settings.usage;
-  const [usageDraft, setUsageDraft] = useState(persistedUsage);
   const [refreshing, setRefreshing] = useState(false);
-  const usageDraftRef = useRef(persistedUsage);
-  const persistedUsageRef = useRef(persistedUsage);
-  const usagePendingSaveCountRef = useRef(0);
-  const usageSaveTicketRef = useRef(0);
   const usageRefreshRunningRef = useRef(false);
-  const usagePageMountedRef = useMountedRef();
   const stats = props.stats;
   const toast = useToast();
-
-  function commitUsageDraft(next: AppSettings['usage']) {
-    usageDraftRef.current = next;
-    setUsageDraft(next);
-  }
-
-  useEffect(() => {
-    persistedUsageRef.current = persistedUsage;
-    if (usagePendingSaveCountRef.current === 0) {
-      commitUsageDraft(persistedUsage);
-    }
-  }, [persistedUsage]);
+  const {
+    draft: usageDraft,
+    draftRef: usageDraftRef,
+    mountedRef: usagePageMountedRef,
+    update,
+  } = useOptimisticSettingsDraft<AppSettings['usage']>(
+    persistedUsage,
+    (patch) => props.onUpdate({ usage: patch }).then((result) => result.settings.usage),
+  );
 
   useEffect(() => {
     return () => {
-      usageSaveTicketRef.current += 1;
       usageRefreshRunningRef.current = false;
     };
   }, []);
@@ -63,27 +54,10 @@ export function UsageSettingsPage(props: {
     await props.onReload(range);
   }
 
-  async function updateUsage(patch: Partial<AppSettings['usage']>): Promise<boolean> {
-    const nextDraft = { ...usageDraftRef.current, ...patch };
-    const ticket = usageSaveTicketRef.current + 1;
-    usageSaveTicketRef.current = ticket;
-    usagePendingSaveCountRef.current += 1;
-    commitUsageDraft(nextDraft);
-    try {
-      const result = await props.onUpdate({ usage: patch });
-      if (usagePageMountedRef.current && ticket === usageSaveTicketRef.current) {
-        commitUsageDraft(result.settings.usage);
-      }
-      return usagePageMountedRef.current && ticket === usageSaveTicketRef.current;
-    } catch (error) {
-      if (usagePageMountedRef.current && ticket === usageSaveTicketRef.current) {
-        commitUsageDraft(persistedUsageRef.current);
-        toast.error('保存使用统计设置失败', settingsActionErrorMessage(error));
-      }
-      return false;
-    } finally {
-      usagePendingSaveCountRef.current = Math.max(0, usagePendingSaveCountRef.current - 1);
-    }
+  function updateUsage(patch: Partial<AppSettings['usage']>): Promise<boolean> {
+    return update(patch, {
+      onError: (error) => toast.error('保存使用统计设置失败', settingsActionErrorMessage(error)),
+    });
   }
 
   async function refresh() {

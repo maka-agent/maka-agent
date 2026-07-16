@@ -31,23 +31,22 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
     return src.slice(pageStart, pageStart + 8500);
   }
 
-  it('PersonalizationSettingsPage syncs state when persisted personalization changes', async () => {
-    // Anchor on the function declaration and slice forward by a
-    // generous window — the body is ~250 lines but the sync
-    // useEffect appears in the first ~30 after init.
+  it('PersonalizationSettingsPage syncs state through the shared optimistic draft hook', async () => {
+    // The prop→state sync effect (reconcile server-side sanitization or a
+    // background settings mutation) and its in-flight pending guard now live
+    // inside useOptimisticSettingsDraft; the page drives personalization
+    // through it with the personalization narrowing. The guard behavior itself
+    // is unit-tested on the hook's controller.
     const head = await readPersonalizationPage();
-    // useEffect block resetting all three input states from `value.*`.
     assert.match(
       head,
-      /useEffect\(\(\) => \{[\s\S]*?setDisplayName\(value\.displayName\)[\s\S]*?setAssistantTone\(value\.assistantTone\)[\s\S]*?setUiLocale\(value\.uiLocale\)[\s\S]*?\},\s*\[\s*value\.displayName,\s*value\.assistantTone,\s*value\.uiLocale,?\s*\]\)/,
-      'PersonalizationSettingsPage must sync local state when persisted values change',
+      /useOptimisticSettingsDraft<PersonalizationSettings>\([\s\S]*persistedPersonalization,[\s\S]*\(patch\) => props\.onUpdate\(\{ personalization: patch \}\)\.then\(\(result\) => result\.settings\.personalization\)/,
+      'PersonalizationSettingsPage must sync local state through the shared optimistic draft hook',
     );
-    // The sync must not clobber a value the user is mid-editing while an
-    // autosave for it is still in flight — guarded on the pending count.
     assert.match(
       head,
-      /if \(persistPendingCountRef\.current > 0\) return;[\s\S]*?setDisplayName\(value\.displayName\)/,
-      'Personalization state sync must skip while an autosave is in flight',
+      /draft,[\s\S]*draftRef,[\s\S]*mountedRef: personalizationMountedRef,[\s\S]*commit,[\s\S]*runSave,[\s\S]*persist,/,
+      'PersonalizationSettingsPage must read its draft, commit, runSave, and persist from the shared hook',
     );
   });
 
@@ -69,29 +68,14 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
   it('PersonalizationSettingsPage autosaves via a last-write-wins persist path', async () => {
     const page = await readPersonalizationPage();
 
-    // Shared persist helper takes a partial personalization patch and
-    // routes through onUpdate.
+    // Shared persist helper takes a partial personalization patch and routes
+    // through the hook's runSave + persist. Unlike the generic reconcile it must
+    // not overwrite the other fields the user may still be editing, so it commits
+    // only the reconciled locale, gated on the still-current save.
     assert.match(
       page,
-      /async function persistPersonalization\(patch: Partial<PersonalizationSettings>\) \{[\s\S]*?await props\.onUpdate\(\{ personalization: patch \}\)/,
-      'Personalization must persist a partial patch through a shared autosave path',
-    );
-    // Monotonic ticket disambiguates overlapping in-flight saves so a
-    // stale earlier response can't clobber a newer write (last write wins).
-    assert.match(
-      page,
-      /const persistTicketRef = useRef\(0\)/,
-      'Personalization autosave must carry a monotonic ticket for last-write-wins',
-    );
-    assert.match(
-      page,
-      /const ticket = \+\+persistTicketRef\.current;[\s\S]*?if \(!personalizationMountedRef\.current \|\| ticket !== persistTicketRef\.current\) return;/,
-      'Personalization autosave must ignore responses whose ticket is no longer current',
-    );
-    assert.match(
-      page,
-      /const persistPendingCountRef = useRef\(0\)/,
-      'Personalization autosave must track pending saves so the sync effect can defer',
+      /async function persistPersonalization\(patch: Partial<PersonalizationSettings>\) \{[\s\S]*?await runSave\(async \(\{ isCurrent \}\) => \{[\s\S]*?const next = await persist\(patch\);[\s\S]*?if \(isCurrent\(\) && patch\.uiLocale !== undefined\) \{[\s\S]*?commit\(\{ \.\.\.draftRef\.current, uiLocale: next\.uiLocale \}\)/,
+      'Personalization must persist a partial patch through the shared runSave + persist path (last-write-wins owned by the hook)',
     );
   });
 
@@ -125,11 +109,12 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
       /onBlur=\{\(event\) => flushTone\(event\.currentTarget\.value\)\}/,
       'Tone textarea must flush on blur',
     );
-    // The tone textarea change handler must schedule the debounced save.
+    // The tone textarea change handler must optimistically commit the draft
+    // and schedule the debounced save.
     assert.match(
       page,
-      /onChange=\{\(event\) => \{[\s\S]*?setAssistantTone\(event\.currentTarget\.value\);[\s\S]*?scheduleToneSave\(event\.currentTarget\.value\);/,
-      'Tone textarea onChange must schedule the debounced autosave',
+      /onChange=\{\(event\) => \{[\s\S]*?commit\(\{ \.\.\.draftRef\.current, assistantTone: event\.currentTarget\.value \}\);[\s\S]*?scheduleToneSave\(event\.currentTarget\.value\);/,
+      'Tone textarea onChange must commit the optimistic draft and schedule the debounced autosave',
     );
   });
 
@@ -192,31 +177,27 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
 
     assert.match(
       page,
-      /const personalizationMountedRef = useMountedRef\(\)/,
-      'Personalization save must track page ownership separately from React pending state',
+      /mountedRef: personalizationMountedRef,/,
+      'Personalization save must track page ownership (from the shared draft hook) separately from React pending state',
     );
+    // Cleanup only drops the pending debounced flush so it can't fire
+    // post-unmount; the hook already invalidates any in-flight save's late apply.
     assert.match(
       page,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*persistTicketRef\.current \+= 1;/,
-      'Personalization cleanup must release page ownership when Settings closes',
-    );
-    // Cleanup must invalidate any in-flight save's late apply (bump ticket)
-    // and drop a pending debounced flush so it can't fire post-unmount.
-    assert.match(
-      page,
-      /return \(\) => \{[\s\S]*persistTicketRef\.current \+= 1;[\s\S]*clearTimeout\(toneDebounceRef\.current\)/,
-      'Personalization cleanup must invalidate in-flight saves and cancel the pending debounce',
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*clearTimeout\(toneDebounceRef\.current\)/,
+      'Personalization cleanup must cancel the pending debounce when Settings closes',
     );
     // A stale canonical locale must not be reconciled into the form after
-    // Settings closes: the mount + ticket guard gates the local state write.
+    // Settings closes: the hook's isCurrent() guard (mount + ticket) gates the
+    // local commit.
     assert.match(
       page,
-      /if \(!personalizationMountedRef\.current \|\| ticket !== persistTicketRef\.current\) return;[\s\S]*setUiLocale\(result\.settings\.personalization\.uiLocale\)/,
+      /if \(isCurrent\(\) && patch\.uiLocale !== undefined\) \{[\s\S]*commit\(\{ \.\.\.draftRef\.current, uiLocale: next\.uiLocale \}\)/,
       'Personalization save must not reconcile a stale UI locale after Settings is closed',
     );
     assert.match(
       page,
-      /catch \(error\) \{[\s\S]*if \(personalizationMountedRef\.current && ticket === persistTicketRef\.current\) \{[\s\S]*toast\.error\('保存失败', settingsActionErrorMessage\(error\)\)/,
+      /catch \(error\) \{[\s\S]*if \(isCurrent\(\)\) \{[\s\S]*toast\.error\('保存失败', settingsActionErrorMessage\(error\)\)/,
       'Personalization failure toast must only fire while the page still owns the save',
     );
   });

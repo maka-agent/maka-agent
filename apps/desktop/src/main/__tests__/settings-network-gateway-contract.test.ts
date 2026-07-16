@@ -31,23 +31,18 @@ describe('Settings network and gateway persistence contract', () => {
 
     assert.match(
       networkBlock,
-      /const \[proxyDraft, setProxyDraft\] = useState<NetworkProxySettings>\(persistedProxy\)/,
-      'Network proxy text fields must use a local draft so typing does not wait for IPC persistence',
+      /useOptimisticSettingsDraft<NetworkProxySettings>\([\s\S]*persistedProxy,[\s\S]*\(patch\) => props\.onUpdate\(\{ network: \{ proxy: patch \} \}\)\.then\(\(result\) => result\.settings\.network\.proxy\)/,
+      'Network proxy must drive its local draft through the shared optimistic draft hook so typing does not wait for IPC',
     );
     assert.match(
       networkBlock,
-      /const proxyDraftRef = useRef<NetworkProxySettings>\(persistedProxy\)/,
-      'Network proxy draft updates must have a synchronous ref for rapid consecutive field changes',
+      /draft: proxyDraft,[\s\S]*draftRef: proxyDraftRef,[\s\S]*mountedRef: networkPageMountedRef,[\s\S]*update,/,
+      'Network proxy must read its rendered draft, synchronous draft ref, and mounted ref from the shared hook',
     );
     assert.match(
       networkBlock,
-      /function commitProxyDraft\(next: NetworkProxySettings\) \{[\s\S]*proxyDraftRef\.current = next;[\s\S]*setProxyDraft\(next\);[\s\S]*\}/,
-      'Network proxy local draft must update the rendered value immediately',
-    );
-    assert.match(
-      networkBlock,
-      /async function updateProxy\(patch: Partial<NetworkProxySettings>\) \{[\s\S]*const nextDraft = \{ \.\.\.proxyDraftRef\.current, \.\.\.patch \};[\s\S]*commitProxyDraft\(nextDraft\);[\s\S]*try \{[\s\S]*const result = await props\.onUpdate\(\{ network: \{ proxy: patch \} \}\)[\s\S]*commitProxyDraft\(result\.settings\.network\.proxy\)[\s\S]*catch \(error\) \{[\s\S]*commitProxyDraft\(persistedProxyRef\.current\)[\s\S]*toast\.error\('保存网络设置失败', settingsActionErrorMessage\(error\)\)/,
-      'Network proxy settings updates must show a visible failure toast',
+      /function updateProxy\(patch: Partial<NetworkProxySettings>\) \{[\s\S]*return update\(patch, \{[\s\S]*onError: \(error\) => toast\.error\('保存网络设置失败', settingsActionErrorMessage\(error\)\),/,
+      'Network proxy field saves must route through the shared draft update and surface a visible failure toast',
     );
     assert.match(
       networkBlock,
@@ -139,24 +134,17 @@ describe('Settings network and gateway persistence contract', () => {
 
     assert.match(
       networkBlock,
-      /const networkPageMountedRef = useMountedRef\(\);/,
-      'Network proxy page must track mounted ownership for async save/test actions',
+      /mountedRef: networkPageMountedRef,/,
+      'Network proxy page must track mounted ownership (from the shared draft hook) for async save/test actions',
     );
     assert.match(
       networkBlock,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*proxySaveTicketRef\.current \+= 1;[\s\S]*proxyTestRunningRef\.current = false;/,
-      'Network proxy cleanup must invalidate save tickets and release test ownership when Settings closes',
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*proxyTestRunningRef\.current = false;/,
+      'Network proxy cleanup must release test ownership when Settings closes (the hook invalidates save tickets)',
     );
-    assert.match(
-      networkBlock,
-      /if \(networkPageMountedRef\.current && ticket === proxySaveTicketRef\.current\) \{[\s\S]*commitProxyDraft\(result\.settings\.network\.proxy\);/,
-      'Network proxy save success must not write local draft state after unmount',
-    );
-    assert.match(
-      networkBlock,
-      /catch \(error\) \{[\s\S]*if \(networkPageMountedRef\.current && ticket === proxySaveTicketRef\.current\) \{[\s\S]*commitProxyDraft\(persistedProxyRef\.current\);[\s\S]*toast\.error\('保存网络设置失败', settingsActionErrorMessage\(error\)\);/,
-      'Network proxy save failure must not rollback draft state or toast after unmount',
-    );
+    // Save-response staleness + rollback after unmount are owned by the shared
+    // optimistic draft hook and covered by its controller unit test; the page
+    // only wires the failure toast through update({ onError }).
     assert.match(
       networkBlock,
       /if \(result\.ok && networkPageMountedRef\.current\) \{[\s\S]*toast\.success\('代理可达'/,
@@ -184,8 +172,18 @@ describe('Settings network and gateway persistence contract', () => {
 
     assert.match(
       gatewayBlock,
-      /const \[gatewayDraft, setGatewayDraft\] = useState\(persistedGateway\)/,
-      'Open Gateway host/port controls must use a local draft so typing does not wait for IPC persistence',
+      /useOptimisticSettingsDraft<AppSettings\['openGateway'\]>\([\s\S]*persistedGateway,[\s\S]*\(patch\) => props\.onUpdate\(\{ openGateway: patch \}\)\.then\(\(result\) => result\.settings\.openGateway\)/,
+      'Open Gateway host/port controls must use the shared optimistic draft hook so typing does not wait for IPC persistence',
+    );
+    assert.match(
+      gatewayBlock,
+      /draft: gatewayDraft,[\s\S]*mountedRef: openGatewayMountedRef,[\s\S]*update,/,
+      'Open Gateway must read its rendered draft and mounted ref from the shared hook',
+    );
+    assert.match(
+      gatewayBlock,
+      /\{ onSyncPersisted: \(next\) => setTokenDraft\(next\.token\) \}/,
+      'Open Gateway must keep the token draft mirrored when the persisted value syncs in',
     );
     assert.match(
       gatewayBlock,
@@ -209,18 +207,8 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /const gatewayDraftRef = useRef\(persistedGateway\)/,
-      'Open Gateway draft updates must have a synchronous ref for rapid consecutive field changes',
-    );
-    assert.match(
-      gatewayBlock,
-      /function commitGatewayDraft\(next: AppSettings\['openGateway'\]\) \{[\s\S]*gatewayDraftRef\.current = next;[\s\S]*setGatewayDraft\(next\);[\s\S]*\}/,
-      'Open Gateway local draft must update the rendered value immediately',
-    );
-    assert.match(
-      gatewayBlock,
-      /async function updateGateway\(patch: Partial<AppSettings\['openGateway'\]>\): Promise<boolean> \{[\s\S]*const nextDraft = \{ \.\.\.gatewayDraftRef\.current, \.\.\.patch \};[\s\S]*commitGatewayDraft\(nextDraft\);[\s\S]*const result = await props\.onUpdate\(\{ openGateway: patch \}\);[\s\S]*if \(openGatewayMountedRef\.current && ticket === gatewaySaveTicketRef\.current\) \{[\s\S]*commitGatewayDraft\(result\.settings\.openGateway\);[\s\S]*catch \(error\) \{[\s\S]*if \(openGatewayMountedRef\.current && ticket === gatewaySaveTicketRef\.current\) \{[\s\S]*commitGatewayDraft\(persistedGatewayRef\.current\);[\s\S]*toast\.error\('保存开放网关设置失败', settingsActionErrorMessage\(error\)\)[\s\S]*return false;/,
-      'Open Gateway settings updates must return a boolean and surface failures',
+      /function updateGateway\(patch: Partial<AppSettings\['openGateway'\]>\): Promise<boolean> \{[\s\S]*return update\(patch, \{[\s\S]*onStart: \(\) => setSaving\(true\),[\s\S]*onSync: \(next\) => setTokenDraft\(next\.token\),[\s\S]*onError: \(error\) => toast\.error\('保存开放网关设置失败', settingsActionErrorMessage\(error\)\),[\s\S]*returnMounted: true,/,
+      'Open Gateway settings updates must return a boolean, mirror the token draft, and surface failures through the shared hook',
     );
     assert.match(
       gatewayBlock,
@@ -259,27 +247,21 @@ describe('Settings network and gateway persistence contract', () => {
 
     assert.match(
       gatewayBlock,
-      /const openGatewayMountedRef = useMountedRef\(\);/,
-      'Open Gateway page must track mounted ownership for async save/copy actions',
+      /mountedRef: openGatewayMountedRef,/,
+      'Open Gateway page must track mounted ownership (from the shared draft hook) for async save/copy actions',
     );
     assert.match(
       gatewayBlock,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*gatewaySaveTicketRef\.current \+= 1;[\s\S]*copyingGatewayActionRef\.current = null;/,
-      'Open Gateway cleanup must invalidate save tickets and release copy ownership when Settings closes',
+      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*copyingGatewayActionRef\.current = null;/,
+      'Open Gateway cleanup must release copy ownership when Settings closes (the hook invalidates save tickets)',
     );
+    // Save-response staleness, draft rollback, and token mirroring after unmount
+    // are owned by the shared optimistic draft hook (unit-tested on its
+    // controller); the page only wires the pending-state settle through
+    // update({ onSettled }), gated on the shared mounted ref.
     assert.match(
       gatewayBlock,
-      /if \(openGatewayMountedRef\.current && ticket === gatewaySaveTicketRef\.current\) \{[\s\S]*commitGatewayDraft\(result\.settings\.openGateway\);[\s\S]*setTokenDraft\(result\.settings\.openGateway\.token\);/,
-      'Open Gateway save success must not write local draft state after unmount',
-    );
-    assert.match(
-      gatewayBlock,
-      /catch \(error\) \{[\s\S]*if \(openGatewayMountedRef\.current && ticket === gatewaySaveTicketRef\.current\) \{[\s\S]*commitGatewayDraft\(persistedGatewayRef\.current\);[\s\S]*toast\.error\('保存开放网关设置失败', settingsActionErrorMessage\(error\)\);/,
-      'Open Gateway save failure must not rollback draft state or toast after unmount',
-    );
-    assert.match(
-      gatewayBlock,
-      /finally \{[\s\S]*gatewayPendingSaveCountRef\.current = Math\.max\(0, gatewayPendingSaveCountRef\.current - 1\);[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*setSaving\(gatewayPendingSaveCountRef\.current > 0\);/,
+      /onSettled: \(pending\) => \{[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*setSaving\(pending > 0\);/,
       'Open Gateway save cleanup must not write React pending state after unmount',
     );
     assert.match(

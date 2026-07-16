@@ -1,0 +1,128 @@
+/**
+ * Unit test for the shared optimistic last-write-wins draft controller that
+ * backs `useOptimisticSettingsDraft`. The React shell is covered by the
+ * per-page Settings contract tests + manual UI testing; here we pin the pure
+ * async-correctness contract that used to be hand-copied on every page.
+ */
+
+import { strict as assert } from 'node:assert';
+import { describe, it } from 'node:test';
+import {
+  createOptimisticDraftController,
+  type OptimisticDraftController,
+} from '../../renderer/settings/optimistic-settings-draft-controller.js';
+
+interface Draft {
+  v: number;
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void } {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function harness(initial: Draft) {
+  const drafts: Draft[] = [];
+  const pending: Array<{ patch: Partial<Draft>; deferred: ReturnType<typeof deferred<Draft>> }> = [];
+  let mounted = true;
+  const controller: OptimisticDraftController<Draft> = createOptimisticDraftController<Draft>({
+    initial,
+    onUpdate: (patch) => {
+      const d = deferred<Draft>();
+      pending.push({ patch, deferred: d });
+      return d.promise;
+    },
+    onDraftChange: (draft) => drafts.push(draft),
+    isMounted: () => mounted,
+  });
+  return {
+    controller,
+    drafts,
+    pending,
+    unmount() {
+      mounted = false;
+    },
+  };
+}
+
+describe('createOptimisticDraftController last-write-wins', () => {
+  it('drops a stale save response so it cannot clobber a newer draft', async () => {
+    const h = harness({ v: 0 });
+
+    const first = h.controller.update({ v: 1 });
+    const second = h.controller.update({ v: 2 });
+
+    // Both applied their optimistic drafts immediately, newest last.
+    assert.deepEqual(h.drafts, [{ v: 1 }, { v: 2 }]);
+
+    // Resolve the NEWER save first with its authoritative value.
+    h.pending[1].deferred.resolve({ v: 20 });
+    assert.equal(await second, true, 'the current save reports success');
+    assert.deepEqual(h.controller.draftRef.current, { v: 20 });
+
+    // Now the STALE earlier save resolves — it must not commit over the newer draft.
+    h.pending[0].deferred.resolve({ v: 10 });
+    assert.equal(await first, false, 'a superseded save reports failure to its caller');
+    assert.deepEqual(
+      h.controller.draftRef.current,
+      { v: 20 },
+      'stale save response must not overwrite the newer committed draft',
+    );
+    assert.equal(
+      h.drafts.some((draft) => draft.v === 10),
+      false,
+      'the stale server value must never reach the rendered draft',
+    );
+  });
+
+  it('rolls the draft back to persisted on failure and reports failure', async () => {
+    const h = harness({ v: 0 });
+    const errors: unknown[] = [];
+
+    const save = h.controller.update({ v: 5 }, { onError: (error) => errors.push(error) });
+    assert.deepEqual(h.controller.draftRef.current, { v: 5 }, 'optimistic value shows immediately');
+
+    h.pending[0].deferred.reject(new Error('boom'));
+    assert.equal(await save, false);
+    assert.deepEqual(h.controller.draftRef.current, { v: 0 }, 'draft rolls back to the persisted value');
+    assert.equal(errors.length, 1, 'the failure is surfaced to the caller');
+  });
+
+  it('does not resync the draft from persisted while a save is in flight', async () => {
+    const h = harness({ v: 0 });
+
+    const save = h.controller.update({ v: 7 });
+    // A background settings change arrives mid-save: it must not reset the
+    // optimistic edit out from under the user.
+    h.controller.syncPersisted({ v: 99 });
+    assert.deepEqual(h.controller.draftRef.current, { v: 7 }, 'in-flight edit is preserved');
+
+    h.pending[0].deferred.resolve({ v: 7 });
+    await save;
+
+    // Once nothing is in flight, a later persisted change syncs through.
+    h.controller.syncPersisted({ v: 42 });
+    assert.deepEqual(h.controller.draftRef.current, { v: 42 });
+  });
+
+  it('invalidates an in-flight save after dispose (unmount)', async () => {
+    const h = harness({ v: 0 });
+
+    const save = h.controller.update({ v: 3 });
+    h.unmount();
+    h.controller.dispose();
+    h.pending[0].deferred.resolve({ v: 30 });
+
+    assert.equal(await save, false, 'a save resolving after unmount reports failure');
+    assert.equal(
+      h.drafts.some((draft) => draft.v === 30),
+      false,
+      'a save resolving after unmount must not write the draft',
+    );
+  });
+});

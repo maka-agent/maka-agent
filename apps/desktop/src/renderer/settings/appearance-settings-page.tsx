@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { SettingsRows } from './settings-rows';
 import type {
   AppSettings,
@@ -10,6 +10,7 @@ import type {
 } from '@maka/core';
 import { ChoiceCard, ChoiceCardGroup, Input, Segmented, Textarea, useMountedRef, useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { useOptimisticSettingsDraft } from './use-optimistic-settings-draft';
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; help: string }> = [
   { value: 'light', label: '浅色', help: '始终使用浅色界面。' },
@@ -59,26 +60,32 @@ export function PersonalizationSettingsPage(props: {
   // Persist the tone textarea this long after the user stops typing; blur
   // flushes immediately regardless.
   const TONE_AUTOSAVE_DEBOUNCE_MS = 800;
-  const value = props.settings.personalization;
-  const [displayName, setDisplayName] = useState(value.displayName);
-  const [assistantTone, setAssistantTone] = useState(value.assistantTone);
-  const [uiLocale, setUiLocale] = useState<UiLocalePreference>(value.uiLocale);
+  const persistedPersonalization = props.settings.personalization;
   const toast = useToast();
-  const personalizationMountedRef = useMountedRef();
-  // Last-write-wins persist queue, mirrored on NetworkProxySection below:
-  // a monotonic ticket disambiguates overlapping in-flight saves so a stale
-  // response can't clobber a newer one, and a pending-count keeps the sync
-  // effect from resetting local state mid-edit.
-  const persistTicketRef = useRef(0);
-  const persistPendingCountRef = useRef(0);
   // Debounce timer for the tone textarea; flushed immediately on blur.
   const toneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Optimistic last-write-wins draft shared with the other Settings pages
+  // (see use-optimistic-settings-draft): a monotonic ticket keeps a stale
+  // save from clobbering a newer edit and the pending-save count keeps the
+  // sync effect from resetting local state mid-edit. The sync effect that
+  // reconciles server-side sanitization or a background settings mutation
+  // lives inside the hook.
+  const {
+    draft,
+    draftRef,
+    mountedRef: personalizationMountedRef,
+    commit,
+    runSave,
+    persist,
+  } = useOptimisticSettingsDraft<PersonalizationSettings>(
+    persistedPersonalization,
+    (patch) => props.onUpdate({ personalization: patch }).then((result) => result.settings.personalization),
+  );
 
   useEffect(() => {
     return () => {
-      // Invalidate any in-flight save's late UI write, and drop the pending
-      // debounced flush so it can't fire after the panel closes.
-      persistTicketRef.current += 1;
+      // Drop the pending debounced flush so it can't fire after the panel
+      // closes; the hook already invalidates in-flight saves on unmount.
       if (toneDebounceRef.current) {
         clearTimeout(toneDebounceRef.current);
         toneDebounceRef.current = null;
@@ -86,44 +93,24 @@ export function PersonalizationSettingsPage(props: {
     };
   }, []);
 
-  // PR-PERSONALIZATION-SYNC-0: sync form state when the persisted
-  // personalization changes externally. Two real scenarios:
-  //   1. Server-side sanitization (control chars, secret-shaped
-  //      patterns) rewrites the input on save — local state would
-  //      otherwise keep showing the raw typed value while the
-  //      persisted store has the sanitized version.
-  //   2. Another agent / background sync mutates settings while the
-  //      panel is open.
-  // Guarded on the pending-save count so an autosave that's still in
-  // flight doesn't get its optimistic local value reset out from under
-  // the user mid-edit — the sync only lands when nothing is in flight.
-  useEffect(() => {
-    if (persistPendingCountRef.current > 0) return;
-    setDisplayName(value.displayName);
-    setAssistantTone(value.assistantTone);
-    setUiLocale(value.uiLocale);
-  }, [value.displayName, value.assistantTone, value.uiLocale]);
-
-  // Shared persist path for every personalization field. Newest write wins:
-  // each call bumps the ticket, and only the response whose ticket is still
-  // current is allowed to apply side effects (locale) — a slow earlier save
-  // resolving after a newer one is discarded.
+  // Shared persist path for every personalization field. Newest write wins via
+  // the hook's ticket: only the response that is still current applies its side
+  // effect (locale). Unlike the generic reconcile, a personalization save must
+  // not overwrite the other fields the user may still be editing, so it commits
+  // only the reconciled locale rather than the whole server object.
   async function persistPersonalization(patch: Partial<PersonalizationSettings>) {
-    const ticket = ++persistTicketRef.current;
-    persistPendingCountRef.current += 1;
-    try {
-      const result = await props.onUpdate({ personalization: patch });
-      if (!personalizationMountedRef.current || ticket !== persistTicketRef.current) return;
-      if (patch.uiLocale !== undefined) {
-        setUiLocale(result.settings.personalization.uiLocale);
+    await runSave(async ({ isCurrent }) => {
+      try {
+        const next = await persist(patch);
+        if (isCurrent() && patch.uiLocale !== undefined) {
+          commit({ ...draftRef.current, uiLocale: next.uiLocale });
+        }
+      } catch (error) {
+        if (isCurrent()) {
+          toast.error('保存失败', settingsActionErrorMessage(error));
+        }
       }
-    } catch (error) {
-      if (personalizationMountedRef.current && ticket === persistTicketRef.current) {
-        toast.error('保存失败', settingsActionErrorMessage(error));
-      }
-    } finally {
-      persistPendingCountRef.current = Math.max(0, persistPendingCountRef.current - 1);
-    }
+    });
   }
 
   function flushDisplayName(nextValue: string) {
@@ -131,7 +118,7 @@ export function PersonalizationSettingsPage(props: {
   }
 
   function persistLocale(next: UiLocalePreference) {
-    setUiLocale(next);
+    commit({ ...draftRef.current, uiLocale: next });
     void persistPersonalization({ uiLocale: next });
   }
 
@@ -169,8 +156,8 @@ export function PersonalizationSettingsPage(props: {
           </div>
           <Input
             type="text"
-            value={displayName}
-            onChange={(event) => setDisplayName(event.currentTarget.value)}
+            value={draft.displayName}
+            onChange={(event) => commit({ ...draftRef.current, displayName: event.currentTarget.value })}
             onBlur={(event) => flushDisplayName(event.currentTarget.value)}
             placeholder="例如：JK"
             maxLength={60}
@@ -192,7 +179,7 @@ export function PersonalizationSettingsPage(props: {
             <small>选择 Maka 界面的显示语言。切换后立即生效，重启后保持。</small>
           </div>
           <Segmented
-            value={uiLocale}
+            value={draft.uiLocale}
             options={[
               ['auto', '跟随系统'],
               ['zh', '中文'],
@@ -212,9 +199,9 @@ export function PersonalizationSettingsPage(props: {
             </small>
           </div>
           <Textarea
-            value={assistantTone}
+            value={draft.assistantTone}
             onChange={(event) => {
-              setAssistantTone(event.currentTarget.value);
+              commit({ ...draftRef.current, assistantTone: event.currentTarget.value });
               scheduleToneSave(event.currentTarget.value);
             }}
             onBlur={(event) => flushTone(event.currentTarget.value)}
