@@ -130,6 +130,91 @@ test('semantic compact default plan preserves the historical 15 plus 15 batches'
   assert.equal(new Set(plan.batches.flatMap((batch: { taskIds: string[] }) => batch.taskIds)).size, 30);
 });
 
+test('semantic compact execution profile preserves the Z.ai baseline by default', async () => {
+  const { semanticCompactExecutionProfile } = await import(
+    new URL('../../harbor/run-semantic-compact-batched.mjs', import.meta.url).href
+  );
+
+  assert.deepEqual(semanticCompactExecutionProfile(), {
+    schemaVersion: 1,
+    id: 'z.ai-public-2026-07-13',
+    llmConnectionSlug: 'zai-coding-plan',
+    provider: 'zai-coding-plan',
+    baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+    model: 'zai-coding-plan/glm-5.2',
+    pricing: {
+      inputUsdPer1M: 1.4,
+      outputUsdPer1M: 4.4,
+      cacheReadUsdPer1M: 0.26,
+      cacheWriteUsdPer1M: 0,
+      source: 'z.ai-public-2026-07-13',
+    },
+    taskBudgetSec: 1800,
+    harborTimeoutMs: 2700000,
+    observedCostStopUsd: 100,
+    maxConcurrentAttempts: 2,
+  });
+});
+
+test('semantic compact execution profile accepts an explicit Ollama Cloud profile', async () => {
+  const { semanticCompactExecutionProfile } = await import(
+    new URL('../../harbor/run-semantic-compact-batched.mjs', import.meta.url).href
+  );
+  const profile = {
+    schemaVersion: 1,
+    id: 'ollama-cloud-account-plan-2026-07-17',
+    llmConnectionSlug: 'ollama-cloud',
+    provider: 'ollama-cloud',
+    baseUrl: 'https://ollama.com/v1',
+    model: 'ollama-cloud/glm-5.2',
+    pricing: {
+      inputUsdPer1M: 0,
+      outputUsdPer1M: 0,
+      cacheReadUsdPer1M: 0,
+      cacheWriteUsdPer1M: 0,
+      source: 'ollama-cloud-account-plan-2026-07-17',
+    },
+    taskBudgetSec: 1800,
+    harborTimeoutMs: 2700000,
+    observedCostStopUsd: 100,
+    maxConcurrentAttempts: 2,
+  };
+
+  assert.deepEqual(semanticCompactExecutionProfile(profile), profile);
+});
+
+test('semantic compact execution derives Ollama Cloud identity and host proxy settings', async () => {
+  const { semanticCompactExecution } = await import(
+    new URL('../../harbor/run-semantic-compact-batched.mjs', import.meta.url).href
+  );
+  const profile = {
+    schemaVersion: 1,
+    id: 'ollama-cloud-account-plan-2026-07-17',
+    llmConnectionSlug: 'ollama-cloud',
+    provider: 'ollama-cloud',
+    baseUrl: 'https://ollama.com/v1',
+    model: 'ollama-cloud/glm-5.2',
+    pricing: {
+      inputUsdPer1M: 0,
+      outputUsdPer1M: 0,
+      cacheReadUsdPer1M: 0,
+      cacheWriteUsdPer1M: 0,
+      source: 'ollama-cloud-account-plan-2026-07-17',
+    },
+    taskBudgetSec: 1800,
+    harborTimeoutMs: 2700000,
+    observedCostStopUsd: 100,
+    maxConcurrentAttempts: 2,
+  };
+
+  assert.deepEqual(semanticCompactExecution(profile), {
+    profile,
+    modelId: 'glm-5.2',
+    apiKeyEnvName: 'OLLAMA_API_KEY',
+    agentEnv: { MAKA_BASE_URL: 'https://ollama.com/v1' },
+  });
+});
+
 test('harness Oracle environment selects the linux/amd64 image manifest digest', async () => {
   const { resolvedImageDigestFromInspect } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href

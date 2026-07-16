@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "ollama-cloud-account-plan-2026-07-17",
+  "llmConnectionSlug": "ollama-cloud",
+  "provider": "ollama-cloud",
+  "baseUrl": "https://ollama.com/v1",
+  "model": "ollama-cloud/glm-5.2",
+  "pricing": {
+    "inputUsdPer1M": 0,
+    "outputUsdPer1M": 0,
+    "cacheReadUsdPer1M": 0,
+    "cacheWriteUsdPer1M": 0,
+    "source": "ollama-cloud-account-plan-2026-07-17"
+  },
+  "taskBudgetSec": 1800,
+  "harborTimeoutMs": 2700000,
+  "observedCostStopUsd": 100,
+  "maxConcurrentAttempts": 2
+}

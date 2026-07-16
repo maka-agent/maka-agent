@@ -25,6 +25,8 @@ import {
   runHarnessAbComparisonUnlocked,
   withHarnessAbRunLock,
 } from '#harness-ab-run';
+import { requireProviderCredentialEnv } from '#provider-env';
+import { parseRuntimePolicyAbExecutionProfile } from '#runtime-policy-ab-profile';
 import {
   assertHarnessAbReportCompleted,
   buildHarnessAbReport,
@@ -121,6 +123,25 @@ const PRICING = {
   output: 4.4,
   source: 'z.ai-public-2026-07-13',
 };
+const DEFAULT_EXECUTION_PROFILE = {
+  schemaVersion: 1,
+  id: PRICING.source,
+  llmConnectionSlug: PROVIDER,
+  provider: PROVIDER,
+  baseUrl: BASE_URL,
+  model: MODEL_SPEC,
+  pricing: {
+    inputUsdPer1M: PRICING.input,
+    outputUsdPer1M: PRICING.output,
+    cacheReadUsdPer1M: PRICING.cachedInput,
+    cacheWriteUsdPer1M: 0,
+    source: PRICING.source,
+  },
+  taskBudgetSec: 1800,
+  harborTimeoutMs: 45 * 60_000,
+  observedCostStopUsd: 100,
+  maxConcurrentAttempts: 2,
+};
 const OUTER_TIMEOUT_GRACE_SEC = 15 * 60;
 const OFF_PROFILE = {
   activeToolResultPrune: { enabled: true, maxCurrentResultEstimatedTokens: 2048, minStepNumber: 1 },
@@ -156,6 +177,26 @@ function envPath(name, fallback) {
   const raw = process.env[name] || fallback;
   if (!raw) throw new Error(`${name} is required`);
   return raw.startsWith('~') ? join(homedir(), raw.slice(1)) : resolve(raw);
+}
+
+export function semanticCompactExecutionProfile(value) {
+  return parseRuntimePolicyAbExecutionProfile(value ?? structuredClone(DEFAULT_EXECUTION_PROFILE));
+}
+
+export function semanticCompactExecution(value) {
+  const profile = semanticCompactExecutionProfile(value);
+  const modelPrefix = `${profile.provider}/`;
+  if (!profile.model.startsWith(modelPrefix)) {
+    throw new Error(`semantic compact execution model must be qualified by ${profile.provider}`);
+  }
+  const apiKeyEnvName = requireProviderCredentialEnv(profile.provider).apiKeys[0];
+  if (!apiKeyEnvName) throw new Error(`semantic compact execution provider has no API key environment: ${profile.provider}`);
+  return {
+    profile,
+    modelId: profile.model.slice(modelPrefix.length),
+    apiKeyEnvName,
+    agentEnv: { MAKA_BASE_URL: profile.baseUrl },
+  };
 }
 
 function assertTaskPartition() {
@@ -244,7 +285,8 @@ export function contextBudgetEnv(profile) {
   };
 }
 
-function buildManifest({ taskIds, batchId, subjectFingerprint, taskSourceFingerprint, toolchainFingerprint, oracleEvidence }) {
+function buildManifest({ taskIds, batchId, subjectFingerprint, taskSourceFingerprint, toolchainFingerprint, oracleEvidence, execution }) {
+  const { profile, modelId } = execution;
   return buildHarnessAbRunManifest({
     benchmark: {
       dataset: 'terminal-bench',
@@ -257,8 +299,15 @@ function buildManifest({ taskIds, batchId, subjectFingerprint, taskSourceFingerp
     taskIds,
     orderSeed: `terminal-bench-2.1:glm-5.2:semantic-compact:${batchId}:v1`,
     pilotTaskCount: taskIds.length,
-    model: { provider: PROVIDER, id: MODEL, reasoningEffort: REASONING_EFFORT },
-    pricing: PRICING,
+    model: { provider: profile.provider, id: modelId, reasoningEffort: REASONING_EFFORT },
+    pricing: {
+      currency: 'USD',
+      unit: 'per_1m_tokens',
+      input: profile.pricing.inputUsdPer1M,
+      cachedInput: profile.pricing.cacheReadUsdPer1M,
+      output: profile.pricing.outputUsdPer1M,
+      source: profile.pricing.source,
+    },
     arms: [
       {
         id: 'maka-semantic-off',
@@ -312,21 +361,19 @@ async function runBatch({ parentRoot, batchId, taskIds, tasksById, common }) {
     ]);
     const systemPromptPath = join(promptsDir, 'empty-system-prompt.txt');
     await writeFile(systemPromptPath, '', 'utf8');
+    const { execution } = common;
+    const { profile, modelId } = execution;
     const runnerOptions = {
       makaRepoPath: common.makaRepoPath,
       jobsDir,
-      model: MODEL_SPEC,
-      provider: PROVIDER,
+      model: profile.model,
+      provider: profile.provider,
       reasoningEffort: REASONING_EFFORT,
       apiKeyFile: common.keyFile,
-      apiKeyEnvName: 'ZAI_API_KEY',
-      pricing: {
-        inputUsdPer1M: PRICING.input,
-        cacheReadUsdPer1M: PRICING.cachedInput,
-        outputUsdPer1M: PRICING.output,
-        source: PRICING.source,
-      },
-      agentEnv: { ZAI_BASE_URL: BASE_URL },
+      apiKeyEnvName: execution.apiKeyEnvName,
+      pricing: profile.pricing,
+      agentEnv: execution.agentEnv,
+      harborTimeoutMs: profile.harborTimeoutMs,
       timeoutMultiplier: 1,
       dockerPlatform: 'linux/amd64',
       agent: 'maka',
@@ -334,8 +381,8 @@ async function runBatch({ parentRoot, batchId, taskIds, tasksById, common }) {
     const config = (id) => ({
       id: `semantic-compact-ab-${id}`,
       backend: 'ai-sdk',
-      llmConnectionSlug: PROVIDER,
-      model: MODEL,
+      llmConnectionSlug: profile.llmConnectionSlug,
+      model: modelId,
       thinkingLevel: REASONING_EFFORT,
     });
     const summary = await runHarnessAbComparisonUnlocked({
@@ -349,7 +396,7 @@ async function runBatch({ parentRoot, batchId, taskIds, tasksById, common }) {
         {
           id: 'maka-semantic-off',
           config: config('off'),
-          expectedPricingProfile: PRICING.source,
+          expectedPricingProfile: profile.pricing.source,
           harborRunner: createHarborTaskRunner({
             ...runnerOptions,
             agentEnv: { ...runnerOptions.agentEnv, ...contextBudgetEnv(OFF_PROFILE) },
@@ -358,7 +405,7 @@ async function runBatch({ parentRoot, batchId, taskIds, tasksById, common }) {
         {
           id: 'maka-semantic-compact-replace',
           config: config('replace'),
-          expectedPricingProfile: PRICING.source,
+          expectedPricingProfile: profile.pricing.source,
           harborRunner: createHarborTaskRunner({
             ...runnerOptions,
             agentEnv: { ...runnerOptions.agentEnv, ...contextBudgetEnv(COMPACT_PROFILE) },
@@ -395,6 +442,12 @@ export async function main() {
   const parentRoot = resolveFixedPromptRunRoot(outDir, parentRunId, 'MAKA_SEMANTIC_AB_RUN_ID');
   const tasksRoot = envPath('MAKA_SEMANTIC_AB_TASKS_ROOT', join(homedir(), '.cache/harbor/tasks'));
   const keyFile = envPath('MAKA_SEMANTIC_AB_KEY_FILE', join(repoRoot, '.local-secrets/zai-key'));
+  const executionProfilePath = process.env.MAKA_SEMANTIC_AB_EXECUTION_PROFILE
+    ? envPath('MAKA_SEMANTIC_AB_EXECUTION_PROFILE')
+    : undefined;
+  const execution = semanticCompactExecution(executionProfilePath
+    ? JSON.parse(await readFile(executionProfilePath, 'utf8'))
+    : undefined);
   await mkdir(parentRoot, { recursive: true });
 
   const allTasks = await discoverCachedHarborTasks(tasksRoot);
@@ -408,7 +461,7 @@ export async function main() {
 
   if (process.env.MAKA_SEMANTIC_AB_DRY_RUN === '1') {
     const taskCount = new Set(batchPlan.batches.flatMap((batch) => batch.taskIds)).size;
-    console.log(`dry-run: ${batchPlan.batches.length} batch(es), ${taskCount} unique tasks, ${taskCount * 2} total cells -> ${parentRoot}`);
+    console.log(`dry-run: ${execution.profile.provider}/${execution.modelId}; ${batchPlan.batches.length} batch(es), ${taskCount} unique tasks, ${taskCount * 2} total cells -> ${parentRoot}`);
     return;
   }
 
@@ -432,6 +485,7 @@ export async function main() {
     taskSourceFingerprint,
     toolchainFingerprint,
     oracleEvidence,
+    execution,
   };
   const journalPath = join(parentRoot, 'background-run.json');
   const startedAt = process.env.MAKA_SEMANTIC_AB_STARTED_AT || new Date().toISOString();
@@ -441,6 +495,7 @@ export async function main() {
     startedAt,
     subjectFingerprint,
     taskSourceFingerprint,
+    executionProfile: execution.profile,
     batches: [
       ...batchPlan.batches.map((batch) => ({ id: batch.id, taskCount: batch.taskIds.length })),
     ],
@@ -455,6 +510,7 @@ export async function main() {
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,
+    executionProfile: execution.profile,
   });
   try {
     const completedBatches = [];
