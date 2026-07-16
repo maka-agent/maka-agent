@@ -130,6 +130,15 @@ test('semantic compact default plan preserves the historical 15 plus 15 batches'
   assert.equal(new Set(plan.batches.flatMap((batch: { taskIds: string[] }) => batch.taskIds)).size, 30);
 });
 
+test('semantic compact Harbor watchdog follows task-native timeouts', async () => {
+  const { semanticCompactHarborTimingOptions } = await import(
+    new URL('../../harbor/run-semantic-compact-batched.mjs', import.meta.url).href
+  );
+
+  assert.deepEqual(semanticCompactHarborTimingOptions(), { timeoutMultiplier: 1 });
+  assert.equal('harborTimeoutMs' in semanticCompactHarborTimingOptions(), false);
+});
+
 test('semantic compact execution profile preserves the Z.ai baseline by default', async () => {
   const { semanticCompactExecutionProfile } = await import(
     new URL('../../harbor/run-semantic-compact-batched.mjs', import.meta.url).href

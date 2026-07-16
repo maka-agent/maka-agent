@@ -251,6 +251,12 @@ export function semanticCompactBatchPlan(env = process.env) {
   };
 }
 
+export function semanticCompactHarborTimingOptions() {
+  // This benchmark declares task-native timeouts. Let the shared Harbor runner
+  // derive its outer watchdog from each task's agent and verifier limits.
+  return { timeoutMultiplier: 1 };
+}
+
 export function contextBudgetEnv(profile) {
   const common = {
     MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
@@ -373,8 +379,7 @@ async function runBatch({ parentRoot, batchId, taskIds, tasksById, common }) {
       apiKeyEnvName: execution.apiKeyEnvName,
       pricing: profile.pricing,
       agentEnv: execution.agentEnv,
-      harborTimeoutMs: profile.harborTimeoutMs,
-      timeoutMultiplier: 1,
+      ...semanticCompactHarborTimingOptions(),
       dockerPlatform: 'linux/amd64',
       agent: 'maka',
     };
