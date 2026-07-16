@@ -1530,8 +1530,10 @@ export class AiSdkBackend implements AgentBackend {
                 runtimeSteps += 1;
                 const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
                 if (!stepUsage) sawUnusableStepUsage = true;
+                // Fail closed: reset on every step boundary so a missing final
+                // step's usage does not leave a stale value from an earlier step.
+                lastStepInputTokens = stepUsage?.inputTokens;
                 if (stepUsage) {
-                  lastStepInputTokens = stepUsage.inputTokens;
                   completedStepUsage = mergeNormalizedUsage(completedStepUsage, stepUsage);
                   this.cumulativeUsageCheckpoint = mergeNormalizedUsage(this.cumulativeUsageCheckpoint, stepUsage);
                   await this.input.recordUsageCheckpoint?.({
@@ -1766,6 +1768,13 @@ export class AiSdkBackend implements AgentBackend {
               };
               await this.input.appendMessage(note).catch(() => {});
             }
+            const contextRemainingForUsage = (() => {
+              const contextWindow = resolveSelectedModelContextWindow(this.input.connection, this.input.modelId);
+              if (lastStepInputTokens !== undefined && contextWindow !== undefined) {
+                return Math.max(0, contextWindow - lastStepInputTokens);
+              }
+              return undefined;
+            })();
             queue.push({
               type: 'token_usage',
               id: this.newId(),
@@ -1791,13 +1800,7 @@ export class AiSdkBackend implements AgentBackend {
               requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
               promptSegments: turnDiagnostics.promptSegments,
               ...(contextBudgetForUsage ? { contextBudget: contextBudgetForUsage } : {}),
-              ...(() => {
-                const contextWindow = resolveSelectedModelContextWindow(this.input.connection, this.input.modelId);
-                if (lastStepInputTokens !== undefined && contextWindow !== undefined) {
-                  return { contextRemaining: Math.max(0, contextWindow - lastStepInputTokens) };
-                }
-                return {};
-              })(),
+              ...(contextRemainingForUsage !== undefined ? { contextRemaining: contextRemainingForUsage } : {}),
             } satisfies TokenUsageEvent);
           }
         } catch {
