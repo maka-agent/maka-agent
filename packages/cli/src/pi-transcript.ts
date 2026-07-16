@@ -50,13 +50,24 @@ export interface MakaPiTranscriptState {
   queuedInteractions: MakaPiPendingInteraction[];
   expandedPermissionRequestId?: string;
   /**
-   * Global expansion toggles: one Ctrl+O press expands every tool card in the
-   * transcript, one Ctrl+T press expands every thinking entry; pressing again
-   * collapses all. In-memory only; never persisted to storage. Resume resets
-   * both to collapsed.
+   * Expansion defaults: entries stamp `expanded` from these at creation, and
+   * one Ctrl+O / Ctrl+T press retargets every tool / thinking entry inside the
+   * live viewport and flips the default for entries created later. Entries
+   * above the viewport keep their state — their rendered lines sit in terminal
+   * scrollback, which cannot be rewritten, so resizing one would force pi-tui
+   * into a scrollback-clearing full redraw (#1097). In-memory only; never
+   * persisted to storage. Resume resets both to collapsed.
    */
   expandAllTools: boolean;
   expandAllThinking: boolean;
+  /**
+   * Geometry of the transcript render pi-tui last diffed against:
+   * renderMakaPiTranscript records each entry's first line and
+   * MakaPiLayoutComponent records the live-viewport top. The expansion toggles
+   * read it to leave entries above the viewport untouched (#1097); see
+   * entryInLiveViewport.
+   */
+  renderGeometry: MakaPiRenderGeometry;
   /**
    * Ref polls folded at `tool_start`, childToolUseId → card facts. A Read /
    * StopBackgroundTask aimed at a ref a visible Bash card owns is internal
@@ -86,6 +97,19 @@ export interface MakaPiTranscriptState {
 
 export type MakaPiPendingInteraction = AnyPermissionRequestEvent | UserQuestionRequestEvent;
 
+export interface MakaPiRenderGeometry {
+  /** First rendered transcript-line index per entry, from the latest render. */
+  entryFirstLine: Map<MakaPiTranscriptEntry, number>;
+  /**
+   * pi-tui's live-viewport top in transcript-line coordinates (the transcript
+   * is the first layout child, so transcript line i is composed line i). Held
+   * as a monotonic max: pi-tui's viewport never scrolls back up short of a
+   * full redraw, and a full redraw has already cleared scrollback, so
+   * overestimating only makes the toggles more conservative.
+   */
+  viewportTop: number;
+}
+
 /** Facts kept from a folded poll's `tool_start` so an errored result can still materialize a proper card. */
 export interface MakaPiPendingShellRunPoll {
   toolName: string;
@@ -107,7 +131,7 @@ const LIVE_TOOL_BUFFER_MAX_CHUNKS = 512;
 export type MakaPiTranscriptEntry =
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; messageId: string; text: string }
-  | { kind: 'thinking'; messageId: string; text: string }
+  | { kind: 'thinking'; messageId: string; text: string; expanded: boolean }
   | {
       kind: 'tool';
       toolUseId: string;
@@ -124,6 +148,8 @@ export type MakaPiTranscriptEntry =
       outputDeltas: BoundedChunkBuffer<MakaPiToolOutputDelta>;
       durationMs?: number;
       status: 'running' | 'done' | 'error' | 'failed' | 'aborted' | 'detached' | 'unavailable';
+      /** Expanded card view; stamped from expandAllTools, retargeted by Ctrl+O. */
+      expanded: boolean;
     }
   | { kind: 'notice'; level: 'info' | 'error'; text: string };
 
@@ -151,6 +177,7 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
     queuedInteractions: [],
     expandAllTools: false,
     expandAllThinking: false,
+    renderGeometry: { entryFirstLine: new Map(), viewportTop: 0 },
     pendingShellRunPolls: new Map(),
     usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 },
     steering: [],
@@ -251,6 +278,10 @@ export function replaceTranscriptWithStoredMessages(
   state.pendingShellRunPolls.clear();
   state.expandAllTools = false;
   state.expandAllThinking = false;
+  // The old entries are gone; drop their recorded positions. viewportTop stays:
+  // whatever is on screen still came from the previous render until the next
+  // render replaces it.
+  state.renderGeometry.entryFirstLine = new Map();
   state.usage = { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 };
   // Queues are per-active-run; a switched/reset session has none pending.
   state.steering = [];
@@ -261,21 +292,40 @@ export function replaceTranscriptWithStoredMessages(
   }
 }
 
-/** Toggle expansion of every tool card at once; false when there is none. */
+/**
+ * True when the entry will render inside the live viewport, or has not been
+ * rendered yet (a fresh entry first appears at the tail, inside the viewport).
+ * Entries above the viewport sit in terminal scrollback, which ANSI terminals
+ * cannot rewrite: resizing one forces pi-tui's differential renderer into a
+ * full redraw that clears pre-Maka scrollback and resets the user's scroll
+ * position (#1097), so the global toggles leave them untouched.
+ */
+function entryInLiveViewport(state: MakaPiTranscriptState, entry: MakaPiTranscriptEntry): boolean {
+  const firstLine = state.renderGeometry.entryFirstLine.get(entry);
+  return firstLine === undefined || firstLine >= state.renderGeometry.viewportTop;
+}
+
+/** Toggle every tool card in the live viewport at once; false when there is none. */
 export function toggleAllToolExpansion(state: MakaPiTranscriptState): boolean {
-  const hasTool = state.entries.some((entry) => entry.kind === 'tool');
-  if (!hasTool) return false;
+  const targets = state.entries.filter(
+    (entry): entry is MakaPiToolEntry => entry.kind === 'tool' && entryInLiveViewport(state, entry),
+  );
+  if (targets.length === 0) return false;
   state.expandAllTools = !state.expandAllTools;
+  for (const entry of targets) entry.expanded = state.expandAllTools;
   return true;
 }
 
-/** Toggle expansion of every thinking entry at once; false when there is none. */
+/** Toggle every thinking entry in the live viewport at once; false when there is none. */
 export function toggleAllThinkingExpansion(state: MakaPiTranscriptState): boolean {
-  const hasThinking = state.entries.some(
-    (entry) => entry.kind === 'thinking' && Boolean(entry.text.trim()),
+  const targets = state.entries.filter(
+    (entry): entry is MakaPiThinkingEntry => entry.kind === 'thinking'
+      && Boolean(entry.text.trim())
+      && entryInLiveViewport(state, entry),
   );
-  if (!hasThinking) return false;
+  if (targets.length === 0) return false;
   state.expandAllThinking = !state.expandAllThinking;
+  for (const entry of targets) entry.expanded = state.expandAllThinking;
   return true;
 }
 
@@ -436,6 +486,7 @@ export function applyMakaSessionEventToTranscript(
         progress: createProgressBuffer(),
         outputDeltas: createOutputBuffer(),
         status: 'running',
+        expanded: state.expandAllTools,
       });
       break;
     }
@@ -470,6 +521,7 @@ export function applyMakaSessionEventToTranscript(
           resultVersion: 1,
           durationMs: event.durationMs,
           status: event.isError ? 'error' : 'done',
+          expanded: state.expandAllTools,
         };
         if (shellRun && !event.isError) applyOwnShellRunResult(entry, shellRun, event.durationMs);
         state.entries.push(entry);
@@ -519,6 +571,7 @@ export function applyMakaSessionEventToTranscript(
           resultVersion: 1,
           durationMs: event.durationMs,
           status: event.isError ? 'error' : 'done',
+          expanded: state.expandAllTools,
         });
       }
       break;
@@ -651,7 +704,9 @@ function chatItemToTranscriptEntries(item: ChatItem): MakaPiTranscriptEntry[] {
       // Stored thinking happened before the reply text, so it resumes above it.
       const thinking = item.message.thinking?.text;
       if (thinking?.trim()) {
-        entries.push({ kind: 'thinking', messageId: item.message.id, text: thinking });
+        // Replay resets the expansion defaults to collapsed, so replayed
+        // entries start collapsed too.
+        entries.push({ kind: 'thinking', messageId: item.message.id, text: thinking, expanded: false });
       }
       entries.push({ kind: 'assistant', messageId: item.message.id, text: item.message.text });
       return entries;
@@ -684,6 +739,7 @@ function toolActivityToTranscriptEntry(item: ToolActivityItem): MakaPiToolEntry 
     resultVersion: item.result ? 1 : 0,
     ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
     status: transcriptToolStatus(item.status),
+    expanded: false,
   };
   // A failed call keeps its error status and raw payload: applying the shell_run
   // as the card's own result would let a still-running or settled payload
@@ -871,6 +927,7 @@ export function renderMakaPiTranscript(
     return renderWelcomeBlock(metadata, safeWidth);
   }
 
+  const entryFirstLine = new Map<MakaPiTranscriptEntry, number>();
   for (let i = 0; i < state.entries.length; i += 1) {
     const entry = state.entries[i]!;
     const prev = state.entries[i - 1];
@@ -881,8 +938,10 @@ export function renderMakaPiTranscript(
     // text rather than packing against the tool rows.
     const continuesStack = entry.kind === 'tool' && prev?.kind === 'tool';
     if (!continuesStack) lines.push('');
-    lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, state.expandAllTools, state.expandAllThinking));
+    entryFirstLine.set(entry, lines.length);
+    lines.push(...renderTranscriptEntryMemoized(entry, safeWidth));
   }
+  state.renderGeometry.entryFirstLine = entryFirstLine;
 
   if (state.pendingInteraction?.type === 'permission_request') {
     lines.push('');
@@ -983,13 +1042,11 @@ const transcriptEntryRenderCache = new WeakMap<MakaPiTranscriptEntry, Transcript
 function renderTranscriptEntryMemoized(
   entry: MakaPiTranscriptEntry,
   width: number,
-  expandAllTools: boolean,
-  expandAllThinking: boolean,
 ): string[] {
-  const signature = transcriptEntrySignature(entry, width, expandAllTools, expandAllThinking);
+  const signature = transcriptEntrySignature(entry, width);
   const cached = transcriptEntryRenderCache.get(entry);
   if (cached && cached.signature === signature) return cached.lines;
-  const lines = renderTranscriptEntryBlock(entry, width, expandAllTools, expandAllThinking);
+  const lines = renderTranscriptEntryBlock(entry, width);
   transcriptEntryRenderCache.set(entry, { signature, lines });
   return lines;
 }
@@ -997,8 +1054,6 @@ function renderTranscriptEntryMemoized(
 function renderTranscriptEntryBlock(
   entry: MakaPiTranscriptEntry,
   width: number,
-  expandAllTools: boolean,
-  expandAllThinking: boolean,
 ): string[] {
   switch (entry.kind) {
     case 'user':
@@ -1006,9 +1061,9 @@ function renderTranscriptEntryBlock(
     case 'assistant':
       return renderAssistantBlock(entry.text, width);
     case 'thinking':
-      return renderThinkingBlock(entry, width, expandAllThinking);
+      return renderThinkingBlock(entry, width, entry.expanded);
     case 'tool':
-      return renderToolBlock(entry, width, expandAllTools);
+      return renderToolBlock(entry, width, entry.expanded);
     case 'notice':
       return renderNotice(entry, width);
   }
@@ -1017,8 +1072,6 @@ function renderTranscriptEntryBlock(
 function transcriptEntrySignature(
   entry: MakaPiTranscriptEntry,
   width: number,
-  expandAllTools: boolean,
-  expandAllThinking: boolean,
 ): string {
   switch (entry.kind) {
     // user and assistant text is append-only (user is immutable; assistant only
@@ -1033,7 +1086,7 @@ function transcriptEntrySignature(
       // Not just the length: `thinking_complete` can replace the streamed text
       // in place with a same-length final, which a length-only key would miss and
       // then serve stale reasoning from the cache. Key on the full text.
-      return `thinking|${width}|${expandAllThinking ? 1 : 0}|${entry.text}`;
+      return `thinking|${width}|${entry.expanded ? 1 : 0}|${entry.text}`;
     case 'notice':
       return `notice|${width}|${entry.level}|${entry.text.length}`;
     case 'tool':
@@ -1046,7 +1099,7 @@ function transcriptEntrySignature(
       return [
         'tool',
         width,
-        expandAllTools ? 1 : 0,
+        entry.expanded ? 1 : 0,
         entry.status,
         entry.durationMs ?? '',
         entry.title ?? entry.toolName,
@@ -1181,7 +1234,7 @@ function appendThinking(state: MakaPiTranscriptState, messageId: string, text: s
     last.text += text;
     return;
   }
-  state.entries.push({ kind: 'thinking', messageId, text });
+  state.entries.push({ kind: 'thinking', messageId, text, expanded: state.expandAllThinking });
 }
 
 function setThinking(state: MakaPiTranscriptState, messageId: string, text: string): void {
@@ -1194,7 +1247,7 @@ function setThinking(state: MakaPiTranscriptState, messageId: string, text: stri
       return;
     }
   }
-  state.entries.push({ kind: 'thinking', messageId, text });
+  state.entries.push({ kind: 'thinking', messageId, text, expanded: state.expandAllThinking });
 }
 
 // Thinking stays collapsed to a one-line marker by default so reasoning

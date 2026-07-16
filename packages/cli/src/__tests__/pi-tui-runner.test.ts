@@ -667,6 +667,37 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('Ctrl-O with tool cards above the viewport never clears terminal scrollback (#1097)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new OffscreenToolDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('late-build'));
+
+    terminal.input('\x0f');
+    // The late card sits inside the 24-row viewport, so Ctrl+O expands it.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('late-head'));
+
+    // The early card scrolled above the viewport before the toggle: its lines
+    // are terminal scrollback now, so it must not be re-rendered expanded, and
+    // nothing in the whole run may emit the scrollback-erase sequence.
+    assert.equal(plainTerminalOutput(terminal.output()).includes('early-head'), false);
+    assert.equal(terminal.output().includes('\x1b[3J'), false);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('renders a background ShellRun terminal update after the agent turn ends', async () => {
     const terminal = new FakeTerminal();
     const driver = new BackgroundShellRunDriver();
@@ -4674,6 +4705,46 @@ class BackgroundShellRunDriver extends ToolOutputDriver {
       },
     };
     yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 3, stopReason: 'end_turn' };
+  }
+}
+
+class OffscreenToolDriver extends ToolOutputDriver {
+  override async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'tool_start', id: 'event-early-start', turnId: 'turn-1', ts: 1,
+      toolUseId: 'tool-early', toolName: 'Bash', args: { command: 'early-build' },
+    };
+    yield {
+      type: 'tool_result', id: 'event-early-result', turnId: 'turn-1', ts: 2,
+      toolUseId: 'tool-early', isError: false,
+      content: {
+        kind: 'terminal', cwd: '/repo', cmd: 'early-build',
+        status: 'completed', exitCode: 0,
+        // `early-head` is hidden by the compact tail; it can only ever be
+        // written if the card is re-rendered expanded.
+        output: pipeOutput(`early-head\n${Array.from({ length: 30 }, (_, i) => `early-row-${i}`).join('\n')}`),
+      },
+    };
+    yield {
+      type: 'text_delta', id: 'event-filler', turnId: 'turn-1', ts: 3,
+      messageId: 'message-1',
+      // 30 paragraphs (~60 rows) push the early card above a 24-row viewport.
+      text: Array.from({ length: 30 }, (_, i) => `filler-${i}`).join('\n\n'),
+    };
+    yield {
+      type: 'tool_start', id: 'event-late-start', turnId: 'turn-1', ts: 4,
+      toolUseId: 'tool-late', toolName: 'Bash', args: { command: 'late-build' },
+    };
+    yield {
+      type: 'tool_result', id: 'event-late-result', turnId: 'turn-1', ts: 5,
+      toolUseId: 'tool-late', isError: false,
+      content: {
+        kind: 'terminal', cwd: '/repo', cmd: 'late-build',
+        status: 'completed', exitCode: 0,
+        output: pipeOutput(`late-head\n${Array.from({ length: 30 }, (_, i) => `late-row-${i}`).join('\n')}`),
+      },
+    };
+    yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 6, stopReason: 'end_turn' };
   }
 }
 

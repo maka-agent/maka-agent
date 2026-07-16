@@ -66,6 +66,7 @@ export class MakaPendingQueueComponent implements Component {
  */
 export class MakaPiLayoutComponent extends Container {
   constructor(
+    private readonly state: MakaPiTranscriptState,
     private readonly transcript: MakaTranscriptComponent,
     private readonly activityStrip: MakaActivityStripComponent,
     private readonly pendingQueue: MakaPendingQueueComponent,
@@ -98,7 +99,7 @@ export class MakaPiLayoutComponent extends Container {
     const chromeRows = activityLines.length + pendingLines.length + editorLines.length + statusLines.length;
     const viewportRows = Math.max(0, this.terminal.rows - chromeRows);
     const paddingRows = Math.max(0, viewportRows - paddedTranscript.length);
-    return [
+    const lines = [
       ...paddedTranscript,
       ...Array.from({ length: paddingRows }, () => ''),
       ...activityLines,
@@ -106,5 +107,17 @@ export class MakaPiLayoutComponent extends Container {
       ...editorLines,
       ...statusLines,
     ];
+    // #1097: record where pi-tui's live viewport starts for this render, in
+    // transcript-line coordinates (valid because the transcript opens this
+    // composed list at line 0). Monotonic max mirrors pi-tui, whose viewport
+    // never scrolls back up short of a full redraw. The expansion toggles use
+    // it to leave entries above the viewport untouched — their lines sit in
+    // scrollback, which cannot be rewritten without a scrollback-clearing
+    // full redraw.
+    this.state.renderGeometry.viewportTop = Math.max(
+      this.state.renderGeometry.viewportTop,
+      lines.length - this.terminal.rows,
+    );
+    return lines;
   }
 }

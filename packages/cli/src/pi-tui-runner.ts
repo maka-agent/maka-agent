@@ -172,7 +172,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: EDITOR_AUTOCOMPLETE_MAX_VISIBLE });
   let refreshEditorCwd: ((cwd: string) => void) | undefined;
   const editorSurface = new MakaAutocompleteAboveEditorComponent(editor);
-  const layout = new MakaPiLayoutComponent(transcript, activityStrip, pendingQueue, editorSurface, statusLine, terminal);
+  const layout = new MakaPiLayoutComponent(state, transcript, activityStrip, pendingQueue, editorSurface, statusLine, terminal);
   const attention = new AttentionController(terminal, {
     baseTitle: input.title,
     ...(input.attentionLongTurnThresholdMs !== undefined
@@ -1458,14 +1458,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // re-wrapping) a full clear would wipe the scrollback the user scrolls through.
   // Differential rendering clears the vacated rows without the wipe.
   //
-  // Known limit: a global Ctrl+O / Ctrl+T toggle that resizes a block sitting
-  // *above* the live viewport top makes pi-tui's differential renderer fall back
-  // to a full redraw (its `firstChanged < viewportTop` path), which does emit a
-  // scrollback-clearing sequence. That path re-emits the whole transcript, so no
-  // transcript content is lost — the tail is rebuilt into fresh scrollback — but
-  // the scroll position resets and any pre-Maka scrollback is cleared. Fully
-  // avoiding it would require a preserve-scrollback render path inside pi-tui,
-  // which we do not own; setClearOnShrink only governs the shrink path above.
+  // The Ctrl+O / Ctrl+T toggles are viewport-anchored for the same reason: an
+  // entry above the live viewport lives in terminal scrollback, which cannot
+  // be rewritten, so resizing it would push pi-tui's differential renderer
+  // into a scrollback-clearing full redraw (its `firstChanged < viewportTop`
+  // path). The toggles therefore retarget only entries inside the viewport;
+  // see entryInLiveViewport in pi-transcript.ts (#1097).
   tui.setClearOnShrink(false);
   tui.addChild(layout);
   tui.setFocus(editorSurface);
