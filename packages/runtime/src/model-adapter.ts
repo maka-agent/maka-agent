@@ -193,6 +193,11 @@ export class ModelAdapter {
         ? [configuredStop, () => stopAfterStep()]
         : configuredStop,
       abortSignal: input.abortSignal,
+      // The SDK default onError console.errors the raw error object (stack,
+      // request bodies), which lands on the terminal outside the TUI
+      // transcript. Stream failures already surface through the fullStream
+      // `error` chunk → ErrorEvent path, so silence the default.
+      onError: () => {},
     });
   }
 
