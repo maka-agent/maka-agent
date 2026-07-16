@@ -322,6 +322,12 @@ function entryInLiveViewport(state: MakaPiTranscriptState, entry: MakaPiTranscri
  * True while entry positions are unknown but the viewport has scrolled (a
  * wholesale replacement not yet re-rendered): a toggle could rewrite lines
  * above pi-tui's real viewport, so it must do nothing until the next render.
+ *
+ * Unknown positions with viewportTop === 0 are deliberately NOT inert: while
+ * the viewport has never scrolled, no line sits in scrollback and pi-tui's
+ * differential render (`firstChanged < viewportTop`) can never full-redraw,
+ * so toggling everything — including entries awaiting their first render —
+ * is physically safe.
  */
 function togglesInert(state: MakaPiTranscriptState): boolean {
   return state.renderGeometry.entryFirstLine === undefined && state.renderGeometry.viewportTop > 0;
