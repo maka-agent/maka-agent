@@ -1503,6 +1503,7 @@ describe('ShellRunProcessManager', () => {
       timeoutMs: 5_000,
     }));
     assert.equal(gracefulRun.kind, 'shell_run');
+    await waitForPtyText(graceful, gracefulRun.ref, /ready/);
     const stopped = await graceful.stopBackgroundTask('session-1', gracefulRun.ref, NO_ABORT);
     assertShellRun(stopped);
     assert.equal(stopped.output?.mode, 'pty');
@@ -1518,6 +1519,7 @@ describe('ShellRunProcessManager', () => {
       timeoutMs: 5_000,
     }));
     assert.equal(forcedRun.kind, 'shell_run');
+    await waitForPtyText(forced, forcedRun.ref, /ready/);
     const forcedStop = await forced.stopBackgroundTask('session-1', forcedRun.ref, NO_ABORT);
     assertShellRun(forcedStop);
     assert.equal(forcedStop.status, 'cancelled');
