@@ -18,7 +18,7 @@ describe('semantic compaction policy env plumbing (issue #882 PR 3)', () => {
     });
     assert.equal(policy?.semanticCompact?.enabled, true);
     assert.equal(policy?.semanticCompact?.mode, 'replace');
-    assert.equal(policy?.semanticCompact?.maxActiveEstimatedTokens, 262_144);
+    assert.equal(policy?.semanticCompact?.maxActiveEstimatedTokens, 131_072);
     assert.equal(policy?.semanticCompact?.highWaterRatio, 1);
     assert.equal(policy?.semanticCompact?.minSafePrefixEstimatedTokens, 4_096);
   });

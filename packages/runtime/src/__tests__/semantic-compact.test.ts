@@ -707,7 +707,7 @@ describe('semantic compact', () => {
     assert.deepEqual(result.messages[0], messages[0]);
   });
 
-  test('does not call the summarizer before the 256K attention high water', async () => {
+  test('does not call the summarizer before the configured 128K attention high water', async () => {
     let calls = 0;
     const messages = [
       { role: 'user', content: 'Exact task instruction' },
@@ -732,15 +732,15 @@ describe('semantic compact', () => {
       },
     ] as unknown as ModelMessage[];
     const result = await rewriteSemanticCompactInMessages({
-      sessionId: 'session-256k-water',
-      turnId: 'turn-256k-water',
+      sessionId: 'session-128k-water',
+      turnId: 'turn-128k-water',
       messages,
       headAnchor: buildActiveCompactionHeadAnchor(messages, 0, 1),
       stepNumber: 2,
       charsPerToken: 1,
       policy: {
         ...attentionTestPolicy(),
-        maxActiveEstimatedTokens: 262_144,
+        maxActiveEstimatedTokens: 131_072,
         highWaterRatio: 1,
       },
       summarizer: () => {

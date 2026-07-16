@@ -407,7 +407,7 @@ Maka 当前至少有三类上下文缩减：
 
 它们共享“不要修改 canonical source”的方向，但保证强度不同。
 
-当前 `semanticCompact` 把原始 current-user message 当作不可改写的 head anchor。Runtime 只选择 anchor 之后由完整 assistant step 与完整 tool call/result pairs 组成的连续 completed span；最新一个 completed execution episode，以及第一个未完成 provider episode 及其后内容，都保持为 exact tail。LLM 只生成 bounded continuation delta：已经确认的发现、已经做出的决策、失败路径、部分工作产物和正在执行的动作；不重复 exact head anchor 已经携带的目标与约束。attention compaction 在总 active context 超过 256K estimated tokens 前保持休眠；越过该水位后，completed span 还需达到 4K，rolling successor 也需新增 4K completed raw history。
+当前 `semanticCompact` 把原始 current-user message 当作不可改写的 head anchor。Runtime 只选择 anchor 之后由完整 assistant step 与完整 tool call/result pairs 组成的连续 completed span；最新一个 completed execution episode，以及第一个未完成 provider episode 及其后内容，都保持为 exact tail。LLM 只生成 bounded continuation delta：已经确认的发现、已经做出的决策、失败路径、部分工作产物和正在执行的动作；不重复 exact head anchor 已经携带的目标与约束。attention compaction 在总 active context 超过 128K estimated tokens 前保持休眠；越过该水位后，completed span 还需达到 4K，rolling successor 也需新增 4K completed raw history。
 
 精确 head anchor 始终保持为 `user` message。LLM 生成的 continuation projection 以 `assistant` message 注入，因为它表达的是模型自身已经完成的执行历史，而不是一条新的用户指令。这样可以避免把 `head anchor + projection` 变成连续两条 user message，进而导致 OpenAI-compatible 模型重新开始任务发现。该 message 不注入任何 runtime 推导的 state card。
 

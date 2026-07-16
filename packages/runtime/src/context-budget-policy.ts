@@ -270,7 +270,7 @@ function buildSemanticCompactPolicy(
     enabled: true,
     mode: mode ?? 'replace',
     minStepNumber: parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_STEP_NUMBER) ?? 2,
-    // Attention compaction stays dormant through the first 256K estimated
+    // Attention compaction stays dormant through the first 128K estimated
     // provider tokens. The completed-span thresholds below only apply after
     // this high-water has been crossed.
     highWaterRatio: parseOptionalRatio(env.MAKA_CONTEXT_SEMANTIC_COMPACT_HIGH_WATER_RATIO) ?? 1,
@@ -279,7 +279,7 @@ function buildSemanticCompactPolicy(
     maxActiveEstimatedTokens:
       parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS) ??
       parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ESTIMATED_TOKENS) ??
-      262_144,
+      131_072,
     ...(parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES) !== undefined
       ? { minRecentMessages: parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES) }
       : {}),
