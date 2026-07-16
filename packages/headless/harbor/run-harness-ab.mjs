@@ -7,10 +7,9 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { ensureAbRunManifest } from '#ab-manifest';
+import { ensureAbRunManifest, readAbRunManifest } from '#ab-manifest';
 import {
   discoverCachedHarborTasks,
-  fingerprintFixedPromptTask,
   fingerprintFixedPromptTaskTree,
   resolveFixedPromptRunRoot,
 } from '#fixed-prompt-task-source';
@@ -32,6 +31,7 @@ import {
 import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
+  buildHarnessAbResumeFingerprint,
   buildHarnessAbRunManifest,
   HARNESS_MAKA_CONTEXT_BUDGET,
   TERMINAL_BENCH_2_1_REVISION,
@@ -229,11 +229,14 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
   });
 
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
-  const oracleEvidence = await resolveAdvisoryOracleEvidence({
-    allTasks,
-    verifierPolicyFingerprint,
-    runtimeFingerprint: oracleRuntimeFingerprint,
-  });
+  const manifestPath = join(runRoot, 'harness-ab-manifest.json');
+  const oracleEvidence = await resolveHarnessOracleEvidenceForRun(manifestPath, () => (
+    resolveAdvisoryOracleEvidence({
+      allTasks,
+      verifierPolicyFingerprint,
+      runtimeFingerprint: oracleRuntimeFingerprint,
+    })
+  ));
   for (const warning of oracleEvidence.warnings) console.warn(`warning: ${warning}`);
 
   const toolchainFingerprint = `sha256:${createHash('sha256').update(JSON.stringify({
@@ -247,7 +250,6 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
     oracleEvidence,
   });
-  const manifestPath = join(runRoot, 'harness-ab-manifest.json');
   await ensureAbRunManifest(manifestPath, manifest);
   const evaluationTasks = manifest.evaluationTaskIds.slice(0, limit).map((taskId) => tasksById.get(taskId));
   if (evaluationTasks.some((task) => !task)) throw new Error('manifest contains a task absent from the frozen task source');
@@ -299,7 +301,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     runRoot,
     resultsJsonlPath: join(controllerDir, 'results.jsonl'),
     systemPromptPath,
-    resumeFingerprint: manifest.fingerprint,
+    resumeFingerprint: buildHarnessAbResumeFingerprint(manifest),
     evaluationTasks,
     arms: [
       {
@@ -340,54 +342,45 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
   console.log(`${report.runStatus}: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} cells attempted; ${report.effectiveness.pairedEvaluated} paired Pass@1 outcomes -> ${runRoot}`);
 }
 
-async function resolveAdvisoryOracleEvidence({ allTasks, verifierPolicyFingerprint, runtimeFingerprint }) {
-  const registryUrl = process.env.MAKA_HARNESS_AB_ORACLE_REGISTRY_URL?.trim();
-  const expectedSnapshotFingerprint = process.env.MAKA_HARNESS_AB_ORACLE_REGISTRY_FINGERPRINT?.trim();
+export async function resolveAdvisoryOracleEvidence({
+  allTasks,
+  verifierPolicyFingerprint,
+  runtimeFingerprint,
+  registryUrl = process.env.MAKA_HARNESS_AB_ORACLE_REGISTRY_URL?.trim(),
+  expectedSnapshotFingerprint = process.env.MAKA_HARNESS_AB_ORACLE_REGISTRY_FINGERPRINT?.trim(),
+  loadSnapshot = loadHarnessOracleRegistrySnapshot,
+  buildAuditTasks = buildHarnessOracleAuditTasks,
+  resolveBaseImageDigest = resolveHarnessOracleBaseImageDigest,
+}) {
   const warnings = [];
   let snapshot = null;
+  let annotations;
   if (registryUrl && expectedSnapshotFingerprint) {
     try {
-      snapshot = await loadHarnessOracleRegistrySnapshot({
+      snapshot = await loadSnapshot({
         url: registryUrl,
         expectedFingerprint: expectedSnapshotFingerprint,
       });
-    } catch {
-      warnings.push('Oracle registry could not be downloaded or validated; A/B continues without it');
-    }
-  } else {
-    warnings.push('Oracle registry URL and fingerprint are not both configured; A/B continues without it');
-  }
-  const digestCache = new Map();
-  const auditTasks = snapshot
-    ? await buildHarnessOracleAuditTasks({
+      const digestCache = new Map();
+      const auditTasks = await buildAuditTasks({
         tasks: allTasks,
         verifierPolicyFingerprint,
         runtimeFingerprint,
         environment: 'docker',
         platform: 'linux/amd64',
         resolveBaseImageDigest: (reference, platform) => (
-          resolveHarnessOracleBaseImageDigest(reference, platform, digestCache)
+          resolveBaseImageDigest(reference, platform, digestCache)
         ),
-      })
-    : await Promise.all(allTasks.map(async (task) => {
-        const taskFingerprint = await fingerprintFixedPromptTask(task);
-        return {
-          task,
-          identity: {
-            taskFingerprint,
-            verifierPolicyFingerprint,
-            environmentFingerprint: fingerprintValue({
-              kind: 'unresolved-harbor-oracle-environment',
-              benchmarkRevision: TERMINAL_BENCH_2_1_REVISION,
-              environment: 'docker',
-              dockerPlatform: 'linux/amd64',
-              taskFingerprint,
-            }),
-            runtimeFingerprint,
-          },
-        };
-      }));
-  const annotations = resolveHarnessOracleAnnotations(auditTasks, snapshot);
+      });
+      annotations = resolveHarnessOracleAnnotations(auditTasks, snapshot);
+    } catch {
+      snapshot = null;
+      warnings.push('Oracle registry could not be resolved; A/B continues without it');
+    }
+  } else {
+    warnings.push('Oracle registry URL and fingerprint are not both configured; A/B continues without it');
+  }
+  annotations ??= allTasks.map((task) => ({ taskId: task.id, state: 'missing' }));
   for (const state of ['missing', 'stale', 'failed', 'timed_out', 'infra_failed']) {
     const taskIds = annotations.filter((annotation) => annotation.state === state).map((annotation) => annotation.taskId);
     if (taskIds.length > 0) warnings.push(`Oracle evidence ${state} for ${taskIds.length} task(s): ${previewIds(taskIds)}`);
@@ -399,6 +392,14 @@ async function resolveAdvisoryOracleEvidence({ allTasks, verifierPolicyFingerpri
     annotations,
     warnings,
   };
+}
+
+export async function resolveHarnessOracleEvidenceForRun(manifestPath, resolveEvidence) {
+  const stored = await readAbRunManifest(manifestPath);
+  if (stored?.experimentKind === 'harness' && stored.metadata?.oracleEvidence) {
+    return stored.metadata.oracleEvidence;
+  }
+  return resolveEvidence();
 }
 
 export async function resolveHarnessOracleBaseImageDigest(reference, platform, cache = new Map()) {
@@ -441,10 +442,6 @@ export function resolvedImageDigestFromInspect(raw, platform) {
     throw new Error(`Docker image manifest has no ${platform} digest`);
   }
   return selected;
-}
-
-function fingerprintValue(value) {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
 }
 
 function previewIds(taskIds) {

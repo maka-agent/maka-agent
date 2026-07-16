@@ -57,17 +57,29 @@ export async function ensureAbRunManifest<T extends { fingerprint: string }>(
   path: string,
   manifest: T,
 ): Promise<T> {
-  let raw: string | undefined;
-  try {
-    raw = await readFile(path, 'utf8');
-  } catch (error) {
-    if (!isNotFound(error)) throw error;
-  }
-  if (raw === undefined) {
+  let existing = await readAbRunManifest<T>(path);
+  if (existing === null) {
     if (await publishImmutableFile(path, `${JSON.stringify(manifest, null, 2)}\n`)) {
       return manifest;
     }
+    existing = await readAbRunManifest<T>(path);
+    if (existing === null) throw new Error('concurrent A/B run manifest disappeared after publication');
+  }
+  if (existing.fingerprint !== manifest.fingerprint) {
+    throw new Error(
+      `A/B run manifest does not match existing run id: existing ${existing.fingerprint ?? 'missing'}, current ${manifest.fingerprint}. Use a new run id or restore the original run config.`,
+    );
+  }
+  return existing;
+}
+
+export async function readAbRunManifest<T extends { fingerprint: string }>(path: string): Promise<T | null> {
+  let raw: string;
+  try {
     raw = await readFile(path, 'utf8');
+  } catch (error) {
+    if (isNotFound(error)) return null;
+    throw error;
   }
   const existing = JSON.parse(raw) as T;
   if (hasFullBodyFingerprint(existing)) {
@@ -78,11 +90,6 @@ export async function ensureAbRunManifest<T extends { fingerprint: string }>(
         `stored A/B run manifest fingerprint is invalid: stored ${existingFingerprint ?? 'missing'}, recomputed ${recomputedFingerprint}`,
       );
     }
-  }
-  if (existing.fingerprint !== manifest.fingerprint) {
-    throw new Error(
-      `A/B run manifest does not match existing run id: existing ${existing.fingerprint ?? 'missing'}, current ${manifest.fingerprint}. Use a new run id or restore the original run config.`,
-    );
   }
   return existing;
 }

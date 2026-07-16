@@ -280,6 +280,12 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
   return manifest as HarnessAbRunManifest;
 }
 
+export function buildHarnessAbResumeFingerprint(manifest: HarnessAbRunManifest): string {
+  const { fingerprint: _fingerprint, metadata, ...body } = manifest;
+  const { oracleEvidence: _oracleEvidence, ...identityMetadata } = metadata;
+  return buildRunManifestFingerprint({ ...body, metadata: identityMetadata });
+}
+
 function taskRank(seed: string, taskId: string): string {
   return createHash('sha256').update(seed).update('\0').update(taskId).digest('hex');
 }

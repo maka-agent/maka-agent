@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
+  buildHarnessAbResumeFingerprint,
   buildHarnessAbRunManifest,
   deterministicHarnessTaskOrder,
   HARNESS_MAKA_CONTEXT_BUDGET,
@@ -137,6 +138,10 @@ describe('harness A/B manifest', () => {
     assert.deepEqual(failed.evaluationTaskIds, passed.evaluationTaskIds);
     assert.deepEqual(passed.metadata.oracleEvidence?.annotations, oracleEvidence.annotations);
     assert.notEqual(failed.fingerprint, passed.fingerprint);
+    assert.equal(
+      buildHarnessAbResumeFingerprint(failed),
+      buildHarnessAbResumeFingerprint(passed),
+    );
   });
 
   test('rejects duplicate tasks and a pilot longer than the full run', () => {

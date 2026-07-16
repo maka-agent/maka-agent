@@ -59,6 +59,60 @@ test('harness Oracle environment selects the linux/amd64 image manifest digest',
   assert.equal(digest, `sha256:${'b'.repeat(64)}`);
 });
 
+test('harness A/B degrades identity resolution failures to missing advisory evidence', async () => {
+  const { resolveAdvisoryOracleEvidence } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+  const evidence = await resolveAdvisoryOracleEvidence({
+    allTasks: [{ id: 'task-a', path: '/tasks/task-a' }],
+    verifierPolicyFingerprint: `sha256:${'a'.repeat(64)}`,
+    registryUrl: 'https://example.invalid/oracle-registry.json',
+    expectedSnapshotFingerprint: `sha256:${'b'.repeat(64)}`,
+    loadSnapshot: async () => ({ fingerprint: `sha256:${'b'.repeat(64)}` }),
+    buildAuditTasks: async () => {
+      throw new Error('registry unavailable');
+    },
+  });
+
+  assert.deepEqual(evidence.annotations, [{ taskId: 'task-a', state: 'missing' }]);
+  assert.deepEqual(evidence.warnings, [
+    'Oracle registry could not be resolved; A/B continues without it',
+    'Oracle evidence missing for 1 task(s): task-a',
+  ]);
+});
+
+test('harness A/B freezes the stored advisory evidence when resuming a run', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-evidence-resume-'));
+  try {
+    const { buildHarnessAbManifest, resolveHarnessOracleEvidenceForRun } = await import(
+      new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+    );
+    const oracleEvidence = {
+      annotations: [{ taskId: 'task-a', state: 'missing' }],
+      warnings: ['frozen warning'],
+    };
+    const manifest = buildHarnessAbManifest({
+      subjectFingerprint: 'subject',
+      taskSourceFingerprint: 'tasks',
+      toolchainFingerprint: 'tools',
+      oracleEvidence,
+    });
+    const path = join(dir, 'harness-ab-manifest.json');
+    await writeFile(path, `${JSON.stringify(manifest)}\n`, 'utf8');
+    let resolved = false;
+
+    const evidence = await resolveHarnessOracleEvidenceForRun(path, async () => {
+      resolved = true;
+      return { annotations: [], warnings: [] };
+    });
+
+    assert.deepEqual(evidence, oracleEvidence);
+    assert.equal(resolved, false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('harness A/B manifest uses the pinned OpenCode toolchain version', async () => {
   const { buildHarnessAbManifest } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
