@@ -201,9 +201,10 @@ describe('project context workspace picker', () => {
     const guard = await readRepo('apps/desktop/src/main/open-path-guard.ts');
     const renderer = await readRendererShellCombinedSource();
 
-    assert.match(appIpc, /resolveOpenPath\(\{ key, workspaceRoot, projectRoot:\s*await currentProjectRoot\(\) \}\)/);
+    assert.match(appIpc, /key === 'project'[\s\S]*await deps\.getProjectRoot\(sessionId\)/);
+    assert.match(appIpc, /resolveOpenPath\(\{ key, workspaceRoot, projectRoot: projectPath \}\)/);
     assert.match(guard, /value === 'project'/);
-    assert.match(renderer, /window\.maka\.app\.openPath\('project'\)/);
+    assert.match(renderer, /window\.maka\.app\.openPath\('project', sessionId\)/);
     assert.doesNotMatch(renderer, /openPath\(appInfo\.projectPath\)/);
   });
 
@@ -230,8 +231,8 @@ describe('project context workspace picker', () => {
     assert.match(styles, /\.maka-composer-workspace-row\s*\{[\s\S]*?width:\s*min\(var\(--maka-chat-measure\),\s*100%\)/);
     assert.match(styles, /\.maka-composer-workspace-picker\s*\{/);
     assert.match(styles, /-webkit-app-region:\s*no-drag/);
-    assert.match(renderer, /basenameFromPath\(appInfo\.projectPath\)/);
-    assert.match(renderer, /branch:\s*appInfo\?\.projectGit\.branch/);
+    assert.match(renderer, /basenameFromPath\(projectInfo\.projectPath\)/);
+    assert.match(renderer, /branch:\s*projectInfo\?\.projectGit\.branch/);
     assert.match(renderer, /workspacePicker=\{\{/);
     assert.doesNotMatch(ui, /className="maka-project-badge"/);
   });

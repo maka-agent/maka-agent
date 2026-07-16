@@ -1,6 +1,10 @@
 import type { SessionSummary, StoredMessage } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import type { TurnFooterActionMeta } from '@maka/ui';
+import {
+  isSessionWorkspaceUnavailableError,
+  showSessionWorkspaceUnavailableToast,
+} from './session-workspace-errors.js';
 
 type RefBox<T> = { current: T };
 type MessageListUpdater = (next: StoredMessage[] | ((current: StoredMessage[]) => StoredMessage[])) => void;
@@ -68,7 +72,12 @@ export function createAppShellTurnActions(deps: {
         await refreshSessions();
       }
     } catch (error) {
-      if (activeIdRef.current === sessionId) toastApi.error('操作失败', generalizedErrorMessageChinese(error, '对话操作失败，请稍后重试。'));
+      if (activeIdRef.current !== sessionId) return;
+      if (isSessionWorkspaceUnavailableError(error)) {
+        showSessionWorkspaceUnavailableToast(toastApi);
+      } else {
+        toastApi.error('操作失败', generalizedErrorMessageChinese(error, '对话操作失败，请稍后重试。'));
+      }
     } finally {
       clearPendingTurnAction(key);
     }

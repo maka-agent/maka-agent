@@ -13,13 +13,12 @@ describe('bot incoming new-session cwd', () => {
     const service = createBotIncomingMainService({
       // createSession captures the cwd it was given, signals the test, then
       // throws to short-circuit before the streaming / typing path runs.
-      runtime: {
-        async createSession(input: { cwd?: unknown }) {
-          capturedCwd = input.cwd;
-          resolveCreated();
-          throw new Error('__short_circuit_after_create__');
-        },
-      } as unknown as SessionManager,
+      runtime: {} as SessionManager,
+      async createSession(input) {
+        capturedCwd = input.cwd;
+        resolveCreated();
+        throw new Error('__short_circuit_after_create__');
+      },
       botRegistry: {
         async sendMessage() {},
         async sendTypingIndicator() {

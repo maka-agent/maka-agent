@@ -59,8 +59,8 @@ describe('session open routing contract', () => {
     );
     assert.match(
       handlerBlock,
-      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('操作失败', generalizedErrorMessageChinese\(error, '对话操作失败，请稍后重试。'\)\);[\s\S]*\} finally \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*\}/,
-      'turn footer failures must not toast after the user leaves the source session',
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current !== sessionId\) return;[\s\S]*if \(isSessionWorkspaceUnavailableError\(error\)\) \{[\s\S]*showSessionWorkspaceUnavailableToast\(toastApi\);[\s\S]*toastApi\.error\('操作失败', generalizedErrorMessageChinese\(error, '对话操作失败，请稍后重试。'\)\);[\s\S]*\} finally \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*\}/,
+      'turn footer failures must stay owned by the source session and preserve workspace recovery copy',
     );
     assert.doesNotMatch(
       handlerBlock,

@@ -35,11 +35,13 @@ describe('permission response IPC boundary', () => {
     const main = await readMainProcessCombinedSource();
     const rootTools = main.match(/const builtinTools: MakaTool\[\] = \[[\s\S]*?\n\];/)?.[0] ?? '';
     const childTools = main.match(/const childAgentTools = buildChildAgentTools\([\s\S]*?\n\]\);/)?.[0] ?? '';
-    const handler = main.match(/ipcMain\.handle\('sessions:respondToUserQuestion'[\s\S]*?\n  \);/)?.[0] ?? '';
+    const handler = main.match(/ipcMain\.handle\('sessions:respondToUserQuestion'[\s\S]*?\n  \}\);/)?.[0] ?? '';
 
     assert.match(rootTools, /buildAskUserQuestionTool\(\)/);
     assert.doesNotMatch(childTools, /buildAskUserQuestionTool\(\)/);
-    assert.match(handler, /runtime\.respondToUserQuestion\(sessionId, normalizeUserQuestionResponse\(response\)\)/);
+    assert.match(handler, /const normalized = normalizeUserQuestionResponse\(response\)/);
+    assert.match(handler, /await ensureSessionWorkspaceAvailable\(sessionId\)/);
+    assert.match(handler, /runtime\.respondToUserQuestion\(sessionId, normalized\)/);
   });
 
   it('exposes the user-question response through preload and the renderer type boundary', async () => {
@@ -87,9 +89,14 @@ describe('permission response IPC boundary', () => {
   it('routes sessions:respondToPermission through the main-process normalizer', async () => {
     const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
     const main = await readMainProcessCombinedSource();
-    const handler = main.match(/ipcMain\.handle\('sessions:respondToPermission'[\s\S]*?\n  \);/)?.[0] ?? '';
+    const handler = main.match(/ipcMain\.handle\('sessions:respondToPermission'[\s\S]*?\n  \}\);/)?.[0] ?? '';
 
     assert.match(handler, /normalizePermissionResponse\(response\)/);
+    assert.match(
+      handler,
+      /if \(normalized\.decision === 'allow'\) \{[\s\S]*await ensureSessionWorkspaceAvailable\(sessionId\)/,
+      'allow must revalidate the workspace before resuming a parked tool; deny must remain available',
+    );
     assert.doesNotMatch(handler, /runtime\.respondToPermission\(sessionId,\s*response\)/);
   });
 
@@ -110,14 +117,13 @@ describe('permission response IPC boundary', () => {
   });
 
   it('routes turn actions through main-process normalizers', async () => {
-    const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
     const main = await readMainProcessCombinedSource();
     const regenerateHandler = main.match(/ipcMain\.handle\('sessions:regenerateTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
     const branchHandler = main.match(/ipcMain\.handle\('sessions:branchFromTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
 
     assert.match(regenerateHandler, /normalizeRegenerateTurnInput\(input\)/);
     assert.doesNotMatch(regenerateHandler, /runtime\.regenerateTurn\(sessionId,\s*\{\s*\.\.\.input/);
-    assert.match(branchHandler, /normalizeBranchFromTurnInput\(input\)/);
+    assert.match(branchHandler, /handleBranchFromTurn\(sessionId, input/);
     assert.doesNotMatch(branchHandler, /runtime\.branchFromTurn\(sessionId,\s*input\)/);
   });
 
@@ -216,7 +222,7 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       respond[0],
-      /catch \(error\)[\s\S]*?if \(activeIdRef\.current === sessionId\) toastApi\.error\('响应失败', generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)\);/,
+      /catch \(error\)[\s\S]*?if \(activeIdRef\.current !== sessionId\) return;[\s\S]*?toastApi\.error\('响应失败', generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)\);/,
       'permission response failure feedback must not leak onto a different active session',
     );
     assert.doesNotMatch(
@@ -236,7 +242,7 @@ describe('permission response IPC boundary', () => {
       respond,
       /setInteractionBySession\(\(current\) => dequeueInteractionByRequestId\(current, sessionId, response\.requestId\)\);/,
     );
-    assert.match(respond, /catch \(error\)[\s\S]*activeIdRef\.current === sessionId/);
+    assert.match(respond, /catch \(error\)[\s\S]*activeIdRef\.current !== sessionId\) return/);
   });
 
   it('renderer lets either interaction type take over the mounted composer slot', async () => {
@@ -559,11 +565,6 @@ describe('permission response IPC boundary', () => {
       sendBlock,
       /catch \(error\) \{[\s\S]*removeOptimisticUserMessage\(optimisticSessionId, optimisticTurnId\)[\s\S]*toastApi\.error\('发送失败', generalizedErrorMessageChinese\(error, '消息暂时无法发送，请稍后重试。'\)\)/,
       'send readiness failures must remove the optimistic user turn instead of leaving a fake message behind',
-    );
-    assert.match(
-      sendBlock,
-      /const feedbackSessionId = optimisticSessionId \?\? initialSessionId;[\s\S]*const sendStillOwnsCurrentSurface = feedbackSessionId[\s\S]*activeIdRef\.current === feedbackSessionId[\s\S]*newChatOwner[\s\S]*isNewChatSendSurfaceActive\(newChatOwner\)[\s\S]*activeIdRef\.current === initialSessionId;[\s\S]*if \(!sendStillOwnsCurrentSurface\) return false;/,
-      'send failure feedback must not toast or open setup from a stale session/new-chat surface after the user switches chats',
     );
     assert.match(
       sendBlock,

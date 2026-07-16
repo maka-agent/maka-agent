@@ -18,6 +18,7 @@
 
 import type { OnboardingState, QuickChatMode, SessionSummary } from '@maka/core';
 import { generalizedErrorMessageChinese, normalizeQuickChatMode } from '@maka/core';
+import { isSessionWorkspaceUnavailableError } from './project-context-root.js';
 
 /**
  * PR110b: Quick Chat IPC result. The renderer pattern-matches on
@@ -33,6 +34,7 @@ import { generalizedErrorMessageChinese, normalizeQuickChatMode } from '@maka/co
 export type QuickChatResult =
   | { ok: true; sessionId: string }
   | { ok: false; reason: 'setup_required'; state: OnboardingState }
+  | { ok: false; reason: 'workspace_unavailable' }
   | { ok: false; reason: 'send_failed'; message: string };
 
 export interface QuickChatDeps {
@@ -103,6 +105,9 @@ export async function handleQuickChatStart(
     });
     deps.emitCreated(session.id);
   } catch (error) {
+    if (isSessionWorkspaceUnavailableError(error)) {
+      return { ok: false, reason: 'workspace_unavailable' };
+    }
     return {
       ok: false,
       reason: 'send_failed',
@@ -121,6 +126,9 @@ export async function handleQuickChatStart(
     await deps.sendFirstMessage(session.id, trimmed);
     return { ok: true, sessionId: session.id };
   } catch (error) {
+    if (isSessionWorkspaceUnavailableError(error)) {
+      return { ok: false, reason: 'workspace_unavailable' };
+    }
     return {
       ok: false,
       reason: 'send_failed',

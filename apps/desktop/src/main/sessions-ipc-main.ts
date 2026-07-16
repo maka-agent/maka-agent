@@ -29,7 +29,6 @@ import { releaseBrowserSession } from './browser/session.js';
 import { sessionReadMessagesFailureMessage } from './session-read-error-copy.js';
 import { resolveDefaultPermissionMode } from './permission-mode-default.js';
 import {
-  normalizeBranchFromTurnInput,
   normalizePermissionResponse,
   normalizeRegenerateTurnInput,
   normalizeSessionSendCommand,
@@ -43,6 +42,7 @@ import type { MainGoalWiring } from './goal-wiring.js';
 import type { MainAutomationWiring } from './automation-wiring.js';
 import type { AttachmentApprovalRegistry } from './attachment-approval.js';
 import type { createMainWindowController } from './main-window.js';
+import { handleBranchFromTurn } from './session-branch.js';
 
 type SessionStore = ReturnType<typeof createSessionStore>;
 type ArtifactStore = ReturnType<typeof createArtifactStore>;
@@ -78,6 +78,8 @@ export interface SessionsIpcDeps {
     extra?: Pick<SessionChangedEvent, 'connectionSlug' | 'modelId'>,
   ) => void;
   ensureSessionCanSend: (sessionId: string) => Promise<void>;
+  ensureSessionWorkspaceAvailable: (sessionId: string) => Promise<void>;
+  createSession: (input: CreateSessionInput) => ReturnType<SessionManager['createSession']>;
   getReadyConnection: (
     slug: string | null | undefined,
     model?: string,
@@ -149,6 +151,8 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     visualSmokeFixture,
     emitSessionsChanged,
     ensureSessionCanSend,
+    ensureSessionWorkspaceAvailable,
+    createSession,
     getReadyConnection,
     streamEvents,
     getWorkspacePrivacyContext,
@@ -173,7 +177,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
       if (!canCreateFakeSession()) {
         throw new Error('FakeBackend sessions are only available in development.');
       }
-      const session = await runtime.createSession({
+      const session = await createSession({
         cwd,
         backend: 'fake',
         llmConnectionSlug: input.llmConnectionSlug ?? 'fake',
@@ -190,7 +194,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     const { connection, model } = await getReadyConnection(requestedSlug, input?.model);
     const thinkingLevel = normalizeSupportedSessionThinkingLevel(input?.thinkingLevel, connection.providerType, model);
 
-    const session = await runtime.createSession({
+    const session = await createSession({
       cwd,
       backend: 'ai-sdk',
       llmConnectionSlug: connection.slug,
@@ -262,12 +266,18 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     emitSessionsChanged('turn-status-change', sessionId);
     emitSessionsChanged('message-appended', sessionId);
   });
-  ipcMain.handle('sessions:respondToPermission', (_event, sessionId: string, response) =>
-    runtime.respondToPermission(sessionId, normalizePermissionResponse(response)),
-  );
-  ipcMain.handle('sessions:respondToUserQuestion', (_event, sessionId: string, response) =>
-    runtime.respondToUserQuestion(sessionId, normalizeUserQuestionResponse(response)),
-  );
+  ipcMain.handle('sessions:respondToPermission', async (_event, sessionId: string, response) => {
+    const normalized = normalizePermissionResponse(response);
+    if (normalized.decision === 'allow') {
+      await ensureSessionWorkspaceAvailable(sessionId);
+    }
+    return runtime.respondToPermission(sessionId, normalized);
+  });
+  ipcMain.handle('sessions:respondToUserQuestion', async (_event, sessionId: string, response) => {
+    const normalized = normalizeUserQuestionResponse(response);
+    await ensureSessionWorkspaceAvailable(sessionId);
+    return runtime.respondToUserQuestion(sessionId, normalized);
+  });
   ipcMain.handle('sessions:send', async (event, sessionId: string, command: unknown) => {
     const sendCommand = normalizeSessionSendCommand(command);
     if (!sendCommand) return;
@@ -334,9 +344,11 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     void streamEvents(sessionId, runtime.regenerateTurn(sessionId, { ...normalized, turnId }), turnId);
   });
   ipcMain.handle('sessions:branchFromTurn', async (_event, sessionId: string, input: unknown) => {
-    const session = await runtime.branchFromTurn(sessionId, normalizeBranchFromTurnInput(input));
-    emitSessionsChanged('created', session.id);
-    return session;
+    return handleBranchFromTurn(sessionId, input, {
+      ensureSessionWorkspaceAvailable,
+      branchFromTurn: (id, normalized) => runtime.branchFromTurn(id, normalized),
+      emitCreated: (id) => emitSessionsChanged('created', id),
+    });
   });
   ipcMain.handle('sessions:archive', async (_event, sessionId: string) => {
     computerUseOverlay.clearForSession(sessionId);

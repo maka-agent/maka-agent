@@ -103,11 +103,13 @@ export type ExpertTeamStartResult =
   | { ok: true; sessionId: string }
   | { ok: false; reason: 'unknown_team'; teamId: string }
   | { ok: false; reason: 'setup_required'; state: OnboardingState }
+  | { ok: false; reason: 'workspace_unavailable' }
   | { ok: false; reason: 'send_failed'; message: string };
 
 export type QuickChatResult =
   | { ok: true; sessionId: string }
   | { ok: false; reason: 'setup_required'; state: OnboardingState }
+  | { ok: false; reason: 'workspace_unavailable' }
   | { ok: false; reason: 'send_failed'; message: string };
 
 export interface OnboardingSnapshot {
@@ -508,8 +510,13 @@ declare global {
           buildMode: 'dev' | 'packaged';
           buildCommit: string | null;
         }>;
+        sessionProjectInfo(sessionId: string): Promise<{
+          projectPath: string;
+          projectGit: { isGitRepo: boolean; branch?: string };
+        }>;
         openPath(
           key: 'workspace' | 'skills' | 'memory' | 'project',
+          sessionId?: string,
         ): Promise<
           | { ok: true; opened: string }
           | {
@@ -534,14 +541,14 @@ declare global {
           | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
           | { ok: false; reason: 'invalid-path' | 'not-found' }
         >;
-        listGitBranches(): Promise<{
+        listGitBranches(sessionId?: string): Promise<{
           ok: boolean;
           branches?: string[];
           current?: string;
           reason?: string;
           message?: string;
         }>;
-        checkoutGitBranch(branch: string): Promise<{
+        checkoutGitBranch(branch: string, sessionId?: string): Promise<{
           ok: boolean;
           branch?: string;
           reason?: string;
@@ -566,7 +573,7 @@ declare global {
       workspace: {
         searchFiles(
           query: string,
-          limit?: number,
+          options?: { sessionId?: string; limit?: number },
         ): Promise<
           | { ok: true; files: Array<{ relativePath: string }> }
           | { ok: false; reason: 'no_project' | 'search_failed' }

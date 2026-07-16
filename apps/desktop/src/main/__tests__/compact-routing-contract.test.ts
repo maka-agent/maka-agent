@@ -19,7 +19,14 @@ describe('/compact routing contract', () => {
     // exact /compact (after trim) is the only trigger
     assert.match(send, /if \(text\.trim\(\) === '\/compact'\) \{/);
     // routes to compact only when an active session exists — the no-active-session guard
-    assert.match(send, /if \(activeId\) await window\.maka\.sessions\.compact\(activeId\);/);
+    assert.match(send, /const sessionId = activeIdRef\.current;/);
+    assert.match(send, /if \(!sessionId\) return true;/);
+    assert.match(send, /await window\.maka\.sessions\.compact\(sessionId\);/);
+    assert.match(
+      send,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current !== sessionId\) return false;[\s\S]*isSessionWorkspaceUnavailableError\(error\)[\s\S]*showSessionWorkspaceUnavailableToast\(toastApi\)[\s\S]*return false;/,
+      'compact failures must be consumed by the shell and preserve workspace recovery copy',
+    );
     // returns early so /compact never falls through to the normal send path
     assert.match(send, /return true;/);
     // non-compact text still goes through the normal send path

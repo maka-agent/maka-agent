@@ -116,6 +116,10 @@ import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
 import { useShellConnections } from './use-shell-connections';
 import { useShellChatModel } from './use-shell-chat-model';
 import { useShellLiveTurn } from './use-shell-live-turn';
+import {
+  isSessionWorkspaceUnavailableError,
+  showSessionWorkspaceUnavailableToast,
+} from './session-workspace-errors';
 
 type ComposerImportOwner = {
   sessionId: string | undefined;
@@ -754,10 +758,10 @@ export function AppShell({
   // Composer mention popups: `/` skills (enabled only) + `@` workspace file
   // search. The hook owns the window.maka IPC wrapper so app-shell keeps no
   // inline mention state.
-  const { mentionSkills, searchMentionFiles } = useComposerMentions({ skills });
+  const { mentionSkills, searchMentionFiles } = useComposerMentions({ skills, sessionId: activeId });
 
   const {
-    appInfo,
+    projectInfo,
     branchList,
     branchPending,
     recentProjectPaths,
@@ -775,6 +779,11 @@ export function AppShell({
   } = useAppShellProjectContext({
     persistedComposerDefaults,
     rendererMountedRef,
+    sessionId: activeId,
+    sessionCwd: activeSession?.cwd,
+    onProjectSelected: (ownerSessionId) => {
+      if (ownerSessionId && activeIdRef.current === ownerSessionId) void createSession();
+    },
     toastApi,
   });
 
@@ -840,8 +849,20 @@ export function AppShell({
 
   async function sendWithAttachments(text: string): Promise<boolean | void> {
     if (text.trim() === '/compact') {
-      if (activeId) await window.maka.sessions.compact(activeId);
-      return true;
+      const sessionId = activeIdRef.current;
+      if (!sessionId) return true;
+      try {
+        await window.maka.sessions.compact(sessionId);
+        return true;
+      } catch (error) {
+        if (activeIdRef.current !== sessionId) return false;
+        if (isSessionWorkspaceUnavailableError(error)) {
+          showSessionWorkspaceUnavailableToast(toastApi);
+        } else {
+          toastApi.error('压缩失败', generalizedErrorMessageChinese(error, '对话暂时无法压缩，请稍后重试。'));
+        }
+        return false;
+      }
     }
     const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
     const ok = await send(text, pending);
@@ -1551,8 +1572,8 @@ export function AppShell({
                 onNewChatThinkingLevelChange={(level) => setPendingNewChatThinkingLevel(level ?? null)}
                 onOpenModelSettings={() => openSettingsSection('models')}
                 workspacePicker={{
-                  label: appInfo ? basenameFromPath(appInfo.projectPath) : undefined,
-                  branch: appInfo?.projectGit.branch,
+                  label: projectInfo ? basenameFromPath(projectInfo.projectPath) : undefined,
+                  branch: projectInfo?.projectGit.branch,
                   pending: projectPickerPending,
                   recentWorkspaces: recentProjectPaths,
                   onOpen: () => {
@@ -1563,16 +1584,16 @@ export function AppShell({
                   },
                 }}
                 branchPicker={
-                  appInfo?.projectGit.isGitRepo
+                  projectInfo?.projectGit.isGitRepo
                     ? {
-                        branch: appInfo.projectGit.branch ?? null,
+                        branch: projectInfo.projectGit.branch ?? null,
                         pending: branchPending,
                         branches: branchList?.branches ?? [],
                         onOpen: () => {
-                          void listGitBranches();
+                          void listGitBranches(activeId);
                         },
                         onSelect: (branch: string) => {
-                          void checkoutGitBranch(branch);
+                          void checkoutGitBranch(branch, activeId);
                         },
                       }
                     : undefined

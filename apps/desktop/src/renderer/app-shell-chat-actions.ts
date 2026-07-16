@@ -9,6 +9,10 @@ import {
 } from '@maka/ui';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
 import { preflightAttachmentItems } from './attachment-preflight.js';
+import {
+  isSessionWorkspaceUnavailableError,
+  showSessionWorkspaceUnavailableToast,
+} from './session-workspace-errors.js';
 
 export type PendingAttachment = {
   displayName: string;
@@ -286,15 +290,17 @@ export function createAppShellChatActions(deps: {
       if (optimisticSessionId && optimisticTurnId) disarmTurnActive(optimisticSessionId, optimisticTurnId);
       restoreOptimisticStatus?.();
       const feedbackSessionId = optimisticSessionId ?? initialSessionId;
-      const sendStillOwnsCurrentSurface = feedbackSessionId
-        ? activeIdRef.current === feedbackSessionId
-        : newChatOwner
-          ? isNewChatSendSurfaceActive(newChatOwner)
-          : activeIdRef.current === initialSessionId;
+      const sendStillOwnsCurrentSurface = (
+        feedbackSessionId !== undefined && activeIdRef.current === feedbackSessionId
+      ) || (
+        newChatOwner !== null && isNewChatSendSurfaceActive(newChatOwner)
+      );
       if (!sendStillOwnsCurrentSurface) return false;
       if (isNoRealConnectionError(error)) {
         const reason = noRealConnectionReasonFromError(error);
         showModelSetupToast(noRealConnectionSetupDescription(reason), reason);
+      } else if (isSessionWorkspaceUnavailableError(error)) {
+        showSessionWorkspaceUnavailableToast(toastApi);
       } else {
         toastApi.error('发送失败', generalizedErrorMessageChinese(error, '消息暂时无法发送，请稍后重试。'));
       }
@@ -311,7 +317,12 @@ export function createAppShellChatActions(deps: {
       // Same fire-and-forget call site as stop(), wrap so a failed
       // permission response (main process busy / session dropped)
       // surfaces instead of dying as UnhandledPromiseRejection.
-      if (activeIdRef.current === sessionId) toastApi.error('响应失败', generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。'));
+      if (activeIdRef.current !== sessionId) return;
+      if (isSessionWorkspaceUnavailableError(error)) {
+        showSessionWorkspaceUnavailableToast(toastApi);
+      } else {
+        toastApi.error('响应失败', generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。'));
+      }
     }
   }
 
@@ -322,7 +333,12 @@ export function createAppShellChatActions(deps: {
       await window.maka.sessions.respondToUserQuestion(sessionId, response);
       setInteractionBySession((current) => dequeueInteractionByRequestId(current, sessionId, response.requestId));
     } catch (error) {
-      if (activeIdRef.current === sessionId) toastApi.error('响应失败', generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。'));
+      if (activeIdRef.current !== sessionId) return;
+      if (isSessionWorkspaceUnavailableError(error)) {
+        showSessionWorkspaceUnavailableToast(toastApi);
+      } else {
+        toastApi.error('响应失败', generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。'));
+      }
     }
   }
 

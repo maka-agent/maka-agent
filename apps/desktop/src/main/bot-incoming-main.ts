@@ -25,6 +25,7 @@ import {
   errorMessage,
   errorReason,
 } from './chat-readiness.js';
+import { isSessionWorkspaceUnavailableError } from './project-context-root.js';
 
 const BOT_RECENT_SOURCE_EVENT_LIMIT = 1_000;
 const BOT_RECENT_SOURCE_EVENT_TTL_MS = 60 * 60 * 1_000;
@@ -45,6 +46,9 @@ export interface BotIncomingMainService {
 
 interface BotIncomingMainServiceDeps {
   runtime: SessionManager;
+  createSession: (
+    input: Parameters<SessionManager['createSession']>[0],
+  ) => ReturnType<SessionManager['createSession']>;
   botRegistry: BotRegistry;
   getCurrentProjectRoot(): Promise<string>;
   getDefaultConnectionSlug(): Promise<string | null>;
@@ -234,7 +238,7 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
           return;
         }
         const ready = await deps.getReadyConnection(await deps.getDefaultConnectionSlug(), undefined);
-        const summary = await deps.runtime.createSession({
+        const summary = await deps.createSession({
           cwd: await deps.getCurrentProjectRoot(),
           backend: 'ai-sdk',
           llmConnectionSlug: ready.connection.slug,
@@ -248,6 +252,7 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
         sessionId = summary.id;
         botConversationSessions.set(conversationKey, sessionId);
         deps.emitSessionsChanged('created', sessionId);
+        await deps.ensureSessionCanSend(sessionId);
       } else {
         const permissionModeOk = await ensureBotSessionExploreMode(sessionId, message, SYSTEM_NOTICE_TTL_MS);
         if (!permissionModeOk) return;
@@ -322,7 +327,9 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
         }
       }
     } catch (error) {
-      const detail = generalizedErrorMessage(error, '机器人对话处理失败');
+      const detail = isSessionWorkspaceUnavailableError(error)
+        ? '工作目录不可用，请在桌面端选择有效目录后重试'
+        : generalizedErrorMessage(error, '机器人对话处理失败');
       const replyOptions = {
         ...(message.sourceMessageId ? { replyToMessageId: message.sourceMessageId } : {}),
         // Error notice: same 5-minute TTL as the other transient system

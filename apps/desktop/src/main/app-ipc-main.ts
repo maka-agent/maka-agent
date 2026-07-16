@@ -16,6 +16,8 @@ type BuildInfo = ReturnType<typeof resolveBuildInfo>;
 export interface AppIpcDeps {
   mainWindowController: MainWindowController;
   projectRoot: ProjectRootController;
+  getSessionProjectRoot(sessionId: string): Promise<string>;
+  getProjectRoot(sessionId: unknown): Promise<string>;
   workspaceRoot: string;
   buildInfo: BuildInfo;
   visualSmokeFixture: VisualSmokeFixture;
@@ -77,8 +79,21 @@ export function registerAppIpc(deps: AppIpcDeps): void {
       buildCommit: buildInfo.commit,
     };
   });
-  ipcMain.handle('app:openPath', async (_event, key: string): Promise<OpenPathResult> => {
-    const resolved = await resolveOpenPath({ key, workspaceRoot, projectRoot: await currentProjectRoot() });
+  ipcMain.handle('app:sessionProjectInfo', async (_event, sessionId: unknown) => {
+    if (typeof sessionId !== 'string' || !sessionId) {
+      throw new Error('Invalid project-context session id.');
+    }
+    const projectPath = await deps.getSessionProjectRoot(sessionId);
+    return {
+      projectPath,
+      projectGit: await resolveProjectGitInfo(projectPath),
+    };
+  });
+  ipcMain.handle('app:openPath', async (_event, key: string, sessionId: unknown): Promise<OpenPathResult> => {
+    const projectPath = key === 'project'
+      ? await deps.getProjectRoot(sessionId)
+      : await currentProjectRoot();
+    const resolved = await resolveOpenPath({ key, workspaceRoot, projectRoot: projectPath });
     if (!resolved.ok) return resolved;
     const error = await shell.openPath(resolved.path);
     if (error) return { ok: false, reason: 'open-failed' };

@@ -29,7 +29,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
 
     assert.match(main, /const requestedSlug = input\?\.llmConnectionSlug \?\? \(await connectionStore\.getDefault\(\)\)/);
     assert.match(main, /const \{ connection, model \} = await getReadyConnection\(requestedSlug, input\?\.model\)/);
-    assert.match(main, /runtime\.createSession\(\{[\s\S]*llmConnectionSlug: connection\.slug,[\s\S]*model,/);
+    assert.match(main, /createSession\(\{[\s\S]*llmConnectionSlug: connection\.slug,[\s\S]*model,/);
   });
 
   it('validates sends against the session model, not the latest provider default', async () => {

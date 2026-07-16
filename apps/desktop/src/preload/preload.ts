@@ -97,6 +97,7 @@ import type {
 export type QuickChatResult =
   | { ok: true; sessionId: string }
   | { ok: false; reason: 'setup_required'; state: OnboardingState }
+  | { ok: false; reason: 'workspace_unavailable' }
   | { ok: false; reason: 'send_failed'; message: string };
 
 // Expert-team IPC shapes. Duplicated (not imported from main) so preload stays
@@ -117,6 +118,7 @@ export type ExpertTeamStartResult =
   | { ok: true; sessionId: string }
   | { ok: false; reason: 'unknown_team'; teamId: string }
   | { ok: false; reason: 'setup_required'; state: OnboardingState }
+  | { ok: false; reason: 'workspace_unavailable' }
   | { ok: false; reason: 'send_failed'; message: string };
 
 export interface OnboardingSnapshot {
@@ -888,8 +890,15 @@ contextBridge.exposeInMainWorld('maka', {
     }> {
       return ipcRenderer.invoke('app:info');
     },
+    sessionProjectInfo(sessionId: string): Promise<{
+      projectPath: string;
+      projectGit: { isGitRepo: boolean; branch?: string };
+    }> {
+      return ipcRenderer.invoke('app:sessionProjectInfo', sessionId);
+    },
     openPath(
       key: 'workspace' | 'skills' | 'memory' | 'project',
+      sessionId?: string,
     ): Promise<
       | { ok: true; opened: string }
       | {
@@ -897,7 +906,7 @@ contextBridge.exposeInMainWorld('maka', {
           reason: 'unknown-key' | 'not-allowed' | 'missing' | 'not-a-directory' | 'open-failed';
         }
     > {
-      return ipcRenderer.invoke('app:openPath', key);
+      return ipcRenderer.invoke('app:openPath', key, sessionId);
     },
     selectProjectDirectory(): Promise<
       | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
@@ -917,22 +926,22 @@ contextBridge.exposeInMainWorld('maka', {
     > {
       return ipcRenderer.invoke('app:resolveProjectGitInfo', projectPath);
     },
-    listGitBranches(): Promise<{
+    listGitBranches(sessionId?: string): Promise<{
       ok: boolean;
       branches?: string[];
       current?: string;
       reason?: string;
       message?: string;
     }> {
-      return ipcRenderer.invoke('app:listGitBranches');
+      return ipcRenderer.invoke('app:listGitBranches', sessionId);
     },
-    checkoutGitBranch(branch: string): Promise<{
+    checkoutGitBranch(branch: string, sessionId?: string): Promise<{
       ok: boolean;
       branch?: string;
       reason?: string;
       message?: string;
     }> {
-      return ipcRenderer.invoke('app:checkoutGitBranch', branch);
+      return ipcRenderer.invoke('app:checkoutGitBranch', branch, sessionId);
     },
     openArtifactPath(
       artifactId: string,
@@ -953,12 +962,12 @@ contextBridge.exposeInMainWorld('maka', {
     /** Composer `@` mention popup: list workspace files matching `query`. */
     searchFiles(
       query: string,
-      limit?: number,
+      options?: { sessionId?: string; limit?: number },
     ): Promise<
       | { ok: true; files: Array<{ relativePath: string }> }
       | { ok: false; reason: 'no_project' | 'search_failed' }
     > {
-      return ipcRenderer.invoke('workspace:searchFiles', { query, limit });
+      return ipcRenderer.invoke('workspace:searchFiles', { query, ...options });
     },
   },
   visualSmoke: {

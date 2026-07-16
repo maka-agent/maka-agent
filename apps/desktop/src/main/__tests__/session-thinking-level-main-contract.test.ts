@@ -37,7 +37,7 @@ describe('session thinking-level main IPC contract', () => {
     );
     assert.match(
       createHandler,
-      /runtime\.createSession\(\{[\s\S]*model,[\s\S]*\.\.\.\(thinkingLevel !== undefined \? \{ thinkingLevel \} : \{\}\),/,
+      /createSession\(\{[\s\S]*model,[\s\S]*\.\.\.\(thinkingLevel !== undefined \? \{ thinkingLevel \} : \{\}\),/,
       'sessions:create must persist the supported thinkingLevel into the session header so the first turn providerOptions use it',
     );
     assert.match(

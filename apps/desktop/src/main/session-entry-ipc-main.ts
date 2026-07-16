@@ -6,7 +6,7 @@ import {
 } from '@maka/runtime';
 import type { SessionManager } from '@maka/runtime';
 import { expertTeamLabel } from '@maka/core';
-import type { OnboardingState, SessionEvent } from '@maka/core';
+import type { CreateSessionInput, OnboardingState, SessionEvent } from '@maka/core';
 import { handleExpertTeamStart as runExpertTeamStart } from './expert-team-start.js';
 import type { QuickChatResult } from './quick-chat.js';
 import type { requireReadyConnection } from './chat-readiness.js';
@@ -21,6 +21,7 @@ export interface SessionEntryIpcDeps {
   getOnboardingState: () => Promise<OnboardingState>;
   emitSessionsChanged: (reason: 'created', sessionId: string) => void;
   ensureSessionCanSend: (sessionId: string) => Promise<void>;
+  createSession: (input: CreateSessionInput) => ReturnType<SessionManager['createSession']>;
   streamEvents: (
     sessionId: string,
     iterator: AsyncIterable<SessionEvent>,
@@ -63,7 +64,7 @@ export function registerSessionEntryIpc(deps: SessionEntryIpcDeps): void {
       createSession: async ({ teamId, defaultConnectionSlug, defaultModel }) => {
         const ready = await deps.getReadyConnection(defaultConnectionSlug, defaultModel);
         const team = getExpertTeam(teamId);
-        return deps.runtime.createSession({
+        return deps.createSession({
           cwd: await deps.getCurrentProjectRoot(),
           backend: 'ai-sdk',
           llmConnectionSlug: ready.connection.slug,

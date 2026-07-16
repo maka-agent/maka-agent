@@ -2,6 +2,7 @@ import type { QuickChatMode } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import { saveGlobalInputHistoryEntry } from '@maka/ui';
 import type { NavSelection } from '@maka/ui';
+import { showSessionWorkspaceUnavailableToast } from './session-workspace-errors';
 
 type ComposerImportOwner = {
   sessionId: string | undefined;
@@ -74,6 +75,11 @@ export function createAppShellQuickChatActions(deps: {
       } else if (result.reason === 'setup_required') {
         refreshOnboarding();
         return false;
+      } else if (result.reason === 'workspace_unavailable') {
+        if (isShellSurfaceOwnerActive(owner)) {
+          showSessionWorkspaceUnavailableToast(toastApi);
+        }
+        return false;
       } else {
         await refreshSessions();
         if (isShellSurfaceOwnerActive(owner)) {
@@ -112,6 +118,11 @@ export function createAppShellQuickChatActions(deps: {
         return true;
       } else if (result.reason === 'setup_required') {
         refreshOnboarding();
+        return false;
+      } else if (result.reason === 'workspace_unavailable') {
+        if (isShellSurfaceOwnerActive(owner)) {
+          showSessionWorkspaceUnavailableToast(toastApi);
+        }
         return false;
       } else {
         await refreshSessions();
