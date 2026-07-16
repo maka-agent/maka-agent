@@ -192,6 +192,7 @@ export async function importLegacyOAuthTokenFiles(input: {
         continue;
       }
       const serialized = serializeOAuthSubscriptionTokens(tokens);
+      let committedByImport = false;
       if (input.credentialStore.compareAndSetSecret) {
         const committed = await input.credentialStore.compareAndSetSecret(
           slug,
@@ -208,10 +209,41 @@ export async function importLegacyOAuthTokenFiles(input: {
           }
           continue;
         }
+        committedByImport = true;
       } else {
         await input.credentialStore.setSecret(slug, 'oauth_token', serialized);
       }
-      await fs.unlink(filePath);
+      try {
+        await fs.unlink(filePath);
+      } catch (error) {
+        if (
+          (error as NodeJS.ErrnoException).code === 'ENOENT'
+          && committedByImport
+          && input.credentialStore.compareAndSetSecret
+        ) {
+          // Logout removes the legacy file before deleting the shared token. If
+          // it won after this import buffered the file but before our CAS, undo
+          // only the exact value this import committed. A concurrent replacement
+          // makes the rollback lose and remains authoritative.
+          const rolledBack = await input.credentialStore.compareAndSetSecret(
+            slug,
+            'oauth_token',
+            serialized,
+            null,
+          );
+          if (
+            rolledBack.committed
+            || rolledBack.current === null
+            || parseOAuthSubscriptionTokens(rolledBack.current)
+          ) {
+            report('superseded');
+          } else {
+            report('failed', new Error('OAuth credential changed during legacy import rollback.'));
+          }
+          continue;
+        }
+        throw error;
+      }
       report('imported');
     } catch (error) {
       report('failed', error);
