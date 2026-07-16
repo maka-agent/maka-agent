@@ -2315,6 +2315,17 @@ app.whenReady().then(async () => {
   // settled. Any state that background startup mutates is pushed to the
   // renderer via the existing `sessions:changed` / `connections:event`
   // / `settings:bots:statusChanged` channels, so the UI converges lazily.
+  // Visual-smoke fixture mode wipes and reseeds the whole workspace
+  // (`rm -rf` first). That wipe must finish BEFORE the window opens and
+  // before background startup touches the workspace: createWindow reads
+  // the settings store, and a concurrent wipe lands inside the store's
+  // read-or-create write (mkdir → tmp → rename), rejecting createWindow
+  // so the window never appears. Fixture runs trade first-paint latency
+  // for determinism by definition; production launches skip this await.
+  if (visualSmokeFixture) {
+    console.log(`[visual-smoke] scenario=${visualSmokeFixture.scenario} workspace=${workspaceRoot}`);
+    await seedVisualSmokeFixture({ workspaceRoot, fixture: visualSmokeFixture, credentialStore });
+  }
   const backgroundStartup = runBackgroundStartup();
   await mainWindowController.createWindow();
   // Keep the process alive until background work settles so schedulers
@@ -2366,10 +2377,9 @@ async function runBackgroundStartup(): Promise<void> {
   } catch (error) {
     console.error('[credentials] legacy OAuth token import failed; files left intact:', error);
   }
-  if (visualSmokeFixture) {
-    console.log(`[visual-smoke] scenario=${visualSmokeFixture.scenario} workspace=${workspaceRoot}`);
-    await seedVisualSmokeFixture({ workspaceRoot, fixture: visualSmokeFixture, credentialStore });
-  } else {
+  // Visual-smoke seeding happens synchronously in `whenReady` before the
+  // window opens (see there for why); only the real bootstrap runs here.
+  if (!visualSmokeFixture) {
     await ensureBootstrapConnection();
   }
   const settings = await settingsStore.get();
