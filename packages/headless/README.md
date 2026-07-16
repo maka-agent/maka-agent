@@ -161,6 +161,27 @@ trajectory/runtime refs, submitted snapshot metadata, verifier output, score,
 budget, isolation, permission/inbox facts, taxonomy, and warnings. They do not
 embed environment variables, credentials, or hidden harness configuration.
 
+## Terminal-Bench smoke runner
+
+`harbor/run-terminal-bench-smoke.mjs` is the local structured smoke harness for the
+`terminal-bench-sample` registry dataset. It reads the checked-in profile manifest
+`harbor/terminal-bench-smoke-profiles.json`, generates a Harbor run config under
+`harbor/smoke-generated-configs/`, and (unless `--dry-run`) invokes Harbor with the
+adapter directory on `PYTHONPATH`. `HARBOR_BIN` overrides the Harbor executable
+(default `harbor` on `PATH`).
+
+The `maka-*` profiles drive the single authoritative adapter `maka_agent:MakaAgent`
+in task-run host-bridge mode (`MAKA_HARBOR_MODE=task-run`): Maka runs the full
+task-run controller on the host and bridges tool execution into the task container,
+while the container installs nothing. `maka-heavy` and `maka-heavy-prune` carry the
+heavy-task and autonomous prior-attempt-replay experiments; `opencode` and `oracle`
+provide comparison and cheap dataset smoke arms.
+
+```sh
+node packages/headless/harbor/run-terminal-bench-smoke.mjs --profile maka-heavy --dry-run
+node packages/headless/harbor/run-terminal-bench-smoke.mjs --compare --task '*sqlite-with-gcov'
+```
+
 ## GLM-5.2 harness comparison
 
 `harbor/run-harness-ab.mjs` compares Maka and OpenCode 1.17.18 on the same Terminal-Bench 2.1 tasks with GLM-5.2 Max. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official revision; a matching Harbor export with one task directory per id is accepted directly. Before model sampling, Harbor's Oracle inspects tasks in the frozen seeded order under the same verifier policy and selects the first 30 that pass. The immutable qualification evidence and selected task ids are bound into the run manifest. Maka keeps active and stale tool-result pruning enabled while semantic compact is explicitly disabled in both the manifest and runtime environment.

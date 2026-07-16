@@ -4,6 +4,20 @@
 // package-local entrypoints, not the root API. Minimal usage is
 // `runExperiment(config, task, { storageRoot })`.
 export { runPromptOptimizationRun } from './prompt-optimization-run.js';
+export {
+  buildSmokeJobConfig,
+  resolveSmokeRunTargets,
+} from './harbor-smoke-config.js';
+export type {
+  SmokeManifest,
+  SmokeManifestAgent,
+  SmokeManifestDataset,
+  SmokeManifestDefaults,
+  SmokeManifestProfile,
+  SmokeConfigOverrides,
+  SmokeJobConfigResult,
+  SmokeRunTarget,
+} from './harbor-smoke-config.js';
 export type { MakaChangeAuditRecord } from './change-audit.js';
 export type {
   PromptOptimizationRunInput,

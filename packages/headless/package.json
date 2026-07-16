@@ -35,6 +35,7 @@
     "#ab-manifest": "./dist/ab-manifest.js",
     "#prompt-ab-run": "./dist/prompt-ab-run.js",
     "#harbor-task-runner": "./dist/harbor-task-runner.js",
+    "#harbor-smoke-config": "./dist/harbor-smoke-config.js",
     "#provider-env": "./dist/provider-env.js",
     "#harbor-cell": "./dist/harbor-cell.js",
     "#opencode-toolchain": "./dist/opencode-toolchain.js",
