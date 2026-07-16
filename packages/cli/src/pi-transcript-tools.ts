@@ -2,7 +2,6 @@ import type { ToolOutputStream, ToolResultContent } from '@maka/core/events';
 import {
   formatQuietJsonValue,
   formatToolInvocationLine,
-  ptyCompactTerminalLine,
   ptyTuiTerminalRows,
   ptyTuiTerminalView,
   readWriteStdinInputPreview,
@@ -28,88 +27,111 @@ export function renderToolBlock(entry: MakaPiToolEntry, width: number, expanded:
   return expanded ? renderExpandedToolBlock(entry, width) : renderCompactToolBlock(entry, width);
 }
 
-/** Status disc for a tool row: muted = done, accent = running, danger = error/aborted/failed. */
+/** Status disc for a tool row: green = done, accent = running, danger = error/aborted/failed, muted = detached/unavailable. */
 function toolDisc(entry: MakaPiToolEntry): string {
   if (entry.status === 'running') return disc('accent');
   if (entry.status === 'error' || entry.status === 'aborted' || entry.status === 'failed') return disc('danger');
-  return disc('muted');
+  if (entry.status === 'detached' || entry.status === 'unavailable') return disc('muted');
+  return disc('ok');
 }
 
-/** Duration/status segment in integer seconds (#1053): `5s`, `running 12s`, `detached`. */
+/**
+ * Duration/status part of the annotation, in integer seconds (#1053): `5s`,
+ * `running 12s`. Sub-second durations are noise and never shown — the gate is
+ * on the raw milliseconds, not the rounded value, so 999ms does not surface
+ * as `1s`. Status words for rows without a live process (`detached`,
+ * `source unavailable`) are dimmed like the other placeholders.
+ */
 function toolDurationText(entry: MakaPiToolEntry): string {
+  const subSecond = entry.durationMs !== undefined && entry.durationMs < 1000;
   const secs = entry.durationMs === undefined ? undefined : Math.max(0, Math.round(entry.durationMs / 1000));
   if (entry.status === 'running') {
-    return secs === undefined ? ansi.dim('running') : ansi.dim(`running ${secs}s`);
+    return secs === undefined || subSecond ? 'running' : `running ${secs}s`;
   }
   if (entry.status === 'detached') return ansi.dim('detached');
   if (entry.status === 'unavailable') return ansi.dim('source unavailable');
-  return secs === undefined ? '' : ansi.dim(`${secs}s`);
+  return secs === undefined || subSecond ? '' : `${secs}s`;
 }
 
 /**
- * Compact tool card: a single line in the #1053 disc grammar -
- * `● Name  primary  ·  duration  ·  summary ›`. The disc carries status, the
- * duration is integer seconds, and a dim trailing `›` marks an expandable
- * card. Live output and stop hints live only in the expanded card, so collapse
- * never grows a second line (no height jitter). The disc, name, duration, and
- * `›` are always preserved; only the input and summary text truncate, so a
- * long command or result never hides elapsed time or the expand marker.
+ * Compact tool card: a single line — `● Name  target (annotation)`. The disc
+ * carries the status color (green done / blue running / red failed / grey
+ * detached); the parenthesized annotation carries the outcome in short fixed
+ * shapes: counts (`5 matches`, `3 lines`), sizes (`42 bytes`), a diff tally
+ * (`+1 -3`), durations (`5s`, sharing the parens as `5s · 3 lines`), red exit
+ * codes, or the dim `no output` placeholder. Output content never appears on
+ * the row — it lives in the expanded card, and the annotation's shapes
+ * already say whether there is anything to expand, so the row needs neither
+ * a separator glyph nor an expand marker. Short annotations are reserved
+ * whole during truncation: a long command can never hide an `exit 1`.
  */
 function renderCompactToolBlock(entry: MakaPiToolEntry, width: number): string[] {
   const inputSummary = collapseToSingleLine(toolInputSummary(entry));
-  const duration = toolDurationText(entry);
-  const summary = compactToolSummary(entry, width);
-  const summaryText = summary && entry.status !== 'running' ? collapseToSingleLine(summary.text) : '';
-  const sep = `  ${ansi.dim('·')}  `;
-  const chevron = summary?.expandable ? ` ${ansi.dim('›')}` : '';
   const head = `${toolDisc(entry)} ${entry.title ?? entry.toolName}`;
-  return [fitLine(assembleCompactToolRow(head, inputSummary, duration, summaryText, sep, chevron, width), width)];
+  const annotation = compactAnnotation(entry);
+  return [fitLine(assembleCompactToolRow(head, inputSummary, annotation.text, width, annotation.protect), width)];
 }
 
 /**
- * Lay out `head  input  ·  duration  ·  summary chevron` on one line, keeping
- * the head, duration segment, and chevron (the status-carrying parts) intact
- * and truncating only the flexible input/summary text when the row overflows.
- * Input is truncated before summary so a long command keeps its elapsed time.
+ * Build the `(part · part)` annotation for a compact row: duration/status
+ * first, then the outcome. While running only the duration part shows
+ * (`(running 12s)`). A placeholder outcome (`no output`) appears only when it
+ * would be the annotation's sole content — `(5s)` needs no silence disclaimer.
+ * `protect` reports whether every part is a fixed shape (durations always
+ * are): only protected annotations are reserved whole during truncation.
  */
-function assembleCompactToolRow(
-  head: string,
-  input: string,
-  duration: string,
-  summary: string,
-  sep: string,
-  chevron: string,
-  width: number,
-): string {
+function compactAnnotation(entry: MakaPiToolEntry): { text: string; protect: boolean } {
+  const parts: string[] = [];
+  const duration = toolDurationText(entry);
+  if (duration) parts.push(duration);
+  let protect = true;
+  if (entry.status !== 'running') {
+    const summary = compactToolSummary(entry);
+    if (summary && !(summary.placeholder && parts.length > 0)) {
+      parts.push(collapseToSingleLine(summary.text));
+      protect = summary.protect === true;
+    }
+  }
+  return { text: parts.length > 0 ? `(${parts.join(' · ')})` : '', protect };
+}
+
+/** A protected annotation at or below this visible width is reserved whole when the row overflows. */
+const COMPACT_ANNOTATION_RESERVE = 30;
+
+/**
+ * Lay out `head  target (annotation)` on one line. The head and a short
+ * protected annotation are preserved whole; the free-text target truncates
+ * first, so a long command can never hide an exit code. An unprotected
+ * annotation (a generic first result line) is never reserved — it takes
+ * whatever the target leaves.
+ */
+function assembleCompactToolRow(head: string, input: string, annotation: string, width: number, protect: boolean): string {
   const inputSeg = input ? `  ${input}` : '';
-  const durSeg = duration ? `${sep}${duration}` : '';
-  const sumSeg = summary ? `${sep}${summary}` : '';
-  const full = `${head}${inputSeg}${durSeg}${sumSeg}${chevron}`;
+  const annSeg = annotation ? ` ${annotation}` : '';
+  const full = `${head}${inputSeg}${annSeg}`;
   if (visibleWidth(full) <= width) return full;
-  // Overflow: reserve head + duration + chevron, then fit input before summary.
-  // Input joins the name with two spaces; duration and summary join with `·`.
-  let budget = Math.max(0, width - visibleWidth(`${head}${durSeg}${chevron}`));
+  // The cap is measured on the annotation alone; the joining space is still
+  // budgeted below, so an annotation exactly at the cap is kept whole.
+  const reserved = protect && visibleWidth(annotation) <= COMPACT_ANNOTATION_RESERVE;
+  const budget = Math.max(0, width - visibleWidth(head) - (reserved ? visibleWidth(annSeg) : 0));
   let builtInput = '';
-  let builtSummary = '';
   if (input && budget > 3) {
     const room = budget - 2;
-    const text = visibleWidth(input) > room ? truncateToWidth(input, room, '…') : input;
-    builtInput = `  ${text}`;
-    budget -= visibleWidth(builtInput);
+    builtInput = `  ${visibleWidth(input) > room ? truncateToWidth(input, room, '…') : input}`;
   }
-  const sepW = visibleWidth(sep);
-  if (summary && budget > sepW + 1) {
-    const room = budget - sepW;
-    const text = visibleWidth(summary) > room ? truncateToWidth(summary, room, '…') : summary;
-    builtSummary = `${sep}${text}`;
+  if (reserved) return `${head}${builtInput}${annSeg}`;
+  let builtAnnotation = '';
+  const leftover = budget - visibleWidth(builtInput);
+  if (annotation && leftover > 1) {
+    builtAnnotation = ` ${visibleWidth(annotation) > leftover ? truncateToWidth(annotation, leftover, '…') : annotation}`;
   }
-  return `${head}${builtInput}${durSeg}${builtSummary}${chevron}`;
+  return `${head}${builtInput}${builtAnnotation}`;
 }
 
 function renderExpandedToolBlock(entry: MakaPiToolEntry, width: number): string[] {
   const duration = toolDurationText(entry);
   let header = `${toolDisc(entry)} ${entry.title ?? entry.toolName}`;
-  if (duration) header += `  ${ansi.dim('·')}  ${duration}`;
+  if (duration) header += ` (${duration})`;
   const lines = [fitLine(header, width)];
 
   const inputSummary = toolInputSummary(entry);
@@ -143,124 +165,112 @@ function renderExpandedToolBlock(entry: MakaPiToolEntry, width: number): string[
 
 interface CompactToolSummary {
   text: string;
-  /** True when expanding would reveal more than this one-line summary. */
-  expandable: boolean;
+  /** Placeholder shown only when the annotation would otherwise be empty (`no output`). */
+  placeholder?: boolean;
+  /**
+   * Fixed-shape outcome (a count, size, diff tally, or exit status) eligible
+   * for whole-annotation reservation when the row overflows. Free text — the
+   * generic first-line fallback or a WriteStdin operation echo — is never
+   * reserved, so it cannot push the command off the row.
+   */
+  protect?: boolean;
 }
 
-function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolSummary | undefined {
-  const hasLiveOutput = entry.outputDeltas.length > 0 || entry.progress.length > 0;
+function noOutput(): CompactToolSummary {
+  return { text: ansi.dim('no output'), placeholder: true, protect: true };
+}
+
+function linesText(count: number): string {
+  return `${count} line${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * Combined line count for a pipes result. Each stream is counted after
+ * trimming its own trailing newlines and the counts are summed — joining the
+ * streams first would invent a line at the boundary (`out\n` + `err\n` is
+ * two lines, not three).
+ */
+function pipeOutputLineCount(output: { stdout?: string; stderr?: string }): number {
+  let count = 0;
+  for (const stream of [output.stdout, output.stderr]) {
+    const trimmed = stream?.replace(/\n+$/, '');
+    if (trimmed) count += trimmed.split('\n').length;
+  }
+  return count;
+}
+
+function compactToolSummary(entry: MakaPiToolEntry): CompactToolSummary | undefined {
   const result = entry.result;
   if (result?.kind === 'shell_run') {
     if (entry.toolName === 'WriteStdin') {
-      return {
-        text: formatPtyControlOperation(result.operation, entry.input),
-        expandable: result.operation?.kind === 'pty_control' && result.operation.failed,
-      };
+      return { text: formatPtyControlOperation(result.operation, entry.input) };
     }
-    const latest = result.output?.mode === 'pty'
-      ? ptyCompactTerminalLine(result.output)
-      : result.output?.mode === 'pipes'
-        ? result.output.latestStream
-          ? lastNonEmptyLine(result.output[result.output.latestStream])
-          : lastNonEmptyLine([result.output.stdout, result.output.stderr].filter(Boolean).join('\n'))
-        : '';
-    if (latest) return { text: latest, expandable: true };
-    return {
-      text: entry.status === 'detached'
-        ? ansi.dim('(owned by source session)')
-        : entry.status === 'unavailable'
-          ? ansi.dim('(source session unavailable)')
-        : result.status === 'running'
-          ? ansi.dim('(waiting for output)')
-          : ansi.dim('(no output)'),
-      expandable: true,
-    };
-  }
-  if (entry.status === 'running' && hasLiveOutput) {
-    const live = latestLiveOutputLine(entry);
-    if (live) return { text: live, expandable: true };
+    // A settled background run reports its outcome, not its output: the status
+    // and exit code are the signal, the stream body lives in the expanded card.
+    if (result.status !== 'running' && result.status !== 'completed') {
+      const parts: string[] = [result.status];
+      if (result.exitCode !== undefined) parts.push(`exit ${result.exitCode}`);
+      return { text: ansi.red(parts.join(' · ')), protect: true };
+    }
+    if (result.output?.mode === 'pty') {
+      const rows = ptyTuiTerminalRows(result.output).length;
+      return rows > 0 ? { text: linesText(rows), protect: true } : noOutput();
+    }
+    if (result.output?.mode === 'pipes') {
+      const lines = pipeOutputLineCount(result.output);
+      if (lines > 0) return { text: linesText(lines), protect: true };
+    }
+    return noOutput();
   }
 
-  if (result?.kind === 'terminal') return compactTerminalSummary(result, hasLiveOutput);
+  if (result?.kind === 'terminal') return compactTerminalSummary(result);
   if (result?.kind === 'file_diff') return compactDiffSummary(result);
   if (result?.kind === 'file_write') {
-    return { text: `Wrote ${result.bytes} bytes to ${result.path}`, expandable: hasLiveOutput };
+    // The path is already the card's input summary; the result adds only size.
+    return { text: `${result.bytes} bytes`, protect: true };
   }
 
   if (entry.toolName === 'Grep') {
     const count = jsonArrayCount(entry, 'matches');
-    if (count !== undefined) {
-      return {
-        text: `${count} match${count === 1 ? '' : 'es'}`,
-        expandable: count > 0 || hasLiveOutput,
-      };
-    }
+    if (count !== undefined) return { text: `${count} match${count === 1 ? '' : 'es'}`, protect: true };
   }
 
   if (entry.toolName === 'Glob') {
     const count = jsonArrayCount(entry, 'files');
-    if (count !== undefined) {
-      return {
-        text: `${count} file${count === 1 ? '' : 's'}`,
-        expandable: count > 0 || hasLiveOutput,
-      };
-    }
+    if (count !== undefined) return { text: `${count} file${count === 1 ? '' : 's'}`, protect: true };
   }
 
   const text = plainResultText(entry);
   if (!text) return undefined;
   // Only a successful filesystem Read that carries real file content gets the
-  // line/byte summary — the same guard the expanded card uses. A runtime
+  // line summary — the same guard the expanded card uses. A runtime
   // resource, errored, or archived Read falls through to the generic first-line
   // summary so its status shows instead of a fabricated count.
   if (entry.toolName === 'Read'
     && entry.status !== 'error'
     && isFilesystemReadPath(entry)
     && isReadBodyResult(result)) {
-    const lineCount = readBodyLineCount(text);
-    return {
-      text: `${lineCount} line${lineCount === 1 ? '' : 's'}, ${byteLength(text)} bytes`,
-      expandable: true,
-    };
+    return { text: linesText(readBodyLineCount(text)), protect: true };
   }
-  const firstLine = text.split('\n', 1)[0] ?? '';
-  return {
-    text: firstLine,
-    expandable: text.includes('\n') || hasLiveOutput || firstLine.length + 2 > width,
-  };
+  // The generic first-line fallback is free text, never reserved: the command
+  // a user ran says more than one truncated line of what came back.
+  return { text: text.split('\n', 1)[0] ?? '' };
 }
 
 function compactTerminalSummary(
   content: Extract<ToolResultContent, { kind: 'terminal' }>,
-  hasLiveOutput: boolean,
 ): CompactToolSummary {
-  const hasOutput = content.output.mode === 'pty'
-    ? Boolean(ptyCompactTerminalLine(content.output))
-    : Boolean(content.output.stdout || content.output.stderr);
   if (content.status !== 'completed') {
-    const detail = content.output.mode === 'pipes'
-      ? lastNonEmptyLine(content.output.stderr)
-      : ptyCompactTerminalLine(content.output);
-    const status = ansi.red(content.exitCode === undefined ? content.status : `exit ${content.exitCode}`);
-    return {
-      text: detail ? `${status} ${detail}` : status,
-      expandable: hasOutput || hasLiveOutput,
-    };
+    // The exit code is the whole signal on a failed row; the error text lives
+    // in the expanded card.
+    return { text: ansi.red(content.exitCode === undefined ? content.status : `exit ${content.exitCode}`), protect: true };
   }
   if (content.output.mode === 'pty') {
-    const latest = ptyCompactTerminalLine(content.output);
-    return latest
-      ? { text: latest, expandable: true }
-      : { text: ansi.dim('(no output)'), expandable: hasLiveOutput };
+    const rows = ptyTuiTerminalRows(content.output).length;
+    return rows > 0 ? { text: linesText(rows), protect: true } : noOutput();
   }
-  const combined = [content.output.stdout, content.output.stderr].filter(Boolean).join('\n').replace(/\n+$/, '');
-  if (!combined) return { text: ansi.dim('(no output)'), expandable: hasLiveOutput };
-  const totalLines = combined.split('\n').length;
-  const prefix = totalLines > 1 ? ansi.dim(`(${totalLines} lines) `) : '';
-  return {
-    text: `${prefix}${lastNonEmptyLine(combined)}`,
-    expandable: totalLines > 1 || hasLiveOutput,
-  };
+  const lines = pipeOutputLineCount(content.output);
+  return lines > 0 ? { text: linesText(lines), protect: true } : noOutput();
 }
 
 function compactDiffSummary(
@@ -273,11 +283,8 @@ function compactDiffSummary(
     if (kind === 'add') adds += 1;
     else if (kind === 'del') dels += 1;
   }
-  const path = content.paths[0];
-  return {
-    text: `${ansi.green(`+${adds}`)} ${ansi.red(`-${dels}`)}${path ? ` ${path}` : ''}`,
-    expandable: true,
-  };
+  // The path is already the card's input summary; the tally is the outcome.
+  return { text: `${ansi.green(`+${adds}`)} ${ansi.red(`-${dels}`)}`, protect: true };
 }
 
 /**
@@ -294,25 +301,6 @@ function jsonArrayCount(entry: MakaPiToolEntry, key: string): number | undefined
     if (Array.isArray(rows)) return rows.length;
   }
   return undefined;
-}
-
-/** Latest non-empty output line from live deltas (redaction-aware), else progress. */
-function latestLiveOutputLine(entry: MakaPiToolEntry): string {
-  const groups = groupOutputDeltas(entry.outputDeltas.values());
-  if (groups.length > 0) {
-    const fromDeltas = lastNonEmptyLine(groups.map((group) => group.text).join('\n'));
-    if (fromDeltas) return fromDeltas;
-  }
-  return lastNonEmptyLine(entry.progress.values().join(''));
-}
-
-function lastNonEmptyLine(text: string): string {
-  const lines = text.split('\n');
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const line = lines[i];
-    if (line && line.trim()) return line;
-  }
-  return '';
 }
 
 function renderToolText(text: string, width: number): string[] {
@@ -676,7 +664,12 @@ function toolInputSummary(entry: MakaPiToolEntry): string {
     case 'Bash': {
       const command = obj?.command;
       if (typeof command === 'string' && command.trim()) {
-        return `$ ${command.split('\n')[0]}`;
+        // Agents often lead with `#` comment lines; the row names what the
+        // command does, so show the first real command line when one exists.
+        const firstRealLine = command.split('\n')
+          .map((line) => line.trim())
+          .find((line) => line !== '' && !line.startsWith('#'));
+        return `$ ${firstRealLine ?? command.split('\n')[0]!.trim()}`;
       }
       break;
     }

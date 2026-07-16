@@ -22,12 +22,17 @@ describe('tui-ansi semantic slots (#1053)', () => {
 describe('disc (#1053)', () => {
   test('renders a single ● glyph regardless of tone', () => {
     _setColorLevelForTesting(3);
-    for (const tone of ['muted', 'accent', 'danger'] as const) {
+    for (const tone of ['ok', 'muted', 'accent', 'danger'] as const) {
       assert.equal(stripAnsi(disc(tone)), '●', `tone ${tone} should yield one ●`);
     }
   });
 
-  test('done (muted) disc uses the muted cool-grey', () => {
+  test('done (ok) disc uses standard green', () => {
+    _setColorLevelForTesting(3);
+    assert.equal(disc('ok'), '\x1b[32m●\x1b[39m');
+  });
+
+  test('detached/unavailable (muted) disc uses the muted cool-grey', () => {
     _setColorLevelForTesting(3);
     assert.equal(disc('muted'), '\x1b[38;2;128;132;140m●\x1b[39m');
   });
@@ -74,6 +79,7 @@ describe('color capability fallback (#1064)', () => {
     assert.equal(ansi.muted('x'), 'x');
     assert.equal(ansi.bold('x'), 'x');
     assert.equal(ansi.red('x'), 'x');
+    assert.equal(disc('ok'), '●');
     assert.equal(disc('muted'), '●');
     assert.equal(disc('accent'), '●');
     assert.equal(disc('danger'), '●');

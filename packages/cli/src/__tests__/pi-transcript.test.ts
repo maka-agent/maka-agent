@@ -411,7 +411,7 @@ describe('Maka Pi TUI transcript', () => {
     // Compact: a running PTY Bash shows only the disc row; the PTY screen
     // lives in the expanded card.
     const compact = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(compact, /● Bash  \$ interactive  ·  running/);
+    assert.match(compact, /● Bash  \$ interactive \(running\)/);
     assert.doesNotMatch(compact, /pty-row-1/);
 
     assert.equal(toggleAllToolExpansion(state), true);
@@ -510,7 +510,7 @@ describe('Maka Pi TUI transcript', () => {
     ] satisfies StoredMessage[]);
 
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /● Bash  \$ npm test  ·  5s/);
+    assert.match(rendered, /● Bash  \$ npm test \(5s\)/);
   });
 
   test('rebuilds automatic context compaction notes from stored session messages', () => {
@@ -950,8 +950,8 @@ describe('Maka Pi TUI transcript', () => {
 
   test('keeps tool cards compact until the latest tool is expanded', () => {
     const state = createMakaPiTranscriptState();
-    // `head-line` is first; the compact one-line summary shows only the last
-    // non-empty line, and expanding reveals the full stdout.
+    // `head-line` is first; the compact one-line summary shows only the output
+    // size, never output content, and expanding reveals the full stdout.
     const stdout = `head-line\n${Array.from({ length: 30 }, (_, i) => `row-${i}`).join('\n')}`;
 
     applyMakaSessionEventToTranscript(state, event({
@@ -973,8 +973,11 @@ describe('Maka Pi TUI transcript', () => {
     // Compact cards are a single line (plus the leading blank separator).
     assert.equal(compactLines.length, 2);
     assert.match(compact, /● Bash  \$ npm test/);
-    assert.match(compact, /\(31 lines\) row-29 ›/);
+    assert.match(compact, /\(31 lines\)/);
     assert.doesNotMatch(compact, /head-line/);
+    assert.doesNotMatch(compact, /row-29/);
+    // The annotation's shapes carry the affordance; no expand marker remains.
+    assert.doesNotMatch(compact, /›/);
 
     assert.equal(toggleAllToolExpansion(state), true);
     const expanded = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
@@ -983,7 +986,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /row-29/);
   });
 
-  test('summarizes a failing Bash tool with exit code and last stderr line', () => {
+  test('summarizes a failing Bash tool with a red exit code, not the error text', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_start',
@@ -1005,9 +1008,52 @@ describe('Maka Pi TUI transcript', () => {
     const lines = renderMakaPiTranscript(state, meta(), 120);
     assert.equal(lines.length, 2);
     const compact = lines.map(stripAnsi).join('\n');
-    assert.match(compact, /exit 1 final error line ›/);
+    assert.match(compact, /\(exit 1\)/);
+    // The error text itself lives only in the expanded card.
+    assert.doesNotMatch(compact, /final error line/);
     // The exit code is red.
     assert.match(lines.join('\n'), /\x1b\[31mexit 1\x1b\[39m/);
+  });
+
+  test('marks a completed tool with a green disc', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'tool-1', toolName: 'Bash', args: { command: 'true' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'tool-1', isError: false,
+      content: terminalResult('', '', { cmd: 'true' }),
+    }));
+
+    const lines = renderMakaPiTranscript(state, meta(), 100);
+    assert.match(lines.join('\n'), /\x1b\[32m●\x1b\[39m/);
+  });
+
+  test('hides a sub-second duration on a settled compact row', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-fast', toolName: 'Bash', args: { command: 'true' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-fast', isError: false,
+      content: shellRun({ status: 'completed', startedAt: 1_000, updatedAt: 1_300, completedAt: 1_300, exitCode: 0 }),
+    }));
+
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /● Bash  \$ true \(no output\)/);
+    assert.doesNotMatch(rendered, /0s/);
+  });
+
+  test('shows the first real command line when a Bash command leads with comments', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'tool-1', toolName: 'Bash',
+      args: { command: '# look for the setting\ngrep -n "setting" src/config.ts' },
+    }));
+
+    const compact = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(compact, /\$ grep -n "setting" src\/config\.ts/);
+    assert.doesNotMatch(compact, /look for the setting/);
   });
 
   test('summarizes a silent successful command as (no output)', () => {
@@ -1049,7 +1095,7 @@ describe('Maka Pi TUI transcript', () => {
     const lines = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi);
     assert.equal(lines.length, 2);
     const compact = lines.join('\n');
-    assert.match(compact, /● Bash  \$ npm run build  ·  running/);
+    assert.match(compact, /● Bash  \$ npm run build \(running\)/);
     assert.doesNotMatch(compact, /step one/);
     assert.doesNotMatch(compact, /step two/);
 
@@ -1078,7 +1124,7 @@ describe('Maka Pi TUI transcript', () => {
     const tool = state.entries.find((entry) => entry.kind === 'tool');
     assert.equal(tool?.kind === 'tool' ? tool.status : undefined, 'running');
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /● Bash  \$ sleep 30  ·  running 10s/);
+    assert.match(rendered, /● Bash  \$ sleep 30 \(running 10s\)/);
     assert.doesNotMatch(rendered, /done/);
     assert.equal(rendered.split('$ sleep 30').length - 1, 1);
   });
@@ -1124,7 +1170,7 @@ describe('Maka Pi TUI transcript', () => {
     });
 
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /owned by source session/);
+    assert.match(rendered, /\(detached\)/);
     assert.doesNotMatch(rendered, /continues in source session/);
 
     applyShellRunViewUpdateToTranscript(state, {
@@ -1135,7 +1181,7 @@ describe('Maka Pi TUI transcript', () => {
       result: shellRun({ stdout: '', stderr: '' }),
     });
     const unavailable = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(unavailable, /source session unavailable/);
+    assert.match(unavailable, /\(source unavailable\)/);
     assert.doesNotMatch(unavailable, /Ask Maka to stop this task/);
   });
 
@@ -1293,7 +1339,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(tools[0]?.status, 'aborted');
     const lines = renderMakaPiTranscript(state, meta(), 100);
     const rendered = lines.map(stripAnsi).join('\n');
-    assert.match(rendered, /● Bash  \$ sleep 30  ·  7s/);
+    assert.match(rendered, /● Bash  \$ sleep 30 \(7s · cancelled · exit 130\)/);
     assert.doesNotMatch(rendered, /● StopBackgroundTask/);
     // An aborted background task uses the danger disc (red).
     assert.match(lines.join('\n'), /\x1b\[31m●\x1b\[39m/);
@@ -1332,10 +1378,117 @@ describe('Maka Pi TUI transcript', () => {
     const lines = renderMakaPiTranscript(state, meta(), 60).map(stripAnsi);
     assert.equal(lines.length, 2); // one card line plus the leading blank separator
     const row = lines[1]!;
-    // A long command must not hide the elapsed time or the expand marker.
-    assert.match(row, /·  5s/);
-    assert.match(row, /›$/);
+    // A long command must not hide the elapsed time or the outcome.
+    assert.match(row, /\(5s · 2 lines\)$/);
     assert.ok(visibleWidth(row) <= 60, `row width ${visibleWidth(row)} exceeds 60`);
+  });
+
+  test('reserves an annotation exactly at the 30-column cap when a row overflows', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-cap', toolName: 'Bash',
+      args: { command: 'npm run build ' + 'x'.repeat(60) },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-cap', isError: false,
+      content: shellRun({ status: 'timed_out', startedAt: 0, updatedAt: 1_234_000, completedAt: 1_234_000, exitCode: 124 }),
+    }));
+
+    const lines = renderMakaPiTranscript(state, meta(), 60).map(stripAnsi);
+    const row = lines[1]!;
+    // `(1234s · timed_out · exit 124)` is exactly 30 columns. The cap is
+    // measured on the annotation alone (the joining space is budgeted
+    // separately), so an at-cap annotation is still reserved whole.
+    assert.match(row, /\(1234s · timed_out · exit 124\)$/);
+    assert.ok(visibleWidth(row) <= 60, `row width ${visibleWidth(row)} exceeds 60`);
+  });
+
+  test('drops an unprotected generic annotation before truncating the target', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'frob-1', toolName: 'Frobnicate',
+      args: { alpha: 'x'.repeat(50), beta: 'two' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'frob-1', isError: false,
+      content: { kind: 'json', value: { gamma: 3 } },
+    }));
+
+    const lines = renderMakaPiTranscript(state, meta(), 40).map(stripAnsi);
+    const row = lines[1]!;
+    // The generic first-line annotation is free text: it yields to the target
+    // instead of being reserved like a fixed-shape outcome.
+    assert.match(row, /alpha/);
+    assert.doesNotMatch(row, /gamma/);
+    assert.ok(visibleWidth(row) <= 40, `row width ${visibleWidth(row)} exceeds 40`);
+  });
+
+  test('hides a sub-second duration instead of rounding it up to 1s', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-fast', toolName: 'Bash', args: { command: 'true' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-fast', isError: false,
+      content: shellRun({ status: 'completed', startedAt: 1_000, updatedAt: 1_999, completedAt: 1_999, exitCode: 0, stdout: 'ok\n' }),
+    }));
+
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    // 999ms rounds to 1, but the gate is on raw milliseconds: no `1s`.
+    assert.match(rendered, /● Bash  \$ true \(1 line\)/);
+  });
+
+  test('shows 1s once a full second has elapsed', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-1s', toolName: 'Bash', args: { command: 'true' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-1s', isError: false,
+      content: shellRun({ status: 'completed', startedAt: 1_000, updatedAt: 2_000, completedAt: 2_000, exitCode: 0, stdout: 'ok\n' }),
+    }));
+
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /● Bash  \$ true \(1s · 1 line\)/);
+  });
+
+  test('a running row stays bare `running` for a sub-second duration', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'sleep 30' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ status: 'running', startedAt: 1_000, updatedAt: 1_400 }),
+      durationMs: 400,
+    }));
+
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /● Bash  \$ sleep 30 \(running\)/);
+  });
+
+  test('counts stdout and stderr lines per stream, not at the join boundary', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-fg', toolName: 'Bash', args: { command: 'fg' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-fg', isError: false,
+      content: terminalResult('out\n', 'err\n'),
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'bg' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ status: 'completed', startedAt: 0, updatedAt: 2_000, completedAt: 2_000, exitCode: 0, stdout: 'out\n', stderr: 'err\n' }),
+    }));
+
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    // `out\n` + `err\n` is two lines — joining before counting would invent a
+    // third line at the stream boundary.
+    assert.match(rendered, /● Bash  \$ fg \(2 lines\)/);
+    assert.match(rendered, /● Bash  \$ bg \(2s · 2 lines\)/);
   });
 
   test('applies a runtime-published terminal update directly to its parent Bash card', () => {
@@ -1354,8 +1507,9 @@ describe('Maka Pi TUI transcript', () => {
 
     assert.equal(applied, true);
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /● Bash  \$ build  ·  4s/);
-    assert.match(rendered, /done/);
+    assert.match(rendered, /● Bash  \$ build \(4s · 1 line\)/);
+    // Compact shows the output size, not the output content.
+    assert.doesNotMatch(rendered, /done/);
   });
 
   test('does not erase a runtime-published output update with an equal-time handoff result', () => {
@@ -1399,7 +1553,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(compactLines.length, 2);
     const compact = compactLines.join('\n');
     assert.match(compact, /src\/app\.ts offset 10 limit 20/);
-    assert.match(compact, /4 lines, 59 bytes ›/);
+    assert.match(compact, /\(4 lines\)/);
     assert.doesNotMatch(compact, /content-line-0/);
 
     // A successful Read pulled the file into the model's context; expanding the
@@ -1492,7 +1646,7 @@ describe('Maka Pi TUI transcript', () => {
     // Collapsed and expanded must agree: both drop the trailing newline, so the
     // same card cannot flip from "4 lines" to "3 lines" when toggled with Ctrl+O.
     const compact = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(compact, /3 lines, 6 bytes/);
+    assert.match(compact, /\(3 lines\)/);
     assert.equal(toggleAllToolExpansion(state), true);
     const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.match(expanded, /Read 3 lines, 6 bytes/);
@@ -1638,7 +1792,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(compactLines.length, 2);
     const compact = compactLines.join('\n');
     assert.match(compact, /TODO in packages glob \*\.ts/);
-    assert.match(compact, /12 matches ›/);
+    assert.match(compact, /\(12 matches\)/);
     assert.doesNotMatch(compact, /match-0/);
 
     // Expanding a Grep card shows every match — a structured list the user
@@ -1671,7 +1825,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(compactLines.length, 2);
     const compact = compactLines.join('\n');
     assert.match(compact, /● Glob  \*\*\/\*\.ts in packages/);
-    assert.match(compact, /3 files ›/);
+    assert.match(compact, /\(3 files\)/);
     assert.doesNotMatch(compact, /src\/a\.ts/);
 
     assert.equal(toggleAllToolExpansion(state), true);
@@ -1759,7 +1913,7 @@ describe('Maka Pi TUI transcript', () => {
     // custom case extracts headline key:value lines, never JSON braces.
     // The multi-line key:value input is collapsed to a single line by
     // collapseToSingleLine so the compact card stays one line.
-    assert.match(lines[1] ?? '', /● Frobnicate  alpha: 1 beta: two  ·  gamma: 3 ›/);
+    assert.match(lines[1] ?? '', /● Frobnicate  alpha: 1 beta: two \(gamma: 3\)/);
     assert.doesNotMatch(lines[1] ?? '', /\{"alpha"/);
     assert.doesNotMatch(lines[1] ?? '', /\{"gamma"/);
   });
@@ -1784,8 +1938,10 @@ describe('Maka Pi TUI transcript', () => {
     const compactLines = renderMakaPiTranscript(state, meta(), 100);
     assert.equal(compactLines.length, 2);
     const compactRaw = compactLines.join('\n');
-    // Compact: `+1 -1 file.ts` with green add count and red delete count.
-    assert.match(compactLines.map(stripAnsi).join('\n'), /\+1 -1 file\.ts ›/);
+    // Compact: `+1 -1` with green add count and red delete count; the path is
+    // already the card's input summary, so the diff summary does not repeat it.
+    assert.match(compactLines.map(stripAnsi).join('\n'), /\(\+1 -1\)/);
+    assert.doesNotMatch(compactLines.map(stripAnsi).join('\n'), /\+1 -1 file\.ts/);
     assert.match(compactRaw, /\x1b\[32m\+1\x1b\[39m/);
     assert.match(compactRaw, /\x1b\[31m-1\x1b\[39m/);
     assert.doesNotMatch(compactLines.map(stripAnsi).join('\n'), /added line/);
@@ -1902,7 +2058,9 @@ describe('Maka Pi TUI transcript', () => {
 
     const lines = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi);
     assert.equal(lines.length, 2);
-    assert.match(lines.join('\n'), /Wrote 42 bytes to out\.txt/);
+    // The path is already the card's input summary; the result adds only size.
+    assert.match(lines.join('\n'), /● Write  out\.txt \(42 bytes\)/);
+    assert.doesNotMatch(lines.join('\n'), /Wrote 42 bytes to/);
     assert.doesNotMatch(lines.join('\n'), /\(Ctrl\+O\)/);
   });
 
@@ -2270,7 +2428,7 @@ describe('transcript entry render memoization', () => {
     assert.doesNotMatch(finalized, /AAAA/);
   });
 
-  test('re-renders a ShellRun when only the latest output stream changes', () => {
+  test('merges a latestStream-only ShellRun update into the card result', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'build' },
@@ -2282,17 +2440,25 @@ describe('transcript entry render memoization', () => {
         status: 'completed', completedAt: 3_000, exitCode: 0,
       }),
     }));
-    const before = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(before, /BBBB/);
+    // The compact row carries only the line count and the expanded card shows
+    // both streams, so a latestStream flip is observable only on the result
+    // itself — the render must still re-run from a fresh memo entry.
+    const latestStream = () => {
+      const tool = state.entries.find((entry) => entry.kind === 'tool');
+      return tool?.kind === 'tool' && tool.result?.kind === 'shell_run' && tool.result.output?.mode === 'pipes'
+        ? tool.result.output.latestStream
+        : undefined;
+    };
+    assert.equal(latestStream(), 'stderr');
 
     applyShellRunUpdateToTranscript(state, 'bash-bg', shellRun({
       stdout: 'AAAA', stderr: 'BBBB', updatedAt: 3_000, revision: 3_001,
       latestStream: 'stdout',
       status: 'completed', completedAt: 3_000, exitCode: 0,
     }));
-    const after = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(after, /AAAA/);
-    assert.doesNotMatch(after, /BBBB/);
+    assert.equal(latestStream(), 'stdout');
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /\(2s · 2 lines\)/);
   });
 
   test('re-renders equal-length ShellRun output only when revision advances', () => {

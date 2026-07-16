@@ -36,13 +36,20 @@ export function _detectColorLevelForTesting(env: {
 export let ansi = buildAnsi();
 
 // #1053: status disc — a single `●` tinted by tone. The shared visual primitive
-// for the transcript's tool rows: muted = done, accent = running, danger = error.
-export type DiscTone = 'muted' | 'accent' | 'danger';
+// for the transcript's tool rows: ok = done, accent = running, danger = error,
+// muted = detached/unavailable (neither a success nor a failure of this session).
+export type DiscTone = 'ok' | 'muted' | 'accent' | 'danger';
 
 const DISC_GLYPH = '●';
 
 export function disc(tone: DiscTone): string {
-  const color = tone === 'muted' ? ansi.muted : tone === 'accent' ? ansi.accent : ansi.red;
+  const color = tone === 'ok'
+    ? ansi.green
+    : tone === 'muted'
+      ? ansi.muted
+      : tone === 'accent'
+        ? ansi.accent
+        : ansi.red;
   return color(DISC_GLYPH);
 }
 
