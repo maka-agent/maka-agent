@@ -642,6 +642,9 @@
   border: 0;
   text-align: left;
 }
+.maka-list-group-chevron {
+  transition: transform var(--duration-base) var(--ease-out-strong);
+}
 :is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more) {
   transition:
     background-color var(--duration-base) var(--ease-out-strong),

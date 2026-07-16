@@ -77,6 +77,7 @@ function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
 // @maka/runtime, so the unified Automation tool's name is duplicated here as
 // the single hook for its friendly card (same pattern as CONNECTOR_TOOL_NAMES).
 const AUTOMATION_TOOL_NAME = 'Automation';
+const AUTOMATION_RESULT_ICON_CLASS = 'inline align-text-bottom mr-1';
 
 function isAutomationTool(name: string): boolean {
   return name === AUTOMATION_TOOL_NAME;
@@ -105,7 +106,7 @@ function AutomationResultPreview(props: { text: string }) {
     return (
       <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_create">
         <p className={previewVariants({ part: 'load-tool-title' })}>
-          <Icon size={14} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
+          <Icon size={14} aria-hidden="true" className={AUTOMATION_RESULT_ICON_CLASS} />
           自动化任务已创建：{redactSecrets(created[1] ?? '')}
         </p>
         {schedule && <p className={previewVariants({ part: 'load-tool-count' })}>{redactSecrets(schedule)}</p>}
@@ -122,7 +123,7 @@ function AutomationResultPreview(props: { text: string }) {
     return (
       <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_delete">
         <p className={previewVariants({ part: 'load-tool-title' })}>
-          <Check size={14} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
+          <Check size={14} aria-hidden="true" className={AUTOMATION_RESULT_ICON_CLASS} />
           {ok ? '自动化任务已删除' : '未找到该任务（可能已完成或已删除）'}
         </p>
       </div>
@@ -136,7 +137,7 @@ function AutomationResultPreview(props: { text: string }) {
     return (
       <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_list">
         <p className={previewVariants({ part: 'load-tool-title' })}>
-          <Clock size={14} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
+          <Clock size={14} aria-hidden="true" className={AUTOMATION_RESULT_ICON_CLASS} />
           自动化任务列表 ({blocks.length})
         </p>
         {blocks.length === 0 && <p className={previewVariants({ part: 'load-tool-count' })}>当前会话暂无自动化任务</p>}
@@ -145,7 +146,7 @@ function AutomationResultPreview(props: { text: string }) {
           const BlockIcon = automationScheduleIcon(block);
           return (
             <p key={i} className={previewVariants({ part: 'load-tool-tools' })}>
-              <BlockIcon size={12} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />
+              <BlockIcon size={12} aria-hidden="true" className={AUTOMATION_RESULT_ICON_CLASS} />
               {redactSecrets(head)}
             </p>
           );
