@@ -1,69 +1,117 @@
+#!/usr/bin/env node
+/**
+ * Run each workspace's `test:dist` script.
+ *
+ * Default: parallel batch, then serial-only workspaces.
+ * `--serial`: every workspace in package.json workspaces order (CI).
+ *
+ * Each workspace owns how its dist tests run via package.json `test:dist`.
+ * This script only owns scheduling (parallel vs serial) and failure reporting.
+ */
+
+import { spawn as defaultSpawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const serialFlag = process.argv.includes('--serial');
+const scriptPath = fileURLToPath(import.meta.url);
+const defaultRepoRoot = dirname(dirname(scriptPath));
 
-const rootPkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
-const workspaceDirs = Array.isArray(rootPkg.workspaces) ? rootPkg.workspaces : [];
+// Headless is kept out of the concurrent batch after observed flakes when
+// co-scheduled with other workspace suites. Isolation of HOME/XDG is already
+// handled inside scripts/run-headless-tests.mjs; serial scheduling is extra
+// conservatism for root orchestration, not a claim that its suite shares FS
+// state with other packages.
+export const SERIAL_WORKSPACE_DIRS = ['packages/headless'];
 
-// Some workspace test suites rely on shared filesystem state (e.g. headless task
-// sessions). Running them concurrently with other workspaces causes races, so
-// they are executed in a serial pass after the parallel batch.
-const serialWorkspaceDirs = ['packages/headless'];
-const parallelWorkspaceDirs = workspaceDirs.filter((dir) => !serialWorkspaceDirs.includes(dir));
-
-function commandForDir(dir) {
-  if (dir === 'packages/headless') return 'node ../../scripts/run-headless-tests.mjs';
-  if (dir === 'apps/desktop') return 'npm run test:dist';
-  return 'node --test "dist/**/*.test.js"';
+export function loadWorkspaceDirs(repoRoot, readFile = readFileSync) {
+  const rootPkg = JSON.parse(readFile(join(repoRoot, 'package.json'), 'utf8'));
+  return Array.isArray(rootPkg.workspaces) ? rootPkg.workspaces : [];
 }
 
-function nameForDir(dir) {
+export function partitionWorkspaces(workspaceDirs, serialDirs = SERIAL_WORKSPACE_DIRS) {
+  const serialSet = new Set(serialDirs);
+  return {
+    parallel: workspaceDirs.filter((dir) => !serialSet.has(dir)),
+    serial: workspaceDirs.filter((dir) => serialSet.has(dir)),
+  };
+}
+
+export function nameForDir(dir) {
   return dir.replace(/^(packages|apps)\//, '');
 }
 
-function runWorkspace(dir) {
+export function runWorkspace(dir, { repoRoot, spawn = defaultSpawn } = {}) {
   const name = nameForDir(dir);
-  const command = commandForDir(dir);
+  // Package-owned contract: each workspace declares how dist tests run.
+  const command = 'npm run test:dist';
   const cwd = join(repoRoot, dir);
   console.log(`\n[${name}] start: ${command}`);
-  return new Promise((resolve, reject) => {
+  return new Promise((resolvePromise, reject) => {
     const child = spawn(command, { cwd, stdio: 'inherit', shell: true });
+    let settled = false;
+    const settle = (fn) => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
+    child.on('error', (err) => {
+      settle(() => reject(new Error(`[${name}] spawn failed: ${err.message}`)));
+    });
     child.on('close', (code) => {
-      if (code === 0) {
-        console.log(`[${name}] passed`);
-        resolve(name);
-      } else {
-        reject(new Error(`[${name}] failed with code ${code}`));
-      }
+      settle(() => {
+        if (code === 0) {
+          console.log(`[${name}] passed`);
+          resolvePromise(name);
+        } else {
+          reject(new Error(`[${name}] failed with code ${code}`));
+        }
+      });
     });
   });
 }
 
-async function runSerial(dirs) {
+async function runSerial(dirs, options) {
   for (const dir of dirs) {
-    await runWorkspace(dir);
+    await runWorkspace(dir, options);
   }
 }
 
-async function runParallel(dirs) {
-  const results = await Promise.allSettled(dirs.map(runWorkspace));
+async function runParallel(dirs, options) {
+  const results = await Promise.allSettled(dirs.map((dir) => runWorkspace(dir, options)));
   const failures = results.filter((r) => r.status === 'rejected');
-  if (failures.length > 0) throw failures[0].reason;
+  if (failures.length > 0) {
+    const messages = failures.map((r) => r.reason?.message ?? String(r.reason));
+    throw new Error(messages.join('\n'));
+  }
 }
 
-try {
+export async function runWorkspaceTests(options = {}) {
+  const repoRoot = options.repoRoot ?? defaultRepoRoot;
+  const serialFlag = options.serial ?? false;
+  const spawn = options.spawn ?? defaultSpawn;
+  const workspaceDirs = options.workspaceDirs ?? loadWorkspaceDirs(repoRoot);
+  const serialDirs = options.serialWorkspaceDirs ?? SERIAL_WORKSPACE_DIRS;
+  const runOptions = { repoRoot, spawn };
+
   if (serialFlag) {
-    await runSerial(workspaceDirs);
+    await runSerial(workspaceDirs, runOptions);
   } else {
-    await runParallel(parallelWorkspaceDirs);
-    await runSerial(serialWorkspaceDirs);
+    const { parallel, serial } = partitionWorkspaces(workspaceDirs, serialDirs);
+    await runParallel(parallel, runOptions);
+    await runSerial(serial, runOptions);
   }
+}
+
+async function main(args) {
+  const serial = args.includes('--serial');
+  await runWorkspaceTests({ serial });
   console.log('\nAll workspace tests passed.');
-} catch (err) {
-  console.error(err.message);
-  process.exit(1);
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
+  main(process.argv.slice(2)).catch((err) => {
+    console.error(err.message);
+    process.exitCode = 1;
+  });
 }
