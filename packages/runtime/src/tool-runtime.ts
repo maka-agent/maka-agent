@@ -1642,6 +1642,8 @@ export function classifyError(error: unknown): string {
   if (
     text.includes('network')
     || text.includes('fetch')
+    || text.includes('econn')
+    || text.includes('enotfound')
     || /\btypeerror\b.*\bterminated\b/.test(text)
   ) return 'Network';
   return error instanceof Error ? (error.name || 'Other') : 'Other';
@@ -1665,6 +1667,27 @@ export function errorReasonFromClass(errorClass: string): string | undefined {
       return 'network';
     default:
       return undefined;
+  }
+}
+
+export function errorMessageFromClass(errorClass: string): string {
+  switch (errorClass) {
+    case 'ContextLength':
+      return 'Context window exceeded';
+    case 'Timeout':
+      return 'Request timed out';
+    case 'Auth':
+      return 'Authentication failed';
+    case 'ProviderBilling':
+      return 'Provider billing required';
+    case 'ProviderUnavailable':
+      return 'Provider returned an error';
+    case 'RateLimit':
+      return 'Rate limit exceeded';
+    case 'Network':
+      return 'Network error';
+    default:
+      return 'Operation failed';
   }
 }
 
