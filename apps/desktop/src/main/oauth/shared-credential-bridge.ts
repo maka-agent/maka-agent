@@ -117,13 +117,12 @@ export interface LegacyOAuthTokenImportReport {
 /**
  * Import legacy safeStorage-encrypted token files into the shared
  * store, once per file. Idempotent: a missing file is a no-op. The
- * file is removed only when its secret provably survives elsewhere —
- * written into the store (`imported`) or superseded by a parseable
- * store token; every other outcome keeps the file for a later start
- * (or manual recovery), because the import must never be the step
- * that destroys the last copy of a credential. Never throws — desktop
- * startup treats migration as best-effort; returns a report per file
- * that existed.
+ * The file is removed after a successful import, when superseded by a
+ * parseable store token, or when a concurrent logout wins the serialized
+ * check. Every other outcome keeps the file for a later start (or manual
+ * recovery), because the import must never destroy the last copy without
+ * an authoritative replacement or deletion. Never throws — desktop startup
+ * treats migration as best-effort; returns a report per file that existed.
  */
 export async function importLegacyOAuthTokenFiles(input: {
   credentialStore: Pick<CredentialStore, 'getSecret' | 'setSecret' | 'compareAndSetSecret'>;
@@ -163,7 +162,16 @@ export async function importLegacyOAuthTokenFiles(input: {
           report('superseded');
           continue;
         }
-        existing = checked.current;
+        if (checked.current === null) {
+          // Logout removes the legacy file before deleting the shared token.
+          // Once that deletion wins the serialized check, the buffered legacy
+          // value must not become a new basis and resurrect the credential.
+          await fs.rm(filePath, { force: true });
+          report('superseded');
+          continue;
+        }
+        report('failed', new Error('OAuth credential changed during legacy import.'));
+        continue;
       }
       if (!input.decryptor.isEncryptionAvailable()) {
         report('left-encrypted');
