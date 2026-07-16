@@ -5741,7 +5741,8 @@ class HangingCloseDriver extends SlashCommandDriver {
 class HangingTurnDriver extends SlashCommandDriver {
   private resolveComplete: (() => void) | null = null;
 
-  override async *promptEvents(_prompt: string): AsyncIterable<SessionEvent> {
+  override async *promptEvents(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
     yield {
       type: 'text_delta',
       id: 'event-text-delta',
